@@ -1,65 +1,231 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useCallback, useEffect } from 'react';
+import { SearchBar } from '@/app/components/SearchBar';
+import { ResultsGrid } from '@/app/components/ResultsGrid';
+import { FiltersPanel } from '@/app/components/FiltersPanel';
+import { SearchRequest, Oportunidad } from '@/app/types/search.types';
 
 export default function Home() {
+  const [opportunities, setOpportunities] = useState<Oportunidad[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [totalResults, setTotalResults] = useState(0);
+  const [lastQuery, setLastQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [favoriteCodes, setFavoriteCodes] = useState<Set<string>>(new Set());
+  
+  const [filters, setFilters] = useState({
+    estado: [] as string[],
+    montoMin: '',
+    montoMax: '',
+    fechaDesde: '',
+    fechaHasta: '',
+    organismo: ''
+  });
+
+  // Cargar favoritos al inicio
+  useEffect(() => {
+    loadFavorites();
+  }, []);
+
+  const loadFavorites = async () => {
+    try {
+      const response = await fetch('/api/favorites');
+      const data = await response.json();
+      if (data.success && data.favorites) {
+        setFavoriteCodes(new Set(data.favorites.map((f: any) => f.codigo)));
+      }
+    } catch (error) {
+      console.error('Error al cargar favoritos:', error);
+    }
+  };
+
+  const executeSearch = useCallback(async (query: string, page: number = 1) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const request: SearchRequest = {
+        consulta: query,
+        pagina: page,
+        resultados_por_pagina: 20,
+        filtro_estado: filters.estado.length > 0 ? filters.estado as any : undefined,
+        filtro_monto_min: filters.montoMin ? parseInt(filters.montoMin) : undefined,
+        filtro_monto_max: filters.montoMax ? parseInt(filters.montoMax) : undefined,
+        filtro_fecha_cierre_desde: filters.fechaDesde || undefined,
+        filtro_fecha_cierre_hasta: filters.fechaHasta || undefined,
+        filtro_organismos: filters.organismo ? [filters.organismo] : undefined
+      };
+      
+      const response = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request)
+      });
+      
+      if (!response.ok) {
+        throw new Error('Error en la búsqueda');
+      }
+      
+      const data = await response.json();
+      let resultados = data.resultados || [];
+      
+      // Filtrar solo favoritos si está activado
+      if (showFavoritesOnly && favoriteCodes.size > 0) {
+        resultados = resultados.filter((r: Oportunidad) => favoriteCodes.has(r.codigo));
+      }
+      
+      setOpportunities(resultados);
+      setTotalResults(showFavoritesOnly ? resultados.length : data.meta?.total_resultados || 0);
+      setTotalPages(data.meta?.total_paginas || 1);
+      setCurrentPage(page);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error desconocido');
+      setOpportunities([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [filters, showFavoritesOnly, favoriteCodes]);
+
+  const handleSearch = async (query: string) => {
+    setLastQuery(query);
+    await executeSearch(query, 1);
+  };
+
+  const handleFavoriteToggle = () => {
+    loadFavorites();
+    if (lastQuery) {
+      executeSearch(lastQuery, currentPage);
+    }
+  };
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      executeSearch(lastQuery, newPage);
+    }
+  };
+
+  const handleClearFilters = () => {
+    setFilters({
+      estado: [],
+      montoMin: '',
+      montoMax: '',
+      fechaDesde: '',
+      fechaHasta: '',
+      organismo: ''
+    });
+    if (lastQuery) {
+      executeSearch(lastQuery, 1);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <main className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-8">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">
+            Licitaciones Chile
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+          <p className="text-gray-600">
+            Buscador de oportunidades de licitación en Mercado Público
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        <SearchBar onSearch={handleSearch} loading={loading} />
+
+        <div className="mt-8 flex flex-col lg:flex-row gap-6">
+          {/* Panel de filtros */}
+          <aside className="lg:w-80 flex-shrink-0">
+            <FiltersPanel 
+              filters={filters}
+              onChange={setFilters}
+              onClear={handleClearFilters}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            
+            {/* Botón de solo favoritos */}
+            <div className="mt-4 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <button
+                onClick={() => {
+                  setShowFavoritesOnly(!showFavoritesOnly);
+                  if (lastQuery) {
+                    executeSearch(lastQuery, 1);
+                  }
+                }}
+                className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-md transition-colors ${
+                  showFavoritesOnly 
+                    ? 'bg-yellow-500 text-white hover:bg-yellow-600'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                <span>⭐</span>
+                {showFavoritesOnly ? 'Mostrando solo favoritos' : 'Ver solo favoritos'}
+              </button>
+              {favoriteCodes.size > 0 && (
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  {favoriteCodes.size} licitaciones guardadas
+                </p>
+              )}
+            </div>
+          </aside>
+
+          {/* Resultados */}
+          <div className="flex-1">
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+                Error: {error}
+              </div>
+            )}
+
+            {!loading && !error && totalResults > 0 && (
+              <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
+                <div className="text-sm text-gray-600">
+                  {totalResults} resultados encontrados
+                  {lastQuery && ` para "${lastQuery}"`}
+                  {showFavoritesOnly && ' (solo favoritos)'}
+                </div>
+                
+                {!showFavoritesOnly && (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      disabled={currentPage <= 1 || loading}
+                      className="px-3 py-1 text-sm bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+                    >
+                      ← Anterior
+                    </button>
+                    <span className="px-3 py-1 text-sm bg-gray-200 rounded">
+                      Pág. {currentPage} de {totalPages}
+                    </span>
+                    <button
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      disabled={currentPage >= totalPages || loading}
+                      className="px-3 py-1 text-sm bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+                    >
+                      Siguiente →
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <ResultsGrid 
+              opportunities={opportunities} 
+              loading={loading}
+              onFavoriteToggle={handleFavoriteToggle}
+            />
+
+            {!loading && !error && totalResults === 0 && lastQuery && (
+              <div className="text-center py-12 bg-white rounded-lg shadow">
+                <p className="text-gray-600">No se encontraron resultados para "{lastQuery}"</p>
+                <p className="text-sm text-gray-400 mt-1">Prueba con otras palabras clave</p>
+              </div>
+            )}
+          </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
