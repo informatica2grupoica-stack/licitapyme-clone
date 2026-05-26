@@ -1261,7 +1261,7 @@ export default function LicitacionDetallePage() {
                       <Info size={14} className={`flex-shrink-0 mt-0.5 ${documentosAPI.some(d => d.url_mp) ? 'text-blue-500' : 'text-orange-500'}`} />
                       <div className="min-w-0">
                         <p className={`text-xs font-semibold ${documentosAPI.some(d => d.url_mp) ? 'text-blue-800' : 'text-orange-800'}`}>
-                          {documentosAPI.some(d => d.url_mp) ? 'Documentos encontrados' : 'Descarga automática no disponible'}
+                          {documentosAPI.some(d => d.url_mp) ? 'Documentos disponibles' : 'Descarga manual requerida'}
                         </p>
                         <p className={`text-xs mt-0.5 leading-relaxed ${documentosAPI.some(d => d.url_mp) ? 'text-blue-600' : 'text-orange-600'}`}>
                           {autoDescargaError}
@@ -1276,7 +1276,7 @@ export default function LicitacionDetallePage() {
                         className="flex items-center justify-center gap-2 w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
                       >
                         <ExternalLink size={13} />
-                        Abrir adjuntos en Mercado Público →
+                        Ir a la licitación en Mercado Público →
                       </a>
                     )}
                   </div>

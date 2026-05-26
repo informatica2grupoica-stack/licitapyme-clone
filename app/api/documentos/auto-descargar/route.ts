@@ -177,34 +177,28 @@ export async function POST(request: NextRequest) {
 
   const log: string[] = [];
 
-  // URL ficha general
+  // URL ficha con idlicitacion — formato oficial y documentado de MP
+  // El enc de ViewAttachmentLC.aspx es un ID interno encriptado (no construible desde afuera)
   const fichaUrl = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(licitacionCodigo)}`;
-
-  // URL directa a la página de adjuntos (ViewAttachmentLC) — el enc es base64 del código
-  // Funciona desde el browser del usuario (IP chilena) aunque esté bloqueado desde Vercel
-  const encB64 = Buffer.from(licitacionCodigo).toString('base64');
-  const adjuntosUrl = `https://www.mercadopublico.cl/Procurement/Modules/Attachment/ViewAttachmentLC.aspx?enc=${encB64}`;
 
   const apiConfigurada = !!process.env.MERCADO_PUBLICO_TICKET;
 
   log.push(`🔧 API MP ticket: ${apiConfigurada ? '✅ configurado' : '❌ MERCADO_PUBLICO_TICKET faltante'}`);
-  log.push(`🔗 URL adjuntos: ${adjuntosUrl}`);
+  log.push(`🔗 Ficha MP: ${fichaUrl}`);
 
   // ── PASO 1: Obtener lista de documentos desde la API oficial ─────────────
   const docsAPI = await obtenerDocsDesdeAPI(licitacionCodigo, log);
 
   if (docsAPI.length === 0) {
-    // La API oficial no incluye los adjuntos en su respuesta (limitación conocida).
-    // Devolvemos la URL directa a ViewAttachmentLC para que el usuario los abra
-    // desde su browser con IP chilena.
+    // La API oficial (licitaciones.json) no expone los adjuntos en su respuesta.
+    // Es una limitación permanente de la API de MP.
+    // Devolvemos la ficha URL para que el usuario navegue a ella y descargue manualmente.
     return NextResponse.json({
       success: false,
       total: 0,
       descargados: 0,
-      error: apiConfigurada
-        ? 'La API de Mercado Público no incluye adjuntos. Ábrelos directamente desde el portal.'
-        : 'Falta configurar MERCADO_PUBLICO_TICKET en Vercel → Settings → Environment Variables',
-      adjunto_url_mp: adjuntosUrl,   // URL directa a la página de adjuntos
+      error: 'La API de Mercado Público no expone los adjuntos. Descárgalos directamente desde el portal con el botón de abajo.',
+      adjunto_url_mp: fichaUrl,
       ficha_url_mp: fichaUrl,
       log,
     });
@@ -281,7 +275,7 @@ export async function POST(request: NextRequest) {
     // Cada item tiene nombre + downloadUrl (URL directa de Download.aspx)
     lista_documentos: docsBloqueados.length > 0 ? docsBloqueados : undefined,
 
-    adjunto_url_mp: adjuntosUrl,  // URL directa a ViewAttachmentLC (página de adjuntos)
+    adjunto_url_mp: fichaUrl,
     ficha_url_mp: fichaUrl,
     log,
   });
