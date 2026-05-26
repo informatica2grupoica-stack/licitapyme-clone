@@ -5,14 +5,52 @@ import { searchEngine } from '@/app/lib/search-engine';
 import { SearchRequest, SearchResponse, Oportunidad } from '@/app/types/search.types';
 import { Licitacion } from '@/app/types/mercado-publico.types';
 
+// Cache por consulta paginada (resultados ya enriquecidos)
 const cache = new Map<string, { data: SearchResponse; timestamp: number }>();
 const CACHE_DURATION = 3 * 60 * 1000; // 3 minutos
+
+// Cache del pool de licitaciones crudas (7 días) — compartido entre páginas del mismo día
+const rawPool = new Map<string, { data: Licitacion[]; timestamp: number }>();
+const RAW_POOL_DURATION = 8 * 60 * 1000; // 8 minutos
 
 // Usar API REAL
 const USE_MOCK = false;
 
 // Datos mock (fallback)
 const MOCK_LICITACIONES: Licitacion[] = getMockLicitaciones();
+
+// ── Enriquecimiento de resultados ──────────────────────────────────────────
+// La consulta por fecha en la API de MP solo devuelve campos mínimos
+// (CodigoExterno, Nombre, CodigoEstado, FechaCierre). Para mostrar organismo,
+// región, monto y descripción en las tarjetas, llamamos individualmente al
+// endpoint ?codigo=XXX para cada resultado de la página actual.
+async function enrichirPagina(
+  client: ReturnType<typeof getMercadoPublicoClient>,
+  resultados: Oportunidad[]
+): Promise<Oportunidad[]> {
+  // Solo enriquecer si el primer resultado tiene organismo vacío
+  const necesitaEnriquecimiento = resultados.some(r => !r.organismo);
+  if (!necesitaEnriquecimiento) return resultados;
+
+  const enriched = await Promise.all(
+    resultados.map(async (opp): Promise<Oportunidad> => {
+      if (opp.organismo) return opp; // Ya tiene datos completos
+      try {
+        const full = await client.obtenerPorCodigo(opp.codigo);
+        if (full) {
+          return {
+            ...searchEngine.licitacionToOportunidad(full, ''),
+            score: opp.score, // Preservar score de relevancia
+          };
+        }
+      } catch {
+        // Fallo silencioso: usar datos mínimos
+      }
+      return opp;
+    })
+  );
+  return enriched;
+}
 
 // Función para detectar si es una búsqueda por código
 function esBusquedaPorCodigo(consulta: string): boolean {
@@ -125,10 +163,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             };
           }
         } else {
-          // Búsqueda por texto normal
-          console.log(`📅 Consultando licitaciones de los últimos 7 días...`);
-          const licitaciones = await client.obtenerUltimosDias(7);
-          
+          // Búsqueda por texto normal — usar pool cacheado si está disponible
+          const poolKey = 'pool_7d';
+          const cachedPool = rawPool.get(poolKey);
+          let licitaciones: Licitacion[];
+
+          if (cachedPool && Date.now() - cachedPool.timestamp < RAW_POOL_DURATION) {
+            licitaciones = cachedPool.data;
+            console.log(`⚡ Pool cacheado: ${licitaciones.length} licitaciones`);
+          } else {
+            console.log(`📅 Consultando licitaciones de los últimos 7 días...`);
+            licitaciones = await client.obtenerUltimosDias(7);
+            rawPool.set(poolKey, { data: licitaciones, timestamp: Date.now() });
+            console.log(`✅ Pool actualizado: ${licitaciones.length} licitaciones`);
+          }
+
           if (licitaciones.length === 0) {
             console.warn('⚠️ No se encontraron licitaciones, usando datos MOCK');
             searchResult = searchEngine.search(MOCK_LICITACIONES, {
@@ -140,7 +189,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             searchResult.meta.fuente_datos = 'MOCK (fallback)';
             searchResult.meta.total_licitaciones_procesadas = MOCK_LICITACIONES.length;
           } else {
-            console.log(`✅ Se obtuvieron ${licitaciones.length} licitaciones reales`);
+            console.log(`✅ Buscando en ${licitaciones.length} licitaciones`);
             searchResult = searchEngine.search(licitaciones, {
               consulta,
               pagina,
@@ -149,6 +198,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             });
             searchResult.meta.fuente_datos = 'API Mercado Público';
             searchResult.meta.total_licitaciones_procesadas = licitaciones.length;
+
+            // ── Enriquecer resultados de esta página con datos completos ──
+            // La API fecha solo devuelve nombre+estado+fecha; este paso
+            // agrega organismo, región, monto, descripción llamando ?codigo=
+            if (searchResult.resultados.length > 0) {
+              console.log(`🔍 Enriqueciendo ${searchResult.resultados.length} resultados...`);
+              searchResult.resultados = await enrichirPagina(client, searchResult.resultados);
+            }
           }
         }
       } catch (apiError) {
