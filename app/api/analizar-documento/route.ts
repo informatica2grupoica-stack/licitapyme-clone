@@ -2,65 +2,128 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
 // ======================================================
-// TIPOS
+// TIPOS - DEFINICIONES COMPLETAS Y FLEXIBLES
 // ======================================================
 
-interface AnalisisEstructurado {
-  criteriosEvaluacion?: CriterioEvaluacion[];
-  plazos?: Plazo[];
-  requisitos?: string[];
-  garantias?: Garantia[];
-  multas?: Multa[];
-  formulaPuntajeFinal?: string;
-  modalidadContrato?: string;
-  presupuestoDisponible?: number;
-  moneda?: string;
-  fechasClave?: Record<string, string>;
-  documentosRequeridos?: string[];
-  causalesRechazo?: string[];
-  puntajesEvaluacion?: Record<string, number>;
-}
-
-interface CriterioEvaluacion {
-  nombre: string;
-  ponderacion: number;
-  subcriterios?: Subcriterio[];
-  formula?: string;
-}
-
-interface Subcriterio {
-  nombre: string;
-  condiciones?: CondicionPuntaje[];
-  puntajeMaximo?: number;
-}
-
-interface CondicionPuntaje {
-  condicion: string;
-  puntaje: number;
-}
-
-interface Plazo {
-  etapa: string;
-  plazoDias?: number;
-  fechaReferencia?: string;
-  fechaExacta?: string;
-}
-
-interface Garantia {
-  tipo: string;
-  porcentaje?: number;
-  montoMaximo?: number;
-  momento: string;
-}
-
-interface Multa {
-  concepto: string;
-  valor: string;
-  limiteMaximo?: string;
+interface LicitacionAnalisis {
+  // Metadatos del análisis
+  metadata: {
+    documentoNombre: string;
+    fechaAnalisis: string;
+    paginas: number;
+    tamanioBytes: number;
+    confianza: 'alta' | 'media' | 'baja';
+  };
+  
+  // Información general
+  informacionGeneral: {
+    objetoContrato?: string;
+    tipoLicitacion?: string;
+    modalidadContrato?: string;
+    codigoLicitacion?: string;
+    organismoComprador?: string;
+    region?: string;
+    comuna?: string;
+  };
+  
+  // Aspectos económicos
+  aspectosEconomicos: {
+    presupuestoDisponible?: {
+      monto: number;
+      moneda: string;
+      fuente?: string;
+    };
+    montoEstimado?: number;
+    tipoMoneda?: string;
+    sistemaPrecios?: string;
+    reajuste?: boolean;
+  };
+  
+  // Plazos y fechas
+  plazos: {
+    publicacion?: string;
+    cierreOfertas?: string;
+    aperturaTecnica?: string;
+    aperturaEconomica?: string;
+    adjudicacionEstimada?: string;
+    plazoEjecucionDias?: number;
+    otrosPlazos?: Array<{ nombre: string; fecha?: string; plazoDias?: number }>;
+  };
+  
+  // Requisitos de participación
+  requisitos: {
+    administrativos: string[];
+    tecnicos: string[];
+    economicos: string[];
+    habilitantes: string[];
+    prohibiciones: string[];
+  };
+  
+  // Criterios de evaluación (dinámicos)
+  criteriosEvaluacion: Array<{
+    nombre: string;
+    ponderacion: number;
+    tipo: 'tecnico' | 'economico' | 'experiencia' | 'otros';
+    subcriterios?: Array<{
+      nombre: string;
+      descripcion: string;
+      puntajeMaximo?: number;
+      condiciones?: Array<{
+        condicion: string;
+        puntaje: number;
+      }>;
+    }>;
+    formula?: string;
+  }>;
+  
+  // Garantías
+  garantias: Array<{
+    tipo: string;
+    porcentaje?: number;
+    montoFijo?: number;
+    momento: string;
+    devolucion?: string;
+    caracteristicas?: string;
+  }>;
+  
+  // Multas y sanciones
+  multas: Array<{
+    concepto: string;
+    valor: string;
+    unidad: 'UTM' | 'UF' | 'pesos' | 'porcentaje';
+    limiteMaximo?: string;
+  }>;
+  
+  // Documentos requeridos
+  documentosRequeridos: Array<{
+    nombre: string;
+    formato?: string;
+    obligatorio: boolean;
+  }>;
+  
+  // Subcontratación
+  subcontratacion: {
+    permitida: boolean;
+    porcentajeMaximo?: number;
+    requisitos?: string;
+  };
+  
+  // Causales de rechazo
+  causalesRechazo: string[];
+  
+  // Puntos críticos y recomendaciones
+  analisisExperto: {
+    puntosCriticos: string[];
+    oportunidades: string[];
+    riesgosDetectados: string[];
+    recomendaciones: string[];
+    complejidad: 'baja' | 'media' | 'alta';
+    atractivo: 'bajo' | 'medio' | 'alto';
+  };
 }
 
 // ======================================================
-// FUNCIONES AUXILIARES
+// FUNCIONES PRINCIPALES
 // ======================================================
 
 function getDeepSeek() {
@@ -70,27 +133,23 @@ function getDeepSeek() {
   });
 }
 
-async function extractTextFromDocument(pdfUrl: string, buffer: Buffer, ext: string): Promise<{ texto: string; numPages: number }> {
+async function extractTextFromDocument(buffer: Buffer, ext: string): Promise<{ texto: string; numPages: number }> {
   try {
     if (ext === 'docx' || ext === 'doc') {
-      // @ts-ignore
       const mammoth = await import('mammoth');
       const result = await mammoth.extractRawText({ buffer });
       return { texto: result.value || '', numPages: 1 };
     } else if (ext === 'xlsx' || ext === 'xls') {
-      // @ts-ignore
       const XLSX = await import('xlsx');
       const workbook = XLSX.read(buffer, { type: 'buffer' });
       let textoCompleto = '';
-      workbook.SheetNames.forEach(sheetName => {
+      workbook.SheetNames.forEach((sheetName: string) => {
         const sheet = workbook.Sheets[sheetName];
         const csv = XLSX.utils.sheet_to_csv(sheet);
         textoCompleto += `\n--- Hoja: ${sheetName} ---\n${csv}\n`;
       });
       return { texto: textoCompleto, numPages: workbook.SheetNames.length };
     } else {
-      // PDF por defecto
-      // @ts-ignore
       const pdfParse = (await import('pdf-parse')).default;
       const pdfData = await pdfParse(buffer);
       return { texto: pdfData.text, numPages: pdfData.numpages };
@@ -101,108 +160,189 @@ async function extractTextFromDocument(pdfUrl: string, buffer: Buffer, ext: stri
   }
 }
 
-async function analizarConDeepSeek(
+async function analizarConDeepSeekExperto(
   texto: string,
   documentoNombre: string,
-  modo: 'pregunta' | 'extraer_estructura' | 'comparar' | 'resumen_ejecutivo',
+  tipoAnalisis: 'completo' | 'pregunta' | 'resumen',
   pregunta?: string
 ): Promise<any> {
-  const systemPrompt = `Eres un asistente experto en licitaciones públicas de Chile (Mercado Público / ChileCompra).
-Tu especialidad es analizar documentos de licitación y extraer información precisa, estructurada y útil para proveedores.
-Características:
-- Te basas EXCLUSIVAMENTE en el contenido proporcionado, NUNCA inventas información.
-- Si algo no está en el documento, lo indicas explícitamente.
-- Respondes en español, de manera clara, profesional y accionable.
-- Cuando entregas listas, usas formato estructurado (viñetas, tablas, JSON según corresponda).
-- Para datos numéricos (fechas, montos, porcentajes), los extraes con precisión.
-- Si el documento tiene ambigüedades, las señalas y ofreces interpretaciones posibles.`;
+  
+  const systemPrompt = `Eres un EXPERTO EN LICITACIONES PÚBLICAS DE CHILE con más de 15 años de experiencia en análisis de bases de licitación, evaluación de propuestas y asesoría a proveedores del mercado público (ChileCompra).
+
+Tu conocimiento incluye:
+- Ley 19.886 de Compras Públicas y su reglamento
+- Tipos de licitación (pública, privada, trato directo, convenio marco)
+- Modalidades de pago (alzada, unitario, mixto)
+- Criterios de evaluación técnico-económicos
+- Garantías (seriedad de oferta, fiel cumplimiento, correcta ejecución)
+- Causales de rechazo y término anticipado de contrato
+- Normas técnicas chilenas (NCh, SEC, etc.)
+- UTM, UF, IVA y demás indicadores económicos
+
+Características de tu análisis:
+1. Te BASAS EXCLUSIVAMENTE en el contenido del documento, nunca inventas
+2. Si falta información, la señalas claramente
+3. Identificas RIESGOS y OPORTUNIDADES para el proveedor
+4. Eres PRÁCTICO y ACCIONABLE, no solo descriptivo
+5. Adaptas tu análisis a CADA TIPO DE LICITACIÓN (obras, servicios, consultorías, suministros, etc.)
+6. Reconoces que los criterios de evaluación varían: algunos usan puntajes, otros usan "Aprobado/Rechazado", otros usan fórmulas complejas
+7. Para tablas de puntajes, las extraes con precisión aunque tengan muchas filas
+8. Detectas automáticamente la estructura del documento (no asumes nada predefinido)
+
+Formato de respuesta: 
+- Usa lenguaje claro, profesional y en español
+- Estructura la información con títulos, subtítulos y viñetas
+- Los datos importantes (fechas, montos, porcentajes) destácalos con **negritas**
+- Para análisis completo, devuelve UNICAMENTE un objeto JSON válido`;
 
   let userPrompt = '';
-  let temperature = 0.3;
-  let maxTokens = 2000;
 
-  switch (modo) {
-    case 'pregunta':
-      userPrompt = `Documento: ${documentoNombre}\n\nContenido:\n${texto.substring(0, 12000)}\n\nPregunta del usuario: ${pregunta}\n\nResponde de manera clara, directa y útil. Si la pregunta requiere datos estructurados (tablas, listas), entrégalos así.`;
-      break;
+  if (tipoAnalisis === 'completo') {
+    userPrompt = `Analiza PROFUNDAMENTE este documento de licitación y extrae TODA la información relevante.
 
-    case 'resumen_ejecutivo':
-      userPrompt = `Documento: ${documentoNombre}\n\nContenido:\n${texto.substring(0, 15000)}\n\nGenera un RESUMEN EJECUTIVO de este documento de licitación que incluya:
-1. **Objeto del contrato** (qué se quiere comprar/contratar)
-2. **Presupuesto disponible** (monto total y moneda)
-3. **Fechas clave** (publicación, cierre, adjudicación estimada)
-4. **Requisitos principales** para participar
-5. **Criterios de evaluación** (qué ponderan)
-6. **Plazo de ejecución** del contrato
-7. **Garantías requeridas** (tipos y montos)
-8. **Riesgos o puntos críticos** que el proveedor debe considerar
+DOCUMENTO: ${documentoNombre}
+CONTENIDO (primeros 18000 caracteres):
+${texto.substring(0, 18000)}
 
-Formato: Usa negritas para los títulos, viñetas para listas, y un lenguaje claro y profesional.`;
-      maxTokens = 2500;
-      break;
+Tu tarea es generar un análisis COMPLETO y ESTRUCTURADO que sirva a un proveedor para decidir si participar y cómo hacerlo.
 
-    case 'extraer_estructura':
-      userPrompt = `Documento: ${documentoNombre}\n\nContenido:\n${texto.substring(0, 15000)}\n\nExtrae TODA la información estructurada de esta licitación y devuélvela EXCLUSIVAMENTE como un objeto JSON válido, sin texto adicional fuera del JSON.
-
-El JSON debe tener esta estructura EXACTA (todos los campos son opcionales, solo incluye los que encuentres):
+Debes devolver EXCLUSIVAMENTE un objeto JSON con esta estructura (todos los campos son opcionales, incluye SOLO lo que encuentres en el documento):
 
 {
+  "metadata": {
+    "documentoNombre": "string",
+    "fechaAnalisis": "ISO date",
+    "paginas": number,
+    "tamanioBytes": number,
+    "confianza": "alta" | "media" | "baja"
+  },
+  "informacionGeneral": {
+    "objetoContrato": "string",
+    "tipoLicitacion": "string",
+    "modalidadContrato": "string",
+    "codigoLicitacion": "string",
+    "organismoComprador": "string",
+    "region": "string",
+    "comuna": "string"
+  },
+  "aspectosEconomicos": {
+    "presupuestoDisponible": { "monto": number, "moneda": "string", "fuente": "string" },
+    "montoEstimado": number,
+    "tipoMoneda": "string",
+    "sistemaPrecios": "string",
+    "reajuste": boolean
+  },
+  "plazos": {
+    "publicacion": "YYYY-MM-DD",
+    "cierreOfertas": "YYYY-MM-DD",
+    "aperturaTecnica": "YYYY-MM-DD",
+    "aperturaEconomica": "YYYY-MM-DD",
+    "adjudicacionEstimada": "YYYY-MM-DD",
+    "plazoEjecucionDias": number,
+    "otrosPlazos": [{ "nombre": "string", "fecha": "YYYY-MM-DD", "plazoDias": number }]
+  },
+  "requisitos": {
+    "administrativos": ["string"],
+    "tecnicos": ["string"],
+    "economicos": ["string"],
+    "habilitantes": ["string"],
+    "prohibiciones": ["string"]
+  },
   "criteriosEvaluacion": [
     {
-      "nombre": "Propuesta técnica",
-      "ponderacion": 40,
+      "nombre": "string",
+      "ponderacion": number,
+      "tipo": "tecnico" | "economico" | "experiencia" | "otros",
       "subcriterios": [
         {
-          "nombre": "Mejora técnica",
+          "nombre": "string",
+          "descripcion": "string",
+          "puntajeMaximo": number,
           "condiciones": [
-            { "condicion": "Banco ≥ 9.6 kWh", "puntaje": 100 },
-            { "condicion": "Banco ≥ 7.2 kWh", "puntaje": 60 }
+            { "condicion": "string", "puntaje": number }
           ]
         }
-      ]
+      ],
+      "formula": "string (si aplica)"
     }
   ],
-  "plazos": [
-    { "etapa": "Cierre de ofertas", "plazoDias": 30, "fechaReferencia": "desde publicación" }
-  ],
-  "requisitos": ["Registro en mercadopublico.cl", "Declaración jurada"],
   "garantias": [
-    { "tipo": "Fiel cumplimiento", "porcentaje": 5, "momento": "antes de la firma" }
+    {
+      "tipo": "string",
+      "porcentaje": number,
+      "montoFijo": number,
+      "momento": "string",
+      "devolucion": "string",
+      "caracteristicas": "string"
+    }
   ],
   "multas": [
-    { "concepto": "Atraso en hitos", "valor": "2 UTM/día", "limiteMaximo": "3% del contrato" }
+    {
+      "concepto": "string",
+      "valor": "string",
+      "unidad": "UTM" | "UF" | "pesos" | "porcentaje",
+      "limiteMaximo": "string"
+    }
   ],
-  "formulaPuntajeFinal": "0.4 * PT + 0.35 * EX + 0.2 * PE + 0.03 * PF + 0.02 * PI",
-  "modalidadContrato": "Suma alzada",
-  "presupuestoDisponible": 302509780,
-  "moneda": "CLP",
-  "fechasClave": {
-    "publicacion": "2024-01-15",
-    "cierreOfertas": "2024-02-15"
+  "documentosRequeridos": [
+    { "nombre": "string", "formato": "string", "obligatorio": true }
+  ],
+  "subcontratacion": {
+    "permitida": boolean,
+    "porcentajeMaximo": number,
+    "requisitos": "string"
   },
-  "documentosRequeridos": ["Anexo 1", "Anexo 2", "Propuesta económica"],
-  "causalesRechazo": ["No cumplir requisitos mínimos", "Oferta temeraria"],
-  "puntajesEvaluacion": {
-    "puntajeMaximoTotal": 100,
-    "puntajeMinimoAprobatorio": 60
+  "causalesRechazo": ["string"],
+  "analisisExperto": {
+    "puntosCriticos": ["string"],
+    "oportunidades": ["string"],
+    "riesgosDetectados": ["string"],
+    "recomendaciones": ["string"],
+    "complejidad": "baja" | "media" | "alta",
+    "atractivo": "bajo" | "medio" | "alto"
   }
 }
 
-REGLAS IMPORTANTES:
-- Las ponderaciones deben ser números (ej: 40, no "40%")
-- Las fechas en formato ISO (YYYY-MM-DD) si están explícitas
-- Los montos como números sin puntos ni comas
-- Si no encuentras un campo, omítelo del JSON
-- Para condiciones complejas, copia el texto exacto relevante
-- Si hay fórmulas matemáticas, extráelas como texto exacto`;
-      temperature = 0.1;
-      maxTokens = 4000;
-      break;
+IMPORTANTE:
+- Si un campo no existe en el documento, OMÍTELO (no pongas null)
+- Las ponderaciones pueden ser números enteros o decimales
+- Para tablas grandes de puntajes, incluye todas las filas relevantes en "condiciones"
+- Sé meticuloso, extrae hasta el detalle más pequeño
+- Si encuentras fórmulas (ej: "PE = (Vmin/Vi) * 100"), guárdalas exactamente`;
+  }
 
-    case 'comparar':
-      userPrompt = `Documento: ${documentoNombre}\n\nContenido:\n${texto.substring(0, 12000)}\n\nAnaliza este documento y compáralo con una licitación típica del mismo rubro. Identifica:\n1. **Cláusulas inusuales o riesgosas** que no son estándar\n2. **Requisitos particularmente exigentes**\n3. **Plazos muy ajustados** (menos de lo normal)\n4. **Ponderaciones desbalanceadas** (ej: mucha ponderación en precio vs técnica)\n5. **Recomendaciones específicas** para el proveedor\n\nSé crítico y útil. Si todo es estándar, indícalo.`;
-      maxTokens = 2500;
-      break;
+  else if (tipoAnalisis === 'pregunta') {
+    userPrompt = `DOCUMENTO: ${documentoNombre}
+CONTENIDO:
+${texto.substring(0, 15000)}
+
+PREGUNTA DEL USUARIO: ${pregunta}
+
+Instrucciones:
+1. Responde SOLO basándote en el contenido del documento
+2. Si la respuesta no está en el documento, di "No se encuentra información en este documento sobre [tema]"
+3. Si la pregunta requiere datos numéricos o fechas, extráelos con precisión
+4. Si es relevante, cita la sección o página aproximada del documento donde encontraste la información
+5. Da consejos prácticos para el proveedor basados en la información disponible
+6. Si la pregunta es sobre criterios de evaluación, desglosa cada criterio con su ponderación y condiciones de puntaje`;
+  }
+
+  else if (tipoAnalisis === 'resumen') {
+    userPrompt = `DOCUMENTO: ${documentoNombre}
+CONTENIDO:
+${texto.substring(0, 15000)}
+
+Genera un RESUMEN EJECUTIVO para un proveedor que evalúa participar en esta licitación. Incluye:
+
+1. **¿DE QUÉ SE TRATA?** - Objeto del contrato en 1-2 líneas
+2. **MONTO Y PLAZOS CLAVE** - Presupuesto, fechas de cierre y ejecución
+3. **REQUISITOS CRÍTICOS** - Lo mínimo indispensable para no quedar fuera
+4. **CÓMO SE GANA** - Criterios de evaluación (qué ponderan más)
+5. **RIESGOS PRINCIPALES** - Lo que podría salir mal
+6. **OPORTUNIDADES** - Por qué podría convenir participar
+7. **RECOMENDACIÓN FINAL** - ¿Vale la pena? ¿Qué hay que cuidar?
+
+Formato: Usa **negritas** para los títulos y datos importantes. Extensión: 500-800 palabras. Sé directo y útil.`;
   }
 
   const completion = await getDeepSeek().chat.completions.create({
@@ -211,16 +351,14 @@ REGLAS IMPORTANTES:
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }
     ],
-    temperature,
-    max_tokens: maxTokens,
+    temperature: tipoAnalisis === 'completo' ? 0.1 : 0.3,
+    max_tokens: tipoAnalisis === 'completo' ? 6000 : 2500,
   });
 
-  const respuesta = completion.choices[0]?.message?.content || 'No se pudo generar respuesta';
+  const respuesta = completion.choices[0]?.message?.content || '';
   
-  // Si es modo estructura, intentar parsear JSON
-  if (modo === 'extraer_estructura') {
+  if (tipoAnalisis === 'completo') {
     try {
-      // Limpiar markdown code blocks si los hubiera
       let cleanResponse = respuesta;
       const jsonMatch = respuesta.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonMatch) {
@@ -228,8 +366,12 @@ REGLAS IMPORTANTES:
       }
       return JSON.parse(cleanResponse);
     } catch (e) {
-      console.error('Error parseando JSON:', e);
-      return { error: 'No se pudo parsear la respuesta estructurada', raw: respuesta };
+      console.error('Error parseando JSON completo:', e);
+      return { 
+        error: 'No se pudo estructurar el análisis automáticamente', 
+        raw: respuesta,
+        sugerencia: 'El documento puede tener un formato no estándar. Intenta con el modo "resumen" o "pregunta"'
+      };
     }
   }
   
@@ -237,7 +379,7 @@ REGLAS IMPORTANTES:
 }
 
 // ======================================================
-// ENDPOINT PRINCIPAL
+// ENDPOINT PRINCIPAL - VERSIÓN ULTRA ROBUSTA
 // ======================================================
 
 export async function POST(request: NextRequest) {
@@ -247,28 +389,27 @@ export async function POST(request: NextRequest) {
       pdfUrl, 
       pregunta, 
       documentoNombre, 
-      modo = 'pregunta',
-      extraerTodo = false 
+      tipoAnalisis = 'completo'  // 'completo', 'pregunta', 'resumen'
     } = body;
 
-    // Validaciones iniciales
+    // ========== VALIDACIONES ==========
     if (!pdfUrl) {
-      return NextResponse.json({ error: 'Se requiere la URL del PDF' }, { status: 400 });
+      return NextResponse.json({ error: 'Se requiere la URL del documento' }, { status: 400 });
     }
 
-    // Detectar tipo de archivo por extensión
+    // Detectar extensión
     const urlSinQuery = pdfUrl.split('?')[0];
     const extension = (urlSinQuery.split('.').pop() || '').toLowerCase();
     const formatosPermitidos = ['pdf', 'docx', 'doc', 'xlsx', 'xls'];
     
     if (!formatosPermitidos.includes(extension)) {
       return NextResponse.json(
-        { error: `Formato no soportado: ${extension}. Formatos permitidos: ${formatosPermitidos.join(', ')}` },
+        { error: `Formato no soportado: ${extension}. Permitidos: ${formatosPermitidos.join(', ')}` },
         { status: 400 }
       );
     }
 
-    // Descargar el documento
+    // ========== DESCARGA DEL DOCUMENTO ==========
     let fetchUrl: string;
     const esUrlPropia = pdfUrl.includes('.r2.dev') || pdfUrl.includes(process.env.R2_ACCOUNT_ID || '__no__');
     
@@ -280,14 +421,12 @@ export async function POST(request: NextRequest) {
     }
 
     const pdfResponse = await fetch(fetchUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; LicitapymeBot/1.0)'
-      }
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; LicitapymeBot/1.0)' }
     });
 
     if (!pdfResponse.ok) {
       return NextResponse.json(
-        { error: `Error al descargar el archivo (HTTP ${pdfResponse.status}). Verifica que el archivo sea accesible públicamente.` },
+        { error: `Error HTTP ${pdfResponse.status} al descargar el archivo` },
         { status: 500 }
       );
     }
@@ -295,114 +434,91 @@ export async function POST(request: NextRequest) {
     const pdfBuffer = await pdfResponse.arrayBuffer();
     const buffer = Buffer.from(pdfBuffer);
     
-    // Validar que el archivo no esté vacío
     if (buffer.length === 0) {
-      return NextResponse.json({ error: 'El archivo está vacío o no se pudo descargar correctamente' }, { status: 500 });
+      return NextResponse.json({ error: 'El archivo está vacío' }, { status: 500 });
     }
 
-    // Extraer texto según el tipo de archivo
+    // ========== EXTRACCIÓN DE TEXTO ==========
     let textoExtraido = '';
     let numPages = 0;
     
     try {
-      const result = await extractTextFromDocument(pdfUrl, buffer, extension);
+      const result = await extractTextFromDocument(buffer, extension);
       textoExtraido = result.texto;
       numPages = result.numPages;
     } catch (parseError) {
       console.error('Error extrayendo texto:', parseError);
       return NextResponse.json(
-        { error: `No se pudo extraer el texto del archivo ${extension.toUpperCase()}. Puede estar protegido, ser una imagen escaneada o estar corrupto.` },
+        { error: `No se pudo extraer texto del archivo ${extension.toUpperCase()}. ¿Es un PDF escaneado?` },
         { status: 500 }
       );
     }
 
-    // Validar que se extrajo texto
-    if (!textoExtraido || textoExtraido.trim().length === 0) {
+    if (!textoExtraido || textoExtraido.trim().length < 100) {
       return NextResponse.json({ 
-        error: 'No se pudo extraer texto del documento. El archivo podría ser una imagen escaneada o estar protegido contra copia.',
-        sugerencia: 'Si es un PDF escaneado, deberás usar un servicio de OCR antes de analizarlo.'
+        error: 'Texto insuficiente extraído',
+        sugerencia: 'El documento podría ser una imagen escaneada. Prueba con un PDF con texto seleccionable.'
       }, { status: 500 });
     }
 
-    // Limpiar y normalizar el texto (remover múltiples espacios, saltos de línea excesivos)
+    // Limpieza de texto
     textoExtraido = textoExtraido
       .replace(/\s+/g, ' ')
       .replace(/\n\s*\n/g, '\n\n')
       .trim();
 
-    // Si no hay pregunta y no es modo especial, devolver el texto extraído
-    if (!pregunta && modo === 'pregunta') {
-      return NextResponse.json({
-        success: true,
-        texto: textoExtraido.substring(0, 5000),
-        paginas: numPages,
-        documento: documentoNombre,
-        extension,
-        tamaño_bytes: buffer.length,
-      });
-    }
-
-    // ======================================================
-    // ANÁLISIS CON IA SEGÚN EL MODO
-    // ======================================================
-    
+    // ========== ANÁLISIS SEGÚN TIPO ==========
     let respuesta;
 
-    // Si extraerTodo es true, hacer múltiples análisis en paralelo
-    if (extraerTodo) {
-      const [resumen, estructura, riesgos] = await Promise.all([
-        analizarConDeepSeek(textoExtraido, documentoNombre, 'resumen_ejecutivo'),
-        analizarConDeepSeek(textoExtraido, documentoNombre, 'extraer_estructura'),
-        analizarConDeepSeek(textoExtraido, documentoNombre, 'comparar')
-      ]);
+    if (tipoAnalisis === 'pregunta') {
+      if (!pregunta) {
+        return NextResponse.json({ error: 'Se requiere una pregunta para este tipo de análisis' }, { status: 400 });
+      }
+      respuesta = await analizarConDeepSeekExperto(textoExtraido, documentoNombre, 'pregunta', pregunta);
+    } 
+    else if (tipoAnalisis === 'resumen') {
+      respuesta = await analizarConDeepSeekExperto(textoExtraido, documentoNombre, 'resumen');
+    }
+    else {
+      // ANÁLISIS COMPLETO - El más robusto
+      const analisisCompleto = await analizarConDeepSeekExperto(textoExtraido, documentoNombre, 'completo');
       
-      respuesta = {
-        resumenEjecutivo: resumen,
-        datosEstructurados: estructura,
-        analisisRiesgos: riesgos
-      };
-    } else {
-      // Análisis simple según el modo
-      switch (modo) {
-        case 'resumen_ejecutivo':
-          respuesta = await analizarConDeepSeek(textoExtraido, documentoNombre, 'resumen_ejecutivo');
-          break;
-        case 'extraer_estructura':
-          respuesta = await analizarConDeepSeek(textoExtraido, documentoNombre, 'extraer_estructura');
-          break;
-        case 'comparar':
-          respuesta = await analizarConDeepSeek(textoExtraido, documentoNombre, 'comparar');
-          break;
-        case 'pregunta':
-        default:
-          if (!pregunta) {
-            return NextResponse.json({ error: 'Se requiere una pregunta para el modo análisis' }, { status: 400 });
-          }
-          respuesta = await analizarConDeepSeek(textoExtraido, documentoNombre, 'pregunta', pregunta);
-          break;
+      // Si el análisis completo falló, hacer un resumen como fallback
+      if (analisisCompleto.error) {
+        const resumenFallback = await analizarConDeepSeekExperto(textoExtraido, documentoNombre, 'resumen');
+        respuesta = {
+          errorEstructuracion: true,
+          mensaje: 'No se pudo estructurar completamente el análisis, pero aquí hay un resumen detallado',
+          resumen: resumenFallback,
+          rawData: analisisCompleto
+        };
+      } else {
+        respuesta = analisisCompleto;
       }
     }
 
-    // Respuesta exitosa
+    // ========== RESPUESTA FINAL ==========
     return NextResponse.json({
       success: true,
-      modo,
+      tipoAnalisis,
       documento: documentoNombre,
-      paginas: numPages,
-      extension,
-      tamaño_bytes: buffer.length,
-      ...(modo === 'pregunta' && { pregunta, respuesta }),
-      ...(modo === 'extraer_estructura' && { datos: respuesta }),
-      ...(modo === 'resumen_ejecutivo' && { resumen: respuesta }),
-      ...(modo === 'comparar' && { analisis: respuesta }),
-      ...(extraerTodo && { analisisCompleto: respuesta })
+      metadatos: {
+        paginas: numPages,
+        extension,
+        tamaño_bytes: buffer.length,
+        fechaAnalisis: new Date().toISOString()
+      },
+      ...(tipoAnalisis === 'pregunta' && { pregunta, respuesta }),
+      ...(tipoAnalisis === 'resumen' && { resumen: respuesta }),
+      ...(tipoAnalisis === 'completo' && { analisis: respuesta })
     });
 
   } catch (error) {
-    console.error('Error al analizar documento:', error);
+    console.error('Error fatal en analizar-documento:', error);
     return NextResponse.json({ 
-      error: 'Error al procesar el documento: ' + String(error),
-      sugerencia: 'Verifica que el archivo sea válido y accesible.'
+      error: 'Error interno del servidor',
+      detalle: String(error),
+      sugerencia: 'Intenta con un documento más pequeño o en formato PDF estándar'
     }, { status: 500 });
   }
 }
