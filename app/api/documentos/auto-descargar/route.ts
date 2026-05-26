@@ -1,334 +1,169 @@
 // app/api/documentos/auto-descargar/route.ts
-// Pipeline: ViewAttachment → ViewAttachmentLC → form POST download → R2
 //
-// ESTRUCTURA DE ViewAttachmentLC.aspx:
+// ESTRATEGIA ANTI-WAF — sin proxies externos:
 //
-//   <table id="DWNL_grdId">
-//     <tr> ... header ... </tr>
-//     <tr class="cssFwkItemStyle">                          ← fila de documento
-//       <td><input type="checkbox" name="DWNL$grdId$ctl02$chk"></td>
-//       <td><span id="DWNL_grdId_ctl02_File">BASES.pdf</span></td>
-//       <td><span id="DWNL_grdId_ctl02_Type">Tipo</span></td>
-//       <td><span id="DWNL_grdId_ctl02_Description">Descripción</span></td>
-//       <td><span id="DWNL_grdId_ctl02_FileLength">3675 KB</span></td>
-//       <td><span id="DWNL_grdId_ctl02_AtcDateTime">18-05-2026...</span></td>
-//       <td><input type="image" name="DWNL$grdId$ctl02$search"></td>  ← "Ver Anexo"
-//     </tr>
-//     <tr class="cssFwkAlternatingItemStyle">...</tr>
-//     ...
-//   </table>
+//  El WAF de Mercado Público bloquea todas las IPs que no son de ISP chileno
+//  (Movistar CL, VTR, Entel, etc.). Los proxies "residenciales" de ZenRows,
+//  ScrapingAnt y similares también son bloqueados porque usan IPs de data
+//  centers o ISPs no registrados en Chile.
 //
-// NO HAY <a href> de descarga. La descarga es un form POST:
-//   POST ViewAttachmentLC.aspx?enc=...
-//   Body: __VIEWSTATE=...&DWNL$grdId$ctl02$search.x=1&DWNL$grdId$ctl02$search.y=1
+//  SOLUCIÓN: usar la API oficial de Mercado Público (api.mercadopublico.cl)
+//  que ya funciona para las búsquedas y devuelve Documentos.Listado con
+//  URLs directas de Download.aspx para cada adjunto.
 //
-// Sin CAPTCHA para "Ver Anexo" individual (solo para "Descargar seleccionados").
-//
-// ANTI-WAF:
-//   ScrapingAnt browser=true → Chromium + IP residencial → bypass WAF para GET
-//   Luego form POST directo desde Vercel para descarga de archivos
+//  PIPELINE:
+//  1. Llamar api.mercadopublico.cl con MERCADO_PUBLICO_TICKET
+//     → Documentos.Listado[{Nombre, Descripcion, Tipo, Url}]
+//  2. Intentar descargar cada Url directamente desde Vercel
+//     → Si responde binario (PDF/DOCX/etc.) → subir a R2 → guardar en DB
+//     → Si responde HTML (Download.aspx también podría estar bloqueado) →
+//        devolver URLs al frontend para que el usuario descargue con su browser
+//  3. El usuario hace clic en "Abrir" → su browser tiene IP chilena → descarga OK
 
 import { NextRequest, NextResponse } from 'next/server';
-import * as cheerio from 'cheerio';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { guardarDocumentoEnCache } from '@/app/services/documentosService.server';
 
-// ─── Headers de browser real ───────────────────────────────────────────────
+// ─── API oficial de Mercado Público ───────────────────────────────────────
+
+async function obtenerDocsDesdeAPI(
+  codigo: string,
+  log: string[],
+): Promise<{ nombre: string; url: string; tipo?: string; descripcion?: string }[]> {
+  const ticket = process.env.MERCADO_PUBLICO_TICKET;
+  if (!ticket) {
+    log.push('⚠️ MERCADO_PUBLICO_TICKET no configurado en Vercel');
+    return [];
+  }
+
+  const apiUrl =
+    `https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json` +
+    `?codigo=${encodeURIComponent(codigo)}` +
+    `&ticket=${ticket}`;
+
+  log.push(`🔌 API MP: licitaciones.json?codigo=${codigo}`);
+
+  try {
+    const res = await fetch(apiUrl, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      log.push(`⚠️ API MP HTTP ${res.status}`);
+      return [];
+    }
+
+    const data = await res.json();
+
+    if (data.Codigo === 10000) {
+      log.push(`⚠️ API MP error: ${data.Mensaje} (ticket inválido o expirado)`);
+      return [];
+    }
+
+    const licitacion = data.Listado?.[0];
+    if (!licitacion) {
+      log.push('⚠️ API MP: licitación no encontrada');
+      return [];
+    }
+
+    // Intentar diferentes estructuras posibles de Documentos
+    const rawDocs: any[] =
+      licitacion.Documentos?.Listado ??
+      licitacion.Documentos ??
+      licitacion.documentos?.Listado ??
+      licitacion.documentos ??
+      [];
+
+    if (!Array.isArray(rawDocs) || rawDocs.length === 0) {
+      log.push('📄 API MP: sin documentos en la respuesta');
+      // Log qué campos tiene la licitación para diagnóstico
+      const keys = Object.keys(licitacion);
+      log.push(`   Campos disponibles: ${keys.join(', ')}`);
+      return [];
+    }
+
+    const docs = rawDocs
+      .map((d: any) => ({
+        nombre:      (d.Nombre      || d.nombre      || d.Name    || 'Documento').trim(),
+        url:         (d.Url         || d.URL          || d.url     || '').trim(),
+        tipo:        (d.Tipo        || d.tipo         || '').trim(),
+        descripcion: (d.Descripcion || d.descripcion  || '').trim(),
+      }))
+      .filter(d => !!d.url);
+
+    log.push(`✅ API MP: ${docs.length} documentos (de ${rawDocs.length} en respuesta)`);
+    docs.slice(0, 8).forEach((d, i) =>
+      log.push(`   ${i + 1}. ${d.nombre}${d.tipo ? ` [${d.tipo}]` : ''}`)
+    );
+    if (docs.length > 8) log.push(`   ... y ${docs.length - 8} más`);
+    return docs;
+
+  } catch (e: any) {
+    log.push(`⚠️ API MP excepción: ${e.message}`);
+    return [];
+  }
+}
+
+// ─── Descarga directa (puede estar bloqueada por WAF desde Vercel) ────────
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-function buildHeaders(jar: string, referer?: string): Record<string, string> {
-  return {
-    'User-Agent': UA,
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'es-CL,es;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': referer ? 'same-origin' : 'none',
-    'Sec-Fetch-User': '?1',
-    'Upgrade-Insecure-Requests': '1',
-    ...(jar ? { Cookie: jar } : {}),
-    ...(referer ? { Referer: referer } : {}),
-  };
-}
-
-// ─── Proxies anti-WAF de Mercado Público ─────────────────────────────────
-//
-// El WAF de MP bloquea IPs que no son chilenas (o de AS conocidos).
-// Para bypassearlo necesitamos IPs residenciales chilenas.
-//
-// Variables de entorno (configura al menos una en Vercel):
-//
-//   SCRAPINGANT_API_KEY  → scrapingant.com  (ya configurado)
-//                          Requiere browser=true + proxy_country=CL
-//                          Free tier: 10 000 créditos/mes (10 créditos/req con browser)
-//
-//   ZENROWS_API_KEY      → zenrows.com       (registrarse gratis)
-//                          Premium proxy con geo-targeting
-//                          Free tier: 1 000 req/mes
-//
-// Se intenta en orden: ZenRows → ScrapingAnt → fetch directo (bloqueado)
-// ZenRows es primario: sin límite de concurrencia, mejor geo-targeting Chile.
-// ScrapingAnt es fallback: free tier tiene límite 1 req concurrente (error 409).
-
-function isBlocked(html: string): boolean {
-  return html.includes('robot.png') || html.includes('Acceso denegado');
-}
-
-async function intentarScrapingAnt(url: string, log: string[]): Promise<string | null> {
-  const apiKey = process.env.SCRAPINGANT_API_KEY;
-  if (!apiKey) return null;
-
-  // proxy_country=CL → IP residencial CHILENA → bypass geo-bloqueo de MP
-  const proxyUrl =
-    `https://api.scrapingant.com/v2/general` +
-    `?x-api-key=${encodeURIComponent(apiKey)}` +
-    `&url=${encodeURIComponent(url)}` +
-    `&browser=true` +
-    `&proxy_country=CL`;                    // ← CLAVE: IP chilena
-
-  log.push(`🕷️ ScrapingAnt (CL) → ${url.slice(0, 80)}`);
-  try {
-    const res = await fetch(proxyUrl, {
-      headers: { Accept: 'text/html' },
-      signal: AbortSignal.timeout(55_000),
-    });
-    const html = await res.text();
-    if (!res.ok) {
-      log.push(`⚠️ ScrapingAnt HTTP ${res.status}: ${html.slice(0, 200)}`);
-      return null;
-    }
-    const blocked = isBlocked(html);
-    log.push(`🕷️ ScrapingAnt → HTTP ${res.status} len=${html.length} robot=${blocked}`);
-    return blocked ? null : html;
-  } catch (e: any) {
-    log.push(`⚠️ ScrapingAnt excepción: ${e.message}`);
-    return null;
-  }
-}
-
-async function intentarZenRows(url: string, log: string[]): Promise<string | null> {
-  const apiKey = process.env.ZENROWS_API_KEY;
-  if (!apiKey) return null;
-
-  // premium_proxy=true + proxy_country=CL → IP residencial chilena
-  // js_render=true → renderiza JavaScript (igual que browser real)
-  const proxyUrl =
-    `https://api.zenrows.com/v1/` +
-    `?apikey=${encodeURIComponent(apiKey)}` +
-    `&url=${encodeURIComponent(url)}` +
-    `&premium_proxy=true` +
-    `&proxy_country=CL` +
-    `&js_render=true`;
-
-  log.push(`🌿 ZenRows (CL) → ${url.slice(0, 80)}`);
-  try {
-    const res = await fetch(proxyUrl, {
-      headers: { Accept: 'text/html' },
-      signal: AbortSignal.timeout(55_000),
-    });
-    const html = await res.text();
-    if (!res.ok) {
-      log.push(`⚠️ ZenRows HTTP ${res.status}: ${html.slice(0, 200)}`);
-      return null;
-    }
-    const blocked = isBlocked(html);
-    log.push(`🌿 ZenRows → HTTP ${res.status} len=${html.length} robot=${blocked}`);
-    return blocked ? null : html;
-  } catch (e: any) {
-    log.push(`⚠️ ZenRows excepción: ${e.message}`);
-    return null;
-  }
-}
-
-async function fetchConProxy(
+async function descargarArchivo(
   url: string,
+  nombre: string,
   log: string[],
-): Promise<{ html: string; ok: boolean; status: number }> {
-  // 1. ZenRows primario — sin límite de concurrencia, mejor para Chile
-  const htmlZR = await intentarZenRows(url, log);
-  if (htmlZR) return { html: htmlZR, ok: true, status: 200 };
-
-  // 2. ScrapingAnt fallback — free tier limita concurrencia (409 si hay otra req activa)
-  const htmlSA = await intentarScrapingAnt(url, log);
-  if (htmlSA) return { html: htmlSA, ok: true, status: 200 };
-
-  // 3. Directo (siempre bloqueado desde Vercel — solo para diagnóstico)
-  const tieneProxy = !!(process.env.SCRAPINGANT_API_KEY || process.env.ZENROWS_API_KEY);
-  log.push(tieneProxy
-    ? `🌐 Ambos proxies bloqueados — fetch directo (diagnóstico)`
-    : `⚠️ Sin proxies — fetch directo (bloqueado por WAF de MP)`
-  );
-  const res = await fetch(url, { headers: buildHeaders(''), redirect: 'follow' });
-  const html = await res.text();
-  return { html, ok: res.ok, status: res.status };
-}
-
-// ─── Utilidades ────────────────────────────────────────────────────────────
-
-function resolveUrl(raw: string, base = ''): string {
-  if (!raw || raw.startsWith('javascript') || raw === '#') return '';
-  if (raw.startsWith('http')) return raw;
-  if (raw.startsWith('./') && base) {
-    const baseDir = base.split('/').slice(0, -1).join('/');
-    return `${baseDir}/${raw.slice(2)}`;
-  }
-  if (raw.startsWith('../')) return `https://www.mercadopublico.cl/Procurement/Modules/${raw.slice(3)}`;
-  if (raw.startsWith('/')) return `https://www.mercadopublico.cl${raw}`;
-  return `https://www.mercadopublico.cl/Procurement/Modules/Attachment/${raw}`;
-}
-
-function parseSizeStr(s?: string): number | undefined {
-  if (!s) return undefined;
-  const m = s.trim().match(/^([\d.,]+)\s*(KB|MB|B)?$/i);
-  if (!m) return undefined;
-  const n = parseFloat(m[1].replace(',', '.'));
-  const u = (m[2] || 'B').toUpperCase();
-  if (u === 'MB') return Math.round(n * 1048576);
-  if (u === 'KB') return Math.round(n * 1024);
-  return Math.round(n);
-}
-
-function mergeCookies(jar: string, response: Response): string {
-  let newCookies: string[] = [];
-  try { newCookies = (response.headers as any).getSetCookie?.() ?? []; } catch {}
-  if (!newCookies.length) {
-    const raw = response.headers.get('set-cookie');
-    if (raw) newCookies = raw.split(/,(?=[^;]*=)/);
-  }
-  const parsed = newCookies.map(c => c.split(';')[0].trim()).filter(Boolean);
-  if (!parsed.length) return jar;
-  const existing = Object.fromEntries(jar.split('; ').filter(Boolean).map(c => {
-    const idx = c.indexOf('=');
-    return idx > 0 ? [c.slice(0, idx), c.slice(idx + 1)] : [c, ''];
-  }));
-  parsed.forEach(c => {
-    const idx = c.indexOf('=');
-    if (idx > 0) existing[c.slice(0, idx).trim()] = c.slice(idx + 1);
-  });
-  return Object.entries(existing).map(([k, v]) => `${k}=${v}`).join('; ');
-}
-
-function htmlDiag(html: string): string {
-  const $ = cheerio.load(html);
-  const hasCapt = html.includes('recaptcha') || html.includes('reCAPTCHA');
-  const hasRobot = html.includes('robot.png') || html.includes('Acceso denegado');
-  const hasDwnl = html.includes('DWNL_grdId') || html.includes('DWNL$grdId');
-  return `tables=${$('table').length} tr=${$('tr').length} dwnl=${hasDwnl} len=${html.length} robot=${hasRobot} captcha=${hasCapt}`;
-}
-
-// ─── Tipo DocEntry ─────────────────────────────────────────────────────────
-
-// ctlId: e.g. 'ctl02' — para el form POST de descarga de ViewAttachmentLC
-type DocEntry = { nombre: string; size?: number; ctlId?: string };
-
-// ─── Extractor específico para ViewAttachmentLC ────────────────────────────
-//
-// Extrae documentos usando los span IDs: DWNL_grdId_ctl02_File, etc.
-// NO busca <a href> porque no existen — la descarga es por form POST.
-
-function extraerDocsDeViewAttachmentLC(html: string, log: string[]): DocEntry[] {
-  const $ = cheerio.load(html);
-  const docs: DocEntry[] = [];
-  const seen = new Set<string>();
-
-  // Buscar todos los spans con id que termine en _File (patrón de ViewAttachmentLC)
-  $('span[id]').each((_, span) => {
-    const id = $(span).attr('id') || '';
-    // Patrón: cualquier_prefijo_ctl02_File, ctl03_File, etc.
-    const match = id.match(/(ctl\d{2,})_File$/i);
-    if (!match) return;
-
-    const ctlId = match[1]; // e.g., 'ctl02'
-    const nombre = $(span).text().trim();
-    if (!nombre || nombre.length < 2) return;
-
-    // Extraer tamaño del span _FileLength
-    const sizeSpanId = id.replace(/_File$/, '_FileLength');
-    const sizeText = $(`#${CSS.escape(sizeSpanId)}`).text().trim()
-      || $(`[id$="${ctlId}_FileLength"]`).first().text().trim();
-    const size = parseSizeStr(sizeText);
-
-    if (!seen.has(nombre)) {
-      seen.add(nombre);
-      docs.push({ nombre, size, ctlId });
-      log.push(`  📎 ${ctlId}: ${nombre}${size ? ` (${(size / 1024).toFixed(0)} KB)` : ''}`);
-    }
-  });
-
-  return docs;
-}
-
-// ─── Descarga vía form POST ────────────────────────────────────────────────
-//
-// ViewAttachmentLC descarga archivos al hacer POST al mismo URL con:
-//   DWNL$grdId$ctl0N$search.x=1
-//   DWNL$grdId$ctl0N$search.y=1
-// Sin CAPTCHA (el CAPTCHA es solo para "Descargar seleccionados").
-
-async function descargarViaFormPost(
-  lcUrl: string,
-  ctlId: string,
-  viewState: string,
-  evValidation: string,
-  vsGenerator: string,
-  jar: string,
-  log: string[],
-): Promise<{ buffer: Buffer; contentType: string; filename?: string } | null> {
-  const body = new URLSearchParams({
-    __EVENTTARGET: '',
-    __EVENTARGUMENT: '',
-    __VIEWSTATE: viewState,
-    __EVENTVALIDATION: evValidation,
-    __VIEWSTATEGENERATOR: vsGenerator,
-    [`DWNL$grdId$${ctlId}$search.x`]: '1',
-    [`DWNL$grdId$${ctlId}$search.y`]: '1',
-  });
-
+): Promise<{ buffer: Buffer; contentType: string; filename?: string } | 'bloqueado' | 'error'> {
   try {
-    const res = await fetch(lcUrl, {
-      method: 'POST',
+    const res = await fetch(url, {
       headers: {
-        ...buildHeaders(jar, lcUrl),
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Accept': 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.*,application/octet-stream,*/*',
+        'User-Agent': UA,
+        'Accept': 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.*,application/octet-stream,*/*;q=0.8',
+        'Accept-Language': 'es-CL,es;q=0.9',
+        'Referer': 'https://www.mercadopublico.cl/',
       },
-      body: body.toString(),
       redirect: 'follow',
     });
 
     if (!res.ok) {
-      log.push(`  ❌ POST ${ctlId}: HTTP ${res.status}`);
-      return null;
+      log.push(`  ❌ HTTP ${res.status} — ${nombre}`);
+      return 'error';
     }
 
     const contentType = res.headers.get('content-type') || '';
+
     if (contentType.includes('text/html')) {
-      log.push(`  🚫 POST ${ctlId}: bloqueado (respuesta HTML)`);
-      return null;
+      // WAF devuelve robot.png en HTML → bloqueado desde Vercel
+      return 'bloqueado';
     }
 
     const buffer = Buffer.from(await res.arrayBuffer());
     if (buffer.length < 100) {
-      log.push(`  ⚠️ POST ${ctlId}: respuesta muy pequeña (${buffer.length} bytes)`);
-      return null;
+      log.push(`  ⚠️ Respuesta muy pequeña (${buffer.length} bytes) — ${nombre}`);
+      return 'bloqueado';
     }
 
-    // Extraer filename del Content-Disposition si existe
+    // Nombre del Content-Disposition si existe
     let filename: string | undefined;
     const cd = res.headers.get('content-disposition') || '';
     const mcd = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
     if (mcd?.[1]) filename = mcd[1].replace(/['"]/g, '').trim();
 
-    log.push(`  ✅ POST ${ctlId}: ${buffer.length} bytes (${contentType})`);
     return { buffer, contentType, filename };
+
   } catch (e: any) {
-    log.push(`  ❌ POST ${ctlId}: ${e.message}`);
-    return null;
+    log.push(`  ❌ Error descargando ${nombre}: ${e.message}`);
+    return 'error';
   }
+}
+
+function inferirExtension(contentType: string, nombre: string): string {
+  if (/\.\w{2,5}$/.test(nombre)) return '';  // ya tiene extensión
+  if (contentType.includes('pdf'))   return '.pdf';
+  if (contentType.includes('word'))  return '.docx';
+  if (contentType.includes('excel')) return '.xlsx';
+  if (contentType.includes('zip'))   return '.zip';
+  return '';
 }
 
 // ─── Pipeline principal ────────────────────────────────────────────────────
@@ -340,237 +175,104 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'licitacionCodigo requerido' }, { status: 400 });
   }
 
-  const proxyConfigurado = !!process.env.SCRAPINGANT_API_KEY;
-  let jar = '';
   const log: string[] = [];
-
-  const zenrowsOk = !!process.env.ZENROWS_API_KEY;
-  log.push(`🔧 ZenRows: ${zenrowsOk ? '✅ configurado (proxy principal CL)' : '⚠️ sin clave'}`);
-  log.push(`🔧 ScrapingAnt: ${proxyConfigurado ? '✅ configurado (fallback CL)' : '⚠️ sin clave'}`);
-
   const fichaUrl = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(licitacionCodigo)}`;
-  let adjuntoUrl = '';
-  let lcUrl = '';
+  const apiConfigurada = !!process.env.MERCADO_PUBLICO_TICKET;
 
-  try {
-    // ── PASO 1: Warm-up de sesión ──────────────────────────────────────────
-    try {
-      const resHome = await fetch('https://www.mercadopublico.cl/', {
-        headers: buildHeaders(jar), redirect: 'follow',
-      });
-      jar = mergeCookies(jar, resHome);
-      log.push(`🏠 Sesión: ${jar.split('; ').filter(Boolean).length} cookies`);
-    } catch {
-      log.push('⚠️ Warm-up falló — continuando sin sesión');
-    }
+  log.push(`🔧 API MP ticket: ${apiConfigurada ? '✅ configurado' : '❌ MERCADO_PUBLICO_TICKET faltante'}`);
 
-    // ── PASO 2: DetailsAcquisition → link de adjuntos ──────────────────────
-    log.push(`🔍 Ficha: ${fichaUrl}`);
-    const res1 = await fetch(fichaUrl, {
-      headers: buildHeaders(jar, 'https://www.mercadopublico.cl/'),
-      redirect: 'follow',
-    });
-    jar = mergeCookies(jar, res1);
-    if (!res1.ok) throw new Error(`Ficha HTTP ${res1.status}`);
-    const html1 = await res1.text();
-    log.push(`📄 Ficha: ${html1.length} bytes`);
+  // ── PASO 1: Obtener lista de documentos desde la API oficial ─────────────
+  const docsAPI = await obtenerDocsDesdeAPI(licitacionCodigo, log);
 
-    if (html1.includes('actividad anormal') || html1.includes('unusual activity')) {
-      throw new Error('Ficha bloqueada por WAF de Mercado Público');
-    }
-
-    const $1 = cheerio.load(html1);
-
-    // Buscar link de adjuntos (ViewAttachmentLC o ViewAttachment)
-    for (const pat of [/ViewAttachmentLC\.aspx[^'")\s]*/i, /ViewAttachment\.aspx[^'")\s]*/i]) {
-      if (adjuntoUrl) break;
-      $1('[href]').each((_, el) => {
-        if (adjuntoUrl) return;
-        const m = ($1(el).attr('href') || '').match(pat);
-        if (m) adjuntoUrl = resolveUrl(m[0]);
-      });
-      $1('[onclick]').each((_, el) => {
-        if (adjuntoUrl) return;
-        const mOpen = ($1(el).attr('onclick') || '').match(/open\(\s*['"]([^'"]+)['"]/i);
-        if (mOpen) { const m = mOpen[1].match(pat); if (m) adjuntoUrl = resolveUrl(mOpen[1]); }
-      });
-    }
-
-    if (!adjuntoUrl) {
-      log.push('⚠️ No se encontró link de adjuntos en la ficha');
-      return NextResponse.json({
-        success: false,
-        error: 'No hay adjuntos para esta licitación',
-        adjunto_url_mp: fichaUrl,
-        ficha_url_mp: fichaUrl,
-        proxy_configurado: proxyConfigurado,
-        log,
-      });
-    }
-    log.push(`🔗 Link adjuntos: ${adjuntoUrl.slice(0, 100)}`);
-
-    // ── PASO 3: ViewAttachment.aspx → extraer URL de ViewAttachmentLC ────────
-    lcUrl = adjuntoUrl;
-
-    if (!adjuntoUrl.toLowerCase().includes('viewattachmentlc')) {
-      log.push('🔄 Paso 3 — Cargando ViewAttachment (redirect JS)...');
-      const res2 = await fetch(adjuntoUrl, {
-        headers: buildHeaders(jar, fichaUrl), redirect: 'follow',
-      });
-      jar = mergeCookies(jar, res2);
-      if (res2.ok) {
-        const html2 = await res2.text();
-        log.push(`📄 ViewAttachment: ${html2.length} bytes`);
-        const mLC = html2.match(/window\.location(?:\.href)?\s*=\s*['"]([^'"]*ViewAttachmentLC\.aspx[^'"]+)['"]/i);
-        if (mLC) {
-          lcUrl = resolveUrl(mLC[1]);
-          log.push(`✅ ViewAttachmentLC: ${lcUrl.slice(0, 100)}`);
-        } else {
-          const $2 = cheerio.load(html2);
-          $2('[href*="ViewAttachmentLC"],[src*="ViewAttachmentLC"]').each((_, el) => {
-            if (lcUrl !== adjuntoUrl) return;
-            const v = $2(el).attr('href') || $2(el).attr('src') || '';
-            if (v.includes('ViewAttachmentLC')) lcUrl = resolveUrl(v);
-          });
-        }
-      }
-    }
-
-    log.push(`📋 Paso 4 — ViewAttachmentLC: ${lcUrl.slice(0, 100)}`);
-
-    // ── PASO 4: GET ViewAttachmentLC vía ScrapingAnt ──────────────────────
-    const { html: htmlLC, ok: lcOk, status: lcStatus } = await fetchConProxy(lcUrl, log);
-    log.push(`📊 ViewAttachmentLC: ${htmlDiag(htmlLC)} (HTTP ${lcStatus})`);
-
-    if (!lcOk || htmlLC.includes('robot.png') || htmlLC.includes('Acceso denegado')) {
-      const bloqueado = htmlLC.includes('robot.png') || htmlLC.includes('Acceso denegado');
-      log.push(bloqueado
-        ? '🤖 ViewAttachmentLC bloqueado por WAF — incluso con ScrapingAnt'
-        : `❌ ViewAttachmentLC HTTP ${lcStatus}`);
-      if (!proxyConfigurado) {
-        log.push('💡 Configura SCRAPINGANT_API_KEY en Vercel → Settings → Environment Variables');
-      }
-      return NextResponse.json({
-        success: false,
-        error: 'Mercado Público bloquea el acceso automático desde servidores externos.',
-        adjunto_url_mp: lcUrl,
-        ficha_url_mp: fichaUrl,
-        proxy_configurado: proxyConfigurado,
-        log,
-      });
-    }
-
-    // ── PASO 4b: Extraer VIEWSTATE para form POST ──────────────────────────
-    const $lc = cheerio.load(htmlLC);
-    const viewState    = ($lc('input[name="__VIEWSTATE"]').val()          as string) || '';
-    const evValidation = ($lc('input[name="__EVENTVALIDATION"]').val()    as string) || '';
-    const vsGenerator  = ($lc('input[name="__VIEWSTATEGENERATOR"]').val() as string) || '';
-
-    log.push(`🔑 VIEWSTATE: ${viewState ? `${viewState.length} chars` : '❌ no encontrado'}`);
-
-    // ── PASO 4c: Extraer documentos con el extractor de ViewAttachmentLC ──
-    log.push('🔍 Extrayendo documentos...');
-    const docs = extraerDocsDeViewAttachmentLC(htmlLC, log);
-    log.push(`📄 ${docs.length} documentos encontrados en ViewAttachmentLC`);
-
-    if (docs.length === 0) {
-      // Diagnóstico adicional
-      log.push(`🔎 Preview HTML: ${htmlLC.replace(/\s+/g, ' ').substring(0, 400)}`);
-      return NextResponse.json({
-        success: false,
-        error: 'Se obtuvo el HTML de ViewAttachmentLC pero no se encontraron documentos. Revisa los logs.',
-        adjunto_url_mp: lcUrl,
-        ficha_url_mp: fichaUrl,
-        proxy_configurado: proxyConfigurado,
-        log,
-      });
-    }
-
-    // ── PASO 5: Descargar cada doc vía form POST y subir a R2 ──────────────
-    log.push(`─── PASO 5: Descargando ${docs.length} documentos vía form POST ───`);
-    const resultados: any[] = [];
-    let descargados = 0;
-    let bloqueados = 0;
-
-    for (const doc of docs) {
-      if (!doc.ctlId) {
-        resultados.push({ nombre: doc.nombre, status: 'sin_ctl_id' });
-        continue;
-      }
-
-      log.push(`⬇️ Descargando: ${doc.nombre} (${doc.ctlId})`);
-      const fileData = await descargarViaFormPost(
-        lcUrl, doc.ctlId, viewState, evValidation, vsGenerator, jar, log,
-      );
-
-      if (!fileData) {
-        bloqueados++;
-        resultados.push({ nombre: doc.nombre, status: 'descarga_bloqueada', downloadUrl: lcUrl });
-        continue;
-      }
-
-      let nombreFinal = fileData.filename || doc.nombre;
-      if (!/\.\w{2,5}$/.test(nombreFinal)) {
-        const ext = fileData.contentType.includes('pdf') ? '.pdf'
-          : fileData.contentType.includes('word') ? '.docx'
-          : fileData.contentType.includes('excel') ? '.xlsx'
-          : fileData.contentType.includes('zip') ? '.zip' : '';
-        if (ext) nombreFinal += ext;
-      }
-
-      try {
-        const publicUrl = await subirDocumentoR2(licitacionCodigo, nombreFinal, fileData.buffer, fileData.contentType);
-        await guardarDocumentoEnCache(licitacionCodigo, nombreFinal, publicUrl, fileData.buffer.length);
-
-        descargados++;
-        log.push(`✅ Guardado: ${nombreFinal} (${(fileData.buffer.length / 1024).toFixed(0)} KB)`);
-        resultados.push({ nombre: nombreFinal, status: 'ok', url: publicUrl, size: fileData.buffer.length });
-      } catch (e: any) {
-        log.push(`❌ Error guardando ${nombreFinal}: ${e.message}`);
-        resultados.push({ nombre: doc.nombre, status: 'error_storage', error: e.message });
-      }
-    }
-
-    // Si todos los form POSTs fueron bloqueados, informar pero mostrar lista de docs
-    if (descargados === 0 && bloqueados > 0) {
-      log.push(`🚫 Descarga bloqueada desde Vercel para los ${bloqueados} documentos (WAF también bloquea POST)`);
-      log.push(`💡 Los documentos están disponibles en: ${lcUrl}`);
-      return NextResponse.json({
-        success: false,
-        total: docs.length,
-        descargados: 0,
-        documentos: resultados,
-        // Lista de nombres para mostrar en UI
-        lista_documentos: docs.map(d => ({ nombre: d.nombre, size: d.size })),
-        adjunto_url_mp: lcUrl,   // URL directa a ViewAttachmentLC (abre en browser del usuario)
-        ficha_url_mp: fichaUrl,
-        proxy_configurado: proxyConfigurado,
-        error: `ViewAttachmentLC accesible ✅, pero la descarga de archivos también está bloqueada desde el servidor. Abre el portal de MP y descarga manualmente.`,
-        log,
-      });
-    }
-
-    return NextResponse.json({
-      success: descargados > 0,
-      total: docs.length,
-      descargados,
-      bloqueados,
-      documentos: resultados,
-      adjunto_url_mp: lcUrl,
-      ficha_url_mp: fichaUrl,
-      proxy_configurado: proxyConfigurado,
-      log,
-    });
-
-  } catch (error: any) {
-    log.push(`💥 Error crítico: ${error.message}`);
+  if (docsAPI.length === 0) {
+    // La API no devolvió documentos — puede ser que no tenga adjuntos,
+    // o que el ticket sea inválido, o que este código de licitación no exista en la API.
     return NextResponse.json({
       success: false,
-      error: error.message,
-      adjunto_url_mp: adjuntoUrl || fichaUrl,
+      total: 0,
+      descargados: 0,
+      error: apiConfigurada
+        ? 'La API de Mercado Público no devolvió documentos para esta licitación.'
+        : 'Falta configurar MERCADO_PUBLICO_TICKET en Vercel → Settings → Environment Variables',
+      adjunto_url_mp: fichaUrl,
       ficha_url_mp: fichaUrl,
-      proxy_configurado: proxyConfigurado,
       log,
-    }, { status: 500 });
+    });
   }
+
+  // ── PASO 2: Intentar descargar cada documento desde Vercel ──────────────
+  log.push(`─── PASO 2: Descargando ${docsAPI.length} documentos ───`);
+
+  const resultados: any[] = [];
+  let descargados = 0;
+  let bloqueados = 0;
+
+  for (const doc of docsAPI) {
+    log.push(`⬇️ ${doc.nombre}`);
+    const resultado = await descargarArchivo(doc.url, doc.nombre, log);
+
+    if (resultado === 'bloqueado') {
+      bloqueados++;
+      // URL directa de Download.aspx → el usuario puede abrirla desde su browser
+      resultados.push({
+        nombre:      doc.nombre,
+        tipo:        doc.tipo,
+        descripcion: doc.descripcion,
+        status:      'descarga_bloqueada',
+        downloadUrl: doc.url,   // URL para mostrar en UI con botón "Abrir"
+      });
+      continue;
+    }
+
+    if (resultado === 'error') {
+      resultados.push({ nombre: doc.nombre, status: 'error' });
+      continue;
+    }
+
+    // Descarga exitosa → subir a R2
+    let nombreFinal = resultado.filename || doc.nombre;
+    nombreFinal += inferirExtension(resultado.contentType, nombreFinal);
+
+    try {
+      const publicUrl = await subirDocumentoR2(
+        licitacionCodigo, nombreFinal, resultado.buffer, resultado.contentType
+      );
+      await guardarDocumentoEnCache(licitacionCodigo, nombreFinal, publicUrl, resultado.buffer.length);
+
+      descargados++;
+      log.push(`  ✅ ${nombreFinal} (${(resultado.buffer.length / 1024).toFixed(0)} KB)`);
+      resultados.push({
+        nombre: nombreFinal,
+        status: 'ok',
+        url: publicUrl,
+        size: resultado.buffer.length,
+      });
+    } catch (e: any) {
+      log.push(`  ❌ Error guardando ${nombreFinal}: ${e.message}`);
+      resultados.push({ nombre: doc.nombre, status: 'error_storage', error: e.message });
+    }
+  }
+
+  log.push(`─── Resumen: ${descargados} descargados, ${bloqueados} bloqueados por WAF ───`);
+
+  // ── Construir respuesta ──────────────────────────────────────────────────
+
+  // Documentos con URL directa de MP (para mostrar en UI aunque estén bloqueados)
+  const docsBloqueados = resultados.filter(r => r.status === 'descarga_bloqueada');
+
+  return NextResponse.json({
+    success: descargados > 0,
+    total: docsAPI.length,
+    descargados,
+    bloqueados,
+    documentos: resultados,
+
+    // Lista para el UI cuando la descarga desde Vercel está bloqueada
+    // Cada item tiene nombre + downloadUrl (URL directa de Download.aspx)
+    lista_documentos: docsBloqueados.length > 0 ? docsBloqueados : undefined,
+
+    adjunto_url_mp: fichaUrl,
+    ficha_url_mp: fichaUrl,
+    log,
+  });
 }
