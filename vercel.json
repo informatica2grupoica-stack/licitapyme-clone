@@ -4,6 +4,9 @@
     "app/api/analizar-documento/route.ts": {
       "maxDuration": 60
     },
+    "app/api/documentos/auto-descargar/route.ts": {
+      "maxDuration": 60
+    },
     "app/api/documentos/[codigo]/route.ts": {
       "maxDuration": 30
     },
