@@ -6,7 +6,7 @@ import { SearchRequest, SearchResponse, Oportunidad } from '@/app/types/search.t
 import { Licitacion } from '@/app/types/mercado-publico.types';
 
 const cache = new Map<string, { data: SearchResponse; timestamp: number }>();
-const CACHE_DURATION = 12 * 60 * 1000; // 12 minutos
+const CACHE_DURATION = 3 * 60 * 1000; // 3 minutos
 
 // Usar API REAL
 const USE_MOCK = false;

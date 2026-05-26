@@ -15,23 +15,41 @@ export class SearchEngine {
 
   private calculateScore(query: string, text: string): number {
     if (!query || !text) return 0;
-    const queryWords = this.normalizeText(query).split(' ');
-    const textNorm = this.normalizeText(text);
-    const textWords = textNorm.split(' ');
+
+    // Filtrar palabras cortas para evitar falsos positivos:
+    // "c", "s", "y", "de" dentro de "mantencion" causaban matches espurios
+    const queryWords = this.normalizeText(query).split(' ').filter(w => w.length >= 3);
+    const textNorm   = this.normalizeText(text);
+    const textWords  = textNorm.split(' ').filter(w => w.length >= 3);
+
+    if (queryWords.length === 0) return 0;
 
     let matches = 0;
     let exactMatches = 0;
 
     for (const qWord of queryWords) {
-      if (qWord.length < 2) continue;
       for (const tWord of textWords) {
-        if (tWord === qWord) { exactMatches++; matches++; break; }
-        else if (tWord.includes(qWord) || qWord.includes(tWord)) { matches++; break; }
+        if (tWord === qWord) {
+          // Coincidencia exacta
+          exactMatches++;
+          matches++;
+          break;
+        } else if (tWord.includes(qWord)) {
+          // La palabra del texto contiene la palabra de búsqueda
+          // Ej: "mantenciones" contiene "mantencion"
+          matches++;
+          break;
+        } else if (qWord.length >= 5 && tWord.length >= 5 && qWord.includes(tWord)) {
+          // La búsqueda contiene la palabra del texto (solo para palabras largas)
+          // Ej: búsqueda "computadoras" incluye "computador"
+          // Requiere ambas >= 5 chars para evitar "ion", "cion", "man" etc.
+          matches++;
+          break;
+        }
       }
     }
 
-    const possible = queryWords.filter(w => w.length >= 2).length;
-    const base = possible > 0 ? matches / possible : 0;
+    const base       = matches / queryWords.length;
     const exactBonus = exactMatches > 0 ? 0.2 : 0;
     const titleBonus = textNorm.startsWith(this.normalizeText(query)) ? 0.15 : 0;
     return Math.min(base + exactBonus + titleBonus, 1);
@@ -118,8 +136,9 @@ export class SearchEngine {
     );
 
     // Filtro por relevancia si hay query
+    // Umbral 0.25 → al menos 1 de 4 palabras debe coincidir
     if (query) {
-      oportunidades = oportunidades.filter(opp => (opp.score || 0) >= 0.1);
+      oportunidades = oportunidades.filter(opp => (opp.score || 0) >= 0.25);
     }
 
     // Filtros
