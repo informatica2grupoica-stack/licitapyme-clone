@@ -211,7 +211,13 @@ function extraerDocumentosDe(html: string, pageUrl: string, log: string[]): DocE
 
 function isDownloadHref(href: string): boolean {
   const lower = href.toLowerCase();
-  return lower.includes('download') || lower.includes('attachment') || lower.includes('getfile') || lower.includes('archivo');
+  // Excluir páginas del portal que NO son descargas directas de archivos
+  if (lower.includes('viewattachment')    // viewer de adjuntos (HTML)
+   || lower.includes('detailsacquisition') // ficha de licitación (HTML)
+   || lower.includes('rfb/'))              // sección RFB (HTML)
+    return false;
+  // Solo patrones que apuntan a endpoints de descarga real
+  return lower.includes('download') || lower.includes('getattachment') || lower.includes('getfile') || lower.includes('archivo');
 }
 
 function isFileHref(href: string): boolean {
