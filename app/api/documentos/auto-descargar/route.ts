@@ -70,7 +70,9 @@ function buildHeaders(jar: string, referer?: string): Record<string, string> {
 //                          Premium proxy con geo-targeting
 //                          Free tier: 1 000 req/mes
 //
-// Se intenta en orden: ScrapingAnt → ZenRows → fetch directo (bloqueado)
+// Se intenta en orden: ZenRows → ScrapingAnt → fetch directo (bloqueado)
+// ZenRows es primario: sin límite de concurrencia, mejor geo-targeting Chile.
+// ScrapingAnt es fallback: free tier tiene límite 1 req concurrente (error 409).
 
 function isBlocked(html: string): boolean {
   return html.includes('robot.png') || html.includes('Acceso denegado');
@@ -146,20 +148,20 @@ async function fetchConProxy(
   url: string,
   log: string[],
 ): Promise<{ html: string; ok: boolean; status: number }> {
-  // 1. ScrapingAnt con proxy_country=CL
-  const htmlSA = await intentarScrapingAnt(url, log);
-  if (htmlSA) return { html: htmlSA, ok: true, status: 200 };
-
-  // 2. ZenRows con proxy_country=CL
+  // 1. ZenRows primario — sin límite de concurrencia, mejor para Chile
   const htmlZR = await intentarZenRows(url, log);
   if (htmlZR) return { html: htmlZR, ok: true, status: 200 };
 
+  // 2. ScrapingAnt fallback — free tier limita concurrencia (409 si hay otra req activa)
+  const htmlSA = await intentarScrapingAnt(url, log);
+  if (htmlSA) return { html: htmlSA, ok: true, status: 200 };
+
   // 3. Directo (siempre bloqueado desde Vercel — solo para diagnóstico)
-  if (!process.env.SCRAPINGANT_API_KEY && !process.env.ZENROWS_API_KEY) {
-    log.push(`⚠️ Sin proxies configurados — fetch directo (será bloqueado por WAF de MP)`);
-  } else {
-    log.push(`🌐 Ambos proxies bloqueados — fetch directo como diagnóstico`);
-  }
+  const tieneProxy = !!(process.env.SCRAPINGANT_API_KEY || process.env.ZENROWS_API_KEY);
+  log.push(tieneProxy
+    ? `🌐 Ambos proxies bloqueados — fetch directo (diagnóstico)`
+    : `⚠️ Sin proxies — fetch directo (bloqueado por WAF de MP)`
+  );
   const res = await fetch(url, { headers: buildHeaders(''), redirect: 'follow' });
   const html = await res.text();
   return { html, ok: res.ok, status: res.status };
@@ -342,7 +344,9 @@ export async function POST(request: NextRequest) {
   let jar = '';
   const log: string[] = [];
 
-  log.push(`🔧 ScrapingAnt: ${proxyConfigurado ? '✅ configurado (browser=true)' : '⚠️ sin clave — WAF bloqueará el acceso'}`);
+  const zenrowsOk = !!process.env.ZENROWS_API_KEY;
+  log.push(`🔧 ZenRows: ${zenrowsOk ? '✅ configurado (proxy principal CL)' : '⚠️ sin clave'}`);
+  log.push(`🔧 ScrapingAnt: ${proxyConfigurado ? '✅ configurado (fallback CL)' : '⚠️ sin clave'}`);
 
   const fichaUrl = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(licitacionCodigo)}`;
   let adjuntoUrl = '';
