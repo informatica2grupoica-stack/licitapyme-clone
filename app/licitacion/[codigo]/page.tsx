@@ -718,10 +718,27 @@ export default function LicitacionDetallePage() {
     setLoading(true);
     setError(null);
     try {
+      // Primero intenta búsqueda por código exacto vía la API de búsqueda
       const res = await fetch(`/api/search?q=${encodeURIComponent(codigoDecoded)}`);
       const data = await res.json();
-      if (data.resultados?.length > 0) setLicitacion(data.resultados[0]);
-      else setError('No se encontró la licitación');
+
+      if (data.resultados?.length > 0) {
+        setLicitacion(data.resultados[0]);
+        return;
+      }
+
+      // Fallback: obtener ficha directamente desde la API de Mercado Público
+      // Útil cuando el código no está en el pool de los últimos 7 días
+      const res2 = await fetch(`/api/licitacion-detalle/${encodeURIComponent(codigoDecoded)}`);
+      if (res2.ok) {
+        const data2 = await res2.json();
+        if (data2.success && data2.licitacion) {
+          setLicitacion(data2.licitacion);
+          return;
+        }
+      }
+
+      setError('No se encontró la licitación');
     } catch { setError('Error al cargar la licitación'); }
     finally { setLoading(false); }
   };

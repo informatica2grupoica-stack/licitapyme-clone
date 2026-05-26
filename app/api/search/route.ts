@@ -52,14 +52,17 @@ async function enrichirPagina(
   return enriched;
 }
 
-// Función para detectar si es una búsqueda por código
+// Función para detectar si es una búsqueda por código de licitación
+// Formato real MP: {organismo}-{correlativo}-{tipo}{año}
+//   organismo: 2-8 dígitos   (ej: 48, 756, 4144, 1057439)
+//   correlativo: 1-4 dígitos (ej: 8, 11, 18, 204)
+//   tipo+año: 1-4 letras + 2 dígitos (ej: LE26, LP26, LR26, L126, CO26)
 function esBusquedaPorCodigo(consulta: string): boolean {
   if (!consulta) return false;
-  // Patrones de código de licitación: 1234-56-LP23, 1509-5-L114, etc.
-  const patronCodigo = /^\d{4,5}-\d{1,2}-[A-Z0-9]{2,4}$/i;
-  // También números largos (posible ID)
+  const patronCodigo = /^\d{2,8}-\d{1,4}-[A-Z]{1,4}\d{2}$/i;
+  // También ID numérico largo
   const patronNumerico = /^\d{8,}$/;
-  return patronCodigo.test(consulta) || patronNumerico.test(consulta);
+  return patronCodigo.test(consulta.trim()) || patronNumerico.test(consulta.trim());
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
