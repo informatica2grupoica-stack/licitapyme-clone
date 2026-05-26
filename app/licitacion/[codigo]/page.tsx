@@ -160,6 +160,7 @@ function SubirDocumentos({
 }) {
   const [dragging, setDragging] = useState(false);
   const [subiendo, setSubiendo] = useState(false);
+  const [progresoMsg, setProgresoMsg] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [subidos, setSubidos] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -169,19 +170,74 @@ function SubirDocumentos({
     if (lista.length === 0) return;
     setSubiendo(true);
     setError(null);
+
     try {
-      const form = new FormData();
-      form.append('licitacionCodigo', codigoLicitacion);
-      lista.forEach(f => form.append('files', f));
-      const res = await fetch('/api/documentos/subir', { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Error al subir');
-      setSubidos(prev => prev + data.documentos.length);
-      onSubidos(data.documentos.map((d: any) => ({
+      const resultados: { nombre: string; url: string; size: number }[] = [];
+
+      for (let i = 0; i < lista.length; i++) {
+        const file = lista[i];
+        const prefijo = lista.length > 1 ? `[${i + 1}/${lista.length}] ` : '';
+        setProgresoMsg(`${prefijo}Preparando ${file.name}…`);
+
+        // ── 1. Obtener URL presignada de R2 ──────────────────────────────────
+        const presignRes = await fetch('/api/documentos/presign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            licitacionCodigo: codigoLicitacion,
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream',
+            size: file.size,
+          }),
+        });
+
+        if (!presignRes.ok) {
+          const err = await presignRes.json().catch(() => ({}));
+          throw new Error(err.error || `Error preparando subida de ${file.name}`);
+        }
+
+        const { uploadUrl, publicUrl } = await presignRes.json();
+
+        // ── 2. Subir DIRECTO a R2 desde el browser (sin pasar por Vercel) ───
+        setProgresoMsg(`${lista.length > 1 ? `[${i + 1}/${lista.length}] ` : ''}Subiendo ${file.name}…`);
+        const uploadRes = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+
+        if (!uploadRes.ok) {
+          throw new Error(`Error subiendo ${file.name} (${uploadRes.status})`);
+        }
+
+        // ── 3. Registrar en la base de datos ─────────────────────────────────
+        const guardarRes = await fetch('/api/documentos/guardar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            licitacionCodigo: codigoLicitacion,
+            documentoNombre: file.name,
+            url: publicUrl,
+            size: file.size,
+          }),
+        });
+
+        if (!guardarRes.ok) {
+          const err = await guardarRes.json().catch(() => ({}));
+          throw new Error(err.error || `Error guardando ${file.name}`);
+        }
+
+        resultados.push({ nombre: file.name, url: publicUrl, size: file.size });
+      }
+
+      setSubidos(prev => prev + resultados.length);
+      setProgresoMsg('');
+      onSubidos(resultados.map(d => ({
         nombre: d.nombre, url: d.url, url_local: d.url, ya_descargado: true, size: d.size,
       })));
     } catch (e: any) {
       setError(e.message);
+      setProgresoMsg('');
     } finally {
       setSubiendo(false);
     }
@@ -213,9 +269,14 @@ function SubirDocumentos({
           onChange={e => e.target.files && subirArchivos(e.target.files)}
         />
         {subiendo ? (
-          <div className="flex items-center justify-center gap-2 text-sm text-blue-600 py-1">
-            <Loader2 size={16} className="animate-spin" />
-            Subiendo a la nube...
+          <div className="flex flex-col items-center justify-center gap-1.5 py-2">
+            <div className="flex items-center gap-2 text-sm text-blue-600">
+              <Loader2 size={16} className="animate-spin" />
+              Subiendo a la nube...
+            </div>
+            {progresoMsg && (
+              <p className="text-xs text-blue-500 max-w-[200px] truncate">{progresoMsg}</p>
+            )}
           </div>
         ) : (
           <div className="py-1">
