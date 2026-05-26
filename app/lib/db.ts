@@ -1,6 +1,8 @@
 // src/lib/db.ts
 import mysql from 'mysql2/promise';
 
+// En serverless (Vercel) cada función puede crear su propio pool.
+// connectionLimit bajo evita "too many connections" en Bluehost (límite ~25).
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
@@ -8,10 +10,11 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
   port: parseInt(process.env.DB_PORT || '3306'),
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
+  connectionLimit: 3,       // bajo para serverless
+  queueLimit: 10,
+  connectTimeout: 10000,
   enableKeepAlive: true,
-  keepAliveInitialDelay: 0
+  keepAliveInitialDelay: 0,
 });
 
 // Probar conexión
