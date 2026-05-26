@@ -305,10 +305,10 @@ export async function POST(request: NextRequest) {
     }
     log.push(`🔗 Adjuntos: ${adjuntoUrl.slice(0, 100)}`);
 
-    // ── PASO 1b: Buscar downloads DIRECTOS en la ficha ─────────────────────
-    // Solo cuenta si encontramos filas de tabla con URL de descarga real
-    log.push('🔍 Paso 1b — Documentos con URL directa en la ficha...');
-    const docsDirectosFicha = extraerDocumentosDe(html1, fichaUrl, log);
+    // La ficha DetailsAcquisition.aspx NO contiene links de documentos reales
+    // (los docs están en ViewAttachmentLC). Solo contiene exports de metadata
+    // CSV/JSON/OCDS que no son útiles. Siempre ir a ViewAttachmentLC vía proxy.
+    const docsDirectosFicha: DocEntry[] = [];
 
     // ── PASO 2: ViewAttachment → extraer URL de ViewAttachmentLC ──────────
     let lcUrl = adjuntoUrl;
