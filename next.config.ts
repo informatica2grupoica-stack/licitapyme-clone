@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Paquetes que usan fs/binarios nativos — no empacar con Webpack
+  // Paquetes server-only que no deben empacarse con Turbopack/Webpack
   serverExternalPackages: [
     'pdf-parse',
     'mammoth',
@@ -11,19 +11,9 @@ const nextConfig: NextConfig = {
     '@sparticuz/chromium',
   ],
 
-  // Ignorar warnings de build sobre módulos opcionales de puppeteer
-  webpack: (config, { isServer }) => {
-    if (isServer) {
-      // Evitar que webpack intente empacar binarios nativos
-      config.externals = [
-        ...(Array.isArray(config.externals) ? config.externals : []),
-        'canvas',
-        'bufferutil',
-        'utf-8-validate',
-      ];
-    }
-    return config;
-  },
+  // Turbopack es el bundler por defecto en Next.js 16
+  // Config vacía para indicar que lo usamos intencionalmente
+  turbopack: {},
 };
 
 export default nextConfig;
