@@ -255,9 +255,19 @@ export async function POST(request: NextRequest) {
 
     if (!adjuntoUrl) {
       log.push('⚠️ No se encontró link de adjuntos en la ficha');
-      return NextResponse.json({ success: false, error: 'No hay adjuntos para esta licitación', log });
+      return NextResponse.json({ success: false, error: 'No hay adjuntos para esta licitación', ficha_url_mp: fichaUrl, log });
     }
     log.push(`🔗 Adjuntos: ${adjuntoUrl.slice(0, 100)}`);
+
+    // ── PASO 1b: Buscar links de descarga DIRECTOS en la ficha (213 KB) ───
+    // DetailsAcquisition.aspx puede contener en su HTML los mismos links
+    // Download.aspx?enc=... que ViewAttachmentLC — si los encontramos,
+    // evitamos el paso 3 donde el WAF nos bloquea.
+    log.push('🔍 Paso 1b — Buscando documentos directos en la ficha...');
+    const docsDirectosFicha = extraerDocumentosDe(html1, fichaUrl, log);
+    if (docsDirectosFicha.length > 0) {
+      log.push(`✅ ${docsDirectosFicha.length} docs en ficha — omitiendo ViewAttachmentLC`);
+    }
 
     // ── PASO 2: ViewAttachment → extraer ViewAttachmentLC ─────────────────
     let lcUrl = adjuntoUrl;
@@ -293,97 +303,102 @@ export async function POST(request: NextRequest) {
 
     log.push(`📋 Paso 3 — ViewAttachmentLC: ${lcUrl.slice(0, 100)}`);
 
-    // ── PASO 3a: GET ViewAttachmentLC ──────────────────────────────────────
-    const res3 = await fetch(lcUrl, { headers: buildHeaders(jar, adjuntoUrl), redirect: 'follow' });
-    jar = mergeCookies(jar, res3);
+    // Variable de docs acumulados — inicializada con lo obtenido de la ficha
+    let docsEncontrados: DocEntry[] = docsDirectosFicha;
+    let html3 = ''; // Mantener en scope para el preview de diagnóstico
 
-    if (!res3.ok) throw new Error(`ViewAttachmentLC HTTP ${res3.status}`);
-    let html3 = await res3.text();
-    log.push(`📊 ViewAttachmentLC GET: ${htmlDiag(html3)}`);
+    if (docsEncontrados.length > 0) {
+      log.push('⏭️ Saltando ViewAttachmentLC — documentos ya obtenidos de la ficha');
+    } else {
+      // ── PASO 3a: GET ViewAttachmentLC ────────────────────────────────────
+      const res3 = await fetch(lcUrl, { headers: buildHeaders(jar, adjuntoUrl), redirect: 'follow' });
+      jar = mergeCookies(jar, res3);
 
-    // ── PASO 3b: WebForms POST si la página tiene __VIEWSTATE ─────────────
-    // ASP.NET WebForms a veces carga la grilla solo después de un postback
-    const $3get = cheerio.load(html3);
-    const viewState = ($3get('input[name="__VIEWSTATE"]').val() as string) || '';
-    const eventValidation = ($3get('input[name="__EVENTVALIDATION"]').val() as string) || '';
-    const vsGenerator = ($3get('input[name="__VIEWSTATEGENERATOR"]').val() as string) || '';
+      if (!res3.ok) throw new Error(`ViewAttachmentLC HTTP ${res3.status}`);
+      html3 = await res3.text();
+      log.push(`📊 ViewAttachmentLC GET: ${htmlDiag(html3)}`);
 
-    if (viewState && html3.length > 2000) {
-      log.push('🔄 Intentando POST WebForms...');
-      try {
-        const form = new URLSearchParams({
-          __VIEWSTATE: viewState,
-          __EVENTVALIDATION: eventValidation,
-          __VIEWSTATEGENERATOR: vsGenerator,
-          __EVENTTARGET: '',
-          __EVENTARGUMENT: '',
-          __ASYNCPOST: 'true',
-        });
-        const resPost = await fetch(lcUrl, {
-          method: 'POST',
-          headers: {
-            ...buildHeaders(jar, lcUrl),
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Requested-With': 'XMLHttpRequest',
-            'X-MicrosoftAjax': 'Delta=true',
-          },
-          body: form.toString(),
-          redirect: 'follow',
-        });
-        jar = mergeCookies(jar, resPost);
-        if (resPost.ok) {
-          const htmlPost = await resPost.text();
-          log.push(`📊 WebForms POST: ${htmlDiag(htmlPost)}`);
-          // Usar respuesta POST si contiene más contenido relevante
-          if (htmlPost.length > html3.length || htmlPost.includes('Download') || htmlPost.includes('Attachment')) {
-            html3 = htmlPost;
-            log.push('✅ POST devolvió contenido más completo');
+      // ── PASO 3b: WebForms POST si la página tiene __VIEWSTATE ─────────────
+      const $3get = cheerio.load(html3);
+      const viewState     = ($3get('input[name="__VIEWSTATE"]').val() as string)         || '';
+      const eventValidation = ($3get('input[name="__EVENTVALIDATION"]').val() as string) || '';
+      const vsGenerator   = ($3get('input[name="__VIEWSTATEGENERATOR"]').val() as string) || '';
+
+      if (viewState && html3.length > 2000) {
+        log.push('🔄 Intentando POST WebForms...');
+        try {
+          const form = new URLSearchParams({
+            __VIEWSTATE: viewState,
+            __EVENTVALIDATION: eventValidation,
+            __VIEWSTATEGENERATOR: vsGenerator,
+            __EVENTTARGET: '',
+            __EVENTARGUMENT: '',
+            __ASYNCPOST: 'true',
+          });
+          const resPost = await fetch(lcUrl, {
+            method: 'POST',
+            headers: {
+              ...buildHeaders(jar, lcUrl),
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'X-Requested-With': 'XMLHttpRequest',
+              'X-MicrosoftAjax': 'Delta=true',
+            },
+            body: form.toString(),
+            redirect: 'follow',
+          });
+          jar = mergeCookies(jar, resPost);
+          if (resPost.ok) {
+            const htmlPost = await resPost.text();
+            log.push(`📊 WebForms POST: ${htmlDiag(htmlPost)}`);
+            if (htmlPost.length > html3.length || htmlPost.includes('Download') || htmlPost.includes('Attachment')) {
+              html3 = htmlPost;
+              log.push('✅ POST devolvió contenido más completo');
+            }
+          }
+        } catch (e: any) {
+          log.push(`⚠️ POST WebForms falló: ${e.message}`);
+        }
+      }
+
+      // ── PASO 3c: Extraer documentos (3 estrategias) ──────────────────────
+      docsEncontrados = extraerDocumentosDe(html3, lcUrl, log);
+
+      // ── PASO 3d: Fallback → ViewAttachment.aspx directo ─────────────────
+      if (docsEncontrados.length === 0 && html2) {
+        log.push('🔄 Fallback: extrayendo de ViewAttachment.aspx directamente...');
+        docsEncontrados = extraerDocumentosDe(html2, adjuntoUrl, log);
+      }
+
+      // ── PASO 3e: Último recurso — JSON en <script> ───────────────────────
+      if (docsEncontrados.length === 0) {
+        log.push('🔄 Buscando JSON en <script>...');
+        for (const script of (html3.match(/<script[^>]*>([\s\S]*?)<\/script>/gi) || [])) {
+          const jsonMatch = script.match(/\[\s*\{[^<]{50,}\}\s*\]/);
+          if (jsonMatch) {
+            try {
+              const arr = JSON.parse(jsonMatch[0]);
+              for (const item of arr) {
+                const u = item.url || item.Url || item.downloadUrl || item.DownloadUrl || '';
+                const n = item.nombre || item.Nombre || item.name || item.Name || `Documento_${docsEncontrados.length + 1}`;
+                if (u) docsEncontrados.push({ nombre: n, downloadUrl: resolveUrl(u) });
+              }
+              if (docsEncontrados.length > 0) { log.push(`✅ JSON en script: ${docsEncontrados.length} docs`); break; }
+            } catch {}
           }
         }
-      } catch (e: any) {
-        log.push(`⚠️ POST WebForms falló: ${e.message}`);
       }
-    }
-
-    // ── PASO 3c: Extraer documentos con estrategias múltiples ─────────────
-    let docsEncontrados = extraerDocumentosDe(html3, lcUrl, log);
-
-    // ── PASO 3d: Fallback → re-intentar con ViewAttachment.aspx directo ───
-    if (docsEncontrados.length === 0 && html2) {
-      log.push('🔄 Fallback: extrayendo de ViewAttachment.aspx directamente...');
-      docsEncontrados = extraerDocumentosDe(html2, adjuntoUrl, log);
-    }
-
-    // ── PASO 3e: Último recurso — parse de scripts (JSON en <script>) ──────
-    if (docsEncontrados.length === 0) {
-      log.push('🔄 Buscando JSON en <script>...');
-      const scriptMatches = html3.match(/<script[^>]*>([\s\S]*?)<\/script>/gi) || [];
-      for (const script of scriptMatches) {
-        const jsonMatch = script.match(/\[\s*\{[^<]{50,}\}\s*\]/);
-        if (jsonMatch) {
-          try {
-            const arr = JSON.parse(jsonMatch[0]);
-            for (const item of arr) {
-              const url = item.url || item.Url || item.downloadUrl || item.DownloadUrl || '';
-              const nombre = item.nombre || item.Nombre || item.name || item.Name || `Documento_${docsEncontrados.length + 1}`;
-              if (url) docsEncontrados.push({ nombre, downloadUrl: resolveUrl(url) });
-            }
-            if (docsEncontrados.length > 0) { log.push(`✅ JSON en script: ${docsEncontrados.length} docs`); break; }
-          } catch {}
-        }
-      }
-    }
+    } // end if(docsEncontrados.length === 0)
 
     log.push(`📄 Total documentos encontrados: ${docsEncontrados.length}`);
 
     if (docsEncontrados.length === 0) {
-      // HTML preview para diagnóstico (primeros 2000 chars sin whitespace excesivo)
       const preview = html3.replace(/\s+/g, ' ').substring(0, 2000);
-      log.push(`🔎 HTML preview: ${preview}`);
+      if (preview) log.push(`🔎 HTML preview: ${preview}`);
       return NextResponse.json({
         success: false,
-        error: 'No se encontraron documentos. Revisa los logs para diagnóstico.',
-        adjunto_url_mp: adjuntoUrl, // URL directa de MP para abrir manualmente
+        error: 'No se encontraron documentos. Mercado Público bloquea el acceso automático — descarga los archivos desde el portal y súbelos manualmente.',
+        adjunto_url_mp: adjuntoUrl,
+        ficha_url_mp: fichaUrl,
         log,
       });
     }
@@ -404,7 +419,7 @@ export async function POST(request: NextRequest) {
 
         const resDoc = await fetch(doc.downloadUrl, {
           headers: {
-            ...buildHeaders(jar, lcUrl),
+            ...buildHeaders(jar, lcUrl || adjuntoUrl || fichaUrl),
             Accept: 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.*,application/octet-stream,*/*',
           },
           redirect: 'follow',
@@ -463,6 +478,7 @@ export async function POST(request: NextRequest) {
       descargados,
       documentos: resultados,
       adjunto_url_mp: adjuntoUrl,
+      ficha_url_mp: fichaUrl,
       log,
     });
 

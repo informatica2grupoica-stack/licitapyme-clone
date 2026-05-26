@@ -711,7 +711,17 @@ export default function LicitacionDetallePage() {
   const codigoDecoded = decodeURIComponent(codigo);
 
   useEffect(() => {
-    if (codigoDecoded) { fetchLicitacion(); fetchDocumentos(); }
+    if (codigoDecoded) {
+      fetchLicitacion();
+      fetchDocumentos();
+      // Ficha URL siempre disponible como fallback para "Abrir en MP"
+      if (!urlAdjuntosMP) {
+        setUrlAdjuntosMP(
+          `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(codigoDecoded)}`
+        );
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codigoDecoded]);
 
   const fetchLicitacion = async () => {
@@ -822,8 +832,12 @@ export default function LicitacionDetallePage() {
       });
       const data = await res.json();
       setAutoDescargaLog(data.log || []);
+
+      // Capturar URL del portal de MP (disponible incluso cuando falla la descarga)
+      const mpUrl = data.adjunto_url_mp || data.ficha_url_mp;
+      if (mpUrl && !urlAdjuntosMP) setUrlAdjuntosMP(mpUrl);
+
       if (data.success && data.descargados > 0) {
-        // Recargar documentos para mostrar los nuevos
         await fetchDocumentos();
       } else {
         setAutoDescargaError(data.error || `Se descargaron ${data.descargados ?? 0} de ${data.total ?? 0} documentos`);
@@ -1191,14 +1205,30 @@ export default function LicitacionDetallePage() {
                   </div>
                 )}
 
-                {/* Error */}
+                {/* Error — guiar al usuario para descarga manual */}
                 {autoDescargaError && (
-                  <div className="flex items-start gap-2 p-2.5 bg-orange-50 border border-orange-200 rounded-lg">
-                    <AlertCircle size={13} className="text-orange-500 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-xs font-medium text-orange-800">Descarga automática no disponible</p>
-                      <p className="text-xs text-orange-600 mt-0.5">{autoDescargaError}</p>
+                  <div className="rounded-xl border border-orange-200 bg-orange-50 overflow-hidden">
+                    <div className="flex items-start gap-2 p-3">
+                      <AlertCircle size={14} className="text-orange-500 flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-orange-800">Descarga automática no disponible</p>
+                        <p className="text-xs text-orange-600 mt-0.5 leading-relaxed">
+                          Mercado Público bloquea el acceso automático desde servidores externos.
+                          Descarga los archivos desde el portal y súbelos con el recuadro de abajo.
+                        </p>
+                      </div>
                     </div>
+                    {urlAdjuntosMP && (
+                      <a
+                        href={urlAdjuntosMP}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2 w-full py-2.5 px-3 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold transition-colors"
+                      >
+                        <ExternalLink size={13} />
+                        Ir a documentos en Mercado Público →
+                      </a>
+                    )}
                   </div>
                 )}
 
