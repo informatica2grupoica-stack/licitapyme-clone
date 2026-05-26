@@ -30,6 +30,8 @@ export interface DocumentoAdjunto {
   extension?: string;
   ya_descargado?: boolean;
   url_local?: string;
+  /** URL directa en Mercado Público (cuando la descarga automática fue bloqueada) */
+  url_mp?: string;
 }
 
 // Fechas del proceso de licitación

@@ -328,6 +328,19 @@ function DocumentRow({
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Documento con URL de MP (descarga bloqueada desde servidor) */}
+          {!yaDescargado && (doc.url_mp || doc.url?.includes('mercadopublico.cl')) && (
+            <a
+              href={doc.url_mp || doc.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
+              title="Abrir en Mercado Público"
+            >
+              <ExternalLink size={11} />
+              Abrir
+            </a>
+          )}
           {yaDescargado ? (
             <>
               <a href={urlDescargado!} target="_blank" rel="noopener noreferrer"
@@ -341,22 +354,25 @@ function DocumentRow({
             </>
           ) : (
             <>
-              {doc.url && (
-                <a href={doc.url} target="_blank" rel="noopener noreferrer"
-                  className="p-1 text-gray-400 hover:bg-gray-200 rounded transition-colors" title="Abrir en MP">
-                  <ExternalLink size={12} />
-                </a>
+              {/* Solo mostrar "Obtener" si NO es URL de MP (sería bloqueada desde servidor) */}
+              {doc.url && !doc.url.includes('mercadopublico.cl') && !doc.url_mp && (
+                <>
+                  <a href={doc.url} target="_blank" rel="noopener noreferrer"
+                    className="p-1 text-gray-400 hover:bg-gray-200 rounded transition-colors" title="Abrir en MP">
+                    <ExternalLink size={12} />
+                  </a>
+                  <button
+                    onClick={solicitar}
+                    disabled={estado === 'solicitando' || estado === 'procesando'}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition-colors"
+                  >
+                    {estado === 'solicitando' || estado === 'procesando'
+                      ? <Loader2 size={10} className="animate-spin" />
+                      : <DownloadCloud size={10} />}
+                    Obtener
+                  </button>
+                </>
               )}
-              <button
-                onClick={solicitar}
-                disabled={estado === 'solicitando' || estado === 'procesando'}
-                className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition-colors"
-              >
-                {estado === 'solicitando' || estado === 'procesando'
-                  ? <Loader2 size={10} className="animate-spin" />
-                  : <DownloadCloud size={10} />}
-                Obtener
-              </button>
             </>
           )}
         </div>
@@ -835,12 +851,33 @@ export default function LicitacionDetallePage() {
 
       // Capturar URL del portal de MP (disponible incluso cuando falla la descarga)
       const mpUrl = data.adjunto_url_mp || data.ficha_url_mp;
-      if (mpUrl && !urlAdjuntosMP) setUrlAdjuntosMP(mpUrl);
+      if (mpUrl) setUrlAdjuntosMP(mpUrl);
 
       if (data.success && data.descargados > 0) {
+        // Descarga exitosa: refrescar lista de documentos desde caché
         await fetchDocumentos();
+      } else if (data.documentos?.length > 0) {
+        // API encontró documentos pero las descargas fueron bloqueadas desde el servidor.
+        // Mostrar los documentos con sus URLs de MP para que el usuario los abra
+        // directamente desde su browser (que sí tiene IP residencial).
+        const bloqueados: DocumentoAdjunto[] = data.documentos
+          .filter((d: any) => d.status === 'descarga_bloqueada' && d.downloadUrl)
+          .map((d: any) => ({
+            nombre: d.nombre,
+            url: d.downloadUrl,   // URL de MP — el usuario puede abrirla desde su browser
+            url_mp: d.downloadUrl,
+          }));
+        if (bloqueados.length > 0) {
+          setDocumentosAPI(bloqueados);
+          // No es un error — encontramos los docs, solo que la descarga automática está bloqueada
+          setAutoDescargaError(
+            `Encontramos ${bloqueados.length} documento${bloqueados.length > 1 ? 's' : ''} pero la descarga automática está bloqueada por Mercado Público. Haz clic en "Abrir" para descargarlos manualmente y súbelos con el recuadro de abajo.`
+          );
+        } else {
+          setAutoDescargaError(data.error || `Se descargaron ${data.descargados ?? 0} de ${data.total ?? 0} documentos`);
+        }
       } else {
-        setAutoDescargaError(data.error || `Se descargaron ${data.descargados ?? 0} de ${data.total ?? 0} documentos`);
+        setAutoDescargaError(data.error || 'No se encontraron documentos');
       }
     } catch (e: any) {
       setAutoDescargaError(e.message);
@@ -1205,20 +1242,25 @@ export default function LicitacionDetallePage() {
                   </div>
                 )}
 
-                {/* Error — guiar al usuario para descarga manual */}
+                {/* Aviso de descarga — guiar al usuario */}
                 {autoDescargaError && (
-                  <div className="rounded-xl border border-orange-200 bg-orange-50 overflow-hidden">
+                  <div className={`rounded-xl border overflow-hidden ${
+                    documentosAPI.some(d => d.url_mp)
+                      ? 'border-blue-200 bg-blue-50'
+                      : 'border-orange-200 bg-orange-50'
+                  }`}>
                     <div className="flex items-start gap-2 p-3">
-                      <AlertCircle size={14} className="text-orange-500 flex-shrink-0 mt-0.5" />
+                      <Info size={14} className={`flex-shrink-0 mt-0.5 ${documentosAPI.some(d => d.url_mp) ? 'text-blue-500' : 'text-orange-500'}`} />
                       <div className="min-w-0">
-                        <p className="text-xs font-semibold text-orange-800">Descarga automática no disponible</p>
-                        <p className="text-xs text-orange-600 mt-0.5 leading-relaxed">
-                          Mercado Público bloquea el acceso automático desde servidores externos.
-                          Descarga los archivos desde el portal y súbelos con el recuadro de abajo.
+                        <p className={`text-xs font-semibold ${documentosAPI.some(d => d.url_mp) ? 'text-blue-800' : 'text-orange-800'}`}>
+                          {documentosAPI.some(d => d.url_mp) ? 'Documentos encontrados' : 'Descarga automática no disponible'}
+                        </p>
+                        <p className={`text-xs mt-0.5 leading-relaxed ${documentosAPI.some(d => d.url_mp) ? 'text-blue-600' : 'text-orange-600'}`}>
+                          {autoDescargaError}
                         </p>
                       </div>
                     </div>
-                    {urlAdjuntosMP && (
+                    {!documentosAPI.some(d => d.url_mp) && urlAdjuntosMP && (
                       <a
                         href={urlAdjuntosMP}
                         target="_blank"

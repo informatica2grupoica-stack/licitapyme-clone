@@ -20,6 +20,34 @@ const HEADERS = {
   'Accept-Language': 'es-CL,es;q=0.9',
 };
 
+// Proxy ScrapingAnt con browser=true (Chromium + IPs residenciales) para
+// bypasear el WAF de Mercado Público que bloquea ViewAttachmentLC desde Vercel.
+async function fetchConProxy(url: string): Promise<string> {
+  const apiKey = process.env.SCRAPINGANT_API_KEY;
+  if (apiKey) {
+    const proxyUrl =
+      `https://api.scrapingant.com/v2/general` +
+      `?x-api-key=${encodeURIComponent(apiKey)}` +
+      `&url=${encodeURIComponent(url)}` +
+      `&browser=true`;
+    try {
+      const res = await fetch(proxyUrl, {
+        headers: { Accept: 'text/html' },
+        signal: AbortSignal.timeout(50_000),
+      });
+      const html = await res.text();
+      if (res.ok && !html.includes('robot.png') && !html.includes('Acceso denegado')) {
+        return html;
+      }
+    } catch {
+      // ScrapingAnt falló — caer a fetch directo
+    }
+  }
+  const res = await fetch(url, { headers: HEADERS });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
 function parseSizeStr(sizeStr?: string): number | undefined {
   if (!sizeStr) return undefined;
   const match = sizeStr.trim().match(/^([\d.,]+)\s*(KB|MB|B)?$/i);
@@ -50,9 +78,7 @@ async function scrapearListaDocumentos(
   url: string,
   documentosCacheados: any[]
 ): Promise<DocumentoExtraido[]> {
-  const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const html = await res.text();
+  const html = await fetchConProxy(url);
   const $ = cheerio.load(html);
   const docs: DocumentoExtraido[] = [];
 

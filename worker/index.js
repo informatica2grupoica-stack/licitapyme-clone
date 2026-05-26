@@ -252,7 +252,8 @@ async function procesarJob(jobId) {
       ContentType: contentType,
     }));
 
-    const publicUrl = `https://pub-${process.env.R2_ACCOUNT_ID}.r2.dev/${key}`;
+    const publicBase = process.env.R2_PUBLIC_URL || `https://pub-${process.env.R2_ACCOUNT_ID}.r2.dev`;
+    const publicUrl = `${publicBase}/${key}`;
 
     // Guardar en BD
     await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/documentos/guardar`, {

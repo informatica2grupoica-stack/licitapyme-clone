@@ -1,13 +1,21 @@
 // app/api/documentos/auto-descargar/route.ts
-// Pipeline: ficha MP → ViewAttachment → ViewAttachmentLC → descarga → R2
+// Pipeline: API MP → (descarga directa | scraping ViewAttachmentLC) → R2
 //
-// ARQUITECTURA ANTI-WAF:
-// El portal de Mercado Público bloquea todas las IPs de AWS/GCP/Azure con una
-// página de 280 bytes (robot.png) en ViewAttachmentLC.aspx.
-// Solución: si SCRAPINGANT_API_KEY está configurada en las variables de entorno
-// de Vercel, rutear esa única petición a través del proxy de ScrapingAnt
-// (IPs residenciales, tier gratuito 10 000 req/mes).
-// Sign-up gratuito: https://scrapingant.com
+// ESTRATEGIA ANTI-WAF — dos capas:
+//
+// 1) API OFICIAL (primaria):
+//    api.mercadopublico.cl devuelve Documentos.Listado con URLs de descarga.
+//    Esta API no tiene WAF. Las URLs son Download.aspx?enc=... que se pueden
+//    intentar descargar directamente desde Vercel (diferente a ViewAttachmentLC).
+//
+// 2) SCRAPING + SCRAPINGANT (fallback):
+//    Si la API no devuelve documentos o las descargas fallan, scrapeamos
+//    ViewAttachmentLC.aspx via ScrapingAnt con browser=true (Chromium +
+//    proxies residenciales → bypass del WAF de Mercado Público).
+//    Sign-up gratuito: https://scrapingant.com (10 000 créditos/mes).
+//    NOTA: browser=true usa 10 créditos/req. proxy_type=residential solo
+//    funciona con browser=true; con browser=false usa datacenter.
+
 import { NextRequest, NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
 import { subirDocumentoR2 } from '@/app/lib/r2';
@@ -35,42 +43,139 @@ function buildHeaders(jar: string, referer?: string): Record<string, string> {
   };
 }
 
-// ─── Proxy anti-WAF (ScrapingAnt) ─────────────────────────────────────────
+// ─── API oficial de Mercado Público ───────────────────────────────────────
 //
-// ScrapingAnt ruta la petición a través de IPs residenciales, lo que evita
-// el bloqueo de Mercado Público a las IPs de Vercel (AWS Lambda).
+// Devuelve la lista de documentos adjuntos directamente desde la API JSON
+// (sin scraping). Esta API no tiene el WAF que bloquea ViewAttachmentLC.
 //
 // Variables de entorno necesarias:
-//   SCRAPINGANT_API_KEY  → clave de API de ScrapingAnt (gratuito en scrapingant.com)
-//
-// Si la clave no está configurada, se usa fetch directo (que será bloqueado por MP).
+//   MERCADO_PUBLICO_TICKET → ticket de la API (ya configurado en .env.local)
 
-async function fetchConProxy(url: string, jar: string, referer?: string): Promise<{ html: string; ok: boolean; status: number }> {
+type DocEntry = { nombre: string; downloadUrl: string; size?: number };
+
+async function obtenerDocsDesdeAPI(codigo: string, log: string[]): Promise<DocEntry[]> {
+  const ticket = process.env.MERCADO_PUBLICO_TICKET;
+  if (!ticket) {
+    log.push('⚠️ API MP: MERCADO_PUBLICO_TICKET no configurado');
+    return [];
+  }
+
+  try {
+    const url = `https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${encodeURIComponent(ticket)}`;
+    log.push(`🔌 API MP: ${url.replace(ticket, 'TICKET')}`);
+
+    const res = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      // No cache — necesitamos los docs actuales
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      log.push(`⚠️ API MP: HTTP ${res.status} ${res.statusText}`);
+      return [];
+    }
+
+    const data = await res.json();
+
+    // La API devuelve Codigo=10000 cuando hay error de autenticación/límite
+    if (data.Codigo === 10000) {
+      log.push(`⚠️ API MP: error ${data.Codigo} — ${data.Mensaje}`);
+      return [];
+    }
+
+    const licitacion = data.Listado?.[0];
+    if (!licitacion) {
+      log.push('⚠️ API MP: licitación no encontrada');
+      return [];
+    }
+
+    // Documentos: puede estar en Documentos.Listado o Documentos directamente
+    const rawDocs: any[] = (
+      licitacion.Documentos?.Listado ||
+      licitacion.Documentos ||
+      []
+    );
+
+    if (!Array.isArray(rawDocs) || rawDocs.length === 0) {
+      log.push('📄 API MP: sin documentos en la respuesta');
+      // Log la estructura real para diagnóstico
+      const keys = Object.keys(licitacion).filter(k => /doc|adjunto|attach/i.test(k));
+      if (keys.length) log.push(`   Campos relacionados: ${keys.join(', ')}`);
+      return [];
+    }
+
+    const docs: DocEntry[] = rawDocs
+      .map((d: any) => ({
+        nombre: (d.Nombre || d.nombre || d.Name || 'Documento').trim(),
+        downloadUrl: (d.Url || d.URL || d.url || d.DownloadUrl || '').trim(),
+      }))
+      .filter((d: DocEntry) => !!d.downloadUrl);
+
+    log.push(`✅ API MP: ${docs.length} documentos encontrados (de ${rawDocs.length} totales)`);
+    docs.slice(0, 5).forEach((d, i) =>
+      log.push(`   ${i + 1}. ${d.nombre} → ${d.downloadUrl.slice(0, 80)}`)
+    );
+    return docs;
+
+  } catch (e: any) {
+    log.push(`⚠️ API MP falló: ${e.message}`);
+    return [];
+  }
+}
+
+// ─── Proxy anti-WAF (ScrapingAnt) ─────────────────────────────────────────
+//
+// Usa Chromium con proxies residenciales para acceder a ViewAttachmentLC.aspx.
+// browser=true → Chromium, proxy residencial por defecto → bypass WAF.
+// Costo: 10 créditos/req (free tier = 1 000 req/mes con browser=true).
+//
+// IMPORTANTE: browser=false con proxy_type=residential no funciona en el
+// free tier y causa excepción → fallback a directo → siempre bloqueado.
+
+async function fetchConProxy(
+  url: string,
+  jar: string,
+  referer: string | undefined,
+  log: string[],
+): Promise<{ html: string; ok: boolean; status: number; usedProxy: boolean }> {
   const apiKey = process.env.SCRAPINGANT_API_KEY;
 
   if (apiKey) {
-    // Usar ScrapingAnt con IP residencial
-    // browser=false → más rápido, no ejecuta JS, solo obtiene HTML
-    // proxy_type=residential → IP residencial, no bloqueada por MP
-    const proxyUrl = `https://api.scrapingant.com/v2/general?` +
-      `x-api-key=${encodeURIComponent(apiKey)}` +
+    // browser=true: Chromium + residential IPs por defecto → bypass WAF
+    const proxyUrl =
+      `https://api.scrapingant.com/v2/general` +
+      `?x-api-key=${encodeURIComponent(apiKey)}` +
       `&url=${encodeURIComponent(url)}` +
-      `&browser=false` +
-      `&proxy_type=residential`;
+      `&browser=true`;
+
+    log.push(`🕷️ ScrapingAnt → ${url.slice(0, 80)}`);
+
     try {
-      const res = await fetch(proxyUrl, { headers: { 'Accept': 'text/html' } });
+      const res = await fetch(proxyUrl, {
+        headers: { Accept: 'text/html' },
+        // ScrapingAnt puede tardar 15-30s con browser=true
+        signal: AbortSignal.timeout(50_000),
+      });
       const html = await res.text();
-      return { html, ok: res.ok, status: res.status };
+
+      // ScrapingAnt devuelve 422 si el parámetro es inválido, 402 si sin créditos
+      if (!res.ok) {
+        log.push(`⚠️ ScrapingAnt HTTP ${res.status}: ${html.slice(0, 200)}`);
+        // Caer al fetch directo
+      } else {
+        log.push(`🕷️ ScrapingAnt OK — HTTP ${res.status} len=${html.length} robot=${html.includes('robot.png') || html.includes('Acceso denegado')}`);
+        return { html, ok: res.ok, status: res.status, usedProxy: true };
+      }
     } catch (e: any) {
-      // ScrapingAnt falló — intentar directo como fallback
-      console.warn('ScrapingAnt falló, intentando directo:', e.message);
+      log.push(`⚠️ ScrapingAnt excepción: ${e.message}`);
     }
   }
 
-  // Fetch directo (será bloqueado por MP WAF desde IPs de AWS/Vercel)
+  // Fetch directo (bloqueado por MP WAF desde IPs de AWS/Vercel, solo como último recurso)
+  log.push(`🌐 Fetch directo → ${url.slice(0, 80)}`);
   const res = await fetch(url, { headers: buildHeaders(jar, referer), redirect: 'follow' });
   const html = await res.text();
-  return { html, ok: res.ok, status: res.status };
+  return { html, ok: res.ok, status: res.status, usedProxy: false };
 }
 
 // ─── Utilidades ────────────────────────────────────────────────────────────
@@ -114,8 +219,6 @@ function mergeCookies(jar: string, response: Response): string {
   return Object.entries(existing).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-type DocEntry = { nombre: string; downloadUrl: string; size?: number };
-
 /**
  * Extrae documentos descargables de HTML.
  * Estrategia 1: filas de tabla con URL de descarga real (obligatoria)
@@ -123,8 +226,6 @@ type DocEntry = { nombre: string; downloadUrl: string; size?: number };
  * Estrategia 3: atributos onclick con rutas de descarga
  *
  * IMPORTANTE: Solo se agregan entradas con downloadUrl no vacía.
- * Esto evita que texto de tablas de contenido (bases, requisitos, etc.)
- * aparezca como "documento sin URL".
  */
 function extraerDocumentosDe(html: string, pageUrl: string, log: string[]): DocEntry[] {
   const $ = cheerio.load(html);
@@ -167,7 +268,6 @@ function extraerDocumentosDe(html: string, pageUrl: string, log: string[]): DocE
       let max = 0;
       cells.each((_, cell) => {
         const t = $(cell).text().trim();
-        // Máx 200 chars para evitar tomar párrafos de texto legal
         if (t.length > max && t.length >= 3 && t.length < 200 && !/^\d+$/.test(t)) {
           max = t.length; nombre = t;
         }
@@ -251,115 +351,126 @@ export async function POST(request: NextRequest) {
   }
 
   const proxyConfigurado = !!process.env.SCRAPINGANT_API_KEY;
+  const apiConfigurada   = !!process.env.MERCADO_PUBLICO_TICKET;
   let jar = '';
   const log: string[] = [];
 
-  log.push(`🔧 Proxy anti-WAF: ${proxyConfigurado ? '✅ ScrapingAnt configurado' : '⚠️ Sin proxy — ViewAttachmentLC será bloqueado por MP'}`);
+  log.push(`🔧 API oficial MP: ${apiConfigurada ? '✅ ticket configurado' : '⚠️ sin ticket'}`);
+  log.push(`🔧 Proxy ScrapingAnt: ${proxyConfigurado ? '✅ configurado' : '⚠️ sin clave'}`);
+
+  const fichaUrl = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(licitacionCodigo)}`;
+  let adjuntoUrl = '';
 
   try {
-    // ── PASO 0: Warm-up de sesión ──────────────────────────────────────────
-    try {
-      const resHome = await fetch('https://www.mercadopublico.cl/', {
-        headers: buildHeaders(jar), redirect: 'follow',
-      });
-      jar = mergeCookies(jar, resHome);
-      log.push(`🏠 Sesión iniciada (${jar.split('; ').filter(Boolean).length} cookies)`);
-    } catch {
-      log.push('⚠️ Warm-up falló — continuando sin sesión');
-    }
+    // ── PASO 0: API oficial de Mercado Público ────────────────────────────
+    //
+    // La API JSON no tiene WAF. Devuelve Documentos.Listado con URLs de
+    // Download.aspx. Estas URLs se pueden intentar descargar directamente
+    // desde Vercel — si no están bloqueadas, el problema queda resuelto
+    // sin necesidad de ningún proxy.
 
-    // ── PASO 1: DetailsAcquisition → encontrar link de adjuntos ───────────
-    const fichaUrl = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(licitacionCodigo)}`;
-    log.push(`🔍 Paso 1 — Ficha: ${fichaUrl}`);
+    log.push('─── PASO 0: API oficial ───');
+    let docsEncontrados: DocEntry[] = await obtenerDocsDesdeAPI(licitacionCodigo, log);
 
-    const res1 = await fetch(fichaUrl, { headers: buildHeaders(jar, 'https://www.mercadopublico.cl/'), redirect: 'follow' });
-    jar = mergeCookies(jar, res1);
-    if (!res1.ok) throw new Error(`Ficha HTTP ${res1.status}`);
-    const html1 = await res1.text();
-    log.push(`📄 Ficha: ${html1.length} bytes`);
+    // Si la API encontró documentos, ya tenemos las URLs — saltar scraping
+    if (docsEncontrados.length === 0) {
+      // ── PASO 1: Warm-up de sesión ────────────────────────────────────────
+      log.push('─── PASO 1: Sesión + Ficha ───');
+      try {
+        const resHome = await fetch('https://www.mercadopublico.cl/', {
+          headers: buildHeaders(jar), redirect: 'follow',
+        });
+        jar = mergeCookies(jar, resHome);
+        log.push(`🏠 Sesión: ${jar.split('; ').filter(Boolean).length} cookies`);
+      } catch {
+        log.push('⚠️ Warm-up falló — continuando sin sesión');
+      }
 
-    if (html1.includes('actividad anormal') || html1.includes('unusual activity')) {
-      throw new Error('Bloqueado por WAF de Mercado Público');
-    }
+      // ── PASO 2: DetailsAcquisition → encontrar link de adjuntos ──────────
+      log.push(`🔍 Ficha: ${fichaUrl}`);
+      const res1 = await fetch(fichaUrl, { headers: buildHeaders(jar, 'https://www.mercadopublico.cl/'), redirect: 'follow' });
+      jar = mergeCookies(jar, res1);
+      if (!res1.ok) throw new Error(`Ficha HTTP ${res1.status}`);
+      const html1 = await res1.text();
+      log.push(`📄 Ficha: ${html1.length} bytes`);
 
-    const $1 = cheerio.load(html1);
-    let adjuntoUrl = '';
+      if (html1.includes('actividad anormal') || html1.includes('unusual activity')) {
+        throw new Error('Bloqueado por WAF de Mercado Público');
+      }
 
-    for (const pat of [/ViewAttachmentLC\.aspx[^'")\s]*/i, /ViewAttachment\.aspx[^'")\s]*/i]) {
-      if (adjuntoUrl) break;
-      $1('[href]').each((_, el) => {
-        if (adjuntoUrl) return;
-        const m = ($1(el).attr('href') || '').match(pat);
-        if (m) adjuntoUrl = resolveUrl(m[0]);
-      });
-      $1('[onclick]').each((_, el) => {
-        if (adjuntoUrl) return;
-        const mOpen = ($1(el).attr('onclick') || '').match(/open\(\s*['"]([^'"]+)['"]/i);
-        if (mOpen) { const m = mOpen[1].match(pat); if (m) adjuntoUrl = resolveUrl(mOpen[1]); }
-      });
-    }
+      const $1 = cheerio.load(html1);
 
-    if (!adjuntoUrl) {
-      log.push('⚠️ No se encontró link de adjuntos en la ficha');
-      return NextResponse.json({ success: false, error: 'No hay adjuntos para esta licitación', ficha_url_mp: fichaUrl, log });
-    }
-    log.push(`🔗 Adjuntos: ${adjuntoUrl.slice(0, 100)}`);
+      for (const pat of [/ViewAttachmentLC\.aspx[^'")\s]*/i, /ViewAttachment\.aspx[^'")\s]*/i]) {
+        if (adjuntoUrl) break;
+        $1('[href]').each((_, el) => {
+          if (adjuntoUrl) return;
+          const m = ($1(el).attr('href') || '').match(pat);
+          if (m) adjuntoUrl = resolveUrl(m[0]);
+        });
+        $1('[onclick]').each((_, el) => {
+          if (adjuntoUrl) return;
+          const mOpen = ($1(el).attr('onclick') || '').match(/open\(\s*['"]([^'"]+)['"]/i);
+          if (mOpen) { const m = mOpen[1].match(pat); if (m) adjuntoUrl = resolveUrl(mOpen[1]); }
+        });
+      }
 
-    // La ficha DetailsAcquisition.aspx NO contiene links de documentos reales
-    // (los docs están en ViewAttachmentLC). Solo contiene exports de metadata
-    // CSV/JSON/OCDS que no son útiles. Siempre ir a ViewAttachmentLC vía proxy.
-    const docsDirectosFicha: DocEntry[] = [];
+      if (!adjuntoUrl) {
+        log.push('⚠️ No se encontró link de adjuntos en la ficha');
+        return NextResponse.json({
+          success: false,
+          error: 'No hay adjuntos para esta licitación',
+          ficha_url_mp: fichaUrl,
+          proxy_configurado: proxyConfigurado,
+          log,
+        });
+      }
+      log.push(`🔗 Adjuntos: ${adjuntoUrl.slice(0, 100)}`);
 
-    // ── PASO 2: ViewAttachment → extraer URL de ViewAttachmentLC ──────────
-    let lcUrl = adjuntoUrl;
-    let html2 = '';
+      // ── PASO 3: ViewAttachment → extraer URL de ViewAttachmentLC ─────────
+      let lcUrl = adjuntoUrl;
+      let html2 = '';
+      log.push('─── PASO 3: ViewAttachment → ViewAttachmentLC ───');
 
-    if (!adjuntoUrl.includes('ViewAttachmentLC')) {
-      log.push('🔄 Paso 2 — Cargando ViewAttachment...');
-      const res2 = await fetch(adjuntoUrl, { headers: buildHeaders(jar, fichaUrl), redirect: 'follow' });
-      jar = mergeCookies(jar, res2);
-      if (res2.ok) {
-        html2 = await res2.text();
-        log.push(`📄 ViewAttachment: ${html2.length} bytes`);
-        const mLC = html2.match(/window\.location(?:\.href)?\s*=\s*['"]([^'"]*ViewAttachmentLC\.aspx[^'"]+)['"]/);
-        if (mLC) {
-          lcUrl = resolveUrl(mLC[1]);
-          log.push('✅ ViewAttachmentLC extraído del JS');
-        } else {
-          const $2 = cheerio.load(html2);
-          $2('[href*="ViewAttachmentLC"],[src*="ViewAttachmentLC"]').each((_, el) => {
-            if (lcUrl !== adjuntoUrl) return;
-            const v = $2(el).attr('href') || $2(el).attr('src') || '';
-            if (v.includes('ViewAttachmentLC')) lcUrl = resolveUrl(v);
-          });
+      if (!adjuntoUrl.includes('ViewAttachmentLC')) {
+        const res2 = await fetch(adjuntoUrl, { headers: buildHeaders(jar, fichaUrl), redirect: 'follow' });
+        jar = mergeCookies(jar, res2);
+        if (res2.ok) {
+          html2 = await res2.text();
+          log.push(`📄 ViewAttachment: ${html2.length} bytes`);
+          const mLC = html2.match(/window\.location(?:\.href)?\s*=\s*['"]([^'"]*ViewAttachmentLC\.aspx[^'"]+)['"]/);
+          if (mLC) {
+            lcUrl = resolveUrl(mLC[1]);
+            log.push('✅ ViewAttachmentLC extraído del JS redirect');
+          } else {
+            const $2 = cheerio.load(html2);
+            $2('[href*="ViewAttachmentLC"],[src*="ViewAttachmentLC"]').each((_, el) => {
+              if (lcUrl !== adjuntoUrl) return;
+              const v = $2(el).attr('href') || $2(el).attr('src') || '';
+              if (v.includes('ViewAttachmentLC')) lcUrl = resolveUrl(v);
+            });
+          }
         }
       }
-    }
 
-    log.push(`📋 Paso 3 — ViewAttachmentLC: ${lcUrl.slice(0, 100)}`);
+      log.push(`📋 Paso 4 — ViewAttachmentLC: ${lcUrl.slice(0, 100)}`);
 
-    // Docs acumulados: empezar con los encontrados en la ficha (con URLs reales)
-    let docsEncontrados: DocEntry[] = docsDirectosFicha;
-    let html3 = '';
-
-    if (docsEncontrados.length > 0) {
-      log.push(`⏭️ Saltando ViewAttachmentLC — ${docsEncontrados.length} docs ya obtenidos de la ficha`);
-    } else {
-      // ── PASO 3: ViewAttachmentLC (vía proxy o directo) ───────────────────
-      const { html: htmlLC, ok: lcOk, status: lcStatus } = await fetchConProxy(lcUrl, jar, adjuntoUrl);
-      html3 = htmlLC;
+      // ── PASO 4: ViewAttachmentLC vía ScrapingAnt ──────────────────────────
+      log.push('─── PASO 4: ViewAttachmentLC (ScrapingAnt) ───');
+      const { html: htmlLC, ok: lcOk, status: lcStatus } = await fetchConProxy(lcUrl, jar, adjuntoUrl, log);
+      const html3 = htmlLC;
       log.push(`📊 ViewAttachmentLC: ${htmlDiag(html3)} (HTTP ${lcStatus})`);
 
       if (!lcOk) {
         log.push(`❌ ViewAttachmentLC HTTP ${lcStatus}`);
       } else if (html3.includes('robot.png') || html3.includes('Acceso denegado')) {
-        log.push('🤖 ViewAttachmentLC bloqueado por WAF (robot.png) — IP de AWS detectada');
+        log.push('🤖 ViewAttachmentLC bloqueado por WAF (robot.png)');
         if (!proxyConfigurado) {
-          log.push('💡 Solución: configura SCRAPINGANT_API_KEY en Vercel → Settings → Environment Variables');
-          log.push('   Sign-up gratuito: https://scrapingant.com (10 000 req/mes gratis)');
+          log.push('💡 Configura SCRAPINGANT_API_KEY en Vercel → Settings → Environment Variables');
+        } else {
+          log.push('💡 ScrapingAnt también fue bloqueado. Opciones: 1) upgrade ScrapingAnt, 2) usar docs del API MP si están disponibles');
         }
       } else {
-        // ── PASO 3b: WebForms POST si hay __VIEWSTATE ──────────────────────
+        // ── PASO 4b: WebForms POST si hay __VIEWSTATE ──────────────────
         const $3get = cheerio.load(html3);
         const viewState     = ($3get('input[name="__VIEWSTATE"]').val() as string)          || '';
         const evValidation  = ($3get('input[name="__EVENTVALIDATION"]').val() as string)    || '';
@@ -368,10 +479,19 @@ export async function POST(request: NextRequest) {
         if (viewState && html3.length > 2000) {
           log.push('🔄 Intentando POST WebForms...');
           try {
-            const form = new URLSearchParams({ __VIEWSTATE: viewState, __EVENTVALIDATION: evValidation, __VIEWSTATEGENERATOR: vsGenerator, __EVENTTARGET: '', __EVENTARGUMENT: '', __ASYNCPOST: 'true' });
+            const form = new URLSearchParams({
+              __VIEWSTATE: viewState, __EVENTVALIDATION: evValidation,
+              __VIEWSTATEGENERATOR: vsGenerator, __EVENTTARGET: '',
+              __EVENTARGUMENT: '', __ASYNCPOST: 'true',
+            });
             const resPost = await fetch(lcUrl, {
               method: 'POST',
-              headers: { ...buildHeaders(jar, lcUrl), 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest', 'X-MicrosoftAjax': 'Delta=true' },
+              headers: {
+                ...buildHeaders(jar, lcUrl),
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-MicrosoftAjax': 'Delta=true',
+              },
               body: form.toString(), redirect: 'follow',
             });
             jar = mergeCookies(jar, resPost);
@@ -379,24 +499,26 @@ export async function POST(request: NextRequest) {
               const htmlPost = await resPost.text();
               log.push(`📊 POST WebForms: ${htmlDiag(htmlPost)}`);
               if (htmlPost.length > html3.length || htmlPost.includes('Download') || htmlPost.includes('Attachment')) {
-                html3 = htmlPost;
                 log.push('✅ POST devolvió contenido más completo');
+                docsEncontrados = extraerDocumentosDe(htmlPost, lcUrl, log);
               }
             }
           } catch (e: any) { log.push(`⚠️ POST falló: ${e.message}`); }
         }
 
-        // ── PASO 3c: Extraer documentos ────────────────────────────────────
-        docsEncontrados = extraerDocumentosDe(html3, lcUrl, log);
+        // ── PASO 4c: Extraer documentos del HTML ───────────────────────
+        if (docsEncontrados.length === 0) {
+          docsEncontrados = extraerDocumentosDe(html3, lcUrl, log);
+        }
       }
 
-      // ── PASO 3d: Fallback → ViewAttachment directo ─────────────────────
+      // ── PASO 4d: Fallback → ViewAttachment directo ─────────────────
       if (docsEncontrados.length === 0 && html2) {
         log.push('🔄 Fallback: extrayendo de ViewAttachment.aspx...');
         docsEncontrados = extraerDocumentosDe(html2, adjuntoUrl, log);
       }
 
-      // ── PASO 3e: JSON en <script> ───────────────────────────────────────
+      // ── PASO 4e: JSON en <script> ───────────────────────────────────
       if (docsEncontrados.length === 0) {
         for (const script of (html3.match(/<script[^>]*>([\s\S]*?)<\/script>/gi) || [])) {
           const jsonMatch = script.match(/\[\s*\{[^<]{50,}\}\s*\]/);
@@ -408,30 +530,33 @@ export async function POST(request: NextRequest) {
                 const n = item.nombre || item.Nombre || item.name || item.Name || `Documento_${docsEncontrados.length + 1}`;
                 if (u) docsEncontrados.push({ nombre: n, downloadUrl: resolveUrl(u) });
               }
-              if (docsEncontrados.length > 0) { log.push(`✅ JSON en script: ${docsEncontrados.length} docs`); break; }
+              if (docsEncontrados.length > 0) {
+                log.push(`✅ JSON en script: ${docsEncontrados.length} docs`);
+                break;
+              }
             } catch {}
           }
         }
       }
-    } // end if(docsEncontrados.length === 0)
+    } // end scraping path
 
-    log.push(`📄 Total documentos encontrados: ${docsEncontrados.length}`);
+    log.push(`📄 Total documentos: ${docsEncontrados.length}`);
 
     if (docsEncontrados.length === 0) {
-      if (html3) log.push(`🔎 HTML preview: ${html3.replace(/\s+/g, ' ').substring(0, 500)}`);
       return NextResponse.json({
         success: false,
-        error: proxyConfigurado
-          ? 'No se encontraron documentos incluso con proxy. Revisa los logs.'
-          : 'Mercado Público bloquea el acceso automático desde servidores. Configura SCRAPINGANT_API_KEY o descarga manualmente.',
-        adjunto_url_mp: adjuntoUrl,
+        error: proxyConfigurado || apiConfigurada
+          ? 'No se encontraron documentos. La API MP no los devolvió y el scraping fue bloqueado.'
+          : 'Mercado Público bloquea el acceso automático. Configura SCRAPINGANT_API_KEY o descarga manualmente.',
+        adjunto_url_mp: adjuntoUrl || fichaUrl,
         ficha_url_mp: fichaUrl,
         proxy_configurado: proxyConfigurado,
         log,
       });
     }
 
-    // ── PASO 4: Descargar cada doc y subir a R2 ────────────────────────────
+    // ── PASO 5: Descargar cada doc y subir a R2 ────────────────────────────
+    log.push('─── PASO 5: Descargando y subiendo a R2 ───');
     const resultados: any[] = [];
     let descargados = 0;
 
@@ -441,10 +566,10 @@ export async function POST(request: NextRequest) {
         continue;
       }
       try {
-        log.push(`⬇️ Descargando: ${doc.nombre}`);
+        log.push(`⬇️ ${doc.nombre}`);
         const resDoc = await fetch(doc.downloadUrl, {
           headers: {
-            ...buildHeaders(jar, lcUrl || adjuntoUrl || fichaUrl),
+            ...buildHeaders(jar, adjuntoUrl || fichaUrl),
             Accept: 'application/pdf,application/msword,application/vnd.openxmlformats-officedocument.*,application/octet-stream,*/*',
           },
           redirect: 'follow',
@@ -452,15 +577,16 @@ export async function POST(request: NextRequest) {
         jar = mergeCookies(jar, resDoc);
 
         if (!resDoc.ok) {
-          log.push(`❌ HTTP ${resDoc.status} para ${doc.nombre}`);
+          log.push(`❌ HTTP ${resDoc.status} — ${doc.nombre}`);
           resultados.push({ nombre: doc.nombre, status: `error_http_${resDoc.status}` });
           continue;
         }
 
         const contentType = resDoc.headers.get('content-type') || 'application/octet-stream';
         if (contentType.includes('text/html')) {
-          log.push(`⚠️ Respuesta HTML (bloqueado) para: ${doc.nombre}`);
-          resultados.push({ nombre: doc.nombre, status: 'bloqueado_html' });
+          // Download.aspx también bloqueado — esto es común en Vercel
+          log.push(`🚫 Download.aspx bloqueado (HTML) — ${doc.nombre}`);
+          resultados.push({ nombre: doc.nombre, status: 'descarga_bloqueada', downloadUrl: doc.downloadUrl });
           continue;
         }
 
@@ -483,23 +609,30 @@ export async function POST(request: NextRequest) {
         await guardarDocumentoEnCache(licitacionCodigo, nombreFinal, publicUrl, buffer.length);
 
         descargados++;
-        log.push(`✅ Guardado: ${nombreFinal} (${(buffer.length / 1024).toFixed(0)} KB)`);
+        log.push(`✅ ${nombreFinal} (${(buffer.length / 1024).toFixed(0)} KB)`);
         resultados.push({ nombre: nombreFinal, status: 'ok', url: publicUrl, size: buffer.length });
 
       } catch (e: any) {
-        log.push(`❌ Error: ${doc.nombre}: ${e.message}`);
+        log.push(`❌ Error ${doc.nombre}: ${e.message}`);
         resultados.push({ nombre: doc.nombre, status: 'error', error: e.message });
       }
     }
+
+    // Si las descargas fueron bloqueadas pero tenemos las URLs de la API,
+    // igual devolvemos éxito parcial con los links de MP
+    const descargasBloqueadas = resultados.filter(r => r.status === 'descarga_bloqueada');
+    const urlsDocumentoMP = descargasBloqueadas.map(r => r.downloadUrl).filter(Boolean);
 
     return NextResponse.json({
       success: descargados > 0,
       total: docsEncontrados.length,
       descargados,
       documentos: resultados,
-      adjunto_url_mp: adjuntoUrl,
+      adjunto_url_mp: adjuntoUrl || fichaUrl,
       ficha_url_mp: fichaUrl,
       proxy_configurado: proxyConfigurado,
+      // Si descarga bloqueada pero tenemos URLs del API, retornarlas al frontend
+      urls_documentos_mp: urlsDocumentoMP.length > 0 ? urlsDocumentoMP : undefined,
       log,
     });
 
