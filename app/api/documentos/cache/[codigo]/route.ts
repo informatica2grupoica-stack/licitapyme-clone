@@ -4,7 +4,7 @@ import pool from '@/app/lib/db';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { codigo: string } }
+  { params }: { params: Promise<{ codigo: string }> }
 ) {
   const { codigo } = await params;
   

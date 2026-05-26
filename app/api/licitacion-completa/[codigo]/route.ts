@@ -5,7 +5,7 @@ import * as cheerio from 'cheerio';
 // IMPORTANTE: En Next.js App Router, los parámetros vienen en el segundo argumento
 export async function GET(
   request: NextRequest,
-  { params }: { params: { codigo: string } }
+  { params }: { params: Promise<{ codigo: string }> }
 ) {
   // Esperar a que params esté disponible (Next.js 15+ requiere await)
   const { codigo } = await params;
