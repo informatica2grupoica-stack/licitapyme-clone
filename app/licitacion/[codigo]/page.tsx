@@ -1273,10 +1273,10 @@ export default function LicitacionDetallePage() {
                         href={urlAdjuntosMP}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 w-full py-2.5 px-3 bg-orange-600 hover:bg-orange-700 text-white text-xs font-semibold transition-colors"
+                        className="flex items-center justify-center gap-2 w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
                       >
                         <ExternalLink size={13} />
-                        Ir a documentos en Mercado Público →
+                        Abrir adjuntos en Mercado Público →
                       </a>
                     )}
                   </div>
