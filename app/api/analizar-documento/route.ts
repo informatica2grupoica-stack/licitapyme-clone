@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 
-// DeepSeek usa la SDK de OpenAI con baseURL diferente
-const deepseek = new OpenAI({
-  apiKey: process.env.DEEPSEEK_API_KEY,
-  baseURL: 'https://api.deepseek.com',
-});
+// Cliente lazy — no se crea al importar el módulo (evita error de build sin vars de entorno)
+function getDeepSeek() {
+  return new OpenAI({
+    apiKey: process.env.DEEPSEEK_API_KEY ?? 'not-configured',
+    baseURL: 'https://api.deepseek.com',
+  });
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -77,7 +79,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const completion = await deepseek.chat.completions.create({
+    const completion = await getDeepSeek().chat.completions.create({
       model: 'deepseek-chat',
       messages: [
         {

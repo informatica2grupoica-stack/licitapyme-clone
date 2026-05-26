@@ -126,8 +126,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         } else {
           // Búsqueda por texto normal
-          console.log(`📅 Consultando licitaciones de los últimos 3 días...`);
-          const licitaciones = await client.obtenerUltimosDias(3);
+          console.log(`📅 Consultando licitaciones de los últimos 7 días...`);
+          const licitaciones = await client.obtenerUltimosDias(7);
           
           if (licitaciones.length === 0) {
             console.warn('⚠️ No se encontraron licitaciones, usando datos MOCK');

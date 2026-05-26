@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, Suspense } from 'react';
+import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Navbar } from '@/app/components/Navbar';
 import { SearchBar } from '@/app/components/SearchBar';
@@ -46,10 +46,25 @@ function HomeContent() {
   const [filters, setFilters] = useState<Filters>(FILTERS_DEFAULT);
   const [hasSearched, setHasSearched] = useState(false);
 
+  // Ref para detectar cambios reales en filtros (evita loop al montar)
+  const prevFiltersRef = useRef<string>('');
+
   useEffect(() => {
     loadFavorites();
     if (searchParams.get('favoritos') === 'true') setShowFavoritesOnly(true);
+    prevFiltersRef.current = JSON.stringify(FILTERS_DEFAULT);
   }, []);
+
+  // Auto-aplica filtros cuando cambian (solo si ya se realizó al menos una búsqueda)
+  useEffect(() => {
+    const serialized = JSON.stringify(filters);
+    if (prevFiltersRef.current === '' || prevFiltersRef.current === serialized) return;
+    prevFiltersRef.current = serialized;
+    if (hasSearched) {
+      executeSearch(lastQuery, 1);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
 
   const loadFavorites = async () => {
     try {
@@ -193,7 +208,7 @@ function HomeContent() {
               filters={filters}
               onChange={setFilters}
               onClear={handleClearFilters}
-              onApply={() => lastQuery && executeSearch(lastQuery, 1)}
+              onApply={() => { setHasSearched(true); executeSearch(lastQuery, 1); }}
             />
 
             {/* Favoritos toggle */}
