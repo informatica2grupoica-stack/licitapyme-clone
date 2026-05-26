@@ -56,31 +56,90 @@ async function scrapearListaDocumentos(
   const $ = cheerio.load(html);
   const docs: DocumentoExtraido[] = [];
 
-  // Tabla de anexos: 7 columnas (checkbox, nombre, tipo, desc, tamaño, fecha, acciones)
+  // Tabla de anexos: puede tener 2–7+ columnas según la licitación
   $('table tr').each((_, row) => {
     const cells = $(row).find('td');
-    if (cells.length < 5) return;
+    if (cells.length < 2) return;
 
-    const nombre = $(cells[1]).text().trim();
-    const tipo   = $(cells[2]).text().trim();
-    const desc   = $(cells[3]).text().trim();
-    const size   = $(cells[4]).text().trim();
-    const fecha  = $(cells[5]).text().trim();
+    // Detectar nombre adaptivamente: priorizar celda con extensión de archivo
+    let nombre = '';
+    let sizeStr = '';
+
+    cells.each((_, cell) => {
+      const text = $(cell).text().trim();
+      if (/\.(pdf|doc|docx|xlsx|xls|zip|rar|txt|jpg|png|ppt|pptx|xml|csv|odt)/i.test(text) && !nombre) {
+        nombre = text;
+      }
+      if (/^\d[\d.,]*\s*(KB|MB|B)\b/i.test(text)) sizeStr = text;
+    });
+
+    // Fallback: celda con texto más largo >= 3 chars y no puramente numérica
+    if (!nombre) {
+      let maxLen = 0;
+      cells.each((_, cell) => {
+        const text = $(cell).text().trim();
+        if (text.length > maxLen && text.length >= 3 && !/^\d+$/.test(text)) {
+          maxLen = text.length;
+          nombre = text;
+        }
+      });
+    }
 
     if (!nombre || nombre.length < 3) return;
+
+    // Extraer tipo / descripción / fecha de columnas opcionales
+    const tipo  = cells.length >= 3 ? $(cells[2]).text().trim() : '';
+    const desc  = cells.length >= 4 ? $(cells[3]).text().trim() : '';
+    const fecha = cells.length >= 6 ? $(cells[5]).text().trim() : '';
+
+    // Buscar URL de descarga en la fila
+    let downloadUrl = '';
+    $(row).find('a').each((_, a) => {
+      if (downloadUrl) return;
+      const href = $(a).attr('href') || '';
+      if (href && !href.startsWith('javascript') &&
+          (href.includes('Download') || href.includes('download') || href.includes('Attachment'))) {
+        downloadUrl = href.startsWith('http') ? href
+          : href.startsWith('/') ? `https://www.mercadopublico.cl${href}`
+          : `https://www.mercadopublico.cl/Procurement/Modules/Attachment/${href}`;
+      }
+    });
+    if (!downloadUrl) {
+      $(row).find('[onclick]').each((_, el) => {
+        if (downloadUrl) return;
+        const m = ($(el).attr('onclick') || '').match(/['"]([^'"]*(?:[Dd]ownload|[Aa]ttachment)[^'"]*)['"]/);
+        if (m?.[1]) downloadUrl = m[1].startsWith('http') ? m[1]
+          : `https://www.mercadopublico.cl/Procurement/Modules/Attachment/${m[1]}`;
+      });
+    }
 
     const cached = documentosCacheados.find(d => d.documento_nombre === nombre);
     docs.push({
       nombre,
-      url,                              // worker navega aquí y selecciona por nombre
+      url: downloadUrl || url,
       tipo:        tipo  || undefined,
       descripcion: desc  || undefined,
-      size:        parseSizeStr(size),
+      size:        parseSizeStr(sizeStr),
       fecha:       fecha || undefined,
       ya_descargado: !!cached,
       url_local:   cached?.documento_url_local,
     });
   });
+
+  // Fallback global: si tabla no dio nada, buscar todos los <a> con href de descarga
+  if (docs.length === 0) {
+    $('a').each((_, a) => {
+      const href = $(a).attr('href') || '';
+      if (!href || href.startsWith('javascript')) return;
+      if (href.includes('Download') || href.includes('DownloadAttachment') || href.includes('GetAttachment')) {
+        const text = $(a).text().trim() || `Documento_${docs.length + 1}`;
+        const resolvedHref = href.startsWith('http') ? href
+          : href.startsWith('/') ? `https://www.mercadopublico.cl${href}`
+          : `https://www.mercadopublico.cl/Procurement/Modules/Attachment/${href}`;
+        docs.push({ nombre: text, url: resolvedHref });
+      }
+    });
+  }
 
   return docs;
 }
@@ -122,20 +181,53 @@ async function scrapearViewAttachment(
   const docsEnTabla: DocumentoExtraido[] = [];
   $('table tr').each((_, row) => {
     const cells = $(row).find('td');
-    if (cells.length < 5) return;
-    const nombre = $(cells[1]).text().trim();
-    const tipo   = $(cells[2]).text().trim();
-    const desc   = $(cells[3]).text().trim();
-    const size   = $(cells[4]).text().trim();
-    const fecha  = $(cells[5]).text().trim();
+    if (cells.length < 2) return;
+
+    // Detectar nombre adaptivamente
+    let nombre = '';
+    let sizeStr = '';
+    cells.each((_, cell) => {
+      const text = $(cell).text().trim();
+      if (/\.(pdf|doc|docx|xlsx|xls|zip|rar|txt|jpg|png|ppt|pptx|xml|csv|odt)/i.test(text) && !nombre) {
+        nombre = text;
+      }
+      if (/^\d[\d.,]*\s*(KB|MB|B)\b/i.test(text)) sizeStr = text;
+    });
+    if (!nombre) {
+      let maxLen = 0;
+      cells.each((_, cell) => {
+        const text = $(cell).text().trim();
+        if (text.length > maxLen && text.length >= 3 && !/^\d+$/.test(text)) {
+          maxLen = text.length; nombre = text;
+        }
+      });
+    }
     if (!nombre || nombre.length < 3) return;
+
+    const tipo  = cells.length >= 3 ? $(cells[2]).text().trim() : '';
+    const desc  = cells.length >= 4 ? $(cells[3]).text().trim() : '';
+    const fecha = cells.length >= 6 ? $(cells[5]).text().trim() : '';
+
+    // Buscar link de descarga real en la fila
+    let downloadUrl = '';
+    $(row).find('a').each((_, a) => {
+      if (downloadUrl) return;
+      const href = $(a).attr('href') || '';
+      if (href && !href.startsWith('javascript') &&
+          (href.includes('Download') || href.includes('download') || href.includes('Attachment'))) {
+        downloadUrl = href.startsWith('http') ? href
+          : href.startsWith('/') ? `https://www.mercadopublico.cl${href}`
+          : `https://www.mercadopublico.cl/Procurement/Modules/Attachment/${href}`;
+      }
+    });
+
     const cached = documentosCacheados.find(d => d.documento_nombre === nombre);
     docsEnTabla.push({
       nombre,
-      url,
+      url: downloadUrl || url,
       tipo: tipo || undefined,
       descripcion: desc || undefined,
-      size: parseSizeStr(size),
+      size: parseSizeStr(sizeStr),
       fecha: fecha || undefined,
       ya_descargado: !!cached,
       url_local: cached?.documento_url_local,

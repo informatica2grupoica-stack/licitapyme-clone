@@ -165,9 +165,35 @@ export async function POST(request: NextRequest) {
 
     $3('table tr').each((_, row) => {
       const cells = $3(row).find('td');
-      if (cells.length < 5) return;
+      // Umbral flexible: al menos 2 columnas (era 5, demasiado estricto)
+      if (cells.length < 2) return;
 
-      const nombre = $3(cells[1]).text().trim();
+      // Buscar nombre del documento: priorizar celdas con extensión de archivo conocida
+      let nombre = '';
+      let sizeStr = '';
+
+      cells.each((_, cell) => {
+        const text = $3(cell).text().trim();
+        if (/\.(pdf|doc|docx|xlsx|xls|zip|rar|txt|jpg|png|ppt|pptx|xml|csv|odt)/i.test(text)) {
+          if (!nombre) nombre = text;
+        }
+        if (/^\d[\d.,]*\s*(KB|MB|B)\b/i.test(text)) {
+          sizeStr = text;
+        }
+      });
+
+      // Fallback: celda con texto más largo (>= 3 chars, no solo números)
+      if (!nombre) {
+        let maxLen = 0;
+        cells.each((_, cell) => {
+          const text = $3(cell).text().trim();
+          if (text.length > maxLen && text.length >= 3 && !/^\d+$/.test(text)) {
+            maxLen = text.length;
+            nombre = text;
+          }
+        });
+      }
+
       if (!nombre || nombre.length < 3) return;
 
       let downloadUrl = '';
@@ -191,11 +217,39 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const sizeStr = $3(cells[4]).text().trim();
       docsEncontrados.push({ nombre, downloadUrl, size: parseSizeStr(sizeStr) });
     });
 
     log.push(`📄 ${docsEncontrados.length} documentos encontrados en la tabla`);
+
+    // ── Fallback global: escanear TODOS los <a> con links de descarga ────────
+    if (docsEncontrados.length === 0) {
+      log.push('🔄 Fallback: buscando links de descarga directos en la página...');
+
+      $3('a').each((_, a) => {
+        const href = $3(a).attr('href') || '';
+        if (!href || href.startsWith('javascript')) return;
+        if (href.includes('Download') || href.includes('DownloadAttachment') || href.includes('GetAttachment')) {
+          const text = ($3(a).text().trim()) || `Documento_${docsEncontrados.length + 1}`;
+          docsEncontrados.push({ nombre: text, downloadUrl: resolveUrl(href) });
+        }
+      });
+
+      // También en atributos onclick
+      $3('[onclick]').each((_, el) => {
+        const onclick = $3(el).attr('onclick') || '';
+        const m = onclick.match(/['"]([^'"]*(?:[Dd]ownload|[Gg]et[Aa]ttachment)[^'"]*)['"]/);
+        if (m?.[1]) {
+          const url = resolveUrl(m[1]);
+          if (!docsEncontrados.some(d => d.downloadUrl === url)) {
+            const text = ($3(el).text().trim()) || `Documento_${docsEncontrados.length + 1}`;
+            docsEncontrados.push({ nombre: text, downloadUrl: url });
+          }
+        }
+      });
+
+      log.push(`📄 Fallback encontró: ${docsEncontrados.length} links de descarga`);
+    }
 
     if (docsEncontrados.length === 0) {
       // Devolver preview del HTML para diagnóstico
