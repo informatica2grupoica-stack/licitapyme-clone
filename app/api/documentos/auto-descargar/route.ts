@@ -55,48 +55,111 @@ function buildHeaders(jar: string, referer?: string): Record<string, string> {
   };
 }
 
-// ─── ScrapingAnt — bypass WAF de Mercado Público ─────────────────────────
+// ─── Proxies anti-WAF de Mercado Público ─────────────────────────────────
 //
-// browser=true → Chromium con IPs residenciales → bypass WAF de MP
-// (browser=false con proxy_type=residential NO funciona en free tier
-//  y lanza excepción → fallback silencioso a IP de AWS → siempre bloqueado)
+// El WAF de MP bloquea IPs que no son chilenas (o de AS conocidos).
+// Para bypassearlo necesitamos IPs residenciales chilenas.
+//
+// Variables de entorno (configura al menos una en Vercel):
+//
+//   SCRAPINGANT_API_KEY  → scrapingant.com  (ya configurado)
+//                          Requiere browser=true + proxy_country=CL
+//                          Free tier: 10 000 créditos/mes (10 créditos/req con browser)
+//
+//   ZENROWS_API_KEY      → zenrows.com       (registrarse gratis)
+//                          Premium proxy con geo-targeting
+//                          Free tier: 1 000 req/mes
+//
+// Se intenta en orden: ScrapingAnt → ZenRows → fetch directo (bloqueado)
+
+function isBlocked(html: string): boolean {
+  return html.includes('robot.png') || html.includes('Acceso denegado');
+}
+
+async function intentarScrapingAnt(url: string, log: string[]): Promise<string | null> {
+  const apiKey = process.env.SCRAPINGANT_API_KEY;
+  if (!apiKey) return null;
+
+  // proxy_country=CL → IP residencial CHILENA → bypass geo-bloqueo de MP
+  const proxyUrl =
+    `https://api.scrapingant.com/v2/general` +
+    `?x-api-key=${encodeURIComponent(apiKey)}` +
+    `&url=${encodeURIComponent(url)}` +
+    `&browser=true` +
+    `&proxy_country=CL`;                    // ← CLAVE: IP chilena
+
+  log.push(`🕷️ ScrapingAnt (CL) → ${url.slice(0, 80)}`);
+  try {
+    const res = await fetch(proxyUrl, {
+      headers: { Accept: 'text/html' },
+      signal: AbortSignal.timeout(55_000),
+    });
+    const html = await res.text();
+    if (!res.ok) {
+      log.push(`⚠️ ScrapingAnt HTTP ${res.status}: ${html.slice(0, 200)}`);
+      return null;
+    }
+    const blocked = isBlocked(html);
+    log.push(`🕷️ ScrapingAnt → HTTP ${res.status} len=${html.length} robot=${blocked}`);
+    return blocked ? null : html;
+  } catch (e: any) {
+    log.push(`⚠️ ScrapingAnt excepción: ${e.message}`);
+    return null;
+  }
+}
+
+async function intentarZenRows(url: string, log: string[]): Promise<string | null> {
+  const apiKey = process.env.ZENROWS_API_KEY;
+  if (!apiKey) return null;
+
+  // premium_proxy=true + proxy_country=CL → IP residencial chilena
+  // js_render=true → renderiza JavaScript (igual que browser real)
+  const proxyUrl =
+    `https://api.zenrows.com/v1/` +
+    `?apikey=${encodeURIComponent(apiKey)}` +
+    `&url=${encodeURIComponent(url)}` +
+    `&premium_proxy=true` +
+    `&proxy_country=CL` +
+    `&js_render=true`;
+
+  log.push(`🌿 ZenRows (CL) → ${url.slice(0, 80)}`);
+  try {
+    const res = await fetch(proxyUrl, {
+      headers: { Accept: 'text/html' },
+      signal: AbortSignal.timeout(55_000),
+    });
+    const html = await res.text();
+    if (!res.ok) {
+      log.push(`⚠️ ZenRows HTTP ${res.status}: ${html.slice(0, 200)}`);
+      return null;
+    }
+    const blocked = isBlocked(html);
+    log.push(`🌿 ZenRows → HTTP ${res.status} len=${html.length} robot=${blocked}`);
+    return blocked ? null : html;
+  } catch (e: any) {
+    log.push(`⚠️ ZenRows excepción: ${e.message}`);
+    return null;
+  }
+}
 
 async function fetchConProxy(
   url: string,
   log: string[],
 ): Promise<{ html: string; ok: boolean; status: number }> {
-  const apiKey = process.env.SCRAPINGANT_API_KEY;
+  // 1. ScrapingAnt con proxy_country=CL
+  const htmlSA = await intentarScrapingAnt(url, log);
+  if (htmlSA) return { html: htmlSA, ok: true, status: 200 };
 
-  if (apiKey) {
-    const proxyUrl =
-      `https://api.scrapingant.com/v2/general` +
-      `?x-api-key=${encodeURIComponent(apiKey)}` +
-      `&url=${encodeURIComponent(url)}` +
-      `&browser=true`;
+  // 2. ZenRows con proxy_country=CL
+  const htmlZR = await intentarZenRows(url, log);
+  if (htmlZR) return { html: htmlZR, ok: true, status: 200 };
 
-    log.push(`🕷️ ScrapingAnt (browser=true) → ${url.slice(0, 90)}`);
-
-    try {
-      const res = await fetch(proxyUrl, {
-        headers: { Accept: 'text/html' },
-        signal: AbortSignal.timeout(50_000),
-      });
-      const html = await res.text();
-
-      if (!res.ok) {
-        log.push(`⚠️ ScrapingAnt HTTP ${res.status}: ${html.slice(0, 300)}`);
-        // Caer al directo
-      } else {
-        const blocked = html.includes('robot.png') || html.includes('Acceso denegado');
-        log.push(`🕷️ ScrapingAnt OK — HTTP ${res.status} len=${html.length} robot=${blocked}`);
-        return { html, ok: true, status: res.status };
-      }
-    } catch (e: any) {
-      log.push(`⚠️ ScrapingAnt excepción: ${e.message}`);
-    }
+  // 3. Directo (siempre bloqueado desde Vercel — solo para diagnóstico)
+  if (!process.env.SCRAPINGANT_API_KEY && !process.env.ZENROWS_API_KEY) {
+    log.push(`⚠️ Sin proxies configurados — fetch directo (será bloqueado por WAF de MP)`);
+  } else {
+    log.push(`🌐 Ambos proxies bloqueados — fetch directo como diagnóstico`);
   }
-
-  log.push(`🌐 Fetch directo (puede estar bloqueado) → ${url.slice(0, 90)}`);
   const res = await fetch(url, { headers: buildHeaders(''), redirect: 'follow' });
   const html = await res.text();
   return { html, ok: res.ok, status: res.status };
