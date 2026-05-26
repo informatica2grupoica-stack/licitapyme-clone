@@ -8,7 +8,7 @@ import {
   Building2, MapPin, Calendar, DollarSign, Clock, Hash,
   FileText, Download, Eye, Loader2, AlertCircle, CheckCircle,
   XCircle, Package, Phone, Mail, Shield, Info, Tag,
-  RefreshCw, DownloadCloud, ChevronDown, ChevronUp, MessageSquare,
+  RefreshCw, ChevronDown, ChevronUp, MessageSquare,
   Upload, Sparkles, X, Send, Bot, User, Files, ChevronRight,
 } from 'lucide-react';
 import { TIPOS_LICITACION, MODALIDADES_PAGO, DocumentoAdjunto, Oportunidad } from '@/app/types/search.types';
@@ -242,140 +242,32 @@ function SubirDocumentos({
 }
 
 // ─── Fila de documento ─────────────────────────────────────────────────────
-function DocumentRow({
-  doc,
-  codigoLicitacion,
-  onDescargado,
-  analizable,
-}: {
-  doc: DocumentoAdjunto;
-  codigoLicitacion: string;
-  onDescargado: (url: string, nombre: string) => void;
-  analizable: boolean;
-}) {
-  const [estado, setEstado] = useState<'idle' | 'solicitando' | 'procesando' | 'listo' | 'error'>('idle');
-  const [urlDescargado, setUrlDescargado] = useState<string | null>(
-    doc.ya_descargado && doc.url_local ? doc.url_local :
-    doc.url?.startsWith('https://pub-') ? doc.url : null
-  );
-  const [progreso, setProgreso] = useState('');
-
-  const yaDescargado = urlDescargado !== null;
-
-  const solicitar = async () => {
-    setEstado('solicitando');
-    setProgreso('Iniciando...');
-    try {
-      const res = await fetch('/api/documentos/solicitar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentoUrl: doc.url, documentoNombre: doc.nombre, licitacionCodigo: codigoLicitacion }),
-      });
-      const data = await res.json();
-      if (data.cached && data.url) {
-        setUrlDescargado(data.url);
-        setEstado('listo');
-        onDescargado(data.url, doc.nombre);
-        return;
-      }
-      if (!data.jobId) { setEstado('error'); setProgreso('No se pudo iniciar'); return; }
-      setEstado('procesando');
-      setProgreso('Procesando...');
-      const jobId = data.jobId;
-      let intentos = 0;
-      const poll = setInterval(async () => {
-        if (++intentos > 30) { clearInterval(poll); setEstado('error'); setProgreso('Tiempo agotado'); return; }
-        const r = await fetch(`/api/documentos/estado?jobId=${jobId}`);
-        if (!r.ok) { setProgreso(`Verificando... (${intentos * 3}s)`); return; }
-        const j = await r.json();
-        if (j.status === 'completed' && j.url) {
-          clearInterval(poll); setUrlDescargado(j.url); setEstado('listo'); setProgreso('');
-          onDescargado(j.url, doc.nombre);
-        } else if (j.status === 'failed') {
-          clearInterval(poll); setEstado('error'); setProgreso(j.error || 'Error');
-        } else {
-          setProgreso(`Procesando... (${intentos * 3}s)`);
-        }
-      }, 3000);
-    } catch { setEstado('error'); setProgreso('Error de red'); }
-  };
-
+function DocumentRow({ doc, analizable }: { doc: DocumentoAdjunto; analizable: boolean }) {
   return (
-    <div className={`rounded-lg border transition-colors ${yaDescargado && analizable ? 'bg-purple-50 border-purple-100' : 'bg-gray-50 border-gray-100'}`}>
+    <div className={`rounded-lg border transition-colors ${analizable ? 'bg-purple-50 border-purple-100' : 'bg-gray-50 border-gray-100'}`}>
       <div className="flex items-center gap-2.5 p-2.5">
         <span className="text-lg flex-shrink-0">{getFileIcon(doc.nombre)}</span>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-gray-800 truncate leading-snug" title={doc.nombre}>
-            {doc.nombre}
-          </p>
+          <p className="text-xs font-medium text-gray-800 truncate" title={doc.nombre}>{doc.nombre}</p>
           <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
             {doc.tipo && <span className="text-xs text-gray-500 bg-gray-100 px-1 rounded">{doc.tipo}</span>}
             {doc.size && <span className="text-xs text-gray-400">{formatFileSize(doc.size)}</span>}
-            {yaDescargado && analizable && (
+            {analizable && (
               <span className="text-xs text-purple-600 flex items-center gap-0.5 font-medium">
                 <Sparkles size={9} /> Listo para IA
-              </span>
-            )}
-            {progreso && estado !== 'error' && (
-              <span className="text-xs text-blue-600 flex items-center gap-1">
-                <Loader2 size={9} className="animate-spin" />{progreso}
-              </span>
-            )}
-            {estado === 'error' && (
-              <span className="text-xs text-red-500 flex items-center gap-1">
-                <AlertCircle size={9} />{progreso}
               </span>
             )}
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {/* Documento con URL de MP (descarga bloqueada desde servidor) */}
-          {!yaDescargado && (doc.url_mp || doc.url?.includes('mercadopublico.cl')) && (
-            <a
-              href={doc.url_mp || doc.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors"
-              title="Abrir en Mercado Público"
-            >
-              <ExternalLink size={11} />
-              Abrir
-            </a>
-          )}
-          {yaDescargado ? (
-            <>
-              <a href={urlDescargado!} target="_blank" rel="noopener noreferrer"
-                className="p-1 text-blue-500 hover:bg-blue-100 rounded transition-colors" title="Ver">
-                <Eye size={13} />
-              </a>
-              <a href={urlDescargado!} download
-                className="p-1 text-green-600 hover:bg-green-100 rounded transition-colors" title="Descargar">
-                <Download size={13} />
-              </a>
-            </>
-          ) : (
-            <>
-              {/* Solo mostrar "Obtener" si NO es URL de MP (sería bloqueada desde servidor) */}
-              {doc.url && !doc.url.includes('mercadopublico.cl') && !doc.url_mp && (
-                <>
-                  <a href={doc.url} target="_blank" rel="noopener noreferrer"
-                    className="p-1 text-gray-400 hover:bg-gray-200 rounded transition-colors" title="Abrir en MP">
-                    <ExternalLink size={12} />
-                  </a>
-                  <button
-                    onClick={solicitar}
-                    disabled={estado === 'solicitando' || estado === 'procesando'}
-                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 rounded-lg transition-colors"
-                  >
-                    {estado === 'solicitando' || estado === 'procesando'
-                      ? <Loader2 size={10} className="animate-spin" />
-                      : <DownloadCloud size={10} />}
-                    Obtener
-                  </button>
-                </>
-              )}
-            </>
-          )}
+          <a href={doc.url_local || doc.url} target="_blank" rel="noopener noreferrer"
+            className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors" title="Ver">
+            <Eye size={13} />
+          </a>
+          <a href={doc.url_local || doc.url} download={doc.nombre}
+            className="p-1.5 text-green-600 hover:bg-green-100 rounded-lg transition-colors" title="Descargar">
+            <Download size={13} />
+          </a>
         </div>
       </div>
     </div>
@@ -714,14 +606,9 @@ export default function LicitacionDetallePage() {
   const [toggling, setToggling] = useState(false);
   const [copiedCodigo, setCopiedCodigo] = useState(false);
   const [documentosCache, setDocumentosCache] = useState<DocumentoAdjunto[]>([]);
-  const [documentosAPI, setDocumentosAPI] = useState<DocumentoAdjunto[]>([]);
-  const [documentosSubidos, setDocumentosSubidos] = useState<DocumentoAdjunto[]>([]);
   const [urlAdjuntosMP, setUrlAdjuntosMP] = useState<string | null>(null);
   const [cargandoDocs, setCargandoDocs] = useState(false);
   const [showItems, setShowItems] = useState(false);
-  const [autoDescargando, setAutoDescargando] = useState(false);
-  const [autoDescargaLog, setAutoDescargaLog] = useState<string[]>([]);
-  const [autoDescargaError, setAutoDescargaError] = useState<string | null>(null);
   const [showFechas, setShowFechas] = useState(false);
 
   const codigo = params.codigo as string;
@@ -732,11 +619,9 @@ export default function LicitacionDetallePage() {
       fetchLicitacion();
       fetchDocumentos();
       // Ficha URL siempre disponible como fallback para "Abrir en MP"
-      if (!urlAdjuntosMP) {
-        setUrlAdjuntosMP(
-          `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(codigoDecoded)}`
-        );
-      }
+      setUrlAdjuntosMP(
+        `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(codigoDecoded)}`
+      );
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codigoDecoded]);
@@ -773,33 +658,18 @@ export default function LicitacionDetallePage() {
   const fetchDocumentos = async () => {
     setCargandoDocs(true);
     try {
-      // Consultar caché y scrape de MP en paralelo
-      const [apiRes, cacheRes] = await Promise.all([
-        fetch(`/api/documentos/${encodeURIComponent(codigoDecoded)}`),
-        fetch(`/api/documentos/cache/${encodeURIComponent(codigoDecoded)}`),
-      ]);
-
-      // 1. Documentos en caché local (R2) — fuente de verdad principal
-      if (cacheRes.ok) {
-        const cacheData = await cacheRes.json();
-        if (cacheData.documentos?.length > 0) {
-          setDocumentosCache(cacheData.documentos.map((d: any) => ({
-            nombre: d.documento_nombre,
-            url: d.documento_url_local,
-            url_local: d.documento_url_local,
-            size: d.size_bytes,
+      const res = await fetch(`/api/documentos/cache/${encodeURIComponent(codigoDecoded)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.documentos?.length > 0) {
+          setDocumentosCache(data.documentos.map((d: any) => ({
+            nombre: d.documento_nombre || d.nombre,
+            url: d.documento_url_local || d.url_local || d.url,
+            url_local: d.documento_url_local || d.url_local || d.url,
+            size: d.size_bytes || d.size,
             ya_descargado: true,
           })));
         }
-      }
-
-      // 2. Documentos de MP (scrape) — para los que aún no están en caché
-      if (apiRes.ok) {
-        const apiData = await apiRes.json();
-        if (apiData.documentos?.length > 0) {
-          setDocumentosAPI(apiData.documentos);
-        }
-        if (apiData.url_adjuntos_mp) setUrlAdjuntosMP(apiData.url_adjuntos_mp);
       }
     } catch { }
     finally { setCargandoDocs(false); }
@@ -822,76 +692,12 @@ export default function LicitacionDetallePage() {
     setTimeout(() => setCopiedCodigo(false), 2000);
   };
 
-  const handleDocDescargado = (url: string, nombre: string) => {
-    setDocumentosCache(prev => {
-      if (prev.some(d => d.nombre === nombre)) return prev;
-      return [...prev, { nombre, url, tipo: 'cached' }];
-    });
-  };
-
   const handleDocsSubidos = (nuevos: DocumentoAdjunto[]) => {
-    setDocumentosSubidos(prev => {
+    setDocumentosCache(prev => {
       const merged = [...prev];
       nuevos.forEach(n => { if (!merged.some(m => m.nombre === n.nombre)) merged.push(n); });
       return merged;
     });
-  };
-
-  const handleAutoDescargar = async () => {
-    setAutoDescargando(true);
-    setAutoDescargaLog([]);
-    setAutoDescargaError(null);
-    try {
-      const res = await fetch('/api/documentos/auto-descargar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licitacionCodigo: codigoDecoded }),
-      });
-      const data = await res.json();
-      setAutoDescargaLog(data.log || []);
-
-      // Capturar URL del portal de MP (disponible incluso cuando falla la descarga)
-      const mpUrl = data.adjunto_url_mp || data.ficha_url_mp;
-      if (mpUrl) setUrlAdjuntosMP(mpUrl);
-
-      if (data.success && data.descargados > 0) {
-        // Descarga exitosa: refrescar lista de documentos desde caché
-        await fetchDocumentos();
-      } else if (data.lista_documentos?.length > 0) {
-        // API oficial devolvió documentos pero la descarga desde Vercel está bloqueada por WAF.
-        // Cada doc tiene su propio downloadUrl (Download.aspx?enc=...) — el usuario lo abre
-        // desde su browser con IP chilena y descarga directamente.
-        const docsListados: DocumentoAdjunto[] = data.lista_documentos.map((d: any) => ({
-          nombre: d.nombre,
-          url: d.downloadUrl || data.adjunto_url_mp || '',
-          url_mp: d.downloadUrl || data.adjunto_url_mp || '',
-          tipo: d.tipo,
-          descripcion: d.descripcion,
-        }));
-        setDocumentosAPI(docsListados);
-        setAutoDescargaError(
-          `Encontramos ${docsListados.length} documento${docsListados.length > 1 ? 's' : ''}. ` +
-          `Haz clic en "Abrir" en cada documento para descargarlo desde tu browser.`
-        );
-      } else if (data.documentos?.some((d: any) => d.status === 'descarga_bloqueada')) {
-        // Documentos encontrados pero descarga bloqueada (con URL individual)
-        const bloqueados: DocumentoAdjunto[] = data.documentos
-          .filter((d: any) => d.status === 'descarga_bloqueada')
-          .map((d: any) => ({
-            nombre: d.nombre,
-            url: d.downloadUrl || data.adjunto_url_mp || '',
-            url_mp: d.downloadUrl || data.adjunto_url_mp || '',
-          }));
-        if (bloqueados.length > 0) setDocumentosAPI(bloqueados);
-        setAutoDescargaError(data.error || `Descarga bloqueada — ${bloqueados.length} documentos encontrados`);
-      } else {
-        setAutoDescargaError(data.error || 'No se encontraron documentos');
-      }
-    } catch (e: any) {
-      setAutoDescargaError(e.message);
-    } finally {
-      setAutoDescargando(false);
-    }
   };
 
   if (loading) {
@@ -941,20 +747,8 @@ export default function LicitacionDetallePage() {
   const monto = formatCLP(licitacion.monto_total || licitacion.monto_estimado);
   const tipoLabel = licitacion.tipo_licitacion ? (TIPO_LICITACION_MAP[licitacion.tipo_licitacion] || TIPOS_LICITACION[licitacion.tipo_licitacion] || licitacion.tipo_licitacion) : null;
 
-  const todosDocumentos = [
-    ...documentosCache,
-    ...documentosSubidos.filter(d => !documentosCache.some(c => c.nombre === d.nombre)),
-    ...documentosAPI.filter(d =>
-      !documentosCache.some(c => c.nombre === d.nombre) &&
-      !documentosSubidos.some(s => s.nombre === d.nombre)
-    ),
-  ];
-
   // Documentos que se pueden enviar a la IA (están en cloud y son PDF/DOCX)
-  const documentosAnalizables = todosDocumentos.filter(d =>
-    (d.url_local || d.ya_descargado || d.url?.startsWith('https://pub-')) &&
-    esUrlAnalizable(d.url_local || d.url)
-  );
+  const documentosAnalizables = documentosCache.filter(d => esUrlAnalizable(d.url_local || d.url));
 
   const fechasProceso = licitacion.fechas_proceso;
   const fechasAdic = [
@@ -1201,13 +995,14 @@ export default function LicitacionDetallePage() {
 
             {/* DOCUMENTOS */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+              {/* Header */}
               <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <FileText size={16} className="text-blue-600" />
                   <span className="text-sm font-semibold text-gray-800">Documentos</span>
-                  {!cargandoDocs && todosDocumentos.length > 0 && (
+                  {!cargandoDocs && documentosCache.length > 0 && (
                     <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">
-                      {todosDocumentos.length}
+                      {documentosCache.length}
                     </span>
                   )}
                   {documentosAnalizables.length > 0 && (
@@ -1216,122 +1011,82 @@ export default function LicitacionDetallePage() {
                     </span>
                   )}
                 </div>
-                <button onClick={fetchDocumentos}
-                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors" title="Recargar">
+                <button onClick={fetchDocumentos} title="Recargar documentos"
+                  className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
                   <RefreshCw size={14} />
                 </button>
               </div>
 
-              <div className="p-4 space-y-3">
+              <div className="p-4 space-y-4">
 
-                {/* ── Botón descarga automática ── */}
-                <button
-                  onClick={handleAutoDescargar}
-                  disabled={autoDescargando}
-                  className={`flex items-center justify-center gap-2 w-full py-2.5 px-3 text-sm font-semibold rounded-xl transition-all border ${
-                    autoDescargando
-                      ? 'bg-green-50 border-green-200 text-green-700 cursor-wait'
-                      : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white border-transparent shadow-sm hover:shadow'
-                  }`}
-                >
-                  {autoDescargando ? (
-                    <><Loader2 size={15} className="animate-spin" /> Descargando desde Mercado Público...</>
-                  ) : (
-                    <><DownloadCloud size={15} /> Descargar documentos automáticamente</>
-                  )}
-                </button>
-
-                {/* Log de progreso */}
-                {autoDescargaLog.length > 0 && (
-                  <div className="bg-gray-900 rounded-lg p-2.5 max-h-32 overflow-y-auto">
-                    {autoDescargaLog.map((line, i) => (
-                      <p key={i} className="text-xs font-mono text-gray-300 leading-relaxed">{line}</p>
-                    ))}
-                  </div>
-                )}
-
-                {/* Aviso de descarga — guiar al usuario */}
-                {autoDescargaError && (
-                  <div className={`rounded-xl border overflow-hidden ${
-                    documentosAPI.some(d => d.url_mp)
-                      ? 'border-blue-200 bg-blue-50'
-                      : 'border-orange-200 bg-orange-50'
-                  }`}>
-                    <div className="flex items-start gap-2 p-3">
-                      <Info size={14} className={`flex-shrink-0 mt-0.5 ${documentosAPI.some(d => d.url_mp) ? 'text-blue-500' : 'text-orange-500'}`} />
-                      <div className="min-w-0">
-                        <p className={`text-xs font-semibold ${documentosAPI.some(d => d.url_mp) ? 'text-blue-800' : 'text-orange-800'}`}>
-                          {documentosAPI.some(d => d.url_mp) ? 'Documentos disponibles' : 'Descarga manual requerida'}
-                        </p>
-                        <p className={`text-xs mt-0.5 leading-relaxed ${documentosAPI.some(d => d.url_mp) ? 'text-blue-600' : 'text-orange-600'}`}>
-                          {autoDescargaError}
-                        </p>
+                {/* Guía 3 pasos */}
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border border-blue-100 p-4">
+                  <p className="text-xs font-semibold text-blue-900 mb-3 flex items-center gap-1.5">
+                    <Download size={12} /> Cómo agregar documentos:
+                  </p>
+                  <div className="space-y-3">
+                    {/* Paso 1 */}
+                    <div className="flex gap-3 items-start">
+                      <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-700 mb-1">Abre la licitación en Mercado Público</p>
+                        <a
+                          href={urlAdjuntosMP || `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(codigoDecoded)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                        >
+                          <ExternalLink size={11} />
+                          Ir a Mercado Público
+                        </a>
                       </div>
                     </div>
-                    {!documentosAPI.some(d => d.url_mp) && urlAdjuntosMP && (
-                      <a
-                        href={urlAdjuntosMP}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 w-full py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
-                      >
-                        <ExternalLink size={13} />
-                        Ir a la licitación en Mercado Público →
-                      </a>
-                    )}
+                    {/* Paso 2 */}
+                    <div className="flex gap-3 items-start">
+                      <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                      <p className="text-xs text-gray-600 leading-relaxed">Ve a la pestaña <strong>"Adjuntos"</strong> y descarga los archivos a tu computador</p>
+                    </div>
+                    {/* Paso 3 */}
+                    <div className="flex gap-3 items-start">
+                      <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                      <p className="text-xs text-gray-600 leading-relaxed">Arrástralos al área de abajo — quedan guardados en la plataforma para siempre</p>
+                    </div>
                   </div>
-                )}
-
-                {/* Separador */}
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 h-px bg-gray-100" />
-                  <span className="text-xs text-gray-400">o carga manual</span>
-                  <div className="flex-1 h-px bg-gray-100" />
                 </div>
 
-                {urlAdjuntosMP && (
-                  <a href={urlAdjuntosMP} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 w-full py-2 px-3 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-sm font-medium rounded-xl transition-colors">
-                    <ExternalLink size={14} />
-                    Abrir documentos en Mercado Público
-                  </a>
-                )}
-
+                {/* Zona de subida */}
                 {codigoDecoded && (
                   <SubirDocumentos codigoLicitacion={codigoDecoded} onSubidos={handleDocsSubidos} />
                 )}
-                {(urlAdjuntosMP || documentosSubidos.length === 0) && (
-                  <p className="text-xs text-gray-400 text-center -mt-1">
-                    Arrastra los archivos aquí → se guardan en cloud para analizarlos con IA
-                  </p>
-                )}
 
+                {/* Lista de documentos guardados */}
                 {cargandoDocs ? (
                   <div className="flex items-center justify-center py-4 gap-2 text-sm text-gray-500">
-                    <Loader2 size={16} className="animate-spin text-blue-500" />Buscando documentos...
+                    <Loader2 size={16} className="animate-spin text-blue-500" /> Cargando documentos...
                   </div>
-                ) : todosDocumentos.length > 0 ? (
-                  <div className="space-y-1.5">
-                    {todosDocumentos.map((doc, i) => (
-                      <DocumentRow
-                        key={i}
-                        doc={doc}
-                        codigoLicitacion={codigoDecoded}
-                        onDescargado={handleDocDescargado}
-                        analizable={esUrlAnalizable(doc.url_local || doc.url)}
-                      />
-                    ))}
+                ) : documentosCache.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-gray-500 flex items-center gap-1.5">
+                      <CheckCircle size={11} className="text-green-500" />
+                      {documentosCache.length} documento{documentosCache.length > 1 ? 's' : ''} guardado{documentosCache.length > 1 ? 's' : ''} en la plataforma
+                    </p>
+                    <div className="space-y-1.5">
+                      {documentosCache.map((doc, i) => (
+                        <DocumentRow
+                          key={`${doc.nombre}-${i}`}
+                          doc={doc}
+                          analizable={esUrlAnalizable(doc.url_local || doc.url)}
+                        />
+                      ))}
+                    </div>
                   </div>
-                ) : !cargandoDocs && (
-                  <div className="text-center py-5">
-                    <FileText size={26} className="mx-auto text-gray-200 mb-2" />
-                    <p className="text-sm text-gray-500">No se detectaron documentos</p>
-                    {!urlAdjuntosMP && licitacion.url && (
-                      <a href={licitacion.url} target="_blank" rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 mt-2 text-xs text-blue-600 hover:underline">
-                        <ExternalLink size={12} />Ver ficha en Mercado Público
-                      </a>
-                    )}
+                ) : (
+                  <div className="text-center py-4">
+                    <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-2">
+                      <FileText size={18} className="text-gray-300" />
+                    </div>
+                    <p className="text-xs text-gray-500 font-medium">Sin documentos aún</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Sigue los pasos de arriba para agregar documentos</p>
                   </div>
                 )}
               </div>
