@@ -1,208 +1,209 @@
-// src/lib/search-engine.ts
 import { Oportunidad, SearchRequest, SearchResponse, TipoOrden } from '@/app/types/search.types';
-import { Licitacion, LicitacionItem } from '@/app/types/mercado-publico.types';
+import { Licitacion } from '@/app/types/mercado-publico.types';
 
 export class SearchEngine {
-  /**
-   * Normalizar texto para búsqueda
-   */
   private normalizeText(text: string): string {
     if (!text) return '';
     return text
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[̀-ͯ]/g, '')
       .replace(/[^a-z0-9\s]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
   }
 
-  /**
-   * Calcular score de relevancia entre consulta y texto
-   */
   private calculateScore(query: string, text: string): number {
     if (!query || !text) return 0;
-    
     const queryWords = this.normalizeText(query).split(' ');
-    const textWords = this.normalizeText(text).split(' ');
-    
+    const textNorm = this.normalizeText(text);
+    const textWords = textNorm.split(' ');
+
     let matches = 0;
     let exactMatches = 0;
-    
+
     for (const qWord of queryWords) {
       if (qWord.length < 2) continue;
-      
       for (const tWord of textWords) {
-        if (tWord === qWord) {
-          exactMatches++;
-          matches++;
-          break;
-        } else if (tWord.includes(qWord) || qWord.includes(tWord)) {
-          matches++;
-          break;
-        }
+        if (tWord === qWord) { exactMatches++; matches++; break; }
+        else if (tWord.includes(qWord) || qWord.includes(tWord)) { matches++; break; }
       }
     }
-    
-    const maxPossibleMatches = queryWords.filter(w => w.length >= 2).length;
-    const baseScore = maxPossibleMatches > 0 ? matches / maxPossibleMatches : 0;
+
+    const possible = queryWords.filter(w => w.length >= 2).length;
+    const base = possible > 0 ? matches / possible : 0;
     const exactBonus = exactMatches > 0 ? 0.2 : 0;
-    
-    // Bonus por coincidencia al inicio del título
-    const titleBonus = text.toLowerCase().startsWith(query.toLowerCase()) ? 0.15 : 0;
-    
-    return Math.min(baseScore + exactBonus + titleBonus, 1);
+    const titleBonus = textNorm.startsWith(this.normalizeText(query)) ? 0.15 : 0;
+    return Math.min(base + exactBonus + titleBonus, 1);
   }
 
-  /**
-   * Filtrar por rango de montos
-   */
-  private filterByMonto(oportunidades: Oportunidad[], min?: number, max?: number): Oportunidad[] {
-    if (!min && !max) return oportunidades;
-    
-    return oportunidades.filter(opp => {
-      const monto = opp.monto_total || 0;
-      if (min && max) return monto >= min && monto <= max;
-      if (min) return monto >= min;
-      if (max) return monto <= max;
-      return true;
-    });
-  }
-
-  /**
-   * Filtrar por fecha de cierre
-   */
-  private filterByFechaCierre(oportunidades: Oportunidad[], desde?: string, hasta?: string): Oportunidad[] {
-    if (!desde && !hasta) return oportunidades;
-    
-    return oportunidades.filter(opp => {
-      const fechaCierre = new Date(opp.fecha_cierre);
-      
-      if (desde && hasta) {
-        return fechaCierre >= new Date(desde) && fechaCierre <= new Date(hasta);
-      }
-      if (desde) return fechaCierre >= new Date(desde);
-      if (hasta) return fechaCierre <= new Date(hasta);
-      return true;
-    });
-  }
-
-  /**
-   * Calcular días hasta el cierre
-   */
   private getDiasHastaCierre(fechaCierre: string): number {
-    const hoy = new Date();
-    const cierre = new Date(fechaCierre);
-    const diffTime = cierre.getTime() - hoy.getTime();
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    if (!fechaCierre) return -1;
+    const diff = new Date(fechaCierre).getTime() - Date.now();
+    return Math.ceil(diff / (1000 * 60 * 60 * 24));
   }
 
-  /**
-   * Búsqueda principal
-   */
-  search(licitaciones: Licitacion[], request: SearchRequest): SearchResponse {
-    const startTime = Date.now();
-    const query = request.consulta?.toLowerCase() || '';
-    
-    // Convertir licitaciones a nuestro formato Oportunidad
-    let oportunidades: Oportunidad[] = licitaciones.map(lic => ({
+  licitacionToOportunidad(lic: Licitacion, query: string = ''): Oportunidad {
+    const searchText = `${lic.Nombre} ${lic.Descripcion || ''} ${lic.Organismo}`;
+    const score = query ? this.calculateScore(query, searchText) : 1;
+
+    return {
       codigo: lic.Codigo,
       nombre: lic.Nombre,
       descripcion: lic.Descripcion,
       organismo: lic.Organismo,
+      comprador: lic.NombreUnidad,
       codigo_organismo: lic.CodigoOrganismo,
+      rut_organismo: lic.RutOrganismo,
+      direccion: lic.DireccionUnidad,
+      comuna_unidad: lic.ComunaUnidad,
+      region: lic.Region || '',
       estado: lic.Estado,
-      fecha_publicacion: lic.FechaPublicacion,
-      fecha_cierre: lic.FechaCierre,
-      monto_total: lic.MontoTotal,
+      codigo_estado: lic.CodigoEstado,
+      fecha_publicacion: lic.FechaPublicacion || new Date().toISOString(),
+      fecha_cierre: lic.FechaCierre || '',
+      fecha_adjudicacion: lic.FechaAdjudicacion,
       dias_cierre: this.getDiasHastaCierre(lic.FechaCierre),
-      items: lic.Items?.map((item: LicitacionItem) => ({
-        codigo_producto: item.CodigoProducto,
-        nombre_producto: item.NombreProducto,
-        cantidad: item.Cantidad,
-        unidad: item.Unidad,
-        monto_total: item.MontoTotal
-      })) || [],
+      monto_total: lic.MontoEstimado || lic.MontoTotal || 0,
+      monto_estimado: lic.MontoEstimado,
+      moneda: lic.Moneda || 'CLP',
+      tipo_licitacion: lic.Tipo,
+      tipo_convocatoria: lic.TipoConvocatoria,
       url: lic.Url,
-      score: query ? this.calculateScore(query, `${lic.Nombre} ${lic.Descripcion || ''} ${lic.Organismo}`) : 1
-    }));
+      items: (lic.Items || []).map(it => ({
+        codigo_producto: it.CodigoProducto,
+        nombre_producto: it.NombreProducto,
+        descripcion: it.Descripcion,
+        categoria: it.Categoria,
+        cantidad: it.Cantidad,
+        unidad: it.Unidad,
+        monto_unitario: it.MontoUnitario,
+      })),
+      fechas_proceso: {
+        fecha_publicacion: lic.FechaPublicacion,
+        fecha_cierre: lic.FechaCierre,
+        fecha_inicio_preguntas: lic.FechaInicioPreguntas,
+        fecha_fin_preguntas: lic.FechaFinPreguntas,
+        fecha_publicacion_respuestas: lic.FechaPublicacionRespuestas,
+        fecha_apertura_tecnica: lic.FechaAperturaTecnica,
+        fecha_apertura_economica: lic.FechaAperturaEconomica,
+        fecha_adjudicacion: lic.FechaAdjudicacion,
+        fecha_estimada_adjudicacion: lic.FechaEstimadaAdjudicacion,
+      },
+      caracteristicas: {
+        tipo_licitacion: lic.Tipo,
+        moneda: lic.Moneda,
+        subcontratacion: lic.SubContratacion,
+        renovable: lic.EsRenovable,
+        toma_razon: lic.TomaRazon,
+        plazo_contrato_dias: lic.TiempoDuracionContrato,
+      },
+      contacto: {
+        nombre: lic.NombreResponsableContrato,
+        email: lic.EmailResponsableContrato,
+        telefono: lic.FonoResponsableContrato,
+      },
+      url_acta: lic.Adjudicacion?.UrlActa,
+      numero_oferentes: lic.Adjudicacion?.NumeroOferentes,
+      score,
+    };
+  }
 
-    // Aplicar filtros
+  search(licitaciones: Licitacion[], request: SearchRequest): SearchResponse {
+    const startTime = Date.now();
+    const query = request.consulta?.trim() || '';
+
+    let oportunidades: Oportunidad[] = licitaciones.map(lic =>
+      this.licitacionToOportunidad(lic, query)
+    );
+
+    // Filtro por relevancia si hay query
     if (query) {
       oportunidades = oportunidades.filter(opp => (opp.score || 0) >= 0.1);
     }
 
-    // Filtro por estado
-    if (request.filtro_estado && request.filtro_estado.length > 0) {
-      oportunidades = oportunidades.filter(opp => 
-        request.filtro_estado?.includes(opp.estado as any)
+    // Filtros
+    if (request.filtro_estado?.length) {
+      oportunidades = oportunidades.filter(opp =>
+        request.filtro_estado!.includes(opp.estado as any)
       );
     }
 
-    // Filtro por monto
-    oportunidades = this.filterByMonto(oportunidades, request.filtro_monto_min, request.filtro_monto_max);
+    if (request.filtro_monto_min || request.filtro_monto_max) {
+      oportunidades = oportunidades.filter(opp => {
+        const m = opp.monto_total || 0;
+        if (request.filtro_monto_min && request.filtro_monto_max)
+          return m >= request.filtro_monto_min && m <= request.filtro_monto_max;
+        if (request.filtro_monto_min) return m >= request.filtro_monto_min;
+        if (request.filtro_monto_max) return m <= request.filtro_monto_max;
+        return true;
+      });
+    }
 
-    // Filtro por fecha de cierre
-    oportunidades = this.filterByFechaCierre(oportunidades, request.filtro_fecha_cierre_desde, request.filtro_fecha_cierre_hasta);
+    if (request.filtro_fecha_cierre_desde || request.filtro_fecha_cierre_hasta) {
+      oportunidades = oportunidades.filter(opp => {
+        const f = new Date(opp.fecha_cierre);
+        if (request.filtro_fecha_cierre_desde && request.filtro_fecha_cierre_hasta)
+          return f >= new Date(request.filtro_fecha_cierre_desde) && f <= new Date(request.filtro_fecha_cierre_hasta);
+        if (request.filtro_fecha_cierre_desde) return f >= new Date(request.filtro_fecha_cierre_desde);
+        if (request.filtro_fecha_cierre_hasta) return f <= new Date(request.filtro_fecha_cierre_hasta);
+        return true;
+      });
+    }
 
-    // Filtro por organismos
-    if (request.filtro_organismos && request.filtro_organismos.length > 0) {
+    if (request.filtro_organismos?.length) {
       oportunidades = oportunidades.filter(opp =>
-        request.filtro_organismos?.some(org => 
+        request.filtro_organismos!.some(org =>
           opp.organismo.toLowerCase().includes(org.toLowerCase())
         )
       );
     }
 
-    // Ordenar resultados
-    const tipoOrden = request.tipo_orden || (query ? 'relevancia' : 'fecha_cierre_asc');
-    oportunidades = this.sortOpportunities(oportunidades, tipoOrden);
+    if (request.filtro_regiones?.length) {
+      oportunidades = oportunidades.filter(opp =>
+        request.filtro_regiones!.some(r =>
+          (opp.region || '').toLowerCase().includes(r.toLowerCase())
+        )
+      );
+    }
+
+    // Ordenamiento
+    const orden = request.tipo_orden || (query ? 'relevancia' : 'fecha_cierre_asc');
+    oportunidades = this.ordenar(oportunidades, orden);
 
     // Paginación
     const pagina = request.pagina || 1;
-    const resultadosPorPagina = request.resultados_por_pagina || 20;
-    const start = (pagina - 1) * resultadosPorPagina;
-    const paginatedResults = oportunidades.slice(start, start + resultadosPorPagina);
+    const porPagina = request.resultados_por_pagina || 20;
+    const inicio = (pagina - 1) * porPagina;
 
     return {
-      resultados: paginatedResults,
+      resultados: oportunidades.slice(inicio, inicio + porPagina),
       meta: {
         pagina_actual: pagina,
-        total_paginas: Math.ceil(oportunidades.length / resultadosPorPagina),
+        total_paginas: Math.ceil(oportunidades.length / porPagina),
         total_resultados: oportunidades.length,
-        resultados_por_pagina: resultadosPorPagina,
+        resultados_por_pagina: porPagina,
         tiempo_busqueda_ms: Date.now() - startTime,
-        tipo_orden_aplicado: tipoOrden
-      }
+        tipo_orden_aplicado: orden,
+      },
     };
   }
 
-  /**
-   * Ordenar oportunidades según criterio
-   */
-  private sortOpportunities(opportunities: Oportunidad[], tipoOrden: TipoOrden): Oportunidad[] {
-    const sorted = [...opportunities];
-    
-    switch (tipoOrden) {
+  private ordenar(opps: Oportunidad[], orden: TipoOrden): Oportunidad[] {
+    const s = [...opps];
+    switch (orden) {
       case 'fecha_cierre_asc':
-        return sorted.sort((a, b) => 
-          new Date(a.fecha_cierre).getTime() - new Date(b.fecha_cierre).getTime()
-        );
+        return s.sort((a, b) => new Date(a.fecha_cierre).getTime() - new Date(b.fecha_cierre).getTime());
       case 'fecha_cierre_desc':
-        return sorted.sort((a, b) => 
-          new Date(b.fecha_cierre).getTime() - new Date(a.fecha_cierre).getTime()
-        );
+        return s.sort((a, b) => new Date(b.fecha_cierre).getTime() - new Date(a.fecha_cierre).getTime());
       case 'fecha_publicacion_desc':
-        return sorted.sort((a, b) => 
-          new Date(b.fecha_publicacion).getTime() - new Date(a.fecha_publicacion).getTime()
-        );
+        return s.sort((a, b) => new Date(b.fecha_publicacion).getTime() - new Date(a.fecha_publicacion).getTime());
       case 'monto_desc':
-        return sorted.sort((a, b) => (b.monto_total || 0) - (a.monto_total || 0));
+        return s.sort((a, b) => (b.monto_total || 0) - (a.monto_total || 0));
       case 'monto_asc':
-        return sorted.sort((a, b) => (a.monto_total || 0) - (b.monto_total || 0));
-      case 'relevancia':
+        return s.sort((a, b) => (a.monto_total || 0) - (b.monto_total || 0));
       default:
-        return sorted.sort((a, b) => (b.score || 0) - (a.score || 0));
+        return s.sort((a, b) => (b.score || 0) - (a.score || 0));
     }
   }
 }

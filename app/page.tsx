@@ -1,12 +1,38 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { Navbar } from '@/app/components/Navbar';
 import { SearchBar } from '@/app/components/SearchBar';
 import { ResultsGrid } from '@/app/components/ResultsGrid';
 import { FiltersPanel } from '@/app/components/FiltersPanel';
 import { SearchRequest, Oportunidad } from '@/app/types/search.types';
+import { Search, TrendingUp, Building2, FileText, Star, RefreshCw } from 'lucide-react';
 
-export default function Home() {
+interface Filters {
+  estado: string[];
+  montoMin: string;
+  montoMax: string;
+  fechaDesde: string;
+  fechaHasta: string;
+  organismo: string;
+  region: string;
+  tipoOrden: string;
+}
+
+const FILTERS_DEFAULT: Filters = {
+  estado: [],
+  montoMin: '',
+  montoMax: '',
+  fechaDesde: '',
+  fechaHasta: '',
+  organismo: '',
+  region: '',
+  tipoOrden: '',
+};
+
+function HomeContent() {
+  const searchParams = useSearchParams();
   const [opportunities, setOpportunities] = useState<Oportunidad[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -14,39 +40,32 @@ export default function Home() {
   const [lastQuery, setLastQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [favoriteCodes, setFavoriteCodes] = useState<Set<string>>(new Set());
-  
-  const [filters, setFilters] = useState({
-    estado: [] as string[],
-    montoMin: '',
-    montoMax: '',
-    fechaDesde: '',
-    fechaHasta: '',
-    organismo: ''
-  });
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [dataSource, setDataSource] = useState('');
+  const [filters, setFilters] = useState<Filters>(FILTERS_DEFAULT);
+  const [hasSearched, setHasSearched] = useState(false);
 
-  // Cargar favoritos al inicio
   useEffect(() => {
     loadFavorites();
+    if (searchParams.get('favoritos') === 'true') setShowFavoritesOnly(true);
   }, []);
 
   const loadFavorites = async () => {
     try {
-      const response = await fetch('/api/favorites');
-      const data = await response.json();
+      const res = await fetch('/api/favorites');
+      const data = await res.json();
       if (data.success && data.favorites) {
         setFavoriteCodes(new Set(data.favorites.map((f: any) => f.codigo)));
       }
-    } catch (error) {
-      console.error('Error al cargar favoritos:', error);
-    }
+    } catch { /* silencioso */ }
   };
 
   const executeSearch = useCallback(async (query: string, page: number = 1) => {
     setLoading(true);
     setError(null);
-    
+    setHasSearched(true);
+
     try {
       const request: SearchRequest = {
         consulta: query,
@@ -57,31 +76,30 @@ export default function Home() {
         filtro_monto_max: filters.montoMax ? parseInt(filters.montoMax) : undefined,
         filtro_fecha_cierre_desde: filters.fechaDesde || undefined,
         filtro_fecha_cierre_hasta: filters.fechaHasta || undefined,
-        filtro_organismos: filters.organismo ? [filters.organismo] : undefined
+        filtro_organismos: filters.organismo ? [filters.organismo] : undefined,
+        filtro_regiones: filters.region ? [filters.region] : undefined,
+        tipo_orden: (filters.tipoOrden || undefined) as any,
       };
-      
-      const response = await fetch('/api/search', {
+
+      const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
       });
-      
-      if (!response.ok) {
-        throw new Error('Error en la búsqueda');
-      }
-      
-      const data = await response.json();
-      let resultados = data.resultados || [];
-      
-      // Filtrar solo favoritos si está activado
+
+      if (!res.ok) throw new Error('Error en la búsqueda');
+      const data = await res.json();
+      let resultados: Oportunidad[] = data.resultados || [];
+
       if (showFavoritesOnly && favoriteCodes.size > 0) {
-        resultados = resultados.filter((r: Oportunidad) => favoriteCodes.has(r.codigo));
+        resultados = resultados.filter(r => favoriteCodes.has(r.codigo));
       }
-      
+
       setOpportunities(resultados);
-      setTotalResults(showFavoritesOnly ? resultados.length : data.meta?.total_resultados || 0);
+      setTotalResults(showFavoritesOnly ? resultados.length : (data.meta?.total_resultados || 0));
       setTotalPages(data.meta?.total_paginas || 1);
       setCurrentPage(page);
+      setDataSource(data.meta?.fuente_datos || '');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error desconocido');
       setOpportunities([]);
@@ -90,142 +108,277 @@ export default function Home() {
     }
   }, [filters, showFavoritesOnly, favoriteCodes]);
 
-  const handleSearch = async (query: string) => {
+  const handleSearch = (query: string) => {
     setLastQuery(query);
-    await executeSearch(query, 1);
+    executeSearch(query, 1);
+  };
+
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) executeSearch(lastQuery, page);
+  };
+
+  const handleClearFilters = () => {
+    setFilters(FILTERS_DEFAULT);
+    if (lastQuery) executeSearch(lastQuery, 1);
   };
 
   const handleFavoriteToggle = () => {
     loadFavorites();
-    if (lastQuery) {
-      executeSearch(lastQuery, currentPage);
-    }
+    if (lastQuery) executeSearch(lastQuery, currentPage);
   };
 
-  const handlePageChange = (newPage: number) => {
-    if (newPage >= 1 && newPage <= totalPages) {
-      executeSearch(lastQuery, newPage);
-    }
-  };
-
-  const handleClearFilters = () => {
-    setFilters({
-      estado: [],
-      montoMin: '',
-      montoMax: '',
-      fechaDesde: '',
-      fechaHasta: '',
-      organismo: ''
-    });
-    if (lastQuery) {
-      executeSearch(lastQuery, 1);
-    }
-  };
+  const hasActiveFilters = Object.values(filters).some(v =>
+    Array.isArray(v) ? v.length > 0 : v !== ''
+  );
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">
-            Licitaciones Chile
+    <div className="min-h-screen flex flex-col">
+      <Navbar />
+
+      {/* Hero */}
+      <div className="bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 py-14 px-4">
+        <div className="max-w-3xl mx-auto text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-900/50 border border-blue-700/50 text-blue-300 text-xs font-medium mb-6">
+            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+            Datos en tiempo real · API Mercado Público oficial
+          </div>
+          <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4 leading-tight">
+            Oportunidades de{' '}
+            <span className="text-blue-400">Licitación</span>
           </h1>
-          <p className="text-gray-600">
-            Buscador de oportunidades de licitación en Mercado Público
+          <p className="text-slate-400 text-lg mb-8">
+            Accede a todas las licitaciones de Chile en un solo lugar.
+            Busca, filtra y analiza con inteligencia artificial.
           </p>
+          <SearchBar onSearch={handleSearch} loading={loading} />
         </div>
+      </div>
 
-        <SearchBar onSearch={handleSearch} loading={loading} />
+      {/* Stats bar */}
+      <div className="bg-slate-800 border-b border-slate-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2 text-sm text-slate-400">
+                <Building2 size={14} className="text-blue-400" />
+                <span><strong className="text-slate-200">850</strong> organismos</span>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-slate-400">
+                <TrendingUp size={14} className="text-green-400" />
+                <span><strong className="text-slate-200">118.000+</strong> proveedores</span>
+              </div>
+              {dataSource && (
+                <div className="flex items-center gap-2 text-sm text-slate-400">
+                  <FileText size={14} className="text-purple-400" />
+                  <span className="text-slate-300">{dataSource}</span>
+                </div>
+              )}
+            </div>
+            {hasSearched && totalResults > 0 && (
+              <span className="text-sm text-slate-400">
+                <strong className="text-slate-200">{totalResults}</strong> resultados
+                {lastQuery && <span className="ml-1">para &ldquo;{lastQuery}&rdquo;</span>}
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
 
-        <div className="mt-8 flex flex-col lg:flex-row gap-6">
-          {/* Panel de filtros */}
-          <aside className="lg:w-80 flex-shrink-0">
-            <FiltersPanel 
+      {/* Main content */}
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Sidebar filtros */}
+          <aside className="lg:w-72 flex-shrink-0 space-y-4">
+            <FiltersPanel
               filters={filters}
               onChange={setFilters}
               onClear={handleClearFilters}
+              onApply={() => lastQuery && executeSearch(lastQuery, 1)}
             />
-            
-            {/* Botón de solo favoritos */}
-            <div className="mt-4 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+
+            {/* Favoritos toggle */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
               <button
                 onClick={() => {
                   setShowFavoritesOnly(!showFavoritesOnly);
-                  if (lastQuery) {
-                    executeSearch(lastQuery, 1);
-                  }
+                  if (lastQuery) executeSearch(lastQuery, 1);
                 }}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-2 rounded-md transition-colors ${
-                  showFavoritesOnly 
-                    ? 'bg-yellow-500 text-white hover:bg-yellow-600'
+                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
+                  showFavoritesOnly
+                    ? 'bg-amber-500 text-white shadow-sm'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
-                <span>⭐</span>
-                {showFavoritesOnly ? 'Mostrando solo favoritos' : 'Ver solo favoritos'}
+                <Star size={15} className={showFavoritesOnly ? 'fill-white' : ''} />
+                {showFavoritesOnly ? 'Mostrando favoritos' : 'Solo favoritos'}
               </button>
               {favoriteCodes.size > 0 && (
-                <p className="text-xs text-gray-500 text-center mt-2">
-                  {favoriteCodes.size} licitaciones guardadas
+                <p className="text-center text-xs text-gray-400 mt-2">
+                  {favoriteCodes.size} guardados
                 </p>
               )}
             </div>
           </aside>
 
           {/* Resultados */}
-          <div className="flex-1">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-                Error: {error}
-              </div>
-            )}
-
-            {!loading && !error && totalResults > 0 && (
-              <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
-                <div className="text-sm text-gray-600">
-                  {totalResults} resultados encontrados
-                  {lastQuery && ` para "${lastQuery}"`}
-                  {showFavoritesOnly && ' (solo favoritos)'}
+          <div className="flex-1 min-w-0">
+            {/* Controles superiores */}
+            {hasSearched && !loading && (
+              <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  {totalResults > 0 && (
+                    <span className="text-sm text-gray-600">
+                      <strong>{totalResults}</strong> resultado{totalResults !== 1 ? 's' : ''}
+                      {lastQuery && <span className="text-gray-400"> · &ldquo;{lastQuery}&rdquo;</span>}
+                    </span>
+                  )}
+                  {hasActiveFilters && (
+                    <button
+                      onClick={handleClearFilters}
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      Limpiar filtros
+                    </button>
+                  )}
                 </div>
-                
-                {!showFavoritesOnly && (
-                  <div className="flex gap-2">
+
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1">
                     <button
                       onClick={() => handlePageChange(currentPage - 1)}
-                      disabled={currentPage <= 1 || loading}
-                      className="px-3 py-1 text-sm bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+                      disabled={currentPage <= 1}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
-                      ← Anterior
+                      ←
                     </button>
-                    <span className="px-3 py-1 text-sm bg-gray-200 rounded">
-                      Pág. {currentPage} de {totalPages}
+                    <span className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg">
+                      {currentPage} / {totalPages}
                     </span>
                     <button
                       onClick={() => handlePageChange(currentPage + 1)}
-                      disabled={currentPage >= totalPages || loading}
-                      className="px-3 py-1 text-sm bg-blue-600 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-blue-700 transition-colors"
+                      disabled={currentPage >= totalPages}
+                      className="px-3 py-1.5 text-sm rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
-                      Siguiente →
+                      →
                     </button>
                   </div>
                 )}
               </div>
             )}
 
-            <ResultsGrid 
-              opportunities={opportunities} 
+            {/* Error */}
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-4 flex items-center gap-2">
+                <span>Error: {error}</span>
+                <button
+                  onClick={() => executeSearch(lastQuery, currentPage)}
+                  className="ml-auto flex items-center gap-1 text-red-600 hover:text-red-800"
+                >
+                  <RefreshCw size={14} />
+                  Reintentar
+                </button>
+              </div>
+            )}
+
+            {/* Grid */}
+            <ResultsGrid
+              opportunities={opportunities}
               loading={loading}
               onFavoriteToggle={handleFavoriteToggle}
             />
 
-            {!loading && !error && totalResults === 0 && lastQuery && (
-              <div className="text-center py-12 bg-white rounded-lg shadow">
-                <p className="text-gray-600">No se encontraron resultados para "{lastQuery}"</p>
-                <p className="text-sm text-gray-400 mt-1">Prueba con otras palabras clave</p>
+            {/* Estado vacío inicial */}
+            {!hasSearched && !loading && (
+              <div className="text-center py-20 bg-white rounded-xl border border-gray-100 shadow-sm">
+                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Search size={28} className="text-blue-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                  Busca licitaciones
+                </h3>
+                <p className="text-gray-500 text-sm max-w-sm mx-auto">
+                  Escribe el nombre de un producto, servicio o el código exacto de la licitación
+                </p>
+                <div className="mt-6 flex flex-wrap justify-center gap-2">
+                  {['computadores', 'servicios de aseo', 'mantención', 'obras'].map(q => (
+                    <button
+                      key={q}
+                      onClick={() => handleSearch(q)}
+                      className="px-3 py-1.5 rounded-full bg-gray-100 hover:bg-blue-100 hover:text-blue-700 text-sm text-gray-600 transition-colors"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sin resultados */}
+            {hasSearched && !loading && !error && opportunities.length === 0 && (
+              <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
+                <div className="text-5xl mb-4">🔍</div>
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                  Sin resultados para &ldquo;{lastQuery}&rdquo;
+                </h3>
+                <p className="text-gray-500 text-sm">
+                  Prueba con otras palabras clave o ajusta los filtros
+                </p>
+              </div>
+            )}
+
+            {/* Paginación inferior */}
+            {totalPages > 1 && !loading && (
+              <div className="mt-6 flex justify-center gap-1">
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  disabled={currentPage <= 1}
+                  className="px-4 py-2 text-sm rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ← Anterior
+                </button>
+                <span className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg">
+                  {currentPage}
+                </span>
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  disabled={currentPage >= totalPages}
+                  className="px-4 py-2 text-sm rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Siguiente →
+                </button>
               </div>
             )}
           </div>
         </div>
-      </div>
-    </main>
+      </main>
+
+      {/* Footer */}
+      <footer className="bg-slate-900 border-t border-slate-800 mt-auto">
+        <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p className="text-slate-500 text-sm">
+            © {new Date().getFullYear()} ICA Licitaciones · Datos de{' '}
+            <a
+              href="https://www.mercadopublico.cl"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-slate-400 hover:text-white transition-colors"
+            >
+              Mercado Público
+            </a>
+          </p>
+          <p className="text-slate-600 text-xs">
+            API v1 · ChileCompra
+          </p>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense>
+      <HomeContent />
+    </Suspense>
   );
 }

@@ -23,10 +23,13 @@ export interface SearchResponse {
 export interface DocumentoAdjunto {
   nombre: string;
   url: string;
-  tipo: string;
+  tipo?: string;
+  descripcion?: string;
   size?: number;
   fecha?: string;
   extension?: string;
+  ya_descargado?: boolean;
+  url_local?: string;
 }
 
 // Fechas del proceso de licitación

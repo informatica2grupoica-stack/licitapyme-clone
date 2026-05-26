@@ -9,8 +9,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Falta el parámetro url' }, { status: 400 });
   }
 
-  // Validar que la URL sea de Mercado Público (seguridad)
-  if (!url.includes('mercadopublico.cl')) {
+  // Permitir solo dominios confiables: Mercado Público y nuestro R2
+  const r2AccountId = process.env.R2_ACCOUNT_ID || '';
+  const esUrlPermitida =
+    url.includes('mercadopublico.cl') ||
+    url.includes('.r2.dev') ||
+    (r2AccountId && url.includes(r2AccountId));
+
+  if (!esUrlPermitida) {
     return NextResponse.json({ error: 'URL no permitida' }, { status: 403 });
   }
 

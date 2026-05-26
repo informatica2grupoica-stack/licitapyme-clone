@@ -2,163 +2,218 @@
 
 import { useState } from 'react';
 import { ESTADOS_LICITACION, REGIONES_CHILE } from '@/app/types/search.types';
-import { Filter, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Filter, ChevronDown, ChevronUp, X, SlidersHorizontal } from 'lucide-react';
 
-interface FiltersPanelProps {
-  filters: {
-    estado: string[];
-    montoMin: string;
-    montoMax: string;
-    fechaDesde: string;
-    fechaHasta: string;
-    organismo: string;
-  };
-  onChange: (filters: any) => void;
-  onClear: () => void;
+interface FilterValues {
+  estado: string[];
+  montoMin: string;
+  montoMax: string;
+  fechaDesde: string;
+  fechaHasta: string;
+  organismo: string;
+  region: string;
+  tipoOrden: string;
 }
 
-export function FiltersPanel({ filters, onChange, onClear }: FiltersPanelProps) {
+interface FiltersPanelProps {
+  filters: FilterValues;
+  onChange: (filters: FilterValues) => void;
+  onClear: () => void;
+  onApply?: () => void;
+}
+
+const ESTADOS = Object.entries(ESTADOS_LICITACION).map(([key, label]) => ({
+  key,
+  label: label.replace(/^[^\w]+/, '').trim(),
+}));
+
+const ORDEN_OPTIONS = [
+  { value: '', label: 'Por defecto' },
+  { value: 'fecha_cierre_asc', label: 'Cierre: más próximo' },
+  { value: 'fecha_cierre_desc', label: 'Cierre: más lejano' },
+  { value: 'fecha_publicacion_desc', label: 'Publicación: más reciente' },
+  { value: 'monto_desc', label: 'Monto: mayor a menor' },
+  { value: 'monto_asc', label: 'Monto: menor a mayor' },
+  { value: 'relevancia', label: 'Relevancia' },
+];
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="border-t border-gray-100 pt-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex justify-between items-center text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2"
+      >
+        {title}
+        {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
+export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPanelProps) {
   const [isOpen, setIsOpen] = useState(true);
-  const [showEstados, setShowEstados] = useState(false);
 
-  const hasActiveFilters = () => {
-    return filters.estado.length > 0 || 
-           filters.montoMin || 
-           filters.montoMax || 
-           filters.fechaDesde || 
-           filters.fechaHasta || 
-           filters.organismo;
-  };
+  const hasActiveFilters =
+    filters.estado.length > 0 ||
+    filters.montoMin || filters.montoMax ||
+    filters.fechaDesde || filters.fechaHasta ||
+    filters.organismo || filters.region || filters.tipoOrden;
 
-  const handleEstadoChange = (estadoKey: string) => {
-    const newEstados = filters.estado.includes(estadoKey)
-      ? filters.estado.filter(e => e !== estadoKey)
-      : [...filters.estado, estadoKey];
-    onChange({ ...filters, estado: newEstados });
+  const activeCount = [
+    filters.estado.length > 0,
+    !!(filters.montoMin || filters.montoMax),
+    !!(filters.fechaDesde || filters.fechaHasta),
+    !!filters.organismo,
+    !!filters.region,
+    !!filters.tipoOrden,
+  ].filter(Boolean).length;
+
+  const toggleEstado = (key: string) => {
+    const next = filters.estado.includes(key)
+      ? filters.estado.filter(e => e !== key)
+      : [...filters.estado, key];
+    onChange({ ...filters, estado: next });
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
       {/* Header */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-3 flex justify-between items-center hover:bg-gray-50 transition-colors"
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <Filter size={18} className="text-gray-500" />
-          <span className="font-medium text-gray-900">Filtros</span>
-          {hasActiveFilters() && (
-            <span className="ml-2 px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full">
-              Activos
+          <SlidersHorizontal size={15} className="text-gray-500" />
+          <span className="text-sm font-semibold text-gray-800">Filtros</span>
+          {activeCount > 0 && (
+            <span className="px-1.5 py-0.5 text-xs bg-blue-600 text-white rounded-full font-medium leading-none">
+              {activeCount}
             </span>
           )}
         </div>
-        {isOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        {isOpen ? <ChevronUp size={15} className="text-gray-400" /> : <ChevronDown size={15} className="text-gray-400" />}
       </button>
 
       {isOpen && (
-        <div className="px-4 pb-4 space-y-4 border-t border-gray-100 pt-4">
-          {/* Limpiar filtros */}
-          {hasActiveFilters() && (
+        <div className="px-4 pb-4 space-y-1">
+          {/* Limpiar */}
+          {hasActiveFilters && (
             <button
               onClick={onClear}
-              className="w-full flex items-center justify-center gap-1 px-3 py-1.5 text-sm text-red-600 bg-red-50 rounded-md hover:bg-red-100 transition-colors"
+              className="w-full flex items-center justify-center gap-1 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg transition-colors mb-2"
             >
-              <X size={14} />
-              Limpiar todos los filtros
+              <X size={12} />
+              Limpiar filtros
             </button>
           )}
 
-          {/* Estado de licitación */}
-          <div>
-            <button
-              onClick={() => setShowEstados(!showEstados)}
-              className="w-full flex justify-between items-center text-sm font-medium text-gray-700 mb-2"
+          {/* Ordenamiento */}
+          <Section title="Ordenar por">
+            <select
+              value={filters.tipoOrden}
+              onChange={e => onChange({ ...filters, tipoOrden: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
             >
-              <span>Estado de la licitación</span>
-              {showEstados ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-            {showEstados && (
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {Object.entries(ESTADOS_LICITACION).map(([key, label]) => (
-                  <label key={key} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-gray-50 p-1 rounded">
-                    <input
-                      type="checkbox"
-                      checked={filters.estado.includes(key)}
-                      onChange={() => handleEstadoChange(key)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="text-gray-700">{label}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
+              {ORDEN_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </Section>
 
-          {/* Rango de montos */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Monto (CLP)
-            </label>
+          {/* Estado */}
+          <Section title="Estado">
+            <div className="space-y-1">
+              {ESTADOS.map(({ key, label }) => (
+                <label key={key} className="flex items-center gap-2 py-1 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={filters.estado.includes(key)}
+                    onChange={() => toggleEstado(key)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                  />
+                  <span className="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">{label}</span>
+                </label>
+              ))}
+            </div>
+          </Section>
+
+          {/* Región */}
+          <Section title="Región">
+            <select
+              value={filters.region}
+              onChange={e => onChange({ ...filters, region: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white"
+            >
+              <option value="">Todas las regiones</option>
+              {REGIONES_CHILE.map(r => (
+                <option key={r} value={r}>{r.replace('Región de ', '').replace('Región del ', '').replace('Región Metropolitana de ', 'RM · ')}</option>
+              ))}
+            </select>
+          </Section>
+
+          {/* Monto */}
+          <Section title="Monto estimado (CLP)">
             <div className="flex gap-2">
               <input
                 type="number"
-                placeholder="Mínimo"
+                placeholder="Mín"
                 value={filters.montoMin}
-                onChange={(e) => onChange({ ...filters, montoMin: e.target.value })}
-                className="w-1/2 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                onChange={e => onChange({ ...filters, montoMin: e.target.value })}
+                className="w-1/2 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               />
               <input
                 type="number"
-                placeholder="Máximo"
+                placeholder="Máx"
                 value={filters.montoMax}
-                onChange={(e) => onChange({ ...filters, montoMax: e.target.value })}
-                className="w-1/2 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                onChange={e => onChange({ ...filters, montoMax: e.target.value })}
+                className="w-1/2 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
-          </div>
+          </Section>
 
-          {/* Fecha de cierre */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Fecha de cierre
-            </label>
-            <div className="flex gap-2">
+          {/* Fechas */}
+          <Section title="Fecha de cierre">
+            <div className="space-y-2">
               <input
                 type="date"
-                placeholder="Desde"
                 value={filters.fechaDesde}
-                onChange={(e) => onChange({ ...filters, fechaDesde: e.target.value })}
-                className="w-1/2 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                onChange={e => onChange({ ...filters, fechaDesde: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Desde"
               />
               <input
                 type="date"
-                placeholder="Hasta"
                 value={filters.fechaHasta}
-                onChange={(e) => onChange({ ...filters, fechaHasta: e.target.value })}
-                className="w-1/2 px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                onChange={e => onChange({ ...filters, fechaHasta: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                placeholder="Hasta"
               />
             </div>
-          </div>
+          </Section>
 
           {/* Organismo */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Organismo comprador
-            </label>
+          <Section title="Organismo comprador">
             <input
               type="text"
-              placeholder="Nombre del organismo..."
+              placeholder="Ej: Ministerio de Salud..."
               value={filters.organismo}
-              onChange={(e) => onChange({ ...filters, organismo: e.target.value })}
-              className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              onChange={e => onChange({ ...filters, organismo: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
             />
-          </div>
+          </Section>
 
-          {/* Estadísticas */}
-          <div className="pt-2 text-xs text-gray-500 border-t border-gray-100">
-            <p>💡 Los filtros se aplican automáticamente</p>
-          </div>
+          {/* Aplicar */}
+          {onApply && (
+            <button
+              onClick={onApply}
+              className="w-full mt-2 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              Aplicar filtros
+            </button>
+          )}
         </div>
       )}
     </div>

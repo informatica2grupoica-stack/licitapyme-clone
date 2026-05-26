@@ -1,24 +1,16 @@
-// src/app/lib/mercado-publico.ts
-import { Licitacion } from '@/app/types/mercado-publico.types';
+import {
+  Licitacion,
+  LicitacionItem,
+  LicitacionAPI,
+  LicitacionAPIResponse,
+  OrdenCompraAPI,
+  OrdenCompraAPIResponse,
+  ESTADO_CODIGOS,
+  TIPO_LICITACION_MAP,
+  MODALIDAD_PAGO_MAP,
+} from '@/app/types/mercado-publico.types';
 
-const API_BASE_URL = 'https://api.mercadopublico.cl/servicios/v1/publico';
-
-// Mapeo de estados
-const MAPA_ESTADOS: Record<string, string> = {
-  '5': '5',
-  '6': '6',
-  '7': '7',
-  '8': '8',
-  '18': '18',
-  '19': '19',
-  'activas': '5',
-  'Publicada': '5',
-  'Cerrada': '6',
-  'Desierta': '7',
-  'Adjudicada': '8',
-  'Revocada': '18',
-  'Suspendida': '19'
-};
+const API_BASE = 'https://api.mercadopublico.cl/servicios/v1/publico';
 
 export class MercadoPublicoClient {
   private ticket: string;
@@ -27,267 +19,252 @@ export class MercadoPublicoClient {
     this.ticket = ticket;
   }
 
-  /**
-   * Obtener licitación por código específico (búsqueda exacta)
-   * @param codigo - Código de la licitación (ej: "1509-5-L114")
-   */
+  // =============================================
+  // LICITACIONES
+  // =============================================
+
   async obtenerPorCodigo(codigo: string): Promise<Licitacion | null> {
     try {
-      const url = `${API_BASE_URL}/licitaciones.json?codigo=${codigo}&ticket=${this.ticket}`;
-      console.log(`📡 Buscando código: ${codigo}`);
-      console.log(`📡 URL: ${url}`);
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        console.error(`❌ Error API: ${response.status}`);
-        return null;
-      }
-
-      const data = await response.json();
-      
-      if (data.Codigo === 10000) {
-        console.error(`❌ API Error: ${data.Mensaje}`);
-        return null;
-      }
-      
-      if (!data.Listado || data.Listado.length === 0) {
-        console.log(`⚠️ Código ${codigo} no encontrado`);
-        return null;
-      }
-      
-      const item = data.Listado[0];
-      const licitacion = this.normalizarLicitacion(item);
-      console.log(`✅ Licitación encontrada: ${licitacion.Nombre}`);
-      return licitacion;
-      
-    } catch (error) {
-      console.error(`❌ Error en obtenerPorCodigo:`, error);
+      const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
+      const data: LicitacionAPIResponse = await this.fetch(url);
+      if (!data.Listado?.length) return null;
+      return this.normalizar(data.Listado[0]);
+    } catch {
       return null;
     }
   }
 
-  /**
-   * Buscar licitaciones por texto en nombre o descripción
-   * @param texto - Texto a buscar
-   */
-  async buscarPorTexto(texto: string): Promise<Licitacion[]> {
+  async obtenerHoy(): Promise<Licitacion[]> {
     try {
-      // Primero obtenemos todas las activas
-      const todas = await this.obtenerActivasHoy();
-      
-      // Filtramos por texto en nombre o descripción
-      const textoLower = texto.toLowerCase();
-      const resultados = todas.filter(lic => 
-        lic.Nombre?.toLowerCase().includes(textoLower) ||
-        lic.Descripcion?.toLowerCase().includes(textoLower)
-      );
-      
-      console.log(`🔍 Búsqueda "${texto}": ${resultados.length} resultados de ${todas.length} licitaciones`);
-      return resultados;
-      
-    } catch (error) {
-      console.error(`❌ Error en buscarPorTexto:`, error);
+      const url = `${API_BASE}/licitaciones.json?ticket=${this.ticket}`;
+      const data: LicitacionAPIResponse = await this.fetch(url);
+      return (data.Listado || []).map(i => this.normalizar(i));
+    } catch {
       return [];
     }
   }
 
-  /**
-   * Obtener licitaciones activas del día actual
-   */
   async obtenerActivasHoy(): Promise<Licitacion[]> {
     try {
-      const url = `${API_BASE_URL}/licitaciones.json?estado=activas&ticket=${this.ticket}`;
-      console.log(`📡 Consultando API: ${url}`);
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        console.error(`❌ Error API: ${response.status}`);
-        return [];
-      }
-
-      const data = await response.json();
-      
-      if (data.Codigo === 10000) {
-        console.error(`❌ API Error: ${data.Mensaje}`);
-        return [];
-      }
-      
-      const licitaciones = (data.Listado || []).map((item: any) => this.normalizarLicitacion(item));
-      
-      console.log(`✅ Encontradas ${licitaciones.length} licitaciones activas hoy`);
-      return licitaciones;
-      
-    } catch (error) {
-      console.error(`❌ Error en obtenerActivasHoy:`, error);
+      const url = `${API_BASE}/licitaciones.json?estado=activas&ticket=${this.ticket}`;
+      const data: LicitacionAPIResponse = await this.fetch(url);
+      return (data.Listado || []).map(i => this.normalizar(i));
+    } catch {
       return [];
     }
   }
 
-  /**
-   * Obtener licitaciones de los últimos N días
-   */
-  async obtenerUltimosDias(dias: number = 7): Promise<Licitacion[]> {
-    const todasLicitaciones: Licitacion[] = [];
-    
-    console.log(`📅 Consultando licitaciones de los últimos ${dias} días...`);
-    
+  async obtenerPorFecha(fecha: string): Promise<Licitacion[]> {
+    try {
+      const url = `${API_BASE}/licitaciones.json?fecha=${fecha}&ticket=${this.ticket}`;
+      const data: LicitacionAPIResponse = await this.fetch(url);
+      return (data.Listado || []).map(i => this.normalizar(i));
+    } catch {
+      return [];
+    }
+  }
+
+  async obtenerPorEstado(estado: string): Promise<Licitacion[]> {
+    try {
+      const url = `${API_BASE}/licitaciones.json?estado=${encodeURIComponent(estado)}&ticket=${this.ticket}`;
+      const data: LicitacionAPIResponse = await this.fetch(url);
+      return (data.Listado || []).map(i => this.normalizar(i));
+    } catch {
+      return [];
+    }
+  }
+
+  async obtenerPorEstadoYFecha(estado: string, fecha: string): Promise<Licitacion[]> {
+    try {
+      const url = `${API_BASE}/licitaciones.json?estado=${encodeURIComponent(estado)}&fecha=${fecha}&ticket=${this.ticket}`;
+      const data: LicitacionAPIResponse = await this.fetch(url);
+      return (data.Listado || []).map(i => this.normalizar(i));
+    } catch {
+      return [];
+    }
+  }
+
+  async obtenerPorOrganismo(codigoOrganismo: string, fecha?: string): Promise<Licitacion[]> {
+    try {
+      const fechaParam = fecha ? `&fecha=${fecha}` : '';
+      const url = `${API_BASE}/licitaciones.json?CodigoOrganismo=${codigoOrganismo}${fechaParam}&ticket=${this.ticket}`;
+      const data: LicitacionAPIResponse = await this.fetch(url);
+      return (data.Listado || []).map(i => this.normalizar(i));
+    } catch {
+      return [];
+    }
+  }
+
+  async obtenerPorProveedor(codigoProveedor: string, fecha?: string): Promise<Licitacion[]> {
+    try {
+      const fechaParam = fecha ? `&fecha=${fecha}` : '';
+      const url = `${API_BASE}/licitaciones.json?CodigoProveedor=${codigoProveedor}${fechaParam}&ticket=${this.ticket}`;
+      const data: LicitacionAPIResponse = await this.fetch(url);
+      return (data.Listado || []).map(i => this.normalizar(i));
+    } catch {
+      return [];
+    }
+  }
+
+  async obtenerUltimosDias(dias: number = 3): Promise<Licitacion[]> {
+    const todas: Licitacion[] = [];
+
     for (let i = 0; i < dias; i++) {
       const fecha = new Date();
       fecha.setDate(fecha.getDate() - i);
-      const fechaStr = this.formatearFecha(fecha);
-      
-      console.log(`📅 Consultando fecha: ${fechaStr} (${i + 1}/${dias})`);
-      const licitaciones = await this.obtenerPorFecha(fechaStr);
-      todasLicitaciones.push(...licitaciones);
-      
-      // Pequeña pausa para no saturar la API
-      await new Promise(r => setTimeout(r, 100));
+      const fechaStr = this.formatFecha(fecha);
+      const resultado = await this.obtenerPorFecha(fechaStr);
+      todas.push(...resultado);
+      if (i < dias - 1) await new Promise(r => setTimeout(r, 150));
     }
-    
-    // Eliminar duplicados por código
-    const unicos = new Map();
-    for (const lic of todasLicitaciones) {
-      if (!unicos.has(lic.Codigo)) {
-        unicos.set(lic.Codigo, lic);
-      }
+
+    const unicos = new Map<string, Licitacion>();
+    for (const lic of todas) {
+      if (!unicos.has(lic.Codigo)) unicos.set(lic.Codigo, lic);
     }
-    
-    const resultado = Array.from(unicos.values());
-    console.log(`📊 Total: ${resultado.length} licitaciones únicas en ${dias} días (${todasLicitaciones.length} con duplicados)`);
-    return resultado;
+
+    return Array.from(unicos.values());
   }
 
-  /**
-   * Obtener licitaciones por fecha específica
-   */
-  async obtenerPorFecha(fecha: string): Promise<Licitacion[]> {
+  // =============================================
+  // ÓRDENES DE COMPRA
+  // =============================================
+
+  async obtenerOrdenCompra(codigo: string): Promise<OrdenCompraAPI | null> {
     try {
-      const url = `${API_BASE_URL}/licitaciones.json?fecha=${fecha}&ticket=${this.ticket}`;
-      const response = await fetch(url);
-      
-      if (!response.ok) return [];
-      
-      const data = await response.json();
-      if (data.Codigo === 10000) return [];
-      
-      return (data.Listado || []).map((item: any) => this.normalizarLicitacion(item));
-      
-    } catch (error) {
-      console.error(`❌ Error en obtenerPorFecha:`, error);
-      return [];
+      const url = `${API_BASE}/OrdenCompra.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
+      const data: OrdenCompraAPIResponse = await this.fetch(url);
+      return data.Listado?.[0] || null;
+    } catch {
+      return null;
     }
   }
 
-  /**
-   * Buscar por código de organismo
-   */
-  async obtenerPorOrganismo(codigoOrganismo: string): Promise<Licitacion[]> {
-    try {
-      const url = `${API_BASE_URL}/licitaciones.json?CodigoOrganismo=${codigoOrganismo}&ticket=${this.ticket}`;
-      const response = await fetch(url);
-      
-      if (!response.ok) return [];
-      
-      const data = await response.json();
-      if (data.Codigo === 10000) return [];
-      
-      return (data.Listado || []).map((item: any) => this.normalizarLicitacion(item));
-      
-    } catch (error) {
-      console.error(`❌ Error en obtenerPorOrganismo:`, error);
-      return [];
-    }
-  }
-
-  /**
-   * Normalizar una licitación desde la respuesta de la API
-   */
-  private normalizarLicitacion(item: any): Licitacion {
-    // Extraer organismo de múltiples fuentes posibles
-    const organismo = 
-      item.Comprador?.NombreOrganismo ||
-      item.Comprador?.NombreUnidad ||
-      item.Organismo ||
-      item.NombreOrganismo ||
-      'Organismo no especificado';
-    
-    // Extraer código del organismo
-    const codigoOrganismo = 
-      item.Comprador?.CodigoOrganismo ||
-      item.CodigoOrganismo ||
-      '';
-    
-    // Extraer región
-    const region = 
-      item.Comprador?.RegionUnidad ||
-      item.Region ||
-      '';
-    
-    // Calcular monto total (si viene en items o directamente)
-    let montoTotal = item.MontoEstimado || 0;
-    if (!montoTotal && item.Items?.Listado) {
-      montoTotal = item.Items.Listado.reduce((sum: number, i: any) => 
-        sum + (i.MontoTotal || i.MontoUnitario || 0), 0);
-    }
-    
-    // Formatear fechas correctamente
-    const fechaPublicacion = item.Fechas?.FechaPublicacion || 
-                            item.FechaPublicacion || 
-                            new Date().toISOString();
-    
-    const fechaCierre = item.FechaCierre || 
-                       item.Fechas?.FechaCierre || 
-                       new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    
-    // Determinar estado correcto
-    let estado = String(item.CodigoEstado || item.Estado || '5');
-    if (item.Estado === 'activas' || item.Estado === 'Publicada') {
-      estado = '5';
-    }
-    
-    return {
-      Codigo: item.CodigoExterno || item.Codigo || '',
-      Nombre: item.Nombre || 'Sin nombre',
-      Descripcion: item.Descripcion || '',
-      Estado: estado,
-      FechaPublicacion: fechaPublicacion,
-      FechaCierre: fechaCierre,
-      Organismo: organismo,
-      CodigoOrganismo: codigoOrganismo,
-      Region: region,
-      MontoTotal: montoTotal,
-      Items: item.Items?.Listado || [],
-      Url: item.Url || `https://www.mercadopublico.cl/Procurement/Modules/RFB/Details.aspx?qs=${item.CodigoExterno}`
-    };
-  }
-
-  private formatearFecha(fecha: Date): string {
-    const dia = fecha.getDate().toString().padStart(2, '0');
-    const mes = (fecha.getMonth() + 1).toString().padStart(2, '0');
-    const anio = fecha.getFullYear();
-    return `${dia}${mes}${anio}`;
-  }
+  // =============================================
+  // UTILIDADES
+  // =============================================
 
   async probarConexion(): Promise<boolean> {
     try {
-      const licitaciones = await this.obtenerActivasHoy();
-      return licitaciones.length > 0;
-    } catch (error) {
-      console.error('Error en prueba de conexión:', error);
+      const lics = await this.obtenerActivasHoy();
+      return lics.length >= 0;
+    } catch {
       return false;
     }
   }
 
-  async getEstadisticas(): Promise<object> {
-    const activas = await this.obtenerActivasHoy();
+  // =============================================
+  // NORMALIZACIÓN COMPLETA
+  // =============================================
+
+  normalizar(item: LicitacionAPI): Licitacion {
+    const comprador = item.Comprador;
+    const fechas = item.Fechas;
+    const estado = String(item.CodigoEstado || 5);
+
+    const itemsNorm: LicitacionItem[] = (item.Items?.Listado || []).map(it => ({
+      Correlativo: it.Correlativo,
+      CodigoProducto: String(it.CodigoProducto || ''),
+      NombreProducto: it.NombreProducto || '',
+      Descripcion: it.Descripcion,
+      Categoria: it.Categoria,
+      UnidadMedida: it.UnidadMedida,
+      Cantidad: it.Cantidad || 0,
+      Unidad: it.UnidadMedida || 'Unidad',
+      MontoUnitario: it.Adjudicacion?.MontoUnitario,
+      RutProveedorAdjudicado: it.Adjudicacion?.RutProveedor,
+      NombreProveedorAdjudicado: it.Adjudicacion?.NombreProveedor,
+    }));
+
     return {
-      ticket_valido: true,
-      fecha_consulta: new Date().toISOString(),
-      total_activas_hoy: activas.length,
-      ultima_actualizacion: new Date().toISOString()
+      Codigo: item.CodigoExterno || '',
+      Nombre: item.Nombre || '',
+      Descripcion: item.Descripcion || '',
+
+      Estado: estado,
+      EstadoNombre: ESTADO_CODIGOS[item.CodigoEstado] || item.Estado || '',
+      CodigoEstado: item.CodigoEstado,
+
+      FechaPublicacion: fechas?.FechaPublicacion || new Date().toISOString(),
+      FechaCierre: item.FechaCierre || fechas?.FechaCierre || '',
+      FechaCreacion: fechas?.FechaCreacion,
+      FechaAdjudicacion: fechas?.FechaAdjudicacion,
+      FechaInicioPreguntas: fechas?.FechaInicio,
+      FechaFinPreguntas: fechas?.FechaFinal,
+      FechaPublicacionRespuestas: fechas?.FechaPubRespuestas,
+      FechaAperturaTecnica: fechas?.FechaActoAperturaTecnica,
+      FechaAperturaEconomica: fechas?.FechaActoAperturaEconomica,
+      FechaEstimadaAdjudicacion: fechas?.FechaEstimadaAdjudicacion,
+      FechaVisitaTerreno: fechas?.FechaVisitaTerreno,
+      FechaEntregaAntecedentes: fechas?.FechaEntregaAntecedentes,
+
+      Organismo: comprador?.NombreOrganismo || '',
+      CodigoOrganismo: comprador?.CodigoOrganismo || '',
+      RutOrganismo: comprador?.RutUnidad,
+      NombreUnidad: comprador?.NombreUnidad,
+      DireccionUnidad: comprador?.DireccionUnidad,
+      ComunaUnidad: comprador?.ComunaUnidad,
+      Region: comprador?.RegionUnidad || '',
+      NombreUsuario: comprador?.NombreUsuario,
+      CargoUsuario: comprador?.CargoUsuario,
+
+      MontoEstimado: item.MontoEstimado,
+      MontoTotal: item.MontoEstimado,
+      VisibilidadMonto: item.VisibilidadMonto === 1,
+      Moneda: item.Moneda || 'CLP',
+      Estimacion: item.Estimacion,
+
+      Tipo: item.Tipo,
+      CodigoTipo: item.CodigoTipo,
+      TipoConvocatoria: item.TipoConvocatoria === 1 ? 'Abierto' : 'Cerrado',
+      DiasCierreLicitacion: item.DiasCierreLicitacion,
+
+      Modalidad: item.Modalidad,
+      SubContratacion: item.SubContratacion === 1,
+      EsRenovable: item.EsRenovable === 1,
+      TomaRazon: item.TomaRazon === 1,
+      TiempoDuracionContrato: item.TiempoDuracionContrato,
+      TipoDuracionContrato: item.TipoDuracionContrato,
+
+      NombreResponsableContrato: item.NombreResponsableContrato,
+      EmailResponsableContrato: item.EmailResponsableContrato,
+      FonoResponsableContrato: item.FonoResponsableContrato,
+
+      Adjudicacion: item.Adjudicacion
+        ? {
+            Tipo: item.Adjudicacion.Tipo,
+            Fecha: item.Adjudicacion.Fecha,
+            Numero: item.Adjudicacion.Numero,
+            NumeroOferentes: item.Adjudicacion.NumeroOferentes,
+            UrlActa: item.Adjudicacion.UrlActa,
+          }
+        : undefined,
+
+      Items: itemsNorm,
+
+      Url: `https://www.mercadopublico.cl/Procurement/Modules/RFB/Details.aspx?qs=${item.CodigoExterno}`,
     };
+  }
+
+  private async fetch<T>(url: string): Promise<T> {
+    const res = await globalThis.fetch(url, {
+      headers: { Accept: 'application/json' },
+      next: { revalidate: 300 },
+    });
+
+    if (!res.ok) throw new Error(`API error ${res.status}`);
+    const data = await res.json();
+
+    if (data.Codigo === 10000) throw new Error(`API: ${data.Mensaje}`);
+
+    return data as T;
+  }
+
+  private formatFecha(date: Date): string {
+    const d = date.getDate().toString().padStart(2, '0');
+    const m = (date.getMonth() + 1).toString().padStart(2, '0');
+    const y = date.getFullYear();
+    return `${d}${m}${y}`;
   }
 }
 
@@ -296,25 +273,8 @@ let clientInstance: MercadoPublicoClient | null = null;
 export function getMercadoPublicoClient(): MercadoPublicoClient {
   if (!clientInstance) {
     const ticket = process.env.MERCADO_PUBLICO_TICKET;
-    if (!ticket) {
-      throw new Error('MERCADO_PUBLICO_TICKET no está configurado');
-    }
-    console.log(`🔌 Inicializando cliente de API con ticket: ${ticket.substring(0, 8)}...`);
+    if (!ticket) throw new Error('MERCADO_PUBLICO_TICKET no configurado en .env.local');
     clientInstance = new MercadoPublicoClient(ticket);
   }
   return clientInstance;
-}
-
-// Función de utilidad para probar búsqueda por código
-export async function testBusquedaPorCodigo(codigo: string) {
-  const client = getMercadoPublicoClient();
-  const resultado = await client.obtenerPorCodigo(codigo);
-  if (resultado) {
-    console.log(`✅ Código ${codigo} encontrado: ${resultado.Nombre}`);
-    console.log(`   Organismo: ${resultado.Organismo}`);
-    console.log(`   Cierre: ${resultado.FechaCierre}`);
-  } else {
-    console.log(`❌ Código ${codigo} no encontrado`);
-  }
-  return resultado;
 }
