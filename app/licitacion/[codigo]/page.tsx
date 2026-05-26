@@ -856,26 +856,32 @@ export default function LicitacionDetallePage() {
       if (data.success && data.descargados > 0) {
         // Descarga exitosa: refrescar lista de documentos desde caché
         await fetchDocumentos();
-      } else if (data.documentos?.length > 0) {
-        // API encontró documentos pero las descargas fueron bloqueadas desde el servidor.
-        // Mostrar los documentos con sus URLs de MP para que el usuario los abra
-        // directamente desde su browser (que sí tiene IP residencial).
+      } else if (data.lista_documentos?.length > 0) {
+        // ScrapingAnt llegó a ViewAttachmentLC y extrajo la lista de documentos,
+        // pero el form POST de descarga también fue bloqueado desde el servidor.
+        // Mostrar la lista con un link para abrir en el browser del usuario.
+        const docsListados: DocumentoAdjunto[] = data.lista_documentos.map((d: any) => ({
+          nombre: d.nombre,
+          url: data.adjunto_url_mp || '',  // URL de ViewAttachmentLC — abre en browser
+          url_mp: data.adjunto_url_mp || '',
+          size: d.size,
+        }));
+        setDocumentosAPI(docsListados);
+        setAutoDescargaError(
+          `Encontramos ${docsListados.length} documento${docsListados.length > 1 ? 's' : ''}. ` +
+          `La descarga automática está bloqueada. Abre el portal de MP para descargarlos.`
+        );
+      } else if (data.documentos?.some((d: any) => d.status === 'descarga_bloqueada')) {
+        // Documentos encontrados pero descarga bloqueada (con URL individual)
         const bloqueados: DocumentoAdjunto[] = data.documentos
-          .filter((d: any) => d.status === 'descarga_bloqueada' && d.downloadUrl)
+          .filter((d: any) => d.status === 'descarga_bloqueada')
           .map((d: any) => ({
             nombre: d.nombre,
-            url: d.downloadUrl,   // URL de MP — el usuario puede abrirla desde su browser
-            url_mp: d.downloadUrl,
+            url: d.downloadUrl || data.adjunto_url_mp || '',
+            url_mp: d.downloadUrl || data.adjunto_url_mp || '',
           }));
-        if (bloqueados.length > 0) {
-          setDocumentosAPI(bloqueados);
-          // No es un error — encontramos los docs, solo que la descarga automática está bloqueada
-          setAutoDescargaError(
-            `Encontramos ${bloqueados.length} documento${bloqueados.length > 1 ? 's' : ''} pero la descarga automática está bloqueada por Mercado Público. Haz clic en "Abrir" para descargarlos manualmente y súbelos con el recuadro de abajo.`
-          );
-        } else {
-          setAutoDescargaError(data.error || `Se descargaron ${data.descargados ?? 0} de ${data.total ?? 0} documentos`);
-        }
+        if (bloqueados.length > 0) setDocumentosAPI(bloqueados);
+        setAutoDescargaError(data.error || `Descarga bloqueada — ${bloqueados.length} documentos encontrados`);
       } else {
         setAutoDescargaError(data.error || 'No se encontraron documentos');
       }
