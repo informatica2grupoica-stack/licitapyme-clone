@@ -309,6 +309,7 @@ function DocumentRow({
             {doc.nombre}
           </p>
           <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+            {doc.tipo && <span className="text-xs text-gray-500 bg-gray-100 px-1 rounded">{doc.tipo}</span>}
             {doc.size && <span className="text-xs text-gray-400">{formatFileSize(doc.size)}</span>}
             {yaDescargado && analizable && (
               <span className="text-xs text-purple-600 flex items-center gap-0.5 font-medium">
@@ -857,19 +858,20 @@ export default function LicitacionDetallePage() {
         // Descarga exitosa: refrescar lista de documentos desde caché
         await fetchDocumentos();
       } else if (data.lista_documentos?.length > 0) {
-        // ScrapingAnt llegó a ViewAttachmentLC y extrajo la lista de documentos,
-        // pero el form POST de descarga también fue bloqueado desde el servidor.
-        // Mostrar la lista con un link para abrir en el browser del usuario.
+        // API oficial devolvió documentos pero la descarga desde Vercel está bloqueada por WAF.
+        // Cada doc tiene su propio downloadUrl (Download.aspx?enc=...) — el usuario lo abre
+        // desde su browser con IP chilena y descarga directamente.
         const docsListados: DocumentoAdjunto[] = data.lista_documentos.map((d: any) => ({
           nombre: d.nombre,
-          url: data.adjunto_url_mp || '',  // URL de ViewAttachmentLC — abre en browser
-          url_mp: data.adjunto_url_mp || '',
-          size: d.size,
+          url: d.downloadUrl || data.adjunto_url_mp || '',
+          url_mp: d.downloadUrl || data.adjunto_url_mp || '',
+          tipo: d.tipo,
+          descripcion: d.descripcion,
         }));
         setDocumentosAPI(docsListados);
         setAutoDescargaError(
           `Encontramos ${docsListados.length} documento${docsListados.length > 1 ? 's' : ''}. ` +
-          `La descarga automática está bloqueada. Abre el portal de MP para descargarlos.`
+          `Haz clic en "Abrir" en cada documento para descargarlo desde tu browser.`
         );
       } else if (data.documentos?.some((d: any) => d.status === 'descarga_bloqueada')) {
         // Documentos encontrados pero descarga bloqueada (con URL individual)
