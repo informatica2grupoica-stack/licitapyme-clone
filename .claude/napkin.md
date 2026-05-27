@@ -6,6 +6,20 @@
 - Max 10 items per category.
 - Each item includes date + "Do instead".
 
+## Auth Architecture (Added 2026-05-27)
+
+1. **[2026-05-27] Auth: Custom JWT + MySQL (NO Supabase auth, NO NextAuth)**
+   Do instead: bcryptjs + jose JWT + HTTP-only cookie `licitapyme_session`. `app/lib/auth.ts` = fuente de verdad. Middleware en `/middleware.ts` verifica token en TODAS las rutas excepto `/login`, `/registro`, `/api/auth/*`.
+
+2. **[2026-05-27] JWT_SECRET debe estar en .env.local y en Vercel env vars**
+   Do instead: Sin JWT_SECRET el servidor tira excepción al arrancar. Ya configurado en .env.local. En Vercel, agregar como env var. Contraseña admin inicial: `Ica2026Admin!` (cambiar tras primer login).
+
+3. **[2026-05-27] useSession() para obtener usuario en cualquier Client Component**
+   Do instead: `import { useSession } from '@/app/lib/session-context'`. SessionProvider wrappea todo en layout.tsx. Llama `/api/auth/me` una vez al montar para hidratar la sesión.
+
+4. **[2026-05-27] Session must flow to favorites and documents**
+   Do instead: SQL migration `docs/migration-auth.sql` agrega `usuario_id` a `favoritos` y `documentos_cache`. Ejecutar en Bluehost antes de activar auth en prod.
+
 ## Domain Behavior Guardrails (Highest Priority)
 
 1. **[2026-05-26] MP WAF blocks all non-Chilean IPs — no auto-download from Vercel**
