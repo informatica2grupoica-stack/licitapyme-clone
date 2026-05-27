@@ -20,6 +20,13 @@ export async function GET(request: NextRequest) {
   const filtroUsuario = searchParams.get('usuarioId');
 
   try {
+    // Verificar que las tablas existen (migración pendiente)
+    try {
+      await pool.query('SELECT 1 FROM negocios LIMIT 1');
+    } catch {
+      return NextResponse.json({ success: true, negocios: [], usuarios: [], _migrationPending: true });
+    }
+
     let whereClause = '';
     let params: any[] = [];
 

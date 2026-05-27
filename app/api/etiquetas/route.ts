@@ -16,7 +16,11 @@ export async function GET() {
       `SELECT id, nombre, color, descripcion, activa FROM etiquetas ORDER BY nombre ASC`
     );
     return NextResponse.json({ success: true, etiquetas: rows });
-  } catch (error) {
+  } catch (error: any) {
+    // Tabla no existe todavía (migración pendiente)
+    if (error?.code === 'ER_NO_SUCH_TABLE') {
+      return NextResponse.json({ success: true, etiquetas: [] });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

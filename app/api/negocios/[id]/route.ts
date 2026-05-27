@@ -19,6 +19,10 @@ export async function GET(request: NextRequest, { params }: Params) {
   const { id } = await params;
 
   try {
+    // Tabla no existe todavía
+    try { await pool.query('SELECT 1 FROM negocios LIMIT 1'); }
+    catch { return NextResponse.json({ error: 'Ejecuta la migración migration-3-negocios.sql en tu base de datos' }, { status: 503 }); }
+
     const [rows] = await pool.query(
       `SELECT n.*,
               u.nombre AS usuario_nombre, u.email AS usuario_email,
