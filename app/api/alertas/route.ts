@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const soloNoLeidas = searchParams.get('noLeidas') === 'true';
-  const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100);
+  const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 500);
 
   try {
     const whereExtra = soloNoLeidas ? ' AND leida = FALSE' : '';

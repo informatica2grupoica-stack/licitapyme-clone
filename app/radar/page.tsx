@@ -68,20 +68,28 @@ function tiempoRelativo(fecha: string): string {
   return `hace ${Math.floor(hrs / 24)} d`;
 }
 
-function tipoBadge(tipo: string | null) {
+// Deriva el tipo de licitación desde el código (e.g. "2743-23-LP26" → "LP")
+function getTipoFromCodigo(codigo: string): string | null {
+  const m = codigo.match(/-([A-Za-z]+)\d+$/);
+  return m ? m[1].toUpperCase() : null;
+}
+
+function tipoBadge(codigo: string) {
+  const tipo = getTipoFromCodigo(codigo);
   if (!tipo) return null;
   const map: Record<string, { bg: string; text: string }> = {
-    'LE': { bg: 'bg-red-100',    text: 'text-red-700'    },
-    'LP': { bg: 'bg-blue-100',   text: 'text-blue-700'   },
-    'LQ': { bg: 'bg-amber-100',  text: 'text-amber-700'  },
-    'CO': { bg: 'bg-purple-100', text: 'text-purple-700' },
-    'SU': { bg: 'bg-teal-100',   text: 'text-teal-700'   },
+    'LE':  { bg: 'bg-red-100',    text: 'text-red-700'    },
+    'LP':  { bg: 'bg-blue-100',   text: 'text-blue-700'   },
+    'LQ':  { bg: 'bg-amber-100',  text: 'text-amber-700'  },
+    'CO':  { bg: 'bg-purple-100', text: 'text-purple-700' },
+    'SU':  { bg: 'bg-teal-100',   text: 'text-teal-700'   },
+    'L1':  { bg: 'bg-pink-100',   text: 'text-pink-700'   },
   };
-  const t = tipo.toUpperCase().slice(0, 2);
-  const style = map[t] ?? { bg: 'bg-gray-100', text: 'text-gray-600' };
+  const t2 = tipo.slice(0, 2);
+  const style = map[t2] ?? { bg: 'bg-gray-100', text: 'text-gray-600' };
   return (
     <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${style.bg} ${style.text}`}>
-      {tipo.toUpperCase().slice(0, 2)}
+      {t2}
     </span>
   );
 }
@@ -315,7 +323,7 @@ function AlertaCard({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-          {alerta.licitacion_tipo && tipoBadge(alerta.licitacion_tipo)}
+          {tipoBadge(alerta.licitacion_codigo)}
           {alerta.licitacion_organismo && (
             <span className="flex items-center gap-1 truncate">
               <Building2 size={10} /> {alerta.licitacion_organismo}
@@ -347,15 +355,16 @@ function AlertaCard({
         </div>
       </div>
 
-      {/* Acciones */}
-      <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Acciones — siempre visibles */}
+      <div className="flex items-center gap-1 flex-shrink-0">
         {esAdmin && (
           <button
             onClick={() => onAsignar(alerta)}
             className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
             title="Asignar a perfil"
           >
-            <UserPlus size={12} /> Asignar
+            <UserPlus size={12} />
+            <span className="hidden sm:inline">Asignar</span>
           </button>
         )}
         <Link
@@ -397,6 +406,7 @@ export default function RadarPage() {
   const [tabActiva, setTabActiva]     = useState<'radar' | 'keywords'>('radar');
   const [filtroKeyword, setFiltroKeyword] = useState('');
   const [alertaAsignar, setAlertaAsignar] = useState<Alerta | null>(null);
+  const [notificacion, setNotificacion] = useState<{ tipo: 'ok' | 'warn' | 'error'; mensaje: string } | null>(null);
 
   // ── Carga inicial ────────────────────────────────────────────────────────────
   const cargarKeywords = useCallback(async () => {
@@ -452,16 +462,48 @@ export default function RadarPage() {
   // ── Acciones ─────────────────────────────────────────────────────────────────
   const actualizarAhora = async () => {
     setActualizando(true);
+    setNotificacion(null);
     try {
-      const secret = process.env.NEXT_PUBLIC_CRON_SECRET || '7f3a9b2e1d8c4f6a0e5b7d3c9a2f1e8b4d7c0a3f6e9b2d5c8a1f4e7b0d3c6a9f';
-      await fetch('/api/cron/alertas', {
+      const secret = process.env.NEXT_PUBLIC_CRON_SECRET
+        || '7f3a9b2e1d8c4f6a0e5b7d3c9a2f1e8b4d7c0a3f6e9b2d5c8a1f4e7b0d3c6a9f';
+
+      console.log('[Radar] 🚀 Iniciando actualización manual...');
+
+      const res  = await fetch('/api/cron/alertas', {
         headers: { Authorization: `Bearer ${secret}` },
+        signal: AbortSignal.timeout(58_000), // 58s max
       });
+      const data = await res.json();
+
+      console.log('[Radar] 📦 Respuesta del cron:', data);
+
+      if (!res.ok) {
+        const msg = data.error || `Error HTTP ${res.status}`;
+        console.error('[Radar] ❌', msg);
+        setNotificacion({ tipo: 'error', mensaje: msg });
+      } else if (data.alertasNuevas > 0) {
+        setNotificacion({
+          tipo: 'ok',
+          mensaje: `✅ ${data.alertasNuevas} licitación${data.alertasNuevas !== 1 ? 'es' : ''} nueva${data.alertasNuevas !== 1 ? 's' : ''} encontrada${data.alertasNuevas !== 1 ? 's' : ''} en ${data.keywordsProcesadas} palabras clave`,
+        });
+      } else {
+        setNotificacion({
+          tipo: 'warn',
+          mensaje: `Sin resultados nuevos (${data.keywordsProcesadas} palabras clave buscadas${data.keywordsOmitidas > 0 ? `, ${data.keywordsOmitidas} omitidas por timeout` : ''})`,
+        });
+      }
+
       await cargarKeywords();
       await cargarAlertas();
       setUltimaActualizacion(new Date().toISOString());
-    } catch { /* silencioso */ }
-    finally { setActualizando(false); }
+      // Ocultar notificación después de 8 segundos
+      setTimeout(() => setNotificacion(null), 8000);
+    } catch (err) {
+      console.error('[Radar] ❌ Error de red:', err);
+      setNotificacion({ tipo: 'error', mensaje: 'Error de conexión. Revisa la consola del navegador (F12).' });
+    } finally {
+      setActualizando(false);
+    }
   };
 
   const agregarKeyword = async (e: React.FormEvent) => {
@@ -576,6 +618,20 @@ export default function RadarPage() {
             Actualizar ahora
           </button>
         </div>
+
+        {/* ── Notificación resultado ──────────────────────────────────────── */}
+        {notificacion && (
+          <div className={`flex items-start gap-2 px-4 py-3 rounded-xl text-sm mb-4 border ${
+            notificacion.tipo === 'ok'    ? 'bg-green-50 border-green-200 text-green-800' :
+            notificacion.tipo === 'warn'  ? 'bg-amber-50 border-amber-200 text-amber-800' :
+                                            'bg-red-50 border-red-200 text-red-800'
+          }`}>
+            <span className="flex-1">{notificacion.mensaje}</span>
+            <button onClick={() => setNotificacion(null)} className="flex-shrink-0 opacity-60 hover:opacity-100">
+              <X size={14} />
+            </button>
+          </div>
+        )}
 
         {/* ── Tabs ────────────────────────────────────────────────────────── */}
         <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-xl w-fit">
