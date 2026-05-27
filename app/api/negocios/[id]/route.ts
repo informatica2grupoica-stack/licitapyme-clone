@@ -25,6 +25,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const [rows] = await pool.query(
       `SELECT n.*,
+              COALESCE(n.estado_pipeline, '1ASIGNADO') AS estado_pipeline,
               u.nombre AS usuario_nombre, u.email AS usuario_email,
               a.nombre AS admin_nombre
        FROM negocios n
@@ -68,7 +69,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
   try {
     const body = await request.json();
-    const { monto_ofertado, etiqueta_ids } = body;
+    const { monto_ofertado, etiqueta_ids, estado_pipeline } = body;
 
     // Verificar acceso
     const [rows] = await pool.query(
@@ -86,6 +87,14 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       await pool.query(
         `UPDATE negocios SET monto_ofertado = ? WHERE id = ?`,
         [monto_ofertado || 0, id]
+      );
+    }
+
+    // Actualizar estado del pipeline (cualquier usuario asignado o admin)
+    if (estado_pipeline !== undefined) {
+      await pool.query(
+        `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`,
+        [estado_pipeline || null, id]
       );
     }
 

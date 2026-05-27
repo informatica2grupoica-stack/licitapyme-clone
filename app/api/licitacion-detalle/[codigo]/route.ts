@@ -30,7 +30,8 @@ export async function GET(
 
     const oportunidad = searchEngine.licitacionToOportunidad(licitacion, '');
 
-    return NextResponse.json({ success: true, licitacion: oportunidad });
+    // Devolvemos TANTO la oportunidad (compatibilidad) COMO la licitación completa (para detail page)
+    return NextResponse.json({ success: true, licitacion: oportunidad, licitacion_raw: licitacion });
   } catch (error: any) {
     console.error(`❌ Error obteniendo licitación ${codigoDecoded}:`, error);
     return NextResponse.json(

@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import {
-  Briefcase, Plus, Search, Filter, ExternalLink, Trash2,
+  Briefcase, Plus, Search, ExternalLink, Trash2,
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
   ChevronDown, X, RefreshCw, Users,
 } from 'lucide-react';
+import { getEstadoPipeline } from '@/app/lib/pipeline';
 
 interface Etiqueta { id: number; nombre: string; color: string; }
 
@@ -22,6 +23,7 @@ interface Negocio {
   licitacion_estado: string | null;
   licitacion_tipo: string | null;
   licitacion_region: string | null;
+  estado_pipeline: string | null;
   monto_ofertado: number;
   usuario_nombre: string;
   usuario_email: string;
@@ -36,6 +38,22 @@ const TIPO_BADGE: Record<string, string> = {
   'LE': 'bg-red-500', 'LP': 'bg-blue-500', 'LQ': 'bg-purple-500',
   'CO': 'bg-green-500', 'L1': 'bg-orange-500',
 };
+
+const TIPOS_FILTRO = ['LE', 'LP', 'LQ', 'CO', 'L1'];
+
+function PipelineBadge({ estadoId }: { estadoId: string | null }) {
+  const e = getEstadoPipeline(estadoId || '1ASIGNADO');
+  if (!e) return null;
+  return (
+    <span
+      style={{ backgroundColor: e.color + '18', color: e.color, borderColor: e.color + '40' }}
+      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold border"
+    >
+      <span style={{ backgroundColor: e.color }} className="w-1 h-1 rounded-full flex-shrink-0" />
+      {e.label}
+    </span>
+  );
+}
 
 function formatMonto(n: number | null): string {
   if (!n) return '$0';
@@ -249,6 +267,7 @@ function NegociosContent() {
   const [search, setSearch]         = useState('');
   const [filtroUsuario, setFiltroUsuario] = useState('');
   const [filtroEtiqueta, setFiltroEtiqueta] = useState('');
+  const [filtroTipo, setFiltroTipo]         = useState('');
   const [showModal, setShowModal]   = useState(false);
 
   const cargar = useCallback(async () => {
@@ -288,7 +307,9 @@ function NegociosContent() {
       n.licitacion_organismo?.toLowerCase().includes(search.toLowerCase());
     const matchEt = filtroEtiqueta === '' ||
       n.etiquetas.some(e => String(e.id) === filtroEtiqueta);
-    return matchSearch && matchEt;
+    const tipoDelCodigo = n.licitacion_codigo?.match(/-(LE|LP|LQ|CO|L1)\d/)?.[1] || '';
+    const matchTipo = filtroTipo === '' || tipoDelCodigo === filtroTipo;
+    return matchSearch && matchEt && matchTipo;
   });
 
   const ESTADO_COLOR: Record<string, string> = {
@@ -326,42 +347,77 @@ function NegociosContent() {
         </div>
 
         {/* Filtros */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Buscar..."
-              className="pl-8 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none w-52"
-            />
+        <div className="space-y-2 mb-4">
+          {/* Fila 1: búsqueda + selects */}
+          <div className="flex flex-wrap gap-2">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder="Buscar..."
+                className="pl-8 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none w-52"
+              />
+            </div>
+
+            {isAdmin && usuarios.length > 0 && (
+              <select
+                value={filtroUsuario}
+                onChange={e => setFiltroUsuario(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="">Todos los usuarios</option>
+                {usuarios.map(u => (
+                  <option key={u.id} value={u.id}>{u.nombre || u.email}</option>
+                ))}
+              </select>
+            )}
+
+            {etiquetas.length > 0 && (
+              <select
+                value={filtroEtiqueta}
+                onChange={e => setFiltroEtiqueta(e.target.value)}
+                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              >
+                <option value="">Todas las líneas</option>
+                {etiquetas.map(e => (
+                  <option key={e.id} value={e.id}>{e.nombre}</option>
+                ))}
+              </select>
+            )}
           </div>
 
-          {isAdmin && usuarios.length > 0 && (
-            <select
-              value={filtroUsuario}
-              onChange={e => setFiltroUsuario(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+          {/* Fila 2: filtro por tipo (chips) */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-xs text-gray-400 font-medium mr-0.5">Tipo:</span>
+            <button
+              onClick={() => setFiltroTipo('')}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
+                filtroTipo === ''
+                  ? 'bg-gray-800 text-white border-gray-800'
+                  : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+              }`}
             >
-              <option value="">Todos los usuarios</option>
-              {usuarios.map(u => (
-                <option key={u.id} value={u.id}>{u.nombre || u.email}</option>
-              ))}
-            </select>
-          )}
-
-          {etiquetas.length > 0 && (
-            <select
-              value={filtroEtiqueta}
-              onChange={e => setFiltroEtiqueta(e.target.value)}
-              className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-            >
-              <option value="">Todas las líneas</option>
-              {etiquetas.map(e => (
-                <option key={e.id} value={e.id}>{e.nombre}</option>
-              ))}
-            </select>
-          )}
+              Todos
+            </button>
+            {TIPOS_FILTRO.map(t => {
+              const bg = TIPO_BADGE[t] || 'bg-gray-400';
+              const isActive = filtroTipo === t;
+              return (
+                <button
+                  key={t}
+                  onClick={() => setFiltroTipo(isActive ? '' : t)}
+                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
+                    isActive
+                      ? `${bg} text-white border-transparent`
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                  }`}
+                >
+                  {t}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Error */}
@@ -427,13 +483,14 @@ function NegociosContent() {
                         )}
                       </div>
 
-                      {/* Nombre + etiquetas */}
+                      {/* Nombre + etiquetas + pipeline */}
                       <div>
                         <p className="text-sm text-gray-800 line-clamp-1 font-medium group-hover:text-blue-600 transition-colors">
                           {neg.licitacion_nombre || 'Sin nombre'}
                         </p>
                         <div className="flex flex-wrap gap-1 mt-1">
-                          {neg.etiquetas.slice(0, 3).map(et => (
+                          <PipelineBadge estadoId={neg.estado_pipeline} />
+                          {neg.etiquetas.slice(0, 2).map(et => (
                             <span
                               key={et.id}
                               style={{ backgroundColor: et.color + '20', color: et.color, borderColor: et.color + '40' }}
@@ -444,7 +501,7 @@ function NegociosContent() {
                           ))}
                           {neg.comentarios_count > 0 && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
-                              {neg.comentarios_count} comentarios
+                              {neg.comentarios_count} com.
                             </span>
                           )}
                         </div>

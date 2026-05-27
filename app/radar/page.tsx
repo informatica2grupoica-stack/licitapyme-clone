@@ -300,6 +300,20 @@ function ModalAsignar({
   );
 }
 
+// ── Highlight keyword in text ─────────────────────────────────────────────────
+function HighlightText({ text, keyword }: { text: string; keyword: string }) {
+  if (!keyword || !text) return <>{text}</>;
+  const idx = text.toLowerCase().indexOf(keyword.toLowerCase());
+  if (idx === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <strong className="font-bold text-blue-700 not-italic">{text.slice(idx, idx + keyword.length)}</strong>
+      {text.slice(idx + keyword.length)}
+    </>
+  );
+}
+
 // ── AlertaCard ────────────────────────────────────────────────────────────────
 function AlertaCard({
   alerta,
@@ -341,7 +355,10 @@ function AlertaCard({
               href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
               className="text-[13.5px] font-semibold text-zinc-900 hover:text-blue-600 transition-colors line-clamp-2 leading-snug"
             >
-              {alerta.licitacion_nombre || alerta.licitacion_codigo}
+              {alerta.licitacion_nombre
+                ? <HighlightText text={alerta.licitacion_nombre} keyword={alerta.keyword_texto} />
+                : alerta.licitacion_codigo
+              }
             </Link>
             <span className="text-[11px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full font-semibold border border-blue-100 whitespace-nowrap flex-shrink-0">
               {alerta.keyword_texto}
