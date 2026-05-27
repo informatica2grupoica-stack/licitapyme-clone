@@ -8,6 +8,7 @@ import {
   Users, Settings, LogOut, ChevronRight, User, ShieldCheck,
   Menu, X, Bell, ChevronDown, Briefcase, FolderOpen,
 } from 'lucide-react';
+
 import { useSession } from '@/app/lib/session-context';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -33,6 +34,7 @@ interface AppLayoutProps {
 // ─── Navegación ───────────────────────────────────────────────────────────────
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',   href: '/dashboard',      icon: <LayoutDashboard size={20} /> },
+  { label: 'Negocios',    href: '/negocios',       icon: <Briefcase size={20} /> },
   { label: 'Buscador',    href: '/',               icon: <Search size={20} /> },
   { label: 'Favoritos',   href: '/favoritos',      icon: <Star size={20} /> },
   { label: 'Documentos',  href: '/documentos',     icon: <FolderOpen size={20} /> },
@@ -97,6 +99,12 @@ function UserDropdown() {
               <Link href="/admin/usuarios" onClick={() => setOpen(false)}
                 className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
                 <Users size={14} className="text-gray-400" /> Administrar usuarios
+              </Link>
+            )}
+            {usuario.rol === 'admin' && (
+              <Link href="/admin/etiquetas" onClick={() => setOpen(false)}
+                className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                <Briefcase size={14} className="text-gray-400" /> Líneas de negocio
               </Link>
             )}
           </div>
