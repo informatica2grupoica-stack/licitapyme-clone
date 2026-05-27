@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import {
   Building2, LayoutDashboard, Search, Star, FileText,
@@ -11,13 +11,13 @@ import {
 
 import { useSession } from '@/app/lib/session-context';
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+// ── Tipos ──────────────────────────────────────────────────────────────────────
 interface NavItem {
-  label: string;
-  href: string;
-  icon: React.ReactNode;
+  label:     string;
+  href:      string;
+  icon:      React.ReactNode;
   adminOnly?: boolean;
-  badge?: number;
+  badge?:    number;
 }
 
 interface BreadcrumbItem {
@@ -26,40 +26,40 @@ interface BreadcrumbItem {
 }
 
 interface AppLayoutProps {
-  children: React.ReactNode;
+  children:   React.ReactNode;
   breadcrumb?: BreadcrumbItem[];
-  title?: string;
+  title?:     string;
 }
 
-// ─── Navegación ───────────────────────────────────────────────────────────────
+// ── Nav items ─────────────────────────────────────────────────────────────────
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard',   href: '/dashboard',      icon: <LayoutDashboard size={20} /> },
-  { label: 'Negocios',    href: '/negocios',       icon: <Briefcase size={20} /> },
-  { label: 'Buscador',    href: '/',               icon: <Search size={20} /> },
-  { label: 'Favoritos',   href: '/favoritos',      icon: <Star size={20} /> },
-  { label: 'Documentos',  href: '/documentos',     icon: <FolderOpen size={20} /> },
-  { label: 'Radar',       href: '/radar',          icon: <Radar size={20} /> },
-  { label: 'Usuarios',    href: '/admin/usuarios', icon: <Users size={20} />, adminOnly: true },
-  { label: 'Perfil',      href: '/perfil',         icon: <Settings size={20} /> },
+  { label: 'Dashboard',  href: '/dashboard',      icon: <LayoutDashboard size={16} /> },
+  { label: 'Negocios',   href: '/negocios',        icon: <Briefcase       size={16} /> },
+  { label: 'Buscador',   href: '/',                icon: <Search          size={16} /> },
+  { label: 'Favoritos',  href: '/favoritos',       icon: <Star            size={16} /> },
+  { label: 'Documentos', href: '/documentos',      icon: <FolderOpen      size={16} /> },
+  { label: 'Radar',      href: '/radar',           icon: <Radar           size={16} /> },
+  { label: 'Usuarios',   href: '/admin/usuarios',  icon: <Users           size={16} />, adminOnly: true },
+  { label: 'Perfil',     href: '/perfil',          icon: <Settings        size={16} /> },
 ];
 
-// ─── User dropdown ────────────────────────────────────────────────────────────
+// ── User Dropdown ─────────────────────────────────────────────────────────────
 function UserDropdown() {
   const { usuario, logout } = useSession();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen]     = useState(false);
+  const ref                 = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const fn = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('mousedown', fn);
+    return () => document.removeEventListener('mousedown', fn);
   }, []);
 
   if (!usuario) return null;
 
-  const iniciales = usuario.nombre
+  const initials = usuario.nombre
     ? usuario.nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
     : usuario.email[0].toUpperCase();
 
@@ -67,51 +67,66 @@ function UserDropdown() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-slate-800 transition-colors w-full"
+        className="flex items-center gap-2.5 p-2 rounded-xl hover:bg-white/[0.06] transition-colors w-full group"
       >
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-          {iniciales}
+        {/* Avatar */}
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0 shadow-lg">
+          {initials}
         </div>
+        {/* Name */}
         <div className="flex-1 min-w-0 text-left hidden lg:block">
-          <p className="text-sm font-semibold text-white truncate">{usuario.nombre || usuario.email.split('@')[0]}</p>
-          <p className="text-xs text-slate-400 truncate">{usuario.empresa || usuario.email}</p>
+          <p className="text-[13px] font-semibold text-zinc-200 truncate leading-none mb-0.5">
+            {usuario.nombre || usuario.email.split('@')[0]}
+          </p>
+          <p className="text-[11px] text-zinc-500 truncate leading-none">
+            {usuario.empresa || usuario.email}
+          </p>
         </div>
-        <ChevronDown size={14} className="text-slate-400 flex-shrink-0 hidden lg:block" />
+        <ChevronDown
+          size={13}
+          className={`text-zinc-600 flex-shrink-0 hidden lg:block transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        />
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-2 w-56 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
-          <div className="px-4 py-3 bg-gray-50 border-b border-gray-100">
-            <p className="text-sm font-semibold text-gray-900 truncate">{usuario.nombre || 'Sin nombre'}</p>
-            <p className="text-xs text-gray-500 truncate mt-0.5">{usuario.email}</p>
+        <div className="absolute bottom-full left-0 mb-2 w-56 bg-[#18181b] border border-zinc-800 rounded-xl shadow-2xl shadow-black/60 z-50 overflow-hidden scale-in">
+          {/* User info */}
+          <div className="px-3.5 py-3 border-b border-zinc-800/80">
+            <p className="text-[13px] font-semibold text-zinc-100 truncate">
+              {usuario.nombre || 'Sin nombre'}
+            </p>
+            <p className="text-[11px] text-zinc-500 truncate mt-0.5">{usuario.email}</p>
             {usuario.rol === 'admin' && (
-              <span className="inline-flex items-center gap-1 mt-1.5 text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium">
-                <ShieldCheck size={10} /> Admin
+              <span className="inline-flex items-center gap-1 mt-1.5 text-[10px] px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full font-medium">
+                <ShieldCheck size={9} /> Admin
               </span>
             )}
           </div>
+
+          {/* Actions */}
           <div className="py-1">
             <Link href="/perfil" onClick={() => setOpen(false)}
-              className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-              <User size={14} className="text-gray-400" /> Mi perfil
+              className="flex items-center gap-2.5 px-3.5 py-2 text-[13px] text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04] transition-colors">
+              <User size={13} /> Mi perfil
             </Link>
-            {usuario.rol === 'admin' && (
+            {usuario.rol === 'admin' && (<>
               <Link href="/admin/usuarios" onClick={() => setOpen(false)}
-                className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                <Users size={14} className="text-gray-400" /> Administrar usuarios
+                className="flex items-center gap-2.5 px-3.5 py-2 text-[13px] text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04] transition-colors">
+                <Users size={13} /> Administrar usuarios
               </Link>
-            )}
-            {usuario.rol === 'admin' && (
               <Link href="/admin/etiquetas" onClick={() => setOpen(false)}
-                className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
-                <Briefcase size={14} className="text-gray-400" /> Líneas de negocio
+                className="flex items-center gap-2.5 px-3.5 py-2 text-[13px] text-zinc-400 hover:text-zinc-100 hover:bg-white/[0.04] transition-colors">
+                <Briefcase size={13} /> Líneas de negocio
               </Link>
-            )}
+            </>)}
           </div>
-          <div className="border-t border-gray-100 py-1">
-            <button onClick={() => { setOpen(false); logout(); }}
-              className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors">
-              <LogOut size={14} /> Cerrar sesión
+
+          <div className="border-t border-zinc-800/80 py-1">
+            <button
+              onClick={() => { setOpen(false); logout(); }}
+              className="w-full flex items-center gap-2.5 px-3.5 py-2 text-[13px] text-red-400 hover:text-red-300 hover:bg-red-500/[0.06] transition-colors"
+            >
+              <LogOut size={13} /> Cerrar sesión
             </button>
           </div>
         </div>
@@ -120,52 +135,71 @@ function UserDropdown() {
   );
 }
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
-function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMobile: () => void }) {
+// ── Sidebar ───────────────────────────────────────────────────────────────────
+function Sidebar({
+  mobileOpen,
+  onCloseMobile,
+}: {
+  mobileOpen:     boolean;
+  onCloseMobile:  () => void;
+}) {
   const pathname = usePathname();
   const { usuario } = useSession();
 
-  const navItems = NAV_ITEMS.filter(item => !item.adminOnly || usuario?.rol === 'admin');
+  const navItems = NAV_ITEMS.filter(i => !i.adminOnly || usuario?.rol === 'admin');
 
-  const isActive = (href: string) => {
-    if (href === '/') return pathname === '/';
-    return pathname.startsWith(href);
-  };
+  const isActive = (href: string) =>
+    href === '/' ? pathname === '/' : pathname.startsWith(href);
 
   return (
     <>
       {/* Mobile overlay */}
       {mobileOpen && (
-        <div className="fixed inset-0 bg-black/60 z-40 lg:hidden" onClick={onCloseMobile} />
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 lg:hidden"
+          onClick={onCloseMobile}
+        />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar panel */}
       <aside className={`
-        fixed top-0 left-0 h-full z-50 flex flex-col
-        bg-slate-900 border-r border-slate-800
-        transition-all duration-300
-        w-64
+        fixed top-0 left-0 h-full z-50 flex flex-col w-60
+        bg-[#0f1117] border-r border-white/[0.06]
+        transition-transform duration-300 ease-out
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full'}
         lg:translate-x-0 lg:static lg:z-auto
       `}>
+
         {/* Logo */}
-        <div className="px-4 py-5 flex items-center justify-between border-b border-slate-800">
-          <Link href="/dashboard" className="flex items-center gap-3 group" onClick={onCloseMobile}>
-            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg group-hover:bg-blue-500 transition-colors flex-shrink-0">
-              <Building2 size={18} className="text-white" />
+        <div className="px-4 pt-5 pb-4 flex items-center justify-between">
+          <Link
+            href="/dashboard"
+            onClick={onCloseMobile}
+            className="flex items-center gap-2.5 group"
+          >
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-600/30 flex-shrink-0 group-hover:bg-blue-500 transition-colors">
+              <Building2 size={15} className="text-white" />
             </div>
             <div className="flex flex-col leading-none">
-              <span className="text-white font-bold text-base tracking-tight">ICA</span>
-              <span className="text-slate-400 text-xs font-medium tracking-wider uppercase">Licitaciones</span>
+              <span className="text-white font-bold text-sm tracking-tight">ICA</span>
+              <span className="text-zinc-500 text-[10px] font-medium tracking-widest uppercase mt-0.5">
+                Licitaciones
+              </span>
             </div>
           </Link>
-          <button onClick={onCloseMobile} className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 lg:hidden">
-            <X size={16} />
+          <button
+            onClick={onCloseMobile}
+            className="p-1.5 hover:bg-white/[0.06] rounded-lg text-zinc-500 lg:hidden"
+          >
+            <X size={15} />
           </button>
         </div>
 
-        {/* Nav items */}
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-1">
+        {/* Divider */}
+        <div className="mx-4 h-px bg-white/[0.06] mb-3" />
+
+        {/* Nav */}
+        <nav className="flex-1 overflow-y-auto px-2.5 space-y-0.5">
           {navItems.map(item => {
             const active = isActive(item.href);
             return (
@@ -174,30 +208,34 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
                 href={item.href}
                 onClick={onCloseMobile}
                 className={`
-                  flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-                  transition-all duration-150 group
+                  flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium
+                  transition-all duration-150 group relative
                   ${active
-                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    ? 'bg-white/[0.09] text-white'
+                    : 'text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.05]'
                   }
                 `}
               >
-                <span className={`flex-shrink-0 ${active ? 'text-white' : 'text-slate-400 group-hover:text-white'}`}>
+                {/* Active indicator */}
+                {active && (
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-blue-500 rounded-full" />
+                )}
+                <span className={`flex-shrink-0 transition-colors ${active ? 'text-blue-400' : 'text-zinc-600 group-hover:text-zinc-400'}`}>
                   {item.icon}
                 </span>
                 <span className="flex-1">{item.label}</span>
-                {item.badge ? (
-                  <span className="bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold min-w-[1.25rem] text-center">
+                {item.badge != null && item.badge > 0 && (
+                  <span className="bg-red-500 text-white text-[10px] rounded-full px-1.5 py-px font-bold min-w-[18px] text-center tabular-nums">
                     {item.badge}
                   </span>
-                ) : null}
+                )}
               </Link>
             );
           })}
         </nav>
 
-        {/* User section */}
-        <div className="px-3 py-3 border-t border-slate-800">
+        {/* User */}
+        <div className="px-2.5 pb-3 pt-3 border-t border-white/[0.06]">
           <UserDropdown />
         </div>
       </aside>
@@ -205,75 +243,68 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   );
 }
 
-// ─── TopBar ───────────────────────────────────────────────────────────────────
+// ── TopBar ─────────────────────────────────────────────────────────────────────
 function TopBar({
   breadcrumb,
   onOpenMobile,
 }: {
-  breadcrumb?: BreadcrumbItem[];
+  breadcrumb?:  BreadcrumbItem[];
   onOpenMobile: () => void;
 }) {
   const { usuario } = useSession();
 
-  const hora = new Date().getHours();
-  const saludo = hora < 12 ? 'Buenos días' : hora < 18 ? 'Buenas tardes' : 'Buenas noches';
-  const nombreCorto = usuario?.nombre?.split(' ')[0] || usuario?.email?.split('@')[0] || '';
+  const hora       = new Date().getHours();
+  const saludo     = hora < 12 ? 'Buenos días' : hora < 18 ? 'Buenas tardes' : 'Buenas noches';
+  const nombre     = usuario?.nombre?.split(' ')[0] || usuario?.email?.split('@')[0] || '';
 
   return (
-    <div className="bg-white border-b border-gray-100 px-4 sm:px-6 py-3 flex items-center gap-4">
-      {/* Mobile menu button */}
+    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-zinc-200/60 px-4 sm:px-6 h-14 flex items-center gap-3">
+      {/* Mobile hamburger */}
       <button
         onClick={onOpenMobile}
-        className="p-2 hover:bg-gray-100 rounded-lg transition-colors lg:hidden flex-shrink-0"
+        className="p-1.5 hover:bg-zinc-100 rounded-lg transition-colors lg:hidden flex-shrink-0"
       >
-        <Menu size={20} className="text-gray-600" />
+        <Menu size={18} className="text-zinc-600" />
       </button>
 
-      {/* Breadcrumb / Saludo */}
+      {/* Breadcrumb / saludo */}
       <div className="flex-1 min-w-0">
         {breadcrumb && breadcrumb.length > 0 ? (
-          <nav className="flex items-center gap-1.5 text-sm">
+          <nav className="flex items-center gap-1 text-[13px]">
             {breadcrumb.map((item, i) => (
-              <span key={i} className="flex items-center gap-1.5">
-                {i > 0 && <ChevronRight size={13} className="text-gray-300" />}
-                {item.href ? (
-                  <Link href={item.href} className="text-gray-400 hover:text-gray-700 transition-colors">
-                    {item.label}
-                  </Link>
-                ) : (
-                  <span className="text-gray-700 font-medium truncate max-w-[200px] sm:max-w-none">{item.label}</span>
-                )}
+              <span key={i} className="flex items-center gap-1">
+                {i > 0 && <ChevronRight size={12} className="text-zinc-300 flex-shrink-0" />}
+                {item.href
+                  ? <Link href={item.href} className="text-zinc-400 hover:text-zinc-700 transition-colors">{item.label}</Link>
+                  : <span className="text-zinc-700 font-semibold truncate">{item.label}</span>
+                }
               </span>
             ))}
           </nav>
         ) : (
-          <p className="text-sm font-semibold text-gray-700">
-            {saludo}{nombreCorto ? `, ${nombreCorto}` : ''}
+          <p className="text-[13px] font-semibold text-zinc-700">
+            {saludo}{nombre ? `, ${nombre}` : ''}
           </p>
         )}
       </div>
 
-      {/* Right actions */}
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 border border-green-200 text-green-600 text-xs font-medium">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-          API Activa
-        </span>
+      {/* API status pill */}
+      <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-600 text-[11px] font-medium flex-shrink-0">
+        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+        API activa
       </div>
-    </div>
+    </header>
   );
 }
 
-// ─── AppLayout principal ──────────────────────────────────────────────────────
-export function AppLayout({ children, breadcrumb, title }: AppLayoutProps) {
+// ── AppLayout ─────────────────────────────────────────────────────────────────
+export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Sidebar */}
+    <div className="flex h-screen bg-[#f5f5f7] overflow-hidden">
       <Sidebar mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
 
-      {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <TopBar
           breadcrumb={breadcrumb}

@@ -30,7 +30,13 @@
 
 ## Domain Behavior Guardrails (Highest Priority)
 
-1. **[2026-05-26] MP WAF blocks all non-Chilean IPs — no auto-download from Vercel**
+1. **[2026-05-27] MP API has NO `buscar` text-search parameter — HTTP 400 if used**
+   Do instead: call `getMercadoPublicoClient().obtenerUltimosDias(7)` to download all recent licitaciones, then filter locally with `texto.includes(keyword)`. This is how `app/api/search/route.ts` works. The cron `app/api/cron/alertas/route.ts` was rewritten to use this approach.
+
+2. **[2026-05-27] MySQL 5.7 (Bluehost) has no `NULLS FIRST` / `NULLS LAST` syntax**
+   Do instead: use `ORDER BY ISNULL(col) DESC, col ASC` — works in MySQL 5.7 and 8+.
+
+3. **[2026-05-26] MP WAF blocks all non-Chilean IPs — no auto-download from Vercel**
    Do instead: use the manual upload flow (user downloads from MP with Chilean IP → drags to SubirDocumentos → saved to R2). Never add scraping or proxy code that fetches MP attachment URLs from Vercel.
 
 2. **[2026-05-26] MP official API does NOT return document attachments**
@@ -60,6 +66,20 @@
 
 3. **[2026-05-26] `auto-descargar` endpoint is a stub — always returns success:false**
    Do instead: never call this endpoint expecting real downloads. It only returns the MP ficha URL for the user to open manually.
+
+## Design System
+
+1. **[2026-05-27] Toast system: `useToast()` hook de `app/components/ui/toast.tsx`**
+   Do instead: `const { success, error, warning, info } = useToast()` — nunca usar `alert()` ni banners inline. ToastProvider está en `app/layout.tsx` sobre SessionProvider.
+
+2. **[2026-05-27] Sidebar color: `bg-[#0f1117]`, nav activo: `bg-white/[0.09]` + accent izquierdo azul**
+   Do instead: sidebar siempre `#0f1117`, items activos con `border-l-[3px] border-l-blue-500` + `bg-white/[0.09] text-white`. Dropdown del usuario es oscuro `bg-[#18181b] border-zinc-800`.
+
+3. **[2026-05-27] Cards con `hover:-translate-y-px hover:shadow-md transition-all duration-200`**
+   Do instead: todas las cards usan esta clase. Unread cards: `border-l-[3px] border-l-blue-500`. Bordes: `border-zinc-200`.
+
+4. **[2026-05-27] Animations disponibles en globals.css: fade-in, scale-in, slide-in-right, slide-in-up, skeleton**
+   Do instead: usar clases CSS directas. Modales: `scale-in`. Toasts: `slide-in-right`. Bottom sheets: `slide-in-up`. Skeletons: `skeleton`.
 
 ## Shell & Command Reliability
 
