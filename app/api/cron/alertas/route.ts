@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
        FROM palabras_clave pk
        JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
        WHERE pk.activo = TRUE
-       ORDER BY pk.ultima_busqueda ASC NULLS FIRST, pk.id ASC`
+       ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`
     );
 
     const kws = rows as Array<{ id: number; usuario_id: number; keyword: string }>;

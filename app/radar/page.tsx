@@ -680,27 +680,18 @@ export default function RadarPage() {
                   <BellOff size={28} className="text-blue-400" />
                 </div>
                 <h3 className="text-lg font-semibold text-gray-800 mb-2">Sin resultados aún</h3>
-                <p className="text-gray-500 text-sm mb-4">
+                <p className="text-gray-500 text-sm">
                   {keywords.length === 0
                     ? 'Agrega palabras clave y el sistema buscará licitaciones automáticamente'
-                    : 'Haz clic en "Actualizar ahora" o espera el próximo ciclo automático'
+                    : 'Usa el botón "Actualizar ahora" (arriba) para buscar en este momento'
                   }
                 </p>
-                {keywords.length === 0 ? (
+                {keywords.length === 0 && (
                   <button
                     onClick={() => setTabActiva('keywords')}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+                    className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
                   >
                     <Plus size={15} /> Agregar palabras clave
-                  </button>
-                ) : (
-                  <button
-                    onClick={actualizarAhora}
-                    disabled={actualizando}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300"
-                  >
-                    {actualizando ? <Loader2 size={15} className="animate-spin" /> : <Radar size={15} />}
-                    Buscar ahora
                   </button>
                 )}
               </div>
