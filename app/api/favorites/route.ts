@@ -1,94 +1,94 @@
-// src/app/api/favorites/route.ts
+// app/api/favorites/route.ts
+// Favoritos user-scoped — usa x-user-id inyectado por proxy.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { addFavorite, removeFavorite, getFavorites, isFavorite } from '@/app/services/dbService';
+import pool from '@/app/lib/db';
 
-// GET - Obtener todos los favoritos
-export async function GET() {
+function getUserId(request: NextRequest): number | null {
+  const id = request.headers.get('x-user-id');
+  if (!id) return null;
+  const n = parseInt(id, 10);
+  return isNaN(n) ? null : n;
+}
+
+// GET — lista todos los favoritos del usuario
+export async function GET(request: NextRequest) {
+  const userId = getUserId(request);
+  if (!userId) return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+
   try {
-    const favorites = await getFavorites();
-    return NextResponse.json({ success: true, favorites });
+    const [rows] = await pool.query(
+      `SELECT id, codigo, nombre, organismo, monto_total, monto_estimado, moneda,
+              fecha_cierre, fecha_adjudicacion, estado, tipo_licitacion,
+              region, descripcion, resumen_ia, created_at
+       FROM favoritos
+       WHERE usuario_id = ?
+       ORDER BY created_at DESC`,
+      [userId]
+    );
+    return NextResponse.json({ success: true, favorites: rows });
   } catch (error) {
     console.error('Error al obtener favoritos:', error);
-    return NextResponse.json(
-      { success: false, error: 'Error al obtener favoritos' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Error al obtener favoritos' }, { status: 500 });
   }
 }
 
-// POST - Agregar favorito (con todos los campos)
+// POST — agregar favorito
 export async function POST(request: NextRequest) {
+  const userId = getUserId(request);
+  if (!userId) return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+
   try {
     const body = await request.json();
-    
-    const favoriteData = {
-      codigo: body.codigo,
-      nombre: body.nombre,
-      organismo: body.organismo,
-      monto_total: body.monto_total,
-      monto_estimado: body.monto_estimado,
-      moneda: body.moneda || 'CLP',
-      fecha_cierre: body.fecha_cierre,
-      fecha_adjudicacion: body.fecha_adjudicacion,
-      estado: body.estado,
-      tipo_licitacion: body.tipo_licitacion,
-      region: body.region,
-      comuna: body.comuna,
-      descripcion: body.descripcion,
-      resumen_ia: body.resumen_ia,
-      detail_url: body.detail_url,
-      search_url: body.search_url,
-      semantic_score: body.semantic_score,
-      final_score: body.final_score
-    };
-    
-    const success = await addFavorite(favoriteData);
-    
-    if (success) {
-      return NextResponse.json({ success: true, message: 'Favorito agregado' });
-    } else {
-      return NextResponse.json(
-        { success: false, error: 'Error al agregar favorito' },
-        { status: 500 }
-      );
-    }
+
+    await pool.query(
+      `INSERT INTO favoritos (
+        usuario_id, codigo, nombre, organismo, monto_total, monto_estimado, moneda,
+        fecha_cierre, fecha_adjudicacion, estado, tipo_licitacion,
+        tipo_convocatoria, region, comuna, descripcion, resumen_ia,
+        detail_url, search_url, semantic_score, final_score
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON DUPLICATE KEY UPDATE
+        nombre = VALUES(nombre), organismo = VALUES(organismo),
+        monto_total = VALUES(monto_total), monto_estimado = VALUES(monto_estimado),
+        moneda = VALUES(moneda), estado = VALUES(estado),
+        fecha_adjudicacion = VALUES(fecha_adjudicacion),
+        tipo_licitacion = VALUES(tipo_licitacion), region = VALUES(region),
+        descripcion = VALUES(descripcion), resumen_ia = VALUES(resumen_ia),
+        detail_url = VALUES(detail_url), search_url = VALUES(search_url)`,
+      [
+        userId,
+        body.codigo, body.nombre, body.organismo,
+        body.monto_total || null, body.monto_estimado || null, body.moneda || 'CLP',
+        body.fecha_cierre || null, body.fecha_adjudicacion || null,
+        body.estado || null, body.tipo_licitacion || null,
+        body.tipo_convocatoria || null, body.region || null, body.comuna || null,
+        body.descripcion || null, body.resumen_ia || null,
+        body.detail_url || null, body.search_url || null,
+        body.semantic_score || null, body.final_score || null,
+      ]
+    );
+
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error al agregar favorito:', error);
-    return NextResponse.json(
-      { success: false, error: 'Error al agregar favorito' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Error al agregar favorito' }, { status: 500 });
   }
 }
 
-// DELETE - Eliminar favorito
+// DELETE — eliminar favorito (?codigo=...)
 export async function DELETE(request: NextRequest) {
+  const userId = getUserId(request);
+  if (!userId) return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
+
+  const { searchParams } = new URL(request.url);
+  const codigo = searchParams.get('codigo');
+  if (!codigo) return NextResponse.json({ success: false, error: 'Código requerido' }, { status: 400 });
+
   try {
-    const { searchParams } = new URL(request.url);
-    const codigo = searchParams.get('codigo');
-    
-    if (!codigo) {
-      return NextResponse.json(
-        { success: false, error: 'Se requiere código' },
-        { status: 400 }
-      );
-    }
-    
-    const success = await removeFavorite(codigo);
-    
-    if (success) {
-      return NextResponse.json({ success: true, message: 'Favorito eliminado' });
-    } else {
-      return NextResponse.json(
-        { success: false, error: 'Error al eliminar favorito' },
-        { status: 500 }
-      );
-    }
+    await pool.query(`DELETE FROM favoritos WHERE codigo = ? AND usuario_id = ?`, [codigo, userId]);
+    return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error al eliminar favorito:', error);
-    return NextResponse.json(
-      { success: false, error: 'Error al eliminar favorito' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Error al eliminar favorito' }, { status: 500 });
   }
 }

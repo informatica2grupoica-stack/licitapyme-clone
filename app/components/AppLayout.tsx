@@ -6,7 +6,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Building2, LayoutDashboard, Search, Star, FileText,
   Users, Settings, LogOut, ChevronRight, User, ShieldCheck,
-  Menu, X, Bell, ChevronDown, Briefcase
+  Menu, X, Bell, ChevronDown, Briefcase, FolderOpen,
 } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
 
@@ -32,12 +32,13 @@ interface AppLayoutProps {
 
 // ─── Navegación ───────────────────────────────────────────────────────────────
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Dashboard',   href: '/dashboard',        icon: <LayoutDashboard size={20} /> },
-  { label: 'Buscador',    href: '/',                  icon: <Search size={20} /> },
-  { label: 'Favoritos',   href: '/?favoritos=true',   icon: <Star size={20} /> },
-  { label: 'Documentos',  href: '/documentos',        icon: <FileText size={20} /> },
-  { label: 'Usuarios',    href: '/admin/usuarios',    icon: <Users size={20} />,     adminOnly: true },
-  { label: 'Configuración', href: '/perfil',          icon: <Settings size={20} /> },
+  { label: 'Dashboard',   href: '/dashboard',      icon: <LayoutDashboard size={20} /> },
+  { label: 'Buscador',    href: '/',               icon: <Search size={20} /> },
+  { label: 'Favoritos',   href: '/favoritos',      icon: <Star size={20} /> },
+  { label: 'Documentos',  href: '/documentos',     icon: <FolderOpen size={20} /> },
+  { label: 'Alertas',     href: '/alertas',        icon: <Bell size={20} /> },
+  { label: 'Usuarios',    href: '/admin/usuarios', icon: <Users size={20} />, adminOnly: true },
+  { label: 'Perfil',      href: '/perfil',         icon: <Settings size={20} /> },
 ];
 
 // ─── User dropdown ────────────────────────────────────────────────────────────
@@ -120,7 +121,6 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
-    if (href === '/?favoritos=true') return false; // handled separately
     return pathname.startsWith(href);
   };
 

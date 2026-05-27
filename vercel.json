@@ -1,5 +1,11 @@
 {
   "regions": ["iad1"],
+  "crons": [
+    {
+      "path": "/api/cron/alertas",
+      "schedule": "0 */6 * * *"
+    }
+  ],
   "functions": {
     "app/api/analizar-documento/route.ts": {
       "maxDuration": 60
@@ -15,6 +21,9 @@
     },
     "app/api/proxy/route.ts": {
       "maxDuration": 30
+    },
+    "app/api/cron/alertas/route.ts": {
+      "maxDuration": 60
     }
   },
   "env": {

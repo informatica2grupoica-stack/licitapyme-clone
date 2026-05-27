@@ -11,6 +11,7 @@ const RUTAS_PUBLICAS = [
   '/api/auth/registro',
   '/api/auth/me',
   '/api/auth/logout',
+  '/api/cron/',   // cron job protegido con su propio secret
 ];
 
 // Prefijos de rutas que NUNCA deben ser interceptados
