@@ -1,4 +1,4 @@
-// middleware.ts — Protección de rutas con JWT
+// proxy.ts — Protección de rutas con JWT (Next.js 16: antes se llamaba middleware.ts)
 // IMPORTANTE: Solo importar desde auth-edge.ts (Edge-compatible, sin next/headers)
 import { NextRequest, NextResponse } from 'next/server';
 import { getSessionFromRequest } from '@/app/lib/auth-edge';
@@ -25,7 +25,7 @@ const PREFIJOS_IGNORAR = [
 // Rutas solo para admin
 const RUTAS_ADMIN = ['/admin', '/api/admin'];
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Ignorar assets y archivos estáticos
@@ -33,7 +33,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Permitir rutas públicas exactas
+  // Permitir rutas públicas
   if (RUTAS_PUBLICAS.some(r => pathname.startsWith(r))) {
     // Si ya tiene sesión e intenta ir a login/registro → redirigir al dashboard
     if (pathname === '/login' || pathname === '/registro') {
@@ -81,12 +81,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Ejecutar en TODAS las rutas excepto:
-     * - _next/static (archivos estáticos compilados)
-     * - _next/image (optimización de imágenes)
-     * - favicon.ico
-     */
     '/((?!_next/static|_next/image|favicon\\.ico).*)',
   ],
 };
