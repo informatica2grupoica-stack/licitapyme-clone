@@ -16,7 +16,7 @@ import {
 import { TIPOS_LICITACION, MODALIDADES_PAGO, DocumentoAdjunto, Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MODALIDAD_PAGO_MAP, UNIDAD_TIEMPO_MAP, TIPO_ACTO_ADJUDICACION_MAP } from '@/app/types/mercado-publico.types';
 import { useFavorites } from '@/app/hooks/useFavorites';
-import { Navbar, Breadcrumb } from '@/app/components/Navbar';
+import { AppLayout } from '@/app/components/AppLayout';
 
 // ======================================================
 // TYPES
@@ -997,22 +997,20 @@ export default function LicitacionDetallePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col bg-gray-50">
-        <Navbar />
+      <AppLayout>
         <div className="flex-1 flex items-center justify-center py-20">
           <div className="text-center">
             <Loader2 size={36} className="animate-spin text-blue-600 mx-auto mb-3" />
             <p className="text-gray-500 text-sm">Cargando licitación...</p>
           </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
   if (error || !licitacion) {
     return (
-      <div className="min-h-screen flex flex-col bg-gray-50">
-        <Navbar />
+      <AppLayout>
         <div className="flex-1 flex items-center justify-center py-20">
           <div className="text-center max-w-md">
             <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1032,7 +1030,7 @@ export default function LicitacionDetallePage() {
             </div>
           </div>
         </div>
-      </div>
+      </AppLayout>
     );
   }
 
@@ -1057,15 +1055,12 @@ export default function LicitacionDetallePage() {
   ].filter(f => f.fecha);
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Navbar />
-      <Breadcrumb items={[
-        { label: 'Inicio', href: '/' },
-        { label: 'Licitaciones', href: '/' },
-        { label: codigoDecoded },
-      ]} />
-
-      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+    <AppLayout breadcrumb={[
+      { label: 'Inicio', href: '/' },
+      { label: 'Licitaciones', href: '/' },
+      { label: codigoDecoded },
+    ]}>
+      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6">
         <div className="flex flex-col xl:flex-row gap-6">
 
           {/* COLUMNA PRINCIPAL */}
@@ -1403,7 +1398,7 @@ export default function LicitacionDetallePage() {
             </button>
           </div>
         </div>
-      </main>
-    </div>
+      </div>
+    </AppLayout>
   );
 }

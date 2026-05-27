@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Navbar } from '@/app/components/Navbar';
+import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { User, Mail, Briefcase, Lock, Eye, EyeOff, Loader2, CheckCircle, AlertCircle, Save } from 'lucide-react';
 
@@ -64,9 +64,8 @@ export default function PerfilPage() {
     : usuario.email[0].toUpperCase();
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Navbar />
-      <main className="flex-1 max-w-2xl mx-auto w-full px-4 sm:px-6 py-8">
+    <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Mi perfil' }]}>
+      <div className="p-4 sm:p-6 lg:p-8 max-w-2xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
           <User size={24} className="text-blue-600" />
           Mi perfil
@@ -151,7 +150,7 @@ export default function PerfilPage() {
             </button>
           </form>
         </div>
-      </main>
-    </div>
+      </div>
+    </AppLayout>
   );
 }

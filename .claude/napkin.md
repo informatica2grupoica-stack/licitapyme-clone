@@ -6,6 +6,14 @@
 - Max 10 items per category.
 - Each item includes date + "Do instead".
 
+## App Layout & Navigation (Added 2026-05-27)
+
+1. **[2026-05-27] AppLayout reemplaza Navbar en todas las páginas autenticadas**
+   Do instead: Usar `<AppLayout breadcrumb={[...]}>` en todas las páginas. Navbar.tsx ya no se usa en páginas internas. La Navbar vieja sigue existiendo solo para referencia.
+
+2. **[2026-05-27] Sidebar navigation: /dashboard es la home, no /**
+   Do instead: Middleware redirige `/login` con sesión → `/dashboard`. El buscador está en `/` pero el landing post-login es `/dashboard`. Los nav items del Sidebar en AppLayout.tsx son la fuente de verdad de la navegación.
+
 ## Auth Architecture (Added 2026-05-27)
 
 1. **[2026-05-27] Auth: Custom JWT + MySQL (NO Supabase auth, NO NextAuth)**

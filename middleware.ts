@@ -1,9 +1,7 @@
 // middleware.ts — Protección de rutas con JWT
-// Rutas públicas: /login, /registro, /api/auth/*
-// Todo lo demás requiere sesión válida
-
+// IMPORTANTE: Solo importar desde auth-edge.ts (Edge-compatible, sin next/headers)
 import { NextRequest, NextResponse } from 'next/server';
-import { getSessionFromRequest } from '@/app/lib/auth';
+import { getSessionFromRequest } from '@/app/lib/auth-edge';
 
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
@@ -12,37 +10,53 @@ const RUTAS_PUBLICAS = [
   '/api/auth/login',
   '/api/auth/registro',
   '/api/auth/me',
-  '/_next',
+  '/api/auth/logout',
+];
+
+// Prefijos de rutas que NUNCA deben ser interceptados
+const PREFIJOS_IGNORAR = [
+  '/_next/',
   '/favicon.ico',
-  '/public',
+  '/public/',
+  '/images/',
+  '/icons/',
 ];
 
 // Rutas solo para admin
-const RUTAS_ADMIN = [
-  '/admin',
-  '/api/admin',
-];
+const RUTAS_ADMIN = ['/admin', '/api/admin'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Permitir rutas públicas y assets
-  if (RUTAS_PUBLICAS.some(r => pathname.startsWith(r))) {
+  // Ignorar assets y archivos estáticos
+  if (PREFIJOS_IGNORAR.some(p => pathname.startsWith(p))) {
     return NextResponse.next();
   }
 
-  // Verificar sesión
+  // Permitir rutas públicas exactas
+  if (RUTAS_PUBLICAS.some(r => pathname.startsWith(r))) {
+    // Si ya tiene sesión e intenta ir a login/registro → redirigir al dashboard
+    if (pathname === '/login' || pathname === '/registro') {
+      const usuario = await getSessionFromRequest(request);
+      if (usuario) {
+        return NextResponse.redirect(new URL('/dashboard', request.url));
+      }
+    }
+    return NextResponse.next();
+  }
+
+  // Verificar sesión para todas las demás rutas
   const usuario = await getSessionFromRequest(request);
 
   if (!usuario) {
-    // API routes: responder 401
+    // API routes → responder 401
     if (pathname.startsWith('/api/')) {
       return NextResponse.json(
-        { error: 'No autenticado. Inicia sesión para continuar.' },
+        { error: 'No autenticado. Inicia sesión para continuar.', code: 'UNAUTHENTICATED' },
         { status: 401 }
       );
     }
-    // Páginas: redirigir a login con returnUrl
+    // Páginas → redirigir a login conservando la URL de destino
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('returnUrl', pathname);
     return NextResponse.redirect(loginUrl);
@@ -53,19 +67,14 @@ export async function middleware(request: NextRequest) {
     if (pathname.startsWith('/api/')) {
       return NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
     }
-    return NextResponse.redirect(new URL('/', request.url));
+    return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // Si está logueado y va a /login o /registro, redirigir al inicio
-  if (pathname === '/login' || pathname === '/registro') {
-    return NextResponse.redirect(new URL('/', request.url));
-  }
-
-  // Inyectar userId en headers para que las API routes lo lean
+  // Inyectar datos del usuario en headers para que las API routes los lean
   const requestHeaders = new Headers(request.headers);
-  requestHeaders.set('x-user-id', String(usuario.id));
+  requestHeaders.set('x-user-id',    String(usuario.id));
   requestHeaders.set('x-user-email', usuario.email);
-  requestHeaders.set('x-user-rol', usuario.rol);
+  requestHeaders.set('x-user-rol',   usuario.rol);
 
   return NextResponse.next({ request: { headers: requestHeaders } });
 }
@@ -73,11 +82,11 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     /*
-     * Ejecutar en todas las rutas EXCEPTO:
-     * - _next/static (archivos estáticos)
+     * Ejecutar en TODAS las rutas excepto:
+     * - _next/static (archivos estáticos compilados)
      * - _next/image (optimización de imágenes)
      * - favicon.ico
      */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico).*)',
   ],
 };

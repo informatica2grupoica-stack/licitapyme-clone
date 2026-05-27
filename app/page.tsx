@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Navbar } from '@/app/components/Navbar';
+import { AppLayout } from '@/app/components/AppLayout';
 import { SearchBar } from '@/app/components/SearchBar';
 import { ResultsGrid } from '@/app/components/ResultsGrid';
 import { FiltersPanel } from '@/app/components/FiltersPanel';
@@ -147,9 +147,7 @@ function HomeContent() {
   );
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <Navbar />
-
+    <AppLayout breadcrumb={[{ label: 'Buscador' }]}>
       {/* Hero */}
       <div className="bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 py-14 px-4">
         <div className="max-w-3xl mx-auto text-center">
@@ -386,7 +384,7 @@ function HomeContent() {
           </p>
         </div>
       </footer>
-    </div>
+    </AppLayout>
   );
 }
 

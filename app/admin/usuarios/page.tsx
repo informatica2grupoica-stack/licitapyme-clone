@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Navbar } from '@/app/components/Navbar';
+import { AppLayout } from '@/app/components/AppLayout';
 import {
   Users, Plus, ShieldCheck, User, CheckCircle, XCircle,
   Loader2, Trash2, Edit3, X, AlertCircle, Mail, Lock,
@@ -182,9 +182,8 @@ export default function AdminUsuariosPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gray-50">
-      <Navbar />
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8">
+    <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Usuarios' }]}>
+      <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -303,7 +302,7 @@ export default function AdminUsuariosPage() {
             </div>
           )}
         </div>
-      </main>
+      </div>
 
       {showModal && (
         <ModalNuevoUsuario
@@ -311,6 +310,6 @@ export default function AdminUsuariosPage() {
           onCerrar={() => setShowModal(false)}
         />
       )}
-    </div>
+    </AppLayout>
   );
 }
