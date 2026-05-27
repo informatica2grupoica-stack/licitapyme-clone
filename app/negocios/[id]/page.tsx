@@ -333,7 +333,7 @@ function DetalleNegocioContent() {
               </button>
             ))}
           </nav>
-        </AppLayout>
+        </aside>
 
         {/* Contenido principal */}
         <div className="flex-1 overflow-y-auto">
@@ -543,5 +543,13 @@ function DetalleNegocioContent() {
 }
 
 export default function DetalleNegocioPage() {
-  return <Suspense><DetalleNegocioContent /></Suspense>;
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-red-500" />
+      </div>
+    }>
+      <DetalleNegocioContent />
+    </Suspense>
+  );
 }
