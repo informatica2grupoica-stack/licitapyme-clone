@@ -1,6 +1,4 @@
 // app/api/favorites/route.ts
-// Favoritos user-scoped.
-// Resiliente: intenta con 'favoritos' primero; si la tabla no existe, usa 'favorites' (legacy).
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 
@@ -11,7 +9,6 @@ function getUserId(request: NextRequest): number | null {
   return isNaN(n) ? null : n;
 }
 
-// Detecta qué tabla usar (con caché simple en memoria por proceso)
 let resolvedTable: 'favoritos' | 'favorites' | null = null;
 async function getTable(): Promise<'favoritos' | 'favorites'> {
   if (resolvedTable) return resolvedTable;
@@ -24,7 +21,6 @@ async function getTable(): Promise<'favoritos' | 'favorites'> {
   return resolvedTable;
 }
 
-// GET — lista todos los favoritos del usuario
 export async function GET(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
@@ -44,7 +40,6 @@ export async function GET(request: NextRequest) {
         [userId]
       ) as any;
     } else {
-      // Tabla legacy: devuelve todos (sin filtro de usuario)
       [rows] = await pool.query(
         `SELECT id, codigo, nombre, organismo, monto_total, monto_estimado, moneda,
                 fecha_cierre, fecha_adjudicacion, estado, tipo_licitacion,
@@ -61,7 +56,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST — agregar favorito
 export async function POST(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });
@@ -95,7 +89,6 @@ export async function POST(request: NextRequest) {
         ]
       );
     } else {
-      // Tabla legacy
       await pool.query(
         `INSERT INTO favorites (
           codigo, nombre, organismo, monto_total, monto_estimado, moneda,
@@ -124,7 +117,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// DELETE — eliminar favorito (?codigo=...)
 export async function DELETE(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ success: false, error: 'No autenticado' }, { status: 401 });

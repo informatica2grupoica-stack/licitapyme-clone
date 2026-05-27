@@ -971,15 +971,18 @@ export default function LicitacionDetallePage() {
   };
 
   const handleToggleFavorite = async () => {
-    if (!licitacion) return;
-    setToggling(true);
-    await toggleFavorite({
-      codigo: licitacion.codigo, nombre: licitacion.nombre,
-      organismo: licitacion.organismo, monto_total: licitacion.monto_total,
-      fecha_cierre: licitacion.fecha_cierre, estado: licitacion.estado,
-    });
-    setToggling(false);
-  };
+  if (!licitacion) return;
+  setToggling(true);
+  await toggleFavorite({
+    codigo: licitacion.codigo,
+    nombre: licitacion.nombre,
+    organismo: licitacion.organismo,
+    monto_total: licitacion.monto_total,
+    fecha_cierre: licitacion.fecha_cierre,
+    estado: licitacion.estado,
+  });
+  setToggling(false);
+};
 
   const handleCopyCodigo = async () => {
     await navigator.clipboard.writeText(codigoDecoded);
