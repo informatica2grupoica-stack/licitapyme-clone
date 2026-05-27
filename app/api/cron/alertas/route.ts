@@ -6,8 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 
-const CRON_SECRET      = process.env.CRON_SECRET      || '';
-const MP_API_TICKET    = process.env.MP_API_TICKET     || '';
+const CRON_SECRET      = process.env.CRON_SECRET            || '';
+const MERCADO_PUBLICO_TICKET    = process.env.MERCADO_PUBLICO_TICKET  || '';
 const BATCH_CONCURRENCY = 8;      // keywords en paralelo
 const API_TIMEOUT_MS   = 8_000;   // timeout por keyword (8s)
 const WALL_CLOCK_MS    = 52_000;  // límite total (52s < 60s de Vercel)
@@ -24,13 +24,13 @@ interface MPLicitacion {
 }
 
 async function buscarEnMP(keyword: string): Promise<MPLicitacion[]> {
-  if (!MP_API_TICKET) {
-    console.warn('[Cron] ⚠️  MP_API_TICKET no configurado en variables de entorno. Configúralo en Vercel.');
+  if (!MERCADO_PUBLICO_TICKET) {
+    console.warn('[Cron] ⚠️  MERCADO_PUBLICO_TICKET no configurado en variables de entorno. Configúralo en Vercel.');
     return [];
   }
   try {
     const url = `https://api.mercadopublico.cl/servicios/v1/publico/licitaciones.json` +
-                `?buscar=${encodeURIComponent(keyword)}&ticket=${MP_API_TICKET}&estado=publicada&cantidad=20`;
+                `?buscar=${encodeURIComponent(keyword)}&ticket=${MERCADO_PUBLICO_TICKET}&estado=publicada&cantidad=20`;
 
     console.log(`[Cron] 🔍 Buscando: "${keyword}"`);
     const res = await fetch(url, { signal: AbortSignal.timeout(API_TIMEOUT_MS) });
@@ -116,11 +116,11 @@ export async function GET(request: NextRequest) {
 
   console.log(`[Cron] 🚀 Iniciando búsqueda — ${new Date().toISOString()}`);
 
-  if (!MP_API_TICKET) {
-    console.error('[Cron] ❌ MP_API_TICKET no configurado. Agrega la variable en Vercel → Settings → Environment Variables.');
+  if (!MERCADO_PUBLICO_TICKET) {
+    console.error('[Cron] ❌ MERCADO_PUBLICO_TICKET no configurado. Agrega la variable en Vercel → Settings → Environment Variables.');
     return NextResponse.json({
       success:  false,
-      error:    'MP_API_TICKET no configurado en Vercel. Ve a Settings → Environment Variables y agrégala.',
+      error:    'MERCADO_PUBLICO_TICKET no configurado en Vercel. Ve a Settings → Environment Variables y agrégala.',
       keywords: 0,
       nuevas:   0,
     }, { status: 503 });
