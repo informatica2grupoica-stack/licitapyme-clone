@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
          n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
          n.licitacion_monto, n.licitacion_cierre, n.licitacion_estado,
          n.licitacion_tipo, n.licitacion_region, n.monto_ofertado,
+         COALESCE(n.estado_pipeline, '1ASIGNADO') AS estado_pipeline,
          n.created_at, n.updated_at,
          u.nombre AS usuario_nombre, u.email AS usuario_email,
          GROUP_CONCAT(DISTINCT e.nombre ORDER BY e.nombre SEPARATOR ',') AS etiquetas_nombres,

@@ -81,9 +81,23 @@
 4. **[2026-05-27] Animations disponibles en globals.css: fade-in, scale-in, slide-in-right, slide-in-up, skeleton**
    Do instead: usar clases CSS directas. Modales: `scale-in`. Toasts: `slide-in-right`. Bottom sheets: `slide-in-up`. Skeletons: `skeleton`.
 
+## Radar / Cron
+
+1. **[2026-05-28] Cron uses both `obtenerActivasHoy()` + `obtenerUltimosDias(15)` for full coverage**
+   Do instead: always combine both — `obtenerActivasHoy()` catches licitaciones published >15 days ago that are still open; `obtenerUltimosDias(15)` catches very recent ones. Deduplicate by Codigo before processing.
+
+2. **[2026-05-28] `INSERT IGNORE` is the accumulation mechanism — never DELETE before INSERT in cron**
+   Do instead: alertas_licitaciones uses a UNIQUE key on (usuario_id, licitacion_codigo). `INSERT IGNORE` skips known ones, adds new ones. This is how today's 156 + tomorrow's new 50 = 206.
+
+3. **[2026-05-28] alertas API returns `leida ASC, created_at DESC` — unread first**
+   Do instead: ORDER BY leida ASC (0=unread first), THEN created_at DESC within each group.
+
 ## Pipeline & Negocios
 
-1. **[2026-05-28] Pipeline column missing = DB migration not run; surface it explicitly**
+1. **[2026-05-28] `estado_pipeline` must be in negocios list SELECT or it always shows "1ASIGNADO"**
+   Do instead: `SELECT COALESCE(n.estado_pipeline, '1ASIGNADO') AS estado_pipeline` in `app/api/negocios/route.ts` GET query. The detail query had it; the list query was missing it.
+
+2. **[2026-05-28] Pipeline column missing = DB migration not run; surface it explicitly**
    Do instead: wrap `UPDATE negocios SET estado_pipeline` in try-catch; if error includes `unknown column`, return `{ migration_needed: true, status: 503 }`. Client checks `data.migration_needed` and shows toast with SQL file name.
 
 2. **[2026-05-28] Comment + pipeline state auto-updates negocio state**

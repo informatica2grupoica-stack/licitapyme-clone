@@ -4,10 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import {
-  Building2, LayoutDashboard, Search, Star, FileText,
-  Users, Settings, LogOut, ChevronRight, User, ShieldCheck,
-  Menu, X, Radar, ChevronDown, Briefcase, FolderOpen,
+  LayoutDashboard, Search, Star,
+  Users, Settings, LogOut, User, ShieldCheck,
+  Menu, X, Radar, ChevronDown, ChevronRight, Briefcase, FolderOpen,
 } from 'lucide-react';
+import { IcaLogoIcon } from '@/app/components/IcaLogo';
 
 import { useSession } from '@/app/lib/session-context';
 
@@ -177,13 +178,13 @@ function Sidebar({
             onClick={onCloseMobile}
             className="flex items-center gap-2.5 group"
           >
-            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-600/30 flex-shrink-0 group-hover:bg-blue-500 transition-colors">
-              <Building2 size={15} className="text-white" />
+            <div className="flex-shrink-0 group-hover:scale-105 transition-transform duration-200">
+              <IcaLogoIcon size={32} />
             </div>
             <div className="flex flex-col leading-none">
               <span className="text-white font-bold text-sm tracking-tight">ICA</span>
               <span className="text-zinc-500 text-[10px] font-medium tracking-widest uppercase mt-0.5">
-                Licitaciones
+                plataforma inteligente
               </span>
             </div>
           </Link>

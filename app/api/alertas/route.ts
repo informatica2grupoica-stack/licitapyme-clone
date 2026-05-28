@@ -24,10 +24,10 @@ export async function GET(request: NextRequest) {
     const [rows] = await pool.query(
       `SELECT id, keyword_texto, licitacion_codigo, licitacion_nombre,
               licitacion_organismo, licitacion_monto, licitacion_cierre,
-              licitacion_estado, licitacion_region, leida, created_at
+              licitacion_estado, licitacion_region, licitacion_tipo, leida, created_at
        FROM alertas_licitaciones
        WHERE usuario_id = ?${whereExtra}
-       ORDER BY created_at DESC
+       ORDER BY leida ASC, created_at DESC
        LIMIT ?`,
       [userId, limit]
     );
