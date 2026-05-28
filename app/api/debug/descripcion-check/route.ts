@@ -37,19 +37,36 @@ export async function GET(request: NextRequest) {
     nombre: l.Nombre.substring(0, 80),
   }));
 
+  // También verificar Items
+  const conItems     = licitaciones.filter(l => l.Items && l.Items.length > 0);
+  const muestraItems = conItems.slice(0, 3).map(l => ({
+    codigo: l.Codigo,
+    nombre: l.Nombre.substring(0, 60),
+    items:  l.Items!.slice(0, 3).map(it => ({
+      producto:  it.NombreProducto?.substring(0, 80),
+      categoria: it.Categoria?.substring(0, 40),
+    })),
+  }));
+
   return NextResponse.json({
-    resumen: {
-      total_licitaciones:       total,
-      con_descripcion:          conDesc.length,
-      sin_descripcion:          sinDesc.length,
-      porcentaje_con_desc:      total > 0 ? `${Math.round(conDesc.length / total * 100)}%` : '0%',
+    descripcion: {
+      total_licitaciones:  total,
+      con_descripcion:     conDesc.length,
+      sin_descripcion:     sinDesc.length,
+      porcentaje_con_desc: total > 0 ? `${Math.round(conDesc.length / total * 100)}%` : '0%',
+      conclusion: conDesc.length === 0
+        ? '⚠️  La API batch NO devuelve Descripcion — el radar solo busca en Nombre'
+        : `✅  ${conDesc.length}/${total} traen Descripcion`,
     },
-    muestra_con_descripcion:  muestraConDesc,
-    muestra_sin_descripcion:  muestraSinDesc,
-    conclusion: conDesc.length === 0
-      ? '⚠️  La API batch NO devuelve Descripcion — el radar solo busca en Nombre'
-      : conDesc.length === total
-        ? '✅  Todas las licitaciones traen Descripcion'
-        : `ℹ️  ${conDesc.length} de ${total} traen Descripcion — búsqueda parcial en descripción`,
+    items: {
+      con_items:           conItems.length,
+      sin_items:           total - conItems.length,
+      porcentaje_con_items: total > 0 ? `${Math.round(conItems.length / total * 100)}%` : '0%',
+      conclusion: conItems.length === 0
+        ? '⚠️  La API batch NO devuelve Items — sin texto de productos para buscar'
+        : `✅  ${conItems.length}/${total} traen Items (nombres de productos/servicios)`,
+      muestra: muestraItems,
+    },
+    muestra_con_descripcion: muestraConDesc,
   });
 }
