@@ -1,5 +1,6 @@
 import { Oportunidad, SearchRequest, SearchResponse, TipoOrden } from '@/app/types/search.types';
 import { Licitacion } from '@/app/types/mercado-publico.types';
+import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 
 export class SearchEngine {
   private normalizeText(text: string): string {
@@ -85,7 +86,8 @@ export class SearchEngine {
       monto_total: lic.MontoEstimado || lic.MontoTotal || 0,
       monto_estimado: lic.MontoEstimado,
       moneda: lic.Moneda || 'CLP',
-      tipo_licitacion: lic.Tipo,
+      // extractTipoFromCodigo es la fuente fiable — la API batch no siempre devuelve Tipo
+      tipo_licitacion: extractTipoFromCodigo(lic.Codigo) || lic.Tipo,
       tipo_convocatoria: lic.TipoConvocatoria,
       url: lic.Url,
       items: (lic.Items || []).map(it => ({
@@ -149,10 +151,11 @@ export class SearchEngine {
     }
 
     // Filtro por tipo de licitación (L1, LE, LP, etc.)
+    // tipo_licitacion ya viene de extractTipoFromCodigo → coincidencia exacta
     if (request.filtro_tipo?.length) {
       oportunidades = oportunidades.filter(opp => {
-        const tipo = opp.tipo_licitacion || '';
-        return request.filtro_tipo!.some(t => tipo.toUpperCase().startsWith(t.toUpperCase()));
+        const tipo = (opp.tipo_licitacion || '').toUpperCase();
+        return request.filtro_tipo!.some(t => tipo === t.toUpperCase());
       });
     }
 

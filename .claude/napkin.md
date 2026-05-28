@@ -122,7 +122,13 @@
 
 ## Tipo Licitación
 
-1. **[2026-05-28] All tipo codes live in `app/lib/tipos-licitacion.ts` — single source of truth**
+1. **[2026-05-28] `tipo_licitacion` must come from `extractTipoFromCodigo(codigo)` — NOT from `lic.Tipo`**
+   Do instead: in `search-engine.ts` `licitacionToOportunidad()`: `tipo_licitacion: extractTipoFromCodigo(lic.Codigo) || lic.Tipo`. The batch date API rarely returns `Tipo` in the `LicitacionAPI` object; the type code is always reliable from the CodigoExterno (e.g. "1057385-29-LE26" → "LE").
+
+2. **[2026-05-28] `filtro_tipo` must use exact match, not `startsWith`**
+   Do instead: `tipo === t.toUpperCase()` after `extractTipoFromCodigo`. `startsWith` was wrong — "LE".startsWith("L") would match incorrectly if "L" were a code.
+
+3. **[2026-05-28] All tipo codes live in `app/lib/tipos-licitacion.ts` — single source of truth**
    Do instead: `import { TIPOS_LICITACION, extractTipoFromCodigo, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion'`. Never hardcode tipo lists in individual pages.
 
 2. **[2026-05-28] `extractTipoFromCodigo` regex handles L1, O1, CA, etc.**
