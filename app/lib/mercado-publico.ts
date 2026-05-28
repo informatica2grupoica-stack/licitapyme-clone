@@ -107,20 +107,24 @@ export class MercadoPublicoClient {
   }
 
   async obtenerUltimosDias(dias: number = 3): Promise<Licitacion[]> {
-    const todas: Licitacion[] = [];
-
+    // Construir lista de fechas
+    const fechas: string[] = [];
     for (let i = 0; i < dias; i++) {
       const fecha = new Date();
       fecha.setDate(fecha.getDate() - i);
-      const fechaStr = this.formatFecha(fecha);
-      const resultado = await this.obtenerPorFecha(fechaStr);
-      todas.push(...resultado);
-      if (i < dias - 1) await new Promise(r => setTimeout(r, 150));
+      fechas.push(this.formatFecha(fecha));
     }
 
+    // Llamadas en PARALELO — elimina los ~150ms × días de demora artificial
+    const resultados = await Promise.all(
+      fechas.map(fechaStr => this.obtenerPorFecha(fechaStr))
+    );
+
     const unicos = new Map<string, Licitacion>();
-    for (const lic of todas) {
-      if (!unicos.has(lic.Codigo)) unicos.set(lic.Codigo, lic);
+    for (const lista of resultados) {
+      for (const lic of lista) {
+        if (!unicos.has(lic.Codigo)) unicos.set(lic.Codigo, lic);
+      }
     }
 
     return Array.from(unicos.values());

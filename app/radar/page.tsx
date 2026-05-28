@@ -462,7 +462,7 @@ export default function RadarPage() {
       const secret = process.env.NEXT_PUBLIC_CRON_SECRET || '7f3a9b2e1d8c4f6a0e5b7d3c9a2f1e8b4d7c0a3f6e9b2d5c8a1f4e7b0d3c6a9f';
       const res    = await fetch('/api/cron/alertas', {
         headers: { Authorization: `Bearer ${secret}` },
-        signal:  AbortSignal.timeout(58_000),
+        signal:  AbortSignal.timeout(120_000), // 2 min — cron paralelizado es mucho más rápido
       });
       const data = await res.json();
       if (!res.ok) {
@@ -470,15 +470,21 @@ export default function RadarPage() {
       } else if (data.alertasNuevas > 0) {
         toast.success(
           `${data.alertasNuevas} licitación${data.alertasNuevas !== 1 ? 'es' : ''} nueva${data.alertasNuevas !== 1 ? 's' : ''}`,
-          `${data.licitacionesTotales ?? data.licitacionesDescargadas ?? '?'} analizadas · ${data.keywordsProcesadas} palabras clave`,
+          `${data.licitacionesTotales ?? '?'} analizadas · ${data.keywordsProcesadas} palabras clave`,
         );
       } else {
         toast.info('Sin resultados nuevos', `${data.licitacionesTotales ?? '?'} licitaciones analizadas`);
       }
       await Promise.all([cargarKeywords(), cargarAlertas()]);
       setUltimaAct(new Date().toISOString());
-    } catch (err) {
-      toast.error('Error de conexión', 'Revisa la consola (F12)');
+    } catch (err: any) {
+      const isTimeout = err?.name === 'TimeoutError' || String(err).includes('timeout');
+      toast.error(
+        isTimeout ? 'Tiempo de espera agotado' : 'Error de conexión',
+        isTimeout
+          ? 'El servidor tardó demasiado. Intenta de nuevo en unos segundos.'
+          : 'Revisa la consola (F12)',
+      );
       console.error('[Radar] error:', err);
     } finally {
       setActualizando(false);
