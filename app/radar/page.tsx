@@ -434,7 +434,8 @@ export default function RadarPage() {
   const cargarAlertas = useCallback(async () => {
     setLoadingAlerts(true);
     try {
-      const d = await fetch('/api/alertas?limit=500').then(r => r.json());
+      // Sin ?limit → API devuelve todas las alertas acumuladas
+      const d = await fetch('/api/alertas').then(r => r.json());
       if (d.success) { setAlertas(d.alertas || []); setNoLeidas(d.noLeidas || 0); }
     } catch { /* silencioso */ }
     finally { setLoadingAlerts(false); }
@@ -780,6 +781,9 @@ export default function RadarPage() {
                 <div className="flex items-center justify-between mb-2 px-1">
                   <p className="text-[12px] text-zinc-400">
                     <strong className="text-zinc-600">{alertasFiltradas.length}</strong> resultado{alertasFiltradas.length !== 1 ? 's' : ''}
+                    {alertasFiltradas.length < alertas.length && (
+                      <span className="text-zinc-400"> de <strong className="text-zinc-500">{alertas.length}</strong> totales</span>
+                    )}
                     {filtroKw && (
                       <span> · <button onClick={() => setFiltroKw('')} className="text-blue-600 hover:underline">quitar filtro</button></span>
                     )}

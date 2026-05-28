@@ -10,27 +10,41 @@ function getUserId(req: NextRequest): number | null {
   return isNaN(n) ? null : n;
 }
 
-// GET — lista alertas del usuario (paginadas), opcionalmente solo no-leídas
+// GET — lista TODAS las alertas del usuario (sin límite artificial)
+// ?noLeidas=true → solo las no leídas
+// ?limit=N       → opcional; sin ?limit devuelve todas
 export async function GET(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const soloNoLeidas = searchParams.get('noLeidas') === 'true';
-  const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 500);
+  const limitParam   = searchParams.get('limit');
 
   try {
     const whereExtra = soloNoLeidas ? ' AND leida = FALSE' : '';
-    const [rows] = await pool.query(
-      `SELECT id, keyword_texto, licitacion_codigo, licitacion_nombre,
-              licitacion_organismo, licitacion_monto, licitacion_cierre,
-              licitacion_estado, licitacion_region, licitacion_tipo, leida, created_at
-       FROM alertas_licitaciones
-       WHERE usuario_id = ?${whereExtra}
-       ORDER BY leida ASC, created_at DESC
-       LIMIT ?`,
-      [userId, limit]
-    );
+
+    // Sin ?limit → devuelve todas (el radar filtra en el cliente)
+    const query = limitParam
+      ? `SELECT id, keyword_texto, licitacion_codigo, licitacion_nombre,
+                licitacion_organismo, licitacion_monto, licitacion_cierre,
+                licitacion_estado, licitacion_region, licitacion_tipo, leida, created_at
+         FROM alertas_licitaciones
+         WHERE usuario_id = ?${whereExtra}
+         ORDER BY leida ASC, created_at DESC
+         LIMIT ?`
+      : `SELECT id, keyword_texto, licitacion_codigo, licitacion_nombre,
+                licitacion_organismo, licitacion_monto, licitacion_cierre,
+                licitacion_estado, licitacion_region, licitacion_tipo, leida, created_at
+         FROM alertas_licitaciones
+         WHERE usuario_id = ?${whereExtra}
+         ORDER BY leida ASC, created_at DESC`;
+
+    const params: unknown[] = limitParam
+      ? [userId, parseInt(limitParam, 10)]
+      : [userId];
+
+    const [rows] = await pool.query(query, params);
 
     const [countRows] = await pool.query(
       `SELECT COUNT(*) as total FROM alertas_licitaciones WHERE usuario_id = ? AND leida = FALSE`,
@@ -38,7 +52,7 @@ export async function GET(request: NextRequest) {
     );
     const noLeidas = (countRows as any[])[0]?.total || 0;
 
-    return NextResponse.json({ success: true, alertas: rows, noLeidas });
+    return NextResponse.json({ success: true, alertas: rows, noLeidas, total: (rows as any[]).length });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
