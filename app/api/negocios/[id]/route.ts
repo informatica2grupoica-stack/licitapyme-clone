@@ -92,10 +92,20 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     // Actualizar estado del pipeline (cualquier usuario asignado o admin)
     if (estado_pipeline !== undefined) {
-      await pool.query(
-        `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`,
-        [estado_pipeline || null, id]
-      );
+      try {
+        await pool.query(
+          `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`,
+          [estado_pipeline || null, id]
+        );
+      } catch (colErr: any) {
+        if (String(colErr).toLowerCase().includes('unknown column')) {
+          return NextResponse.json({
+            error: 'Ejecuta migration-4-pipeline.sql en Bluehost → phpMyAdmin',
+            migration_needed: true,
+          }, { status: 503 });
+        }
+        throw colErr;
+      }
     }
 
     // Actualizar etiquetas (solo admin)

@@ -11,6 +11,7 @@ import { Search, TrendingUp, Building2, FileText, Star, RefreshCw } from 'lucide
 
 interface Filters {
   estado: string[];
+  tipo: string[];
   montoMin: string;
   montoMax: string;
   fechaDesde: string;
@@ -22,6 +23,7 @@ interface Filters {
 
 const FILTERS_DEFAULT: Filters = {
   estado: [],
+  tipo: [],
   montoMin: '',
   montoMax: '',
   fechaDesde: '',
@@ -87,6 +89,7 @@ function HomeContent() {
         pagina: page,
         resultados_por_pagina: 20,
         filtro_estado: filters.estado.length > 0 ? filters.estado as any : undefined,
+        filtro_tipo: filters.tipo?.length > 0 ? filters.tipo : undefined,
         filtro_monto_min: filters.montoMin ? parseInt(filters.montoMin) : undefined,
         filtro_monto_max: filters.montoMax ? parseInt(filters.montoMax) : undefined,
         filtro_fecha_cierre_desde: filters.fechaDesde || undefined,

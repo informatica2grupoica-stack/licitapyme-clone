@@ -5,6 +5,7 @@ export interface SearchRequest {
   pagina?: number;
   resultados_por_pagina?: number;
   filtro_estado?: ('5' | '6' | '7' | '8' | '18' | '19')[];
+  filtro_tipo?: string[];
   filtro_regiones?: string[];
   filtro_monto_min?: number;
   filtro_monto_max?: number;

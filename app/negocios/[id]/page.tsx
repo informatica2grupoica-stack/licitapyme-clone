@@ -87,6 +87,7 @@ interface Comentario {
   etiqueta_id:     number | null;
   etiqueta_nombre: string | null;
   etiqueta_color:  string | null;
+  pipeline_estado: string | null;
 }
 
 type Seccion = 'resumen' | 'fechas' | 'items' | 'documentos' | 'comentarios';
@@ -456,13 +457,19 @@ function SeccionItems({ licitacion }: { licitacion: LicitacionRaw | null }) {
 }
 
 // ── Sección Comentarios ────────────────────────────────────────────────────────
-function SeccionComentarios({ negocioId, etiquetas }: { negocioId: number; etiquetas: Etiqueta[] }) {
+function SeccionComentarios({
+  negocioId,
+  onEstadoChanged,
+}: {
+  negocioId:       number;
+  onEstadoChanged: (estadoId: string) => void;
+}) {
   const { usuario } = useSession();
   const toast = useToast();
   const [comentarios, setComentarios] = useState<Comentario[]>([]);
   const [loading, setLoading] = useState(true);
   const [texto, setTexto] = useState('');
-  const [etiquetaSel, setEtiquetaSel] = useState<number | null>(null);
+  const [pipelineSel, setPipelineSel] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -482,25 +489,35 @@ function SeccionComentarios({ negocioId, etiquetas }: { negocioId: number; etiqu
     try {
       const res = await fetch(`/api/negocios/${negocioId}/comentarios`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comentario: texto.trim(), etiqueta_id: etiquetaSel }),
+        body: JSON.stringify({
+          comentario:      texto.trim(),
+          pipeline_estado: pipelineSel || null,
+        }),
       });
-      if (res.ok) { setTexto(''); setEtiquetaSel(null); await cargar(); }
-      else toast.error('Error al enviar comentario');
+      const data = await res.json();
+      if (!res.ok) { toast.error('Error al enviar'); return; }
+      setTexto('');
+      // Si el servidor confirmó que se cambió el estado, actualizar en el padre
+      if (data.nuevo_estado) {
+        onEstadoChanged(data.nuevo_estado);
+        const info = getEstadoPipeline(data.nuevo_estado);
+        toast.success(`Estado actualizado: ${info?.label ?? data.nuevo_estado}`);
+      }
+      setPipelineSel(null);
+      await cargar();
     } catch { toast.error('Error de conexión'); }
     finally { setEnviando(false); }
   };
 
-  const eliminar = async (id: number) => {
-    await fetch(`/api/negocios/${negocioId}/comentarios?comentarioId=${id}`, { method: 'DELETE' });
-    setComentarios(prev => prev.filter(c => c.id !== id));
+  const eliminar = async (cid: number) => {
+    await fetch(`/api/negocios/${negocioId}/comentarios?comentarioId=${cid}`, { method: 'DELETE' });
+    setComentarios(prev => prev.filter(c => c.id !== cid));
   };
 
   return (
     <div className="bg-white border border-zinc-200/60 rounded-xl overflow-hidden">
       <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center gap-2">
-        <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider">
-          Comentarios
-        </h3>
+        <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider">Comentarios</h3>
         <span className="text-[11px] px-1.5 py-0.5 bg-zinc-100 text-zinc-500 rounded-full font-bold">
           {comentarios.length}
         </span>
@@ -514,8 +531,8 @@ function SeccionComentarios({ negocioId, etiquetas }: { negocioId: number; etiqu
               <div key={i} className="flex gap-3">
                 <div className="w-8 h-8 rounded-full bg-zinc-200 flex-shrink-0" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="skeleton h-3 w-28 rounded" />
-                  <div className="skeleton h-4 w-3/4 rounded" />
+                  <div className="h-3 bg-zinc-100 rounded w-28" />
+                  <div className="h-4 bg-zinc-100 rounded w-3/4" />
                 </div>
               </div>
             ))}
@@ -524,70 +541,105 @@ function SeccionComentarios({ negocioId, etiquetas }: { negocioId: number; etiqu
           <p className="text-[13px] text-zinc-400 text-center py-5">Sé el primero en comentar</p>
         ) : (
           <div className="space-y-4">
-            {comentarios.map(c => (
-              <div key={c.id} className="flex gap-3 group">
-                <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${avatarGrad(c.usuario_id)} flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0`}>
-                  {iniciales(c.usuario_nombre, c.usuario_email)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 mb-0.5">
-                    <span className="text-[13px] font-bold text-zinc-800">
-                      {c.usuario_nombre || c.usuario_email.split('@')[0]}
-                    </span>
-                    {c.etiqueta_nombre && (
-                      <span
-                        style={{ backgroundColor: (c.etiqueta_color || '#3B82F6') + '20', color: c.etiqueta_color || '#3B82F6', borderColor: (c.etiqueta_color || '#3B82F6') + '50' }}
-                        className="text-[11px] px-2 py-px rounded-full font-bold border"
-                      >
-                        {c.etiqueta_nombre}
-                      </span>
-                    )}
-                    <span className="text-[11px] text-zinc-400">{fmtFecha(c.created_at)}</span>
+            {comentarios.map(c => {
+              const pipelineInfo = c.pipeline_estado ? getEstadoPipeline(c.pipeline_estado) : null;
+              return (
+                <div key={c.id} className="flex gap-3 group">
+                  <div className={`w-8 h-8 rounded-full bg-gradient-to-br ${avatarGrad(c.usuario_id)} flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0`}>
+                    {iniciales(c.usuario_nombre, c.usuario_email)}
                   </div>
-                  <p className="text-[13px] text-zinc-700 leading-relaxed">{c.comentario}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="text-[13px] font-bold text-zinc-800">
+                        {c.usuario_nombre || c.usuario_email.split('@')[0]}
+                      </span>
+                      {/* Badge de estado pipeline */}
+                      {pipelineInfo && (
+                        <span
+                          style={{
+                            backgroundColor: pipelineInfo.color + '18',
+                            color:           pipelineInfo.color,
+                            borderColor:     pipelineInfo.color + '50',
+                          }}
+                          className="inline-flex items-center gap-1 text-[11px] px-2 py-px rounded-full font-bold border"
+                        >
+                          <span
+                            style={{ backgroundColor: pipelineInfo.color }}
+                            className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                          />
+                          {pipelineInfo.label}
+                        </span>
+                      )}
+                      <span className="text-[11px] text-zinc-400">{fmtFecha(c.created_at)}</span>
+                    </div>
+                    <p className="text-[13px] text-zinc-700 leading-relaxed">{c.comentario}</p>
+                  </div>
+                  {(c.usuario_id === usuario?.id || usuario?.rol === 'admin') && (
+                    <button
+                      onClick={() => eliminar(c.id)}
+                      className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded text-zinc-300 hover:text-red-500 transition-all flex-shrink-0"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  )}
                 </div>
-                {(c.usuario_id === usuario?.id || usuario?.rol === 'admin') && (
-                  <button
-                    onClick={() => eliminar(c.id)}
-                    className="opacity-0 group-hover:opacity-100 w-6 h-6 flex items-center justify-center rounded text-zinc-300 hover:text-red-500 transition-all flex-shrink-0"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         {/* Formulario */}
-        <form onSubmit={enviar} className="border-t border-zinc-100 pt-4">
-          {etiquetas.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              <span className="text-[11px] text-zinc-400 self-center">Etiquetar:</span>
-              {etiquetas.map(et => {
-                const sel = etiquetaSel === et.id;
+        <form onSubmit={enviar} className="border-t border-zinc-100 pt-4 space-y-2.5">
+          {/* Selector de estado del pipeline */}
+          <div>
+            <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
+              Cambiar etapa al comentar
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPipelineSel(null)}
+                className={`text-[11px] px-2.5 py-1 rounded-full border font-bold transition-all ${
+                  pipelineSel === null
+                    ? 'bg-zinc-800 text-white border-zinc-800'
+                    : 'border-zinc-200 text-zinc-400 hover:border-zinc-400 hover:text-zinc-600'
+                }`}
+              >
+                Sin cambio
+              </button>
+              {ESTADOS_PIPELINE.map(est => {
+                const sel = pipelineSel === est.id;
                 return (
                   <button
-                    key={et.id}
+                    key={est.id}
                     type="button"
-                    onClick={() => setEtiquetaSel(sel ? null : et.id)}
-                    style={sel ? { backgroundColor: et.color + '25', color: et.color, borderColor: et.color + '60' } : {}}
-                    className={`text-[11px] px-2.5 py-0.5 rounded-full border font-bold transition-all ${
+                    onClick={() => setPipelineSel(sel ? null : est.id)}
+                    style={sel ? {
+                      backgroundColor: est.color + '20',
+                      color:           est.color,
+                      borderColor:     est.color + '60',
+                    } : {}}
+                    className={`text-[11px] px-2.5 py-1 rounded-full border font-bold transition-all ${
                       sel ? '' : 'border-zinc-200 text-zinc-500 hover:border-zinc-400'
                     }`}
                   >
-                    {et.nombre}
+                    {sel && <span className="mr-1">✓</span>}
+                    {est.label}
                   </button>
                 );
               })}
             </div>
-          )}
+          </div>
+
           <div className="flex gap-2">
             <input
               value={texto}
               onChange={e => setTexto(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviar(e as any); } }}
-              placeholder="Agrega un comentario… (Enter para enviar)"
+              placeholder={pipelineSel
+                ? `Comentario al pasar a "${getEstadoPipeline(pipelineSel)?.label}"…`
+                : 'Agrega un comentario… (Enter para enviar)'
+              }
               className="flex-1 px-3.5 py-2.5 border border-zinc-200 rounded-xl text-[13px] focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 outline-none transition-all"
             />
             <button
@@ -656,18 +708,25 @@ function DetalleContent() {
   const cambiarEstado = async (estadoId: string) => {
     if (!negocio) return;
     const estadoAnterior = negocio.estado_pipeline;
+    // Optimistic update
     setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoId || null } : prev);
     try {
       const res = await fetch(`/api/negocios/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ estado_pipeline: estadoId || null }),
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (data.migration_needed) {
+        toast.error('Falta ejecutar migration-4-pipeline.sql en Bluehost phpMyAdmin');
+        setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoAnterior } : prev);
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || 'Error');
       const estadoInfo = estadoId ? getEstadoPipeline(estadoId) : null;
       toast.success(estadoInfo ? `Etapa: ${estadoInfo.label}` : 'Etapa removida');
-    } catch {
+    } catch (e: any) {
       setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoAnterior } : prev);
-      toast.error('Error al actualizar etapa');
+      toast.error('Error al actualizar etapa', e?.message);
     }
   };
 
@@ -857,7 +916,10 @@ function DetalleContent() {
               </div>
             )}
             {seccion === 'comentarios' && (
-              <SeccionComentarios negocioId={negocio.id} etiquetas={etiquetas} />
+              <SeccionComentarios
+                negocioId={negocio.id}
+                onEstadoChanged={cambiarEstado}
+              />
             )}
           </div>
         </div>

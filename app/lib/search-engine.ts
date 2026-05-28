@@ -148,6 +148,14 @@ export class SearchEngine {
       );
     }
 
+    // Filtro por tipo de licitación (L1, LE, LP, etc.)
+    if (request.filtro_tipo?.length) {
+      oportunidades = oportunidades.filter(opp => {
+        const tipo = opp.tipo_licitacion || '';
+        return request.filtro_tipo!.some(t => tipo.toUpperCase().startsWith(t.toUpperCase()));
+      });
+    }
+
     if (request.filtro_monto_min || request.filtro_monto_max) {
       oportunidades = oportunidades.filter(opp => {
         const m = opp.monto_total || 0;

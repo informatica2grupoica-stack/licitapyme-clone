@@ -81,7 +81,29 @@
 4. **[2026-05-27] Animations disponibles en globals.css: fade-in, scale-in, slide-in-right, slide-in-up, skeleton**
    Do instead: usar clases CSS directas. Modales: `scale-in`. Toasts: `slide-in-right`. Bottom sheets: `slide-in-up`. Skeletons: `skeleton`.
 
+## Pipeline & Negocios
+
+1. **[2026-05-28] Pipeline column missing = DB migration not run; surface it explicitly**
+   Do instead: wrap `UPDATE negocios SET estado_pipeline` in try-catch; if error includes `unknown column`, return `{ migration_needed: true, status: 503 }`. Client checks `data.migration_needed` and shows toast with SQL file name.
+
+2. **[2026-05-28] Comment + pipeline state auto-updates negocio state**
+   Do instead: POST to `/api/negocios/[id]/comentarios` with `{ comentario, pipeline_estado }`. API inserts comment AND updates `negocios.estado_pipeline`. Returns `{ nuevo_estado }` — client calls `onEstadoChanged` to sync UI.
+
+3. **[2026-05-28] DB migrations required for pipeline features**
+   Do instead: run `docs/migration-4-pipeline.sql` (adds `estado_pipeline` to negocios) and `docs/migration-5-comentarios-pipeline.sql` (adds `pipeline_estado` to comentarios_negocio) in Bluehost phpMyAdmin before testing.
+
+## Tipo Licitación
+
+1. **[2026-05-28] All tipo codes live in `app/lib/tipos-licitacion.ts` — single source of truth**
+   Do instead: `import { TIPOS_LICITACION, extractTipoFromCodigo, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion'`. Never hardcode tipo lists in individual pages.
+
+2. **[2026-05-28] `extractTipoFromCodigo` regex handles L1, O1, CA, etc.**
+   Do instead: regex `/-([A-Za-z]{1,2}[0-9]?)\d{2}[a-z]?$/i` — captures `L1` from `L126`, not just `L`. Old regex `-([A-Za-z]+)\d+` would fail on two-char codes like L1, O1.
+
 ## Shell & Command Reliability
 
 1. **[2026-05-26] PowerShell heredoc for git commit on Windows**
    Do instead: use Bash tool (not PowerShell) for `git commit -m "$(cat <<'EOF'...EOF)"` heredoc syntax. PowerShell @'...'@ works but Bash heredoc is cleaner for multiline messages.
+
+2. **[2026-05-28] Response.json() can only be called once per Response**
+   Do instead: `const jsonResults = await Promise.all(responses.map(r => r.json()))` — consume ALL responses in one pass, then index into `jsonResults[0]`, `[1]`, `[2]`. Never call `.json()` on the same Response a second time.

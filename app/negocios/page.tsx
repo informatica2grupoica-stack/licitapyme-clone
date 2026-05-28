@@ -10,6 +10,7 @@ import {
   ChevronDown, X, RefreshCw, Users,
 } from 'lucide-react';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
+import { extractTipoFromCodigo, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 
 interface Etiqueta { id: number; nombre: string; color: string; }
 
@@ -34,12 +35,8 @@ interface Negocio {
 
 interface Usuario { id: number; nombre: string; email: string; }
 
-const TIPO_BADGE: Record<string, string> = {
-  'LE': 'bg-red-500', 'LP': 'bg-blue-500', 'LQ': 'bg-purple-500',
-  'CO': 'bg-green-500', 'L1': 'bg-orange-500',
-};
-
-const TIPOS_FILTRO = ['LE', 'LP', 'LQ', 'CO', 'L1'];
+// Todos los tipos ordenados por uso típico (públicos primero)
+const TIPOS_FILTRO = TIPOS_LICITACION.map(t => t.codigo);
 
 function PipelineBadge({ estadoId }: { estadoId: string | null }) {
   const e = getEstadoPipeline(estadoId || '1ASIGNADO');
@@ -307,7 +304,7 @@ function NegociosContent() {
       n.licitacion_organismo?.toLowerCase().includes(search.toLowerCase());
     const matchEt = filtroEtiqueta === '' ||
       n.etiquetas.some(e => String(e.id) === filtroEtiqueta);
-    const tipoDelCodigo = n.licitacion_codigo?.match(/-(LE|LP|LQ|CO|L1)\d/)?.[1] || '';
+    const tipoDelCodigo = extractTipoFromCodigo(n.licitacion_codigo || '');
     const matchTipo = filtroTipo === '' || tipoDelCodigo === filtroTipo;
     return matchSearch && matchEt && matchTipo;
   });
@@ -401,7 +398,7 @@ function NegociosContent() {
               Todos
             </button>
             {TIPOS_FILTRO.map(t => {
-              const bg = TIPO_BADGE[t] || 'bg-gray-400';
+              const bg = TIPO_COLOR_CLASS[t] || 'bg-gray-400';
               const isActive = filtroTipo === t;
               return (
                 <button
@@ -460,8 +457,8 @@ function NegociosContent() {
               <div className="divide-y divide-gray-50">
                 {negociosFiltrados.map(neg => {
                   const estadoCls = ESTADO_COLOR[neg.licitacion_estado || ''] || 'bg-gray-100 text-gray-500';
-                  const tipo = neg.licitacion_codigo?.match(/-(LE|LP|LQ|CO|L1)\d/)?.[1] || '';
-                  const tipoBg = TIPO_BADGE[tipo] || 'bg-gray-400';
+                  const tipo  = extractTipoFromCodigo(neg.licitacion_codigo || '');
+                  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
                   const dias = diasRestantes(neg.licitacion_cierre);
                   const diasCls = dias === 'Vencida' ? 'text-gray-400' :
                     dias.replace('d', '') !== '' && parseInt(dias) <= 3 ? 'text-red-500 font-semibold' :

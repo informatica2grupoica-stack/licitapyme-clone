@@ -6,11 +6,12 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useToast }  from '@/app/components/ui/toast';
 import { useSession } from '@/app/lib/session-context';
 import {
-  Radar, Plus, Trash2, ExternalLink, AlertCircle, Tag,
+  Radar, Plus, Trash2, ExternalLink, Tag,
   CheckCheck, Building2, Calendar, DollarSign, Loader2,
   BellOff, UserPlus, X, Check, Clock, ChevronDown, Search,
   Zap, ToggleLeft, ToggleRight, Sparkles,
 } from 'lucide-react';
+import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 interface PalabraClave {
@@ -68,29 +69,18 @@ function tiempoRelativo(fecha: string): string {
   return `hace ${Math.floor(h / 24)} d`;
 }
 
-function getTipoFromCodigo(codigo: string): string | null {
-  const m = codigo.match(/-([A-Za-z]+)\d+$/);
-  return m ? m[1].toUpperCase() : null;
-}
-
-const TIPO_STYLES: Record<string, { dot: string; label: string }> = {
-  LE: { dot: 'bg-red-400',    label: 'Licitación Privada' },
-  LP: { dot: 'bg-blue-400',   label: 'Licitación Pública' },
-  LQ: { dot: 'bg-amber-400',  label: 'L. Menor Cuantía' },
-  CO: { dot: 'bg-purple-400', label: 'Convenio Marco' },
-  SU: { dot: 'bg-teal-400',   label: 'Subasta Inversa' },
-  L1: { dot: 'bg-pink-400',   label: 'L. Ínfima Cuantía' },
-};
 
 function TipoBadge({ codigo }: { codigo: string }) {
-  const tipo = getTipoFromCodigo(codigo);
+  const tipo  = extractTipoFromCodigo(codigo);
   if (!tipo) return null;
-  const t2    = tipo.slice(0, 2);
-  const style = TIPO_STYLES[t2] ?? { dot: 'bg-zinc-400', label: tipo };
+  const info  = getTipoLicitacion(tipo);
+  const bg    = TIPO_COLOR_CLASS[tipo] || 'bg-zinc-400';
   return (
-    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-500">
-      <span className={`w-1.5 h-1.5 rounded-full ${style.dot} flex-shrink-0`} />
-      {t2}
+    <span
+      className={`inline-flex items-center text-white text-[10px] font-black px-1.5 py-0.5 rounded flex-shrink-0 ${bg}`}
+      title={info?.label}
+    >
+      {tipo}
     </span>
   );
 }
@@ -333,72 +323,71 @@ function AlertaCard({
   return (
     <div className={`
       group relative bg-white rounded-xl border transition-all duration-200
-      hover:shadow-md hover:-translate-y-px
+      hover:shadow-sm hover:border-zinc-300
       ${!alerta.leida
-        ? 'border-zinc-200 shadow-sm border-l-[3px] border-l-blue-500'
-        : 'border-zinc-200/70'
+        ? 'border-l-[3px] border-l-blue-500 border-zinc-200'
+        : 'border-zinc-100'
       }
     `}>
-      <div className="flex items-start gap-3 px-4 py-3.5">
+      <div className="flex items-center gap-2 px-3 py-2.5">
         {/* Punto no leído */}
-        <div className="flex-shrink-0 mt-[6px]">
+        <div className="flex-shrink-0 self-start mt-[5px]">
           {!alerta.leida
-            ? <span className="w-1.5 h-1.5 rounded-full bg-blue-500 block shadow-sm shadow-blue-500/60" />
+            ? <span className="w-1.5 h-1.5 rounded-full bg-blue-500 block" />
             : <span className="w-1.5 h-1.5 block" />
           }
         </div>
 
         <div className="flex-1 min-w-0">
-          {/* Título + keyword */}
-          <div className="flex items-start justify-between gap-2 mb-1.5">
+          {/* Fila 1: título + keyword badge */}
+          <div className="flex items-start justify-between gap-2 mb-1">
             <Link
               href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
-              className="text-[13.5px] font-semibold text-zinc-900 hover:text-blue-600 transition-colors line-clamp-2 leading-snug"
+              className="text-[13px] font-semibold text-zinc-900 hover:text-blue-600 transition-colors line-clamp-1 leading-snug flex-1 min-w-0"
             >
               {alerta.licitacion_nombre
                 ? <HighlightText text={alerta.licitacion_nombre} keyword={alerta.keyword_texto} />
                 : alerta.licitacion_codigo
               }
             </Link>
-            <span className="text-[11px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full font-semibold border border-blue-100 whitespace-nowrap flex-shrink-0">
+            <span className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded font-bold border border-blue-100 whitespace-nowrap flex-shrink-0">
               {alerta.keyword_texto}
             </span>
           </div>
 
-          {/* Meta */}
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {/* Fila 2: meta compacta */}
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
             <TipoBadge codigo={alerta.licitacion_codigo} />
 
             {alerta.licitacion_organismo && (
-              <span className="flex items-center gap-1 text-[12px] text-zinc-400 truncate max-w-[200px]">
-                <Building2 size={11} className="flex-shrink-0" />
+              <span className="flex items-center gap-1 text-[11px] text-zinc-400 truncate max-w-[180px]">
+                <Building2 size={10} className="flex-shrink-0" />
                 {alerta.licitacion_organismo}
               </span>
             )}
 
             {alerta.licitacion_monto != null && (
-              <span className="flex items-center gap-1 text-[12px] text-zinc-600 font-semibold">
-                <DollarSign size={11} />
+              <span className="flex items-center gap-0.5 text-[11px] text-zinc-600 font-semibold">
+                <DollarSign size={10} />
                 {formatMonto(alerta.licitacion_monto)}
               </span>
             )}
 
             {diasCierre !== null && (
-              <span className={`flex items-center gap-1 text-[12px] font-semibold ${
+              <span className={`flex items-center gap-0.5 text-[11px] font-semibold ${
                 diasCierre <= 0 ? 'text-zinc-400' :
                 diasCierre <= 3 ? 'text-red-500' :
-                diasCierre <= 7 ? 'text-amber-500' :
-                                  'text-zinc-400'
+                diasCierre <= 7 ? 'text-amber-500' : 'text-zinc-400'
               }`}>
-                <Calendar size={11} />
+                <Calendar size={10} />
                 {diasCierre <= 0 ? 'Cerrada' : `${diasCierre}d`}
               </span>
             )}
 
             {alerta.licitacion_estado && (
-              <span className={`text-[11px] px-1.5 py-px rounded-full font-medium ${
+              <span className={`text-[10px] px-1.5 py-px rounded-full font-medium ${
                 alerta.licitacion_estado.toLowerCase().includes('public')
-                  ? 'bg-emerald-50 text-emerald-600 border border-emerald-200/60'
+                  ? 'bg-emerald-50 text-emerald-600'
                   : 'bg-zinc-100 text-zinc-500'
               }`}>
                 {alerta.licitacion_estado}
@@ -407,28 +396,31 @@ function AlertaCard({
           </div>
         </div>
 
-        {/* Acciones */}
-        <div className="flex items-center gap-1 flex-shrink-0 ml-1">
+        {/* Acciones — siempre visibles (no requieren hover) */}
+        <div className="flex items-center gap-0.5 flex-shrink-0">
           {esAdmin && (
             <button
               onClick={() => onAsignar(alerta)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 text-white text-[12px] font-semibold rounded-lg hover:bg-blue-500 transition-all shadow-sm shadow-blue-600/20"
+              className="flex items-center gap-1 px-2 py-1.5 bg-blue-600 text-white text-[11px] font-bold rounded-lg hover:bg-blue-500 transition-all"
+              title="Asignar"
             >
-              <UserPlus size={12} />
+              <UserPlus size={11} />
               <span className="hidden sm:inline">Asignar</span>
             </button>
           )}
           <Link
             href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
             className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+            title="Ver detalle"
           >
-            <ExternalLink size={13} />
+            <ExternalLink size={12} />
           </Link>
           <button
             onClick={() => onDelete(alerta.id)}
             className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+            title="Eliminar"
           >
-            <Trash2 size={13} />
+            <Trash2 size={12} />
           </button>
         </div>
       </div>
@@ -470,6 +462,7 @@ export default function RadarPage() {
   const [ultimaAct,  setUltimaAct]  = useState<string | null>(null);
   const [tab,        setTab]        = useState<'radar' | 'keywords'>('radar');
   const [filtroKw,   setFiltroKw]   = useState('');
+  const [filtroTipo, setFiltroTipo] = useState('');
   const [modalAlerta, setModalAlerta] = useState<Alerta | null>(null);
 
   // ── Carga ────────────────────────────────────────────────────────────────────
@@ -609,10 +602,16 @@ export default function RadarPage() {
   };
 
   // ── Derivados ─────────────────────────────────────────────────────────────────
-  const alertasFiltradas  = filtroKw ? alertas.filter(a => a.keyword_texto === filtroKw) : alertas;
+  const alertasFiltradas  = alertas.filter(a => {
+    const matchKw   = !filtroKw   || a.keyword_texto === filtroKw;
+    const tipoAlerta = extractTipoFromCodigo(a.licitacion_codigo);
+    const matchTipo = !filtroTipo || tipoAlerta === filtroTipo;
+    return matchKw && matchTipo;
+  });
   const alertasNoLeidas   = alertasFiltradas.filter(a => !a.leida);
   const alertasLeidas     = alertasFiltradas.filter(a => a.leida);
   const kwsUnicas         = [...new Set(alertas.map(a => a.keyword_texto))].sort();
+  const tiposEnAlertas    = [...new Set(alertas.map(a => extractTipoFromCodigo(a.licitacion_codigo)).filter(Boolean))].sort();
   const activeKws         = keywords.filter(k => k.activo).length;
 
   return (
@@ -780,6 +779,38 @@ export default function RadarPage() {
                           }`}
                         >
                           {kw} · {cnt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Chips tipo licitación */}
+                {tiposEnAlertas.length > 1 && (
+                  <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                    <span className="text-[11px] text-zinc-400 font-semibold">Tipo:</span>
+                    <button
+                      onClick={() => setFiltroTipo('')}
+                      className={`text-[11px] px-2.5 py-0.5 rounded-full border font-bold transition-all ${
+                        !filtroTipo ? 'bg-zinc-800 text-white border-zinc-800' : 'border-zinc-200 text-zinc-500 hover:border-zinc-400'
+                      }`}
+                    >
+                      Todos
+                    </button>
+                    {tiposEnAlertas.map(t => {
+                      const info = getTipoLicitacion(t);
+                      const bg   = TIPO_COLOR_CLASS[t] || 'bg-gray-400';
+                      const cnt  = alertas.filter(a => extractTipoFromCodigo(a.licitacion_codigo) === t).length;
+                      return (
+                        <button
+                          key={t}
+                          onClick={() => setFiltroTipo(filtroTipo === t ? '' : t)}
+                          title={info?.label}
+                          className={`text-[11px] px-2.5 py-0.5 rounded-full border font-bold transition-all ${
+                            filtroTipo === t ? `${bg} text-white border-transparent` : 'border-zinc-200 text-zinc-500 hover:border-zinc-400'
+                          }`}
+                        >
+                          {t} · {cnt}
                         </button>
                       );
                     })}

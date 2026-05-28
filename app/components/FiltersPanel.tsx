@@ -3,9 +3,11 @@
 import { useState } from 'react';
 import { ESTADOS_LICITACION, REGIONES_CHILE } from '@/app/types/search.types';
 import { Filter, ChevronDown, ChevronUp, X, SlidersHorizontal } from 'lucide-react';
+import { TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 
 interface FilterValues {
   estado: string[];
+  tipo: string[];
   montoMin: string;
   montoMax: string;
   fechaDesde: string;
@@ -57,13 +59,14 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
   const [isOpen, setIsOpen] = useState(true);
 
   const hasActiveFilters =
-    filters.estado.length > 0 ||
+    filters.estado.length > 0 || filters.tipo.length > 0 ||
     filters.montoMin || filters.montoMax ||
     filters.fechaDesde || filters.fechaHasta ||
     filters.organismo || filters.region || filters.tipoOrden;
 
   const activeCount = [
     filters.estado.length > 0,
+    filters.tipo.length > 0,
     !!(filters.montoMin || filters.montoMax),
     !!(filters.fechaDesde || filters.fechaHasta),
     !!filters.organismo,
@@ -76,6 +79,13 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
       ? filters.estado.filter(e => e !== key)
       : [...filters.estado, key];
     onChange({ ...filters, estado: next });
+  };
+
+  const toggleTipo = (key: string) => {
+    const next = (filters.tipo || []).includes(key)
+      ? (filters.tipo || []).filter(e => e !== key)
+      : [...(filters.tipo || []), key];
+    onChange({ ...filters, tipo: next });
   };
 
   return (
@@ -135,6 +145,29 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
                     className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
                   />
                   <span className="text-sm text-gray-600 group-hover:text-gray-900 transition-colors">{label}</span>
+                </label>
+              ))}
+            </div>
+          </Section>
+
+          {/* Tipo de licitación */}
+          <Section title="Tipo de licitación">
+            <div className="space-y-0.5 max-h-52 overflow-y-auto pr-1">
+              {TIPOS_LICITACION.map(t => (
+                <label key={t.codigo} className="flex items-center gap-2 py-1 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={(filters.tipo || []).includes(t.codigo)}
+                    onChange={() => toggleTipo(t.codigo)}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 flex-shrink-0"
+                  />
+                  <span
+                    className="text-[10px] font-black px-1.5 py-0 rounded text-white flex-shrink-0"
+                    style={{ backgroundColor: t.color }}
+                  >
+                    {t.codigo}
+                  </span>
+                  <span className="text-xs text-gray-600 group-hover:text-gray-900 truncate">{t.label}</span>
                 </label>
               ))}
             </div>
