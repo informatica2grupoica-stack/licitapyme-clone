@@ -106,6 +106,20 @@
 3. **[2026-05-28] DB migrations required for pipeline features**
    Do instead: run `docs/migration-4-pipeline.sql` (adds `estado_pipeline` to negocios) and `docs/migration-5-comentarios-pipeline.sql` (adds `pipeline_estado` to comentarios_negocio) in Bluehost phpMyAdmin before testing.
 
+## Licitacion Detail Page
+
+1. **[2026-05-28] `/api/licitacion-detalle/[codigo]` is the only correct source for detail page**
+   Do instead: `GET /api/licitacion-detalle/[codigo]` → calls `client.obtenerPorCodigo()` → returns `{success, licitacion: Oportunidad, licitacion_raw: Licitacion}`. Never use `/api/search` or `/api/licitacion-completa` (cheerio scraper — blocked by MP WAF from Vercel).
+
+2. **[2026-05-28] `licitacion.estado` is a numeric string ("5", "6"...) NOT the name**
+   Do instead: `ESTADO_CONFIG["5"]` → "Publicada". The `normalizar()` function sets `Estado = String(item.CodigoEstado || 5)`. Use `licitacion.estado` to look up badge config.
+
+3. **[2026-05-28] Check `isFavorite(codigo)` BEFORE calling `toggleFavorite`**
+   Do instead: `const wasFav = isFavorite(codigo); await toggleFavorite(...); toast(wasFav ? 'Eliminado' : 'Agregado')`. The return value of `toggleFavorite` is `true` for both add AND remove.
+
+4. **[2026-05-28] Admin "Asignar a negocio" fetches /api/usuarios then POSTs /api/negocios**
+   Do instead: Modal fetches `GET /api/usuarios` (returns `{success, usuarios}`), then `POST /api/negocios` with all licitacion fields + `asignado_a`. Middleware injects auth headers automatically.
+
 ## Tipo Licitación
 
 1. **[2026-05-28] All tipo codes live in `app/lib/tipos-licitacion.ts` — single source of truth**
