@@ -34,6 +34,26 @@ export class MercadoPublicoClient {
     }
   }
 
+  /**
+   * Versión con timeout explícito — usar en el cron para enrichment masivo.
+   * Si la llamada supera `timeoutMs`, retorna null sin lanzar excepción.
+   */
+  async obtenerPorCodigoRapido(codigo: string, timeoutMs = 8_000): Promise<Licitacion | null> {
+    try {
+      const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
+      const res = await globalThis.fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal:  AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) return null;
+      const data: LicitacionAPIResponse = await res.json();
+      if (!data.Listado?.length) return null;
+      return this.normalizar(data.Listado[0]);
+    } catch {
+      return null; // timeout o error de red → silencioso
+    }
+  }
+
   async obtenerHoy(): Promise<Licitacion[]> {
     try {
       const url = `${API_BASE}/licitaciones.json?ticket=${this.ticket}`;
