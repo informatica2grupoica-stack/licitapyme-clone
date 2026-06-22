@@ -1,0 +1,42 @@
+# docker-compose.yml — Despliegue en el NOTEBOOK chileno (siempre encendido).
+#
+#   • app         → la app Next.js completa (front + API + descargador con Chromium).
+#                   Sale a Mercado Público por la IP chilena del notebook → el descargador funciona.
+#   • cloudflared → túnel de Cloudflare: publica la app en un link HTTPS público
+#                   (https://app-licita.tudominio.com) sin abrir puertos del router.
+#
+# Uso EN EL NOTEBOOK:
+#   1. cp .env.example .env   y rellena los valores reales (incluido CLOUDFLARE_TUNNEL_TOKEN).
+#   2. docker compose up -d --build
+#   3. Ver logs:  docker compose logs -f
+#   4. Apagar:    docker compose down
+#
+# docker-compose lee automáticamente el archivo .env de esta carpeta tanto para
+# sustituir ${VARIABLE} aquí (build args) como para inyectarlas al contenedor (env_file).
+services:
+  app:
+    build:
+      context: .
+      args:
+        # NEXT_PUBLIC_* deben existir EN BUILD (se incrustan en el bundle del front).
+        NEXT_PUBLIC_BASE_URL: ${NEXT_PUBLIC_BASE_URL}
+        NEXT_PUBLIC_AUTOMATIZACION_PAUSADA: ${NEXT_PUBLIC_AUTOMATIZACION_PAUSADA}
+        NEXT_PUBLIC_CRON_SECRET: ${NEXT_PUBLIC_CRON_SECRET}
+    image: licitapyme-local
+    container_name: licitapyme
+    restart: unless-stopped          # vuelve solo tras reinicio/caída del notebook
+    env_file: .env                   # inyecta TODAS las variables al runtime del contenedor
+    ports:
+      - "3003:3000"                  # opcional: probar en el propio notebook (http://localhost:3003)
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: licitapyme-tunnel
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      # Token del túnel con nombre (lo generas en el panel de Cloudflare Zero Trust).
+      # En el panel, el hostname público apunta al servicio:  http://app:3000
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - app
