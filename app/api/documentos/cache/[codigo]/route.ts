@@ -9,14 +9,26 @@ export async function GET(
   const { codigo } = await params;
   
   try {
-    const [rows] = await pool.query(
-      `SELECT documento_nombre, documento_url_local, size_bytes, created_at 
-       FROM documentos_cache 
-       WHERE licitacion_codigo = ? 
-       ORDER BY created_at ASC`,
-      [codigo]
-    );
-    
+    let rows: unknown[];
+    try {
+      [rows] = await pool.query(
+        `SELECT documento_nombre, documento_url_local, size_bytes, categoria, created_at
+         FROM documentos_cache
+         WHERE licitacion_codigo = ?
+         ORDER BY created_at ASC`,
+        [codigo]
+      ) as any[];
+    } catch {
+      // columna 'categoria' no existe aún — fallback sin ella
+      [rows] = await pool.query(
+        `SELECT documento_nombre, documento_url_local, size_bytes, created_at
+         FROM documentos_cache
+         WHERE licitacion_codigo = ?
+         ORDER BY created_at ASC`,
+        [codigo]
+      ) as any[];
+    }
+
     return NextResponse.json({
       success: true,
       codigo,

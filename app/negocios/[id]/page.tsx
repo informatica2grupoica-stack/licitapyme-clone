@@ -12,6 +12,10 @@ import {
   MessageSquare, Send, Trash2, Loader2, AlertCircle, ExternalLink,
   FileText, Check, X, ChevronDown, Package, Hash,
   Edit3, Clock, Globe, Users,
+  Download, Bot, Brain, RefreshCw, Eye, FolderOpen,
+  Sparkles, BarChart3, BookOpen, AlertTriangle, ListChecks,
+  TrendingUp, CheckCircle, Upload, ChevronRight, Files,
+  ShieldAlert, DollarSign as DollarSignIcon, Award, Wrench,
 } from 'lucide-react';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -90,7 +94,73 @@ interface Comentario {
   pipeline_estado: string | null;
 }
 
-type Seccion = 'resumen' | 'fechas' | 'items' | 'documentos' | 'comentarios';
+interface DocumentoLocal {
+  nombre: string;
+  url: string;
+  url_local?: string;
+  size?: number;
+  ya_descargado?: boolean;
+  fecha?: string;
+  categoria?: string;
+}
+
+interface AnalisisIA {
+  presupuesto: { monto: number; moneda: string } | null;
+  plazoEjecucionDias: number | null;
+  plazoEntregaDias?: number | null;
+  modalidadAdjudicacion?: string | null;
+  tipoContrato?: string | null;
+  lugarEntrega?: string | null;
+  criteriosEvaluacion: Array<{ nombre: string; ponderacion: number; tipo?: string; descripcion?: string; formula?: string }>;
+  especificacionesTecnicas?: Array<{ item: string; descripcion: string; cantidad?: number; unidad?: string; requisitosMinimos?: string }>;
+  documentosAPresenter?: string[];
+  requisitos: {
+    administrativos?: string[];
+    tecnicos?: string[];
+    economicos?: string[];
+    habilitantes?: string[];
+    prohibiciones?: string[];
+  } | null;
+  garantias: Array<{ tipo: string; porcentaje?: number; montoFijo?: number; momento?: string; devolucion?: string; plazo?: string }>;
+  multas: Array<{ concepto: string; valor: string; unidad?: string }>;
+  contacto?: { nombre?: string; cargo?: string; email?: string; telefono?: string } | null;
+  resumenBasesAdmin?: {
+    objeto: string;
+    plazo_contrato: string | null;
+    modalidad_pago: string | null;
+    forma_pago: string | null;
+    garantias_exigidas: string[];
+    causales_rechazo: string[];
+    cronograma: Array<{ etapa: string; fecha: string }>;
+    condiciones_contrato: string[];
+    penalidades_resumen: string | null;
+  } | null;
+  resumenBasesTecnicas?: {
+    descripcion_general: string;
+    alcance: string;
+    entregables: string[];
+    estandares_calidad: string[];
+    condiciones_entrega: string | null;
+    requisitos_tecnicos_oferente: string[];
+    lugar_ejecucion: string | null;
+  } | null;
+  analisisExperto: {
+    resumenEjecutivo?: string;
+    puntosCriticos?: string[];
+    oportunidades?: string[];
+    riesgosDetectados?: string[];
+    recomendaciones?: string[];
+    ventajasCompetitivas?: string[];
+    aspectosNegociables?: string[];
+    complejidad?: string;
+    atractivo?: string;
+  } | null;
+  documentoAnalizado: string | null;
+  modelo: string | null;
+  actualizado: string;
+}
+
+type Seccion = 'resumen' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'comentarios';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -108,6 +178,22 @@ function fmtFecha(s: string | null | undefined): string {
       hour: '2-digit', minute: '2-digit',
     });
   } catch { return s; }
+}
+
+function getFileIcon(nombre: string) {
+  const ext = nombre.split('.').pop()?.toLowerCase();
+  const icons: Record<string, string> = {
+    pdf: '📄', zip: '📦', rar: '📦', doc: '📝', docx: '📝',
+    xls: '📊', xlsx: '📊', png: '🖼', jpg: '🖼', dwg: '📐',
+  };
+  return icons[ext || ''] || '📎';
+}
+
+function formatFileSize(bytes?: number) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function avatarGrad(id: number): string {
@@ -154,7 +240,7 @@ function PipelineBadge({ estadoId }: { estadoId: string | null }) {
   );
 }
 
-// ── Pipeline Selector (right panel) ───────────────────────────────────────────
+// ── Pipeline Selector ─────────────────────────────────────────────────────────
 function PipelineSelector({
   current,
   onChange,
@@ -207,7 +293,6 @@ function PipelineSelector({
               {current === est.id && <Check size={12} className="ml-auto text-zinc-400" />}
             </button>
           ))}
-          {/* Sin etapa */}
           <button
             onClick={() => { onChange(''); setOpen(false); }}
             className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-zinc-50 border-t border-zinc-100 text-[13px] text-zinc-400"
@@ -245,7 +330,6 @@ function SeccionResumen({
 
   return (
     <div className="space-y-4">
-      {/* Descripción */}
       {descripcion ? (
         <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
           <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-2.5">Descripción</h3>
@@ -257,7 +341,6 @@ function SeccionResumen({
         </div>
       )}
 
-      {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         <div className="bg-white border border-zinc-200/60 rounded-xl p-4">
           <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wider mb-1">Monto disponible</p>
@@ -270,7 +353,7 @@ function SeccionResumen({
         <div className="bg-white border border-zinc-200/60 rounded-xl p-4">
           <div className="flex items-center justify-between mb-1">
             <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wider">Monto ofertado</p>
-            <button onClick={() => setEditMonto(!editMonto)} className="text-zinc-300 hover:text-blue-500 transition-colors">
+            <button onClick={() => setEditMonto(!editMonto)} className="text-zinc-300 hover:text-indigo-500 transition-colors">
               <Edit3 size={11} />
             </button>
           </div>
@@ -280,7 +363,7 @@ function SeccionResumen({
                 value={montoTemp}
                 onChange={e => setMontoTemp(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && guardar()}
-                className="flex-1 text-sm border-b border-blue-400 outline-none py-0.5 bg-transparent"
+                className="flex-1 text-sm border-b border-indigo-400 outline-none py-0.5 bg-transparent"
                 autoFocus
               />
               <button onClick={guardar} className="text-emerald-500"><Check size={12} /></button>
@@ -297,7 +380,6 @@ function SeccionResumen({
         </div>
       </div>
 
-      {/* Info general */}
       <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
         <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-3">Información general</h3>
         <dl className="grid sm:grid-cols-2 gap-3">
@@ -344,7 +426,6 @@ function SeccionResumen({
         </dl>
       </div>
 
-      {/* Líneas de negocio */}
       {negocio.etiquetas.length > 0 && (
         <div className="bg-white border border-zinc-200/60 rounded-xl p-4">
           <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-2.5">Líneas de negocio</h3>
@@ -410,51 +491,237 @@ function SeccionFechas({ licitacion }: { licitacion: LicitacionRaw | null }) {
 }
 
 // ── Sección Ítems ──────────────────────────────────────────────────────────────
-function SeccionItems({ licitacion }: { licitacion: LicitacionRaw | null }) {
+function SeccionItems({ licitacion, analisisIA }: { licitacion: LicitacionRaw | null; analisisIA?: AnalisisIA | null }) {
   if (!licitacion) return <div className="text-[13px] text-zinc-400 py-8 text-center">Cargando datos de la API…</div>;
 
-  const items = licitacion.Items || [];
+  const itemsMP  = licitacion.Items || [];
+  const itemsIA  = analisisIA?.especificacionesTecnicas ?? [];
+  const hayMP    = itemsMP.length > 0;
+  const hayIA    = itemsIA.length > 0;
+  const total    = itemsMP.length + (hayMP ? 0 : itemsIA.length); // si hay MP no sumamos IA al conteo de título
 
   return (
-    <div className="bg-white border border-zinc-200/60 rounded-xl overflow-hidden">
-      <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between">
-        <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider">
-          Ítems y cantidades ({items.length})
-        </h3>
-      </div>
-      {items.length === 0 ? (
-        <div className="flex flex-col items-center py-10 text-center">
-          <Package size={24} className="text-zinc-300 mb-2" />
-          <p className="text-[13px] text-zinc-400">Sin ítems disponibles</p>
+    <div className="space-y-3">
+      {/* ── Ítems de Mercado Público (fuente oficial) ── */}
+      <div className="bg-white border border-zinc-200/60 rounded-xl overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between">
+          <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider">
+            Ítems y cantidades ({itemsMP.length})
+          </h3>
+          {hayMP && <span className="text-[10px] text-zinc-400 bg-zinc-50 border border-zinc-200 px-2 py-0.5 rounded-full">Fuente: Mercado Público</span>}
         </div>
-      ) : (
-        <div className="divide-y divide-zinc-50">
-          {items.map((item, i) => (
-            <div key={i} className="px-5 py-3.5">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13.5px] font-semibold text-zinc-900 leading-snug">
-                    {item.NombreProducto}
-                  </p>
-                  {item.Descripcion && (
-                    <p className="text-[12px] text-zinc-500 mt-0.5">{item.Descripcion}</p>
-                  )}
-                  {item.CodigoProducto && (
-                    <p className="text-[11px] text-zinc-400 mt-1 font-mono">Cód: {item.CodigoProducto}</p>
-                  )}
-                </div>
-                <div className="flex-shrink-0 text-right">
-                  <p className="text-[14px] font-bold text-zinc-800">{item.Cantidad}</p>
-                  <p className="text-[11px] text-zinc-400">{item.Unidad || 'Unidad'}</p>
+        {!hayMP ? (
+          <div className="flex flex-col items-center py-8 text-center">
+            <Package size={24} className="text-zinc-300 mb-2" />
+            <p className="text-[13px] text-zinc-400">Sin ítems en la API de Mercado Público</p>
+            {hayIA && <p className="text-[12px] text-zinc-400 mt-1">Ver ítems extraídos por IA más abajo</p>}
+          </div>
+        ) : (
+          <div className="divide-y divide-zinc-50">
+            {itemsMP.map((item, i) => (
+              <div key={i} className="px-5 py-3.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13.5px] font-semibold text-zinc-900 leading-snug">{item.NombreProducto}</p>
+                    {item.Descripcion && <p className="text-[12px] text-zinc-500 mt-0.5">{item.Descripcion}</p>}
+                    {item.CodigoProducto && <p className="text-[11px] text-zinc-400 mt-1 font-mono">Cód: {item.CodigoProducto}</p>}
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <p className="text-[14px] font-bold text-zinc-800">{item.Cantidad}</p>
+                    <p className="text-[11px] text-zinc-400">{item.Unidad || 'Unidad'}</p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Ítems extraídos por IA (de documentos/bases) ── */}
+      {hayIA && (
+        <div className="bg-white border border-violet-200/60 rounded-xl overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-violet-100 flex items-center justify-between">
+            <h3 className="text-[12px] font-bold text-violet-500 uppercase tracking-wider">
+              Ítems extraídos por IA ({itemsIA.length})
+            </h3>
+            <span className="text-[10px] text-violet-500 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">Fuente: Análisis IA</span>
+          </div>
+          <TablaItems items={itemsIA} />
+        </div>
+      )}
+
+      {/* ── Ninguno disponible ── */}
+      {!hayMP && !hayIA && (
+        <div className="bg-white border border-zinc-200/60 rounded-xl py-10 text-center">
+          <Package size={24} className="text-zinc-300 mb-2 mx-auto" />
+          <p className="text-[13px] text-zinc-400">Sin ítems disponibles</p>
+          <p className="text-[12px] text-zinc-400 mt-1">Descarga y analiza los documentos con IA para extraerlos</p>
         </div>
       )}
     </div>
   );
 }
+
+// ── Tabla de ítems / especificaciones técnicas ────────────────────────────────
+type ItemEspec = {
+  item: string;
+  descripcion: string;
+  cantidad?: number | null;
+  unidad?: string | null;
+  requisitosMinimos?: string | null;
+};
+
+function TablaItems({ items }: { items: ItemEspec[] }) {
+  const [busqueda, setBusqueda] = useState('');
+  const [expandido, setExpandido] = useState<number | null>(null);
+
+  const filtrados = busqueda.trim()
+    ? items.filter(it =>
+        it.item.toLowerCase().includes(busqueda.toLowerCase()) ||
+        it.descripcion.toLowerCase().includes(busqueda.toLowerCase())
+      )
+    : items;
+
+  const conCantidad  = items.filter(it => it.cantidad != null).length;
+  const sinCantidad  = items.length - conCantidad;
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      {/* Header */}
+      <div className="px-4 py-3 bg-gradient-to-r from-teal-50 to-cyan-50 border-b border-slate-100">
+        <div className="flex items-center gap-2 mb-2">
+          <Package size={13} className="text-teal-600" />
+          <h3 className="text-[12px] font-bold text-slate-700 uppercase tracking-wider">
+            Ítems / Especificaciones Técnicas
+          </h3>
+          <span className="ml-auto text-[11px] bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full font-bold">
+            {items.length} ítems
+          </span>
+        </div>
+        {/* Stats */}
+        <div className="flex gap-3 mb-2">
+          {conCantidad > 0 && (
+            <span className="text-[10px] text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">
+              {conCantidad} con cantidad
+            </span>
+          )}
+          {sinCantidad > 0 && (
+            <span className="text-[10px] text-slate-500 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full">
+              {sinCantidad} sin cantidad definida
+            </span>
+          )}
+        </div>
+        {/* Buscador — aparece si hay más de 8 ítems */}
+        {items.length > 8 && (
+          <div className="relative">
+            <input
+              type="text"
+              value={busqueda}
+              onChange={e => setBusqueda(e.target.value)}
+              placeholder={`Buscar entre ${items.length} ítems...`}
+              className="w-full text-[12px] px-3 py-1.5 pl-7 rounded-lg border border-teal-200 bg-white focus:outline-none focus:ring-1 focus:ring-teal-300"
+            />
+            <Hash size={11} className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+            {busqueda && (
+              <button
+                onClick={() => setBusqueda('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                <X size={11} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Tabla */}
+      {filtrados.length === 0 ? (
+        <p className="text-[12px] text-slate-400 text-center py-6">Sin resultados para "{busqueda}"</p>
+      ) : (
+        <>
+          {/* Cabecera de columnas */}
+          <div className="grid grid-cols-[2rem_1fr_5rem] sm:grid-cols-[2rem_1fr_6rem_5rem] gap-0 px-4 py-1.5 bg-slate-50 border-b border-slate-100">
+            <span className="text-[10px] font-bold text-slate-400 uppercase">#</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase">Ítem / Descripción</span>
+            <span className="hidden sm:block text-[10px] font-bold text-slate-400 uppercase text-right">Unidad</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase text-right">Cant.</span>
+          </div>
+
+          <div className="divide-y divide-slate-50 max-h-[500px] overflow-y-auto">
+            {filtrados.map((it, i) => {
+              const idx      = items.indexOf(it);
+              const abierto  = expandido === idx;
+              const descCorta = it.descripcion.length > 80;
+
+              return (
+                <div
+                  key={idx}
+                  className={`px-4 py-2.5 hover:bg-slate-50/60 transition-colors ${abierto ? 'bg-teal-50/40' : ''}`}
+                >
+                  <div className="grid grid-cols-[2rem_1fr_5rem] sm:grid-cols-[2rem_1fr_6rem_5rem] gap-0 items-start">
+                    {/* Número */}
+                    <span className="text-[11px] font-mono text-slate-400 pt-0.5">{i + 1}</span>
+
+                    {/* Nombre + descripción */}
+                    <div className="min-w-0 pr-2">
+                      <p className="text-[13px] font-semibold text-slate-800 leading-tight">{it.item}</p>
+                      {it.descripcion && it.descripcion !== it.item && (
+                        <div>
+                          <p className={`text-[11px] text-slate-500 mt-0.5 leading-relaxed ${!abierto && descCorta ? 'line-clamp-2' : ''}`}>
+                            {it.descripcion}
+                          </p>
+                          {descCorta && (
+                            <button
+                              onClick={() => setExpandido(abierto ? null : idx)}
+                              className="text-[10px] text-teal-600 hover:text-teal-800 font-semibold mt-0.5"
+                            >
+                              {abierto ? '▲ menos' : '▼ ver más'}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {abierto && it.requisitosMinimos && (
+                        <div className="mt-1.5 p-2 bg-amber-50 rounded-lg border border-amber-100">
+                          <p className="text-[10px] font-bold text-amber-600 uppercase mb-0.5">Requisitos mínimos</p>
+                          <p className="text-[11px] text-amber-800 leading-relaxed">{it.requisitosMinimos}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Unidad */}
+                    <span className="hidden sm:block text-[12px] text-slate-500 text-right pt-0.5">
+                      {it.unidad ?? <span className="text-slate-300">—</span>}
+                    </span>
+
+                    {/* Cantidad */}
+                    <div className="text-right pt-0.5">
+                      {it.cantidad != null ? (
+                        <span className="inline-block text-[13px] font-bold text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0 rounded">
+                          {it.cantidad.toLocaleString('es-CL')}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-slate-300">s/d</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {busqueda && filtrados.length < items.length && (
+            <div className="px-4 py-2 bg-slate-50 border-t border-slate-100 text-center">
+              <span className="text-[11px] text-slate-500">
+                Mostrando {filtrados.length} de {items.length} ítems
+              </span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 
 // ── Sección Comentarios ────────────────────────────────────────────────────────
 function SeccionComentarios({
@@ -497,7 +764,6 @@ function SeccionComentarios({
       const data = await res.json();
       if (!res.ok) { toast.error('Error al enviar'); return; }
       setTexto('');
-      // Si el servidor confirmó que se cambió el estado, actualizar en el padre
       if (data.nuevo_estado) {
         onEstadoChanged(data.nuevo_estado);
         const info = getEstadoPipeline(data.nuevo_estado);
@@ -524,7 +790,6 @@ function SeccionComentarios({
       </div>
 
       <div className="px-5 py-4 space-y-4">
-        {/* Hilo */}
         {loading ? (
           <div className="space-y-3 animate-pulse">
             {[1, 2].map(i => (
@@ -553,7 +818,6 @@ function SeccionComentarios({
                       <span className="text-[13px] font-bold text-zinc-800">
                         {c.usuario_nombre || c.usuario_email.split('@')[0]}
                       </span>
-                      {/* Badge de estado pipeline */}
                       {pipelineInfo && (
                         <span
                           style={{
@@ -588,9 +852,7 @@ function SeccionComentarios({
           </div>
         )}
 
-        {/* Formulario */}
         <form onSubmit={enviar} className="border-t border-zinc-100 pt-4 space-y-2.5">
-          {/* Selector de estado del pipeline */}
           <div>
             <p className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider mb-1.5">
               Cambiar etapa al comentar
@@ -640,12 +902,12 @@ function SeccionComentarios({
                 ? `Comentario al pasar a "${getEstadoPipeline(pipelineSel)?.label}"…`
                 : 'Agrega un comentario… (Enter para enviar)'
               }
-              className="flex-1 px-3.5 py-2.5 border border-zinc-200 rounded-xl text-[13px] focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 outline-none transition-all"
+              className="flex-1 px-3.5 py-2.5 border border-zinc-200 rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none transition-all"
             />
             <button
               type="submit"
               disabled={enviando || !texto.trim()}
-              className="px-3.5 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-200 text-white rounded-xl transition-colors"
+              className="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-200 text-white rounded-xl transition-colors"
             >
               {enviando ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
             </button>
@@ -672,6 +934,19 @@ function DetalleContent() {
   const [error, setError]           = useState<string | null>(null);
   const [seccion, setSeccion]       = useState<Seccion>('resumen');
 
+  // Documentos
+  const [documentos, setDocumentos]           = useState<DocumentoLocal[]>([]);
+  const [loadingDocs, setLoadingDocs]         = useState(false);
+  const [descargandoAuto, setDescargandoAuto] = useState(false);
+  const [clasificando, setClasificando]       = useState(false);
+  const [resumenClasificacion, setResumenClasificacion] = useState<{ estado: 'completo' | 'incompleto'; falta: string[] } | null>(null);
+  const clasificacionDisparada = useRef(false);
+
+  // Análisis IA
+  const [analisisIA, setAnalisisIA]   = useState<AnalisisIA | null>(null);
+  const [analisisCargado, setAnalisisCargado] = useState(false); // GET cacheado resuelto
+  const analisisYaIntentado           = useRef(false);
+
   // ── Carga ─────────────────────────────────────────────────────────────────────
   const cargar = useCallback(async () => {
     try {
@@ -693,22 +968,121 @@ function DetalleContent() {
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  // Cargar datos completos de MP cuando tengamos el código
+  // Cargar datos completos de MP
   useEffect(() => {
     if (!negocio?.licitacion_codigo) return;
     setLoadingLic(true);
     fetch(`/api/licitacion-detalle/${encodeURIComponent(negocio.licitacion_codigo)}`)
       .then(r => r.json())
       .then(d => { if (d.success && d.licitacion_raw) setLicitacion(d.licitacion_raw); })
-      .catch(() => { /* silencioso, usamos datos del DB */ })
+      .catch(() => { /* silencioso */ })
       .finally(() => setLoadingLic(false));
   }, [negocio?.licitacion_codigo]);
+
+  // Cargar documentos desde el cache (incluye campo categoria)
+  const fetchDocumentos = useCallback(async (codigo?: string) => {
+    const cod = codigo || negocio?.licitacion_codigo;
+    if (!cod) return;
+    setLoadingDocs(true);
+    try {
+      const res = await fetch(`/api/documentos/cache/${encodeURIComponent(cod)}`);
+      const data = await res.json();
+      if (data.documentos) {
+        setDocumentos(data.documentos.map((d: any) => ({
+          nombre:    d.documento_nombre || d.nombre,
+          url:       d.documento_url_local || d.url_local || d.url || '',
+          url_local: d.documento_url_local || d.url_local || d.url,
+          size:      d.size_bytes || d.size,
+          categoria: d.categoria ?? undefined,
+          ya_descargado: true,
+        })));
+      }
+    } catch { /* silencioso */ }
+    finally { setLoadingDocs(false); }
+  }, [negocio?.licitacion_codigo]);
+
+  useEffect(() => {
+    if (negocio?.licitacion_codigo) fetchDocumentos(negocio.licitacion_codigo);
+  }, [negocio?.licitacion_codigo]); // eslint-disable-line
+
+  // Cargar análisis IA cacheado
+  const fetchAnalisisIA = useCallback(async (codigo?: string) => {
+    const cod = codigo || negocio?.licitacion_codigo;
+    if (!cod) return;
+    try {
+      const res = await fetch(`/api/licitacion-ia/${encodeURIComponent(cod)}`);
+      const data = await res.json();
+      if (data.success && data.analisis) setAnalisisIA(data.analisis);
+    } catch { /* silencioso */ }
+    finally { setAnalisisCargado(true); }
+  }, [negocio?.licitacion_codigo]);
+
+  useEffect(() => {
+    if (negocio?.licitacion_codigo) fetchAnalisisIA(negocio.licitacion_codigo);
+  }, [negocio?.licitacion_codigo]); // eslint-disable-line
+
+  // Clasificar documentos con Gemini
+  const handleClasificar = useCallback(async () => {
+    const cod = negocio?.licitacion_codigo;
+    if (!cod) return;
+    setClasificando(true);
+    try {
+      const res = await fetch('/api/documentos/clasificar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: cod }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.resumen_licitacion) setResumenClasificacion(data.resumen_licitacion);
+        fetchDocumentos(cod);
+      }
+    } catch { /* silencioso */ }
+    finally { setClasificando(false); }
+  }, [negocio?.licitacion_codigo, fetchDocumentos]);
+
+  // Auto-clasificar cuando los docs cargan y ninguno tiene categoría
+  useEffect(() => {
+    if (loadingDocs) return;
+    if (clasificacionDisparada.current) return;
+    if (documentos.length === 0) return;
+    if (documentos.some(d => d.categoria)) return;
+    clasificacionDisparada.current = true;
+    handleClasificar();
+  }, [loadingDocs, documentos, handleClasificar]);
+
+  // Negocios NO analiza: solo muestra el análisis que ya hizo el Radar (lectura cacheada).
+  // Si no existe, simplemente no se muestra (no se dispara cómputo aquí).
+
+
+  // ── Descarga automática — NO MODIFICAR LÓGICA ────────────────────────────────
+  const handleAutoDescargar = useCallback(async () => {
+    if (!negocio?.licitacion_codigo) return;
+    setDescargandoAuto(true);
+    try {
+      const res = await fetch('/api/documentos/auto-descargar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licitacionCodigo: negocio.licitacion_codigo }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error('Error', data.error || 'No se pudo iniciar la descarga');
+      } else {
+        toast.success(data.message || 'Descarga iniciada');
+        setTimeout(() => fetchDocumentos(negocio.licitacion_codigo), 3000);
+      }
+    } catch {
+      toast.error('Error de red');
+    } finally {
+      setDescargandoAuto(false);
+    }
+  }, [negocio?.licitacion_codigo, fetchDocumentos, toast]);
 
   // ── Acciones ─────────────────────────────────────────────────────────────────
   const cambiarEstado = async (estadoId: string) => {
     if (!negocio) return;
     const estadoAnterior = negocio.estado_pipeline;
-    // Optimistic update
     setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoId || null } : prev);
     try {
       const res = await fetch(`/api/negocios/${id}`, {
@@ -771,12 +1145,14 @@ function DetalleContent() {
 
   const tipo = getTipo(negocio.licitacion_codigo);
   const tipoColor = tipo ? (TIPO_COLORS[tipo] || '#6B7280') : null;
+  const mpUrl = licitacion?.Url || `https://www.mercadopublico.cl/Procurement/Modules/RFB/Details.aspx?qs=${negocio.licitacion_codigo}`;
 
+  // Negocios = vista breve para el usuario asignado. El análisis profundo (viabilidad,
+  // IA de documentos) vive SOLO en el Radar (admin). Aquí solo brief + ítems + comentarios.
   const NAV_SECTIONS = [
     { key: 'resumen',      label: 'Resumen',          count: null },
     { key: 'fechas',       label: 'Fechas',            count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
     { key: 'items',        label: 'Ítems y Cantidades', count: licitacion?.Items?.length ?? null },
-    { key: 'documentos',   label: 'Documentos',        count: null },
     { key: 'comentarios',  label: 'Comentarios',       count: null },
   ] as const;
 
@@ -787,9 +1163,8 @@ function DetalleContent() {
     ]}>
       <div className="flex h-full overflow-hidden">
 
-        {/* ── LEFT NAV ───────────────────────────────────────────────────── */}
+        {/* ── LEFT NAV ───────────────────────────────────────────────── */}
         <aside className="hidden lg:flex flex-col w-44 border-r border-zinc-200/80 bg-white flex-shrink-0 overflow-y-auto">
-          {/* Back */}
           <div className="px-3 pt-4 pb-3">
             <Link href="/negocios" className="flex items-center gap-1.5 text-[12px] text-zinc-500 hover:text-zinc-900 transition-colors font-medium">
               <ArrowLeft size={13} /> Volver
@@ -807,14 +1182,14 @@ function DetalleContent() {
                   onClick={() => setSeccion(s.key)}
                   className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] transition-all ${
                     seccion === s.key
-                      ? 'bg-red-50 text-red-600 font-bold'
+                      ? 'bg-indigo-50 text-indigo-700 font-bold'
                       : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 font-medium'
                   }`}
                 >
                   <span>{s.label}</span>
-                  {s.count != null && (
+                  {s.count != null && s.count > 0 && (
                     <span className={`text-[10px] px-1.5 py-px rounded-full font-bold ${
-                      seccion === s.key ? 'bg-red-100 text-red-500' : 'bg-zinc-100 text-zinc-400'
+                      seccion === s.key ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-400'
                     }`}>
                       {loadingLic ? '…' : s.count}
                     </span>
@@ -830,7 +1205,6 @@ function DetalleContent() {
           <div className="p-5 sm:p-7 max-w-3xl">
             {/* Header */}
             <div className="mb-5">
-              {/* Breadcrumb interno (mobile) */}
               <div className="flex items-center gap-2 mb-3 lg:hidden">
                 <Link href="/negocios" className="flex items-center gap-1 text-[12px] text-zinc-500 hover:text-zinc-800">
                   <ArrowLeft size={12} /> Volver
@@ -884,7 +1258,7 @@ function DetalleContent() {
                   }`}
                 >
                   {s.label}
-                  {s.count != null && <span className="ml-1 opacity-60">{s.count}</span>}
+                  {s.count != null && s.count > 0 && <span className="ml-1 opacity-60">{s.count}</span>}
                 </button>
               ))}
             </div>
@@ -899,22 +1273,7 @@ function DetalleContent() {
               />
             )}
             {seccion === 'fechas' && <SeccionFechas licitacion={licitacion} />}
-            {seccion === 'items' && <SeccionItems licitacion={licitacion} />}
-            {seccion === 'documentos' && (
-              <div className="bg-white border border-zinc-200/60 rounded-xl p-8 text-center">
-                <FileText size={28} className="text-zinc-300 mx-auto mb-3" />
-                <p className="text-[14px] font-semibold text-zinc-700 mb-1">Documentos y Bases</p>
-                <p className="text-[13px] text-zinc-400 mb-4">
-                  Los documentos se gestionan desde la página de detalle de licitación
-                </p>
-                <Link
-                  href={`/licitacion/${encodeURIComponent(negocio.licitacion_codigo)}`}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-[13px] font-semibold hover:bg-blue-500 transition-colors"
-                >
-                  <ExternalLink size={13} /> Ver documentos
-                </Link>
-              </div>
-            )}
+            {seccion === 'items' && <SeccionItems licitacion={licitacion} analisisIA={analisisIA} />}
             {seccion === 'comentarios' && (
               <SeccionComentarios
                 negocioId={negocio.id}
@@ -927,13 +1286,11 @@ function DetalleContent() {
         {/* ── RIGHT SIDEBAR ──────────────────────────────────────────────── */}
         <aside className="hidden xl:flex flex-col w-56 border-l border-zinc-200/80 bg-white flex-shrink-0 overflow-y-auto p-4 gap-5">
 
-          {/* Estado pipeline */}
           <div>
             <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Estado</p>
             <PipelineSelector current={negocio.estado_pipeline} onChange={cambiarEstado} />
           </div>
 
-          {/* Responsable */}
           <div>
             <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Responsable</p>
             <div className="flex items-center gap-2">
@@ -949,7 +1306,6 @@ function DetalleContent() {
             </div>
           </div>
 
-          {/* Etiquetas */}
           {negocio.etiquetas.length > 0 && (
             <div>
               <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Líneas de negocio</p>
@@ -967,7 +1323,6 @@ function DetalleContent() {
             </div>
           )}
 
-          {/* Fechas rápidas */}
           <div>
             <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Publicación</p>
             <p className="text-[12px] text-zinc-600 font-medium">
@@ -982,10 +1337,19 @@ function DetalleContent() {
             </p>
           </div>
 
-          {/* Acciones */}
+          {/* Documentos quick-info (solo informativo — el análisis vive en el Radar) */}
+          {documentos.length > 0 && (
+            <div>
+              <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Documentos</p>
+              <span className="flex items-center gap-2 text-[12px] text-zinc-600 font-semibold">
+                <FolderOpen size={12} /> {documentos.length} archivo{documentos.length > 1 ? 's' : ''}
+              </span>
+            </div>
+          )}
+
           <div className="mt-auto pt-4 border-t border-zinc-100 space-y-2">
             <a
-              href={licitacion?.Url || `https://www.mercadopublico.cl/Procurement/Modules/RFB/Details.aspx?qs=${negocio.licitacion_codigo}`}
+              href={mpUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 w-full px-3 py-2 border border-zinc-200 text-zinc-600 text-[12.5px] font-semibold rounded-xl hover:bg-zinc-50 transition-colors"

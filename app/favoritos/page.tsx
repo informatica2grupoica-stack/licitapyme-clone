@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
@@ -32,8 +32,8 @@ interface Etiqueta { id: number; nombre: string; color: string; }
 
 const ESTADO_COLOR: Record<string, string> = {
   'Publicada':  'bg-green-100 text-green-700',
-  'Adjudicada': 'bg-blue-100 text-blue-700',
-  'Cerrada':    'bg-gray-100 text-gray-600',
+  'Adjudicada': 'bg-indigo-100 text-indigo-700',
+  'Cerrada':    'bg-slate-100 text-slate-600',
   'Desierta':   'bg-red-100 text-red-600',
   'Suspendida': 'bg-yellow-100 text-yellow-700',
   'Revocada':   'bg-orange-100 text-orange-700',
@@ -126,8 +126,8 @@ function ModalAsignar({
 
         <div className="flex items-center justify-between px-5 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-blue-600/10 rounded-lg flex items-center justify-center">
-              <UserPlus size={15} className="text-blue-600" />
+            <div className="w-8 h-8 bg-indigo-600/10 rounded-lg flex items-center justify-center">
+              <UserPlus size={15} className="text-indigo-600" />
             </div>
             <div>
               <h3 className="text-[14px] font-bold text-zinc-900 leading-none">Asignar a perfil</h3>
@@ -145,7 +145,7 @@ function ModalAsignar({
               {favorito.nombre || favorito.codigo}
             </p>
             <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-zinc-500">
-              <span className="font-mono text-blue-600 font-semibold">{favorito.codigo}</span>
+              <span className="font-mono text-indigo-600 font-semibold">{favorito.codigo}</span>
               {tipo && (
                 <span className={`${TIPO_COLOR_CLASS[tipo] || 'bg-gray-500'} text-white text-[10px] px-1.5 py-0.5 rounded font-bold`}>
                   {tipo}
@@ -172,7 +172,7 @@ function ModalAsignar({
                   <select
                     value={usuarioId}
                     onChange={e => setUsuarioId(e.target.value ? parseInt(e.target.value) : '')}
-                    className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-[13px] text-zinc-800 focus:ring-2 focus:ring-blue-500/30 focus:border-blue-400 outline-none appearance-none pr-9"
+                    className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-[13px] text-zinc-800 focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 outline-none appearance-none pr-9"
                   >
                     <option value="">Selecciona un usuario…</option>
                     {usuarios.map(u => (
@@ -220,7 +220,7 @@ function ModalAsignar({
                 <button
                   onClick={asignar}
                   disabled={guardando || !usuarioId}
-                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-600 text-white rounded-xl text-[13px] font-semibold hover:bg-blue-500 disabled:opacity-40"
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-[13px] font-semibold hover:bg-indigo-500 disabled:opacity-40"
                 >
                   {guardando ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
                   Asignar
@@ -319,7 +319,7 @@ export default function FavoritosPage() {
           <div className="flex items-center gap-2">
             <Link
               href="/"
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
             >
               <Search size={15} /> Buscar licitaciones
             </Link>
@@ -338,7 +338,7 @@ export default function FavoritosPage() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Filtrar por nombre, organismo o código…"
-                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
               />
             </div>
             {tiposDisponibles.length > 1 && (
@@ -347,7 +347,7 @@ export default function FavoritosPage() {
                 <button
                   onClick={() => setFiltroTipo('')}
                   className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                    filtroTipo === '' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                    filtroTipo === '' ? 'bg-gray-800 text-white border-gray-800' : 'bg-white text-gray-500 border-slate-200 hover:border-gray-400'
                   }`}
                 >
                   Todos
@@ -361,7 +361,7 @@ export default function FavoritosPage() {
                       onClick={() => setFiltroTipo(filtroTipo === t ? '' : t)}
                       title={info?.label}
                       className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
-                        filtroTipo === t ? `${bg} text-white border-transparent` : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                        filtroTipo === t ? `${bg} text-white border-transparent` : 'bg-white text-gray-600 border-slate-200 hover:border-gray-400'
                       }`}
                     >
                       {t}
@@ -408,7 +408,7 @@ export default function FavoritosPage() {
                   {search || filtroTipo ? 'Cambia los filtros' : 'Busca licitaciones y guárdalas con la estrella ★'}
                 </p>
                 {!search && !filtroTipo && (
-                  <Link href="/" className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">
+                  <Link href="/" className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700">
                     <Search size={15} /> Ir al buscador
                   </Link>
                 )}
@@ -417,7 +417,7 @@ export default function FavoritosPage() {
               <div className="space-y-3">
                 {favoritosFiltrados.map(fav => {
                   const cierre     = diasHastaCierre(fav.fecha_cierre);
-                  const estadoClass = ESTADO_COLOR[fav.estado || ''] || 'bg-gray-100 text-gray-600';
+                  const estadoClass = ESTADO_COLOR[fav.estado || ''] || 'bg-slate-100 text-slate-600';
                   const monto      = formatMonto(fav.monto_total || fav.monto_estimado, fav.moneda);
                   const tipo       = extractTipoFromCodigo(fav.codigo);
                   const tipoInfo   = tipo ? getTipoLicitacion(tipo) : null;
@@ -426,11 +426,11 @@ export default function FavoritosPage() {
                   return (
                     <div
                       key={fav.codigo}
-                      className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-gray-200 transition-all p-4 sm:p-5"
+                      className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-slate-200 transition-all p-4 sm:p-5"
                     >
                       <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <FileText size={18} className="text-blue-600" />
+                        <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <FileText size={18} className="text-indigo-600" />
                         </div>
 
                         <div className="flex-1 min-w-0">
@@ -447,7 +447,7 @@ export default function FavoritosPage() {
                                 )}
                                 <Link
                                   href={`/licitacion/${encodeURIComponent(fav.codigo)}`}
-                                  className="text-sm font-semibold text-gray-900 hover:text-blue-600 transition-colors line-clamp-1"
+                                  className="text-sm font-semibold text-gray-900 hover:text-indigo-600 transition-colors line-clamp-1"
                                 >
                                   {fav.nombre || 'Sin nombre'}
                                 </Link>
@@ -497,14 +497,14 @@ export default function FavoritosPage() {
                               {isAdmin && (
                                 <button
                                   onClick={() => setAsignando(fav)}
-                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs rounded-lg hover:bg-blue-500 transition-colors font-semibold shadow-sm shadow-blue-600/20"
+                                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-lg hover:bg-indigo-500 transition-colors font-semibold shadow-sm shadow-blue-600/20"
                                 >
                                   <UserPlus size={12} /> Asignar
                                 </button>
                               )}
                               <Link
                                 href={`/licitacion/${encodeURIComponent(fav.codigo)}`}
-                                className="flex items-center gap-1 px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded-lg transition-colors font-medium"
+                                className="flex items-center gap-1 px-3 py-1.5 text-xs text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors font-medium"
                               >
                                 <ExternalLink size={12} /> Ver
                               </Link>
@@ -542,3 +542,4 @@ export default function FavoritosPage() {
     </AppLayout>
   );
 }
+

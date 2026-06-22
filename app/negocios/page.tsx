@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import Link from 'next/link';
@@ -7,7 +7,7 @@ import { useSession } from '@/app/lib/session-context';
 import {
   Briefcase, Plus, Search, ExternalLink, Trash2,
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
-  ChevronDown, X, RefreshCw, Users,
+  ChevronDown, X, RefreshCw, Users, List, LayoutGrid,
 } from 'lucide-react';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
@@ -144,9 +144,9 @@ function ModalAsignar({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <Plus size={20} className="text-blue-600" /> Asignar licitación
+            <Plus size={20} className="text-indigo-600" /> Asignar licitación
           </h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg text-gray-400">
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg text-gray-400">
             <X size={18} />
           </button>
         </div>
@@ -167,12 +167,12 @@ function ModalAsignar({
                 onChange={e => setForm(p => ({ ...p, codigo: e.target.value }))}
                 onKeyDown={e => e.key === 'Enter' && buscarLicitacion()}
                 placeholder="ej: 1234-56-LE26"
-                className="flex-1 px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+                className="flex-1 px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none font-mono"
               />
               <button
                 onClick={buscarLicitacion}
                 disabled={buscando}
-                className="px-4 py-2.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                className="px-4 py-2.5 bg-slate-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
               >
                 {buscando ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />}
               </button>
@@ -184,7 +184,7 @@ function ModalAsignar({
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-sm">
               <p className="font-semibold text-gray-900 line-clamp-2">{licitacion.nombre}</p>
               <p className="text-gray-500 mt-0.5">{licitacion.organismo}</p>
-              <p className="text-blue-600 font-medium mt-1">
+              <p className="text-indigo-600 font-medium mt-1">
                 {formatMonto(licitacion.monto_estimado || licitacion.monto_total)}
               </p>
             </div>
@@ -196,7 +196,7 @@ function ModalAsignar({
             <select
               value={form.asignado_a}
               onChange={e => setForm(p => ({ ...p, asignado_a: e.target.value }))}
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
             >
               <option value="">Seleccionar usuario...</option>
               {usuarios.map(u => (
@@ -222,7 +222,7 @@ function ModalAsignar({
                     }))}
                     style={sel ? { backgroundColor: et.color, borderColor: et.color } : {}}
                     className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                      sel ? 'text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'
+                      sel ? 'text-white' : 'bg-white border-slate-200 text-gray-600 hover:border-gray-400'
                     }`}
                   >
                     {et.nombre}
@@ -234,13 +234,13 @@ function ModalAsignar({
         </div>
 
         <div className="px-6 pb-5 flex justify-end gap-2">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-slate-100 rounded-lg transition-colors">
             Cancelar
           </button>
           <button
             onClick={guardar}
             disabled={guardando || !form.codigo || !form.asignado_a}
-            className="flex items-center gap-2 px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 transition-colors"
+            className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:bg-gray-300 transition-colors"
           >
             {guardando ? <Loader2 size={14} className="animate-spin" /> : null}
             Asignar
@@ -248,6 +248,52 @@ function ModalAsignar({
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Tarjeta compacta de negocio (vista agrupada por categoría) ────────────────
+function NegocioCard({ neg, isAdmin, onEliminar }: {
+  neg: Negocio; isAdmin: boolean; onEliminar: (id: number) => void;
+}) {
+  const tipo  = extractTipoFromCodigo(neg.licitacion_codigo || '');
+  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
+  const dias = diasRestantes(neg.licitacion_cierre);
+  const diasCls = dias === 'Vencida' ? 'text-gray-400'
+    : dias.replace('d', '') !== '' && parseInt(dias) <= 3 ? 'text-red-500 font-semibold'
+    : parseInt(dias) <= 7 ? 'text-orange-500' : 'text-gray-500';
+  return (
+    <Link
+      href={`/negocios/${neg.id}`}
+      className="block bg-white rounded-xl border border-slate-200 p-3 hover:border-indigo-300 hover:shadow-sm transition-all group"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[11px] font-mono text-gray-500 font-semibold">{neg.licitacion_codigo}</p>
+        <div className="flex items-center gap-1" onClick={e => e.preventDefault()}>
+          {tipo && <span className={`${tipoBg} text-white text-[10px] px-1.5 py-0.5 rounded font-bold`}>{tipo}</span>}
+          {isAdmin && (
+            <button onClick={e => { e.preventDefault(); onEliminar(neg.id); }}
+              className="p-1 hover:bg-red-50 rounded text-gray-300 hover:text-red-500 transition-colors">
+              <Trash2 size={12} />
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="text-[13px] text-gray-800 font-medium line-clamp-2 mt-1 group-hover:text-indigo-600 transition-colors">
+        {neg.licitacion_nombre || 'Sin nombre'}
+      </p>
+      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+        <PipelineBadge estadoId={neg.estado_pipeline} />
+        {isAdmin && (
+          <span className="text-[10px] text-gray-400 flex items-center gap-1">
+            <Users size={9} /> {neg.usuario_nombre || neg.usuario_email}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-50">
+        <span className="text-[12px] text-gray-700 font-medium">{formatMonto(neg.licitacion_monto)}</span>
+        {dias && <span className={`text-[11px] ${diasCls}`}>{dias}</span>}
+      </div>
+    </Link>
   );
 }
 
@@ -266,6 +312,7 @@ function NegociosContent() {
   const [filtroEtiqueta, setFiltroEtiqueta] = useState('');
   const [filtroTipo, setFiltroTipo]         = useState('');
   const [showModal, setShowModal]   = useState(false);
+  const [vista, setVista]           = useState<'lista' | 'categoria'>('categoria');
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -309,10 +356,28 @@ function NegociosContent() {
     return matchSearch && matchEt && matchTipo;
   });
 
+  // Agrupar por categoría (línea de negocio = primera etiqueta del negocio).
+  // Cada categoría es una "cajita"; los negocios sin etiqueta van a "Sin categoría".
+  const gruposCategoria = (() => {
+    const porCat = new Map<number, { nombre: string; color: string; items: Negocio[] }>();
+    const sinCat: Negocio[] = [];
+    for (const n of negociosFiltrados) {
+      const cat = n.etiquetas?.[0];
+      if (!cat) { sinCat.push(n); continue; }
+      if (!porCat.has(cat.id)) porCat.set(cat.id, { nombre: cat.nombre, color: cat.color, items: [] });
+      porCat.get(cat.id)!.items.push(n);
+    }
+    const grupos = Array.from(porCat.entries())
+      .map(([id, g]) => ({ id, ...g }))
+      .sort((a, b) => a.nombre.localeCompare(b.nombre));
+    if (sinCat.length > 0) grupos.push({ id: 0, nombre: 'Sin categoría', color: '#94a3b8', items: sinCat });
+    return grupos;
+  })();
+
   const ESTADO_COLOR: Record<string, string> = {
     'Publicada': 'bg-green-100 text-green-700',
     'Adjudicada': 'bg-blue-100 text-blue-700',
-    'Cerrada': 'bg-gray-100 text-gray-500',
+    'Cerrada': 'bg-slate-100 text-gray-500',
   };
 
   return (
@@ -322,20 +387,20 @@ function NegociosContent() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Briefcase size={24} className="text-blue-600" /> Negocios
+              <Briefcase size={24} className="text-indigo-600" /> Negocios
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {loading ? 'Cargando...' : `${negociosFiltrados.length} licitacion${negociosFiltrados.length !== 1 ? 'es' : ''} asignada${negociosFiltrados.length !== 1 ? 's' : ''}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={cargar} className="p-2 hover:bg-gray-100 rounded-lg text-gray-500">
+            <button onClick={cargar} className="p-2 hover:bg-slate-100 rounded-lg text-gray-500">
               <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             </button>
             {isAdmin && (
               <button
                 onClick={() => setShowModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
               >
                 <Plus size={15} /> Asignar licitación
               </button>
@@ -353,7 +418,7 @@ function NegociosContent() {
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Buscar..."
-                className="pl-8 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none w-52"
+                className="pl-8 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-52"
               />
             </div>
 
@@ -361,7 +426,7 @@ function NegociosContent() {
               <select
                 value={filtroUsuario}
                 onChange={e => setFiltroUsuario(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
               >
                 <option value="">Todos los usuarios</option>
                 {usuarios.map(u => (
@@ -374,7 +439,7 @@ function NegociosContent() {
               <select
                 value={filtroEtiqueta}
                 onChange={e => setFiltroEtiqueta(e.target.value)}
-                className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
               >
                 <option value="">Todas las líneas</option>
                 {etiquetas.map(e => (
@@ -382,6 +447,28 @@ function NegociosContent() {
                 ))}
               </select>
             )}
+
+            {/* Toggle de vista: por categoría (cajitas) / lista */}
+            <div className="ml-auto flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setVista('categoria')}
+                title="Vista por categoría"
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  vista === 'categoria' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <LayoutGrid size={13} /> Categorías
+              </button>
+              <button
+                onClick={() => setVista('lista')}
+                title="Vista lista"
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  vista === 'lista' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <List size={13} /> Lista
+              </button>
+            </div>
           </div>
 
           {/* Fila 2: filtro por tipo (chips) */}
@@ -392,7 +479,7 @@ function NegociosContent() {
               className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
                 filtroTipo === ''
                   ? 'bg-gray-800 text-white border-gray-800'
-                  : 'bg-white text-gray-500 border-gray-200 hover:border-gray-400'
+                  : 'bg-white text-gray-500 border-slate-200 hover:border-gray-400'
               }`}
             >
               Todos
@@ -407,7 +494,7 @@ function NegociosContent() {
                   className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
                     isActive
                       ? `${bg} text-white border-transparent`
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400'
+                      : 'bg-white text-gray-600 border-slate-200 hover:border-gray-400'
                   }`}
                 >
                   {t}
@@ -428,7 +515,7 @@ function NegociosContent() {
         {/* Tabla */}
         {!loading && !error && (
           negociosFiltrados.length === 0 ? (
-            <div className="text-center py-20 bg-white rounded-xl border border-gray-100">
+            <div className="text-center py-20 bg-white rounded-xl border border-slate-100">
               <Briefcase size={36} className="text-gray-300 mx-auto mb-3" />
               <h3 className="text-lg font-semibold text-gray-700 mb-2">
                 {search || filtroEtiqueta ? 'Sin resultados' : 'No hay licitaciones asignadas'}
@@ -440,10 +527,28 @@ function NegociosContent() {
                 }
               </p>
             </div>
+          ) : vista === 'categoria' ? (
+            /* ── Vista por categoría (cajitas) ── */
+            <div className="space-y-5">
+              {gruposCategoria.map(grupo => (
+                <div key={grupo.id} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span style={{ backgroundColor: grupo.color }} className="w-3 h-3 rounded-full flex-shrink-0" />
+                    <h3 className="text-sm font-bold uppercase tracking-wide" style={{ color: grupo.color }}>{grupo.nombre}</h3>
+                    <span className="text-xs text-gray-400 font-medium">{grupo.items.length}</span>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {grupo.items.map(neg => (
+                      <NegocioCard key={neg.id} neg={neg} isAdmin={isAdmin} onEliminar={eliminar} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
               {/* Tabla header */}
-              <div className="hidden md:grid grid-cols-[1fr_2.5fr_1.5fr_1fr_1.2fr_1fr_auto] gap-3 px-4 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              <div className="hidden md:grid grid-cols-[1fr_2.5fr_1.5fr_1fr_1.2fr_1fr_auto] gap-3 px-4 py-2.5 bg-slate-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                 <span>ID</span>
                 <span>Nombre</span>
                 <span>Organismo</span>
@@ -456,7 +561,7 @@ function NegociosContent() {
               {/* Filas */}
               <div className="divide-y divide-gray-50">
                 {negociosFiltrados.map(neg => {
-                  const estadoCls = ESTADO_COLOR[neg.licitacion_estado || ''] || 'bg-gray-100 text-gray-500';
+                  const estadoCls = ESTADO_COLOR[neg.licitacion_estado || ''] || 'bg-slate-100 text-gray-500';
                   const tipo  = extractTipoFromCodigo(neg.licitacion_codigo || '');
                   const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
                   const dias = diasRestantes(neg.licitacion_cierre);
@@ -482,7 +587,7 @@ function NegociosContent() {
 
                       {/* Nombre + etiquetas + pipeline */}
                       <div>
-                        <p className="text-sm text-gray-800 line-clamp-1 font-medium group-hover:text-blue-600 transition-colors">
+                        <p className="text-sm text-gray-800 line-clamp-1 font-medium group-hover:text-indigo-600 transition-colors">
                           {neg.licitacion_nombre || 'Sin nombre'}
                         </p>
                         <div className="flex flex-wrap gap-1 mt-1">
@@ -497,7 +602,7 @@ function NegociosContent() {
                             </span>
                           ))}
                           {neg.comentarios_count > 0 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-gray-500">
                               {neg.comentarios_count} com.
                             </span>
                           )}
@@ -562,12 +667,12 @@ function NegociosContent() {
 
         {/* Skeleton loading */}
         {loading && (
-          <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+          <div className="bg-white rounded-xl border border-slate-100 overflow-hidden">
             {[1, 2, 3, 4].map(i => (
               <div key={i} className="px-4 py-4 border-b border-gray-50 animate-pulse flex gap-4">
                 <div className="h-4 bg-gray-200 rounded w-24" />
-                <div className="h-4 bg-gray-100 rounded flex-1" />
-                <div className="h-4 bg-gray-100 rounded w-32" />
+                <div className="h-4 bg-slate-100 rounded flex-1" />
+                <div className="h-4 bg-slate-100 rounded w-32" />
               </div>
             ))}
           </div>
@@ -590,3 +695,4 @@ function NegociosContent() {
 export default function NegociosPage() {
   return <Suspense><NegociosContent /></Suspense>;
 }
+

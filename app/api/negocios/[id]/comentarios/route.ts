@@ -3,6 +3,7 @@
 // pipeline_estado: cuando se envía, también actualiza negocios.estado_pipeline
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { registrarActividad } from '@/app/lib/actividad';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -80,11 +81,12 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // Verificar acceso
     const [negRows] = await pool.query(
-      `SELECT asignado_a FROM negocios WHERE id = ? AND activo = TRUE`, [id]
+      `SELECT asignado_a, licitacion_codigo, licitacion_nombre FROM negocios WHERE id = ? AND activo = TRUE`, [id]
     ) as any;
     if (!(negRows as any[]).length)
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-    if (rol !== 'admin' && (negRows as any[])[0].asignado_a !== userId)
+    const negocio = (negRows as any[])[0];
+    if (rol !== 'admin' && negocio.asignado_a !== userId)
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     // Insertar comentario
@@ -122,6 +124,21 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // Actualizar updated_at del negocio
     await pool.query(`UPDATE negocios SET updated_at = NOW() WHERE id = ?`, [id]);
+
+    registrarActividad({
+      usuarioId: userId, accion: 'comentario_negocio',
+      entidadTipo: 'negocio', entidadId: String(id),
+      descripcion: `Comentó en "${negocio.licitacion_nombre || negocio.licitacion_codigo}"`,
+      metadata: { licitacion_codigo: negocio.licitacion_codigo, comentario: comentario.trim().slice(0, 200), pipeline_estado: nuevoEstado },
+    });
+    if (nuevoEstado) {
+      registrarActividad({
+        usuarioId: userId, accion: 'cambio_pipeline',
+        entidadTipo: 'negocio', entidadId: String(id),
+        descripcion: `Cambió el estado de "${negocio.licitacion_nombre || negocio.licitacion_codigo}" a ${nuevoEstado}`,
+        metadata: { licitacion_codigo: negocio.licitacion_codigo, estado_pipeline: nuevoEstado },
+      });
+    }
 
     return NextResponse.json({ success: true, id: insertId, nuevo_estado: nuevoEstado });
   } catch (error) {

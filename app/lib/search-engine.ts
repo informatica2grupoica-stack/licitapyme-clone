@@ -1,70 +1,118 @@
 import { Oportunidad, SearchRequest, SearchResponse, TipoOrden } from '@/app/types/search.types';
 import { Licitacion } from '@/app/types/mercado-publico.types';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
+import { normalizar } from '@/app/lib/text-match';
 
 export class SearchEngine {
+  // Delegamos en el normalizador compartido (app/lib/text-match.ts) para que la
+  // búsqueda manual y el cron del radar usen exactamente la misma normalización.
   private normalizeText(text: string): string {
-    if (!text) return '';
-    return text
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    return normalizar(text);
   }
 
-  private calculateScore(query: string, text: string): number {
-    if (!query || !text) return 0;
+  // Pre-computa tokens una sola vez — se pasa a _mapLicitacion para evitar repetir
+  private tokenizeQuery(query: string): [string[], string] {
+    const norm = this.normalizeText(query);
+    return [norm.split(' ').filter(w => w.length >= 3), norm];
+  }
 
-    // Filtrar palabras cortas para evitar falsos positivos:
-    // "c", "s", "y", "de" dentro de "mantencion" causaban matches espurios
-    const queryWords = this.normalizeText(query).split(' ').filter(w => w.length >= 3);
-    const textNorm   = this.normalizeText(text);
-    const textWords  = textNorm.split(' ').filter(w => w.length >= 3);
+  // Puntúa un campo de texto pre-normalizado contra query pre-tokenizada
+  private scoreField(queryWords: string[], normText: string): { base: number; exact: number } {
+    if (!normText || queryWords.length === 0) return { base: 0, exact: 0 };
 
-    if (queryWords.length === 0) return 0;
-
+    // Set para match exacto O(1) antes de iterar substrings
+    const wordSet = new Set(normText.split(' ').filter(w => w.length >= 3));
     let matches = 0;
     let exactMatches = 0;
 
-    for (const qWord of queryWords) {
-      for (const tWord of textWords) {
-        if (tWord === qWord) {
-          // Coincidencia exacta
-          exactMatches++;
-          matches++;
-          break;
-        } else if (tWord.includes(qWord)) {
-          // La palabra del texto contiene la palabra de búsqueda
-          // Ej: "mantenciones" contiene "mantencion"
-          matches++;
-          break;
-        } else if (qWord.length >= 5 && tWord.length >= 5 && qWord.includes(tWord)) {
-          // La búsqueda contiene la palabra del texto (solo para palabras largas)
-          // Ej: búsqueda "computadoras" incluye "computador"
-          // Requiere ambas >= 5 chars para evitar "ion", "cion", "man" etc.
-          matches++;
-          break;
+    for (const qw of queryWords) {
+      if (wordSet.has(qw)) {
+        exactMatches++;
+        matches++;
+      } else {
+        for (const tw of wordSet) {
+          if (tw.includes(qw) || (qw.length >= 5 && tw.length >= 5 && qw.includes(tw))) {
+            matches++;
+            break;
+          }
         }
       }
     }
 
-    const base       = matches / queryWords.length;
-    const exactBonus = exactMatches > 0 ? 0.2 : 0;
-    const titleBonus = textNorm.startsWith(this.normalizeText(query)) ? 0.15 : 0;
-    return Math.min(base + exactBonus + titleBonus, 1);
+    return {
+      base: matches / queryWords.length,
+      exact: exactMatches / queryWords.length,
+    };
+  }
+
+  // Score con ponderación por campo: nombre > items > descripción > organismo
+  private computeScore(
+    queryWords: string[],
+    queryPhrase: string,
+    nombre: string,
+    descripcion: string,
+    organismo: string,
+    itemsText: string
+  ): number {
+    if (queryWords.length === 0) return 0;
+
+    const sN = this.scoreField(queryWords, nombre);
+    const sD = descripcion ? this.scoreField(queryWords, descripcion) : { base: 0, exact: 0 };
+    const sO = organismo ? this.scoreField(queryWords, organismo) : { base: 0, exact: 0 };
+    const sI = itemsText ? this.scoreField(queryWords, itemsText) : { base: 0, exact: 0 };
+
+    // Pesos: nombre es lo más importante; los items son relevantes; descripción y organismo son complementarios
+    const W_NOMBRE = 2.0;
+    const W_DESC = 1.0;
+    const W_ITEMS = 0.8;
+    const W_ORG = 0.3;
+    const W_TOTAL = W_NOMBRE + W_DESC + W_ITEMS + W_ORG;
+
+    const weighted = (
+      (sN.base + sN.exact * 0.2) * W_NOMBRE +
+      (sD.base + sD.exact * 0.1) * W_DESC +
+      (sI.base + sI.exact * 0.1) * W_ITEMS +
+      sO.base * W_ORG
+    ) / W_TOTAL;
+
+    // Bonus si la frase completa aparece como substring en nombre o descripción
+    const phraseBonus =
+      (nombre.includes(queryPhrase) || descripcion.includes(queryPhrase)) ? 0.2 : 0;
+
+    // Bonus si el nombre empieza exactamente con la frase buscada
+    const titleBonus = nombre.startsWith(queryPhrase) ? 0.1 : 0;
+
+    return Math.min(weighted + phraseBonus + titleBonus, 1.0);
   }
 
   private getDiasHastaCierre(fechaCierre: string): number {
     if (!fechaCierre) return -1;
-    const diff = new Date(fechaCierre).getTime() - Date.now();
-    return Math.ceil(diff / (1000 * 60 * 60 * 24));
+    return Math.ceil((new Date(fechaCierre).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
   }
 
+  // API pública — acepta query como string para compatibilidad externa
   licitacionToOportunidad(lic: Licitacion, query: string = ''): Oportunidad {
-    const searchText = `${lic.Nombre} ${lic.Descripcion || ''} ${lic.Organismo}`;
-    const score = query ? this.calculateScore(query, searchText) : 1;
+    const [queryWords, queryPhrase] = query ? this.tokenizeQuery(query) : [[], ''];
+    return this._mapLicitacion(lic, queryWords, queryPhrase);
+  }
+
+  // Versión interna que acepta tokens pre-computados — úsala en search() para evitar re-tokenizar
+  private _mapLicitacion(
+    lic: Licitacion,
+    queryWords: string[],
+    queryPhrase: string
+  ): Oportunidad {
+    let score = 1;
+    if (queryWords.length > 0) {
+      score = this.computeScore(
+        queryWords,
+        queryPhrase,
+        this.normalizeText(lic.Nombre || ''),
+        this.normalizeText(lic.Descripcion || ''),
+        this.normalizeText(lic.Organismo || ''),
+        this.normalizeText((lic.Items || []).map(i => i.NombreProducto || '').join(' '))
+      );
+    }
 
     return {
       codigo: lic.Codigo,
@@ -133,25 +181,25 @@ export class SearchEngine {
     const startTime = Date.now();
     const query = request.consulta?.trim() || '';
 
+    // Tokenizar la query UNA SOLA VEZ — el error anterior era tokenizar dentro de
+    // licitacionToOportunidad, causando normalizeText(query) N veces por búsqueda
+    const [queryWords, queryPhrase] = query ? this.tokenizeQuery(query) : [[], ''];
+
     let oportunidades: Oportunidad[] = licitaciones.map(lic =>
-      this.licitacionToOportunidad(lic, query)
+      this._mapLicitacion(lic, queryWords, queryPhrase)
     );
 
-    // Filtro por relevancia si hay query
-    // Umbral 0.25 → al menos 1 de 4 palabras debe coincidir
+    // Filtro por relevancia — umbral 0.25 = al menos 1 de 4 palabras debe coincidir
     if (query) {
       oportunidades = oportunidades.filter(opp => (opp.score || 0) >= 0.25);
     }
 
-    // Filtros
     if (request.filtro_estado?.length) {
       oportunidades = oportunidades.filter(opp =>
         request.filtro_estado!.includes(opp.estado as any)
       );
     }
 
-    // Filtro por tipo de licitación (L1, LE, LP, etc.)
-    // tipo_licitacion ya viene de extractTipoFromCodigo → coincidencia exacta
     if (request.filtro_tipo?.length) {
       oportunidades = oportunidades.filter(opp => {
         const tipo = (opp.tipo_licitacion || '').toUpperCase();
@@ -197,11 +245,9 @@ export class SearchEngine {
       );
     }
 
-    // Ordenamiento
     const orden = request.tipo_orden || (query ? 'relevancia' : 'fecha_cierre_asc');
     oportunidades = this.ordenar(oportunidades, orden);
 
-    // Paginación
     const pagina = request.pagina || 1;
     const porPagina = request.resultados_por_pagina || 20;
     const inicio = (pagina - 1) * porPagina;
@@ -220,20 +266,30 @@ export class SearchEngine {
   }
 
   private ordenar(opps: Oportunidad[], orden: TipoOrden): Oportunidad[] {
-    const s = [...opps];
+    // Schwartzian transform para sorts de fecha: calcula Date.getTime() una vez por elemento
+    // en lugar de hacerlo en cada comparación (el comparador puede llamarse O(N log N) veces)
     switch (orden) {
-      case 'fecha_cierre_asc':
-        return s.sort((a, b) => new Date(a.fecha_cierre).getTime() - new Date(b.fecha_cierre).getTime());
-      case 'fecha_cierre_desc':
-        return s.sort((a, b) => new Date(b.fecha_cierre).getTime() - new Date(a.fecha_cierre).getTime());
-      case 'fecha_publicacion_desc':
-        return s.sort((a, b) => new Date(b.fecha_publicacion).getTime() - new Date(a.fecha_publicacion).getTime());
+      case 'fecha_cierre_asc': {
+        const keyed = opps.map(o => ({ o, t: o.fecha_cierre ? new Date(o.fecha_cierre).getTime() : 0 }));
+        keyed.sort((a, b) => a.t - b.t);
+        return keyed.map(x => x.o);
+      }
+      case 'fecha_cierre_desc': {
+        const keyed = opps.map(o => ({ o, t: o.fecha_cierre ? new Date(o.fecha_cierre).getTime() : 0 }));
+        keyed.sort((a, b) => b.t - a.t);
+        return keyed.map(x => x.o);
+      }
+      case 'fecha_publicacion_desc': {
+        const keyed = opps.map(o => ({ o, t: o.fecha_publicacion ? new Date(o.fecha_publicacion).getTime() : 0 }));
+        keyed.sort((a, b) => b.t - a.t);
+        return keyed.map(x => x.o);
+      }
       case 'monto_desc':
-        return s.sort((a, b) => (b.monto_total || 0) - (a.monto_total || 0));
+        return [...opps].sort((a, b) => (b.monto_total || 0) - (a.monto_total || 0));
       case 'monto_asc':
-        return s.sort((a, b) => (a.monto_total || 0) - (b.monto_total || 0));
+        return [...opps].sort((a, b) => (a.monto_total || 0) - (b.monto_total || 0));
       default:
-        return s.sort((a, b) => (b.score || 0) - (a.score || 0));
+        return [...opps].sort((a, b) => (b.score || 0) - (a.score || 0));
     }
   }
 }

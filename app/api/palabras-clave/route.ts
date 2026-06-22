@@ -10,6 +10,12 @@ function getUserId(req: NextRequest): number | null {
   return isNaN(n) ? null : n;
 }
 
+// Solo el admin puede crear/editar/eliminar palabras clave de búsqueda.
+function esAdmin(req: NextRequest): boolean {
+  return req.headers.get('x-user-rol') === 'admin';
+}
+const SOLO_ADMIN = NextResponse.json({ error: 'Solo el admin puede gestionar las palabras clave' }, { status: 403 });
+
 // GET — listar palabras clave del usuario
 export async function GET(request: NextRequest) {
   const userId = getUserId(request);
@@ -17,14 +23,26 @@ export async function GET(request: NextRequest) {
 
   try {
     const [rows] = await pool.query(
-      `SELECT id, keyword, activo, ultima_busqueda, resultados_nuevos, total_encontradas, created_at
-       FROM palabras_clave
-       WHERE usuario_id = ?
-       ORDER BY created_at DESC`,
+      `SELECT pc.id, pc.keyword, pc.categoria_id, pc.activo,
+              pc.ultima_busqueda, pc.resultados_nuevos, pc.total_encontradas, pc.created_at,
+              e.nombre AS categoria_nombre, e.color AS categoria_color
+       FROM palabras_clave pc
+       LEFT JOIN etiquetas e ON e.id = pc.categoria_id
+       WHERE pc.usuario_id = ?
+       ORDER BY pc.created_at DESC`,
       [userId]
     );
     return NextResponse.json({ success: true, keywords: rows });
-  } catch (error) {
+  } catch (error: any) {
+    // Si falta la columna categoria_id (migración 16 pendiente), responder sin categorías.
+    if (error?.code === 'ER_BAD_FIELD_ERROR' && /categoria_id/.test(String(error?.message))) {
+      const [rows] = await pool.query(
+        `SELECT id, keyword, activo, ultima_busqueda, resultados_nuevos, total_encontradas, created_at
+         FROM palabras_clave WHERE usuario_id = ? ORDER BY created_at DESC`,
+        [userId]
+      );
+      return NextResponse.json({ success: true, keywords: rows });
+    }
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
@@ -33,12 +51,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!esAdmin(request)) return SOLO_ADMIN;
 
   try {
-    const { keyword } = await request.json();
+    const { keyword, categoria_id } = await request.json();
     if (!keyword?.trim()) return NextResponse.json({ error: 'keyword requerido' }, { status: 400 });
 
     const kw = keyword.trim().toLowerCase();
+    const catId = categoria_id ? parseInt(categoria_id, 10) : null;
 
     // Verificar duplicado
     const [exist] = await pool.query(
@@ -49,11 +69,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Esa palabra clave ya existe' }, { status: 409 });
     }
 
-    const [result] = await pool.query(
-      `INSERT INTO palabras_clave (usuario_id, keyword) VALUES (?, ?)`,
-      [userId, kw]
-    );
-    const id = (result as any).insertId;
+    let id: number;
+    try {
+      const [result] = await pool.query(
+        `INSERT INTO palabras_clave (usuario_id, keyword, categoria_id) VALUES (?, ?, ?)`,
+        [userId, kw, catId]
+      );
+      id = (result as any).insertId;
+    } catch (error: any) {
+      // Si falta la columna categoria_id (migración 16 pendiente), insertar sin ella.
+      if (error?.code === 'ER_BAD_FIELD_ERROR' && /categoria_id/.test(String(error?.message))) {
+        const [result] = await pool.query(
+          `INSERT INTO palabras_clave (usuario_id, keyword) VALUES (?, ?)`,
+          [userId, kw]
+        );
+        id = (result as any).insertId;
+      } else throw error;
+    }
 
     return NextResponse.json({ success: true, id, keyword: kw });
   } catch (error) {
@@ -65,14 +97,24 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!esAdmin(request)) return SOLO_ADMIN;
 
   try {
-    const { id, activo } = await request.json();
+    const body = await request.json();
+    const { id } = body;
     if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
 
+    // Actualización parcial: solo los campos presentes en el body.
+    const sets: string[] = [];
+    const vals: any[] = [];
+    if ('activo' in body)       { sets.push('activo = ?');       vals.push(body.activo ? 1 : 0); }
+    if ('categoria_id' in body) { sets.push('categoria_id = ?'); vals.push(body.categoria_id ? parseInt(body.categoria_id, 10) : null); }
+    if (sets.length === 0) return NextResponse.json({ error: 'Nada que actualizar' }, { status: 400 });
+
+    vals.push(id, userId);
     await pool.query(
-      `UPDATE palabras_clave SET activo = ? WHERE id = ? AND usuario_id = ?`,
-      [activo ? 1 : 0, id, userId]
+      `UPDATE palabras_clave SET ${sets.join(', ')} WHERE id = ? AND usuario_id = ?`,
+      vals
     );
     return NextResponse.json({ success: true });
   } catch (error) {
@@ -84,6 +126,7 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!esAdmin(request)) return SOLO_ADMIN;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');

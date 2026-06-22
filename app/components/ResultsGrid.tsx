@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { Oportunidad, ESTADOS_LICITACION, TIPOS_LICITACION } from '@/app/types/search.types';
@@ -27,27 +27,27 @@ const formatCLP = (n?: number) => {
 
 const ESTADO_STYLE: Record<string, { label: string; cls: string; dot: string }> = {
   '5':  { label: 'Publicada',   cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
-  '6':  { label: 'Cerrada',     cls: 'bg-gray-100 text-gray-600 border-gray-200',         dot: 'bg-gray-400' },
+  '6':  { label: 'Cerrada',     cls: 'bg-slate-100 text-gray-600 border-slate-200',         dot: 'bg-gray-400' },
   '7':  { label: 'Desierta',    cls: 'bg-orange-50 text-orange-700 border-orange-200',    dot: 'bg-orange-500' },
-  '8':  { label: 'Adjudicada',  cls: 'bg-blue-50 text-blue-700 border-blue-200',          dot: 'bg-blue-500' },
+  '8':  { label: 'Adjudicada',  cls: 'bg-indigo-50 text-indigo-700 border-indigo-200',          dot: 'bg-indigo-500' },
   '18': { label: 'Revocada',    cls: 'bg-red-50 text-red-700 border-red-200',             dot: 'bg-red-500' },
   '19': { label: 'Suspendida',  cls: 'bg-yellow-50 text-yellow-700 border-yellow-200',   dot: 'bg-yellow-500' },
 };
 
 function SkeletonCard() {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-5 animate-pulse">
+    <div className="bg-white rounded-xl border border-slate-200 p-5 animate-pulse">
       <div className="flex justify-between mb-3">
         <div className="h-4 bg-gray-200 rounded w-2/3" />
-        <div className="h-5 bg-gray-100 rounded-full w-20" />
+        <div className="h-5 bg-slate-100 rounded-full w-20" />
       </div>
       <div className="h-5 bg-gray-200 rounded w-full mb-2" />
-      <div className="h-4 bg-gray-100 rounded w-4/5 mb-4" />
+      <div className="h-4 bg-slate-100 rounded w-4/5 mb-4" />
       <div className="grid grid-cols-2 gap-3">
-        <div className="h-4 bg-gray-100 rounded w-full" />
-        <div className="h-4 bg-gray-100 rounded w-full" />
-        <div className="h-4 bg-gray-100 rounded w-full" />
-        <div className="h-4 bg-gray-100 rounded w-full" />
+        <div className="h-4 bg-slate-100 rounded w-full" />
+        <div className="h-4 bg-slate-100 rounded w-full" />
+        <div className="h-4 bg-slate-100 rounded w-full" />
+        <div className="h-4 bg-slate-100 rounded w-full" />
       </div>
     </div>
   );
@@ -84,7 +84,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
   return (
     <div className="space-y-3">
       {opportunities.map(opp => {
-        const estado = ESTADO_STYLE[opp.estado] || { label: opp.estado, cls: 'bg-gray-100 text-gray-600 border-gray-200', dot: 'bg-gray-400' };
+        const estado = ESTADO_STYLE[opp.estado] || { label: opp.estado, cls: 'bg-slate-100 text-gray-600 border-slate-200', dot: 'bg-gray-400' };
         const fav = isFavorite(opp.codigo);
         const isToggling = toggling === opp.codigo;
         const diasRestantes = opp.dias_cierre ?? -1;
@@ -94,7 +94,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
         return (
           <article
             key={opp.codigo}
-            className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-200 transition-all duration-200 overflow-hidden group"
+            className="bg-white rounded-xl border border-slate-200 shadow-sm hover:shadow-md hover:border-indigo-200 transition-all duration-200 overflow-hidden group"
           >
             <div className="p-5">
               {/* Row 1: código + estado + favorito */}
@@ -118,7 +118,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
                   <button
                     onClick={() => handleToggle(opp)}
                     disabled={isToggling}
-                    className="p-1 hover:bg-gray-100 rounded-full transition-colors disabled:opacity-50"
+                    className="p-1 hover:bg-slate-100 rounded-full transition-colors disabled:opacity-50"
                     title={fav ? 'Quitar de favoritos' : 'Agregar a favoritos'}
                   >
                     {fav ? (
@@ -132,7 +132,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
 
               {/* Título */}
               <Link href={`/licitacion/${encodeURIComponent(opp.codigo)}`}>
-                <h3 className="text-base font-semibold text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-2 mb-1 leading-snug">
+                <h3 className="text-base font-semibold text-gray-900 group-hover:text-indigo-600 transition-colors line-clamp-2 mb-1 leading-snug">
                   {opp.nombre}
                 </h3>
               </Link>
@@ -197,7 +197,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
                       href={opp.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                      className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
                       title="Ver en Mercado Público"
                       onClick={e => e.stopPropagation()}
                     >
@@ -206,7 +206,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
                   )}
                   <Link
                     href={`/licitacion/${encodeURIComponent(opp.codigo)}`}
-                    className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                    className="flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-blue-800 transition-colors"
                   >
                     Ver detalle
                     <ChevronRight size={13} />
@@ -220,3 +220,4 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
     </div>
   );
 }
+

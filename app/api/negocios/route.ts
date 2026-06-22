@@ -2,6 +2,7 @@
 // Lista y crea asignaciones de licitaciones
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { registrarActividad } from '@/app/lib/actividad';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -138,6 +139,19 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+
+    // Historial: registrar la asignación (a quién se le cargó la licitación)
+    try {
+      const [uRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [asignado_a]);
+      const u = (uRows as any[])[0];
+      const destino = u?.nombre || u?.email || `usuario ${asignado_a}`;
+      registrarActividad({
+        usuarioId: userId, accion: 'asignacion',
+        entidadTipo: 'negocio', entidadId: String(negocioId || licitacion_codigo),
+        descripcion: `Asignó la licitación ${licitacion_codigo} a ${destino}`,
+        metadata: { licitacion_codigo, licitacion_nombre: licitacion_nombre || null, asignado_a, asignado_a_nombre: destino },
+      });
+    } catch { /* no bloquear */ }
 
     return NextResponse.json({ success: true, id: negocioId });
   } catch (error) {

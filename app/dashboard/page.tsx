@@ -8,36 +8,24 @@ import {
   Star, FileText, Brain, Users, TrendingUp, ExternalLink,
   Loader2, ArrowRight, Building2, Calendar, DollarSign,
   Search, ShieldCheck, Activity, UserCheck, UserPlus,
-  ChevronRight, AlertCircle, Clock, Hash
+  ChevronRight, AlertCircle, Hash, Radar, FolderOpen,
+  Bell, Briefcase, BarChart2, Clock,
 } from 'lucide-react';
+import { Badge } from '@/app/components/ui/Badge';
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-interface DashboardStats {
-  favoritos: number;
-  documentos: number;
-  analisisIA: number;
-}
+// ── Types ─────────────────────────────────────────────────────────────────────
+interface DashboardStats { favoritos: number; documentos: number; analisisIA: number; }
 interface FavoritoReciente {
-  codigo: string;
-  nombre: string;
-  organismo: string;
-  monto_total: number | null;
-  fecha_cierre: string | null;
-  estado: string;
+  codigo: string; nombre: string; organismo: string;
+  monto_total: number | null; fecha_cierre: string | null; estado: string;
 }
 interface AdminStats {
-  totalUsuarios: number;
-  usuariosActivos: number;
-  nuevosEstaSemana: number;
-  ultimosAccesos: any[];
+  totalUsuarios: number; usuariosActivos: number;
+  nuevosEstaSemana: number; ultimosAccesos: any[];
 }
-interface DashboardData {
-  stats: DashboardStats;
-  favoritosRecientes: FavoritoReciente[];
-  admin: AdminStats | null;
-}
+interface DashboardData { stats: DashboardStats; favoritosRecientes: FavoritoReciente[]; admin: AdminStats | null; }
 
-// ─── Utils ───────────────────────────────────────────────────────────────────
+// ── Utils ─────────────────────────────────────────────────────────────────────
 function formatCLP(n?: number | null) {
   if (!n) return null;
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -53,89 +41,125 @@ function getDiasRestantes(f?: string | null) {
   if (d < 0) return null;
   return d;
 }
-
-// ─── KPI Card ─────────────────────────────────────────────────────────────────
-function KpiCard({
-  icon, label, value, sub, color, href,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  sub?: string;
-  color: string;
-  href?: string;
-}) {
-  const content = (
-    <div className={`bg-white rounded-xl border border-gray-200 shadow-sm p-5 hover:shadow-md transition-shadow group ${href ? 'cursor-pointer' : ''}`}>
-      <div className="flex items-start justify-between mb-4">
-        <div className={`w-11 h-11 rounded-xl ${color} flex items-center justify-center`}>
-          {icon}
-        </div>
-        {href && (
-          <ArrowRight size={16} className="text-gray-300 group-hover:text-blue-500 group-hover:translate-x-0.5 transition-all" />
-        )}
-      </div>
-      <p className="text-2xl font-bold text-gray-900 mb-0.5">{value}</p>
-      <p className="text-sm font-medium text-gray-600">{label}</p>
-      {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
-    </div>
-  );
-  return href ? <Link href={href}>{content}</Link> : <div>{content}</div>;
+function estadoLabel(estado: string): { label: string; variant: 'success' | 'warning' | 'default' | 'danger' } {
+  const map: Record<string, { label: string; variant: any }> = {
+    '5': { label: 'Publicada', variant: 'success' },
+    '6': { label: 'Cerrada', variant: 'default' },
+    '7': { label: 'Desierta', variant: 'danger' },
+    '8': { label: 'Adjudicada', variant: 'primary' },
+    '15': { label: 'Revocada', variant: 'danger' },
+  };
+  return map[estado] || { label: 'Estado ' + estado, variant: 'default' };
 }
 
-// ─── Licitación row ───────────────────────────────────────────────────────────
+// ── KPI Card ─────────────────────────────────────────────────────────────────
+function KpiCard({
+  icon, label, value, sub, color, iconColor, href, trend,
+}: {
+  icon: React.ReactNode; label: string; value: string | number;
+  sub?: string; color: string; iconColor: string;
+  href?: string; trend?: string;
+}) {
+  const content = (
+    <div className={`card card-hover p-5 ${href ? 'cursor-pointer' : ''}`}>
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-10 h-10 rounded-xl ${color} flex items-center justify-center`}>
+          <span className={iconColor}>{icon}</span>
+        </div>
+        {href && (
+          <ArrowRight size={15} className="text-slate-300 group-hover:text-indigo-500 group-hover:translate-x-0.5 transition-all" />
+        )}
+      </div>
+      <p className="text-2xl font-bold text-slate-900 mb-0.5 tabular-nums">{value}</p>
+      <p className="text-sm font-medium text-slate-600">{label}</p>
+      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+      {trend && (
+        <div className="mt-2 pt-2 border-t border-slate-100">
+          <span className="text-[11px] text-slate-400">{trend}</span>
+        </div>
+      )}
+    </div>
+  );
+  return href ? <Link href={href} className="group">{content}</Link> : <div>{content}</div>;
+}
+
+// ── Licitación row ─────────────────────────────────────────────────────────────
 function LicitacionRow({ fav }: { fav: FavoritoReciente }) {
   const dias = getDiasRestantes(fav.fecha_cierre);
+  const est  = estadoLabel(fav.estado);
   return (
     <Link
       href={`/licitacion/${encodeURIComponent(fav.codigo)}`}
-      className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
+      className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors group border-b border-slate-50 last:border-0"
     >
-      <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-        <Hash size={14} className="text-blue-500" />
+      <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
+        <Hash size={13} className="text-indigo-500" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate group-hover:text-blue-600 transition-colors">{fav.nombre}</p>
-        <p className="text-xs text-gray-400 truncate">{fav.organismo}</p>
+        <p className="text-[13px] font-semibold text-slate-800 truncate group-hover:text-indigo-600 transition-colors">{fav.nombre}</p>
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <Building2 size={10} className="text-slate-400 flex-shrink-0" />
+          <p className="text-[11px] text-slate-400 truncate">{fav.organismo || '—'}</p>
+        </div>
       </div>
-      <div className="flex-shrink-0 text-right">
-        {fav.monto_total && <p className="text-sm font-semibold text-gray-700">{formatCLP(fav.monto_total)}</p>}
+      <div className="flex-shrink-0 text-right flex flex-col items-end gap-1">
+        <Badge variant={est.variant}>{est.label}</Badge>
+        {fav.monto_total && <p className="text-[11px] font-semibold text-slate-600">{formatCLP(fav.monto_total)}</p>}
         {dias !== null && (
-          <p className={`text-xs font-medium ${dias <= 3 ? 'text-red-500' : dias <= 7 ? 'text-orange-500' : 'text-gray-400'}`}>
+          <p className={`text-[10px] font-semibold ${dias <= 3 ? 'text-rose-500' : dias <= 7 ? 'text-amber-500' : 'text-slate-400'}`}>
             {dias === 0 ? 'Cierra hoy' : `${dias}d restantes`}
           </p>
         )}
       </div>
-      <ChevronRight size={14} className="text-gray-300 group-hover:text-blue-400 flex-shrink-0" />
+      <ChevronRight size={13} className="text-slate-300 group-hover:text-indigo-400 flex-shrink-0 ml-1" />
     </Link>
   );
 }
 
-// ─── Usuario row (admin) ──────────────────────────────────────────────────────
+// ── Usuario row ───────────────────────────────────────────────────────────────
 function UsuarioRow({ u }: { u: any }) {
-  const iniciales = (u.nombre || u.email)[0].toUpperCase();
+  const colors = ['from-indigo-500 to-violet-600','from-sky-500 to-cyan-600','from-emerald-500 to-teal-600','from-rose-500 to-pink-600'];
+  const idx = (u.nombre || u.email).charCodeAt(0) % colors.length;
+  const init = (u.nombre || u.email)[0].toUpperCase();
   return (
-    <div className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors">
-      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-        {iniciales}
+    <div className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0">
+      <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${colors[idx]} flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0 shadow-sm`}>
+        {init}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-800 truncate">{u.nombre || 'Sin nombre'}</p>
-        <p className="text-xs text-gray-400 truncate">{u.email}</p>
+        <p className="text-[13px] font-semibold text-slate-800 truncate">{u.nombre || 'Sin nombre'}</p>
+        <p className="text-[11px] text-slate-400 truncate">{u.email}</p>
       </div>
       <div className="flex-shrink-0 flex items-center gap-2">
         {u.rol === 'admin' && (
-          <span className="text-xs px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-medium flex items-center gap-0.5">
-            <ShieldCheck size={9} /> Admin
-          </span>
+          <Badge variant="warning"><ShieldCheck size={9} /> Admin</Badge>
         )}
-        <span className="text-xs text-gray-400">{formatFecha(u.ultimo_login) || 'Nunca'}</span>
+        <div className="flex items-center gap-1 text-[11px] text-slate-400">
+          <Clock size={10} />
+          {formatFecha(u.ultimo_login) || 'Nunca'}
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── Página ───────────────────────────────────────────────────────────────────
+// ── Quick Access Card ─────────────────────────────────────────────────────────
+function QuickCard({ href, icon, label, color, desc }: { href: string; icon: React.ReactNode; label: string; color: string; desc?: string }) {
+  return (
+    <Link href={href}
+      className="flex items-start gap-3 p-4 rounded-xl border border-slate-100 hover:border-indigo-200 hover:bg-indigo-50/40 transition-all group">
+      <div className={`w-9 h-9 ${color} rounded-xl flex items-center justify-center flex-shrink-0 shadow-sm group-hover:scale-105 transition-transform`}>
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-[12.5px] font-semibold text-slate-700 group-hover:text-indigo-700">{label}</p>
+        {desc && <p className="text-[11px] text-slate-400 mt-0.5">{desc}</p>}
+      </div>
+    </Link>
+  );
+}
+
+// ── Página ─────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const { usuario } = useSession();
   const [data, setData] = useState<DashboardData | null>(null);
@@ -156,21 +180,21 @@ export default function DashboardPage() {
 
   return (
     <AppLayout>
-      <div className="p-4 sm:p-6 lg:p-8 space-y-6 max-w-7xl mx-auto">
+      <div className="p-5 sm:p-7 max-w-7xl mx-auto space-y-6">
 
-        {/* Header saludo */}
-        <div className="flex items-start justify-between gap-4">
+        {/* ── Header ─── */}
+        <div className="flex items-start justify-between gap-4 pt-1">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {saludo}, {nombreMostrar} 👋
+            <h1 className="text-[22px] font-bold text-slate-900 tracking-tight">
+              {saludo}{nombreMostrar ? `, ${nombreMostrar}` : ''} 👋
             </h1>
-            <p className="text-sm text-gray-500 mt-1">
+            <p className="text-sm text-slate-500 mt-0.5">
               {new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
             </p>
           </div>
           <Link
             href="/"
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0 shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-xl transition-colors flex-shrink-0 shadow-sm shadow-indigo-200"
           >
             <Search size={15} />
             <span className="hidden sm:inline">Buscar licitaciones</span>
@@ -179,149 +203,132 @@ export default function DashboardPage() {
         </div>
 
         {cargando ? (
-          <div className="flex items-center justify-center py-16 gap-2 text-gray-500">
-            <Loader2 size={22} className="animate-spin text-blue-500" />
-            <span className="text-sm">Cargando tu información...</span>
+          <div className="flex items-center justify-center py-20 gap-3 text-slate-500">
+            <Loader2 size={22} className="animate-spin text-indigo-500" />
+            <span className="text-sm font-medium">Cargando tu información...</span>
           </div>
         ) : error ? (
-          <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-xl">
-            <AlertCircle size={16} /> {error}
+          <div className="flex items-center gap-3 bg-rose-50 border border-rose-200 text-rose-700 text-sm px-5 py-4 rounded-xl">
+            <AlertCircle size={17} className="flex-shrink-0" />
+            <span>{error}</span>
           </div>
         ) : data ? (
           <>
-            {/* ─── KPIs personales ─── */}
+            {/* ── KPIs personales ── */}
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
               <KpiCard
-                icon={<Star size={20} className="text-amber-600" />}
+                icon={<Star size={18} />}
                 label="Favoritos guardados"
                 value={data.stats.favoritos}
-                color="bg-amber-50"
-                href="/?favoritos=true"
+                color="bg-amber-50" iconColor="text-amber-600"
+                href="/favoritos"
                 sub="Licitaciones de interés"
               />
               <KpiCard
-                icon={<FileText size={20} className="text-blue-600" />}
-                label="Documentos subidos"
+                icon={<FileText size={18} />}
+                label="Documentos"
                 value={data.stats.documentos}
-                color="bg-blue-50"
-                sub="PDFs, DOCX y más"
+                color="bg-blue-50" iconColor="text-blue-600"
+                href="/documentos"
+                sub="PDFs y archivos adjuntos"
               />
               <KpiCard
-                icon={<Brain size={20} className="text-purple-600" />}
+                icon={<Brain size={18} />}
                 label="Análisis IA"
                 value={data.stats.analisisIA}
-                color="bg-purple-50"
+                color="bg-purple-50" iconColor="text-purple-600"
                 sub="Análisis realizados"
+                trend="Gemini + clasificación documental"
               />
             </div>
 
-            {/* ─── KPIs admin ─── */}
+            {/* ── KPIs admin ── */}
             {data.admin && (
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                    <ShieldCheck size={16} className="text-amber-500" />
+                  <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <ShieldCheck size={15} className="text-amber-500" />
                     Panel de administración
                   </h2>
-                  <Link href="/admin/usuarios" className="text-xs text-blue-600 hover:underline font-medium flex items-center gap-1">
-                    Ver todos <ArrowRight size={12} />
+                  <Link href="/admin/usuarios" className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1">
+                    Ver todos <ArrowRight size={11} />
                   </Link>
                 </div>
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                  <KpiCard
-                    icon={<Users size={20} className="text-blue-600" />}
-                    label="Usuarios totales"
-                    value={data.admin.totalUsuarios}
-                    color="bg-blue-50"
-                    href="/admin/usuarios"
-                  />
-                  <KpiCard
-                    icon={<UserCheck size={20} className="text-green-600" />}
-                    label="Usuarios activos"
-                    value={data.admin.usuariosActivos}
-                    color="bg-green-50"
-                  />
-                  <KpiCard
-                    icon={<UserPlus size={20} className="text-indigo-600" />}
-                    label="Nuevos esta semana"
-                    value={data.admin.nuevosEstaSemana}
-                    color="bg-indigo-50"
-                  />
+                  <KpiCard icon={<Users size={18} />} label="Usuarios totales" value={data.admin.totalUsuarios} color="bg-indigo-50" iconColor="text-indigo-600" href="/admin/usuarios" />
+                  <KpiCard icon={<UserCheck size={18} />} label="Usuarios activos" value={data.admin.usuariosActivos} color="bg-emerald-50" iconColor="text-emerald-600" />
+                  <KpiCard icon={<UserPlus size={18} />} label="Nuevos esta semana" value={data.admin.nuevosEstaSemana} color="bg-sky-50" iconColor="text-sky-600" />
                 </div>
               </div>
             )}
 
-            {/* ─── Contenido en 2 columnas ─── */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* ── Grid 2 columnas ── */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
 
               {/* Favoritos recientes */}
-              <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                  <h3 className="font-bold text-gray-900 flex items-center gap-2 text-sm">
-                    <Star size={15} className="text-amber-500 fill-amber-500" />
+              <div className="card overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+                    <Star size={14} className="text-amber-500 fill-amber-500" />
                     Favoritos recientes
                   </h3>
-                  <Link href="/?favoritos=true" className="text-xs text-blue-600 hover:underline font-medium flex items-center gap-1">
-                    Ver todos <ArrowRight size={12} />
+                  <Link href="/favoritos" className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1">
+                    Ver todos <ArrowRight size={11} />
                   </Link>
                 </div>
                 {data.favoritosRecientes.length > 0 ? (
-                  <div className="divide-y divide-gray-50">
+                  <div>
                     {data.favoritosRecientes.map(fav => (
                       <LicitacionRow key={fav.codigo} fav={fav} />
                     ))}
                   </div>
                 ) : (
-                  <div className="py-10 text-center px-4">
-                    <Star size={28} className="text-gray-200 mx-auto mb-2" />
-                    <p className="text-sm text-gray-500 font-medium">Sin favoritos aún</p>
-                    <p className="text-xs text-gray-400 mt-1">Guarda licitaciones desde el buscador</p>
-                    <Link href="/" className="inline-flex items-center gap-1.5 mt-3 text-xs text-blue-600 hover:underline font-medium">
+                  <div className="py-12 text-center px-4">
+                    <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                      <Star size={22} className="text-amber-300" />
+                    </div>
+                    <p className="text-sm font-semibold text-slate-600">Sin favoritos aún</p>
+                    <p className="text-xs text-slate-400 mt-1">Guarda licitaciones desde el buscador</p>
+                    <Link href="/" className="inline-flex items-center gap-1.5 mt-3 text-xs text-indigo-600 hover:underline font-semibold">
                       <Search size={12} /> Ir al buscador
                     </Link>
                   </div>
                 )}
               </div>
 
-              {/* Panel admin: últimos accesos / Panel usuario: accesos rápidos */}
+              {/* Panel derecho: admin últimos accesos / accesos rápidos */}
               {data.admin ? (
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-                    <h3 className="font-bold text-gray-900 flex items-center gap-2 text-sm">
-                      <Activity size={15} className="text-green-500" />
+                <div className="card overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                    <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+                      <Activity size={14} className="text-emerald-500" />
                       Últimos accesos
                     </h3>
-                    <Link href="/admin/usuarios" className="text-xs text-blue-600 hover:underline font-medium flex items-center gap-1">
-                      Gestionar <ArrowRight size={12} />
+                    <Link href="/admin/usuarios" className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold flex items-center gap-1">
+                      Gestionar <ArrowRight size={11} />
                     </Link>
                   </div>
-                  <div className="divide-y divide-gray-50">
-                    {data.admin.ultimosAccesos.map((u: any) => (
+                  <div>
+                    {data.admin.ultimosAccesos.slice(0, 6).map((u: any) => (
                       <UsuarioRow key={u.id} u={u} />
                     ))}
                   </div>
                 </div>
               ) : (
-                // Accesos rápidos para usuarios normales
-                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                  <div className="px-5 py-4 border-b border-gray-100">
-                    <h3 className="font-bold text-gray-900 text-sm">Accesos rápidos</h3>
+                <div className="card overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-100">
+                    <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                      <BarChart2 size={14} className="text-indigo-500" />
+                      Accesos rápidos
+                    </h3>
                   </div>
-                  <div className="p-4 grid grid-cols-2 gap-3">
-                    {[
-                      { href: '/', icon: <Search size={20} className="text-blue-600" />, label: 'Buscar licitaciones', color: 'bg-blue-50' },
-                      { href: '/?favoritos=true', icon: <Star size={20} className="text-amber-500" />, label: 'Mis favoritos', color: 'bg-amber-50' },
-                      { href: '/perfil', icon: <Users size={20} className="text-indigo-600" />, label: 'Mi perfil', color: 'bg-indigo-50' },
-                      { href: '/', icon: <TrendingUp size={20} className="text-green-600" />, label: 'Nuevas hoy', color: 'bg-green-50' },
-                    ].map(item => (
-                      <Link key={item.href + item.label} href={item.href}
-                        className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50/40 transition-colors text-center group">
-                        <div className={`w-11 h-11 ${item.color} rounded-xl flex items-center justify-center`}>
-                          {item.icon}
-                        </div>
-                        <p className="text-xs font-medium text-gray-700 group-hover:text-blue-700">{item.label}</p>
-                      </Link>
-                    ))}
+                  <div className="p-4 grid grid-cols-2 gap-2.5">
+                    <QuickCard href="/"          icon={<Search size={17} className="text-indigo-600" />}  label="Buscar"     desc="Licitaciones activas" color="bg-indigo-50" />
+                    <QuickCard href="/favoritos" icon={<Star size={17} className="text-amber-500" />}     label="Favoritos"  desc="Tus licitaciones"     color="bg-amber-50" />
+                    <QuickCard href="/radar"     icon={<Radar size={17} className="text-sky-600" />}      label="Radar"      desc="Monitor automático"   color="bg-sky-50" />
+                    <QuickCard href="/documentos" icon={<FolderOpen size={17} className="text-purple-600" />} label="Documentos" desc="Archivos descargados"  color="bg-purple-50" />
+                    <QuickCard href="/negocios"  icon={<Briefcase size={17} className="text-emerald-600" />} label="Negocios"  desc="Seguimiento"          color="bg-emerald-50" />
+                    <QuickCard href="/alertas"   icon={<Bell size={17} className="text-rose-500" />}      label="Alertas"    desc="Notificaciones"        color="bg-rose-50" />
                   </div>
                 </div>
               )}

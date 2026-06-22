@@ -1,6 +1,7 @@
 // app/api/analizar-documento/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import { extractTextFromDocument, descargarYExtraerTexto } from '@/app/lib/document-extraction';
 
 // ======================================================
 // TIPOS - DEFINICIONES COMPLETAS Y FLEXIBLES
@@ -98,137 +99,6 @@ function getDeepSeek() {
 }
 
 // ======================================================
-// OCR CON OCR.SPACE (GRATUITO - 500 REQUESTS/MES)
-// ======================================================
-
-async function extraerConOCRSpace(buffer: Buffer, fileName: string): Promise<{ texto: string; confianza: string }> {
-  console.log('🔄 Enviando a OCR.space para reconocimiento...');
-  
-  const base64 = buffer.toString('base64');
-  
-  const formData = new FormData();
-  formData.append('base64Image', `data:application/pdf;base64,${base64}`);
-  formData.append('language', 'spa');
-  formData.append('OCREngine', '2');
-  formData.append('isCreateSearchablePdf', 'false');
-  formData.append('isSearchablePdfHideTextLayer', 'true');
-  
-  try {
-    const response = await fetch('https://api.ocr.space/parse/image', {
-      method: 'POST',
-      headers: {
-        'apikey': 'helloworld', // API key gratuita pública
-      },
-      body: formData,
-    });
-    
-    const data = await response.json();
-    
-    if (data.IsErroredOnProcessing) {
-      console.error('Error OCR.space:', data.ErrorMessage);
-      throw new Error(data.ErrorMessage?.[0] || 'Error en OCR');
-    }
-    
-    const texto = data.ParsedResults?.[0]?.ParsedText || '';
-    const confianza = data.ParsedResults?.[0]?.FileParseExitCode === 1 ? 'alta' : 'media';
-    
-    console.log(`✅ OCR completado: ${texto.length} caracteres, confianza: ${confianza}`);
-    return { texto, confianza };
-    
-  } catch (error) {
-    console.error('Error en OCR.space:', error);
-    throw new Error(`OCR falló: ${error instanceof Error ? error.message : 'desconocido'}`);
-  }
-}
-
-// ======================================================
-// EXTRACCIÓN DE TEXTO CON DETECCIÓN INTELIGENTE
-// ======================================================
-
-async function extractTextFromDocument(buffer: Buffer, extension: string, fileName: string): Promise<{ texto: string; numPages: number; metodo: string; confianza: string }> {
-  
-  // WORD (DOCX/DOC)
-  if (extension === 'docx' || extension === 'doc') {
-    try {
-      const mammoth = await import('mammoth');
-      const result = await mammoth.extractRawText({ buffer });
-      const texto = result.value || '';
-      console.log(`✅ Word: ${texto.length} caracteres extraídos`);
-      return { texto, numPages: 1, metodo: 'word', confianza: 'alta' };
-    } catch (error) {
-      console.error('Error en Word:', error);
-      return { texto: '', numPages: 1, metodo: 'word-error', confianza: 'baja' };
-    }
-  }
-  
-  // EXCEL (XLSX/XLS)
-  if (extension === 'xlsx' || extension === 'xls') {
-    try {
-      const XLSX = await import('xlsx');
-      const workbook = XLSX.read(buffer, { type: 'buffer' });
-      let textoCompleto = '';
-      workbook.SheetNames.forEach((sheetName: string) => {
-        const sheet = workbook.Sheets[sheetName];
-        const csv = XLSX.utils.sheet_to_csv(sheet);
-        textoCompleto += `\n--- Hoja: ${sheetName} ---\n${csv}\n`;
-      });
-      console.log(`✅ Excel: ${textoCompleto.length} caracteres de ${workbook.SheetNames.length} hojas`);
-      return { texto: textoCompleto, numPages: workbook.SheetNames.length, metodo: 'excel', confianza: 'alta' };
-    } catch (error) {
-      console.error('Error en Excel:', error);
-      return { texto: '', numPages: 1, metodo: 'excel-error', confianza: 'baja' };
-    }
-  }
-  
-  // PDF
-  if (extension === 'pdf') {
-    try {
-      // Paso 1: Intentar extraer texto normal
-      const pdfParse = (await import('pdf-parse')).default;
-      const pdfData = await pdfParse(buffer);
-      
-      // Si tiene suficiente texto (más de 300 caracteres)
-      if (pdfData.text && pdfData.text.trim().length > 300) {
-        console.log(`✅ PDF con texto: ${pdfData.text.length} caracteres, ${pdfData.numpages} páginas`);
-        return { 
-          texto: pdfData.text, 
-          numPages: pdfData.numpages, 
-          metodo: 'pdf-text', 
-          confianza: 'alta' 
-        };
-      }
-      
-      // Paso 2: Si tiene poco texto, intentar OCR
-      console.log(`⚠️ PDF con poco texto (${pdfData.text?.length || 0} caracteres). Usando OCR...`);
-      const { texto: textoOCR, confianza } = await extraerConOCRSpace(buffer, fileName);
-      
-      if (textoOCR && textoOCR.trim().length > 50) {
-        return { 
-          texto: textoOCR, 
-          numPages: pdfData.numpages, 
-          metodo: 'pdf-ocr', 
-          confianza 
-        };
-      }
-      
-      // Paso 3: Si todo falla, devolver lo que hay
-      return { 
-        texto: pdfData.text || '', 
-        numPages: pdfData.numpages, 
-        metodo: 'pdf-sin-texto', 
-        confianza: 'baja' 
-      };
-      
-    } catch (error) {
-      console.error('Error en PDF:', error);
-      return { texto: '', numPages: 0, metodo: 'pdf-error', confianza: 'baja' };
-    }
-  }
-  
-  return { texto: '', numPages: 0, metodo: 'unsupported', confianza: 'baja' };
-}
-
-// ======================================================
 // ANÁLISIS CON DEEPSEEK (VERSIÓN MEJORADA)
 // ======================================================
 
@@ -237,13 +107,54 @@ async function analizarConDeepSeekExperto(
   documentoNombre: string,
   tipoAnalisis: 'completo' | 'pregunta' | 'resumen',
   metadatos: { metodo: string; confianza: string; paginas: number },
-  pregunta?: string
+  pregunta?: string,
+  historial?: Array<{ pregunta: string; respuesta: string }>
 ): Promise<any> {
-  
-  const advertenciaOCR = metadatos.metodo === 'pdf-ocr' 
+
+  const advertenciaOCR = metadatos.metodo === 'pdf-ocr'
     ? '\n\nNOTA: Este texto fue extraído mediante OCR de un PDF escaneado. Puede contener errores de reconocimiento. Haz el mejor esfuerzo para interpretar la información.'
     : '';
-  
+
+  // Modo conversacional: el usuario chatea directamente con la IA sobre el/los
+  // documento(s), respuestas en lenguaje natural (NO JSON, NO informes formales).
+  if (tipoAnalisis === 'pregunta') {
+    const systemPromptChat = `Eres un asistente experto en licitaciones públicas de Chile (ChileCompra / Ley 19.886), conversando directamente con un proveedor que está evaluando si participar en una licitación.
+
+Reglas de conversación:
+- Responde en español natural y directo, como en un chat — NO como un informe ni en formato JSON.
+- Usa párrafos cortos. Solo usa viñetas si realmente ayudan a listar varios ítems.
+- Usa **negritas** únicamente para datos clave: fechas, montos, plazos, porcentajes.
+- Basa tu respuesta SOLO en el contenido del/los documento(s) entregado(s). Si algo no está, dilo claramente ("no encuentro esa información en el documento") en vez de inventarlo.
+- Si el texto viene de OCR, es tolerante con errores tipográficos e infiere por contexto cuando sea razonable.
+- Si la pregunta da para un consejo práctico para el proveedor, agrégalo brevemente al final.
+- Si el usuario hace una pregunta de seguimiento, usa el historial de la conversación para entender el contexto.${advertenciaOCR}`;
+
+    const contexto = `DOCUMENTO(S): ${documentoNombre}\n\nCONTENIDO:\n${texto.substring(0, 18000)}`;
+
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      { role: 'system', content: systemPromptChat },
+      { role: 'user', content: contexto },
+      { role: 'assistant', content: 'Listo, ya revisé el contenido del documento. ¿En qué te puedo ayudar?' },
+    ];
+
+    for (const turno of (historial || []).slice(-3)) {
+      if (!turno?.pregunta || !turno?.respuesta) continue;
+      messages.push({ role: 'user', content: turno.pregunta });
+      messages.push({ role: 'assistant', content: turno.respuesta });
+    }
+
+    messages.push({ role: 'user', content: pregunta || '' });
+
+    const completion = await getDeepSeek().chat.completions.create({
+      model: 'deepseek-chat',
+      messages,
+      temperature: 0.4,
+      max_tokens: 2000,
+    });
+
+    return completion.choices[0]?.message?.content || '';
+  }
+
   const systemPrompt = `Eres un EXPERTO EN LICITACIONES PÚBLICAS DE CHILE con más de 15 años de experiencia en análisis de bases de licitación, evaluación de propuestas y asesoría a proveedores del mercado público (ChileCompra).
 
 Tu conocimiento incluye:
@@ -337,22 +248,6 @@ Devuelve EXCLUSIVAMENTE un objeto JSON con esta estructura (solo campos que encu
 }`;
   }
 
-  else if (tipoAnalisis === 'pregunta') {
-    userPrompt = `DOCUMENTO: ${documentoNombre}
-MÉTODO: ${metadatos.metodo}
-CONTENIDO:
-${texto.substring(0, 15000)}
-
-PREGUNTA DEL USUARIO: ${pregunta}
-
-Instrucciones:
-1. Responde SOLO basándote en el contenido del documento
-2. Si la respuesta no está en el documento, di "No se encuentra información en este documento sobre [tema]"
-3. Si el texto tiene errores de OCR, intenta inferir la respuesta correcta
-4. Si la pregunta requiere datos numéricos o fechas, extráelos con precisión
-5. Da consejos prácticos para el proveedor`;
-  }
-
   else if (tipoAnalisis === 'resumen') {
     userPrompt = `DOCUMENTO: ${documentoNombre}
 MÉTODO: ${metadatos.metodo}
@@ -423,12 +318,61 @@ export async function POST(request: NextRequest) {
   
   try {
     const body = await request.json();
-    const { 
-      pdfUrl, 
-      pregunta, 
-      documentoNombre, 
-      tipoAnalisis = 'completo'  // 'completo', 'pregunta', 'resumen'
+    const {
+      pdfUrl,
+      pregunta,
+      documentoNombre,
+      tipoAnalisis = 'completo',  // 'completo', 'pregunta', 'resumen'
+      documentos,                 // modo "todos los documentos": [{ url, nombre }]
+      historial,                  // últimas preguntas/respuestas del chat
     } = body;
+
+    // ========== MODO "TODOS LOS DOCUMENTOS" ==========
+    if (Array.isArray(documentos) && documentos.length > 0) {
+      if (!pregunta) {
+        return NextResponse.json({ error: 'Se requiere una pregunta para este tipo de análisis' }, { status: 400 });
+      }
+
+      const extraidos: Array<{ nombre: string; texto: string }> = [];
+      for (const doc of documentos) {
+        if (!doc?.url || !doc?.nombre) continue;
+        try {
+          const r = await descargarYExtraerTexto(doc.url, doc.nombre);
+          const limpio = (r?.texto || '').replace(/\s+/g, ' ').trim();
+          if (limpio.length > 50) extraidos.push({ nombre: doc.nombre, texto: limpio });
+        } catch (e) {
+          console.error(`Error extrayendo "${doc.nombre}":`, e);
+        }
+      }
+
+      if (extraidos.length === 0) {
+        return NextResponse.json({ error: 'No se pudo extraer texto de ningún documento' }, { status: 500 });
+      }
+
+      const CAP = 18000;
+      const porDoc = Math.floor(CAP / extraidos.length);
+      const combinado = extraidos
+        .map(d => `--- Documento: ${d.nombre} ---\n${d.texto.substring(0, porDoc)}`)
+        .join('\n\n');
+
+      const respuesta = await analizarConDeepSeekExperto(
+        combinado,
+        `${extraidos.length} documento(s) de la licitación`,
+        'pregunta',
+        { metodo: 'multi-documento', confianza: 'media', paginas: 0 },
+        pregunta,
+        historial,
+      );
+
+      return NextResponse.json({
+        success: true,
+        tipoAnalisis: 'pregunta',
+        documento: `${extraidos.length} documento(s)`,
+        documentosAnalizados: extraidos.map(d => d.nombre),
+        pregunta,
+        respuesta,
+      });
+    }
 
     // ========== VALIDACIONES ==========
     if (!pdfUrl) {
@@ -528,7 +472,7 @@ export async function POST(request: NextRequest) {
       if (!pregunta) {
         return NextResponse.json({ error: 'Se requiere una pregunta para este tipo de análisis' }, { status: 400 });
       }
-      respuesta = await analizarConDeepSeekExperto(textoExtraido, documentoNombre, 'pregunta', metadatos, pregunta);
+      respuesta = await analizarConDeepSeekExperto(textoExtraido, documentoNombre, 'pregunta', metadatos, pregunta, historial);
     } 
     else if (tipoAnalisis === 'resumen') {
       respuesta = await analizarConDeepSeekExperto(textoExtraido, documentoNombre, 'resumen', metadatos);

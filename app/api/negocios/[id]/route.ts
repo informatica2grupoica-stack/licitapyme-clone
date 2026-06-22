@@ -2,6 +2,7 @@
 // Detalle de un negocio: GET, PATCH (actualizar monto ofertado / etiquetas), DELETE (admin)
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { registrarActividad } from '@/app/lib/actividad';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -73,7 +74,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     // Verificar acceso
     const [rows] = await pool.query(
-      `SELECT asignado_a FROM negocios WHERE id = ?`, [id]
+      `SELECT asignado_a, licitacion_codigo, licitacion_nombre FROM negocios WHERE id = ?`, [id]
     ) as any;
     if (!(rows as any[]).length)
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
@@ -97,6 +98,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`,
           [estado_pipeline || null, id]
         );
+        registrarActividad({
+          usuarioId: userId, accion: 'cambio_pipeline',
+          entidadTipo: 'negocio', entidadId: String(id),
+          descripcion: `Cambió el estado de "${neg.licitacion_nombre || neg.licitacion_codigo}" a ${estado_pipeline || '—'}`,
+          metadata: { licitacion_codigo: neg.licitacion_codigo, estado_pipeline },
+        });
       } catch (colErr: any) {
         if (String(colErr).toLowerCase().includes('unknown column')) {
           return NextResponse.json({
@@ -117,6 +124,21 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           [id, eId]
         );
       }
+      // Nombres de las etiquetas para el historial
+      let nombres: string[] = [];
+      if (etiqueta_ids.length > 0) {
+        const [etRows] = await pool.query(
+          `SELECT nombre FROM etiquetas WHERE id IN (${etiqueta_ids.map(() => '?').join(',')})`,
+          etiqueta_ids,
+        );
+        nombres = (etRows as any[]).map(r => r.nombre);
+      }
+      registrarActividad({
+        usuarioId: userId, accion: 'cambio_etiqueta',
+        entidadTipo: 'negocio', entidadId: String(id),
+        descripcion: `Cambió las líneas de negocio de "${neg.licitacion_nombre || neg.licitacion_codigo}"${nombres.length ? ': ' + nombres.join(', ') : ' (sin líneas)'}`,
+        metadata: { licitacion_codigo: neg.licitacion_codigo, etiquetas: nombres },
+      });
     }
 
     return NextResponse.json({ success: true });

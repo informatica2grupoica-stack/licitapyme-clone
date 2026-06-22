@@ -54,6 +54,33 @@ export class MercadoPublicoClient {
     }
   }
 
+  /**
+   * Versión que reporta el estado HTTP — necesaria para el enriquecimiento con
+   * throttle: distingue 429 (rate-limit → backoff) de un error real o "no existe".
+   * status 429 = la API pide bajar el ritmo; status 0 = timeout/red.
+   */
+  async obtenerDetalleConEstado(
+    codigo: string,
+    timeoutMs = 8_000,
+  ): Promise<{ lic: Licitacion | null; status: number }> {
+    try {
+      const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
+      const res = await globalThis.fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.status === 429) return { lic: null, status: 429 };
+      if (!res.ok) return { lic: null, status: res.status };
+      const data: LicitacionAPIResponse & { Codigo?: number } = await res.json();
+      // La API a veces devuelve 200 con un cuerpo de error (Codigo 10500 = rate-limit)
+      if ((data as any).Codigo === 10500) return { lic: null, status: 429 };
+      if (!data.Listado?.length) return { lic: null, status: res.status };
+      return { lic: this.normalizar(data.Listado[0]), status: 200 };
+    } catch {
+      return { lic: null, status: 0 }; // timeout o error de red
+    }
+  }
+
   async obtenerHoy(): Promise<Licitacion[]> {
     try {
       const url = `${API_BASE}/licitaciones.json?ticket=${this.ticket}`;
@@ -75,10 +102,14 @@ export class MercadoPublicoClient {
   }
 
   async obtenerPorFecha(fecha: string): Promise<Licitacion[]> {
+    // fecha en formato DDMMYYYY — la usamos como fallback de FechaPublicacion porque
+    // el endpoint batch no incluye el objeto Fechas con FechaPublicacion
+    const d = fecha.slice(0, 2), m = fecha.slice(2, 4), y = fecha.slice(4, 8);
+    const fechaISOFallback = `${y}-${m}-${d}T00:00:00`;
     try {
       const url = `${API_BASE}/licitaciones.json?fecha=${fecha}&ticket=${this.ticket}`;
       const data: LicitacionAPIResponse = await this.fetch(url);
-      return (data.Listado || []).map(i => this.normalizar(i));
+      return (data.Listado || []).map(i => this.normalizar(i, fechaISOFallback));
     } catch {
       return [];
     }
@@ -181,7 +212,7 @@ export class MercadoPublicoClient {
   // NORMALIZACIÓN COMPLETA
   // =============================================
 
-  normalizar(item: LicitacionAPI): Licitacion {
+  normalizar(item: LicitacionAPI, fechaPublicacionFallback?: string): Licitacion {
     const comprador = item.Comprador;
     const fechas = item.Fechas;
     const estado = String(item.CodigoEstado || 5);
@@ -209,7 +240,8 @@ export class MercadoPublicoClient {
       EstadoNombre: ESTADO_CODIGOS[item.CodigoEstado] || item.Estado || '',
       CodigoEstado: item.CodigoEstado,
 
-      FechaPublicacion: fechas?.FechaPublicacion || new Date().toISOString(),
+      // Prioridad: 1) campo Fechas del API  2) fallback pasado por el caller (fecha de consulta)  3) vacío
+      FechaPublicacion: fechas?.FechaPublicacion || fechaPublicacionFallback || '',
       FechaCierre: item.FechaCierre || fechas?.FechaCierre || '',
       FechaCreacion: fechas?.FechaCreacion,
       FechaAdjudicacion: fechas?.FechaAdjudicacion,

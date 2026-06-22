@@ -7,6 +7,7 @@ export interface DocumentoCache {
   licitacion_codigo: string;
   documento_nombre: string;
   documento_url_local: string;
+  categoria?: string;
   size_bytes?: number;
   created_at?: Date;
 }
@@ -35,9 +36,9 @@ export async function guardarDocumentoEnCache(
 export async function obtenerDocumentosCache(licitacionCodigo: string): Promise<DocumentoCache[]> {
   try {
     const [rows] = await pool.query(
-      `SELECT documento_nombre, documento_url_local, size_bytes, created_at 
-       FROM documentos_cache 
-       WHERE licitacion_codigo = ? 
+      `SELECT documento_nombre, documento_url_local, size_bytes, categoria, created_at
+       FROM documentos_cache
+       WHERE licitacion_codigo = ?
        ORDER BY created_at ASC`,
       [licitacionCodigo]
     );

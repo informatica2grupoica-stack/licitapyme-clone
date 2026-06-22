@@ -3,25 +3,35 @@
 // Llamado por cron-job.org cada 4 horas (o Vercel Cron diario).
 // Protección: Authorization: Bearer <CRON_SECRET>  o  x-vercel-cron: 1
 //
-// ESTRATEGIA (two-pass):
+// ESTRATEGIA (matchear+insertar primero; enriquecer al final con lo que sobre):
 //   1. obtenerActivasHoy() + obtenerUltimosDias(15) EN PARALELO → pool batch (solo nombres)
-//   2. Enriquecer las N más recientes con descripción completa via obtenerPorCodigoRapido
-//   3. Filtrar por keyword en Nombre + Descripcion + Items (texto completo)
-//   4. INSERT IGNORE por lotes → acumula sin borrar resultados anteriores
+//   2. Cargar keywords
+//   3. Volcar el CACHÉ PERSISTENTE (licitaciones_cache) ya enriquecido — sin gastar API
+//   4. Matchear por keyword (text-match: acento/plural/campo) + INSERT por lotes con score
+//      → el output valioso queda guardado SIEMPRE, aunque falte tiempo después
+//   5. Enrichment de FONDO con throttle+backoff (rate-limit MP) y el tiempo restante:
+//      prioriza los que pegaron y rota el resto → cobertura crece entre corridas y
+//      se persiste en el caché (compartido con la búsqueda manual)
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import type { Licitacion } from '@/app/types/mercado-publico.types';
+import { registrarActividad } from '@/app/lib/actividad';
+import { indexarLicitacion, evaluarKeyword, normalizar, tokenizar, type LicitacionIndexada } from '@/app/lib/text-match';
+import { leerCache, planificarEnriquecimiento, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
 
 const CRON_SECRET        = process.env.CRON_SECRET || '';
 const DIAS_RECIENTES     = 15;
 const KW_CONCURRENCY     = 4;   // keywords procesadas en paralelo
 const INSERT_BATCH       = 200; // filas por INSERT IGNORE
-const ENRICH_CAP         = 400; // máx licitaciones a enriquecer con descripción
-const ENRICH_CONCURRENCY = 10;  // llamadas paralelas a obtenerPorCodigoRapido
-const ENRICH_TIMEOUT_MS  = 8_000; // timeout por llamada individual
-const TIEMPO_LIMITE_MS   = 50_000; // si tomamos más de 50s en total, paramos
+const TIEMPO_LIMITE_MS   = 50_000; // presupuesto total del run
+// Enriquecimiento (rate-limit MP): concurrencia 1 + delay + backoff vía
+// enriquecerYCachear. El caché persiste entre corridas, así que basta enriquecer
+// un lote acotado por run; la cobertura crece con el tiempo.
+const ENRICH_MAX_MS       = 20_000; // tiempo máximo de enrichment de fondo por run (margen bajo maxDuration 60s)
+const ENRICH_BASE_DELAY_MS = 1_500; // espera base entre llamadas a ?codigo=
+const ENRICH_TTL_DIAS     = 7;      // re-enriquecer activas si el caché es más viejo
 
 // ── Helper: concurrencia limitada ─────────────────────────────────────────────
 async function withConcurrency<T>(
@@ -38,20 +48,67 @@ async function withConcurrency<T>(
   if (active.size > 0) await Promise.all(active);
 }
 
-// ── Helper: texto completo para búsqueda ──────────────────────────────────────
-function textoCompleto(lic: Licitacion): string {
-  const items = (lic.Items || [])
-    .map(it => `${it.NombreProducto || ''} ${it.Descripcion || ''} ${it.Categoria || ''}`)
-    .join(' ');
-  return `${lic.Nombre} ${lic.Descripcion || ''} ${items}`.toLowerCase();
+// ── Helper: campos buscables de una licitación para el matcher compartido ─────
+// La API batch solo trae Nombre; el detalle agrega Descripcion, Items y Categoria
+// (taxonomía oficial). text-match.ts pondera cada campo distinto.
+function camposDe(lic: Licitacion) {
+  const items     = (lic.Items || []).map(it => `${it.NombreProducto || ''} ${it.Descripcion || ''}`).join(' ');
+  const categoria = (lic.Items || []).map(it => it.Categoria || '').join(' ');
+  return {
+    nombre:      lic.Nombre || '',
+    descripcion: lic.Descripcion || '',
+    items,
+    categoria,
+  };
+}
+
+// ¿El texto contiene algún token de la keyword? (acento-insensible, con prefijo)
+function contieneAlgunToken(texto: string, kwTokens: string[]): boolean {
+  const palabras = new Set(normalizar(texto).split(' ').filter(Boolean));
+  return kwTokens.some(t =>
+    palabras.has(t) || (t.length >= 4 && [...palabras].some(w => w.startsWith(t) || (t.length >= 6 && w.includes(t))))
+  );
+}
+
+// Devuelve un fragmento (en su forma ORIGINAL, con tildes) alrededor de la palabra
+// que coincidió. Acento-insensible: ubica por palabra normalizada y corta del original.
+function snippetAlrededor(texto: string, kwTokens: string[]): string {
+  const palabras = texto.split(/\s+/).filter(Boolean);
+  const idx = palabras.findIndex(w => {
+    const n = normalizar(w);
+    return kwTokens.some(t => n === t || (t.length >= 4 && (n.startsWith(t) || (t.length >= 6 && n.includes(t)))));
+  });
+  if (idx === -1) return '';
+  const start = Math.max(0, idx - 8);
+  const end   = Math.min(palabras.length, idx + 9);
+  return (start > 0 ? '…' : '') + palabras.slice(start, end).join(' ').trim() + (end < palabras.length ? '…' : '');
+}
+
+// Extrae un fragmento donde apareció la keyword (solo si NO está en el título —
+// en el título ya se ve en la tarjeta). Acento-insensible.
+function extraerContexto(lic: Licitacion, keyword: string): string {
+  const kwTokens = tokenizar(keyword);
+  if (kwTokens.length === 0) return '';
+  if (contieneAlgunToken(lic.Nombre || '', kwTokens)) return '';
+
+  const candidatos = [
+    lic.Descripcion || '',
+    ...(lic.Items || []).map(it => `${it.NombreProducto || ''} ${it.Descripcion || ''} ${it.Categoria || ''}`),
+  ];
+  for (const texto of candidatos) {
+    const ctx = snippetAlrededor(texto, kwTokens);
+    if (ctx) return ctx;
+  }
+  return '';
 }
 
 // ── Helper: INSERT IGNORE por lote ────────────────────────────────────────────
 type KwRow = { id: number; usuario_id: number; keyword: string };
+type Coincidencia = { lic: Licitacion; fuente: string; contexto: string; score: number };
 
 async function batchInsertAlertas(
   kw: KwRow,
-  coincidencias: Licitacion[],
+  coincidencias: Coincidencia[],
 ): Promise<number> {
   if (coincidencias.length === 0) return 0;
 
@@ -61,42 +118,105 @@ async function batchInsertAlertas(
     const chunk = coincidencias.slice(start, start + INSERT_BATCH);
 
     try {
-      const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?)').join(',');
+      // INSERT completo con ON DUPLICATE KEY UPDATE para rellenar campos vacíos en alertas ya existentes
+      // (organismo, monto, región y fecha_publicacion quedan vacíos cuando la licitación no fue enriquecida)
+      const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
       const values: unknown[] = [];
-      for (const lic of chunk) {
+      for (const { lic, fuente, contexto, score } of chunk) {
         values.push(
           kw.usuario_id,
           kw.id,
           kw.keyword,
           lic.Codigo,
           lic.Nombre?.substring(0, 500)    ?? null,
-          lic.Organismo?.substring(0, 500) ?? null,
+          lic.Organismo?.substring(0, 500) || null,
           lic.MontoEstimado                || null,
-          lic.FechaCierre ? new Date(lic.FechaCierre) : null,
+          lic.FechaCierre      ? new Date(lic.FechaCierre)      : null,
+          lic.FechaPublicacion ? new Date(lic.FechaPublicacion) : null,
           lic.EstadoNombre || lic.Estado   || null,
           lic.Region                       || null,
           (lic.Tipo || '').substring(0, 20) || null,
+          fuente,
+          contexto || null,
+          Number.isFinite(score) ? Number(score.toFixed(3)) : null,
         );
       }
       const [res] = await pool.query(
-        `INSERT IGNORE INTO alertas_licitaciones
+        `INSERT INTO alertas_licitaciones
            (usuario_id, palabra_clave_id, keyword_texto, licitacion_codigo,
             licitacion_nombre, licitacion_organismo, licitacion_monto,
-            licitacion_cierre, licitacion_estado, licitacion_region, licitacion_tipo)
-         VALUES ${placeholders}`,
+            licitacion_cierre, licitacion_fecha_publicacion,
+            licitacion_estado, licitacion_region,
+            licitacion_tipo, match_fuente, match_contexto, match_score)
+         VALUES ${placeholders}
+         ON DUPLICATE KEY UPDATE
+           licitacion_organismo       = IF(licitacion_organismo IS NULL OR licitacion_organismo = '', VALUES(licitacion_organismo), licitacion_organismo),
+           licitacion_monto           = IF(licitacion_monto IS NULL, VALUES(licitacion_monto), licitacion_monto),
+           licitacion_region          = IF(licitacion_region IS NULL OR licitacion_region = '', VALUES(licitacion_region), licitacion_region),
+           licitacion_tipo            = IF(licitacion_tipo IS NULL OR licitacion_tipo = '', VALUES(licitacion_tipo), licitacion_tipo),
+           licitacion_fecha_publicacion = IF(licitacion_fecha_publicacion IS NULL, VALUES(licitacion_fecha_publicacion), licitacion_fecha_publicacion),
+           licitacion_estado          = COALESCE(VALUES(licitacion_estado), licitacion_estado),
+           match_contexto             = IF(match_contexto IS NULL, VALUES(match_contexto), match_contexto),
+           match_score                = GREATEST(COALESCE(match_score, 0), COALESCE(VALUES(match_score), 0))`,
         values,
       ) as any[];
-      total += (res as any).affectedRows ?? 0;
+      // affectedRows: 1 = INSERT, 2 = UPDATE (ON DUPLICATE KEY), 0 = sin cambios
+      // Contamos solo los verdaderos INSERTs nuevos
+      const affected = (res as any).affectedRows ?? 0;
+      total += Math.min(affected, chunk.length);
     } catch (e: any) {
-      if (String(e).toLowerCase().includes('unknown column')) {
+      if (!String(e).toLowerCase().includes('unknown column')) continue;
+
+      // Fallback 1: falta match_score (migración 19 pendiente) pero existen
+      // match_fuente/contexto (migración 10). Insertamos sin match_score.
+      try {
+        const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+        const values: unknown[] = [];
+        for (const { lic, fuente, contexto } of chunk) {
+          values.push(
+            kw.usuario_id, kw.id, kw.keyword, lic.Codigo,
+            lic.Nombre?.substring(0, 500)    ?? null,
+            lic.Organismo?.substring(0, 500) || null,
+            lic.MontoEstimado                || null,
+            lic.FechaCierre      ? new Date(lic.FechaCierre)      : null,
+            lic.FechaPublicacion ? new Date(lic.FechaPublicacion) : null,
+            lic.EstadoNombre || lic.Estado   || null,
+            lic.Region                       || null,
+            (lic.Tipo || '').substring(0, 20) || null,
+            fuente,
+            contexto || null,
+          );
+        }
+        const [res] = await pool.query(
+          `INSERT INTO alertas_licitaciones
+             (usuario_id, palabra_clave_id, keyword_texto, licitacion_codigo,
+              licitacion_nombre, licitacion_organismo, licitacion_monto,
+              licitacion_cierre, licitacion_fecha_publicacion,
+              licitacion_estado, licitacion_region,
+              licitacion_tipo, match_fuente, match_contexto)
+           VALUES ${placeholders}
+           ON DUPLICATE KEY UPDATE
+             licitacion_organismo       = IF(licitacion_organismo IS NULL OR licitacion_organismo = '', VALUES(licitacion_organismo), licitacion_organismo),
+             licitacion_monto           = IF(licitacion_monto IS NULL, VALUES(licitacion_monto), licitacion_monto),
+             licitacion_region          = IF(licitacion_region IS NULL OR licitacion_region = '', VALUES(licitacion_region), licitacion_region),
+             licitacion_tipo            = IF(licitacion_tipo IS NULL OR licitacion_tipo = '', VALUES(licitacion_tipo), licitacion_tipo),
+             licitacion_fecha_publicacion = IF(licitacion_fecha_publicacion IS NULL, VALUES(licitacion_fecha_publicacion), licitacion_fecha_publicacion),
+             licitacion_estado          = COALESCE(VALUES(licitacion_estado), licitacion_estado),
+             match_contexto             = IF(match_contexto IS NULL, VALUES(match_contexto), match_contexto)`,
+          values,
+        ) as any[];
+        total += Math.min((res as any).affectedRows ?? 0, chunk.length);
+      } catch (e2: any) {
+        if (!String(e2).toLowerCase().includes('unknown column')) continue;
+        // Fallback 2: faltan también match_fuente/contexto/etc (migración 10 pendiente).
         try {
           const placeholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',');
           const values: unknown[] = [];
-          for (const lic of chunk) {
+          for (const { lic } of chunk) {
             values.push(
               kw.usuario_id, kw.id, kw.keyword, lic.Codigo,
               lic.Nombre?.substring(0, 500)    ?? null,
-              lic.Organismo?.substring(0, 500) ?? null,
+              lic.Organismo?.substring(0, 500) || null,
               lic.MontoEstimado                || null,
               lic.FechaCierre ? new Date(lic.FechaCierre) : null,
               lic.EstadoNombre || lic.Estado   || null,
@@ -144,7 +264,11 @@ export async function GET(request: NextRequest) {
     licitacionesActivas:    0,
     licitacionesRecientes:  0,
     licitacionesTotales:    0,
-    enriquecidas:           0,   // con descripción completa obtenida
+    cacheHits:              0,   // licitaciones ya enriquecidas en caché (sin API)
+    enriquecidasRun:        0,   // nuevas enriquecidas en esta corrida
+    r429:                   0,   // veces que la API pidió bajar el ritmo
+    agotoTiempoEnrich:      false,
+    enriquecidas:           0,   // total con descripción disponible (caché + run)
     enriquecimientoOmitido: false,
     keywordsProcesadas:     0,
     alertasNuevas:          0,
@@ -187,48 +311,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Sin licitaciones', ...stats }, { status: 503 });
     }
 
-    // ── Paso 2: Enriquecer con descripciones (two-pass) ───────────────────────
-    // Tomamos las N más recientes y las enriquecemos con obtenerPorCodigoRapido.
-    // Si el tiempo ya supera el límite, lo omitimos y usamos solo nombres.
-    const enrichedMap = new Map<string, Licitacion>(
-      licitaciones.map(l => [l.Codigo, l])
-    );
-
-    if (elapsed() < TIEMPO_LIMITE_MS) {
-      // Ordenar por fecha de publicación (más recientes primero) para máxima relevancia
-      const toEnrich = [...licitaciones]
-        .sort((a, b) => {
-          const ta = a.FechaPublicacion ? new Date(a.FechaPublicacion).getTime() : 0;
-          const tb = b.FechaPublicacion ? new Date(b.FechaPublicacion).getTime() : 0;
-          return tb - ta;
-        })
-        .slice(0, ENRICH_CAP);
-
-      console.log(
-        `[Cron] 🔎 Enriqueciendo ${toEnrich.length} licitaciones con descripción completa ` +
-        `(concurrencia ${ENRICH_CONCURRENCY}, timeout ${ENRICH_TIMEOUT_MS / 1000}s/llamada)...`,
-      );
-
-      await withConcurrency(toEnrich, ENRICH_CONCURRENCY, async (lic) => {
-        const full = await client.obtenerPorCodigoRapido(lic.Codigo, ENRICH_TIMEOUT_MS);
-        if (full) enrichedMap.set(lic.Codigo, full);
-      });
-
-      stats.enriquecidas = [...enrichedMap.values()]
-        .filter(l => (l.Descripcion || '').trim().length > 0).length;
-
-      console.log(
-        `[Cron] ✅ ${stats.enriquecidas} con descripción obtenida — ${elapsed()}ms`,
-      );
-    } else {
-      stats.enriquecimientoOmitido = true;
-      console.warn(`[Cron] ⏭ Enriquecimiento omitido — ya transcurrieron ${elapsed()}ms`);
-    }
-
-    // Listado final (enriquecido donde fue posible, batch donde no)
-    const licitacionesFinales = Array.from(enrichedMap.values());
-
-    // ── Paso 3: Cargar keywords ───────────────────────────────────────────────
+    // ── Paso 2: Cargar keywords (antes del enrichment, para priorizar) ────────
     const [rows] = await pool.query(
       `SELECT pk.id, pk.usuario_id, pk.keyword
        FROM palabras_clave pk
@@ -237,19 +320,48 @@ export async function GET(request: NextRequest) {
        ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
     );
     const kws = rows as KwRow[];
-    console.log(`[Cron] 📋 ${kws.length} keywords — concurrencia ${KW_CONCURRENCY}`);
+    console.log(`[Cron] 📋 ${kws.length} keywords`);
+
+    // ── Paso 3: Volcar el CACHÉ persistente (sin gastar API) ──────────────────
+    // El enriquecimiento nuevo se hace DESPUÉS de matchear+insertar (Paso 5), para
+    // que el output valioso (alertas) nunca se pierda si el run se queda sin tiempo.
+    const allCodigos = licitaciones.map(l => l.Codigo);
+    const enrichedMap = new Map<string, Licitacion>(licitaciones.map(l => [l.Codigo, l]));
+
+    const cache = await leerCache(allCodigos);
+    for (const [cod, entry] of cache) enrichedMap.set(cod, entry.lic);
+    stats.cacheHits = cache.size;
+    stats.enriquecidas = cache.size;
+    console.log(`[Cron] 🗃️  ${cache.size}/${allCodigos.length} ya enriquecidas en caché — ${elapsed()}ms`);
+
+    // Listado final (enriquecido desde caché donde se pudo, batch donde no)
+    const licitacionesFinales = Array.from(enrichedMap.values());
+
+    // Pre-indexar cada licitación UNA sola vez (normaliza acentos/plurales por campo).
+    const indices = new Map<string, LicitacionIndexada>(
+      licitacionesFinales.map(l => [l.Codigo, indexarLicitacion(camposDe(l))]),
+    );
 
     // ── Paso 4: Procesar keywords en paralelo ─────────────────────────────────
     const alertasMap = new Map<number, number>();
+    const matchedCodigos = new Set<string>(); // los que pegan → prioridad de enrichment
 
     await withConcurrency(kws, KW_CONCURRENCY, async (kw) => {
       try {
-        const termino = kw.keyword.toLowerCase().trim();
-
-        // Busca en Nombre + Descripcion + Items (texto completo)
-        const coincidencias = licitacionesFinales.filter(lic =>
-          textoCompleto(lic).includes(termino)
-        );
+        // Matcher compartido: normaliza acentos/plurales, pondera por campo y
+        // entrega score de relevancia. Reemplaza el includes() literal.
+        const coincidencias: Coincidencia[] = [];
+        for (const lic of licitacionesFinales) {
+          const r = evaluarKeyword(indices.get(lic.Codigo)!, kw.keyword);
+          if (!r.match) continue;
+          matchedCodigos.add(lic.Codigo);
+          coincidencias.push({
+            lic,
+            fuente:   r.fuentes.join(',') || 'titulo',
+            contexto: extraerContexto(lic, kw.keyword),
+            score:    r.score,
+          });
+        }
 
         const insertadas = await batchInsertAlertas(kw, coincidencias);
 
@@ -259,7 +371,7 @@ export async function GET(request: NextRequest) {
                resultados_nuevos = resultados_nuevos + ?,
                total_encontradas = total_encontradas + ?
            WHERE id = ?`,
-          [insertadas, coincidencias.length, kw.id],
+          [insertadas, coincidencias.length, kw.id] as unknown[],
         );
 
         alertasMap.set(kw.id, insertadas);
@@ -276,6 +388,46 @@ export async function GET(request: NextRequest) {
 
     stats.keywordsProcesadas = kws.length;
     for (const v of alertasMap.values()) stats.alertasNuevas += v;
+
+    // Historial: registrar cuántas licitaciones nuevas le llegaron a cada usuario
+    const nuevasPorUsuario = new Map<number, number>();
+    for (const kw of kws) {
+      const n = alertasMap.get(kw.id) || 0;
+      if (n > 0) nuevasPorUsuario.set(kw.usuario_id, (nuevasPorUsuario.get(kw.usuario_id) || 0) + n);
+    }
+    for (const [uid, n] of nuevasPorUsuario) {
+      registrarActividad({
+        usuarioId: uid, accion: 'radar_nuevas', entidadTipo: 'radar', entidadId: null,
+        descripcion: `${n} nueva${n !== 1 ? 's' : ''} licitación${n !== 1 ? 'es' : ''} encontrada${n !== 1 ? 's' : ''} en el radar`,
+        metadata: { cantidad: n },
+      });
+    }
+
+    // ── Paso 5: Enrichment de FONDO (con el tiempo que sobró) ──────────────────
+    // Las alertas ya están insertadas (Paso 4). Aquí solo rellenamos el caché para
+    // las próximas corridas: prioriza los que pegaron por keyword y rota el resto.
+    // Si no queda tiempo, no enriquece — el output valioso ya está a salvo.
+    const presupuesto = Math.min(ENRICH_MAX_MS, TIEMPO_LIMITE_MS - elapsed());
+    if (presupuesto > 3_000) {
+      const plan = planificarEnriquecimiento(allCodigos, cache, matchedCodigos, ENRICH_TTL_DIAS);
+      if (plan.aEnriquecer.length > 0) {
+        console.log(
+          `[Cron] 🔎 Enrichment de fondo: ${plan.aEnriquecer.length} candidatos ` +
+          `(${matchedCodigos.size} con match), presupuesto ${Math.round(presupuesto / 1000)}s...`,
+        );
+        const res = await enriquecerYCachear(client, plan.aEnriquecer, {
+          maxMs: presupuesto,
+          baseDelayMs: ENRICH_BASE_DELAY_MS,
+        });
+        stats.enriquecidasRun   = res.enriquecidas;
+        stats.r429              = res.r429;
+        stats.agotoTiempoEnrich = res.agotoTiempo;
+        console.log(`[Cron] ✅ enrich: +${res.enriquecidas} nuevas, ${res.r429} 429 — ${elapsed()}ms`);
+      }
+    } else {
+      stats.enriquecimientoOmitido = true;
+      console.warn(`[Cron] ⏭ Enrichment de fondo omitido — sin presupuesto (${presupuesto}ms)`);
+    }
 
     stats.duracionMs = elapsed();
     console.log(`[Cron] ✅ Completado en ${stats.duracionMs}ms —`, stats);

@@ -8,28 +8,40 @@ interface ChatDocumentosProps {
   licitacionCodigo: string;
 }
 
+const TODOS_LOS_DOCUMENTOS = '__TODOS__';
+
 export function ChatDocumentos({ documentos, licitacionCodigo }: ChatDocumentosProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [selectedDocumento, setSelectedDocumento] = useState<any>(null);
+  const [selectedValue, setSelectedValue] = useState('');
   const [pregunta, setPregunta] = useState('');
   const [loading, setLoading] = useState(false);
   const [respuesta, setRespuesta] = useState<string | null>(null);
   const [chatHistory, setChatHistory] = useState<Array<{ pregunta: string; respuesta: string }>>([]);
 
+  const esTodos = selectedValue === TODOS_LOS_DOCUMENTOS;
+  const selectedDocumento = esTodos ? null : documentos.find(d => d.nombre === selectedValue) || null;
+  const haySeleccion = esTodos || !!selectedDocumento;
+
   const handleAnalizar = async () => {
-    if (!selectedDocumento || !pregunta.trim()) return;
+    if (!haySeleccion || !pregunta.trim()) return;
 
     setLoading(true);
     setRespuesta(null);
+
+    const preguntaActual = pregunta;
+    const historial = chatHistory.slice(-3);
 
     try {
       const response = await fetch('/api/analizar-documento', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          pdfUrl: selectedDocumento.url,
-          pregunta: pregunta,
-          documentoNombre: selectedDocumento.nombre,
+          tipoAnalisis: 'pregunta',
+          pregunta: preguntaActual,
+          historial,
+          ...(esTodos
+            ? { documentos: documentos.map(d => ({ url: d.url, nombre: d.nombre })) }
+            : { pdfUrl: selectedDocumento!.url, documentoNombre: selectedDocumento!.nombre }),
         }),
       });
 
@@ -37,7 +49,7 @@ export function ChatDocumentos({ documentos, licitacionCodigo }: ChatDocumentosP
 
       if (data.success) {
         setRespuesta(data.respuesta);
-        setChatHistory(prev => [...prev, { pregunta: data.pregunta, respuesta: data.respuesta }]);
+        setChatHistory(prev => [...prev, { pregunta: preguntaActual, respuesta: data.respuesta }]);
         setPregunta('');
       } else {
         setRespuesta(`Error: ${data.error || 'No se pudo analizar el documento'}`);
@@ -80,14 +92,16 @@ export function ChatDocumentos({ documentos, licitacionCodigo }: ChatDocumentosP
         </label>
         <select
           className="w-full p-2 border border-gray-300 rounded-lg text-sm"
-          value={selectedDocumento?.nombre || ''}
+          value={selectedValue}
           onChange={(e) => {
-            const doc = documentos.find(d => d.nombre === e.target.value);
-            setSelectedDocumento(doc);
+            setSelectedValue(e.target.value);
             setRespuesta(null);
           }}
         >
           <option value="">-- Seleccionar documento --</option>
+          {documentos.length > 1 && (
+            <option value={TODOS_LOS_DOCUMENTOS}>📚 Todos los documentos</option>
+          )}
           {documentos.map((doc, idx) => (
             <option key={idx} value={doc.nombre}>
               {doc.nombre}
@@ -144,11 +158,11 @@ export function ChatDocumentos({ documentos, licitacionCodigo }: ChatDocumentosP
             onKeyPress={(e) => e.key === 'Enter' && handleAnalizar()}
             placeholder="Escribe tu pregunta sobre el documento..."
             className="flex-1 p-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            disabled={!selectedDocumento || loading}
+            disabled={!haySeleccion || loading}
           />
           <button
             onClick={handleAnalizar}
-            disabled={!selectedDocumento || !pregunta.trim() || loading}
+            disabled={!haySeleccion || !pregunta.trim() || loading}
             className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}

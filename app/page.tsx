@@ -152,17 +152,18 @@ function HomeContent() {
   return (
     <AppLayout breadcrumb={[{ label: 'Buscador' }]}>
       {/* Hero */}
-      <div className="bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 py-14 px-4">
-        <div className="max-w-3xl mx-auto text-center">
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-900/50 border border-blue-700/50 text-blue-300 text-xs font-medium mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+      <div className="bg-gradient-to-br from-[#1e1b4b] via-[#312e81] to-[#1e3a8a] py-14 px-4 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.15)_0%,transparent_60%)]" />
+        <div className="max-w-3xl mx-auto text-center relative z-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-indigo-200 text-xs font-semibold mb-6 backdrop-blur-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             Datos en tiempo real · API Mercado Público oficial
           </div>
-          <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4 leading-tight">
+          <h1 className="text-4xl sm:text-5xl font-bold text-white mb-4 leading-tight tracking-tight">
             Oportunidades de{' '}
-            <span className="text-blue-400">Licitación</span>
+            <span className="text-indigo-300">Licitación</span>
           </h1>
-          <p className="text-slate-400 text-lg mb-8">
+          <p className="text-indigo-200 text-lg mb-8">
             Accede a todas las licitaciones de Chile en un solo lugar.
             Busca, filtra y analiza con inteligencia artificial.
           </p>
@@ -171,16 +172,16 @@ function HomeContent() {
       </div>
 
       {/* Stats bar */}
-      <div className="bg-slate-800 border-b border-slate-700">
+      <div className="bg-[#0a0f1e] border-b border-white/5">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2 text-sm text-slate-400">
-                <Building2 size={14} className="text-blue-400" />
+                <Building2 size={14} className="text-indigo-400" />
                 <span><strong className="text-slate-200">850</strong> organismos</span>
               </div>
               <div className="flex items-center gap-2 text-sm text-slate-400">
-                <TrendingUp size={14} className="text-green-400" />
+                <TrendingUp size={14} className="text-emerald-400" />
                 <span><strong className="text-slate-200">118.000+</strong> proveedores</span>
               </div>
               {dataSource && (
@@ -213,23 +214,23 @@ function HomeContent() {
             />
 
             {/* Favoritos toggle */}
-            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
               <button
                 onClick={() => {
                   setShowFavoritesOnly(!showFavoritesOnly);
                   if (lastQuery) executeSearch(lastQuery, 1);
                 }}
-                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all ${
+                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-[13px] transition-all ${
                   showFavoritesOnly
                     ? 'bg-amber-500 text-white shadow-sm'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                <Star size={15} className={showFavoritesOnly ? 'fill-white' : ''} />
+                <Star size={14} className={showFavoritesOnly ? 'fill-white' : ''} />
                 {showFavoritesOnly ? 'Mostrando favoritos' : 'Solo favoritos'}
               </button>
               {favoriteCodes.size > 0 && (
-                <p className="text-center text-xs text-gray-400 mt-2">
+                <p className="text-center text-xs text-slate-400 mt-2">
                   {favoriteCodes.size} guardados
                 </p>
               )}
@@ -251,7 +252,7 @@ function HomeContent() {
                   {hasActiveFilters && (
                     <button
                       onClick={handleClearFilters}
-                      className="text-xs text-blue-600 hover:underline"
+                      className="text-xs text-indigo-600 hover:underline"
                     >
                       Limpiar filtros
                     </button>
@@ -263,17 +264,17 @@ function HomeContent() {
                     <button
                       onClick={() => handlePageChange(currentPage - 1)}
                       disabled={currentPage <= 1}
-                      className="px-3 py-1.5 text-sm rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      className="px-3 py-1.5 text-[13px] rounded-lg bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                       ←
                     </button>
-                    <span className="px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg">
+                    <span className="px-3 py-1.5 text-[13px] bg-white border border-slate-200 rounded-lg text-slate-600">
                       {currentPage} / {totalPages}
                     </span>
                     <button
                       onClick={() => handlePageChange(currentPage + 1)}
                       disabled={currentPage >= totalPages}
-                      className="px-3 py-1.5 text-sm rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      className="px-3 py-1.5 text-[13px] rounded-lg bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                       →
                     </button>
@@ -305,22 +306,22 @@ function HomeContent() {
 
             {/* Estado vacío inicial */}
             {!hasSearched && !loading && (
-              <div className="text-center py-20 bg-white rounded-xl border border-gray-100 shadow-sm">
-                <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Search size={28} className="text-blue-400" />
+              <div className="text-center py-20 bg-white rounded-xl border border-slate-200 shadow-sm fade-in">
+                <div className="w-16 h-16 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Search size={28} className="text-indigo-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                <h3 className="text-[15px] font-bold text-slate-800 mb-2">
                   Busca licitaciones
                 </h3>
-                <p className="text-gray-500 text-sm max-w-sm mx-auto">
+                <p className="text-slate-500 text-[13px] max-w-sm mx-auto">
                   Escribe el nombre de un producto, servicio o el código exacto de la licitación
                 </p>
-                <div className="mt-6 flex flex-wrap justify-center gap-2">
-                  {['computadores', 'servicios de aseo', 'mantención', 'obras'].map(q => (
+                <div className="mt-5 flex flex-wrap justify-center gap-2">
+                  {['computadores', 'servicios de aseo', 'mantención', 'obras civiles'].map(q => (
                     <button
                       key={q}
                       onClick={() => handleSearch(q)}
-                      className="px-3 py-1.5 rounded-full bg-gray-100 hover:bg-blue-100 hover:text-blue-700 text-sm text-gray-600 transition-colors"
+                      className="px-3 py-1.5 rounded-full bg-slate-100 hover:bg-indigo-100 hover:text-indigo-700 text-[12px] font-medium text-slate-600 transition-colors border border-slate-200 hover:border-indigo-200"
                     >
                       {q}
                     </button>
@@ -331,12 +332,12 @@ function HomeContent() {
 
             {/* Sin resultados */}
             {hasSearched && !loading && !error && opportunities.length === 0 && (
-              <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
-                <div className="text-5xl mb-4">🔍</div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">
+              <div className="text-center py-16 bg-white rounded-xl border border-slate-200 shadow-sm fade-in">
+                <Search size={32} className="text-slate-300 mx-auto mb-4" />
+                <h3 className="text-[15px] font-bold text-slate-700 mb-2">
                   Sin resultados para &ldquo;{lastQuery}&rdquo;
                 </h3>
-                <p className="text-gray-500 text-sm">
+                <p className="text-slate-400 text-[13px]">
                   Prueba con otras palabras clave o ajusta los filtros
                 </p>
               </div>
@@ -344,22 +345,16 @@ function HomeContent() {
 
             {/* Paginación inferior */}
             {totalPages > 1 && !loading && (
-              <div className="mt-6 flex justify-center gap-1">
-                <button
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage <= 1}
-                  className="px-4 py-2 text-sm rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
+              <div className="mt-6 flex justify-center gap-1.5">
+                <button onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage <= 1}
+                  className="px-4 py-2 text-[13px] font-medium rounded-xl bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                   ← Anterior
                 </button>
-                <span className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg">
-                  {currentPage}
+                <span className="px-4 py-2 text-[13px] font-bold bg-indigo-600 text-white rounded-xl">
+                  {currentPage} / {totalPages}
                 </span>
-                <button
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage >= totalPages}
-                  className="px-4 py-2 text-sm rounded-lg bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                >
+                <button onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage >= totalPages}
+                  className="px-4 py-2 text-[13px] font-medium rounded-xl bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                   Siguiente →
                 </button>
               </div>
@@ -369,7 +364,7 @@ function HomeContent() {
       </main>
 
       {/* Footer */}
-      <footer className="bg-slate-900 border-t border-slate-800 mt-auto">
+      <footer className="bg-[#0a0f1e] border-t border-white/5 mt-auto">
         <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
           <p className="text-slate-500 text-sm">
             © {new Date().getFullYear()} ICA Licitaciones · Datos de{' '}

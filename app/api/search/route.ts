@@ -4,6 +4,7 @@ import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { searchEngine } from '@/app/lib/search-engine';
 import { SearchRequest, SearchResponse, Oportunidad } from '@/app/types/search.types';
 import { Licitacion } from '@/app/types/mercado-publico.types';
+import { leerCache, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
 
 // Cache por consulta paginada (resultados ya enriquecidos)
 const cache = new Map<string, { data: SearchResponse; timestamp: number }>();
@@ -11,7 +12,20 @@ const CACHE_DURATION = 3 * 60 * 1000; // 3 minutos
 
 // Cache del pool de licitaciones crudas (7 días) — compartido entre páginas del mismo día
 const rawPool = new Map<string, { data: Licitacion[]; timestamp: number }>();
-const RAW_POOL_DURATION = 8 * 60 * 1000; // 8 minutos
+const RAW_POOL_DURATION = 30 * 60 * 1000; // 30 minutos — datos de 7 días no cambian tan rápido
+
+// Cache de enriquecimiento por licitación individual — evita re-llamar ?codigo= cuando
+// la misma licitación aparece en distintas páginas o distintas búsquedas del mismo usuario
+const enrichmentCache = new Map<string, { data: Oportunidad; timestamp: number }>();
+const ENRICHMENT_CACHE_DURATION = 30 * 60 * 1000; // 30 minutos
+
+// Limpieza periódica de entradas expiradas en enrichmentCache (aplica en instancias long-running)
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of enrichmentCache) {
+    if (now - val.timestamp > ENRICHMENT_CACHE_DURATION) enrichmentCache.delete(key);
+  }
+}, 10 * 60 * 1000);
 
 // Usar API REAL
 const USE_MOCK = false;
@@ -28,28 +42,46 @@ async function enrichirPagina(
   client: ReturnType<typeof getMercadoPublicoClient>,
   resultados: Oportunidad[]
 ): Promise<Oportunidad[]> {
-  // Solo enriquecer si el primer resultado tiene organismo vacío
-  const necesitaEnriquecimiento = resultados.some(r => !r.organismo);
-  if (!necesitaEnriquecimiento) return resultados;
+  const faltan = resultados.filter(r => !r.organismo);
+  if (faltan.length === 0) return resultados;
 
-  const enriched = await Promise.all(
-    resultados.map(async (opp): Promise<Oportunidad> => {
-      if (opp.organismo) return opp; // Ya tiene datos completos
-      try {
-        const full = await client.obtenerPorCodigo(opp.codigo);
-        if (full) {
-          return {
-            ...searchEngine.licitacionToOportunidad(full, ''),
-            score: opp.score, // Preservar score de relevancia
-          };
-        }
-      } catch {
-        // Fallo silencioso: usar datos mínimos
-      }
-      return opp;
-    })
+  // 1. Caché PERSISTENTE compartido con el cron — evita llamar ?codigo= y los 429.
+  //    A medida que el cron llena el caché, la búsqueda manual casi no toca la API.
+  const persist = await leerCache(faltan.map(r => r.codigo));
+
+  // 2. Los que aún faltan (ni persistente ni en memoria) se enriquecen con throttle
+  //    suave, acotado en tiempo para no colgar la búsqueda interactiva.
+  const aunFaltan = faltan.filter(r =>
+    !persist.has(r.codigo) &&
+    !(enrichmentCache.get(r.codigo) && Date.now() - enrichmentCache.get(r.codigo)!.timestamp < ENRICHMENT_CACHE_DURATION),
   );
-  return enriched;
+  const nuevos = new Map<string, Licitacion>();
+  if (aunFaltan.length > 0) {
+    const res = await enriquecerYCachear(client, aunFaltan.map(r => r.codigo), {
+      maxMs: 8_000, baseDelayMs: 500, guardarCada: 5,
+    });
+    for (const lic of res.lics) nuevos.set(lic.Codigo, lic);
+  }
+
+  return resultados.map((opp): Oportunidad => {
+    if (opp.organismo) return opp;
+
+    const p = persist.get(opp.codigo);
+    if (p) return { ...searchEngine.licitacionToOportunidad(p.lic, ''), score: opp.score };
+
+    const mem = enrichmentCache.get(opp.codigo);
+    if (mem && Date.now() - mem.timestamp < ENRICHMENT_CACHE_DURATION) {
+      return { ...mem.data, score: opp.score };
+    }
+
+    const fresh = nuevos.get(opp.codigo);
+    if (fresh) {
+      const enriched: Oportunidad = { ...searchEngine.licitacionToOportunidad(fresh, ''), score: opp.score };
+      enrichmentCache.set(opp.codigo, { data: enriched, timestamp: Date.now() });
+      return enriched;
+    }
+    return opp;
+  });
 }
 
 // Función para detectar si es una búsqueda por código de licitación

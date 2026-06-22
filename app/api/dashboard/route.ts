@@ -2,10 +2,17 @@
 // Estadísticas personales del usuario + totales de admin
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getSession } from '@/app/lib/auth';
+
+function getUserFromHeaders(request: NextRequest) {
+  const id = request.headers.get('x-user-id');
+  if (!id) return null;
+  const n = parseInt(id, 10);
+  if (isNaN(n)) return null;
+  return { id: n, email: request.headers.get('x-user-email') || '', rol: request.headers.get('x-user-rol') || 'user' };
+}
 
 export async function GET(request: NextRequest) {
-  const sesion = await getSession();
+  const sesion = getUserFromHeaders(request);
   if (!sesion) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {

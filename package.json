@@ -12,6 +12,7 @@
     "@aws-sdk/client-s3": "^3.1053.0",
     "@aws-sdk/s3-request-presigner": "^3.1054.0",
     "@google-cloud/vision": "^5.3.6",
+    "@google/generative-ai": "^0.24.1",
     "@sparticuz/chromium": "^148.0.0",
     "@supabase/supabase-js": "^2.106.2",
     "@upstash/ratelimit": "^2.0.8",
@@ -19,6 +20,7 @@
     "axios": "^1.16.1",
     "bcryptjs": "^3.0.3",
     "cheerio": "^1.2.0",
+    "clsx": "^2.1.1",
     "date-fns": "^4.2.1",
     "jose": "^6.2.3",
     "lucide-react": "^1.16.0",
@@ -26,6 +28,7 @@
     "mysql2": "^3.22.3",
     "next": "16.2.6",
     "openai": "^6.39.0",
+    "pdf-lib": "^1.17.1",
     "pdf-parse": "^1.1.4",
     "puppeteer-core": "^25.0.4",
     "puppeteer-extra": "^3.3.6",
@@ -33,7 +36,9 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "redis": "^5.12.1",
+    "tailwind-merge": "^3.6.0",
     "tesseract.js": "^7.0.0",
+    "word-extractor": "^1.0.4",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
