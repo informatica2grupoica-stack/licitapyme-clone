@@ -296,10 +296,15 @@ export async function GET(request: NextRequest) {
       `${licitacionesRecientes.length} de últimos ${DIAS_RECIENTES} días — ${elapsed()}ms`,
     );
 
-    // Deduplicar
+    // Deduplicar. Una licitación puede venir por ambas vías: "activas" (sin objeto
+    // Fechas → sin FechaPublicacion) y "últimos días" (que pasa la fecha del día como
+    // fallback de publicación). Preferimos SIEMPRE la versión que SÍ trae fecha de
+    // publicación, para que la de "activas" (vacía) no pise a la fechada.
     const mapa = new Map<string, Licitacion>();
     for (const lic of [...licitacionesActivas, ...licitacionesRecientes]) {
-      if (!mapa.has(lic.Codigo)) mapa.set(lic.Codigo, lic);
+      const prev = mapa.get(lic.Codigo);
+      if (!prev) { mapa.set(lic.Codigo, lic); continue; }
+      if (!prev.FechaPublicacion && lic.FechaPublicacion) mapa.set(lic.Codigo, lic);
     }
     const licitaciones = Array.from(mapa.values());
     stats.licitacionesTotales   = licitaciones.length;
