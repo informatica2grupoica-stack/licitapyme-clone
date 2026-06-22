@@ -25,6 +25,9 @@ export interface ViabilidadIAResult {
   exclusion: { excluido: boolean; categoria: string | null; motivo: string; fuente: string; confianza: number };
   presupuesto: { bruto: number | null; neto: number | null; con_iva: boolean; fuente: string };
   modalidad: { tipo: string; fuente: string; evidencia: string; confianza: number };
+  criterios_evaluacion: Array<{ nombre: string; ponderacion_pct: number; tipo: string; fuente: string }>;
+  plazo_entrega: { detalle: string; fuente: string };
+  garantias: Array<{ tipo: string; detalle: string; fuente: string }>;
   capa_a: {
     presupuesto: { pts: number; fuente: string };
     cantidad_items: { pts: number; n_items: number; fuente: string };
@@ -123,7 +126,7 @@ async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promi
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: [{ parts: [{ text: userPrompt }] }],
-    generationConfig: { temperature: 0.15, responseMimeType: 'application/json', maxOutputTokens: 8192 },
+    generationConfig: { temperature: 0.15, responseMimeType: 'application/json', maxOutputTokens: 32_000 },
   });
 
   const ESPERAS = [0, 5_000, 15_000];
@@ -157,7 +160,8 @@ REGLAS INNEGOCIABLES:
 3. Logística SIEMPRE desde Santiago: no asumas ventaja por cercanía geográfica.
 4. Exclusión por NATURALEZA del objeto, no por palabra clave. Si el núcleo es venta de bienes/equipamiento (aunque incluya instalación/capacitación accesorias) → NO excluir. Servicio puro / obra civil / consultoría / convenio de largo horizonte → excluir.
 5. Presupuesto: si viene con IVA, normaliza a neto (÷1,19). Piso de descalificación: neto < $10.000.000.
-6. Modalidad (DATO CRÍTICO): determina SUMA ALZADA vs POR LÍNEA leyendo el artículo de las bases, cita la frase.
+6. Modalidad de ADJUDICACIÓN (DATO CRÍTICO): determina si la adjudicación es POR LÍNEA/ÍTEM (se puede ganar líneas sueltas) o SUMA ALZADA (oferta por el total). NO confundas con el TIPO de licitación (LP/LE/LR). Pista: si hay tabla de ítems con precio unitario por línea → por_linea. Cita la frase de las bases.
+7. CRITERIOS DE EVALUACIÓN: extrae CADA criterio con su PORCENTAJE exacto tal como aparece en las bases (la suma debe dar 100). Es obligatorio: estos % siempre están en las bases (sección "criterios de evaluación").
 7. Lo que dependa de buscar productos/precios en internet → déjalo en "pendientes_fase3", NO lo inventes.
 8. El veredicto debe ser claro: GANA / NO_GANA / CONDICIONAL, con el porqué fundamentado en las bases.
 
@@ -189,6 +193,9 @@ Analiza TODO lo anterior y devuelve EXACTAMENTE este JSON (cita FUENTE en cada p
   "exclusion": { "excluido": false, "categoria": "servicio|obra_civil|capacitacion_pura|consultoria|convenio_suministro|null", "motivo": "", "fuente": "", "confianza": 0.0 },
   "presupuesto": { "bruto": null, "neto": null, "con_iva": false, "fuente": "" },
   "modalidad": { "tipo": "suma_alzada|por_linea|desconocida", "fuente": "", "evidencia": "frase exacta de las bases", "confianza": 0.0 },
+  "criterios_evaluacion": [ { "nombre": "Precio", "ponderacion_pct": 0, "tipo": "economico|tecnico|experiencia|otros", "fuente": "sección/artículo de las bases" } ],
+  "plazo_entrega": { "detalle": "", "fuente": "" },
+  "garantias": [ { "tipo": "seriedad|fiel_cumplimiento|otra", "detalle": "monto/% y plazo, o 'No exige'", "fuente": "" } ],
   "capa_a": {
     "presupuesto": { "pts": 0, "fuente": "" },
     "cantidad_items": { "pts": 0, "n_items": 0, "fuente": "" },

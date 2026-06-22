@@ -130,9 +130,11 @@ export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<strin
     generationConfig: { temperature: 0 },
   });
 
-  // Backoff CORTO: ante 429 por cuota agotada reintentar no ayuda (es límite diario),
-  // y un backoff largo cuelga toda la petición cuando se OCR-ea por bloques. Fallar rápido.
-  const ESPERAS = [0, 4_000]; // 2 intentos, máx ~4s extra
+  // Reintentos con backoff. En el plan de PAGO, 429 = límite por minuto (transitorio,
+  // reintentar ayuda) y 503 = sobrecarga temporal del modelo. Ambos se reintentan con
+  // espera creciente; los errores permanentes (400/401/403) fallan de inmediato.
+  const ESPERAS = [0, 6_000, 15_000, 30_000]; // 4 intentos
+  let ultimoErr = '';
   for (let intento = 0; intento < ESPERAS.length; intento++) {
     if (intento > 0) await sleep(ESPERAS[intento]);
 
@@ -142,7 +144,7 @@ export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<strin
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: reqBody,
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(180_000),
       }
     );
 
@@ -154,18 +156,15 @@ export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<strin
     }
 
     const errBody = await res.text().catch(() => '');
-    // 429 por cuota → fallar de inmediato (reintentar es inútil y cuelga el request).
-    if (res.status === 429) {
-      throw new Error(`Gemini Vision 429 (cuota agotada): ${errBody.slice(0, 200)}`);
-    }
-    if (res.status === 503) {
-      console.warn(`[gemini-vision] 503 temporal, reintentando...`);
+    ultimoErr = `${res.status}: ${errBody.slice(0, 200)}`;
+    if (res.status === 429 || res.status === 503) {
+      console.warn(`[gemini-vision] ${res.status} transitorio, reintentando (${intento + 1}/${ESPERAS.length})...`);
       continue;
     }
     throw new Error(`Gemini Vision ${res.status}: ${errBody.slice(0, 300)}`);
   }
 
-  throw new Error('Gemini Vision no respondió (rate-limit/temporal)');
+  throw new Error(`Gemini Vision no respondió tras reintentos. Último error: ${ultimoErr}`);
 }
 const sleep  = (ms: number) => new Promise(r => setTimeout(r, ms));
 
