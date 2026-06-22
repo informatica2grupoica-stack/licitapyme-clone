@@ -24,22 +24,17 @@ cualquier PC**, sin abrir puertos del router.
 
 ---
 
-## 2. Crear el túnel en Cloudflare (una sola vez)
+## 2. El túnel (Quick Tunnel — gratis, SIN dominio)
 
-> Requiere una cuenta de Cloudflare (gratis) y un dominio agregado a Cloudflare.
-> Si no tienes dominio, puedes usar el modo "quick tunnel" (URL aleatoria) — ver nota al final.
+No hace falta crear nada en el panel de Cloudflare ni token. El `docker-compose` ya
+está configurado con **Quick Tunnel**: al levantar, el contenedor `cloudflared` genera
+una URL pública aleatoria `https://<algo>.trycloudflare.com`.
 
-1. Entra a **Cloudflare Zero Trust** → https://one.dash.cloudflare.com
-2. Menú **Networks → Tunnels → Create a tunnel** → tipo **Cloudflared**.
-3. Ponle un nombre (ej. `licitapyme`) y **copia el token** que te muestra
-   (es la cadena larga del comando `cloudflared ... run <TOKEN>`). Ese valor va en
-   `CLOUDFLARE_TUNNEL_TOKEN` del `.env`.
-4. En **Public Hostnames → Add a public hostname**:
-   - **Subdomain:** `app-licita` (o el que quieras)
-   - **Domain:** tu dominio
-   - **Type:** `HTTP`
-   - **URL:** `app:3000`  ← (nombre del servicio Docker + puerto interno; NO localhost)
-5. Guarda. Tu link público será `https://app-licita.tudominio.com`.
+- En el `.env` deja `CLOUDFLARE_TUNNEL_TOKEN=` **vacío**.
+- La URL pública aparece en los logs (ver PASO 5 más abajo).
+- ⚠️ La URL **cambia en cada reinicio** del contenedor. Sirve para pruebas; para un
+  link fijo (`app-licita.tudominio.com`) necesitas un dominio propio agregado a
+  Cloudflare y migrar al modo "túnel con nombre + token".
 
 ---
 
@@ -47,14 +42,19 @@ cualquier PC**, sin abrir puertos del router.
 
 ```bash
 cp .env.example .env
-# edita .env con los valores reales (DB, R2, tickets, keys, y CLOUDFLARE_TUNNEL_TOKEN)
+# edita .env con los valores reales (DB, R2, tickets, keys). CLOUDFLARE_TUNNEL_TOKEN va vacío.
 
 docker compose up -d --build
 ```
 
 - Comprueba que ambos contenedores estén "Up":  `docker compose ps`
 - Logs en vivo:  `docker compose logs -f`
-- La app responde en el link público y también en `http://localhost:3003` del propio notebook.
+- **Obtén el link público (quick tunnel):**
+  ```bash
+  docker compose logs cloudflared | grep trycloudflare.com
+  ```
+  Verás `https://<algo>.trycloudflare.com` — ese es tu link público (cambia en cada reinicio).
+- También responde en `http://localhost:3003` del propio notebook.
 
 Para actualizar tras cambios de código:
 ```bash
@@ -71,7 +71,7 @@ Apagar:  `docker compose down`
 En el notebook ya no existe Vercel Cron. Usa **https://cron-job.org** (gratis):
 
 1. Crea un cronjob nuevo.
-2. **URL:** `https://app-licita.tudominio.com/api/cron/alertas`
+2. **URL:** `https://<tu-link-trycloudflare>/api/cron/alertas`  (el del quick tunnel; actualízalo si reinicias)
 3. **Método:** GET
 4. **Headers:** `Authorization: Bearer <el-valor-de-CRON_SECRET>`
 5. **Schedule:** el que quieras (ej. cada 4 horas).

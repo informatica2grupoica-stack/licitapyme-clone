@@ -33,10 +33,11 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: licitapyme-tunnel
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      # Token del túnel con nombre (lo generas en el panel de Cloudflare Zero Trust).
-      # En el panel, el hostname público apunta al servicio:  http://app:3000
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    # QUICK TUNNEL (gratis, sin dominio ni token). Cloudflare genera una URL pública
+    # aleatoria https://<algo>.trycloudflare.com. Aparece en los logs del contenedor:
+    #   docker compose logs cloudflared   → busca la línea "trycloudflare.com"
+    # ⚠️ La URL cambia en cada reinicio del contenedor. Para un link fijo se necesita
+    #    un dominio en Cloudflare (modo túnel con nombre + token).
+    command: tunnel --no-autoupdate --url http://app:3000
     depends_on:
       - app
