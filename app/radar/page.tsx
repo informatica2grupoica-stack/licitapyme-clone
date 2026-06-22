@@ -416,9 +416,12 @@ function LicitacionCard({
               {fmt(alerta.licitacion_monto)}
             </span>
           )}
-          <span className="flex items-center gap-1.5 text-[12px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
+          <span
+            className="flex items-center gap-1.5 text-[12px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100"
+            title={alerta.licitacion_fecha_publicacion ? 'Fecha de publicación (Mercado Público)' : 'La API no entregó fecha de publicación — se muestra la fecha en que llegó al sistema'}
+          >
             <Zap size={10} className="flex-shrink-0" />
-            Publicada: <strong className="ml-0.5">{fmtFechaCorta(alerta.licitacion_fecha_publicacion)}</strong>
+            Publicada: <strong className="ml-0.5">{fmtFechaCorta(alerta.licitacion_fecha_publicacion || alerta.created_at)}</strong>
           </span>
           {alerta.licitacion_cierre && (
             <span className="flex items-center gap-1.5 text-[12px] text-slate-500">
@@ -1046,7 +1049,8 @@ export default function RadarPage() {
       }
       if (filtros.estados.length > 0 && !filtros.estados.some(f => estado.toLowerCase() === f.toLowerCase())) return false;
       if (filtros.tipos.length > 0 && (!tipo || !filtros.tipos.includes(tipo))) return false;
-      if (!dentroRangoPublicacion(a.licitacion_fecha_publicacion, filtros.fechaDesde, filtros.fechaHasta)) return false;
+      // La API a veces no entrega fecha de publicación → usamos created_at (cuándo llegó al sistema) como proxy.
+      if (!dentroRangoPublicacion(a.licitacion_fecha_publicacion || a.created_at, filtros.fechaDesde, filtros.fechaHasta)) return false;
       if (filtros.region && a.licitacion_region !== filtros.region) return false;
       if (filtros.monto && !matchMonto(a.licitacion_monto, filtros.monto)) return false;
       if (filtros.conDocumentos && !a.tiene_documentos) return false;
