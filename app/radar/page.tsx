@@ -73,7 +73,7 @@ const ESTADOS_CFG = [
   { key: 'Adjudicada',label: 'Adjudicada', dot: '#8b5cf6', bg: 'bg-violet-50',  text: 'text-violet-700',  border: 'border-violet-200',  pill: 'bg-violet-500'  },
   { key: 'Revocada',  label: 'Revocada',   dot: '#f87171', bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200',     pill: 'bg-red-400'     },
 ];
-const ESTADOS_ACTIVOS_DEFAULT = ['Publicada', 'Desierta', 'Suspendida'];
+const ESTADOS_ACTIVOS_DEFAULT = ['Publicada'];
 
 const RANGOS_MONTO = [
   { key: '',       label: 'Cualquier monto' },
@@ -158,6 +158,18 @@ function matchMonto(monto: number | null, rango: string): boolean {
   if (rango === '5-20')   return m >= 5 && m <= 20;
   if (rango === '20-100') return m > 20 && m <= 100;
   if (rango === '>100')   return m > 100;
+  return true;
+}
+
+// ¿La fecha de publicación cae dentro del rango [desde, hasta] (ambos opcionales)?
+// Si hay rango activo y la licitación no tiene fecha de publicación → se excluye.
+function dentroRangoPublicacion(fechaIso: string | null, desde: string, hasta: string): boolean {
+  if (!desde && !hasta) return true;
+  if (!fechaIso) return false;
+  const t = new Date(fechaIso).getTime();
+  if (isNaN(t)) return false;
+  if (desde && t < new Date(`${desde}T00:00:00`).getTime()) return false;
+  if (hasta && t > new Date(`${hasta}T23:59:59`).getTime()) return false;
   return true;
 }
 
@@ -404,12 +416,10 @@ function LicitacionCard({
               {fmt(alerta.licitacion_monto)}
             </span>
           )}
-          {alerta.licitacion_fecha_publicacion && (
-            <span className="flex items-center gap-1.5 text-[12px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
-              <Zap size={10} className="flex-shrink-0" />
-              Publicada: <strong className="ml-0.5">{fmtFechaCorta(alerta.licitacion_fecha_publicacion)}</strong>
-            </span>
-          )}
+          <span className="flex items-center gap-1.5 text-[12px] text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100">
+            <Zap size={10} className="flex-shrink-0" />
+            Publicada: <strong className="ml-0.5">{fmtFechaCorta(alerta.licitacion_fecha_publicacion)}</strong>
+          </span>
           {alerta.licitacion_cierre && (
             <span className="flex items-center gap-1.5 text-[12px] text-slate-500">
               <Calendar size={11} className="text-slate-400 flex-shrink-0" />
@@ -478,10 +488,11 @@ function PanelFiltros({
 }: {
   alertas: Alerta[];
   filtros: {
-    texto: string; estados: string[]; tipo: string; region: string;
+    texto: string; estados: string[]; tipos: string[]; region: string;
     dias: string; monto: string; conDocumentos: boolean;
     soloNoLeidas: boolean; orden: string; semaforos: string[]; keyword: string;
     decisiones: string[]; ocultarExcluidas: boolean;
+    fechaDesde: string; fechaHasta: string;
   };
   onChange: (key: string, val: unknown) => void;
   onClear: () => void;
@@ -499,6 +510,13 @@ function PanelFiltros({
       ? filtros.estados.filter(e => e !== key)
       : [...filtros.estados, key];
     onChange('estados', next);
+  };
+
+  const toggleTipo = (key: string) => {
+    const next = filtros.tipos.includes(key)
+      ? filtros.tipos.filter(t => t !== key)
+      : [...filtros.tipos, key];
+    onChange('tipos', next);
   };
 
   const conteoEstado = (key: string) =>
@@ -527,9 +545,10 @@ function PanelFiltros({
     alertas.filter(a => a.prefiltro_decision === key).length;
   const hayDecisiones = alertas.some(a => a.prefiltro_decision);
 
-  const hayFiltros = filtros.texto || filtros.tipo || filtros.region || filtros.dias ||
+  const hayFiltros = filtros.texto || filtros.tipos.length > 0 || filtros.region || filtros.dias ||
     filtros.monto || filtros.conDocumentos || filtros.soloNoLeidas || filtros.keyword ||
     filtros.semaforos.length > 0 || filtros.decisiones.length > 0 || filtros.ocultarExcluidas ||
+    filtros.fechaDesde || filtros.fechaHasta ||
     filtros.estados.length !== ESTADOS_ACTIVOS_DEFAULT.length;
 
   return (
@@ -639,9 +658,9 @@ function PanelFiltros({
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Tipo</p>
             <div className="flex flex-wrap gap-1.5">
               <button
-                onClick={() => onChange('tipo', '')}
+                onClick={() => onChange('tipos', [])}
                 className={`text-[11px] px-2 py-1 rounded-lg border font-bold transition-all ${
-                  !filtros.tipo ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500 hover:border-slate-400'
+                  filtros.tipos.length === 0 ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-500 hover:border-slate-400'
                 }`}
               >
                 Todos
@@ -649,11 +668,12 @@ function PanelFiltros({
               {tipos.map(t => {
                 const info = getTipoLicitacion(t);
                 const bg   = TIPO_COLOR_CLASS[t] || 'bg-gray-400';
+                const activo = filtros.tipos.includes(t);
                 return (
-                  <button key={t} onClick={() => onChange('tipo', filtros.tipo === t ? '' : t)}
+                  <button key={t} onClick={() => toggleTipo(t)}
                     title={info?.label}
                     className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold transition-all ${
-                      filtros.tipo === t ? `${bg} text-white border-transparent` : 'border-slate-200 text-slate-600 hover:border-slate-400'
+                      activo ? `${bg} text-white border-transparent` : 'border-slate-200 text-slate-600 hover:border-slate-400'
                     }`}
                   >
                     {t} <span className="opacity-60">{conteoTipo(t)}</span>
@@ -678,6 +698,41 @@ function PanelFiltros({
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Fecha de publicación (rango con calendario) */}
+        <div>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Fecha de publicación</p>
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <label className="block text-[10px] text-slate-400 mb-1">Desde</label>
+              <input
+                type="date"
+                value={filtros.fechaDesde}
+                max={filtros.fechaHasta || undefined}
+                onChange={e => onChange('fechaDesde', e.target.value)}
+                className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-[12px] text-slate-700 bg-white focus:ring-1 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-[10px] text-slate-400 mb-1">Hasta</label>
+              <input
+                type="date"
+                value={filtros.fechaHasta}
+                min={filtros.fechaDesde || undefined}
+                onChange={e => onChange('fechaHasta', e.target.value)}
+                className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-[12px] text-slate-700 bg-white focus:ring-1 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+          </div>
+          {(filtros.fechaDesde || filtros.fechaHasta) && (
+            <button
+              onClick={() => { onChange('fechaDesde', ''); onChange('fechaHasta', ''); }}
+              className="mt-1.5 text-[11px] text-slate-400 hover:text-red-600 transition-colors"
+            >
+              Limpiar fechas
+            </button>
+          )}
         </div>
 
         {/* Monto */}
@@ -834,10 +889,11 @@ export default function RadarPage() {
 
   // Filtros
   const FILTROS_DEFAULT = {
-    texto: '', estados: ESTADOS_ACTIVOS_DEFAULT, tipo: '', region: '',
+    texto: '', estados: ESTADOS_ACTIVOS_DEFAULT, tipos: [] as string[], region: '',
     dias: '', monto: '', conDocumentos: false, soloNoLeidas: false, orden: 'publicacion-desc',
     semaforos: [] as string[], keyword: '',
     decisiones: [] as string[], ocultarExcluidas: false,
+    fechaDesde: '', fechaHasta: '',
   };
   const [filtros, setFiltros] = useState(FILTROS_DEFAULT);
 
@@ -989,7 +1045,8 @@ export default function RadarPage() {
         if (!a.licitacion_nombre?.toLowerCase().includes(q) && !a.licitacion_organismo?.toLowerCase().includes(q)) return false;
       }
       if (filtros.estados.length > 0 && !filtros.estados.some(f => estado.toLowerCase() === f.toLowerCase())) return false;
-      if (filtros.tipo && tipo !== filtros.tipo) return false;
+      if (filtros.tipos.length > 0 && (!tipo || !filtros.tipos.includes(tipo))) return false;
+      if (!dentroRangoPublicacion(a.licitacion_fecha_publicacion, filtros.fechaDesde, filtros.fechaHasta)) return false;
       if (filtros.region && a.licitacion_region !== filtros.region) return false;
       if (filtros.monto && !matchMonto(a.licitacion_monto, filtros.monto)) return false;
       if (filtros.conDocumentos && !a.tiene_documentos) return false;
