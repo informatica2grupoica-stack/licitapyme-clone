@@ -10,6 +10,17 @@ function getUserId(req: NextRequest): number | null {
   return isNaN(n) ? null : n;
 }
 
+// ¿El usuario es admin? (rol auténtico desde la BD, no del header que manda el cliente).
+// Un admin = "super": ve el radar COMPLETO de la empresa, no solo sus propias keywords.
+async function usuarioEsAdmin(userId: number): Promise<boolean> {
+  try {
+    const [rows] = await pool.query(`SELECT rol FROM usuarios WHERE id = ? LIMIT 1`, [userId]);
+    return (rows as any[])[0]?.rol === 'admin';
+  } catch {
+    return false; // ante error, comportamiento conservador (solo lo propio)
+  }
+}
+
 // GET — lista TODAS las alertas del usuario (sin límite artificial)
 // ?noLeidas=true → solo las no leídas
 // ?limit=N       → opcional; sin ?limit devuelve todas
@@ -22,10 +33,19 @@ export async function GET(request: NextRequest) {
   const limitParam   = searchParams.get('limit');
 
   try {
-    const whereExtra = soloNoLeidas ? ' AND leida = FALSE' : '';
+    const esAdmin = await usuarioEsAdmin(userId);
+    const whereExtra = soloNoLeidas ? ' AND a.leida = FALSE' : '';
+
+    // Ámbito del radar:
+    //  • admin → una fila por licitación de TODA la empresa (deduplica por código con MAX(id)).
+    //  • usuario → solo sus propias alertas.
+    const scope = esAdmin
+      ? 'a.id IN (SELECT MAX(a3.id) FROM alertas_licitaciones a3 GROUP BY a3.licitacion_codigo)'
+      : 'a.usuario_id = ?';
+    const scopeParams: unknown[] = esAdmin ? [] : [userId];
     const params: unknown[] = limitParam
-      ? [userId, parseInt(limitParam, 10)]
-      : [userId];
+      ? [...scopeParams, parseInt(limitParam, 10)]
+      : [...scopeParams];
 
     // Intentar primero con las columnas nuevas; si no existen (migración pendiente)
     // caer a la versión sin ellas para no dejar el radar en blanco.
@@ -54,7 +74,7 @@ export async function GET(request: NextRequest) {
          LEFT JOIN prefiltro_licitacion pf ON pf.licitacion_codigo = a.licitacion_codigo
          LEFT JOIN palabras_clave pc ON pc.id = a.palabra_clave_id
          LEFT JOIN etiquetas cat ON cat.id = pc.categoria_id
-         WHERE a.usuario_id = ?${whereExtra}
+         WHERE ${scope}${whereExtra}
          ORDER BY COALESCE(a.licitacion_fecha_publicacion, a.licitacion_cierre, a.created_at) DESC`;
       const query = limitParam ? `${selectCols} LIMIT ?` : selectCols;
       [rows] = await pool.query(query, params) as any[];
@@ -67,7 +87,7 @@ export async function GET(request: NextRequest) {
                   leida, created_at,
                   EXISTS (SELECT 1 FROM documentos_cache dc WHERE dc.licitacion_codigo = a.licitacion_codigo) AS tiene_documentos
            FROM alertas_licitaciones a
-           WHERE usuario_id = ?${whereExtra}
+           WHERE ${scope}${whereExtra}
            ORDER BY COALESCE(licitacion_cierre, created_at) DESC
            LIMIT ?`
         : `SELECT id, keyword_texto, licitacion_codigo, licitacion_nombre,
@@ -76,15 +96,17 @@ export async function GET(request: NextRequest) {
                   leida, created_at,
                   EXISTS (SELECT 1 FROM documentos_cache dc WHERE dc.licitacion_codigo = a.licitacion_codigo) AS tiene_documentos
            FROM alertas_licitaciones a
-           WHERE usuario_id = ?${whereExtra}
+           WHERE ${scope}${whereExtra}
            ORDER BY COALESCE(licitacion_cierre, created_at) DESC`;
       [rows] = await pool.query(query, params) as any[];
     }
 
-    const [countRows] = await pool.query(
-      `SELECT COUNT(*) as total FROM alertas_licitaciones WHERE usuario_id = ? AND leida = FALSE`,
-      [userId]
-    );
+    const countSql = esAdmin
+      ? `SELECT COUNT(*) AS total FROM alertas_licitaciones a
+         WHERE a.id IN (SELECT MAX(a3.id) FROM alertas_licitaciones a3 GROUP BY a3.licitacion_codigo)
+           AND a.leida = FALSE`
+      : `SELECT COUNT(*) AS total FROM alertas_licitaciones WHERE usuario_id = ? AND leida = FALSE`;
+    const [countRows] = await pool.query(countSql, esAdmin ? [] : [userId]);
     const noLeidas = (countRows as any[])[0]?.total || 0;
 
     return NextResponse.json({ success: true, alertas: rows, noLeidas, total: (rows as any[]).length });
