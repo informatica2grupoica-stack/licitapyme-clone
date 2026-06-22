@@ -25,6 +25,7 @@ import { PreguntasSection } from './sections/PreguntasSection';
 import { CriteriosSection } from './sections/CriteriosSection';
 import { ComentariosSection } from './sections/ComentariosSection';
 import { ViabilidadSection, Viabilidad } from './sections/ViabilidadSection';
+import { ViabilidadIAPanel } from './sections/ViabilidadIAPanel';
 import { InteligenciaSection } from './sections/InteligenciaSection';
 import { PostulacionSection } from './sections/PostulacionSection';
 import { GestionSection } from './sections/GestionSection';
@@ -595,6 +596,9 @@ export default function LicitacionDetallePage() {
                   .filter(d => !esUrlAnalizable(d.url_local || d.url))
                   .map(d => d.nombre)}
               />
+            )}
+            {activeSection === 'viabilidad' && (
+              <ViabilidadIAPanel codigo={codigoDecoded} />
             )}
             {activeSection === 'inteligencia' && (
               <InteligenciaSection documentosAnalizables={documentosAnalizables} nombreLicitacion={licitacion.nombre} />
