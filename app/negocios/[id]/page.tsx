@@ -363,7 +363,7 @@ function SeccionResumen({
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
             <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Presupuesto</p><p className="text-[13px] font-bold text-emerald-700">{fmtCLP(viabIA?.presupuesto?.neto ?? viabIA?.presupuesto?.bruto)}</p></div>
-            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Modalidad</p><p className="text-[13px] font-semibold text-zinc-700">{String(viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}</p></div>
+            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Modalidad</p><p className="text-[13px] font-semibold text-zinc-700">{String(viabIA?.modalidad?.general || viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}</p></div>
             <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Líneas</p><p className="text-[13px] font-bold text-zinc-700">{viabIA?.manifiesto_productos?.length || '—'}</p></div>
           </div>
         </div>

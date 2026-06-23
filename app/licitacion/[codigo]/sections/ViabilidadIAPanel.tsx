@@ -5,8 +5,8 @@
 // análisis con su FUENTE. Front profesional: hero con score + veredicto + datos clave,
 // y el detalle en secciones plegables (acordeón) para que no sea un muro de información.
 
-import { useCallback, useEffect, useState } from 'react';
-import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks } from 'lucide-react';
+import { createContext, useContext, useCallback, useEffect, useState } from 'react';
+import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink } from 'lucide-react';
 
 interface Criterio { nombre: string; ponderacion_pct: number; tipo?: string; fuente?: string }
 interface Producto { linea: number; descripcion: string; modelo?: string; cantidad?: number | null; tipo?: string; ruta?: string }
@@ -15,8 +15,9 @@ interface InformeIA {
   score_0_100?: number; semaforo?: string; area_negocio?: string;
   exclusion?: { excluido?: boolean; categoria?: string | null; motivo?: string; fuente?: string };
   presupuesto?: { bruto?: number | null; neto?: number | null; con_iva?: boolean; fuente?: string; gate?: string };
-  modalidad?: { tipo?: string; evidencia?: string; fuente?: string; libertad_de_pricing?: boolean };
+  modalidad?: { general?: string; tipo?: string; nivel_lineas?: string; nivel_intra_linea?: string; evidencia?: string; fuente?: string; libertad_de_pricing?: boolean; revision_humana?: boolean };
   criterios_evaluacion?: Criterio[];
+  criterios_no_encontrados?: boolean;
   capa_a?: { presupuesto?: { pts?: number; fuente?: string }; cantidad_items?: { pts?: number; n_items?: number; fuente?: string }; complejidad?: { pts?: number; fuente?: string }; ejecucion?: { pts?: number; fuente?: string }; score_total?: number; nivel?: string };
   capa_b_palancas?: Palanca[];
   capa_c_admisibilidad?: { bloqueantes?: Array<{ item: string; fuente?: string }>; barreras_a_favor?: Array<{ item: string; fuente?: string }>; boleta_aplica?: boolean; umbral_utm?: number; firma_puno_y_letra?: boolean; alertas?: string[] };
@@ -33,6 +34,34 @@ interface InformeIA {
 
 const fmt = (n?: number | null) => n != null ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n) : '—';
 const cap = (s?: string) => (s || '').replace(/_/g, ' ');
+
+// ─── Explicabilidad: resolver una cita ("doc, art, pág N") al PDF en esa página ──
+interface DocRef { nombre: string; url: string }
+const FuenteDocsContext = createContext<DocRef[]>([]);
+
+const _norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+// Número de página de una cita: "pág. 7", "pagina 3-4", "p. 12" → 7/3/12.
+function paginaDeCita(fuente: string): number | null {
+  const m = _norm(fuente).match(/\bp(?:ag|agina|g)?\.?\s*(\d+)/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+// A qué documento apunta la cita: solape de palabras clave del nombre del archivo
+// con el texto de la cita. Devuelve la URL con #page=N para el visor nativo del navegador.
+function resolverCita(fuente: string, docs: DocRef[]): { href: string; pagina: number | null } | null {
+  if (!fuente || !docs.length) return null;
+  const f = _norm(fuente);
+  let mejor: DocRef | null = null, mejorScore = 0;
+  for (const d of docs) {
+    const tokens = _norm(d.nombre.replace(/\.[a-z0-9]+$/i, '')).split(/[^a-z0-9]+/).filter(t => t.length >= 4);
+    const score = tokens.reduce((s, t) => s + (f.includes(t) ? 1 : 0), 0);
+    if (score > mejorScore) { mejorScore = score; mejor = d; }
+  }
+  if (!mejor || mejorScore === 0) return null;
+  const pag = paginaDeCita(fuente);
+  return { href: pag ? `${mejor.url}#page=${pag}` : mejor.url, pagina: pag };
+}
 
 const SEM: Record<string, { label: string; ring: string; text: string; bg: string; soft: string }> = {
   VERDE:     { label: 'Muy conveniente', ring: '#10b981', text: 'text-emerald-700', bg: 'bg-emerald-600', soft: 'bg-emerald-50 border-emerald-200' },
@@ -59,7 +88,18 @@ function Gauge({ score, sem }: { score: number; sem: { ring: string } }) {
 }
 
 function Fuente({ children }: { children?: string }) {
+  const docs = useContext(FuenteDocsContext);
   if (!children) return null;
+  const cita = resolverCita(children, docs);
+  if (cita) {
+    return (
+      <a href={cita.href} target="_blank" rel="noopener noreferrer"
+        title={cita.pagina ? `Abrir el documento en la página ${cita.pagina}` : 'Abrir el documento'}
+        className="inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:text-indigo-800 hover:underline">
+        <FileSearch size={10} />{children}<ExternalLink size={9} className="opacity-70" />
+      </a>
+    );
+  }
   return <span className="inline-flex items-center gap-1 text-[11px] text-indigo-500"><FileSearch size={10} />{children}</span>;
 }
 
@@ -82,6 +122,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
   const [informe, setInforme] = useState<InformeIA | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [docs, setDocs] = useState<DocRef[]>([]);
 
   const cargar = useCallback(async () => {
     try {
@@ -91,11 +132,27 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
   }, [codigo]);
   useEffect(() => { cargar(); }, [cargar]);
 
+  // Documentos de la licitación (nombre + URL) para enlazar cada cita a su PDF.
+  useEffect(() => {
+    fetch(`/api/documentos/${encodeURIComponent(codigo)}`)
+      .then(x => x.json())
+      .then(r => {
+        const lista: DocRef[] = (Array.isArray(r?.documentos) ? r.documentos : [])
+          .map((d: any) => ({ nombre: d.nombre || d.documento_nombre || '', url: d.url || d.url_local || d.documento_url_local || '' }))
+          .filter((d: DocRef) => d.url);
+        setDocs(lista);
+      })
+      .catch(() => { /* silencioso: sin docs, las citas quedan como texto */ });
+  }, [codigo]);
+
   const analizar = async () => {
     setCargando(true); setError(null);
     try { onTambienAnalizar?.(); } catch { /* noop */ }
     try {
-      const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`, { method: 'POST' });
+      // Si ya hay informe, el botón es "Re-analizar": fuerza una corrida fresca
+      // (ignora el cache por huella de documentos). El primer análisis sí usa cache.
+      const qs = informe ? '?force=1' : '';
+      const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}${qs}`, { method: 'POST' });
       const j = await r.json();
       if (!r.ok) { setError(j.error || 'Error al analizar.'); return; }
       setInforme(j.informeIA);
@@ -111,6 +168,22 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
   const cc = informe?.capa_c_admisibilidad;
   const sumaCriterios = (informe?.criterios_evaluacion || []).reduce((s, c) => s + (Number(c.ponderacion_pct) || 0), 0);
   const nProd = informe?.manifiesto_productos?.length ?? 0;
+
+  // Validador de coherencia: incoherencias del informe que merecen revisión humana.
+  const avisos: string[] = [];
+  if (informe) {
+    const nCrit = informe.criterios_evaluacion?.length ?? 0;
+    const suma = Math.round(sumaCriterios);
+    if (nCrit > 0 && suma !== 100) avisos.push(`Los criterios de evaluación suman ${suma}% (deberían sumar 100%).`);
+    if (informe.criterios_no_encontrados) avisos.push('No se encontraron criterios de evaluación en las bases (situación anómala).');
+    const conf = informe.confianza_global;
+    if (conf != null && conf < 0.6) avisos.push(`Confianza del análisis baja (${Math.round(conf * 100)}%): conviene revisión humana.`);
+    if (informe.modalidad?.revision_humana) avisos.push('La modalidad de adjudicación quedó marcada para revisión humana.');
+    if ((informe.documentos_no_leidos?.length ?? 0) > 0) avisos.push(`${informe.documentos_no_leidos!.length} documento(s) no se pudieron leer: el análisis puede estar incompleto.`);
+  }
+
+  // Enlace al PDF para citas mostradas fuera del componente <Fuente> (chips).
+  const hrefCita = (f?: string) => (f ? resolverCita(f, docs)?.href : undefined);
 
   return (
     <div className="space-y-3">
@@ -148,7 +221,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
       )}
 
       {informe && (
-        <>
+        <FuenteDocsContext.Provider value={docs}>
           {/* HERO: score + veredicto */}
           <div className={`rounded-2xl border p-4 ${sem.soft}`}>
             <div className="flex items-center gap-4">
@@ -169,17 +242,29 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
             <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] text-red-700"><strong>Exclusión ({cap(informe.exclusion.categoria || '')}):</strong> {informe.exclusion.motivo} <Fuente>{informe.exclusion.fuente}</Fuente></div>
           )}
 
+          {/* Avisos de coherencia / revisión humana */}
+          {avisos.length > 0 && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+              <p className="flex items-center gap-1.5 text-[12px] font-bold text-amber-800 mb-1"><AlertTriangle size={13} /> Avisos de revisión</p>
+              <ul className="text-[12px] text-amber-700 space-y-0.5 list-disc pl-5">{avisos.map((a, i) => <li key={i}>{a}</li>)}</ul>
+            </div>
+          )}
+
           {/* Datos clave (chips) */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Presupuesto</p>
               <p className="text-[15px] font-bold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.neto ?? informe.presupuesto?.bruto)}</p>
-              <p className="text-[10px] text-slate-400 truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.neto ? 'neto · ' : ''}{informe.presupuesto?.fuente}</p>
+              {hrefCita(informe.presupuesto?.fuente)
+                ? <a href={hrefCita(informe.presupuesto?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.neto ? 'neto · ' : ''}{informe.presupuesto?.fuente}</a>
+                : <p className="text-[10px] text-slate-400 truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.neto ? 'neto · ' : ''}{informe.presupuesto?.fuente}</p>}
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Modalidad</p>
-              <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(informe.modalidad?.tipo) || '—'}</p>
-              <p className="text-[10px] text-slate-400 truncate" title={informe.modalidad?.fuente}>{informe.modalidad?.fuente}</p>
+              <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(informe.modalidad?.general || informe.modalidad?.tipo) || '—'}</p>
+              {hrefCita(informe.modalidad?.fuente)
+                ? <a href={hrefCita(informe.modalidad?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.modalidad?.fuente}>{informe.modalidad?.fuente}</a>
+                : <p className="text-[10px] text-slate-400 truncate" title={informe.modalidad?.fuente}>{informe.modalidad?.fuente}</p>}
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Plazo entrega</p>
@@ -200,7 +285,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
                   <tr key={i} className="border-b border-slate-100 last:border-0">
                     <td className="py-1.5 text-slate-700">{c.nombre}</td>
                     <td className="py-1.5 text-right font-bold text-slate-900 w-14">{c.ponderacion_pct}%</td>
-                    <td className="py-1.5 pl-3 text-[11px] text-slate-400 hidden sm:table-cell">{c.fuente}</td>
+                    <td className="py-1.5 pl-3 text-[11px] hidden sm:table-cell"><Fuente>{c.fuente}</Fuente></td>
                   </tr>
                 ))}
               </tbody></table>
@@ -272,7 +357,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
             {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3!.join(', ')} · </>}
             Leídos {informe.documentos_leidos?.length ?? 0} doc(s){(informe.documentos_no_leidos?.length ?? 0) > 0 ? ` · ${informe.documentos_no_leidos!.length} ilegibles` : ''} · confianza {Math.round((informe.confianza_global ?? 0) * 100)}%
           </p>
-        </>
+        </FuenteDocsContext.Provider>
       )}
     </div>
   );

@@ -105,7 +105,8 @@ async function ocrPdfPorBloques(buffer: Buffer, totalPages: number): Promise<str
       const subBuf = Buffer.from(await sub.save());
       const t = await ocrBloque(subBuf);
       console.log(`[ocr-bloques] págs ${start + 1}-${start + indices.length}: ${t.length} chars`);
-      if (t) { partes.push(t); fallosSeguidos = 0; }
+      // Marcador de página (rango del bloque) para que la IA pueda citar la página.
+      if (t) { partes.push(`\n\n[[PÁGINA ${start + 1}-${start + indices.length}]]\n${t}`); fallosSeguidos = 0; }
       else if (++fallosSeguidos >= 3) {
         console.warn('[ocr-bloques] 3 bloques sin texto seguidos — se detiene.');
         break;
@@ -240,9 +241,25 @@ export async function extractTextFromDocument(
   // PDF
   if (extension === 'pdf') {
     try {
-      // Paso 1: Intentar extraer texto normal
+      // Paso 1: Intentar extraer texto normal.
+      // pagerender propio: replica el render por defecto de pdf-parse pero antepone
+      // un marcador [[PÁGINA N]] en cada página, para que la IA pueda CITAR la página
+      // exacta de cada dato (requisito del PROMPT 2). Las páginas se procesan en orden.
       const pdfParse = (await import('pdf-parse')).default;
-      const pdfData = await pdfParse(buffer);
+      let _pag = 0;
+      const pagerender = (pageData: any) =>
+        pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false })
+          .then((tc: any) => {
+            _pag++;
+            let lastY: number | undefined, text = '';
+            for (const item of tc.items) {
+              if (lastY === item.transform[5] || lastY === undefined) text += item.str;
+              else text += '\n' + item.str;
+              lastY = item.transform[5];
+            }
+            return `\n\n[[PÁGINA ${_pag}]]\n${text}`;
+          });
+      const pdfData = await pdfParse(buffer, { pagerender });
 
       // Si tiene suficiente texto (más de 300 caracteres)
       if (pdfData.text && pdfData.text.trim().length > 300) {

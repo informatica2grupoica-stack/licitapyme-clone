@@ -11,6 +11,7 @@ import {
   BellOff, X, Clock, Search, Zap, ToggleLeft, ToggleRight,
   Sparkles, Filter, ChevronDown, FileText, Download, MapPin,
   ArrowUpDown, Eye, EyeOff, AlertCircle, Flame, SlidersHorizontal,
+  CheckSquare, Square, UserPlus, Undo2, UserCheck,
 } from 'lucide-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 import { AUTOMATIZACION_PAUSADA } from '@/app/lib/automatizacion';
@@ -59,6 +60,11 @@ interface Alerta {
   prefiltro_categoria?: string | null;
   prefiltro_motivo?: string | null;
   prefiltro_confianza?: number | null;
+  // Estado de gestión (lo añade /api/alertas)
+  asignada?: boolean;
+  asignado_a?: number | null;
+  asignado_nombre?: string | null;
+  descartada?: boolean;
 }
 
 interface Usuario  { id: number; nombre: string | null; email: string; empresa: string | null; }
@@ -312,28 +318,55 @@ function PrefiltroBadge({ decision, categoria, motivo, confianza }: {
 
 // ── Card licitación ───────────────────────────────────────────────────────────
 function LicitacionCard({
-  alerta, onDelete, onMarcarLeida, keywords = [],
+  alerta, onDelete, onMarcarLeida, onDescartar, onToggleSelect, selected = false, keywords = [],
 }: {
   alerta: Alerta;
   onDelete: (id: number) => void;
   onMarcarLeida: (id: number) => void;
+  onDescartar: (alerta: Alerta, descartar: boolean) => void;
+  onToggleSelect: (id: number) => void;
+  selected?: boolean;
   keywords?: string[];
 }) {
   const dias = diasAlCierre(alerta.licitacion_cierre);
   const urgente = dias !== null && dias >= 0 && dias <= 3;
   const noLeida = !alerta.leida;
 
+  // Fondo por estado (tintes CLAROS para no tapar el texto):
+  //  • descartada → toda gris claro · asignada → toda azul claro
+  //  • si no → mitad izquierda = prefiltro (excluida = gris), mitad derecha = viabilidad (viable = verde)
+  const PREF_BG: Record<string, string> = { EXCLUIDO: '#f1f5f9', REVISION_HUMANA: '#fffbeb', PASA: '#f0fdf4' };
+  const VIAB_BG: Record<string, string> = { VERDE: '#ecfdf5', AMARILLO: '#fefce8', NARANJA: '#fff7ed', ROJO: '#fef2f2', ROJO_DURO: '#fee2e2' };
+  const izq = (alerta.prefiltro_decision && PREF_BG[alerta.prefiltro_decision]) || '#ffffff';
+  const der = (alerta.viabilidad_semaforo && VIAB_BG[alerta.viabilidad_semaforo]) || '#ffffff';
+  const fondo = alerta.descartada
+    ? '#f1f5f9'
+    : alerta.asignada
+      ? '#eff6ff'
+      : `linear-gradient(to right, ${izq} 0 50%, ${der} 50% 100%)`;
+
   return (
-    <div className={`
-      group relative bg-white rounded-xl border transition-all duration-150
+    <div
+      style={{ background: fondo }}
+      className={`
+      group relative rounded-xl border transition-all duration-150
       hover:shadow-md hover:-translate-y-px
-      ${noLeida ? 'border-indigo-200 shadow-sm' : 'border-slate-200'}
+      ${selected ? 'ring-2 ring-indigo-400 border-indigo-300' : noLeida ? 'border-indigo-200 shadow-sm' : 'border-slate-200'}
+      ${alerta.descartada ? 'opacity-75' : ''}
       ${urgente && noLeida ? 'border-l-4 border-l-red-500' : noLeida ? 'border-l-4 border-l-indigo-500' : ''}
     `}>
       <div className="p-4">
         {/* Row 1: badges + dias */}
         <div className="flex items-center justify-between gap-2 mb-2.5">
           <div className="flex items-center gap-1.5 flex-wrap">
+            {/* Checkbox de selección múltiple */}
+            <button
+              onClick={() => onToggleSelect(alerta.id)}
+              title={selected ? 'Quitar de la selección' : 'Seleccionar'}
+              className="flex-shrink-0 text-slate-300 hover:text-indigo-600 transition-colors"
+            >
+              {selected ? <CheckSquare size={16} className="text-indigo-600" /> : <Square size={16} />}
+            </button>
             {/* Punto no leído */}
             <button
               onClick={() => noLeida && onMarcarLeida(alerta.id)}
@@ -348,6 +381,16 @@ function LicitacionCard({
             <TipoBadge codigo={alerta.licitacion_codigo} />
             <EstadoBadge estado={alerta.licitacion_estado} />
             <span className="text-[10px] font-mono text-slate-400">{alerta.licitacion_codigo}</span>
+            {alerta.asignada && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200" title={`Asignada a ${alerta.asignado_nombre || ''}`}>
+                <UserCheck size={10} /> {alerta.asignado_nombre || 'Asignada'}
+              </span>
+            )}
+            {alerta.descartada && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-300">
+                <EyeOff size={10} /> Descartada
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <PrefiltroBadge decision={alerta.prefiltro_decision} categoria={alerta.prefiltro_categoria} motivo={alerta.prefiltro_motivo} confianza={alerta.prefiltro_confianza} />
@@ -449,6 +492,15 @@ function LicitacionCard({
             >
               Ver detalle <ExternalLink size={11} />
             </Link>
+            <button
+              onClick={() => onDescartar(alerta, !alerta.descartada)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg border transition-colors ${alerta.descartada
+                ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-red-50 hover:border-red-200 hover:text-red-600'}`}
+              title={alerta.descartada ? 'Restaurar al radar' : 'Descartar del radar'}
+            >
+              {alerta.descartada ? <><Undo2 size={12} /> Restaurar</> : <><EyeOff size={12} /> Descartar</>}
+            </button>
             <button
               onClick={() => onDelete(alerta.id)}
               className="w-7 h-7 flex items-center justify-center rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
@@ -856,6 +908,50 @@ function PanelFiltros({
 }
 
 // ── Página principal ──────────────────────────────────────────────────────────
+// ── Modal de asignación a un perfil del equipo ───────────────────────────────────
+function AsignarModal({ usuarios, count, onClose, onConfirm, loading }: {
+  usuarios: Usuario[]; count: number; onClose: () => void; onConfirm: (usuarioId: number) => void; loading: boolean;
+}) {
+  const [sel, setSel] = useState<number | null>(null);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+          <div>
+            <h3 className="text-[15px] font-bold text-slate-800">Asignar {count} licitación{count !== 1 ? 'es' : ''}</h3>
+            <p className="text-[12px] text-slate-400">Elige el perfil del equipo</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"><X size={16} /></button>
+        </div>
+        <div className="max-h-80 overflow-y-auto p-2">
+          {usuarios.length === 0 ? (
+            <p className="text-[13px] text-slate-400 text-center py-8">No hay perfiles disponibles.</p>
+          ) : usuarios.map(u => (
+            <button key={u.id} onClick={() => setSel(u.id)}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${sel === u.id ? 'bg-indigo-50 ring-1 ring-indigo-300' : 'hover:bg-slate-50'}`}>
+              <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[13px] font-bold flex-shrink-0">
+                {(u.nombre || u.email || '?').charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-slate-800 truncate">{u.nombre || u.email}</p>
+                {u.nombre && <p className="text-[11px] text-slate-400 truncate">{u.email}</p>}
+              </div>
+              {sel === u.id && <CheckSquare size={16} className="text-indigo-600 ml-auto flex-shrink-0" />}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-[13px] font-semibold text-slate-600 rounded-lg hover:bg-slate-100">Cancelar</button>
+          <button onClick={() => sel != null && onConfirm(sel)} disabled={sel == null || loading}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />} Asignar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function RadarPage() {
   const { usuario } = useSession();
   const toast       = useToast();
@@ -897,8 +993,20 @@ export default function RadarPage() {
     semaforos: [] as string[], keyword: '',
     decisiones: [] as string[], ocultarExcluidas: false,
     fechaDesde: '', fechaHasta: '',
+    gestion: '', // '' = activas (oculta descartadas) | sin_asignar | asignadas | descartadas
   };
   const [filtros, setFiltros] = useState(FILTROS_DEFAULT);
+
+  // Selección múltiple + asignación
+  const [sel, setSel]                 = useState<Set<number>>(new Set());
+  const [usuarios, setUsuarios]       = useState<Usuario[]>([]);
+  const [modalAsignar, setModalAsignar] = useState(false);
+  const [accionMasiva, setAccionMasiva] = useState(false);
+
+  // Paginación de la VISUALIZACIÓN (cliente): los filtros operan sobre TODAS las
+  // alertas; aquí solo recortamos cuántas tarjetas se pintan a la vez.
+  const POR_PAGINA = 50;
+  const [pagina, setPagina] = useState(1);
 
   const setFiltro = useCallback((key: string, val: unknown) => {
     setFiltros(prev => ({ ...prev, [key]: val }));
@@ -942,10 +1050,11 @@ export default function RadarPage() {
     if (actualizando) return;
     setActualizando(true);
     try {
-      const secret = process.env.NEXT_PUBLIC_CRON_SECRET || '7f3a9b2e1d8c4f6a0e5b7d3c9a2f1e8b4d7c0a3f6e9b2d5c8a1f4e7b0d3c6a9f';
-      const res    = await fetch('/api/cron/alertas', {
-        headers: { Authorization: `Bearer ${secret}` },
-        signal:  AbortSignal.timeout(120_000),
+      // El disparo va por /api/radar/actualizar (protegido por sesión admin); el
+      // CRON_SECRET vive solo en el servidor y nunca se expone al navegador.
+      const res = await fetch('/api/radar/actualizar', {
+        method: 'POST',
+        signal: AbortSignal.timeout(120_000),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1033,8 +1142,80 @@ export default function RadarPage() {
     try {
       await fetch(`/api/alertas?id=${id}`, { method: 'DELETE' });
       setAlertas(prev => prev.filter(a => a.id !== id));
+      setSel(prev => { const n = new Set(prev); n.delete(id); return n; });
     } catch { toast.error('Error al eliminar'); }
   };
+
+  // ── Selección múltiple ──────────────────────────────────────────────────────────
+  const toggleSel = useCallback((id: number) => {
+    setSel(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }, []);
+  const limpiarSel = useCallback(() => setSel(new Set()), []);
+
+  // ── Descartar / restaurar (una o varias) ─────────────────────────────────────────
+  const descartarCodigos = useCallback(async (codigos: string[], descartar: boolean) => {
+    if (codigos.length === 0) return;
+    setAccionMasiva(true);
+    try {
+      const res = await fetch('/api/radar/descartar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigos, descartar }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast.error('Error', data.error || `HTTP ${res.status}`); return; }
+      const set = new Set(codigos);
+      setAlertas(prev => prev.map(a => set.has(a.licitacion_codigo) ? { ...a, descartada: descartar } : a));
+      limpiarSel();
+      toast.success(descartar ? `${codigos.length} descartada(s)` : `${codigos.length} restaurada(s)`);
+    } catch { toast.error('Error de conexión'); }
+    finally { setAccionMasiva(false); }
+  }, [toast, limpiarSel]);
+
+  const onDescartarUna = useCallback((alerta: Alerta, descartar: boolean) => {
+    descartarCodigos([alerta.licitacion_codigo], descartar);
+  }, [descartarCodigos]);
+
+  // ── Asignar a un perfil del equipo ───────────────────────────────────────────────
+  const abrirAsignar = useCallback(async () => {
+    if (sel.size === 0) return;
+    if (usuarios.length === 0) {
+      try {
+        const d = await fetch('/api/usuarios').then(r => r.json());
+        if (d.success) setUsuarios(d.usuarios || []);
+      } catch { /* el modal mostrará "sin perfiles" */ }
+    }
+    setModalAsignar(true);
+  }, [sel.size, usuarios.length]);
+
+  const confirmarAsignar = useCallback(async (usuarioId: number) => {
+    const seleccionadas = alertas.filter(a => sel.has(a.id));
+    if (seleccionadas.length === 0) { setModalAsignar(false); return; }
+    setAccionMasiva(true);
+    const u = usuarios.find(x => x.id === usuarioId);
+    const nombre = u?.nombre || u?.email || null;
+    try {
+      const resultados = await Promise.allSettled(seleccionadas.map(a =>
+        fetch('/api/negocios', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            licitacion_codigo: a.licitacion_codigo, asignado_a: usuarioId,
+            licitacion_nombre: a.licitacion_nombre, licitacion_organismo: a.licitacion_organismo,
+            licitacion_monto: a.licitacion_monto, licitacion_cierre: a.licitacion_cierre,
+            licitacion_estado: a.licitacion_estado, licitacion_tipo: a.licitacion_tipo,
+            licitacion_region: a.licitacion_region,
+          }),
+        }).then(r => r.ok),
+      ));
+      const ok = resultados.filter(r => r.status === 'fulfilled' && r.value).length;
+      const codigosOk = new Set(seleccionadas.map(a => a.licitacion_codigo));
+      setAlertas(prev => prev.map(a => codigosOk.has(a.licitacion_codigo) ? { ...a, asignada: true, asignado_a: usuarioId, asignado_nombre: nombre } : a));
+      limpiarSel();
+      setModalAsignar(false);
+      if (ok === seleccionadas.length) toast.success(`${ok} asignada(s) a ${nombre || 'el perfil'}`);
+      else toast.error('Asignación parcial', `${ok}/${seleccionadas.length} asignadas`);
+    } catch { toast.error('Error de conexión'); }
+    finally { setAccionMasiva(false); }
+  }, [alertas, sel, usuarios, toast, limpiarSel]);
 
   // ── Filtrado + ordenamiento ───────────────────────────────────────────────────
   const alertasFiltradas = useMemo(() => {
@@ -1058,6 +1239,11 @@ export default function RadarPage() {
       if (filtros.semaforos.length > 0 && !(a.viabilidad_semaforo && filtros.semaforos.includes(a.viabilidad_semaforo))) return false;
       if (filtros.decisiones.length > 0 && !(a.prefiltro_decision && filtros.decisiones.includes(a.prefiltro_decision))) return false;
       if (filtros.ocultarExcluidas && a.prefiltro_decision === 'EXCLUIDO') return false;
+      // Estado de gestión. Por defecto ('') se ocultan las descartadas.
+      if (filtros.gestion === '') { if (a.descartada) return false; }
+      else if (filtros.gestion === 'sin_asignar') { if (a.descartada || a.asignada) return false; }
+      else if (filtros.gestion === 'asignadas') { if (a.descartada || !a.asignada) return false; }
+      else if (filtros.gestion === 'descartadas') { if (!a.descartada) return false; }
       if (filtros.keyword && a.keyword_texto !== filtros.keyword) return false;
       if (filtros.dias) {
         if (filtros.dias === 'venc') { if (dias === null || dias > 0) return false; }
@@ -1091,6 +1277,16 @@ export default function RadarPage() {
 
     return list;
   }, [alertas, filtros]);
+
+  // Paginación de la visualización (sobre el resultado ya filtrado/ordenado).
+  const totalPaginas = Math.max(1, Math.ceil(alertasFiltradas.length / POR_PAGINA));
+  const paginaSegura = Math.min(pagina, totalPaginas);
+  const alertasPagina = useMemo(
+    () => alertasFiltradas.slice((paginaSegura - 1) * POR_PAGINA, paginaSegura * POR_PAGINA),
+    [alertasFiltradas, paginaSegura],
+  );
+  // Al cambiar filtros (cambia el total), volver a la página 1.
+  useEffect(() => { setPagina(1); }, [filtros]);
 
   const activeKws = keywords.filter(k => k.activo).length;
   const keywordStrings = useMemo(() => keywords.filter(k => k.activo).map(k => k.keyword), [keywords]);
@@ -1130,14 +1326,18 @@ export default function RadarPage() {
               errores:    prev.errores   + errores,
             }));
             setDescargaInfo(prev => prev ? { ...prev, pendientes: res.pendientes } : prev);
+            // Marcar en memoria las filas que ahora tienen documentos (sin recargar todo).
+            const conDocs = res.procesados.filter((p: any) => p.exito && p.nuevos > 0);
+            if (!cancelado && conDocs.length) {
+              const set = new Set(conDocs.map((p: any) => p.codigo));
+              setAlertas(prev => prev.map(a => set.has(a.licitacion_codigo) ? { ...a, tiene_documentos: 1 } : a));
+            }
           }
 
           if (res.completado || res.pendientes === 0) {
             if (!cancelado) {
               setDescargaActiva(false);
               cargarInfoDescarga();
-              const d = await fetch('/api/alertas').then(r => r.json());
-              if (!cancelado && d.alertas) setAlertas(d.alertas);
             }
             break;
           }
@@ -1206,9 +1406,17 @@ export default function RadarPage() {
               errores:    prev.errores + errores,
             }));
             setViabPendientes(res.pendientes ?? 0);
-            // Refrescar alertas para mostrar los nuevos semáforos
-            const d = await fetch('/api/alertas').then(r => r.json());
-            if (!cancelado && d.alertas) setAlertas(d.alertas);
+            // Mergear solo las filas procesadas en memoria (sin recargar toda la lista).
+            const exitosos = res.procesados.filter((p: any) => p.exito);
+            if (!cancelado && exitosos.length) {
+              const byCodigo = new Map<string, any>(exitosos.map((p: any) => [p.codigo, p]));
+              setAlertas(prev => prev.map(a => {
+                const p = byCodigo.get(a.licitacion_codigo);
+                return p
+                  ? { ...a, viabilidad_semaforo: p.semaforo ?? a.viabilidad_semaforo, viabilidad_score: p.score ?? a.viabilidad_score }
+                  : a;
+              }));
+            }
           }
 
           if (res.completado || res.pendientes === 0) {
@@ -1269,9 +1477,16 @@ export default function RadarPage() {
               excluidas:  prev.excluidas + excluidas,
             }));
             setPrefPendientes(res.pendientes ?? 0);
-            // Refrescar alertas para mostrar las nuevas decisiones
-            const d = await fetch('/api/alertas').then(r => r.json());
-            if (!cancelado && d.alertas) setAlertas(d.alertas);
+            // Mergear solo las decisiones procesadas en memoria (sin recargar toda la lista).
+            if (!cancelado && res.procesados.length) {
+              const byCodigo = new Map<string, any>(res.procesados.map((p: any) => [p.codigo, p]));
+              setAlertas(prev => prev.map(a => {
+                const p = byCodigo.get(a.licitacion_codigo);
+                return p
+                  ? { ...a, prefiltro_decision: p.decision ?? a.prefiltro_decision, prefiltro_categoria: p.categoria ?? a.prefiltro_categoria, prefiltro_confianza: p.confianza ?? a.prefiltro_confianza }
+                  : a;
+              }));
+            }
           }
 
           if (res.completado || res.pendientes === 0) {
@@ -1568,6 +1783,68 @@ export default function RadarPage() {
                   </div>
                 </div>
 
+                {/* Filtro por estado de gestión */}
+                <div className="flex items-center gap-1.5 flex-wrap px-1">
+                  {([
+                    { key: '',            label: 'Activas' },
+                    { key: 'sin_asignar', label: 'Sin asignar' },
+                    { key: 'asignadas',   label: 'Asignadas' },
+                    { key: 'descartadas', label: 'Descartadas' },
+                  ] as const).map(g => (
+                    <button key={g.key} onClick={() => setFiltro('gestion', g.key)}
+                      className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                        filtros.gestion === g.key
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700'
+                      }`}>
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Barra de acciones masivas (selección) */}
+                {sel.size > 0 && (
+                  <div className="sticky top-2 z-20 flex items-center justify-between gap-3 flex-wrap bg-indigo-600 text-white rounded-xl px-4 py-2.5 shadow-lg">
+                    <span className="text-[13px] font-semibold">{sel.size} seleccionada{sel.size !== 1 ? 's' : ''}</span>
+                    <div className="flex items-center gap-2">
+                      <button onClick={abrirAsignar} disabled={accionMasiva}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-700 text-[12px] font-bold rounded-lg hover:bg-indigo-50 disabled:opacity-60">
+                        <UserPlus size={13} /> Asignar
+                      </button>
+                      <button onClick={() => descartarCodigos(alertas.filter(a => sel.has(a.id)).map(a => a.licitacion_codigo), true)} disabled={accionMasiva}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white text-[12px] font-bold rounded-lg hover:bg-indigo-400 disabled:opacity-60">
+                        <EyeOff size={13} /> Descartar
+                      </button>
+                      <button onClick={limpiarSel}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-white/80 text-[12px] font-semibold rounded-lg hover:bg-white/10">
+                        <X size={13} /> Limpiar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Seleccionar toda la página */}
+                {alertasPagina.length > 0 && (
+                  <div className="px-1">
+                    <button
+                      onClick={() => {
+                        const ids = alertasPagina.map(a => a.id);
+                        const todasSel = ids.every(id => sel.has(id));
+                        setSel(prev => {
+                          const n = new Set(prev);
+                          if (todasSel) ids.forEach(id => n.delete(id));
+                          else ids.forEach(id => n.add(id));
+                          return n;
+                        });
+                      }}
+                      className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-500 hover:text-indigo-600 transition-colors">
+                      {alertasPagina.every(a => sel.has(a.id))
+                        ? <><CheckSquare size={14} className="text-indigo-600" /> Quitar selección de la página</>
+                        : <><Square size={14} /> Seleccionar esta página ({alertasPagina.length})</>}
+                    </button>
+                  </div>
+                )}
+
                 {/* Lista */}
                 {alertasFiltradas.length === 0 ? (
                   <div className="text-center py-16 bg-white rounded-xl border border-slate-200">
@@ -1582,17 +1859,53 @@ export default function RadarPage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {alertasFiltradas.map(a => (
-                      <LicitacionCard
-                        key={a.id}
-                        alerta={a}
-                        onDelete={eliminarAlerta}
-                        onMarcarLeida={marcarLeida}
-                        keywords={keywordStrings}
-                      />
-                    ))}
-                  </div>
+                  <>
+                    <div className="space-y-3">
+                      {alertasPagina.map(a => (
+                        <LicitacionCard
+                          key={a.id}
+                          alerta={a}
+                          onDelete={eliminarAlerta}
+                          onMarcarLeida={marcarLeida}
+                          onDescartar={onDescartarUna}
+                          onToggleSelect={toggleSel}
+                          selected={sel.has(a.id)}
+                          keywords={keywordStrings}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Controles de paginación */}
+                    {totalPaginas > 1 && (
+                      <div className="flex items-center justify-between gap-3 mt-5 pt-4 border-t border-slate-100 flex-wrap">
+                        <p className="text-[12px] text-slate-500">
+                          Mostrando{' '}
+                          <strong className="text-slate-700">{(paginaSegura - 1) * POR_PAGINA + 1}</strong>–
+                          <strong className="text-slate-700">{Math.min(paginaSegura * POR_PAGINA, alertasFiltradas.length)}</strong>
+                          {' '}de <strong className="text-slate-700">{alertasFiltradas.length}</strong>
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => { setPagina(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            disabled={paginaSegura <= 1}
+                            className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                          >
+                            Anterior
+                          </button>
+                          <span className="px-3 py-1.5 text-[12px] font-semibold text-slate-700 tabular-nums">
+                            {paginaSegura} / {totalPaginas}
+                          </span>
+                          <button
+                            onClick={() => { setPagina(p => Math.min(totalPaginas, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            disabled={paginaSegura >= totalPaginas}
+                            className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                          >
+                            Siguiente
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -1721,6 +2034,16 @@ export default function RadarPage() {
           </div>
         )}
       </div>
+
+      {modalAsignar && (
+        <AsignarModal
+          usuarios={usuarios}
+          count={sel.size}
+          loading={accionMasiva}
+          onClose={() => setModalAsignar(false)}
+          onConfirm={confirmarAsignar}
+        />
+      )}
     </AppLayout>
   );
 }

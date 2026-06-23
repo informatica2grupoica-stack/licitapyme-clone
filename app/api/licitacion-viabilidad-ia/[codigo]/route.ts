@@ -10,7 +10,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { analizarYGuardarViabilidadIA } from '@/app/lib/viabilidad-ia';
+import { analizarYGuardarViabilidadIA, calcularDocsHash } from '@/app/lib/viabilidad-ia';
+import { getAuthedUser, tomarLock, liberarLock, permitido } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,8 +19,23 @@ export const maxDuration = 300;
 
 type Params = { params: Promise<{ codigo: string }> };
 
+// Lee el informe IA ya guardado (o null) sin volver a llamar al modelo.
+async function leerInformeGuardado(codigo: string): Promise<any | null> {
+  const [rows] = await pool.query(
+    `SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+  const row = (rows as any[])[0];
+  if (!row) return null;
+  try {
+    const ie = typeof row.informe_ejecutivo === 'string' ? JSON.parse(row.informe_ejecutivo) : row.informe_ejecutivo;
+    return ie?._informe_ia ?? null;
+  } catch { return null; }
+}
+
 // GET — informe IA cacheado (si existe)
-export async function GET(_request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params }: Params) {
+  if (!(await getAuthedUser(request))) {
+    return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  }
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
   try {
@@ -42,12 +58,38 @@ export async function GET(_request: NextRequest, { params }: Params) {
 }
 
 // POST — corre el analista IA (Gemini) sobre los documentos de la licitación
-export async function POST(_request: NextRequest, { params }: Params) {
+export async function POST(request: NextRequest, { params }: Params) {
+  // 1) Autenticación verificada contra el JWT (no contra el header del cliente).
+  const usuario = await getAuthedUser(request);
+  if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  const force = new URL(request.url).searchParams.get('force') === '1';
 
   if (!process.env.GEMINI_API_KEY) {
     return NextResponse.json({ error: 'GEMINI_API_KEY no configurada.' }, { status: 503 });
+  }
+
+  // 2) Rate-limit por usuario: el análisis es caro (Gemini visión, hasta 5 min).
+  if (!(await permitido(`viabilidad:${usuario.id}`, 20, 600))) {
+    return NextResponse.json({ error: 'Demasiados análisis seguidos. Espera unos minutos.' }, { status: 429 });
+  }
+
+  // 3) Cache por huella de documentos: si nada cambió, devolver el informe guardado.
+  if (!force) {
+    try {
+      const [guardado, hashActual] = await Promise.all([leerInformeGuardado(codigoDecoded), calcularDocsHash(codigoDecoded)]);
+      if (guardado && hashActual && guardado.docs_hash === hashActual) {
+        return NextResponse.json({ success: true, informeIA: guardado, cacheado: true });
+      }
+    } catch { /* si falla la comprobación, seguimos al análisis normal */ }
+  }
+
+  // 4) Lock: evita que dos disparos simultáneos del mismo código gasten Gemini dos veces.
+  const lockKey = `viab:${codigoDecoded}`;
+  if (!(await tomarLock(lockKey, 300))) {
+    return NextResponse.json({ error: 'Ya hay un análisis en curso para esta licitación.' }, { status: 409 });
   }
 
   try {
@@ -68,7 +110,13 @@ export async function POST(_request: NextRequest, { params }: Params) {
         { status: 429 },
       );
     }
+    // Saturación transitoria de Gemini → mensaje accionable, sin filtrar el detalle interno.
+    if (msg.includes('saturad') || msg.includes('503')) {
+      return NextResponse.json({ error: 'Gemini está saturado en este momento. Reintenta en unos minutos.' }, { status: 503 });
+    }
     console.error('[licitacion-viabilidad-ia] Error:', msg);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: 'No se pudo completar el análisis.' }, { status: 500 });
+  } finally {
+    await liberarLock(lockKey);
   }
 }

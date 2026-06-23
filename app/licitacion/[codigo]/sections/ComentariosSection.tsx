@@ -39,9 +39,7 @@ export function ComentariosSection({ codigoDecoded }: { codigoDecoded: string })
   const cargar = useCallback(async () => {
     if (!usuario) { setLoading(false); return; }
     try {
-      const res = await fetch(`/api/licitacion-comentarios/${encodeURIComponent(codigoDecoded)}`, {
-        headers: { 'x-user-id': String(usuario.id), 'x-user-rol': usuario.rol },
-      });
+      const res = await fetch(`/api/licitacion-comentarios/${encodeURIComponent(codigoDecoded)}`);
       const data = await res.json();
       if (data.success) setComentarios(data.comentarios || []);
     } catch { /* silencioso */ }
@@ -56,7 +54,7 @@ export function ComentariosSection({ codigoDecoded }: { codigoDecoded: string })
     try {
       const res = await fetch(`/api/licitacion-comentarios/${encodeURIComponent(codigoDecoded)}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-user-id': String(usuario.id), 'x-user-rol': usuario.rol },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ comentario: texto.trim() }),
       });
       const data = await res.json();
@@ -79,7 +77,6 @@ export function ComentariosSection({ codigoDecoded }: { codigoDecoded: string })
     try {
       const res = await fetch(`/api/licitacion-comentarios/${encodeURIComponent(codigoDecoded)}?comentarioId=${id}`, {
         method: 'DELETE',
-        headers: { 'x-user-id': String(usuario.id), 'x-user-rol': usuario.rol },
       });
       const data = await res.json();
       if (data.success) {

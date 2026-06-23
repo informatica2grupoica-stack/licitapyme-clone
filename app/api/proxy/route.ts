@@ -9,12 +9,24 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Falta el parámetro url' }, { status: 400 });
   }
 
-  // Permitir solo dominios confiables: Mercado Público y nuestro R2
-  const r2AccountId = process.env.R2_ACCOUNT_ID || '';
+  // Anti-SSRF: validar el HOSTNAME real (no `includes` sobre la cadena, que dejaría
+  // pasar http://evil.com/?x=mercadopublico.cl). Solo http(s) y dominios confiables.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return NextResponse.json({ error: 'URL inválida' }, { status: 400 });
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return NextResponse.json({ error: 'Protocolo no permitido' }, { status: 403 });
+  }
+  const host = parsed.hostname.toLowerCase();
+  const r2AccountId = (process.env.R2_ACCOUNT_ID || '').toLowerCase();
   const esUrlPermitida =
-    url.includes('mercadopublico.cl') ||
-    url.includes('.r2.dev') ||
-    (r2AccountId && url.includes(r2AccountId));
+    host === 'mercadopublico.cl' || host.endsWith('.mercadopublico.cl') ||
+    host.endsWith('.r2.dev') ||
+    host.endsWith('.r2.cloudflarestorage.com') ||
+    (!!r2AccountId && host.includes(r2AccountId));
 
   if (!esUrlPermitida) {
     return NextResponse.json({ error: 'URL no permitida' }, { status: 403 });

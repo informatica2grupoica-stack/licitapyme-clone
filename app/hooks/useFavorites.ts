@@ -31,15 +31,10 @@ export function useFavorites() {
   const [favoritesData, setFavoritesData] = useState<Favorite[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Función corregida que siempre retorna un objeto válido para headers
-  const getAuthHeaders = useCallback((): Record<string, string> => {
-    const headers: Record<string, string> = {};
-    if (usuario?.id) {
-      headers['x-user-id'] = String(usuario.id);
-      headers['x-user-rol'] = usuario.rol || 'usuario';
-    }
-    return headers;
-  }, [usuario?.id, usuario?.rol]);
+  // La identidad NO se manda desde el cliente: el middleware (proxy.ts) inyecta
+  // x-user-id/x-user-rol desde el JWT verificado de la cookie. Mandarla aquí sería
+  // redundante e insegura. La cookie de sesión viaja sola (fetch same-origin).
+  const getAuthHeaders = useCallback((): Record<string, string> => ({}), []);
 
   const loadFavorites = useCallback(async () => {
     if (!usuario?.id) {

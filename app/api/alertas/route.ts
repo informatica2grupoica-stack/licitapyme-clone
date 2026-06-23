@@ -32,6 +32,12 @@ export async function GET(request: NextRequest) {
   const soloNoLeidas = searchParams.get('noLeidas') === 'true';
   const limitParam   = searchParams.get('limit');
 
+  // Por defecto se traen TODAS las alertas: el front filtra en cliente sobre el
+  // total y pagina la visualización. El ?limit/?offset es opcional (uso puntual).
+  const hayLimit = limitParam != null && limitParam !== '';
+  const limit  = hayLimit ? Math.min(Math.max(parseInt(limitParam, 10) || 1, 1), 5000) : null;
+  const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
+
   try {
     const esAdmin = await usuarioEsAdmin(userId);
     const whereExtra = soloNoLeidas ? ' AND a.leida = FALSE' : '';
@@ -43,9 +49,8 @@ export async function GET(request: NextRequest) {
       ? 'a.id IN (SELECT MAX(a3.id) FROM alertas_licitaciones a3 GROUP BY a3.licitacion_codigo)'
       : 'a.usuario_id = ?';
     const scopeParams: unknown[] = esAdmin ? [] : [userId];
-    const params: unknown[] = limitParam
-      ? [...scopeParams, parseInt(limitParam, 10)]
-      : [...scopeParams];
+    const params: unknown[] = hayLimit ? [...scopeParams, limit, offset] : [...scopeParams];
+    const limitClause = hayLimit ? ' LIMIT ? OFFSET ?' : '';
 
     // Intentar primero con las columnas nuevas; si no existen (migración pendiente)
     // caer a la versión sin ellas para no dejar el radar en blanco.
@@ -58,7 +63,7 @@ export async function GET(request: NextRequest) {
                 a.licitacion_fecha_publicacion,
                 a.licitacion_estado, a.licitacion_region, a.licitacion_tipo,
                 a.match_fuente, a.match_contexto, a.match_score, a.leida, a.created_at,
-                EXISTS (SELECT 1 FROM documentos_cache dc WHERE dc.licitacion_codigo = a.licitacion_codigo) AS tiene_documentos,
+                (dc.licitacion_codigo IS NOT NULL) AS tiene_documentos,
                 v.score_total AS viabilidad_score,
                 v.semaforo    AS viabilidad_semaforo,
                 v.area_negocio AS viabilidad_area,
@@ -72,34 +77,50 @@ export async function GET(request: NextRequest) {
          FROM alertas_licitaciones a
          LEFT JOIN viabilidad_licitacion v ON v.licitacion_codigo = a.licitacion_codigo
          LEFT JOIN prefiltro_licitacion pf ON pf.licitacion_codigo = a.licitacion_codigo
+         LEFT JOIN (SELECT licitacion_codigo FROM documentos_cache GROUP BY licitacion_codigo) dc ON dc.licitacion_codigo = a.licitacion_codigo
          LEFT JOIN palabras_clave pc ON pc.id = a.palabra_clave_id
          LEFT JOIN etiquetas cat ON cat.id = pc.categoria_id
          WHERE ${scope}${whereExtra}
          ORDER BY COALESCE(a.licitacion_fecha_publicacion, a.licitacion_cierre, a.created_at) DESC`;
-      const query = limitParam ? `${selectCols} LIMIT ?` : selectCols;
+      const query = `${selectCols}${limitClause}`;
       [rows] = await pool.query(query, params) as any[];
     } catch {
       // Columnas nuevas no existen aún — fallback sin columnas opcionales
-      const query = limitParam
-        ? `SELECT id, keyword_texto, licitacion_codigo, licitacion_nombre,
-                  licitacion_organismo, licitacion_monto, licitacion_cierre,
-                  licitacion_estado, licitacion_region, licitacion_tipo,
-                  leida, created_at,
-                  EXISTS (SELECT 1 FROM documentos_cache dc WHERE dc.licitacion_codigo = a.licitacion_codigo) AS tiene_documentos
-           FROM alertas_licitaciones a
-           WHERE ${scope}${whereExtra}
-           ORDER BY COALESCE(licitacion_cierre, created_at) DESC
-           LIMIT ?`
-        : `SELECT id, keyword_texto, licitacion_codigo, licitacion_nombre,
-                  licitacion_organismo, licitacion_monto, licitacion_cierre,
-                  licitacion_estado, licitacion_region, licitacion_tipo,
-                  leida, created_at,
-                  EXISTS (SELECT 1 FROM documentos_cache dc WHERE dc.licitacion_codigo = a.licitacion_codigo) AS tiene_documentos
-           FROM alertas_licitaciones a
-           WHERE ${scope}${whereExtra}
-           ORDER BY COALESCE(licitacion_cierre, created_at) DESC`;
+      const query =
+        `SELECT id, keyword_texto, licitacion_codigo, licitacion_nombre,
+                licitacion_organismo, licitacion_monto, licitacion_cierre,
+                licitacion_estado, licitacion_region, licitacion_tipo,
+                leida, created_at,
+                (dc.licitacion_codigo IS NOT NULL) AS tiene_documentos
+         FROM alertas_licitaciones a
+         LEFT JOIN (SELECT licitacion_codigo FROM documentos_cache GROUP BY licitacion_codigo) dc ON dc.licitacion_codigo = a.licitacion_codigo
+         WHERE ${scope}${whereExtra}
+         ORDER BY COALESCE(licitacion_cierre, created_at) DESC${limitClause}`;
       [rows] = await pool.query(query, params) as any[];
     }
+
+    // Enriquecer con el ESTADO DE GESTIÓN: asignación (negocios) y descarte.
+    // Desacoplado del query principal (sin JOINs → sin choque de collation) y resiliente:
+    // si alguna tabla falta, el radar sigue funcionando sin estas marcas.
+    try {
+      const lista = rows as any[];
+      const [asig] = await pool.query(
+        `SELECT n.licitacion_codigo, n.asignado_a, u.nombre AS asignado_nombre, u.email AS asignado_email
+         FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE`);
+      const mapAsig = new Map<string, any>((asig as any[]).map(r => [r.licitacion_codigo, r]));
+      let setDesc = new Set<string>();
+      try {
+        const [desc] = await pool.query(`SELECT licitacion_codigo FROM licitaciones_descartadas`);
+        setDesc = new Set((desc as any[]).map(r => r.licitacion_codigo));
+      } catch { /* tabla de descartadas aún no existe */ }
+      for (const a of lista) {
+        const m = mapAsig.get(a.licitacion_codigo);
+        a.asignada = !!m;
+        a.asignado_a = m ? m.asignado_a : null;
+        a.asignado_nombre = m ? (m.asignado_nombre || m.asignado_email || null) : null;
+        a.descartada = setDesc.has(a.licitacion_codigo);
+      }
+    } catch { /* tabla negocios puede no existir: sin marcas de gestión */ }
 
     const countSql = esAdmin
       ? `SELECT COUNT(*) AS total FROM alertas_licitaciones a
@@ -111,7 +132,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ success: true, alertas: rows, noLeidas, total: (rows as any[]).length });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error('[alertas:GET]', String(error));
+    return NextResponse.json({ error: 'No se pudieron cargar las alertas.' }, { status: 500 });
   }
 }
 
@@ -139,7 +161,8 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error('[alertas:PATCH]', String(error));
+    return NextResponse.json({ error: 'No se pudieron marcar las alertas.' }, { status: 500 });
   }
 }
 
@@ -159,6 +182,7 @@ export async function DELETE(request: NextRequest) {
     );
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    console.error('[alertas:DELETE]', String(error));
+    return NextResponse.json({ error: 'No se pudo eliminar la alerta.' }, { status: 500 });
   }
 }
