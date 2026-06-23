@@ -70,27 +70,46 @@ function noRequiereOCR(nombre: string): boolean {
 interface DocLeido { nombre: string; categoria: string | null; texto: string; metodo: string; ok: boolean }
 
 async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
-  const [rows] = await pool.query(
-    `SELECT documento_nombre, documento_url_local, categoria
-     FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at ASC`,
-    [codigo],
-  );
-  const docs = rows as Array<{ documento_nombre: string; documento_url_local: string; categoria: string | null }>;
+  // Trae el texto cacheado si existe (migración 22). Si la columna no existe aún, fallback.
+  let docs: Array<{ documento_nombre: string; documento_url_local: string; categoria: string | null; texto_extraido?: string | null; metodo_extraccion?: string | null }>;
+  try {
+    const [rows] = await pool.query(
+      `SELECT documento_nombre, documento_url_local, categoria, texto_extraido, metodo_extraccion
+       FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at ASC`,
+      [codigo],
+    );
+    docs = rows as any[];
+  } catch {
+    const [rows] = await pool.query(
+      `SELECT documento_nombre, documento_url_local, categoria
+       FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at ASC`,
+      [codigo],
+    );
+    docs = rows as any[];
+  }
 
   const out: DocLeido[] = [];
   // Concurrencia 2 para no disparar 429 de Gemini visión.
   for (let i = 0; i < docs.length; i += 2) {
     const batch = docs.slice(i, i + 2);
     const res = await Promise.all(batch.map(async (d) => {
+      // CACHÉ: si ya leímos este documento antes, reusamos el texto (no re-OCR) → rápido.
+      const cacheTxt = (d.texto_extraido || '').trim();
+      if (cacheTxt.length >= 50) {
+        return { nombre: d.documento_nombre, categoria: d.categoria, texto: cacheTxt, metodo: d.metodo_extraccion || 'cache', ok: true } as DocLeido;
+      }
       const r = await descargarYExtraerTexto(d.documento_url_local, d.documento_nombre, { omitirOCR: noRequiereOCR(d.documento_nombre) }).catch(() => null);
       const texto = (r?.texto || '').replace(/\s+\n/g, '\n').trim();
-      return {
-        nombre: d.documento_nombre,
-        categoria: d.categoria,
-        texto,
-        metodo: r?.metodo || 'error',
-        ok: texto.length >= 50,
-      } as DocLeido;
+      const metodo = r?.metodo || 'error';
+      // Persistir el texto leído para no volver a hacer OCR la próxima vez (best-effort).
+      if (texto.length >= 50) {
+        pool.query(
+          `UPDATE documentos_cache SET texto_extraido = ?, metodo_extraccion = ?, texto_extraido_at = NOW()
+           WHERE licitacion_codigo = ? AND documento_nombre = ?`,
+          [texto, metodo, codigo, d.documento_nombre],
+        ).catch(() => { /* columna puede no existir aún */ });
+      }
+      return { nombre: d.documento_nombre, categoria: d.categoria, texto, metodo, ok: texto.length >= 50 } as DocLeido;
     }));
     out.push(...res);
   }
