@@ -107,7 +107,7 @@ function Campo({ label, value }: { label: string; value?: string | null }) {
 }
 
 export function ViabilidadSection({
-  viabilidad, analizando, onRecalcular, hayDocumentos, analisis, documentosNoLegibles,
+  viabilidad, analizando, onRecalcular, hayDocumentos, analisis, documentosNoLegibles, ocultarBoton,
 }: {
   viabilidad: Viabilidad | null;
   analizando: boolean;
@@ -115,6 +115,7 @@ export function ViabilidadSection({
   hayDocumentos: boolean;
   analisis?: AnalisisIA | null;
   documentosNoLegibles?: string[];
+  ocultarBoton?: boolean;
 }) {
   const sv = viabilidad?.score_viabilidad;
   const cfg = sv?.semaforo ? SEMAFORO[sv.semaforo] : null;
@@ -144,9 +145,9 @@ export function ViabilidadSection({
     <div className="space-y-5">
       <SectionHeader
         icon={<Gauge size={18} />}
-        title="Viabilidad de la licitación"
-        subtitle="Score 0–100 según presupuesto, líneas, modalidad, criterios y tipo de producto"
-        action={
+        title="Score de control (determinista)"
+        subtitle="Respaldo numérico 0–100 — el análisis IA de arriba es el principal"
+        action={ocultarBoton ? undefined : (
           <button
             onClick={onRecalcular}
             disabled={analizando}
@@ -155,7 +156,7 @@ export function ViabilidadSection({
             {analizando ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
             {analizando ? 'Analizando…' : 'Recalcular'}
           </button>
-        }
+        )}
       />
 
       {/* Detalle por documento: cuáles se analizaron y cuáles quedaron pendientes (y por qué) */}
@@ -230,11 +231,13 @@ export function ViabilidadSection({
           <Gauge size={28} className="text-slate-300 mb-3" />
           <p className="text-[14px] font-semibold text-slate-700 mb-1">Sin análisis de viabilidad</p>
           <p className="text-[12px] text-slate-400 max-w-xs mb-4">
-            {hayDocumentos
-              ? 'Pulsa "Recalcular" para analizar la viabilidad de esta licitación.'
-              : 'Primero descarga los documentos de la licitación; luego se calculará la viabilidad automáticamente.'}
+            {ocultarBoton
+              ? 'Pulsa “Analizar con IA” arriba: se calculará también este score de control.'
+              : hayDocumentos
+                ? 'Pulsa "Recalcular" para analizar la viabilidad de esta licitación.'
+                : 'Primero descarga los documentos de la licitación; luego se calculará la viabilidad automáticamente.'}
           </p>
-          {hayDocumentos && (
+          {hayDocumentos && !ocultarBoton && (
             <button onClick={onRecalcular}
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-[13px] font-semibold hover:bg-indigo-500">
               <Gauge size={14} /> Calcular viabilidad

@@ -293,5 +293,43 @@ export async function analizarYGuardarViabilidadIA(codigo: string): Promise<Viab
   if (!r) return null;
   try { await guardarViabilidadIA(codigo, r); }
   catch (e) { console.error('[viabilidad-ia] guardar falló:', String(e).slice(0, 200)); }
+  try { await volcarManifiestoAItems(codigo, r); }
+  catch (e) { console.error('[viabilidad-ia] volcar ítems falló:', String(e).slice(0, 200)); }
   return r;
+}
+
+// Vuelca el manifiesto de productos (lo que la IA encontró en la documentación) a
+// analisis_ia_licitacion.especificaciones_tecnicas, que es lo que la ficha del NEGOCIO
+// ya muestra en "Ítems y cantidades". Así, al asignar la licitación a negocio, salen los
+// ítems reales leídos de las bases. Solo sobrescribe si la IA trae MÁS ítems que lo guardado.
+async function volcarManifiestoAItems(codigo: string, r: ViabilidadIAResult): Promise<void> {
+  const manifiesto = Array.isArray(r.manifiesto_productos) ? r.manifiesto_productos : [];
+  if (manifiesto.length === 0) return;
+
+  const especs = manifiesto.map(p => ({
+    item: String(p.linea ?? ''),
+    descripcion: p.descripcion || '',
+    cantidad: p.cantidad ?? null,
+    unidad: null as string | null,
+    requisitosMinimos: [p.modelo, p.tipo, p.ruta ? `Ruta ${p.ruta}` : ''].filter(Boolean).join(' · ') || null,
+  }));
+
+  // ¿Cuántos ítems hay hoy? Solo reemplazamos si la IA trae igual o más (suele ser más completa).
+  let actuales = 0;
+  try {
+    const [ex] = await pool.query(`SELECT especificaciones_tecnicas FROM analisis_ia_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+    const cur = (ex as any[])[0];
+    if (cur?.especificaciones_tecnicas) {
+      const a = typeof cur.especificaciones_tecnicas === 'string' ? JSON.parse(cur.especificaciones_tecnicas) : cur.especificaciones_tecnicas;
+      actuales = Array.isArray(a) ? a.length : 0;
+    }
+  } catch { /* fila/tabla puede no existir */ }
+  if (especs.length < actuales) return;
+
+  await pool.query(
+    `INSERT INTO analisis_ia_licitacion (licitacion_codigo, especificaciones_tecnicas, modelo)
+     VALUES (?, ?, ?)
+     ON DUPLICATE KEY UPDATE especificaciones_tecnicas = VALUES(especificaciones_tecnicas)`,
+    [codigo, JSON.stringify(especs), GEMINI_MODEL],
+  );
 }

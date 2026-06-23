@@ -54,7 +54,7 @@ function Bloque({ titulo, children }: { titulo: string; children: React.ReactNod
 }
 const estadoColor = (e?: string) => e === 'VENTAJA' ? 'text-emerald-700 bg-emerald-50' : e === 'DESVENTAJA' ? 'text-red-700 bg-red-50' : 'text-slate-500 bg-slate-50';
 
-export function ViabilidadIAPanel({ codigo }: { codigo: string }) {
+export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: string; onTambienAnalizar?: () => void }) {
   const [informe, setInforme] = useState<InformeIA | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +69,8 @@ export function ViabilidadIAPanel({ codigo }: { codigo: string }) {
 
   const analizar = async () => {
     setCargando(true); setError(null);
+    // En paralelo: recalcula el score determinista (control) en el mismo clic.
+    try { onTambienAnalizar?.(); } catch { /* noop */ }
     try {
       const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`, { method: 'POST' });
       const j = await r.json();

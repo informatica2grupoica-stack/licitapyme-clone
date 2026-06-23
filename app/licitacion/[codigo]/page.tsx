@@ -586,19 +586,22 @@ export default function LicitacionDetallePage() {
               <ComentariosSection codigoDecoded={codigoDecoded} />
             )}
             {activeSection === 'viabilidad' && (
-              <ViabilidadSection
-                viabilidad={viabilidad}
-                analizando={analizandoViab}
-                onRecalcular={calcularViabilidad}
-                hayDocumentos={documentosAnalizables.length > 0}
-                analisis={analisisIA}
-                documentosNoLegibles={documentosCache
-                  .filter(d => !esUrlAnalizable(d.url_local || d.url))
-                  .map(d => d.nombre)}
-              />
-            )}
-            {activeSection === 'viabilidad' && (
-              <ViabilidadIAPanel codigo={codigoDecoded} />
+              <>
+                {/* Un solo botón: el análisis IA (PROMPT 2) es el principal y, en el mismo
+                    clic, recalcula el score determinista que queda abajo como control. */}
+                <ViabilidadIAPanel codigo={codigoDecoded} onTambienAnalizar={calcularViabilidad} />
+                <ViabilidadSection
+                  viabilidad={viabilidad}
+                  analizando={analizandoViab}
+                  onRecalcular={calcularViabilidad}
+                  ocultarBoton
+                  hayDocumentos={documentosAnalizables.length > 0}
+                  analisis={analisisIA}
+                  documentosNoLegibles={documentosCache
+                    .filter(d => !esUrlAnalizable(d.url_local || d.url))
+                    .map(d => d.nombre)}
+                />
+              </>
             )}
             {activeSection === 'inteligencia' && (
               <InteligenciaSection documentosAnalizables={documentosAnalizables} nombreLicitacion={licitacion.nombre} />
