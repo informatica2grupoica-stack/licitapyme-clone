@@ -7,6 +7,10 @@ import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useSession } from '@/app/lib/session-context';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
+import { ViabilidadIAPanel } from '@/app/licitacion/[codigo]/sections/ViabilidadIAPanel';
+import { InteligenciaSection } from '@/app/licitacion/[codigo]/sections/InteligenciaSection';
+import { DocumentosSection } from '@/app/licitacion/[codigo]/sections/DocumentosSection';
+import { esUrlAnalizable } from '@/app/licitacion/[codigo]/utils';
 import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
   MessageSquare, Send, Trash2, Loader2, AlertCircle, ExternalLink,
@@ -160,7 +164,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'comentarios';
+type Seccion = 'resumen' | 'viabilidad' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'comentarios';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -1149,10 +1153,15 @@ function DetalleContent() {
 
   // Negocios = vista breve para el usuario asignado. El análisis profundo (viabilidad,
   // IA de documentos) vive SOLO en el Radar (admin). Aquí solo brief + ítems + comentarios.
+  const documentosAnalizables = documentos.filter(d => esUrlAnalizable(d.url_local || d.url));
+
   const NAV_SECTIONS = [
-    { key: 'resumen',      label: 'Resumen',          count: null },
+    { key: 'resumen',      label: 'Resumen',           count: null },
+    { key: 'viabilidad',   label: 'Viabilidad (IA)',   count: null },
+    { key: 'items',        label: 'Ítems y Cantidades', count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
+    { key: 'documentos',   label: 'Documentos',        count: documentos.length || null },
+    { key: 'analisis',     label: 'Chatbot',           count: null },
     { key: 'fechas',       label: 'Fechas',            count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
-    { key: 'items',        label: 'Ítems y Cantidades', count: licitacion?.Items?.length ?? null },
     { key: 'comentarios',  label: 'Comentarios',       count: null },
   ] as const;
 
@@ -1274,6 +1283,24 @@ function DetalleContent() {
             )}
             {seccion === 'fechas' && <SeccionFechas licitacion={licitacion} />}
             {seccion === 'items' && <SeccionItems licitacion={licitacion} analisisIA={analisisIA} />}
+            {seccion === 'viabilidad' && <ViabilidadIAPanel codigo={negocio.licitacion_codigo} />}
+            {seccion === 'documentos' && (
+              <DocumentosSection
+                codigoDecoded={negocio.licitacion_codigo}
+                mpUrl={`https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${negocio.licitacion_codigo}`}
+                documentosCache={documentos as any}
+                cargandoDocs={loadingDocs}
+                descargandoAuto={descargandoAuto}
+                handleAutoDescargar={handleAutoDescargar}
+                fetchDocumentos={fetchDocumentos}
+                clasificando={clasificando}
+                onReClasificar={handleClasificar}
+                resumenClasificacion={resumenClasificacion}
+              />
+            )}
+            {seccion === 'analisis' && (
+              <InteligenciaSection documentosAnalizables={documentosAnalizables as any} nombreLicitacion={negocio.licitacion_nombre || negocio.licitacion_codigo} />
+            )}
             {seccion === 'comentarios' && (
               <SeccionComentarios
                 negocioId={negocio.id}
