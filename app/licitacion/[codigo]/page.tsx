@@ -24,7 +24,7 @@ import { DocumentosSection } from './sections/DocumentosSection';
 import { PreguntasSection } from './sections/PreguntasSection';
 import { CriteriosSection } from './sections/CriteriosSection';
 import { ComentariosSection } from './sections/ComentariosSection';
-import { ViabilidadSection, Viabilidad } from './sections/ViabilidadSection';
+import { Viabilidad } from './sections/ViabilidadSection';
 import { ViabilidadIAPanel } from './sections/ViabilidadIAPanel';
 import { InteligenciaSection } from './sections/InteligenciaSection';
 import { PostulacionSection } from './sections/PostulacionSection';
@@ -586,22 +586,9 @@ export default function LicitacionDetallePage() {
               <ComentariosSection codigoDecoded={codigoDecoded} />
             )}
             {activeSection === 'viabilidad' && (
-              <>
-                {/* Un solo botón: el análisis IA (PROMPT 2) es el principal y, en el mismo
-                    clic, recalcula el score determinista que queda abajo como control. */}
-                <ViabilidadIAPanel codigo={codigoDecoded} onTambienAnalizar={calcularViabilidad} />
-                <ViabilidadSection
-                  viabilidad={viabilidad}
-                  analizando={analizandoViab}
-                  onRecalcular={calcularViabilidad}
-                  ocultarBoton
-                  hayDocumentos={documentosAnalizables.length > 0}
-                  analisis={analisisIA}
-                  documentosNoLegibles={documentosCache
-                    .filter(d => !esUrlAnalizable(d.url_local || d.url))
-                    .map(d => d.nombre)}
-                />
-              </>
+              // La IA es la fuente ÚNICA de la viabilidad: entrega el score, el veredicto
+              // y todo el análisis. Un solo panel, un solo botón.
+              <ViabilidadIAPanel codigo={codigoDecoded} />
             )}
             {activeSection === 'inteligencia' && (
               <InteligenciaSection documentosAnalizables={documentosAnalizables} nombreLicitacion={licitacion.nombre} />

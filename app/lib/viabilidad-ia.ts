@@ -22,6 +22,10 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 // ─── Tipos del veredicto IA (subset operativo del PROMPT 2) ──────────────────────
 // Esquema COMPLETO del PROMPT 2 (sección 5A) + extras (criterios % y plazo/garantías detallados).
 export interface ViabilidadIAResult {
+  // La IA es la fuente ÚNICA del veredicto: entrega el score 0-100 y el semáforo.
+  score_0_100: number;
+  semaforo: string; // VERDE | AMARILLO | NARANJA | ROJO | ROJO_DURO (derivado del score)
+  area_negocio: string; // FERRETERIA | EQUIPAMIENTO | MIXTO
   meta: { id: string; nombre: string; organismo: string; region: string; linea_negocio: string };
   exclusion: { excluido: boolean; categoria: string | null; motivo: string; fuente: string; confianza: number; destino: string };
   presupuesto: { bruto: number | null; neto: number | null; con_iva: boolean; fuente: string; gate: string };
@@ -133,7 +137,9 @@ async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promi
     generationConfig: { temperature: 0.15, responseMimeType: 'application/json', maxOutputTokens: 32_000 },
   });
 
-  const ESPERAS = [0, 5_000, 15_000];
+  // Paciente ante el 503 "high demand" de Gemini (overload de Google) y 429 (límite/min):
+  // 6 intentos con backoff hasta 40s. Los errores permanentes (400/401/403) no se reintentan.
+  const ESPERAS = [0, 5_000, 12_000, 20_000, 30_000, 40_000];
   let ultimoErr = '';
   for (let intento = 0; intento < ESPERAS.length; intento++) {
     if (intento > 0) await sleep(ESPERAS[intento]);
@@ -149,8 +155,9 @@ async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promi
     }
     ultimoErr = `${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`;
     if (res.status !== 429 && res.status !== 503) break; // permanente → no reintentar
+    console.warn(`[viabilidad-ia] Gemini ${res.status} transitorio, reintento ${intento + 1}/${ESPERAS.length}...`);
   }
-  throw new Error(`Gemini falló: ${ultimoErr}`);
+  throw new Error(`Gemini saturado (reintentos agotados): ${ultimoErr}`);
 }
 
 // ─── Prompt PROMPT 2 ─────────────────────────────────────────────────────────────
@@ -188,6 +195,8 @@ PASO 7 — MANIFIESTO de productos (para Fase 3): por cada línea, descripción 
 
 PASO 8 — VEREDICTO claro: nivel + gana_probable (si|no|condicional), por qué fundamentado en las bases, acciones_AC y advertencias.
 
+SCORE FINAL 0-100 (tú lo decides, es el dato principal): integra capa A (atractivo), criterios, admisibilidad y riesgos en un puntaje 0-100 donde mayor = más conviene postular. Guía: 80-100 muy conveniente (VERDE), 60-79 conveniente (AMARILLO), 40-59 medio (NARANJA), 20-39 bajo (ROJO), 0-19 descarte (ROJO_DURO). Si hay bloqueante irresoluble o gate de exclusión/presupuesto → score ≤ 19. Entrega también area_negocio (FERRETERIA|EQUIPAMIENTO|MIXTO).
+
 Responde ÚNICAMENTE un objeto JSON válido con el esquema indicado, sin markdown.`;
 
 function construirUserPrompt(codigo: string, ctx: any, docs: DocLeido[]): string {
@@ -212,6 +221,9 @@ ${docsTexto || '(no se pudo extraer texto de los documentos)'}
 
 Analiza TODO lo anterior y devuelve EXACTAMENTE este JSON (cita FUENTE en cada punto, no inventes):
 {
+  "score_0_100": 0,
+  "semaforo": "VERDE|AMARILLO|NARANJA|ROJO|ROJO_DURO",
+  "area_negocio": "FERRETERIA|EQUIPAMIENTO|MIXTO",
   "meta": { "id": "${codigo}", "nombre": "", "organismo": "", "region": "", "linea_negocio": "ferreteria|equipamiento|mixto" },
   "exclusion": { "excluido": false, "categoria": "servicio|obra_civil|capacitacion_pura|consultoria|convenio_suministro|null", "motivo": "", "fuente": "", "confianza": 0.0, "destino": "OK|NO_REALIZAMOS|REVISION_HUMANA" },
   "presupuesto": { "bruto": null, "neto": null, "con_iva": false, "fuente": "dónde aparece en las bases", "gate": "OK|NO_CALIFICA|DESCARTE_CONDICIONAL|INCIERTO" },
@@ -255,8 +267,16 @@ export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIA
   const ctx = await cargarContexto(codigo);
   const parsed = await llamarGeminiJSON(SYSTEM_PROMPT, construirUserPrompt(codigo, ctx, docs));
 
+  // Score 0-100 de la IA (dato principal) y semáforo derivado por umbrales consistentes.
+  const score = Math.max(0, Math.min(100, Math.round(Number(parsed.score_0_100) || 0)));
+  const semaforo = score >= 80 ? 'VERDE' : score >= 60 ? 'AMARILLO' : score >= 40 ? 'NARANJA' : score >= 20 ? 'ROJO' : 'ROJO_DURO';
+  const area = String(parsed.area_negocio || parsed.meta?.linea_negocio || 'MIXTO').toUpperCase();
+
   const result: ViabilidadIAResult = {
     ...parsed,
+    score_0_100: score,
+    semaforo,
+    area_negocio: ['FERRETERIA', 'EQUIPAMIENTO', 'MIXTO'].includes(area) ? area : 'MIXTO',
     documentos_leidos: leidos.map(d => d.nombre),
     documentos_no_leidos: docs.filter(d => !d.ok).map(d => `${d.nombre} (${d.metodo})`),
     confianza_global: typeof parsed.confianza_global === 'number' ? parsed.confianza_global : 0.7,
@@ -273,18 +293,22 @@ export async function guardarViabilidadIA(codigo: string, r: ViabilidadIAResult)
     `SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
   const fila = (rows as any[])[0];
 
+  // La IA es la fuente única: su score/semáforo/área alimentan las columnas que lee el radar.
   if (fila) {
     let ie: any = {};
     try { ie = typeof fila.informe_ejecutivo === 'string' ? JSON.parse(fila.informe_ejecutivo) : (fila.informe_ejecutivo || {}); } catch { ie = {}; }
     ie._informe_ia = r;
     ie._modelo_ia = GEMINI_MODEL;
     await pool.query(
-      `UPDATE viabilidad_licitacion SET informe_ejecutivo = ? WHERE licitacion_codigo = ?`,
-      [JSON.stringify(ie), codigo]);
+      `UPDATE viabilidad_licitacion
+         SET informe_ejecutivo = ?, score_total = ?, semaforo = ?, area_negocio = ?, confianza_analisis = ?, modelo = ?
+       WHERE licitacion_codigo = ?`,
+      [JSON.stringify(ie), r.score_0_100, r.semaforo, r.area_negocio, r.confianza_global ?? null, `ia+${GEMINI_MODEL}`, codigo]);
   } else {
     await pool.query(
-      `INSERT INTO viabilidad_licitacion (licitacion_codigo, informe_ejecutivo) VALUES (?, ?)`,
-      [codigo, JSON.stringify({ _informe_ia: r, _modelo_ia: GEMINI_MODEL })]);
+      `INSERT INTO viabilidad_licitacion (licitacion_codigo, informe_ejecutivo, score_total, semaforo, area_negocio, confianza_analisis, modelo)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [codigo, JSON.stringify({ _informe_ia: r, _modelo_ia: GEMINI_MODEL }), r.score_0_100, r.semaforo, r.area_negocio, r.confianza_global ?? null, `ia+${GEMINI_MODEL}`]);
   }
 }
 
