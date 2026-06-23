@@ -315,11 +315,15 @@ function SeccionResumen({
   licitacion,
   onMontoChange,
   etiquetas,
+  viabIA,
+  onIrViabilidad,
 }: {
   negocio:       Negocio;
   licitacion:    LicitacionRaw | null;
   onMontoChange: (m: number) => void;
   etiquetas:     Etiqueta[];
+  viabIA?:       any;
+  onIrViabilidad?: () => void;
 }) {
   const [editMonto, setEditMonto] = useState(false);
   const [montoTemp, setMontoTemp] = useState(String(negocio.monto_ofertado || ''));
@@ -332,8 +336,38 @@ function SeccionResumen({
 
   const descripcion = licitacion?.Descripcion || negocio.licitacion_descripcion;
 
+  // Resumen de la viabilidad IA (lo que el corazón ya analizó).
+  const fmtCLP = (n?: number | null) => n != null ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n) : '—';
+  const sScore = Math.round(Number(viabIA?.score_0_100) || 0);
+  const sSemColor = (viabIA?.semaforo === 'VERDE') ? 'bg-emerald-500' : (viabIA?.semaforo === 'AMARILLO') ? 'bg-yellow-500' : (viabIA?.semaforo === 'NARANJA') ? 'bg-orange-500' : (viabIA?.semaforo === 'ROJO' || viabIA?.semaforo === 'ROJO_DURO') ? 'bg-red-500' : 'bg-zinc-400';
+  const sGana = (viabIA?.veredicto?.gana_probable || '').toLowerCase();
+  const sGanaLabel = sGana === 'si' ? 'GANA' : sGana === 'no' ? 'NO GANA' : sGana ? 'CONDICIONAL' : '—';
+
   return (
     <div className="space-y-4">
+      {viabIA && (
+        <div className="bg-white border border-violet-200 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[12px] font-bold text-violet-500 uppercase tracking-wider flex items-center gap-1.5"><Sparkles size={13} /> Viabilidad (IA)</h3>
+            {onIrViabilidad && <button onClick={onIrViabilidad} className="text-[12px] text-violet-600 hover:underline flex items-center gap-0.5">Ver análisis completo <ChevronRight size={13} /></button>}
+          </div>
+          <div className="flex items-center gap-4">
+            <div className={`w-14 h-14 rounded-2xl ${sSemColor} flex flex-col items-center justify-center text-white flex-shrink-0`}>
+              <span className="text-lg font-black leading-none">{sScore}</span>
+              <span className="text-[9px] opacity-80">/100</span>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[14px] font-bold text-zinc-800">{sGanaLabel}{viabIA?.veredicto?.nivel ? ` · ${String(viabIA.veredicto.nivel).replace(/_/g, ' ')}` : ''}</p>
+              {viabIA?.veredicto?.por_que && <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mt-0.5">{viabIA.veredicto.por_que}</p>}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
+            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Presupuesto</p><p className="text-[13px] font-bold text-emerald-700">{fmtCLP(viabIA?.presupuesto?.neto ?? viabIA?.presupuesto?.bruto)}</p></div>
+            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Modalidad</p><p className="text-[13px] font-semibold text-zinc-700">{String(viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}</p></div>
+            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Líneas</p><p className="text-[13px] font-bold text-zinc-700">{viabIA?.manifiesto_productos?.length || '—'}</p></div>
+          </div>
+        </div>
+      )}
       {descripcion ? (
         <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
           <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-2.5">Descripción</h3>
@@ -496,10 +530,12 @@ function SeccionFechas({ licitacion }: { licitacion: LicitacionRaw | null }) {
 
 // ── Sección Ítems ──────────────────────────────────────────────────────────────
 function SeccionItems({ licitacion, analisisIA }: { licitacion: LicitacionRaw | null; analisisIA?: AnalisisIA | null }) {
-  if (!licitacion) return <div className="text-[13px] text-zinc-400 py-8 text-center">Cargando datos de la API…</div>;
-
-  const itemsMP  = licitacion.Items || [];
+  const itemsMP  = licitacion?.Items || [];
   const itemsIA  = analisisIA?.especificacionesTecnicas ?? [];
+  // Solo esperamos si NO hay nada que mostrar todavía (ni API ni IA).
+  if (!licitacion && itemsIA.length === 0) {
+    return <div className="text-[13px] text-zinc-400 py-8 text-center">Cargando datos…</div>;
+  }
   const hayMP    = itemsMP.length > 0;
   const hayIA    = itemsIA.length > 0;
   const total    = itemsMP.length + (hayMP ? 0 : itemsIA.length); // si hay MP no sumamos IA al conteo de título
@@ -951,6 +987,9 @@ function DetalleContent() {
   const [analisisCargado, setAnalisisCargado] = useState(false); // GET cacheado resuelto
   const analisisYaIntentado           = useRef(false);
 
+  // Viabilidad IA (el corazón) — para enriquecer el resumen
+  const [viabIA, setViabIA] = useState<any>(null);
+
   // ── Carga ─────────────────────────────────────────────────────────────────────
   const cargar = useCallback(async () => {
     try {
@@ -1024,6 +1063,16 @@ function DetalleContent() {
   useEffect(() => {
     if (negocio?.licitacion_codigo) fetchAnalisisIA(negocio.licitacion_codigo);
   }, [negocio?.licitacion_codigo]); // eslint-disable-line
+
+  // Cargar el informe de viabilidad IA (para el bloque de resumen)
+  useEffect(() => {
+    const cod = negocio?.licitacion_codigo;
+    if (!cod) return;
+    fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(cod)}`)
+      .then(r => r.json())
+      .then(d => { if (d?.informeIA) setViabIA(d.informeIA); })
+      .catch(() => { /* silencioso */ });
+  }, [negocio?.licitacion_codigo]);
 
   // Clasificar documentos con Gemini
   const handleClasificar = useCallback(async () => {
@@ -1279,6 +1328,8 @@ function DetalleContent() {
                 licitacion={licitacion}
                 onMontoChange={guardarMonto}
                 etiquetas={etiquetas}
+                viabIA={viabIA}
+                onIrViabilidad={() => setSeccion('viabilidad')}
               />
             )}
             {seccion === 'fechas' && <SeccionFechas licitacion={licitacion} />}
