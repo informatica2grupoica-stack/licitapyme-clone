@@ -16,6 +16,7 @@ import pool from '@/app/lib/db';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
+import { cargarReglasAprendidas, bloqueReglasAprendidas } from '@/app/lib/viabilidad-feedback';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 const MAX_CHARS_DOCS = 400_000;   // ~100k tokens de documentos (Flash aguanta de sobra)
@@ -244,7 +245,7 @@ async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promi
 }
 
 // ─── Prompt PROMPT 2 ─────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `Eres un ANALISTA EXPERTO en licitaciones públicas chilenas (Ley 19.886, DS 250/2004, Mercado Público) con 8 años adjudicando, para una empresa que VENDE bienes/equipamiento (ferretería, materiales, equipamiento, mobiliario urbano), con bodega y cotizaciones SIEMPRE desde Santiago. Lees las bases de UNA licitación y emites el INFORME DE VIABILIDAD (PROMPT 2 v2.0). Objetivo: adjudicar el mayor número de licitaciones CONVENIENTES (no volumen). Esta fase NO usa búsqueda web: lo que dependa de productos/precios → "pendientes_fase3".
+const BASE_SYSTEM_PROMPT = `Eres un ANALISTA EXPERTO en licitaciones públicas chilenas (Ley 19.886, DS 250/2004, Mercado Público) con 8 años adjudicando, para una empresa que VENDE bienes/equipamiento (ferretería, materiales, equipamiento, mobiliario urbano), con bodega y cotizaciones SIEMPRE desde Santiago. Lees las bases de UNA licitación y emites el INFORME DE VIABILIDAD (PROMPT 2 v2.0). Objetivo: adjudicar el mayor número de licitaciones CONVENIENTES (no volumen). Esta fase NO usa búsqueda web: lo que dependa de productos/precios → "pendientes_fase3".
 
 REGLA MAESTRA — TODO SALE DE LA DOCUMENTACIÓN:
 - Prohibido emitir cualquier dato/puntaje/bandera/veredicto sin respaldo en una cita literal de los documentos. Cada resultado lleva: (a) cita textual breve, (b) nombre del documento, (c) artículo y/o PÁGINA.
@@ -302,6 +303,14 @@ PASO 9 — VEREDICTO claro: nivel + gana_probable (si|no|condicional), por qué 
 SCORE FINAL 0-100 (tú lo decides, es el dato principal): integra capa A (atractivo), criterios, admisibilidad y riesgos. Guía: 80-100 muy conveniente (VERDE), 60-79 conveniente (AMARILLO), 40-59 medio (NARANJA), 20-39 bajo (ROJO), 0-19 descarte (ROJO_DURO). Si hay bloqueante irresoluble o gate de exclusión/presupuesto → score ≤ 19. Entrega también area_negocio (FERRETERIA|EQUIPAMIENTO|MIXTO).
 
 Responde ÚNICAMENTE un objeto JSON válido con el esquema indicado, sin markdown.`;
+
+// Prompt dinámico = prompt base + reglas aprendidas del experto (feedback loop).
+// Las reglas se inyectan ANTES de las "REGLAS INNEGOCIABLES" para que tengan peso alto.
+function construirSystemPrompt(reglas: string[]): string {
+  const bloque = bloqueReglasAprendidas(reglas);
+  if (!bloque) return BASE_SYSTEM_PROMPT;
+  return BASE_SYSTEM_PROMPT.replace('REGLAS INNEGOCIABLES:', `${bloque}REGLAS INNEGOCIABLES:`);
+}
 
 function construirUserPrompt(codigo: string, ctx: any, docs: DocLeido[]): string {
   // Ordenar por PRECEDENCIA documental antes de concatenar/truncar: lo soberano
@@ -452,7 +461,9 @@ export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIA
   if (leidos.length === 0) return null;
 
   const ctx = await cargarContexto(codigo);
-  const parsed = await llamarGeminiJSON(SYSTEM_PROMPT, construirUserPrompt(codigo, ctx, docs));
+  const reglas = await cargarReglasAprendidas();   // feedback loop: lecciones del experto
+  const systemPrompt = construirSystemPrompt(reglas);
+  const parsed = await llamarGeminiJSON(systemPrompt, construirUserPrompt(codigo, ctx, docs));
   const saneado = sanitizar(parsed);
 
   // Score 0-100 de la IA (dato principal) y semáforo derivado por umbrales consistentes.

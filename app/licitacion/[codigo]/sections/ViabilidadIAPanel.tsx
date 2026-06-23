@@ -6,7 +6,16 @@
 // y el detalle en secciones plegables (acordeón) para que no sea un muro de información.
 
 import { createContext, useContext, useCallback, useEffect, useState } from 'react';
-import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink } from 'lucide-react';
+import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send } from 'lucide-react';
+
+interface Feedback {
+  id: number;
+  veredicto_ia?: string | null;
+  veredicto_humano?: string | null;
+  comentario: string;
+  regla: string;
+  created_at: string;
+}
 
 interface Criterio { nombre: string; ponderacion_pct: number; tipo?: string; fuente?: string }
 interface Producto { linea: number; descripcion: string; modelo?: string; cantidad?: number | null; tipo?: string; ruta?: string }
@@ -144,6 +153,45 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
       })
       .catch(() => { /* silencioso: sin docs, las citas quedan como texto */ });
   }, [codigo]);
+
+  // ── Feedback loop (enseñar a la IA) ───────────────────────────────────────────
+  const [feedback, setFeedback]   = useState<Feedback[]>([]);
+  const [fbComentario, setFbComentario] = useState('');
+  const [fbVeredicto, setFbVeredicto]   = useState<string>('');
+  const [fbEnviando, setFbEnviando]     = useState(false);
+  const [fbOk, setFbOk]                 = useState<string | null>(null);
+
+  const cargarFeedback = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/viabilidad-feedback/${encodeURIComponent(codigo)}`).then(x => x.json());
+      if (Array.isArray(r?.feedback)) setFeedback(r.feedback);
+    } catch { /* silencioso */ }
+  }, [codigo]);
+  useEffect(() => { cargarFeedback(); }, [cargarFeedback]);
+
+  const enviarFeedback = async () => {
+    if (fbComentario.trim().length < 4) return;
+    setFbEnviando(true); setFbOk(null);
+    try {
+      const r = await fetch(`/api/viabilidad-feedback/${encodeURIComponent(codigo)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comentario: fbComentario.trim(), veredicto_humano: fbVeredicto || null }),
+      });
+      const j = await r.json();
+      if (!r.ok) { setFbOk(j.error || 'No se pudo guardar.'); return; }
+      if (Array.isArray(j.feedback)) setFeedback(j.feedback);
+      setFbComentario(''); setFbVeredicto('');
+      setFbOk(`Aprendido. Regla: "${j.regla}". Se aplicará en los próximos análisis.`);
+    } catch (e: any) { setFbOk(String(e?.message || e)); }
+    finally { setFbEnviando(false); }
+  };
+
+  const borrarFeedback = async (id: number) => {
+    try {
+      const r = await fetch(`/api/viabilidad-feedback/${encodeURIComponent(codigo)}?id=${id}`, { method: 'DELETE' }).then(x => x.json());
+      if (Array.isArray(r?.feedback)) setFeedback(r.feedback);
+    } catch { /* silencioso */ }
+  };
 
   const analizar = async () => {
     setCargando(true); setError(null);
@@ -352,6 +400,58 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
               {(v?.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{v!.advertencias!.map((a, i) => <li key={i}>{a}</li>)}</ul></>}
             </Seccion>
           )}
+
+          {/* Feedback loop: enseñar a la IA */}
+          <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <GraduationCap size={16} className="text-violet-600" />
+              <h3 className="text-[13px] font-bold text-slate-800">¿No estás de acuerdo? Enséñale a la IA</h3>
+            </div>
+            <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que la IA aplicará en <strong>todos los análisis futuros</strong>, no solo en esta licitación.</p>
+
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {([['viable', 'Sí es viable'], ['no_viable', 'No es viable'], ['parcial', 'Parcial']] as const).map(([v, lbl]) => (
+                <button key={v} onClick={() => setFbVeredicto(fbVeredicto === v ? '' : v)}
+                  className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${fbVeredicto === v ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
+                  {lbl}
+                </button>
+              ))}
+            </div>
+
+            <textarea value={fbComentario} onChange={e => setFbComentario(e.target.value)}
+              placeholder="Ej: No es viable porque exigen certificación ISO-9001 que no manejamos para este producto."
+              rows={3}
+              className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 outline-none resize-y" />
+
+            <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+              <p className={`text-[11.5px] ${fbOk?.startsWith('Aprendido') ? 'text-emerald-600' : 'text-amber-600'}`}>{fbOk}</p>
+              <div className="flex items-center gap-2">
+                {informe && fbOk?.startsWith('Aprendido') && (
+                  <button onClick={analizar} disabled={cargando} className="text-[12px] font-semibold text-violet-600 hover:underline">Re-analizar con lo aprendido</button>
+                )}
+                <button onClick={enviarFeedback} disabled={fbEnviando || fbComentario.trim().length < 4}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg">
+                  {fbEnviando ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Guardar y enseñar
+                </button>
+              </div>
+            </div>
+
+            {feedback.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-violet-100 space-y-2">
+                <p className="text-[11px] font-bold text-slate-400 uppercase">Lecciones registradas ({feedback.length})</p>
+                {feedback.map(f => (
+                  <div key={f.id} className="flex items-start gap-2 text-[12px] bg-white rounded-lg border border-slate-200 p-2">
+                    <GraduationCap size={13} className="text-violet-500 mt-0.5 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-slate-700"><strong>Regla:</strong> {f.regla}</p>
+                      {f.comentario && f.comentario !== f.regla && <p className="text-slate-400 text-[11px] mt-0.5">{f.comentario}</p>}
+                    </div>
+                    <button onClick={() => borrarFeedback(f.id)} title="Eliminar lección" className="text-slate-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <p className="text-[11px] text-slate-400 text-center pt-1">
             {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3!.join(', ')} · </>}
