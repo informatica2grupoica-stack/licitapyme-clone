@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Search, Star, Users, Settings, LogOut, User,
   ShieldCheck, Menu, X, Radar, ChevronDown, ChevronRight,
   Briefcase, FolderOpen, Bell, FileText, AlertCircle,
-  Building2, Tag,
+  Building2, Tag, Sparkles,
 } from 'lucide-react';
 import { IcaLogoIcon } from '@/app/components/IcaLogo';
 import { useSession } from '@/app/lib/session-context';
@@ -46,6 +46,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Buscador',  href: '/',         icon: <Search  size={15} />, exact: true, adminOnly: true },
       { label: 'Radar',     href: '/radar',     icon: <Radar   size={15} />, adminOnly: true },
+      { label: 'Analizadas', href: '/analizadas', icon: <Sparkles size={15} />, adminOnly: true },
     ],
   },
   {
