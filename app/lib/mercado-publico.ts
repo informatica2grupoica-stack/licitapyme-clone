@@ -266,25 +266,50 @@ export class MercadoPublicoClient {
 
       MontoEstimado: item.MontoEstimado,
       MontoTotal: item.MontoEstimado,
-      VisibilidadMonto: item.VisibilidadMonto === 1,
+      // La API de Mercado Público devuelve los flags numéricos como strings ("1"/"0"),
+      // por eso comparamos con Number(...) y no con === 1 (que fallaría siempre).
+      VisibilidadMonto: Number(item.VisibilidadMonto) === 1,
       Moneda: item.Moneda || 'CLP',
       Estimacion: item.Estimacion,
 
       Tipo: item.Tipo,
       CodigoTipo: item.CodigoTipo,
-      TipoConvocatoria: item.TipoConvocatoria === 1 ? 'Abierto' : 'Cerrado',
+      TipoConvocatoria: Number(item.TipoConvocatoria) === 1 ? 'Abierto' : 'Cerrado',
       DiasCierreLicitacion: item.DiasCierreLicitacion,
 
       Modalidad: item.Modalidad,
-      SubContratacion: item.SubContratacion === 1,
-      EsRenovable: item.EsRenovable === 1,
-      TomaRazon: item.TomaRazon === 1,
-      TiempoDuracionContrato: item.TiempoDuracionContrato,
-      TipoDuracionContrato: item.TipoDuracionContrato,
+      TipoPago: item.TipoPago,
+      SubContratacion: Number(item.SubContratacion) === 1,
+      EsRenovable: Number(item.EsRenovable) === 1,
+      TomaRazon: Number(item.TomaRazon) === 1,
+      TiempoDuracionContrato: Number(item.TiempoDuracionContrato) || undefined,
+      TipoDuracionContrato: item.TipoDuracionContrato?.trim() || undefined,
+      UnidadTiempoDuracionContrato: item.UnidadTiempoDuracionContrato,
+      ValorTiempoRenovacion: Number(item.ValorTiempoRenovacion) || undefined,
+      PeriodoTiempoRenovacion: item.PeriodoTiempoRenovacion?.trim() || undefined,
+
+      // Características extendidas
+      Etapas: item.Etapas,
+      RequiereContrato: Number(item.Contrato) === 1,
+      ContratoCodigo: Number(item.Contrato) || undefined,
+      EstadoPublicidadOfertas: item.EstadoPublicidadOfertas,
+      JustificacionPublicidad: item.JustificacionPublicidad?.trim() || undefined,
+      ProhibicionContratacion: item.ProhibicionContratacion?.trim() || undefined,
+      ObservacionContrato: (item as any).ObservacionContract?.trim() || undefined,
+      FuenteFinanciamiento: item.FuenteFinanciamiento != null ? String(item.FuenteFinanciamiento).trim() || undefined : undefined,
+      DireccionVisita: item.DireccionVisita?.trim() || undefined,
+      DireccionEntrega: item.DireccionEntrega?.trim() || undefined,
+      CantidadReclamos: item.CantidadReclamos,
+      ExtensionPlazo: Number(item.ExtensionPlazo) === 1,
+      EsObras: Number(item.Obras) === 1,
+      CodigoBIP: item.CodigoBIP?.trim() || undefined,
+      UnidadTiempoEvaluacion: item.UnidadTiempoEvaluacion,
 
       NombreResponsableContrato: item.NombreResponsableContrato,
       EmailResponsableContrato: item.EmailResponsableContrato,
       FonoResponsableContrato: item.FonoResponsableContrato,
+      NombreResponsablePago: item.NombreResponsablePago?.trim() || undefined,
+      EmailResponsablePago: item.EmailResponsablePago?.trim() || undefined,
 
       Adjudicacion: item.Adjudicacion
         ? {

@@ -7,7 +7,7 @@ import {
   AlertTriangle, Lightbulb, ThumbsUp, ListChecks,
 } from 'lucide-react';
 import { Oportunidad } from '@/app/types/search.types';
-import { MODALIDAD_PAGO_MAP } from '@/app/types/mercado-publico.types';
+import { MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { InfoCard, InfoRow, AlertBanner, SectionHeader, AnalisisIA, IABadge, formatCLP } from '../utils';
 import { Resaltar } from '@/app/components/Resaltar';
 
@@ -81,29 +81,88 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
           <InfoRow label="Dirección"          value={licitacion.direccion} />
           <InfoRow label="Comuna"             value={licitacion.comuna_unidad} />
           <InfoRow label="Región"             value={licitacion.region} />
+          <InfoRow label="Operador de la compra" value={licitacion.operador_compra} />
+          <InfoRow label="Cargo del operador"    value={licitacion.operador_cargo} />
+          <InfoRow label="Reclamos del organismo"
+            value={licitacion.reclamos_12m != null ? `${licitacion.reclamos_12m}` : null} />
         </div>
       </InfoCard>
 
-      {(tipoLabel || licitacion.tipo_convocatoria || licitacion.caracteristicas?.modalidad_pago
-        || licitacion.caracteristicas?.plazo_contrato_dias) && (
-        <InfoCard title="Características del proceso" icon={<Shield size={15} />}>
+      {/* 1. Características de la licitación (datos de la API de Mercado Público) */}
+      <InfoCard title="Características de la licitación" icon={<Shield size={15} />}>
+        <div className="divide-y divide-slate-50">
+          <InfoRow label="Tipo de licitación"  value={tipoLabel} />
+          <InfoRow label="Estado"              value={licitacion.estado} />
+          <InfoRow label="Tipo convocatoria"
+            value={licitacion.tipo_convocatoria || licitacion.caracteristicas?.tipo_convocatoria} />
+          <InfoRow label="Moneda"
+            value={licitacion.moneda ? (MONEDA_LABEL_MAP[licitacion.moneda] || licitacion.moneda) : null} />
+          <InfoRow label="Etapas del proceso"  value={licitacion.caracteristicas?.etapas} />
+          <InfoRow label="Toma de razón Contraloría"
+            value={licitacion.caracteristicas?.toma_razon === true ? 'Requiere Toma de Razón por Contraloría'
+              : licitacion.caracteristicas?.toma_razon === false ? 'No requiere Toma de Razón por Contraloría' : null} />
+          <InfoRow label="Contrato"
+            value={licitacion.caracteristicas?.contrato_texto
+              || (licitacion.caracteristicas?.contrato === true ? 'Se requerirá suscripción de contrato' : null)} />
+          <InfoRow label="Tipo de adquisición"
+            value={licitacion.caracteristicas?.es_obras === true ? 'Licitación de obras' : null} />
+          <InfoRow label="Código BIP"          value={licitacion.caracteristicas?.codigo_bip} />
+          <InfoRow label="Ampliación automática del plazo"
+            value={licitacion.caracteristicas?.extension_plazo === true
+              ? 'Sí — si hay 2 o menos ofertas, el cierre se amplía 2 días hábiles'
+              : null} />
+          <InfoRow label="Publicidad de ofertas técnicas"
+            value={licitacion.caracteristicas?.publicidad_ofertas_texto} />
+        </div>
+      </InfoCard>
+
+      {/* 7. Montos y duración del contrato */}
+      {(tieneMontoMP || licitacion.caracteristicas?.estimacion_monto || licitacion.caracteristicas?.fuente_financiamiento
+        || licitacion.caracteristicas?.modalidad_pago || licitacion.caracteristicas?.duracion_contrato_texto
+        || licitacion.caracteristicas?.renovable !== undefined || licitacion.caracteristicas?.responsable_pago_nombre) && (
+        <InfoCard title="Montos y duración del contrato" icon={<Wallet size={15} />}>
           <div className="divide-y divide-slate-50">
-            <InfoRow label="Tipo de licitación"  value={tipoLabel} />
-            <InfoRow label="Tipo convocatoria"   value={licitacion.tipo_convocatoria} />
-            <InfoRow label="Moneda"              value={licitacion.moneda} />
-            <InfoRow label="Modalidad de pago"
-              value={licitacion.caracteristicas?.modalidad_pago
-                ? MODALIDAD_PAGO_MAP[parseInt(licitacion.caracteristicas.modalidad_pago)] || licitacion.caracteristicas.modalidad_pago
-                : null} />
-            <InfoRow label="Duración contrato"
-              value={licitacion.caracteristicas?.plazo_contrato_dias
-                ? `${licitacion.caracteristicas.plazo_contrato_dias} días` : null} />
-            <InfoRow label="Subcontratación"
-              value={licitacion.caracteristicas?.subcontratacion === true ? 'Permitida'
-                : licitacion.caracteristicas?.subcontratacion === false ? 'No permitida' : null} />
-            <InfoRow label="Renovable"
+            <InfoRow label="Estimación en base a"    value={licitacion.caracteristicas?.estimacion_monto} />
+            <InfoRow label="Fuente de financiamiento" value={licitacion.caracteristicas?.fuente_financiamiento} />
+            <InfoRow label="Monto total estimado"
+              value={tieneMontoMP ? formatCLP(licitacion.monto_total || licitacion.monto_estimado) : null} />
+            <InfoRow label="Contrato con renovación"
               value={licitacion.caracteristicas?.renovable === true ? 'Sí'
                 : licitacion.caracteristicas?.renovable === false ? 'No' : null} />
+            <InfoRow label="Duración del contrato"   value={licitacion.caracteristicas?.duracion_contrato_texto} />
+            <InfoRow label="Observaciones"           value={licitacion.caracteristicas?.observacion_contrato} />
+            <InfoRow label="Plazos de pago"          value={licitacion.caracteristicas?.modalidad_pago} />
+            <InfoRow label="Responsable de pago"     value={licitacion.caracteristicas?.responsable_pago_nombre} />
+          </div>
+          {licitacion.caracteristicas?.responsable_pago_email && (
+            <div className="flex gap-3 py-2.5">
+              <span className="text-[11.5px] text-slate-400 w-40 flex-shrink-0 pt-0.5 font-medium">e-mail responsable de pago</span>
+              <a href={`mailto:${licitacion.caracteristicas.responsable_pago_email}`}
+                className="text-[13px] text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1">
+                <Mail size={12} /> {licitacion.caracteristicas.responsable_pago_email}
+              </a>
+            </div>
+          )}
+        </InfoCard>
+      )}
+
+      {/* 9. Requerimientos técnicos y otras cláusulas */}
+      {(licitacion.caracteristicas?.subcontratacion !== undefined
+        || licitacion.caracteristicas?.prohibicion_contratacion
+        || licitacion.caracteristicas?.direccion_visita
+        || licitacion.caracteristicas?.direccion_entrega) && (
+        <InfoCard title="Requerimientos y otras cláusulas" icon={<ListChecks size={15} />}>
+          <div className="divide-y divide-slate-50">
+            {/* MP muestra "No permite subcontratación" cuando existe una cláusula de prohibición,
+                independientemente del flag SubContratacion (que los organismos llenan de forma inconsistente). */}
+            <InfoRow label="Prohibición de subcontratación"
+              value={licitacion.caracteristicas?.prohibicion_contratacion
+                ? 'No permite subcontratación'
+                : licitacion.caracteristicas?.subcontratacion === true ? 'Permite subcontratación'
+                : licitacion.caracteristicas?.subcontratacion === false ? 'No permite subcontratación' : null} />
+            <InfoRow label="Cláusula de subcontratación / cesión" value={licitacion.caracteristicas?.prohibicion_contratacion} />
+            <InfoRow label="Dirección de visita a terreno" value={licitacion.caracteristicas?.direccion_visita} />
+            <InfoRow label="Dirección de entrega"        value={licitacion.caracteristicas?.direccion_entrega} />
           </div>
         </InfoCard>
       )}

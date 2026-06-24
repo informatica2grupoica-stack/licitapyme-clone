@@ -133,13 +133,17 @@ export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<strin
   // Reintentos con backoff. En el plan de PAGO, 429 = límite por minuto (transitorio,
   // reintentar ayuda) y 503 = sobrecarga temporal del modelo. Ambos se reintentan con
   // espera creciente; los errores permanentes (400/401/403) fallan de inmediato.
+  // Alternamos de modelo: gemini-2.5-flash se satura seguido (503 high-demand); el alias
+  // multimodal gemini-flash-latest es más estable y también lee PDF/imágenes.
   const ESPERAS = [0, 6_000, 15_000, 30_000]; // 4 intentos
+  const MODELOS = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-latest'];
   let ultimoErr = '';
   for (let intento = 0; intento < ESPERAS.length; intento++) {
     if (intento > 0) await sleep(ESPERAS[intento]);
+    const modelo = MODELOS[intento] || 'gemini-flash-latest';
 
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -156,9 +160,9 @@ export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<strin
     }
 
     const errBody = await res.text().catch(() => '');
-    ultimoErr = `${res.status}: ${errBody.slice(0, 200)}`;
+    ultimoErr = `${modelo} ${res.status}: ${errBody.slice(0, 200)}`;
     if (res.status === 429 || res.status === 503) {
-      console.warn(`[gemini-vision] ${res.status} transitorio, reintentando (${intento + 1}/${ESPERAS.length})...`);
+      console.warn(`[gemini-vision] ${modelo} ${res.status} transitorio, reintentando (${intento + 1}/${ESPERAS.length})...`);
       continue;
     }
     throw new Error(`Gemini Vision ${res.status}: ${errBody.slice(0, 300)}`);
@@ -167,6 +171,84 @@ export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<strin
   throw new Error(`Gemini Vision no respondió tras reintentos. Último error: ${ultimoErr}`);
 }
 const sleep  = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// ─── OCR de PDF COMPLETO vía Gemini File API ─────────────────────────────────────
+// Sube el PDF entero a la File API de Gemini y le pide transcribir TODO el texto con
+// marcadores [[PÁGINA N]]. A diferencia del OCR por bloques (OCR.space, tope 45 págs,
+// frágil ante cuota), Gemini lee el documento completo de una sola vez — sin tope de
+// páginas ni dependencia de OCR.space. Es el método más fiable para bases escaneadas.
+// Devuelve '' si no logra transcribir (el llamador cae al OCR por bloques).
+export async function extraerTextoPdfConGeminiFileAPI(buffer: Buffer): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY no configurada para OCR');
+  const BASE = 'https://generativelanguage.googleapis.com';
+
+  // 1) Subida resumable a la File API.
+  const start = await fetch(`${BASE}/upload/v1beta/files?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': String(buffer.length),
+      'X-Goog-Upload-Header-Content-Type': 'application/pdf',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ file: { display_name: 'doc' } }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  const uploadUrl = start.headers.get('x-goog-upload-url');
+  if (!uploadUrl) throw new Error(`File API start ${start.status}: ${(await start.text().catch(() => '')).slice(0, 150)}`);
+
+  const up = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { 'X-Goog-Upload-Command': 'upload, finalize', 'X-Goog-Upload-Offset': '0', 'Content-Type': 'application/pdf' },
+    body: buffer as any,
+    signal: AbortSignal.timeout(180_000),
+  });
+  let file = (await up.json())?.file;
+  if (!file?.name) throw new Error('File API: subida sin nombre de archivo');
+
+  try {
+    // 2) Esperar a que el archivo quede ACTIVE (Gemily lo procesa unos segundos).
+    for (let i = 0; i < 30 && file.state !== 'ACTIVE'; i++) {
+      await sleep(2_000);
+      file = await fetch(`${BASE}/v1beta/${file.name}?key=${apiKey}`).then(r => r.json()).catch(() => file);
+      if (file.state === 'FAILED') throw new Error('File API: procesamiento FAILED');
+    }
+    if (file.state !== 'ACTIVE') throw new Error(`File API: archivo no quedó ACTIVE (estado=${file.state})`);
+
+    // 3) Transcripción completa con marcadores de página, alternando modelos ante 503.
+    const body = JSON.stringify({
+      contents: [{ parts: [
+        { text: 'Transcribe TODO el texto de este PDF escaneado, página por página y en orden. Antepón a cada página, en su propia línea, el marcador exacto [[PÁGINA N]] (N = número de página). Incluye tablas con sus valores, criterios de evaluación y ponderaciones, multas, garantías, plazos, montos, requisitos y listas. No resumas ni omitas nada. Devuelve solo el texto transcrito.' },
+        { fileData: { mimeType: 'application/pdf', fileUri: file.uri } },
+      ] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 60_000 },
+    });
+    const ESPERAS = [0, 6_000, 15_000, 30_000];
+    const MODELOS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+    let ultimoErr = '';
+    for (let intento = 0; intento < ESPERAS.length; intento++) {
+      if (intento > 0) await sleep(ESPERAS[intento]);
+      const modelo = MODELOS[intento] || 'gemini-flash-latest';
+      const res = await fetch(`${BASE}/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(180_000) });
+      if (res.ok) {
+        const data = await res.json();
+        const texto = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
+        console.log(`[gemini-fileapi] OCR completo: ${texto.length} chars (${modelo})`);
+        return texto;
+      }
+      ultimoErr = `${modelo} ${res.status}: ${(await res.text().catch(() => '')).slice(0, 150)}`;
+      if (res.status !== 429 && res.status !== 503) break;
+      console.warn(`[gemini-fileapi] ${modelo} ${res.status} transitorio, reintento ${intento + 1}/${ESPERAS.length}...`);
+    }
+    throw new Error(`Gemini File API saturado: ${ultimoErr}`);
+  } finally {
+    // 4) Limpieza: borrar el archivo subido (no se cobra almacenamiento, pero higiene).
+    fetch(`${BASE}/v1beta/${file.name}?key=${apiKey}`, { method: 'DELETE' }).catch(() => {});
+  }
+}
 
 // ─── Llamada con reintentos (solo para 429 transitorio) ───────────────────────
 async function llamarGemini(systemPrompt: string, userPrompt: string): Promise<string> {

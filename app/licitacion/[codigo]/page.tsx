@@ -67,6 +67,9 @@ export default function LicitacionDetallePage() {
   const [analizandoViab,    setAnalizandoViab]    = useState(false);
   const viabilidadDisparada = useRef(false);
 
+  // Informe de Viabilidad IA (el corazón) — su lista de criterios alimenta la pestaña Criterios
+  const [informeViabIA, setInformeViabIA] = useState<any>(null);
+
   // --- ESTADO PARA CLASIFICACIÓN AUTOMÁTICA DE DOCUMENTOS ---
   const [clasificando,         setClasificando]         = useState(false);
   const [resumenClasificacion, setResumenClasificacion] = useState<{estado:'completo'|'incompleto';falta:string[]} | null>(null);
@@ -202,6 +205,15 @@ export default function LicitacionDetallePage() {
       fetchViabilidad();
     }
   }, [codigoDecoded, fetchLicitacion, fetchDocumentos, fetchAnalisisIA, fetchViabilidad]);
+
+  // Cargar el informe de Viabilidad IA (para alimentar la pestaña Criterios con sus criterios + fuentes)
+  useEffect(() => {
+    if (!codigoDecoded) return;
+    fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigoDecoded)}`)
+      .then(r => r.json())
+      .then(d => { if (d?.informeIA) setInformeViabIA(d.informeIA); })
+      .catch(() => { /* silencioso */ });
+  }, [codigoDecoded]);
 
   // Palabras clave activas del usuario → para resaltarlas en el detalle
   useEffect(() => {
@@ -578,6 +590,7 @@ export default function LicitacionDetallePage() {
               <CriteriosSection
                 criterios={licitacion.criterios_evaluacion}
                 analisisIA={analisisIA}
+                criteriosViabilidad={informeViabIA?.criterios_evaluacion}
                 analizandoIA={analizandoIA}
                 onIrAInteligencia={() => setActiveSection('inteligencia')}
               />

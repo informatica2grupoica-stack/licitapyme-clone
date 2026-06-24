@@ -19,6 +19,10 @@ import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { cargarReglasAprendidas, bloqueReglasAprendidas } from '@/app/lib/viabilidad-feedback';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
+// Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
+// grandes (medido: ~1 de 3 falla). El alias `gemini-flash-latest` rutea a capacidad más
+// estable (medido: 6/6 en el mismo request grande). Se usa solo cuando el primario da 503/429.
+const GEMINI_MODEL_FALLBACK = 'gemini-flash-latest';
 const MAX_CHARS_DOCS = 400_000;   // ~100k tokens de documentos (Flash aguanta de sobra)
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -214,12 +218,17 @@ async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promi
 
   // Paciente ante el 503 "high demand" de Gemini (overload de Google) y 429 (límite/min):
   // 6 intentos con backoff hasta 40s. Los errores permanentes (400/401/403) no se reintentan.
+  // Además ALTERNAMOS de modelo: arrancamos con el primario y, si sigue saturado, caemos al
+  // alias flash-latest (mucho más estable ante el 503). Así un spike de gemini-2.5-flash no
+  // tumba el análisis.
   const ESPERAS = [0, 5_000, 12_000, 20_000, 30_000, 40_000];
+  const MODELOS  = [GEMINI_MODEL, GEMINI_MODEL, GEMINI_MODEL_FALLBACK, GEMINI_MODEL, GEMINI_MODEL_FALLBACK, GEMINI_MODEL_FALLBACK];
   let ultimoErr = '';
   for (let intento = 0; intento < ESPERAS.length; intento++) {
     if (intento > 0) await sleep(ESPERAS[intento]);
+    const modelo = MODELOS[intento] || GEMINI_MODEL_FALLBACK;
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
       { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(180_000) },
     );
     if (res.ok) {
@@ -237,9 +246,9 @@ async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promi
         throw new Error(`Gemini devolvió JSON inválido: ${String(e).slice(0, 120)}`);
       }
     }
-    ultimoErr = `${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`;
+    ultimoErr = `${modelo} ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`;
     if (res.status !== 429 && res.status !== 503) break; // permanente → no reintentar
-    console.warn(`[viabilidad-ia] Gemini ${res.status} transitorio, reintento ${intento + 1}/${ESPERAS.length}...`);
+    console.warn(`[viabilidad-ia] ${modelo} ${res.status} transitorio, reintento ${intento + 1}/${ESPERAS.length}...`);
   }
   throw new Error(`Gemini saturado (reintentos agotados): ${ultimoErr}`);
 }

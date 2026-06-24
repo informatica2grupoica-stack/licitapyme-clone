@@ -279,10 +279,29 @@ export async function extractTextFromDocument(
         return { texto: pdfData.text || '', numPages: pdfData.numpages, metodo: 'pdf-sin-ocr', confianza: 'baja' };
       }
 
-      // Paso 2: PDF escaneado — usar Gemini Vision (lee imágenes directamente).
-      // Documentos grandes (>12 págs) → OCR por bloques con pdf-lib para no exceder cuota/tiempo.
+      // Paso 2: PDF escaneado — Gemini lee las imágenes.
+      // MÉTODO PRINCIPAL: File API sobre el PDF COMPLETO. Lee TODAS las páginas de una
+      // sola vez, sin tope de páginas ni cuota de OCR.space, y es lo más fiable para
+      // bases escaneadas (probado: recupera criterios/multas/garantías que el OCR por
+      // bloques perdía). Alterna gemini-flash-latest/2.5-flash ante el 503.
+      console.log(`⚠️ PDF escaneado (${pdfData.text?.length || 0} chars, ${pdfData.numpages} págs). Gemini File API (documento completo)...`);
+      try {
+        const { extraerTextoPdfConGeminiFileAPI } = await import('@/app/lib/gemini');
+        const textoFile = await extraerTextoPdfConGeminiFileAPI(buffer);
+        if (textoFile && textoFile.trim().length > 100) {
+          return {
+            texto: textoFile,
+            numPages: pdfData.numpages,
+            metodo: 'pdf-gemini-fileapi',
+            confianza: 'alta',
+          };
+        }
+      } catch (fileErr) {
+        console.warn('[OCR] Gemini File API falló, caigo a OCR por bloques:', fileErr instanceof Error ? fileErr.message : fileErr);
+      }
+
+      // RESPALDO: OCR por bloques (grandes) o Gemini Vision inline (chicos).
       const esGrande = pdfData.numpages > 12;
-      console.log(`⚠️ PDF escaneado (${pdfData.text?.length || 0} chars, ${pdfData.numpages} págs). Usando Gemini Vision OCR${esGrande ? ' por bloques' : ''}...`);
       try {
         const { extraerTextoConGeminiVision } = await import('@/app/lib/gemini');
         const textoVision = esGrande

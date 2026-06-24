@@ -56,12 +56,32 @@ export interface CaracteristicasProceso {
   moneda?: string;
   etapas?: string;
   contrato?: boolean;
+  contrato_texto?: string;
   toma_razon?: boolean;
   publicidad_ofertas?: boolean;
   subcontratacion?: boolean;
   renovable?: boolean;
   plazo_contrato_dias?: number;
   modalidad_pago?: string;
+
+  // Extendidas (API detalle de Mercado Público)
+  publicidad_ofertas_texto?: string;
+  estimacion_monto?: string;
+  fuente_financiamiento?: string;
+  unidad_duracion_contrato?: number;   // 1=Hora,2=Día,3=Semana,4=Mes,5=Año
+  duracion_contrato_texto?: string;    // ya formateado: "12 Mes(es)"
+  renovacion_valor?: number;
+  renovacion_periodo?: string;
+  prohibicion_contratacion?: string;
+  observacion_contrato?: string;
+  direccion_visita?: string;
+  direccion_entrega?: string;
+  responsable_pago_nombre?: string;
+  responsable_pago_email?: string;
+  extension_plazo?: boolean;
+  es_obras?: boolean;
+  codigo_bip?: string;
+  tiempo_evaluacion?: number; // unidad de tiempo de evaluación (1=Hora..5=Año)
 }
 
 // Garantías requeridas
@@ -107,6 +127,8 @@ export interface Oportunidad {
   rut_organismo?: string;
   direccion?: string;
   comuna_unidad?: string;
+  operador_compra?: string;
+  operador_cargo?: string;
   
   // Ubicación geográfica
   region?: string;

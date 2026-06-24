@@ -43,11 +43,15 @@ export async function GET(request: NextRequest) {
     const whereExtra = soloNoLeidas ? ' AND a.leida = FALSE' : '';
 
     // Ámbito del radar:
-    //  • admin → una fila por licitación de TODA la empresa (deduplica por código con MAX(id)).
+    //  • admin → una fila por licitación de TODA la empresa. Deduplicamos quedándonos
+    //    con el MAX(id) por código vía un JOIN a una tabla derivada: se materializa
+    //    UNA sola vez y une por PK (eq_ref). Mucho más rápido que `a.id IN (subquery)`,
+    //    que la semi-unía/reevaluaba en cada fila.
     //  • usuario → solo sus propias alertas.
-    const scope = esAdmin
-      ? 'a.id IN (SELECT MAX(a3.id) FROM alertas_licitaciones a3 GROUP BY a3.licitacion_codigo)'
-      : 'a.usuario_id = ?';
+    const adminJoin = esAdmin
+      ? 'JOIN (SELECT MAX(id) AS mid FROM alertas_licitaciones GROUP BY licitacion_codigo) latest ON latest.mid = a.id'
+      : '';
+    const whereScope = esAdmin ? '1 = 1' : 'a.usuario_id = ?';
     const scopeParams: unknown[] = esAdmin ? [] : [userId];
     const params: unknown[] = hayLimit ? [...scopeParams, limit, offset] : [...scopeParams];
     const limitClause = hayLimit ? ' LIMIT ? OFFSET ?' : '';
@@ -62,8 +66,7 @@ export async function GET(request: NextRequest) {
                 a.licitacion_organismo, a.licitacion_monto, a.licitacion_cierre,
                 a.licitacion_fecha_publicacion,
                 a.licitacion_estado, a.licitacion_region, a.licitacion_tipo,
-                a.match_fuente, a.match_contexto, a.match_score, a.leida, a.created_at,
-                (dc.licitacion_codigo IS NOT NULL) AS tiene_documentos,
+                a.match_fuente, a.match_score, a.leida, a.created_at,
                 v.score_total AS viabilidad_score,
                 v.semaforo    AS viabilidad_semaforo,
                 v.area_negocio AS viabilidad_area,
@@ -75,12 +78,12 @@ export async function GET(request: NextRequest) {
                 cat.nombre AS categoria_nombre,
                 cat.color  AS categoria_color
          FROM alertas_licitaciones a
+         ${adminJoin}
          LEFT JOIN viabilidad_licitacion v ON v.licitacion_codigo = a.licitacion_codigo
          LEFT JOIN prefiltro_licitacion pf ON pf.licitacion_codigo = a.licitacion_codigo
-         LEFT JOIN (SELECT licitacion_codigo FROM documentos_cache GROUP BY licitacion_codigo) dc ON dc.licitacion_codigo = a.licitacion_codigo
          LEFT JOIN palabras_clave pc ON pc.id = a.palabra_clave_id
          LEFT JOIN etiquetas cat ON cat.id = pc.categoria_id
-         WHERE ${scope}${whereExtra}
+         WHERE ${whereScope}${whereExtra}
          ORDER BY COALESCE(a.licitacion_fecha_publicacion, a.licitacion_cierre, a.created_at) DESC`;
       const query = `${selectCols}${limitClause}`;
       [rows] = await pool.query(query, params) as any[];
@@ -90,45 +93,59 @@ export async function GET(request: NextRequest) {
         `SELECT id, keyword_texto, licitacion_codigo, licitacion_nombre,
                 licitacion_organismo, licitacion_monto, licitacion_cierre,
                 licitacion_estado, licitacion_region, licitacion_tipo,
-                leida, created_at,
-                (dc.licitacion_codigo IS NOT NULL) AS tiene_documentos
+                leida, created_at
          FROM alertas_licitaciones a
-         LEFT JOIN (SELECT licitacion_codigo FROM documentos_cache GROUP BY licitacion_codigo) dc ON dc.licitacion_codigo = a.licitacion_codigo
-         WHERE ${scope}${whereExtra}
-         ORDER BY COALESCE(licitacion_cierre, created_at) DESC${limitClause}`;
+         ${adminJoin}
+         WHERE ${whereScope}${whereExtra}
+         ORDER BY COALESCE(a.licitacion_cierre, a.created_at) DESC${limitClause}`;
       [rows] = await pool.query(query, params) as any[];
     }
 
-    // Enriquecer con el ESTADO DE GESTIÓN: asignación (negocios) y descarte.
-    // Desacoplado del query principal (sin JOINs → sin choque de collation) y resiliente:
-    // si alguna tabla falta, el radar sigue funcionando sin estas marcas.
-    try {
-      const lista = rows as any[];
-      const [asig] = await pool.query(
-        `SELECT n.licitacion_codigo, n.asignado_a, u.nombre AS asignado_nombre, u.email AS asignado_email
-         FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE`);
-      const mapAsig = new Map<string, any>((asig as any[]).map(r => [r.licitacion_codigo, r]));
-      let setDesc = new Set<string>();
-      try {
-        const [desc] = await pool.query(`SELECT licitacion_codigo FROM licitaciones_descartadas`);
-        setDesc = new Set((desc as any[]).map(r => r.licitacion_codigo));
-      } catch { /* tabla de descartadas aún no existe */ }
-      for (const a of lista) {
-        const m = mapAsig.get(a.licitacion_codigo);
-        a.asignada = !!m;
-        a.asignado_a = m ? m.asignado_a : null;
-        a.asignado_nombre = m ? (m.asignado_nombre || m.asignado_email || null) : null;
-        a.descartada = setDesc.has(a.licitacion_codigo);
-      }
-    } catch { /* tabla negocios puede no existir: sin marcas de gestión */ }
-
+    // Estado de gestión (asignación + descarte) y conteo de no leídas.
+    // Son 3 queries INDEPENDIENTES entre sí y del query principal → las lanzamos en
+    // paralelo (antes iban en secuencia, sumando ~3 round-trips de latencia).
+    // Desacopladas del query principal (sin JOINs → sin choque de collation) y
+    // resilientes vía allSettled: si una tabla falta, el radar sigue funcionando.
     const countSql = esAdmin
       ? `SELECT COUNT(*) AS total FROM alertas_licitaciones a
-         WHERE a.id IN (SELECT MAX(a3.id) FROM alertas_licitaciones a3 GROUP BY a3.licitacion_codigo)
-           AND a.leida = FALSE`
+         JOIN (SELECT MAX(id) AS mid FROM alertas_licitaciones GROUP BY licitacion_codigo) latest ON latest.mid = a.id
+         WHERE a.leida = FALSE`
       : `SELECT COUNT(*) AS total FROM alertas_licitaciones WHERE usuario_id = ? AND leida = FALSE`;
-    const [countRows] = await pool.query(countSql, esAdmin ? [] : [userId]);
-    const noLeidas = (countRows as any[])[0]?.total || 0;
+
+    // tiene_documentos se resuelve aquí (no como JOIN). El LEFT JOIN a la tabla
+    // derivada de documentos_cache costaba ~2 s (sin índice + collation utf8 →
+    // nested loop), mientras que el DISTINCT suelto tarda ~0.2 s y lo mapeamos en JS.
+    const [asigRes, descRes, docsRes, countRes] = await Promise.allSettled([
+      pool.query(
+        `SELECT n.licitacion_codigo, n.asignado_a, u.nombre AS asignado_nombre, u.email AS asignado_email
+         FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE`),
+      pool.query(`SELECT licitacion_codigo FROM licitaciones_descartadas`),
+      pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache`),
+      pool.query(countSql, esAdmin ? [] : [userId]),
+    ]);
+
+    const lista = rows as any[];
+    const mapAsig = new Map<string, any>();
+    if (asigRes.status === 'fulfilled') {
+      for (const r of ((asigRes.value as any)[0] as any[])) mapAsig.set(r.licitacion_codigo, r);
+    }
+    const setDesc = new Set<string>();
+    if (descRes.status === 'fulfilled') {
+      for (const r of ((descRes.value as any)[0] as any[])) setDesc.add(r.licitacion_codigo);
+    }
+    const setDocs = new Set<string>();
+    if (docsRes.status === 'fulfilled') {
+      for (const r of ((docsRes.value as any)[0] as any[])) setDocs.add(r.licitacion_codigo);
+    }
+    for (const a of lista) {
+      const m = mapAsig.get(a.licitacion_codigo);
+      a.asignada = !!m;
+      a.asignado_a = m ? m.asignado_a : null;
+      a.asignado_nombre = m ? (m.asignado_nombre || m.asignado_email || null) : null;
+      a.descartada = setDesc.has(a.licitacion_codigo);
+      a.tiene_documentos = setDocs.has(a.licitacion_codigo) ? 1 : 0;
+    }
+    const noLeidas = countRes.status === 'fulfilled' ? (((countRes.value as any)[0] as any[])[0]?.total || 0) : 0;
 
     return NextResponse.json({ success: true, alertas: rows, noLeidas, total: (rows as any[]).length });
   } catch (error) {

@@ -1,5 +1,13 @@
 import { Oportunidad, SearchRequest, SearchResponse, TipoOrden } from '@/app/types/search.types';
-import { Licitacion } from '@/app/types/mercado-publico.types';
+import {
+  Licitacion,
+  ETAPAS_MAP,
+  CONTRATO_MAP,
+  PUBLICIDAD_OFERTAS_MAP,
+  ESTIMACION_MONTO_MAP,
+  MODALIDAD_PAGO_MAP,
+  UNIDAD_TIEMPO_MAP,
+} from '@/app/types/mercado-publico.types';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { normalizar } from '@/app/lib/text-match';
 
@@ -124,6 +132,8 @@ export class SearchEngine {
       rut_organismo: lic.RutOrganismo,
       direccion: lic.DireccionUnidad,
       comuna_unidad: lic.ComunaUnidad,
+      operador_compra: lic.NombreUsuario,
+      operador_cargo: lic.CargoUsuario,
       region: lic.Region || '',
       estado: lic.Estado,
       codigo_estado: lic.CodigoEstado,
@@ -160,11 +170,37 @@ export class SearchEngine {
       },
       caracteristicas: {
         tipo_licitacion: lic.Tipo,
+        tipo_convocatoria: lic.TipoConvocatoria,
         moneda: lic.Moneda,
+        etapas: lic.Etapas != null ? (ETAPAS_MAP[lic.Etapas] || `${lic.Etapas} etapa(s)`) : undefined,
+        contrato: lic.RequiereContrato,
+        contrato_texto: lic.ContratoCodigo != null ? CONTRATO_MAP[lic.ContratoCodigo] : undefined,
+        toma_razon: lic.TomaRazon,
+        publicidad_ofertas_texto: lic.JustificacionPublicidad
+          || (lic.EstadoPublicidadOfertas != null ? PUBLICIDAD_OFERTAS_MAP[lic.EstadoPublicidadOfertas] : undefined),
         subcontratacion: lic.SubContratacion,
         renovable: lic.EsRenovable,
-        toma_razon: lic.TomaRazon,
         plazo_contrato_dias: lic.TiempoDuracionContrato,
+        // Modalidad de pago: la API la entrega en Modalidad
+        modalidad_pago: lic.Modalidad != null ? (MODALIDAD_PAGO_MAP[lic.Modalidad] || undefined) : undefined,
+        estimacion_monto: lic.Estimacion != null ? ESTIMACION_MONTO_MAP[lic.Estimacion] : undefined,
+        fuente_financiamiento: lic.FuenteFinanciamiento,
+        unidad_duracion_contrato: lic.UnidadTiempoDuracionContrato,
+        duracion_contrato_texto: lic.TiempoDuracionContrato
+          ? `${lic.TiempoDuracionContrato} ${lic.UnidadTiempoDuracionContrato != null ? (UNIDAD_TIEMPO_MAP[lic.UnidadTiempoDuracionContrato] || 'día(s)') : 'día(s)'}`
+          : undefined,
+        renovacion_valor: lic.ValorTiempoRenovacion,
+        renovacion_periodo: lic.PeriodoTiempoRenovacion,
+        prohibicion_contratacion: lic.ProhibicionContratacion,
+        observacion_contrato: lic.ObservacionContrato,
+        direccion_visita: lic.DireccionVisita,
+        direccion_entrega: lic.DireccionEntrega,
+        responsable_pago_nombre: lic.NombreResponsablePago,
+        responsable_pago_email: lic.EmailResponsablePago,
+        extension_plazo: lic.ExtensionPlazo,
+        es_obras: lic.EsObras,
+        codigo_bip: lic.CodigoBIP,
+        tiempo_evaluacion: lic.UnidadTiempoEvaluacion,
       },
       contacto: {
         nombre: lic.NombreResponsableContrato,
@@ -173,6 +209,7 @@ export class SearchEngine {
       },
       url_acta: lic.Adjudicacion?.UrlActa,
       numero_oferentes: lic.Adjudicacion?.NumeroOferentes,
+      reclamos_12m: lic.CantidadReclamos,
       score,
     };
   }

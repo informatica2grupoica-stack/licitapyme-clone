@@ -14,17 +14,25 @@ const TEXT_COLORS = [
   'text-amber-600', 'text-rose-600', 'text-blue-600', 'text-teal-600',
 ];
 
-export function CriteriosSection({ criterios, analisisIA, analizandoIA, onIrAInteligencia }: {
+export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, analizandoIA, onIrAInteligencia }: {
   criterios?: CriterioEvaluacion[];
   analisisIA?: AnalisisIA | null;
+  // Criterios del informe de Viabilidad IA (forma: ponderacion_pct + fuente/página).
+  criteriosViabilidad?: Array<{ nombre: string; ponderacion_pct: number; tipo?: string; fuente?: string }>;
   analizandoIA?: boolean;
   onIrAInteligencia: () => void;
 }) {
   const criteriosIA = analisisIA?.criteriosEvaluacion;
-  const tieneCriteriosMP = !!criterios && criterios.length > 0;
-  const tieneCriteriosIA = !tieneCriteriosMP && !!criteriosIA && criteriosIA.length > 0;
+  // Normalizamos los criterios del informe de viabilidad al shape común.
+  const criteriosViab: CriterioEvaluacion[] = (criteriosViabilidad || [])
+    .filter(c => c && c.nombre)
+    .map(c => ({ nombre: c.nombre, ponderacion: Number(c.ponderacion_pct) || 0, descripcion: c.fuente }));
 
-  if (!tieneCriteriosMP && !tieneCriteriosIA) {
+  const tieneCriteriosMP   = !!criterios && criterios.length > 0;
+  const tieneCriteriosIA   = !tieneCriteriosMP && !!criteriosIA && criteriosIA.length > 0;
+  const tieneCriteriosViab = !tieneCriteriosMP && !tieneCriteriosIA && criteriosViab.length > 0;
+
+  if (!tieneCriteriosMP && !tieneCriteriosIA && !tieneCriteriosViab) {
     return (
       <div className="space-y-4 fade-in">
         <SectionHeader
@@ -65,7 +73,10 @@ export function CriteriosSection({ criterios, analisisIA, analizandoIA, onIrAInt
     );
   }
 
-  const criteriosMostrados = tieneCriteriosMP ? criterios! : criteriosIA!;
+  const criteriosMostrados = tieneCriteriosMP ? criterios!
+    : tieneCriteriosIA ? criteriosIA!
+    : criteriosViab;
+  const esExtraidoIA = tieneCriteriosIA || tieneCriteriosViab;
   const total = criteriosMostrados.reduce((acc, c) => acc + (c.ponderacion || 0), 0) || 100;
 
   return (
@@ -77,7 +88,7 @@ export function CriteriosSection({ criterios, analisisIA, analizandoIA, onIrAInt
         badge={<span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full font-semibold">{criteriosMostrados.length}</span>}
       />
 
-      {tieneCriteriosIA && (
+      {esExtraidoIA && (
         <AlertBanner tipo="info" titulo="Criterios extraídos por IA">
           <div className="flex items-center gap-2 flex-wrap">
             <span>Mercado Público no informó los criterios de forma estructurada. Estos fueron extraídos automáticamente desde las bases.</span>

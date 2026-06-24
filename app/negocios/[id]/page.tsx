@@ -10,7 +10,10 @@ import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
 import { ViabilidadIAPanel } from '@/app/licitacion/[codigo]/sections/ViabilidadIAPanel';
 import { InteligenciaSection } from '@/app/licitacion/[codigo]/sections/InteligenciaSection';
 import { DocumentosSection } from '@/app/licitacion/[codigo]/sections/DocumentosSection';
+import { CriteriosSection } from '@/app/licitacion/[codigo]/sections/CriteriosSection';
 import { esUrlAnalizable } from '@/app/licitacion/[codigo]/utils';
+import { Oportunidad } from '@/app/types/search.types';
+import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
   MessageSquare, Send, Trash2, Loader2, AlertCircle, ExternalLink,
@@ -164,7 +167,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'viabilidad' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'comentarios';
+type Seccion = 'resumen' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'comentarios';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -313,6 +316,7 @@ function PipelineSelector({
 function SeccionResumen({
   negocio,
   licitacion,
+  oportunidad,
   onMontoChange,
   etiquetas,
   viabIA,
@@ -320,11 +324,29 @@ function SeccionResumen({
 }: {
   negocio:       Negocio;
   licitacion:    LicitacionRaw | null;
+  oportunidad?:  Oportunidad | null;
   onMontoChange: (m: number) => void;
   etiquetas:     Etiqueta[];
   viabIA?:       any;
   onIrViabilidad?: () => void;
 }) {
+  const car = oportunidad?.caracteristicas;
+  const tipoLabel = oportunidad?.tipo_licitacion
+    ? (TIPO_LICITACION_MAP[oportunidad.tipo_licitacion] || oportunidad.tipo_licitacion)
+    : null;
+  const monedaLabel = oportunidad?.moneda
+    ? (MONEDA_LABEL_MAP[oportunidad.moneda] || oportunidad.moneda)
+    : null;
+  const tieneMontoMP = !!(oportunidad?.monto_total || oportunidad?.monto_estimado);
+
+  // Fila compacta — se oculta sola si no hay valor.
+  const Row = ({ label, value }: { label: string; value?: string | number | null }) =>
+    (value === null || value === undefined || value === '') ? null : (
+      <div className="flex justify-between gap-3 py-2 border-b border-zinc-50 last:border-0">
+        <span className="text-[12px] text-zinc-400 flex-shrink-0">{label}</span>
+        <span className="text-[12.5px] font-semibold text-zinc-700 text-right">{value}</span>
+      </div>
+    );
   const [editMonto, setEditMonto] = useState(false);
   const [montoTemp, setMontoTemp] = useState(String(negocio.monto_ofertado || ''));
 
@@ -463,6 +485,37 @@ function SeccionResumen({
           )}
         </dl>
       </div>
+
+      {/* Características de la licitación (datos API MP) — espejo del radar */}
+      {oportunidad && (tipoLabel || car?.tipo_convocatoria || monedaLabel || car?.etapas || car?.contrato_texto || car?.publicidad_ofertas_texto) && (
+        <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
+          <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-3">Características de la licitación</h3>
+          <div>
+            <Row label="Tipo de licitación"  value={tipoLabel} />
+            <Row label="Tipo convocatoria"   value={car?.tipo_convocatoria || oportunidad?.tipo_convocatoria} />
+            <Row label="Moneda"              value={monedaLabel} />
+            <Row label="Etapas del proceso"  value={car?.etapas} />
+            <Row label="Contrato"            value={car?.contrato_texto} />
+            <Row label="Publicidad de ofertas técnicas" value={car?.publicidad_ofertas_texto} />
+          </div>
+        </div>
+      )}
+
+      {/* Montos y duración del contrato — espejo del radar */}
+      {oportunidad && (tieneMontoMP || car?.estimacion_monto || car?.fuente_financiamiento || car?.modalidad_pago || car?.duracion_contrato_texto || car?.renovable !== undefined) && (
+        <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
+          <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-3">Montos y duración del contrato</h3>
+          <div>
+            <Row label="Estimación en base a"     value={car?.estimacion_monto} />
+            <Row label="Fuente de financiamiento" value={car?.fuente_financiamiento} />
+            <Row label="Monto total estimado"     value={tieneMontoMP ? fmt(oportunidad?.monto_total || oportunidad?.monto_estimado) : null} />
+            <Row label="Contrato con renovación"
+              value={car?.renovable === true ? 'Sí' : car?.renovable === false ? 'No' : null} />
+            <Row label="Duración del contrato"    value={car?.duracion_contrato_texto} />
+            <Row label="Plazos de pago"           value={car?.modalidad_pago} />
+          </div>
+        </div>
+      )}
 
       {negocio.etiquetas.length > 0 && (
         <div className="bg-white border border-zinc-200/60 rounded-xl p-4">
@@ -968,6 +1021,7 @@ function DetalleContent() {
 
   const [negocio, setNegocio]       = useState<Negocio | null>(null);
   const [licitacion, setLicitacion] = useState<LicitacionRaw | null>(null);
+  const [oportunidad, setOportunidad] = useState<Oportunidad | null>(null);
   const [etiquetas, setEtiquetas]   = useState<Etiqueta[]>([]);
   const [loading, setLoading]       = useState(true);
   const [loadingLic, setLoadingLic] = useState(false);
@@ -1017,7 +1071,10 @@ function DetalleContent() {
     setLoadingLic(true);
     fetch(`/api/licitacion-detalle/${encodeURIComponent(negocio.licitacion_codigo)}`)
       .then(r => r.json())
-      .then(d => { if (d.success && d.licitacion_raw) setLicitacion(d.licitacion_raw); })
+      .then(d => {
+        if (d.success && d.licitacion_raw) setLicitacion(d.licitacion_raw);
+        if (d.success && d.licitacion) setOportunidad(d.licitacion);
+      })
       .catch(() => { /* silencioso */ })
       .finally(() => setLoadingLic(false));
   }, [negocio?.licitacion_codigo]);
@@ -1207,6 +1264,7 @@ function DetalleContent() {
   const NAV_SECTIONS = [
     { key: 'resumen',      label: 'Resumen',           count: null },
     { key: 'viabilidad',   label: 'Viabilidad (IA)',   count: null },
+    { key: 'criterios',    label: 'Criterios',         count: analisisIA?.criteriosEvaluacion?.length || null },
     { key: 'items',        label: 'Ítems y Cantidades', count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
     { key: 'documentos',   label: 'Documentos',        count: documentos.length || null },
     { key: 'analisis',     label: 'Chatbot',           count: null },
@@ -1326,10 +1384,20 @@ function DetalleContent() {
               <SeccionResumen
                 negocio={negocio}
                 licitacion={licitacion}
+                oportunidad={oportunidad}
                 onMontoChange={guardarMonto}
                 etiquetas={etiquetas}
                 viabIA={viabIA}
                 onIrViabilidad={() => setSeccion('viabilidad')}
+              />
+            )}
+            {seccion === 'criterios' && (
+              <CriteriosSection
+                criterios={oportunidad?.criterios_evaluacion}
+                analisisIA={analisisIA as any}
+                criteriosViabilidad={viabIA?.criterios_evaluacion}
+                analizandoIA={false}
+                onIrAInteligencia={() => setSeccion('analisis')}
               />
             )}
             {seccion === 'fechas' && <SeccionFechas licitacion={licitacion} />}

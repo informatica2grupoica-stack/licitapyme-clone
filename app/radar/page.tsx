@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useToast } from '@/app/components/ui/toast';
@@ -11,7 +11,7 @@ import {
   BellOff, X, Clock, Search, Zap, ToggleLeft, ToggleRight,
   Sparkles, Filter, ChevronDown, FileText, Download, MapPin,
   ArrowUpDown, Eye, EyeOff, AlertCircle, Flame, SlidersHorizontal,
-  CheckSquare, Square, UserPlus, Undo2, UserCheck,
+  CheckSquare, Square, UserPlus, Undo2, UserCheck, PlayCircle,
 } from 'lucide-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 import { AUTOMATIZACION_PAUSADA } from '@/app/lib/automatizacion';
@@ -80,6 +80,11 @@ const ESTADOS_CFG = [
   { key: 'Revocada',  label: 'Revocada',   dot: '#f87171', bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200',     pill: 'bg-red-400'     },
 ];
 const ESTADOS_ACTIVOS_DEFAULT = ['Publicada'];
+
+// Claves de sessionStorage — persisten filtros y la última lista de alertas para que
+// al volver de una licitación el radar conserve el estado y pinte al instante.
+const SS_FILTROS = 'radar:filtros:v1';
+const SS_ALERTAS = 'radar:alertas:v1';
 
 const RANGOS_MONTO = [
   { key: '',       label: 'Cualquier monto' },
@@ -318,13 +323,14 @@ function PrefiltroBadge({ decision, categoria, motivo, confianza }: {
 
 // ── Card licitación ───────────────────────────────────────────────────────────
 function LicitacionCard({
-  alerta, onDelete, onMarcarLeida, onDescartar, onToggleSelect, selected = false, keywords = [],
+  alerta, onDelete, onMarcarLeida, onDescartar, onToggleSelect, onAsignar, selected = false, keywords = [],
 }: {
   alerta: Alerta;
   onDelete: (id: number) => void;
   onMarcarLeida: (id: number) => void;
   onDescartar: (alerta: Alerta, descartar: boolean) => void;
   onToggleSelect: (id: number) => void;
+  onAsignar: (alerta: Alerta) => void;
   selected?: boolean;
   keywords?: string[];
 }) {
@@ -500,6 +506,15 @@ function LicitacionCard({
               title={alerta.descartada ? 'Restaurar al radar' : 'Descartar del radar'}
             >
               {alerta.descartada ? <><Undo2 size={12} /> Restaurar</> : <><EyeOff size={12} /> Descartar</>}
+            </button>
+            <button
+              onClick={() => onAsignar(alerta)}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[12px] font-semibold rounded-lg border transition-colors ${alerta.asignada
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                : 'bg-white border-slate-200 text-slate-500 hover:bg-emerald-50 hover:border-emerald-200 hover:text-emerald-600'}`}
+              title={alerta.asignada ? `Asignada a ${alerta.asignado_nombre || 'un perfil'} — reasignar` : 'Asignar a un perfil del equipo'}
+            >
+              <UserPlus size={12} /> {alerta.asignada ? 'Reasignar' : 'Asignar'}
             </button>
             <button
               onClick={() => onDelete(alerta.id)}
@@ -894,14 +909,18 @@ function PanelFiltros({
           </button>
         )}
 
-        {hayFiltros && (
-          <button
-            onClick={onClear}
-            className="ml-auto inline-flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-red-500 transition-colors"
-          >
-            <X size={12} /> Limpiar filtros
-          </button>
-        )}
+        <button
+          onClick={onClear}
+          disabled={!hayFiltros}
+          className={`ml-auto inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg border font-semibold transition-all ${
+            hayFiltros
+              ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'
+              : 'text-slate-300 border-slate-100 cursor-not-allowed'
+          }`}
+          title={hayFiltros ? 'Restablecer todos los filtros' : 'No hay filtros activos'}
+        >
+          <X size={12} /> Limpiar filtros
+        </button>
       </div>
     </div>
   );
@@ -909,17 +928,17 @@ function PanelFiltros({
 
 // ── Página principal ──────────────────────────────────────────────────────────
 // ── Modal de asignación a un perfil del equipo ───────────────────────────────────
-function AsignarModal({ usuarios, count, onClose, onConfirm, loading }: {
-  usuarios: Usuario[]; count: number; onClose: () => void; onConfirm: (usuarioId: number) => void; loading: boolean;
+function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, loading }: {
+  usuarios: Usuario[]; count: number; unaNombre?: string | null; onClose: () => void; onConfirm: (usuarioId: number) => void; loading: boolean;
 }) {
   const [sel, setSel] = useState<number | null>(null);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-          <div>
+          <div className="min-w-0">
             <h3 className="text-[15px] font-bold text-slate-800">Asignar {count} licitación{count !== 1 ? 'es' : ''}</h3>
-            <p className="text-[12px] text-slate-400">Elige el perfil del equipo</p>
+            <p className="text-[12px] text-slate-400 truncate">{unaNombre ? unaNombre : 'Elige el perfil del equipo'}</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"><X size={16} /></button>
         </div>
@@ -986,6 +1005,13 @@ export default function RadarPage() {
   const [prefActiva,     setPrefActiva]     = useState(false);
   const [prefStats,      setPrefStats]      = useState({ procesadas: 0, excluidas: 0 });
 
+  // "Procesar PASA": descarga (si falta) + análisis profundo IA en cadena, solo PASA/REVISION.
+  const [procPasaPendientes, setProcPasaPendientes] = useState(0);
+  const [procPasaActiva,     setProcPasaActiva]     = useState(false);
+  const [procPasaStats,      setProcPasaStats]      = useState({ procesadas: 0, analizadas: 0, errores: 0 });
+  // Códigos que fallaron en esta corrida → se saltan para no bloquear el avance del resto.
+  const procPasaExcluir = useRef<Set<string>>(new Set());
+
   // Filtros
   const FILTROS_DEFAULT = {
     texto: '', estados: ESTADOS_ACTIVOS_DEFAULT, tipos: [] as string[], region: '',
@@ -996,12 +1022,16 @@ export default function RadarPage() {
     gestion: '', // '' = activas (oculta descartadas) | sin_asignar | asignadas | descartadas
   };
   const [filtros, setFiltros] = useState(FILTROS_DEFAULT);
+  // Hidratado = ya leímos los filtros guardados; evita persistir el default antes de hidratar.
+  const [hidratado, setHidratado] = useState(false);
 
   // Selección múltiple + asignación
   const [sel, setSel]                 = useState<Set<number>>(new Set());
   const [usuarios, setUsuarios]       = useState<Usuario[]>([]);
   const [modalAsignar, setModalAsignar] = useState(false);
   const [accionMasiva, setAccionMasiva] = useState(false);
+  // Cuando se asigna UNA sola licitación desde su tarjeta (vs. la selección múltiple).
+  const [asignarUna, setAsignarUna]     = useState<Alerta | null>(null);
 
   // Paginación de la VISUALIZACIÓN (cliente): los filtros operan sobre TODAS las
   // alertas; aquí solo recortamos cuántas tarjetas se pintan a la vez.
@@ -1027,8 +1057,9 @@ export default function RadarPage() {
     finally { setLoading(false); }
   }, []);
 
-  const cargarAlertas = useCallback(async () => {
-    setLoadingAlerts(true);
+  // silencioso=true → no muestra el skeleton (refresco en segundo plano sobre datos ya pintados desde cache)
+  const cargarAlertas = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoadingAlerts(true);
     try {
       const d = await fetch('/api/alertas').then(r => r.json());
       if (d.success) { setAlertas(d.alertas || []); setNoLeidas(d.noLeidas || 0); }
@@ -1043,7 +1074,54 @@ export default function RadarPage() {
     } catch { /* silencioso */ }
   }, []);
 
-  useEffect(() => { cargarKeywords(); cargarAlertas(); cargarEtiquetas(); }, [cargarKeywords, cargarAlertas, cargarEtiquetas]);
+  // ── Hidratación al montar: restaura filtros guardados y pinta alertas cacheadas ──
+  useEffect(() => {
+    // 1) Filtros persistidos (sessionStorage) → se conservan al volver de una licitación.
+    try {
+      const raw = sessionStorage.getItem(SS_FILTROS);
+      if (raw) setFiltros(prev => ({ ...prev, ...JSON.parse(raw) }));
+    } catch { /* sin persistencia */ }
+    setHidratado(true);
+
+    // 2) Alertas cacheadas → pintan al instante; luego refrescamos en segundo plano.
+    let teniaCache = false;
+    try {
+      const raw = sessionStorage.getItem(SS_ALERTAS);
+      if (raw) {
+        const c = JSON.parse(raw);
+        if (Array.isArray(c.alertas) && c.alertas.length) {
+          setAlertas(c.alertas);
+          setNoLeidas(c.noLeidas || 0);
+          setLoadingAlerts(false);
+          teniaCache = true;
+        }
+      }
+    } catch { /* sin cache */ }
+
+    cargarKeywords();
+    cargarEtiquetas();
+    cargarAlertas(teniaCache); // si había cache, refresco silencioso (sin skeleton)
+  }, [cargarKeywords, cargarAlertas, cargarEtiquetas]);
+
+  // Persistir filtros cada vez que cambian (después de hidratar, para no pisar lo guardado).
+  useEffect(() => {
+    if (!hidratado) return;
+    try { sessionStorage.setItem(SS_FILTROS, JSON.stringify(filtros)); } catch { /* cuota llena */ }
+  }, [filtros, hidratado]);
+
+  // Mantener el cache de alertas en sync con el estado (para pintura instantánea al volver).
+  // Aligeramos el cache omitiendo viabilidad_informe: es el campo más pesado (~0.5 MB en
+  // total, solo para el popover de hover) y hacía que el payload superara el tope de 3.5 MB,
+  // dejando el cache SIN guardar. Las tarjetas pintan igual al instante; el refetch en
+  // segundo plano restaura el informe completo ~1-2 s después.
+  useEffect(() => {
+    if (loadingAlerts) return;
+    try {
+      const ligeras = alertas.map(a => (a.viabilidad_informe ? { ...a, viabilidad_informe: null } : a));
+      const s = JSON.stringify({ alertas: ligeras, noLeidas, ts: Date.now() });
+      if (s.length < 3_800_000) sessionStorage.setItem(SS_ALERTAS, s); // ~3.8MB tope de seguridad
+    } catch { /* cuota llena → degrada a fetch normal */ }
+  }, [alertas, noLeidas, loadingAlerts]);
 
   // ── Acciones ──────────────────────────────────────────────────────────────────
   const actualizarAhora = async () => {
@@ -1176,25 +1254,41 @@ export default function RadarPage() {
   }, [descartarCodigos]);
 
   // ── Asignar a un perfil del equipo ───────────────────────────────────────────────
+  // Carga la lista de perfiles (una sola vez) antes de abrir el modal.
+  const cargarUsuarios = useCallback(async () => {
+    if (usuarios.length > 0) return;
+    try {
+      const d = await fetch('/api/usuarios').then(r => r.json());
+      if (d.success) setUsuarios(d.usuarios || []);
+    } catch { /* el modal mostrará "sin perfiles" */ }
+  }, [usuarios.length]);
+
+  // Abrir modal para la SELECCIÓN múltiple.
   const abrirAsignar = useCallback(async () => {
     if (sel.size === 0) return;
-    if (usuarios.length === 0) {
-      try {
-        const d = await fetch('/api/usuarios').then(r => r.json());
-        if (d.success) setUsuarios(d.usuarios || []);
-      } catch { /* el modal mostrará "sin perfiles" */ }
-    }
+    setAsignarUna(null);
+    await cargarUsuarios();
     setModalAsignar(true);
-  }, [sel.size, usuarios.length]);
+  }, [sel.size, cargarUsuarios]);
+
+  // Abrir modal para UNA sola licitación (botón de la tarjeta).
+  const abrirAsignarUna = useCallback(async (alerta: Alerta) => {
+    setAsignarUna(alerta);
+    await cargarUsuarios();
+    setModalAsignar(true);
+  }, [cargarUsuarios]);
+
+  const cerrarAsignar = useCallback(() => { setModalAsignar(false); setAsignarUna(null); }, []);
 
   const confirmarAsignar = useCallback(async (usuarioId: number) => {
-    const seleccionadas = alertas.filter(a => sel.has(a.id));
-    if (seleccionadas.length === 0) { setModalAsignar(false); return; }
+    // Objetivo: la tarjeta puntual si se abrió desde una tarjeta; si no, la selección.
+    const objetivo = asignarUna ? [asignarUna] : alertas.filter(a => sel.has(a.id));
+    if (objetivo.length === 0) { cerrarAsignar(); return; }
     setAccionMasiva(true);
     const u = usuarios.find(x => x.id === usuarioId);
     const nombre = u?.nombre || u?.email || null;
     try {
-      const resultados = await Promise.allSettled(seleccionadas.map(a =>
+      const resultados = await Promise.allSettled(objetivo.map(a =>
         fetch('/api/negocios', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1207,15 +1301,15 @@ export default function RadarPage() {
         }).then(r => r.ok),
       ));
       const ok = resultados.filter(r => r.status === 'fulfilled' && r.value).length;
-      const codigosOk = new Set(seleccionadas.map(a => a.licitacion_codigo));
+      const codigosOk = new Set(objetivo.map(a => a.licitacion_codigo));
       setAlertas(prev => prev.map(a => codigosOk.has(a.licitacion_codigo) ? { ...a, asignada: true, asignado_a: usuarioId, asignado_nombre: nombre } : a));
-      limpiarSel();
-      setModalAsignar(false);
-      if (ok === seleccionadas.length) toast.success(`${ok} asignada(s) a ${nombre || 'el perfil'}`);
-      else toast.error('Asignación parcial', `${ok}/${seleccionadas.length} asignadas`);
+      if (!asignarUna) limpiarSel();
+      cerrarAsignar();
+      if (ok === objetivo.length) toast.success(`${ok} asignada(s) a ${nombre || 'el perfil'}`);
+      else toast.error('Asignación parcial', `${ok}/${objetivo.length} asignadas`);
     } catch { toast.error('Error de conexión'); }
     finally { setAccionMasiva(false); }
-  }, [alertas, sel, usuarios, toast, limpiarSel]);
+  }, [asignarUna, alertas, sel, usuarios, toast, limpiarSel, cerrarAsignar]);
 
   // ── Filtrado + ordenamiento ───────────────────────────────────────────────────
   const alertasFiltradas = useMemo(() => {
@@ -1503,6 +1597,81 @@ export default function RadarPage() {
     return () => { cancelado = true; };
   }, [prefActiva]);
 
+  // ── Procesar PASA: descarga (si falta) + análisis profundo IA, en cadena ─────────
+  const cargarProcPasa = useCallback(async () => {
+    try {
+      const d = await fetch('/api/radar/procesar-pasa').then(r => r.json());
+      setProcPasaPendientes(Number(d?.pendientes ?? 0));
+    } catch { /* silencioso */ }
+  }, []);
+  useEffect(() => { cargarProcPasa(); }, [cargarProcPasa]);
+
+  const iniciarProcPasa = () => {
+    procPasaExcluir.current = new Set();
+    setProcPasaStats({ procesadas: 0, analizadas: 0, errores: 0 });
+    setProcPasaActiva(true);
+  };
+  const detenerProcPasa = () => { setProcPasaActiva(false); cargarProcPasa(); };
+
+  // Loop: lote a lote (lote=1 porque cada análisis profundo es pesado, ~1-2 min).
+  useEffect(() => {
+    if (!procPasaActiva) return;
+    let cancelado = false;
+
+    const run = async () => {
+      while (!cancelado) {
+        try {
+          const res = await fetch('/api/radar/procesar-pasa', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lote: 1, excluir: Array.from(procPasaExcluir.current) }),
+          }).then(r => r.json());
+
+          if (cancelado) break;
+
+          if (res.procesados?.length) {
+            const analizadas = res.procesados.filter((p: any) => p.exito).length;
+            const errores    = res.procesados.filter((p: any) => !p.exito).length;
+            setProcPasaStats(prev => ({
+              procesadas: prev.procesadas + res.procesados.length,
+              analizadas: prev.analizadas + analizadas,
+              errores:    prev.errores + errores,
+            }));
+            // Saltar las que fallaron en próximas tandas (no bloquear el avance del resto).
+            for (const p of res.procesados) if (!p.exito) procPasaExcluir.current.add(p.codigo);
+            // Merge en memoria de las analizadas (actualiza semáforo/score sin recargar todo).
+            const oks = res.procesados.filter((p: any) => p.exito);
+            if (oks.length) {
+              const byCodigo = new Map<string, any>(oks.map((p: any) => [p.codigo, p]));
+              setAlertas(prev => prev.map(a => {
+                const p = byCodigo.get(a.licitacion_codigo);
+                return p
+                  ? { ...a, viabilidad_semaforo: p.semaforo ?? a.viabilidad_semaforo, viabilidad_score: p.score ?? a.viabilidad_score, viabilidad_area: p.area ?? a.viabilidad_area, tiene_documentos: 1 }
+                  : a;
+              }));
+            }
+          }
+          if (typeof res.pendientes === 'number') setProcPasaPendientes(res.pendientes);
+
+          if (res.completado || res.pendientes === 0) {
+            if (!cancelado) {
+              setProcPasaActiva(false);
+              cargarProcPasa();
+              const fall = procPasaExcluir.current.size;
+              toast.success('Procesar PASA terminado', fall > 0 ? `${fall} no se pudieron procesar (revisa sus documentos)` : 'Todas las PASA quedaron analizadas');
+            }
+            break;
+          }
+        } catch {
+          if (!cancelado) await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+    };
+
+    run();
+    return () => { cancelado = true; };
+  }, [procPasaActiva, cargarProcPasa]); // eslint-disable-line
+
   // ── Exportar Excel ────────────────────────────────────────────────────────────
   const exportarExcel = async () => {
     if (exportando || alertasFiltradas.length === 0) return;
@@ -1589,6 +1758,33 @@ export default function RadarPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Procesar PASA: descarga (si falta) + análisis profundo IA en cadena */}
+            {(procPasaActiva || procPasaPendientes > 0) && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50 text-[12px]">
+                {procPasaActiva ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin text-fuchsia-600 flex-shrink-0" />
+                    <span className="text-fuchsia-700 font-medium">
+                      Procesando PASA · {procPasaStats.analizadas} analizadas · {procPasaPendientes} pendientes
+                      {procPasaStats.errores > 0 && <span className="text-red-500"> · {procPasaStats.errores} con error</span>}
+                    </span>
+                    <button onClick={detenerProcPasa} className="ml-1 text-fuchsia-700 hover:text-red-600 font-semibold">Detener</button>
+                  </>
+                ) : (
+                  <>
+                    <PlayCircle size={13} className="text-fuchsia-600 flex-shrink-0" />
+                    <span className="text-fuchsia-700 font-medium">{procPasaPendientes} PASA por procesar</span>
+                    <button
+                      onClick={iniciarProcPasa}
+                      className="ml-1 px-2 py-0.5 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-semibold text-[11px] transition-colors"
+                      title="Solo PASA/REVISION: descarga documentos si faltan y corre el análisis profundo IA (el mismo del botón manual). Reanudable."
+                    >
+                      Procesar PASA
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             {/* Panel descarga masiva */}
             {descargaInfo && descargaInfo.pendientes > 0 && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-[12px]">
@@ -1869,6 +2065,7 @@ export default function RadarPage() {
                           onMarcarLeida={marcarLeida}
                           onDescartar={onDescartarUna}
                           onToggleSelect={toggleSel}
+                          onAsignar={abrirAsignarUna}
                           selected={sel.has(a.id)}
                           keywords={keywordStrings}
                         />
@@ -2038,9 +2235,10 @@ export default function RadarPage() {
       {modalAsignar && (
         <AsignarModal
           usuarios={usuarios}
-          count={sel.size}
+          count={asignarUna ? 1 : sel.size}
+          unaNombre={asignarUna?.licitacion_nombre || null}
           loading={accionMasiva}
-          onClose={() => setModalAsignar(false)}
+          onClose={cerrarAsignar}
           onConfirm={confirmarAsignar}
         />
       )}

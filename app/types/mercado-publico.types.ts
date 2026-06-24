@@ -35,7 +35,7 @@ export interface LicitacionAPI {
   DireccionVisita?: string;
   DireccionEntrega?: string;
   Estimacion?: number;
-  FuenteFinanciamiento?: number;
+  FuenteFinanciamiento?: string | number;
   VisibilidadMonto?: number;
   MontoEstimado?: number;
   UnidadTiempo?: number;
@@ -54,6 +54,7 @@ export interface LicitacionAPI {
   JustificacionMontoEstimado?: string;
   ExtensionPlazo?: number;
   EsBaseTipo?: number;
+  CodigoBIP?: string;
   UnidadTiempoContratoLicitacion?: number;
   ValorTiempoRenovacion?: number;
   PeriodoTiempoRenovacion?: string;
@@ -276,16 +277,39 @@ export interface Licitacion {
 
   // Contrato
   Modalidad?: number;
+  TipoPago?: number;
   SubContratacion?: boolean;
   EsRenovable?: boolean;
   TomaRazon?: boolean;
   TiempoDuracionContrato?: number;
   TipoDuracionContrato?: string;
+  UnidadTiempoDuracionContrato?: number;
+  ValorTiempoRenovacion?: number;
+  PeriodoTiempoRenovacion?: string;
+
+  // Características extendidas (API detalle)
+  Etapas?: number;
+  RequiereContrato?: boolean;
+  ContratoCodigo?: number;   // 1=Requiere suscripción, 2=Formaliza con OC
+  EstadoPublicidadOfertas?: number;
+  JustificacionPublicidad?: string;
+  ProhibicionContratacion?: string;
+  ObservacionContrato?: string;
+  FuenteFinanciamiento?: string;
+  DireccionVisita?: string;
+  DireccionEntrega?: string;
+  CantidadReclamos?: number;
+  ExtensionPlazo?: boolean;
+  EsObras?: boolean;
+  CodigoBIP?: string;
+  UnidadTiempoEvaluacion?: number;
 
   // Contacto
   NombreResponsableContrato?: string;
   EmailResponsableContrato?: string;
   FonoResponsableContrato?: string;
+  NombreResponsablePago?: string;
+  EmailResponsablePago?: string;
 
   // Adjudicación
   Adjudicacion?: {
@@ -395,4 +419,37 @@ export const TIPO_ACTO_ADJUDICACION_MAP: Record<number, string> = {
   3: 'Acuerdo',
   4: 'Decreto',
   5: 'Otros',
+};
+
+export const ETAPAS_MAP: Record<number, string> = {
+  1: 'Una Etapa',
+  2: 'Dos Etapas',
+};
+
+// Campo Contrato (doc oficial #33) — NO es booleano: 1 o 2
+export const CONTRATO_MAP: Record<number, string> = {
+  1: 'Se requerirá suscripción de contrato',
+  2: 'El contrato se formaliza con la emisión de la Orden de Compra',
+};
+
+// EstadoPublicidadOfertas — publicidad de las ofertas técnicas
+export const PUBLICIDAD_OFERTAS_MAP: Record<number, string> = {
+  1: 'Las ofertas técnicas serán de público conocimiento una vez realizada la apertura técnica de las ofertas.',
+  2: 'Las ofertas técnicas serán de público conocimiento a contar de la fecha de adjudicación.',
+};
+
+// Estimacion del monto (campo Estimacion de la API) — doc oficial 3.3
+export const ESTIMACION_MONTO_MAP: Record<number, string> = {
+  1: 'Presupuesto Disponible',
+  2: 'Precio Referencial',
+  3: 'Monto no es posible de estimar',
+};
+
+// Etiqueta amigable de la moneda — doc oficial 3.2
+export const MONEDA_LABEL_MAP: Record<string, string> = {
+  CLP: 'Peso Chileno',
+  CLF: 'Unidad de Fomento',
+  USD: 'Dólar Americano',
+  EUR: 'Euro',
+  UTM: 'Unidad Tributaria Mensual',
 };
