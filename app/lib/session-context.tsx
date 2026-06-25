@@ -10,6 +10,14 @@ export interface UsuarioSession {
   nombre: string | null;
   empresa: string | null;
   rol: 'admin' | 'usuario';
+  // Permisos granulares (admin = todos). El cliente los usa para mostrar/ocultar UI;
+  // el servidor SIEMPRE reverifica en cada endpoint (no confía solo en esto).
+  permisos?: {
+    ver_otros_negocios?: boolean;
+    acceso_radar?: boolean;
+    comentar_viabilidad?: boolean;
+    exportar?: boolean;
+  };
 }
 
 interface SessionContextType {

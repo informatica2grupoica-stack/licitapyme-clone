@@ -20,6 +20,7 @@ import type { Licitacion } from '@/app/types/mercado-publico.types';
 import { registrarActividad } from '@/app/lib/actividad';
 import { indexarLicitacion, evaluarKeyword, normalizar, tokenizar, type LicitacionIndexada } from '@/app/lib/text-match';
 import { leerCache, planificarEnriquecimiento, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
+import { matchearEInsertar } from '@/app/lib/radar-matching';
 
 const CRON_SECRET        = process.env.CRON_SECRET || '';
 const DIAS_RECIENTES     = 15;
@@ -317,15 +318,33 @@ export async function GET(request: NextRequest) {
     }
 
     // ── Paso 2: Cargar keywords (antes del enrichment, para priorizar) ────────
-    const [rows] = await pool.query(
-      `SELECT pk.id, pk.usuario_id, pk.keyword
-       FROM palabras_clave pk
-       JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
-       WHERE pk.activo = TRUE
-       ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
-    );
-    const kws = rows as KwRow[];
-    console.log(`[Cron] 📋 ${kws.length} keywords`);
+    // Se separan POSITIVAS (generan alertas) de NEGATIVAS (es_negativa=1, excluyen).
+    // Si la columna es_negativa no existe (migración 30 pendiente), todas son positivas.
+    let kws: KwRow[] = [];
+    let kwsNeg: KwRow[] = [];
+    try {
+      const [rows] = await pool.query(
+        `SELECT pk.id, pk.usuario_id, pk.keyword, pk.es_negativa
+         FROM palabras_clave pk
+         JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
+         WHERE pk.activo = TRUE
+         ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
+      );
+      for (const r of rows as any[]) {
+        const kw: KwRow = { id: r.id, usuario_id: r.usuario_id, keyword: r.keyword };
+        if (Number(r.es_negativa) === 1) kwsNeg.push(kw); else kws.push(kw);
+      }
+    } catch {
+      const [rows] = await pool.query(
+        `SELECT pk.id, pk.usuario_id, pk.keyword
+         FROM palabras_clave pk
+         JOIN usuarios u ON u.id = pk.usuario_id AND u.activo = TRUE
+         WHERE pk.activo = TRUE
+         ORDER BY ISNULL(pk.ultima_busqueda) DESC, pk.ultima_busqueda ASC, pk.id ASC`,
+      );
+      kws = rows as KwRow[];
+    }
+    console.log(`[Cron] 📋 ${kws.length} keywords positivas, ${kwsNeg.length} negativas`);
 
     // ── Paso 3: Volcar el CACHÉ persistente (sin gastar API) ──────────────────
     // El enriquecimiento nuevo se hace DESPUÉS de matchear+insertar (Paso 5), para
@@ -347,6 +366,18 @@ export async function GET(request: NextRequest) {
       licitacionesFinales.map(l => [l.Codigo, indexarLicitacion(camposDe(l))]),
     );
 
+    // ── Paso 3.5: Excluir por palabras NEGATIVAS ──────────────────────────────
+    // Una licitación que calza CUALQUIER keyword negativa queda excluida y no
+    // genera alertas, aunque calce positivas. Se evalúa una sola vez por licitación.
+    const excluidasNeg = new Set<string>();
+    if (kwsNeg.length > 0) {
+      for (const lic of licitacionesFinales) {
+        const idx = indices.get(lic.Codigo)!;
+        if (kwsNeg.some(neg => evaluarKeyword(idx, neg.keyword).match)) excluidasNeg.add(lic.Codigo);
+      }
+      console.log(`[Cron] 🚫 ${excluidasNeg.size} licitaciones excluidas por palabras negativas`);
+    }
+
     // ── Paso 4: Procesar keywords en paralelo ─────────────────────────────────
     const alertasMap = new Map<number, number>();
     const matchedCodigos = new Set<string>(); // los que pegan → prioridad de enrichment
@@ -357,6 +388,7 @@ export async function GET(request: NextRequest) {
         // entrega score de relevancia. Reemplaza el includes() literal.
         const coincidencias: Coincidencia[] = [];
         for (const lic of licitacionesFinales) {
+          if (excluidasNeg.has(lic.Codigo)) continue; // palabra negativa manda
           const r = evaluarKeyword(indices.get(lic.Codigo)!, kw.keyword);
           if (!r.match) continue;
           matchedCodigos.add(lic.Codigo);
@@ -414,11 +446,16 @@ export async function GET(request: NextRequest) {
     // Si no queda tiempo, no enriquece — el output valioso ya está a salvo.
     const presupuesto = Math.min(ENRICH_MAX_MS, TIEMPO_LIMITE_MS - elapsed());
     if (presupuesto > 3_000) {
-      const plan = planificarEnriquecimiento(allCodigos, cache, matchedCodigos, ENRICH_TTL_DIAS);
+      // SIN sesgo de prioridad: antes priorizaba los que ya pegaron por título, así
+      // las que solo matchearían por ítems/categoría (ej. rubro EQUIPAMIENTO) nunca
+      // se enriquecían. Ahora se cubren TODAS (el plan ordena sin-caché primero), para
+      // que su rubro/ítems queden disponibles y se matcheen en la próxima corrida.
+      // El grueso del backlog lo cubre el botón "Enriquecer todo" (loop desde el navegador).
+      const plan = planificarEnriquecimiento(allCodigos, cache, new Set(), ENRICH_TTL_DIAS);
       if (plan.aEnriquecer.length > 0) {
         console.log(
-          `[Cron] 🔎 Enrichment de fondo: ${plan.aEnriquecer.length} candidatos ` +
-          `(${matchedCodigos.size} con match), presupuesto ${Math.round(presupuesto / 1000)}s...`,
+          `[Cron] 🔎 Enrichment de fondo (sin sesgo): ${plan.aEnriquecer.length} candidatos, ` +
+          `presupuesto ${Math.round(presupuesto / 1000)}s...`,
         );
         const res = await enriquecerYCachear(client, plan.aEnriquecer, {
           maxMs: presupuesto,
@@ -428,6 +465,16 @@ export async function GET(request: NextRequest) {
         stats.r429              = res.r429;
         stats.agotoTiempoEnrich = res.agotoTiempo;
         console.log(`[Cron] ✅ enrich: +${res.enriquecidas} nuevas, ${res.r429} 429 — ${elapsed()}ms`);
+
+        // Re-matchear las recién enriquecidas (capta las que solo calzan por rubro/ítems)
+        // e inserta sus alertas + CORRIGE su fecha de publicación REAL (del detalle).
+        if (res.lics.length > 0) {
+          try {
+            const m = await matchearEInsertar(res.lics, { positivas: kws, negativas: kwsNeg });
+            stats.alertasNuevas += m.alertasNuevas;
+            console.log(`[Cron] 🔁 re-match enriquecidas: +${m.alertasNuevas} alertas, ${m.fechasCorregidas} fechas corregidas`);
+          } catch (e) { console.error('[Cron] re-match enriquecidas falló:', String(e)); }
+        }
       }
     } else {
       stats.enriquecimientoOmitido = true;

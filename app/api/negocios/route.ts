@@ -3,6 +3,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
+import { tienePermiso } from '@/app/lib/api-auth';
+import { registrarEvento } from '@/app/lib/historial';
+import { enviarCorreoAsignacion } from '@/app/lib/email';
+import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -14,7 +18,7 @@ function getUser(req: NextRequest) {
 // Admin: puede ver ?usuarioId=X  o todos si no pasa filtro
 // Usuario normal: solo los suyos
 export async function GET(request: NextRequest) {
-  const { id: userId, rol } = getUser(request);
+  const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
@@ -28,13 +32,17 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, negocios: [], usuarios: [], _migrationPending: true });
     }
 
+    // ¿Puede ver licitaciones de OTROS perfiles? Admin sí; usuario solo con el permiso
+    // "ver_otros_negocios". Sin él, queda limitado a las suyas (asignado_a = userId).
+    const verOtros = await tienePermiso(request, 'ver_otros_negocios');
+
     let whereClause = '';
     let params: any[] = [];
 
-    if (rol === 'admin' && filtroUsuario) {
+    if (verOtros && filtroUsuario) {
       whereClause = 'WHERE n.asignado_a = ? AND n.activo = TRUE';
       params = [parseInt(filtroUsuario)];
-    } else if (rol === 'admin' && !filtroUsuario) {
+    } else if (verOtros && !filtroUsuario) {
       whereClause = 'WHERE n.activo = TRUE';
     } else {
       whereClause = 'WHERE n.asignado_a = ? AND n.activo = TRUE';
@@ -75,16 +83,58 @@ export async function GET(request: NextRequest) {
       etiquetas_nombres: undefined,
     }));
 
-    // Si admin, también devuelve lista de usuarios para el filtro
+    // Enriquecer cada negocio con: ¿tiene documentos? y su viabilidad (semáforo/score).
+    // Desacoplado del query principal (sin JOINs → sin choque de collation) y resiliente.
+    const codigos = negocios.map(n => n.licitacion_codigo).filter(Boolean);
+    if (codigos.length) {
+      const ph = codigos.map(() => '?').join(',');
+      try {
+        const [docs] = await pool.query(
+          `SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos);
+        const setDocs = new Set((docs as any[]).map(r => r.licitacion_codigo));
+        for (const n of negocios) n.tiene_documentos = setDocs.has(n.licitacion_codigo) ? 1 : 0;
+      } catch { /* tabla puede faltar */ }
+      try {
+        const [viab] = await pool.query(
+          `SELECT licitacion_codigo, semaforo, score_total FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos);
+        const mapViab = new Map((viab as any[]).map(r => [r.licitacion_codigo, r]));
+        for (const n of negocios) {
+          const v = mapViab.get(n.licitacion_codigo) as any;
+          n.viabilidad_semaforo = v?.semaforo ?? null;
+          n.viabilidad_score = v?.score_total ?? null;
+        }
+      } catch { /* tabla puede faltar */ }
+    }
+
+    // Si puede ver otros perfiles, devuelve la lista de usuarios para el filtro.
     let usuarios: any[] = [];
-    if (rol === 'admin') {
+    if (verOtros) {
       const [uRows] = await pool.query(
         `SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`
       );
       usuarios = uRows as any[];
     }
 
-    return NextResponse.json({ success: true, negocios, usuarios });
+    // Carga de trabajo por usuario, con DESGLOSE POR TIPO (L1/LE/LP/...). El admin (o quien
+    // ve otros) ve la de TODOS; un usuario normal solo la SUYA. Independiente del filtro
+    // activo. El tipo se deriva del código en Node (extractTipoFromCodigo).
+    const filtroCarga = verOtros ? '' : 'AND n.asignado_a = ?';
+    const pCarga = verOtros ? [] : [userId];
+    const [cargaRows] = await pool.query(
+      `SELECT n.asignado_a AS usuario_id, u.nombre, u.email, n.licitacion_codigo AS codigo
+       FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
+       WHERE n.activo = TRUE ${filtroCarga}`, pCarga);
+    const mapCarga = new Map<number, any>();
+    for (const r of cargaRows as any[]) {
+      let e = mapCarga.get(r.usuario_id);
+      if (!e) { e = { usuario_id: r.usuario_id, nombre: r.nombre, email: r.email, total: 0, porTipo: {} as Record<string, number> }; mapCarga.set(r.usuario_id, e); }
+      e.total++;
+      const tipo = extractTipoFromCodigo(r.codigo || '') || '—';
+      e.porTipo[tipo] = (e.porTipo[tipo] || 0) + 1;
+    }
+    const carga = Array.from(mapCarga.values()).sort((a, b) => b.total - a.total);
+
+    return NextResponse.json({ success: true, negocios, usuarios, carga });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
@@ -107,6 +157,16 @@ export async function POST(request: NextRequest) {
     if (!licitacion_codigo || !asignado_a)
       return NextResponse.json({ error: 'licitacion_codigo y asignado_a son requeridos' }, { status: 400 });
 
+    // ¿Ya estaba asignada a alguien distinto? → es una REASIGNACIÓN.
+    let prevAsignado: number | null = null;
+    try {
+      const [prev] = await pool.query(
+        `SELECT asignado_a FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`,
+        [licitacion_codigo]);
+      prevAsignado = (prev as any[])[0]?.asignado_a ?? null;
+    } catch { /* tabla nueva */ }
+    const reasignacion = prevAsignado != null && Number(prevAsignado) !== Number(asignado_a);
+
     const [result] = await pool.query(
       `INSERT INTO negocios (
          licitacion_codigo, licitacion_nombre, licitacion_organismo, licitacion_monto,
@@ -116,6 +176,8 @@ export async function POST(request: NextRequest) {
        ON DUPLICATE KEY UPDATE
          licitacion_nombre = COALESCE(VALUES(licitacion_nombre), licitacion_nombre),
          licitacion_estado = COALESCE(VALUES(licitacion_estado), licitacion_estado),
+         asignado_a = VALUES(asignado_a),
+         asignado_por = VALUES(asignado_por),
          activo = TRUE`,
       [
         licitacion_codigo,
@@ -140,18 +202,43 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Historial: registrar la asignación (a quién se le cargó la licitación)
+    // Notificar al asignado: historial + tiempo real (SSE) + correo. Best-effort.
     try {
       const [uRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [asignado_a]);
       const u = (uRows as any[])[0];
       const destino = u?.nombre || u?.email || `usuario ${asignado_a}`;
+      const [aRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [userId]);
+      const actor = (aRows as any[])[0];
+      const actorNombre = actor?.nombre || actor?.email || 'Un administrador';
+
+      // Log de actividad antiguo (se mantiene).
       registrarActividad({
         usuarioId: userId, accion: 'asignacion',
         entidadTipo: 'negocio', entidadId: String(negocioId || licitacion_codigo),
-        descripcion: `Asignó la licitación ${licitacion_codigo} a ${destino}`,
-        metadata: { licitacion_codigo, licitacion_nombre: licitacion_nombre || null, asignado_a, asignado_a_nombre: destino },
+        descripcion: `${reasignacion ? 'Reasignó' : 'Asignó'} la licitación ${licitacion_codigo} a ${destino}`,
+        metadata: { licitacion_codigo, licitacion_nombre: licitacion_nombre || null, asignado_a, asignado_a_nombre: destino, reasignacion },
       });
-    } catch { /* no bloquear */ }
+
+      // Historial nuevo + push en tiempo real al destinatario (campana).
+      await registrarEvento({
+        tipo: reasignacion ? 'REASIGNACION' : 'ASIGNACION',
+        licitacionCodigo: licitacion_codigo, licitacionNombre: licitacion_nombre || null,
+        usuarioId: Number(asignado_a), usuarioNombre: destino,
+        actorId: userId, actorNombre,
+        mensaje: `${actorNombre} te ${reasignacion ? 'reasignó' : 'asignó'} la licitación ${licitacion_nombre || licitacion_codigo}`,
+        metadata: { licitacion_codigo, reasignacion },
+      });
+
+      // Correo (fire-and-forget: no demora la respuesta).
+      if (u?.email) {
+        enviarCorreoAsignacion({
+          to: u.email, nombre: u.nombre, codigo: licitacion_codigo,
+          licitacionNombre: licitacion_nombre || null, organismo: licitacion_organismo || null,
+          monto: licitacion_monto || null, cierre: licitacion_cierre || null,
+          actorNombre, reasignacion,
+        }).catch(() => { /* registrado dentro de la función */ });
+      }
+    } catch { /* nunca bloquear la asignación por un fallo de notificación */ }
 
     return NextResponse.json({ success: true, id: negocioId });
   } catch (error) {

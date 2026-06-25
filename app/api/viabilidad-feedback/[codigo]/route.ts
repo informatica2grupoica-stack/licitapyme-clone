@@ -3,7 +3,7 @@
 // La corrección se destila en una regla y se inyecta en futuros análisis (prompt dinámico).
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser } from '@/app/lib/api-auth';
+import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
 import { guardarFeedback, listarFeedback, eliminarFeedback } from '@/app/lib/viabilidad-feedback';
 
 export const runtime = 'nodejs';
@@ -39,6 +39,10 @@ export async function GET(request: NextRequest, { params }: Params) {
 export async function POST(request: NextRequest, { params }: Params) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  // Solo admin (o usuario con permiso explícito) puede comentar/corregir la viabilidad.
+  if (!(await tienePermiso(request, 'comentar_viabilidad'))) {
+    return NextResponse.json({ error: 'No tienes permiso para comentar la viabilidad.' }, { status: 403 });
+  }
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
@@ -65,6 +69,9 @@ export async function POST(request: NextRequest, { params }: Params) {
 export async function DELETE(request: NextRequest, { params }: Params) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (!(await tienePermiso(request, 'comentar_viabilidad'))) {
+    return NextResponse.json({ error: 'No tienes permiso para gestionar la viabilidad.' }, { status: 403 });
+  }
   const { codigo } = await params;
   const id = parseInt(new URL(request.url).searchParams.get('id') || '', 10);
   if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });

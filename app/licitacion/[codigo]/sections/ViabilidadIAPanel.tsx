@@ -5,8 +5,9 @@
 // análisis con su FUENTE. Front profesional: hero con score + veredicto + datos clave,
 // y el detalle en secciones plegables (acordeón) para que no sea un muro de información.
 
-import { createContext, useContext, useCallback, useEffect, useState } from 'react';
-import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send } from 'lucide-react';
+import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
+import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square } from 'lucide-react';
+import { useSession } from '@/app/lib/session-context';
 
 interface Feedback {
   id: number;
@@ -128,10 +129,14 @@ function Seccion({ icon, titulo, badge, children, defaultOpen = false }: { icon:
 const estadoColor = (e?: string) => e === 'VENTAJA' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : e === 'DESVENTAJA' ? 'text-red-700 bg-red-50 border-red-200' : 'text-slate-500 bg-slate-50 border-slate-200';
 
 export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: string; onTambienAnalizar?: () => void }) {
+  const { usuario } = useSession();
+  // Solo admin o usuarios con permiso pueden comentar/corregir la viabilidad (el servidor también lo valida).
+  const puedeComentar = usuario?.rol === 'admin' || !!usuario?.permisos?.comentar_viabilidad;
   const [informe, setInforme] = useState<InformeIA | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [docs, setDocs] = useState<DocRef[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -193,19 +198,31 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
     } catch { /* silencioso */ }
   };
 
+  const detener = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  };
+
   const analizar = async () => {
     setCargando(true); setError(null);
+    abortRef.current = new AbortController();
     try { onTambienAnalizar?.(); } catch { /* noop */ }
     try {
       // Si ya hay informe, el botón es "Re-analizar": fuerza una corrida fresca
       // (ignora el cache por huella de documentos). El primer análisis sí usa cache.
       const qs = informe ? '?force=1' : '';
-      const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}${qs}`, { method: 'POST' });
+      const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}${qs}`, {
+        method: 'POST',
+        signal: abortRef.current.signal,
+      });
       const j = await r.json();
       if (!r.ok) { setError(j.error || 'Error al analizar.'); return; }
       setInforme(j.informeIA);
-    } catch (e: any) { setError(String(e?.message || e)); }
-    finally { setCargando(false); }
+    } catch (e: any) {
+      if ((e as Error)?.name === 'AbortError') return; // cancelado por el usuario
+      setError(String(e?.message || e));
+    }
+    finally { setCargando(false); abortRef.current = null; }
   };
 
   const v = informe?.veredicto;
@@ -244,10 +261,17 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
             <p className="text-[11px] text-slate-400 truncate">Gemini lee todas las bases (incl. escaneadas) y emite el veredicto con su fuente</p>
           </div>
         </div>
-        <button onClick={analizar} disabled={cargando}
-          className="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-[13px] font-semibold rounded-lg transition-colors flex-shrink-0">
-          {cargando ? <><Loader2 size={14} className="animate-spin" /> Analizando…</> : <><Sparkles size={14} /> {informe ? 'Re-analizar' : 'Analizar con IA'}</>}
-        </button>
+        {cargando ? (
+          <button onClick={detener}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-[13px] font-semibold rounded-lg transition-colors flex-shrink-0">
+            <Square size={14} /> Detener
+          </button>
+        ) : (
+          <button onClick={analizar}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white text-[13px] font-semibold rounded-lg transition-colors flex-shrink-0">
+            <Sparkles size={14} /> {informe ? 'Re-analizar' : 'Analizar con IA'}
+          </button>
+        )}
       </div>
 
       {error && <div className="flex items-start gap-2 text-[13px] text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"><AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /><div><p className="font-semibold">No se pudo completar</p><p className="text-red-600">{error.includes('saturad') || error.includes('429') || error.includes('503') ? 'Gemini está saturado en este momento (demanda alta de Google). Reintenta en unos minutos.' : error}</p></div></div>}
@@ -401,63 +425,65 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
             </Seccion>
           )}
 
-          {/* Feedback loop: enseñar a la IA */}
-          <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <GraduationCap size={16} className="text-violet-600" />
-              <h3 className="text-[13px] font-bold text-slate-800">¿No estás de acuerdo? Enséñale a la IA</h3>
-            </div>
-            <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que la IA aplicará en <strong>todos los análisis futuros</strong>, no solo en esta licitación.</p>
-
-            <div className="flex flex-wrap gap-1.5 mb-2">
-              {([['viable', 'Sí es viable'], ['no_viable', 'No es viable'], ['parcial', 'Parcial']] as const).map(([v, lbl]) => (
-                <button key={v} onClick={() => setFbVeredicto(fbVeredicto === v ? '' : v)}
-                  className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${fbVeredicto === v ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
-                  {lbl}
-                </button>
-              ))}
-            </div>
-
-            <textarea value={fbComentario} onChange={e => setFbComentario(e.target.value)}
-              placeholder="Ej: No es viable porque exigen certificación ISO-9001 que no manejamos para este producto."
-              rows={3}
-              className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 outline-none resize-y" />
-
-            <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
-              <p className={`text-[11.5px] ${fbOk?.startsWith('Aprendido') ? 'text-emerald-600' : 'text-amber-600'}`}>{fbOk}</p>
-              <div className="flex items-center gap-2">
-                {informe && fbOk?.startsWith('Aprendido') && (
-                  <button onClick={analizar} disabled={cargando} className="text-[12px] font-semibold text-violet-600 hover:underline">Re-analizar con lo aprendido</button>
-                )}
-                <button onClick={enviarFeedback} disabled={fbEnviando || fbComentario.trim().length < 4}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg">
-                  {fbEnviando ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Guardar y enseñar
-                </button>
-              </div>
-            </div>
-
-            {feedback.length > 0 && (
-              <div className="mt-3 pt-3 border-t border-violet-100 space-y-2">
-                <p className="text-[11px] font-bold text-slate-400 uppercase">Lecciones registradas ({feedback.length})</p>
-                {feedback.map(f => (
-                  <div key={f.id} className="flex items-start gap-2 text-[12px] bg-white rounded-lg border border-slate-200 p-2">
-                    <GraduationCap size={13} className="text-violet-500 mt-0.5 flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-slate-700"><strong>Regla:</strong> {f.regla}</p>
-                      {f.comentario && f.comentario !== f.regla && <p className="text-slate-400 text-[11px] mt-0.5">{f.comentario}</p>}
-                    </div>
-                    <button onClick={() => borrarFeedback(f.id)} title="Eliminar lección" className="text-slate-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
           <p className="text-[11px] text-slate-400 text-center pt-1">
             {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3!.join(', ')} · </>}
             Leídos {informe.documentos_leidos?.length ?? 0} doc(s){(informe.documentos_no_leidos?.length ?? 0) > 0 ? ` · ${informe.documentos_no_leidos!.length} ilegibles` : ''} · confianza {Math.round((informe.confianza_global ?? 0) * 100)}%
           </p>
         </FuenteDocsContext.Provider>
+      )}
+
+      {/* Feedback loop: enseñar a la IA — visible siempre, no requiere análisis previo */}
+      {puedeComentar && (
+      <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+        <div className="flex items-center gap-2 mb-1">
+          <GraduationCap size={16} className="text-violet-600" />
+          <h3 className="text-[13px] font-bold text-slate-800">Enséñale a la IA · Reglas de descarte y filtro</h3>
+        </div>
+        <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que la IA aplicará en <strong>todos los análisis futuros</strong>. Puedes agregar reglas aunque no hayas analizado esta licitación.</p>
+
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {([['viable', 'Sí es viable'], ['no_viable', 'No es viable'], ['parcial', 'Parcial']] as const).map(([v, lbl]) => (
+            <button key={v} onClick={() => setFbVeredicto(fbVeredicto === v ? '' : v)}
+              className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${fbVeredicto === v ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        <textarea value={fbComentario} onChange={e => setFbComentario(e.target.value)}
+          placeholder="Ej: No es viable porque exigen certificación ISO-9001 que no manejamos. / Descartar siempre que pidan fianza bancaria en UTM."
+          rows={3}
+          className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 outline-none resize-y" />
+
+        <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+          <p className={`text-[11.5px] ${fbOk?.startsWith('Aprendido') ? 'text-emerald-600' : 'text-amber-600'}`}>{fbOk}</p>
+          <div className="flex items-center gap-2">
+            {informe && fbOk?.startsWith('Aprendido') && (
+              <button onClick={analizar} disabled={cargando} className="text-[12px] font-semibold text-violet-600 hover:underline">Re-analizar con lo aprendido</button>
+            )}
+            <button onClick={enviarFeedback} disabled={fbEnviando || fbComentario.trim().length < 4}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg">
+              {fbEnviando ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Guardar y enseñar
+            </button>
+          </div>
+        </div>
+
+        {feedback.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-violet-100 space-y-2">
+            <p className="text-[11px] font-bold text-slate-400 uppercase">Lecciones registradas ({feedback.length})</p>
+            {feedback.map(f => (
+              <div key={f.id} className="flex items-start gap-2 text-[12px] bg-white rounded-lg border border-slate-200 p-2">
+                <GraduationCap size={13} className="text-violet-500 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-slate-700"><strong>Regla:</strong> {f.regla}</p>
+                  {f.comentario && f.comentario !== f.regla && <p className="text-slate-400 text-[11px] mt-0.5">{f.comentario}</p>}
+                </div>
+                <button onClick={() => borrarFeedback(f.id)} title="Eliminar lección" className="text-slate-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
       )}
     </div>
   );

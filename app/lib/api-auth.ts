@@ -8,6 +8,7 @@
 
 import { type NextRequest } from 'next/server';
 import { getSessionFromRequest, type UsuarioSession } from '@/app/lib/auth-edge';
+import pool from '@/app/lib/db';
 
 /** Usuario autenticado verificando el JWT de la cookie (fuente de verdad). */
 export async function getAuthedUser(req: NextRequest): Promise<UsuarioSession | null> {
@@ -18,6 +19,39 @@ export async function getAuthedUser(req: NextRequest): Promise<UsuarioSession | 
 export async function esAdmin(req: NextRequest): Promise<boolean> {
   const u = await getAuthedUser(req);
   return u?.rol === 'admin';
+}
+
+// ─── Permisos granulares ─────────────────────────────────────────────────────────
+// El admin es "super": tiene TODOS los permisos implícitamente. Un usuario normal solo
+// tiene los que el admin le haya otorgado (columna usuarios.permisos JSON). Catálogo:
+//   ver_otros_negocios · acceso_radar · comentar_viabilidad · exportar
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar';
+export type Permisos = Partial<Record<Permiso, boolean>>;
+const PERMISOS_ADMIN: Record<Permiso, boolean> = {
+  ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true,
+};
+
+/** Lee los permisos efectivos de un usuario por id+rol. Admin → todos. Tolera columna ausente. */
+export async function permisosDeUsuario(userId: number, rol?: string | null): Promise<Permisos> {
+  if (rol === 'admin') return { ...PERMISOS_ADMIN };
+  try {
+    const [rows] = await pool.query('SELECT permisos FROM usuarios WHERE id = ? LIMIT 1', [userId]);
+    const raw = (rows as any[])[0]?.permisos;
+    if (!raw) return {};
+    const p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return (p && typeof p === 'object') ? p : {};
+  } catch {
+    return {}; // columna aún no existe (migración pendiente) → sin permisos extra
+  }
+}
+
+/** ¿El request tiene el permiso dado? (admin siempre sí). Verificado contra el JWT. */
+export async function tienePermiso(req: NextRequest, permiso: Permiso): Promise<boolean> {
+  const u = await getAuthedUser(req);
+  if (!u) return false;
+  if (u.rol === 'admin') return true;
+  const p = await permisosDeUsuario(u.id, u.rol);
+  return !!p[permiso];
 }
 
 // ─── Lock distribuido + rate-limit (best-effort sobre Upstash Redis) ─────────────

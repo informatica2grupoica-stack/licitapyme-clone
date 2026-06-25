@@ -2,6 +2,7 @@
 // Listar y marcar como leídas las alertas de licitaciones encontradas
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { permisosDeUsuario } from '@/app/lib/api-auth';
 
 function getUserId(req: NextRequest): number | null {
   const id = req.headers.get('x-user-id');
@@ -39,7 +40,11 @@ export async function GET(request: NextRequest) {
   const offset = Math.max(parseInt(searchParams.get('offset') || '0', 10) || 0, 0);
 
   try {
-    const esAdmin = await usuarioEsAdmin(userId);
+    // Ven el radar COMPLETO (super) los admin y los usuarios con permiso acceso_radar.
+    // Un usuario sin ese permiso solo vería sus propias alertas (en la práctica ninguna,
+    // porque no puede crear palabras clave).
+    const esAdminReal = await usuarioEsAdmin(userId);
+    const esAdmin = esAdminReal || (await permisosDeUsuario(userId, 'usuario')).acceso_radar === true;
     const whereExtra = soloNoLeidas ? ' AND a.leida = FALSE' : '';
 
     // Ámbito del radar:

@@ -12,6 +12,7 @@ import {
   Sparkles, Filter, ChevronDown, FileText, Download, MapPin,
   ArrowUpDown, Eye, EyeOff, AlertCircle, Flame, SlidersHorizontal,
   CheckSquare, Square, UserPlus, Undo2, UserCheck, PlayCircle,
+  Database, Ban, MinusCircle,
 } from 'lucide-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 import { AUTOMATIZACION_PAUSADA } from '@/app/lib/automatizacion';
@@ -23,6 +24,7 @@ interface PalabraClave {
   categoria_id: number | null;
   categoria_nombre: string | null;
   categoria_color: string | null;
+  es_negativa?: boolean | number;
   ultima_busqueda: string | null; resultados_nuevos: number;
   total_encontradas: number; created_at: string;
 }
@@ -67,7 +69,7 @@ interface Alerta {
   descartada?: boolean;
 }
 
-interface Usuario  { id: number; nombre: string | null; email: string; empresa: string | null; }
+interface Usuario  { id: number; nombre: string | null; email: string; empresa: string | null; rol?: string; }
 interface Etiqueta { id: number; nombre: string; color: string; }
 
 // ── Constantes ────────────────────────────────────────────────────────────────
@@ -134,6 +136,22 @@ const CATEGORIA_LABEL: Record<string, string> = {
   capacitacion_pura: 'Capacitación', consultoria: 'Consultoría', convenio_suministro: 'Convenio de suministro',
   commodity: 'Commodity', presupuesto: 'Presupuesto bajo',
 };
+
+// ── Colores variados para etiqueta de asesor asignado ─────────────────────────
+const COLORS_ASESOR = [
+  { bg: 'bg-violet-50',  text: 'text-violet-700',  border: 'border-violet-200'  },
+  { bg: 'bg-blue-50',    text: 'text-blue-700',    border: 'border-blue-200'    },
+  { bg: 'bg-teal-50',    text: 'text-teal-700',    border: 'border-teal-200'    },
+  { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200'   },
+  { bg: 'bg-rose-50',    text: 'text-rose-700',    border: 'border-rose-200'    },
+  { bg: 'bg-indigo-50',  text: 'text-indigo-700',  border: 'border-indigo-200'  },
+  { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200' },
+  { bg: 'bg-orange-50',  text: 'text-orange-700',  border: 'border-orange-200'  },
+];
+function colorAsesor(id: number | null | undefined) {
+  if (!id) return COLORS_ASESOR[0];
+  return COLORS_ASESOR[Math.abs(id) % COLORS_ASESOR.length];
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmt(n: number | null): string {
@@ -334,34 +352,42 @@ function LicitacionCard({
   selected?: boolean;
   keywords?: string[];
 }) {
-  const dias = diasAlCierre(alerta.licitacion_cierre);
-  const urgente = dias !== null && dias >= 0 && dias <= 3;
   const noLeida = !alerta.leida;
 
-  // Fondo por estado (tintes CLAROS para no tapar el texto):
-  //  • descartada → toda gris claro · asignada → toda azul claro
-  //  • si no → mitad izquierda = prefiltro (excluida = gris), mitad derecha = viabilidad (viable = verde)
-  const PREF_BG: Record<string, string> = { EXCLUIDO: '#f1f5f9', REVISION_HUMANA: '#fffbeb', PASA: '#f0fdf4' };
-  const VIAB_BG: Record<string, string> = { VERDE: '#ecfdf5', AMARILLO: '#fefce8', NARANJA: '#fff7ed', ROJO: '#fef2f2', ROJO_DURO: '#fee2e2' };
-  const izq = (alerta.prefiltro_decision && PREF_BG[alerta.prefiltro_decision]) || '#ffffff';
-  const der = (alerta.viabilidad_semaforo && VIAB_BG[alerta.viabilidad_semaforo]) || '#ffffff';
-  const fondo = alerta.descartada
-    ? '#f1f5f9'
-    : alerta.asignada
-      ? '#eff6ff'
-      : `linear-gradient(to right, ${izq} 0 50%, ${der} 50% 100%)`;
+  // ── Acento dominante por VIABILIDAD (la señal de negocio principal) ───────────
+  // La barra lateral de color fuerte + el tinte de fondo salen del semáforo de
+  // viabilidad IA. Si todavía no hay viabilidad, cae al prefiltro; si no, neutro.
+  // Así cada tarjeta se distingue de un vistazo por su nivel de oportunidad.
+  const VIAB_ACCENT: Record<string, { rail: string; tint: string }> = {
+    VERDE:     { rail: '#10b981', tint: '#ecfdf5' },
+    AMARILLO:  { rail: '#eab308', tint: '#fefce8' },
+    NARANJA:   { rail: '#f97316', tint: '#fff7ed' },
+    ROJO:      { rail: '#ef4444', tint: '#fef2f2' },
+    ROJO_DURO: { rail: '#b91c1c', tint: '#fee2e2' },
+  };
+  const PREF_ACCENT: Record<string, { rail: string; tint: string }> = {
+    PASA:            { rail: '#10b981', tint: '#f0fdf4' },
+    REVISION_HUMANA: { rail: '#f59e0b', tint: '#fffbeb' },
+    EXCLUIDO:        { rail: '#94a3b8', tint: '#f8fafc' },
+  };
+  const accent =
+    (alerta.viabilidad_semaforo && VIAB_ACCENT[alerta.viabilidad_semaforo]) ||
+    (alerta.prefiltro_decision && PREF_ACCENT[alerta.prefiltro_decision]) ||
+    { rail: noLeida ? '#6366f1' : '#cbd5e1', tint: '#ffffff' };
+
+  const railColor = alerta.descartada ? '#cbd5e1' : alerta.asignada ? '#3b82f6' : accent.rail;
+  const fondo     = alerta.descartada ? '#f8fafc' : alerta.asignada ? '#eff6ff' : accent.tint;
 
   return (
     <div
-      style={{ background: fondo }}
+      style={{ background: fondo, borderLeftColor: railColor, borderLeftWidth: '5px' }}
       className={`
       group relative rounded-xl border transition-all duration-150
       hover:shadow-md hover:-translate-y-px
       ${selected ? 'ring-2 ring-indigo-400 border-indigo-300' : noLeida ? 'border-indigo-200 shadow-sm' : 'border-slate-200'}
       ${alerta.descartada ? 'opacity-75' : ''}
-      ${urgente && noLeida ? 'border-l-4 border-l-red-500' : noLeida ? 'border-l-4 border-l-indigo-500' : ''}
     `}>
-      <div className="p-4">
+      <div className="p-4 pl-[15px]">
         {/* Row 1: badges + dias */}
         <div className="flex items-center justify-between gap-2 mb-2.5">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -387,11 +413,14 @@ function LicitacionCard({
             <TipoBadge codigo={alerta.licitacion_codigo} />
             <EstadoBadge estado={alerta.licitacion_estado} />
             <span className="text-[10px] font-mono text-slate-400">{alerta.licitacion_codigo}</span>
-            {alerta.asignada && (
-              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200" title={`Asignada a ${alerta.asignado_nombre || ''}`}>
-                <UserCheck size={10} /> {alerta.asignado_nombre || 'Asignada'}
-              </span>
-            )}
+            {alerta.asignada && (() => {
+              const c = colorAsesor(alerta.asignado_a);
+              return (
+                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${c.bg} ${c.text} ${c.border}`} title={`Asignada a ${alerta.asignado_nombre || ''}`}>
+                  <UserCheck size={10} /> {alerta.asignado_nombre || 'Asignada'}
+                </span>
+              );
+            })()}
             {alerta.descartada && (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-300">
                 <EyeOff size={10} /> Descartada
@@ -434,7 +463,7 @@ function LicitacionCard({
         <Link
           href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
           onClick={() => noLeida && onMarcarLeida(alerta.id)}
-          className="block text-[14px] font-bold text-slate-900 hover:text-indigo-600 transition-colors leading-snug line-clamp-2 mb-2.5"
+          className="block text-[15.5px] font-extrabold text-slate-900 hover:text-indigo-600 transition-colors leading-snug tracking-tight line-clamp-2 mb-2.5"
         >
           {alerta.licitacion_nombre
             ? <Resaltar texto={alerta.licitacion_nombre} keywords={keywords} />
@@ -928,10 +957,21 @@ function PanelFiltros({
 
 // ── Página principal ──────────────────────────────────────────────────────────
 // ── Modal de asignación a un perfil del equipo ───────────────────────────────────
-function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, loading }: {
-  usuarios: Usuario[]; count: number; unaNombre?: string | null; onClose: () => void; onConfirm: (usuarioId: number) => void; loading: boolean;
+function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, loading, usuarioActualId }: {
+  usuarios: Usuario[]; count: number; unaNombre?: string | null; onClose: () => void; onConfirm: (usuarioId: number) => void; loading: boolean; usuarioActualId?: number;
 }) {
   const [sel, setSel] = useState<number | null>(null);
+
+  // Orden: perfiles normales primero (con el usuario actual al tope), luego admins al final.
+  const usuariosOrdenados = useMemo(() => {
+    const normales = usuarios.filter(u => u.rol !== 'admin');
+    const admins   = usuarios.filter(u => u.rol === 'admin');
+    // Dentro de normales: el usuario actual va primero.
+    const yo    = normales.filter(u => u.id === usuarioActualId);
+    const otros = normales.filter(u => u.id !== usuarioActualId);
+    return [...yo, ...otros, ...admins];
+  }, [usuarios, usuarioActualId]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
@@ -943,21 +983,42 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100"><X size={16} /></button>
         </div>
         <div className="max-h-80 overflow-y-auto p-2">
-          {usuarios.length === 0 ? (
+          {usuariosOrdenados.length === 0 ? (
             <p className="text-[13px] text-slate-400 text-center py-8">No hay perfiles disponibles.</p>
-          ) : usuarios.map(u => (
-            <button key={u.id} onClick={() => setSel(u.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${sel === u.id ? 'bg-indigo-50 ring-1 ring-indigo-300' : 'hover:bg-slate-50'}`}>
-              <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[13px] font-bold flex-shrink-0">
-                {(u.nombre || u.email || '?').charAt(0).toUpperCase()}
+          ) : usuariosOrdenados.map((u, idx) => {
+            const esYo = u.id === usuarioActualId;
+            const esAdmin = u.rol === 'admin';
+            // Separador visual antes del primer admin (si los hay mezclados con normales).
+            const anteriorEsNormal = idx > 0 && usuariosOrdenados[idx - 1].rol !== 'admin';
+            const mostrarSeparador = esAdmin && anteriorEsNormal;
+            const c = colorAsesor(u.id);
+            return (
+              <div key={u.id}>
+                {mostrarSeparador && (
+                  <div className="flex items-center gap-2 px-3 py-1.5 mt-1">
+                    <div className="flex-1 h-px bg-slate-100" />
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Administradores</span>
+                    <div className="flex-1 h-px bg-slate-100" />
+                  </div>
+                )}
+                <button onClick={() => setSel(u.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors ${sel === u.id ? 'bg-indigo-50 ring-1 ring-indigo-300' : 'hover:bg-slate-50'}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-bold flex-shrink-0 border ${c.bg} ${c.text} ${c.border}`}>
+                    {(u.nombre || u.email || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-semibold text-slate-800 truncate">
+                      {u.nombre || u.email}
+                      {esYo && <span className="ml-1.5 text-[10px] font-normal text-indigo-400">(yo)</span>}
+                      {esAdmin && <span className="ml-1.5 text-[10px] font-normal text-amber-500">admin</span>}
+                    </p>
+                    {u.nombre && <p className="text-[11px] text-slate-400 truncate">{u.email}</p>}
+                  </div>
+                  {sel === u.id && <CheckSquare size={16} className="text-indigo-600 ml-auto flex-shrink-0" />}
+                </button>
               </div>
-              <div className="min-w-0">
-                <p className="text-[13px] font-semibold text-slate-800 truncate">{u.nombre || u.email}</p>
-                {u.nombre && <p className="text-[11px] text-slate-400 truncate">{u.email}</p>}
-              </div>
-              {sel === u.id && <CheckSquare size={16} className="text-indigo-600 ml-auto flex-shrink-0" />}
-            </button>
-          ))}
+            );
+          })}
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-100">
           <button onClick={onClose} className="px-4 py-2 text-[13px] font-semibold text-slate-600 rounded-lg hover:bg-slate-100">Cancelar</button>
@@ -982,6 +1043,7 @@ export default function RadarPage() {
   const [loadingAlerts, setLoadingAlerts] = useState(true);
   const [nuevaKw,       setNuevaKw]       = useState('');
   const [nuevaCat,      setNuevaCat]      = useState<string>(''); // categoría para la nueva keyword
+  const [nuevaNegativa, setNuevaNegativa] = useState(false);      // ¿la nueva keyword es de exclusión?
   const [etiquetas,     setEtiquetas]     = useState<Etiqueta[]>([]);
   const [agregando,     setAgregando]     = useState(false);
   const [actualizando,  setActualizando]  = useState(false);
@@ -1011,6 +1073,13 @@ export default function RadarPage() {
   const [procPasaStats,      setProcPasaStats]      = useState({ procesadas: 0, analizadas: 0, errores: 0 });
   // Códigos que fallaron en esta corrida → se saltan para no bloquear el avance del resto.
   const procPasaExcluir = useRef<Set<string>>(new Set());
+
+  // Enriquecimiento masivo: descarga ítems/categoría de TODAS las activas (la API solo
+  // los entrega 1×1) y re-matchea para encontrar las que solo calzan por rubro/ítems.
+  const [enriqInfo,      setEnriqInfo]      = useState<{ pendientes: number; totalActivas: number; enriquecidas: number } | null>(null);
+  const [enriqActiva,    setEnriqActiva]    = useState(false);
+  const [enriqStats,     setEnriqStats]     = useState({ enriquecidas: 0, alertasNuevas: 0, excluidas: 0, fechas: 0, errores: 0 });
+  const enriqExcluir = useRef<Set<string>>(new Set());
 
   // Filtros
   const FILTROS_DEFAULT = {
@@ -1162,11 +1231,11 @@ export default function RadarPage() {
     if (!kw) return;
     setAgregando(true);
     try {
-      const res  = await fetch('/api/palabras-clave', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: kw, categoria_id: nuevaCat || null }) });
+      const res  = await fetch('/api/palabras-clave', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keyword: kw, categoria_id: nuevaNegativa ? null : (nuevaCat || null), es_negativa: nuevaNegativa }) });
       const data = await res.json();
       if (!res.ok) { toast.error(data.error || 'Error al agregar'); return; }
       setNuevaKw('');
-      toast.success(`"${kw}" agregada`);
+      toast.success(nuevaNegativa ? `"${kw}" agregada como exclusión` : `"${kw}" agregada`);
       await cargarKeywords();
     } catch { toast.error('Error de conexión'); }
     finally { setAgregando(false); }
@@ -1335,9 +1404,11 @@ export default function RadarPage() {
       if (filtros.ocultarExcluidas && a.prefiltro_decision === 'EXCLUIDO') return false;
       // Estado de gestión. Por defecto ('') se ocultan las descartadas.
       if (filtros.gestion === '') { if (a.descartada) return false; }
+      else if (filtros.gestion === 'no_leidas') { if (a.descartada || a.leida) return false; }
       else if (filtros.gestion === 'sin_asignar') { if (a.descartada || a.asignada) return false; }
       else if (filtros.gestion === 'asignadas') { if (a.descartada || !a.asignada) return false; }
       else if (filtros.gestion === 'descartadas') { if (!a.descartada) return false; }
+      else if (filtros.gestion === 'excluidas_pref') { if (a.prefiltro_decision !== 'EXCLUIDO') return false; }
       if (filtros.keyword && a.keyword_texto !== filtros.keyword) return false;
       if (filtros.dias) {
         if (filtros.dias === 'venc') { if (dias === null || dias > 0) return false; }
@@ -1672,6 +1743,75 @@ export default function RadarPage() {
     return () => { cancelado = true; };
   }, [procPasaActiva, cargarProcPasa]); // eslint-disable-line
 
+  // ── Enriquecimiento masivo (cubrir TODAS las activas) ─────────────────────────
+  const cargarEnriqInfo = useCallback(async () => {
+    try {
+      const d = await fetch('/api/radar/enriquecer-pendientes').then(r => r.json());
+      if (d?.success) setEnriqInfo({ pendientes: d.pendientes ?? 0, totalActivas: d.totalActivas ?? 0, enriquecidas: d.enriquecidas ?? 0 });
+    } catch { /* silencioso */ }
+  }, []);
+  useEffect(() => { cargarEnriqInfo(); }, [cargarEnriqInfo]);
+
+  const iniciarEnriq = () => {
+    enriqExcluir.current = new Set();
+    setEnriqStats({ enriquecidas: 0, alertasNuevas: 0, excluidas: 0, fechas: 0, errores: 0 });
+    setEnriqActiva(true);
+  };
+  const detenerEnriq = () => { setEnriqActiva(false); cargarEnriqInfo(); };
+
+  // Loop: lote a lote desde el navegador (evita el tope de 60s de serverless).
+  useEffect(() => {
+    if (!enriqActiva) return;
+    let cancelado = false;
+
+    const run = async () => {
+      let alertasTotal = 0;
+      while (!cancelado) {
+        try {
+          const res = await fetch('/api/radar/enriquecer-pendientes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lote: 12, excluir: Array.from(enriqExcluir.current) }),
+          }).then(r => r.json());
+
+          if (cancelado) break;
+
+          if (res.procesados?.length) {
+            const errores = res.procesados.filter((p: any) => !p.exito).length;
+            // Saltar las que fallaron (rate-limit/ilegibles) para no atascar el avance.
+            for (const p of res.procesados) if (!p.exito) enriqExcluir.current.add(p.codigo);
+            alertasTotal += res.alertasNuevas || 0;
+            setEnriqStats(prev => ({
+              enriquecidas:  prev.enriquecidas + (res.enriquecidas || 0),
+              alertasNuevas: prev.alertasNuevas + (res.alertasNuevas || 0),
+              excluidas:     prev.excluidas + (res.excluidasPorNegativa || 0),
+              fechas:        prev.fechas + (res.fechasCorregidas || 0),
+              errores:       prev.errores + errores,
+            }));
+            setEnriqInfo(prev => prev ? { ...prev, pendientes: res.pendientes ?? prev.pendientes } : prev);
+          }
+
+          if (res.completado || res.pendientes === 0) {
+            if (!cancelado) {
+              setEnriqActiva(false);
+              cargarEnriqInfo();
+              // Recargar alertas para mostrar las nuevas + fechas de publicación reales corregidas.
+              cargarAlertas(true);
+              if (alertasTotal > 0) toast.success('Enriquecimiento completo', `${alertasTotal} licitación(es) nueva(s) por rubro/ítems · fechas de publicación reales corregidas`);
+              else toast.success('Enriquecimiento completo', 'Fechas de publicación reales corregidas');
+            }
+            break;
+          }
+        } catch {
+          if (!cancelado) await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+    };
+
+    run();
+    return () => { cancelado = true; };
+  }, [enriqActiva, cargarEnriqInfo, cargarAlertas, toast]);
+
   // ── Exportar Excel ────────────────────────────────────────────────────────────
   const exportarExcel = async () => {
     if (exportando || alertasFiltradas.length === 0) return;
@@ -1715,8 +1855,8 @@ export default function RadarPage() {
     } finally { setExportando(false); }
   };
 
-  // Acceso restringido: el Radar (y todo el análisis profundo) es solo para admin.
-  if (usuario && usuario.rol !== 'admin') {
+  // Acceso restringido: el Radar es para admin o usuarios con permiso acceso_radar.
+  if (usuario && usuario.rol !== 'admin' && !usuario.permisos?.acceso_radar) {
     return (
       <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Radar' }]}>
         <div className="flex flex-col items-center justify-center py-24 text-center">
@@ -1863,6 +2003,36 @@ export default function RadarPage() {
                 )}
               </div>
             )}
+            {/* Panel enriquecimiento masivo (cubrir TODAS las activas por rubro/ítems) */}
+            {usuario?.rol === 'admin' && enriqInfo && (enriqActiva || enriqInfo.pendientes > 0) && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-cyan-200 bg-cyan-50 text-[12px]">
+                {enriqActiva ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin text-cyan-600 flex-shrink-0" />
+                    <span className="text-cyan-700 font-medium">
+                      Enriqueciendo · {enriqStats.enriquecidas} listas · {enriqInfo.pendientes} pendientes
+                      {enriqStats.alertasNuevas > 0 && <span className="text-emerald-600"> · {enriqStats.alertasNuevas} nuevas 🆕</span>}
+                      {enriqStats.fechas > 0 && <span className="text-indigo-600"> · {enriqStats.fechas} fechas reales 📅</span>}
+                      {enriqStats.errores > 0 && <span className="text-red-500"> · {enriqStats.errores} con error</span>}
+                    </span>
+                    <button onClick={detenerEnriq} className="ml-1 text-cyan-700 hover:text-red-600 font-semibold">Detener</button>
+                  </>
+                ) : (
+                  <>
+                    <Database size={13} className="text-cyan-600 flex-shrink-0" />
+                    <span className="text-cyan-700 font-medium">{enriqInfo.pendientes} sin rubro/ítems</span>
+                    <button
+                      onClick={iniciarEnriq}
+                      className="ml-1 px-2 py-0.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-[11px] transition-colors"
+                      title="Descarga ítems, categoría y FECHA REAL de publicación de TODAS las activas (la API solo los entrega 1×1), re-matchea para encontrar las que solo calzan por rubro/ítems (como Licitalab) y corrige la fecha de publicación real. Reanudable."
+                    >
+                      Enriquecer todo
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+            {(usuario?.rol === 'admin' || usuario?.permisos?.exportar) && (
             <button
               onClick={exportarExcel}
               disabled={exportando || alertasFiltradas.length === 0}
@@ -1875,6 +2045,7 @@ export default function RadarPage() {
               {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
               <span className="hidden sm:inline">Exportar Excel</span>
             </button>
+            )}
             <button
               onClick={actualizarAhora}
               disabled={actualizando || activeKws === 0}
@@ -1979,23 +2150,32 @@ export default function RadarPage() {
                   </div>
                 </div>
 
-                {/* Filtro por estado de gestión */}
+                {/* Filtro por estado de gestión + lectura */}
                 <div className="flex items-center gap-1.5 flex-wrap px-1">
                   {([
-                    { key: '',            label: 'Activas' },
-                    { key: 'sin_asignar', label: 'Sin asignar' },
-                    { key: 'asignadas',   label: 'Asignadas' },
-                    { key: 'descartadas', label: 'Descartadas' },
-                  ] as const).map(g => (
-                    <button key={g.key} onClick={() => setFiltro('gestion', g.key)}
-                      className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                        filtros.gestion === g.key
-                          ? 'bg-indigo-600 text-white border-indigo-600'
-                          : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700'
-                      }`}>
-                      {g.label}
-                    </button>
-                  ))}
+                    { key: '',               label: 'Activas',         color: 'indigo' },
+                    { key: 'no_leidas',      label: 'No leídas',       color: 'violet' },
+                    { key: 'sin_asignar',    label: 'Sin asignar',     color: 'indigo' },
+                    { key: 'asignadas',      label: 'Asignadas',       color: 'emerald' },
+                    { key: 'descartadas',    label: 'Descartadas',     color: 'slate'  },
+                    { key: 'excluidas_pref', label: 'Excluidas (IA)',  color: 'amber'  },
+                  ] as const).map(g => {
+                    const activo = filtros.gestion === g.key;
+                    const clsActivo =
+                      g.color === 'emerald' ? 'bg-emerald-600 text-white border-emerald-600' :
+                      g.color === 'violet'  ? 'bg-violet-600 text-white border-violet-600' :
+                      g.color === 'slate'   ? 'bg-slate-600 text-white border-slate-600' :
+                      g.color === 'amber'   ? 'bg-amber-500 text-white border-amber-500' :
+                      'bg-indigo-600 text-white border-indigo-600';
+                    return (
+                      <button key={g.key} onClick={() => setFiltro('gestion', g.key)}
+                        className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                          activo ? clsActivo : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700'
+                        }`}>
+                        {g.label}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Barra de acciones masivas (selección) */}
@@ -2112,33 +2292,47 @@ export default function RadarPage() {
         {/* ──────── TAB KEYWORDS ──────── */}
         {tab === 'keywords' && (
           <div className="pt-4 max-w-2xl">
-            <form onSubmit={agregarKeyword} className="flex flex-wrap gap-2 mb-5">
-              <div className="relative flex-1 min-w-[200px]">
-                <Tag size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
-                <input
-                  type="text"
-                  value={nuevaKw}
-                  onChange={e => setNuevaKw(e.target.value)}
-                  placeholder='Ej: "materiales de construcción", "cancha", "tractor"'
-                  className="w-full pl-9 pr-4 py-2.5 bg-white border border-zinc-200 rounded-xl text-[13px] placeholder:text-zinc-400 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
-                  maxLength={100}
-                />
+            {/* Agregar palabras clave: solo admin (las keywords son compartidas entre admins). */}
+            {usuario?.rol === 'admin' && (
+            <form onSubmit={agregarKeyword} className="mb-5">
+              <div className="flex flex-wrap gap-2">
+                <div className="relative flex-1 min-w-[200px]">
+                  {nuevaNegativa
+                    ? <Ban size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-rose-400 pointer-events-none" />
+                    : <Tag size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />}
+                  <input
+                    type="text"
+                    value={nuevaKw}
+                    onChange={e => setNuevaKw(e.target.value)}
+                    placeholder={nuevaNegativa ? 'Palabra a EXCLUIR. Ej: "usado", "fotográfica", "arriendo"' : 'Ej: "materiales de construcción", "cancha", "tractor"'}
+                    className={`w-full pl-9 pr-4 py-2.5 bg-white border rounded-xl text-[13px] placeholder:text-zinc-400 outline-none ${nuevaNegativa ? 'border-rose-200 focus:ring-2 focus:ring-rose-500/20 focus:border-rose-400' : 'border-zinc-200 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400'}`}
+                    maxLength={100}
+                  />
+                </div>
+                {!nuevaNegativa && (
+                  <select
+                    value={nuevaCat}
+                    onChange={e => setNuevaCat(e.target.value)}
+                    title="Categoría (línea de negocio)"
+                    className="px-3 py-2.5 bg-white border border-zinc-200 rounded-xl text-[13px] text-zinc-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
+                  >
+                    <option value="">Sin categoría</option>
+                    {etiquetas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                  </select>
+                )}
+                <button type="submit" disabled={agregando || !nuevaKw.trim()}
+                  className={`flex items-center gap-2 px-4 py-2.5 text-white rounded-xl text-[13px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed shadow-sm ${nuevaNegativa ? 'bg-rose-600 hover:bg-rose-500' : 'bg-indigo-600 hover:bg-indigo-500'}`}>
+                  {agregando ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  Agregar
+                </button>
               </div>
-              <select
-                value={nuevaCat}
-                onChange={e => setNuevaCat(e.target.value)}
-                title="Categoría (línea de negocio)"
-                className="px-3 py-2.5 bg-white border border-zinc-200 rounded-xl text-[13px] text-zinc-700 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none"
-              >
-                <option value="">Sin categoría</option>
-                {etiquetas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
-              <button type="submit" disabled={agregando || !nuevaKw.trim()}
-                className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 text-white rounded-xl text-[13px] font-semibold hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm">
-                {agregando ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                Agregar
+              {/* Toggle: palabra positiva vs negativa (exclusión) */}
+              <button type="button" onClick={() => setNuevaNegativa(v => !v)}
+                className={`mt-2 inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${nuevaNegativa ? 'bg-rose-50 text-rose-700 border-rose-200' : 'bg-white text-slate-500 border-slate-200 hover:border-rose-200 hover:text-rose-600'}`}>
+                <MinusCircle size={13} /> {nuevaNegativa ? 'Es palabra de exclusión (negativa)' : 'Marcar como palabra de exclusión'}
               </button>
             </form>
+            )}
 
             <div className="flex items-start gap-3 bg-indigo-50 border border-blue-200/60 rounded-xl px-4 py-3.5 mb-5">
               <Sparkles size={15} className="text-blue-500 flex-shrink-0 mt-0.5" />
@@ -2161,14 +2355,18 @@ export default function RadarPage() {
             ) : (
               <div className="space-y-4">
                 {(() => {
-                  // Agrupar las palabras clave en cajitas por categoría (línea de negocio).
+                  const esNeg = (k: PalabraClave) => Number(k.es_negativa) === 1 || k.es_negativa === true;
+                  const positivas = keywords.filter(k => !esNeg(k));
+                  const negativas = keywords.filter(esNeg);
+                  // Agrupar las palabras clave POSITIVAS en cajitas por categoría (línea de negocio).
                   const grupos = etiquetas
-                    .map(e => ({ id: e.id, nombre: e.nombre, color: e.color, items: keywords.filter(k => k.categoria_id === e.id) }))
+                    .map(e => ({ id: e.id, nombre: e.nombre, color: e.color, items: positivas.filter(k => k.categoria_id === e.id) }))
                     .filter(g => g.items.length > 0);
-                  const sinCat = keywords.filter(k => !k.categoria_id);
+                  const sinCat = positivas.filter(k => !k.categoria_id);
                   if (sinCat.length > 0) grupos.push({ id: 0, nombre: 'Sin categoría', color: '#94a3b8', items: sinCat });
 
-                  return grupos.map(grupo => (
+                  return <>
+                  {grupos.map(grupo => (
                     <div key={grupo.id} className="rounded-2xl border border-zinc-200 bg-zinc-50/60 p-3">
                       {/* Cabecera de la cajita */}
                       <div className="flex items-center gap-2 px-1 pb-2.5">
@@ -2224,7 +2422,45 @@ export default function RadarPage() {
                         ))}
                       </div>
                     </div>
-                  ));
+                  ))}
+
+                  {/* Cajita de PALABRAS NEGATIVAS (exclusión) */}
+                  {negativas.length > 0 && (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50/50 p-3">
+                      <div className="flex items-center gap-2 px-1 pb-1.5">
+                        <Ban size={13} className="text-rose-500 flex-shrink-0" />
+                        <span className="text-[12.5px] font-bold uppercase tracking-wide text-rose-600">Palabras de exclusión</span>
+                        <span className="text-[11px] text-rose-400 font-medium">{negativas.length}</span>
+                      </div>
+                      <p className="text-[11.5px] text-rose-700/70 px-1 pb-2.5">Si una licitación contiene alguna de estas palabras (en título, descripción, ítems o rubro), <strong>se excluye</strong> aunque calce una palabra positiva.</p>
+                      <div className="space-y-2">
+                        {negativas.map(kw => (
+                          <div key={kw.id} className={`flex items-center gap-3 bg-white rounded-xl border px-4 py-3 transition-all ${
+                            kw.activo ? 'border-rose-200 shadow-sm hover:shadow-md hover:-translate-y-px' : 'border-rose-200/40 opacity-50'
+                          }`}>
+                            <button onClick={() => toggleKeyword(kw.id, kw.activo)}
+                              className="flex-shrink-0 transition-transform hover:scale-105"
+                              title={kw.activo ? 'Pausar exclusión' : 'Activar exclusión'}>
+                              {kw.activo
+                                ? <ToggleRight size={26} className="text-rose-600" />
+                                : <ToggleLeft  size={26} className="text-zinc-300" />}
+                            </button>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13.5px] font-semibold text-zinc-900 flex items-center gap-1.5">
+                                <Ban size={12} className="text-rose-400 flex-shrink-0" /> {kw.keyword}
+                              </p>
+                              <p className="text-[11px] text-zinc-400 mt-0.5">Excluye coincidencias</p>
+                            </div>
+                            <button onClick={() => eliminarKeyword(kw.id)}
+                              className="w-7 h-7 flex items-center justify-center rounded-lg text-zinc-400 hover:text-red-500 hover:bg-red-50">
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  </>;
                 })()}
               </div>
             )}
@@ -2240,6 +2476,7 @@ export default function RadarPage() {
           loading={accionMasiva}
           onClose={cerrarAsignar}
           onConfirm={confirmarAsignar}
+          usuarioActualId={usuario?.id}
         />
       )}
     </AppLayout>

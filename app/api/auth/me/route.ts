@@ -3,6 +3,9 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verificarToken } from '@/app/lib/auth-edge';
+import { permisosDeUsuario } from '@/app/lib/api-auth';
+
+export const runtime = 'nodejs';
 
 export async function GET() {
   try {
@@ -15,6 +18,8 @@ export async function GET() {
     if (!payload) {
       return NextResponse.json({ autenticado: false, usuario: null });
     }
+    // Permisos efectivos: admin → todos; usuario → los que el admin le otorgó.
+    const permisos = await permisosDeUsuario(payload.userId as number, payload.rol as string);
     return NextResponse.json({
       autenticado: true,
       usuario: {
@@ -23,6 +28,7 @@ export async function GET() {
         nombre:  payload.nombre,
         empresa: payload.empresa,
         rol:     payload.rol,
+        permisos,
       },
     });
   } catch {

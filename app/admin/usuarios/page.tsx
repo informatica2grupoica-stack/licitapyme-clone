@@ -9,15 +9,101 @@ import {
 } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
 
+interface Permisos {
+  ver_otros_negocios?: boolean;
+  acceso_radar?: boolean;
+  comentar_viabilidad?: boolean;
+  exportar?: boolean;
+}
+
 interface UsuarioAdmin {
   id: number;
   email: string;
   nombre: string | null;
   empresa: string | null;
   rol: 'admin' | 'usuario';
+  permisos?: Permisos | string | null;
   activo: boolean;
   ultimo_login: string | null;
   created_at: string;
+}
+
+const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string }[] = [
+  { key: 'ver_otros_negocios',  label: 'Ver licitaciones de otros perfiles', desc: 'Por defecto solo ve las suyas asignadas.' },
+  { key: 'acceso_radar',        label: 'Acceso al radar',                     desc: 'El radar es solo de admin por defecto.' },
+  { key: 'comentar_viabilidad', label: 'Comentar / corregir viabilidad',      desc: 'Enseñar a la IA en el análisis.' },
+  { key: 'exportar',            label: 'Exportar a Excel',                    desc: 'Descargar listados en Excel.' },
+];
+
+function parsePermisos(p: Permisos | string | null | undefined): Permisos {
+  if (!p) return {};
+  if (typeof p === 'string') { try { return JSON.parse(p) || {}; } catch { return {}; } }
+  return p;
+}
+
+// ─── Modal para editar permisos de un usuario ──────────────────────────────
+function ModalPermisos({ usuario, onGuardado, onCerrar }: {
+  usuario: UsuarioAdmin; onGuardado: () => void; onCerrar: () => void;
+}) {
+  const [permisos, setPermisos] = useState<Permisos>(parsePermisos(usuario.permisos));
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = (k: keyof Permisos) => setPermisos(p => ({ ...p, [k]: !p[k] }));
+
+  const guardar = async () => {
+    setCargando(true); setError(null);
+    try {
+      const res = await fetch('/api/admin/usuarios', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: usuario.id, permisos }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'No se pudo guardar (¿falta la migración 28?)'); return; }
+      onGuardado();
+    } catch { setError('Error de conexión'); }
+    finally { setCargando(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <div className="min-w-0">
+            <h3 className="font-bold text-gray-900 text-lg">Permisos</h3>
+            <p className="text-xs text-gray-400 truncate">{usuario.nombre || usuario.email}</p>
+          </div>
+          <button onClick={onCerrar} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+        <div className="p-6 space-y-2">
+          {error && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg mb-2">
+              <AlertCircle size={15} /> {error}
+            </div>
+          )}
+          <p className="text-xs text-gray-500 mb-2">Marca lo que este usuario podrá hacer. Sin permisos, solo ve sus licitaciones asignadas.</p>
+          {CATALOGO_PERMISOS.map(p => (
+            <label key={p.key} className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer">
+              <input type="checkbox" checked={!!permisos[p.key]} onChange={() => toggle(p.key)} className="mt-0.5 w-4 h-4 accent-blue-600" />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-gray-800">{p.label}</span>
+                <span className="block text-xs text-gray-400">{p.desc}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="flex gap-3 px-6 py-4 border-t border-gray-100">
+          <button onClick={onCerrar} className="flex-1 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
+          <button onClick={guardar} disabled={cargando}
+            className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5">
+            {cargando ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Guardar permisos
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 interface FormNuevo {
@@ -142,6 +228,7 @@ export default function AdminUsuariosPage() {
   const [cargando, setCargando] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [accionando, setAccionando] = useState<number | null>(null);
+  const [permisosUser, setPermisosUser] = useState<UsuarioAdmin | null>(null);
 
   const cargarUsuarios = async () => {
     setCargando(true);
@@ -266,6 +353,16 @@ export default function AdminUsuariosPage() {
                       <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(u.created_at)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
+                          {/* Permisos: solo para usuarios normales (el admin ya tiene todo) */}
+                          {u.rol !== 'admin' && (
+                            <button
+                              onClick={() => setPermisosUser(u)}
+                              title="Editar permisos"
+                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            >
+                              <ShieldCheck size={14} />
+                            </button>
+                          )}
                           {/* No se puede desactivar a sí mismo */}
                           {u.id !== usuario?.id && (
                             <button
@@ -308,6 +405,14 @@ export default function AdminUsuariosPage() {
         <ModalNuevoUsuario
           onCreado={() => { setShowModal(false); cargarUsuarios(); }}
           onCerrar={() => setShowModal(false)}
+        />
+      )}
+
+      {permisosUser && (
+        <ModalPermisos
+          usuario={permisosUser}
+          onGuardado={() => { setPermisosUser(null); cargarUsuarios(); }}
+          onCerrar={() => setPermisosUser(null)}
         />
       )}
     </AppLayout>

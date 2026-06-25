@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+/* ── Tipografía (Tailwind v4) ──────────────────────────────────────────────── */
+/* Manrope como fuente principal (corporativa, alta legibilidad en datos);
+   Geist Mono se reserva para códigos de licitación y números monoespaciados. */
+@theme {
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
 /* ── Design Tokens ─────────────────────────────────────────────────────────── */
 :root {
   --color-primary:       #4f46e5; /* indigo-600 */
@@ -36,7 +44,8 @@
 @layer base {
   body {
     @apply bg-slate-50 text-slate-900 antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    font-family: var(--font-sans);
+    letter-spacing: -0.011em;
   }
 
   *:focus-visible {
@@ -155,4 +164,42 @@
   .status-closed   { @apply bg-slate-100 text-slate-600 border border-slate-200; }
   .status-warning  { @apply bg-amber-50 text-amber-700 border border-amber-200; }
   .status-danger   { @apply bg-rose-50 text-rose-700 border border-rose-200; }
+}
+
+/* ── Sidebar: ítem activo con efecto "pestaña" (notch) que se funde con el panel ──
+   El ítem activo se extiende hasta el borde derecho del sidebar y, en sus esquinas
+   superior e inferior derecha, dos curvas CÓNCAVAS del color del panel de contenido
+   lo enmarcan, creando el efecto de pestaña continua (estilo Urbane) sobre la
+   paleta oscura del menú. La concavidad se logra con máscaras radiales.            */
+.sidebar-tab-active {
+  position: relative;
+  border-top-left-radius: 16px;
+  border-bottom-left-radius: 16px;
+}
+.sidebar-tab-active::before,
+.sidebar-tab-active::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  width: 16px;
+  height: 16px;
+  background: var(--color-surface-2); /* = bg del panel de contenido (slate-50) */
+  pointer-events: none;
+}
+.sidebar-tab-active::before {
+  top: -16px;
+  -webkit-mask: radial-gradient(16px at top left, transparent 0 98%, #000 100%);
+          mask: radial-gradient(16px at top left, transparent 0 98%, #000 100%);
+}
+.sidebar-tab-active::after {
+  bottom: -16px;
+  -webkit-mask: radial-gradient(16px at bottom left, transparent 0 98%, #000 100%);
+          mask: radial-gradient(16px at bottom left, transparent 0 98%, #000 100%);
+}
+
+/* En móvil el sidebar es un drawer flotante (no hay panel a la derecha): ocultamos
+   las muescas para que no queden manchas claras sobre el overlay oscuro. */
+@media (max-width: 1023px) {
+  .sidebar-tab-active::before,
+  .sidebar-tab-active::after { display: none; }
 }

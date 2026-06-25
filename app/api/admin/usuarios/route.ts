@@ -7,11 +7,21 @@ import pool from '@/app/lib/db';
 // GET — listar todos los usuarios
 export async function GET() {
   try {
-    const [rows] = await pool.query(
-      `SELECT id, email, nombre, empresa, rol, activo, ultimo_login, created_at
-       FROM usuarios ORDER BY created_at DESC`
-    );
-    return NextResponse.json({ success: true, usuarios: rows });
+    // Intentar con la columna permisos (migración 28); si no existe, sin ella.
+    try {
+      const [rows] = await pool.query(
+        `SELECT id, email, nombre, empresa, rol, permisos, activo, ultimo_login, created_at
+         FROM usuarios ORDER BY created_at DESC`
+      );
+      return NextResponse.json({ success: true, usuarios: rows });
+    } catch (e: any) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      const [rows] = await pool.query(
+        `SELECT id, email, nombre, empresa, rol, activo, ultimo_login, created_at
+         FROM usuarios ORDER BY created_at DESC`
+      );
+      return NextResponse.json({ success: true, usuarios: rows });
+    }
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
@@ -54,7 +64,7 @@ export async function POST(request: NextRequest) {
 // PATCH — actualizar usuario (activar/desactivar, cambiar rol)
 export async function PATCH(request: NextRequest) {
   try {
-    const { id, activo, rol, nombre, empresa } = await request.json();
+    const { id, activo, rol, nombre, empresa, permisos } = await request.json();
 
     if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
 
@@ -65,6 +75,8 @@ export async function PATCH(request: NextRequest) {
     if (rol !== undefined)    { updates.push('rol = ?');    values.push(rol); }
     if (nombre !== undefined) { updates.push('nombre = ?'); values.push(nombre || null); }
     if (empresa !== undefined){ updates.push('empresa = ?');values.push(empresa || null); }
+    // Permisos granulares (JSON). Requiere migración 28.
+    if (permisos !== undefined) { updates.push('permisos = ?'); values.push(permisos == null ? null : JSON.stringify(permisos)); }
 
     if (updates.length === 0) {
       return NextResponse.json({ error: 'Sin campos para actualizar' }, { status: 400 });

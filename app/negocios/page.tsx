@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
@@ -8,11 +8,29 @@ import {
   Briefcase, Plus, Search, ExternalLink, Trash2,
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
   ChevronDown, X, RefreshCw, Users, List, LayoutGrid,
+  CalendarDays, ChevronLeft, ChevronRight, ArrowRight, FileText,
 } from 'lucide-react';
+import { Modal, Badge, Group, Text, ActionIcon, Paper, ScrollArea, Stack, Button, Progress, SimpleGrid } from '@mantine/core';
+import dayjs from 'dayjs';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
-import { extractTipoFromCodigo, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
+import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 
 interface Etiqueta { id: number; nombre: string; color: string; }
+
+// ── Color e iniciales por usuario (consistente entre chips de carga y tarjetas) ──
+const USER_COLORS = ['#6366f1', '#8b5cf6', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#3b82f6', '#a855f7', '#f97316', '#84cc16'];
+function colorUsuario(seed: string | number | null | undefined): string {
+  const s = String(seed ?? '');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return USER_COLORS[h % USER_COLORS.length];
+}
+function inicialesUsuario(nombre?: string | null, email?: string | null): string {
+  const base = (nombre || email || '?').trim();
+  const parts = base.split(/\s+/);
+  if (parts.length >= 2 && parts[0] && parts[1]) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return base.slice(0, 2).toUpperCase();
+}
 
 interface Negocio {
   id: number;
@@ -31,9 +49,22 @@ interface Negocio {
   etiquetas: Etiqueta[];
   comentarios_count: number;
   updated_at: string;
+  tiene_documentos?: number;
+  viabilidad_semaforo?: string | null;
+  viabilidad_score?: number | null;
 }
 
 interface Usuario { id: number; nombre: string; email: string; }
+interface Carga { usuario_id: number; nombre?: string; email?: string; total: number; porTipo?: Record<string, number>; }
+
+// Semáforo de viabilidad (colores/labels compactos para las tarjetas).
+const SEMAFORO: Record<string, { label: string; color: string; bg: string; text: string }> = {
+  VERDE:     { label: 'Viable',     color: '#10b981', bg: 'bg-emerald-50', text: 'text-emerald-700' },
+  AMARILLO:  { label: 'Media-alta', color: '#eab308', bg: 'bg-yellow-50',  text: 'text-yellow-700' },
+  NARANJA:   { label: 'Media',      color: '#f97316', bg: 'bg-orange-50',  text: 'text-orange-700' },
+  ROJO:      { label: 'Baja',       color: '#ef4444', bg: 'bg-red-50',     text: 'text-red-700' },
+  ROJO_DURO: { label: 'Descartar',  color: '#b91c1c', bg: 'bg-red-100',    text: 'text-red-800' },
+};
 
 // Todos los tipos ordenados por uso típico (públicos primero)
 const TIPOS_FILTRO = TIPOS_LICITACION.map(t => t.codigo);
@@ -261,9 +292,11 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
   const diasCls = dias === 'Vencida' ? 'text-gray-400'
     : dias.replace('d', '') !== '' && parseInt(dias) <= 3 ? 'text-red-500 font-semibold'
     : parseInt(dias) <= 7 ? 'text-orange-500' : 'text-gray-500';
+  const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
   return (
     <Link
       href={`/negocios/${neg.id}`}
+      style={{ borderLeftColor: col, borderLeftWidth: 3 }}
       className="block bg-white rounded-xl border border-slate-200 p-3 hover:border-indigo-300 hover:shadow-sm transition-all group"
     >
       <div className="flex items-start justify-between gap-2">
@@ -281,11 +314,29 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
       <p className="text-[13px] text-gray-800 font-medium line-clamp-2 mt-1 group-hover:text-indigo-600 transition-colors">
         {neg.licitacion_nombre || 'Sin nombre'}
       </p>
-      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
         <PipelineBadge estadoId={neg.estado_pipeline} />
+        {neg.viabilidad_semaforo && SEMAFORO[neg.viabilidad_semaforo] && (
+          <span
+            style={{ borderColor: SEMAFORO[neg.viabilidad_semaforo].color + '40' }}
+            className={`inline-flex items-center gap-1 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full border ${SEMAFORO[neg.viabilidad_semaforo].bg} ${SEMAFORO[neg.viabilidad_semaforo].text}`}
+            title={`Viabilidad: ${SEMAFORO[neg.viabilidad_semaforo].label}`}
+          >
+            <span style={{ background: SEMAFORO[neg.viabilidad_semaforo].color }} className="w-1.5 h-1.5 rounded-full" />
+            {SEMAFORO[neg.viabilidad_semaforo].label}{neg.viabilidad_score != null ? ` ${neg.viabilidad_score}` : ''}
+          </span>
+        )}
+        {neg.tiene_documentos ? (
+          <span className="inline-flex items-center gap-1 text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-100" title="Tiene documentos descargados">
+            <FileText size={9} /> Docs
+          </span>
+        ) : null}
         {isAdmin && (
-          <span className="text-[10px] text-gray-400 flex items-center gap-1">
-            <Users size={9} /> {neg.usuario_nombre || neg.usuario_email}
+          <span className="inline-flex items-center gap-1 text-[10px] text-gray-500 font-medium">
+            <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
+              {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
+            </span>
+            {neg.usuario_nombre || neg.usuario_email}
           </span>
         )}
       </div>
@@ -294,6 +345,112 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
         {dias && <span className={`text-[11px] ${diasCls}`}>{dias}</span>}
       </div>
     </Link>
+  );
+}
+
+// ── Vista calendario (por fecha de cierre) ───────────────────────────────────────
+const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+
+function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbrirDia: (key: string) => void }) {
+  const [mes, setMes] = useState(() => dayjs().startOf('month'));
+
+  const porDia = useMemo(() => {
+    const m = new Map<string, Negocio[]>();
+    for (const n of negocios) {
+      if (!n.licitacion_cierre) continue;
+      const k = dayjs(n.licitacion_cierre).format('YYYY-MM-DD');
+      (m.get(k) || m.set(k, []).get(k)!).push(n);
+    }
+    return m;
+  }, [negocios]);
+
+  const inicio = mes.startOf('month');
+  const offset = (inicio.day() + 6) % 7; // lunes = 0
+  const gridStart = inicio.subtract(offset, 'day');
+  const dias = Array.from({ length: 42 }, (_, i) => gridStart.add(i, 'day'));
+  const hoy = dayjs().format('YYYY-MM-DD');
+
+  return (
+    <Paper withBorder radius="lg" p="md">
+      <Group justify="space-between" mb="md">
+        <ActionIcon variant="subtle" color="gray" onClick={() => setMes(m => m.subtract(1, 'month'))} aria-label="Mes anterior"><ChevronLeft size={18} /></ActionIcon>
+        <Text fw={700} fz="lg">{MESES[mes.month()]} {mes.year()}</Text>
+        <ActionIcon variant="subtle" color="gray" onClick={() => setMes(m => m.add(1, 'month'))} aria-label="Mes siguiente"><ChevronRight size={18} /></ActionIcon>
+      </Group>
+      <div className="grid grid-cols-7 gap-1 mb-1">
+        {SEMANA.map(d => <div key={d} className="text-center text-[11px] font-bold text-slate-400 py-1">{d}</div>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {dias.map(d => {
+          const k = d.format('YYYY-MM-DD');
+          const items = porDia.get(k) || [];
+          const fueraMes = d.month() !== mes.month();
+          const esHoy = k === hoy;
+          return (
+            <button key={k} disabled={items.length === 0} onClick={() => items.length && onAbrirDia(k)}
+              className={`min-h-[70px] rounded-lg border p-1.5 text-left align-top transition-colors ${fueraMes ? 'bg-slate-50/40 border-transparent' : 'border-slate-100'} ${items.length ? 'hover:border-indigo-300 hover:bg-indigo-50/50 cursor-pointer' : 'cursor-default'}`}>
+              <div className="flex items-center justify-between">
+                <span className={esHoy ? 'bg-indigo-600 text-white rounded-full w-5 h-5 inline-flex items-center justify-center text-[11px] font-bold' : `text-[12px] ${fueraMes ? 'text-slate-300' : 'text-slate-600'}`}>{d.date()}</span>
+                {items.length > 0 && <span className="text-[10px] font-bold text-indigo-600 tabular-nums">{items.length}</span>}
+              </div>
+              <div className="flex flex-wrap gap-1 mt-1.5">
+                {items.slice(0, 6).map((n, i) => (
+                  <span key={i} title={n.usuario_nombre || n.usuario_email} style={{ background: colorUsuario(n.usuario_email || n.usuario_nombre) }} className="w-2 h-2 rounded-full" />
+                ))}
+                {items.length > 6 && <span className="text-[8px] text-slate-400 leading-none self-center">+{items.length - 6}</span>}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </Paper>
+  );
+}
+
+// ── Tarjeta de carga de trabajo por perfil (con mini-gráfico por tipo) ────────────
+function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
+  c: Carga; nombre: string | null; email: string | null; activo: boolean; isAdmin: boolean; onClick: () => void;
+}) {
+  const col = colorUsuario(email || c.usuario_id);
+  const tipos = Object.entries(c.porTipo || {}).sort((a, b) => b[1] - a[1]);
+  return (
+    <Paper
+      withBorder radius="md" p="sm"
+      onClick={isAdmin ? onClick : undefined}
+      style={{ borderColor: activo ? col : undefined, borderWidth: activo ? 2 : 1, cursor: isAdmin ? 'pointer' : 'default' }}
+      className={isAdmin ? 'transition-shadow hover:shadow-sm' : ''}
+    >
+      <Group gap={8} wrap="nowrap" justify="space-between" mb={tipos.length ? 8 : 0}>
+        <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+          <span style={{ background: col }} className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-white text-[11px] font-bold flex-shrink-0">
+            {inicialesUsuario(nombre, email)}
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <Text size="sm" fw={600} lineClamp={1}>{nombre || email || 'Tú'}</Text>
+            <Text size="xs" c="dimmed">licitación{c.total !== 1 ? 'es' : ''}</Text>
+          </div>
+        </Group>
+        <Text fz={26} fw={800} lh={1} style={{ color: col }} className="tabular-nums flex-shrink-0">{c.total}</Text>
+      </Group>
+      {tipos.length > 0 && (
+        <>
+          <Progress.Root size="md" radius="sm">
+            {tipos.map(([t, n]) => (
+              <Progress.Section key={t} value={(n / c.total) * 100} color={getTipoLicitacion(t)?.color || '#94a3b8'} />
+            ))}
+          </Progress.Root>
+          <Group gap={10} mt={6}>
+            {tipos.slice(0, 6).map(([t, n]) => (
+              <span key={t} className="inline-flex items-center gap-1 text-[10.5px] text-gray-600">
+                <span style={{ background: getTipoLicitacion(t)?.color || '#94a3b8' }} className="w-2 h-2 rounded-sm flex-shrink-0" />
+                <strong>{t}</strong> {n}
+              </span>
+            ))}
+          </Group>
+        </>
+      )}
+    </Paper>
   );
 }
 
@@ -312,7 +469,9 @@ function NegociosContent() {
   const [filtroEtiqueta, setFiltroEtiqueta] = useState('');
   const [filtroTipo, setFiltroTipo]         = useState('');
   const [showModal, setShowModal]   = useState(false);
-  const [vista, setVista]           = useState<'lista' | 'categoria'>('categoria');
+  const [vista, setVista]           = useState<'lista' | 'categoria' | 'calendario'>('categoria');
+  const [carga, setCarga]           = useState<Carga[]>([]);
+  const [diaSel, setDiaSel]         = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -328,6 +487,7 @@ function NegociosContent() {
       if (!negData.success) throw new Error(negData.error);
       setNegocios(negData.negocios || []);
       setUsuarios(negData.usuarios || []);
+      setCarga(negData.carga || []);
       if (etData.success) setEtiquetas(etData.etiquetas || []);
     } catch (e: any) {
       setError(e.message);
@@ -356,6 +516,13 @@ function NegociosContent() {
     return matchSearch && matchEt && matchTipo;
   });
 
+  // Tipos presentes (para el select de filtro), en orden canónico.
+  const tiposPresentes = useMemo(() => {
+    const s = new Set<string>();
+    for (const n of negocios) { const t = extractTipoFromCodigo(n.licitacion_codigo || ''); if (t) s.add(t); }
+    return TIPOS_FILTRO.filter(t => s.has(t));
+  }, [negocios]);
+
   // Agrupar por categoría (línea de negocio = primera etiqueta del negocio).
   // Cada categoría es una "cajita"; los negocios sin etiqueta van a "Sin categoría".
   const gruposCategoria = (() => {
@@ -379,6 +546,11 @@ function NegociosContent() {
     'Adjudicada': 'bg-blue-100 text-blue-700',
     'Cerrada': 'bg-slate-100 text-gray-500',
   };
+
+  // Licitaciones que cierran el día seleccionado (para el modal del calendario).
+  const itemsDia = diaSel
+    ? negociosFiltrados.filter(n => n.licitacion_cierre && dayjs(n.licitacion_cierre).format('YYYY-MM-DD') === diaSel)
+    : [];
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Negocios' }]}>
@@ -407,6 +579,33 @@ function NegociosContent() {
             )}
           </div>
         </div>
+
+        {/* Carga de trabajo por perfil (recuadros con mini-gráfico por tipo) */}
+        {carga.length > 0 && (
+          <div className="mb-5">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+                {isAdmin ? 'Carga de trabajo por perfil' : 'Tu carga de trabajo'}
+              </span>
+              {isAdmin && filtroUsuario && (
+                <button onClick={() => setFiltroUsuario('')} className="text-xs text-indigo-600 hover:underline font-semibold">Ver todos</button>
+              )}
+            </div>
+            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3, xl: 4 }} spacing="sm">
+              {carga.map(c => {
+                const nombre = c.nombre || (c.usuario_id === usuario?.id ? usuario?.nombre : null) || null;
+                const email  = c.email  || (c.usuario_id === usuario?.id ? usuario?.email  : null) || null;
+                return (
+                  <CargaCard
+                    key={c.usuario_id} c={c} nombre={nombre} email={email}
+                    activo={String(c.usuario_id) === filtroUsuario} isAdmin={isAdmin}
+                    onClick={() => setFiltroUsuario(String(c.usuario_id) === filtroUsuario ? '' : String(c.usuario_id))}
+                  />
+                );
+              })}
+            </SimpleGrid>
+          </div>
+        )}
 
         {/* Filtros */}
         <div className="space-y-2 mb-4">
@@ -448,6 +647,17 @@ function NegociosContent() {
               </select>
             )}
 
+            <select
+              value={filtroTipo}
+              onChange={e => setFiltroTipo(e.target.value)}
+              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
+            >
+              <option value="">Todos los tipos</option>
+              {tiposPresentes.map(t => (
+                <option key={t} value={t}>{t} · {getTipoLicitacion(t)?.label || t}</option>
+              ))}
+            </select>
+
             {/* Toggle de vista: por categoría (cajitas) / lista */}
             <div className="ml-auto flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
               <button
@@ -468,40 +678,18 @@ function NegociosContent() {
               >
                 <List size={13} /> Lista
               </button>
+              <button
+                onClick={() => setVista('calendario')}
+                title="Vista calendario (por fecha de cierre)"
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  vista === 'calendario' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <CalendarDays size={13} /> Calendario
+              </button>
             </div>
           </div>
 
-          {/* Fila 2: filtro por tipo (chips) */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-xs text-gray-400 font-medium mr-0.5">Tipo:</span>
-            <button
-              onClick={() => setFiltroTipo('')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                filtroTipo === ''
-                  ? 'bg-gray-800 text-white border-gray-800'
-                  : 'bg-white text-gray-500 border-slate-200 hover:border-gray-400'
-              }`}
-            >
-              Todos
-            </button>
-            {TIPOS_FILTRO.map(t => {
-              const bg = TIPO_COLOR_CLASS[t] || 'bg-gray-400';
-              const isActive = filtroTipo === t;
-              return (
-                <button
-                  key={t}
-                  onClick={() => setFiltroTipo(isActive ? '' : t)}
-                  className={`px-3 py-1 rounded-full text-xs font-bold border transition-all ${
-                    isActive
-                      ? `${bg} text-white border-transparent`
-                      : 'bg-white text-gray-600 border-slate-200 hover:border-gray-400'
-                  }`}
-                >
-                  {t}
-                </button>
-              );
-            })}
-          </div>
         </div>
 
         {/* Error */}
@@ -527,6 +715,9 @@ function NegociosContent() {
                 }
               </p>
             </div>
+          ) : vista === 'calendario' ? (
+            /* ── Vista calendario (por fecha de cierre) ── */
+            <VistaCalendario negocios={negociosFiltrados} onAbrirDia={setDiaSel} />
           ) : vista === 'categoria' ? (
             /* ── Vista por categoría (cajitas) ── */
             <div className="space-y-5">
@@ -678,6 +869,58 @@ function NegociosContent() {
           </div>
         )}
       </div>
+
+      {/* Modal del día del calendario: licitaciones que cierran ese día */}
+      <Modal
+        opened={!!diaSel}
+        onClose={() => setDiaSel(null)}
+        size="lg"
+        radius="md"
+        scrollAreaComponent={ScrollArea.Autosize}
+        title={
+          <Text fw={700}>
+            Cierres del {diaSel ? dayjs(diaSel).format('DD/MM/YYYY') : ''}
+            <Text span c="dimmed" fw={400} size="sm"> · {itemsDia.length} licitación{itemsDia.length !== 1 ? 'es' : ''}</Text>
+          </Text>
+        }
+      >
+        <Stack gap="sm">
+          {itemsDia.map(neg => {
+            const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
+            const tipo = extractTipoFromCodigo(neg.licitacion_codigo || '');
+            return (
+              <Paper key={neg.id} withBorder radius="md" p="sm" style={{ borderLeft: `3px solid ${col}` }}>
+                <Group justify="space-between" wrap="nowrap" align="flex-start" gap="sm">
+                  <div style={{ minWidth: 0 }}>
+                    <Group gap={6} mb={3}>
+                      <Text size="xs" ff="monospace" c="dimmed">{neg.licitacion_codigo}</Text>
+                      {tipo && <Badge size="xs" variant="filled" color="gray">{tipo}</Badge>}
+                      <PipelineBadge estadoId={neg.estado_pipeline} />
+                    </Group>
+                    <Text size="sm" fw={600} lineClamp={2}>{neg.licitacion_nombre || 'Sin nombre'}</Text>
+                    {neg.licitacion_organismo && <Text size="xs" c="dimmed" lineClamp={1} mt={2}>{neg.licitacion_organismo}</Text>}
+                    <Group gap={12} mt={5}>
+                      <Text size="xs" fw={700} c="teal.7">{formatMonto(neg.licitacion_monto)}</Text>
+                      {isAdmin && (
+                        <Group gap={5}>
+                          <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
+                            {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
+                          </span>
+                          <Text size="xs" c="dimmed">{neg.usuario_nombre || neg.usuario_email}</Text>
+                        </Group>
+                      )}
+                    </Group>
+                  </div>
+                  <Button component={Link} href={`/negocios/${neg.id}`} size="xs" variant="light"
+                    rightSection={<ArrowRight size={13} />} onClick={() => setDiaSel(null)} className="flex-shrink-0">
+                    Entrar
+                  </Button>
+                </Group>
+              </Paper>
+            );
+          })}
+        </Stack>
+      </Modal>
 
       {isAdmin && (
         <ModalAsignar
