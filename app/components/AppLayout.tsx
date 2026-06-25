@@ -175,9 +175,9 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
                       <Link key={item.href} href={item.href} onClick={onCloseMobile}
                         className={`group relative flex items-center gap-3 px-3 py-2.5 text-[13px] transition-all duration-150
                           ${active
-                            ? 'sidebar-tab-active -mr-3 rounded-l-2xl bg-white/[0.09] text-white font-semibold'
+                            ? 'sidebar-tab-active -mr-3 rounded-l-2xl bg-slate-50 text-slate-900 font-semibold'
                             : 'rounded-xl font-medium text-slate-400 hover:text-slate-100 hover:bg-white/[0.05]'}`}>
-                        <span className={active ? 'text-indigo-300' : 'text-slate-500 group-hover:text-slate-300'}>{item.icon}</span>
+                        <span className={active ? 'text-indigo-600' : 'text-slate-500 group-hover:text-slate-300'}>{item.icon}</span>
                         <span className="flex-1">{item.label}</span>
                         {item.badge != null && (
                           <Badge size="xs" variant="filled" color="red" radius="sm">{item.badge}</Badge>

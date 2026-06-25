@@ -454,6 +454,10 @@ function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
   );
 }
 
+// Clave de sessionStorage: persiste los filtros para que al volver de un negocio
+// (o de una licitación) el panel conserve búsqueda, vista y filtros aplicados.
+const SS_NEG_FILTROS = 'negocios:filtros:v1';
+
 // ── Página principal ──────────────────────────────────────────────────────────
 function NegociosContent() {
   const { usuario } = useSession();
@@ -472,6 +476,32 @@ function NegociosContent() {
   const [vista, setVista]           = useState<'lista' | 'categoria' | 'calendario'>('categoria');
   const [carga, setCarga]           = useState<Carga[]>([]);
   const [diaSel, setDiaSel]         = useState<string | null>(null);
+  // Hidratado = ya restauramos los filtros guardados; evita persistir el default antes.
+  const [hidratado, setHidratado]   = useState(false);
+
+  // Restaurar filtros guardados al montar (persisten al volver de un negocio/licitación).
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SS_NEG_FILTROS);
+      if (raw) {
+        const f = JSON.parse(raw);
+        if (typeof f.search === 'string')        setSearch(f.search);
+        if (typeof f.filtroUsuario === 'string') setFiltroUsuario(f.filtroUsuario);
+        if (typeof f.filtroEtiqueta === 'string') setFiltroEtiqueta(f.filtroEtiqueta);
+        if (typeof f.filtroTipo === 'string')    setFiltroTipo(f.filtroTipo);
+        if (f.vista === 'lista' || f.vista === 'categoria' || f.vista === 'calendario') setVista(f.vista);
+      }
+    } catch { /* sin persistencia */ }
+    setHidratado(true);
+  }, []);
+
+  // Persistir los filtros cada vez que cambian (después de hidratar, para no pisar lo guardado).
+  useEffect(() => {
+    if (!hidratado) return;
+    try {
+      sessionStorage.setItem(SS_NEG_FILTROS, JSON.stringify({ search, filtroUsuario, filtroEtiqueta, filtroTipo, vista }));
+    } catch { /* cuota llena */ }
+  }, [hidratado, search, filtroUsuario, filtroEtiqueta, filtroTipo, vista]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
