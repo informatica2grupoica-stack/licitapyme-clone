@@ -23,8 +23,13 @@ import { leerCache } from '@/app/lib/licitaciones-cache';
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
 export type DecisionPrefiltro = 'PASA' | 'EXCLUIDO' | 'REVISION_HUMANA';
 export type CategoriaExclusion =
-  | 'servicio' | 'obra_civil' | 'alta_ejecucion_tecnica' | 'capacitacion_pura'
-  | 'consultoria' | 'convenio_suministro' | 'commodity' | 'presupuesto' | null;
+  | 'servicio' | 'aseo_servicio' | 'consultoria' | 'asesoria' | 'capacitacion_pura'
+  | 'obra_civil' | 'construccion' | 'mejoramiento_ambiguo'
+  | 'convenio_suministro' | 'convenio_rm'
+  | 'commodity' | 'insumo_consumible' | 'presupuesto' | null;
+
+export type PasadaPrefiltro = '1_palabra_dura' | '2_naturaleza' | null;
+export type DestinoPrefiltro = 'FASE_1' | 'NO_REALIZAMOS' | 'NO_CALIFICADOS' | 'REVISION_HUMANA';
 
 export interface PrefiltroResult {
   codigo: string;
@@ -34,6 +39,10 @@ export interface PrefiltroResult {
   evidencia: string;
   confianza: number;
   monto_neto: number | null;
+  // v2.0
+  pasada: PasadaPrefiltro;
+  palabra_negativa: { nivel: 'dura' | 'contextual' | null; termino: string } | null;
+  destino: DestinoPrefiltro;
 }
 
 // Metadata de portada de una licitación para el prefiltro.

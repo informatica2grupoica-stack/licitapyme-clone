@@ -45,15 +45,41 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (rol !== 'admin' && negocio.asignado_a !== userId)
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    // Etiquetas del negocio
-    const [etRows] = await pool.query(
-      `SELECT e.id, e.nombre, e.color
-       FROM negocios_etiquetas ne
-       JOIN etiquetas e ON e.id = ne.etiqueta_id
-       WHERE ne.negocio_id = ?`,
-      [id]
-    );
-    negocio.etiquetas = etRows;
+    // Etiquetas, viabilidad y documentos en paralelo
+    const codigo = negocio.licitacion_codigo;
+    const [etRows, viabRows, docRows] = await Promise.all([
+      pool.query(
+        `SELECT e.id, e.nombre, e.color
+         FROM negocios_etiquetas ne
+         JOIN etiquetas e ON e.id = ne.etiqueta_id
+         WHERE ne.negocio_id = ?`, [id]
+      ),
+      pool.query(
+        `SELECT semaforo, score_total, area_negocio, informe_ejecutivo
+         FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]
+      ).catch(() => [[]] as any),
+      pool.query(
+        `SELECT nombre_archivo, url_local, url_original, size_bytes, categoria, created_at
+         FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at DESC LIMIT 30`, [codigo]
+      ).catch(() => [[]] as any),
+    ]);
+
+    negocio.etiquetas = (etRows as any)[0];
+
+    const viab = ((viabRows as any)[0] as any[])[0];
+    if (viab) {
+      negocio.viabilidad_semaforo = viab.semaforo ?? null;
+      negocio.viabilidad_score    = viab.score_total ?? null;
+      negocio.viabilidad_area     = viab.area_negocio ?? null;
+      try {
+        negocio.viabilidad_informe = typeof viab.informe_ejecutivo === 'string'
+          ? JSON.parse(viab.informe_ejecutivo)
+          : (viab.informe_ejecutivo ?? null);
+      } catch { negocio.viabilidad_informe = null; }
+    }
+
+    negocio.documentos = (docRows as any)[0] as any[];
+    negocio.total_documentos = negocio.documentos.length;
 
     return NextResponse.json({ success: true, negocio });
   } catch (error) {

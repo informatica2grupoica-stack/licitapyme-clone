@@ -25,16 +25,17 @@ export async function GET(request: NextRequest) {
   const filtroUsuario = searchParams.get('usuarioId');
 
   try {
-    // Verificar que las tablas existen (migración pendiente)
-    try {
-      await pool.query('SELECT 1 FROM negocios LIMIT 1');
-    } catch {
+    // Verificación de tabla (migración) + permiso EN PARALELO. La latencia a Bluehost
+    // es ~160ms por viaje, así que cada round-trip evitado cuenta. El _migrationPending
+    // se decide solo por la verificación de tabla; el permiso degrada a false si falla.
+    const [existRes, permRes] = await Promise.allSettled([
+      pool.query('SELECT 1 FROM negocios LIMIT 1'),
+      tienePermiso(request, 'ver_otros_negocios'),
+    ]);
+    if (existRes.status === 'rejected') {
       return NextResponse.json({ success: true, negocios: [], usuarios: [], _migrationPending: true });
     }
-
-    // ¿Puede ver licitaciones de OTROS perfiles? Admin sí; usuario solo con el permiso
-    // "ver_otros_negocios". Sin él, queda limitado a las suyas (asignado_a = userId).
-    const verOtros = await tienePermiso(request, 'ver_otros_negocios');
+    const verOtros = permRes.status === 'fulfilled' ? (permRes.value as boolean) : false;
 
     let whereClause = '';
     let params: any[] = [];
@@ -49,26 +50,42 @@ export async function GET(request: NextRequest) {
       params = [userId];
     }
 
-    const [rows] = await pool.query(
-      `SELECT
-         n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
-         n.licitacion_monto, n.licitacion_cierre, n.licitacion_estado,
-         n.licitacion_tipo, n.licitacion_region, n.monto_ofertado,
-         COALESCE(n.estado_pipeline, '1ASIGNADO') AS estado_pipeline,
-         n.created_at, n.updated_at,
-         u.nombre AS usuario_nombre, u.email AS usuario_email,
-         GROUP_CONCAT(DISTINCT e.nombre ORDER BY e.nombre SEPARATOR ',') AS etiquetas_nombres,
-         GROUP_CONCAT(DISTINCT CONCAT(e.id,':',e.nombre,':',e.color) ORDER BY e.nombre SEPARATOR '|') AS etiquetas_raw,
-         (SELECT COUNT(*) FROM comentarios_negocio cn WHERE cn.negocio_id = n.id) AS comentarios_count
-       FROM negocios n
-       JOIN usuarios u ON u.id = n.asignado_a
-       LEFT JOIN negocios_etiquetas ne ON ne.negocio_id = n.id
-       LEFT JOIN etiquetas e ON e.id = ne.etiqueta_id
-       ${whereClause}
-       GROUP BY n.id
-       ORDER BY n.updated_at DESC`,
-      params
-    );
+    // Carga de trabajo (independiente del filtro) y lista de usuarios (si ve otros):
+    // se lanzan EN PARALELO con el query principal — no dependen de su resultado.
+    const filtroCarga = verOtros ? '' : 'AND n.asignado_a = ?';
+    const pCarga = verOtros ? [] : [userId];
+
+    const [rowsRes, cargaRes, usuariosRes] = await Promise.all([
+      pool.query(
+        `SELECT
+           n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
+           n.licitacion_monto, n.licitacion_cierre, n.licitacion_estado,
+           n.licitacion_tipo, n.licitacion_region, n.monto_ofertado,
+           COALESCE(n.estado_pipeline, '1ASIGNADO') AS estado_pipeline,
+           n.created_at, n.updated_at,
+           u.nombre AS usuario_nombre, u.email AS usuario_email,
+           GROUP_CONCAT(DISTINCT e.nombre ORDER BY e.nombre SEPARATOR ',') AS etiquetas_nombres,
+           GROUP_CONCAT(DISTINCT CONCAT(e.id,':',e.nombre,':',e.color) ORDER BY e.nombre SEPARATOR '|') AS etiquetas_raw,
+           (SELECT COUNT(*) FROM comentarios_negocio cn WHERE cn.negocio_id = n.id) AS comentarios_count
+         FROM negocios n
+         JOIN usuarios u ON u.id = n.asignado_a
+         LEFT JOIN negocios_etiquetas ne ON ne.negocio_id = n.id
+         LEFT JOIN etiquetas e ON e.id = ne.etiqueta_id
+         ${whereClause}
+         GROUP BY n.id
+         ORDER BY n.updated_at DESC`,
+        params),
+      pool.query(
+        `SELECT n.asignado_a AS usuario_id, u.nombre, u.email, n.licitacion_codigo AS codigo
+         FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
+         WHERE n.activo = TRUE ${filtroCarga}`, pCarga),
+      verOtros
+        ? pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`)
+        : Promise.resolve([[]] as any),
+    ]);
+    const rows = (rowsRes as any)[0];
+    const cargaRows = (cargaRes as any)[0];
+    const usuarios = ((usuariosRes as any)[0] || []) as any[];
 
     // Parsear etiquetas_raw a objetos
     const negocios = (rows as any[]).map(row => ({
@@ -84,46 +101,31 @@ export async function GET(request: NextRequest) {
     }));
 
     // Enriquecer cada negocio con: ¿tiene documentos? y su viabilidad (semáforo/score).
-    // Desacoplado del query principal (sin JOINs → sin choque de collation) y resiliente.
+    // Las dos consultas son independientes → EN PARALELO. Desacopladas del query
+    // principal (sin JOINs → sin choque de collation) y resilientes.
     const codigos = negocios.map(n => n.licitacion_codigo).filter(Boolean);
     if (codigos.length) {
       const ph = codigos.map(() => '?').join(',');
-      try {
-        const [docs] = await pool.query(
-          `SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos);
-        const setDocs = new Set((docs as any[]).map(r => r.licitacion_codigo));
+      const [docsRes, viabRes] = await Promise.allSettled([
+        pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos),
+        pool.query(`SELECT licitacion_codigo, semaforo, score_total FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos),
+      ]);
+      if (docsRes.status === 'fulfilled') {
+        const setDocs = new Set(((docsRes.value as any)[0] as any[]).map(r => r.licitacion_codigo));
         for (const n of negocios) n.tiene_documentos = setDocs.has(n.licitacion_codigo) ? 1 : 0;
-      } catch { /* tabla puede faltar */ }
-      try {
-        const [viab] = await pool.query(
-          `SELECT licitacion_codigo, semaforo, score_total FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos);
-        const mapViab = new Map((viab as any[]).map(r => [r.licitacion_codigo, r]));
+      }
+      if (viabRes.status === 'fulfilled') {
+        const mapViab = new Map(((viabRes.value as any)[0] as any[]).map(r => [r.licitacion_codigo, r]));
         for (const n of negocios) {
           const v = mapViab.get(n.licitacion_codigo) as any;
           n.viabilidad_semaforo = v?.semaforo ?? null;
           n.viabilidad_score = v?.score_total ?? null;
         }
-      } catch { /* tabla puede faltar */ }
+      }
     }
 
-    // Si puede ver otros perfiles, devuelve la lista de usuarios para el filtro.
-    let usuarios: any[] = [];
-    if (verOtros) {
-      const [uRows] = await pool.query(
-        `SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`
-      );
-      usuarios = uRows as any[];
-    }
-
-    // Carga de trabajo por usuario, con DESGLOSE POR TIPO (L1/LE/LP/...). El admin (o quien
-    // ve otros) ve la de TODOS; un usuario normal solo la SUYA. Independiente del filtro
-    // activo. El tipo se deriva del código en Node (extractTipoFromCodigo).
-    const filtroCarga = verOtros ? '' : 'AND n.asignado_a = ?';
-    const pCarga = verOtros ? [] : [userId];
-    const [cargaRows] = await pool.query(
-      `SELECT n.asignado_a AS usuario_id, u.nombre, u.email, n.licitacion_codigo AS codigo
-       FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
-       WHERE n.activo = TRUE ${filtroCarga}`, pCarga);
+    // Carga de trabajo por usuario, con DESGLOSE POR TIPO (L1/LE/LP/...). El tipo se
+    // deriva del código en Node (extractTipoFromCodigo).
     const mapCarga = new Map<number, any>();
     for (const r of cargaRows as any[]) {
       let e = mapCarga.get(r.usuario_id);

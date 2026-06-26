@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
+import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 
 // ─── Configuración de cajas ───────────────────────────────────────────────────
 const CAJAS = [
@@ -79,10 +80,12 @@ function DocItem({
   doc,
   onDragStart,
   isDragging,
+  onView,
 }: {
   doc: DocumentoAdjunto & { categoria?: string };
   onDragStart: (e: React.DragEvent, doc: DocumentoAdjunto) => void;
   isDragging: boolean;
+  onView: (doc: VisorDoc) => void;
 }) {
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
   return (
@@ -107,15 +110,15 @@ function DocItem({
         )}
       </div>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-        <a
-          href={doc.url_local || doc.url} target="_blank" rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onView({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
           className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-          title="Ver"
+          title="Ver en el visor"
           draggable={false}
         >
           <Eye size={11} />
-        </a>
+        </button>
         <a
           href={doc.url_local || doc.url} download={doc.nombre}
           onClick={(e) => e.stopPropagation()}
@@ -142,6 +145,7 @@ function CajaDroppable({
   onDragEnter,
   onDragLeave,
   onDrop,
+  onView,
 }: {
   caja: (typeof CAJAS)[number];
   docs: (DocumentoAdjunto & { categoria?: string })[];
@@ -153,6 +157,7 @@ function CajaDroppable({
   onDragEnter: (e: React.DragEvent, key: string) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, key: string) => void;
+  onView: (doc: VisorDoc) => void;
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
 
@@ -187,6 +192,7 @@ function CajaDroppable({
             doc={doc}
             onDragStart={onDragStart}
             isDragging={draggingDoc?.nombre === doc.nombre}
+            onView={onView}
           />
         ))}
 
@@ -210,9 +216,11 @@ function CajaDroppable({
 function DocumentosGrid({
   documentos,
   codigoDecoded,
+  onView,
 }: {
   documentos: (DocumentoAdjunto & { categoria?: string })[];
   codigoDecoded: string;
+  onView: (doc: VisorDoc) => void;
 }) {
   // Inicializar grupos
   const buildGrupos = (docs: (DocumentoAdjunto & { categoria?: string })[]) => {
@@ -336,6 +344,7 @@ function DocumentosGrid({
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            onView={onView}
           />
         ))}
       </div>
@@ -353,6 +362,7 @@ function DocumentosGrid({
                 doc={doc}
                 onDragStart={handleDragStart}
                 isDragging={draggingDoc?.nombre === doc.nombre}
+                onView={onView}
               />
             ))}
           </div>
@@ -380,6 +390,8 @@ export function DocumentosSection({
   resumenClasificacion?: { estado: 'completo' | 'incompleto'; falta: string[] } | null;
 }) {
   const yaClasificados = documentosCache.some(d => (d as any).categoria);
+  // Documento abierto en el visor inline (modal). null = cerrado.
+  const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
 
   return (
     <div className="space-y-4 fade-in">
@@ -479,6 +491,7 @@ export function DocumentosSection({
             <DocumentosGrid
               documentos={documentosCache as (DocumentoAdjunto & { categoria?: string })[]}
               codigoDecoded={codigoDecoded}
+              onView={setVisorDoc}
             />
           </div>
         ) : (
@@ -493,6 +506,9 @@ export function DocumentosSection({
           </div>
         )}
       </div>
+
+      {/* Visor inline de documentos (PDF/imagen/Office) — sin descargar */}
+      <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
     </div>
   );
 }

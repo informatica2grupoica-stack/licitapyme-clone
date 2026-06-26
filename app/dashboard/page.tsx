@@ -5,16 +5,15 @@ import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import {
-  Card, SimpleGrid, Group, Stack, Text, Title, Badge, ThemeIcon, Paper,
-  RingProgress, Center, Loader, Box, Anchor, Divider, Avatar, Tooltip,
-} from '@mantine/core';
-import { DonutChart, AreaChart, BarChart } from '@mantine/charts';
+  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
+  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
+} from 'recharts';
 import {
   Search, Building2, Users, Wallet, CalendarClock, ArrowUpRight, Layers3,
   Gauge, ListChecks, TriangleAlert, Clock4, ChevronRight, FolderClock,
+  Loader2,
 } from 'lucide-react';
 
-// ── Tipos ───────────────────────────────────────────────────────────────────────
 interface DashData {
   success: boolean; rol: string;
   admin: null | {
@@ -34,7 +33,6 @@ interface DashData {
   favoritosRecientes: any[];
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────────
 const fmtMonto = (n: number) =>
   n >= 1_000_000_000 ? `$${(n / 1_000_000_000).toFixed(1)}B`
   : n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(0)}M`
@@ -47,60 +45,68 @@ const fmtFecha = (f?: string | null) => {
 };
 const diasAl = (f?: string | null) => f ? Math.ceil((new Date(f).getTime() - Date.now()) / 86400000) : null;
 
-const SEMAFORO = {
-  VERDE:     { label: 'Viable',     color: 'teal.6' },
-  AMARILLO:  { label: 'Media-alta', color: 'yellow.6' },
-  NARANJA:   { label: 'Media',      color: 'orange.6' },
-  ROJO:      { label: 'Baja',       color: 'red.6' },
-  ROJO_DURO: { label: 'Descartar',  color: 'red.9' },
-} as const;
-const PREFILTRO = {
-  PASA:            { label: 'Pasa',     color: 'teal.6' },
-  REVISION_HUMANA: { label: 'Revisar',  color: 'yellow.6' },
-  EXCLUIDO:        { label: 'Excluida', color: 'gray.5' },
-} as const;
+const SEMAFORO: Record<string, { label: string; color: string }> = {
+  VERDE:     { label: 'Viable',     color: '#0d9488' },
+  AMARILLO:  { label: 'Media-alta', color: '#ca8a04' },
+  NARANJA:   { label: 'Media',      color: '#ea580c' },
+  ROJO:      { label: 'Baja',       color: '#ef4444' },
+  ROJO_DURO: { label: 'Descartar',  color: '#b91c1c' },
+};
+const PREFILTRO: Record<string, { label: string; color: string }> = {
+  PASA:            { label: 'Pasa',     color: '#0d9488' },
+  REVISION_HUMANA: { label: 'Revisar',  color: '#ca8a04' },
+  EXCLUIDO:        { label: 'Excluida', color: '#9ca3af' },
+};
 const ETAPA: Record<string, string> = {
   '1ASIGNADO': 'Asignado', '2CARPETA_OK': 'Carpeta OK', '3REVISION': 'En revisión',
   '4ANEXOS': 'Anexos', '5OFERTA': 'Oferta', '6ENVIADA': 'Enviada', '7GANADA': 'Ganada', '8PERDIDA': 'Perdida',
 };
+const PIPE_COLORS = ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444'];
 
-// ── Tarjeta de estadística ────────────────────────────────────────────────────────
 function StatCard({ icon, label, value, sub, color = 'indigo', href }: {
   icon: React.ReactNode; label: string; value: string | number; sub?: string; color?: string; href?: string;
 }) {
-  const inner = (
-    <Card withBorder radius="lg" padding="lg" className="transition-shadow hover:shadow-md">
-      <Group justify="space-between" align="flex-start" wrap="nowrap">
-        <Stack gap={2}>
-          <Text size="xs" c="dimmed" fw={600} tt="uppercase" style={{ letterSpacing: 0.4 }}>{label}</Text>
-          <Text fz={28} fw={800} lh={1.1} className="tabular-nums">{value}</Text>
-          {sub && <Text size="xs" c="dimmed">{sub}</Text>}
-        </Stack>
-        <ThemeIcon variant="light" color={color} size={42} radius="md">{icon}</ThemeIcon>
-      </Group>
+  const ICON_BG: Record<string, string> = {
+    indigo: 'bg-indigo-50 text-indigo-600', violet: 'bg-violet-50 text-violet-600',
+    teal: 'bg-teal-50 text-teal-600', cyan: 'bg-cyan-50 text-cyan-600',
+    orange: 'bg-orange-50 text-orange-600',
+  };
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-5 transition-shadow hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide mb-1">{label}</p>
+          <p className="text-[28px] font-black leading-none tabular-nums text-slate-900">{value}</p>
+          {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
+        </div>
+        <div className={`w-[42px] h-[42px] rounded-xl flex items-center justify-center flex-shrink-0 ${ICON_BG[color] || 'bg-indigo-50 text-indigo-600'}`}>
+          {icon}
+        </div>
+      </div>
       {href && (
-        <Anchor component={Link} href={href} size="xs" fw={600} mt="sm" className="inline-flex items-center gap-1">
+        <Link href={href} className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 mt-3">
           Ver detalle <ArrowUpRight size={12} />
-        </Anchor>
+        </Link>
       )}
-    </Card>
+    </div>
   );
-  return inner;
 }
 
 function PanelCard({ title, icon, right, children }: { title: string; icon?: React.ReactNode; right?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <Card withBorder radius="lg" padding={0}>
-      <Group justify="space-between" px="lg" py="md" className="border-b border-slate-100">
-        <Group gap={8}>{icon}<Text fw={700} size="sm">{title}</Text></Group>
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+        <div className="flex items-center gap-2">
+          {icon}
+          <p className="text-sm font-bold text-slate-800">{title}</p>
+        </div>
         {right}
-      </Group>
-      <Box p="lg">{children}</Box>
-    </Card>
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
   );
 }
 
-// ── Página ──────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const { usuario } = useSession();
   const [data, setData] = useState<DashData | null>(null);
@@ -121,196 +127,257 @@ export default function DashboardPage() {
 
   return (
     <AppLayout>
-      <Box className="p-5 sm:p-7 max-w-7xl mx-auto">
+      <div className="p-5 sm:p-7 max-w-7xl mx-auto">
         {/* Header */}
-        <Group justify="space-between" align="flex-end" mb="lg" wrap="nowrap">
-          <Stack gap={2}>
-            <Title order={2} fw={800} className="tracking-tight">{saludo}{nombre ? `, ${nombre}` : ''}</Title>
-            <Text size="sm" c="dimmed" tt="capitalize">
+        <div className="flex items-end justify-between mb-6 gap-4">
+          <div>
+            <h2 className="text-2xl font-black tracking-tight text-slate-900">{saludo}{nombre ? `, ${nombre}` : ''}</h2>
+            <p className="text-sm text-slate-400 capitalize mt-0.5">
               {new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-            </Text>
-          </Stack>
+            </p>
+          </div>
           {esAdmin && (
-            <Anchor component={Link} href="/radar" underline="never">
-              <Badge size="lg" radius="md" variant="light" color="indigo" leftSection={<Search size={13} />} className="cursor-pointer">
-                Ir al radar
-              </Badge>
-            </Anchor>
+            <Link href="/radar" className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl text-sm font-semibold hover:bg-indigo-100 transition-colors border border-indigo-100">
+              <Search size={14} /> Ir al radar
+            </Link>
           )}
-        </Group>
+        </div>
 
         {cargando ? (
-          <Center py={80}><Loader color="indigo" /></Center>
+          <div className="flex items-center justify-center py-20">
+            <Loader2 size={32} className="animate-spin text-indigo-500" />
+          </div>
         ) : error ? (
-          <Paper withBorder p="lg" radius="lg" className="border-red-200 bg-red-50">
-            <Group gap={8}><TriangleAlert size={18} className="text-red-600" /><Text c="red.7" size="sm">{error}</Text></Group>
-          </Paper>
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
+            <TriangleAlert size={18} /> {error}
+          </div>
         ) : data ? (
           esAdmin ? <VistaAdmin data={data} /> : <VistaUsuario data={data} />
         ) : null}
-      </Box>
+      </div>
     </AppLayout>
   );
 }
 
-// ── Vista ADMIN ───────────────────────────────────────────────────────────────────
 function VistaAdmin({ data }: { data: DashData }) {
   const a = data.admin!;
-  const viabData = a.viabilidad.map(v => ({ name: SEMAFORO[v.semaforo as keyof typeof SEMAFORO]?.label || v.semaforo, value: v.n, color: SEMAFORO[v.semaforo as keyof typeof SEMAFORO]?.color || 'gray.5' }));
-  const prefData = a.prefiltro.map(p => ({ etapa: PREFILTRO[p.decision as keyof typeof PREFILTRO]?.label || p.decision, n: p.n, color: PREFILTRO[p.decision as keyof typeof PREFILTRO]?.color || 'gray.5' }));
-  const pipeData = a.pipeline.map(p => ({ etapa: ETAPA[p.etapa] || p.etapa, n: p.n }));
+  const viabData = a.viabilidad.map(v => ({
+    name: SEMAFORO[v.semaforo]?.label || v.semaforo,
+    value: v.n,
+    color: SEMAFORO[v.semaforo]?.color || '#9ca3af',
+  }));
+  const prefData = a.prefiltro.map(p => ({
+    etapa: PREFILTRO[p.decision]?.label || p.decision,
+    n: p.n,
+    color: PREFILTRO[p.decision]?.color || '#9ca3af',
+  }));
+  const pipeData = a.pipeline.map((p, i) => ({ etapa: ETAPA[p.etapa] || p.etapa, n: p.n, color: PIPE_COLORS[i % PIPE_COLORS.length] }));
   const tendencia = a.porDia.map(d => ({ dia: fmtFecha(d.dia), n: Number(d.n) }));
   const totalViab = viabData.reduce((s, v) => s + v.value, 0);
 
   return (
-    <Stack gap="lg">
+    <div className="space-y-6">
       {/* KPIs */}
-      <SimpleGrid cols={{ base: 2, md: 4 }} spacing="md">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={<Building2 size={22} />} label="Licitaciones en radar" value={a.radar.totalLicitaciones.toLocaleString('es-CL')} sub={`${a.radar.conViabilidad} con viabilidad`} color="indigo" href="/radar" />
         <StatCard icon={<Layers3 size={22} />} label="En pipeline" value={a.pipeline.reduce((s, p) => s + p.n, 0)} sub={fmtMonto(a.montoPipeline)} color="violet" href="/negocios" />
         <StatCard icon={<Users size={22} />} label="Usuarios activos" value={a.usuarios.activos} sub={`${a.usuarios.total} en total · +${a.usuarios.nuevosSemana} esta semana`} color="teal" href="/admin/usuarios" />
         <StatCard icon={<ListChecks size={22} />} label="Pasan el prefiltro" value={(a.prefiltro.find(p => p.decision === 'PASA')?.n || 0).toLocaleString('es-CL')} sub={`${a.prefiltro.find(p => p.decision === 'EXCLUIDO')?.n || 0} excluidas`} color="cyan" />
-      </SimpleGrid>
+      </div>
 
       {/* Charts */}
-      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PanelCard title="Tendencia de detección (14 días)" icon={<CalendarClock size={15} className="text-indigo-500" />}>
           {tendencia.length > 0 ? (
-            <AreaChart h={220} data={tendencia} dataKey="dia" series={[{ name: 'n', label: 'Licitaciones', color: 'indigo.6' }]} curveType="natural" withGradient withDots={false} gridAxis="y" />
-          ) : <Text size="sm" c="dimmed" ta="center" py="xl">Sin datos recientes</Text>}
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={tendencia} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                <defs>
+                  <linearGradient id="colorN" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="dia" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Area type="monotone" dataKey="n" name="Licitaciones" stroke="#4f46e5" strokeWidth={2} fill="url(#colorN)" dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          ) : <p className="text-sm text-slate-400 text-center py-10">Sin datos recientes</p>}
         </PanelCard>
 
         <PanelCard title="Distribución de viabilidad" icon={<Gauge size={15} className="text-indigo-500" />}>
           {totalViab > 0 ? (
-            <Group justify="center" gap="xl">
-              <DonutChart data={viabData} size={170} thickness={26} withLabelsLine={false} chartLabel={`${totalViab}`} />
-              <Stack gap={6}>
+            <div className="flex items-center justify-center gap-8">
+              <ResponsiveContainer width={170} height={170}>
+                <PieChart>
+                  <Pie data={viabData} cx="50%" cy="50%" innerRadius={48} outerRadius={78} dataKey="value" paddingAngle={2}>
+                    {viabData.map((v, i) => <Cell key={i} fill={v.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5">
                 {viabData.map(v => (
-                  <Group key={v.name} gap={8}>
-                    <Box w={10} h={10} style={{ borderRadius: 3, background: `var(--mantine-color-${v.color.replace('.', '-')})` }} />
-                    <Text size="xs" fw={500}>{v.name}</Text>
-                    <Text size="xs" c="dimmed" className="tabular-nums">{v.value}</Text>
-                  </Group>
+                  <div key={v.name} className="flex items-center gap-2">
+                    <div style={{ background: v.color }} className="w-2.5 h-2.5 rounded-sm flex-shrink-0" />
+                    <span className="text-xs font-medium text-slate-700">{v.name}</span>
+                    <span className="text-xs text-slate-400 tabular-nums">{v.value}</span>
+                  </div>
                 ))}
-              </Stack>
-            </Group>
-          ) : <Text size="sm" c="dimmed" ta="center" py="xl">Aún sin análisis de viabilidad</Text>}
+              </div>
+            </div>
+          ) : <p className="text-sm text-slate-400 text-center py-10">Aún sin análisis de viabilidad</p>}
         </PanelCard>
 
         <PanelCard title="Prefiltro de perfil" icon={<ListChecks size={15} className="text-indigo-500" />}>
           {prefData.length > 0 ? (
-            <BarChart h={200} data={prefData} dataKey="etapa" series={[{ name: 'n', label: 'Licitaciones', color: 'indigo.6' }]} barProps={{ radius: 6 }} gridAxis="y" />
-          ) : <Text size="sm" c="dimmed" ta="center" py="xl">Sin prefiltro</Text>}
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={prefData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                <XAxis dataKey="etapa" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Bar dataKey="n" name="Licitaciones" radius={[6, 6, 0, 0]}>
+                  {prefData.map((p, i) => <Cell key={i} fill={p.color} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <p className="text-sm text-slate-400 text-center py-10">Sin prefiltro</p>}
         </PanelCard>
 
-        <PanelCard title="Pipeline de negocios" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Anchor component={Link} href="/negocios" size="xs" fw={600}>Ver todo</Anchor>}>
+        <PanelCard title="Pipeline de negocios" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver todo</Link>}>
           {pipeData.length > 0 ? (
-            <BarChart h={200} data={pipeData} dataKey="etapa" orientation="vertical" series={[{ name: 'n', label: 'Negocios', color: 'violet.6' }]} barProps={{ radius: 6 }} gridAxis="x" />
-          ) : <Text size="sm" c="dimmed" ta="center" py="xl">Sin negocios en pipeline</Text>}
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={pipeData} layout="vertical" margin={{ top: 4, right: 4, bottom: 0, left: 60 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                <YAxis type="category" dataKey="etapa" tick={{ fontSize: 11, fill: '#94a3b8' }} width={60} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                <Bar dataKey="n" name="Negocios" radius={[0, 6, 6, 0]}>
+                  {pipeData.map((p, i) => <Cell key={i} fill={p.color} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <p className="text-sm text-slate-400 text-center py-10">Sin negocios en pipeline</p>}
         </PanelCard>
-      </SimpleGrid>
+      </div>
 
       {/* Listas */}
-      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ProximosCierres items={data.usuario.proximosCierres} titulo="Próximos cierres (empresa)" />
-        <PanelCard title="Últimos accesos" icon={<Clock4 size={15} className="text-indigo-500" />} right={<Anchor component={Link} href="/admin/usuarios" size="xs" fw={600}>Gestionar</Anchor>}>
-          <Stack gap="sm">
+        <PanelCard title="Últimos accesos" icon={<Clock4 size={15} className="text-indigo-500" />} right={<Link href="/admin/usuarios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Gestionar</Link>}>
+          <div className="space-y-3">
             {a.usuarios.ultimosAccesos.map((u: any) => (
-              <Group key={u.id} justify="space-between" wrap="nowrap">
-                <Group gap="sm" wrap="nowrap">
-                  <Avatar radius="md" size={32} color="indigo">{(u.nombre || u.email)[0]?.toUpperCase()}</Avatar>
-                  <Stack gap={0}>
-                    <Text size="sm" fw={600} lineClamp={1}>{u.nombre || u.email}</Text>
-                    <Text size="xs" c="dimmed" lineClamp={1}>{u.email}</Text>
-                  </Stack>
-                </Group>
-                <Group gap={6} wrap="nowrap">
-                  {u.rol === 'admin' && <Badge size="xs" variant="light" color="amber">Admin</Badge>}
-                  <Text size="xs" c="dimmed">{fmtFecha(u.ultimo_login)}</Text>
-                </Group>
-              </Group>
+              <div key={u.id} className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                    {(u.nombre || u.email)[0]?.toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">{u.nombre || u.email}</p>
+                    <p className="text-xs text-slate-400 truncate">{u.email}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {u.rol === 'admin' && <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-semibold">Admin</span>}
+                  <span className="text-xs text-slate-400">{fmtFecha(u.ultimo_login)}</span>
+                </div>
+              </div>
             ))}
-          </Stack>
+          </div>
         </PanelCard>
-      </SimpleGrid>
-    </Stack>
+      </div>
+    </div>
   );
 }
 
-// ── Vista USUARIO ─────────────────────────────────────────────────────────────────
 function VistaUsuario({ data }: { data: DashData }) {
   const u = data.usuario;
-  const pipeData = u.pipeline.map(p => ({ name: ETAPA[p.etapa] || p.etapa, value: p.n, color: 'indigo.6' }));
+  const pipeData = u.pipeline.map((p, i) => ({
+    name: ETAPA[p.etapa] || p.etapa,
+    value: p.n,
+    color: PIPE_COLORS[i % PIPE_COLORS.length],
+  }));
   const totalPipe = pipeData.reduce((s, p) => s + p.value, 0);
-  const colores = ['indigo.6', 'violet.5', 'teal.5', 'cyan.5', 'grape.5', 'blue.5', 'green.6', 'red.5'];
-  pipeData.forEach((p, i) => (p.color = colores[i % colores.length]));
 
   return (
-    <Stack gap="lg">
-      <SimpleGrid cols={{ base: 2, md: 3 }} spacing="md">
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <StatCard icon={<Building2 size={22} />} label="Mis licitaciones" value={u.asignadas} sub="Asignadas a mí" color="indigo" href="/negocios" />
         <StatCard icon={<Wallet size={22} />} label="Monto en gestión" value={fmtMonto(u.montoAsignadas)} sub="Suma de mis licitaciones" color="teal" />
         <StatCard icon={<CalendarClock size={22} />} label="Próximos cierres" value={u.proximosCierres.length} sub="En adelante" color="orange" />
-      </SimpleGrid>
+      </div>
 
-      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="lg">
-        <PanelCard title="Mi pipeline" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Anchor component={Link} href="/negocios" size="xs" fw={600}>Ver negocios</Anchor>}>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <PanelCard title="Mi pipeline" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver negocios</Link>}>
           {totalPipe > 0 ? (
-            <Group justify="center" gap="xl">
-              <DonutChart data={pipeData} size={170} thickness={26} withLabelsLine={false} chartLabel={`${totalPipe}`} />
-              <Stack gap={6}>
+            <div className="flex items-center justify-center gap-8">
+              <ResponsiveContainer width={170} height={170}>
+                <PieChart>
+                  <Pie data={pipeData} cx="50%" cy="50%" innerRadius={48} outerRadius={78} dataKey="value" paddingAngle={2}>
+                    {pipeData.map((p, i) => <Cell key={i} fill={p.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5">
                 {pipeData.map(p => (
-                  <Group key={p.name} gap={8}>
-                    <Box w={10} h={10} style={{ borderRadius: 3, background: `var(--mantine-color-${p.color.replace('.', '-')})` }} />
-                    <Text size="xs" fw={500}>{p.name}</Text>
-                    <Text size="xs" c="dimmed" className="tabular-nums">{p.value}</Text>
-                  </Group>
+                  <div key={p.name} className="flex items-center gap-2">
+                    <div style={{ background: p.color }} className="w-2.5 h-2.5 rounded-sm flex-shrink-0" />
+                    <span className="text-xs font-medium text-slate-700">{p.name}</span>
+                    <span className="text-xs text-slate-400 tabular-nums">{p.value}</span>
+                  </div>
                 ))}
-              </Stack>
-            </Group>
+              </div>
+            </div>
           ) : (
-            <Stack align="center" gap={6} py="xl">
+            <div className="flex flex-col items-center gap-2 py-10">
               <FolderClock size={28} className="text-slate-300" />
-              <Text size="sm" c="dimmed">Aún no tienes licitaciones asignadas</Text>
-            </Stack>
+              <p className="text-sm text-slate-400">Aún no tienes licitaciones asignadas</p>
+            </div>
           )}
         </PanelCard>
 
         <ProximosCierres items={u.proximosCierres} titulo="Mis próximos cierres" />
-      </SimpleGrid>
-    </Stack>
+      </div>
+    </div>
   );
 }
 
-// ── Lista de próximos cierres ──────────────────────────────────────────────────────
 function ProximosCierres({ items, titulo }: { items: DashData['usuario']['proximosCierres']; titulo: string }) {
   return (
     <PanelCard title={titulo} icon={<CalendarClock size={15} className="text-indigo-500" />}>
       {items.length > 0 ? (
-        <Stack gap={4}>
+        <div className="space-y-1">
           {items.map((it, i) => {
             const d = diasAl(it.cierre);
+            const urgente = d != null && d <= 3;
+            const proximo = d != null && d <= 7;
             return (
-              <Anchor key={`${it.codigo}-${i}`} component={Link} href={`/licitacion/${encodeURIComponent(it.codigo)}`} underline="never">
-                <Group justify="space-between" wrap="nowrap" className="rounded-lg px-2 py-2 hover:bg-slate-50 transition-colors">
-                  <Stack gap={0} className="min-w-0">
-                    <Text size="sm" fw={600} lineClamp={1}>{it.nombre || it.codigo}</Text>
-                    <Text size="xs" c="dimmed" lineClamp={1}>{it.organismo || '—'}</Text>
-                  </Stack>
-                  <Group gap={10} wrap="nowrap">
-                    {it.monto ? <Text size="xs" fw={600} c="dimmed" className="whitespace-nowrap">{fmtMontoFull(it.monto)}</Text> : null}
-                    <Badge size="sm" variant="light" color={d != null && d <= 3 ? 'red' : d != null && d <= 7 ? 'orange' : 'gray'}>
-                      {d === 0 ? 'Hoy' : `${d}d`}
-                    </Badge>
-                    <ChevronRight size={14} className="text-slate-300" />
-                  </Group>
-                </Group>
-              </Anchor>
+              <Link key={`${it.codigo}-${i}`} href={`/licitacion/${encodeURIComponent(it.codigo)}`}
+                className="flex items-center justify-between gap-2 rounded-lg px-2 py-2 hover:bg-slate-50 transition-colors group">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold truncate text-slate-800 group-hover:text-indigo-600 transition-colors">{it.nombre || it.codigo}</p>
+                  <p className="text-xs text-slate-400 truncate">{it.organismo || '—'}</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  {it.monto ? <span className="text-xs font-semibold text-slate-400 whitespace-nowrap">{fmtMontoFull(it.monto)}</span> : null}
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${urgente ? 'bg-red-50 text-red-600 border border-red-200' : proximo ? 'bg-orange-50 text-orange-600 border border-orange-200' : 'bg-slate-100 text-slate-500'}`}>
+                    {d === 0 ? 'Hoy' : `${d}d`}
+                  </span>
+                  <ChevronRight size={14} className="text-slate-300" />
+                </div>
+              </Link>
             );
           })}
-        </Stack>
+        </div>
       ) : (
-        <Stack align="center" gap={6} py="xl"><Clock4 size={26} className="text-slate-300" /><Text size="sm" c="dimmed">Sin cierres próximos</Text></Stack>
+        <div className="flex flex-col items-center gap-2 py-10">
+          <Clock4 size={26} className="text-slate-300" />
+          <p className="text-sm text-slate-400">Sin cierres próximos</p>
+        </div>
       )}
     </PanelCard>
   );

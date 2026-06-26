@@ -205,35 +205,36 @@ export async function insertarAlertas(kw: KwRow, coincidencias: Coincidencia[]):
 // TODAS las alertas de esa licitación, y rellenamos organismo/región/monto si
 // faltaban. Idempotente: la fecha de publicación de MP no cambia.
 export async function corregirCamposDesdeDetalle(lics: Licitacion[]): Promise<number> {
-  let corregidas = 0;
-  for (const lic of lics) {
-    if (!lic.Codigo || !lic.FechaPublicacion) continue; // sin fecha real, nada que corregir
-    const fp = new Date(lic.FechaPublicacion);
-    if (isNaN(fp.getTime())) continue;
-    try {
-      const [res] = await pool.query(
-        `UPDATE alertas_licitaciones
-         SET licitacion_fecha_publicacion = ?,
-             licitacion_organismo = IF(licitacion_organismo IS NULL OR licitacion_organismo = '', ?, licitacion_organismo),
-             licitacion_region    = IF(licitacion_region    IS NULL OR licitacion_region    = '', ?, licitacion_region),
-             licitacion_monto     = IF(licitacion_monto IS NULL, ?, licitacion_monto),
-             licitacion_estado    = COALESCE(?, licitacion_estado)
-         WHERE licitacion_codigo = ?`,
-        [
-          fp,
-          lic.Organismo?.substring(0, 500) || null,
-          lic.Region?.substring(0, 150) || null,
-          lic.MontoEstimado ?? null,
-          (lic.EstadoNombre || lic.Estado || null),
-          lic.Codigo,
-        ],
-      ) as any[];
-      corregidas += (res as any).affectedRows ?? 0;
-    } catch {
-      // Si falta la columna fecha_publicacion (migración antigua pendiente), no rompe.
-    }
+  // Solo las que traen fecha de publicación real válida.
+  const conFecha = lics.filter(l => {
+    if (!l.Codigo || !l.FechaPublicacion) return false;
+    return !isNaN(new Date(l.FechaPublicacion).getTime());
+  });
+  if (conFecha.length === 0) return 0;
+
+  // CLAVE DE RENDIMIENTO: un ÚNICO UPDATE por lote con CASE, no N updates.
+  // El índice de alertas sobre licitacion_codigo es compuesto (usuario_id, codigo),
+  // así que `WHERE licitacion_codigo = ?` no lo usa → cada UPDATE suelto era un
+  // escaneo completo de la tabla (~2 s c/u) y saturaba el pool. Con un solo UPDATE
+  // `WHERE licitacion_codigo IN (...)` hacemos UN escaneo por lote (12×) y un viaje.
+  const codigos = conFecha.map(l => l.Codigo);
+  const ph = codigos.map(() => '?').join(',');
+  const casePub = conFecha.map(() => 'WHEN ? THEN ?').join(' ');
+  const params: unknown[] = [];
+  for (const l of conFecha) params.push(l.Codigo, new Date(l.FechaPublicacion));
+
+  try {
+    const [res] = await pool.query(
+      `UPDATE alertas_licitaciones
+       SET licitacion_fecha_publicacion = CASE licitacion_codigo ${casePub} ELSE licitacion_fecha_publicacion END
+       WHERE licitacion_codigo IN (${ph})`,
+      [...params, ...codigos],
+    ) as any[];
+    return (res as any).affectedRows ?? 0;
+  } catch {
+    // Si falta la columna fecha_publicacion (migración antigua pendiente), no rompe.
+    return 0;
   }
-  return corregidas;
 }
 
 // ── Matchear un conjunto de licitaciones contra TODAS las keywords ────────────

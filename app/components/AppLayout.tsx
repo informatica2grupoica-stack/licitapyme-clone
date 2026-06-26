@@ -2,21 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command,
 } from 'lucide-react';
-import {
-  Avatar, Menu, Indicator, ActionIcon, Tooltip, Badge, ScrollArea, Box, UnstyledButton,
-  Text, Group, Anchor, ThemeIcon,
-} from '@mantine/core';
-import { notifications } from '@mantine/notifications';
 import { IcaLogoIcon } from '@/app/components/IcaLogo';
 import { useSession } from '@/app/lib/session-context';
+import { useToast } from '@/app/components/ui/toast';
 
-// Tiempo relativo corto (ahora, 5m, 2h, 3d).
 function tiempoRel(iso?: string) {
   if (!iso) return '';
   const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -27,13 +22,11 @@ function tiempoRel(iso?: string) {
   return `${Math.floor(h / 24)}d`;
 }
 
-// ── Tipos ────────────────────────────────────────────────────────────────────────
 interface BreadcrumbItem { label: string; href?: string; }
 interface AppLayoutProps { children: React.ReactNode; breadcrumb?: BreadcrumbItem[]; title?: string; }
 interface NavItem { label: string; href: string; icon: React.ReactNode; adminOnly?: boolean; badge?: number | string; exact?: boolean; }
 interface NavGroup { label: string; items: NavItem[]; }
 
-// ── Estructura de navegación ───────────────────────────────────────────────────────
 const NAV_GROUPS: NavGroup[] = [
   {
     label: 'PRINCIPAL',
@@ -65,53 +58,91 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-const AVATAR_COLORS = ['indigo', 'violet', 'cyan', 'teal', 'grape', 'blue'];
-function colorDe(seed: string) { return AVATAR_COLORS[(seed?.charCodeAt(0) || 0) % AVATAR_COLORS.length]; }
+const AVATAR_BG: Record<string, string> = {
+  indigo: 'bg-indigo-600', violet: 'bg-violet-600', cyan: 'bg-cyan-600',
+  teal: 'bg-teal-600', grape: 'bg-purple-600', blue: 'bg-blue-600',
+};
+const AVATAR_SEEDS = ['indigo', 'violet', 'cyan', 'teal', 'grape', 'blue'];
+function colorDe(seed: string) { return AVATAR_SEEDS[(seed?.charCodeAt(0) || 0) % AVATAR_SEEDS.length]; }
 
-// ── Menú de usuario (Mantine Menu) ──────────────────────────────────────────────────
-function UserMenu({ dark = false }: { dark?: boolean }) {
-  const { usuario, logout } = useSession();
-  if (!usuario) return null;
-  const initials = usuario.nombre
-    ? usuario.nombre.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
-    : usuario.email[0].toUpperCase();
-
+function AvatarIcon({ initials, color, size = 34 }: { initials: string; color: string; size?: number }) {
   return (
-    <Menu position="top-start" width={230} shadow="lg" radius="md" withArrow>
-      <Menu.Target>
-        <UnstyledButton
-          className={`w-full rounded-xl p-2 transition-colors ${dark ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-100'}`}
-        >
-          <div className="flex items-center gap-2.5">
-            <Avatar color={colorDe(usuario.email)} radius="md" size={34}>{initials}</Avatar>
-            <div className="flex-1 min-w-0 text-left">
-              <p className={`text-[12.5px] font-semibold truncate leading-tight ${dark ? 'text-slate-100' : 'text-slate-800'}`}>
-                {usuario.nombre?.split(' ')[0] || usuario.email.split('@')[0]}
-              </p>
-              <p className={`text-[11px] truncate leading-tight ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
-                {usuario.rol === 'admin' ? 'Administrador' : usuario.empresa || usuario.email}
-              </p>
-            </div>
-          </div>
-        </UnstyledButton>
-      </Menu.Target>
-      <Menu.Dropdown>
-        <Menu.Label>{usuario.email}</Menu.Label>
-        <Menu.Item component={Link} href="/perfil" leftSection={<User size={15} />}>Mi perfil</Menu.Item>
-        {usuario.rol === 'admin' && (
-          <>
-            <Menu.Item component={Link} href="/admin/usuarios" leftSection={<Users size={15} />}>Administrar usuarios</Menu.Item>
-            <Menu.Item component={Link} href="/admin/etiquetas" leftSection={<Tag size={15} />}>Líneas de negocio</Menu.Item>
-          </>
-        )}
-        <Menu.Divider />
-        <Menu.Item color="red" leftSection={<LogOut size={15} />} onClick={() => logout()}>Cerrar sesión</Menu.Item>
-      </Menu.Dropdown>
-    </Menu>
+    <div
+      className={`rounded-lg flex items-center justify-center text-white font-semibold flex-shrink-0 ${AVATAR_BG[color] || 'bg-indigo-600'}`}
+      style={{ width: size, height: size, fontSize: size * 0.38 }}
+    >
+      {initials}
+    </div>
   );
 }
 
-// ── Sidebar ──────────────────────────────────────────────────────────────────────
+function UserMenu({ dark = false }: { dark?: boolean }) {
+  const { usuario, logout } = useSession();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  if (!usuario) return null;
+  const initials = usuario.nombre
+    ? usuario.nombre.split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()
+    : usuario.email[0].toUpperCase();
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`w-full rounded-xl p-2 transition-colors text-left ${dark ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-100'}`}
+      >
+        <div className="flex items-center gap-2.5">
+          <AvatarIcon initials={initials} color={colorDe(usuario.email)} />
+          <div className="flex-1 min-w-0">
+            <p className={`text-[12.5px] font-semibold truncate leading-tight ${dark ? 'text-slate-100' : 'text-slate-800'}`}>
+              {usuario.nombre?.split(' ')[0] || usuario.email.split('@')[0]}
+            </p>
+            <p className={`text-[11px] truncate leading-tight ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+              {usuario.rol === 'admin' ? 'Administrador' : usuario.empresa || usuario.email}
+            </p>
+          </div>
+        </div>
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-2 w-[230px] bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50">
+          <p className="px-3 py-1.5 text-[11px] text-slate-400 font-medium truncate">{usuario.email}</p>
+          <div className="h-px bg-slate-100 my-1" />
+          <Link href="/perfil" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+            <User size={15} className="text-slate-400" /> Mi perfil
+          </Link>
+          {usuario.rol === 'admin' && (
+            <>
+              <Link href="/admin/usuarios" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+                <Users size={15} className="text-slate-400" /> Administrar usuarios
+              </Link>
+              <Link href="/admin/etiquetas" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+                <Tag size={15} className="text-slate-400" /> Líneas de negocio
+              </Link>
+            </>
+          )}
+          <div className="h-px bg-slate-100 my-1" />
+          <button
+            onClick={() => { setOpen(false); logout(); }}
+            className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors w-full text-left"
+          >
+            <LogOut size={15} /> Cerrar sesión
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMobile: () => void }) {
   const pathname = usePathname();
   const { usuario } = useSession();
@@ -145,9 +176,13 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
               <span className="text-slate-500 text-[9.5px] font-semibold tracking-[0.14em] uppercase mt-0.5">Licitaciones</span>
             </div>
           </Link>
-          <ActionIcon variant="subtle" color="gray" onClick={onCloseMobile} className="lg:hidden" aria-label="Cerrar menú">
+          <button
+            onClick={onCloseMobile}
+            className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+            aria-label="Cerrar menú"
+          >
             <X size={16} />
-          </ActionIcon>
+          </button>
         </div>
 
         {/* Búsqueda rápida */}
@@ -163,7 +198,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
         </div>
 
         {/* Nav */}
-        <ScrollArea className="flex-1" scrollbarSize={6} type="hover">
+        <div className="flex-1 overflow-y-auto scrollbar-thin">
           <nav className="px-3 pb-2 space-y-5">
             {visibleGroups.map(group => (
               <div key={group.label}>
@@ -180,7 +215,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
                         <span className={active ? 'text-indigo-600' : 'text-slate-500 group-hover:text-slate-300'}>{item.icon}</span>
                         <span className="flex-1">{item.label}</span>
                         {item.badge != null && (
-                          <Badge size="xs" variant="filled" color="red" radius="sm">{item.badge}</Badge>
+                          <span className="text-[10px] font-semibold bg-red-500 text-white px-1.5 py-0.5 rounded">{item.badge}</span>
                         )}
                       </Link>
                     );
@@ -189,7 +224,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
               </div>
             ))}
           </nav>
-        </ScrollArea>
+        </div>
 
         {/* Usuario */}
         <div className="px-2.5 pb-4 pt-2 border-t border-white/[0.07] flex-shrink-0">
@@ -200,13 +235,23 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   );
 }
 
-// ── Campana de notificaciones (tiempo real por SSE) ───────────────────────────────
 interface Noti { id?: number; tipo?: string; mensaje: string; licitacion_codigo?: string | null; leido?: boolean; created_at?: string; }
 
 function NotificacionesBell() {
   const { usuario } = useSession();
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
   const [eventos, setEventos] = useState<Noti[]>([]);
   const [noLeidas, setNoLeidas] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const cargar = useCallback(async () => {
     try {
@@ -218,19 +263,18 @@ function NotificacionesBell() {
   useEffect(() => {
     if (!usuario) return;
     cargar();
-    // Conexión SSE: el servidor empuja las notificaciones al instante.
     const es = new EventSource('/api/historial/stream');
     es.addEventListener('notificacion', (ev: MessageEvent) => {
       try {
         const data: Noti = JSON.parse(ev.data);
         setEventos(prev => [data, ...prev].slice(0, 20));
         setNoLeidas(n => n + 1);
-        notifications.show({ title: 'Nueva notificación', message: data.mensaje, color: 'indigo', icon: <Bell size={16} />, autoClose: 6000 });
+        toast.info('Nueva notificación', data.mensaje);
       } catch { /* ignore */ }
     });
-    es.onerror = () => { /* EventSource reconecta solo (retry) */ };
+    es.onerror = () => { /* EventSource reconecta solo */ };
     return () => es.close();
-  }, [usuario, cargar]);
+  }, [usuario, cargar, toast]);
 
   const marcarLeidas = async () => {
     if (noLeidas === 0) return;
@@ -239,47 +283,64 @@ function NotificacionesBell() {
     try { await fetch('/api/historial', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) }); } catch { /* silencioso */ }
   };
 
+  const handleOpen = () => {
+    setOpen(o => !o);
+    if (!open) marcarLeidas();
+  };
+
   return (
-    <Menu position="bottom-end" width={350} shadow="lg" radius="md" onChange={(o) => { if (o) marcarLeidas(); }}>
-      <Menu.Target>
-        <Indicator color="red" size={16} offset={6} disabled={noLeidas === 0} label={noLeidas > 9 ? '9+' : noLeidas}>
-          <ActionIcon variant="subtle" color="gray" size="lg" radius="md" aria-label="Notificaciones">
-            <Bell size={18} />
-          </ActionIcon>
-        </Indicator>
-      </Menu.Target>
-      <Menu.Dropdown>
-        <Group justify="space-between" px="xs" py={4}>
-          <Text fw={700} size="sm">Notificaciones</Text>
-          <Anchor component={Link} href="/alertas" size="xs" fw={600}>Ver historial</Anchor>
-        </Group>
-        <Menu.Divider />
-        {eventos.length === 0 ? (
-          <Text c="dimmed" size="sm" ta="center" py="lg">Sin notificaciones</Text>
-        ) : (
-          <ScrollArea.Autosize mah={360} scrollbarSize={6}>
-            {eventos.map((e, i) => {
-              const item = (
-                <Group gap={10} wrap="nowrap" align="flex-start">
-                  <ThemeIcon variant="light" color={e.leido ? 'gray' : 'indigo'} size={32} radius="md"><Briefcase size={15} /></ThemeIcon>
-                  <div style={{ minWidth: 0 }}>
-                    <Text size="xs" fw={e.leido ? 500 : 700} lineClamp={2}>{e.mensaje}</Text>
-                    <Text size="10" c="dimmed" mt={2}>{tiempoRel(e.created_at)}</Text>
-                  </div>
-                </Group>
-              );
-              return e.licitacion_codigo
-                ? <Menu.Item key={e.id || i} component={Link} href={`/licitacion/${encodeURIComponent(e.licitacion_codigo)}`}>{item}</Menu.Item>
-                : <Menu.Item key={e.id || i}>{item}</Menu.Item>;
-            })}
-          </ScrollArea.Autosize>
+    <div ref={ref} className="relative">
+      <button
+        onClick={handleOpen}
+        className="relative p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+        aria-label="Notificaciones"
+      >
+        <Bell size={18} />
+        {noLeidas > 0 && (
+          <span className="absolute top-1 right-1 min-w-[16px] h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+            {noLeidas > 9 ? '9+' : noLeidas}
+          </span>
         )}
-      </Menu.Dropdown>
-    </Menu>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-[350px] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+            <p className="text-[13px] font-bold text-slate-800">Notificaciones</p>
+            <Link href="/alertas" onClick={() => setOpen(false)} className="text-[12px] font-semibold text-indigo-600 hover:text-indigo-700">
+              Ver historial
+            </Link>
+          </div>
+          <div className="overflow-y-auto max-h-[360px]">
+            {eventos.length === 0 ? (
+              <p className="text-[13px] text-slate-400 text-center py-8">Sin notificaciones</p>
+            ) : (
+              eventos.map((e, i) => {
+                const content = (
+                  <div className="flex items-start gap-2.5 px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${e.leido ? 'bg-slate-100 text-slate-400' : 'bg-indigo-50 text-indigo-600'}`}>
+                      <Briefcase size={15} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-[12px] leading-snug line-clamp-2 ${e.leido ? 'font-medium text-slate-600' : 'font-semibold text-slate-800'}`}>
+                        {e.mensaje}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">{tiempoRel(e.created_at)}</p>
+                    </div>
+                  </div>
+                );
+                return e.licitacion_codigo
+                  ? <Link key={e.id || i} href={`/licitacion/${encodeURIComponent(e.licitacion_codigo)}`} onClick={() => setOpen(false)}>{content}</Link>
+                  : <div key={e.id || i}>{content}</div>;
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-// ── TopBar ────────────────────────────────────────────────────────────────────────
 function TopBar({ breadcrumb, onOpenMobile }: { breadcrumb?: BreadcrumbItem[]; onOpenMobile: () => void }) {
   const { usuario } = useSession();
   const hora = new Date().getHours();
@@ -288,9 +349,13 @@ function TopBar({ breadcrumb, onOpenMobile }: { breadcrumb?: BreadcrumbItem[]; o
 
   return (
     <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-slate-200/70 px-4 sm:px-6 h-14 flex items-center gap-3 flex-shrink-0">
-      <ActionIcon variant="subtle" color="gray" onClick={onOpenMobile} className="lg:hidden" aria-label="Abrir menú">
+      <button
+        onClick={onOpenMobile}
+        className="lg:hidden p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+        aria-label="Abrir menú"
+      >
         <MenuIcon size={18} />
-      </ActionIcon>
+      </button>
 
       <div className="flex-1 min-w-0">
         {breadcrumb && breadcrumb.length > 0 ? (
@@ -314,17 +379,19 @@ function TopBar({ breadcrumb, onOpenMobile }: { breadcrumb?: BreadcrumbItem[]; o
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> API activa
         </div>
         <NotificacionesBell />
-        <Tooltip label="Mi perfil" withArrow>
-          <ActionIcon component={Link} href="/perfil" variant="subtle" color="gray" size="lg" radius="md" aria-label="Perfil">
-            <Settings size={18} />
-          </ActionIcon>
-        </Tooltip>
+        <Link
+          href="/perfil"
+          title="Mi perfil"
+          className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+          aria-label="Perfil"
+        >
+          <Settings size={18} />
+        </Link>
       </div>
     </header>
   );
 }
 
-// ── AppLayout ───────────────────────────────────────────────────────────────────
 export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
   return (
@@ -332,7 +399,7 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
       <Sidebar mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <TopBar breadcrumb={breadcrumb} onOpenMobile={() => setMobileOpen(true)} />
-        <Box component="main" className="flex-1 overflow-y-auto">{children}</Box>
+        <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
   );

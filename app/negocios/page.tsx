@@ -9,8 +9,8 @@ import {
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
   ChevronDown, X, RefreshCw, Users, List, LayoutGrid,
   CalendarDays, ChevronLeft, ChevronRight, ArrowRight, FileText,
+  SlidersHorizontal, MapPin,
 } from 'lucide-react';
-import { Modal, Badge, Group, Text, ActionIcon, Paper, ScrollArea, Stack, Button, Progress, SimpleGrid } from '@mantine/core';
 import dayjs from 'dayjs';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
@@ -340,9 +340,9 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
           </span>
         )}
       </div>
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-50">
-        <span className="text-[12px] text-gray-700 font-medium">{formatMonto(neg.licitacion_monto)}</span>
-        {dias && <span className={`text-[11px] ${diasCls}`}>{dias}</span>}
+      <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-50 gap-2">
+        <span className="text-[12px] text-gray-700 font-medium truncate">{formatMonto(neg.licitacion_monto)}</span>
+        {dias && <span className={`text-[11px] flex-shrink-0 ${diasCls}`}>{dias}</span>}
       </div>
     </Link>
   );
@@ -372,12 +372,12 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
   const hoy = dayjs().format('YYYY-MM-DD');
 
   return (
-    <Paper withBorder radius="lg" p="md">
-      <Group justify="space-between" mb="md">
-        <ActionIcon variant="subtle" color="gray" onClick={() => setMes(m => m.subtract(1, 'month'))} aria-label="Mes anterior"><ChevronLeft size={18} /></ActionIcon>
-        <Text fw={700} fz="lg">{MESES[mes.month()]} {mes.year()}</Text>
-        <ActionIcon variant="subtle" color="gray" onClick={() => setMes(m => m.add(1, 'month'))} aria-label="Mes siguiente"><ChevronRight size={18} /></ActionIcon>
-      </Group>
+    <div className="bg-white border border-slate-200 rounded-xl p-4">
+      <div className="flex items-center justify-between mb-4">
+        <button onClick={() => setMes(m => m.subtract(1, 'month'))} aria-label="Mes anterior" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"><ChevronLeft size={18} /></button>
+        <span className="text-lg font-bold text-slate-800">{MESES[mes.month()]} {mes.year()}</span>
+        <button onClick={() => setMes(m => m.add(1, 'month'))} aria-label="Mes siguiente" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"><ChevronRight size={18} /></button>
+      </div>
       <div className="grid grid-cols-7 gap-1 mb-1">
         {SEMANA.map(d => <div key={d} className="text-center text-[11px] font-bold text-slate-400 py-1">{d}</div>)}
       </div>
@@ -404,7 +404,7 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
           );
         })}
       </div>
-    </Paper>
+    </div>
   );
 }
 
@@ -415,48 +415,479 @@ function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
   const col = colorUsuario(email || c.usuario_id);
   const tipos = Object.entries(c.porTipo || {}).sort((a, b) => b[1] - a[1]);
   return (
-    <Paper
-      withBorder radius="md" p="sm"
+    <div
       onClick={isAdmin ? onClick : undefined}
       style={{ borderColor: activo ? col : undefined, borderWidth: activo ? 2 : 1, cursor: isAdmin ? 'pointer' : 'default' }}
-      className={isAdmin ? 'transition-shadow hover:shadow-sm' : ''}
+      className={`bg-white rounded-lg border border-slate-200 p-3 ${isAdmin ? 'transition-shadow hover:shadow-sm' : ''}`}
     >
-      <Group gap={8} wrap="nowrap" justify="space-between" mb={tipos.length ? 8 : 0}>
-        <Group gap={8} wrap="nowrap" style={{ minWidth: 0 }}>
+      <div className={`flex items-center justify-between gap-2 ${tipos.length ? 'mb-2' : ''}`}>
+        <div className="flex items-center gap-2 min-w-0">
           <span style={{ background: col }} className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-white text-[11px] font-bold flex-shrink-0">
             {inicialesUsuario(nombre, email)}
           </span>
-          <div style={{ minWidth: 0 }}>
-            <Text size="sm" fw={600} lineClamp={1}>{nombre || email || 'Tú'}</Text>
-            <Text size="xs" c="dimmed">licitación{c.total !== 1 ? 'es' : ''}</Text>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold truncate">{nombre || email || 'Tú'}</p>
+            <p className="text-xs text-slate-400">licitación{c.total !== 1 ? 'es' : ''}</p>
           </div>
-        </Group>
-        <Text fz={26} fw={800} lh={1} style={{ color: col }} className="tabular-nums flex-shrink-0">{c.total}</Text>
-      </Group>
+        </div>
+        <span style={{ color: col }} className="text-2xl font-black tabular-nums flex-shrink-0 leading-none">{c.total}</span>
+      </div>
       {tipos.length > 0 && (
         <>
-          <Progress.Root size="md" radius="sm">
+          <div className="flex h-2 rounded overflow-hidden">
             {tipos.map(([t, n]) => (
-              <Progress.Section key={t} value={(n / c.total) * 100} color={getTipoLicitacion(t)?.color || '#94a3b8'} />
+              <div key={t} style={{ width: `${(n / c.total) * 100}%`, background: getTipoLicitacion(t)?.color || '#94a3b8' }} />
             ))}
-          </Progress.Root>
-          <Group gap={10} mt={6}>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-1.5">
             {tipos.slice(0, 6).map(([t, n]) => (
               <span key={t} className="inline-flex items-center gap-1 text-[10.5px] text-gray-600">
                 <span style={{ background: getTipoLicitacion(t)?.color || '#94a3b8' }} className="w-2 h-2 rounded-sm flex-shrink-0" />
                 <strong>{t}</strong> {n}
               </span>
             ))}
-          </Group>
+          </div>
         </>
       )}
-    </Paper>
+    </div>
   );
 }
 
 // Clave de sessionStorage: persiste los filtros para que al volver de un negocio
 // (o de una licitación) el panel conserve búsqueda, vista y filtros aplicados.
 const SS_NEG_FILTROS = 'negocios:filtros:v1';
+
+// ── Mini tarjeta para el calendario semanal ──────────────────────────────────
+function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }) {
+  const tipo   = extractTipoFromCodigo(neg.licitacion_codigo || '');
+  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
+  const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
+  const dias   = neg.licitacion_cierre
+    ? Math.ceil((new Date(neg.licitacion_cierre).getTime() - Date.now()) / 86400000)
+    : null;
+  const pipeline = getEstadoPipeline(neg.estado_pipeline || '1ASIGNADO');
+  const viab     = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
+  const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
+  const nombrePerfil = neg.usuario_nombre || neg.usuario_email || '';
+
+  return (
+    <button
+      onClick={onClick}
+      style={{ borderLeftColor: col, borderLeftWidth: 3 }}
+      className="w-full text-left bg-white border border-slate-200 rounded-lg p-2.5 hover:border-indigo-300 hover:shadow-sm transition-all group"
+    >
+      {/* Tipo + código + días */}
+      <div className="flex items-center gap-1.5 mb-1.5">
+        {tipo && <span className={`${tipoBg} text-white text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0`}>{tipo}</span>}
+        <span className="text-[10px] font-mono text-slate-400 truncate" title={neg.licitacion_codigo}>{neg.licitacion_codigo}</span>
+        {dias !== null && (
+          <span className={`ml-auto text-[9px] font-bold flex-shrink-0 ${dias <= 0 ? 'text-slate-400' : dias <= 1 ? 'text-red-600' : dias <= 3 ? 'text-orange-500' : 'text-slate-400'}`}>
+            {dias <= 0 ? 'Vencida' : `${dias}d`}
+          </span>
+        )}
+      </div>
+
+      {/* Nombre */}
+      <p className="text-[11.5px] font-semibold text-slate-800 line-clamp-2 leading-snug mb-1.5 group-hover:text-indigo-700 transition-colors" title={neg.licitacion_nombre}>
+        {neg.licitacion_nombre || neg.licitacion_codigo}
+      </p>
+
+      {/* Organismo */}
+      {neg.licitacion_organismo && (
+        <p className="text-[10px] text-slate-400 truncate mb-2" title={neg.licitacion_organismo}>
+          {neg.licitacion_organismo}
+        </p>
+      )}
+
+      {/* Monto */}
+      {neg.licitacion_monto != null && neg.licitacion_monto > 0 && (
+        <p className="text-[11px] font-bold text-emerald-700 mb-1.5">
+          {formatMonto(neg.licitacion_monto)}
+        </p>
+      )}
+
+      {/* Viabilidad + documentos */}
+      {(viab || neg.tiene_documentos) && (
+        <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+          {viab && (
+            <span style={{ backgroundColor: viab.color + '18', color: viab.color, borderColor: viab.color + '40' }}
+              className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0">
+              <span style={{ background: viab.color }} className="w-1.5 h-1.5 rounded-full" />
+              {viab.label}
+            </span>
+          )}
+          {neg.tiene_documentos ? (
+            <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded-full flex-shrink-0">
+              <FileText size={9} /> Docs
+            </span>
+          ) : null}
+        </div>
+      )}
+
+      {/* Perfil asignado + pipeline */}
+      <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-50">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span style={{ background: col }} className="w-4 h-4 rounded-full flex items-center justify-center text-white text-[8px] font-bold flex-shrink-0">
+            {iniciales}
+          </span>
+          <span className="text-[10px] text-slate-500 truncate" title={nombrePerfil}>{nombrePerfil}</span>
+        </span>
+        {pipeline && (
+          <span style={{ backgroundColor: pipeline.color + '18', color: pipeline.color, borderColor: pipeline.color + '40' }}
+            className="text-[9px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0">
+            {pipeline.label}
+          </span>
+        )}
+      </div>
+    </button>
+  );
+}
+
+// ── Modal de detalle para el calendario semanal ───────────────────────────────
+interface NegocioDetalle {
+  licitacion_descripcion?: string | null;
+  viabilidad_informe?: { resumen?: string; recomendacion?: string; ventaja_competitiva?: string; riesgos?: string[] } | null;
+  viabilidad_area?: string | null;
+  documentos?: { nombre_archivo: string; url_local?: string; url_original?: string; size_bytes?: number; categoria?: string }[];
+  total_documentos?: number;
+}
+
+function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Negocio; isAdmin: boolean; onClose: () => void }) {
+  const [extra, setExtra]       = useState<NegocioDetalle | null>(null);
+  const [loadingEx, setLoadingEx] = useState(true);
+
+  useEffect(() => {
+    fetch(`/api/negocios/${neg.id}`)
+      .then(r => r.json())
+      .then(d => { if (d.success) setExtra(d.negocio); })
+      .catch(() => {})
+      .finally(() => setLoadingEx(false));
+  }, [neg.id]);
+
+  const tipo   = extractTipoFromCodigo(neg.licitacion_codigo || '');
+  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
+  const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
+  const dias   = neg.licitacion_cierre
+    ? Math.ceil((new Date(neg.licitacion_cierre).getTime() - Date.now()) / 86400000)
+    : null;
+  const e = getEstadoPipeline(neg.estado_pipeline || '1ASIGNADO');
+  const viab = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
+  const inf  = extra?.viabilidad_informe;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-start gap-3 px-6 py-4 border-b border-slate-100 flex-shrink-0" style={{ borderLeft: `4px solid ${col}` }}>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap mb-1.5">
+              {tipo && <span className={`${tipoBg} text-white text-[10px] font-black px-2 py-0.5 rounded-md`}>{tipo}</span>}
+              {e && (
+                <span style={{ backgroundColor: e.color + '18', color: e.color, borderColor: e.color + '40' }}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border">
+                  <span style={{ backgroundColor: e.color }} className="w-1.5 h-1.5 rounded-full" /> {e.label}
+                </span>
+              )}
+              <span className="text-[11px] font-mono text-slate-400">{neg.licitacion_codigo}</span>
+            </div>
+            <h3 className="text-[15px] font-bold text-slate-900 leading-snug">{neg.licitacion_nombre || neg.licitacion_codigo}</h3>
+          </div>
+          <button onClick={onClose} className="flex-shrink-0 p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="overflow-y-auto p-5 space-y-4">
+
+          {/* Organismo + región */}
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {neg.licitacion_organismo && (
+              <div className="flex items-center gap-1.5 text-[13px] text-slate-600">
+                <Building2 size={13} className="text-slate-400 flex-shrink-0" />
+                <span>{neg.licitacion_organismo}</span>
+              </div>
+            )}
+            {neg.licitacion_region && (
+              <div className="flex items-center gap-1.5 text-[12px] text-slate-500">
+                <MapPin size={12} className="text-slate-400 flex-shrink-0" /> {neg.licitacion_region}
+              </div>
+            )}
+          </div>
+
+          {/* Datos clave en grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {neg.licitacion_monto != null && neg.licitacion_monto > 0 && (
+              <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3">
+                <p className="text-[10px] text-emerald-600 font-semibold uppercase tracking-wide mb-0.5">Presupuesto</p>
+                <p className="text-[14px] font-bold text-emerald-800">{formatMonto(neg.licitacion_monto)}</p>
+              </div>
+            )}
+            {neg.licitacion_cierre && (
+              <div className={`rounded-xl p-3 border ${dias !== null && dias <= 3 ? 'bg-red-50 border-red-100' : dias !== null && dias <= 7 ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100'}`}>
+                <p className="text-[10px] text-slate-500 font-semibold uppercase tracking-wide mb-0.5">Cierre</p>
+                <p className="text-[13px] font-bold text-slate-800">
+                  {new Date(neg.licitacion_cierre).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </p>
+                {dias !== null && (
+                  <p className={`text-[11px] font-semibold mt-0.5 ${dias <= 0 ? 'text-slate-400' : dias <= 3 ? 'text-red-600' : dias <= 7 ? 'text-amber-600' : 'text-slate-500'}`}>
+                    {dias <= 0 ? 'Vencida' : `${dias} días restantes`}
+                  </p>
+                )}
+              </div>
+            )}
+            {neg.monto_ofertado > 0 && (
+              <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-3">
+                <p className="text-[10px] text-indigo-600 font-semibold uppercase tracking-wide mb-0.5">Monto ofertado</p>
+                <p className="text-[13px] font-bold text-indigo-800">{formatMonto(neg.monto_ofertado)}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Viabilidad */}
+          {viab && (
+            <div className={`rounded-xl border p-3.5 space-y-2 ${viab.bg}`} style={{ borderColor: viab.color + '40' }}>
+              <div className="flex items-center gap-2">
+                <span style={{ background: viab.color }} className="w-2.5 h-2.5 rounded-full flex-shrink-0" />
+                <span className={`text-[13px] font-bold ${viab.text}`}>
+                  Viabilidad: {viab.label}
+                  {neg.viabilidad_score != null && <span className="opacity-70 font-semibold"> · {neg.viabilidad_score}/100</span>}
+                </span>
+                {extra?.viabilidad_area && (
+                  <span className="ml-auto text-[11px] text-slate-500 bg-white/60 px-2 py-0.5 rounded-full border border-white/80">
+                    {extra.viabilidad_area}
+                  </span>
+                )}
+              </div>
+              {loadingEx && !inf && (
+                <p className="text-[11px] text-slate-400 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Cargando análisis…</p>
+              )}
+              {inf?.resumen && (
+                <p className="text-[12px] text-slate-700 leading-relaxed">{inf.resumen}</p>
+              )}
+              {inf?.ventaja_competitiva && (
+                <div className="bg-white/60 rounded-lg px-3 py-2 border border-emerald-100">
+                  <p className="text-[11px] font-bold text-emerald-700 mb-0.5">Ventaja competitiva</p>
+                  <p className="text-[11.5px] text-emerald-800 leading-snug">{inf.ventaja_competitiva}</p>
+                </div>
+              )}
+              {inf?.recomendacion && (
+                <div className="bg-white/60 rounded-lg px-3 py-2 border border-indigo-100">
+                  <p className="text-[11px] font-bold text-indigo-700 mb-0.5">Recomendación</p>
+                  <p className="text-[11.5px] text-indigo-800 leading-snug">{inf.recomendacion}</p>
+                </div>
+              )}
+              {inf?.riesgos && inf.riesgos.length > 0 && (
+                <div className="bg-white/60 rounded-lg px-3 py-2 border border-red-100">
+                  <p className="text-[11px] font-bold text-red-700 mb-1">Riesgos</p>
+                  <ul className="space-y-0.5">
+                    {inf.riesgos.map((r: string, i: number) => (
+                      <li key={i} className="text-[11px] text-red-700 leading-snug">• {r}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Descripción */}
+          {!loadingEx && extra?.licitacion_descripcion && (
+            <div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Descripción</p>
+              <p className="text-[12.5px] text-slate-600 leading-relaxed line-clamp-4">{extra.licitacion_descripcion}</p>
+            </div>
+          )}
+
+          {/* Documentos */}
+          {!loadingEx && extra && (extra.total_documentos ?? 0) > 0 && (
+            <div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2">
+                Documentos <span className="text-indigo-600">({extra.total_documentos})</span>
+              </p>
+              <div className="space-y-1.5">
+                {(extra.documentos || []).slice(0, 8).map((doc, i) => (
+                  <div key={i} className="flex items-center gap-2.5 px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg">
+                    <FileText size={13} className="text-indigo-500 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11.5px] font-medium text-slate-700 truncate" title={doc.nombre_archivo}>
+                        {doc.nombre_archivo}
+                      </p>
+                      {(doc.categoria || doc.size_bytes) && (
+                        <p className="text-[10px] text-slate-400">
+                          {doc.categoria && <span className="capitalize">{doc.categoria}</span>}
+                          {doc.size_bytes && doc.categoria && ' · '}
+                          {doc.size_bytes && `${(doc.size_bytes / 1024).toFixed(0)} KB`}
+                        </p>
+                      )}
+                    </div>
+                    {doc.url_local && (
+                      <a href={doc.url_local} target="_blank" rel="noopener noreferrer"
+                        className="flex-shrink-0 p-1 rounded text-slate-400 hover:text-indigo-600 transition-colors"
+                        onClick={e => e.stopPropagation()}>
+                        <ExternalLink size={12} />
+                      </a>
+                    )}
+                  </div>
+                ))}
+                {(extra.total_documentos ?? 0) > 8 && (
+                  <p className="text-[11px] text-slate-400 pl-1">+{(extra.total_documentos ?? 0) - 8} documentos más</p>
+                )}
+              </div>
+            </div>
+          )}
+          {!loadingEx && extra && (extra.total_documentos ?? 0) === 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-100 rounded-lg text-[11.5px] text-slate-400">
+              <FileText size={13} /> Sin documentos descargados
+            </div>
+          )}
+
+          {/* Etiquetas */}
+          {neg.etiquetas.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {neg.etiquetas.map(et => (
+                <span key={et.id} style={{ backgroundColor: et.color + '20', color: et.color, borderColor: et.color + '40' }}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full border">
+                  <span style={{ backgroundColor: et.color }} className="w-1.5 h-1.5 rounded-full" /> {et.nombre}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Asignado a */}
+          {isAdmin && (neg.usuario_nombre || neg.usuario_email) && (
+            <div className="flex items-center gap-2.5 px-3 py-2 bg-slate-50 border border-slate-100 rounded-xl">
+              <span style={{ background: col }} className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[11px] font-bold flex-shrink-0">
+                {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
+              </span>
+              <div>
+                <p className="text-[12px] font-semibold text-slate-700">{neg.usuario_nombre || neg.usuario_email}</p>
+                <p className="text-[10px] text-slate-400">Responsable asignado</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 flex-shrink-0">
+          <button onClick={onClose} className="text-[13px] font-semibold text-slate-500 hover:text-slate-700 transition-colors">
+            Cerrar
+          </button>
+          <Link
+            href={`/negocios/${neg.id}`}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-colors"
+            onClick={onClose}
+          >
+            Abrir negocio <ArrowRight size={13} />
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Vista calendario semanal ──────────────────────────────────────────────────
+function VistaSemana({ negocios, onAbrirNegocio }: { negocios: Negocio[]; onAbrirNegocio: (n: Negocio) => void }) {
+  const [semana, setSemana] = useState<Date>(() => {
+    const now = new Date();
+    const day = now.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diff);
+    monday.setHours(0, 0, 0, 0);
+    return monday;
+  });
+
+  const dias = useMemo(() => Array.from({ length: 5 }, (_, i) => {
+    const d = new Date(semana);
+    d.setDate(semana.getDate() + i);
+    return d;
+  }), [semana]);
+
+  const fmtKey = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+  const porDia = useMemo(() => {
+    const m = new Map<string, Negocio[]>();
+    for (const n of negocios) {
+      if (!n.licitacion_cierre) continue;
+      const k = fmtKey(new Date(n.licitacion_cierre));
+      if (!m.has(k)) m.set(k, []);
+      m.get(k)!.push(n);
+    }
+    return m;
+  }, [negocios]);
+
+  const hoyKey  = fmtKey(new Date());
+  const prevSem = () => { const d = new Date(semana); d.setDate(d.getDate() - 7); setSemana(d); };
+  const nextSem = () => { const d = new Date(semana); d.setDate(d.getDate() + 7); setSemana(d); };
+
+  const DIAS_NOMBRES = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+  const totalSem = dias.reduce((acc, d) => acc + (porDia.get(fmtKey(d))?.length || 0), 0);
+
+  return (
+    <div>
+      {/* Navegación */}
+      <div className="flex items-center justify-between mb-4 bg-white border border-slate-200 rounded-xl px-4 py-3">
+        <button onClick={prevSem} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors" title="Semana anterior">
+          <ChevronLeft size={18} />
+        </button>
+        <div className="text-center">
+          <p className="text-[13px] font-bold text-slate-800">
+            {dias[0].toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })} — {dias[4].toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}
+          </p>
+          {totalSem > 0 && (
+            <p className="text-[11px] text-slate-400 mt-0.5">{totalSem} cierre{totalSem !== 1 ? 's' : ''} esta semana</p>
+          )}
+        </div>
+        <button onClick={nextSem} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors" title="Semana siguiente">
+          <ChevronRight size={18} />
+        </button>
+      </div>
+
+      {/* Grid 5 columnas */}
+      <div className="grid grid-cols-5 gap-3">
+        {dias.map((dia, i) => {
+          const k     = fmtKey(dia);
+          const items = porDia.get(k) || [];
+          const esHoy = k === hoyKey;
+
+          return (
+            <div key={k} className={`rounded-xl border flex flex-col ${esHoy ? 'border-indigo-300 bg-indigo-50/20' : 'border-slate-200 bg-white'}`}>
+              {/* Header día */}
+              <div className={`px-3 py-2.5 border-b flex-shrink-0 ${esHoy ? 'border-indigo-200 bg-indigo-50/50' : 'border-slate-100'}`}>
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{DIAS_NOMBRES[i]}</p>
+                <div className="flex items-baseline justify-between">
+                  <p className={`text-lg font-black leading-tight ${esHoy ? 'text-indigo-600' : 'text-slate-800'}`}>
+                    {dia.getDate()}
+                    <span className="text-[10px] font-normal text-slate-400 ml-1">
+                      {dia.toLocaleDateString('es-CL', { month: 'short' })}
+                    </span>
+                  </p>
+                  {items.length > 0 && (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${esHoy ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
+                      {items.length}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Licitaciones del día */}
+              <div className="p-2 space-y-2 flex-1 min-h-[180px]">
+                {items.length === 0 ? (
+                  <p className="text-[10px] text-slate-300 text-center pt-6">Sin cierres</p>
+                ) : (
+                  items.map(n => (
+                    <NegocioMiniCard key={n.id} neg={n} onClick={() => onAbrirNegocio(n)} />
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 // ── Página principal ──────────────────────────────────────────────────────────
 function NegociosContent() {
@@ -472,12 +903,15 @@ function NegociosContent() {
   const [filtroUsuario, setFiltroUsuario] = useState('');
   const [filtroEtiqueta, setFiltroEtiqueta] = useState('');
   const [filtroTipo, setFiltroTipo]         = useState('');
-  const [showModal, setShowModal]   = useState(false);
-  const [vista, setVista]           = useState<'lista' | 'categoria' | 'calendario'>('categoria');
-  const [carga, setCarga]           = useState<Carga[]>([]);
-  const [diaSel, setDiaSel]         = useState<string | null>(null);
+  const [showModal, setShowModal]       = useState(false);
+  const [vista, setVista]               = useState<'lista' | 'calendario' | 'semana'>('semana');
+  const [carga, setCarga]               = useState<Carga[]>([]);
+  const [diaSel, setDiaSel]             = useState<string | null>(null);
+  const [negocioModal, setNegocioModal] = useState<Negocio | null>(null);
+  const [yaActualizado, setYaActualizado] = useState(false);
+  const [filtrosOpen, setFiltrosOpen]   = useState(false);
   // Hidratado = ya restauramos los filtros guardados; evita persistir el default antes.
-  const [hidratado, setHidratado]   = useState(false);
+  const [hidratado, setHidratado]       = useState(false);
 
   // Restaurar filtros guardados al montar (persisten al volver de un negocio/licitación).
   useEffect(() => {
@@ -489,7 +923,7 @@ function NegociosContent() {
         if (typeof f.filtroUsuario === 'string') setFiltroUsuario(f.filtroUsuario);
         if (typeof f.filtroEtiqueta === 'string') setFiltroEtiqueta(f.filtroEtiqueta);
         if (typeof f.filtroTipo === 'string')    setFiltroTipo(f.filtroTipo);
-        if (f.vista === 'lista' || f.vista === 'categoria' || f.vista === 'calendario') setVista(f.vista);
+        if (f.vista === 'lista' || f.vista === 'calendario' || f.vista === 'semana') setVista(f.vista);
       }
     } catch { /* sin persistencia */ }
     setHidratado(true);
@@ -523,6 +957,7 @@ function NegociosContent() {
       setError(e.message);
     } finally {
       setLoading(false);
+      setYaActualizado(true);
     }
   }, [filtroUsuario]);
 
@@ -596,8 +1031,18 @@ function NegociosContent() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={cargar} className="p-2 hover:bg-slate-100 rounded-lg text-gray-500">
-              <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            <button
+              onClick={() => { setYaActualizado(false); cargar(); }}
+              disabled={loading}
+              title={yaActualizado ? 'Ya actualizado — clic para volver a cargar' : 'Actualizar lista'}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
+                loading ? 'bg-slate-100 text-slate-400 cursor-not-allowed' :
+                yaActualizado ? 'bg-red-50 border border-red-200 text-red-600 hover:bg-red-100' :
+                'bg-emerald-600 text-white hover:bg-emerald-500 shadow-sm'
+              }`}
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+              {loading ? 'Cargando…' : yaActualizado ? 'Actualizado ✓' : 'Actualizar'}
             </button>
             {isAdmin && (
               <button
@@ -621,7 +1066,7 @@ function NegociosContent() {
                 <button onClick={() => setFiltroUsuario('')} className="text-xs text-indigo-600 hover:underline font-semibold">Ver todos</button>
               )}
             </div>
-            <SimpleGrid cols={{ base: 1, sm: 2, lg: 3, xl: 4 }} spacing="sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {carga.map(c => {
                 const nombre = c.nombre || (c.usuario_id === usuario?.id ? usuario?.nombre : null) || null;
                 const email  = c.email  || (c.usuario_id === usuario?.id ? usuario?.email  : null) || null;
@@ -633,93 +1078,87 @@ function NegociosContent() {
                   />
                 );
               })}
-            </SimpleGrid>
+            </div>
           </div>
         )}
 
-        {/* Filtros */}
-        <div className="space-y-2 mb-4">
-          {/* Fila 1: búsqueda + selects */}
-          <div className="flex flex-wrap gap-2">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Buscar..."
-                className="pl-8 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-52"
-              />
+        {/* Barra de herramientas: vistas + filtros */}
+        <div className="mb-4 space-y-2">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            {/* Selector de vista */}
+            <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+              {([
+                { key: 'semana',      label: 'Semana',      icon: <CalendarDays size={13} /> },
+                { key: 'lista',       label: 'Lista',       icon: <List size={13} /> },
+                { key: 'calendario',  label: 'Mes',         icon: <Calendar size={13} /> },
+              ] as const).map(v => (
+                <button
+                  key={v.key}
+                  onClick={() => setVista(v.key)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                    vista === v.key ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {v.icon} {v.label}
+                </button>
+              ))}
             </div>
 
-            {isAdmin && usuarios.length > 0 && (
-              <select
-                value={filtroUsuario}
-                onChange={e => setFiltroUsuario(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-              >
-                <option value="">Todos los usuarios</option>
-                {usuarios.map(u => (
-                  <option key={u.id} value={u.id}>{u.nombre || u.email}</option>
-                ))}
-              </select>
-            )}
-
-            {etiquetas.length > 0 && (
-              <select
-                value={filtroEtiqueta}
-                onChange={e => setFiltroEtiqueta(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-              >
-                <option value="">Todas las líneas</option>
-                {etiquetas.map(e => (
-                  <option key={e.id} value={e.id}>{e.nombre}</option>
-                ))}
-              </select>
-            )}
-
-            <select
-              value={filtroTipo}
-              onChange={e => setFiltroTipo(e.target.value)}
-              className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-            >
-              <option value="">Todos los tipos</option>
-              {tiposPresentes.map(t => (
-                <option key={t} value={t}>{t} · {getTipoLicitacion(t)?.label || t}</option>
-              ))}
-            </select>
-
-            {/* Toggle de vista: por categoría (cajitas) / lista */}
-            <div className="ml-auto flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5">
+            {/* Filtros toggle + limpiar */}
+            <div className="flex items-center gap-2">
+              {(search || filtroUsuario || filtroEtiqueta || filtroTipo) && (
+                <button
+                  onClick={() => { setSearch(''); setFiltroUsuario(''); setFiltroEtiqueta(''); setFiltroTipo(''); }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                >
+                  <X size={12} /> Limpiar filtros
+                </button>
+              )}
               <button
-                onClick={() => setVista('categoria')}
-                title="Vista por categoría"
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                  vista === 'categoria' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                onClick={() => setFiltrosOpen(v => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
+                  filtrosOpen ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
                 }`}
               >
-                <LayoutGrid size={13} /> Categorías
-              </button>
-              <button
-                onClick={() => setVista('lista')}
-                title="Vista lista"
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                  vista === 'lista' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <List size={13} /> Lista
-              </button>
-              <button
-                onClick={() => setVista('calendario')}
-                title="Vista calendario (por fecha de cierre)"
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${
-                  vista === 'calendario' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <CalendarDays size={13} /> Calendario
+                <SlidersHorizontal size={12} /> Filtros
+                <ChevronDown size={11} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
               </button>
             </div>
           </div>
 
+          {/* Panel de filtros colapsable */}
+          {filtrosOpen && (
+            <div className="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap gap-2">
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Buscar..."
+                  className="pl-8 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none w-48"
+                />
+              </div>
+              {isAdmin && usuarios.length > 0 && (
+                <select value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)}
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                  <option value="">Todos los usuarios</option>
+                  {usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre || u.email}</option>)}
+                </select>
+              )}
+              {etiquetas.length > 0 && (
+                <select value={filtroEtiqueta} onChange={e => setFiltroEtiqueta(e.target.value)}
+                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                  <option value="">Todas las líneas</option>
+                  {etiquetas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              )}
+              <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                <option value="">Todos los tipos</option>
+                {tiposPresentes.map(t => <option key={t} value={t}>{t} · {getTipoLicitacion(t)?.label || t}</option>)}
+              </select>
+            </div>
+          )}
         </div>
 
         {/* Error */}
@@ -745,27 +1184,12 @@ function NegociosContent() {
                 }
               </p>
             </div>
+          ) : vista === 'semana' ? (
+            /* ── Vista calendario semanal ── */
+            <VistaSemana negocios={negociosFiltrados} onAbrirNegocio={setNegocioModal} />
           ) : vista === 'calendario' ? (
-            /* ── Vista calendario (por fecha de cierre) ── */
+            /* ── Vista calendario mensual ── */
             <VistaCalendario negocios={negociosFiltrados} onAbrirDia={setDiaSel} />
-          ) : vista === 'categoria' ? (
-            /* ── Vista por categoría (cajitas) ── */
-            <div className="space-y-5">
-              {gruposCategoria.map(grupo => (
-                <div key={grupo.id} className="rounded-2xl border border-slate-200 bg-slate-50/50 p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span style={{ backgroundColor: grupo.color }} className="w-3 h-3 rounded-full flex-shrink-0" />
-                    <h3 className="text-sm font-bold uppercase tracking-wide" style={{ color: grupo.color }}>{grupo.nombre}</h3>
-                    <span className="text-xs text-gray-400 font-medium">{grupo.items.length}</span>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {grupo.items.map(neg => (
-                      <NegocioCard key={neg.id} neg={neg} isAdmin={isAdmin} onEliminar={eliminar} />
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
           ) : (
             <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
               {/* Tabla header */}
@@ -900,57 +1324,62 @@ function NegociosContent() {
         )}
       </div>
 
-      {/* Modal del día del calendario: licitaciones que cierran ese día */}
-      <Modal
-        opened={!!diaSel}
-        onClose={() => setDiaSel(null)}
-        size="lg"
-        radius="md"
-        scrollAreaComponent={ScrollArea.Autosize}
-        title={
-          <Text fw={700}>
-            Cierres del {diaSel ? dayjs(diaSel).format('DD/MM/YYYY') : ''}
-            <Text span c="dimmed" fw={400} size="sm"> · {itemsDia.length} licitación{itemsDia.length !== 1 ? 'es' : ''}</Text>
-          </Text>
-        }
-      >
-        <Stack gap="sm">
-          {itemsDia.map(neg => {
-            const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
-            const tipo = extractTipoFromCodigo(neg.licitacion_codigo || '');
-            return (
-              <Paper key={neg.id} withBorder radius="md" p="sm" style={{ borderLeft: `3px solid ${col}` }}>
-                <Group justify="space-between" wrap="nowrap" align="flex-start" gap="sm">
-                  <div style={{ minWidth: 0 }}>
-                    <Group gap={6} mb={3}>
-                      <Text size="xs" ff="monospace" c="dimmed">{neg.licitacion_codigo}</Text>
-                      {tipo && <Badge size="xs" variant="filled" color="gray">{tipo}</Badge>}
-                      <PipelineBadge estadoId={neg.estado_pipeline} />
-                    </Group>
-                    <Text size="sm" fw={600} lineClamp={2}>{neg.licitacion_nombre || 'Sin nombre'}</Text>
-                    {neg.licitacion_organismo && <Text size="xs" c="dimmed" lineClamp={1} mt={2}>{neg.licitacion_organismo}</Text>}
-                    <Group gap={12} mt={5}>
-                      <Text size="xs" fw={700} c="teal.7">{formatMonto(neg.licitacion_monto)}</Text>
-                      {isAdmin && (
-                        <Group gap={5}>
-                          <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
-                            {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
-                          </span>
-                          <Text size="xs" c="dimmed">{neg.usuario_nombre || neg.usuario_email}</Text>
-                        </Group>
-                      )}
-                    </Group>
+      {/* Modal del día del calendario */}
+      {!!diaSel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <p className="font-bold text-slate-800">
+                Cierres del {dayjs(diaSel).format('DD/MM/YYYY')}
+                <span className="text-sm font-normal text-slate-400 ml-2">· {itemsDia.length} licitación{itemsDia.length !== 1 ? 'es' : ''}</span>
+              </p>
+              <button onClick={() => setDiaSel(null)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-4 space-y-2">
+              {itemsDia.map(neg => {
+                const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
+                const tipo = extractTipoFromCodigo(neg.licitacion_codigo || '');
+                return (
+                  <div key={neg.id} className="bg-white border border-slate-200 rounded-lg p-3" style={{ borderLeft: `3px solid ${col}` }}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span className="text-xs font-mono text-slate-400">{neg.licitacion_codigo}</span>
+                          {tipo && <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-semibold">{tipo}</span>}
+                          <PipelineBadge estadoId={neg.estado_pipeline} />
+                        </div>
+                        <p className="text-sm font-semibold text-slate-800 line-clamp-2">{neg.licitacion_nombre || 'Sin nombre'}</p>
+                        {neg.licitacion_organismo && <p className="text-xs text-slate-400 truncate mt-0.5">{neg.licitacion_organismo}</p>}
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <span className="text-xs font-bold text-teal-700">{formatMonto(neg.licitacion_monto)}</span>
+                          {isAdmin && (
+                            <span className="flex items-center gap-1 text-xs text-slate-400">
+                              <span style={{ background: col }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
+                                {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
+                              </span>
+                              {neg.usuario_nombre || neg.usuario_email}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <Link href={`/negocios/${neg.id}`} onClick={() => setDiaSel(null)}
+                        className="flex-shrink-0 flex items-center gap-1 text-xs px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg font-medium hover:bg-indigo-100 transition-colors">
+                        Entrar <ArrowRight size={13} />
+                      </Link>
+                    </div>
                   </div>
-                  <Button component={Link} href={`/negocios/${neg.id}`} size="xs" variant="light"
-                    rightSection={<ArrowRight size={13} />} onClick={() => setDiaSel(null)} className="flex-shrink-0">
-                    Entrar
-                  </Button>
-                </Group>
-              </Paper>
-            );
-          })}
-        </Stack>
-      </Modal>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {negocioModal && (
+        <NegocioDetalleModal negocio={negocioModal} isAdmin={isAdmin} onClose={() => setNegocioModal(null)} />
+      )}
 
       {isAdmin && (
         <ModalAsignar
