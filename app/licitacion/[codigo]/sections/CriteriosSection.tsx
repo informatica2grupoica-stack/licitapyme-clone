@@ -17,16 +17,17 @@ const TEXT_COLORS = [
 export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, analizandoIA, onIrAInteligencia }: {
   criterios?: CriterioEvaluacion[];
   analisisIA?: AnalisisIA | null;
-  // Criterios del informe de Viabilidad IA (forma: ponderacion_pct + fuente/página).
-  criteriosViabilidad?: Array<{ nombre: string; ponderacion_pct: number; tipo?: string; fuente?: string }>;
+  // Criterios del informe de Viabilidad IA v2.0 (forma: ponderacion + forma_aplicacion + fuente).
+  criteriosViabilidad?: Array<{ nombre: string; ponderacion?: number; ponderacion_pct?: number; forma_aplicacion?: string; fuente?: string }>;
   analizandoIA?: boolean;
   onIrAInteligencia: () => void;
 }) {
   const criteriosIA = analisisIA?.criteriosEvaluacion;
-  // Normalizamos los criterios del informe de viabilidad al shape común.
+  // Normalizamos los criterios del informe de viabilidad al shape común. La descripción
+  // prioriza la FORMA DE APLICACIÓN (lo valioso del v2.0) y cae a la fuente si no hay.
   const criteriosViab: CriterioEvaluacion[] = (criteriosViabilidad || [])
     .filter(c => c && c.nombre)
-    .map(c => ({ nombre: c.nombre, ponderacion: Number(c.ponderacion_pct) || 0, descripcion: c.fuente }));
+    .map(c => ({ nombre: c.nombre, ponderacion: Number(c.ponderacion ?? c.ponderacion_pct) || 0, descripcion: c.forma_aplicacion || c.fuente }));
 
   const tieneCriteriosMP   = !!criterios && criterios.length > 0;
   const tieneCriteriosIA   = !tieneCriteriosMP && !!criteriosIA && criteriosIA.length > 0;

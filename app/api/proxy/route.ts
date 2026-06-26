@@ -1,9 +1,12 @@
 // src/app/api/proxy/route.ts
 import { NextRequest, NextResponse } from 'next/server';
+import { mimeDeNombre } from '@/app/lib/r2';
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const url = searchParams.get('url');
+  // inline=1 → previsualizar en el navegador (visor). Sin él → descarga (attachment).
+  const inline = searchParams.get('inline') === '1';
 
   if (!url) {
     return NextResponse.json({ error: 'Falta el parámetro url' }, { status: 400 });
@@ -53,10 +56,9 @@ export async function GET(request: NextRequest) {
     }
 
     const buffer = await response.arrayBuffer();
-    const contentType = response.headers.get('content-type') || 'application/octet-stream';
-    
-    // Intentar obtener el nombre del archivo desde Content-Disposition
-    let filename = `documento_${Date.now()}.pdf`;
+
+    // Nombre del archivo: desde la URL o desde Content-Disposition de origen.
+    let filename = decodeURIComponent((parsed.pathname.split('/').pop() || `documento_${Date.now()}`));
     const contentDisposition = response.headers.get('content-disposition');
     if (contentDisposition) {
       const match = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
@@ -65,13 +67,25 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    console.log(`✅ Archivo descargado: ${filename} (${buffer.byteLength} bytes)`);
+    // Content-Type: derivado de la extensión (fuente de verdad). R2/MP suelen mandar
+    // octet-stream o text/plain, que rompen la previsualización. Solo respetamos el
+    // de origen si es un MIME real y la extensión no nos dice nada.
+    const ctOrigen = response.headers.get('content-type') || '';
+    const ctPorExt = mimeDeNombre(filename, '');
+    const contentType = ctPorExt
+      || (ctOrigen && ctOrigen !== 'application/octet-stream' && ctOrigen !== 'text/plain' ? ctOrigen : 'application/octet-stream');
+
+    const disposition = inline
+      ? `inline; filename="${encodeURIComponent(filename)}"`
+      : `attachment; filename="${encodeURIComponent(filename)}"`;
+
+    console.log(`✅ Archivo servido: ${filename} (${buffer.byteLength} bytes, ${contentType}, ${inline ? 'inline' : 'attachment'})`);
 
     return new NextResponse(buffer, {
       headers: {
         'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="${encodeURIComponent(filename)}"`,
-        'Cache-Control': 'public, max-age=3600'
+        'Content-Disposition': disposition,
+        'Cache-Control': 'public, max-age=3600',
       },
     });
   } catch (error) {

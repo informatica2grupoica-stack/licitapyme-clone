@@ -10,21 +10,62 @@ export const r2Client = new S3Client({
   },
 });
 
+// MIME por extensión — fuente de verdad para que el navegador previsualice (PDF/imagen)
+// y para que el visor de Office reconozca Word/Excel/PPT. Mercado Público suele
+// devolver octet-stream / text/plain, así que NO confiamos en el contentType de origen.
+const MIME_POR_EXT: Record<string, string> = {
+  pdf:  'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc:  'application/msword',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls:  'application/vnd.ms-excel',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  ppt:  'application/vnd.ms-powerpoint',
+  rtf:  'application/rtf',
+  zip:  'application/zip',
+  rar:  'application/x-rar-compressed',
+  png:  'image/png',
+  jpg:  'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif:  'image/gif',
+  webp: 'image/webp',
+  bmp:  'image/bmp',
+  svg:  'image/svg+xml',
+  txt:  'text/plain; charset=utf-8',
+  csv:  'text/csv; charset=utf-8',
+};
+
+export function mimeDeNombre(nombre: string, fallback = 'application/octet-stream'): string {
+  const ext = (nombre.split('.').pop() || '').toLowerCase();
+  return MIME_POR_EXT[ext] || fallback;
+}
+
 export async function subirDocumentoR2(
   licitacionCodigo: string,
   documentoNombre: string,
   buffer: Buffer,
-  contentType: string = 'application/pdf'
+  contentType?: string
 ): Promise<string> {
   const timestamp = Date.now();
   const nombreLimpio = documentoNombre.replace(/[^a-zA-Z0-9áéíóúñÑ\-_.]/g, '_');
   const key = `${licitacionCodigo}/${timestamp}_${nombreLimpio}`;
-  
+
+  // Prioridad: MIME derivado de la extensión > contentType recibido > octet-stream.
+  // Así el PDF se sirve como application/pdf (embebible) y no como descarga forzada.
+  const ext = (documentoNombre.split('.').pop() || '').toLowerCase();
+  const mimeFinal = MIME_POR_EXT[ext]
+    || (contentType && contentType !== 'application/octet-stream' && contentType !== 'text/plain' ? contentType : null)
+    || 'application/octet-stream';
+
   await r2Client.send(new PutObjectCommand({
     Bucket: process.env.R2_BUCKET_NAME,
     Key: key,
     Body: buffer,
-    ContentType: contentType,
+    ContentType: mimeFinal,
+    // inline → el navegador previsualiza (PDF/imagen) en vez de descargar.
+    // SIN filename: los headers HTTP deben ser ASCII y el nombre puede traer tildes/ñ
+    // (ej. "Vehículos"), lo que hace que R2 rechace el PutObject. El nombre ya va en la key.
+    ContentDisposition: 'inline',
   }));
   
   const publicBase = process.env.R2_PUBLIC_URL || `https://pub-${process.env.R2_ACCOUNT_ID}.r2.dev`;

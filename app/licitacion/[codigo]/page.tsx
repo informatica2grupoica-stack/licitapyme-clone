@@ -103,12 +103,19 @@ export default function LicitacionDetallePage() {
         if (data.revisarManual && data.mensajeRevision) {
           toastWarning('Revisar las bases manualmente', data.mensajeRevision);
         }
-        fetchDocumentos();
+        await fetchDocumentos();
+        // Clasificación automática inmediata tras descargar (no depende del botón ni del effect).
+        // Apagamos la fase de descarga primero para que el banner muestre la fase "clasificando".
+        setDescargandoAuto(false);
+        clasificacionDisparada.current = true; // evita doble disparo desde el useEffect
+        await handleClasificar();
       } else {
         // Mostrar el paso específico que falló para facilitar el diagnóstico
-        const detalle = data.pasos?.paso1_listar || data.pasos?.paso3_browser || data.error || 'Fallo en la descarga';
+        const detalle = data.error
+          || data.pasos?.paso4_subir || data.pasos?.paso3_browser
+          || data.pasos?.paso1_listar || 'Fallo en la descarga';
         toastError('Error al descargar', detalle);
-        console.error('[auto-descarga] pasos de fallo:', data.pasos);
+        if (data.pasos) console.error('[auto-descarga] pasos de fallo:', data.pasos);
       }
     } catch (e: any) {
       toastError('Error de red', 'No se pudo conectar con el servidor de descarga');
@@ -294,7 +301,7 @@ export default function LicitacionDetallePage() {
       const data = await res.json();
       if (data.success) {
         if (data.resumen_licitacion) setResumenClasificacion(data.resumen_licitacion);
-        fetchDocumentos();
+        await fetchDocumentos();
       }
     } catch {}
     finally { setClasificando(false); }
@@ -590,7 +597,7 @@ export default function LicitacionDetallePage() {
               <CriteriosSection
                 criterios={licitacion.criterios_evaluacion}
                 analisisIA={analisisIA}
-                criteriosViabilidad={informeViabIA?.criterios_evaluacion}
+                criteriosViabilidad={informeViabIA?.criterios_evaluacion?.criterios}
                 analizandoIA={analizandoIA}
                 onIrAInteligencia={() => setActiveSection('inteligencia')}
               />

@@ -1395,7 +1395,7 @@ function DetalleContent() {
               <CriteriosSection
                 criterios={oportunidad?.criterios_evaluacion}
                 analisisIA={analisisIA as any}
-                criteriosViabilidad={viabIA?.criterios_evaluacion}
+                criteriosViabilidad={viabIA?.criterios_evaluacion?.criterios}
                 analizandoIA={false}
                 onIrAInteligencia={() => setSeccion('analisis')}
               />

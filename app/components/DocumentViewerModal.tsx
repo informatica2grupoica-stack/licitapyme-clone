@@ -47,6 +47,11 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
 
   if (!doc) return null;
   const tipo = tipoDe(doc.nombre, doc.url);
+  // PDF e imágenes se sirven por el proxy con inline=1: fuerza el Content-Type
+  // correcto y la previsualización (los archivos en R2 tienen MIME malo de origen).
+  const proxyInline = `/api/proxy?url=${encodeURIComponent(doc.url)}&inline=1`;
+  // El visor de Office descarga el archivo desde los servidores de Microsoft, así
+  // que necesita la URL pública directa (no el proxy local).
   const officeSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.url)}`;
 
   return (
@@ -58,7 +63,7 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
       aria-label={`Visor: ${doc.nombre}`}
     >
       <div
-        className="flex flex-col w-full max-w-6xl mx-auto flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-2xl"
+        className="flex flex-col w-full max-w-[95rem] mx-auto flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Cabecera */}
@@ -100,7 +105,7 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
 
           {tipo === 'pdf' && (
             <iframe
-              src={`${doc.url}#view=FitH`}
+              src={`${proxyInline}#zoom=page-width&view=FitH`}
               title={doc.nombre}
               className="w-full h-full border-0"
               onLoad={() => setCargando(false)}
@@ -110,7 +115,7 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
           {tipo === 'img' && (
             <div className="w-full h-full overflow-auto flex items-center justify-center p-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={doc.url} alt={doc.nombre} className="max-w-full max-h-full object-contain" />
+              <img src={proxyInline} alt={doc.nombre} className="max-w-full max-h-full object-contain" />
             </div>
           )}
 

@@ -18,25 +18,26 @@ interface Feedback {
   created_at: string;
 }
 
-interface Criterio { nombre: string; ponderacion_pct: number; tipo?: string; fuente?: string }
-interface Producto { linea: number; descripcion: string; modelo?: string; cantidad?: number | null; tipo?: string; ruta?: string }
+// Esquema PROMPT 2 v2.0 (sección 5A) + campos derivados (score/semaforo/area).
+interface Criterio { nombre: string; ponderacion?: number; forma_aplicacion?: string; medio_verificacion?: string; fuente?: string }
+interface Producto { linea: number; descripcion: string; modelo?: string; cantidad?: number | null; unidad_medida?: string; unidad_inferida?: boolean; presupuesto_linea?: number | null; tipo?: string; ruta?: string }
 interface Palanca { palanca: string; estado: string; condicion?: string; fuente?: string }
+interface Hito { hito: string; duracion_dias?: number | null; tipo_dias?: string; base_computo?: string; fuente?: string; inferido?: boolean }
 interface InformeIA {
   score_0_100?: number; semaforo?: string; area_negocio?: string;
-  exclusion?: { excluido?: boolean; categoria?: string | null; motivo?: string; fuente?: string };
-  presupuesto?: { bruto?: number | null; neto?: number | null; con_iva?: boolean; fuente?: string; gate?: string };
-  modalidad?: { general?: string; tipo?: string; nivel_lineas?: string; nivel_intra_linea?: string; evidencia?: string; fuente?: string; libertad_de_pricing?: boolean; revision_humana?: boolean };
-  criterios_evaluacion?: Criterio[];
-  criterios_no_encontrados?: boolean;
+  meta?: { id?: string; nombre?: string; organismo?: string; region?: string; linea_negocio?: string };
+  exclusion?: { excluido?: boolean; categoria?: string | null; motivo?: string; fuente?: string; destino?: string };
+  presupuesto?: { bruto?: number | null; neto?: number | null; con_iva?: boolean; regimen_fora?: boolean; presupuesto_exento?: boolean; es_excluyente?: boolean; fuente?: string; gate?: string };
+  modalidad?: { tipo?: string; estado?: string; evidencia?: string; fuente?: string; confianza?: number; libertad_de_pricing?: boolean };
+  criterios_evaluacion?: { fuente_datos?: string; forma_aplicacion_completa?: boolean; criterios?: Criterio[]; alertas?: string[] };
   capa_a?: { presupuesto?: { pts?: number; fuente?: string }; cantidad_items?: { pts?: number; n_items?: number; fuente?: string }; complejidad?: { pts?: number; fuente?: string }; ejecucion?: { pts?: number; fuente?: string }; score_total?: number; nivel?: string };
   capa_b_palancas?: Palanca[];
-  capa_c_admisibilidad?: { bloqueantes?: Array<{ item: string; fuente?: string }>; barreras_a_favor?: Array<{ item: string; fuente?: string }>; boleta_aplica?: boolean; umbral_utm?: number; firma_puno_y_letra?: boolean; alertas?: string[] };
+  capa_c_admisibilidad?: { presupuesto_excluyente?: { aplica?: boolean; efecto?: string; fuente?: string }; bloqueantes?: Array<{ item: string; fuente?: string }>; barreras_a_favor?: Array<{ item: string; fuente?: string }>; boleta_aplica?: boolean; umbral_utm?: number; firma_puno_y_letra?: boolean; alertas?: string[] };
   multas?: { estructura?: string; costo_por_dia?: string; costo_maximo?: string; umbral_termino?: string; fuente?: string };
-  plazo_entrega?: { detalle?: string; fuente?: string };
-  garantias?: Array<{ tipo?: string; detalle?: string; fuente?: string }>;
+  linea_tiempo?: { hitos?: Hito[]; plazo_ofertable_puntaje?: string; plazo_operativo_real_dias_habiles?: number | null; colchon_dias_habiles?: number | null; alertas?: string[] };
   manifiesto_productos?: Producto[];
   pendientes_fase3?: string[];
-  veredicto?: { nivel?: string; gana_probable?: string; por_que?: string; acciones_AC?: string[]; advertencias?: string[] };
+  veredicto?: { nivel?: string; gana_probable?: string; estado_veredicto?: string; motivos_revision?: string[]; acciones_AC?: string[]; advertencias?: string[] };
   confianza_global?: number;
   documentos_leidos?: string[];
   documentos_no_leidos?: string[];
@@ -231,19 +232,30 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
   const gana = (v?.gana_probable || '').toLowerCase();
   const ganaLabel = gana === 'si' ? 'GANA' : gana === 'no' ? 'NO GANA' : 'CONDICIONAL';
   const cc = informe?.capa_c_admisibilidad;
-  const sumaCriterios = (informe?.criterios_evaluacion || []).reduce((s, c) => s + (Number(c.ponderacion_pct) || 0), 0);
+  const crit = informe?.criterios_evaluacion;
+  const criterios = crit?.criterios ?? [];
+  const sumaCriterios = criterios.reduce((s, c) => s + (Number(c.ponderacion) || 0), 0);
   const nProd = informe?.manifiesto_productos?.length ?? 0;
+  const lt = informe?.linea_tiempo;
+  const enRevision = v?.estado_veredicto === 'REVISION_HUMANA';
+  // Resumen del veredicto: el esquema v2.0 no trae "por_que"; lo componemos con los
+  // motivos de revisión (si los hay) o las advertencias.
+  const resumenVeredicto = (v?.motivos_revision?.length ? v.motivos_revision.join(' · ')
+    : v?.advertencias?.length ? v.advertencias.join(' · ')
+    : '');
 
   // Validador de coherencia: incoherencias del informe que merecen revisión humana.
   const avisos: string[] = [];
   if (informe) {
-    const nCrit = informe.criterios_evaluacion?.length ?? 0;
+    const nCrit = criterios.length;
     const suma = Math.round(sumaCriterios);
     if (nCrit > 0 && suma !== 100) avisos.push(`Los criterios de evaluación suman ${suma}% (deberían sumar 100%).`);
-    if (informe.criterios_no_encontrados) avisos.push('No se encontraron criterios de evaluación en las bases (situación anómala).');
+    if (nCrit === 0) avisos.push('No se encontraron criterios de evaluación en las bases (situación anómala).');
+    else if (crit?.forma_aplicacion_completa === false) avisos.push('Falta la FORMA DE APLICACIÓN de uno o más criterios: revisar las bases.');
+    if (enRevision) avisos.push(`Veredicto en REVISIÓN HUMANA${v?.motivos_revision?.length ? ': ' + v.motivos_revision.join('; ') : '.'}`);
+    if (informe.modalidad?.estado === 'REVISION_HUMANA') avisos.push('La modalidad de adjudicación no quedó fehacientemente determinada.');
     const conf = informe.confianza_global;
     if (conf != null && conf < 0.6) avisos.push(`Confianza del análisis baja (${Math.round(conf * 100)}%): conviene revisión humana.`);
-    if (informe.modalidad?.revision_humana) avisos.push('La modalidad de adjudicación quedó marcada para revisión humana.');
     if ((informe.documentos_no_leidos?.length ?? 0) > 0) avisos.push(`${informe.documentos_no_leidos!.length} documento(s) no se pudieron leer: el análisis puede estar incompleto.`);
   }
 
@@ -303,8 +315,11 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
                   <span className={`text-[11px] font-black text-white px-2 py-0.5 rounded ${sem.bg}`}>{ganaLabel}</span>
                   <span className={`text-[13px] font-bold ${sem.text}`}>{SEM[informe.semaforo || '']?.label || cap(v?.nivel)}</span>
                   {informe.area_negocio && <span className="text-[11px] text-slate-500 bg-white/60 border border-slate-200 px-2 py-0.5 rounded-full">{cap(informe.area_negocio)}</span>}
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>
+                    {enRevision ? 'REVISIÓN HUMANA' : 'DEFINITIVO'}
+                  </span>
                 </div>
-                {v?.por_que && <p className="text-[13px] text-slate-600 mt-1.5 leading-snug">{v.por_que}</p>}
+                {resumenVeredicto && <p className="text-[13px] text-slate-600 mt-1.5 leading-snug">{resumenVeredicto}</p>}
               </div>
             </div>
           </div>
@@ -327,20 +342,27 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Presupuesto</p>
               <p className="text-[15px] font-bold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.neto ?? informe.presupuesto?.bruto)}</p>
+              <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                {informe.presupuesto?.es_excluyente
+                  ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700">EXCLUYENTE</span>
+                  : <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500">referencial</span>}
+                {informe.presupuesto?.regimen_fora && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-violet-100 text-violet-700">FORA</span>}
+              </div>
               {hrefCita(informe.presupuesto?.fuente)
                 ? <a href={hrefCita(informe.presupuesto?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.neto ? 'neto · ' : ''}{informe.presupuesto?.fuente}</a>
                 : <p className="text-[10px] text-slate-400 truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.neto ? 'neto · ' : ''}{informe.presupuesto?.fuente}</p>}
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Modalidad</p>
-              <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(informe.modalidad?.general || informe.modalidad?.tipo) || '—'}</p>
+              <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(informe.modalidad?.tipo) || '—'}{informe.modalidad?.estado === 'REVISION_HUMANA' ? ' ⚠' : ''}</p>
               {hrefCita(informe.modalidad?.fuente)
                 ? <a href={hrefCita(informe.modalidad?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.modalidad?.fuente}>{informe.modalidad?.fuente}</a>
                 : <p className="text-[10px] text-slate-400 truncate" title={informe.modalidad?.fuente}>{informe.modalidad?.fuente}</p>}
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Plazo entrega</p>
-              <p className="text-[13px] font-semibold text-slate-800 leading-tight line-clamp-2">{informe.plazo_entrega?.detalle || '—'}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase">Colchón operativo</p>
+              <p className="text-[15px] font-bold text-slate-800 leading-tight">{lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} días háb.` : '—'}</p>
+              <p className="text-[10px] text-slate-400 truncate">{lt?.plazo_ofertable_puntaje ? `ofertable: ${lt.plazo_ofertable_puntaje}` : 'post-adjudicación'}</p>
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Líneas</p>
@@ -350,17 +372,49 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
           </div>
 
           {/* DETALLE — acordeón */}
-          {(informe.criterios_evaluacion?.length ?? 0) > 0 && (
-            <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Criterios de evaluación" badge={`suma ${sumaCriterios}%`} defaultOpen>
-              <table className="w-full text-[13px]"><tbody>
-                {informe.criterios_evaluacion!.map((c, i) => (
-                  <tr key={i} className="border-b border-slate-100 last:border-0">
-                    <td className="py-1.5 text-slate-700">{c.nombre}</td>
-                    <td className="py-1.5 text-right font-bold text-slate-900 w-14">{c.ponderacion_pct}%</td>
-                    <td className="py-1.5 pl-3 text-[11px] hidden sm:table-cell"><Fuente>{c.fuente}</Fuente></td>
-                  </tr>
+          {criterios.length > 0 && (
+            <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Criterios de evaluación y forma de aplicación" badge={`suma ${sumaCriterios}%${crit?.forma_aplicacion_completa === false ? ' · forma incompleta ⚠' : ''}`} defaultOpen>
+              <div className="space-y-2.5">
+                {criterios.map((c, i) => (
+                  <div key={i} className="border-b border-slate-100 last:border-0 pb-2 last:pb-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[13px] font-semibold text-slate-800">{c.nombre}</p>
+                      <span className="text-[13px] font-bold text-slate-900 flex-shrink-0">{c.ponderacion ?? 0}%</span>
+                    </div>
+                    {c.forma_aplicacion
+                      ? <p className="text-[12px] text-slate-600 mt-0.5 leading-snug whitespace-pre-line">{c.forma_aplicacion}</p>
+                      : <p className="text-[12px] text-amber-600 mt-0.5">⚠ Sin forma de aplicación — revisar las bases.</p>}
+                    {c.medio_verificacion && <p className="text-[11px] text-slate-400 mt-0.5">Verificación: {c.medio_verificacion}</p>}
+                    <div className="mt-0.5"><Fuente>{c.fuente}</Fuente></div>
+                  </div>
                 ))}
-              </tbody></table>
+                {(crit?.alertas?.length ?? 0) > 0 && (
+                  <div className="text-[12px] text-amber-700 space-y-0.5 pt-1">{crit!.alertas!.map((a, i) => <p key={i}>⚠ {a}</p>)}</div>
+                )}
+              </div>
+            </Seccion>
+          )}
+
+          {/* Línea de tiempo post-adjudicación */}
+          {(lt?.hitos?.length ?? 0) > 0 && (
+            <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Línea de tiempo post-adjudicación" badge={lt?.colchon_dias_habiles != null ? `colchón ${lt.colchon_dias_habiles} días háb.` : undefined} defaultOpen>
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 uppercase font-bold">Ofertable (puntaje)</p><p className="text-[13px] font-bold text-slate-800">{lt?.plazo_ofertable_puntaje || '—'}</p></div>
+                <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 uppercase font-bold">Operativo real</p><p className="text-[13px] font-bold text-slate-800">{lt?.plazo_operativo_real_dias_habiles != null ? `${lt.plazo_operativo_real_dias_habiles} háb.` : '—'}</p></div>
+                <div className="bg-emerald-50 rounded-lg p-2"><p className="text-[10px] text-emerald-500 uppercase font-bold">Colchón</p><p className="text-[13px] font-bold text-emerald-700">{lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} háb.` : '—'}</p></div>
+              </div>
+              <div className="space-y-1.5">
+                {lt!.hitos!.map((h, i) => (
+                  <div key={i} className="flex items-start gap-2 text-[13px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-1.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-slate-700">{h.hito}{h.duracion_dias != null ? ` — ${h.duracion_dias} día(s) ${h.tipo_dias || ''}` : ''}{h.inferido ? ' (inferido ⚠)' : ''}</p>
+                      {(h.base_computo || h.fuente) && <p className="text-[11px] text-slate-400">{h.base_computo ? `cómputo: ${cap(h.base_computo)} · ` : ''}<Fuente>{h.fuente}</Fuente></p>}
+                    </div>
+                  </div>
+                ))}
+                {(lt?.alertas?.length ?? 0) > 0 && lt!.alertas!.map((a, i) => <p key={'lta' + i} className="text-[12px] text-amber-700">⚠ {a}</p>)}
+              </div>
             </Seccion>
           )}
 
@@ -387,6 +441,9 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
           {cc && (
             <Seccion icon={<ShieldCheck size={14} className="text-violet-500" />} titulo="Admisibilidad (Capa C)" badge={(cc.bloqueantes?.length ?? 0) > 0 ? `${cc.bloqueantes!.length} bloqueante(s)` : 'sin bloqueantes'}>
               <div className="space-y-1.5 text-[13px]">
+                {cc.presupuesto_excluyente?.aplica && (
+                  <p className="flex items-start gap-1.5 text-red-700 font-semibold"><Ban size={13} className="mt-0.5 flex-shrink-0" /> Presupuesto EXCLUYENTE — no superar el techo <Fuente>{cc.presupuesto_excluyente.fuente}</Fuente></p>
+                )}
                 {cc.bloqueantes?.map((b, i) => <p key={'bl' + i} className="flex items-start gap-1.5 text-red-700"><Ban size={13} className="mt-0.5 flex-shrink-0" /> {b.item} <Fuente>{b.fuente}</Fuente></p>)}
                 {cc.barreras_a_favor?.map((b, i) => <p key={'bf' + i} className="flex items-start gap-1.5 text-emerald-700"><ShieldCheck size={13} className="mt-0.5 flex-shrink-0" /> {b.item} <Fuente>{b.fuente}</Fuente></p>)}
                 <p className="text-slate-500 text-[12px]">Boleta: {cc.boleta_aplica ? `aplica (>${cc.umbral_utm ?? 1000} UTM)` : `no aplica (<${cc.umbral_utm ?? 1000} UTM)`} · Firma puño y letra: {cc.firma_puno_y_letra ? 'EXIGIDA ⚠' : 'no exigida'}</p>
@@ -409,11 +466,13 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
                   <div key={i} className="flex gap-2 text-[13px] border-b border-slate-100 last:border-0 py-1">
                     <span className="text-slate-400 w-6 flex-shrink-0">{p.linea ?? i + 1}.</span>
                     <span className="text-slate-700 flex-1">{p.descripcion}{p.modelo ? ` · ${p.modelo}` : ''}</span>
-                    {p.cantidad != null && <span className="text-slate-500 flex-shrink-0">{p.cantidad}</span>}
+                    {p.cantidad != null && <span className="text-slate-500 flex-shrink-0">{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span>}
+                    {p.presupuesto_linea != null && <span className="text-[11px] text-emerald-600 flex-shrink-0">{fmt(p.presupuesto_linea)}</span>}
                     {p.tipo && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 flex-shrink-0">{p.tipo}</span>}
                     {p.ruta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">Ruta {p.ruta}</span>}
                   </div>
                 ))}
+                {informe.manifiesto_productos!.some(p => p.unidad_inferida) && <p className="text-[10px] text-slate-400 pt-1">* unidad de medida inferida (no especificada en las bases)</p>}
               </div>
             </Seccion>
           )}

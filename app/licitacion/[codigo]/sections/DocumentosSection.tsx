@@ -9,71 +9,56 @@ import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 
-// ─── Configuración de cajas ───────────────────────────────────────────────────
-const CAJAS = [
-  {
-    key: 'BASES_ADMINISTRATIVAS',
-    label: 'Bases Administrativas',
-    colorBg: 'bg-white',
-    colorBorder: 'border-slate-200',
-    colorHeader: 'bg-slate-50',
-    colorIcon: 'text-slate-500',
-    colorCount: 'bg-slate-100 text-slate-600',
-    colorDrop: 'ring-2 ring-indigo-300 bg-indigo-50/40',
-  },
-  {
-    key: 'BASES_TECNICAS',
-    label: 'Bases Técnicas',
-    colorBg: 'bg-white',
-    colorBorder: 'border-slate-200',
-    colorHeader: 'bg-slate-50',
-    colorIcon: 'text-slate-500',
-    colorCount: 'bg-slate-100 text-slate-600',
-    colorDrop: 'ring-2 ring-indigo-300 bg-indigo-50/40',
-  },
-  {
-    key: 'CRITERIOS_EVALUACION',
-    label: 'Criterios Evaluación',
-    colorBg: 'bg-white',
-    colorBorder: 'border-slate-200',
-    colorHeader: 'bg-slate-50',
-    colorIcon: 'text-slate-500',
-    colorCount: 'bg-slate-100 text-slate-600',
-    colorDrop: 'ring-2 ring-indigo-300 bg-indigo-50/40',
-  },
-  {
-    key: 'ANEXOS_OFERENTE',
-    label: 'Anexos Oferente',
-    colorBg: 'bg-white',
-    colorBorder: 'border-slate-200',
-    colorHeader: 'bg-slate-50',
-    colorIcon: 'text-slate-500',
-    colorCount: 'bg-slate-100 text-slate-600',
-    colorDrop: 'ring-2 ring-indigo-300 bg-indigo-50/40',
-  },
-  {
-    key: 'DOCUMENTOS_PROCESO',
-    label: 'Documentos Proceso',
-    colorBg: 'bg-white',
-    colorBorder: 'border-slate-200',
-    colorHeader: 'bg-slate-50',
-    colorIcon: 'text-slate-500',
-    colorCount: 'bg-slate-100 text-slate-600',
-    colorDrop: 'ring-2 ring-indigo-300 bg-indigo-50/40',
-  },
-  {
-    key: 'OTROS',
-    label: 'Otros',
-    colorBg: 'bg-white',
-    colorBorder: 'border-slate-200',
-    colorHeader: 'bg-slate-50',
-    colorIcon: 'text-slate-500',
-    colorCount: 'bg-slate-100 text-slate-600',
-    colorDrop: 'ring-2 ring-indigo-300 bg-indigo-50/40',
-  },
-] as const;
+// ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
+// Estilo común a todas las cajas (neutro). El color real lo da el contenido.
+const ESTILO_CAJA = {
+  colorBg: 'bg-white',
+  colorBorder: 'border-slate-200',
+  colorHeader: 'bg-slate-50',
+  colorIcon: 'text-slate-500',
+  colorCount: 'bg-slate-100 text-slate-600',
+  colorDrop: 'ring-2 ring-indigo-300 bg-indigo-50/40',
+} as const;
 
-type CajaKey = (typeof CAJAS)[number]['key'];
+// Etiqueta legible por categoría conocida. El ORDEN aquí define el orden de render.
+// Las cajas se muestran de forma DINÁMICA: solo aparece la que tiene documentos
+// (más una caja "Sin clasificar" para los que no tienen categoría).
+const CAJA_LABELS: Record<string, string> = {
+  BASES_ADMINISTRATIVAS: 'Bases Administrativas',
+  BASES_TECNICAS: 'Bases Técnicas',
+  ANEXOS_OFERENTE: 'Anexos Oferente',
+  DOCUMENTOS_PROCESO: 'Documentos Proceso',
+  DOCUMENTOS_PROPIOS: 'Documentos Propios',
+  OTROS: 'Otros',
+};
+
+// Orden preferente de las cajas. Categorías desconocidas van al final.
+const ORDEN_CAJAS = [
+  'BASES_ADMINISTRATIVAS',
+  'BASES_TECNICAS',
+  'ANEXOS_OFERENTE',
+  'DOCUMENTOS_PROCESO',
+  'DOCUMENTOS_PROPIOS',
+  'OTROS',
+];
+
+// Convierte una clave de categoría en etiqueta legible (incluye categorías nuevas
+// que aún no estén en CAJA_LABELS).
+function labelDeCaja(key: string): string {
+  return CAJA_LABELS[key] ?? key.replace(/_/g, ' ').toLowerCase()
+    .replace(/\b\w/g, c => c.toUpperCase());
+}
+
+interface CajaConfig {
+  key: string;
+  label: string;
+  colorBg: string;
+  colorBorder: string;
+  colorHeader: string;
+  colorIcon: string;
+  colorCount: string;
+  colorDrop: string;
+}
 
 // ─── Item draggable ───────────────────────────────────────────────────────────
 function DocItem({
@@ -147,7 +132,7 @@ function CajaDroppable({
   onDrop,
   onView,
 }: {
-  caja: (typeof CAJAS)[number];
+  caja: CajaConfig;
   docs: (DocumentoAdjunto & { categoria?: string })[];
   isDragOver: boolean;
   isDraggingActive: boolean;
@@ -222,15 +207,13 @@ function DocumentosGrid({
   codigoDecoded: string;
   onView: (doc: VisorDoc) => void;
 }) {
-  // Inicializar grupos
+  // Agrupa los documentos por su categoría real (sin pre-crear cajas vacías).
   const buildGrupos = (docs: (DocumentoAdjunto & { categoria?: string })[]) => {
-    const g: Record<string, (DocumentoAdjunto & { categoria?: string })[]> = {};
-    for (const c of CAJAS) g[c.key] = [];
-    g['SIN_CATEGORIA'] = [];
+    const g: Record<string, (DocumentoAdjunto & { categoria?: string })[]> = { SIN_CATEGORIA: [] };
     for (const doc of docs) {
       const cat = doc.categoria || 'SIN_CATEGORIA';
-      const target = (g[cat] !== undefined) ? cat : 'SIN_CATEGORIA';
-      g[target].push(doc);
+      if (!g[cat]) g[cat] = [];
+      g[cat].push(doc);
     }
     return g;
   };
@@ -324,14 +307,26 @@ function DocumentosGrid({
 
   const isDraggingActive = draggingDoc !== null;
 
+  // Cajas FIJAS: las 6 de la taxonomía v2.0, siempre visibles (aunque estén vacías).
+  // DOCUMENTOS_PROPIOS debe existir SIEMPRE como destino para los documentos que las
+  // Fases 3/4 generarán a futuro (fichas, cotización, tabla de costeo). Además, las
+  // cajas vacías sirven de destino para reclasificar arrastrando. Si aparece una
+  // categoría desconocida (datos viejos), también se muestra al final.
+  const clavesExtra = Object.keys(grupos).filter(
+    k => k !== 'SIN_CATEGORIA' && !ORDEN_CAJAS.includes(k) && (grupos[k]?.length || 0) > 0,
+  ).sort();
+
+  const cajasVisibles: CajaConfig[] = [...ORDEN_CAJAS, ...clavesExtra]
+    .map(key => ({ key, label: labelDeCaja(key), ...ESTILO_CAJA }));
+
   return (
     <div
       onDragEnd={handleDragEnd}
       className="space-y-3"
     >
-      {/* Grid de 3 columnas */}
+      {/* Grid de 3 columnas — 6 cajas fijas (taxonomía v2.0) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-        {CAJAS.map((caja) => (
+        {cajasVisibles.map((caja) => (
           <CajaDroppable
             key={caja.key}
             caja={caja}
@@ -373,6 +368,43 @@ function DocumentosGrid({
 }
 
 // ─── Sección principal ────────────────────────────────────────────────────────
+// ─── Banner de progreso (descarga / clasificación) ────────────────────────────
+// La clasificación se resuelve en una sola llamada al servidor (no doc-por-doc),
+// por eso la barra es indeterminada (animada) y no un porcentaje exacto. Muestra
+// la fase actual y el conteo de documentos cuando se conoce.
+function ProgresoBanner({ fase, totalDocs }: { fase: 'descargando' | 'clasificando'; totalDocs: number }) {
+  const esDescarga = fase === 'descargando';
+  const titulo = esDescarga
+    ? 'Descargando documentos desde Mercado Público…'
+    : `Clasificando ${totalDocs > 0 ? `${totalDocs} documento${totalDocs !== 1 ? 's' : ''}` : 'documentos'} con IA…`;
+  const colorTexto = esDescarga ? 'text-indigo-700' : 'text-violet-700';
+  const colorBg = esDescarga ? 'bg-indigo-50 border-indigo-200' : 'bg-violet-50 border-violet-200';
+  const colorBar = esDescarga ? 'bg-indigo-500' : 'bg-violet-500';
+  const colorTrack = esDescarga ? 'bg-indigo-100' : 'bg-violet-100';
+
+  return (
+    <div className={`px-4 py-3 rounded-xl border ${colorBg} space-y-2`}>
+      <div className={`flex items-center gap-2.5 text-sm font-medium ${colorTexto}`}>
+        <Loader2 size={15} className="animate-spin flex-shrink-0" />
+        {titulo}
+      </div>
+      {/* Barra indeterminada animada */}
+      <div className={`h-1.5 w-full rounded-full overflow-hidden ${colorTrack}`}>
+        <div className={`h-full w-1/3 rounded-full ${colorBar} progreso-indeterminado`} />
+      </div>
+      <style jsx>{`
+        @keyframes progreso-slide {
+          0%   { transform: translateX(-120%); }
+          100% { transform: translateX(420%); }
+        }
+        .progreso-indeterminado {
+          animation: progreso-slide 1.1s ease-in-out infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
 export function DocumentosSection({
   codigoDecoded, mpUrl, documentosCache, cargandoDocs,
   descargandoAuto, handleAutoDescargar, fetchDocumentos,
@@ -443,13 +475,12 @@ export function DocumentosSection({
           )}
         </button>
 
-        {/* Banner clasificación en curso */}
-        {clasificando && (
-          <div className="flex items-center gap-2.5 px-4 py-3 bg-violet-50 border border-violet-200 rounded-xl text-sm text-violet-700 font-medium">
-            <Loader2 size={15} className="animate-spin flex-shrink-0" />
-            Clasificando documentos con Gemini IA...
-          </div>
-        )}
+        {/* Banner de progreso — descarga o clasificación (la descarga tiene prioridad visual) */}
+        {descargandoAuto ? (
+          <ProgresoBanner fase="descargando" totalDocs={documentosCache.length} />
+        ) : clasificando ? (
+          <ProgresoBanner fase="clasificando" totalDocs={documentosCache.length} />
+        ) : null}
 
         {/* Banner set incompleto */}
         {!clasificando && resumenClasificacion?.estado === 'incompleto' && resumenClasificacion.falta.length > 0 && (

@@ -29,6 +29,7 @@ export interface ResultadoDescarga {
     paso1_listar?: string;
     paso2_fetch?: string;
     paso3_browser?: string;
+    paso4_subir?: string;
   };
   /** true si hay archivos de tipo poco común (ni PDF/Word/Excel) → revisar a mano */
   revisarManual?: boolean;
@@ -132,16 +133,39 @@ export async function descargarDocumentosLicitacion(codigo: string): Promise<Res
 
   let nuevos = 0;
   let omitidos = 0;
+  const erroresSubida: string[] = [];
 
   for (const archivo of archivos) {
     if (yaExisten.has(archivo.nombre)) {
       omitidos++;
       continue;
     }
-    const url = await subirDocumentoR2(codigo, archivo.nombre, archivo.buffer, archivo.contentType);
-    await guardarDocumentoEnCache(codigo, archivo.nombre, url, archivo.buffer.length);
-    yaExisten.add(archivo.nombre);
-    nuevos++;
+    try {
+      const url = await subirDocumentoR2(codigo, archivo.nombre, archivo.buffer, archivo.contentType);
+      await guardarDocumentoEnCache(codigo, archivo.nombre, url, archivo.buffer.length);
+      yaExisten.add(archivo.nombre);
+      nuevos++;
+    } catch (e: any) {
+      // Un archivo que falla al subir/guardar no debe tumbar toda la descarga (500).
+      console.error(`[4] subir/guardar falló en "${archivo.nombre}": ${e.message}`);
+      erroresSubida.push(`${archivo.nombre}: ${e.message}`);
+    }
+  }
+  if (erroresSubida.length > 0) {
+    pasos.paso4_subir = erroresSubida.join(' | ');
+  }
+
+  // Si NINGÚN archivo se pudo subir, es un fallo real.
+  if (nuevos === 0 && omitidos === 0 && erroresSubida.length > 0) {
+    return {
+      exito: false,
+      nuevos: 0,
+      omitidos: 0,
+      totalEncontrados: archivos.length,
+      error: `No se pudo guardar ningún documento. ${erroresSubida.join(' | ')}`,
+      fichaUrl: referer,
+      pasos,
+    };
   }
 
   console.log(`[4] Listo: ${nuevos} nuevo(s), ${omitidos} ya existían`);
