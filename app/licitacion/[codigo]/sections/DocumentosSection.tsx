@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
-  CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical,
+  CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
@@ -481,6 +481,34 @@ export function DocumentosSection({
         ) : clasificando ? (
           <ProgresoBanner fase="clasificando" totalDocs={documentosCache.length} />
         ) : null}
+
+        {/* Banner costeo generado — aparece cuando hay un COSTEO_ en DOCUMENTOS_PROPIOS */}
+        {!clasificando && (() => {
+          const costeo = documentosCache.find(d =>
+            d.nombre?.startsWith('COSTEO_') && (d as any).categoria === 'DOCUMENTOS_PROPIOS',
+          );
+          if (!costeo) return null;
+          return (
+            <div className="flex items-start gap-2.5 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <TableProperties size={14} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[12.5px] font-semibold text-emerald-800">
+                  Excel de Costeo generado automáticamente
+                </p>
+                <p className="text-[11.5px] text-emerald-700 mt-0.5 truncate">
+                  {costeo.nombre} — disponible en <strong>Documentos Propios</strong>
+                </p>
+              </div>
+              <a
+                href={(costeo as any).url_local || (costeo as any).url}
+                download={costeo.nombre}
+                className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg transition-colors"
+              >
+                <Download size={11} /> Descargar
+              </a>
+            </div>
+          );
+        })()}
 
         {/* Banner set incompleto */}
         {!clasificando && resumenClasificacion?.estado === 'incompleto' && resumenClasificacion.falta.length > 0 && (

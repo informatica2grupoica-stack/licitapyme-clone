@@ -622,7 +622,72 @@ export async function analizarYGuardarViabilidadIA(codigo: string): Promise<Viab
   catch (e) { console.error('[viabilidad-ia] guardar falló:', String(e).slice(0, 200)); }
   try { await volcarManifiestoAItems(codigo, r); }
   catch (e) { console.error('[viabilidad-ia] volcar ítems falló:', String(e).slice(0, 200)); }
+  // Auto-generar Excel de costeo si el manifiesto tiene ítems
+  try { await autoGenerarCosteo(codigo, r); }
+  catch (e) {
+    console.error('[viabilidad-ia] generar costeo falló — error completo:',
+      e instanceof Error ? e.stack : String(e));
+  }
   return r;
+}
+
+// Genera el Excel de costeo automáticamente tras el análisis IA.
+async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise<void> {
+  const manifiesto = Array.isArray(r.manifiesto_productos) ? r.manifiesto_productos : [];
+  console.log(`[costeo] ${codigo}: manifiesto tiene ${manifiesto.length} ítems`);
+  if (manifiesto.length === 0) return;
+
+  const { adaptarViabilidadACosteo, generarCosteoExcel } = await import('@/app/lib/generar-costeo');
+  const { subirDocumentoR2 } = await import('@/app/lib/r2');
+
+  const datosCosteo = adaptarViabilidadACosteo(codigo, r);
+  console.log(`[costeo] ${codigo}: generando Excel (${datosCosteo.lineas.size} líneas)…`);
+  const buffer = generarCosteoExcel(datosCosteo);
+  console.log(`[costeo] ${codigo}: buffer ${buffer.length} bytes — subiendo a R2…`);
+
+  const fecha = new Date().toISOString().slice(0, 10);
+  const nombreArchivo = `COSTEO_${codigo}_${fecha}.xlsx`;
+  const url = await subirDocumentoR2(codigo, nombreArchivo, buffer,
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  console.log(`[costeo] ${codigo}: R2 OK → ${url}`);
+
+  const totalItems = [...datosCosteo.lineas.values()].reduce((s, v) => s + v.length, 0);
+
+  // Intentar con categoria primero; si la columna no existe, reintentar sin ella.
+  try {
+    await pool.query(
+      `INSERT INTO documentos_cache
+         (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria)
+       VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS')
+       ON DUPLICATE KEY UPDATE
+         documento_url_local = VALUES(documento_url_local),
+         size_bytes          = VALUES(size_bytes),
+         categoria           = 'DOCUMENTOS_PROPIOS',
+         updated_at          = CURRENT_TIMESTAMP`,
+      [codigo, nombreArchivo, url, buffer.length,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+    );
+  } catch (sqlErr: any) {
+    if (String(sqlErr?.message).includes("Unknown column 'categoria'")) {
+      // La migración 12 no se aplicó aún — insertar sin categoria
+      await pool.query(
+        `INSERT INTO documentos_cache
+           (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type)
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           documento_url_local = VALUES(documento_url_local),
+           size_bytes          = VALUES(size_bytes),
+           updated_at          = CURRENT_TIMESTAMP`,
+        [codigo, nombreArchivo, url, buffer.length,
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+      );
+      console.warn('[costeo] columna categoria ausente — insertado sin categoria (aplica migration-12)');
+    } else {
+      throw sqlErr;
+    }
+  }
+
+  console.log(`[costeo] ✅ ${codigo}: Excel guardado (${datosCosteo.lineas.size} líneas, ${totalItems} ítems)`);
 }
 
 // Vuelca el manifiesto de productos (lo que la IA encontró en la documentación) a
