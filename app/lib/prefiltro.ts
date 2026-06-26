@@ -62,6 +62,40 @@ const LOTE_IA = 15;                    // licitaciones por llamada a DeepSeek
 
 const sinTildes = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
+// ─── Diccionario de palabras negativas DURAS (Pasada 1 — sin ambigüedad) ──────────
+// Nunca tocar "aseo" a secas: vendemos maquinaria de aseo (negocio central).
+// Solo son duras las frases que no tienen excepción conocida.
+// Crece vía loop de retroalimentación (flag "no lo hacemos").
+const PALABRAS_DURAS: Array<{ termino: string; categoria: CategoriaExclusion; motivo: string }> = [
+  { termino: 'toner',           categoria: 'insumo_consumible', motivo: 'Insumo consumible (tóner): no es nuestro rubro.' },
+  { termino: 'tóner',           categoria: 'insumo_consumible', motivo: 'Insumo consumible (tóner): no es nuestro rubro.' },
+  { termino: 'insumos dentales',categoria: 'insumo_consumible', motivo: 'Insumos dentales: fuera de nuestro rubro.' },
+  { termino: 'articulos de aseo',categoria: 'insumo_consumible', motivo: 'Artículos/insumos de aseo (consumibles), no maquinaria.' },
+  { termino: 'artículos de aseo',categoria: 'insumo_consumible', motivo: 'Artículos/insumos de aseo (consumibles), no maquinaria.' },
+];
+
+/** Pasada 1: pre-filtro de string sobre palabras negativas DURAS. Sin IA, confianza 1.0. */
+function pasada1PalabraDura(m: MetaLic): PrefiltroResult | null {
+  const texto = sinTildes(`${m.nombre} ${m.descripcion} ${m.itemsTexto}`);
+  for (const pw of PALABRAS_DURAS) {
+    if (texto.includes(sinTildes(pw.termino))) {
+      return {
+        codigo: m.codigo,
+        decision: 'EXCLUIDO',
+        categoria: pw.categoria,
+        motivo: pw.motivo,
+        evidencia: pw.termino,
+        confianza: 1.0,
+        monto_neto: chequearPresupuesto(m).neto,
+        pasada: '1_palabra_dura',
+        palabra_negativa: { nivel: 'dura', termino: pw.termino },
+        destino: 'NO_REALIZAMOS',
+      };
+    }
+  }
+  return null;
+}
+
 // ─── Pre-check de presupuesto (determinista, sin IA) ──────────────────────────────
 // Si el texto sugiere "IVA incluido" se normaliza ÷1,19; si no, se trata el monto
 // como neto (conservador: menos exclusiones). Solo excluye si hay monto > 0.
@@ -126,30 +160,54 @@ export async function cargarMetadata(codigos: string[]): Promise<MetaLic[]> {
   return codigos.map(c => base.get(c)).filter(Boolean) as MetaLic[];
 }
 
-// ─── Prompt ───────────────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `Eres el FILTRO DE PRIMERA LÍNEA de una empresa que vende productos/equipamiento (ferretería, equipamiento, materiales, mobiliario urbano) en licitaciones públicas de Chile (Mercado Público).
+// ─── Prompt v2.0 ─────────────────────────────────────────────────────────────────
+// Pasada 2: juicio por naturaleza del objeto (DeepSeek).
+// Las palabras negativas DURAS ya fueron procesadas en Pasada 1 (código), no llegan aquí.
+const SYSTEM_PROMPT = `Eres el FILTRO DE PRIMERA LÍNEA (Fase 0, Pasada 2) de una empresa chilena que vende productos/equipamiento (ferretería, materiales, mobiliario urbano, maquinaria de aseo, equipamiento municipal) en licitaciones públicas de Mercado Público.
 
-Recibes solo METADATA de portada de varias licitaciones (nombre, organismo, región, presupuesto si viene, y a veces descripción/ítems). NO tienes los documentos. Tu tarea: descartar BARATO solo lo que es CLARAMENTE un no-go por la NATURALEZA DEL OBJETO, y dejar pasar todo lo demás.
+Recibes METADATA de portada (nombre, organismo, región, presupuesto opcional, descripción/ítems cuando existe). NO tienes los documentos. Las palabras negativas DURAS (tóner, insumos dentales, artículos de aseo) ya fueron excluidas antes de llegar aquí.
 
-PRINCIPIO DE CAUTELA (crítico): ves información limitada. La asimetría manda:
+PRINCIPIO DE CAUTELA (crítico — no negociable):
 - Descarte equivocado = oportunidad perdida → GRAVE.
-- Pase equivocado = unos tokens de más → menor (lo atrapa un gate posterior).
+- Pase equivocado = unos tokens de más → menor (lo atrapa Fase 2).
 → Excluye SOLO cuando la metadata lo deja INEQUÍVOCO. Ante CUALQUIER duda → PASA o REVISION_HUMANA, NUNCA descarte.
-→ Exclusión por la NATURALEZA del objeto, NO por una palabra clave aislada.
+→ Exclusión por la NATURALEZA DEL OBJETO, no por una palabra clave aislada.
 
-QUÉ SE EXCLUYE (cada categoría con su excepción):
-- servicio: el objeto es mantención, reparación, servicio técnico. NO si el servicio (instalación/capacitación/garantía) viene incluido en la VENTA de un equipo.
-- obra_civil: pavimentar/hormigón de calzada, edificación. NO si es instalación menor de equipamiento urbano que sí se vende (mobiliario urbano, juegos de plaza).
-- alta_ejecucion_tecnica: el núcleo es ejecución que exige profesional/constructor certificado en obra o experiencia mínima exigida en obras.
-- capacitacion_pura / consultoria: curso, estudio o asesoría como servicio independiente. NO si la capacitación es anexa a la entrega de una máquina que la requiere.
-- convenio_suministro: contrato de largo horizonte con entregas recurrentes mes a mes / según demanda. NO si es adquisición única / ejecución inmediata con uno o pocos despachos. EXCEPCIÓN IMPORTANTE: si el convenio es de PRODUCTOS DE NUESTRO RUBRO (ferretería, materiales de construcción, herramientas, equipamiento, insumos que vendemos) → NO lo excluyas: marca REVISION_HUMANA para decidir caso a caso. Solo EXCLUIDO como convenio si es de servicios o de productos claramente fuera de nuestra línea.
-- commodity: el proyecto COMPLETO es un solo producto genérico de mucha oferta (solo computadores, solo resmas, solo impresoras estándar). NO si viene mezclado con productos especializados o es zona remota / baja competencia.
+PALABRAS CONTEXTUALES — nunca excluyen solas; obligan a evaluar la naturaleza:
+"aseo", "mejoramiento", "construcción", "capacitación", "convenio", "mantención", "consultoría", "asesoría".
+Si la metadata no aclara la naturaleza con estas palabras → PASA.
 
-Señales que NO bastan por sí solas (confirma la naturaleza antes de excluir): "hormigón", "pavimento", "construcción", "capacitación", "mantención", "convenio". Pueden aparecer en proyectos que SÍ hacemos (venta de material/equipamiento). Si la metadata no aclara la naturaleza → PASA.
+QUÉ SE EXCLUYE (con su excepción):
 
-REGLA MIXTA (clave por la asimetría): si el objeto MEZCLA adquisición/compra/suministro de equipos o materiales CON un servicio (mantención, instalación, reparación, capacitación) — p.ej. "Adquisición y mantención de máquinas X", "Compra e instalación de Y" — NO es un servicio puro: hay venta de por medio → PASA o REVISION_HUMANA, NUNCA EXCLUIDO. Solo excluye como servicio cuando el objeto es ÍNTEGRAMENTE servicio sin venta de bienes.
+A. SERVICIO PURO (categoría "servicio"): mantención, reparación, servicio técnico, vigilancia, como OBJETO del contrato.
+   Excepción: NO excluir si el servicio (instalación/garantía/capacitación) viene INCLUIDO en la venta de un equipo. Si MEZCLA compra + servicio → PASA o REVISION_HUMANA, nunca EXCLUIDO.
 
-CONFIANZA: número 0.0–1.0 de qué tan inequívoca es la exclusión según la metadata. Si solo tienes el nombre y este no es concluyente, la confianza debe ser baja.
+A-bis. SERVICIO DE ASEO (categoría "aseo_servicio"): servicio/contrato de limpieza/aseo como objeto íntegro.
+   CRÍTICO: MAQUINARIA de aseo (barredora, vacuolavadora, hidrolavadora, fregadora, aspiradora industrial) = NEGOCIO CENTRAL → PASA. "Aseo" sola NUNCA excluye: analiza el objeto.
+
+B. CONSULTORÍA / ASESORÍA / CAPACITACIÓN PURA (categorías "consultoria", "asesoria", "capacitacion_pura"): estudio, asesoría, consultoría, curso como servicio independiente.
+   Excepción: capacitación ANEXA a la entrega de una máquina → PASA.
+
+C. OBRA CIVIL / CONSTRUCCIÓN (categoría "construccion"): pavimento, alcantarillado, edificación, sede, multicancha; núcleo = ejecución que exige constructor/profesional certificado en obra.
+   Excepción: instalación menor de equipamiento urbano que sí vendemos (mobiliario, juegos de plaza) → PASA.
+
+C-bis. "MEJORAMIENTO DE …" (categoría "mejoramiento_ambiguo"): señal AMBIGUA.
+   Si la metadata muestra compra de bienes que sí vendemos → PASA.
+   Si no hay señal de producto → REVISION_HUMANA (nunca EXCLUIDO directo).
+
+D. CONVENIO DE SUMINISTRO (categoría "convenio_suministro"): contrato de largo horizonte, entregas recurrentes mes a mes / según demanda.
+   Excepción: adquisición única / ejecución inmediata → PASA.
+   Excepción RM: si región = Región Metropolitana → REVISION_HUMANA (categoría "convenio_rm"), no EXCLUIDO.
+
+E. COMMODITY DE ALTA OFERTA (categoría "commodity"): el proyecto COMPLETO es un solo genérico de mucha oferta (solo computadores, discos duros, resmas, impresoras estándar).
+   Excepción: mezclado con productos especializados, o zona remota / baja competencia → PASA.
+
+UMBRALES DE CONFIANZA:
+- EXCLUIDO solo si confianza ≥ 0.8 y metadata inequívoca.
+- 0.5–0.8 → REVISION_HUMANA.
+- < 0.5 → PASA.
+
+CONFIANZA: refleja qué tan inequívoca es la exclusión con la metadata disponible. Si solo tienes el nombre y no es concluyente → confianza baja.
 
 Responde ÚNICAMENTE un objeto JSON válido, sin markdown ni texto extra.`;
 
@@ -167,7 +225,7 @@ function construirUserPrompt(metas: MetaLic[]): string {
     return partes.join('\n');
   }).join('\n\n---\n\n');
 
-  return `Evalúa estas ${metas.length} licitaciones. Para CADA una devuelve un objeto con su índice "i" (el número #N).
+  return `Evalúa estas ${metas.length} licitaciones (Pasada 2 — las palabras negativas duras ya fueron filtradas antes). Para CADA una devuelve un objeto con su índice "i" (el número #N).
 
 LICITACIONES:
 ${lineas}
@@ -178,7 +236,8 @@ Devuelve EXACTAMENTE este JSON (un elemento por licitación, en el mismo orden):
     {
       "i": 0,
       "decision": "PASA | EXCLUIDO | REVISION_HUMANA",
-      "categoria_exclusion": "servicio | obra_civil | alta_ejecucion_tecnica | capacitacion_pura | consultoria | convenio_suministro | commodity | null",
+      "categoria_exclusion": "servicio | aseo_servicio | consultoria | asesoria | capacitacion_pura | obra_civil | construccion | mejoramiento_ambiguo | convenio_suministro | convenio_rm | commodity | null",
+      "palabra_negativa_contextual": "término contextual que disparó la evaluación, o null",
       "motivo": "1 frase breve",
       "evidencia": "frase exacta tomada del nombre/descripción/ítems",
       "confianza": 0.0
@@ -207,24 +266,38 @@ function aplicarUmbral(
 }
 
 const CATEGORIAS_VALIDAS = new Set<string>([
-  'servicio', 'obra_civil', 'alta_ejecucion_tecnica', 'capacitacion_pura',
-  'consultoria', 'convenio_suministro', 'commodity',
+  'servicio', 'aseo_servicio', 'consultoria', 'asesoria', 'capacitacion_pura',
+  'obra_civil', 'construccion', 'mejoramiento_ambiguo',
+  'convenio_suministro', 'convenio_rm',
+  'commodity', 'insumo_consumible',
+  // retrocompatibilidad con registros v1 en BD
+  'alta_ejecucion_tecnica',
 ]);
 
 function normalizarCategoria(c: any): CategoriaExclusion {
   const s = String(c || '').toLowerCase().trim();
+  // Mapear categoría legacy a su equivalente v2.0
+  if (s === 'alta_ejecucion_tecnica') return 'construccion';
   return CATEGORIAS_VALIDAS.has(s) ? (s as CategoriaExclusion) : null;
 }
 
-// ─── Núcleo: prefiltrar un lote ───────────────────────────────────────────────────
-// 1) Pre-check de presupuesto (sin IA). 2) IA en lote para el resto. Ante fallo → PASA.
+function calcularDestino(decision: DecisionPrefiltro, categoria: CategoriaExclusion): DestinoPrefiltro {
+  if (decision === 'PASA') return 'FASE_1';
+  if (decision === 'REVISION_HUMANA') return 'REVISION_HUMANA';
+  // EXCLUIDO
+  return categoria === 'presupuesto' ? 'NO_CALIFICADOS' : 'NO_REALIZAMOS';
+}
+
+// ─── Núcleo: prefiltrar un lote (v2.0) ───────────────────────────────────────────
+// Orden: (1) presupuesto determinista → (2) Pasada 1 palabras duras → (3) Pasada 2 IA.
+// Ante cualquier fallo de IA → PASA (cautela).
 export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[]> {
   if (metas.length === 0) return [];
 
   const out = new Map<string, PrefiltroResult>();
-  const paraIA: MetaLic[] = [];
+  const paraP1: MetaLic[] = [];
 
-  // Paso 1 — pre-check de presupuesto (determinista).
+  // Paso 1 — pre-check de presupuesto (determinista, sin IA).
   for (const m of metas) {
     const { neto, excluido } = chequearPresupuesto(m);
     if (excluido) {
@@ -236,17 +309,32 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
         evidencia: `Presupuesto $${m.monto?.toLocaleString('es-CL')}`,
         confianza: 1,
         monto_neto: neto,
+        pasada: null,
+        palabra_negativa: null,
+        destino: 'NO_CALIFICADOS',
       });
+    } else {
+      paraP1.push(m);
+    }
+  }
+
+  // Paso 2 — Pasada 1: palabras negativas DURAS (string, sin IA).
+  const paraIA: MetaLic[] = [];
+  for (const m of paraP1) {
+    const resultado = pasada1PalabraDura(m);
+    if (resultado) {
+      out.set(m.codigo, resultado);
     } else {
       paraIA.push(m);
     }
   }
 
-  // Paso 2 — IA en lote para el resto. Default seguro = PASA.
+  // Paso 3 — Pasada 2: IA en lote para lo que sobrevive. Default seguro = PASA.
   const fallbackPasa = (m: MetaLic): PrefiltroResult => ({
     codigo: m.codigo, decision: 'PASA', categoria: null,
     motivo: '', evidencia: '', confianza: 0,
     monto_neto: chequearPresupuesto(m).neto,
+    pasada: null, palabra_negativa: null, destino: 'FASE_1',
   });
 
   if (paraIA.length > 0 && process.env.DEEPSEEK_API_KEY) {
@@ -282,6 +370,8 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
           const confianza = Math.max(0, Math.min(1, Number(r.confianza) || 0));
           const catRaw = normalizarCategoria(r.categoria_exclusion);
           const { decision, categoria } = aplicarUmbral(r.decision, catRaw, confianza);
+          const termCtx = r.palabra_negativa_contextual
+            ? String(r.palabra_negativa_contextual).slice(0, 60) : null;
           out.set(m.codigo, {
             codigo: m.codigo,
             decision,
@@ -290,6 +380,11 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
             evidencia: String(r.evidencia || '').slice(0, 500),
             confianza,
             monto_neto: chequearPresupuesto(m).neto,
+            pasada: '2_naturaleza',
+            palabra_negativa: termCtx
+              ? { nivel: 'contextual', termino: termCtx }
+              : null,
+            destino: calcularDestino(decision, categoria),
           });
         });
       } catch (e) {
