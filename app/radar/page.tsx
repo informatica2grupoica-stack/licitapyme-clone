@@ -1813,12 +1813,15 @@ export default function RadarPage() {
   }, [enriqActiva, cargarEnriqInfo, cargarAlertas, toast]);
 
   // ── Exportar Excel ────────────────────────────────────────────────────────────
+  // Exporta TODO el radar (el set completo `alertas`, una fila por licitación), sin
+  // importar los filtros activos ni la paginación. Incluye descartadas/excluidas y el
+  // estado de gestión para que el Excel sea el universo completo del radar.
   const exportarExcel = async () => {
-    if (exportando || alertasFiltradas.length === 0) return;
+    if (exportando || alertas.length === 0) return;
     setExportando(true);
     try {
       const XLSX = await import('xlsx');
-      const filas = alertasFiltradas.map(a => ({
+      const filas = alertas.map(a => ({
         'Código':           a.licitacion_codigo,
         'Nombre':           a.licitacion_nombre,
         'Organismo':        a.licitacion_organismo,
@@ -1834,6 +1837,9 @@ export default function RadarPage() {
         'Score viabilidad': a.viabilidad_score ?? '',
         'Área negocio':     a.viabilidad_area || '',
         'Tiene documentos': a.tiene_documentos ? 'Sí' : 'No',
+        'Descartada':       a.descartada ? 'Sí' : 'No',
+        'Asignada a':       a.asignado_nombre || '',
+        'Leída':            a.leida ? 'Sí' : 'No',
         'Detectada':        a.created_at ? new Date(a.created_at).toLocaleString('es-CL') : '',
         'URL':              `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(a.licitacion_codigo)}`,
       }));
@@ -1843,13 +1849,14 @@ export default function RadarPage() {
         { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 12 },
         { wch: 14 }, { wch: 22 },
         { wch: 14 }, { wch: 14 }, { wch: 14 },
-        { wch: 16 }, { wch: 18 }, { wch: 70 },
+        { wch: 16 }, { wch: 12 }, { wch: 20 }, { wch: 8 },
+        { wch: 18 }, { wch: 70 },
       ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Licitaciones');
       const hoy = new Date().toISOString().slice(0, 10);
       XLSX.writeFile(wb, `radar-licitaciones-${hoy}.xlsx`);
-      toast.success(`${filas.length} licitación${filas.length !== 1 ? 'es' : ''} exportada${filas.length !== 1 ? 's' : ''}`);
+      toast.success(`${filas.length} licitación${filas.length !== 1 ? 'es' : ''} exportada${filas.length !== 1 ? 's' : ''} (radar completo)`);
     } catch (e: unknown) {
       toast.error('Error al exportar', (e as Error)?.message || 'No se pudo generar el Excel');
     } finally { setExportando(false); }
@@ -2035,9 +2042,10 @@ export default function RadarPage() {
             {(usuario?.rol === 'admin' || usuario?.permisos?.exportar) && (
             <button
               onClick={exportarExcel}
-              disabled={exportando || alertasFiltradas.length === 0}
+              disabled={exportando || alertas.length === 0}
+              title={`Exportar TODO el radar (${alertas.length} licitaciones, sin filtros)`}
               className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
-                exportando || alertasFiltradas.length === 0
+                exportando || alertas.length === 0
                   ? 'bg-zinc-100 text-zinc-400 cursor-not-allowed'
                   : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-600/30 hover:-translate-y-px'
               }`}
