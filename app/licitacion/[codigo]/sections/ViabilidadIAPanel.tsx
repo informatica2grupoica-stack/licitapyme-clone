@@ -6,7 +6,7 @@
 // y el detalle en secciones plegables (acordeón) para que no sea un muro de información.
 
 import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
-import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square } from 'lucide-react';
+import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ZoomIn } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
 
 interface Feedback {
@@ -30,7 +30,7 @@ interface InformeIA {
   presupuesto?: { bruto?: number | null; neto?: number | null; con_iva?: boolean; regimen_fora?: boolean; presupuesto_exento?: boolean; es_excluyente?: boolean; fuente?: string; gate?: string };
   modalidad?: { tipo?: string; estado?: string; evidencia?: string; fuente?: string; confianza?: number; libertad_de_pricing?: boolean };
   criterios_evaluacion?: { fuente_datos?: string; forma_aplicacion_completa?: boolean; criterios?: Criterio[]; alertas?: string[] };
-  capa_a?: { presupuesto?: { pts?: number; fuente?: string }; cantidad_items?: { pts?: number; n_items?: number; fuente?: string }; complejidad?: { pts?: number; fuente?: string }; ejecucion?: { pts?: number; fuente?: string }; score_total?: number; nivel?: string };
+  capa_a?: { presupuesto?: { pts?: number; fuente?: string; justificacion?: string }; cantidad_items?: { pts?: number; n_items?: number; fuente?: string; justificacion?: string }; complejidad?: { pts?: number; fuente?: string; justificacion?: string }; ejecucion?: { pts?: number; fuente?: string; justificacion?: string }; score_total?: number; nivel?: string };
   capa_b_palancas?: Palanca[];
   capa_c_admisibilidad?: { presupuesto_excluyente?: { aplica?: boolean; efecto?: string; fuente?: string }; bloqueantes?: Array<{ item: string; fuente?: string }>; barreras_a_favor?: Array<{ item: string; fuente?: string }>; boleta_aplica?: boolean; umbral_utm?: number; firma_puno_y_letra?: boolean; alertas?: string[] };
   multas?: { estructura?: string; costo_por_dia?: string; costo_maximo?: string; umbral_termino?: string; fuente?: string };
@@ -98,17 +98,71 @@ function Gauge({ score, sem }: { score: number; sem: { ring: string } }) {
   );
 }
 
-function Fuente({ children }: { children?: string }) {
+// Visor de fuente: al hacer clic en el ojo de una cita, abre un MODAL grande con la
+// imagen de la página citada (renderizada por /api/pdf-pagina con mupdf) y, si se pasa
+// `q`, RESALTA en amarillo el texto de donde sale el dato. Antes era un hover diminuto.
+interface VisorOpts { url: string; pagina: number | null; q?: string; titulo?: string }
+const VisorContext = createContext<((o: VisorOpts) => void) | null>(null);
+
+function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => void }) {
+  const [cargada, setCargada] = useState(false);
+  const [error, setError] = useState(false);
+  const [zoom, setZoom] = useState(false);
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onClose]);
+
+  const pagina = estado.pagina ?? 1;
+  const src = `/api/pdf-pagina?url=${encodeURIComponent(estado.url)}&pagina=${pagina}${estado.q ? `&q=${encodeURIComponent(estado.q)}` : ''}`;
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 flex-shrink-0">
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-slate-800 truncate">{estado.titulo || 'Fuente del análisis'}</p>
+            <p className="text-[11px] text-slate-400 truncate">{estado.pagina != null ? `Página ${estado.pagina}` : 'Documento'}{estado.q ? ` · resaltado: “${estado.q}”` : ''}</p>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button onClick={() => setZoom(z => !z)} title="Ampliar / reducir" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><ZoomIn size={16} /></button>
+            <a href={`${estado.url}#page=${pagina}`} target="_blank" rel="noopener noreferrer" title="Abrir el PDF completo" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><ExternalLink size={16} /></a>
+            <button onClick={onClose} title="Cerrar (Esc)" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><X size={16} /></button>
+          </div>
+        </div>
+        <div className="overflow-auto bg-slate-100 flex-1 flex justify-center items-start p-3">
+          {!cargada && !error && <div className="flex items-center gap-2 text-slate-400 text-[13px] py-24"><Loader2 size={18} className="animate-spin" /> Renderizando página {pagina}…</div>}
+          {error && <div className="text-slate-400 text-[13px] py-24">No se pudo renderizar la página. <a href={`${estado.url}#page=${pagina}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">Abrir el PDF</a>.</div>}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt={`Página ${pagina}`} onLoad={() => setCargada(true)} onError={() => setError(true)}
+            className={`${cargada ? 'block' : 'hidden'} h-fit rounded shadow ${zoom ? 'max-w-none w-[1100px]' : 'max-w-full'}`} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Fuente({ children, destacar }: { children?: string; destacar?: string }) {
   const docs = useContext(FuenteDocsContext);
+  const abrirVisor = useContext(VisorContext);
   if (!children) return null;
   const cita = resolverCita(children, docs);
   if (cita) {
     return (
-      <a href={cita.href} target="_blank" rel="noopener noreferrer"
-        title={cita.pagina ? `Abrir el documento en la página ${cita.pagina}` : 'Abrir el documento'}
-        className="inline-flex items-center gap-1 text-[11px] text-indigo-600 hover:text-indigo-800 hover:underline">
-        <FileSearch size={10} />{children}<ExternalLink size={9} className="opacity-70" />
-      </a>
+      <span className="inline-flex items-center gap-1 text-[11px] text-indigo-600">
+        <a href={cita.href} target="_blank" rel="noopener noreferrer" title="Abrir el PDF completo"
+          className="inline-flex items-center gap-1 hover:text-indigo-800 hover:underline">
+          <FileSearch size={10} />{children}
+        </a>
+        {abrirVisor && (
+          <button type="button" onClick={() => abrirVisor({ url: cita.href.split('#')[0], pagina: cita.pagina, q: destacar, titulo: children })}
+            title="Ver y resaltar en el documento"
+            className="inline-flex items-center text-violet-500 hover:text-violet-700">
+            <Eye size={13} />
+          </button>
+        )}
+      </span>
     );
   }
   return <span className="inline-flex items-center gap-1 text-[11px] text-indigo-500"><FileSearch size={10} />{children}</span>;
@@ -129,7 +183,7 @@ function Seccion({ icon, titulo, badge, children, defaultOpen = false }: { icon:
 
 const estadoColor = (e?: string) => e === 'VENTAJA' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : e === 'DESVENTAJA' ? 'text-red-700 bg-red-50 border-red-200' : 'text-slate-500 bg-slate-50 border-slate-200';
 
-export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: string; onTambienAnalizar?: () => void }) {
+export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { codigo: string; onTambienAnalizar?: () => void; onComplete?: () => void }) {
   const { usuario } = useSession();
   // Solo admin o usuarios con permiso pueden comentar/corregir la viabilidad (el servidor también lo valida).
   const puedeComentar = usuario?.rol === 'admin' || !!usuario?.permisos?.comentar_viabilidad;
@@ -137,6 +191,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [docs, setDocs] = useState<DocRef[]>([]);
+  const [visor, setVisor] = useState<VisorOpts | null>(null);   // modal de fuente (página + resaltado)
   const abortRef = useRef<AbortController | null>(null);
 
   const cargar = useCallback(async () => {
@@ -219,6 +274,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
       const j = await r.json();
       if (!r.ok) { setError(j.error || 'Error al analizar.'); return; }
       setInforme(j.informeIA);
+      // Refrescar documentos: el análisis puede haber generado el Excel de costeo
+      try { onComplete?.(); } catch { /* noop */ }
     } catch (e: any) {
       if ((e as Error)?.name === 'AbortError') return; // cancelado por el usuario
       setError(String(e?.message || e));
@@ -304,8 +361,11 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
         </div>
       )}
 
+      {visor && <VisorPagina estado={visor} onClose={() => setVisor(null)} />}
+
       {informe && (
         <FuenteDocsContext.Provider value={docs}>
+         <VisorContext.Provider value={setVisor}>
           {/* HERO: score + veredicto */}
           <div className={`rounded-2xl border p-4 ${sem.soft}`}>
             <div className="flex items-center gap-4">
@@ -385,7 +445,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
                       ? <p className="text-[12px] text-slate-600 mt-0.5 leading-snug whitespace-pre-line">{c.forma_aplicacion}</p>
                       : <p className="text-[12px] text-amber-600 mt-0.5">⚠ Sin forma de aplicación — revisar las bases.</p>}
                     {c.medio_verificacion && <p className="text-[11px] text-slate-400 mt-0.5">Verificación: {c.medio_verificacion}</p>}
-                    <div className="mt-0.5"><Fuente>{c.fuente}</Fuente></div>
+                    <div className="mt-0.5"><Fuente destacar={c.nombre}>{c.fuente}</Fuente></div>
                   </div>
                 ))}
                 {(crit?.alertas?.length ?? 0) > 0 && (
@@ -420,9 +480,16 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
 
           {informe.capa_a && (
             <Seccion icon={<Scale size={14} className="text-violet-500" />} titulo="Atractivo (Capa A)" badge={`${informe.capa_a.score_total ?? '?'}/15 · ${cap(informe.capa_a.nivel)}`}>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[12px]">
+              <div className="space-y-1.5 text-[12px]">
                 {[['Presupuesto', informe.capa_a.presupuesto], ['Cantidad', informe.capa_a.cantidad_items], ['Complejidad', informe.capa_a.complejidad], ['Ejecución', informe.capa_a.ejecucion]].map(([lbl, o]: any, i) => (
-                  <div key={i} className="bg-slate-50 rounded-lg p-2"><p className="text-slate-500">{lbl}</p><p className="font-bold text-slate-800">{o?.pts ?? '—'}/3</p><p className="text-[10px] text-slate-400 truncate" title={o?.fuente}>{o?.fuente}</p></div>
+                  <div key={i} className="bg-slate-50 rounded-lg p-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-semibold text-slate-700">{lbl}</p>
+                      <span className="font-bold text-slate-900 flex-shrink-0">{o?.pts ?? '—'}/3</span>
+                    </div>
+                    {o?.justificacion && <p className="text-slate-600 mt-0.5 leading-snug">{o.justificacion}</p>}
+                    {o?.fuente && <div className="mt-0.5"><Fuente>{o.fuente}</Fuente></div>}
+                  </div>
                 ))}
               </div>
             </Seccion>
@@ -430,9 +497,16 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
 
           {(informe.capa_b_palancas?.length ?? 0) > 0 && (
             <Seccion icon={<ListChecks size={14} className="text-violet-500" />} titulo="Palancas (Capa B)">
-              <div className="flex flex-wrap gap-1.5">
+              <div className="space-y-1.5 text-[12px]">
                 {informe.capa_b_palancas!.map((p, i) => (
-                  <span key={i} title={`${p.condicion || ''} ${p.fuente ? '· ' + p.fuente : ''}`} className={`text-[12px] px-2 py-1 rounded-lg border ${estadoColor(p.estado)}`}>{cap(p.palanca)}: <strong>{cap(p.estado)}</strong></span>
+                  <div key={i} className="bg-slate-50 rounded-lg p-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-700">{cap(p.palanca)}</span>
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded border font-bold ${estadoColor(p.estado)}`}>{cap(p.estado)}</span>
+                    </div>
+                    {p.condicion && <p className="text-slate-600 mt-0.5 leading-snug">{p.condicion}</p>}
+                    {p.fuente && <div className="mt-0.5"><Fuente>{p.fuente}</Fuente></div>}
+                  </div>
                 ))}
               </div>
             </Seccion>
@@ -488,6 +562,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar }: { codigo: strin
             {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3!.join(', ')} · </>}
             Leídos {informe.documentos_leidos?.length ?? 0} doc(s){(informe.documentos_no_leidos?.length ?? 0) > 0 ? ` · ${informe.documentos_no_leidos!.length} ilegibles` : ''} · confianza {Math.round((informe.confianza_global ?? 0) * 100)}%
           </p>
+         </VisorContext.Provider>
         </FuenteDocsContext.Provider>
       )}
 

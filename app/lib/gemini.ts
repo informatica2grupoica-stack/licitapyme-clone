@@ -172,13 +172,85 @@ export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<strin
 }
 const sleep  = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-// ─── OCR de PDF COMPLETO vía Gemini File API ─────────────────────────────────────
-// Sube el PDF entero a la File API de Gemini y le pide transcribir TODO el texto con
+// ─── OCR de PDF vía Gemini File API (troceado por páginas) ───────────────────────
+// Sube el PDF a la File API de Gemini y le pide transcribir TODO el texto con
 // marcadores [[PÁGINA N]]. A diferencia del OCR por bloques (OCR.space, tope 45 págs,
-// frágil ante cuota), Gemini lee el documento completo de una sola vez — sin tope de
-// páginas ni dependencia de OCR.space. Es el método más fiable para bases escaneadas.
-// Devuelve '' si no logra transcribir (el llamador cae al OCR por bloques).
+// frágil ante cuota), lo lee un modelo de VISIÓN — mejor calidad en tablas de criterios,
+// multas y caracteres especiales.
+//
+// CLAVE (medido 2026-06-30): pedir la transcripción de un escaneado GRANDE (37 págs) en
+// UNA sola llamada NO termina dentro del timeout (>300s: el modelo genera demasiada
+// salida de golpe). Y un bloque de 10 págs dispara el filtro RECITATION de Gemini
+// (finishReason=RECITATION, 0 chars) cuando el texto es boilerplate legal muy verbatim.
+// Medido: bloques de ≤4 págs completan en <90s y NO disparan RECITATION; la página suelta
+// SIEMPRE funciona. Solución: trocear en bloques de FILEAPI_CHUNK_PAGINAS y transcribir
+// SECUENCIAL (respeta rate-limit), numerando las páginas de forma ABSOLUTA para que las
+// citas [[PÁGINA N]] del informe sigan siendo correctas. Si un bloque multipágina vuelve
+// vacío (RECITATION o saturación), se REINTENTA página por página (fiable). Así Gemini lee
+// el documento entero al 100%, sin caer a OCR.space.
+// Devuelve '' si no logra transcribir nada (el llamador cae al OCR por bloques).
+
+const FILEAPI_CHUNK_PAGINAS = 4; // págs por llamada: <90s y sin RECITATION (medido)
+
 export async function extraerTextoPdfConGeminiFileAPI(buffer: Buffer): Promise<string> {
+  // ¿Cuántas páginas tiene? Si no se puede leer el conteo, una sola llamada con el doc completo.
+  let totalPaginas = 0;
+  try {
+    const { PDFDocument } = await import('pdf-lib');
+    const doc = await PDFDocument.load(buffer, { ignoreEncryption: true });
+    totalPaginas = doc.getPageCount();
+  } catch { /* conteo desconocido → tratamos como documento único */ }
+
+  if (totalPaginas === 0) return transcribirPdfFileAPI(buffer, 1);
+
+  const { PDFDocument } = await import('pdf-lib');
+  const src = await PDFDocument.load(buffer, { ignoreEncryption: true });
+  // Sub-PDF con un conjunto de índices de página (0-based).
+  const subBufDe = async (indices: number[]): Promise<Buffer> => {
+    const sub = await PDFDocument.create();
+    const copiadas = await sub.copyPages(src, indices);
+    copiadas.forEach(pg => sub.addPage(pg));
+    return Buffer.from(await sub.save());
+  };
+
+  const partes: string[] = [];
+  for (let inicio = 0; inicio < totalPaginas; inicio += FILEAPI_CHUNK_PAGINAS) {
+    const indices: number[] = [];
+    for (let p = inicio; p < Math.min(inicio + FILEAPI_CHUNK_PAGINAS, totalPaginas); p++) indices.push(p);
+
+    let t = '';
+    try {
+      t = await transcribirPdfFileAPI(await subBufDe(indices), inicio + 1);
+    } catch (e) {
+      // Un bloque que falle no debe tumbar el resto: se intenta página por página abajo.
+      console.warn(`[gemini-fileapi] bloque págs ${inicio + 1}-${inicio + indices.length} error:`, e instanceof Error ? e.message : e);
+    }
+
+    // Bloque multipágina vacío → casi siempre RECITATION. Reintento página por página.
+    if ((!t || !t.trim()) && indices.length > 1) {
+      console.warn(`[gemini-fileapi] bloque págs ${inicio + 1}-${inicio + indices.length} vacío (posible RECITATION) → reintento página por página`);
+      const sueltas: string[] = [];
+      for (const pi of indices) {
+        try {
+          const tp = await transcribirPdfFileAPI(await subBufDe([pi]), pi + 1);
+          if (tp && tp.trim()) sueltas.push(tp.trim());
+        } catch (e) {
+          console.warn(`[gemini-fileapi] pág ${pi + 1} falló:`, e instanceof Error ? e.message : e);
+        }
+      }
+      t = sueltas.join('\n\n');
+    }
+
+    console.log(`[gemini-fileapi] bloque págs ${inicio + 1}-${inicio + indices.length}: ${t.length} chars`);
+    if (t && t.trim()) partes.push(t.trim());
+  }
+  return partes.join('\n\n');
+}
+
+// Sube UN buffer PDF a la File API y transcribe su texto. `startPageAbs` = número de
+// página del documento ORIGINAL al que corresponde la primera página de este buffer, para
+// que los marcadores [[PÁGINA N]] lleven la numeración absoluta correcta.
+async function transcribirPdfFileAPI(buffer: Buffer, startPageAbs: number): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY no configurada para OCR');
   const BASE = 'https://generativelanguage.googleapis.com';
@@ -209,7 +281,7 @@ export async function extraerTextoPdfConGeminiFileAPI(buffer: Buffer): Promise<s
   if (!file?.name) throw new Error('File API: subida sin nombre de archivo');
 
   try {
-    // 2) Esperar a que el archivo quede ACTIVE (Gemily lo procesa unos segundos).
+    // 2) Esperar a que el archivo quede ACTIVE (Gemini lo procesa unos segundos).
     for (let i = 0; i < 30 && file.state !== 'ACTIVE'; i++) {
       await sleep(2_000);
       file = await fetch(`${BASE}/v1beta/${file.name}?key=${apiKey}`).then(r => r.json()).catch(() => file);
@@ -217,10 +289,17 @@ export async function extraerTextoPdfConGeminiFileAPI(buffer: Buffer): Promise<s
     }
     if (file.state !== 'ACTIVE') throw new Error(`File API: archivo no quedó ACTIVE (estado=${file.state})`);
 
-    // 3) Transcripción completa con marcadores de página, alternando modelos ante 503.
+    // 3) Transcripción con marcadores de página ABSOLUTOS, alternando modelos ante 503.
+    const instruccion =
+      `Transcribe TODO el texto de este PDF escaneado, página por página y en orden. ` +
+      `La PRIMERA página de este PDF corresponde a la página ${startPageAbs} del documento original: ` +
+      `antepón a esa página, en su propia línea, el marcador exacto [[PÁGINA ${startPageAbs}]]; ` +
+      `a la siguiente [[PÁGINA ${startPageAbs + 1}]], y así sucesivamente (un marcador por página, numeración correlativa desde ${startPageAbs}). ` +
+      `Incluye tablas con sus valores, criterios de evaluación y ponderaciones, multas, garantías, plazos, montos, requisitos y listas. ` +
+      `No resumas ni omitas nada. Devuelve solo el texto transcrito.`;
     const body = JSON.stringify({
       contents: [{ parts: [
-        { text: 'Transcribe TODO el texto de este PDF escaneado, página por página y en orden. Antepón a cada página, en su propia línea, el marcador exacto [[PÁGINA N]] (N = número de página). Incluye tablas con sus valores, criterios de evaluación y ponderaciones, multas, garantías, plazos, montos, requisitos y listas. No resumas ni omitas nada. Devuelve solo el texto transcrito.' },
+        { text: instruccion },
         { fileData: { mimeType: 'application/pdf', fileUri: file.uri } },
       ] }],
       generationConfig: { temperature: 0, maxOutputTokens: 60_000 },
@@ -236,7 +315,7 @@ export async function extraerTextoPdfConGeminiFileAPI(buffer: Buffer): Promise<s
       if (res.ok) {
         const data = await res.json();
         const texto = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
-        console.log(`[gemini-fileapi] OCR completo: ${texto.length} chars (${modelo})`);
+        console.log(`[gemini-fileapi] transcrito desde pág ${startPageAbs}: ${texto.length} chars (${modelo})`);
         return texto;
       }
       ultimoErr = `${modelo} ${res.status}: ${(await res.text().catch(() => '')).slice(0, 150)}`;

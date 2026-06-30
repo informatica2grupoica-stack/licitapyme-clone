@@ -1,221 +1,210 @@
 // app/lib/generar-costeo.ts
-// Genera el Excel de costeo basado en TABLA_DE_COSTEO_V3.xlsx usando SheetJS.
-// Estructura: hoja "Costeo" + hoja "AUDITORIA" con cross-refs.
+// Genera el Excel de costeo a partir de la plantilla REAL del usuario
+// (app/lib/plantillas-costeo/tabla-costeo-v3.xlsx), preservando sus colores, fórmulas y la
+// hoja AUDITORIA. Solo se RELLENAN los ítems (ITEM, Detalle, Unidad, Cantidad).
+//   - modalidad suma_alzada → 1 hoja "Costeo" con todos los ítems.
+//   - modalidad por_linea   → una hoja por línea (LINEA1, LINEA2, …) clonando "Costeo".
+// La hoja AUDITORIA se reconstruye para referenciar todos los ítems de todas las hojas.
+// Se usa exceljs para no perder fórmulas compartidas ni los estilos/colores del template.
 
-import * as XLSX from 'xlsx';
+import path from 'path';
+import ExcelJS from 'exceljs';
 import type { ManifiestoLinea, ViabilidadIAResult } from '@/app/lib/viabilidad-ia';
+
+export type ModalidadCosteo = 'suma_alzada' | 'por_linea';
 
 export interface DatosCosteo {
   codigo: string;
   nombre: string;
   organismo: string;
   presupuesto_bruto: number | null;
+  modalidad: ModalidadCosteo;
   lineas: Map<number, ManifiestoLinea[]>;
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Estructura de la plantilla V3 (medida): hoja "Costeo" con ítems desde la fila 4 (20 filas
+// base), totales en la 24 y resumen 25-32; hoja "AUDITORIA" que referencia Costeo!*4..*23.
+const HOJA_COSTEO = 'Costeo';
+const HOJA_AUDITORIA = 'AUDITORIA';
+const FILA_ITEM_1 = 4;     // primera fila de ítems en la hoja de costeo
+const FILA_MODELO = 5;     // fila a duplicar al expandir (trae las fórmulas por ítem)
+const AUD_ITEM_1 = 3;      // primera fila de ítems en AUDITORIA
+const MAX_HOJAS_LINEA = 50; // tope de hojas LINEA (las líneas sobrantes se acumulan en la última)
 
-function c(col: string, row: number) { return `${col}${row}`; }
-function txt(v: string): XLSX.CellObject { return { t: 's', v }; }
-function num(v: number): XLSX.CellObject { return { t: 'n', v }; }
-function fml(f: string): XLSX.CellObject { return { t: 'n', f }; }
-function set(ws: XLSX.WorkSheet, ref: string, cell: XLSX.CellObject) { ws[ref] = cell; }
-
-// ─── Hoja Costeo ──────────────────────────────────────────────────────────────
-
-function crearHojaCosteo(
-  items: ManifiestoLinea[],
-  presupuesto: number,
-  sheetName: string,
-): XLSX.WorkSheet {
-  const ws: XLSX.WorkSheet = {};
-  const N = items.length;
-
-  // Filas 1-2: cabeceras secciones
-  set(ws, 'C1', txt('SECCION ASISTENTE DE GESTIÓN'));
-  set(ws, 'L1', txt('SECCION COMPRAS'));
-  set(ws, 'F2', txt('COSTEO ORIGINAL'));
-  set(ws, 'J2', txt('PRECIOS PARA MERCADOPUBLICO'));
-  set(ws, 'L2', txt('Proceso de compra'));
-
-  // Fila 3: headers columnas
-  const hdrs: [string, string][] = [
-    ['A','ITEM'],['B','Detalle de producto'],['C','Unidad de medida'],
-    ['D','Sku de proveedor'],['E','Cantidad  original'],['F','VALOR C/ IVA'],
-    ['G','Costo unitario neto'],['H','Costo total neto'],['I','Precio unitario venta'],
-    ['J','Precio unitario sin decimales'],['K','Precio total neto'],
-    ['L','Costo unitario REAL'],['M','Costo total neto REAL'],['N','VARIACION'],
-    ['O','Orden de compra'],['P','Factura recibida'],['Q','Pago realizado por:'],
-    ['R','Estado de recepción'],['S','Link 1'],['T','Link 2'],['U','Sku propio'],['V','Link 3'],
-  ];
-  hdrs.forEach(([col, label]) => set(ws, c(col, 3), txt(label)));
-
-  // Posiciones de filas
-  const ITEM_START    = 4;
-  const ITEM_END      = ITEM_START + N - 1;
-  const TOTAL_ROW     = ITEM_END + 1;
-  const PRES_NETO_ROW = TOTAL_ROW + 2;
-  const PRES_IVA_ROW  = TOTAL_ROW + 3;
-  const VENTA_ROW     = TOTAL_ROW + 4;
-  const IVA_ROW       = TOTAL_ROW + 5;
-  const UTIL_ROW      = TOTAL_ROW + 6;
-  const MARGEN_ROW    = TOTAL_ROW + 7;
-  const DIST_ROW      = TOTAL_ROW + 8;
-
-  // Ítems
-  items.forEach((it, idx) => {
-    const r = ITEM_START + idx;
-    const detalle = [it.descripcion, it.modelo].filter(Boolean).join(' - ');
-    set(ws, c('A', r), num(idx + 1));
-    set(ws, c('B', r), txt(detalle));
-    set(ws, c('C', r), txt(it.unidad_medida || 'UN'));
-    if (it.cantidad != null) set(ws, c('E', r), num(it.cantidad));
-    set(ws, c('G', r), fml(`F${r}/1.19`));
-    set(ws, c('H', r), fml(`E${r}*G${r}`));
-    set(ws, c('I', r), fml(`G${r}*1.34`));
-    set(ws, c('J', r), fml(`TRUNC(I${r},0)`));
-    set(ws, c('K', r), fml(`J${r}*E${r}`));
-    set(ws, c('L', r), num(0));
-    set(ws, c('M', r), fml(`L${r}*E${r}`));
-    set(ws, c('N', r), fml(`(L${r}/G${r})-1`));
-    set(ws, c('R', r), txt('Pendiente'));
-  });
-
-  // Totales
-  set(ws, c('E', TOTAL_ROW), fml(`SUM(E${ITEM_START}:E${ITEM_END})`));
-  set(ws, c('F', TOTAL_ROW), fml(`K${TOTAL_ROW}<K${PRES_NETO_ROW}`));
-  set(ws, c('H', TOTAL_ROW), fml(`SUM(H${ITEM_START}:H${ITEM_END})`));
-  set(ws, c('K', TOTAL_ROW), fml(`SUM(K${ITEM_START}:K${ITEM_END})`));
-  set(ws, c('M', TOTAL_ROW), fml(`SUM(M${ITEM_START}:M${ITEM_END})`));
-  set(ws, c('N', TOTAL_ROW), fml(`AVERAGE(N${ITEM_START}:N${ITEM_END})`));
-
-  set(ws, c('F', TOTAL_ROW + 1), fml(`H${TOTAL_ROW}`));
-
-  // Presupuesto
-  set(ws, c('F', PRES_NETO_ROW), fml(`K${TOTAL_ROW}`));
-  set(ws, c('I', PRES_NETO_ROW), txt('valo C/iva'));
-  set(ws, c('J', PRES_NETO_ROW), txt('Presupuesto licitación neto'));
-  set(ws, c('K', PRES_NETO_ROW), fml(`F${PRES_IVA_ROW}/1.19`));
-  set(ws, c('D', PRES_IVA_ROW), txt('Presupuesto iva incluido'));
-  set(ws, c('F', PRES_IVA_ROW), num(presupuesto || 0));
-
-  // Venta / IVA / Utilidad / Margen
-  set(ws, c('H', VENTA_ROW), fml(`K${VENTA_ROW}*1.19`));
-  set(ws, c('I', VENTA_ROW), txt('Total venta C/iva'));
-  set(ws, c('J', VENTA_ROW), txt('Total neto venta'));
-  set(ws, c('K', VENTA_ROW), fml(`K${TOTAL_ROW}`));
-  set(ws, c('M', VENTA_ROW), txt('Total neto venta'));
-  set(ws, c('N', VENTA_ROW), fml(`K${TOTAL_ROW}`));
-
-  set(ws, c('H', IVA_ROW), fml(`K${VENTA_ROW}*19%`));
-  set(ws, c('I', IVA_ROW), txt('venta iva'));
-  set(ws, c('J', IVA_ROW), txt('Total costo neto'));
-  set(ws, c('K', IVA_ROW), fml(`H${TOTAL_ROW}`));
-  set(ws, c('M', IVA_ROW), txt('Total costo REAL'));
-  set(ws, c('N', IVA_ROW), fml(`M${TOTAL_ROW}`));
-
-  set(ws, c('J', UTIL_ROW), txt('Utilidad total neta'));
-  set(ws, c('K', UTIL_ROW), fml(`K${VENTA_ROW}-K${IVA_ROW}`));
-  set(ws, c('M', UTIL_ROW), txt('Utilidad neta REAL'));
-  set(ws, c('N', UTIL_ROW), fml(`N${VENTA_ROW}-N${IVA_ROW}`));
-
-  set(ws, c('J', MARGEN_ROW), txt('% Margen'));
-  set(ws, c('K', MARGEN_ROW), { t: 'n', f: `1-(K${IVA_ROW}/K${VENTA_ROW})`, z: '0.0%' });
-  set(ws, c('M', MARGEN_ROW), txt('% Margen'));
-  set(ws, c('N', MARGEN_ROW), { t: 'n', f: `1-(M${IVA_ROW}/M${VENTA_ROW})`, z: '0.0%' });
-
-  set(ws, c('J', DIST_ROW), txt('% distancia del tope'));
-  set(ws, c('K', DIST_ROW), { t: 'n', f: `1-(K${VENTA_ROW}/K${PRES_NETO_ROW})`, z: '0.0%' });
-  set(ws, c('M', DIST_ROW), txt('% de Variación'));
-  set(ws, c('N', DIST_ROW), fml(`N${TOTAL_ROW}`));
-
-  ws['!ref'] = `A1:V${DIST_ROW}`;
-  ws['!cols'] = [
-    { wch: 6 }, { wch: 52 }, { wch: 10 }, { wch: 14 }, { wch: 10 },
-    { wch: 14 }, { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 20 },
-    { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 10 },
-  ];
-
-  // Metadata para AUDITORIA
-  (ws as any).__meta = { ITEM_START, N, sheetName };
-  return ws;
+// Detalle = descripción + modelo. La unidad va en su PROPIA columna (C), no aquí.
+function detalleDe(it: ManifiestoLinea): string {
+  return [it.descripcion, it.modelo].filter(Boolean).join(' - ');
 }
 
-// ─── Hoja AUDITORIA ──────────────────────────────────────────────────────────
+// Detecta la fila de totales (la que trae SUM(/AVERAGE() en alguna columna numérica) y
+// cuántas filas base de ítems hay. Robusto si la plantilla cambia de tamaño.
+function detectarEstructura(ws: ExcelJS.Worksheet): { totalsRow: number; baseRows: number } {
+  let totalsRow = 0;
+  for (let r = FILA_ITEM_1 + 1; r <= 2000 && !totalsRow; r++) {
+    for (let c = 5; c <= 14; c++) {
+      const v = ws.getCell(r, c).value as any;
+      if (v && typeof v === 'object' && v.formula && /SUM\(|AVERAGE\(/i.test(v.formula)) { totalsRow = r; break; }
+    }
+  }
+  const baseRows = totalsRow ? totalsRow - FILA_ITEM_1 : 20;
+  return { totalsRow, baseRows };
+}
 
-function crearHojaAuditoria(
-  costeoSheets: Array<{ ws: XLSX.WorkSheet; sheetName: string }>,
-): XLSX.WorkSheet {
-  const wa: XLSX.WorkSheet = {};
+// Desplaza las referencias de fila de una fórmula: toda referencia a una fila > pivot se
+// corre +delta (lo mismo que hace Excel al insertar `delta` filas tras la fila `pivot`).
+function desplazarReferencias(formula: string, pivot: number, delta: number): string {
+  return formula.replace(/(\$?[A-Z]{1,3})(\$?)(\d+)/g, (m, col, abs, row) => {
+    const n = parseInt(row, 10);
+    return n > pivot ? `${col}${abs}${n + delta}` : m;
+  });
+}
 
-  set(wa, 'F1', txt('Producto y proveedor - DATOS PARA ORDEN DE COMPRA'));
+// Rellena una hoja de costeo (Costeo o LINEAn) con sus ítems, expandiendo el bloque si hace
+// falta y corrigiendo las referencias de los totales. Devuelve cuántos ítems escribió.
+function rellenarCosteo(ws: ExcelJS.Worksheet, items: ManifiestoLinea[]): number {
+  const N = items.length;
+  if (N === 0) return 0;
 
-  const hdrs: [string, string][] = [
-    ['A','ITEM'],['B','Detalle'],['C','Cantidad '],['D','Costo unitario REAL'],
-    ['E','Costo total neto REAL'],['F','Marca'],['G','Modelo'],['H','Procedencia'],
-    ['I','Razón social proveedor'],['J','Rut proveedor'],['K','Dirección proveedor'],
-    ['L','Vendedor'],['M','Fono contacto'],['N','Mail'],['O','Plazo de entrega'],
-    ['P','Número de OC'],['Q','Factura de compra'],['R','Link 1'],['S','Link 2'],
-  ];
-  hdrs.forEach(([col, label]) => set(wa, c(col, 2), txt(label)));
+  const { totalsRow, baseRows } = detectarEstructura(ws);
+  let delta = 0;
+  if (N > baseRows) {
+    delta = N - baseRows;
+    ws.duplicateRow(FILA_MODELO, delta, true); // clona la fila modelo (fórmulas + estilo)
+  }
 
-  let auditRow = 3;
-  for (const { ws, sheetName } of costeoSheets) {
-    const meta = (ws as any).__meta;
-    if (!meta) continue;
-    const { ITEM_START, N } = meta;
-    for (let i = 0; i < N; i++) {
-      const cr = ITEM_START + i;
-      set(wa, c('A', auditRow), fml(`'${sheetName}'!A${cr}`));
-      set(wa, c('B', auditRow), fml(`'${sheetName}'!B${cr}`));
-      set(wa, c('C', auditRow), fml(`'${sheetName}'!E${cr}`));
-      set(wa, c('D', auditRow), fml(`'${sheetName}'!L${cr}`));
-      set(wa, c('E', auditRow), fml(`'${sheetName}'!M${cr}`));
-      set(wa, c('R', auditRow), fml(`'${sheetName}'!S${cr}`));
-      set(wa, c('S', auditRow), fml(`'${sheetName}'!T${cr}`));
-      auditRow++;
+  items.forEach((it, i) => {
+    const r = FILA_ITEM_1 + i;
+    ws.getCell(`A${r}`).value = i + 1;                                    // ITEM
+    ws.getCell(`B${r}`).value = detalleDe(it);                           // Detalle de producto
+    ws.getCell(`C${r}`).value = (it.unidad_medida || '').trim() || 'UN'; // Unidad de medida
+    ws.getCell(`E${r}`).value = it.cantidad ?? null;                     // Cantidad original
+  });
+
+  // Si hay MENOS ítems que filas base, limpiar los placeholders sobrantes ("Producto N")
+  // para que no aparezcan filas dummy entre los ítems reales y los totales.
+  if (delta === 0 && totalsRow) {
+    for (let r = FILA_ITEM_1 + N; r < totalsRow; r++) {
+      for (const col of ['A', 'B', 'C', 'E']) ws.getCell(`${col}${r}`).value = null;
     }
   }
 
-  wa['!ref'] = `A1:S${Math.max(auditRow, 3)}`;
-  wa['!cols'] = [
-    { wch: 6 }, { wch: 50 }, { wch: 10 }, { wch: 16 }, { wch: 16 },
-    { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 14 },
-    { wch: 24 }, { wch: 16 }, { wch: 14 }, { wch: 24 }, { wch: 14 },
-    { wch: 12 }, { wch: 16 }, { wch: 40 }, { wch: 40 },
-  ];
-  return wa;
+  // Tras expandir, el bloque de totales/resumen se desplazó `delta` filas y sus fórmulas
+  // siguen apuntando a las filas viejas → corregir todas sus referencias.
+  if (delta > 0 && totalsRow) {
+    const desde = totalsRow + delta;
+    for (let r = desde; r <= desde + 40; r++) {
+      for (let c = 1; c <= 16; c++) {
+        const cell = ws.getCell(r, c);
+        const v = cell.value as any;
+        if (v && typeof v === 'object' && v.formula && !v.sharedFormula) {
+          cell.value = { formula: desplazarReferencias(v.formula, FILA_MODELO, delta) } as any;
+        }
+      }
+    }
+  }
+  return N;
+}
+
+// Reconstruye la hoja AUDITORIA para que referencie, en orden, TODOS los ítems escritos en
+// las hojas de costeo. `refs` = lista {hoja, fila} de cada ítem (en orden de aparición).
+function reconstruirAuditoria(wb: ExcelJS.Workbook, refs: Array<{ hoja: string; fila: number }>) {
+  const au = wb.getWorksheet(HOJA_AUDITORIA);
+  if (!au) return;
+
+  // Filas base de AUDITORIA (las que ya traen fórmula en A).
+  let baseEnd = AUD_ITEM_1 - 1;
+  for (let r = AUD_ITEM_1; r <= 2000; r++) {
+    const v = au.getCell(r, 1).value as any;
+    if (v && typeof v === 'object' && v.formula) baseEnd = r;
+  }
+  const baseRows = baseEnd - AUD_ITEM_1 + 1;
+
+  if (refs.length > baseRows && baseRows > 0) {
+    au.duplicateRow(AUD_ITEM_1 + 1, refs.length - baseRows, true); // clona una fila de auditoría
+  }
+
+  refs.forEach(({ hoja, fila }, i) => {
+    const r = AUD_ITEM_1 + i;
+    const q = /[^A-Za-z0-9_]/.test(hoja) ? `'${hoja}'` : hoja;
+    au.getCell(`A${r}`).value = { formula: `${q}!A${fila}` } as any;  // ITEM
+    au.getCell(`B${r}`).value = { formula: `${q}!B${fila}` } as any;  // Detalle
+    au.getCell(`C${r}`).value = { formula: `${q}!E${fila}` } as any;  // Cantidad
+    au.getCell(`D${r}`).value = { formula: `${q}!L${fila}` } as any;  // Costo unitario REAL
+    au.getCell(`E${r}`).value = { formula: `${q}!M${fila}` } as any;  // Costo total neto REAL
+  });
+
+  // Limpiar filas de auditoría sobrantes (si la base tenía más que los ítems reales).
+  for (let r = AUD_ITEM_1 + refs.length; r <= baseEnd; r++) {
+    for (const col of ['A', 'B', 'C', 'D', 'E']) au.getCell(`${col}${r}`).value = null;
+  }
+}
+
+async function cargarPlantilla(): Promise<ExcelJS.Workbook> {
+  const ruta = path.join(process.cwd(), 'app', 'lib', 'plantillas-costeo', 'tabla-costeo-v3.xlsx');
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.readFile(ruta);
+  return wb;
 }
 
 // ─── Función principal ────────────────────────────────────────────────────────
 
-export function generarCosteoExcel(d: DatosCosteo): Buffer {
-  const wb = XLSX.utils.book_new();
-  const pres = d.presupuesto_bruto ?? 0;
+export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
+  const wb = await cargarPlantilla();
 
   const lineasOrdenadas = [...d.lineas.entries()]
     .sort((a, b) => a[0] - b[0])
     .filter(([, items]) => items.length > 0);
 
-  const costeoSheets: Array<{ ws: XLSX.WorkSheet; sheetName: string }> = [];
+  const refs: Array<{ hoja: string; fila: number }> = [];
 
-  if (lineasOrdenadas.length <= 1) {
-    const items = lineasOrdenadas[0]?.[1] ?? [];
-    const ws = crearHojaCosteo(items, pres, 'Costeo');
-    XLSX.utils.book_append_sheet(wb, ws, 'Costeo');
-    costeoSheets.push({ ws, sheetName: 'Costeo' });
+  if (d.modalidad === 'por_linea' && lineasOrdenadas.length > 1) {
+    const src = wb.getWorksheet(HOJA_COSTEO)!;
+    // Modelo limpio de la hoja Costeo para clonar las líneas siguientes.
+    const baseModel = JSON.parse(JSON.stringify(src.model));
+    // Sacar AUDITORIA y recrearla AL FINAL (para que las pestañas queden LINEA1..n | AUDITORIA).
+    const au = wb.getWorksheet(HOJA_AUDITORIA);
+    const audModel = au ? JSON.parse(JSON.stringify(au.model)) : null;
+    if (au) wb.removeWorksheet(au.id);
+
+    // Agrupar líneas respetando el tope de hojas (las sobrantes se acumulan en la última).
+    const grupos: ManifiestoLinea[][] = [];
+    lineasOrdenadas.forEach(([numLinea, items], idx) => {
+      if (idx < MAX_HOJAS_LINEA) grupos.push([...items]);
+      else {
+        console.warn(`[costeo] línea ${numLinea}: supera el tope de ${MAX_HOJAS_LINEA} hojas; se acumula en LINEA${MAX_HOJAS_LINEA}.`);
+        grupos[MAX_HOJAS_LINEA - 1].push(...items);
+      }
+    });
+
+    grupos.forEach((items, k) => {
+      const nombre = `LINEA${k + 1}`;
+      let ws: ExcelJS.Worksheet;
+      if (k === 0) {
+        // La primera línea reutiliza la hoja "Costeo" (renombrada).
+        ws = src;
+        ws.name = nombre;
+      } else {
+        ws = wb.addWorksheet(nombre);
+        const m = JSON.parse(JSON.stringify(baseModel));
+        m.name = nombre;
+        ws.model = m;
+        ws.name = nombre;
+      }
+      rellenarCosteo(ws, items);
+      items.forEach((_, i) => refs.push({ hoja: nombre, fila: FILA_ITEM_1 + i }));
+    });
   } else {
-    for (const [numLinea, items] of lineasOrdenadas) {
-      const sheetName = `LINEA${numLinea}`;
-      const ws = crearHojaCosteo(items, Math.round(pres / lineasOrdenadas.length), sheetName);
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
-      costeoSheets.push({ ws, sheetName });
-    }
+    // suma_alzada (o por_linea de una sola línea): TODOS los ítems en la hoja "Costeo".
+    const ws = wb.getWorksheet(HOJA_COSTEO) || wb.worksheets[0];
+    const todos = lineasOrdenadas.flatMap(([, items]) => items);
+    rellenarCosteo(ws, todos);
+    todos.forEach((_, i) => refs.push({ hoja: ws.name, fila: FILA_ITEM_1 + i }));
   }
 
-  XLSX.utils.book_append_sheet(wb, crearHojaAuditoria(costeoSheets), 'AUDITORIA');
+  reconstruirAuditoria(wb, refs);
 
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf as ArrayBuffer);
 }
 
 // ─── Adaptador ViabilidadIAResult → DatosCosteo ──────────────────────────────
@@ -234,11 +223,16 @@ export function adaptarViabilidadACosteo(
     lineas.get(nLinea)!.push(p);
   }
 
+  // La modalidad manda qué estructura se usa. Por defecto suma_alzada.
+  const tipo = String(informe.modalidad?.tipo || '').toLowerCase();
+  const modalidad: ModalidadCosteo = tipo === 'por_linea' ? 'por_linea' : 'suma_alzada';
+
   return {
     codigo,
     nombre: informe.meta?.nombre || '',
     organismo: informe.meta?.organismo || '',
     presupuesto_bruto: informe.presupuesto?.bruto ?? null,
+    modalidad,
     lineas,
   };
 }

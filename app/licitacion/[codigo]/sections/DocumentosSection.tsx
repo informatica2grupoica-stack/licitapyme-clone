@@ -425,6 +425,26 @@ export function DocumentosSection({
   // Documento abierto en el visor inline (modal). null = cerrado.
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
 
+  // Regeneración del Excel de costeo desde el informe IA ya guardado (sin re-analizar:
+  // reusa el manifiesto y solo vuelve a armar el Excel con la plantilla actual).
+  const [regenerandoCosteo, setRegenerandoCosteo] = useState(false);
+  const [costeoError, setCosteoError] = useState<string | null>(null);
+
+  const handleRegenerarCosteo = async () => {
+    setRegenerandoCosteo(true);
+    setCosteoError(null);
+    try {
+      const r = await fetch(`/api/documentos/generar-costeo/${encodeURIComponent(codigoDecoded)}`, { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setCosteoError(j.error || 'No se pudo regenerar el costeo.'); return; }
+      fetchDocumentos(); // refresca la lista para que aparezca el archivo nuevo
+    } catch {
+      setCosteoError('Error de red al regenerar el costeo.');
+    } finally {
+      setRegenerandoCosteo(false);
+    }
+  };
+
   return (
     <div className="space-y-4 fade-in">
       <SectionHeader
@@ -498,7 +518,21 @@ export function DocumentosSection({
                 <p className="text-[11.5px] text-emerald-700 mt-0.5 truncate">
                   {costeo.nombre} — disponible en <strong>Documentos Propios</strong>
                 </p>
+                {costeoError && (
+                  <p className="text-[11px] text-red-600 mt-1">{costeoError}</p>
+                )}
               </div>
+              <button
+                type="button"
+                onClick={handleRegenerarCosteo}
+                disabled={regenerandoCosteo}
+                title="Regenerar el Excel desde el informe IA (sin volver a analizar)"
+                className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-60 px-2.5 py-1 rounded-lg transition-colors"
+              >
+                {regenerandoCosteo
+                  ? <><Loader2 size={11} className="animate-spin" /> Regenerando…</>
+                  : <><RefreshCw size={11} /> Regenerar</>}
+              </button>
               <a
                 href={(costeo as any).url_local || (costeo as any).url}
                 download={costeo.nombre}

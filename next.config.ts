@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   // Paquetes server-only que no deben empacarse con Turbopack/Webpack
   serverExternalPackages: [
     'pdf-parse',
+    'mupdf',
     'mammoth',
     'puppeteer-core',
     'puppeteer-extra',

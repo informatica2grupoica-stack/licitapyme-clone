@@ -11,6 +11,7 @@ const RUTAS_PUBLICAS = [
   '/api/auth/registro',
   '/api/auth/me',
   '/api/auth/logout',
+  '/api/pdf-pagina',     // render de una página a PNG; solo PDFs ya públicos en R2/MercadoPúblico (anti-SSRF propio)
   '/api/cron/',          // cron job protegido con su propio secret
   '/api/admin/prefiltro', // prefiltro masivo protegido con CRON_SECRET
   '/api/admin/clasificar-test', // TEMPORAL: prueba clasificador, protegido con CRON_SECRET

@@ -261,9 +261,20 @@ export async function extractTextFromDocument(
           });
       const pdfData = await pdfParse(buffer, { pagerender });
 
-      // Si tiene suficiente texto (más de 300 caracteres)
-      if (pdfData.text && pdfData.text.trim().length > 300) {
-        console.log(`✅ PDF con texto: ${pdfData.text.length} caracteres, ${pdfData.numpages} páginas`);
+      // ¿El texto extraído es REAL o solo los marcadores [[PÁGINA N]] de un escaneado?
+      // pdf-parse antepone un marcador por página aunque la página sea una imagen sin
+      // capa de texto. Un PDF escaneado de 33 págs devuelve 452 chars que son SOLO los
+      // 33 marcadores → texto real = 0. Antes pasaba el umbral de 300 y se marcaba como
+      // 'pdf-text' exitoso, saltándose el OCR y perdiendo TODO el contenido (p.ej. los
+      // criterios de evaluación en la pág 13). Medimos el texto SIN marcadores y exigimos
+      // una densidad mínima por página: si es bajísima, es escaneado → va a OCR.
+      const textoReal = (pdfData.text || '').replace(/\[\[P[ÁA]GINA[^\]]*\]\]/gi, '').trim();
+      const numPags = Math.max(1, pdfData.numpages || 1);
+      const densidad = textoReal.length / numPags;  // chars de texto real por página
+      const tieneCapaDeTexto = textoReal.length > 300 && densidad >= 120;
+
+      if (tieneCapaDeTexto) {
+        console.log(`✅ PDF con texto: ${textoReal.length} chars reales, ${numPags} págs (densidad ${Math.round(densidad)}/pág)`);
         return {
           texto: pdfData.text,
           numPages: pdfData.numpages,
@@ -271,6 +282,7 @@ export async function extractTextFromDocument(
           confianza: 'alta'
         };
       }
+      console.log(`⚠️ PDF con poca capa de texto: ${textoReal.length} chars reales en ${numPags} págs (densidad ${Math.round(densidad)}/pág) → tratado como escaneado`);
 
       // PDF escaneado pero se pidió OMITIR OCR (p.ej. planos/imágenes que no aportan
       // al análisis): devolver lo poco que haya sin gastar cuota de OCR.

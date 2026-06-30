@@ -608,7 +608,7 @@ export default function LicitacionDetallePage() {
             {activeSection === 'viabilidad' && (
               // La IA es la fuente ÚNICA de la viabilidad: entrega el score, el veredicto
               // y todo el análisis. Un solo panel, un solo botón.
-              <ViabilidadIAPanel codigo={codigoDecoded} />
+              <ViabilidadIAPanel codigo={codigoDecoded} onComplete={fetchDocumentos} />
             )}
             {activeSection === 'inteligencia' && (
               <InteligenciaSection documentosAnalizables={documentosAnalizables} nombreLicitacion={licitacion.nombre} />

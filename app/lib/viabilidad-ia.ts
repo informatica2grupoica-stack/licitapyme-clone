@@ -53,10 +53,10 @@ export interface ViabilidadIAResult {
     alertas: string[];
   };
   capa_a: {
-    presupuesto: { pts: number; fuente: string };
-    cantidad_items: { pts: number; n_items: number; fuente: string; condicion_complejidad: string };
-    complejidad: { pts: number; fuente: string };
-    ejecucion: { pts: number; fuente: string };
+    presupuesto: { pts: number; fuente: string; justificacion: string };
+    cantidad_items: { pts: number; n_items: number; fuente: string; condicion_complejidad: string; justificacion: string };
+    complejidad: { pts: number; fuente: string; justificacion: string };
+    ejecucion: { pts: number; fuente: string; justificacion: string };
     modificadores: { bonus_cantidad_presupuesto: number; bonus_importabilidad_provisional: number };
     score_total: number;
     nivel: string;
@@ -218,6 +218,37 @@ async function cargarContexto(codigo: string) {
   return { meta, estructurado, itemsMP };
 }
 
+// Repara un JSON truncado (corte por MAX_TOKENS): recorre el texto llevando la pila de
+// llaves/corchetes (ignorando lo que va dentro de strings), corta en el ÚLTIMO objeto
+// cerrado y cierra las estructuras que queden abiertas. Devuelve un JSON parseable que
+// conserva todo lo emitido hasta el último ítem completo, o null si no hay nada que salvar.
+function repararJSONTruncado(txt: string): string | null {
+  let inStr = false, esc = false;
+  const stack: string[] = [];
+  let lastObjClose = -1;
+  let stackAtClose: string[] = [];
+  for (let i = 0; i < txt.length; i++) {
+    const c = txt[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '{' || c === '[') stack.push(c);
+    else if (c === '}' || c === ']') {
+      stack.pop();
+      if (c === '}') { lastObjClose = i; stackAtClose = stack.slice(); }
+    }
+  }
+  if (lastObjClose < 0) return null;
+  let head = txt.slice(0, lastObjClose + 1);
+  // Cerrar en orden inverso lo que quedó abierto tras el último objeto completo.
+  for (let k = stackAtClose.length - 1; k >= 0; k--) head += stackAtClose[k] === '[' ? ']' : '}';
+  return head;
+}
+
 // ─── Llamada a Gemini (JSON forzado) ─────────────────────────────────────────────
 async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promise<any> {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -226,26 +257,47 @@ async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promi
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: systemPrompt }] },
     contents: [{ parts: [{ text: userPrompt }] }],
-    // maxOutputTokens alto: el informe + manifiesto puede ser largo y un corte a mitad
-    // dejaría el JSON inválido. gemini-2.5-flash admite hasta ~65k de salida.
-    generationConfig: { temperature: 0.15, responseMimeType: 'application/json', maxOutputTokens: 60_000 },
+    // maxOutputTokens MODERADO a propósito: un tope enorme hace que la generación tarde
+    // tanto que se cuelga (timeout = NADA que reparar). Un tope moderado RETORNA rápido; si
+    // el manifiesto no cupo, queda finishReason=MAX_TOKENS y lo salvamos con
+    // repararJSONTruncado() (manifiesto va AL FINAL: solo se pierde su cola, no el informe).
+    generationConfig: { temperature: 0.15, responseMimeType: 'application/json', maxOutputTokens: 40_000 },
   });
 
-  // Paciente ante el 503 "high demand" de Gemini (overload de Google) y 429 (límite/min):
-  // 6 intentos con backoff hasta 40s. Los errores permanentes (400/401/403) no se reintentan.
-  // Además ALTERNAMOS de modelo: arrancamos con el primario y, si sigue saturado, caemos al
-  // alias flash-latest (mucho más estable ante el 503). Así un spike de gemini-2.5-flash no
-  // tumba el análisis.
-  const ESPERAS = [0, 5_000, 12_000, 20_000, 30_000, 40_000];
-  const MODELOS  = [GEMINI_MODEL, GEMINI_MODEL, GEMINI_MODEL_FALLBACK, GEMINI_MODEL, GEMINI_MODEL_FALLBACK, GEMINI_MODEL_FALLBACK];
+  // Paciente ante el 503 "high demand" (overload de Google), el 429 (límite/min) Y el
+  // TIMEOUT de generación: con muchos documentos (medido: 12 docs ≈ 200k chars) Gemini
+  // tarda ~3 min en producir el JSON completo, y un timeout corto abortaba el análisis y
+  // lo devolvía como 500 genérico. Ahora:
+  //  - El modelo ESTABLE va PRIMERO (gemini-flash-latest da muchos menos 503 que 2.5-flash).
+  //  - Timeout amplio por intento (240s), pero acotado a un PRESUPUESTO GLOBAL (~285s, por
+  //    debajo del maxDuration=300 de la ruta) para no pasarnos y devolver limpio si no da.
+  //  - El timeout/fallo de red se trata como TRANSITORIO (reintenta con el otro modelo), no
+  //    como error fatal.
+  // Todos los intentos con el alias ESTABLE/rápido (flash-latest): 2.5-flash es más lento
+  // y al generar el JSON grande se colgaba. El 503 "high demand" es de Google y solo se
+  // cura reintentando, así que damos varios intentos cortos dentro del presupuesto global.
+  const ESPERAS = [0, 5_000, 10_000, 18_000, 28_000];
+  const MODELOS  = [GEMINI_MODEL_FALLBACK, GEMINI_MODEL_FALLBACK, GEMINI_MODEL_FALLBACK, GEMINI_MODEL_FALLBACK, GEMINI_MODEL];
+  const TIMEOUT_MAX = 200_000;
+  const DEADLINE = Date.now() + 290_000;
   let ultimoErr = '';
   for (let intento = 0; intento < ESPERAS.length; intento++) {
     if (intento > 0) await sleep(ESPERAS[intento]);
+    const restante = DEADLINE - Date.now();
+    if (restante < 30_000) break; // sin margen para otro intento útil
     const modelo = MODELOS[intento] || GEMINI_MODEL_FALLBACK;
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(180_000) },
-    );
+    let res: Response;
+    try {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: AbortSignal.timeout(Math.min(TIMEOUT_MAX, restante)) },
+      );
+    } catch (e) {
+      // Timeout de generación o fallo de red → transitorio: reintenta con el otro modelo.
+      ultimoErr = `${modelo} timeout/red: ${(e instanceof Error ? e.message : String(e)).slice(0, 120)}`;
+      console.warn(`[viabilidad-ia] ${modelo} timeout/red, reintento ${intento + 1}/${ESPERAS.length}...`);
+      continue;
+    }
     if (res.ok) {
       const data = await res.json();
       const finish = data.candidates?.[0]?.finishReason;
@@ -257,6 +309,17 @@ async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promi
       try {
         return JSON.parse(candidato);
       } catch (e) {
+        // Truncado por MAX_TOKENS (informe con manifiesto enorme): cerrar el JSON en el
+        // último ítem completo. Como manifiesto_productos va AL FINAL del esquema, lo único
+        // que se pierde es la cola del manifiesto; score/criterios/veredicto quedan intactos.
+        const reparado = repararJSONTruncado(ini !== -1 ? txt.slice(ini) : txt);
+        if (reparado) {
+          try {
+            const r = JSON.parse(reparado);
+            console.warn(`[viabilidad-ia] JSON truncado (finish=${finish}) reparado: se conservó hasta el último ítem completo.`);
+            return r;
+          } catch { /* la reparación tampoco parseó */ }
+        }
         if (finish && finish !== 'STOP') throw new Error(`Respuesta de Gemini incompleta (finishReason=${finish}).`);
         throw new Error(`Gemini devolvió JSON inválido: ${String(e).slice(0, 120)}`);
       }
@@ -318,7 +381,8 @@ PASO 1 — LÍNEA DE NEGOCIO: meta.linea_negocio = ferreteria (construcción, el
 
 PASO 2 — MODALIDAD DE ADJUDICACIÓN (CRÍTICO — detección fehaciente, gate de cierre). tipo = suma_alzada | por_linea. La heurística de portada es SOLO INDICIO (1 ítem portada + N productos en bases → casi seguro suma_alzada; portada distribuida en muchos ítems → probable por_linea). VERIFICACIÓN OBLIGATORIA: el artículo de las bases que define la modalidad ("precio total/totalidad/suma alzada/no se aceptan ofertas parciales" vs "adjudicación por línea/ítem"). Responde tipo + fuente (artículo+página) + evidencia (frase textual) + confianza (0-1) + estado (DETERMINADA | REVISION_HUMANA). Si NO queda fehaciente (sin artículo claro, portada y bases se contradicen, o confianza no alta) → estado=REVISION_HUMANA (no asumas ninguna). Si es por_linea y no publican precio por línea → libertad_de_pricing=true.
 
-PASO 3 — CRITERIOS DE EVALUACIÓN + FORMA DE APLICACIÓN (INSUMO INNEGOCIABLE — gate de cierre). NO basta listar "experiencia 30%, precio 40%". Cascada de fuente ESTRICTA: (1) las bases (donde estén; lo habitual BASES_ADMINISTRATIVAS) — aquí está la FORMA DE APLICACIÓN; (2) la API de MercadoPúblico aporta criterio + ponderación pero NUNCA la forma de aplicación; (3) si la forma de aplicación no aparece en ninguna parte → ALERTA EXPLÍCITA + acción para AC (nunca en silencio). Por cada criterio declara: nombre, ponderacion (%), forma_aplicacion (la FÓRMULA exacta, los TRAMOS, qué acredita cada puntaje), medio_verificacion, fuente (doc+art+página). criterios_evaluacion.fuente_datos = bases|api|mixto|incompleto. forma_aplicacion_completa=true solo si TODOS los criterios traen su forma de aplicación; si falta en alguno → false + alerta puntual (qué criterio y dónde buscar) + estado_veredicto=REVISION_HUMANA. Las ponderaciones suman 100.
+PASO 3 — CRITERIOS DE EVALUACIÓN + FORMA DE APLICACIÓN (INSUMO INNEGOCIABLE — gate de cierre, BÚSQUEDA OBLIGATORIA SI O SI). NO basta listar "experiencia 30%, precio 40%". BÚSQUEDA EXHAUSTIVA OBLIGATORIA: los criterios de evaluación y su ponderación (%) PUEDEN estar en CUALQUIER documento, NO solo en el que se llame "BASES_ADMINISTRATIVAS" — a veces aparecen en BASES_TECNICAS, en un documento "BASES" sin calificar, en ANEXOS, en aclaraciones, o con otro nombre de archivo. DEBES leer el texto COMPLETO de TODOS los documentos, PÁGINA POR PÁGINA (usa los marcadores [[PÁGINA N]]), buscando patrones como "criterios de evaluación", "la comisión evaluadora", "se evaluará de acuerdo a", "ponderación", "puntaje", junto a porcentajes (ej. "40%", "Precio de la oferta: 40%", tablas con letras a) b) c)...). NUNCA concluyas "no se encontraron criterios" sin haber recorrido el 100% de las páginas de TODOS los documentos disponibles — es un error grave dejar esto vacío si el dato existe en cualquier parte del texto entregado.
+LA FORMA DE APLICACIÓN SUELE VENIR EN UNA TABLA, no en prosa: columnas tipo PARÁMETROS / CALIFICACIÓN / PUNTAJE / "x 0,20" con filas "Cumple … = 100 pts / No cumple … = 10 pts". Si un criterio aparece con su % pero NO ves su fórmula, BUSCA su tabla de puntajes en la MISMA página y en las adyacentes ANTES de declarar la forma de aplicación ausente. Un criterio con ponderación CASI SIEMPRE trae su tabla de calificación cerca de los otros criterios; declararla "no especificada" cuando otros criterios de la misma sección sí la tienen es un ERROR GRAVE (revisa de nuevo esa página). Solo marca forma_aplicacion ausente si REALMENTE no hay tabla ni descripción de puntajes en ninguna parte. Cascada de fuente ESTRICTA una vez ubicados: (1) las bases (donde estén; lo habitual BASES_ADMINISTRATIVAS, pero puede ser otro doc) — aquí está la FORMA DE APLICACIÓN; (2) la API de MercadoPúblico aporta criterio + ponderación pero NUNCA la forma de aplicación; (3) si la forma de aplicación no aparece en ninguna parte tras la búsqueda exhaustiva → ALERTA EXPLÍCITA + acción para AC (nunca en silencio). Por cada criterio declara: nombre, ponderacion (%), forma_aplicacion (la FÓRMULA exacta, los TRAMOS, qué acredita cada puntaje), medio_verificacion, fuente (doc+art+página EXACTA donde lo leíste). criterios_evaluacion.fuente_datos = bases|api|mixto|incompleto. forma_aplicacion_completa=true solo si TODOS los criterios traen su forma de aplicación; si falta en alguno → false + alerta puntual (qué criterio y dónde buscar) + estado_veredicto=REVISION_HUMANA. Las ponderaciones suman 100. Si tras revisar TODA la documentación realmente no hay ningún criterio (caso raro) → criterios=[] + alerta explícita "no se encontraron criterios de evaluación en ningún documento tras revisión exhaustiva".
 
 PASO 4 — CAPA A: ATRACTIVO (puntúa 1-3 por criterio, cita fuente+página):
 - Presupuesto: $8-20M=1, $20-50M=2, >$50M=3.
@@ -327,6 +391,8 @@ PASO 4 — CAPA A: ATRACTIVO (puntúa 1-3 por criterio, cita fuente+página):
 - Dificultad de ejecución (barrera a OTROS, no costo propio): bodega RM/plazo holgado=1, otra región/equipo frágil=2, zona extrema/instalación certificada/HAZMAT/multipunto=3.
 - Modificadores: bonus_cantidad_presupuesto=+1 si presupuesto>$50M y cantidad>40; bonus_importabilidad_provisional=+2 si la spec lo permite ("o técnicamente equivalente") e importable por courier/flete dentro del plazo (confirmar Fase 3).
 - score_total (suma) → nivel: 12-15 MUY_VIABLE, 8-11 VIABLE, 5-7 POCO_VIABLE, <5 o gate DESCARTE.
+- justificacion (OBLIGATORIA por cada uno de los 4 criterios): 1 frase corta y concreta que explique POR QUÉ ese puntaje, citando el valor real que lo determina (ej. presupuesto "neto $25M cae en el tramo $20-50M → 2/3"; cantidad "59 ítems especializados, no se penaliza por especialidad → 2/3"; complejidad "equipamiento técnico con 3-5 oferentes → 2/3"; ejecución "entrega multipunto en región fuera de RM → 2/3"). NUNCA dejes la justificacion vacía: el humano debe entender el porqué sin abrir las bases.
+CAPA B — además del estado, la "condicion" de cada palanca DEBE ser una frase corta que explique POR QUÉ es VENTAJA/NEUTRO/DESVENTAJA (ej. plazo "se evalúa por ley del mínimo sin piso → ventaja"; precio "pondera 72%, riesgo de guerra de precio → neutro/alerta"). No la dejes vacía.
 
 CATÁLOGOS DE COMPLEJIDAD (anclas): BAJA(1)=computadores estándar, material de oficina, mobiliario estándar, neumáticos corrientes, extintores PQS. MEDIA(2)=PLC/variadores de marca estándar, seguridad industrial certificada, balanzas certificadas, UPS industrial, metrología básica, drones técnicos, MAQUINARIA DE ASEO (barredoras, vacuolavadoras, hidrolavadoras, fregadoras). ALTA(3)=equipos médicos de diagnóstico, instrumental de laboratorio avanzado (cromatógrafos, espectrofotómetros), END (ultrasonido phased array), telecom certificada, repuestos con distribuidor único. (Tóner y artículos de aseo NO se puntúan: son exclusión por palabra negativa dura. "Aseo" aquí = MAQUINARIA.) Ejecución ALTA(3)=zonas extremas (Isla de Pascua, Tortel, Navarino), plazo<5 días con volumen, instalación/puesta en marcha certificada, HAZMAT, cadena de frío, multirregional.
 
@@ -339,7 +405,9 @@ PASO 6 — CAPA C: ADMISIBILIDAD (gate, con fuente+página). Por cada ítem efec
 - Firma de puño y letra: firma_puno_y_letra=true SOLO si las bases la exigen explícitamente → ALERTA. (Lo habitual es firma digitalizada/electrónica, válida.)
 - Carpeta tributaria → EN_CONTRA por política (no se sube). Certificado de capacidad económica → A_FAVOR.
 - Umbrales que nos bloqueen (garantía mínima, plazo fuera de rango, ficha en formato no aceptado, inscripción/habilidad en Registro de Proveedores) → bloqueantes[] con efecto EN_CONTRA. Si un BLOQUEANTE nos descalifica y no se resuelve → veredicto DESCARTE aunque el atractivo sea alto.
+- NO ES BLOQUEANTE (no lo pongas en bloqueantes[]): el PUNTAJE MÍNIMO / UMBRAL DE ADMISIBILIDAD de la oferta (ej. "se adjudica solo si el total ponderado ≥70%", "oferta admisible 70-100%"). Es una barra COMPETITIVA que aplica a TODOS los oferentes por igual, no algo que nos descalifique a priori; va como nota/alerta informativa, NUNCA como bloqueante. Bloqueante = requisito que NOS deja fuera de entrada (algo que no tenemos o no cumplimos), no un puntaje a alcanzar compitiendo. Marcar el puntaje mínimo como bloqueante es un ERROR (hunde el veredicto de una licitación viable).
 - Complejidad documental general → A_FAVOR (barrera a los chicos). Inhabilidades Art.4 Ley 19.886 y docs estándar: siempre cumplimos (no alertar salvo excepción).
+DEFINICIÓN ESTRICTA DE BLOQUEANTE (CRÍTICO — no inflar): bloqueantes[] es SOLO para requisitos que NOS DEJAN FUERA de entrada y que NO podemos resolver. La mayoría de las licitaciones NO tiene ningún bloqueante real para nosotros. NO son bloqueantes (NO los pongas en bloqueantes[], son trámite estándar que SIEMPRE cumplimos): garantía/boleta de fiel cumplimiento (salvo que supere nuestra capacidad), garantía del producto que ofrecemos (12, 24 meses, etc.), Programa de Integridad / declaración de ética, presentación de formularios/anexos (N°1..N°6), carpeta tributaria, puntaje mínimo / umbral de admisibilidad, declaraciones juradas estándar, inscripción en ChileProveedores (la tenemos), garantía de seriedad. SÍ son bloqueantes (solo si aplican y no se resuelven): naturaleza = obra civil/servicio que NO hacemos, exigencia de profesional residente/constructor certificado, certificación específica que NO poseemos (ISO, SEC clase, etc.) cuando es OBLIGATORIA y excluyente, experiencia mínima acreditada que NO tenemos, plazo de entrega imposible, presupuesto EXCLUYENTE que no podemos cumplir. Ante duda de si un ítem nos descalifica de verdad → NO es bloqueante (va como alerta/nota). Inflar bloqueantes hunde el score de licitaciones perfectamente ganables: es un ERROR GRAVE.
 
 PASO 7 — MULTAS: estructura (% de OC / UTM por día / otro), costo_por_dia y costo_maximo en pesos, umbral_termino (de término anticipado), fuente del artículo de sanciones + página. Reporta el costo de atrasarnos.
 
@@ -407,10 +475,10 @@ Analiza TODO lo anterior y devuelve EXACTAMENTE este JSON canónico (PROMPT 2 v2
     "alertas": []
   },
   "capa_a": {
-    "presupuesto": { "pts": 0, "fuente": "" },
-    "cantidad_items": { "pts": 0, "n_items": 0, "fuente": "", "condicion_complejidad": "commodity|especializado" },
-    "complejidad": { "pts": 0, "fuente": "" },
-    "ejecucion": { "pts": 0, "fuente": "" },
+    "presupuesto": { "pts": 0, "fuente": "", "justificacion": "por qué ese puntaje en 1 frase (el valor real y el tramo)" },
+    "cantidad_items": { "pts": 0, "n_items": 0, "fuente": "", "condicion_complejidad": "commodity|especializado", "justificacion": "por qué ese puntaje en 1 frase (nº ítems y si penaliza)" },
+    "complejidad": { "pts": 0, "fuente": "", "justificacion": "por qué ese puntaje en 1 frase (qué producto y nivel)" },
+    "ejecucion": { "pts": 0, "fuente": "", "justificacion": "por qué ese puntaje en 1 frase (qué barrera de ejecución)" },
     "modificadores": { "bonus_cantidad_presupuesto": 0, "bonus_importabilidad_provisional": 0 },
     "score_total": 0,
     "nivel": "MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE"
@@ -433,9 +501,9 @@ Analiza TODO lo anterior y devuelve EXACTAMENTE este JSON canónico (PROMPT 2 v2
     "colchon_dias_habiles": 0,
     "alertas": []
   },
-  "manifiesto_productos": [ { "linea": 1, "descripcion": "descripción técnica EXACTA de las bases", "modelo": "", "cantidad": null, "unidad_medida": "", "unidad_inferida": false, "presupuesto_linea": null, "tipo": "generico|especifico", "ruta": "A|B" } ],
   "pendientes_fase3": ["importabilidad_real","densidad_de_oferta","margen"],
-  "veredicto": { "nivel": "MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE", "gana_probable": "si|no|condicional", "estado_veredicto": "DEFINITIVO|REVISION_HUMANA", "motivos_revision": [], "acciones_AC": [], "advertencias": [] }
+  "veredicto": { "nivel": "MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE", "gana_probable": "si|no|condicional", "estado_veredicto": "DEFINITIVO|REVISION_HUMANA", "motivos_revision": [], "acciones_AC": [], "advertencias": [] },
+  "manifiesto_productos": [ { "linea": 1, "descripcion": "descripción técnica EXACTA de las bases", "modelo": "", "cantidad": null, "unidad_medida": "", "unidad_inferida": false, "presupuesto_linea": null, "tipo": "generico|especifico", "ruta": "A|B" } ]
 }`;
 }
 
@@ -464,7 +532,7 @@ function sanitizar(p: any): ViabilidadIACore {
   const multas = _obj(p.multas);
   const lt = _obj(p.linea_tiempo);
   const veredicto = _obj(p.veredicto);
-  const subA = (o: any) => ({ pts: _num(_obj(o).pts) ?? 0, fuente: _str(_obj(o).fuente) });
+  const subA = (o: any) => ({ pts: _num(_obj(o).pts) ?? 0, fuente: _str(_obj(o).fuente), justificacion: _str(_obj(o).justificacion) });
 
   return {
     meta: {
@@ -496,7 +564,7 @@ function sanitizar(p: any): ViabilidadIACore {
     },
     capa_a: {
       presupuesto: subA(capaA.presupuesto),
-      cantidad_items: { pts: _num(_obj(capaA.cantidad_items).pts) ?? 0, n_items: _num(_obj(capaA.cantidad_items).n_items) ?? 0, fuente: _str(_obj(capaA.cantidad_items).fuente), condicion_complejidad: _str(_obj(capaA.cantidad_items).condicion_complejidad) },
+      cantidad_items: { pts: _num(_obj(capaA.cantidad_items).pts) ?? 0, n_items: _num(_obj(capaA.cantidad_items).n_items) ?? 0, fuente: _str(_obj(capaA.cantidad_items).fuente), condicion_complejidad: _str(_obj(capaA.cantidad_items).condicion_complejidad), justificacion: _str(_obj(capaA.cantidad_items).justificacion) },
       complejidad: subA(capaA.complejidad),
       ejecucion: subA(capaA.ejecucion),
       modificadores: { bonus_cantidad_presupuesto: _num(_obj(capaA.modificadores).bonus_cantidad_presupuesto) ?? 0, bonus_importabilidad_provisional: _num(_obj(capaA.modificadores).bonus_importabilidad_provisional) ?? 0 },
@@ -562,13 +630,17 @@ function derivarSemaforo(r: ViabilidadIACore): { score: number; semaforo: string
   const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
   let score = clamp((r.capa_a.score_total / 15) * 100);
 
-  const hayBloqueante = (r.capa_c_admisibilidad.bloqueantes || []).length > 0;
+  // El score base es el ATRACTIVO (Capa A). Solo lo craterean los gates REALES de no-licitar:
+  // exclusión por naturaleza, presupuesto que NO califica, o el veredicto DESCARTE del modelo
+  // (que ya integra los bloqueantes GENUINOS, ver PASO 6 del prompt). Ya NO usamos la sola
+  // presencia de "bloqueantes[]": el modelo los sobre-clasifica (garantía de fiel cumplimiento,
+  // programa de integridad, anexos estándar, puntaje mínimo, carpeta tributaria... cosas que SÍ
+  // cumplimos), lo que hundía casi todas las licitaciones a 19 aunque el veredicto fuera GANA.
   const ganaNo = (r.veredicto.gana_probable || '').toLowerCase() === 'no';
   const gateDuro =
     r.exclusion.excluido ||
     r.presupuesto.gate === 'NO_CALIFICA' ||
-    (r.veredicto.nivel || '').toUpperCase() === 'DESCARTE' ||
-    hayBloqueante;
+    (r.veredicto.nivel || '').toUpperCase() === 'DESCARTE';
 
   if (gateDuro) score = Math.min(score, 19);
   else if (r.presupuesto.gate === 'DESCARTE_CONDICIONAL' || ganaNo) score = Math.min(score, 39);
@@ -642,7 +714,7 @@ async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise
 
   const datosCosteo = adaptarViabilidadACosteo(codigo, r);
   console.log(`[costeo] ${codigo}: generando Excel (${datosCosteo.lineas.size} líneas)…`);
-  const buffer = generarCosteoExcel(datosCosteo);
+  const buffer = await generarCosteoExcel(datosCosteo);
   console.log(`[costeo] ${codigo}: buffer ${buffer.length} bytes — subiendo a R2…`);
 
   const fecha = new Date().toISOString().slice(0, 10);
@@ -653,39 +725,45 @@ async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise
 
   const totalItems = [...datosCosteo.lineas.values()].reduce((s, v) => s + v.length, 0);
 
-  // Intentar con categoria primero; si la columna no existe, reintentar sin ella.
+  // Inserción defensiva: descubre qué columnas opcionales existen antes de insertar.
+  // Evita que columnas agregadas por migraciones pendientes (categoria, content_type,
+  // usuario_id) rompan el flujo si aún no se aplicaron en la BD live.
+  let colsExtra = '';
+  let valsExtra = '';
+  let updateExtra = '';
+  const params: any[] = [codigo, nombreArchivo, url, buffer.length];
+
   try {
-    await pool.query(
-      `INSERT INTO documentos_cache
-         (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria)
-       VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS')
-       ON DUPLICATE KEY UPDATE
-         documento_url_local = VALUES(documento_url_local),
-         size_bytes          = VALUES(size_bytes),
-         categoria           = 'DOCUMENTOS_PROPIOS',
-         updated_at          = CURRENT_TIMESTAMP`,
-      [codigo, nombreArchivo, url, buffer.length,
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-    );
-  } catch (sqlErr: any) {
-    if (String(sqlErr?.message).includes("Unknown column 'categoria'")) {
-      // La migración 12 no se aplicó aún — insertar sin categoria
-      await pool.query(
-        `INSERT INTO documentos_cache
-           (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type)
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           documento_url_local = VALUES(documento_url_local),
-           size_bytes          = VALUES(size_bytes),
-           updated_at          = CURRENT_TIMESTAMP`,
-        [codigo, nombreArchivo, url, buffer.length,
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-      );
-      console.warn('[costeo] columna categoria ausente — insertado sin categoria (aplica migration-12)');
-    } else {
-      throw sqlErr;
+    const [cols] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'documentos_cache'
+       AND COLUMN_NAME IN ('categoria','content_type')`,
+    ) as any[];
+    const existentes = new Set((cols as any[]).map((c: any) => c.COLUMN_NAME));
+
+    if (existentes.has('content_type')) {
+      colsExtra  += ', content_type';
+      valsExtra  += ', ?';
+      updateExtra += ', content_type = VALUES(content_type)';
+      params.push('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     }
-  }
+    if (existentes.has('categoria')) {
+      colsExtra  += ', categoria';
+      valsExtra  += ", 'DOCUMENTOS_PROPIOS'";
+      updateExtra += ", categoria = 'DOCUMENTOS_PROPIOS'";
+    }
+  } catch { /* si falla la introspección, continúa sin columnas extra */ }
+
+  await pool.query(
+    `INSERT INTO documentos_cache
+       (licitacion_codigo, documento_nombre, documento_url_local, size_bytes${colsExtra})
+     VALUES (?, ?, ?, ?${valsExtra})
+     ON DUPLICATE KEY UPDATE
+       documento_url_local = VALUES(documento_url_local),
+       size_bytes          = VALUES(size_bytes)${updateExtra},
+       updated_at          = CURRENT_TIMESTAMP`,
+    params,
+  );
 
   console.log(`[costeo] ✅ ${codigo}: Excel guardado (${datosCosteo.lineas.size} líneas, ${totalItems} ítems)`);
 }

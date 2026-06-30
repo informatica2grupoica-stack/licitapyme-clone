@@ -81,7 +81,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   // 3) Generar Excel
-  const buffer = generarCosteoExcel(datosCosteo);
+  const buffer = await generarCosteoExcel(datosCosteo);
 
   // 4) Subir a R2
   const fecha = new Date().toISOString().slice(0, 10);
