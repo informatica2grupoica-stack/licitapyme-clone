@@ -193,6 +193,15 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
       rellenarCosteo(ws, items);
       items.forEach((_, i) => refs.push({ hoja: nombre, fila: FILA_ITEM_1 + i }));
     });
+
+    // Recrear AUDITORIA al final, con su estilo original.
+    if (audModel) {
+      const au2 = wb.addWorksheet(HOJA_AUDITORIA);
+      const m = JSON.parse(JSON.stringify(audModel));
+      m.name = HOJA_AUDITORIA;
+      au2.model = m;
+      au2.name = HOJA_AUDITORIA;
+    }
   } else {
     // suma_alzada (o por_linea de una sola línea): TODOS los ítems en la hoja "Costeo".
     const ws = wb.getWorksheet(HOJA_COSTEO) || wb.worksheets[0];
