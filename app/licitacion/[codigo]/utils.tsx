@@ -134,6 +134,43 @@ export function formatNegritas(texto: string) {
 }
 
 // ======================================================
+// RESPUESTA FORMATEADA (render de respuestas del chat IA)
+// Compartido por InteligenciaSection (corpus completo) y DocumentoIAModal (un doc).
+// ======================================================
+
+export function RespuestaFormateada({ texto }: { texto: string }) {
+  const lineas = texto.split('\n');
+  return (
+    <div className="space-y-1.5 text-sm text-gray-800 leading-relaxed">
+      {lineas.map((linea, i) => {
+        if (!linea.trim()) return <div key={i} className="h-1" />;
+        if (linea.trim().startsWith('- ') || linea.trim().startsWith('• ')) {
+          return (
+            <div key={i} className="flex gap-2">
+              <span className="text-purple-400 mt-0.5 flex-shrink-0">•</span>
+              <span dangerouslySetInnerHTML={{ __html: formatNegritas(linea.replace(/^[\-•]\s*/, '')) }} />
+            </div>
+          );
+        }
+        if (/^\d+\.\s/.test(linea.trim())) {
+          const num = linea.match(/^(\d+)\./)?.[1];
+          return (
+            <div key={i} className="flex gap-2">
+              <span className="text-purple-600 font-semibold min-w-[1.2rem] flex-shrink-0">{num}.</span>
+              <span dangerouslySetInnerHTML={{ __html: formatNegritas(linea.replace(/^\d+\.\s*/, '')) }} />
+            </div>
+          );
+        }
+        if (linea.trim().startsWith('**') && linea.trim().endsWith('**')) {
+          return <p key={i} className="font-semibold text-gray-900 mt-2" dangerouslySetInnerHTML={{ __html: formatNegritas(linea) }} />;
+        }
+        return <p key={i} dangerouslySetInnerHTML={{ __html: formatNegritas(linea) }} />;
+      })}
+    </div>
+  );
+}
+
+// ======================================================
 // ESTADO CONFIG  (key = lic.Estado = string del CodigoEstado)
 // ======================================================
 

@@ -14,14 +14,14 @@ import { X, Download, ExternalLink, FileText, FileQuestion, Loader2 } from 'luci
 
 export interface VisorDoc { nombre: string; url: string }
 
-function extDe(nombre: string, url: string): string {
+export function extDe(nombre: string, url: string): string {
   const fromName = (nombre.split('.').pop() || '').toLowerCase();
   if (fromName && fromName.length <= 5) return fromName;
   return (url.split('?')[0].split('.').pop() || '').toLowerCase();
 }
 
-type Tipo = 'pdf' | 'img' | 'office' | 'otro';
-function tipoDe(nombre: string, url: string): Tipo {
+export type Tipo = 'pdf' | 'img' | 'office' | 'otro';
+export function tipoDe(nombre: string, url: string): Tipo {
   const ext = extDe(nombre, url);
   if (ext === 'pdf') return 'pdf';
   if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'].includes(ext)) return 'img';

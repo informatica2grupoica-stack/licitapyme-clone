@@ -8,6 +8,7 @@ import {
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 
 // ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
 // Estilo común a todas las cajas (neutro). El color real lo da el contenido.
@@ -66,11 +67,13 @@ function DocItem({
   onDragStart,
   isDragging,
   onView,
+  onOpenIA,
 }: {
   doc: DocumentoAdjunto & { categoria?: string };
   onDragStart: (e: React.DragEvent, doc: DocumentoAdjunto) => void;
   isDragging: boolean;
   onView: (doc: VisorDoc) => void;
+  onOpenIA: (doc: { nombre: string; url: string }) => void;
 }) {
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
   return (
@@ -95,6 +98,15 @@ function DocItem({
         )}
       </div>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onOpenIA({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+          className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+          title="Preguntar a la IA sobre este documento"
+          draggable={false}
+        >
+          <Sparkles size={11} />
+        </button>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onView({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
@@ -131,6 +143,7 @@ function CajaDroppable({
   onDragLeave,
   onDrop,
   onView,
+  onOpenIA,
 }: {
   caja: CajaConfig;
   docs: (DocumentoAdjunto & { categoria?: string })[];
@@ -143,6 +156,7 @@ function CajaDroppable({
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, key: string) => void;
   onView: (doc: VisorDoc) => void;
+  onOpenIA: (doc: { nombre: string; url: string }) => void;
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
 
@@ -178,6 +192,7 @@ function CajaDroppable({
             onDragStart={onDragStart}
             isDragging={draggingDoc?.nombre === doc.nombre}
             onView={onView}
+            onOpenIA={onOpenIA}
           />
         ))}
 
@@ -202,10 +217,12 @@ function DocumentosGrid({
   documentos,
   codigoDecoded,
   onView,
+  onOpenIA,
 }: {
   documentos: (DocumentoAdjunto & { categoria?: string })[];
   codigoDecoded: string;
   onView: (doc: VisorDoc) => void;
+  onOpenIA: (doc: { nombre: string; url: string }) => void;
 }) {
   // Agrupa los documentos por su categoría real (sin pre-crear cajas vacías).
   const buildGrupos = (docs: (DocumentoAdjunto & { categoria?: string })[]) => {
@@ -340,6 +357,7 @@ function DocumentosGrid({
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             onView={onView}
+            onOpenIA={onOpenIA}
           />
         ))}
       </div>
@@ -358,6 +376,7 @@ function DocumentosGrid({
                 onDragStart={handleDragStart}
                 isDragging={draggingDoc?.nombre === doc.nombre}
                 onView={onView}
+                onOpenIA={onOpenIA}
               />
             ))}
           </div>
@@ -424,6 +443,8 @@ export function DocumentosSection({
   const yaClasificados = documentosCache.some(d => (d as any).categoria);
   // Documento abierto en el visor inline (modal). null = cerrado.
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
+  // Documento abierto en el chat rápido de IA (modal). null = cerrado.
+  const [iaDoc, setIaDoc] = useState<{ nombre: string; url: string } | null>(null);
 
   // Regeneración del Excel de costeo desde el informe IA ya guardado (sin re-analizar:
   // reusa el manifiesto y solo vuelve a armar el Excel con la plantilla actual).
@@ -585,6 +606,7 @@ export function DocumentosSection({
               documentos={documentosCache as (DocumentoAdjunto & { categoria?: string })[]}
               codigoDecoded={codigoDecoded}
               onView={setVisorDoc}
+              onOpenIA={setIaDoc}
             />
           </div>
         ) : (
@@ -602,6 +624,9 @@ export function DocumentosSection({
 
       {/* Visor inline de documentos (PDF/imagen/Office) — sin descargar */}
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
+
+      {/* Chat rápido de IA sobre un documento puntual */}
+      <DocumentoIAModal doc={iaDoc} codigo={codigoDecoded} onClose={() => setIaDoc(null)} />
     </div>
   );
 }

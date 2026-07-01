@@ -611,7 +611,7 @@ export default function LicitacionDetallePage() {
               <ViabilidadIAPanel codigo={codigoDecoded} onComplete={fetchDocumentos} />
             )}
             {activeSection === 'inteligencia' && (
-              <InteligenciaSection documentosAnalizables={documentosAnalizables} nombreLicitacion={licitacion.nombre} />
+              <InteligenciaSection codigo={codigoDecoded} documentosAnalizables={documentosAnalizables} nombreLicitacion={licitacion.nombre} />
             )}
             {activeSection === 'postulacion' && (
               <PostulacionSection />

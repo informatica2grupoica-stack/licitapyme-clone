@@ -1418,7 +1418,7 @@ function DetalleContent() {
               />
             )}
             {seccion === 'analisis' && (
-              <InteligenciaSection documentosAnalizables={documentosAnalizables as any} nombreLicitacion={negocio.licitacion_nombre || negocio.licitacion_codigo} />
+              <InteligenciaSection codigo={negocio.licitacion_codigo} documentosAnalizables={documentosAnalizables as any} nombreLicitacion={negocio.licitacion_nombre || negocio.licitacion_codigo} />
             )}
             {seccion === 'comentarios' && (
               <SeccionComentarios
