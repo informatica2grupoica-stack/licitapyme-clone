@@ -17,6 +17,7 @@ import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { cargarReglasAprendidas, bloqueReglasAprendidas } from '@/app/lib/viabilidad-feedback';
+import { parsearPlanillaCosteo } from '@/app/lib/planilla-costeo-parser';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
@@ -39,7 +40,7 @@ function utmVigente(): number {
 // docs_hash) NO los emite el modelo: se DERIVAN en código para alimentar el radar/negocios/DB.
 export interface CriterioV2 { nombre: string; ponderacion: number; forma_aplicacion: string; medio_verificacion: string; fuente: string }
 export interface HitoTiempo { hito: string; duracion_dias: number | null; tipo_dias: string; base_computo: string; fuente: string; inferido: boolean }
-export interface ManifiestoLinea { linea: number; descripcion: string; modelo: string; cantidad: number | null; unidad_medida: string; unidad_inferida: boolean; presupuesto_linea: number | null; tipo: string; ruta: string }
+export interface ManifiestoLinea { linea: number; categoria: string | null; descripcion: string; modelo: string; cantidad: number | null; unidad_medida: string; unidad_inferida: boolean; presupuesto_linea: number | null; tipo: string; ruta: string }
 
 export interface ViabilidadIAResult {
   meta: { id: string; nombre: string; organismo: string; region: string; linea_negocio: string };
@@ -91,6 +92,10 @@ export interface ViabilidadIAResult {
   documentos_leidos: string[];
   documentos_no_leidos: string[];
   docs_hash?: string;        // huella del conjunto de documentos; permite cachear y evitar re-análisis
+  // Estructura del Excel de costeo. 'por_categoria' SOLO cuando el parser detectó rubros de
+  // producto reales (encabezados A/B/C tipo FERRETERIA/PINTURA). Si las categorías las puso
+  // la IA (p.ej. programas PDTI/PRODESAL), NO parte el costeo (queda null → sigue modalidad).
+  estructura_costeo?: 'por_categoria' | null;
 }
 
 // ─── Carga de documentos COMPLETOS (texto + visión para escaneados) ──────────────
@@ -380,6 +385,10 @@ gate: <$8M = NO_CALIFICA; $8–15M = DESCARTE_CONDICIONAL salvo (productos<15 o 
 PASO 1 — LÍNEA DE NEGOCIO: meta.linea_negocio = ferreteria (construcción, eléctrico, herramientas → ruta simple) | equipamiento (instrumentación, laboratorio, electrónica, maquinaria → análisis doble) | mixto.
 
 PASO 2 — MODALIDAD DE ADJUDICACIÓN (CRÍTICO — detección fehaciente, gate de cierre). tipo = suma_alzada | por_linea. La heurística de portada es SOLO INDICIO (1 ítem portada + N productos en bases → casi seguro suma_alzada; portada distribuida en muchos ítems → probable por_linea). VERIFICACIÓN OBLIGATORIA: el artículo de las bases que define la modalidad ("precio total/totalidad/suma alzada/no se aceptan ofertas parciales" vs "adjudicación por línea/ítem"). Responde tipo + fuente (artículo+página) + evidencia (frase textual) + confianza (0-1) + estado (DETERMINADA | REVISION_HUMANA). Si NO queda fehaciente (sin artículo claro, portada y bases se contradicen, o confianza no alta) → estado=REVISION_HUMANA (no asumas ninguna). Si es por_linea y no publican precio por línea → libertad_de_pricing=true.
+DISTINGUE DOS EJES QUE NO SON LO MISMO (error frecuente que INVALIDA la modalidad): (a) FORMA DE ADJUDICACIÓN = a cuántos proveedores se asigna ("adjudicación simple/única" vs "adjudicación múltiple", "por cada ítem/línea se seleccionará a un oferente", "adjudicación parcial/por línea o ítem"); (b) FORMA DE COTIZAR = cómo se ofertan los precios (suma alzada / total fijo global vs precio unitario por ítem/línea). La MODALIDAD que decides (tipo) es el EJE (b). Una cláusula de "adjudicación por línea/ítem/múltiple" por sí sola NO implica por_linea: es solo la opción de repartir la adjudicación.
+REGLA DEL TOTAL CONSOLIDADO (la MÁS decisiva): si el FORMATO DE OFERTA ECONÓMICA (Anexo/Formato N°n que el proveedor firma y sube) pide UN ÚNICO TOTAL al pie ("TOTAL NETO", "TOTAL GENERAL OFERTA", "COSTO TOTAL DE LA OFERTA", "precio fijo", "cantidades inamovibles", "proveer íntegramente") sobre una lista de ítems → tipo=suma_alzada, AUNQUE exista columna de valor por ítem y AUNQUE las bases mencionen "adjudicación por línea/ítem/múltiple" (eso NO gatilla REVISION_HUMANA; anótalo como nota). Cita el formato como evidencia.
+SEÑALES FALSAS que NO son por_linea: ítems en HOJAS/PÁGINAS/SECCIONES separadas pero con NUMERACIÓN CORRELATIVA CONTINUA 1..N (es UNA sola planilla integrada, no líneas independientes); la mera columna de precio por ítem; la frase "adjudicación por línea o ítem".
+CUANDO LAS BASES NO DECLARAN LA MODALIDAD EN PALABRAS → decide por la ESTRUCTURA de los ítems (heurística del experto): (1) ítems CORRELATIVOS 1..N cada uno con su cantidad real, cerrando en un total único → suma_alzada; (2) ítems agrupados en LÍNEAS/LOTES distintos (cada línea con su propio título/subtotal/presupuesto, o su propia hoja, y la numeración se REINICIA dentro de cada línea) → por_linea; (3) catálogo con precio unitario independiente y SIN total único (convenio de suministro) → por_linea. Ejemplo suma_alzada: "1 ZINC, 2 POLIN, 3 CLAVO TECHO, 4 MALLA…" correlativos hasta el final. Ejemplo por_linea: "LÍNEA 1: implementos sanitarios [ítems]; LÍNEA 2: áridos [ítems]; LÍNEA 3: eléctricos [ítems]".
 
 PASO 3 — CRITERIOS DE EVALUACIÓN + FORMA DE APLICACIÓN (INSUMO INNEGOCIABLE — gate de cierre, BÚSQUEDA OBLIGATORIA SI O SI). NO basta listar "experiencia 30%, precio 40%". BÚSQUEDA EXHAUSTIVA OBLIGATORIA: los criterios de evaluación y su ponderación (%) PUEDEN estar en CUALQUIER documento, NO solo en el que se llame "BASES_ADMINISTRATIVAS" — a veces aparecen en BASES_TECNICAS, en un documento "BASES" sin calificar, en ANEXOS, en aclaraciones, o con otro nombre de archivo. DEBES leer el texto COMPLETO de TODOS los documentos, PÁGINA POR PÁGINA (usa los marcadores [[PÁGINA N]]), buscando patrones como "criterios de evaluación", "la comisión evaluadora", "se evaluará de acuerdo a", "ponderación", "puntaje", junto a porcentajes (ej. "40%", "Precio de la oferta: 40%", tablas con letras a) b) c)...). NUNCA concluyas "no se encontraron criterios" sin haber recorrido el 100% de las páginas de TODOS los documentos disponibles — es un error grave dejar esto vacío si el dato existe en cualquier parte del texto entregado.
 LA FORMA DE APLICACIÓN SUELE VENIR EN UNA TABLA, no en prosa: columnas tipo PARÁMETROS / CALIFICACIÓN / PUNTAJE / "x 0,20" con filas "Cumple … = 100 pts / No cumple … = 10 pts". Si un criterio aparece con su % pero NO ves su fórmula, BUSCA su tabla de puntajes en la MISMA página y en las adyacentes ANTES de declarar la forma de aplicación ausente. Un criterio con ponderación CASI SIEMPRE trae su tabla de calificación cerca de los otros criterios; declararla "no especificada" cuando otros criterios de la misma sección sí la tienen es un ERROR GRAVE (revisa de nuevo esa página). Solo marca forma_aplicacion ausente si REALMENTE no hay tabla ni descripción de puntajes en ninguna parte. Cascada de fuente ESTRICTA una vez ubicados: (1) las bases (donde estén; lo habitual BASES_ADMINISTRATIVAS, pero puede ser otro doc) — aquí está la FORMA DE APLICACIÓN; (2) la API de MercadoPúblico aporta criterio + ponderación pero NUNCA la forma de aplicación; (3) si la forma de aplicación no aparece en ninguna parte tras la búsqueda exhaustiva → ALERTA EXPLÍCITA + acción para AC (nunca en silencio). Por cada criterio declara: nombre, ponderacion (%), forma_aplicacion (la FÓRMULA exacta, los TRAMOS, qué acredita cada puntaje), medio_verificacion, fuente (doc+art+página EXACTA donde lo leíste). criterios_evaluacion.fuente_datos = bases|api|mixto|incompleto. forma_aplicacion_completa=true solo si TODOS los criterios traen su forma de aplicación; si falta en alguno → false + alerta puntual (qué criterio y dónde buscar) + estado_veredicto=REVISION_HUMANA. Las ponderaciones suman 100. Si tras revisar TODA la documentación realmente no hay ningún criterio (caso raro) → criterios=[] + alerta explícita "no se encontraron criterios de evaluación en ningún documento tras revisión exhaustiva".
@@ -419,6 +428,7 @@ PASO 8 — LÍNEA DE TIEMPO DE CUMPLIMIENTO POST-ADJUDICACIÓN (bloque destacado
 REGLA CRÍTICA: cada hito se LEE de las bases de ESTE proyecto con su Fuente. Los plazos "habituales" son referencia para detectar anomalías, NO relleno automático. Si un plazo NO está explícito → inferido=true + alerta (supuesto a confirmar por AC); NUNCA inventes la cifra estándar. Cadena de hitos: Adjudicación → [firma contrato si aplica] → emisión OC → [aceptación OC] → inicio del cómputo → fecha límite real. Entrega: hitos[] (hito, duracion_dias, tipo_dias habiles|corridos, base_computo, fuente, inferido), plazo_ofertable_puntaje (el que conviene ofertar para maximizar puntaje, ej "1 día"), plazo_operativo_real_dias_habiles (colchón real disponible), colchon_dias_habiles (la brecha). alertas[] para hitos inferidos/no especificados.
 
 PASO 9 — MANIFIESTO DE PRODUCTOS (hook Fase 3 + SEMILLA DEL COSTEO), desde las BASES TÉCNICAS (no la API). Por cada línea/ítem: descripcion técnica EXACTA (sin omitir, agrupar ni alterar — 5000 clavos siguen siendo 5000 clavos), modelo (marca/modelo pedido), cantidad (original, tal cual), unidad_medida (textual de las bases; si no la especifican → asume la unidad básica y unidad_inferida=true, NO la dejes vacía), presupuesto_linea (si las bases lo publican por línea/lote; si solo hay total sin desglose → null y libertad_de_pricing en modalidad), tipo (generico|especifico), ruta (A=ferretería / B=equipamiento). NO conviertas ni "mejores": la conversión a costo unitario la hace Fase 3. NO busques precios aquí (firewall: Fase 2 = solo bases).
+ASIGNACIÓN DEL NÚMERO DE LÍNEA (CRÍTICO — SEMILLA DEL COSTEO; hay DOS versiones de costeo: "Costeo" para suma alzada y "Costeo en línea" para por_linea). El campo 'linea' de cada ítem NO es un correlativo del ítem: es el NÚMERO DE LA LÍNEA/LOTE a la que ese ítem pertenece. Muchas licitaciones agrupan los productos en LÍNEAS o LOTES, cada uno con su propio título y a veces su propio presupuesto (ej. "LÍNEA 1: SUMINISTRO DE IMPLEMENTOS SANITARIOS", "LÍNEA 2: ÁRIDOS", "LÍNEA 3: ELÉCTRICOS…", "Lote N°2", "Ítem 3", o secciones/hojas/páginas separadas una por línea). En ese caso DEBES leer esa estructura (recorriendo TODOS los documentos, sobre todo la ETT y el formato de oferta económica) y asignar a CADA producto el número de la línea que lo contiene: todos los productos bajo "LÍNEA 1" → linea=1; los de "LÍNEA 2" → linea=2; y así sucesivamente, en orden y sin saltarte productos. Cuando un mismo encabezado de línea agrupa muchos productos, TODOS esos productos comparten ese mismo número de línea (ej. si la Línea 3 tiene 144 materiales eléctricos, los 144 llevan linea=3). Regla ESPEJO con la modalidad del PASO 2: si modalidad.tipo=por_linea DEBEN existir ≥2 números de línea distintos en el manifiesto (uno por cada línea/lote real); si modalidad.tipo=suma_alzada (una sola lista corrida, o un único total consolidado, sin agrupación en líneas/lotes) TODOS los ítems llevan linea=1. NO inventes líneas: agrúpalas SOLO si las bases o el formato económico las declaran explícitamente (título "LÍNEA/LOTE N", presupuesto por línea, u hoja/sección separada por línea). Esta asignación es la que decide si el Excel de costeo sale como una sola hoja "Costeo" (suma alzada) o como una hoja por línea "Costeo en línea" (por_linea).
 
 PASO 10 — VEREDICTO: nivel (MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE), gana_probable (si|no|condicional), estado_veredicto (DEFINITIVO | REVISION_HUMANA), motivos_revision[] (acumula modalidad no fehaciente y/o forma de aplicación faltante), acciones_AC[], advertencias[]. El AC no debe quedar con dudas del porqué. pendientes_fase3 = importabilidad_real, densidad_de_oferta, margen (lo que dependa de la web).
 
@@ -432,7 +442,19 @@ function construirSystemPrompt(reglas: string[]): string {
   return BASE_SYSTEM_PROMPT.replace('REGLAS INNEGOCIABLES:', `${bloque}REGLAS INNEGOCIABLES:`);
 }
 
-function construirUserPrompt(codigo: string, ctx: any, docs: DocLeido[]): string {
+// Señal DETERMINISTA de modalidad a partir de la estructura del listado (parser). Es un
+// hecho calculado que se inyecta al prompt para aterrizar al modelo débil (no depende de
+// que "capte el matiz"). No es vinculante: el modelo puede contradecirla con evidencia.
+function construirSenalModalidad(planilla: ReturnType<typeof parsearPlanillaCosteo>): string {
+  if (!planilla || planilla.items.length < 8) return '';
+  if (planilla.estructura === 'por_linea' && planilla.lineas.length >= 2) {
+    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ítems vienen agrupados en ${planilla.lineas.length} LÍNEAS/LOTES distintos (numeración que se reinicia por línea, cada una con su título/subtotal). Esto indica modalidad = por_linea, SALVO que el formato de oferta económica exija un ÚNICO total consolidado (entonces suma_alzada). Verifícalo y decide.`;
+  }
+  // Lista corrida (plana) o rubros bajo un mismo total → correlativa = suma alzada.
+  return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems vienen en una ÚNICA planilla con numeración CORRELATIVA CONTINUA 1..N (no reinicia por línea). Esto indica modalidad = suma_alzada (aunque haya columna de valor por ítem o las bases mencionen "adjudicación por línea/ítem"). Verifícalo con el formato de oferta económica y decide.`;
+}
+
+function construirUserPrompt(codigo: string, ctx: any, docs: DocLeido[], senalModalidad = ''): string {
   // Ordenar por PRECEDENCIA documental antes de concatenar/truncar: lo soberano
   // (Aclaraciones/Especiales) va primero y sobrevive al recorte; los planos al final.
   const leidos = docs.filter(d => d.ok)
@@ -458,6 +480,7 @@ PRESUPUESTO PORTADA (API MP): ${ctx.meta.monto ? '$' + Number(ctx.meta.monto).to
 ÍTEMS SEGÚN API MERCADO PÚBLICO (referencia de líneas):
 ${itemsMPTxt}
 
+${senalModalidad ? `\n${senalModalidad}\n` : ''}
 DOCUMENTOS DE LA LICITACIÓN (texto completo; los escaneados ya fueron leídos por visión).
 IMPORTANTE: cada página viene marcada con [[PÁGINA N]] — usa ESE número para citar la página de cada dato.
 ${docsTexto || '(no se pudo extraer texto de los documentos)'}
@@ -503,7 +526,7 @@ Analiza TODO lo anterior y devuelve EXACTAMENTE este JSON canónico (PROMPT 2 v2
   },
   "pendientes_fase3": ["importabilidad_real","densidad_de_oferta","margen"],
   "veredicto": { "nivel": "MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE", "gana_probable": "si|no|condicional", "estado_veredicto": "DEFINITIVO|REVISION_HUMANA", "motivos_revision": [], "acciones_AC": [], "advertencias": [] },
-  "manifiesto_productos": [ { "linea": 1, "descripcion": "descripción técnica EXACTA de las bases", "modelo": "", "cantidad": null, "unidad_medida": "", "unidad_inferida": false, "presupuesto_linea": null, "tipo": "generico|especifico", "ruta": "A|B" } ]
+  "manifiesto_productos": [ { "linea": 1, "categoria": "nombre del rubro/categoría si la planilla los agrupa (FERRETERIA/PINTURA…), si no null", "descripcion": "descripción técnica EXACTA de las bases", "modelo": "", "cantidad": null, "unidad_medida": "", "unidad_inferida": false, "presupuesto_linea": null, "tipo": "generico|especifico", "ruta": "A|B" } ]
 }`;
 }
 
@@ -586,7 +609,7 @@ function sanitizar(p: any): ViabilidadIACore {
       colchon_dias_habiles: _num(lt.colchon_dias_habiles),
       alertas: _arr<any>(lt.alertas).map(_str),
     },
-    manifiesto_productos: _arr<any>(p.manifiesto_productos).map((m, i) => ({ linea: _num(_obj(m).linea) ?? i + 1, descripcion: _str(_obj(m).descripcion), modelo: _str(_obj(m).modelo), cantidad: _num(_obj(m).cantidad), unidad_medida: _str(_obj(m).unidad_medida), unidad_inferida: _bool(_obj(m).unidad_inferida), presupuesto_linea: _num(_obj(m).presupuesto_linea), tipo: _str(_obj(m).tipo), ruta: _str(_obj(m).ruta) })),
+    manifiesto_productos: _arr<any>(p.manifiesto_productos).map((m, i) => ({ linea: _num(_obj(m).linea) ?? i + 1, categoria: _obj(m).categoria ? _str(_obj(m).categoria) : null, descripcion: _str(_obj(m).descripcion), modelo: _str(_obj(m).modelo), cantidad: _num(_obj(m).cantidad), unidad_medida: _str(_obj(m).unidad_medida), unidad_inferida: _bool(_obj(m).unidad_inferida), presupuesto_linea: _num(_obj(m).presupuesto_linea), tipo: _str(_obj(m).tipo), ruta: _str(_obj(m).ruta) })),
     pendientes_fase3: _arr<any>(p.pendientes_fase3).map(_str),
     veredicto: { nivel: _str(veredicto.nivel), gana_probable: _str(veredicto.gana_probable), estado_veredicto: _str(veredicto.estado_veredicto) || 'DEFINITIVO', motivos_revision: _arr<any>(veredicto.motivos_revision).map(_str), acciones_AC: _arr<any>(veredicto.acciones_AC).map(_str), advertencias: _arr<any>(veredicto.advertencias).map(_str) },
   };
@@ -602,8 +625,44 @@ export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIA
   const ctx = await cargarContexto(codigo);
   const reglas = await cargarReglasAprendidas();   // feedback loop: lecciones del experto
   const systemPrompt = construirSystemPrompt(reglas);
-  const parsed = await llamarGeminiJSON(systemPrompt, construirUserPrompt(codigo, ctx, docs));
+
+  // PARSER DETERMINISTA de la planilla ANTES del LLM: nos da (1) el listado COMPLETO de ítems
+  // con su línea real y (2) una SEÑAL de modalidad por estructura, que inyectamos al prompt
+  // para que el modelo débil no confunda "adjudicación por línea" (a quién) con "cómo se cotiza".
+  let planilla: ReturnType<typeof parsearPlanillaCosteo> = null;
+  try {
+    const fuentes = leidos.filter(d =>
+      (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre));
+    planilla = parsearPlanillaCosteo(fuentes.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
+  } catch { /* sin planilla → el modelo decide solo */ }
+
+  const senal = construirSenalModalidad(planilla);
+  const parsed = await llamarGeminiJSON(systemPrompt, construirUserPrompt(codigo, ctx, docs, senal));
   const saneado = sanitizar(parsed);
+
+  // 'por_categoria' se activa SOLO si el parser detecta rubros de producto reales (A/B/C).
+  let estructuraCosteo: 'por_categoria' | null = null;
+
+  // MANIFIESTO desde la PLANILLA: enumera TODAS las filas con DESCRIPCIÓN completa, unidad,
+  // cantidad, NÚMERO DE LÍNEA y CATEGORÍA reales. Si el parser trae ≥ ítems que la IA, su
+  // manifiesto MANDA (más completo y fiel; línea/categoría son la semilla del costeo).
+  if (planilla && planilla.items.length >= saneado.manifiesto_productos.length && planilla.items.length >= 8) {
+    saneado.manifiesto_productos = planilla.items.map(it => ({
+      linea: it.linea || 1,
+      categoria: it.categoria,
+      descripcion: it.descripcion,
+      modelo: '',
+      cantidad: it.cantidad,
+      unidad_medida: it.unidad,
+      unidad_inferida: !it.unidad,
+      presupuesto_linea: null,
+      tipo: 'generico',
+      ruta: '',
+    }));
+    // Solo el parser (rubros A/B/C reales) habilita el costeo por pestañas de categoría.
+    if (planilla.estructura === 'por_categoria') estructuraCosteo = 'por_categoria';
+    console.log(`[viabilidad-ia] ${codigo}: manifiesto desde planilla "${planilla.fuenteDoc}" — ${planilla.items.length} ítems (${planilla.estructura}, ${planilla.lineas.length} línea(s)).`);
+  }
 
   // El PROMPT 2 v2.0 NO emite score 0-100 ni semáforo: trabaja con la Capa A (0-15) y
   // gates. Los DERIVAMOS aquí para alimentar el radar/negocios (columnas score_total,
@@ -619,6 +678,7 @@ export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIA
     documentos_leidos: leidos.map(d => d.nombre),
     documentos_no_leidos: docs.filter(d => !d.ok).map(d => `${d.nombre} (${d.metodo})`),
     docs_hash: await calcularDocsHash(codigo),
+    estructura_costeo: estructuraCosteo,
   };
   return result;
 }
@@ -713,7 +773,7 @@ async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise
   const { subirDocumentoR2 } = await import('@/app/lib/r2');
 
   const datosCosteo = adaptarViabilidadACosteo(codigo, r);
-  console.log(`[costeo] ${codigo}: generando Excel (${datosCosteo.lineas.size} líneas)…`);
+  console.log(`[costeo] ${codigo}: generando Excel (${datosCosteo.modalidad}, ${datosCosteo.grupos.length} hoja(s))…`);
   const buffer = await generarCosteoExcel(datosCosteo);
   console.log(`[costeo] ${codigo}: buffer ${buffer.length} bytes — subiendo a R2…`);
 
@@ -723,7 +783,7 @@ async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   console.log(`[costeo] ${codigo}: R2 OK → ${url}`);
 
-  const totalItems = [...datosCosteo.lineas.values()].reduce((s, v) => s + v.length, 0);
+  const totalItems = datosCosteo.grupos.reduce((s, g) => s + g.items.length, 0);
 
   // Inserción defensiva: descubre qué columnas opcionales existen antes de insertar.
   // Evita que columnas agregadas por migraciones pendientes (categoria, content_type,
@@ -765,7 +825,7 @@ async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise
     params,
   );
 
-  console.log(`[costeo] ✅ ${codigo}: Excel guardado (${datosCosteo.lineas.size} líneas, ${totalItems} ítems)`);
+  console.log(`[costeo] ✅ ${codigo}: Excel guardado (${datosCosteo.modalidad}, ${datosCosteo.grupos.length} hoja(s), ${totalItems} ítems)`);
 }
 
 // Vuelca el manifiesto de productos (lo que la IA encontró en la documentación) a
@@ -776,12 +836,14 @@ async function volcarManifiestoAItems(codigo: string, r: ViabilidadIAResult): Pr
   const manifiesto = Array.isArray(r.manifiesto_productos) ? r.manifiesto_productos : [];
   if (manifiesto.length === 0) return;
 
-  const especs = manifiesto.map(p => ({
-    item: String(p.linea ?? ''),
+  const especs = manifiesto.map((p, i) => ({
+    item: String(i + 1),                 // numeración corrida (varios ítems comparten línea/categoría)
     descripcion: p.descripcion || '',
     cantidad: p.cantidad ?? null,
     unidad: p.unidad_medida || null,
     requisitosMinimos: [
+      p.categoria ? `Categoría: ${p.categoria}` : '',
+      p.linea ? `Línea ${p.linea}` : '',
       p.modelo,
       p.tipo,
       p.ruta ? `Ruta ${p.ruta}` : '',

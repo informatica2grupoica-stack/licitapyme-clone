@@ -2,16 +2,20 @@
 // Genera el Excel de costeo a partir de la plantilla REAL del usuario
 // (app/lib/plantillas-costeo/tabla-costeo-v3.xlsx), preservando sus colores, fórmulas y la
 // hoja AUDITORIA. Solo se RELLENAN los ítems (ITEM, Detalle, Unidad, Cantidad).
-//   - modalidad suma_alzada → 1 hoja "Costeo" con todos los ítems.
-//   - modalidad por_linea   → una hoja por línea (LINEA1, LINEA2, …) clonando "Costeo".
-// La hoja AUDITORIA se reconstruye para referenciar todos los ítems de todas las hojas.
+//   - suma_alzada  → 1 hoja "Costeo" con todos los ítems.
+//   - por_categoria→ una hoja por categoría (FERRETERIA, PINTURA, …) clonando "Costeo".
+//   - por_linea    → una hoja por línea (LINEA1, LINEA2, …) clonando "Costeo".
+// La hoja AUDITORIA se reconstruye para referenciar todos los ítems de todas las hojas
+// (subtotal por hoja + total único que suma todas las hojas).
 // Se usa exceljs para no perder fórmulas compartidas ni los estilos/colores del template.
 
 import path from 'path';
 import ExcelJS from 'exceljs';
 import type { ManifiestoLinea, ViabilidadIAResult } from '@/app/lib/viabilidad-ia';
 
-export type ModalidadCosteo = 'suma_alzada' | 'por_linea';
+export type ModalidadCosteo = 'suma_alzada' | 'por_linea' | 'por_categoria';
+
+export interface GrupoCosteo { nombre: string; items: ManifiestoLinea[] }
 
 export interface DatosCosteo {
   codigo: string;
@@ -19,7 +23,7 @@ export interface DatosCosteo {
   organismo: string;
   presupuesto_bruto: number | null;
   modalidad: ModalidadCosteo;
-  lineas: Map<number, ManifiestoLinea[]>;
+  grupos: GrupoCosteo[];   // 1 grupo = 1 hoja. suma_alzada → un único grupo con todo.
 }
 
 // Estructura de la plantilla V3 (medida): hoja "Costeo" con ítems desde la fila 4 (20 filas
@@ -29,7 +33,22 @@ const HOJA_AUDITORIA = 'AUDITORIA';
 const FILA_ITEM_1 = 4;     // primera fila de ítems en la hoja de costeo
 const FILA_MODELO = 5;     // fila a duplicar al expandir (trae las fórmulas por ítem)
 const AUD_ITEM_1 = 3;      // primera fila de ítems en AUDITORIA
-const MAX_HOJAS_LINEA = 50; // tope de hojas LINEA (las líneas sobrantes se acumulan en la última)
+const MAX_HOJAS = 50; // tope de hojas por grupo (los grupos sobrantes se acumulan en el último)
+
+// Excel: nombre de hoja ≤31 chars, sin []:*?/\ y único en el libro. Sanitiza la
+// categoría (o el fallback) a un nombre válido evitando choques.
+function nombreHojaValido(raw: string, usados: Set<string>, fallback: string): string {
+  let base = (raw || '').replace(/[[\]:*?/\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 31);
+  if (!base) base = fallback;
+  let nombre = base;
+  let k = 2;
+  while (usados.has(nombre.toLowerCase())) {
+    const suf = ` ${k++}`;
+    nombre = base.slice(0, 31 - suf.length) + suf;
+  }
+  usados.add(nombre.toLowerCase());
+  return nombre;
+}
 
 // Detalle = descripción + modelo. La unidad va en su PROPIA columna (C), no aquí.
 function detalleDe(it: ManifiestoLinea): string {
@@ -151,37 +170,40 @@ async function cargarPlantilla(): Promise<ExcelJS.Workbook> {
 export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
   const wb = await cargarPlantilla();
 
-  const lineasOrdenadas = [...d.lineas.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .filter(([, items]) => items.length > 0);
-
+  const grupos = d.grupos.filter(g => g.items.length > 0);
   const refs: Array<{ hoja: string; fila: number }> = [];
 
-  if (d.modalidad === 'por_linea' && lineasOrdenadas.length > 1) {
+  // MULTI-HOJA (por_categoria / por_linea): una hoja por grupo, clonando "Costeo".
+  // Cada hoja trae su propio subtotal; AUDITORIA suma todas → total único.
+  const multiHoja = (d.modalidad === 'por_categoria' || d.modalidad === 'por_linea') && grupos.length > 1;
+
+  if (multiHoja) {
     const src = wb.getWorksheet(HOJA_COSTEO)!;
-    // Modelo limpio de la hoja Costeo para clonar las líneas siguientes.
+    // Modelo limpio de la hoja Costeo para clonar los grupos siguientes.
     const baseModel = JSON.parse(JSON.stringify(src.model));
-    // Sacar AUDITORIA y recrearla AL FINAL (para que las pestañas queden LINEA1..n | AUDITORIA).
+    // Sacar AUDITORIA y recrearla AL FINAL (pestañas queden grupo1..n | AUDITORIA).
     const au = wb.getWorksheet(HOJA_AUDITORIA);
     const audModel = au ? JSON.parse(JSON.stringify(au.model)) : null;
     if (au) wb.removeWorksheet(au.id);
 
-    // Agrupar líneas respetando el tope de hojas (las sobrantes se acumulan en la última).
-    const grupos: ManifiestoLinea[][] = [];
-    lineasOrdenadas.forEach(([numLinea, items], idx) => {
-      if (idx < MAX_HOJAS_LINEA) grupos.push([...items]);
+    // Agrupar respetando el tope de hojas (los grupos sobrantes se acumulan en el último).
+    const acotados: GrupoCosteo[] = [];
+    grupos.forEach((g, idx) => {
+      if (idx < MAX_HOJAS) acotados.push({ nombre: g.nombre, items: [...g.items] });
       else {
-        console.warn(`[costeo] línea ${numLinea}: supera el tope de ${MAX_HOJAS_LINEA} hojas; se acumula en LINEA${MAX_HOJAS_LINEA}.`);
-        grupos[MAX_HOJAS_LINEA - 1].push(...items);
+        console.warn(`[costeo] grupo "${g.nombre}": supera el tope de ${MAX_HOJAS} hojas; se acumula en la última.`);
+        acotados[MAX_HOJAS - 1].items.push(...g.items);
       }
     });
 
-    grupos.forEach((items, k) => {
-      const nombre = `LINEA${k + 1}`;
+    const usados = new Set<string>([HOJA_AUDITORIA.toLowerCase()]);
+    acotados.forEach((g, k) => {
+      // por_linea usa LINEAn; por_categoria usa el nombre de la categoría saneado.
+      const raw = d.modalidad === 'por_linea' ? `LINEA${k + 1}` : g.nombre;
+      const nombre = nombreHojaValido(raw, usados, `HOJA${k + 1}`);
       let ws: ExcelJS.Worksheet;
       if (k === 0) {
-        // La primera línea reutiliza la hoja "Costeo" (renombrada).
-        ws = src;
+        ws = src;            // el primer grupo reutiliza la hoja "Costeo" (renombrada).
         ws.name = nombre;
       } else {
         ws = wb.addWorksheet(nombre);
@@ -190,8 +212,8 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
         ws.model = m;
         ws.name = nombre;
       }
-      rellenarCosteo(ws, items);
-      items.forEach((_, i) => refs.push({ hoja: nombre, fila: FILA_ITEM_1 + i }));
+      rellenarCosteo(ws, g.items);
+      g.items.forEach((_, i) => refs.push({ hoja: nombre, fila: FILA_ITEM_1 + i }));
     });
 
     // Recrear AUDITORIA al final, con su estilo original.
@@ -203,9 +225,9 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
       au2.name = HOJA_AUDITORIA;
     }
   } else {
-    // suma_alzada (o por_linea de una sola línea): TODOS los ítems en la hoja "Costeo".
+    // suma_alzada (o una sola categoría/línea): TODOS los ítems en la hoja "Costeo".
     const ws = wb.getWorksheet(HOJA_COSTEO) || wb.worksheets[0];
-    const todos = lineasOrdenadas.flatMap(([, items]) => items);
+    const todos = grupos.flatMap(g => g.items);
     rellenarCosteo(ws, todos);
     todos.forEach((_, i) => refs.push({ hoja: ws.name, fila: FILA_ITEM_1 + i }));
   }
@@ -225,16 +247,50 @@ export function adaptarViabilidadACosteo(
   const manifiesto = Array.isArray(informe.manifiesto_productos)
     ? informe.manifiesto_productos : [];
 
-  const lineas = new Map<number, ManifiestoLinea[]>();
+  // La ESTRUCTURA del Excel:
+  //  1) por_categoria SOLO si el análisis lo marcó (informe.estructura_costeo), que se pone
+  //     únicamente cuando el PARSER detectó rubros de producto reales (A/B/C tipo FERRETERIA).
+  //     Las categorías que inventa la IA (p.ej. programas PDTI/PRODESAL) NO parten el costeo.
+  //  2) si no, y la adjudicación es por_linea con ≥2 líneas → por_linea (1 hoja por línea).
+  //  3) si no → suma_alzada (todo en una hoja "Costeo").
+  const categoriasOrden: string[] = [];
   for (const p of manifiesto) {
-    const nLinea = Number(p.linea) || 1;
-    if (!lineas.has(nLinea)) lineas.set(nLinea, []);
-    lineas.get(nLinea)!.push(p);
+    const c = (p.categoria || '').trim();
+    if (c && !categoriasOrden.includes(c)) categoriasOrden.push(c);
   }
+  const tipoAdj = String(informe.modalidad?.tipo || '').toLowerCase();
+  const esPorCategoria = informe.estructura_costeo === 'por_categoria' && categoriasOrden.length >= 2;
 
-  // La modalidad manda qué estructura se usa. Por defecto suma_alzada.
-  const tipo = String(informe.modalidad?.tipo || '').toLowerCase();
-  const modalidad: ModalidadCosteo = tipo === 'por_linea' ? 'por_linea' : 'suma_alzada';
+  let modalidad: ModalidadCosteo;
+  let grupos: GrupoCosteo[];
+
+  if (esPorCategoria) {
+    modalidad = 'por_categoria';
+    const porCat = new Map<string, ManifiestoLinea[]>(categoriasOrden.map(c => [c, []]));
+    const sinCat: ManifiestoLinea[] = [];
+    for (const p of manifiesto) {
+      const c = (p.categoria || '').trim();
+      if (c && porCat.has(c)) porCat.get(c)!.push(p);
+      else sinCat.push(p);
+    }
+    grupos = categoriasOrden.map(c => ({ nombre: c, items: porCat.get(c)! }));
+    if (sinCat.length) grupos.push({ nombre: 'OTROS', items: sinCat });
+  } else {
+    const lineas = new Map<number, ManifiestoLinea[]>();
+    for (const p of manifiesto) {
+      const nLinea = Number(p.linea) || 1;
+      if (!lineas.has(nLinea)) lineas.set(nLinea, []);
+      lineas.get(nLinea)!.push(p);
+    }
+    const lineasOrden = [...lineas.entries()].sort((a, b) => a[0] - b[0]);
+    if (tipoAdj === 'por_linea' && lineasOrden.length >= 2) {
+      modalidad = 'por_linea';
+      grupos = lineasOrden.map(([n, items]) => ({ nombre: `LINEA${n}`, items }));
+    } else {
+      modalidad = 'suma_alzada';
+      grupos = [{ nombre: HOJA_COSTEO, items: manifiesto }];
+    }
+  }
 
   return {
     codigo,
@@ -242,6 +298,6 @@ export function adaptarViabilidadACosteo(
     organismo: informe.meta?.organismo || '',
     presupuesto_bruto: informe.presupuesto?.bruto ?? null,
     modalidad,
-    lineas,
+    grupos,
   };
 }
