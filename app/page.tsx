@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useSession } from '@/app/lib/session-context';
 import { AppLayout } from '@/app/components/AppLayout';
 import { SearchBar } from '@/app/components/SearchBar';
 import { ResultsGrid } from '@/app/components/ResultsGrid';
@@ -35,6 +36,12 @@ const FILTERS_DEFAULT: Filters = {
 
 function HomeContent() {
   const searchParams = useSearchParams();
+  // El Buscador es solo para admin. El usuario normal se redirige a Negocios.
+  const { usuario, cargando: cargandoSesion } = useSession();
+  const router = useRouter();
+  useEffect(() => {
+    if (!cargandoSesion && usuario && usuario.rol !== 'admin') router.replace('/negocios');
+  }, [cargandoSesion, usuario, router]);
   const [opportunities, setOpportunities] = useState<Oportunidad[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +155,15 @@ function HomeContent() {
   const hasActiveFilters = Object.values(filters).some(v =>
     Array.isArray(v) ? v.length > 0 : v !== ''
   );
+
+  // No-admin: no renderizar el buscador (el efecto de arriba ya redirige a /negocios).
+  if (!cargandoSesion && usuario && usuario.rol !== 'admin') {
+    return (
+      <AppLayout breadcrumb={[{ label: 'Buscador' }]}>
+        <div className="p-10 text-center text-sm text-slate-500">Redirigiendo…</div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout breadcrumb={[{ label: 'Buscador' }]}>

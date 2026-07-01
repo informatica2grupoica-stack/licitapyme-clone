@@ -185,6 +185,8 @@ const estadoColor = (e?: string) => e === 'VENTAJA' ? 'text-emerald-700 bg-emera
 
 export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { codigo: string; onTambienAnalizar?: () => void; onComplete?: () => void }) {
   const { usuario } = useSession();
+  // Solo admin puede (re)analizar la viabilidad (operación cara y central; el servidor lo valida).
+  const esAdmin = usuario?.rol === 'admin';
   // Solo admin o usuarios con permiso pueden comentar/corregir la viabilidad (el servidor también lo valida).
   const puedeComentar = usuario?.rol === 'admin' || !!usuario?.permisos?.comentar_viabilidad;
   const [informe, setInforme] = useState<InformeIA | null>(null);
@@ -330,7 +332,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             <p className="text-[11px] text-slate-400 truncate">Gemini lee todas las bases (incl. escaneadas) y emite el veredicto con su fuente</p>
           </div>
         </div>
-        {cargando ? (
+        {/* Primer análisis: lo puede correr cualquiera. RE-analizar (ya hay informe): solo admin. */}
+        {!(esAdmin || !informe) ? null : cargando ? (
           <button onClick={detener}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-[13px] font-semibold rounded-lg transition-colors flex-shrink-0">
             <Square size={14} /> Detener
@@ -592,7 +595,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
           <p className={`text-[11.5px] ${fbOk?.startsWith('Aprendido') ? 'text-emerald-600' : 'text-amber-600'}`}>{fbOk}</p>
           <div className="flex items-center gap-2">
-            {informe && fbOk?.startsWith('Aprendido') && (
+            {informe && fbOk?.startsWith('Aprendido') && esAdmin && (
               <button onClick={analizar} disabled={cargando} className="text-[12px] font-semibold text-violet-600 hover:underline">Re-analizar con lo aprendido</button>
             )}
             <button onClick={enviarFeedback} disabled={fbEnviando || fbComentario.trim().length < 4}

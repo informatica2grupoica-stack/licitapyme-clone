@@ -396,7 +396,10 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
               </div>
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {items.slice(0, 6).map((n, i) => (
-                  <span key={i} title={n.usuario_nombre || n.usuario_email} style={{ background: colorUsuario(n.usuario_email || n.usuario_nombre) }} className="w-2 h-2 rounded-full" />
+                  <span key={i}
+                    title={`${n.usuario_nombre || n.usuario_email}${n.estado_pipeline === 'DESCARTADA' ? ' · Descartada' : ''}`}
+                    style={{ background: n.estado_pipeline === 'DESCARTADA' ? '#DC2626' : colorUsuario(n.usuario_email || n.usuario_nombre) }}
+                    className="w-2 h-2 rounded-full" />
                 ))}
                 {items.length > 6 && <span className="text-[8px] text-slate-400 leading-none self-center">+{items.length - 6}</span>}
               </div>
@@ -466,6 +469,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
     ? Math.ceil((new Date(neg.licitacion_cierre).getTime() - Date.now()) / 86400000)
     : null;
   const pipeline = getEstadoPipeline(neg.estado_pipeline || '1ASIGNADO');
+  const descartada = (neg.estado_pipeline || '') === 'DESCARTADA';
   const viab     = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
   const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
   const nombrePerfil = neg.usuario_nombre || neg.usuario_email || '';
@@ -473,8 +477,10 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
   return (
     <button
       onClick={onClick}
-      style={{ borderLeftColor: col, borderLeftWidth: 3 }}
-      className="w-full text-left bg-white border border-slate-200 rounded-lg p-2.5 hover:border-indigo-300 hover:shadow-sm transition-all group"
+      style={{ borderLeftColor: descartada ? '#DC2626' : col, borderLeftWidth: 3 }}
+      className={`w-full text-left border rounded-lg p-2.5 hover:shadow-sm transition-all group ${
+        descartada ? 'bg-red-50 border-red-300 hover:border-red-400' : 'bg-white border-slate-200 hover:border-indigo-300'
+      }`}
     >
       {/* Tipo + código + días */}
       <div className="flex items-center gap-1.5 mb-1.5">
@@ -961,7 +967,11 @@ function NegociosContent() {
     }
   }, [filtroUsuario]);
 
-  useEffect(() => { cargar(); }, [cargar]);
+  // Solo cargar DESPUÉS de restaurar los filtros guardados. Si no, al montar se dispara
+  // una carga con el filtro vacío (todos) y otra con el filtro restaurado (filtrados): la
+  // primera puede resolver última y pisar a la segunda → se ven "todos" con el filtro
+  // marcado. Esperar a `hidratado` deja una sola carga, ya con el filtro correcto.
+  useEffect(() => { if (hidratado) cargar(); }, [cargar, hidratado]);
 
   const eliminar = async (id: number) => {
     if (!confirm('¿Quitar esta licitación del panel de negocios?')) return;

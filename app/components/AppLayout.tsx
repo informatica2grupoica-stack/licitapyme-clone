@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
-  Briefcase, Bell, Tag, Layers, History, Settings, Command,
+  Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban,
 } from 'lucide-react';
 import { IcaLogoIcon } from '@/app/components/IcaLogo';
 import { useSession } from '@/app/lib/session-context';
@@ -46,6 +46,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'GESTIÓN',
     items: [
+      { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
       { label: 'Historial', href: '/alertas', icon: <History size={17} />, adminOnly: true },
     ],
   },

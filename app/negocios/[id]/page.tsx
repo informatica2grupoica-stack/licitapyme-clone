@@ -23,6 +23,7 @@ import {
   Sparkles, BarChart3, BookOpen, AlertTriangle, ListChecks,
   TrendingUp, CheckCircle, Upload, ChevronRight, Files,
   ShieldAlert, DollarSign as DollarSignIcon, Award, Wrench,
+  PlayCircle, Ban,
 } from 'lucide-react';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -1028,6 +1029,12 @@ function DetalleContent() {
   const [error, setError]           = useState<string | null>(null);
   const [seccion, setSeccion]       = useState<Seccion>('resumen');
 
+  // Descarte con motivo obligatorio
+  const [descarteOpen, setDescarteOpen] = useState(false);
+  const [motivoDescarte, setMotivoDescarte] = useState('');
+  // Reasignación (admin): lista de usuarios para cambiar el responsable.
+  const [usuariosLista, setUsuariosLista] = useState<{ id: number; nombre: string | null; email: string }[]>([]);
+
   // Documentos
   const [documentos, setDocumentos]           = useState<DocumentoLocal[]>([]);
   const [loadingDocs, setLoadingDocs]         = useState(false);
@@ -1190,14 +1197,16 @@ function DetalleContent() {
   }, [negocio?.licitacion_codigo, fetchDocumentos, toast]);
 
   // ── Acciones ─────────────────────────────────────────────────────────────────
-  const cambiarEstado = async (estadoId: string) => {
+  const cambiarEstado = async (estadoId: string, motivo?: string) => {
     if (!negocio) return;
+    // Descartar EXIGE un motivo → si no viene, abrimos el modal para pedirlo.
+    if (estadoId === 'DESCARTADA' && !motivo) { setDescarteOpen(true); return; }
     const estadoAnterior = negocio.estado_pipeline;
     setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoId || null } : prev);
     try {
       const res = await fetch(`/api/negocios/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado_pipeline: estadoId || null }),
+        body: JSON.stringify({ estado_pipeline: estadoId || null, motivo: motivo || undefined }),
       });
       const data = await res.json();
       if (data.migration_needed) {
@@ -1211,6 +1220,32 @@ function DetalleContent() {
     } catch (e: any) {
       setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoAnterior } : prev);
       toast.error('Error al actualizar etapa', e?.message);
+    }
+  };
+
+  // Cargar usuarios para reasignar (solo admin).
+  useEffect(() => {
+    if (!isAdmin) return;
+    fetch('/api/usuarios').then(r => r.json()).then(d => {
+      if (d.success) setUsuariosLista(d.usuarios || []);
+    }).catch(() => {});
+  }, [isAdmin]);
+
+  // Reasignar el negocio a otro usuario (in-place: conserva historial/estado).
+  const reasignar = async (nuevoId: number) => {
+    if (!negocio || !nuevoId || nuevoId === negocio.asignado_a) return;
+    try {
+      const res = await fetch(`/api/negocios/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ asignado_a: nuevoId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error');
+      const u = usuariosLista.find(x => x.id === nuevoId);
+      setNegocio(prev => prev ? { ...prev, asignado_a: nuevoId, usuario_nombre: u?.nombre || '', usuario_email: u?.email || '' } : prev);
+      toast.success('Licitación reasignada', u ? `Ahora es de ${u.nombre || u.email}` : undefined);
+    } catch (e: any) {
+      toast.error('No se pudo reasignar', e?.message);
     }
   };
 
@@ -1435,6 +1470,21 @@ function DetalleContent() {
           <div>
             <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Estado</p>
             <PipelineSelector current={negocio.estado_pipeline} onChange={cambiarEstado} />
+            {/* Acciones rápidas: avanzar (En proceso) o descartar (con motivo). */}
+            <div className="flex gap-1.5 mt-2">
+              {negocio.estado_pipeline !== '3EN_PROCESO' && (
+                <button onClick={() => cambiarEstado('3EN_PROCESO')}
+                  className="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg py-1.5 transition-colors">
+                  <PlayCircle size={12} /> En proceso
+                </button>
+              )}
+              {negocio.estado_pipeline !== 'DESCARTADA' && (
+                <button onClick={() => { setMotivoDescarte(''); setDescarteOpen(true); }}
+                  className="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg py-1.5 transition-colors">
+                  <Ban size={12} /> Descartar
+                </button>
+              )}
+            </div>
           </div>
 
           <div>
@@ -1450,6 +1500,17 @@ function DetalleContent() {
                 <p className="text-[11px] text-zinc-400 truncate">{negocio.usuario_email}</p>
               </div>
             </div>
+            {/* Reasignar a otro usuario (solo admin). */}
+            {isAdmin && usuariosLista.length > 0 && (
+              <select
+                value={negocio.asignado_a}
+                onChange={e => reasignar(Number(e.target.value))}
+                title="Reasignar a otro usuario"
+                className="mt-2 w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 bg-white text-zinc-700 focus:ring-1 focus:ring-indigo-500 outline-none"
+              >
+                {usuariosLista.map(u => <option key={u.id} value={u.id}>{u.nombre || u.email}</option>)}
+              </select>
+            )}
           </div>
 
           {negocio.etiquetas.length > 0 && (
@@ -1514,6 +1575,49 @@ function DetalleContent() {
         </aside>
 
       </div>
+
+      {/* Modal: descartar con motivo obligatorio */}
+      {descarteOpen && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4" onClick={() => setDescarteOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-red-50">
+              <Ban size={16} className="text-red-600" />
+              <p className="text-[14px] font-bold text-red-800">Descartar licitación</p>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-[13px] text-slate-600">
+                Indica el <strong>motivo</strong> por el que se descarta. Queda registrado quién y cuándo, y se ve en el apartado <em>Descartadas</em>.
+              </p>
+              <textarea
+                value={motivoDescarte}
+                onChange={e => setMotivoDescarte(e.target.value)}
+                autoFocus
+                rows={3}
+                placeholder="Ej: presupuesto muy bajo, fuera de rubro, plazo imposible…"
+                className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none resize-y"
+              />
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setDescarteOpen(false)}
+                  className="px-3.5 py-2 text-[13px] font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    const m = motivoDescarte.trim();
+                    if (!m) { toast.error('Escribe el motivo del descarte'); return; }
+                    setDescarteOpen(false);
+                    await cambiarEstado('DESCARTADA', m);
+                  }}
+                  disabled={!motivoDescarte.trim()}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white text-[13px] font-semibold rounded-lg transition-colors"
+                >
+                  <Ban size={14} /> Descartar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AppLayout>
   );
 }

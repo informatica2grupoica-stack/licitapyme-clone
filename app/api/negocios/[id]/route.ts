@@ -28,10 +28,12 @@ export async function GET(request: NextRequest, { params }: Params) {
       `SELECT n.*,
               COALESCE(n.estado_pipeline, '1ASIGNADO') AS estado_pipeline,
               u.nombre AS usuario_nombre, u.email AS usuario_email,
-              a.nombre AS admin_nombre
+              a.nombre AS admin_nombre,
+              d.nombre AS descarte_por_nombre
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a
        LEFT JOIN usuarios a ON a.id = n.asignado_por
+       LEFT JOIN usuarios d ON d.id = n.descarte_por
        WHERE n.id = ?`,
       [id]
     ) as any;
@@ -96,7 +98,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
   try {
     const body = await request.json();
-    const { monto_ofertado, etiqueta_ids, estado_pipeline } = body;
+    const { monto_ofertado, etiqueta_ids, estado_pipeline, asignado_a } = body;
+    const motivo = typeof body.motivo === 'string' ? body.motivo.trim() : '';
 
     // Verificar acceso
     const [rows] = await pool.query(
@@ -119,16 +122,39 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     // Actualizar estado del pipeline (cualquier usuario asignado o admin)
     if (estado_pipeline !== undefined) {
+      // Descartar EXIGE un motivo. Se registra quién y cuándo; al salir de DESCARTADA se limpia.
+      if (estado_pipeline === 'DESCARTADA' && !motivo) {
+        return NextResponse.json({ error: 'Para descartar la licitación debes indicar un motivo.' }, { status: 400 });
+      }
       try {
-        await pool.query(
-          `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`,
-          [estado_pipeline || null, id]
-        );
+        if (estado_pipeline === 'DESCARTADA') {
+          await pool.query(
+            `UPDATE negocios SET estado_pipeline = 'DESCARTADA', descarte_motivo = ?,
+                    descarte_por = ?, descarte_at = NOW(), updated_at = NOW() WHERE id = ?`,
+            [motivo.slice(0, 500), userId, id]
+          );
+          // Deja el motivo también en el hilo de comentarios del negocio (best-effort).
+          try {
+            await pool.query(
+              `INSERT INTO comentarios_negocio (negocio_id, usuario_id, comentario) VALUES (?, ?, ?)`,
+              [id, userId, `Descartada — motivo: ${motivo}`]
+            );
+          } catch { /* si la tabla no existe, no bloquea el descarte */ }
+        } else {
+          // Cualquier otro estado limpia los metadatos de descarte previos.
+          await pool.query(
+            `UPDATE negocios SET estado_pipeline = ?, descarte_motivo = NULL,
+                    descarte_por = NULL, descarte_at = NULL, updated_at = NOW() WHERE id = ?`,
+            [estado_pipeline || null, id]
+          );
+        }
         registrarActividad({
           usuarioId: userId, accion: 'cambio_pipeline',
           entidadTipo: 'negocio', entidadId: String(id),
-          descripcion: `Cambió el estado de "${neg.licitacion_nombre || neg.licitacion_codigo}" a ${estado_pipeline || '—'}`,
-          metadata: { licitacion_codigo: neg.licitacion_codigo, estado_pipeline },
+          descripcion: estado_pipeline === 'DESCARTADA'
+            ? `Descartó "${neg.licitacion_nombre || neg.licitacion_codigo}": ${motivo}`
+            : `Cambió el estado de "${neg.licitacion_nombre || neg.licitacion_codigo}" a ${estado_pipeline || '—'}`,
+          metadata: { licitacion_codigo: neg.licitacion_codigo, estado_pipeline, motivo: motivo || undefined },
         });
       } catch (colErr: any) {
         if (String(colErr).toLowerCase().includes('unknown column')) {
@@ -138,6 +164,30 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           }, { status: 503 });
         }
         throw colErr;
+      }
+    }
+
+    // Reasignar a otro usuario (SOLO admin). In-place: mantiene el mismo registro de negocio
+    // (su historial/comentarios/estado) y solo cambia el responsable.
+    if (asignado_a !== undefined && rol === 'admin') {
+      const nuevo = Number(asignado_a);
+      if (nuevo && nuevo !== Number(neg.asignado_a)) {
+        // Evita el choque con la unique (asignado_a, licitacion_codigo): si el destino ya
+        // tenía un negocio activo para este código, se desactiva ese duplicado.
+        await pool.query(
+          `UPDATE negocios SET activo = FALSE WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE AND id <> ?`,
+          [neg.licitacion_codigo, nuevo, id],
+        );
+        await pool.query(
+          `UPDATE negocios SET asignado_a = ?, asignado_por = ?, updated_at = NOW() WHERE id = ?`,
+          [nuevo, userId, id],
+        );
+        registrarActividad({
+          usuarioId: userId, accion: 'asignacion',
+          entidadTipo: 'negocio', entidadId: String(id),
+          descripcion: `Reasignó "${neg.licitacion_nombre || neg.licitacion_codigo}" a otro usuario`,
+          metadata: { licitacion_codigo: neg.licitacion_codigo, asignado_a: nuevo },
+        });
       }
     }
 

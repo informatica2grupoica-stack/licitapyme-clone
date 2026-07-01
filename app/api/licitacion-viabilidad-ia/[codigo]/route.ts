@@ -67,6 +67,16 @@ export async function POST(request: NextRequest, { params }: Params) {
   const codigoDecoded = decodeURIComponent(codigo);
   const force = new URL(request.url).searchParams.get('force') === '1';
 
+  // RE-analizar es SOLO admin. El PRIMER análisis (aún no hay informe guardado) lo puede
+  // correr cualquier usuario autenticado (p.ej. el asignado). Re-análisis = force=1 o ya
+  // existe un informe guardado.
+  if (usuario.rol !== 'admin') {
+    const yaExiste = await leerInformeGuardado(codigoDecoded).catch(() => null);
+    if (force || yaExiste) {
+      return NextResponse.json({ error: 'Solo un administrador puede re-analizar la viabilidad.' }, { status: 403 });
+    }
+  }
+
   if (!process.env.GEMINI_API_KEY) {
     return NextResponse.json({ error: 'GEMINI_API_KEY no configurada.' }, { status: 503 });
   }
