@@ -447,11 +447,17 @@ function construirSystemPrompt(reglas: string[]): string {
 // que "capte el matiz"). No es vinculante: el modelo puede contradecirla con evidencia.
 function construirSenalModalidad(planilla: ReturnType<typeof parsearPlanillaCosteo>): string {
   if (!planilla || planilla.items.length < 8) return '';
-  if (planilla.estructura === 'por_linea' && planilla.lineas.length >= 2) {
-    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ítems vienen agrupados en ${planilla.lineas.length} LÍNEAS/LOTES distintos (numeración que se reinicia por línea, cada una con su título/subtotal). Esto indica modalidad = por_linea, SALVO que el formato de oferta económica exija un ÚNICO total consolidado (entonces suma_alzada). Verifícalo y decide.`;
+  // por_linea REAL: el correlativo se reinicia/repite por lote (no basta con títulos "Línea N").
+  if (planilla.estructura === 'por_linea' && planilla.lineas.length >= 2 && planilla.numeracion === 'reinicia') {
+    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ítems vienen agrupados en ${planilla.lineas.length} LÍNEAS/LOTES distintos y la NUMERACIÓN SE REINICIA/REPITE por línea (cada línea vuelve a empezar en 1 o un mismo número agrupa varios ítems). Esto indica modalidad = por_linea, SALVO que el formato de oferta económica exija un ÚNICO total consolidado (entonces suma_alzada). Verifícalo y decide.`;
   }
-  // Lista corrida (plana) o rubros bajo un mismo total → correlativa = suma alzada.
-  return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems vienen en una ÚNICA planilla con numeración CORRELATIVA CONTINUA 1..N (no reinicia por línea). Esto indica modalidad = suma_alzada (aunque haya columna de valor por ítem o las bases mencionen "adjudicación por línea/ítem"). Verifícalo con el formato de oferta económica y decide.`;
+  // Rubros/categorías de producto bajo un mismo total → suma alzada (costeo desglosado por rubro).
+  if (planilla.estructura === 'por_categoria') {
+    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems están agrupados en ${planilla.categorias.length} RUBROS/CATEGORÍAS de producto (${planilla.categorias.slice(0, 4).join(', ')}${planilla.categorias.length > 4 ? '…' : ''}), numerados por rubro pero SIN lotes de adjudicación independientes. Esto indica modalidad = suma_alzada (un único total, con el costeo desglosado por rubro), NO por_linea. Verifícalo con el formato de oferta económica y decide.`;
+  }
+  // Numeración CORRELATIVA CONTINUA 1..N (de corrido) → suma alzada, aunque venga partida en
+  // hojas/secciones tituladas "Línea N" (son una MISMA planilla integrada, no lotes).
+  return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems tienen numeración CORRELATIVA CONTINUA 1..N (de corrido, no se reinicia por línea), aunque el documento venga partido en hojas/secciones tituladas "Línea N". Esto indica modalidad = suma_alzada (aunque haya columna de valor por ítem o las bases mencionen "adjudicación por línea/ítem"): las hojas separadas NO son lotes de adjudicación. Verifícalo con el formato de oferta económica y decide.`;
 }
 
 function construirUserPrompt(codigo: string, ctx: any, docs: DocLeido[], senalModalidad = ''): string {

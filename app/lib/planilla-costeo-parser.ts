@@ -24,11 +24,20 @@ export interface ItemPlanilla {
   cantidad: number | null;
 }
 
+// Patrón del correlativo de ítems — el discriminador determinista suma_alzada vs por_linea:
+//  - 'continua'   : 1,2,3,…,N de corrido (único, creciente, sin reinicios) → SUMA ALZADA
+//                   (una planilla integrada, aunque venga partida en hojas/secciones "Línea N").
+//  - 'reinicia'   : el correlativo se reinicia (1,2,3|1,2,3) o se repite agrupando ítems
+//                   (1,1,2,2,3) → POR LÍNEA/LOTE.
+//  - 'indefinida' : no hay suficientes correlativos para juzgar (se respetan los títulos).
+export type PatronNumeracion = 'continua' | 'reinicia' | 'indefinida';
+
 export interface PlanillaParseResult {
   estructura: 'por_linea' | 'por_categoria' | 'plana';
   lineas: number[];           // números de línea detectados (en orden)
   categorias: string[];       // nombres de categoría en orden de aparición
   items: ItemPlanilla[];
+  numeracion: PatronNumeracion;
   fuenteDoc: string;
 }
 
@@ -149,6 +158,50 @@ function extraerItem(celdas: string[], col: ColMap | null): Omit<ItemPlanilla, '
 
 const PALABRAS_NO_ITEM = /^(total|subtotal|valor|monto|observ|nota|precio|rut|item|detalle|descrip|n°|nº|#)\b/i;
 
+// Analiza el patrón del correlativo de los ítems (heurística del experto):
+//   de corrido 1,2,3,…,N (único, creciente, sin reinicios) → suma alzada;
+//   reinicia 1,2,3|1,2,3 o repite agrupando 1,1,2,2,3 → por línea/lote.
+function analizarNumeracion(items: { numero: number | null }[]): PatronNumeracion {
+  const seq = items.map(i => i.numero).filter((n): n is number => n != null && n > 0);
+  // Necesitamos correlativos en la mayoría de los ítems para juzgar con confianza.
+  if (seq.length < 6 || seq.length < items.length * 0.5) return 'indefinida';
+
+  let bajadas = 0;        // seq[i] < seq[i-1]   → el correlativo reinicia
+  let repeticiones = 0;   // seq[i] === seq[i-1] → un mismo número agrupa varios ítems
+  for (let i = 1; i < seq.length; i++) {
+    if (seq[i] < seq[i - 1]) bajadas++;
+    else if (seq[i] === seq[i - 1]) repeticiones++;
+  }
+  const maxNum = Math.max(...seq);
+  const cicla = maxNum <= seq.length * 0.7; // el máximo es mucho menor que la cantidad → el nº cicla
+
+  // Reinicia si el correlativo baja varias veces (varios lotes) o se repite agrupando ítems.
+  if ((bajadas >= 2 && cicla) || repeticiones >= Math.max(2, seq.length * 0.2)) return 'reinicia';
+  // De corrido: estrictamente creciente (sin bajadas) → suma alzada.
+  if (bajadas === 0) return 'continua';
+  // Una bajada aislada en una lista larga y creciente es ruido de parseo → suma alzada.
+  if (bajadas <= 1 && maxNum >= seq.length * 0.7) return 'continua';
+  return 'indefinida';
+}
+
+// Cuando la numeración indica líneas pero NO hubo títulos "LÍNEA N", reasigna item.linea.
+function segmentarLineasPorNumeracion(items: ItemPlanilla[]): void {
+  const nums = items.map(i => i.numero);
+  const hayRepes = nums.some((n, i) => i > 0 && n != null && n === nums[i - 1]);
+  if (hayRepes) {
+    // 1,1,2,2,3 → el número ES la línea (agrupa varios ítems bajo el mismo nº).
+    let ultima = 1;
+    for (const it of items) { if (it.numero != null) ultima = it.numero; it.linea = ultima; }
+    return;
+  }
+  // 1,2,3|1,2,3 → nueva línea en cada reinicio del correlativo.
+  let linea = 1, prev = 0;
+  for (const it of items) {
+    if (it.numero != null) { if (it.numero <= prev) linea++; prev = it.numero; }
+    it.linea = linea;
+  }
+}
+
 function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
   const lineas = doc.texto.split(/\r?\n/);
   const items: ItemPlanilla[] = [];
@@ -193,14 +246,46 @@ function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
   if (items.length < 8) return null;
   if (!vistoHeader && catsOrden.length === 0 && !vioLineaExplicita) return null;
 
-  const estructura: PlanillaParseResult['estructura'] =
-    lineasOrden.length >= 2 ? 'por_linea' : catsOrden.length >= 2 ? 'por_categoria' : 'plana';
+  // PATRÓN DE NUMERACIÓN — el discriminador clave suma_alzada vs por_linea. Manda por
+  // sobre los títulos "LÍNEA N": una planilla numerada de corrido 1..N es suma alzada
+  // aunque venga partida en hojas/secciones tituladas "Línea N".
+  const numeracion = analizarNumeracion(items);
+  let lineasFinal = lineasOrden;
+  let estructura: PlanillaParseResult['estructura'];
+
+  if (numeracion === 'reinicia' && vioLineaExplicita) {
+    // Lotes EXPLÍCITOS ("LÍNEA N"/"Hoja: Línea N") + correlativo que reinicia = por línea real.
+    lineasFinal = lineasOrden;
+    estructura = lineasFinal.length >= 2 ? 'por_linea' : (catsOrden.length >= 2 ? 'por_categoria' : 'plana');
+  } else if (numeracion === 'reinicia' && catsOrden.length >= 2) {
+    // El correlativo reinicia por CATEGORÍA/rubro (FERRETERIA 1..n, PINTURA 1..n), NO por lote
+    // de adjudicación → por_categoria (suma alzada, costeo desglosado por rubro). Línea 1 para todos.
+    for (const it of items) it.linea = 1;
+    lineasFinal = [1];
+    estructura = 'por_categoria';
+  } else if (numeracion === 'reinicia') {
+    // Reinicia/repite SIN títulos ni categorías → líneas inferidas de la propia numeración.
+    segmentarLineasPorNumeracion(items);
+    lineasFinal = [...new Set(items.map(it => it.linea))].sort((a, b) => a - b);
+    estructura = lineasFinal.length >= 2 ? 'por_linea' : 'plana';
+  } else if (numeracion === 'continua') {
+    // De corrido = suma alzada. Los títulos "LÍNEA N" son secciones de una MISMA planilla
+    // integrada, NO lotes de adjudicación → todos los ítems quedan en la línea 1.
+    for (const it of items) it.linea = 1;
+    lineasFinal = [1];
+    estructura = catsOrden.length >= 2 ? 'por_categoria' : 'plana';
+  } else {
+    // 'indefinida' → respeta los títulos explícitos (comportamiento previo).
+    lineasFinal = lineasOrden;
+    estructura = lineasOrden.length >= 2 ? 'por_linea' : (catsOrden.length >= 2 ? 'por_categoria' : 'plana');
+  }
 
   return {
     estructura,
-    lineas: lineasOrden.length ? lineasOrden : [1],
+    lineas: lineasFinal.length ? lineasFinal : [1],
     categorias: catsOrden,
     items,
+    numeracion,
     fuenteDoc: doc.nombre,
   };
 }
