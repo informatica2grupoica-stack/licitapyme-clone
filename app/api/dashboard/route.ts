@@ -59,10 +59,30 @@ export async function GET(request: NextRequest) {
          WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
          GROUP BY DATE(created_at) ORDER BY dia ASC`);
 
+      // Desglose POR PERFIL: seguimiento de cada usuario (asignadas, monto, descartadas y
+      // distribución por etapa del pipeline). Una sola query agrupada usuario × etapa; el
+      // resto se arma en JS.
+      const perfilRows = await q<{ uid: number; nombre: string | null; email: string; etapa: string; n: number; monto: number }>(
+        `SELECT n.asignado_a AS uid, u.nombre, u.email,
+                COALESCE(n.estado_pipeline,'1ASIGNADO') AS etapa,
+                COUNT(*) AS n, COALESCE(SUM(n.licitacion_monto),0) AS monto
+         FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
+         WHERE n.activo = TRUE
+         GROUP BY n.asignado_a, u.nombre, u.email, etapa`);
+      const perfilMap = new Map<number, { id: number; nombre: string | null; email: string; total: number; monto: number; descartadas: number; pipeline: { etapa: string; n: number }[] }>();
+      for (const r of perfilRows) {
+        if (!perfilMap.has(r.uid)) perfilMap.set(r.uid, { id: r.uid, nombre: r.nombre, email: r.email, total: 0, monto: 0, descartadas: 0, pipeline: [] });
+        const p = perfilMap.get(r.uid)!;
+        p.total += Number(r.n); p.monto += Number(r.monto);
+        if (r.etapa === 'DESCARTADA') p.descartadas += Number(r.n);
+        p.pipeline.push({ etapa: r.etapa, n: Number(r.n) });
+      }
+      const porPerfil = [...perfilMap.values()].sort((a, b) => b.total - a.total);
+
       admin = {
         usuarios: { total: tUsers?.n || 0, activos: aUsers?.n || 0, nuevosSemana: nUsers?.n || 0, ultimosAccesos },
         radar: { totalLicitaciones: tLic?.n || 0, conViabilidad: tViab?.n || 0 },
-        viabilidad, prefiltro, pipeline, montoPipeline: Number(mPipe?.total || 0), porDia,
+        viabilidad, prefiltro, pipeline, montoPipeline: Number(mPipe?.total || 0), porDia, porPerfil,
       };
     }
 

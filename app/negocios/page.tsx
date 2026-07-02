@@ -12,25 +12,12 @@ import {
   SlidersHorizontal, MapPin,
 } from 'lucide-react';
 import dayjs from 'dayjs';
-import { getEstadoPipeline } from '@/app/lib/pipeline';
+import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
+import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 
 interface Etiqueta { id: number; nombre: string; color: string; }
 
-// ── Color e iniciales por usuario (consistente entre chips de carga y tarjetas) ──
-const USER_COLORS = ['#6366f1', '#8b5cf6', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6', '#3b82f6', '#a855f7', '#f97316', '#84cc16'];
-function colorUsuario(seed: string | number | null | undefined): string {
-  const s = String(seed ?? '');
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
-  return USER_COLORS[h % USER_COLORS.length];
-}
-function inicialesUsuario(nombre?: string | null, email?: string | null): string {
-  const base = (nombre || email || '?').trim();
-  const parts = base.split(/\s+/);
-  if (parts.length >= 2 && parts[0] && parts[1]) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return base.slice(0, 2).toUpperCase();
-}
 
 interface Negocio {
   id: number;
@@ -909,6 +896,7 @@ function NegociosContent() {
   const [filtroUsuario, setFiltroUsuario] = useState('');
   const [filtroEtiqueta, setFiltroEtiqueta] = useState('');
   const [filtroTipo, setFiltroTipo]         = useState('');
+  const [filtroEstado, setFiltroEstado]     = useState('');
   const [showModal, setShowModal]       = useState(false);
   const [vista, setVista]               = useState<'lista' | 'calendario' | 'semana'>('semana');
   const [carga, setCarga]               = useState<Carga[]>([]);
@@ -929,6 +917,7 @@ function NegociosContent() {
         if (typeof f.filtroUsuario === 'string') setFiltroUsuario(f.filtroUsuario);
         if (typeof f.filtroEtiqueta === 'string') setFiltroEtiqueta(f.filtroEtiqueta);
         if (typeof f.filtroTipo === 'string')    setFiltroTipo(f.filtroTipo);
+        if (typeof f.filtroEstado === 'string')  setFiltroEstado(f.filtroEstado);
         if (f.vista === 'lista' || f.vista === 'calendario' || f.vista === 'semana') setVista(f.vista);
       }
     } catch { /* sin persistencia */ }
@@ -939,9 +928,9 @@ function NegociosContent() {
   useEffect(() => {
     if (!hidratado) return;
     try {
-      sessionStorage.setItem(SS_NEG_FILTROS, JSON.stringify({ search, filtroUsuario, filtroEtiqueta, filtroTipo, vista }));
+      sessionStorage.setItem(SS_NEG_FILTROS, JSON.stringify({ search, filtroUsuario, filtroEtiqueta, filtroTipo, filtroEstado, vista }));
     } catch { /* cuota llena */ }
-  }, [hidratado, search, filtroUsuario, filtroEtiqueta, filtroTipo, vista]);
+  }, [hidratado, search, filtroUsuario, filtroEtiqueta, filtroTipo, filtroEstado, vista]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -988,7 +977,8 @@ function NegociosContent() {
       n.etiquetas.some(e => String(e.id) === filtroEtiqueta);
     const tipoDelCodigo = extractTipoFromCodigo(n.licitacion_codigo || '');
     const matchTipo = filtroTipo === '' || tipoDelCodigo === filtroTipo;
-    return matchSearch && matchEt && matchTipo;
+    const matchEstado = filtroEstado === '' || (n.estado_pipeline || '1ASIGNADO') === filtroEstado;
+    return matchSearch && matchEt && matchTipo && matchEstado;
   });
 
   // Tipos presentes (para el select de filtro), en orden canónico.
@@ -1116,9 +1106,9 @@ function NegociosContent() {
 
             {/* Filtros toggle + limpiar */}
             <div className="flex items-center gap-2">
-              {(search || filtroUsuario || filtroEtiqueta || filtroTipo) && (
+              {(search || filtroUsuario || filtroEtiqueta || filtroTipo || filtroEstado) && (
                 <button
-                  onClick={() => { setSearch(''); setFiltroUsuario(''); setFiltroEtiqueta(''); setFiltroTipo(''); }}
+                  onClick={() => { setSearch(''); setFiltroUsuario(''); setFiltroEtiqueta(''); setFiltroTipo(''); setFiltroEstado(''); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
                 >
                   <X size={12} /> Limpiar filtros
@@ -1166,6 +1156,11 @@ function NegociosContent() {
                 className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
                 <option value="">Todos los tipos</option>
                 {tiposPresentes.map(t => <option key={t} value={t}>{t} · {getTipoLicitacion(t)?.label || t}</option>)}
+              </select>
+              <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+                <option value="">Todos los estados</option>
+                {ESTADOS_PIPELINE.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
               </select>
             </div>
           )}

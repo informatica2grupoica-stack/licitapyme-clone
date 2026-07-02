@@ -7,6 +7,7 @@ import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useSession } from '@/app/lib/session-context';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
+import { MOTIVOS_DESCARTE, componerMotivo } from '@/app/lib/motivos-descarte';
 import { ViabilidadIAPanel } from '@/app/licitacion/[codigo]/sections/ViabilidadIAPanel';
 import { InteligenciaSection } from '@/app/licitacion/[codigo]/sections/InteligenciaSection';
 import { DocumentosSection } from '@/app/licitacion/[codigo]/sections/DocumentosSection';
@@ -1029,8 +1030,9 @@ function DetalleContent() {
   const [error, setError]           = useState<string | null>(null);
   const [seccion, setSeccion]       = useState<Seccion>('resumen');
 
-  // Descarte con motivo obligatorio
+  // Descarte con motivo obligatorio (del catálogo) + comentario libre
   const [descarteOpen, setDescarteOpen] = useState(false);
+  const [motivoSel, setMotivoSel] = useState('');
   const [motivoDescarte, setMotivoDescarte] = useState('');
   // Reasignación (admin): lista de usuarios para cambiar el responsable.
   const [usuariosLista, setUsuariosLista] = useState<{ id: number; nombre: string | null; email: string }[]>([]);
@@ -1586,14 +1588,22 @@ function DetalleContent() {
             </div>
             <div className="p-5 space-y-3">
               <p className="text-[13px] text-slate-600">
-                Indica el <strong>motivo</strong> por el que se descarta. Queda registrado quién y cuándo, y se ve en el apartado <em>Descartadas</em>.
+                Selecciona el <strong>motivo</strong> del descarte (obligatorio) y agrega comentarios. Queda registrado quién y cuándo, y se ve en el apartado <em>Descartadas</em>.
               </p>
+              <select
+                value={motivoSel}
+                onChange={e => setMotivoSel(e.target.value)}
+                autoFocus
+                className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 bg-white focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none"
+              >
+                <option value="">— Selecciona el motivo —</option>
+                {MOTIVOS_DESCARTE.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
               <textarea
                 value={motivoDescarte}
                 onChange={e => setMotivoDescarte(e.target.value)}
-                autoFocus
                 rows={3}
-                placeholder="Ej: presupuesto muy bajo, fuera de rubro, plazo imposible…"
+                placeholder={motivoSel === 'Otro' ? 'Describe el motivo (obligatorio)…' : 'Comentarios adicionales (opcional)…'}
                 className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none resize-y"
               />
               <div className="flex justify-end gap-2">
@@ -1603,12 +1613,12 @@ function DetalleContent() {
                 </button>
                 <button
                   onClick={async () => {
-                    const m = motivoDescarte.trim();
-                    if (!m) { toast.error('Escribe el motivo del descarte'); return; }
+                    if (!motivoSel) { toast.error('Selecciona el motivo del descarte'); return; }
+                    if (motivoSel === 'Otro' && !motivoDescarte.trim()) { toast.error('Describe el motivo del descarte'); return; }
                     setDescarteOpen(false);
-                    await cambiarEstado('DESCARTADA', m);
+                    await cambiarEstado('DESCARTADA', componerMotivo(motivoSel, motivoDescarte));
                   }}
-                  disabled={!motivoDescarte.trim()}
+                  disabled={!motivoSel || (motivoSel === 'Otro' && !motivoDescarte.trim())}
                   className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white text-[13px] font-semibold rounded-lg transition-colors"
                 >
                   <Ban size={14} /> Descartar

@@ -6,11 +6,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
-  Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban,
+  Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity,
 } from 'lucide-react';
 import { IcaLogoIcon } from '@/app/components/IcaLogo';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
+import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
 
 function tiempoRel(iso?: string) {
   if (!iso) return '';
@@ -46,6 +47,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'GESTIÓN',
     items: [
+      { label: 'Análisis de licitación', href: '/analisis-licitacion', icon: <Activity size={17} />, adminOnly: true },
       { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
       { label: 'Historial', href: '/alertas', icon: <History size={17} />, adminOnly: true },
     ],
@@ -402,6 +404,8 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
         <TopBar breadcrumb={breadcrumb} onOpenMobile={() => setMobileOpen(true)} />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
+      {/* Bloqueante: licitaciones vencidas sin resolver (postulada/descartada) */}
+      <CierreVencidoModal />
     </div>
   );
 }

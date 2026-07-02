@@ -273,6 +273,15 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         method: 'POST',
         signal: abortRef.current.signal,
       });
+      // Los análisis largos pueden superar el timeout del proxy/tunnel: este corta la
+      // conexión y devuelve una página HTML (<!DOCTYPE…) en vez de JSON, pero el análisis
+      // SIGUE corriendo en el servidor. Avisar en claro en vez del críptico
+      // "Unexpected token '<' … is not valid JSON".
+      const esJSON = (r.headers.get('content-type') || '').includes('application/json');
+      if (!esJSON) {
+        setError('El análisis tardó más que el tiempo máximo de la conexión y esta se cortó, pero sigue procesándose en el servidor. Espera unos minutos y vuelve a abrir esta licitación: el informe quedará guardado.');
+        return;
+      }
       const j = await r.json();
       if (!r.ok) { setError(j.error || 'Error al analizar.'); return; }
       setInforme(j.informeIA);

@@ -183,14 +183,15 @@ const sleep  = (ms: number) => new Promise(r => setTimeout(r, ms));
 // salida de golpe). Y un bloque de 10 págs dispara el filtro RECITATION de Gemini
 // (finishReason=RECITATION, 0 chars) cuando el texto es boilerplate legal muy verbatim.
 // Medido: bloques de ≤4 págs completan en <90s y NO disparan RECITATION; la página suelta
-// SIEMPRE funciona. Solución: trocear en bloques de FILEAPI_CHUNK_PAGINAS y transcribir
-// SECUENCIAL (respeta rate-limit), numerando las páginas de forma ABSOLUTA para que las
-// citas [[PÁGINA N]] del informe sigan siendo correctas. Si un bloque multipágina vuelve
+// SIEMPRE funciona. Solución: trocear en bloques de FILEAPI_CHUNK_PAGINAS y transcribirlos
+// en PARALELO acotado (FILEAPI_CONCURRENCIA), numerando las páginas de forma ABSOLUTA
+// para que las citas [[PÁGINA N]] del informe sigan siendo correctas. Si un bloque multipágina vuelve
 // vacío (RECITATION o saturación), se REINTENTA página por página (fiable). Así Gemini lee
 // el documento entero al 100%, sin caer a OCR.space.
 // Devuelve '' si no logra transcribir nada (el llamador cae al OCR por bloques).
 
 const FILEAPI_CHUNK_PAGINAS = 4; // págs por llamada: <90s y sin RECITATION (medido)
+const FILEAPI_CONCURRENCIA  = 3; // bloques en paralelo: reduce el tiempo total ~3x
 
 export async function extraerTextoPdfConGeminiFileAPI(buffer: Buffer): Promise<string> {
   // ¿Cuántas páginas tiene? Si no se puede leer el conteo, una sola llamada con el doc completo.
@@ -213,20 +214,24 @@ export async function extraerTextoPdfConGeminiFileAPI(buffer: Buffer): Promise<s
     return Buffer.from(await sub.save());
   };
 
-  const partes: string[] = [];
+  // Bloques de páginas a transcribir (cada uno es independiente).
+  const bloques: number[][] = [];
   for (let inicio = 0; inicio < totalPaginas; inicio += FILEAPI_CHUNK_PAGINAS) {
     const indices: number[] = [];
     for (let p = inicio; p < Math.min(inicio + FILEAPI_CHUNK_PAGINAS, totalPaginas); p++) indices.push(p);
+    bloques.push(indices);
+  }
 
+  // Procesa un bloque: transcripción normal; si vuelve vacío (RECITATION/saturación),
+  // reintento página por página (fiable, secuencial dentro del bloque).
+  const procesarBloque = async (indices: number[]): Promise<string> => {
+    const inicio = indices[0];
     let t = '';
     try {
       t = await transcribirPdfFileAPI(await subBufDe(indices), inicio + 1);
     } catch (e) {
-      // Un bloque que falle no debe tumbar el resto: se intenta página por página abajo.
       console.warn(`[gemini-fileapi] bloque págs ${inicio + 1}-${inicio + indices.length} error:`, e instanceof Error ? e.message : e);
     }
-
-    // Bloque multipágina vacío → casi siempre RECITATION. Reintento página por página.
     if ((!t || !t.trim()) && indices.length > 1) {
       console.warn(`[gemini-fileapi] bloque págs ${inicio + 1}-${inicio + indices.length} vacío (posible RECITATION) → reintento página por página`);
       const sueltas: string[] = [];
@@ -240,11 +245,25 @@ export async function extraerTextoPdfConGeminiFileAPI(buffer: Buffer): Promise<s
       }
       t = sueltas.join('\n\n');
     }
-
     console.log(`[gemini-fileapi] bloque págs ${inicio + 1}-${inicio + indices.length}: ${t.length} chars`);
-    if (t && t.trim()) partes.push(t.trim());
-  }
-  return partes.join('\n\n');
+    return t.trim();
+  };
+
+  // Bloques en PARALELO con concurrencia acotada: secuencial puro tardaba >15 min en
+  // escaneados de 30+ páginas. Con 3 a la vez el muro cae a ~1/3 sin gatillar el
+  // rate-limit (los reintentos con backoff de transcribirPdfFileAPI absorben algún 429).
+  // El orden de las páginas se preserva: cada bloque escribe en su propio índice.
+  const resultados = new Array<string>(bloques.length).fill('');
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < bloques.length) {
+      const i = cursor++;
+      resultados[i] = await procesarBloque(bloques[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FILEAPI_CONCURRENCIA, bloques.length) }, worker));
+
+  return resultados.filter(Boolean).join('\n\n');
 }
 
 // Sube UN buffer PDF a la File API y transcribe su texto. `startPageAbs` = número de

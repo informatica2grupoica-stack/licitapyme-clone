@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
+  Upload,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
@@ -144,6 +145,8 @@ function CajaDroppable({
   onDrop,
   onView,
   onOpenIA,
+  onUpload,
+  subiendo,
 }: {
   caja: CajaConfig;
   docs: (DocumentoAdjunto & { categoria?: string })[];
@@ -157,8 +160,12 @@ function CajaDroppable({
   onDrop: (e: React.DragEvent, key: string) => void;
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
+  onUpload: (file: File, categoria: string) => void;
+  subiendo: string | null; // key de la caja que está subiendo un archivo
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const estaSubiendo = subiendo === caja.key;
 
   return (
     <div
@@ -178,6 +185,25 @@ function CajaDroppable({
         <span className="flex-1 text-[11.5px] font-bold text-slate-700 truncate">
           {caja.label}
         </span>
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onUpload(f, caja.key);
+            e.target.value = ''; // permite volver a subir el mismo archivo
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={estaSubiendo}
+          title={`Subir documento propio a "${caja.label}"`}
+          className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
+        >
+          {estaSubiendo ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+        </button>
         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${caja.colorCount}`}>
           {docs.length}
         </span>
@@ -218,11 +244,13 @@ function DocumentosGrid({
   codigoDecoded,
   onView,
   onOpenIA,
+  onRefrescar,
 }: {
   documentos: (DocumentoAdjunto & { categoria?: string })[];
   codigoDecoded: string;
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
+  onRefrescar: () => void;
 }) {
   // Agrupa los documentos por su categoría real (sin pre-crear cajas vacías).
   const buildGrupos = (docs: (DocumentoAdjunto & { categoria?: string })[]) => {
@@ -238,7 +266,58 @@ function DocumentosGrid({
   const [grupos, setGrupos] = useState(() => buildGrupos(documentos));
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [draggingDoc, setDraggingDoc] = useState<DocumentoAdjunto | null>(null);
+  const [subiendo, setSubiendo] = useState<string | null>(null);
+  const [errorSubida, setErrorSubida] = useState<string | null>(null);
   const dragEnterCount = useRef<Record<string, number>>({});
+
+  // Sube un documento propio a la caja indicada: presign → PUT directo a R2 → guardar
+  // en documentos_cache con su categoría (así la IA lo incluye en análisis posteriores).
+  const handleUpload = async (file: File, categoria: string) => {
+    setSubiendo(categoria);
+    setErrorSubida(null);
+    try {
+      if (file.size > 100 * 1024 * 1024) throw new Error('El archivo supera los 100 MB.');
+      const pres = await fetch('/api/documentos/presign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          licitacionCodigo: codigoDecoded,
+          filename: file.name,
+          contentType: file.type || 'application/octet-stream',
+          size: file.size,
+        }),
+      });
+      const presData = await pres.json();
+      if (!pres.ok || !presData.uploadUrl) throw new Error(presData.error || 'No se pudo preparar la subida');
+
+      const put = await fetch(presData.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file,
+      });
+      if (!put.ok) throw new Error(`Error subiendo a R2 (HTTP ${put.status})`);
+
+      const save = await fetch('/api/documentos/guardar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          licitacionCodigo: codigoDecoded,
+          documentoNombre: file.name,
+          url: presData.publicUrl,
+          size: file.size,
+          categoria,
+        }),
+      });
+      const saveData = await save.json();
+      if (!save.ok || !saveData.success) throw new Error(saveData.error || 'No se pudo registrar el documento');
+
+      onRefrescar();
+    } catch (e: any) {
+      setErrorSubida(e.message || 'Error al subir el documento');
+    } finally {
+      setSubiendo(null);
+    }
+  };
 
   // Re-sincronizar cuando cambian los docs desde el padre
   useEffect(() => {
@@ -358,9 +437,18 @@ function DocumentosGrid({
             onDrop={handleDrop}
             onView={onView}
             onOpenIA={onOpenIA}
+            onUpload={handleUpload}
+            subiendo={subiendo}
           />
         ))}
       </div>
+
+      {errorSubida && (
+        <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-[11.5px] text-red-700">
+          <AlertTriangle size={12} className="flex-shrink-0" /> {errorSubida}
+          <button onClick={() => setErrorSubida(null)} className="ml-auto font-semibold hover:underline">Cerrar</button>
+        </div>
+      )}
 
       {/* Sin categoría — debajo del grid */}
       {(grupos['SIN_CATEGORIA']?.length || 0) > 0 && (
@@ -607,6 +695,7 @@ export function DocumentosSection({
               codigoDecoded={codigoDecoded}
               onView={setVisorDoc}
               onOpenIA={setIaDoc}
+              onRefrescar={fetchDocumentos}
             />
           </div>
         ) : (

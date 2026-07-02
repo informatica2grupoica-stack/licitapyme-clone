@@ -11,8 +11,10 @@ import {
 import {
   Search, Building2, Users, Wallet, CalendarClock, ArrowUpRight, Layers3,
   Gauge, ListChecks, TriangleAlert, Clock4, ChevronRight, FolderClock,
-  Loader2,
+  Loader2, UsersRound, Ban,
 } from 'lucide-react';
+import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 
 interface DashData {
   success: boolean; rol: string;
@@ -24,6 +26,7 @@ interface DashData {
     pipeline: { etapa: string; n: number }[];
     montoPipeline: number;
     porDia: { dia: string; n: number }[];
+    porPerfil: { id: number; nombre: string | null; email: string; total: number; monto: number; descartadas: number; pipeline: { etapa: string; n: number }[] }[];
   };
   usuario: {
     asignadas: number; montoAsignadas: number;
@@ -289,6 +292,53 @@ function VistaAdmin({ data }: { data: DashData }) {
           </div>
         </PanelCard>
       </div>
+
+      {/* Seguimiento por perfil: cada usuario, su carga, su flujo y sus descartadas */}
+      {(a.porPerfil?.length ?? 0) > 0 && (
+        <PanelCard title="Seguimiento por perfil" icon={<UsersRound size={15} className="text-indigo-500" />}
+          right={<Link href="/analisis-licitacion" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver análisis</Link>}>
+          <div className="space-y-3">
+            {a.porPerfil.map(p => {
+              const col = colorUsuario(p.email || p.id);
+              return (
+                <div key={p.id} className="flex items-center gap-3">
+                  <span className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0" style={{ background: col }}>
+                    {inicialesUsuario(p.nombre, p.email)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-800 truncate">{p.nombre || p.email}</p>
+                      {p.descartadas > 0 && (
+                        <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded"><Ban size={10} /> {p.descartadas}</span>
+                      )}
+                    </div>
+                    <MiniFlujo pipeline={p.pipeline} />
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-slate-900 tabular-nums">{p.total}</p>
+                    <p className="text-[10.5px] text-slate-400">{fmtMonto(p.monto)}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </PanelCard>
+      )}
+    </div>
+  );
+}
+
+// Barra apilada del flujo (pipeline) con los colores canónicos de cada etapa.
+function MiniFlujo({ pipeline }: { pipeline: { etapa: string; n: number }[] }) {
+  const total = pipeline.reduce((s, p) => s + p.n, 0) || 1;
+  const orden = ESTADOS_PIPELINE.map(e => e.id);
+  const items = [...pipeline].sort((a, b) => orden.indexOf(a.etapa) - orden.indexOf(b.etapa));
+  return (
+    <div className="mt-1 h-2 rounded-full overflow-hidden bg-slate-100 flex">
+      {items.map(p => {
+        const e = getEstadoPipeline(p.etapa);
+        return <div key={p.etapa} style={{ width: `${(p.n / total) * 100}%`, background: e?.color || '#94a3b8' }} title={`${e?.label || p.etapa}: ${p.n}`} />;
+      })}
     </div>
   );
 }
@@ -309,6 +359,28 @@ function VistaUsuario({ data }: { data: DashData }) {
         <StatCard icon={<Wallet size={22} />} label="Monto en gestión" value={fmtMonto(u.montoAsignadas)} sub="Suma de mis licitaciones" color="teal" />
         <StatCard icon={<CalendarClock size={22} />} label="Próximos cierres" value={u.proximosCierres.length} sub="En adelante" color="orange" />
       </div>
+
+      {/* Mi flujo: en qué etapa del pipeline están mis licitaciones */}
+      {totalPipe > 0 && (
+        <PanelCard title="Mi flujo" icon={<Layers3 size={15} className="text-indigo-500" />}>
+          <MiniFlujo pipeline={u.pipeline} />
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {[...u.pipeline]
+              .sort((a, b) => ESTADOS_PIPELINE.findIndex(e => e.id === a.etapa) - ESTADOS_PIPELINE.findIndex(e => e.id === b.etapa))
+              .map(p => {
+                const e = getEstadoPipeline(p.etapa);
+                const color = e?.color || '#64748b';
+                return (
+                  <span key={p.etapa} className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 py-1 rounded-full" style={{ background: `${color}18`, color }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+                    {e?.label || p.etapa}
+                    <span className="tabular-nums">{p.n}</span>
+                  </span>
+                );
+              })}
+          </div>
+        </PanelCard>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PanelCard title="Mi pipeline" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver negocios</Link>}>

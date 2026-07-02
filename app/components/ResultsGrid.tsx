@@ -4,10 +4,12 @@ import Link from 'next/link';
 import { Oportunidad, ESTADOS_LICITACION, TIPOS_LICITACION } from '@/app/types/search.types';
 import {
   Calendar, Building2, DollarSign, Clock, Star, StarOff,
-  ExternalLink, MapPin, Tag, ChevronRight, AlertCircle,
+  ExternalLink, MapPin, Tag, ChevronRight, AlertCircle, Briefcase,
 } from 'lucide-react';
 import { useFavorites } from '@/app/hooks/useFavorites';
 import { useState } from 'react';
+import { useSession } from '@/app/lib/session-context';
+import { AsignarNegocioModal } from '@/app/components/AsignarNegocioModal';
 
 interface ResultsGridProps {
   opportunities: Oportunidad[];
@@ -55,7 +57,11 @@ function SkeletonCard() {
 
 export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }: ResultsGridProps) {
   const { isFavorite, toggleFavorite } = useFavorites();
+  const { usuario } = useSession();
+  const isAdmin = usuario?.rol === 'admin';
   const [toggling, setToggling] = useState<string | null>(null);
+  // Licitación seleccionada para asignar directamente desde el buscador.
+  const [asignarOpp, setAsignarOpp] = useState<Oportunidad | null>(null);
 
   const handleToggle = async (opp: Oportunidad) => {
     setToggling(opp.codigo);
@@ -192,6 +198,15 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
                 )}
 
                 <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setAsignarOpp(opp); }}
+                      className="flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition-colors"
+                      title="Asignar esta licitación a un usuario como negocio"
+                    >
+                      <Briefcase size={12} /> Asignar
+                    </button>
+                  )}
                   {opp.url && (
                     <a
                       href={opp.url}
@@ -217,6 +232,15 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
           </article>
         );
       })}
+
+      {/* Asignar a negocio directamente desde el buscador */}
+      {asignarOpp && (
+        <AsignarNegocioModal
+          licitacion={asignarOpp}
+          onClose={() => setAsignarOpp(null)}
+          onAsignada={() => {}}
+        />
+      )}
     </div>
   );
 }

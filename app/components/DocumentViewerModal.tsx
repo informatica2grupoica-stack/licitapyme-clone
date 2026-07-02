@@ -56,14 +56,14 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col bg-black/70 backdrop-blur-sm p-2 sm:p-5"
+      className="fixed inset-0 z-[100] flex flex-col bg-black/70 backdrop-blur-sm p-0 sm:p-3"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`Visor: ${doc.nombre}`}
     >
       <div
-        className="flex flex-col w-full max-w-[95rem] mx-auto flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-2xl"
+        className="flex flex-col w-full max-w-none mx-auto flex-1 min-h-0 bg-white rounded-none sm:rounded-2xl overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Cabecera */}

@@ -3,13 +3,22 @@
 // Apartado "Descartadas" (solo admin): todas las licitaciones descartadas con quién las
 // descartó, el motivo, la fecha y acceso al detalle. Se nutre de /api/negocios/descartadas.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Ban, Loader2, ExternalLink, Building2, Calendar, User, RefreshCw, RotateCcw } from 'lucide-react';
+import { Ban, Loader2, ExternalLink, Building2, Calendar, User, RefreshCw, RotateCcw, BarChart3, X } from 'lucide-react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
+import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+
+// El motivo se persiste como "<motivo del catálogo> — <comentario libre>". Para el KPI
+// agrupamos por el motivo base (lo anterior al " — ").
+const motivoBase = (m: string | null): string => {
+  const s = (m || '').trim();
+  if (!s) return '(sin motivo)';
+  return s.split(' — ')[0].trim() || '(sin motivo)';
+};
 
 interface UsuarioLite { id: number; nombre: string | null; email: string; }
 
@@ -49,8 +58,36 @@ export default function DescartadasPage() {
   // Usuario elegido para reasignar al reactivar (por negocio) + fila en proceso.
   const [reasignarSel, setReasignarSel] = useState<Record<number, number>>({});
   const [procesando, setProcesando] = useState<number | null>(null);
+  // Filtros del KPI: por usuario asignado y por motivo base.
+  const [filtroUsuario, setFiltroUsuario] = useState<number | null>(null);
+  const [filtroMotivo, setFiltroMotivo] = useState<string | null>(null);
 
   const esAdmin = usuario?.rol === 'admin';
+
+  // Agregados del KPI: por usuario (cantidad) y matriz usuario × motivo. Se calcula sobre
+  // TODAS las descartadas (no sobre la lista filtrada), para que los totales no bailen.
+  const kpi = useMemo(() => {
+    const porUsuario = new Map<number, { id: number; nombre: string; email: string | null; total: number; motivos: Map<string, number> }>();
+    const motivosGlobal = new Map<string, number>();
+    for (const d of items) {
+      const uid = d.asignado_a;
+      if (!porUsuario.has(uid)) porUsuario.set(uid, { id: uid, nombre: d.asignado_nombre || d.asignado_email || `Usuario ${uid}`, email: d.asignado_email, total: 0, motivos: new Map() });
+      const u = porUsuario.get(uid)!;
+      u.total++;
+      const mb = motivoBase(d.descarte_motivo);
+      u.motivos.set(mb, (u.motivos.get(mb) || 0) + 1);
+      motivosGlobal.set(mb, (motivosGlobal.get(mb) || 0) + 1);
+    }
+    const usuarios = [...porUsuario.values()].sort((a, b) => b.total - a.total);
+    const motivos = [...motivosGlobal.entries()].map(([motivo, total]) => ({ motivo, total })).sort((a, b) => b.total - a.total);
+    return { usuarios, motivos, max: usuarios[0]?.total || 1 };
+  }, [items]);
+
+  // Lista filtrada por los chips del KPI.
+  const itemsFiltrados = useMemo(() => items.filter(d =>
+    (filtroUsuario == null || d.asignado_a === filtroUsuario) &&
+    (filtroMotivo == null || motivoBase(d.descarte_motivo) === filtroMotivo),
+  ), [items, filtroUsuario, filtroMotivo]);
 
   useEffect(() => {
     if (!cargandoSesion && usuario && !esAdmin) router.replace('/negocios');
@@ -119,6 +156,63 @@ export default function DescartadasPage() {
 
         {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
+        {/* ── KPI de descartadas: por usuario (cantidad) + motivos, con colores consistentes ── */}
+        {!cargando && items.length > 0 && (
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div className="flex items-center gap-2 mb-3">
+              <BarChart3 size={15} className="text-slate-500" />
+              <h2 className="text-[13px] font-bold text-slate-800">Descartadas por usuario</h2>
+              {(filtroUsuario != null || filtroMotivo != null) && (
+                <button onClick={() => { setFiltroUsuario(null); setFiltroMotivo(null); }}
+                  className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors">
+                  <X size={12} /> Limpiar filtros
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2.5">
+              {kpi.usuarios.map(u => {
+                const col = colorUsuario(u.email || u.id);
+                const activo = filtroUsuario === u.id;
+                return (
+                  <button key={u.id}
+                    onClick={() => setFiltroUsuario(activo ? null : u.id)}
+                    className={`text-left rounded-lg px-2 py-1.5 transition-colors ${activo ? 'bg-slate-100 ring-1 ring-slate-300' : 'hover:bg-slate-50'}`}>
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0" style={{ background: col }}>
+                        {inicialesUsuario(u.nombre, u.email)}
+                      </span>
+                      <span className="text-[12.5px] font-semibold text-slate-700 truncate flex-1">{u.nombre}</span>
+                      <span className="text-[13px] font-bold text-slate-900 tabular-nums">{u.total}</span>
+                    </div>
+                    <div className="mt-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${(u.total / kpi.max) * 100}%`, background: col }} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Motivos (chips filtrables): cantidad por motivo base sobre todas las descartadas */}
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Motivos</p>
+              <div className="flex flex-wrap gap-1.5">
+                {kpi.motivos.map(m => {
+                  const activo = filtroMotivo === m.motivo;
+                  return (
+                    <button key={m.motivo}
+                      onClick={() => setFiltroMotivo(activo ? null : m.motivo)}
+                      className={`inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1 rounded-full border transition-colors ${activo ? 'bg-red-600 border-red-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-red-300 hover:bg-red-50'}`}>
+                      {m.motivo}
+                      <span className={`text-[10.5px] font-bold tabular-nums ${activo ? 'text-white' : 'text-red-600'}`}>{m.total}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
         {cargando ? (
           <div className="flex items-center justify-center py-16 gap-2 text-sm text-slate-500">
             <Loader2 size={16} className="animate-spin text-red-500" /> Cargando descartadas…
@@ -132,8 +226,14 @@ export default function DescartadasPage() {
           </div>
         ) : (
           <div className="space-y-2.5">
-            <p className="text-xs text-slate-400 font-medium">{items.length} descartada{items.length !== 1 ? 's' : ''}</p>
-            {items.map(d => (
+            <p className="text-xs text-slate-400 font-medium">
+              {itemsFiltrados.length} descartada{itemsFiltrados.length !== 1 ? 's' : ''}
+              {(filtroUsuario != null || filtroMotivo != null) && ` de ${items.length}`}
+            </p>
+            {itemsFiltrados.length === 0 && (
+              <p className="text-sm text-slate-500 py-6 text-center">Ninguna descartada coincide con el filtro.</p>
+            )}
+            {itemsFiltrados.map(d => (
               <div key={d.id} className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-red-500 p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">

@@ -17,7 +17,7 @@ import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { cargarReglasAprendidas, bloqueReglasAprendidas } from '@/app/lib/viabilidad-feedback';
-import { parsearPlanillaCosteo } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea } from '@/app/lib/planilla-costeo-parser';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
@@ -387,7 +387,8 @@ PASO 1 — LÍNEA DE NEGOCIO: meta.linea_negocio = ferreteria (construcción, el
 PASO 2 — MODALIDAD DE ADJUDICACIÓN (CRÍTICO — detección fehaciente, gate de cierre). tipo = suma_alzada | por_linea. La heurística de portada es SOLO INDICIO (1 ítem portada + N productos en bases → casi seguro suma_alzada; portada distribuida en muchos ítems → probable por_linea). VERIFICACIÓN OBLIGATORIA: el artículo de las bases que define la modalidad ("precio total/totalidad/suma alzada/no se aceptan ofertas parciales" vs "adjudicación por línea/ítem"). Responde tipo + fuente (artículo+página) + evidencia (frase textual) + confianza (0-1) + estado (DETERMINADA | REVISION_HUMANA). Si NO queda fehaciente (sin artículo claro, portada y bases se contradicen, o confianza no alta) → estado=REVISION_HUMANA (no asumas ninguna). Si es por_linea y no publican precio por línea → libertad_de_pricing=true.
 DISTINGUE DOS EJES QUE NO SON LO MISMO (error frecuente que INVALIDA la modalidad): (a) FORMA DE ADJUDICACIÓN = a cuántos proveedores se asigna ("adjudicación simple/única" vs "adjudicación múltiple", "por cada ítem/línea se seleccionará a un oferente", "adjudicación parcial/por línea o ítem"); (b) FORMA DE COTIZAR = cómo se ofertan los precios (suma alzada / total fijo global vs precio unitario por ítem/línea). La MODALIDAD que decides (tipo) es el EJE (b). Una cláusula de "adjudicación por línea/ítem/múltiple" por sí sola NO implica por_linea: es solo la opción de repartir la adjudicación.
 REGLA DEL TOTAL CONSOLIDADO (la MÁS decisiva): si el FORMATO DE OFERTA ECONÓMICA (Anexo/Formato N°n que el proveedor firma y sube) pide UN ÚNICO TOTAL al pie ("TOTAL NETO", "TOTAL GENERAL OFERTA", "COSTO TOTAL DE LA OFERTA", "precio fijo", "cantidades inamovibles", "proveer íntegramente") sobre una lista de ítems → tipo=suma_alzada, AUNQUE exista columna de valor por ítem y AUNQUE las bases mencionen "adjudicación por línea/ítem/múltiple" (eso NO gatilla REVISION_HUMANA; anótalo como nota). Cita el formato como evidencia.
-SEÑALES FALSAS que NO son por_linea: ítems en HOJAS/PÁGINAS/SECCIONES separadas pero con NUMERACIÓN CORRELATIVA CONTINUA 1..N (es UNA sola planilla integrada, no líneas independientes); la mera columna de precio por ítem; la frase "adjudicación por línea o ítem".
+REGLA ESPEJO DEL PRECIO UNITARIO (para no marcar como suma_alzada lo que es por_linea): si las bases dicen EXPLÍCITAMENTE "se debe ofertar por la línea de producto", "se evaluará cada línea de manera individual", "podrá ofertar una o más líneas", o "se evaluarán únicamente las líneas que contengan información" (se pueden OMITIR líneas), o si el FORMATO DE OFERTA ECONÓMICA cotiza PRECIO UNITARIO por cada ítem SIN un único gran total al pie → tipo=por_linea, AUNQUE los ítems estén numerados CORRELATIVOS 1..N de corrido (la numeración continua NO prueba suma_alzada) y AUNQUE la planilla tenga una columna "TOTAL"/"TOTAL IVA INCLUIDO" por ítem (esa columna es el total POR FILA, no un total consolidado). Cita la frase o el formato como evidencia.
+SEÑALES FALSAS que NO son por_linea: ítems en HOJAS/PÁGINAS/SECCIONES separadas pero con NUMERACIÓN CORRELATIVA CONTINUA 1..N (es UNA sola planilla integrada, no líneas independientes) SIEMPRE QUE el formato económico pida un total único al pie y las bases NO digan que se oferta/evalúa por línea; la mera columna de precio por ítem; la frase "adjudicación por línea o ítem" (a secas, sin "ofertar/evaluar por línea").
 CUANDO LAS BASES NO DECLARAN LA MODALIDAD EN PALABRAS → decide por la ESTRUCTURA de los ítems (heurística del experto): (1) ítems CORRELATIVOS 1..N cada uno con su cantidad real, cerrando en un total único → suma_alzada; (2) ítems agrupados en LÍNEAS/LOTES distintos (cada línea con su propio título/subtotal/presupuesto, o su propia hoja, y la numeración se REINICIA dentro de cada línea) → por_linea; (3) catálogo con precio unitario independiente y SIN total único (convenio de suministro) → por_linea. Ejemplo suma_alzada: "1 ZINC, 2 POLIN, 3 CLAVO TECHO, 4 MALLA…" correlativos hasta el final. Ejemplo por_linea: "LÍNEA 1: implementos sanitarios [ítems]; LÍNEA 2: áridos [ítems]; LÍNEA 3: eléctricos [ítems]".
 
 PASO 3 — CRITERIOS DE EVALUACIÓN + FORMA DE APLICACIÓN (INSUMO INNEGOCIABLE — gate de cierre, BÚSQUEDA OBLIGATORIA SI O SI). NO basta listar "experiencia 30%, precio 40%". BÚSQUEDA EXHAUSTIVA OBLIGATORIA: los criterios de evaluación y su ponderación (%) PUEDEN estar en CUALQUIER documento, NO solo en el que se llame "BASES_ADMINISTRATIVAS" — a veces aparecen en BASES_TECNICAS, en un documento "BASES" sin calificar, en ANEXOS, en aclaraciones, o con otro nombre de archivo. DEBES leer el texto COMPLETO de TODOS los documentos, PÁGINA POR PÁGINA (usa los marcadores [[PÁGINA N]]), buscando patrones como "criterios de evaluación", "la comisión evaluadora", "se evaluará de acuerdo a", "ponderación", "puntaje", junto a porcentajes (ej. "40%", "Precio de la oferta: 40%", tablas con letras a) b) c)...). NUNCA concluyas "no se encontraron criterios" sin haber recorrido el 100% de las páginas de TODOS los documentos disponibles — es un error grave dejar esto vacío si el dato existe en cualquier parte del texto entregado.
@@ -445,8 +446,39 @@ function construirSystemPrompt(reglas: string[]): string {
 // Señal DETERMINISTA de modalidad a partir de la estructura del listado (parser). Es un
 // hecho calculado que se inyecta al prompt para aterrizar al modelo débil (no depende de
 // que "capte el matiz"). No es vinculante: el modelo puede contradecirla con evidencia.
-function construirSenalModalidad(planilla: ReturnType<typeof parsearPlanillaCosteo>): string {
-  if (!planilla || planilla.items.length < 8) return '';
+function construirSenalModalidad(
+  planilla: ReturnType<typeof parsearPlanillaCosteo>,
+  lineasFormulario: number[] = [],
+  ofertaTotalUnico = false,
+  lenguajePorLinea: string | null = null,
+): string {
+  // PRIORIDAD 0 — LENGUAJE EXPLÍCITO de las bases (la declaración más directa del "cómo se
+  // cotiza"): "ofertar por la línea de producto", "se evaluará cada línea de manera
+  // individual", "se evaluarán únicamente las líneas que…". Es la señal MÁS confiable: si
+  // las bases dicen que se oferta/evalúa por línea, es por_linea (aunque la numeración de
+  // ítems sea correlativa 1..N, que por sí sola NO decide).
+  if (lenguajePorLinea) {
+    const notaTotal = ofertaTotalUnico
+      ? ' NOTA: el formato económico también trae la palabra "total"; verifica si es un ÚNICO gran total AL PIE (entonces reevalúa a suma_alzada) o solo la columna "total" de una planilla por-ítem (sigue por_linea).'
+      : '';
+    return `SEÑAL DETERMINISTA DE MODALIDAD (lenguaje explícito de las bases): el texto dice literalmente "${lenguajePorLinea}", lo que significa que se OFERTA y EVALÚA cada línea/producto por separado (se pueden omitir líneas). Esto determina modalidad = por_linea. OJO: NO te dejes confundir por la numeración correlativa 1..N de los ítems (un listado por-línea también numera de corrido cuando cada ítem se cotiza con su precio unitario) ni por la columna "TOTAL" de la planilla (es el total POR ÍTEM, no un gran total al pie).${notaTotal}`;
+  }
+  // REGLA MAESTRA del experto: el FORMATO DE LA OFERTA ECONÓMICA manda sobre cómo se
+  // adjudica. Si el formulario económico es UNA planilla integrada con un ÚNICO total
+  // consolidado ("Monto total neto/IVA incluido" al pie), la modalidad es SUMA ALZADA,
+  // aunque las bases digan "se podrá adjudicar por línea" (eso es adjudicación múltiple
+  // —a quién—, no cómo se cotiza) y aunque los productos vengan rotulados "LÍNEA N".
+  if (ofertaTotalUnico) {
+    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada del FORMULARIO DE OFERTA ECONÓMICA): el formulario económico es UNA planilla integrada con TODOS los productos de corrido y un ÚNICO total consolidado al pie ("Monto total neto" / "Monto total IVA incluido"). Esto determina modalidad = suma_alzada. OJO: NO te confundas con frases como "se podrá adjudicar a un solo proveedor por línea" (eso es adjudicación múltiple — a quién se adjudica — y NO cambia cómo se cotiza) ni con productos rotulados "LÍNEA N" en fichas técnicas o listados (es solo el correlativo del ítem). El formato de la oferta económica MANDA: modalidad = suma_alzada.`;
+  }
+  if (!planilla || planilla.items.length < 8) {
+    // Sin planilla de cotización parseable, pero los documentos traen VARIAS fichas
+    // "FORMULARIO Línea N°X" (una por producto) → señal fuerte de adjudicación por línea.
+    if (lineasFormulario.length >= 2) {
+      return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura documental): los documentos contienen ${lineasFormulario.length} formularios/fichas técnicas independientes titulados "Línea N°X" (líneas ${lineasFormulario.slice(0, 8).join(', ')}${lineasFormulario.length > 8 ? '…' : ''}), cada una con su propio producto. Esto indica modalidad = por_linea (se oferta y adjudica por línea), SALVO que el formato de oferta económica exija un ÚNICO total consolidado. Verifícalo y decide. OJO: las tablas "Ítem | Características técnicas | Cumple Sí/No" son requisitos de cumplimiento, NO productos: el manifiesto de productos debe tener UNA entrada por línea (el equipo/producto de esa línea con su cantidad), no las filas del checklist.`;
+    }
+    return '';
+  }
   // por_linea REAL: el correlativo se reinicia/repite por lote (no basta con títulos "Línea N").
   if (planilla.estructura === 'por_linea' && planilla.lineas.length >= 2 && planilla.numeracion === 'reinicia') {
     return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ítems vienen agrupados en ${planilla.lineas.length} LÍNEAS/LOTES distintos y la NUMERACIÓN SE REINICIA/REPITE por línea (cada línea vuelve a empezar en 1 o un mismo número agrupa varios ítems). Esto indica modalidad = por_linea, SALVO que el formato de oferta económica exija un ÚNICO total consolidado (entonces suma_alzada). Verifícalo y decide.`;
@@ -455,9 +487,13 @@ function construirSenalModalidad(planilla: ReturnType<typeof parsearPlanillaCost
   if (planilla.estructura === 'por_categoria') {
     return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems están agrupados en ${planilla.categorias.length} RUBROS/CATEGORÍAS de producto (${planilla.categorias.slice(0, 4).join(', ')}${planilla.categorias.length > 4 ? '…' : ''}), numerados por rubro pero SIN lotes de adjudicación independientes. Esto indica modalidad = suma_alzada (un único total, con el costeo desglosado por rubro), NO por_linea. Verifícalo con el formato de oferta económica y decide.`;
   }
-  // Numeración CORRELATIVA CONTINUA 1..N (de corrido) → suma alzada, aunque venga partida en
-  // hojas/secciones tituladas "Línea N" (son una MISMA planilla integrada, no lotes).
-  return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems tienen numeración CORRELATIVA CONTINUA 1..N (de corrido, no se reinicia por línea), aunque el documento venga partido en hojas/secciones tituladas "Línea N". Esto indica modalidad = suma_alzada (aunque haya columna de valor por ítem o las bases mencionen "adjudicación por línea/ítem"): las hojas separadas NO son lotes de adjudicación. Verifícalo con el formato de oferta económica y decide.`;
+  // Numeración CORRELATIVA CONTINUA 1..N (de corrido) → INDICIO de suma alzada, aunque venga
+  // partida en hojas/secciones tituladas "Línea N" (son una MISMA planilla integrada, no lotes).
+  // OJO: la numeración continua por sí sola NO es concluyente — un listado POR LÍNEA también
+  // numera 1..N cuando cada ítem se cotiza con precio unitario y se pueden omitir líneas. Manda
+  // el FORMATO DE LA OFERTA ECONÓMICA (total único al pie = suma_alzada; precio unitario por
+  // ítem sin gran total = por_linea) y el lenguaje explícito de las bases.
+  return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems tienen numeración CORRELATIVA CONTINUA 1..N (de corrido, no se reinicia por línea), aunque el documento venga partido en hojas/secciones tituladas "Línea N". Esto es INDICIO de suma_alzada (las hojas separadas NO son lotes de adjudicación), PERO la numeración por sí sola NO decide: si el FORMATO DE OFERTA ECONÓMICA cotiza precio UNITARIO por ítem sin un gran total al pie, o las bases dicen "se oferta/evalúa por línea", es por_linea. Verifícalo con el formato de oferta económica y el lenguaje de las bases, y decide.`;
 }
 
 function construirUserPrompt(codigo: string, ctx: any, docs: DocLeido[], senalModalidad = ''): string {
@@ -642,7 +678,15 @@ export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIA
     planilla = parsearPlanillaCosteo(fuentes.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
   } catch { /* sin planilla → el modelo decide solo */ }
 
-  const senal = construirSenalModalidad(planilla);
+  let lineasForm: number[] = [];
+  let totalUnico = false;
+  let lenguajePorLinea: string | null = null;
+  try {
+    lineasForm = detectarLineasFormulario(leidos);
+    totalUnico = detectarOfertaTotalUnico(leidos);
+    lenguajePorLinea = detectarLenguajePorLinea(leidos);
+  } catch { /* señal opcional */ }
+  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea);
   const parsed = await llamarGeminiJSON(systemPrompt, construirUserPrompt(codigo, ctx, docs, senal));
   const saneado = sanitizar(parsed);
 
