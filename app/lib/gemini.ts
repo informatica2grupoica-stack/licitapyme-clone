@@ -144,15 +144,25 @@ function cuerpoPara(cfg: ProveedorTexto, params: any): any {
 // razonamiento). Si el principal falla y el OTRO proveedor tiene key, reintenta con él
 // (red de seguridad: aprovecha los créditos de DeepSeek cuando GLM cae). Úsalo en vez de
 // getGemini().chat.completions.create(...) en todo el código de análisis.
-export async function crearChatIA(params: any) {
+// opts.timeoutMs: timeout por-request (override del cliente). Las llamadas grandes (viabilidad,
+// ~90k tokens) necesitan más de los 120s por defecto o GLM cae por timeout y termina
+// respondiendo DeepSeek. opts.sinRespaldo: no caer al otro proveedor (para pruebas puras).
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRespaldo?: boolean } = {}) {
   const activo = cfgTexto();
+  const dbg = process.env.VIABILIDAD_DEBUG === '1';
+  const reqOpts = opts.timeoutMs ? { timeout: opts.timeoutMs } : undefined;
   try {
-    return await clienteProveedor(activo).chat.completions.create(cuerpoPara(activo, params));
+    if (dbg) console.log(`[ia-dbg] chat PRINCIPAL → ${activo.model} (${activo.baseURL})${opts.timeoutMs ? ` timeout=${opts.timeoutMs}ms` : ''}`);
+    const r = await clienteProveedor(activo).chat.completions.create(cuerpoPara(activo, params), reqOpts);
+    if (dbg) console.log(`[ia-dbg] chat OK ← ${activo.model} · usage=${JSON.stringify((r as any).usage ?? {})}`);
+    return r;
   } catch (e: any) {
     const alt = cfgTextoAlterno();
-    if (alt.keyEnv !== activo.keyEnv && process.env[alt.keyEnv]) {
+    if (!opts.sinRespaldo && alt.keyEnv !== activo.keyEnv && process.env[alt.keyEnv]) {
       console.warn(`[ia] ${activo.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 80)}), respaldo → ${alt.model}`);
-      return await clienteProveedor(alt).chat.completions.create(cuerpoPara(alt, params));
+      const r = await clienteProveedor(alt).chat.completions.create(cuerpoPara(alt, params), reqOpts);
+      if (dbg) console.log(`[ia-dbg] chat OK ← RESPALDO ${alt.model}`);
+      return r;
     }
     throw e;
   }

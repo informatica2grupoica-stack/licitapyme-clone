@@ -48,6 +48,8 @@ export interface ResumenLicitacion {
   falta: string[];
   cajas_presentes: string[];
   criterios_ubicados: boolean;
+  // v2.1: cómo se detectaron los criterios (doble ancla). Traza para el feedback loop.
+  criterios_deteccion?: 'lexica' | 'estructural' | 'ambas' | 'no_detectada';
   total_documentos: number;
 }
 
@@ -69,7 +71,11 @@ export interface ResultadoClasificacion {
   error?: string;
 }
 
-// ─── PROMPT 1 v2.0 — Clasificador Documental ──────────────────────────────────
+// ─── PROMPT 1 v2.1 — Clasificador Documental ──────────────────────────────────
+// v2.1: detección de criterios por DOBLE ANCLA (léxica + estructural). La bandera
+// contiene_criterios_evaluacion ya no depende del literal "Criterios de Evaluación":
+// se dispara por diccionario ampliado de sinónimos O por estructura (sección que
+// reparte el 100% del puntaje entre factores ponderados, aunque el título sea inédito).
 const SYSTEM_PROMPT_CLASIFICADOR = `ROL Y MISIÓN
 Eres un clasificador documental experto en licitaciones públicas de Chile (MercadoPúblico).
 Recibes el conjunto COMPLETO de archivos de UNA sola licitación y los metadatos de su portada.
@@ -111,7 +117,10 @@ DICCIONARIO DE TÉRMINOS EN EL NOMBRE (señal de apoyo)
     → BASES_ADMINISTRATIVAS
 - técnicas / BT / BBTT / EETT / TDR / especificaciones / requerimiento técnico / nota de pedido /
   pedido / términos de referencia → BASES_TECNICAS
-- criterios / evaluación / metodología / pauta de evaluación
+- criterios / criterios de evaluación / evaluación / evaluación de las ofertas / metodología /
+  metodología de evaluación / pauta / pauta de evaluación / factores / factores de evaluación /
+  factores y ponderadores / subfactores / mecanismo de evaluación / parámetros de evaluación /
+  tablas de variables y ponderadores / criterios de ponderación / ponderación / matriz de evaluación
     → BASES_ADMINISTRATIVAS + bandera contiene_criterios_evaluacion=true
     (los criterios son parte de las reglas del proceso; NO tienen caja propia)
 - anexo / formato / formulario / editable / declaración / oferta económica / oferta técnica /
@@ -125,6 +134,23 @@ Desambiguación "técnico/económico/administrativo" en el nombre: apunta a ANEX
 (formato a rellenar), SALVO "requerimiento técnico", "nota de pedido", "EETT", "TDR" o
 "bases técnicas", que son BASES_TECNICAS. Pista casi segura de ANEXOS_OFERENTE: la palabra
 "editable" en el nombre, o que el documento contenga LÍNEAS PARA FIRMAR.
+
+DETECCIÓN DE CRITERIOS DE EVALUACIÓN — DOBLE ANCLA (v2.1) (crítico: si no se ubican, Fase 2
+pierde el dato que define si se gana o se pierde). La bandera contiene_criterios_evaluacion se
+dispara por CUALQUIERA de estas dos vías, no hace falta que se cumplan ambas:
+  (A) ANCLA LÉXICA — el documento (nombre o cuerpo) usa cualquiera de los términos del diccionario
+      de criterios de arriba (criterios, factores, ponderadores, subfactores, mecanismo de
+      evaluación, parámetros de evaluación, tablas de variables y ponderadores, etc.).
+  (B) ANCLA ESTRUCTURAL — el documento contiene una sección o tabla que REPARTE EL 100% DEL PUNTAJE
+      entre factores con ponderaciones (%) y/o describe CÓMO SE ASIGNA LA NOTA a cada oferta
+      (fórmulas, tramos, puntajes), AUNQUE su título no contenga ningún término léxico. Señales
+      típicas: una tabla cuyas ponderaciones suman ~100%; frases como "la evaluación se realizará
+      en base a los siguientes factores y ponderadores", "se asignará puntaje según…"; columnas
+      "Factor / Ponderación / Fórmula".
+  LA ESTRUCTURA MANDA SOBRE EL TÍTULO: si ves el reparto de puntaje, marca la bandera aunque el
+  encabezado sea inédito. Ante duda, marca la bandera en true (falso positivo lo corrige Fase 2;
+  falso negativo puede matar el análisis). En el resumen, indica criterios_deteccion =
+  "lexica" | "estructural" | "ambas" | "no_detectada" según qué ancla la disparó.
 
 LAS 6 CAJAS
 
@@ -167,8 +193,10 @@ LAS 6 CAJAS
 BANDERAS POR DOCUMENTO
 - contiene_tecnicas_integradas: true SOLO en BASES_ADMINISTRATIVAS que incluyen especificaciones técnicas.
 - contiene_anexos_integrados: true en BASES_ADMINISTRATIVAS que traen anexos impresos dentro.
-- contiene_criterios_evaluacion: true cuando el documento contiene tabla/metodología de criterios.
-  Señal de UBICACIÓN para que Fase 2 sepa dónde extraerlos.
+- contiene_criterios_evaluacion: true cuando el documento contiene la tabla/metodología de criterios,
+  detectada por DOBLE ANCLA (léxica O estructural; ver sección "DETECCIÓN DE CRITERIOS"). Señal de
+  UBICACIÓN para que Fase 2 sepa dónde mirar primero. Ante duda, marca true. (Fase 2 hace su propio
+  barrido y NO depende de esta bandera; la bandera solo acelera y prioriza.)
 - escaneado: true si el archivo no tiene capa de texto (clasificado desde imagen).
 - confianza: número 0.0–1.0.
 
@@ -184,8 +212,9 @@ REGLAS DE DESEMPATE
 
 CHEQUEO DE COMPLETITUD
 - completo: existe BASES_ADMINISTRATIVAS Y (BASES_TECNICAS O contiene_tecnicas_integradas=true).
-- criterios_ubicados: true si alguna BASES_ADMINISTRATIVAS tiene contiene_criterios_evaluacion=true.
-  Si no se detectan en ningún documento → false (Fase 2 deberá buscarlos en la API o alertar).
+- criterios_ubicados: true si algún documento tiene contiene_criterios_evaluacion=true (por léxico
+  o por estructura). Si no se detectan en ningún documento → false (Fase 2 deberá buscarlos con su
+  propio barrido, en la API, o alertar).
 - Si falta alguna caja crítica → estado="incompleto" y lista en "falta" qué falta.
 
 EJEMPLOS DE REFERENCIA (casos trampa reales)
@@ -194,7 +223,12 @@ EJEMPLOS DE REFERENCIA (casos trampa reales)
 - "2-BAE_Materiales_Electricos.pdf", estructura numerada de reglas:
   caja=BASES_ADMINISTRATIVAS.
 - "Pauta_de_Evaluacion.pdf", 3 páginas, tabla de criterios con ponderaciones:
-  caja=BASES_ADMINISTRATIVAS, contiene_criterios_evaluacion=true.
+  caja=BASES_ADMINISTRATIVAS, contiene_criterios_evaluacion=true (ancla léxica).
+- "Factores_y_Ponderadores.pdf", 2 páginas, tabla "Factor / Ponderación / Fórmula" que suma 100%:
+  caja=BASES_ADMINISTRATIVAS, contiene_criterios_evaluacion=true (ancla léxica + estructural).
+- "Anexo_Evaluacion_Ofertas.pdf" cuyo TÍTULO no dice "criterios", pero dentro reparte el 100% del
+  puntaje entre factores ponderados: caja=BASES_ADMINISTRATIVAS, contiene_criterios_evaluacion=true
+  (ancla ESTRUCTURAL: la estructura manda sobre el título).
 - "RES.EX.N4134.pdf", 50 páginas: pese al nombre, su largo indica bases dentro
   → caja=BASES_ADMINISTRATIVAS.
 - "RESOLUCION_EXENTA_N°124_AUTORIZA_BASES.pdf", 2 páginas:
@@ -212,7 +246,8 @@ Devuelve ÚNICAMENTE un objeto JSON válido. Sin texto antes ni después. Sin \`
     "estado": "completo | incompleto",
     "falta": [],
     "cajas_presentes": [],
-    "criterios_ubicados": false,
+    "criterios_ubicados": true,
+    "criterios_deteccion": "lexica | estructural | ambas | no_detectada",
     "total_documentos": 0
   },
   "documentos": [
@@ -524,14 +559,19 @@ export async function clasificarLicitacion(codigo: string): Promise<ResultadoCla
   const cajas = cajasVacias();
   documentos.forEach(d => cajas[d.caja]?.push(d));
 
-  // 8. Resumen (con criterios_ubicados)
+  // 8. Resumen (con criterios_ubicados + criterios_deteccion v2.1)
   const criteriosUbicados = documentos.some(d => d.contiene_criterios_evaluacion);
-  const resumenRaw = clasificacion.resumen_licitacion;
+  const resumenRaw = clasificacion.resumen_licitacion as (ResumenLicitacion & { criterios_deteccion?: string }) | undefined;
+  const deteccionValida = new Set(['lexica', 'estructural', 'ambas', 'no_detectada']);
+  const criteriosDeteccion = deteccionValida.has(resumenRaw?.criterios_deteccion as string)
+    ? (resumenRaw!.criterios_deteccion as ResumenLicitacion['criterios_deteccion'])
+    : (criteriosUbicados ? 'lexica' : 'no_detectada');
   const resumen: ResumenLicitacion = {
     estado: resumenRaw?.estado ?? 'incompleto',
     falta: resumenRaw?.falta ?? [],
     cajas_presentes: resumenRaw?.cajas_presentes ?? [],
     criterios_ubicados: resumenRaw?.criterios_ubicados ?? criteriosUbicados,
+    criterios_deteccion: criteriosDeteccion,
     total_documentos: documentos.length,
   };
 

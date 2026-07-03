@@ -6,7 +6,7 @@
 // y el detalle en secciones plegables (acordeón) para que no sea un muro de información.
 
 import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
-import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ZoomIn } from 'lucide-react';
+import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ZoomIn, ClipboardCheck, Compass, Swords, Ship } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
 
 interface Feedback {
@@ -18,24 +18,30 @@ interface Feedback {
   created_at: string;
 }
 
-// Esquema PROMPT 2 v2.0 (sección 5A) + campos derivados (score/semaforo/area).
-interface Criterio { nombre: string; ponderacion?: number; forma_aplicacion?: string; medio_verificacion?: string; fuente?: string }
+// Esquema PROMPT 2 v2.1 + campos derivados (score/semaforo/area).
+interface Subfactor { nombre: string; ponderacion_efectiva?: number; abierto_o_topado?: string; forma_aplicacion?: string; medio_verificacion?: string; fuente?: string }
+interface Criterio { nombre: string; ponderacion?: number; abierto_o_topado?: string; forma_aplicacion?: string; medio_verificacion?: string; fuente?: string; subfactores?: Subfactor[] }
 interface Producto { linea: number; descripcion: string; modelo?: string; cantidad?: number | null; unidad_medida?: string; unidad_inferida?: boolean; presupuesto_linea?: number | null; tipo?: string; ruta?: string }
-interface Palanca { palanca: string; estado: string; condicion?: string; fuente?: string }
+interface Palanca { palanca: string; estado: string; jugada?: string; condicion?: string; fuente?: string }
 interface Hito { hito: string; duracion_dias?: number | null; tipo_dias?: string; base_computo?: string; fuente?: string; inferido?: boolean }
+interface DocInfaltable { exige: string; fuente?: string; tipo?: string; cubre?: string; responsable?: string }
+interface LineaAtacar { linea: number; decision?: string; motivo?: string }
 interface InformeIA {
   score_0_100?: number; semaforo?: string; area_negocio?: string;
   meta?: { id?: string; nombre?: string; organismo?: string; region?: string; linea_negocio?: string };
   exclusion?: { excluido?: boolean; categoria?: string | null; motivo?: string; fuente?: string; destino?: string };
   presupuesto?: { bruto?: number | null; neto?: number | null; con_iva?: boolean; regimen_fora?: boolean; presupuesto_exento?: boolean; es_excluyente?: boolean; fuente?: string; gate?: string };
-  modalidad?: { tipo?: string; estado?: string; evidencia?: string; fuente?: string; confianza?: number; libertad_de_pricing?: boolean };
-  criterios_evaluacion?: { fuente_datos?: string; forma_aplicacion_completa?: boolean; criterios?: Criterio[]; alertas?: string[] };
-  capa_a?: { presupuesto?: { pts?: number; fuente?: string; justificacion?: string }; cantidad_items?: { pts?: number; n_items?: number; fuente?: string; justificacion?: string }; complejidad?: { pts?: number; fuente?: string; justificacion?: string }; ejecucion?: { pts?: number; fuente?: string; justificacion?: string }; score_total?: number; nivel?: string };
+  modalidad?: { tipo?: string; estado?: string; evidencia?: string; fuente?: string; confianza?: number; libertad_de_pricing?: boolean; como_se_adjudica?: string; heterogeneidad?: string; cotizar_100_obligatorio?: boolean; evaluacion_puntaje?: string };
+  criterios_evaluacion?: { fuente_datos?: string; forma_aplicacion_completa?: boolean; suma_ponderaciones_real?: number; suma_valida?: boolean; criterios?: Criterio[]; alertas?: string[] };
+  capa_a?: { presupuesto?: { pts?: number; fuente?: string; justificacion?: string }; cantidad_items?: { pts?: number; n_items?: number; fuente?: string; justificacion?: string }; complejidad?: { pts?: number; fuente?: string; justificacion?: string }; ejecucion?: { pts?: number; fuente?: string; justificacion?: string }; modificadores?: { bonus_cantidad_presupuesto?: number; bonus_importabilidad_provisional?: number; modificador_adjudicacion?: number }; score_total?: number; nivel?: string };
   capa_b_palancas?: Palanca[];
-  capa_c_admisibilidad?: { presupuesto_excluyente?: { aplica?: boolean; efecto?: string; fuente?: string }; bloqueantes?: Array<{ item: string; fuente?: string }>; barreras_a_favor?: Array<{ item: string; fuente?: string }>; boleta_aplica?: boolean; umbral_utm?: number; firma_puno_y_letra?: boolean; alertas?: string[] };
+  donde_se_decide?: { todos_secundarios_topados?: boolean; se_decide_en?: string; tenemos_ventaja_costo?: string; via?: string; criterios_abiertos_diferenciadores?: string[]; mensaje?: string };
+  capa_c_admisibilidad?: { presupuesto_excluyente?: { aplica?: boolean; efecto?: string; fuente?: string }; cotizar_100_obligatorio?: { aplica?: boolean; efecto?: string; fuente?: string }; bloqueantes?: Array<{ item: string; fuente?: string }>; barreras_a_favor?: Array<{ item: string; fuente?: string }>; boleta_aplica?: boolean; umbral_utm?: number; firma_puno_y_letra?: boolean; alertas?: string[] };
+  documentos_infaltables?: DocInfaltable[];
   multas?: { estructura?: string; costo_por_dia?: string; costo_maximo?: string; umbral_termino?: string; fuente?: string };
-  linea_tiempo?: { hitos?: Hito[]; plazo_ofertable_puntaje?: string; plazo_operativo_real_dias_habiles?: number | null; colchon_dias_habiles?: number | null; alertas?: string[] };
+  linea_tiempo?: { hitos?: Hito[]; frontera_inicio_computo?: { descripcion?: string; base_computo?: string; fuente?: string }; caso_cadena?: string; plazo_ofertable_puntaje?: string; plazo_operativo_real_dias_habiles?: number | null; colchon_dias_habiles?: number | null; colchon_dias_corridos?: number | null; ventana_importacion?: boolean; alertas?: string[] };
   manifiesto_productos?: Producto[];
+  lineas_a_atacar?: LineaAtacar[];
   pendientes_fase3?: string[];
   veredicto?: { nivel?: string; gana_probable?: string; estado_veredicto?: string; motivos_revision?: string[]; acciones_AC?: string[]; advertencias?: string[] };
   confianza_global?: number;
@@ -302,7 +308,11 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   const cc = informe?.capa_c_admisibilidad;
   const crit = informe?.criterios_evaluacion;
   const criterios = crit?.criterios ?? [];
-  const sumaCriterios = criterios.reduce((s, c) => s + (Number(c.ponderacion) || 0), 0);
+  // v2.1: la suma real la reporta el modelo (ponderaciones EFECTIVAS); si no, se calcula.
+  const sumaCriterios = crit?.suma_ponderaciones_real != null && crit.suma_ponderaciones_real > 0
+    ? crit.suma_ponderaciones_real
+    : criterios.reduce((s, c) => s + (Number(c.ponderacion) || 0), 0);
+  const sumaValida = crit?.suma_valida != null ? crit.suma_valida : (criterios.length === 0 || Math.round(sumaCriterios) === 100);
   const nProd = informe?.manifiesto_productos?.length ?? 0;
   const lt = informe?.linea_tiempo;
   const enRevision = v?.estado_veredicto === 'REVISION_HUMANA';
@@ -317,7 +327,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   if (informe) {
     const nCrit = criterios.length;
     const suma = Math.round(sumaCriterios);
-    if (nCrit > 0 && suma !== 100) avisos.push(`Los criterios de evaluación suman ${suma}% (deberían sumar 100%).`);
+    if (nCrit > 0 && !sumaValida) avisos.push(`Los criterios de evaluación suman ${suma}% (deberían sumar 100%): posible criterio no capturado.`);
     if (nCrit === 0) avisos.push('No se encontraron criterios de evaluación en las bases (situación anómala).');
     else if (crit?.forma_aplicacion_completa === false) avisos.push('Falta la FORMA DE APLICACIÓN de uno o más criterios: revisar las bases.');
     if (enRevision) avisos.push(`Veredicto en REVISIÓN HUMANA${v?.motivos_revision?.length ? ': ' + v.motivos_revision.join('; ') : '.'}`);
@@ -425,16 +435,24 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                 : <p className="text-[10px] text-slate-400 truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.neto ? 'neto · ' : ''}{informe.presupuesto?.fuente}</p>}
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Modalidad</p>
-              <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(informe.modalidad?.tipo) || '—'}{informe.modalidad?.estado === 'REVISION_HUMANA' ? ' ⚠' : ''}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase">Cómo se adjudica</p>
+              <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(informe.modalidad?.como_se_adjudica) || cap(informe.modalidad?.tipo) || '—'}{informe.modalidad?.estado === 'REVISION_HUMANA' ? ' ⚠' : ''}</p>
+              <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                {informe.modalidad?.cotizar_100_obligatorio && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700" title="Hay que cotizar el 100% o la oferta queda fuera">COTIZAR 100%</span>}
+                {informe.modalidad?.heterogeneidad === 'alta' && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-100 text-emerald-700">heterogénea</span>}
+              </div>
               {hrefCita(informe.modalidad?.fuente)
                 ? <a href={hrefCita(informe.modalidad?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.modalidad?.fuente}>{informe.modalidad?.fuente}</a>
                 : <p className="text-[10px] text-slate-400 truncate" title={informe.modalidad?.fuente}>{informe.modalidad?.fuente}</p>}
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Colchón operativo</p>
-              <p className="text-[15px] font-bold text-slate-800 leading-tight">{lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} días háb.` : '—'}</p>
-              <p className="text-[10px] text-slate-400 truncate">{lt?.plazo_ofertable_puntaje ? `ofertable: ${lt.plazo_ofertable_puntaje}` : 'post-adjudicación'}</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase">Colchón administrativo</p>
+              <p className="text-[15px] font-bold text-slate-800 leading-tight">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} días háb.` : '—'}</p>
+              <div className="flex items-center gap-1 flex-wrap mt-0.5">
+                {lt?.ventana_importacion
+                  ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-sky-100 text-sky-700 inline-flex items-center gap-0.5"><Ship size={9} /> ventana importación</span>
+                  : <span className="text-[10px] text-slate-400 truncate">{lt?.plazo_ofertable_puntaje ? `ofertable: ${lt.plazo_ofertable_puntaje}` : 'previo al cómputo'}</span>}
+              </div>
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Líneas</p>
@@ -445,18 +463,35 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
           {/* DETALLE — acordeón */}
           {criterios.length > 0 && (
-            <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Criterios de evaluación y forma de aplicación" badge={`suma ${sumaCriterios}%${crit?.forma_aplicacion_completa === false ? ' · forma incompleta ⚠' : ''}`} defaultOpen>
+            <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Criterios de evaluación y forma de aplicación" badge={`suma ${Math.round(sumaCriterios)}%${sumaValida ? ' ✓' : ' ⚠ no cuadra'}${crit?.forma_aplicacion_completa === false ? ' · forma incompleta ⚠' : ''}${informe.modalidad?.evaluacion_puntaje === 'por_linea' ? ' · por línea' : ''}`} defaultOpen>
               <div className="space-y-2.5">
                 {criterios.map((c, i) => (
                   <div key={i} className="border-b border-slate-100 last:border-0 pb-2 last:pb-0">
                     <div className="flex items-center justify-between gap-2">
-                      <p className="text-[13px] font-semibold text-slate-800">{c.nombre}</p>
+                      <p className="text-[13px] font-semibold text-slate-800 flex items-center gap-1.5">
+                        {c.nombre}
+                        {c.abierto_o_topado && <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${c.abierto_o_topado === 'abierto' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{c.abierto_o_topado}</span>}
+                      </p>
                       <span className="text-[13px] font-bold text-slate-900 flex-shrink-0">{c.ponderacion ?? 0}%</span>
                     </div>
                     {c.forma_aplicacion
                       ? <p className="text-[12px] text-slate-600 mt-0.5 leading-snug whitespace-pre-line">{c.forma_aplicacion}</p>
                       : <p className="text-[12px] text-amber-600 mt-0.5">⚠ Sin forma de aplicación — revisar las bases.</p>}
                     {c.medio_verificacion && <p className="text-[11px] text-slate-400 mt-0.5">Verificación: {c.medio_verificacion}</p>}
+                    {/* v2.1: subfactores con su ponderación EFECTIVA (real) */}
+                    {(c.subfactores?.length ?? 0) > 0 && (
+                      <div className="mt-1 pl-3 border-l-2 border-slate-100 space-y-1">
+                        {c.subfactores!.map((s, j) => (
+                          <div key={j} className="text-[11.5px]">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-slate-600">↳ {s.nombre}{s.abierto_o_topado ? ` (${s.abierto_o_topado})` : ''}</span>
+                              <span className="font-semibold text-slate-700 flex-shrink-0">{s.ponderacion_efectiva ?? 0}% real</span>
+                            </div>
+                            {s.forma_aplicacion && <p className="text-slate-500 leading-snug">{s.forma_aplicacion}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div className="mt-0.5"><Fuente destacar={c.nombre}>{c.fuente}</Fuente></div>
                   </div>
                 ))}
@@ -469,12 +504,17 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
           {/* Línea de tiempo post-adjudicación */}
           {(lt?.hitos?.length ?? 0) > 0 && (
-            <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Línea de tiempo post-adjudicación" badge={lt?.colchon_dias_habiles != null ? `colchón ${lt.colchon_dias_habiles} días háb.` : undefined} defaultOpen>
+            <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Módulo plazos (colchón + entrega)" badge={lt?.colchon_dias_corridos != null ? `colchón ${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `colchón ${lt.colchon_dias_habiles} días háb.` : undefined} defaultOpen>
               <div className="grid grid-cols-3 gap-2 mb-3">
-                <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 uppercase font-bold">Ofertable (puntaje)</p><p className="text-[13px] font-bold text-slate-800">{lt?.plazo_ofertable_puntaje || '—'}</p></div>
-                <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 uppercase font-bold">Operativo real</p><p className="text-[13px] font-bold text-slate-800">{lt?.plazo_operativo_real_dias_habiles != null ? `${lt.plazo_operativo_real_dias_habiles} háb.` : '—'}</p></div>
-                <div className="bg-emerald-50 rounded-lg p-2"><p className="text-[10px] text-emerald-500 uppercase font-bold">Colchón</p><p className="text-[13px] font-bold text-emerald-700">{lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} háb.` : '—'}</p></div>
+                <div className="bg-emerald-50 rounded-lg p-2"><p className="text-[10px] text-emerald-500 uppercase font-bold">Colchón admin.</p><p className="text-[13px] font-bold text-emerald-700">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} háb.` : '—'}</p><p className="text-[9px] text-emerald-600">tiempo gratis pre-entrega</p></div>
+                <div className="bg-slate-50 rounded-lg p-2"><p className="text-[10px] text-slate-400 uppercase font-bold">Ofertable (puntaje)</p><p className="text-[13px] font-bold text-slate-800">{lt?.plazo_ofertable_puntaje || '—'}</p><p className="text-[9px] text-slate-400">no es colchón</p></div>
+                <div className={`rounded-lg p-2 ${lt?.ventana_importacion ? 'bg-sky-50' : 'bg-slate-50'}`}><p className={`text-[10px] uppercase font-bold ${lt?.ventana_importacion ? 'text-sky-500' : 'text-slate-400'}`}>Importación</p><p className={`text-[13px] font-bold ${lt?.ventana_importacion ? 'text-sky-700' : 'text-slate-500'}`}>{lt?.ventana_importacion ? 'ventana ✓' : 'sin ventana'}</p><p className="text-[9px] text-slate-400">{lt?.ventana_importacion ? 'hay margen' : '≤10d o no import.'}</p></div>
               </div>
+              {lt?.frontera_inicio_computo?.descripcion && (
+                <div className="text-[12px] text-slate-600 mb-2 bg-slate-50 rounded-lg p-2">
+                  <span className="font-semibold text-slate-700">Frontera (arranca el plazo de entrega):</span> {lt.frontera_inicio_computo.descripcion}{lt.frontera_inicio_computo.base_computo ? ` · ${cap(lt.frontera_inicio_computo.base_computo)}` : ''} <Fuente>{lt.frontera_inicio_computo.fuente}</Fuente>
+                </div>
+              )}
               <div className="space-y-1.5">
                 {lt!.hitos!.map((h, i) => (
                   <div key={i} className="flex items-start gap-2 text-[13px]">
@@ -507,8 +547,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             </Seccion>
           )}
 
-          {(informe.capa_b_palancas?.length ?? 0) > 0 && (
-            <Seccion icon={<ListChecks size={14} className="text-violet-500" />} titulo="Palancas (Capa B)">
+          {((informe.capa_b_palancas?.length ?? 0) > 0 || informe.donde_se_decide?.mensaje) && (
+            <Seccion icon={<ListChecks size={14} className="text-violet-500" />} titulo="Palancas y jugadas (Capa B)" defaultOpen={!!informe.donde_se_decide?.mensaje}>
               <div className="space-y-1.5 text-[12px]">
                 {informe.capa_b_palancas!.map((p, i) => (
                   <div key={i} className="bg-slate-50 rounded-lg p-2">
@@ -516,10 +556,24 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                       <span className="font-semibold text-slate-700">{cap(p.palanca)}</span>
                       <span className={`text-[11px] px-1.5 py-0.5 rounded border font-bold ${estadoColor(p.estado)}`}>{cap(p.estado)}</span>
                     </div>
-                    {p.condicion && <p className="text-slate-600 mt-0.5 leading-snug">{p.condicion}</p>}
+                    {p.jugada && <p className="text-slate-700 mt-0.5 leading-snug font-medium">▸ {p.jugada}</p>}
+                    {p.condicion && <p className="text-slate-500 mt-0.5 leading-snug">{p.condicion}</p>}
                     {p.fuente && <div className="mt-0.5"><Fuente>{p.fuente}</Fuente></div>}
                   </div>
                 ))}
+                {/* v2.1: DÓNDE SE DECIDE — síntesis de la Capa B */}
+                {informe.donde_se_decide?.mensaje && (
+                  <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-2.5 mt-1">
+                    <p className="flex items-center gap-1.5 text-[12px] font-bold text-violet-800 mb-1"><Compass size={13} /> Dónde se decide</p>
+                    <p className="text-[12px] text-slate-700 leading-snug">{informe.donde_se_decide.mensaje}</p>
+                    <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                      {informe.donde_se_decide.se_decide_en && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-violet-200 text-violet-700">se decide en: {cap(informe.donde_se_decide.se_decide_en)}</span>}
+                      {informe.donde_se_decide.tenemos_ventaja_costo === 'si' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">ventaja de costo{informe.donde_se_decide.via && informe.donde_se_decide.via !== 'ninguna' ? ` · ${cap(informe.donde_se_decide.via)}` : ''}</span>}
+                      {informe.donde_se_decide.tenemos_ventaja_costo === 'no' && informe.donde_se_decide.se_decide_en === 'precio' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">⚠ guerra de precio</span>}
+                      {(informe.donde_se_decide.criterios_abiertos_diferenciadores ?? []).map((c, i) => <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700">diferenciar: {c}</span>)}
+                    </div>
+                  </div>
+                )}
               </div>
             </Seccion>
           )}
@@ -530,10 +584,37 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                 {cc.presupuesto_excluyente?.aplica && (
                   <p className="flex items-start gap-1.5 text-red-700 font-semibold"><Ban size={13} className="mt-0.5 flex-shrink-0" /> Presupuesto EXCLUYENTE — no superar el techo <Fuente>{cc.presupuesto_excluyente.fuente}</Fuente></p>
                 )}
+                {cc.cotizar_100_obligatorio?.aplica && (
+                  <p className="flex items-start gap-1.5 text-red-700 font-semibold"><Ban size={13} className="mt-0.5 flex-shrink-0" /> Cotizar el 100% (global/lote) — falta 1 ítem = oferta fuera <Fuente>{cc.cotizar_100_obligatorio.fuente}</Fuente></p>
+                )}
                 {cc.bloqueantes?.map((b, i) => <p key={'bl' + i} className="flex items-start gap-1.5 text-red-700"><Ban size={13} className="mt-0.5 flex-shrink-0" /> {b.item} <Fuente>{b.fuente}</Fuente></p>)}
                 {cc.barreras_a_favor?.map((b, i) => <p key={'bf' + i} className="flex items-start gap-1.5 text-emerald-700"><ShieldCheck size={13} className="mt-0.5 flex-shrink-0" /> {b.item} <Fuente>{b.fuente}</Fuente></p>)}
                 <p className="text-slate-500 text-[12px]">Boleta: {cc.boleta_aplica ? `aplica (>${cc.umbral_utm ?? 1000} UTM)` : `no aplica (<${cc.umbral_utm ?? 1000} UTM)`} · Firma puño y letra: {cc.firma_puno_y_letra ? 'EXIGIDA ⚠' : 'no exigida'}</p>
                 {cc.alertas?.map((a, i) => <p key={'al' + i} className="text-amber-700 text-[12px]">⚠ {a}</p>)}
+              </div>
+            </Seccion>
+          )}
+
+          {(informe.documentos_infaltables?.length ?? 0) > 0 && (
+            <Seccion icon={<ClipboardCheck size={14} className="text-violet-500" />} titulo="Documentos infaltables" badge={`${informe.documentos_infaltables!.length} · orden de trabajo`} defaultOpen>
+              <div className="space-y-1.5 text-[12px]">
+                {informe.documentos_infaltables!.map((d, i) => {
+                  const dur = d.tipo === 'admisibilidad_dura' ? { ic: '🔴', txt: 'Admisibilidad dura' }
+                    : d.tipo === 'puntaje_condicionante' ? { ic: '🟡', txt: 'Puntaje-condicionante' }
+                    : { ic: '🟢', txt: 'Compromiso de ejecución' };
+                  return (
+                    <div key={i} className="bg-slate-50 rounded-lg p-2">
+                      <div className="flex items-start gap-1.5">
+                        <span className="flex-shrink-0" title={dur.txt}>{dur.ic}</span>
+                        <p className="text-slate-700 font-medium flex-1">{d.exige}</p>
+                        {d.responsable && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">{cap(d.responsable)}</span>}
+                      </div>
+                      {d.cubre && <p className="text-slate-500 mt-0.5 pl-5 leading-snug">Lo cubre: {d.cubre}</p>}
+                      {d.fuente && <div className="mt-0.5 pl-5"><Fuente>{d.fuente}</Fuente></div>}
+                    </div>
+                  );
+                })}
+                <p className="text-[10px] text-slate-400 pt-0.5">🔴 de fallar nos deja fuera · 🟡 condiciona puntaje · 🟢 compromiso post-adjudicación. Todos se preparan; el color solo prioriza.</p>
               </div>
             </Seccion>
           )}
@@ -545,12 +626,19 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             </Seccion>
           )}
 
-          {nProd > 0 && (
-            <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Productos (manifiesto)" badge={`${nProd} líneas`}>
+          {nProd > 0 && (() => {
+            // Numeración REAL de ítems: 1..N secuencial. El campo `linea` es el LOTE de
+            // adjudicación (1 para todos en suma_alzada) — solo lo mostramos como badge
+            // cuando hay ≥2 lotes distintos (por_linea), para no repetir "1." en cada fila.
+            const lotes = new Set(informe.manifiesto_productos!.map(p => p.linea));
+            const multiLote = lotes.size >= 2;
+            return (
+            <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Productos (manifiesto)" badge={`${nProd} ítems`}>
               <div className="space-y-1">
                 {informe.manifiesto_productos!.map((p, i) => (
                   <div key={i} className="flex gap-2 text-[13px] border-b border-slate-100 last:border-0 py-1">
-                    <span className="text-slate-400 w-6 flex-shrink-0">{p.linea ?? i + 1}.</span>
+                    <span className="text-slate-400 w-6 flex-shrink-0">{i + 1}.</span>
+                    {multiLote && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 flex-shrink-0">L{p.linea}</span>}
                     <span className="text-slate-700 flex-1">{p.descripcion}{p.modelo ? ` · ${p.modelo}` : ''}</span>
                     {p.cantidad != null && <span className="text-slate-500 flex-shrink-0">{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span>}
                     {p.presupuesto_linea != null && <span className="text-[11px] text-emerald-600 flex-shrink-0">{fmt(p.presupuesto_linea)}</span>}
@@ -559,6 +647,21 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                   </div>
                 ))}
                 {informe.manifiesto_productos!.some(p => p.unidad_inferida) && <p className="text-[10px] text-slate-400 pt-1">* unidad de medida inferida (no especificada en las bases)</p>}
+              </div>
+            </Seccion>
+            );
+          })()}
+
+          {/* v2.1: líneas a atacar / soltar (solo POR LÍNEAS de mini-proyectos) */}
+          {(informe.lineas_a_atacar?.length ?? 0) > 0 && (
+            <Seccion icon={<Swords size={14} className="text-violet-500" />} titulo="Líneas a atacar / soltar" badge={`${informe.lineas_a_atacar!.filter(l => l.decision === 'atacar').length} atacar · ${informe.lineas_a_atacar!.filter(l => l.decision === 'soltar').length} soltar`}>
+              <div className="space-y-1 text-[12px]">
+                {informe.lineas_a_atacar!.map((l, i) => (
+                  <div key={i} className="flex items-start gap-2 border-b border-slate-100 last:border-0 py-1">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${l.decision === 'atacar' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>L{l.linea} · {cap(l.decision)}</span>
+                    <span className="text-slate-600 flex-1">{l.motivo}</span>
+                  </div>
+                ))}
               </div>
             </Seccion>
           )}
