@@ -7,7 +7,7 @@
 // Reutiliza lo ya extraído en `analisis_ia_licitacion` (no vuelve a leer los PDFs).
 
 import pool from '@/app/lib/db';
-import { getGemini } from '@/app/lib/gemini';
+import { crearChatIA, iaTextoConfigurada } from '@/app/lib/gemini';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
@@ -270,7 +270,7 @@ function juicioFallback(ins: Insumos): JuicioIA {
 }
 
 async function obtenerJuicioIA(ins: Insumos): Promise<{ juicio: JuicioIA; iaOk: boolean }> {
-  if (!process.env.DEEPSEEK_API_KEY) return { juicio: juicioFallback(ins), iaOk: false };
+  if (!iaTextoConfigurada()) return { juicio: juicioFallback(ins), iaOk: false };
 
   // Preferimos los ítems de la API de MP (traen categoría UNSPSC oficial, señal fuerte de área).
   const itemsParaIA = ins.itemsMP.length > 0
@@ -324,8 +324,7 @@ Devuelve EXACTAMENTE este JSON:
 }`;
 
   try {
-    const completion = await getGemini().chat.completions.create({
-      model: 'deepseek-chat',
+    const completion = await crearChatIA({
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       temperature: 0.2,
       max_tokens: 1500,
@@ -486,7 +485,7 @@ function riesgoFallback(ins: Insumos, montoNeto: number | null, reservado: boole
 async function analizarRiesgoComercial(
   ins: Insumos, montoNeto: number | null, reservado: boolean, modalidadTipo: string,
 ): Promise<RiesgoComercial> {
-  if (!process.env.DEEPSEEK_API_KEY) return riesgoFallback(ins, montoNeto, reservado, modalidadTipo);
+  if (!iaTextoConfigurada()) return riesgoFallback(ins, montoNeto, reservado, modalidadTipo);
 
   const m = modalidadComercial(modalidadTipo);
   const reqTec = (ins.requisitosObj?.tecnicos || []).join(' | ');
@@ -539,8 +538,7 @@ Devuelve EXACTAMENTE este JSON:
 }`;
 
   try {
-    const completion = await getGemini().chat.completions.create({
-      model: 'deepseek-chat',
+    const completion = await crearChatIA({
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       temperature: 0.2, max_tokens: 1800, response_format: { type: 'json_object' },
     });

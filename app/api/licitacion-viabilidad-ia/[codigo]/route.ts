@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { analizarYGuardarViabilidadIA, calcularDocsHash } from '@/app/lib/viabilidad-ia';
 import { getAuthedUser, tomarLock, liberarLock, permitido } from '@/app/lib/api-auth';
+import { iaTextoConfigurada } from '@/app/lib/gemini';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -77,8 +78,10 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    return NextResponse.json({ error: 'GEMINI_API_KEY no configurada.' }, { status: 503 });
+  // El análisis PROMPT 2 corre sobre el proveedor de texto activo (GLM de Z.AI por
+  // defecto, o Gemini si se revierte). Basta con que ese proveedor tenga key.
+  if (!iaTextoConfigurada() && !process.env.GEMINI_API_KEY) {
+    return NextResponse.json({ error: 'No hay proveedor de IA configurado (ZAI_API_KEY/GEMINI_API_KEY).' }, { status: 503 });
   }
 
   // 2) Rate-limit por usuario: el análisis es caro (Gemini visión, hasta 5 min).

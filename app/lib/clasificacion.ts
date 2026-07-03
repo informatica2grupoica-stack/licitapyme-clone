@@ -18,7 +18,7 @@
 
 import pool from '@/app/lib/db';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
-import { getGemini } from '@/app/lib/gemini';
+import { crearChatIA } from '@/app/lib/gemini';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 export type TipoDocumento =
@@ -368,8 +368,7 @@ async function clasificarConDeepSeek(
 
   const userContent = `${portada}\n\nClasifica los siguientes ${docs.length} archivo${docs.length !== 1 ? 's' : ''} de la licitación.\n\n${docsTexto}\n\nDevuelve ÚNICAMENTE el objeto JSON según el esquema indicado.`;
 
-  const completion = await getGemini().chat.completions.create({
-    model: 'deepseek-chat',
+  const completion = await crearChatIA({
     messages: [
       { role: 'system', content: SYSTEM_PROMPT_CLASIFICADOR },
       { role: 'user', content: userContent },

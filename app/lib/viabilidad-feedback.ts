@@ -8,7 +8,7 @@
 // que un mal aprendizaje se revierte sin tocar el prompt base.
 
 import pool from '@/app/lib/db';
-import { getGemini } from '@/app/lib/gemini';
+import { crearChatIA, iaTextoConfigurada } from '@/app/lib/gemini';
 
 const MAX_REGLAS_INYECTADAS = 40; // tope de reglas que entran al prompt (las más recientes)
 
@@ -47,11 +47,9 @@ async function ensureTable(): Promise<void> {
 // se usa el comentario tal cual (fallback seguro: siempre queda algo accionable).
 async function destilarRegla(comentario: string, veredictoHumano: string | null, veredictoIA: string | null): Promise<string> {
   const limpio = comentario.trim();
-  if (!process.env.DEEPSEEK_API_KEY) return limpio;
+  if (!iaTextoConfigurada()) return limpio;
   try {
-    const client = getGemini();
-    const completion = await client.chat.completions.create({
-      model: 'deepseek-chat',
+    const completion = await crearChatIA({
       temperature: 0.2,
       max_tokens: 300,
       response_format: { type: 'json_object' },

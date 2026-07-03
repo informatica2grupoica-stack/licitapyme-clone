@@ -1,7 +1,7 @@
 // app/api/analizar-documento/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { extractTextFromDocument, descargarYExtraerTexto } from '@/app/lib/document-extraction';
+import { crearChatIA } from '@/app/lib/gemini';
 
 // ======================================================
 // TIPOS - DEFINICIONES COMPLETAS Y FLEXIBLES
@@ -91,15 +91,8 @@ interface LicitacionAnalisis {
 // CONFIGURACIÓN
 // ======================================================
 
-function getDeepSeek() {
-  return new OpenAI({
-    apiKey: process.env.DEEPSEEK_API_KEY ?? 'not-configured',
-    baseURL: 'https://api.deepseek.com',
-  });
-}
-
 // ======================================================
-// ANÁLISIS CON DEEPSEEK (VERSIÓN MEJORADA)
+// ANÁLISIS CON EL PROVEEDOR DE TEXTO ACTIVO (GLM de Z.AI por defecto)
 // ======================================================
 
 async function analizarConDeepSeekExperto(
@@ -145,8 +138,7 @@ Reglas de conversación:
 
     messages.push({ role: 'user', content: pregunta || '' });
 
-    const completion = await getDeepSeek().chat.completions.create({
-      model: 'deepseek-chat',
+    const completion = await crearChatIA({
       messages,
       temperature: 0.4,
       max_tokens: 2000,
@@ -269,8 +261,7 @@ Si el texto tiene errores de OCR, indícalo y haz el mejor esfuerzo.
 Formato: Usa **negritas** para los títulos y datos importantes. Extensión: 500-800 palabras.`;
   }
 
-  const completion = await getDeepSeek().chat.completions.create({
-    model: 'deepseek-chat',
+  const completion = await crearChatIA({
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }

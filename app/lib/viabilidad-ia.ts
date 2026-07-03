@@ -17,6 +17,7 @@ import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { cargarReglasAprendidas, bloqueReglasAprendidas } from '@/app/lib/viabilidad-feedback';
+import { crearChatIA, IA_TEXT_PROVIDER, iaTextoConfigurada, MODELO_TEXTO } from '@/app/lib/gemini';
 import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea } from '@/app/lib/planilla-costeo-parser';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -254,8 +255,63 @@ function repararJSONTruncado(txt: string): string | null {
   return head;
 }
 
-// ─── Llamada a Gemini (JSON forzado) ─────────────────────────────────────────────
+// ─── Llamada al LLM (JSON forzado) ───────────────────────────────────────────────
+// Proveedor activo (IA_TEXT_PROVIDER): GLM de Z.AI por defecto (chat compatible OpenAI),
+// o Gemini nativo si se revierte a deepseek/Gemini. GLM evita el 429 crónico de Gemini.
 async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promise<any> {
+  if (IA_TEXT_PROVIDER === 'zai') return llamarGlmJSON(systemPrompt, userPrompt);
+  return llamarGeminiNativoJSON(systemPrompt, userPrompt);
+}
+
+// GLM (Z.AI) con JSON forzado y reparación de truncado. El manifiesto va al final del
+// esquema, así que si se corta por longitud solo se pierde su cola (score/veredicto intactos).
+async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<any> {
+  const ESPERAS = [0, 5_000, 12_000];
+  let ultimoErr = '';
+  for (let intento = 0; intento < ESPERAS.length; intento++) {
+    if (intento > 0) await sleep(ESPERAS[intento]);
+    try {
+      const completion: any = await crearChatIA({
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.15,
+        stream: false,
+        max_tokens: 32_000,
+        response_format: { type: 'json_object' },
+      });
+      const finish = completion.choices?.[0]?.finish_reason;
+      let txt = String(completion.choices?.[0]?.message?.content ?? '');
+      txt = txt.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
+      const ini = txt.indexOf('{'); const fin = txt.lastIndexOf('}');
+      const candidato = ini !== -1 && fin > ini ? txt.slice(ini, fin + 1) : txt;
+      try {
+        return JSON.parse(candidato);
+      } catch (e) {
+        const reparado = repararJSONTruncado(ini !== -1 ? txt.slice(ini) : txt);
+        if (reparado) {
+          try {
+            const r = JSON.parse(reparado);
+            console.warn(`[viabilidad-ia] JSON truncado (finish=${finish}) reparado: se conservó hasta el último ítem completo.`);
+            return r;
+          } catch { /* la reparación tampoco parseó */ }
+        }
+        throw new Error(`GLM devolvió JSON inválido (finish=${finish}): ${String(e).slice(0, 120)}`);
+      }
+    } catch (e: any) {
+      const status = e?.status ?? 0;
+      ultimoErr = `${MODELO_TEXTO} ${status || ''}: ${String(e?.message ?? e).slice(0, 150)}`;
+      // Transitorios (429/503/timeout) → reintentar; permanentes → abortar.
+      const transitorio = status === 429 || status === 503 || status === 0 || /timeout|ETIMEDOUT/i.test(String(e?.message ?? ''));
+      if (!transitorio) break;
+      console.warn(`[viabilidad-ia] ${MODELO_TEXTO} transitorio, reintento ${intento + 1}/${ESPERAS.length}...`);
+    }
+  }
+  throw new Error(`GLM no respondió: ${ultimoErr}`);
+}
+
+async function llamarGeminiNativoJSON(systemPrompt: string, userPrompt: string): Promise<any> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY no configurada');
 

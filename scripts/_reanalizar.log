@@ -250,3 +250,720 @@ OK → suma_alzada  [costeo: plana/línea]
 [gemini-fileapi] gemini-flash-latest 503 transitorio, reintento 1/4...
 [gemini-fileapi] transcrito desde pág 1: 1836 chars (gemini-2.5-flash)
 [gemini-fileapi] transcrito desde pág 1: 3116 chars (gemini-flash-latest)
+[gemini-fileapi] transcrito desde pág 2: 2848 chars (gemini-flash-latest)
+[gemini-fileapi] transcrito desde pág 3: 2055 chars (gemini-flash-latest)
+[gemini-fileapi] bloque págs 1-3: 6743 chars
+[gemini-fileapi] pág 2 falló: The operation was aborted due to timeout
+[gemini-fileapi] transcrito desde pág 3: 208 chars (gemini-flash-latest)
+[gemini-fileapi] bloque págs 1-3: 3326 chars
+⚠️ PDF con poca capa de texto: 0 chars reales en 2 págs (densidad 0/pág) → tratado como escaneado
+⚠️ PDF escaneado (34 chars, 2 págs). Gemini File API (documento completo)...
+⚠️ PDF con poca capa de texto: 0 chars reales en 4 págs (densidad 0/pág) → tratado como escaneado
+⚠️ PDF escaneado (68 chars, 4 págs). Gemini File API (documento completo)...
+[gemini-fileapi] gemini-flash-latest 503 transitorio, reintento 1/4...
+[gemini-fileapi] transcrito desde pág 1: 6744 chars (gemini-2.5-flash)
+[gemini-fileapi] bloque págs 1-4: 6744 chars
+[gemini-fileapi] transcrito desde pág 1: 4886 chars (gemini-flash-latest)
+[gemini-fileapi] bloque págs 1-2: 4886 chars
+⚠️ PDF con poca capa de texto: 0 chars reales en 2 págs (densidad 0/pág) → tratado como escaneado
+⚠️ PDF escaneado (34 chars, 2 págs). Gemini File API (documento completo)...
+⚠️ PDF con poca capa de texto: 0 chars reales en 4 págs (densidad 0/pág) → tratado como escaneado
+⚠️ PDF escaneado (68 chars, 4 págs). Gemini File API (documento completo)...
+[gemini-fileapi] gemini-flash-latest 503 transitorio, reintento 1/4...
+[gemini-fileapi] transcrito desde pág 1: 5327 chars (gemini-2.5-flash)
+[gemini-fileapi] bloque págs 1-2: 5327 chars
+[gemini-fileapi] transcrito desde pág 1: 12555 chars (gemini-flash-latest)
+[gemini-fileapi] bloque págs 1-4: 12555 chars
+⚠️ PDF con poca capa de texto: 0 chars reales en 10 págs (densidad 0/pág) → tratado como escaneado
+⚠️ PDF escaneado (171 chars, 10 págs). Gemini File API (documento completo)...
+✅ PDF con texto: 9403 chars reales, 56 págs (densidad 168/pág)
+[gemini-fileapi] gemini-flash-latest 503 transitorio, reintento 1/4...
+[gemini-fileapi] transcrito desde pág 9: 247 chars (gemini-2.5-flash)
+[gemini-fileapi] bloque págs 9-10: 247 chars
+[gemini-fileapi] gemini-flash-latest 503 transitorio, reintento 1/4...
+[gemini-fileapi] transcrito desde pág 5: 0 chars (gemini-flash-latest)
+[gemini-fileapi] bloque págs 5-8 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] transcrito desde pág 1: 5825 chars (gemini-2.5-flash)
+[gemini-fileapi] bloque págs 1-4: 5825 chars
+[gemini-fileapi] transcrito desde pág 5: 3978 chars (gemini-flash-latest)
+[gemini-fileapi] transcrito desde pág 6: 12 chars (gemini-flash-latest)
+[gemini-fileapi] transcrito desde pág 7: 3848 chars (gemini-flash-latest)
+[gemini-fileapi] transcrito desde pág 8: 12 chars (gemini-flash-latest)
+[gemini-fileapi] bloque págs 5-8: 7856 chars
+[costeo] 1101222-1-LR26: manifiesto tiene 9 ítems
+[costeo] 1101222-1-LR26: generando Excel (suma_alzada, 1 hoja(s))…
+[costeo] 1101222-1-LR26: buffer 56759 bytes — subiendo a R2…
+📤 Documento subido a R2: https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/1101222-1-LR26/1783009300960_COSTEO_1101222-1-LR26_2026-07-02.xlsx
+[costeo] 1101222-1-LR26: R2 OK → https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/1101222-1-LR26/1783009300960_COSTEO_1101222-1-LR26_2026-07-02.xlsx
+[costeo] ✅ 1101222-1-LR26: Excel guardado (suma_alzada, 1 hoja(s), 9 ítems)
+OK → suma_alzada  [costeo: plana/línea]
+
+[9/51] 2660-54-LP26  (antes: suma_alzada) … [costeo] 2660-54-LP26: manifiesto tiene 5 ítems
+[costeo] 2660-54-LP26: generando Excel (suma_alzada, 1 hoja(s))…
+[costeo] 2660-54-LP26: buffer 57003 bytes — subiendo a R2…
+📤 Documento subido a R2: https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/2660-54-LP26/1783009358097_COSTEO_2660-54-LP26_2026-07-02.xlsx
+[costeo] 2660-54-LP26: R2 OK → https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/2660-54-LP26/1783009358097_COSTEO_2660-54-LP26_2026-07-02.xlsx
+[costeo] ✅ 2660-54-LP26: Excel guardado (suma_alzada, 1 hoja(s), 5 ítems)
+OK → suma_alzada  [costeo: plana/línea]
+
+[10/51] 3378-42-LR26  (antes: por_linea) … [costeo] 3378-42-LR26: manifiesto tiene 22 ítems
+[costeo] 3378-42-LR26: generando Excel (por_linea, 6 hoja(s))…
+[costeo] 3378-42-LR26: buffer 190530 bytes — subiendo a R2…
+📤 Documento subido a R2: https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/3378-42-LR26/1783009438626_COSTEO_3378-42-LR26_2026-07-02.xlsx
+[costeo] 3378-42-LR26: R2 OK → https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/3378-42-LR26/1783009438626_COSTEO_3378-42-LR26_2026-07-02.xlsx
+[costeo] ✅ 3378-42-LR26: Excel guardado (por_linea, 6 hoja(s), 22 ítems)
+OK → por_linea  [costeo: plana/línea]
+
+[11/51] 1336-12-LP26  (antes: suma_alzada) … [costeo] 1336-12-LP26: manifiesto tiene 1 ítems
+[costeo] 1336-12-LP26: generando Excel (suma_alzada, 1 hoja(s))…
+[costeo] 1336-12-LP26: buffer 56376 bytes — subiendo a R2…
+📤 Documento subido a R2: https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/1336-12-LP26/1783009504767_COSTEO_1336-12-LP26_2026-07-02.xlsx
+[costeo] 1336-12-LP26: R2 OK → https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/1336-12-LP26/1783009504767_COSTEO_1336-12-LP26_2026-07-02.xlsx
+[costeo] ✅ 1336-12-LP26: Excel guardado (suma_alzada, 1 hoja(s), 1 ítems)
+OK → suma_alzada  [costeo: plana/línea]
+
+[12/51] 4988-25-LE26  (antes: suma_alzada) … ✅ Excel: 84488 caracteres, 5 ítems de 2 hojas
+ERROR: Gemini devolvió JSON inválido: SyntaxError: Unexpected non-whitespace character after JSON at position 11940 (line 274 column 1)
+
+[13/51] 1042-6-LP26  (antes: suma_alzada) … [costeo] 1042-6-LP26: manifiesto tiene 11 ítems
+[costeo] 1042-6-LP26: generando Excel (suma_alzada, 1 hoja(s))…
+[costeo] 1042-6-LP26: buffer 57121 bytes — subiendo a R2…
+📤 Documento subido a R2: https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/1042-6-LP26/1783009633517_COSTEO_1042-6-LP26_2026-07-02.xlsx
+[costeo] 1042-6-LP26: R2 OK → https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/1042-6-LP26/1783009633517_COSTEO_1042-6-LP26_2026-07-02.xlsx
+[costeo] ✅ 1042-6-LP26: Excel guardado (suma_alzada, 1 hoja(s), 11 ítems)
+OK → suma_alzada  [costeo: plana/línea]
+
+[14/51] 584264-26-LR26  (antes: suma_alzada) … [viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 2), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+ERROR: Gemini saturado (reintentos agotados): gemini-2.5-flash 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to 
+
+[15/51] 1191688-46-LP26  (antes: suma_alzada) … ✅ Excel: 84602 caracteres, 3 ítems de 2 hojas
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 2), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+ERROR: Gemini saturado (reintentos agotados): gemini-2.5-flash 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to 
+
+[16/51] 4988-27-LE26  (antes: suma_alzada) … Warning: TT: undefined function: 21
+⚠️ PDF con poca capa de texto: 0 chars reales en 1 págs (densidad 0/pág) → tratado como escaneado
+⚠️ PDF escaneado (22 chars, 1 págs). Gemini File API (documento completo)...
+[gemini-fileapi] bloque págs 1-1 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 1-1: 0 chars
+[gemini-vision] gemini-2.5-flash 429 transitorio, reintentando (1/4)...
+[gemini-vision] gemini-flash-latest 429 transitorio, reintentando (2/4)...
+[gemini-vision] gemini-2.5-flash 429 transitorio, reintentando (3/4)...
+[gemini-vision] gemini-flash-latest 429 transitorio, reintentando (4/4)...
+[OCR] Gemini Vision falló: Error: Gemini Vision no respondió tras reintentos. Último error: gemini-flash-latest 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage your project and billing. Learn more at https://ai.
+    at extraerTextoConGeminiVision (D:\licitapyme-clone\app\lib\gemini.ts:171:9)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async extractTextFromDocument (D:\licitapyme-clone\app\lib\document-extraction.ts:321:13)
+    at async _descargarYExtraerTextoImpl (D:\licitapyme-clone\app\lib\document-extraction.ts:409:18)
+✅ Excel: 85320 caracteres, 5 ítems de 2 hojas
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+Warning: TT: undefined function: 21
+⚠️ PDF con poca capa de texto: 0 chars reales en 1 págs (densidad 0/pág) → tratado como escaneado
+⚠️ PDF escaneado (22 chars, 1 págs). Gemini File API (documento completo)...
+[gemini-fileapi] bloque págs 1-1 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 1-1: 0 chars
+[gemini-vision] OCR completado: 1922 chars (intento 0)
+ERROR: Gemini devolvió JSON inválido: SyntaxError: Unexpected non-whitespace character after JSON at position 11203 (line 261 column 1)
+
+[17/51] 4494-33-LE26  (antes: suma_alzada) … [costeo] 4494-33-LE26: manifiesto tiene 2 ítems
+[costeo] 4494-33-LE26: generando Excel (suma_alzada, 1 hoja(s))…
+[costeo] 4494-33-LE26: buffer 56442 bytes — subiendo a R2…
+📤 Documento subido a R2: https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/4494-33-LE26/1783010527731_COSTEO_4494-33-LE26_2026-07-02.xlsx
+[costeo] 4494-33-LE26: R2 OK → https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/4494-33-LE26/1783010527731_COSTEO_4494-33-LE26_2026-07-02.xlsx
+[costeo] ✅ 4494-33-LE26: Excel guardado (suma_alzada, 1 hoja(s), 2 ítems)
+OK → suma_alzada  [costeo: plana/línea]
+
+[18/51] 2446-178-LP26  (antes: por_linea) … ⚠️ PDF con poca capa de texto: 0 chars reales en 52 págs (densidad 0/pág) → tratado como escaneado
+⚠️ PDF escaneado (927 chars, 52 págs). Gemini File API (documento completo)...
+[gemini-fileapi] gemini-flash-latest 503 transitorio, reintento 1/4...
+[gemini-fileapi] transcrito desde pág 5: 8056 chars (gemini-flash-latest)
+[gemini-fileapi] bloque págs 5-8: 8056 chars
+[gemini-fileapi] transcrito desde pág 9: 4123 chars (gemini-flash-latest)
+[gemini-fileapi] bloque págs 9-12: 4123 chars
+[gemini-fileapi] bloque págs 13-16 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 13-16 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 13 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 17-20 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 17-20 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 17 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 14 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 18 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 15 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 16 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 13-16: 0 chars
+[gemini-fileapi] transcrito desde pág 1: 12358 chars (gemini-2.5-flash)
+[gemini-fileapi] bloque págs 1-4: 12358 chars
+[gemini-fileapi] pág 19 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 21-24 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 21-24 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 20 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 17-20: 0 chars
+[gemini-fileapi] bloque págs 25-28 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 25-28 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 21 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 25 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 29-32 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 29-32 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 22 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 26 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 29 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 23 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 27 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 30 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 28 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 25-28: 0 chars
+[gemini-fileapi] pág 24 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 21-24: 0 chars
+[gemini-fileapi] bloque págs 37-40 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 37-40 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] bloque págs 33-36 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 33-36 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 37 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 33 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 38 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 31 falló: File API: subida sin nombre de archivo
+[gemini-fileapi] pág 39 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 34 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 35 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 40 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 37-40: 0 chars
+[gemini-fileapi] pág 32 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 29-32: 0 chars
+[gemini-fileapi] bloque págs 41-44 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 41-44 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 36 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 33-36: 0 chars
+[gemini-fileapi] bloque págs 45-48 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 45-48 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 41 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 42 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 49-52 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 49-52 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 45 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 49 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 46 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 43 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 44 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 41-44: 0 chars
+[gemini-fileapi] pág 50 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 47 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 51 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 48 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 45-48: 0 chars
+[gemini-fileapi] pág 52 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 49-52: 0 chars
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[costeo] 2446-178-LP26: manifiesto tiene 17 ítems
+[costeo] 2446-178-LP26: generando Excel (suma_alzada, 1 hoja(s))…
+[costeo] 2446-178-LP26: buffer 57153 bytes — subiendo a R2…
+📤 Documento subido a R2: https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/2446-178-LP26/1783010684865_COSTEO_2446-178-LP26_2026-07-02.xlsx
+[costeo] 2446-178-LP26: R2 OK → https://pub-722f3e1c29d74bcb8ee49776fe8a2c0d.r2.dev/2446-178-LP26/1783010684865_COSTEO_2446-178-LP26_2026-07-02.xlsx
+[costeo] ✅ 2446-178-LP26: Excel guardado (suma_alzada, 1 hoja(s), 17 ítems)
+OK → suma_alzada  ⟵ CAMBIÓ  [costeo: plana/línea]
+
+[19/51] 3117-64-LE26  (antes: suma_alzada) … ⚠️ PDF con poca capa de texto: 0 chars reales en 20 págs (densidad 0/pág) → tratado como escaneado
+⚠️ PDF escaneado (351 chars, 20 págs). Gemini File API (documento completo)...
+[gemini-fileapi] bloque págs 1-4 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 1-4 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 1 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 5-8 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 5-8 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 2 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 9-12 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 9-12 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 9 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 5 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 6 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 3 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 10 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 4 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 1-4: 0 chars
+[gemini-fileapi] bloque págs 13-16 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 13-16 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 7 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 13 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 11 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 12 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 9-12: 0 chars
+[gemini-fileapi] pág 8 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 5-8: 0 chars
+[gemini-fileapi] pág 14 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 15 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 16 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 13-16: 0 chars
+[gemini-fileapi] bloque págs 17-20 error: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 17-20 vacío (posible RECITATION) → reintento página por página
+[gemini-fileapi] pág 17 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 18 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 19 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] pág 20 falló: File API start 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to AI Studio at https://ai.studio/projects to manage y
+[gemini-fileapi] bloque págs 17-20: 0 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 3442 caracteres, confianza: alta
+[ocr-bloques] págs 1-2: 3442 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 3405 caracteres, confianza: alta
+[ocr-bloques] págs 3-4: 3405 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 2672 caracteres, confianza: alta
+[ocr-bloques] págs 5-6: 2672 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 2223 caracteres, confianza: alta
+[ocr-bloques] págs 7-8: 2223 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 2726 caracteres, confianza: alta
+[ocr-bloques] págs 9-10: 2726 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 3649 caracteres, confianza: alta
+[ocr-bloques] págs 11-12: 3649 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 3612 caracteres, confianza: alta
+[ocr-bloques] págs 13-14: 3612 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 3421 caracteres, confianza: alta
+[ocr-bloques] págs 15-16: 3421 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 3191 caracteres, confianza: alta
+[ocr-bloques] págs 17-18: 3191 chars
+🔄 Enviando a OCR.space para reconocimiento...
+✅ OCR completado: 1111 caracteres, confianza: alta
+[ocr-bloques] págs 19-20: 1111 chars
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 2), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+ERROR: Gemini saturado (reintentos agotados): gemini-2.5-flash 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to 
+
+[20/51] 2732-19-LE26  (antes: suma_alzada) … [viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 2), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+ERROR: Gemini saturado (reintentos agotados): gemini-2.5-flash 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to 
+
+[21/51] 1211839-41-LE26  (antes: suma_alzada) … [viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 2), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+ERROR: Gemini saturado (reintentos agotados): gemini-2.5-flash 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to 
+
+[22/51] 979-27-LE26  (antes: por_linea) … [viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 2), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+ERROR: Gemini saturado (reintentos agotados): gemini-2.5-flash 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to 
+
+[23/51] 1180825-13-LP26  (antes: por_linea) … [viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 2), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+ERROR: Gemini saturado (reintentos agotados): gemini-2.5-flash 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to 
+
+[24/51] 3723-5-LE26  (antes: suma_alzada) … [viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 2), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+ERROR: Gemini saturado (reintentos agotados): gemini-2.5-flash 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to 
+
+[25/51] 593951-31-LP26  (antes: suma_alzada) … [viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 2), espero 30s…
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+ERROR: Gemini saturado (reintentos agotados): gemini-2.5-flash 429: {
+  "error": {
+    "code": 429,
+    "message": "Your prepayment credits are depleted. Please go to 
+
+[26/51] 2289-19-LR26  (antes: suma_alzada) … ✅ Word (.docx): 19 caracteres extraídos
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...
+[viabilidad-ia] gemini-2.5-flash 429 transitorio, reintento 5/5...
+saturado (intento 1), espero 30s…
+✅ Word (.docx): 19 caracteres extraídos
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 1/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 2/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 3/5...
+[viabilidad-ia] gemini-flash-latest 429 transitorio, reintento 4/5...

@@ -17,7 +17,7 @@
 // persistida y compartida entre usuarios (tabla prefiltro_licitacion).
 
 import pool from '@/app/lib/db';
-import { getGemini } from '@/app/lib/gemini';
+import { crearChatIA, iaTextoConfigurada, MODELO_TEXTO } from '@/app/lib/gemini';
 import { leerCache } from '@/app/lib/licitaciones-cache';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ interface MetaLic {
   itemsTexto: string;       // producto/desc/categoría concatenados (acotado)
 }
 
-const MODELO = 'deepseek-chat';
+const MODELO = MODELO_TEXTO;
 const PISO_NETO_PREFILTRO = 8_000_000; // < $8M neto → EXCLUIDO por presupuesto
 const LOTE_IA = 15;                    // licitaciones por llamada a DeepSeek
 
@@ -337,12 +337,11 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
     pasada: null, palabra_negativa: null, destino: 'FASE_1',
   });
 
-  if (paraIA.length > 0 && process.env.DEEPSEEK_API_KEY) {
+  if (paraIA.length > 0 && iaTextoConfigurada()) {
     for (let i = 0; i < paraIA.length; i += LOTE_IA) {
       const chunk = paraIA.slice(i, i + LOTE_IA);
       try {
-        const completion = await getGemini().chat.completions.create({
-          model: MODELO,
+        const completion = await crearChatIA({
           messages: [
             { role: 'system', content: SYSTEM_PROMPT },
             { role: 'user', content: construirUserPrompt(chunk) },

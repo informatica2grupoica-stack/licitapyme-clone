@@ -234,6 +234,30 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Aún sin análisis de viabilidad</p>}
         </PanelCard>
 
+        <PanelCard title="Proyectos por estado" icon={<Layers3 size={15} className="text-indigo-500" />}>
+          {pipeData.length > 0 ? (
+            <div className="flex items-center justify-center gap-8">
+              <ResponsiveContainer width={170} height={170}>
+                <PieChart>
+                  <Pie data={pipeData} cx="50%" cy="50%" innerRadius={48} outerRadius={78} dataKey="n" paddingAngle={2}>
+                    {pipeData.map((v, i) => <Cell key={i} fill={v.color} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5">
+                {pipeData.map(p => (
+                  <div key={p.etapa} className="flex items-center gap-2">
+                    <div style={{ background: p.color }} className="w-2.5 h-2.5 rounded-sm flex-shrink-0" />
+                    <span className="text-xs font-medium text-slate-700">{p.etapa}</span>
+                    <span className="text-xs text-slate-400 tabular-nums ml-auto">{p.n}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : <p className="text-sm text-slate-400 text-center py-10">Sin datos</p>}
+        </PanelCard>
+
         <PanelCard title="Prefiltro de perfil" icon={<ListChecks size={15} className="text-indigo-500" />}>
           {prefData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
@@ -265,6 +289,49 @@ function VistaAdmin({ data }: { data: DashData }) {
             </ResponsiveContainer>
           ) : <p className="text-sm text-slate-400 text-center py-10">Sin negocios en pipeline</p>}
         </PanelCard>
+
+        {(a.porPerfil?.length ?? 0) > 0 && (
+          <PanelCard title="Asignadas por perfil" icon={<Users size={15} className="text-indigo-500" />}>
+            {a.porPerfil.length > 0 ? (
+              <div className="flex items-center justify-center gap-8">
+                <ResponsiveContainer width={180} height={180}>
+                  <PieChart>
+                    <Pie
+                      data={a.porPerfil.map((p, i) => ({
+                        name: p.nombre || p.email || 'Sin nombre',
+                        value: p.total,
+                        color: ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444', '#8b5cf6', '#ec4899'][i % 10],
+                      }))}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={80}
+                      dataKey="value"
+                      paddingAngle={2}
+                    >
+                      {a.porPerfil.map((p, i) => (
+                        <Cell key={i} fill={['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444', '#8b5cf6', '#ec4899'][i % 10]} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-1.5">
+                  {a.porPerfil.map((p, i) => (
+                    <div key={p.id} className="flex items-center gap-2">
+                      <div
+                        style={{ background: ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444', '#8b5cf6', '#ec4899'][i % 10] }}
+                        className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                      />
+                      <span className="text-xs font-medium text-slate-700">{p.nombre || p.email}</span>
+                      <span className="text-xs text-slate-400 tabular-nums ml-auto">{p.total}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </PanelCard>
+        )}
       </div>
 
       {/* Listas */}

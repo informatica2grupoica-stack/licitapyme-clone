@@ -100,17 +100,45 @@ export interface AnalisisIALicitacion {
   raw?: string;
 }
 
-// ─── Cliente DeepSeek (análisis de texto) ────────────────────────────────────
+// ─── Proveedor de razonamiento de texto (clasificación/viabilidad/chat/…) ─────
+// Por defecto GLM de Z.AI (glm-4.6). Se puede volver a DeepSeek con IA_TEXT_PROVIDER=deepseek.
+// Ambos exponen un endpoint compatible con OpenAI, así que el mismo cliente sirve.
+type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean };
+const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
+  zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: 'glm-4.6',      sinThinking: true  },
+  deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat', sinThinking: false },
+};
+export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();
+function cfgTexto(): ProveedorTexto { return PROVEEDORES_TEXTO[IA_TEXT_PROVIDER] ?? PROVEEDORES_TEXTO.zai; }
+
+// Modelo del proveedor activo (glm-4.6 por defecto). Exportado para etiquetar resultados.
+export const MODELO_TEXTO = cfgTexto().model;
+
+// ¿Hay key para el proveedor de texto activo? Reemplaza los checks de DEEPSEEK_API_KEY.
+export function iaTextoConfigurada(): boolean { return Boolean(process.env[cfgTexto().keyEnv]); }
+
 export function getGemini() {
+  const cfg = cfgTexto();
   return new OpenAI({
-    apiKey:  process.env.DEEPSEEK_API_KEY ?? 'not-configured',
-    baseURL: 'https://api.deepseek.com',
+    apiKey:  process.env[cfg.keyEnv] ?? 'not-configured',
+    baseURL: cfg.baseURL,
     timeout: 120_000,
     maxRetries: 0,
   });
 }
 
-const MODELO = 'deepseek-chat';
+// Crea un chat completion en el proveedor de texto ACTIVO. Fuerza el modelo correcto
+// (ignora cualquier `model` heredado de la época DeepSeek) e inyecta thinking=disabled en
+// GLM para respuestas rápidas y sin gasto de razonamiento. Úsalo en vez de
+// getGemini().chat.completions.create(...) en todo el código de análisis.
+export function crearChatIA(params: any) {
+  const cfg = cfgTexto();
+  const body: any = { ...params, model: cfg.model };
+  if (cfg.sinThinking) body.thinking = { type: 'disabled' };
+  return getGemini().chat.completions.create(body);
+}
+
+const MODELO = MODELO_TEXTO;
 
 // ─── Gemini Vision OCR (PDFs escaneados) ─────────────────────────────────────
 // Usa la API nativa de Gemini para leer PDFs con imágenes escaneadas.
@@ -350,7 +378,6 @@ async function transcribirPdfFileAPI(buffer: Buffer, startPageAbs: number): Prom
 
 // ─── Llamada con reintentos (solo para 429 transitorio) ───────────────────────
 async function llamarGemini(systemPrompt: string, userPrompt: string): Promise<string> {
-  const client = getGemini();
   const errores: string[] = [];
 
   for (let intento = 0; intento < 4; intento++) {
@@ -364,8 +391,7 @@ async function llamarGemini(systemPrompt: string, userPrompt: string): Promise<s
     try {
       console.log(`[gemini] Llamando ${MODELO} (intento ${intento})...`);
 
-      const completion = await client.chat.completions.create({
-        model: MODELO,
+      const completion = await crearChatIA({
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user',   content: userPrompt   },

@@ -16,7 +16,7 @@
 // DeepSeek (getGemini() del proyecto apunta a DeepSeek).
 
 import pool from './db';
-import { getGemini } from './gemini';
+import { crearChatIA, MODELO_TEXTO } from './gemini';
 
 // ~30k tokens de contexto. Suficiente para el corpus de una licitación típica; el
 // exceso se trunca (el chat rápido de un documento casi nunca lo alcanza).
@@ -25,7 +25,6 @@ export const MAX_CHARS_CONTEXTO = 120_000;
 const MAX_TURNOS = 6;
 
 const MODELO_GEMINI = 'gemini-2.5-flash';
-const MODELO_DEEPSEEK = 'deepseek-chat';
 
 // Cada documento se envuelve con este marcador para que el modelo pueda citar de qué
 // documento salió cada dato. Mismo formato en el corpus y en el doc individual.
@@ -209,9 +208,8 @@ async function responderConGemini(contexto: string, historial: MensajeHistorial[
   throw new Error(`Gemini no respondió: ${ultimoErr}`);
 }
 
-// DeepSeek como respaldo (getGemini() del proyecto apunta a DeepSeek).
-async function responderConDeepSeek(contexto: string, historial: MensajeHistorial[], pregunta: string): Promise<string> {
-  const client = getGemini();
+// Respaldo con el proveedor de texto activo (GLM de Z.AI por defecto; DeepSeek si se revierte).
+async function responderConIA(contexto: string, historial: MensajeHistorial[], pregunta: string): Promise<string> {
   const messages = [
     { role: 'system' as const, content: `${REGLAS}\n\nDOCUMENTOS DE LA LICITACIÓN:\n\n${contexto}` },
     ...historialParaModelo(historial).map(h => ({
@@ -220,15 +218,14 @@ async function responderConDeepSeek(contexto: string, historial: MensajeHistoria
     })),
     { role: 'user' as const, content: pregunta },
   ];
-  const completion = await client.chat.completions.create({
-    model: MODELO_DEEPSEEK,
+  const completion = await crearChatIA({
     messages,
     temperature: 0.2,
     stream: false,
     max_tokens: 4_000,
   });
   const texto = (completion.choices[0]?.message?.content ?? '').trim();
-  if (!texto) throw new Error('DeepSeek: respuesta vacía');
+  if (!texto) throw new Error(`${MODELO_TEXTO}: respuesta vacía`);
   return texto;
 }
 
@@ -238,12 +235,13 @@ export async function responderChat(opts: {
   pregunta: string;
 }): Promise<{ respuesta: string; modelo: string }> {
   const { contexto, historial, pregunta } = opts;
+  // Principal: GLM de Z.AI (Gemini nativo está sujeto a cuota/429). Respaldo: Gemini.
   try {
+    const respuesta = await responderConIA(contexto, historial, pregunta);
+    return { respuesta, modelo: MODELO_TEXTO };
+  } catch (e) {
+    console.warn('[chat-licitacion] GLM falló, uso Gemini de respaldo:', e instanceof Error ? e.message : e);
     const respuesta = await responderConGemini(contexto, historial, pregunta);
     return { respuesta, modelo: MODELO_GEMINI };
-  } catch (e) {
-    console.warn('[chat-licitacion] Gemini falló, uso DeepSeek de respaldo:', e instanceof Error ? e.message : e);
-    const respuesta = await responderConDeepSeek(contexto, historial, pregunta);
-    return { respuesta, modelo: MODELO_DEEPSEEK };
   }
 }

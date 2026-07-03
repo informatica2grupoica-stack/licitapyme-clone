@@ -339,6 +339,125 @@ function PrefiltroBadge({ decision, categoria, motivo, confianza }: {
   );
 }
 
+// ── Fila lista compacta ──────────────────────────────────────────────────────
+function LicitacionListItem({
+  alerta, onDelete, onMarcarLeida, onDescartar, onToggleSelect, onAsignar, selected = false, keywords = [],
+}: {
+  alerta: Alerta;
+  onDelete: (id: number) => void;
+  onMarcarLeida: (id: number) => void;
+  onDescartar: (alerta: Alerta, descartar: boolean) => void;
+  onToggleSelect: (id: number) => void;
+  onAsignar: (alerta: Alerta) => void;
+  selected?: boolean;
+  keywords?: string[];
+}) {
+  const noLeida = !alerta.leida;
+
+  return (
+    <div
+      onClick={() => noLeida && onMarcarLeida(alerta.id)}
+      className={`group relative rounded-lg px-4 py-3 border transition-all cursor-pointer ${
+        selected
+          ? 'bg-indigo-100 border-indigo-300'
+          : alerta.descartada
+          ? 'bg-slate-100 border-slate-200'
+          : 'bg-indigo-50 border-indigo-200 hover:bg-white'
+      }`}>
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleSelect(alerta.id); }}
+          className="flex-shrink-0 text-slate-400 hover:text-indigo-600 transition-colors"
+        >
+          {selected ? <CheckSquare size={16} className="text-indigo-600" /> : <Square size={16} />}
+        </button>
+
+        <div className="flex-shrink-0 w-32">
+          <div className="flex items-center gap-1 mb-1">
+            <TipoBadge codigo={alerta.licitacion_codigo} />
+            <EstadoBadge estado={alerta.licitacion_estado} />
+          </div>
+          <span className="text-[10px] font-mono text-slate-500">{alerta.licitacion_codigo}</span>
+        </div>
+
+        <Link
+          href={`/licitacion/${encodeURIComponent(alerta.licitacion_codigo)}`}
+          onClick={(e) => e.stopPropagation()}
+          className="flex-1 min-w-0"
+        >
+          <p className="text-[12px] font-semibold text-slate-900 truncate hover:text-indigo-600 transition-colors">
+            <Resaltar texto={alerta.licitacion_nombre || alerta.licitacion_codigo} keywords={keywords} />
+          </p>
+          {alerta.licitacion_organismo && (
+            <p className="text-[10px] text-slate-500 truncate">{alerta.licitacion_organismo}</p>
+          )}
+        </Link>
+
+        <div className="flex-shrink-0 w-32 text-right">
+          {alerta.licitacion_monto && alerta.licitacion_monto > 0 && (
+            <p className="text-[11px] font-bold text-emerald-700">{fmt(alerta.licitacion_monto)}</p>
+          )}
+          <div className="mt-0.5">
+            <DiasCountdown cierre={alerta.licitacion_cierre} />
+          </div>
+        </div>
+
+        <div className="flex-shrink-0 flex items-center gap-1.5">
+          {alerta.viabilidad_semaforo && (
+            <ViabilidadBadge semaforo={alerta.viabilidad_semaforo} score={alerta.viabilidad_score} />
+          )}
+          {alerta.tiene_documentos && (
+            <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-teal-700 bg-teal-100 px-1.5 py-0.5 rounded-full border border-teal-200">
+              <FileText size={8} /> Docs
+            </span>
+          )}
+          {alerta.prefiltro_decision && (
+            <PrefiltroBadge decision={alerta.prefiltro_decision} categoria={alerta.prefiltro_categoria} />
+          )}
+          {alerta.asignada && (
+            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-200">
+              ✓
+            </span>
+          )}
+        </div>
+
+        <div className="flex-shrink-0 flex items-center gap-2">
+          <button
+            onClick={(e) => { e.stopPropagation(); onDescartar(alerta, !alerta.descartada); }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors border ${
+              alerta.descartada
+                ? 'bg-emerald-100 border-emerald-300 text-emerald-700 hover:bg-emerald-200'
+                : 'bg-red-100 border-red-300 text-red-700 hover:bg-red-200'
+            }`}
+          >
+            {alerta.descartada ? <Undo2 size={12} /> : <EyeOff size={12} />}
+            {alerta.descartada ? 'Restaurar' : 'Descartar'}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onAsignar(alerta); }}
+            className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors border ${
+              alerta.asignada
+                ? 'bg-emerald-100 border-emerald-300 text-emerald-700 hover:bg-emerald-200'
+                : 'bg-indigo-100 border-indigo-300 text-indigo-700 hover:bg-indigo-200'
+            }`}
+          >
+            <UserPlus size={12} />
+            {alerta.asignada ? 'Reasignar' : 'Asignar'}
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(alerta.id); }}
+            className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+            title="Eliminar"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Card licitación ───────────────────────────────────────────────────────────
 function LicitacionCard({
   alerta, onDelete, onMarcarLeida, onDescartar, onToggleSelect, onAsignar, selected = false, keywords = [],
@@ -1051,6 +1170,7 @@ export default function RadarPage() {
   const [tab,           setTab]           = useState<'radar' | 'keywords'>('radar');
   const [filtrosOpen,   setFiltrosOpen]   = useState(true);
   const [exportando,    setExportando]    = useState(false);
+  const [vistaRadar,    setVistaRadar]    = useState<'tarjetas' | 'lista'>('tarjetas');
 
   // Descarga masiva de documentos
   const [descargaInfo,   setDescargaInfo]   = useState<{ pendientes: number; total: number } | null>(null);
@@ -2207,9 +2327,29 @@ export default function RadarPage() {
                   </div>
                 )}
 
-                {/* Seleccionar toda la página */}
-                {alertasPagina.length > 0 && (
-                  <div className="px-1">
+                {/* Toggle de vista + Seleccionar página */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
+                    <button
+                      onClick={() => setVistaRadar('tarjetas')}
+                      className={`px-3 py-1.5 text-[11px] font-semibold rounded transition-colors ${
+                        vistaRadar === 'tarjetas' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                      title="Vista tarjetas"
+                    >
+                      Tarjetas
+                    </button>
+                    <button
+                      onClick={() => setVistaRadar('lista')}
+                      className={`px-3 py-1.5 text-[11px] font-semibold rounded transition-colors ${
+                        vistaRadar === 'lista' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                      }`}
+                      title="Vista lista compacta"
+                    >
+                      Lista
+                    </button>
+                  </div>
+                  {alertasPagina.length > 0 && (
                     <button
                       onClick={() => {
                         const ids = alertasPagina.map(a => a.id);
@@ -2226,8 +2366,8 @@ export default function RadarPage() {
                         ? <><CheckSquare size={14} className="text-indigo-600" /> Quitar selección de la página</>
                         : <><Square size={14} /> Seleccionar esta página ({alertasPagina.length})</>}
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Lista */}
                 {alertasFiltradas.length === 0 ? (
@@ -2244,8 +2384,20 @@ export default function RadarPage() {
                   </div>
                 ) : (
                   <>
-                    <div className="space-y-3">
-                      {alertasPagina.map(a => (
+                    <div className={vistaRadar === 'lista' ? 'space-y-1' : 'space-y-3'}>
+                      {alertasPagina.map(a => vistaRadar === 'lista' ? (
+                        <LicitacionListItem
+                          key={a.id}
+                          alerta={a}
+                          onDelete={eliminarAlerta}
+                          onMarcarLeida={marcarLeida}
+                          onDescartar={onDescartarUna}
+                          onToggleSelect={toggleSel}
+                          onAsignar={abrirAsignarUna}
+                          selected={sel.has(a.id)}
+                          keywords={keywordStrings}
+                        />
+                      ) : (
                         <LicitacionCard
                           key={a.id}
                           alerta={a}
