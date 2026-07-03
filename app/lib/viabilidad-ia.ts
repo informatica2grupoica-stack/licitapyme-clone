@@ -1009,15 +1009,19 @@ export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIA
   return result;
 }
 
-// Recalcula el gate de presupuesto con la regla de las bases, usando el monto REAL leído
-// (bruto preferente; el piso $8M se refiere al presupuesto publicado). Devuelve null cuando
-// no hay monto fiable → el llamador respeta el gate del modelo. El "salvo ≤5 especializados"
-// no es computable aquí, así que solo aplicamos el "salvo <15 productos".
-function gatePresupuestoDeterminista(bruto: number | null, neto: number | null, nProductos: number): string | null {
-  const monto = (bruto && bruto > 0) ? bruto : (neto && neto > 0) ? neto : null;
-  if (monto == null) return null;              // reservado/desconocido → respetar el modelo
-  if (monto < 8_000_000) return 'NO_CALIFICA';
-  if (monto <= 15_000_000) {
+// Recalcula el gate de presupuesto con la regla de las bases (PROMPT 2, PASO 0.B). El piso
+// se aplica SOBRE EL NETO: "Normaliza a neto (÷1,19) … < $8.000.000 → NO_CALIFICA". Por eso
+// usamos NETO preferente; si el modelo solo trajo bruto (con IVA), derivamos el neto (÷1,19),
+// salvo régimen exento/FORA donde neto = bruto. Devuelve null cuando no hay monto fiable → el
+// llamador respeta el gate del modelo. El "salvo ≤5 especializados" no es computable aquí, así
+// que solo aplicamos el "salvo <15 productos".
+function gatePresupuestoDeterminista(bruto: number | null, neto: number | null, nProductos: number, exento = false): string | null {
+  const montoNeto = (neto && neto > 0)
+    ? neto
+    : (bruto && bruto > 0) ? Math.round(exento ? bruto : bruto / 1.19) : null;
+  if (montoNeto == null) return null;              // reservado/desconocido → respetar el modelo
+  if (montoNeto < 8_000_000) return 'NO_CALIFICA';
+  if (montoNeto <= 15_000_000) {
     if (nProductos > 0 && nProductos < 15) return 'OK'; // pocos productos: no lo condicionamos
     return 'DESCARTE_CONDICIONAL';
   }

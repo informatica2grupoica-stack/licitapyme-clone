@@ -791,6 +791,51 @@ export async function calcularViabilidad(codigo: string): Promise<ViabilidadResu
 // ─── Persistencia ──────────────────────────────────────────────────────────────────
 export async function guardarViabilidad(codigo: string, v: ViabilidadResult): Promise<void> {
   const sv = v.score_viabilidad;
+  const informeHibrido = { ...v.informe_ejecutivo, _riesgo_comercial: v.riesgo_comercial ?? null };
+
+  // LA IA MANDA (fuente única del veredicto). Este score híbrido es solo CONTROL. Si ya
+  // existe un análisis IA (PROMPT 2) para este código, NO debemos pisar el `_informe_ia`
+  // ni degradar las columnas del radar (score/semáforo/área/modelo=ia+…). Antes, el
+  // ON DUPLICATE KEY UPDATE con informe_ejecutivo=VALUES() y modelo='hibrido+…' borraba el
+  // análisis IA cuando el pipeline de triaje re-tocaba una licitación ya analizada → la
+  // licitación desaparecía de "Analizadas". Aquí lo preservamos.
+  let iaBlob: any = null;
+  let iaModelo: string | null = null;
+  try {
+    const [rows] = await pool.query(
+      `SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+    const row = (rows as any[])[0];
+    if (row) {
+      const ie = typeof row.informe_ejecutivo === 'string' ? JSON.parse(row.informe_ejecutivo) : (row.informe_ejecutivo || {});
+      if (ie && ie._informe_ia) { iaBlob = ie._informe_ia; iaModelo = ie._modelo_ia ?? null; }
+    }
+  } catch { /* si falla la lectura, seguimos con el guardado híbrido normal */ }
+
+  if (iaBlob) {
+    // IA presente → conservar su veredicto y su blob; solo refrescar las columnas propias
+    // del análisis híbrido (desglose/penalizaciones/trigger/notas). NO tocar
+    // score_total/semaforo/area_negocio/confianza_analisis/modelo (los posee la IA).
+    const informeMerge: any = { ...informeHibrido, _informe_ia: iaBlob };
+    if (iaModelo) informeMerge._modelo_ia = iaModelo;
+    await pool.query(
+      `UPDATE viabilidad_licitacion
+          SET descalificacion_automatica = ?, desglose = ?, penalizaciones = ?,
+              trigger_busqueda = ?, notas_analista = ?, informe_ejecutivo = ?
+        WHERE licitacion_codigo = ?`,
+      [
+        sv.descalificacion_automatica ? 1 : 0,
+        JSON.stringify(sv.desglose),
+        JSON.stringify(sv.penalizaciones),
+        JSON.stringify(v.trigger_busqueda),
+        v.notas_analista,
+        JSON.stringify(informeMerge),
+        codigo,
+      ],
+    );
+    return;
+  }
+
+  // Sin IA previa → guardado híbrido normal (upsert).
   await pool.query(
     `INSERT INTO viabilidad_licitacion
       (licitacion_codigo, score_total, semaforo, descalificacion_automatica, area_negocio,
@@ -818,7 +863,7 @@ export async function guardarViabilidad(codigo: string, v: ViabilidadResult): Pr
       JSON.stringify(sv.desglose),
       JSON.stringify(sv.penalizaciones),
       // Guardamos el análisis comercial anidado en el JSON del informe (sin cambiar el esquema).
-      JSON.stringify({ ...v.informe_ejecutivo, _riesgo_comercial: v.riesgo_comercial ?? null }),
+      JSON.stringify(informeHibrido),
       JSON.stringify(v.trigger_busqueda),
       v.confianza_analisis,
       v.notas_analista,
