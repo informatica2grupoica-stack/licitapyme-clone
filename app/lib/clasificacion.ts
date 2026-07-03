@@ -304,14 +304,27 @@ async function extraerParaClasificar(
     };
   }
 
-  // Intento 2: escaneado o sin texto → Gemini Vision primera página.
+  // Intento 2: escaneado o sin texto → OCR de la primera página.
   // Solo aplica a PDFs; Word/Excel sin texto se dejan con preview vacío.
   const esPdf = ext === 'pdf';
   let textoPrimeraPagina = '';
   let metodoFinal = extraccion?.metodo ?? 'unknown';
 
-  if (esPdf && process.env.GEMINI_API_KEY) {
-    // Descargar el buffer para extraer la primera página.
+  // PRINCIPAL: GLM-OCR lee la página 1 directo por la URL pública (sin descargar el buffer).
+  if (esPdf && process.env.ZAI_API_KEY) {
+    try {
+      const { esUrlOcrPublica, extraerPaginasConGlmOcr } = await import('@/app/lib/zai-ocr');
+      if (esUrlOcrPublica(url)) {
+        textoPrimeraPagina = await extraerPaginasConGlmOcr(url, 1, 1);
+        if (textoPrimeraPagina) metodoFinal = 'pdf-primera-pagina-glm';
+      }
+    } catch (e) {
+      console.warn('[clasificacion] GLM-OCR primera página falló:', nombre, e instanceof Error ? e.message : e);
+    }
+  }
+
+  // RESPALDO: Gemini Vision sobre el buffer (URL no pública o GLM sin resultado).
+  if (esPdf && !textoPrimeraPagina && process.env.GEMINI_API_KEY) {
     try {
       const fetchUrl = url.includes('.r2.dev') || url.includes(process.env.R2_ACCOUNT_ID || '__no__')
         ? url

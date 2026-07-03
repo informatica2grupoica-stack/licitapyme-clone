@@ -110,6 +110,11 @@ const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
 };
 export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();
 function cfgTexto(): ProveedorTexto { return PROVEEDORES_TEXTO[IA_TEXT_PROVIDER] ?? PROVEEDORES_TEXTO.zai; }
+// Proveedor de RESPALDO: el otro de los dos, para no desperdiciar sus créditos si el
+// principal cae. Con GLM (zai) como principal, el respaldo es DeepSeek.
+function cfgTextoAlterno(): ProveedorTexto {
+  return IA_TEXT_PROVIDER === 'deepseek' ? PROVEEDORES_TEXTO.zai : PROVEEDORES_TEXTO.deepseek;
+}
 
 // Modelo del proveedor activo (glm-4.6 por defecto). Exportado para etiquetar resultados.
 export const MODELO_TEXTO = cfgTexto().model;
@@ -117,8 +122,7 @@ export const MODELO_TEXTO = cfgTexto().model;
 // ¿Hay key para el proveedor de texto activo? Reemplaza los checks de DEEPSEEK_API_KEY.
 export function iaTextoConfigurada(): boolean { return Boolean(process.env[cfgTexto().keyEnv]); }
 
-export function getGemini() {
-  const cfg = cfgTexto();
+function clienteProveedor(cfg: ProveedorTexto) {
   return new OpenAI({
     apiKey:  process.env[cfg.keyEnv] ?? 'not-configured',
     baseURL: cfg.baseURL,
@@ -127,15 +131,31 @@ export function getGemini() {
   });
 }
 
-// Crea un chat completion en el proveedor de texto ACTIVO. Fuerza el modelo correcto
-// (ignora cualquier `model` heredado de la época DeepSeek) e inyecta thinking=disabled en
-// GLM para respuestas rápidas y sin gasto de razonamiento. Úsalo en vez de
-// getGemini().chat.completions.create(...) en todo el código de análisis.
-export function crearChatIA(params: any) {
-  const cfg = cfgTexto();
+export function getGemini() { return clienteProveedor(cfgTexto()); }
+
+function cuerpoPara(cfg: ProveedorTexto, params: any): any {
   const body: any = { ...params, model: cfg.model };
   if (cfg.sinThinking) body.thinking = { type: 'disabled' };
-  return getGemini().chat.completions.create(body);
+  return body;
+}
+
+// Crea un chat completion en el proveedor de texto ACTIVO (GLM por defecto). Fuerza el
+// modelo correcto e inyecta thinking=disabled en GLM (respuestas rápidas, sin gasto de
+// razonamiento). Si el principal falla y el OTRO proveedor tiene key, reintenta con él
+// (red de seguridad: aprovecha los créditos de DeepSeek cuando GLM cae). Úsalo en vez de
+// getGemini().chat.completions.create(...) en todo el código de análisis.
+export async function crearChatIA(params: any) {
+  const activo = cfgTexto();
+  try {
+    return await clienteProveedor(activo).chat.completions.create(cuerpoPara(activo, params));
+  } catch (e: any) {
+    const alt = cfgTextoAlterno();
+    if (alt.keyEnv !== activo.keyEnv && process.env[alt.keyEnv]) {
+      console.warn(`[ia] ${activo.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 80)}), respaldo → ${alt.model}`);
+      return await clienteProveedor(alt).chat.completions.create(cuerpoPara(alt, params));
+    }
+    throw e;
+  }
 }
 
 const MODELO = MODELO_TEXTO;

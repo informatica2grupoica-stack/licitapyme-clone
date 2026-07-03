@@ -177,7 +177,7 @@ export async function extractTextFromDocument(
   buffer: Buffer,
   extension: string,
   fileName: string,
-  opts: { omitirOCR?: boolean } = {},
+  opts: { omitirOCR?: boolean; sourceUrl?: string } = {},
 ): Promise<{ texto: string; numPages: number; metodo: string; confianza: string; items?: ItemExcel[] }> {
 
   // WORD (DOCX/DOC)
@@ -291,28 +291,39 @@ export async function extractTextFromDocument(
         return { texto: pdfData.text || '', numPages: pdfData.numpages, metodo: 'pdf-sin-ocr', confianza: 'baja' };
       }
 
-      // Paso 2: PDF escaneado — Gemini lee las imágenes.
-      // MÉTODO PRINCIPAL: File API sobre el PDF COMPLETO. Lee TODAS las páginas de una
-      // sola vez, sin tope de páginas ni cuota de OCR.space, y es lo más fiable para
-      // bases escaneadas (probado: recupera criterios/multas/garantías que el OCR por
-      // bloques perdía). Alterna gemini-flash-latest/2.5-flash ante el 503.
-      console.log(`⚠️ PDF escaneado (${pdfData.text?.length || 0} chars, ${pdfData.numpages} págs). Gemini File API (documento completo)...`);
+      // Paso 2: PDF escaneado — GLM-OCR (Z.AI) lee las imágenes.
+      // MÉTODO PRINCIPAL: GLM-OCR sobre la URL pública del documento (troceado por
+      // ventanas de páginas en paralelo, con numeración absoluta). Modelo especialista
+      // en parsing de documentos (SOTA en OmniDocBench), mejor que Gemini en tablas de
+      // criterios, sellos y layouts complejos. GLM-OCR SOLO lee PDFs por URL pública
+      // (no base64), así que este camino requiere opts.sourceUrl alcanzable (R2).
+      const { esUrlOcrPublica } = await import('@/app/lib/zai-ocr');
+      if (opts.sourceUrl && esUrlOcrPublica(opts.sourceUrl) && process.env.ZAI_API_KEY) {
+        console.log(`⚠️ PDF escaneado (${pdfData.text?.length || 0} chars, ${pdfData.numpages} págs). GLM-OCR (por URL)...`);
+        try {
+          const { extraerTextoPdfPorUrlConGlmOcr } = await import('@/app/lib/zai-ocr');
+          const textoGlm = await extraerTextoPdfPorUrlConGlmOcr(opts.sourceUrl, pdfData.numpages || 0);
+          if (textoGlm && textoGlm.trim().length > 100) {
+            return { texto: textoGlm, numPages: pdfData.numpages, metodo: 'pdf-glm-ocr', confianza: 'alta' };
+          }
+        } catch (glmErr) {
+          console.warn('[OCR] GLM-OCR falló, caigo a Gemini:', glmErr instanceof Error ? glmErr.message : glmErr);
+        }
+      }
+
+      // RESPALDO (sin URL pública o GLM-OCR caído): Gemini File API sobre el PDF completo,
+      // luego OCR por bloques (grandes) / Gemini Vision inline (chicos).
+      console.log(`⚠️ PDF escaneado → respaldo Gemini File API...`);
       try {
         const { extraerTextoPdfConGeminiFileAPI } = await import('@/app/lib/gemini');
         const textoFile = await extraerTextoPdfConGeminiFileAPI(buffer);
         if (textoFile && textoFile.trim().length > 100) {
-          return {
-            texto: textoFile,
-            numPages: pdfData.numpages,
-            metodo: 'pdf-gemini-fileapi',
-            confianza: 'alta',
-          };
+          return { texto: textoFile, numPages: pdfData.numpages, metodo: 'pdf-gemini-fileapi', confianza: 'alta' };
         }
       } catch (fileErr) {
         console.warn('[OCR] Gemini File API falló, caigo a OCR por bloques:', fileErr instanceof Error ? fileErr.message : fileErr);
       }
 
-      // RESPALDO: OCR por bloques (grandes) o Gemini Vision inline (chicos).
       const esGrande = pdfData.numpages > 12;
       try {
         const { extraerTextoConGeminiVision } = await import('@/app/lib/gemini');
@@ -406,6 +417,7 @@ async function _descargarYExtraerTextoImpl(url: string, nombre: string, opts: { 
   const buffer = Buffer.from(await res.arrayBuffer());
   if (buffer.length === 0) return null;
 
-  const result = await extractTextFromDocument(buffer, extension, nombre, opts);
+  // Pasamos la URL de origen: si es pública (R2), GLM-OCR la lee directo para el OCR.
+  const result = await extractTextFromDocument(buffer, extension, nombre, { ...opts, sourceUrl: url });
   return { ...result, bytes: buffer.length };
 }

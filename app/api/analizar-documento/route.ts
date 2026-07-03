@@ -421,7 +421,7 @@ export async function POST(request: NextRequest) {
     let confianza = '';
     
     try {
-      const result = await extractTextFromDocument(buffer, extension, documentoNombre);
+      const result = await extractTextFromDocument(buffer, extension, documentoNombre, { sourceUrl: pdfUrl });
       textoExtraido = result.texto;
       numPages = result.numPages;
       metodo = result.metodo;
