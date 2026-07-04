@@ -8,6 +8,7 @@
 
 import pool from '@/app/lib/db';
 import { crearChatIA, iaTextoConfigurada } from '@/app/lib/gemini';
+import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
@@ -331,8 +332,8 @@ Devuelve EXACTAMENTE este JSON:
       response_format: { type: 'json_object' },
     });
     const raw = completion.choices[0]?.message?.content || '';
-    const ini = raw.indexOf('{'); const fin = raw.lastIndexOf('}');
-    const parsed = JSON.parse(ini !== -1 ? raw.slice(ini, fin + 1) : raw);
+    const parsed = parseJsonIA<any>(raw);
+    if (!parsed) throw new Error('JSON de viabilidad IA ilegible');
     const fb = juicioFallback(ins);
     const tp = parsed.tipo_producto || {};
     const juicio: JuicioIA = {
@@ -543,8 +544,8 @@ Devuelve EXACTAMENTE este JSON:
       temperature: 0.2, max_tokens: 1800, response_format: { type: 'json_object' },
     });
     const raw = completion.choices[0]?.message?.content || '';
-    const ini = raw.indexOf('{'); const fin = raw.lastIndexOf('}');
-    const p = JSON.parse(ini !== -1 ? raw.slice(ini, fin + 1) : raw);
+    const p = parseJsonIA<any>(raw);
+    if (!p) throw new Error('JSON de riesgo comercial ilegible');
     const fb = riesgoFallback(ins, montoNeto, reservado, modalidadTipo);
     const ac = p.analisis_criterios || {};
     const result: RiesgoComercial = {

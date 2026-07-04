@@ -18,6 +18,7 @@
 
 import pool from '@/app/lib/db';
 import { crearChatIA, iaTextoConfigurada, MODELO_TEXTO } from '@/app/lib/gemini';
+import { parseJsonIA } from '@/app/lib/json-ia';
 import { leerCache } from '@/app/lib/licitaciones-cache';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────────
@@ -351,8 +352,7 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
           response_format: { type: 'json_object' },
         });
         const raw = completion.choices[0]?.message?.content || '';
-        const ini = raw.indexOf('{'); const fin = raw.lastIndexOf('}');
-        const parsed = JSON.parse(ini !== -1 ? raw.slice(ini, fin + 1) : raw);
+        const parsed: any = parseJsonIA(raw) ?? {};
         const arr: any[] = Array.isArray(parsed?.resultados) ? parsed.resultados
           : Array.isArray(parsed) ? parsed : [];
 

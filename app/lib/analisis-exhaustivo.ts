@@ -51,10 +51,12 @@ export async function generarAnalisisExhaustivo(
   codigo: string,
   documentos?: Array<{ url: string; nombre: string; categoria?: string | null }>,
 ): Promise<ResultadoAnalisis> {
-  let docs = documentos;
+  let docs: Array<{ url: string; nombre: string; categoria?: string | null; textoCache?: string | null; metodoCache?: string | null }> = documentos ?? [];
   if (!docs || docs.length === 0) {
+    // Traemos también el texto YA extraído en la descarga: así evitamos re-descargar y
+    // re-OCR-ear (lo caro). Ver Fix de rendimiento: la viabilidad reusa el caché.
     const [dbDocs] = await pool.query(
-      `SELECT documento_nombre, documento_url_local, categoria
+      `SELECT documento_nombre, documento_url_local, categoria, texto_extraido, metodo_extraccion
        FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at ASC`,
       [codigo],
     );
@@ -62,6 +64,8 @@ export async function generarAnalisisExhaustivo(
       url: d.documento_url_local as string,
       nombre: d.documento_nombre as string,
       categoria: (d.categoria as string) || null,
+      textoCache: (d.texto_extraido as string) || null,
+      metodoCache: (d.metodo_extraccion as string) || null,
     }));
   }
 
@@ -70,10 +74,28 @@ export async function generarAnalisisExhaustivo(
   }
 
   // Extracción con concurrencia limitada (2) — evita ráfagas de OCR que disparan 429.
-  // Los planos/imágenes se extraen sin OCR (no aportan al análisis).
-  const resultados = await mapLimit(docs, 2, (d) =>
-    descargarYExtraerTexto(d.url, d.nombre, { omitirOCR: noRequiereOCR(d.nombre) }).catch(() => null),
-  );
+  // OPTIMIZACIÓN: si el documento ya tiene texto extraído en caché (de la descarga), lo
+  // reusamos y NO re-descargamos ni re-OCR-eamos (el re-OCR de un PDF escaneado costaba minutos).
+  // Excepción: planillas Excel → re-extraer para recuperar los ítems estructurados.
+  const resultados = await mapLimit(docs, 2, async (d) => {
+    const ext = (d.nombre.split('.').pop() || '').toLowerCase();
+    const esPlanilla = ext === 'xlsx' || ext === 'xls';
+    const cache = (d.textoCache || '').trim();
+    if (!esPlanilla && cache.length >= 50) {
+      return { texto: cache, numPages: 0, metodo: d.metodoCache || 'cache', confianza: 'alta' as const };
+    }
+    const r = await descargarYExtraerTexto(d.url, d.nombre, { omitirOCR: noRequiereOCR(d.nombre) }).catch(() => null);
+    // Persistir el texto recién extraído/OCR-eado en documentos_cache: así la próxima
+    // viabilidad lo reusa y NO se vuelve a OCR-ear (cierra el ciclo del Fix A).
+    if (r && r.texto && r.texto.trim().length >= 50) {
+      pool.query(
+        `UPDATE documentos_cache SET texto_extraido = ?, metodo_extraccion = ?
+         WHERE licitacion_codigo = ? AND documento_nombre = ?`,
+        [r.texto, r.metodo ?? 'extraido', codigo, d.nombre],
+      ).catch(() => { /* best-effort: no bloquear el análisis por el cacheo */ });
+    }
+    return r;
+  });
 
   const partes: Array<{ nombre: string; texto: string; categoria?: string | null }> = [];
   const nombres: string[] = [];

@@ -297,8 +297,11 @@ export async function extractTextFromDocument(
       // en parsing de documentos (SOTA en OmniDocBench), mejor que Gemini en tablas de
       // criterios, sellos y layouts complejos. GLM-OCR SOLO lee PDFs por URL pública
       // (no base64), así que este camino requiere opts.sourceUrl alcanzable (R2).
+      // Proveedor de OCR: 'zai' (GLM-OCR, por defecto) o 'gemini' (salta GLM y usa Gemini
+      // File API directo). Útil cuando GLM está sin saldo o se quiere Gemini al 100%.
+      const ocrProvider = (process.env.IA_OCR_PROVIDER ?? 'zai').toLowerCase();
       const { esUrlOcrPublica } = await import('@/app/lib/zai-ocr');
-      if (opts.sourceUrl && esUrlOcrPublica(opts.sourceUrl) && process.env.ZAI_API_KEY) {
+      if (ocrProvider !== 'gemini' && opts.sourceUrl && esUrlOcrPublica(opts.sourceUrl) && process.env.ZAI_API_KEY) {
         console.log(`⚠️ PDF escaneado (${pdfData.text?.length || 0} chars, ${pdfData.numpages} págs). GLM-OCR (por URL)...`);
         try {
           const { extraerTextoPdfPorUrlConGlmOcr } = await import('@/app/lib/zai-ocr');

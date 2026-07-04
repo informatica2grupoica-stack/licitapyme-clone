@@ -35,6 +35,20 @@ const CONCURRENCIA = 3;
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+// ─── Circuit breaker por SALDO AGOTADO (code 1113) ───────────────────────────────
+// Z.AI devuelve HTTP 429 con { code: 1113, "Insufficient balance ... recharge" } cuando
+// la cuenta NO tiene saldo. Eso es PERMANENTE, no transitorio: reintentarlo (4× por ventana
+// × N ventanas) desperdicia minutos. Al primer 1113 marcamos GLM-OCR como agotado para ESTE
+// proceso → las llamadas siguientes saltan GLM y caen directo al respaldo (Gemini). Se
+// resetea al reiniciar el server (p.ej. tras recargar saldo en Z.AI).
+let glmOcrSinSaldo = false;
+export function glmOcrDisponible(): boolean { return !glmOcrSinSaldo; }
+
+// ¿El cuerpo del error indica saldo agotado / recarga necesaria? (permanente)
+function esSaldoAgotado(body: string): boolean {
+  return /"code"\s*:\s*"?1113"?/.test(body) || /insufficient balance|no resource package|recharge/i.test(body);
+}
+
 // ¿Es una URL directamente alcanzable por GLM-OCR (pública)? Los PDFs deben servirse por
 // URL; los de R2 (.r2.dev) son públicos. Las URLs de terceros (portal MP) no sirven: hay
 // que descargarlas por el proxy, así que GLM-OCR no las puede leer y el llamador cae a Gemini.
@@ -51,6 +65,8 @@ async function glmLayoutParsing(
 ): Promise<string> {
   const apiKey = process.env.ZAI_API_KEY;
   if (!apiKey) throw new Error('ZAI_API_KEY no configurada para OCR (GLM-OCR)');
+  // Circuit breaker: si ya sabemos que la cuenta no tiene saldo, no golpeamos GLM-OCR.
+  if (glmOcrSinSaldo) throw new Error('GLM-OCR sin saldo (circuit breaker) → respaldo');
 
   const payload: Record<string, unknown> = { model: ZAI_MODEL, file: url };
   if (rango) { payload.start_page_id = rango.startPage; payload.end_page_id = rango.endPage; }
@@ -70,11 +86,31 @@ async function glmLayoutParsing(
 
     if (res.ok) {
       const data = await res.json();
+      // Telemetría de tokens del OCR (usage de la respuesta layout_parsing). Tarifa GLM-OCR
+      // configurable por env; default estimado (se calibra con el precio real de Z.AI).
+      const u = data?.usage ?? {};
+      const inTok = Number(u.prompt_tokens ?? u.input_tokens ?? 0);
+      const outTok = Number(u.completion_tokens ?? u.output_tokens ?? 0);
+      const totTok = Number(u.total_tokens ?? (inTok + outTok));
+      const numPags = Number(data?.data_info?.num_pages ?? 0);
+      const precIn = Number(process.env.GLM_OCR_PRICE_IN_USD_PER_M ?? 0.03);  // GLM-OCR Z.AI: $0.03/M
+      const precOut = Number(process.env.GLM_OCR_PRICE_OUT_USD_PER_M ?? 0.03); // GLM-OCR Z.AI: $0.03/M
+      const costo = (inTok / 1e6) * precIn + (outTok / 1e6) * precOut;
+      console.log(`[glm-ocr] 💰 págs=${numPags} · in=${inTok} out=${outTok} tot=${totTok} tok · ~$${costo.toFixed(4)} USD`);
       return String(data?.md_results ?? '');
     }
 
     const errBody = await res.text().catch(() => '');
     ultimoErr = `${res.status}: ${errBody.slice(0, 200)}`;
+    // SALDO AGOTADO (1113): permanente → activar circuit breaker y fallar YA (respaldo Gemini).
+    if (esSaldoAgotado(errBody)) {
+      if (!glmOcrSinSaldo) {
+        glmOcrSinSaldo = true;
+        console.warn('[glm-ocr] ⛔ Z.AI SIN SALDO (code 1113) → circuit breaker ON: se usará el respaldo (Gemini) el resto de la sesión. Recarga en https://z.ai para reactivar GLM-OCR.');
+      }
+      throw new Error(`GLM-OCR sin saldo (1113): ${errBody.slice(0, 120)}`);
+    }
+    // Transitorios reales (429/503 SIN 1113) → reintentar con backoff.
     if (res.status === 429 || res.status === 503) {
       console.warn(`[glm-ocr] ${res.status} transitorio, reintento ${intento + 1}/${ESPERAS.length}...`);
       continue;
@@ -107,6 +143,9 @@ export async function extraerTextoPdfPorUrlConGlmOcr(
   url: string,
   totalPaginas: number,
 ): Promise<string> {
+  // Circuit breaker: cuenta sin saldo → ni lo intentamos, el llamador cae a Gemini.
+  if (glmOcrSinSaldo) return '';
+
   // Sin conteo confiable → una sola llamada al documento completo (GLM tolera ≤100 págs).
   if (!totalPaginas || totalPaginas < 1) {
     try { return (await glmLayoutParsing(url)).trim(); }

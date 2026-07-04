@@ -778,7 +778,7 @@ function PanelFiltros({
           type="text"
           value={filtros.texto}
           onChange={e => onChange('texto', e.target.value)}
-          placeholder="Buscar por título u organismo..."
+          placeholder="Buscar por título, organismo o código (ej: 1499887-11-LE26)..."
           className="w-full pl-9 pr-9 py-2.5 border border-slate-200 rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none transition-all bg-slate-50"
         />
         {filtros.texto && (
@@ -1177,6 +1177,11 @@ export default function RadarPage() {
   const [descargaActiva, setDescargaActiva] = useState(false);
   const [descargaStats,  setDescargaStats]  = useState({ procesadas: 0, exitosas: 0, errores: 0 });
 
+  // Descarga de documentos de NEGOCIOS (asignadas activas, todos los perfiles). Sin gate de prefiltro.
+  const [descNegInfo,   setDescNegInfo]   = useState<{ pendientes: number; total: number } | null>(null);
+  const [descNegActiva, setDescNegActiva] = useState(false);
+  const [descNegStats,  setDescNegStats]  = useState({ procesadas: 0, exitosas: 0, errores: 0 });
+
   // Análisis de viabilidad masivo (Fase 2)
   const [viabPendientes, setViabPendientes] = useState(0);
   const [viabActiva,     setViabActiva]     = useState(false);
@@ -1509,7 +1514,10 @@ export default function RadarPage() {
 
       if (filtros.texto) {
         const q = filtros.texto.toLowerCase();
-        if (!a.licitacion_nombre?.toLowerCase().includes(q) && !a.licitacion_organismo?.toLowerCase().includes(q)) return false;
+        // Busca en nombre, organismo Y código de licitación (ej: "1499887-11-LE26").
+        if (!a.licitacion_nombre?.toLowerCase().includes(q) &&
+            !a.licitacion_organismo?.toLowerCase().includes(q) &&
+            !a.licitacion_codigo?.toLowerCase().includes(q)) return false;
       }
       if (filtros.estados.length > 0 && !filtros.estados.some(f => estado.toLowerCase() === f.toLowerCase())) return false;
       if (filtros.tipos.length > 0 && (!tipo || !filtros.tipos.includes(tipo))) return false;
@@ -1645,6 +1653,71 @@ export default function RadarPage() {
   const detenerDescarga = () => {
     setDescargaActiva(false);
     cargarInfoDescarga();
+  };
+
+  // ── Descarga de documentos de NEGOCIOS (asignadas, todos los perfiles) ─────────
+  const cargarInfoDescNeg = useCallback(async () => {
+    try {
+      const d = await fetch('/api/documentos/descargar-pendientes?origen=negocios').then(r => r.json());
+      setDescNegInfo(d);
+    } catch { /* silencioso */ }
+  }, []);
+
+  useEffect(() => { cargarInfoDescNeg(); }, [cargarInfoDescNeg]);
+
+  // Loop de descarga de negocios: corre lote a lote mientras descNegActiva = true.
+  useEffect(() => {
+    if (!descNegActiva) return;
+    let cancelado = false;
+
+    const run = async () => {
+      while (!cancelado) {
+        try {
+          const res = await fetch('/api/documentos/descargar-pendientes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lote: 3, origen: 'negocios' }),
+          }).then(r => r.json());
+
+          if (cancelado) break;
+
+          if (res.procesados?.length) {
+            const exitosos = res.procesados.filter((p: any) => p.exito).length;
+            const errores  = res.procesados.filter((p: any) => !p.exito).length;
+            setDescNegStats(prev => ({
+              procesadas: prev.procesadas + res.procesados.length,
+              exitosas:   prev.exitosas  + exitosos,
+              errores:    prev.errores   + errores,
+            }));
+            setDescNegInfo(prev => prev ? { ...prev, pendientes: res.pendientes } : prev);
+            const conDocs = res.procesados.filter((p: any) => p.exito && p.nuevos > 0);
+            if (!cancelado && conDocs.length) {
+              const set = new Set(conDocs.map((p: any) => p.codigo));
+              setAlertas(prev => prev.map(a => set.has(a.licitacion_codigo) ? { ...a, tiene_documentos: 1 } : a));
+            }
+          }
+
+          if (res.completado || res.pendientes === 0) {
+            if (!cancelado) { setDescNegActiva(false); cargarInfoDescNeg(); }
+            break;
+          }
+        } catch {
+          if (!cancelado) await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+    };
+
+    run();
+    return () => { cancelado = true; };
+  }, [descNegActiva, cargarInfoDescNeg]); // eslint-disable-line
+
+  const iniciarDescNeg = () => {
+    setDescNegStats({ procesadas: 0, exitosas: 0, errores: 0 });
+    setDescNegActiva(true);
+  };
+  const detenerDescNeg = () => {
+    setDescNegActiva(false);
+    cargarInfoDescNeg();
   };
 
   // ── Análisis de viabilidad masivo (Fase 2) ────────────────────────────────────
@@ -2052,14 +2125,44 @@ export default function RadarPage() {
                 )}
               </div>
             )}
-            {/* Panel descarga masiva */}
+            {/* Panel descarga NEGOCIOS (asignadas, todos los perfiles) — prioridad, sin gate */}
+            {descNegInfo && descNegInfo.pendientes > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-[12px]">
+                {descNegActiva ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin text-emerald-600 flex-shrink-0" />
+                    <span className="text-emerald-700 font-medium">
+                      Negocios · {descNegStats.procesadas} descargadas · {descNegInfo.pendientes} pendientes
+                      {descNegStats.errores > 0 && <span className="text-red-500"> · {descNegStats.errores} errores</span>}
+                    </span>
+                    <button onClick={detenerDescNeg} className="ml-1 text-emerald-700 hover:text-red-600 font-semibold">Detener</button>
+                  </>
+                ) : (
+                  <>
+                    <FileText size={13} className="text-emerald-600 flex-shrink-0" />
+                    <span className="text-emerald-700 font-medium">
+                      <strong>{descNegInfo.pendientes}</strong> asignadas sin documentos
+                    </span>
+                    <button
+                      onClick={iniciarDescNeg}
+                      title="Descarga los documentos de TODAS las licitaciones asignadas en Negocios (todos los perfiles) que aún no los tienen. Reanudable."
+                      className="ml-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] transition-colors"
+                    >
+                      Descargar docs de Negocios
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Panel descarga RADAR (las que pasan el prefiltro) */}
             {descargaInfo && descargaInfo.pendientes > 0 && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-[12px]">
                 {descargaActiva ? (
                   <>
                     <Loader2 size={13} className="animate-spin text-amber-600 flex-shrink-0" />
                     <span className="text-amber-700 font-medium">
-                      {descargaStats.procesadas} procesadas · {descargaInfo.pendientes} pendientes
+                      Radar · {descargaStats.procesadas} descargadas · {descargaInfo.pendientes} pendientes
                       {descargaStats.errores > 0 && <span className="text-red-500"> · {descargaStats.errores} errores</span>}
                     </span>
                     <button onClick={detenerDescarga} className="ml-1 text-amber-700 hover:text-red-600 font-semibold">Detener</button>
@@ -2067,12 +2170,15 @@ export default function RadarPage() {
                 ) : (
                   <>
                     <FileText size={13} className="text-amber-600 flex-shrink-0" />
-                    <span className="text-amber-700 font-medium">{descargaInfo.pendientes} sin documentos</span>
+                    <span className="text-amber-700 font-medium">
+                      <strong>{descargaInfo.pendientes}</strong> del radar (que pasan) sin documentos
+                    </span>
                     <button
                       onClick={iniciarDescarga}
-                      className="ml-1 px-2 py-0.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-[11px] transition-colors"
+                      title="Descarga documentos de las licitaciones del radar que pasaron el prefiltro (PASA/REVISIÓN). Puede ser un volumen alto. Reanudable."
+                      className="ml-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-[11px] transition-colors"
                     >
-                      Descargar todos
+                      Descargar docs del Radar
                     </button>
                   </>
                 )}
@@ -2278,10 +2384,25 @@ export default function RadarPage() {
                   </div>
                 </div>
 
-                {/* Filtro por estado de gestión + lectura */}
+                {/* Filtro por estado de gestión + lectura.
+                    "Activas" es el ESTADO BASE del radar (oculta descartadas): va aparte,
+                    separado por un divisor de los sub-filtros de lectura/asignación
+                    (No leídas / Sin asignar / …) para dejar claro que no es uno más de ellos. */}
                 <div className="flex items-center gap-1.5 flex-wrap px-1">
+                  {/* Estado base: Activas (siempre visible, seleccionado por defecto) */}
+                  <button onClick={() => setFiltro('gestion', '')}
+                    className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                      filtros.gestion === ''
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-300 hover:text-indigo-700'
+                    }`}>
+                    Activas
+                  </button>
+
+                  {/* Divisor: separa el estado base de los sub-filtros */}
+                  <span className="w-px h-5 bg-slate-200 mx-0.5" aria-hidden="true" />
+
                   {([
-                    { key: '',               label: 'Activas',         color: 'indigo' },
                     { key: 'no_leidas',      label: 'No leídas',       color: 'violet' },
                     { key: 'sin_asignar',    label: 'Sin asignar',     color: 'indigo' },
                     { key: 'asignadas',      label: 'Asignadas',       color: 'emerald' },

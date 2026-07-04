@@ -14,6 +14,7 @@
 import { createHash } from 'crypto';
 import pool from '@/app/lib/db';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
+import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { cargarReglasAprendidas, bloqueReglasAprendidas } from '@/app/lib/viabilidad-feedback';
@@ -328,6 +329,7 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
   for (let intento = 0; intento < ESPERAS.length; intento++) {
     if (intento > 0) await sleep(ESPERAS[intento]);
     try {
+      const t0 = Date.now();
       const completion: any = await crearChatIA({
         messages: [
           { role: 'system', content: systemPrompt },
@@ -339,24 +341,26 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         response_format: { type: 'json_object' },
       }, { timeoutMs: 280_000 }); // el informe completo (~90k tokens in) tarda; GLM cae con 120s
       const finish = completion.choices?.[0]?.finish_reason;
+      // ── Telemetría SIEMPRE visible: tiempo + tokens + costo estimado ─────────────
+      // Es la señal clave para optimizar: cuánto tardó, cuántos tokens de entrada/salida
+      // y el costo. Tarifas GLM configurables por env (por defecto GLM-4.6 de Z.AI, USD/millón).
+      const segs = ((Date.now() - t0) / 1000).toFixed(1);
+      const u = completion.usage ?? {};
+      const inTok  = Number(u.prompt_tokens ?? 0);
+      const outTok = Number(u.completion_tokens ?? 0);
+      const totTok = Number(u.total_tokens ?? (inTok + outTok));
+      const precIn  = Number(process.env.GLM_PRICE_IN_USD_PER_M  ?? 0.43); // GLM-4.6 Z.AI: $0.43/M in
+      const precOut = Number(process.env.GLM_PRICE_OUT_USD_PER_M ?? 1.74); // GLM-4.6 Z.AI: $1.74/M out
+      const costo = (inTok / 1e6) * precIn + (outTok / 1e6) * precOut;
+      console.log(
+        `[viabilidad-ia] 💰 GLM ${MODELO_TEXTO} · ${segs}s · in=${inTok} out=${outTok} tot=${totTok} tok · finish=${finish} · ~$${costo.toFixed(4)} USD (intento ${intento})`,
+      );
       dbg(`llamarGlmJSON: respuesta finish=${finish} · usage=${JSON.stringify(completion.usage ?? {})}`);
-      let txt = String(completion.choices?.[0]?.message?.content ?? '');
-      txt = txt.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
-      const ini = txt.indexOf('{'); const fin = txt.lastIndexOf('}');
-      const candidato = ini !== -1 && fin > ini ? txt.slice(ini, fin + 1) : txt;
-      try {
-        return JSON.parse(candidato);
-      } catch (e) {
-        const reparado = repararJSONTruncado(ini !== -1 ? txt.slice(ini) : txt);
-        if (reparado) {
-          try {
-            const r = JSON.parse(reparado);
-            console.warn(`[viabilidad-ia] JSON truncado (finish=${finish}) reparado: se conservó hasta el último ítem completo.`);
-            return r;
-          } catch { /* la reparación tampoco parseó */ }
-        }
-        throw new Error(`GLM devolvió JSON inválido (finish=${finish}): ${String(e).slice(0, 120)}`);
-      }
+      const txt = String(completion.choices?.[0]?.message?.content ?? '');
+      // Parser tolerante compartido: sanea caracteres de control y repara truncado.
+      const parsed = parseJsonIA(txt);
+      if (parsed) return parsed;
+      throw new Error(`GLM devolvió JSON inválido (finish=${finish})`);
     } catch (e: any) {
       const status = e?.status ?? 0;
       ultimoErr = `${MODELO_TEXTO} ${status || ''}: ${String(e?.message ?? e).slice(0, 150)}`;
@@ -420,28 +424,13 @@ async function llamarGeminiNativoJSON(systemPrompt: string, userPrompt: string):
     if (res.ok) {
       const data = await res.json();
       const finish = data.candidates?.[0]?.finishReason;
-      let txt = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
-      // Quitar fences ```json ... ``` por si el modelo los añade pese a responseMimeType.
-      txt = txt.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '');
-      const ini = txt.indexOf('{'); const fin = txt.lastIndexOf('}');
-      const candidato = ini !== -1 && fin > ini ? txt.slice(ini, fin + 1) : txt;
-      try {
-        return JSON.parse(candidato);
-      } catch (e) {
-        // Truncado por MAX_TOKENS (informe con manifiesto enorme): cerrar el JSON en el
-        // último ítem completo. Como manifiesto_productos va AL FINAL del esquema, lo único
-        // que se pierde es la cola del manifiesto; score/criterios/veredicto quedan intactos.
-        const reparado = repararJSONTruncado(ini !== -1 ? txt.slice(ini) : txt);
-        if (reparado) {
-          try {
-            const r = JSON.parse(reparado);
-            console.warn(`[viabilidad-ia] JSON truncado (finish=${finish}) reparado: se conservó hasta el último ítem completo.`);
-            return r;
-          } catch { /* la reparación tampoco parseó */ }
-        }
-        if (finish && finish !== 'STOP') throw new Error(`Respuesta de Gemini incompleta (finishReason=${finish}).`);
-        throw new Error(`Gemini devolvió JSON inválido: ${String(e).slice(0, 120)}`);
-      }
+      const txt = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
+      // Parser tolerante compartido: sanea caracteres de control y repara truncado (el
+      // manifiesto va al final del esquema, así que si se corta solo se pierde su cola).
+      const parsed = parseJsonIA(txt);
+      if (parsed) return parsed;
+      if (finish && finish !== 'STOP') throw new Error(`Respuesta de Gemini incompleta (finishReason=${finish}).`);
+      throw new Error(`Gemini devolvió JSON inválido`);
     }
     ultimoErr = `${modelo} ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`;
     if (res.status !== 429 && res.status !== 503) break; // permanente → no reintentar
@@ -877,10 +866,15 @@ function sanitizar(p: any): ViabilidadIACore {
 
 // ─── Función principal ───────────────────────────────────────────────────────────
 export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIAResult | null> {
+  const tDocs = Date.now();
   const docs = await cargarDocumentos(codigo);
   if (docs.length === 0) return null;
   const leidos = docs.filter(d => d.ok);
   if (leidos.length === 0) return null;
+  const charsTotal = leidos.reduce((s, d) => s + (d.texto?.length ?? 0), 0);
+  console.log(
+    `[viabilidad-ia] 📄 ${codigo}: ${docs.length} docs (${leidos.length} legibles, ${charsTotal.toLocaleString('es-CL')} chars ≈ ${Math.round(charsTotal / 4).toLocaleString('es-CL')} tok) cargados en ${((Date.now() - tDocs) / 1000).toFixed(1)}s`,
+  );
 
   const ctx = await cargarContexto(codigo);
   const reglas = await cargarReglasAprendidas();   // feedback loop: lecciones del experto

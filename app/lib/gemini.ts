@@ -4,6 +4,7 @@
 // Thinking desactivado para respuestas rápidas.
 
 import OpenAI from 'openai';
+import { parseJsonIA } from '@/app/lib/json-ia';
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 export interface AnalisisIALicitacion {
@@ -101,19 +102,26 @@ export interface AnalisisIALicitacion {
 }
 
 // ─── Proveedor de razonamiento de texto (clasificación/viabilidad/chat/…) ─────
-// Por defecto GLM de Z.AI (glm-4.6). Se puede volver a DeepSeek con IA_TEXT_PROVIDER=deepseek.
-// Ambos exponen un endpoint compatible con OpenAI, así que el mismo cliente sirve.
+// Se elige con IA_TEXT_PROVIDER: 'zai' (GLM-4.6), 'deepseek' o 'gemini'. Los TRES exponen un
+// endpoint compatible con OpenAI, así que el mismo cliente sirve (Gemini vía el endpoint
+// OpenAI-compatible de Google). El modelo de Gemini se ajusta con GEMINI_MODEL.
 type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean };
 const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: 'glm-4.6',      sinThinking: true  },
   deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat', sinThinking: false },
+  gemini:   { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: process.env.GEMINI_MODEL || 'gemini-2.5-flash', sinThinking: false },
 };
 export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();
 function cfgTexto(): ProveedorTexto { return PROVEEDORES_TEXTO[IA_TEXT_PROVIDER] ?? PROVEEDORES_TEXTO.zai; }
-// Proveedor de RESPALDO: el otro de los dos, para no desperdiciar sus créditos si el
-// principal cae. Con GLM (zai) como principal, el respaldo es DeepSeek.
+// Proveedor de RESPALDO: el PRIMERO de los otros que tenga API key configurada (no
+// desperdicia créditos si el principal cae). Orden de preferencia: gemini → deepseek → zai.
 function cfgTextoAlterno(): ProveedorTexto {
-  return IA_TEXT_PROVIDER === 'deepseek' ? PROVEEDORES_TEXTO.zai : PROVEEDORES_TEXTO.deepseek;
+  const orden = ['gemini', 'deepseek', 'zai'].filter((k) => k !== IA_TEXT_PROVIDER);
+  for (const k of orden) {
+    const cfg = PROVEEDORES_TEXTO[k];
+    if (cfg && process.env[cfg.keyEnv]) return cfg;
+  }
+  return PROVEEDORES_TEXTO.deepseek;
 }
 
 // Modelo del proveedor activo (glm-4.6 por defecto). Exportado para etiquetar resultados.
@@ -147,22 +155,85 @@ function cuerpoPara(cfg: ProveedorTexto, params: any): any {
 // opts.timeoutMs: timeout por-request (override del cliente). Las llamadas grandes (viabilidad,
 // ~90k tokens) necesitan más de los 120s por defecto o GLM cae por timeout y termina
 // respondiendo DeepSeek. opts.sinRespaldo: no caer al otro proveedor (para pruebas puras).
+// Telemetría SIEMPRE visible de cada llamada de texto: modelo, tiempo, tokens y costo
+// estimado. Tarifas por millón de tokens (USD), configurables por env. Default GLM-4.6 (Z.AI).
+function logTelemetriaIA(model: string, ms: number, usage: any, respaldo: boolean) {
+  const inTok  = Number(usage?.prompt_tokens ?? 0);
+  const outTok = Number(usage?.completion_tokens ?? 0);
+  const totTok = Number(usage?.total_tokens ?? (inTok + outTok));
+  const esGlm = /glm/i.test(model);
+  const precIn  = Number(process.env.GLM_PRICE_IN_USD_PER_M  ?? (esGlm ? 0.43 : 0.27));
+  const precOut = Number(process.env.GLM_PRICE_OUT_USD_PER_M ?? (esGlm ? 1.74 : 1.10));
+  const costo = (inTok / 1e6) * precIn + (outTok / 1e6) * precOut;
+  console.log(
+    `[ia] 💰 ${model}${respaldo ? ' (RESPALDO)' : ''} · ${(ms / 1000).toFixed(1)}s · in=${inTok} out=${outTok} tot=${totTok} tok · ~$${costo.toFixed(4)} USD`,
+  );
+}
+
+// Circuit breaker de TEXTO por saldo agotado (code 1113). Igual que en GLM-OCR: al primer
+// 1113 marcamos el proveedor principal como sin saldo y saltamos directo al respaldo el resto
+// de la sesión (evita perder ~2s y ensuciar el log tratando de usar GLM en cada llamada).
+let textoPrincipalSinSaldo = false;
+function esSaldoAgotadoTexto(e: any): boolean {
+  const s = `${JSON.stringify(e?.error ?? '')} ${String(e?.code ?? '')} ${String(e?.message ?? '')}`;
+  // GLM (1113 / insufficient balance) + Gemini ("prepayment credits are depleted"). Frases
+  // INEQUÍVOCAS de crédito agotado → PERMANENTE (saltar al respaldo, no reintentar). No incluimos
+  // RESOURCE_EXHAUSTED "a secas" porque Gemini también lo usa para rate-limit transitorio.
+  return /"?1113"?|insufficient balance|no resource package|recharge|credits are depleted|prepayment credits/i.test(s);
+}
+
+// ¿Error TRANSITORIO que conviene reintentar? (red caída + rate-limit + 5xx).
+// ECONNRESET/ETIMEDOUT/socket-hang-up son los que tumbaban la viabilidad a mitad de camino.
+function esTransitorioIA(e: any): boolean {
+  const st = Number(e?.status ?? 0);
+  if (st === 429 || st === 500 || st === 502 || st === 503 || st === 504) return true;
+  const s = `${String(e?.code ?? '')} ${String(e?.errno ?? '')} ${String(e?.cause?.code ?? '')} ${String(e?.message ?? '')}`;
+  return /ECONNRESET|ETIMEDOUT|ECONNREFUSED|EPIPE|EAI_AGAIN|ENOTFOUND|socket hang up|network error|fetch failed|terminated|aborted|timeout/i.test(s);
+}
+
+// Llama a UN proveedor con reintentos ante transitorios (backoff). Saldo agotado (1113) y
+// errores permanentes (400/401/403) NO se reintentan: se propagan para que el caller decida.
+async function intentarProveedor(cfg: ProveedorTexto, params: any, reqOpts: any, respaldo: boolean): Promise<any> {
+  const ESPERAS = [0, 2_000, 6_000]; // 3 intentos por proveedor
+  let ultimo: any;
+  for (let i = 0; i < ESPERAS.length; i++) {
+    if (i > 0) await sleep(ESPERAS[i]);
+    try {
+      const t0 = Date.now();
+      const r = await clienteProveedor(cfg).chat.completions.create(cuerpoPara(cfg, params), reqOpts);
+      logTelemetriaIA(cfg.model, Date.now() - t0, (r as any).usage, respaldo);
+      return r;
+    } catch (e: any) {
+      ultimo = e;
+      if (esSaldoAgotadoTexto(e) || !esTransitorioIA(e)) throw e; // permanente → arriba decide
+      console.warn(`[ia] ${cfg.model} transitorio (${String(e?.status ?? e?.code ?? e?.message).slice(0, 60)}), reintento ${i + 1}/${ESPERAS.length}...`);
+    }
+  }
+  throw ultimo;
+}
+
 export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRespaldo?: boolean } = {}) {
   const activo = cfgTexto();
+  const alt = cfgTextoAlterno();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
   const reqOpts = opts.timeoutMs ? { timeout: opts.timeoutMs } : undefined;
+  const hayRespaldo = !opts.sinRespaldo && alt.keyEnv !== activo.keyEnv && !!process.env[alt.keyEnv];
+
+  // Breaker: si el principal ya se declaró sin saldo y hay respaldo, vamos directo al respaldo.
+  if (textoPrincipalSinSaldo && hayRespaldo) return intentarProveedor(alt, params, reqOpts, true);
+
   try {
     if (dbg) console.log(`[ia-dbg] chat PRINCIPAL → ${activo.model} (${activo.baseURL})${opts.timeoutMs ? ` timeout=${opts.timeoutMs}ms` : ''}`);
-    const r = await clienteProveedor(activo).chat.completions.create(cuerpoPara(activo, params), reqOpts);
-    if (dbg) console.log(`[ia-dbg] chat OK ← ${activo.model} · usage=${JSON.stringify((r as any).usage ?? {})}`);
-    return r;
+    return await intentarProveedor(activo, params, reqOpts, false);
   } catch (e: any) {
-    const alt = cfgTextoAlterno();
-    if (!opts.sinRespaldo && alt.keyEnv !== activo.keyEnv && process.env[alt.keyEnv]) {
+    // Saldo agotado (1113) → activar breaker para no reintentar el principal en toda la sesión.
+    if (esSaldoAgotadoTexto(e) && !textoPrincipalSinSaldo) {
+      textoPrincipalSinSaldo = true;
+      console.warn(`[ia] ⛔ ${activo.model} SIN SALDO (code 1113) → circuit breaker ON: se usará ${alt.model} el resto de la sesión. Recarga en https://z.ai para reactivar.`);
+    }
+    if (hayRespaldo) {
       console.warn(`[ia] ${activo.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 80)}), respaldo → ${alt.model}`);
-      const r = await clienteProveedor(alt).chat.completions.create(cuerpoPara(alt, params), reqOpts);
-      if (dbg) console.log(`[ia-dbg] chat OK ← RESPALDO ${alt.model}`);
-      return r;
+      return intentarProveedor(alt, params, reqOpts, true); // el respaldo también reintenta transitorios
     }
     throw e;
   }
@@ -464,54 +535,12 @@ async function llamarGemini(systemPrompt: string, userPrompt: string): Promise<s
   throw new Error(`Gemini no respondió tras 4 intentos:\n${errores.join('\n')}`);
 }
 
-// ─── Reparar JSON truncado ────────────────────────────────────────────────────
-// Cierra corchetes/llaves abiertos y repara valores incompletos al final.
-function repararJSONTruncado(s: string): string {
-  let t = s.trimEnd();
-  // Eliminar valor incompleto al final antes de cerrar
-  t = t.replace(/,\s*$/, '');                           // trailing comma
-  t = t.replace(/:\s*"[^"]*$/, ': null');               // string sin cerrar
-  t = t.replace(/:\s*(nul?l?|tru?e?|fals?e?)\s*$/, ': null'); // valor incompleto
-  t = t.replace(/:\s*\d+\.?\d*\s*$/, ': null');         // número al corte
-
-  // Contar estructuras abiertas
-  const stack: string[] = [];
-  let inStr = false, esc = false;
-  for (const c of t) {
-    if (esc)  { esc = false; continue; }
-    if (c === '\\' && inStr) { esc = true; continue; }
-    if (c === '"') { inStr = !inStr; continue; }
-    if (inStr) continue;
-    if      (c === '{') stack.push('}');
-    else if (c === '[') stack.push(']');
-    else if ((c === '}' || c === ']') && stack.length) stack.pop();
-  }
-  return t + stack.reverse().join('');
-}
-
-// ─── Extraer JSON robusto ─────────────────────────────────────────────────────
+// ─── Extraer JSON robusto (delegado a json-ia.ts) ─────────────────────────────
 function extraerJSON(respuesta: string): AnalisisIALicitacion {
-  const ini = respuesta.indexOf('{');
-  const fin = respuesta.lastIndexOf('}');
-  const sliceJSON = ini !== -1 ? respuesta.slice(ini, fin !== -1 ? fin + 1 : undefined) : respuesta;
-
-  const candidatos = [
-    respuesta.trim(),
-    respuesta.match(/```(?:json)?\s*([\s\S]*?)\s*```/)?.[1]?.trim(),
-    fin !== -1 ? sliceJSON : null,
-    // Si viene truncado, intentar repararlo
-    repararJSONTruncado(sliceJSON),
-    repararJSONTruncado(respuesta.trim()),
-  ].filter(Boolean) as string[];
-
-  for (const c of candidatos) {
-    try {
-      const parsed = JSON.parse(c);
-      if (typeof parsed === 'object' && parsed !== null) return parsed as AnalisisIALicitacion;
-    } catch { /* siguiente candidato */ }
-  }
-
-  console.error('[deepseek] No se pudo parsear JSON. Primeros 500 chars:', respuesta.slice(0, 500));
+  // Parser tolerante compartido: sanea caracteres de control ilegales y repara truncado.
+  const parsed = parseJsonIA<AnalisisIALicitacion>(respuesta);
+  if (parsed) return parsed;
+  console.error('[ia] No se pudo parsear JSON. Primeros 500 chars:', respuesta.slice(0, 500));
   throw new Error('No se encontró JSON válido en la respuesta');
 }
 

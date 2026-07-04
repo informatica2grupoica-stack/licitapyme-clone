@@ -63,13 +63,24 @@ export async function procesarLicitacionCompleta(
     console.warn(`[pipeline] Clasificación falló para ${codigo}:`, String(e).slice(0, 150));
   }
 
-  // 2. Análisis exhaustivo (si falta o se fuerza)
+  // 2. Análisis exhaustivo (si falta o se fuerza). Blindado: si revienta (red/LLM), devuelve
+  //    error estructurado en vez de propagar la excepción.
   if (opts.forzar || !(await tieneAnalisisExhaustivo(codigo))) {
-    const r = await generarAnalisisExhaustivo(codigo);
-    if (!r.ok) return { ok: false, error: r.error };
+    try {
+      const r = await generarAnalisisExhaustivo(codigo);
+      if (!r.ok) return { ok: false, error: r.error };
+    } catch (e: any) {
+      console.error(`[pipeline] Análisis exhaustivo falló para ${codigo}:`, String(e?.message ?? e).slice(0, 200));
+      return { ok: false, error: `Análisis falló: ${String(e?.message ?? e).slice(0, 150)}` };
+    }
   }
 
-  // 3. Fase 2 — viabilidad
-  const viabilidad = await calcularYGuardarViabilidad(codigo);
-  return { ok: !!viabilidad, viabilidad };
+  // 3. Fase 2 — viabilidad. Igualmente blindada.
+  try {
+    const viabilidad = await calcularYGuardarViabilidad(codigo);
+    return { ok: !!viabilidad, viabilidad };
+  } catch (e: any) {
+    console.error(`[pipeline] Viabilidad falló para ${codigo}:`, String(e?.message ?? e).slice(0, 200));
+    return { ok: false, error: `Viabilidad falló: ${String(e?.message ?? e).slice(0, 150)}` };
+  }
 }

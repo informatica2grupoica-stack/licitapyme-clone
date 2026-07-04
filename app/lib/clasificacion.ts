@@ -19,6 +19,7 @@
 import pool from '@/app/lib/db';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { crearChatIA } from '@/app/lib/gemini';
+import { parseJsonIA } from '@/app/lib/json-ia';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 export type TipoDocumento =
@@ -427,9 +428,9 @@ async function clasificarConDeepSeek(
   });
 
   const raw = completion.choices[0]?.message?.content || '{}';
-  let parsed: any;
-  try { parsed = JSON.parse(raw); }
-  catch { const m = raw.match(/\{[\s\S]*\}/); parsed = m ? JSON.parse(m[0]) : {}; }
+  // Parser tolerante: sanea caracteres de control ilegales (evita "Bad control character")
+  // y repara truncado. Si aun así no parsea, {} en vez de lanzar.
+  const parsed: any = parseJsonIA(raw) ?? {};
 
   if (Array.isArray(parsed)) {
     return {
