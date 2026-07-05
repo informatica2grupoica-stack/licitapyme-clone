@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
+import { puedeVerLicitacion, esExterno } from '@/app/lib/api-auth';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -19,6 +20,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
     const [rows] = await pool.query(
@@ -44,6 +47,10 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (await esExterno(request))
+    return NextResponse.json({ error: 'No autorizado para comentar' }, { status: 403 });
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
     const { comentario } = await request.json();

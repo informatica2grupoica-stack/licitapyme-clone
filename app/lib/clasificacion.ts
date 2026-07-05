@@ -446,6 +446,74 @@ async function clasificarConDeepSeek(
   return parsed as ClasificacionCompleta;
 }
 
+// ─── Caja por nombre (respaldo del pipeline fusionado) ─────────────────────────
+// Heurística ligera para asignar caja SIN IA cuando un documento no vino clasificado
+// (p.ej. relleno OTROS truncado por dilución en el análisis). Los documentos que importan
+// —bases y técnicas— nunca se truncan, así que esta heurística solo cubre el resto.
+export function cajaPorNombre(nombre: string): TipoDocumento {
+  const n = (nombre || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (/\bbases\b|bbaa|administr|\bbae\b|\bbag\b|\bbbgg\b/.test(n)) return 'BASES_ADMINISTRATIVAS';
+  if (/tecnic|\beett\b|\btdr\b|especif|itemiz|requerimiento tecnico|nota de pedido/.test(n)) return 'BASES_TECNICAS';
+  if (/anexo|formulario|formato|editable|declaracion|oferta econ|oferta tecn|programa de integridad/.test(n)) return 'ANEXOS_OFERENTE';
+  if (/resoluci|decreto|\brex\b|acta|certificado|memo|directiva|estudio de mercado/.test(n)) return 'DOCUMENTOS_PROCESO';
+  return 'OTROS';
+}
+
+const CAJAS_VALIDAS_SET = new Set<TipoDocumento>([
+  'BASES_ADMINISTRATIVAS', 'BASES_TECNICAS', 'ANEXOS_OFERENTE',
+  'DOCUMENTOS_PROCESO', 'DOCUMENTOS_PROPIOS', 'OTROS',
+]);
+
+function normalizarCaja(raw: any): { caja: TipoDocumento; criterios: boolean } {
+  let caja: TipoDocumento = raw?.caja ?? 'OTROS';
+  let criterios = raw?.contiene_criterios_evaluacion ?? false;
+  if ((caja as string) === 'CRITERIOS_EVALUACION') { caja = 'BASES_ADMINISTRATIVAS'; criterios = true; }
+  if (!CAJAS_VALIDAS_SET.has(caja)) caja = 'OTROS';
+  return { caja, criterios };
+}
+
+// Persiste las categorías de una clasificación producida por el pipeline FUSIONADO
+// (analizarClasificarJuzgar). Empareja por nombre exacto y, si la IA no cubrió algún
+// documento, lo rellena por heurística de nombre → NINGÚN documento queda sin categoría.
+// Devuelve si se ubicaron criterios y cuántas categorías se aplicaron.
+export async function persistirClasificacionFusionada(
+  codigo: string,
+  rawDocs: Array<{ archivo?: string; caja?: string; contiene_criterios_evaluacion?: boolean }>,
+  nombresTodos: string[],
+): Promise<{ criteriosUbicados: boolean; asignadas: number }> {
+  // Mapa nombre → {caja, criterios} desde lo que devolvió la IA (match exacto y, si no,
+  // por inclusión para tolerar recortes/tildes menores del modelo).
+  const porNombre = new Map<string, { caja: TipoDocumento; criterios: boolean }>();
+  for (const rd of rawDocs || []) {
+    const nom = (rd?.archivo || '').trim();
+    if (!nom) continue;
+    porNombre.set(nom, normalizarCaja(rd));
+  }
+  const resolver = (nombre: string): { caja: TipoDocumento; criterios: boolean } => {
+    if (porNombre.has(nombre)) return porNombre.get(nombre)!;
+    for (const [k, v] of porNombre) {
+      if (k === nombre) return v;
+      if (k.length > 6 && (nombre.includes(k) || k.includes(nombre))) return v;
+    }
+    return { caja: cajaPorNombre(nombre), criterios: false };
+  };
+
+  let criteriosUbicados = false;
+  let asignadas = 0;
+  for (const nombre of nombresTodos) {
+    const { caja, criterios } = resolver(nombre);
+    if (criterios) criteriosUbicados = true;
+    try {
+      await pool.query(
+        `UPDATE documentos_cache SET categoria = ? WHERE licitacion_codigo = ? AND documento_nombre = ?`,
+        [caja, codigo, nombre],
+      );
+      asignadas++;
+    } catch { /* columna categoria puede no existir aún */ }
+  }
+  return { criteriosUbicados, asignadas };
+}
+
 // ─── Función central: clasifica y persiste categoría ──────────────────────────
 export async function clasificarLicitacion(codigo: string): Promise<ResultadoClasificacion> {
   // 1. Metadata de la licitación

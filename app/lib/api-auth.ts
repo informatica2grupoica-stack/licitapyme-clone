@@ -21,6 +21,38 @@ export async function esAdmin(req: NextRequest): Promise<boolean> {
   return u?.rol === 'admin';
 }
 
+/** ¿Es trabajador externo? (rol restringido: solo sus licitaciones asignadas). */
+export async function esExterno(req: NextRequest): Promise<boolean> {
+  const u = await getAuthedUser(req);
+  return u?.rol === 'externo';
+}
+
+/**
+ * GUARD CENTRAL: ¿este usuario puede ver/operar ESTA licitación?
+ *  · admin o quien tenga ver_otros_negocios → sí (acceso amplio).
+ *  · externo → SOLO si la licitación está asignada a él (negocios.asignado_a).
+ *  · usuario normal → se conserva su comportamiento actual (no se restringe aquí).
+ * Evita que un externo abra `/licitacion/CUALQUIER-CODIGO` escribiendo la URL a mano.
+ * Fail-closed para externo: ante error de BD, DENIEGA (no filtra licitaciones ajenas).
+ */
+export async function puedeVerLicitacion(req: NextRequest, codigo: string): Promise<boolean> {
+  const u = await getAuthedUser(req);
+  if (!u) return false;
+  if (u.rol === 'admin') return true;
+  const p = await permisosDeUsuario(u.id, u.rol);
+  if (p.ver_otros_negocios) return true;
+  if (u.rol !== 'externo') return true; // usuario normal: comportamiento previo intacto
+  try {
+    const [rows] = await pool.query(
+      `SELECT 1 FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE LIMIT 1`,
+      [codigo, u.id],
+    );
+    return (rows as any[]).length > 0;
+  } catch {
+    return false; // fail-closed: sin certeza de asignación, no mostrar
+  }
+}
+
 // ─── Permisos granulares ─────────────────────────────────────────────────────────
 // El admin es "super": tiene TODOS los permisos implícitamente. Un usuario normal solo
 // tiene los que el admin le haya otorgado (columna usuarios.permisos JSON). Catálogo:

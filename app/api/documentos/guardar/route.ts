@@ -1,6 +1,7 @@
 // app/api/documentos/guardar/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { puedeVerLicitacion } from '@/app/lib/api-auth';
 
 export async function POST(request: NextRequest) {
   try {
@@ -10,6 +11,9 @@ export async function POST(request: NextRequest) {
     if (!licitacionCodigo || !documentoNombre || !url) {
       return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
     }
+    // El externo solo puede subir documentos a SUS licitaciones asignadas.
+    if (!(await puedeVerLicitacion(request, String(licitacionCodigo))))
+      return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
     try {
       // Con categoría (documentos propios subidos a una caja específica).

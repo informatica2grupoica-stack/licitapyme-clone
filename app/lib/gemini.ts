@@ -105,11 +105,24 @@ export interface AnalisisIALicitacion {
 // Se elige con IA_TEXT_PROVIDER: 'zai' (GLM-4.6), 'deepseek' o 'gemini'. Los TRES exponen un
 // endpoint compatible con OpenAI, así que el mismo cliente sirve (Gemini vía el endpoint
 // OpenAI-compatible de Google). El modelo de Gemini se ajusta con GEMINI_MODEL.
+// Guard anti-Pro: los modelos Gemini "Pro" están PROHIBIDOS (caros, muchos tokens). Si el
+// env pide un Pro por error, se fuerza el flash barato indicado y se avisa. Solo se permiten
+// modelos Flash / Flash-Lite.
+function modeloGeminiSeguro(pedido: string | undefined, porDefecto: string): string {
+  const v = (pedido || '').trim();
+  if (!v) return porDefecto;
+  if (/pro/i.test(v)) {
+    console.warn(`[ia] ⛔ Modelo Gemini '${v}' es Pro (caro, prohibido) → forzado a '${porDefecto}'.`);
+    return porDefecto;
+  }
+  return v;
+}
+
 type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean };
 const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: 'glm-4.6',      sinThinking: true  },
   deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat', sinThinking: false },
-  gemini:   { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: process.env.GEMINI_MODEL || 'gemini-2.5-flash', sinThinking: false },
+  gemini:   { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: modeloGeminiSeguro(process.env.GEMINI_MODEL, 'gemini-2.5-flash'), sinThinking: false },
 };
 export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();
 function cfgTexto(): ProveedorTexto { return PROVEEDORES_TEXTO[IA_TEXT_PROVIDER] ?? PROVEEDORES_TEXTO.zai; }
@@ -144,6 +157,10 @@ export function getGemini() { return clienteProveedor(cfgTexto()); }
 function cuerpoPara(cfg: ProveedorTexto, params: any): any {
   const body: any = { ...params, model: cfg.model };
   if (cfg.sinThinking) body.thinking = { type: 'disabled' };
+  // Gemini 2.5 Flash gasta tokens de "thinking" por defecto (invisibles pero se pagan y
+  // pueden truncar la salida). reasoning_effort:'none' lo desactiva → menos tokens/costo.
+  // Solo afecta a Gemini (no a DeepSeek/GLM, que se llaman con su propio cfg).
+  else if (cfg.baseURL.includes('generativelanguage')) body.reasoning_effort = 'none';
   return body;
 }
 
@@ -155,15 +172,29 @@ function cuerpoPara(cfg: ProveedorTexto, params: any): any {
 // opts.timeoutMs: timeout por-request (override del cliente). Las llamadas grandes (viabilidad,
 // ~90k tokens) necesitan más de los 120s por defecto o GLM cae por timeout y termina
 // respondiendo DeepSeek. opts.sinRespaldo: no caer al otro proveedor (para pruebas puras).
-// Telemetría SIEMPRE visible de cada llamada de texto: modelo, tiempo, tokens y costo
-// estimado. Tarifas por millón de tokens (USD), configurables por env. Default GLM-4.6 (Z.AI).
+// Tarifa REAL por modelo (USD por millón de tokens). Antes se usaba una tarifa fija de
+// GLM/DeepSeek para todo → el costo de Gemini salía mal. Ahora es por modelo.
+// Precios públicos de Gemini 2.5 (confirmar en la página de Google AI, cambian).
+function tarifaModelo(model: string): { precIn: number; precOut: number } {
+  const m = (model || '').toLowerCase();
+  if (m.includes('gemini')) {
+    if (m.includes('flash-lite')) return { precIn: 0.10, precOut: 0.40 }; // OCR económico
+    if (m.includes('pro'))        return { precIn: 1.25, precOut: 10.00 }; // (bloqueado, referencia)
+    return { precIn: 0.30, precOut: 2.50 };                               // flash (análisis)
+  }
+  if (m.includes('glm')) return {
+    precIn:  Number(process.env.GLM_PRICE_IN_USD_PER_M  ?? 0.43),
+    precOut: Number(process.env.GLM_PRICE_OUT_USD_PER_M ?? 1.74),
+  };
+  return { precIn: 0.27, precOut: 1.10 }; // DeepSeek y otros
+}
+
+// Telemetría SIEMPRE visible de cada llamada de texto: modelo, tiempo, tokens y costo real.
 function logTelemetriaIA(model: string, ms: number, usage: any, respaldo: boolean) {
   const inTok  = Number(usage?.prompt_tokens ?? 0);
   const outTok = Number(usage?.completion_tokens ?? 0);
   const totTok = Number(usage?.total_tokens ?? (inTok + outTok));
-  const esGlm = /glm/i.test(model);
-  const precIn  = Number(process.env.GLM_PRICE_IN_USD_PER_M  ?? (esGlm ? 0.43 : 0.27));
-  const precOut = Number(process.env.GLM_PRICE_OUT_USD_PER_M ?? (esGlm ? 1.74 : 1.10));
+  const { precIn, precOut } = tarifaModelo(model);
   const costo = (inTok / 1e6) * precIn + (outTok / 1e6) * precOut;
   console.log(
     `[ia] 💰 ${model}${respaldo ? ' (RESPALDO)' : ''} · ${(ms / 1000).toFixed(1)}s · in=${inTok} out=${outTok} tot=${totTok} tok · ~$${costo.toFixed(4)} USD`,
@@ -217,7 +248,10 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRe
   const alt = cfgTextoAlterno();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
   const reqOpts = opts.timeoutMs ? { timeout: opts.timeoutMs } : undefined;
-  const hayRespaldo = !opts.sinRespaldo && alt.keyEnv !== activo.keyEnv && !!process.env[alt.keyEnv];
+  // IA_SIN_RESPALDO=1 → fuerza usar SOLO el proveedor activo (sin caer al alterno). Útil para
+  // garantizar que TODO el análisis de texto corra 100% en un único proveedor (p.ej. GLM/zai).
+  const sinRespaldoGlobal = process.env.IA_SIN_RESPALDO === '1';
+  const hayRespaldo = !opts.sinRespaldo && !sinRespaldoGlobal && alt.keyEnv !== activo.keyEnv && !!process.env[alt.keyEnv];
 
   // Breaker: si el principal ya se declaró sin saldo y hay respaldo, vamos directo al respaldo.
   if (textoPrincipalSinSaldo && hayRespaldo) return intentarProveedor(alt, params, reqOpts, true);
@@ -241,6 +275,18 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRe
 
 const MODELO = MODELO_TEXTO;
 
+// ─── Dos modelos Gemini distintos: OCR (leer documentos) vs ANÁLISIS (razonar) ──────
+// El ANÁLISIS usa GEMINI_MODEL (gemini-2.5-flash). El OCR usa GEMINI_OCR_MODEL, más barato
+// (gemini-2.5-flash-lite por defecto). Separarlos AHORRA tokens y reparte el tráfico en dos
+// cuotas distintas → menos 429/503 cuando Gemini está saturado.
+// modelosOCR() antepone el económico y deja respaldos por saturación (se alternan en los
+// reintentos de cada función de OCR): si el 1º se cae por tráfico, el 2º lo cubre.
+const GEMINI_OCR_MODEL = modeloGeminiSeguro(process.env.GEMINI_OCR_MODEL, 'gemini-2.5-flash-lite');
+function modelosOCR(): string[] {
+  const respaldo = GEMINI_OCR_MODEL.includes('lite') ? 'gemini-2.5-flash' : 'gemini-flash-latest';
+  return [GEMINI_OCR_MODEL, respaldo, GEMINI_OCR_MODEL, 'gemini-flash-latest'];
+}
+
 // ─── Gemini Vision OCR (PDFs escaneados) ─────────────────────────────────────
 // Usa la API nativa de Gemini para leer PDFs con imágenes escaneadas.
 // Solo se llama cuando pdf-parse no puede extraer texto suficiente.
@@ -256,7 +302,8 @@ export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<strin
         { inlineData: { mimeType: 'application/pdf', data: base64 } },
       ],
     }],
-    generationConfig: { temperature: 0 },
+    // thinkingBudget: 0 → sin tokens de "thinking" (el OCR no razona, solo transcribe): ahorra.
+    generationConfig: { temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
   });
 
   // Reintentos con backoff. En el plan de PAGO, 429 = límite por minuto (transitorio,
@@ -265,7 +312,7 @@ export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<strin
   // Alternamos de modelo: gemini-2.5-flash se satura seguido (503 high-demand); el alias
   // multimodal gemini-flash-latest es más estable y también lee PDF/imágenes.
   const ESPERAS = [0, 6_000, 15_000, 30_000]; // 4 intentos
-  const MODELOS = ['gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-latest'];
+  const MODELOS = modelosOCR();               // OCR económico + respaldos por saturación
   let ultimoErr = '';
   for (let intento = 0; intento < ESPERAS.length; intento++) {
     if (intento > 0) await sleep(ESPERAS[intento]);
@@ -450,10 +497,10 @@ async function transcribirPdfFileAPI(buffer: Buffer, startPageAbs: number): Prom
         { text: instruccion },
         { fileData: { mimeType: 'application/pdf', fileUri: file.uri } },
       ] }],
-      generationConfig: { temperature: 0, maxOutputTokens: 60_000 },
+      generationConfig: { temperature: 0, maxOutputTokens: 60_000, thinkingConfig: { thinkingBudget: 0 } },
     });
     const ESPERAS = [0, 6_000, 15_000, 30_000];
-    const MODELOS = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
+    const MODELOS = modelosOCR(); // OCR económico + respaldos por saturación
     let ultimoErr = '';
     for (let intento = 0; intento < ESPERAS.length; intento++) {
       if (intento > 0) await sleep(ESPERAS[intento]);
@@ -478,7 +525,7 @@ async function transcribirPdfFileAPI(buffer: Buffer, startPageAbs: number): Prom
 }
 
 // ─── Llamada con reintentos (solo para 429 transitorio) ───────────────────────
-async function llamarGemini(systemPrompt: string, userPrompt: string): Promise<string> {
+async function llamarGemini(systemPrompt: string, userPrompt: string, maxTokens = 12_000): Promise<string> {
   const errores: string[] = [];
 
   for (let intento = 0; intento < 4; intento++) {
@@ -499,7 +546,7 @@ async function llamarGemini(systemPrompt: string, userPrompt: string): Promise<s
         ],
         temperature: 0.1,
         stream: false,
-        max_tokens: 12_000,
+        max_tokens: maxTokens,
         response_format: { type: 'json_object' },
       });
 
@@ -508,9 +555,13 @@ async function llamarGemini(systemPrompt: string, userPrompt: string): Promise<s
       if (!texto.trim()) throw new Error('Respuesta vacía');
 
       if (razon === 'length') {
-        console.warn(`[deepseek] Respuesta truncada (length). Intentando reparar JSON...`);
+        console.warn(`[ia] Respuesta truncada (length). Intentando reparar JSON...`);
       }
-      console.log(`[deepseek] OK (intento ${intento}) — ${texto.length} chars, finish_reason: ${razon}`);
+      // BLINDAJE: valida que el JSON parsea AQUÍ dentro. Si el modelo devolvió 200 pero JSON
+      // inservible (vacío/roto/RECITATION, típico bajo carga), lo tratamos como transitorio y
+      // REINTENTAMOS en vez de devolver basura que reventaría afuera sin reintento.
+      if (!parseJsonIA(texto)) throw new Error('JSON inválido (respuesta 200 no parseable)');
+      console.log(`[ia] OK (intento ${intento}) — ${texto.length} chars, finish_reason: ${razon}`);
       return texto;
 
     } catch (err: any) {
@@ -834,6 +885,170 @@ FORMATO cronograma: [{"etapa":"Publicación","fecha":"01/06/2026"}]`;
   } catch (err: any) {
     const msg = String(err?.message ?? err);
     console.error('[gemini] Fallo definitivo:', msg);
+    return { error: msg };
+  }
+}
+
+// ─── Análisis + Clasificación + Juicio de viabilidad en UNA sola llamada ──────────
+// OPTIMIZACIÓN DE CONSUMO (pipeline fusionado): los dos pasos que LEEN documentos
+// (clasificación por preview y análisis por texto completo) se unen en una llamada, y esa
+// misma llamada emite el juicio cualitativo de viabilidad (área / tipo de producto / informe).
+// El scoring de los 5 criterios sigue siendo DETERMINISTA en código (viabilidad.ts): esto
+// NO cambia la nota, solo elimina 2 llamadas al LLM (la de clasificación y la de juicio).
+//
+// Reusa el MISMO texto de análisis que la ruta clásica (misma calidad de extracción). La
+// clasificación se hace sobre la lista completa de documentos (nombre + páginas + formato),
+// que son las señales primarias del clasificador; los documentos cuyo texto fue truncado por
+// dilución igual reciben una caja por nombre/páginas (los que importan —bases/técnicas— nunca
+// se truncan). Si el bloque de clasificación o de viabilidad viene incompleto, el llamador
+// degrada con seguridad (categoría por heurística / juicio recomputado por la vía clásica).
+export interface DocClasificadoIA {
+  archivo: string;
+  caja: string;
+  subtipo?: string | null;
+  contiene_tecnicas_integradas?: boolean;
+  contiene_anexos_integrados?: boolean;
+  contiene_criterios_evaluacion?: boolean;
+  confianza?: number;
+  notas?: string;
+}
+
+export interface ViabilidadJuicioIA {
+  area_negocio: 'FERRETERIA' | 'EQUIPAMIENTO' | 'MIXTO';
+  tipo_producto: {
+    categoria: string;
+    descripcion: string;
+    es_importable: boolean;
+    especificacion_dirigida: boolean;
+  };
+  descripcion_producto_para_busqueda: string;
+  informe: {
+    resumen: string;
+    ventaja_competitiva: string;
+    riesgos: string[];
+    alertas: string[];
+    recomendacion: string;
+  };
+}
+
+export interface AnalisisFusionado extends AnalisisIALicitacion {
+  clasificacion?: DocClasificadoIA[];
+  resumen_clasificacion?: {
+    estado?: 'completo' | 'incompleto';
+    criterios_ubicados?: boolean;
+    criterios_deteccion?: 'lexica' | 'estructural' | 'ambas' | 'no_detectada';
+  };
+  viabilidad?: ViabilidadJuicioIA;
+}
+
+export async function analizarClasificarJuzgar(
+  texto: string,
+  documentoNombre: string,
+  metadatos: { metodo: string; confianza: string; paginas: number },
+  docs: Array<{ nombre: string; n_paginas: number | null; formato: string; escaneado: boolean; tiene_texto: boolean }>,
+  contexto: { objeto: string; entidad: string; monto: number | null },
+): Promise<AnalisisFusionado> {
+  const advertOCR = metadatos.metodo === 'pdf-ocr'
+    ? '\nNOTA: Texto extraído por OCR — puede tener errores tipográficos.\n'
+    : '';
+
+  const systemPrompt = `Eres experto en licitaciones públicas de Chile (Ley 19.886, DS 250/2004, portal Mercado Público).
+Recibes TODOS los documentos de UNA licitación y su portada. Ejecutas TRES tareas en una sola pasada y devuelves SOLO un JSON válido (sin markdown ni texto extra). Usa null para lo ausente. NUNCA inventes datos.${advertOCR}
+
+═══ TAREA A — EXTRACCIÓN ESTRUCTURADA ═══
+CRITERIOS DE EVALUACIÓN (lo más importante):
+- Secciones "CRITERIOS/FACTORES/PAUTA DE EVALUACIÓN", "PONDERACIÓN"; tablas "Criterio | Ponderación".
+- Los % suman 100. Si usa puntos (ej: 40/100), conviértelos a %. tipo: "economico" para precio/costo, "tecnico" para calidad/experiencia/plazo.
+PRESUPUESTO: "presupuesto disponible/máximo", "precio referencial", "valor estimado". CLP/UF/UTM (guarda moneda).
+ESPECIFICACIONES/ÍTEMS: ANEXO DE ESPECIFICACIONES, ITEMIZADO, listas de productos. Máx 50. Cantidad null si no aparece.
+CRONOGRAMA (en resumenBasesAdmin): etapas del proceso con fechas. GARANTÍAS: seriedad/fiel cumplimiento (monto/% y plazo). MULTAS y DOCUMENTOS A PRESENTAR.
+
+═══ TAREA B — CLASIFICACIÓN DOCUMENTAL (6 cajas) ═══
+Clasifica CADA documento de la lista en UNA caja. No descartas nada; ante duda, baja la confianza.
+Señal PRIMARIA = n_paginas (más fiable que el nombre):
+- n_paginas >= 10 → casi siempre BASES (articulado/legal → BASES_ADMINISTRATIVAS; listado de productos/cantidades → BASES_TECNICAS). "Resolución/Decreto/REX" con >=10 págs → contiene las bases → BASES_ADMINISTRATIVAS. Excepción: paquete de "ANEXO N°x"+firma → ANEXOS_OFERENTE aunque sea largo.
+- 1–3 págs → DOCUMENTOS_PROCESO (resolución/decreto/acta cortos) o ANEXOS_OFERENTE (campos a rellenar + "firma oferente"). TDR/bases técnicas cortas → BASES_TECNICAS.
+Las 6 cajas: BASES_ADMINISTRATIVAS (reglas del proceso + criterios de evaluación, casi siempre aquí), BASES_TECNICAS (especificación del producto), ANEXOS_OFERENTE (formatos en blanco del organismo, "EDITABLE", líneas para firmar), DOCUMENTOS_PROCESO (actos administrativos cortos), DOCUMENTOS_PROPIOS (documentos creados por nosotros), OTROS (confianza baja).
+CRITERIOS — DOBLE ANCLA: marca contiene_criterios_evaluacion=true si (A) usa términos "criterios/factores/ponderadores/pauta/mecanismo de evaluación", O (B) hay una tabla que reparte el 100% del puntaje entre factores con % / fórmulas AUNQUE el título sea inédito. La estructura manda sobre el título. Ante duda, true.
+
+═══ TAREA C — JUICIO DE VIABILIDAD (cualitativo, NO calcules puntajes) ═══
+La empresa opera en FERRETERÍA (materiales de construcción, productos estándar con oferta local) y EQUIPAMIENTO (instrumentación, laboratorio, electrónica, maquinaria, equipos). Clasifica:
+- area_negocio: FERRETERIA | EQUIPAMIENTO | MIXTO.
+- tipo_producto.categoria: "generico_importable" | "generico_local" | "marca_homologable" | "marca_propietaria" | "dirigida" (spec a un solo proveedor: "sin equivalencia", "exclusivo") | "no_identificable". especificacion_dirigida=true solo si categoria="dirigida".
+- descripcion_producto_para_busqueda: texto del producto extraído de las bases, sin resumir.
+- informe: resumen (qué pide, cuánto vale aprox, para quién), ventaja_competitiva, riesgos[], alertas[], recomendacion (veredicto 2-3 oraciones).`;
+
+  const montoStr = contexto.monto
+    ? `$${new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(contexto.monto)} CLP`
+    : 'No especificado';
+  const listaDocs = docs.map((d, i) =>
+    `${i + 1}. "${d.nombre}" · ${d.n_paginas ?? '?'} págs · ${d.formato}${d.escaneado ? ' · escaneado' : ''}${d.tiene_texto ? '' : ' · (texto no incluido: clasifica por nombre y páginas)'}`,
+  ).join('\n');
+
+  const userPrompt = `PORTADA:
+  id: "${documentoNombre}"
+  objeto: "${contexto.objeto || 'No disponible'}"
+  entidad: "${contexto.entidad || 'No disponible'}"
+  presupuesto_estimado: "${montoStr}"
+
+LISTA DE DOCUMENTOS A CLASIFICAR (${docs.length}):
+${listaDocs}
+
+TEXTO DE LOS DOCUMENTOS (para extracción y juicio):
+${texto}
+
+DEVUELVE EXACTAMENTE ESTE JSON (completa cada campo con lo que encuentres):
+{
+  "presupuesto": { "monto": null, "moneda": null },
+  "plazoEjecucionDias": null,
+  "plazoEntregaDias": null,
+  "modalidadAdjudicacion": null,
+  "tipoContrato": null,
+  "lugarEntrega": null,
+  "criteriosEvaluacion": [],
+  "especificacionesTecnicas": [],
+  "documentosAPresenter": [],
+  "requisitos": { "administrativos": [], "tecnicos": [], "economicos": [], "habilitantes": [], "prohibiciones": [] },
+  "garantias": [],
+  "multas": [],
+  "contacto": { "nombre": null, "cargo": null, "email": null, "telefono": null },
+  "resumenBasesAdmin": {
+    "objeto": null, "plazo_contrato": null, "modalidad_pago": null, "forma_pago": null,
+    "garantias_exigidas": [], "causales_rechazo": [], "cronograma": [], "condiciones_contrato": [], "penalidades_resumen": null
+  },
+  "resumenBasesTecnicas": {
+    "descripcion_general": null, "alcance": null, "entregables": [], "estandares_calidad": [],
+    "condiciones_entrega": null, "requisitos_tecnicos_oferente": [], "lugar_ejecucion": null
+  },
+  "analisisExperto": {
+    "resumenEjecutivo": null, "puntosCriticos": [], "oportunidades": [], "riesgosDetectados": [],
+    "recomendaciones": [], "ventajasCompetitivas": [], "aspectosNegociables": [], "complejidad": "media", "atractivo": null
+  },
+  "clasificacion": [
+    { "archivo": "nombre EXACTO de la lista", "caja": "BASES_ADMINISTRATIVAS | BASES_TECNICAS | ANEXOS_OFERENTE | DOCUMENTOS_PROCESO | DOCUMENTOS_PROPIOS | OTROS", "subtipo": null, "contiene_tecnicas_integradas": false, "contiene_anexos_integrados": false, "contiene_criterios_evaluacion": false, "confianza": 0.0, "notas": "" }
+  ],
+  "resumen_clasificacion": { "estado": "completo | incompleto", "criterios_ubicados": false, "criterios_deteccion": "lexica | estructural | ambas | no_detectada" },
+  "viabilidad": {
+    "area_negocio": "FERRETERIA | EQUIPAMIENTO | MIXTO",
+    "tipo_producto": { "categoria": "generico_importable | generico_local | marca_homologable | marca_propietaria | dirigida | no_identificable", "descripcion": "qué se licita, en 1 frase", "es_importable": true, "especificacion_dirigida": false },
+    "descripcion_producto_para_busqueda": "texto del producto, sin resumir",
+    "informe": { "resumen": "1-2 oraciones", "ventaja_competitiva": "...", "riesgos": [], "alertas": [], "recomendacion": "veredicto 2-3 oraciones" }
+  }
+}
+
+FORMATO criteriosEvaluacion: [{"nombre":"Precio","ponderacion":40,"tipo":"economico","descripcion":"","formula":null}]
+FORMATO especificacionesTecnicas (máx 50): [{"item":"1","descripcion":"Aceite Motor","cantidad":10,"unidad":"litro","requisitosMinimos":null}]
+FORMATO garantias: [{"tipo":"Seriedad de la Oferta","porcentaje":null,"montoFijo":100000,"momento":"presentación","devolucion":null,"plazo":"60 días"}]
+IMPORTANTE: "clasificacion" debe tener EXACTAMENTE ${docs.length} elementos (uno por documento de la lista, mismo "archivo").`;
+
+  try {
+    // max_tokens ampliado: la salida combinada (análisis + N clasificaciones + juicio) es
+    // mayor que la del análisis solo. El parser tolerante (extraerJSON) repara truncados leves.
+    const respuesta = await llamarGemini(systemPrompt, userPrompt, 16_000);
+    return extraerJSON(respuesta) as AnalisisFusionado;
+  } catch (err: any) {
+    const msg = String(err?.message ?? err);
+    console.error('[gemini] Fallo definitivo (fusionado):', msg);
     return { error: msg };
   }
 }

@@ -1034,6 +1034,9 @@ function DetalleContent() {
   const [descarteOpen, setDescarteOpen] = useState(false);
   const [motivoSel, setMotivoSel] = useState('');
   const [motivoDescarte, setMotivoDescarte] = useState('');
+  // Postular: al marcar POSTULADA se pide el monto ofertado (mostrando el presupuesto real).
+  const [postularOpen, setPostularOpen] = useState(false);
+  const [montoPostular, setMontoPostular] = useState('');
   // Reasignación (admin): lista de usuarios para cambiar el responsable.
   const [usuariosLista, setUsuariosLista] = useState<{ id: number; nombre: string | null; email: string }[]>([]);
 
@@ -1203,6 +1206,13 @@ function DetalleContent() {
     if (!negocio) return;
     // Descartar EXIGE un motivo → si no viene, abrimos el modal para pedirlo.
     if (estadoId === 'DESCARTADA' && !motivo) { setDescarteOpen(true); return; }
+    // Postular EXIGE el monto ofertado → abrimos el modal (muestra el presupuesto real).
+    // El modal hace su propio PATCH (estado + monto), no vuelve a pasar por aquí.
+    if (estadoId === '7POSTULADO_JV') {
+      setMontoPostular(String(negocio.monto_ofertado || ''));
+      setPostularOpen(true);
+      return;
+    }
     const estadoAnterior = negocio.estado_pipeline;
     setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoId || null } : prev);
     try {
@@ -1222,6 +1232,29 @@ function DetalleContent() {
     } catch (e: any) {
       setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoAnterior } : prev);
       toast.error('Error al actualizar etapa', e?.message);
+    }
+  };
+
+  // Confirmar POSTULADA: guarda estado + monto ofertado en un solo PATCH.
+  const confirmarPostular = async () => {
+    if (!negocio) return;
+    const monto = parseInt(String(montoPostular).replace(/\D/g, ''), 10);
+    if (!monto || monto <= 0) { toast.error('Ingresa el monto que ofertaste'); return; }
+    setPostularOpen(false);
+    const estadoAnterior = negocio.estado_pipeline;
+    const montoAnterior = negocio.monto_ofertado;
+    setNegocio(prev => prev ? { ...prev, estado_pipeline: '7POSTULADO_JV', monto_ofertado: monto } : prev);
+    try {
+      const res = await fetch(`/api/negocios/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado_pipeline: '7POSTULADO_JV', monto_ofertado: monto }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error');
+      toast.success('Marcada como Postulada');
+    } catch (e: any) {
+      setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoAnterior, monto_ofertado: montoAnterior } : prev);
+      toast.error('Error al postular', e?.message);
     }
   };
 
@@ -1622,6 +1655,48 @@ function DetalleContent() {
                   className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white text-[13px] font-semibold rounded-lg transition-colors"
                 >
                   <Ban size={14} /> Descartar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal POSTULAR — pide el monto ofertado mostrando el presupuesto real */}
+      {postularOpen && negocio && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4" onClick={() => setPostularOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-amber-50">
+              <Send size={16} className="text-amber-600" />
+              <p className="text-[14px] font-bold text-amber-800">Marcar como Postulada</p>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5">
+                <span className="text-[12px] text-slate-500">Presupuesto real de la licitación</span>
+                <span className="text-[14px] font-bold text-slate-800">{fmt(negocio.licitacion_monto)}</span>
+              </div>
+              <div>
+                <label className="block text-[12.5px] font-semibold text-slate-700 mb-1">¿Con cuánto postulaste? (monto ofertado)</label>
+                <div className="relative">
+                  <DollarSignIcon size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text" inputMode="numeric" autoFocus
+                    value={montoPostular ? new Intl.NumberFormat('es-CL').format(Number(String(montoPostular).replace(/\D/g, '')) || 0) : ''}
+                    onChange={e => setMontoPostular(e.target.value.replace(/\D/g, ''))}
+                    placeholder="0"
+                    className="w-full text-[13px] rounded-lg border border-slate-200 pl-7 pr-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 outline-none"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-400">En pesos (CLP). Se verá en el apartado Postuladas.</p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setPostularOpen(false)}
+                  className="px-3.5 py-2 text-[13px] font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                  Cancelar
+                </button>
+                <button onClick={confirmarPostular}
+                  className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white text-[13px] font-semibold rounded-lg transition-colors">
+                  <Send size={14} /> Postular
                 </button>
               </div>
             </div>

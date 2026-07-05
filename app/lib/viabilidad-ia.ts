@@ -384,7 +384,10 @@ async function llamarGeminiNativoJSON(systemPrompt: string, userPrompt: string):
     // tanto que se cuelga (timeout = NADA que reparar). Un tope moderado RETORNA rápido; si
     // el manifiesto no cupo, queda finishReason=MAX_TOKENS y lo salvamos con
     // repararJSONTruncado() (manifiesto va AL FINAL: solo se pierde su cola, no el informe).
-    generationConfig: { temperature: 0.15, responseMimeType: 'application/json', maxOutputTokens: 40_000 },
+    // thinkingBudget:0 — CRÍTICO en Gemini 2.5 Flash: con thinking activo, un prompt grande
+    // (~58k tokens in) gasta el presupuesto de salida PENSANDO y el JSON sale truncado/vacío
+    // → "Gemini devolvió JSON inválido". Apagarlo libera los 40k para el informe y ahorra tokens.
+    generationConfig: { temperature: 0.15, responseMimeType: 'application/json', maxOutputTokens: 40_000, thinkingConfig: { thinkingBudget: 0 } },
   });
 
   // Paciente ante el 503 "high demand" (overload de Google), el 429 (límite/min) Y el
@@ -427,10 +430,21 @@ async function llamarGeminiNativoJSON(systemPrompt: string, userPrompt: string):
       const txt = String(data.candidates?.[0]?.content?.parts?.[0]?.text ?? '');
       // Parser tolerante compartido: sanea caracteres de control y repara truncado (el
       // manifiesto va al final del esquema, así que si se corta solo se pierde su cola).
-      const parsed = parseJsonIA(txt);
+      let parsed = parseJsonIA(txt);
+      // Si vino truncado (MAX_TOKENS), intenta salvarlo cerrando el JSON en el último objeto
+      // completo (el manifiesto va AL FINAL: solo se pierde su cola, no el informe).
+      if (!parsed && txt) {
+        const reparado = repararJSONTruncado(txt);
+        if (reparado) parsed = parseJsonIA(reparado);
+      }
       if (parsed) return parsed;
-      if (finish && finish !== 'STOP') throw new Error(`Respuesta de Gemini incompleta (finishReason=${finish}).`);
-      throw new Error(`Gemini devolvió JSON inválido`);
+      // HTTP 200 pero JSON inservible (vacío / truncado irrecuperable / RECITATION / bloqueado):
+      // es TRANSITORIO (le pasa a Gemini bajo carga) → NO abortamos, REINTENTAMOS con el
+      // siguiente modelo/intento. Antes se lanzaba "JSON inválido" a la primera y se caía todo
+      // aunque el reintento hubiese funcionado (el fallo es intermitente).
+      ultimoErr = `${modelo} 200 sin JSON usable (finish=${finish}, ${txt.length} chars)`;
+      console.warn(`[viabilidad-ia] ${modelo} devolvió JSON inválido (finish=${finish}) → reintento ${intento + 1}/${ESPERAS.length}...`);
+      continue;
     }
     ultimoErr = `${modelo} ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`;
     if (res.status !== 429 && res.status !== 503) break; // permanente → no reintentar

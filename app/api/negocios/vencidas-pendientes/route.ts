@@ -7,8 +7,8 @@ import pool from '@/app/lib/db';
 
 // Estados que "cierran el ciclo": ya no se exige resolución.
 const ESTADOS_RESUELTOS = [
-  '7POSTULADO_JV', '7POSTULADO_CG', 'DESCARTADA',
-  'ADJ_JV', 'ADJ_CG', '8POSIBLE_ADJ', '9PERDIDA',
+  '7POSTULADO_JV', 'DESCARTADA',
+  'ADJ_JV', '8POSIBLE_ADJ', '9PERDIDA',
 ];
 
 function getUser(req: NextRequest) {

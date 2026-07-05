@@ -11,7 +11,7 @@ export interface UsuarioSession {
   email: string;
   nombre: string | null;
   empresa: string | null;
-  rol: 'admin' | 'usuario';
+  rol: 'admin' | 'usuario' | 'externo';
 }
 
 export interface TokenPayload extends JWTPayload {
@@ -19,7 +19,7 @@ export interface TokenPayload extends JWTPayload {
   email: string;
   nombre: string | null;
   empresa: string | null;
-  rol: 'admin' | 'usuario';
+  rol: 'admin' | 'usuario' | 'externo';
 }
 
 function getSecret(): Uint8Array {

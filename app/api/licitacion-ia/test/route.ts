@@ -36,7 +36,7 @@ async function probarGeminiVision(apiKey: string) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: 'Di OK' }] }],
-          generationConfig: { temperature: 0 },
+          generationConfig: { temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
         }),
         signal: AbortSignal.timeout(20_000),
       }

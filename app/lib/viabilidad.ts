@@ -7,7 +7,7 @@
 // Reutiliza lo ya extraído en `analisis_ia_licitacion` (no vuelve a leer los PDFs).
 
 import pool from '@/app/lib/db';
-import { crearChatIA, iaTextoConfigurada } from '@/app/lib/gemini';
+import { crearChatIA, iaTextoConfigurada, ViabilidadJuicioIA } from '@/app/lib/gemini';
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 
@@ -592,11 +592,27 @@ Devuelve EXACTAMENTE este JSON:
 }
 
 // ─── Función principal ────────────────────────────────────────────────────────────
-export async function calcularViabilidad(codigo: string): Promise<ViabilidadResult | null> {
+export async function calcularViabilidad(
+  codigo: string,
+  opts: { juicioPrecomputado?: ViabilidadJuicioIA | null } = {},
+): Promise<ViabilidadResult | null> {
   const ins = await cargarInsumos(codigo);
   if (!ins) return null;
 
-  const { juicio, iaOk } = await obtenerJuicioIA(ins);
+  // Pipeline FUSIONADO: si el juicio ya vino en la llamada de análisis, lo reusamos y NO
+  // llamamos al LLM otra vez. Si no, se calcula como siempre (obtenerJuicioIA con su fallback).
+  const pre = opts.juicioPrecomputado;
+  const { juicio, iaOk } = pre
+    ? {
+        juicio: {
+          area_negocio: pre.area_negocio,
+          tipo_producto: { ...pre.tipo_producto, categoria: pre.tipo_producto.categoria as TipoProductoCategoria },
+          descripcion_producto_para_busqueda: pre.descripcion_producto_para_busqueda,
+          informe: pre.informe,
+        } as JuicioIA,
+        iaOk: true,
+      }
+    : await obtenerJuicioIA(ins);
   const area = juicio.area_negocio;
 
   // C1 — Presupuesto (neto). Asumimos el monto extraído como neto salvo señal de IVA.
@@ -874,8 +890,12 @@ export async function guardarViabilidad(codigo: string, v: ViabilidadResult): Pr
 }
 
 // Calcula y guarda en un solo paso. Devuelve null si no hay análisis exhaustivo previo.
-export async function calcularYGuardarViabilidad(codigo: string): Promise<ViabilidadResult | null> {
-  const v = await calcularViabilidad(codigo);
+// opts.juicioPrecomputado: juicio ya obtenido por el pipeline fusionado (evita otra llamada IA).
+export async function calcularYGuardarViabilidad(
+  codigo: string,
+  opts: { juicioPrecomputado?: ViabilidadJuicioIA | null } = {},
+): Promise<ViabilidadResult | null> {
+  const v = await calcularViabilidad(codigo, opts);
   if (!v) return null;
   try { await guardarViabilidad(codigo, v); }
   catch (e) { console.error('[viabilidad] Error guardando:', String(e).slice(0, 200)); }

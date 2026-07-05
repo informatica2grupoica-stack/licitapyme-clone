@@ -133,8 +133,7 @@ function PendienteCard({ p, onResuelto }: { p: Pendiente; onResuelto: (id: numbe
               onChange={e => setEstadoPostulado(e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[12.5px] text-slate-700 bg-white outline-none focus:ring-2 focus:ring-emerald-500"
             >
-              <option value="7POSTULADO_JV">Postulado JV</option>
-              <option value="7POSTULADO_CG">Postulado CG</option>
+              <option value="7POSTULADO_JV">Postulada</option>
             </select>
           )}
           {resolucion === 'descarto' && (

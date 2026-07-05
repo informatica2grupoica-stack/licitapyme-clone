@@ -5,13 +5,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { searchEngine } from '@/app/lib/search-engine';
+import { puedeVerLicitacion } from '@/app/lib/api-auth';
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ codigo: string }> }
 ) {
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   if (!codigoDecoded) {
     return NextResponse.json({ error: 'Código requerido' }, { status: 400 });

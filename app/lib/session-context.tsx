@@ -9,7 +9,7 @@ export interface UsuarioSession {
   email: string;
   nombre: string | null;
   empresa: string | null;
-  rol: 'admin' | 'usuario';
+  rol: 'admin' | 'usuario' | 'externo';
   // Permisos granulares (admin = todos). El cliente los usa para mostrar/ocultar UI;
   // el servidor SIEMPRE reverifica en cada endpoint (no confía solo en esto).
   permisos?: {

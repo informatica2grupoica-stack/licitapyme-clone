@@ -11,7 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { analizarYGuardarViabilidadIA, calcularDocsHash } from '@/app/lib/viabilidad-ia';
-import { getAuthedUser, tomarLock, liberarLock, permitido } from '@/app/lib/api-auth';
+import { getAuthedUser, tomarLock, liberarLock, permitido, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { iaTextoConfigurada } from '@/app/lib/gemini';
 
 export const runtime = 'nodejs';
@@ -39,6 +39,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   try {
     const [rows] = await pool.query(
       `SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`,
@@ -66,6 +68,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   const force = new URL(request.url).searchParams.get('force') === '1';
 
   // RE-analizar es SOLO admin. El PRIMER análisis (aún no hay informe guardado) lo puede

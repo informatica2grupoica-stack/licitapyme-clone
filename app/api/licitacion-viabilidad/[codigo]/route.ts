@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { rowToViabilidad } from '@/app/lib/viabilidad';
 import { procesarLicitacionCompleta } from '@/app/lib/pipeline-licitacion';
+import { puedeVerLicitacion, esExterno } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,9 +16,11 @@ export const maxDuration = 300;
 type Params = { params: Promise<{ codigo: string }> };
 
 // ─── GET — viabilidad cacheada ────────────────────────────────────────────────
-export async function GET(_request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params }: Params) {
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
     const [rows] = await pool.query(
@@ -37,9 +40,15 @@ export async function POST(request: NextRequest, { params }: Params) {
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
 
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+
   try {
     const body = await request.json().catch(() => ({}));
     const forzar = body.forzar === true;
+    // El EXTERNO puede correr la PRIMERA viabilidad, pero no re-analizar (forzar).
+    if (forzar && await esExterno(request))
+      return NextResponse.json({ error: 'No autorizado para re-analizar' }, { status: 403 });
 
     // Pipeline completo: Fase 1 (clasificar) → análisis exhaustivo (si falta) → viabilidad
     const res = await procesarLicitacionCompleta(codigoDecoded, { forzar });

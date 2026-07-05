@@ -21,7 +21,7 @@ interface UsuarioAdmin {
   email: string;
   nombre: string | null;
   empresa: string | null;
-  rol: 'admin' | 'usuario';
+  rol: 'admin' | 'usuario' | 'externo';
   permisos?: Permisos | string | null;
   activo: boolean;
   ultimo_login: string | null;
@@ -111,7 +111,7 @@ interface FormNuevo {
   password: string;
   nombre: string;
   empresa: string;
-  rol: 'admin' | 'usuario';
+  rol: 'admin' | 'usuario' | 'externo';
 }
 
 // ─── Modal para crear usuario ──────────────────────────────────────────────
@@ -201,8 +201,12 @@ function ModalNuevoUsuario({
             <select value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value as any }))}
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
               <option value="usuario">Usuario</option>
+              <option value="externo">Trabajador externo (acceso restringido)</option>
               <option value="admin">Administrador</option>
             </select>
+            {form.rol === 'externo' && (
+              <p className="mt-1 text-[11px] text-gray-500">Solo ve las licitaciones que le asignes; sin logo, sin dashboard, sin buscador. Puede correr la viabilidad pero no re-analizar.</p>
+            )}
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onCerrar}
@@ -335,10 +339,10 @@ export default function AdminUsuariosPage() {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                          u.rol === 'admin' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'
+                          u.rol === 'admin' ? 'bg-amber-100 text-amber-700' : u.rol === 'externo' ? 'bg-sky-100 text-sky-700' : 'bg-gray-100 text-gray-600'
                         }`}>
                           {u.rol === 'admin' ? <ShieldCheck size={10} /> : <User size={10} />}
-                          {u.rol === 'admin' ? 'Admin' : 'Usuario'}
+                          {u.rol === 'admin' ? 'Admin' : u.rol === 'externo' ? 'Externo' : 'Usuario'}
                         </span>
                       </td>
                       <td className="px-4 py-3">

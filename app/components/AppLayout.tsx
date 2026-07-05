@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
-  Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity,
+  Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send,
 } from 'lucide-react';
 import { IcaLogoIcon } from '@/app/components/IcaLogo';
 import { useSession } from '@/app/lib/session-context';
@@ -34,6 +34,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard size={17} />, exact: true },
       { label: 'Negocios',  href: '/negocios',  icon: <Briefcase size={17} /> },
+      { label: 'Postuladas', href: '/postuladas', icon: <Send size={17} /> },
     ],
   },
   {
@@ -151,9 +152,11 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   const { usuario } = useSession();
   const isActive = (item: NavItem) => (item.exact ? pathname === item.href : pathname.startsWith(item.href));
 
+  const esExterno = usuario?.rol === 'externo';
   const visibleGroups = NAV_GROUPS.map(group => ({
     ...group,
     items: group.items.filter(i => {
+      if (esExterno) return i.href === '/negocios'; // externo: SOLO "Mis licitaciones"
       if (!i.adminOnly || usuario?.rol === 'admin') return true;
       if (i.href === '/radar' && usuario?.permisos?.acceso_radar) return true;
       return false;
@@ -170,15 +173,19 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
         transition-transform duration-300 ease-out
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 lg:static lg:z-auto
       `}>
-        {/* Logo */}
+        {/* Cabecera: logo (oculto para EXTERNO, que no ve la marca de la app) */}
         <div className="px-4 pt-5 pb-4 flex items-center justify-between flex-shrink-0">
-          <Link href="/dashboard" onClick={onCloseMobile} className="flex items-center gap-2.5 group">
-            <div className="group-hover:scale-105 transition-transform"><IcaLogoIcon size={36} /></div>
-            <div className="flex flex-col leading-none">
-              <span className="text-white font-bold text-[14px] tracking-tight">ICA</span>
-              <span className="text-slate-500 text-[9.5px] font-semibold tracking-[0.14em] uppercase mt-0.5">Licitaciones</span>
-            </div>
-          </Link>
+          {esExterno ? (
+            <span className="text-slate-300 font-semibold text-[13px]">Mis licitaciones</span>
+          ) : (
+            <Link href="/dashboard" onClick={onCloseMobile} className="flex items-center gap-2.5 group">
+              <div className="group-hover:scale-105 transition-transform"><IcaLogoIcon size={36} /></div>
+              <div className="flex flex-col leading-none">
+                <span className="text-white font-bold text-[14px] tracking-tight">ICA</span>
+                <span className="text-slate-500 text-[9.5px] font-semibold tracking-[0.14em] uppercase mt-0.5">Licitaciones</span>
+              </div>
+            </Link>
+          )}
           <button
             onClick={onCloseMobile}
             className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
@@ -188,7 +195,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
           </button>
         </div>
 
-        {/* Búsqueda rápida */}
+        {/* Búsqueda rápida (oculta para EXTERNO: no accede al buscador) */}
+        {!esExterno && (
         <div className="px-3 pb-3 flex-shrink-0">
           <Link href="/" onClick={onCloseMobile}
             className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.07] transition-colors">
@@ -199,6 +207,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
             </span>
           </Link>
         </div>
+        )}
 
         {/* Nav */}
         <div className="flex-1 overflow-y-auto scrollbar-thin">

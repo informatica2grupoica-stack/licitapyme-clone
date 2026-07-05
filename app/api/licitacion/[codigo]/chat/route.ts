@@ -8,7 +8,7 @@
 // Nunca re-descarga ni re-OCR-ea: reusa documentos_cache.texto_extraido.
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAuthedUser } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
 import {
   construirContextoChat,
   construirContextoDocumento,
@@ -29,6 +29,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   const sesionId = (request.nextUrl.searchParams.get('sesionId') || '').slice(0, 64);
   if (!sesionId) return NextResponse.json({ mensajes: [] });
 
@@ -42,6 +44,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   const body = await request.json().catch(() => ({}));
   const pregunta = String(body.pregunta || '').trim();

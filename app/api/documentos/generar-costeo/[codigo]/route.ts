@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { generarCosteoExcel, adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
 import type { ViabilidadIAResult } from '@/app/lib/viabilidad-ia';
@@ -82,6 +82,8 @@ export async function GET(request: NextRequest, { params }: Params) {
   }
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   const [rows] = await pool.query(
     `SELECT documento_nombre, documento_url_local, created_at
@@ -101,6 +103,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   // 1) Leer el informe IA desde la DB
   const informeIA = await leerInformeIA(codigoDecoded);

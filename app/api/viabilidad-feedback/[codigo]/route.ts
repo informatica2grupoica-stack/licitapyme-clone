@@ -3,7 +3,7 @@
 // La corrección se destila en una regla y se inyecta en futuros análisis (prompt dinámico).
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser, tienePermiso } from '@/app/lib/api-auth';
+import { getAuthedUser, tienePermiso, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { guardarFeedback, listarFeedback, eliminarFeedback } from '@/app/lib/viabilidad-feedback';
 
 export const runtime = 'nodejs';
@@ -32,6 +32,8 @@ async function veredictoIAActual(codigo: string): Promise<string | null> {
 export async function GET(request: NextRequest, { params }: Params) {
   if (!(await getAuthedUser(request))) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   const { codigo } = await params;
+  if (!(await puedeVerLicitacion(request, decodeURIComponent(codigo))))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   const feedback = await listarFeedback(decodeURIComponent(codigo));
   return NextResponse.json({ success: true, feedback });
 }

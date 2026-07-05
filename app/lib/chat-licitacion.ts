@@ -182,7 +182,9 @@ async function responderConGemini(contexto: string, historial: MensajeHistorial[
   const body = JSON.stringify({
     systemInstruction: { parts: [{ text: REGLAS }] },
     contents,
-    generationConfig: { temperature: 0.2, maxOutputTokens: 4_000 },
+    // thinkingBudget:0 → sin tokens de "thinking" (un chat sobre contexto dado no lo necesita):
+    // ahorra tokens y evita que el thinking se coma el presupuesto y devuelva texto vacío.
+    generationConfig: { temperature: 0.2, maxOutputTokens: 4_000, thinkingConfig: { thinkingBudget: 0 } },
   });
 
   const MODELOS = [MODELO_GEMINI, 'gemini-flash-latest'];

@@ -1,6 +1,7 @@
 // src/app/api/licitacion-completa/[codigo]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import * as cheerio from 'cheerio';
+import { puedeVerLicitacion } from '@/app/lib/api-auth';
 
 // IMPORTANTE: En Next.js App Router, los parámetros vienen en el segundo argumento
 export async function GET(
@@ -13,6 +14,8 @@ export async function GET(
   if (!codigo) {
     return NextResponse.json({ error: 'Código de licitación no proporcionado' }, { status: 400 });
   }
+  if (!(await puedeVerLicitacion(request, decodeURIComponent(codigo))))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
     // 1. Construir la URL de la ficha en Mercado Público

@@ -61,7 +61,7 @@ const PREFILTRO: Record<string, { label: string; color: string }> = {
   EXCLUIDO:        { label: 'Excluida', color: '#9ca3af' },
 };
 const ETAPA: Record<string, string> = {
-  '1ASIGNADO': 'Asignado', '2CARPETA_OK': 'Carpeta OK', '3REVISION': 'En revisión',
+  '1ASIGNADO': 'Asignado', '3REVISION': 'En revisión',
   '4ANEXOS': 'Anexos', '5OFERTA': 'Oferta', '6ENVIADA': 'Enviada', '7GANADA': 'Ganada', '8PERDIDA': 'Perdida',
 };
 const PIPE_COLORS = ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444'];

@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { generarAnalisisExhaustivo } from '@/app/lib/analisis-exhaustivo';
+import { puedeVerLicitacion, esExterno } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,9 +48,11 @@ function rowToAnalisis(row: any) {
 }
 
 // ─── GET — análisis cacheado ──────────────────────────────────────────────────
-export async function GET(_request: NextRequest, { params }: Params) {
+export async function GET(request: NextRequest, { params }: Params) {
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
     const [rows] = await pool.query(
@@ -71,6 +74,11 @@ export async function GET(_request: NextRequest, { params }: Params) {
 export async function POST(request: NextRequest, { params }: Params) {
   const { codigo } = await params;
   const codigoDecoded = decodeURIComponent(codigo);
+  // Re-generar el análisis = "re-analizar": el EXTERNO no puede.
+  if (await esExterno(request))
+    return NextResponse.json({ error: 'No autorizado para re-analizar' }, { status: 403 });
+  if (!(await puedeVerLicitacion(request, codigoDecoded)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
     const body = await request.json().catch(() => ({}));

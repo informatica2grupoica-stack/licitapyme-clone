@@ -29,6 +29,17 @@ const PREFIJOS_IGNORAR = [
 // Rutas solo para admin
 const RUTAS_ADMIN = ['/admin', '/api/admin'];
 
+// Rol EXTERNO (trabajador externo): acceso MUY restringido.
+//  · Páginas permitidas: solo "Mis licitaciones" y el detalle de una licitación (+ su perfil).
+//  · APIs bloqueadas: las agregadas/administrativas (radar, dashboard, buscador, historial global…).
+// El resto de APIs (negocios, licitación, documentos, chat, notificaciones propias) pasa, y la
+// autorización POR LICITACIÓN se reverifica en cada endpoint con puedeVerLicitacion().
+const EXTERNO_PAGINAS_OK = ['/negocios', '/licitacion/', '/perfil'];
+const EXTERNO_API_BLOQUEADAS = [
+  '/api/dashboard', '/api/alertas', '/api/radar', '/api/analizadas',
+  '/api/search', '/api/palabras-clave', '/api/prefiltro', '/api/favorites',
+];
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -72,6 +83,18 @@ export async function proxy(request: NextRequest) {
       return NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
     }
     return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
+
+  // Rol EXTERNO: encerrar en "Mis licitaciones" + su detalle.
+  if (usuario.rol === 'externo') {
+    if (pathname.startsWith('/api/')) {
+      if (EXTERNO_API_BLOQUEADAS.some(r => pathname.startsWith(r))) {
+        return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
+      }
+    } else if (!EXTERNO_PAGINAS_OK.some(r => pathname.startsWith(r))) {
+      // Cualquier página fuera del whitelist (dashboard, radar, buscador…) → sus licitaciones.
+      return NextResponse.redirect(new URL('/negocios', request.url));
+    }
   }
 
   // Inyectar datos del usuario en headers para que las API routes los lean

@@ -300,8 +300,25 @@ export async function extractTextFromDocument(
       // Proveedor de OCR: 'zai' (GLM-OCR, por defecto) o 'gemini' (salta GLM y usa Gemini
       // File API directo). Útil cuando GLM está sin saldo o se quiere Gemini al 100%.
       const ocrProvider = (process.env.IA_OCR_PROVIDER ?? 'zai').toLowerCase();
+
+      // OCR LOCAL (Tesseract) como PRINCIPAL: 100% local, sin API ni saldo. Ideal cuando
+      // GLM/Gemini están caídos o sin crédito. No depende de URL pública (lee el buffer).
+      if (ocrProvider === 'tesseract') {
+        console.log(`⚠️ PDF escaneado (${pdfData.numpages} págs) → OCR local Tesseract...`);
+        try {
+          const { ocrPdfLocalTesseract } = await import('@/app/lib/tesseract-ocr');
+          const textoLocal = await ocrPdfLocalTesseract(buffer);
+          if (textoLocal && textoLocal.trim().length > 100) {
+            return { texto: textoLocal, numPages: pdfData.numpages, metodo: 'pdf-tesseract-local', confianza: 'media' };
+          }
+          console.warn('[OCR] Tesseract local devolvió poco texto; caigo a los OCR por IA.');
+        } catch (tessErr) {
+          console.warn('[OCR] Tesseract local falló, caigo a los OCR por IA:', tessErr instanceof Error ? tessErr.message : tessErr);
+        }
+      }
+
       const { esUrlOcrPublica } = await import('@/app/lib/zai-ocr');
-      if (ocrProvider !== 'gemini' && opts.sourceUrl && esUrlOcrPublica(opts.sourceUrl) && process.env.ZAI_API_KEY) {
+      if (ocrProvider !== 'gemini' && ocrProvider !== 'tesseract' && opts.sourceUrl && esUrlOcrPublica(opts.sourceUrl) && process.env.ZAI_API_KEY) {
         console.log(`⚠️ PDF escaneado (${pdfData.text?.length || 0} chars, ${pdfData.numpages} págs). GLM-OCR (por URL)...`);
         try {
           const { extraerTextoPdfPorUrlConGlmOcr } = await import('@/app/lib/zai-ocr');
@@ -343,6 +360,21 @@ export async function extractTextFromDocument(
         }
       } catch (visionErr) {
         console.warn('[OCR] Gemini Vision falló:', visionErr);
+      }
+
+      // ÚLTIMO RESPALDO: OCR local Tesseract (si no se intentó ya como principal). Evita
+      // devolver vacío cuando los OCR por IA caen/sin crédito. Local, sin API.
+      if (ocrProvider !== 'tesseract') {
+        console.log(`⚠️ OCR por IA sin resultado → último respaldo: Tesseract local...`);
+        try {
+          const { ocrPdfLocalTesseract } = await import('@/app/lib/tesseract-ocr');
+          const textoLocal = await ocrPdfLocalTesseract(buffer);
+          if (textoLocal && textoLocal.trim().length > 100) {
+            return { texto: textoLocal, numPages: pdfData.numpages, metodo: 'pdf-tesseract-local', confianza: 'media' };
+          }
+        } catch (tessErr) {
+          console.warn('[OCR] Tesseract local (respaldo) falló:', tessErr instanceof Error ? tessErr.message : tessErr);
+        }
       }
 
       // Paso 3: Devolver lo que hay (OCR.space se removió: devolvía siempre 0 chars).

@@ -1,6 +1,7 @@
 // app/api/documentos/[codigo]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { puedeVerLicitacion } from '@/app/lib/api-auth';
 
 export async function GET(
   request: NextRequest,
@@ -10,6 +11,8 @@ export async function GET(
   if (!codigo) {
     return NextResponse.json({ error: 'Código requerido' }, { status: 400 });
   }
+  if (!(await puedeVerLicitacion(request, decodeURIComponent(codigo))))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
   try {
     const [rows] = await pool.query(

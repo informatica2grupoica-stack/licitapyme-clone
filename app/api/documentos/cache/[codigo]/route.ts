@@ -1,13 +1,16 @@
 // src/app/api/documentos/cache/[codigo]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { puedeVerLicitacion } from '@/app/lib/api-auth';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ codigo: string }> }
 ) {
   const { codigo } = await params;
-  
+  if (!(await puedeVerLicitacion(request, decodeURIComponent(codigo))))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+
   try {
     let rows: unknown[];
     try {
