@@ -132,6 +132,46 @@ async function glmLayoutParsing(
   throw new Error(`GLM-OCR no respondió tras reintentos. Último error: ${ultimoErr}`);
 }
 
+// ─── Marcado de PÁGINA EXACTA dentro de una ventana ──────────────────────────────
+// GLM-OCR devuelve el markdown de la ventana con marcas de figura ![](page=K,bbox=[...])
+// donde K es la página 0-based DENTRO de la ventana (0 = primera página del bloque). Esas
+// marcas aparecen en cada página (logos/timbres municipales), así que sirven para saber en
+// qué página va cada bloque de texto. Convertimos esa señal en marcadores [[PÁGINA N]] con
+// el número ABSOLUTO, para que la viabilidad CITE la página exacta (antes citaba el rango
+// grosero [[PÁGINA 9-16]] y el modelo inventaba "pág. 4"). Si la ventana no trae marcas de
+// página, se rotula con el rango como respaldo (no se inventa un número).
+function segmentarPorPaginaExacta(md: string, desde: number, hasta: number): string {
+  const reImgPagina = /!\[\]\(page=(\d+),bbox=\[[^\]]*\]\)/g;
+  const marcas: Array<{ idx: number; fin: number; k: number }> = [];
+  let mm: RegExpExecArray | null;
+  while ((mm = reImgPagina.exec(md)) !== null) marcas.push({ idx: mm.index, fin: reImgPagina.lastIndex, k: parseInt(mm[1], 10) });
+
+  // Sin señal de página → respaldo: rotular con el rango de la ventana (no inventar página).
+  if (!marcas.length) {
+    const et = desde === hasta ? `[[PÁGINA ${desde}]]` : `[[PÁGINA ${desde}-${hasta}]]`;
+    return `${et}\n${limpiarImagenes(md).trim()}`;
+  }
+
+  // Recorremos el markdown insertando [[PÁGINA absoluta]] cuando la página sube, y quitando
+  // las marcas de imagen (son ruido para el LLM/chat; el resaltado se hace por búsqueda de texto).
+  let out = '', cursor = 0, pagEmitida = -1, pagActual = 0;
+  const emitir = (p: number) => { if (p !== pagEmitida) { out += `${out ? '\n\n' : ''}[[PÁGINA ${desde + p}]]\n`; pagEmitida = p; } };
+  emitir(0); // el bloque arranca en su primera página
+  for (const m of marcas) {
+    out += md.slice(cursor, m.idx);   // texto previo → página actual ya emitida
+    cursor = m.fin;                    // saltar la marca de imagen (se descarta)
+    if (m.k > pagActual) { pagActual = m.k; emitir(pagActual); }
+  }
+  out += md.slice(cursor);
+  return limpiarImagenes(out).trim();
+}
+
+// Quita cualquier marcador de imagen markdown restante (![](...)): son placeholders de
+// figuras sin valor textual y ensucian el contexto del LLM y del chat.
+function limpiarImagenes(s: string): string {
+  return s.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\n{3,}/g, '\n\n');
+}
+
 // ─── OCR de UNA ventana de páginas (para clasificar la 1ª página) ────────────────
 // startPage/endPage 1-based. Devuelve '' si no reconoce nada. No añade marcadores.
 export async function extraerPaginasConGlmOcr(
@@ -186,7 +226,9 @@ export async function extraerTextoPdfPorUrlConGlmOcr(
         const i = indices[cursor++];
         const v = ventanas[i];
         try {
-          const t = (await glmLayoutParsing(url, { startPage: v.desde, endPage: v.hasta })).trim();
+          const raw = (await glmLayoutParsing(url, { startPage: v.desde, endPage: v.hasta })).trim();
+          // Marcado de PÁGINA EXACTA (no el rango grosero): así la viabilidad cita la página real.
+          const t = raw ? segmentarPorPaginaExacta(raw, v.desde, v.hasta) : '';
           estado[i] = { texto: t, ok: true };
           console.log(`[glm-ocr] págs ${v.desde}-${v.hasta}: ${t.length} chars`);
         } catch (e) {
@@ -216,7 +258,9 @@ export async function extraerTextoPdfPorUrlConGlmOcr(
   let huecos = 0;
   for (let i = 0; i < ventanas.length; i++) {
     const v = ventanas[i], et = etiquetaDe(v), s = estado[i];
-    if (s.ok && s.texto) partes.push(`${et}\n${s.texto}`);
+    // Con texto: los marcadores [[PÁGINA N]] EXACTOS ya vienen dentro (segmentarPorPaginaExacta),
+    // no se antepone el rango. Sin texto o con fallo: se rotula con el rango de la ventana.
+    if (s.ok && s.texto) partes.push(s.texto);
     else if (s.ok) partes.push(`${et}\n(página sin texto)`);
     else { partes.push(`${et}\n[${MARCA_HUECO}: no se pudo OCR-ear estas páginas — se reintentará]`); huecos++; }
   }

@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { ahoraChileSQL } from '@/app/lib/tz';
 
 function getUserId(req: NextRequest): number | null {
   const id = req.headers.get('x-user-id');
@@ -32,6 +33,10 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const soloNoLeidas = searchParams.get('noLeidas') === 'true';
   const limitParam   = searchParams.get('limit');
+  // RENDIMIENTO: por defecto el radar solo trae licitaciones ACTIVAS (cierre futuro o sin
+  // cierre). Las vencidas (histórico) son ~4× el volumen y casi nunca se necesitan al abrir
+  // el radar; se cargan bajo demanda con ?incluirVencidas=1 (botón "ver histórico" del front).
+  const incluirVencidas = searchParams.get('incluirVencidas') === '1';
 
   // Por defecto se traen TODAS las alertas: el front filtra en cliente sobre el
   // total y pagina la visualización. El ?limit/?offset es opcional (uso puntual).
@@ -58,7 +63,11 @@ export async function GET(request: NextRequest) {
       : '';
     const whereScope = esAdmin ? '1 = 1' : 'a.usuario_id = ?';
     const scopeParams: unknown[] = esAdmin ? [] : [userId];
-    const params: unknown[] = hayLimit ? [...scopeParams, limit, offset] : [...scopeParams];
+    // Filtro de actividad (por defecto solo activas). Zona horaria de Chile: NO comparar
+    // contra NOW() del servidor MySQL (otra zona) → usar ahoraChileSQL().
+    const vencClause = incluirVencidas ? '' : ' AND (a.licitacion_cierre >= ? OR a.licitacion_cierre IS NULL)';
+    const vencParams: unknown[] = incluirVencidas ? [] : [ahoraChileSQL()];
+    const params: unknown[] = [...scopeParams, ...vencParams, ...(hayLimit ? [limit, offset] : [])];
     const limitClause = hayLimit ? ' LIMIT ? OFFSET ?' : '';
 
     // Intentar primero con las columnas nuevas; si no existen (migración pendiente)
@@ -87,7 +96,7 @@ export async function GET(request: NextRequest) {
          LEFT JOIN prefiltro_licitacion pf ON pf.licitacion_codigo = a.licitacion_codigo
          LEFT JOIN palabras_clave pc ON pc.id = a.palabra_clave_id
          LEFT JOIN etiquetas cat ON cat.id = pc.categoria_id
-         WHERE ${whereScope}${whereExtra}
+         WHERE ${whereScope}${whereExtra}${vencClause}
          ORDER BY COALESCE(a.licitacion_fecha_publicacion, a.licitacion_cierre, a.created_at) DESC`;
       const query = `${selectCols}${limitClause}`;
       [rows] = await pool.query(query, params) as any[];
@@ -100,7 +109,7 @@ export async function GET(request: NextRequest) {
                 leida, created_at
          FROM alertas_licitaciones a
          ${adminJoin}
-         WHERE ${whereScope}${whereExtra}
+         WHERE ${whereScope}${whereExtra}${vencClause}
          ORDER BY COALESCE(a.licitacion_cierre, a.created_at) DESC${limitClause}`;
       [rows] = await pool.query(query, params) as any[];
     }

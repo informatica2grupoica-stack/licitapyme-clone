@@ -13,7 +13,7 @@ import {
   Sparkles, Filter, ChevronDown, FileText, Download, MapPin,
   ArrowUpDown, Eye, EyeOff, AlertCircle, Flame, SlidersHorizontal,
   CheckSquare, Square, UserPlus, Undo2, UserCheck, PlayCircle,
-  Database, Ban, MinusCircle,
+  Database, Ban, MinusCircle, History,
 } from 'lucide-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 import { AUTOMATIZACION_PAUSADA } from '@/app/lib/automatizacion';
@@ -1162,6 +1162,9 @@ export default function RadarPage() {
   const [noLeidas,      setNoLeidas]      = useState(0);
   const [loading,       setLoading]       = useState(true);
   const [loadingAlerts, setLoadingAlerts] = useState(true);
+  // Histórico (vencidas): por rendimiento arranca en false → solo activas. Se activa bajo
+  // demanda (botón "ver histórico" o filtro "Ya vencidos") y recarga trayendo también las vencidas.
+  const [incluirVencidas, setIncluirVencidas] = useState(false);
   const [nuevaKw,       setNuevaKw]       = useState('');
   const [nuevaCat,      setNuevaCat]      = useState<string>(''); // categoría para la nueva keyword
   const [nuevaNegativa, setNuevaNegativa] = useState(false);      // ¿la nueva keyword es de exclusión?
@@ -1273,10 +1276,13 @@ export default function RadarPage() {
   }, []);
 
   // silencioso=true → no muestra el skeleton (refresco en segundo plano sobre datos ya pintados desde cache)
-  const cargarAlertas = useCallback(async (silencioso = false) => {
+  // RENDIMIENTO: por defecto el radar pide solo las ACTIVAS (mucho más rápido). El histórico
+  // (vencidas) se trae bajo demanda con ?incluirVencidas=1 al pulsar "ver histórico" o el
+  // filtro "Ya vencidos".
+  const cargarAlertas = useCallback(async (silencioso = false, incluir = false) => {
     if (!silencioso) setLoadingAlerts(true);
     try {
-      const d = await fetch('/api/alertas').then(r => r.json());
+      const d = await fetch(incluir ? '/api/alertas?incluirVencidas=1' : '/api/alertas').then(r => r.json());
       if (d.success) { setAlertas(d.alertas || []); setNoLeidas(d.noLeidas || 0); }
     } catch { /* silencioso */ }
     finally { setLoadingAlerts(false); }
@@ -1323,6 +1329,19 @@ export default function RadarPage() {
     if (!hidratado) return;
     try { sessionStorage.setItem(SS_FILTROS, JSON.stringify(filtros)); } catch { /* cuota llena */ }
   }, [filtros, hidratado]);
+
+  // Si el usuario filtra por "Ya vencidos", cargamos el histórico automáticamente (si no está).
+  useEffect(() => {
+    if (filtros.dias === 'venc' && !incluirVencidas) setIncluirVencidas(true);
+  }, [filtros.dias, incluirVencidas]);
+
+  // Recargar cuando cambia "ver histórico" (salta la primera corrida: el montaje ya cargó activas).
+  const vencIniciado = useRef(false);
+  useEffect(() => {
+    if (!hidratado) return;
+    if (!vencIniciado.current) { vencIniciado.current = true; return; }
+    cargarAlertas(true, incluirVencidas);
+  }, [incluirVencidas, hidratado, cargarAlertas]);
 
   // Mantener el cache de alertas en sync con el estado (para pintura instantánea al volver).
   // Aligeramos el cache omitiendo viabilidad_informe: es el campo más pesado (~0.5 MB en
@@ -2428,6 +2447,13 @@ export default function RadarPage() {
                     )}
                   </p>
                   <div className="flex items-center gap-3">
+                    {/* Ver histórico: por rendimiento el radar carga solo activas; esto trae
+                        también las vencidas bajo demanda. */}
+                    <button onClick={() => setIncluirVencidas(v => !v)} disabled={loadingAlerts}
+                      title={incluirVencidas ? 'Mostrar solo licitaciones activas' : 'Cargar también las licitaciones vencidas (histórico)'}
+                      className="flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-indigo-600 transition-colors disabled:opacity-50">
+                      <History size={13} /> {incluirVencidas ? 'Solo activas' : 'Ver histórico'}
+                    </button>
                     {noLeidas > 0 && (
                       <button onClick={marcarTodasLeidas}
                         className="flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-indigo-600 transition-colors">
