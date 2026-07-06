@@ -86,7 +86,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
       if (data.error) throw new Error(data.error);
       setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'respuesta', texto: data.respuesta || 'Sin respuesta.' }]);
     } catch (e: any) {
-      setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'error', texto: e?.message || 'Error al consultar la IA.' }]);
+      setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'error', texto: e?.message || 'Error al consultar el asistente.' }]);
     } finally {
       setCargando(false);
       inputRef.current?.focus();
@@ -98,7 +98,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
       <SectionHeader
         icon={<Brain size={18} />}
         title="Inteligencia"
-        subtitle="Asistente IA sobre todos los documentos de la licitación"
+        subtitle="Asistente sobre todos los documentos de la licitación"
       />
 
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col">
@@ -108,7 +108,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
             <div className="p-1.5 bg-purple-600 rounded-lg">
               <Bot size={13} className="text-white" />
             </div>
-            <span className="text-sm font-semibold text-zinc-800">Asistente IA · Licitación</span>
+            <span className="text-sm font-semibold text-zinc-800">Asistente · Licitación</span>
             <span className="text-xs text-zinc-400 truncate hidden sm:inline">{nombreLicitacion}</span>
             {hayDocs && (
               <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
@@ -127,7 +127,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
               </div>
               <p className="text-sm font-medium text-zinc-600">Sin documentos aún</p>
               <p className="text-xs text-zinc-400 mt-1 max-w-[260px]">
-                Descarga documentos de Mercado Público en la sección &quot;Documentos y Bases&quot; para consultarlos con IA
+                Descarga documentos de Mercado Público en la sección &quot;Documentos y Bases&quot; para consultarlos con el asistente
               </p>
             </div>
           ) : cargandoHistorial ? (

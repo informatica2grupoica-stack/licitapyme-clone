@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
+import { useConfirm } from '@/app/components/ui/confirm';
 import { useSession } from '@/app/lib/session-context';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
 import { MOTIVOS_DESCARTE, componerMotivo } from '@/app/lib/motivos-descarte';
@@ -372,7 +373,7 @@ function SeccionResumen({
       {viabIA && (
         <div className="bg-white border border-violet-200 rounded-xl p-5">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-[12px] font-bold text-violet-500 uppercase tracking-wider flex items-center gap-1.5"><Sparkles size={13} /> Viabilidad (IA)</h3>
+            <h3 className="text-[12px] font-bold text-violet-500 uppercase tracking-wider flex items-center gap-1.5"><Sparkles size={13} /> Viabilidad</h3>
             {onIrViabilidad && <button onClick={onIrViabilidad} className="text-[12px] text-violet-600 hover:underline flex items-center gap-0.5">Ver análisis completo <ChevronRight size={13} /></button>}
           </div>
           <div className="flex items-center gap-4">
@@ -609,7 +610,7 @@ function SeccionItems({ licitacion, analisisIA }: { licitacion: LicitacionRaw | 
           <div className="flex flex-col items-center py-8 text-center">
             <Package size={24} className="text-zinc-300 mb-2" />
             <p className="text-[13px] text-zinc-400">Sin ítems en la API de Mercado Público</p>
-            {hayIA && <p className="text-[12px] text-zinc-400 mt-1">Ver ítems extraídos por IA más abajo</p>}
+            {hayIA && <p className="text-[12px] text-zinc-400 mt-1">Ver ítems extraídos de las bases más abajo</p>}
           </div>
         ) : (
           <div className="divide-y divide-zinc-50">
@@ -637,9 +638,9 @@ function SeccionItems({ licitacion, analisisIA }: { licitacion: LicitacionRaw | 
         <div className="bg-white border border-violet-200/60 rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-violet-100 flex items-center justify-between">
             <h3 className="text-[12px] font-bold text-violet-500 uppercase tracking-wider">
-              Ítems extraídos por IA ({itemsIA.length})
+              Ítems extraídos de las bases ({itemsIA.length})
             </h3>
-            <span className="text-[10px] text-violet-500 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">Fuente: Análisis IA</span>
+            <span className="text-[10px] text-violet-500 bg-violet-50 border border-violet-200 px-2 py-0.5 rounded-full">Fuente: Análisis de documentos</span>
           </div>
           <TablaItems items={itemsIA} />
         </div>
@@ -650,7 +651,7 @@ function SeccionItems({ licitacion, analisisIA }: { licitacion: LicitacionRaw | 
         <div className="bg-white border border-zinc-200/60 rounded-xl py-10 text-center">
           <Package size={24} className="text-zinc-300 mb-2 mx-auto" />
           <p className="text-[13px] text-zinc-400">Sin ítems disponibles</p>
-          <p className="text-[12px] text-zinc-400 mt-1">Descarga y analiza los documentos con IA para extraerlos</p>
+          <p className="text-[12px] text-zinc-400 mt-1">Descarga y analiza los documentos para extraerlos</p>
         </div>
       )}
     </div>
@@ -1019,6 +1020,7 @@ function DetalleContent() {
   const router   = useRouter();
   const { usuario } = useSession();
   const toast    = useToast();
+  const confirmar = useConfirm();
   const isAdmin  = usuario?.rol === 'admin';
 
   const [negocio, setNegocio]       = useState<Negocio | null>(null);
@@ -1037,6 +1039,16 @@ function DetalleContent() {
   // Postular: al marcar POSTULADA se pide el monto ofertado (mostrando el presupuesto real).
   const [postularOpen, setPostularOpen] = useState(false);
   const [montoPostular, setMontoPostular] = useState('');
+
+  // Escape cierra los modales de descarte/postulación (el clic fuera ya está en el overlay).
+  useEffect(() => {
+    if (!descarteOpen && !postularOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setDescarteOpen(false); setPostularOpen(false); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [descarteOpen, postularOpen]);
   // Reasignación (admin): lista de usuarios para cambiar el responsable.
   const [usuariosLista, setUsuariosLista] = useState<{ id: number; nombre: string | null; email: string }[]>([]);
 
@@ -1294,7 +1306,13 @@ function DetalleContent() {
   };
 
   const eliminar = async () => {
-    if (!confirm('¿Quitar esta licitación de Negocios?')) return;
+    const ok = await confirmar({
+      titulo: '¿Quitar esta licitación de Negocios?',
+      mensaje: 'Se quitará del panel. Podrás volver a asignarla después.',
+      confirmarLabel: 'Quitar',
+      peligro: true,
+    });
+    if (!ok) return;
     await fetch(`/api/negocios/${id}`, { method: 'DELETE' });
     toast.info('Licitación removida');
     router.push('/negocios');
@@ -1331,15 +1349,16 @@ function DetalleContent() {
   // IA de documentos) vive SOLO en el Radar (admin). Aquí solo brief + ítems + comentarios.
   const documentosAnalizables = documentos.filter(d => esUrlAnalizable(d.url_local || d.url));
 
+  // Orden definido por el equipo (negocio, sin Postulación ni Asistente):
+  // Resumen · Documentos · Viabilidad · Criterios · Ítems · Fechas · Comentarios.
   const NAV_SECTIONS = [
-    { key: 'resumen',      label: 'Resumen',           count: null },
-    { key: 'viabilidad',   label: 'Viabilidad (IA)',   count: null },
-    { key: 'criterios',    label: 'Criterios',         count: analisisIA?.criteriosEvaluacion?.length || null },
+    { key: 'resumen',      label: 'Resumen',            count: null },
+    { key: 'documentos',   label: 'Documentos',         count: documentos.length || null },
+    { key: 'viabilidad',   label: 'Viabilidad',         count: null },
+    { key: 'criterios',    label: 'Criterios',          count: analisisIA?.criteriosEvaluacion?.length || null },
     { key: 'items',        label: 'Ítems y Cantidades', count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
-    { key: 'documentos',   label: 'Documentos',        count: documentos.length || null },
-    { key: 'analisis',     label: 'Chatbot',           count: null },
-    { key: 'fechas',       label: 'Fechas',            count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
-    { key: 'comentarios',  label: 'Comentarios',       count: null },
+    { key: 'fechas',       label: 'Fechas',             count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
+    { key: 'comentarios',  label: 'Comentarios',        count: null },
   ] as const;
 
   return (

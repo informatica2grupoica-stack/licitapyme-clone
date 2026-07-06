@@ -1,14 +1,17 @@
 'use client';
 
-// Análisis de licitación (SOLO ADMIN): seguimiento que cada usuario hace a sus
-// licitaciones asignadas. Muestra, por usuario (con su color consistente), en qué punto
-// del FLUJO (pipeline) está cada licitación, más un embudo global de estados. Se nutre de
-// /api/negocios (que para admin devuelve TODOS los negocios activos).
+// Análisis de licitación (SOLO ADMIN): tablero tipo Kanban del pipeline. Las columnas son
+// las etapas (Asignado → En proceso → … → Postulada → Adjudicada) y cada licitación es una
+// tarjeta en la etapa donde está, con el perfil (avatar) responsable. Arriba, KPIs del estado
+// general; y un filtro por perfil. Se nutre de /api/negocios (admin = todos los negocios).
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Activity, Loader2, RefreshCw, ExternalLink, Building2, Calendar, MessageSquare, X } from 'lucide-react';
+import {
+  Activity, Loader2, RefreshCw, Building2, Calendar, MessageSquare,
+  DollarSign, Send, Clock, Layers, Users,
+} from 'lucide-react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
@@ -28,36 +31,39 @@ interface Negocio {
   usuario_email: string | null;
   comentarios_count?: number | null;
 }
-interface UsuarioLite { id: number; nombre: string | null; email: string; }
 
 const fmtMonto = (n: number | null) =>
   n ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n) : '—';
+const fmtMontoCorto = (n: number) => {
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}MM`;
+  if (n >= 1_000_000) return `$${Math.round(n / 1_000_000)}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
+  return `$${n}`;
+};
 const fmtFecha = (s: string | null) => {
   if (!s) return '—';
   const d = new Date(s);
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
 };
+const diasHasta = (s: string | null): number | null => {
+  if (!s) return null;
+  const d = new Date(s); if (isNaN(d.getTime())) return null;
+  return Math.ceil((d.getTime() - Date.now()) / 86_400_000);
+};
 
-function EstadoChip({ id }: { id: string }) {
-  const e = getEstadoPipeline(id);
-  const color = e?.color || '#64748b';
-  return (
-    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full"
-      style={{ background: `${color}18`, color }}>
-      <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-      {e?.label || id}
-    </span>
-  );
-}
+// Orden de columnas del tablero (por LABEL, así los estados legado caen en su columna).
+const BOARD_LABELS = ['ASIGNADO', 'EN PROCESO', 'ANEXOS', 'ANEXO LISTO', 'VISADO', 'POSTULADA', 'POSIBLE ADJ', 'ADJUDICADA', 'PERDIDA', 'DESCARTADA'];
+const colorDeLabel = (label: string) => ESTADOS_PIPELINE.find(e => e.label === label)?.color || '#64748b';
+const labelDe = (estado: string) => getEstadoPipeline(estado)?.label || estado || 'ASIGNADO';
+const TERMINALES = new Set(['DESCARTADA', 'PERDIDA', 'ADJUDICADA']);
 
 export default function AnalisisLicitacionPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
   const router = useRouter();
   const [negocios, setNegocios] = useState<Negocio[]>([]);
-  const [usuarios, setUsuarios] = useState<UsuarioLite[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filtroEstado, setFiltroEstado] = useState<string | null>(null);
+  const [perfil, setPerfil] = useState<string | null>(null); // filtro por email de usuario
 
   const esAdmin = usuario?.rol === 'admin';
 
@@ -72,42 +78,93 @@ export default function AnalisisLicitacionPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al cargar');
       setNegocios(data.negocios || []);
-      setUsuarios(data.usuarios || []);
     } catch (e: any) { setError(e.message); }
     finally { setCargando(false); }
   };
   useEffect(() => { if (esAdmin) cargar(); }, [esAdmin]);
 
-  // Embudo global: cantidad por estado, en el orden del pipeline.
-  const funnel = useMemo(() => {
-    const cont = new Map<string, number>();
-    for (const n of negocios) cont.set(n.estado_pipeline, (cont.get(n.estado_pipeline) || 0) + 1);
-    return ESTADOS_PIPELINE.map(e => ({ ...e, total: cont.get(e.id) || 0 })).filter(e => e.total > 0);
+  const visibles = useMemo(
+    () => negocios.filter(n => perfil == null || (n.usuario_email || n.usuario_nombre) === perfil),
+    [negocios, perfil]);
+
+  // KPIs sobre lo visible.
+  const kpis = useMemo(() => {
+    let monto = 0, postuladas = 0, adjudicadas = 0, cierran = 0;
+    for (const n of visibles) {
+      monto += n.monto_ofertado || n.licitacion_monto || 0;
+      const label = labelDe(n.estado_pipeline);
+      if (label === 'POSTULADA') postuladas++;
+      if (label === 'ADJUDICADA') adjudicadas++;
+      const d = diasHasta(n.licitacion_cierre);
+      if (d != null && d >= 0 && d <= 7 && !TERMINALES.has(label)) cierran++;
+    }
+    return { total: visibles.length, monto, postuladas, adjudicadas, cierran };
+  }, [visibles]);
+
+  // Estados presentes en TODO el conjunto (para las columnas del dashboard, estables).
+  const estadosPresentes = useMemo(() => {
+    const s = new Set(negocios.map(n => labelDe(n.estado_pipeline)));
+    return BOARD_LABELS.filter(l => s.has(l));
   }, [negocios]);
 
-  // Negocios filtrados por estado (para las tarjetas por usuario).
-  const visibles = useMemo(
-    () => negocios.filter(n => filtroEstado == null || n.estado_pipeline === filtroEstado),
-    [negocios, filtroEstado]);
-
-  // Agrupación por usuario asignado.
-  const porUsuario = useMemo(() => {
-    const g = new Map<string, { key: string; nombre: string; email: string | null; negocios: Negocio[] }>();
-    for (const n of visibles) {
+  // Dashboard por perfil: por cada usuario, cuántas licitaciones tiene en cada etapa + total + monto.
+  const matriz = useMemo(() => {
+    const g = new Map<string, { key: string; nombre: string; email: string | null; porEstado: Map<string, number>; total: number; monto: number }>();
+    for (const n of negocios) {
       const key = n.usuario_email || n.usuario_nombre || 'sin';
-      if (!g.has(key)) g.set(key, { key, nombre: n.usuario_nombre || n.usuario_email || 'Sin asignar', email: n.usuario_email, negocios: [] });
-      g.get(key)!.negocios.push(n);
+      let e = g.get(key);
+      if (!e) { e = { key, nombre: n.usuario_nombre || n.usuario_email || 'Sin asignar', email: n.usuario_email, porEstado: new Map(), total: 0, monto: 0 }; g.set(key, e); }
+      const label = labelDe(n.estado_pipeline);
+      e.porEstado.set(label, (e.porEstado.get(label) || 0) + 1);
+      e.total++; e.monto += n.monto_ofertado || n.licitacion_monto || 0;
     }
-    return [...g.values()].sort((a, b) => b.negocios.length - a.negocios.length);
+    return [...g.values()].sort((a, b) => b.total - a.total);
+  }, [negocios]);
+
+  // Fila de totales del dashboard.
+  const totales = useMemo(() => {
+    const porEstado = new Map<string, number>(); let total = 0, monto = 0;
+    for (const n of negocios) {
+      const l = labelDe(n.estado_pipeline);
+      porEstado.set(l, (porEstado.get(l) || 0) + 1);
+      total++; monto += n.monto_ofertado || n.licitacion_monto || 0;
+    }
+    return { porEstado, total, monto };
+  }, [negocios]);
+
+  // Columnas del tablero: label → negocios. Solo columnas con al menos 1 (o siempre las núcleo).
+  const columnas = useMemo(() => {
+    const g = new Map<string, Negocio[]>();
+    for (const n of visibles) {
+      const label = labelDe(n.estado_pipeline);
+      if (!g.has(label)) g.set(label, []);
+      g.get(label)!.push(n);
+    }
+    // Orden fijo del pipeline; se muestran solo las que tienen negocios.
+    const ordenadas = BOARD_LABELS.filter(l => g.has(l)).map(l => ({ label: l, color: colorDeLabel(l), negocios: g.get(l)! }));
+    // Etiquetas fuera del orden conocido (por si acaso), al final.
+    for (const [l, arr] of g) if (!BOARD_LABELS.includes(l)) ordenadas.push({ label: l, color: '#64748b', negocios: arr });
+    return ordenadas;
   }, [visibles]);
 
   if (!cargandoSesion && usuario && !esAdmin) {
     return <AppLayout breadcrumb={[{ label: 'Análisis de licitación' }]}><div className="p-10 text-center text-sm text-slate-500">Redirigiendo…</div></AppLayout>;
   }
 
+  const KPI = ({ icon, label, value, tint }: { icon: React.ReactNode; label: string; value: string; tint: string }) => (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
+      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${tint}14`, color: tint }}>{icon}</div>
+      <div className="min-w-0">
+        <p className="text-[17px] font-bold text-slate-900 leading-none tabular-nums">{value}</p>
+        <p className="text-[11px] text-slate-400 mt-1 truncate">{label}</p>
+      </div>
+    </div>
+  );
+
   return (
     <AppLayout breadcrumb={[{ label: 'Análisis de licitación' }]}>
-      <div className="max-w-6xl mx-auto space-y-4">
+      <div className="max-w-full space-y-4">
+        {/* Encabezado */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600">
@@ -115,7 +172,7 @@ export default function AnalisisLicitacionPage() {
             </div>
             <div>
               <h1 className="text-[16px] font-bold text-slate-900">Análisis de licitación</h1>
-              <p className="text-xs text-slate-500">Seguimiento por usuario y flujo de cada licitación en el pipeline</p>
+              <p className="text-xs text-slate-500">Tablero del pipeline: cada licitación en su etapa</p>
             </div>
           </div>
           <button onClick={cargar} disabled={cargando}
@@ -139,97 +196,137 @@ export default function AnalisisLicitacionPage() {
           </div>
         ) : (
           <>
-            {/* Embudo global del pipeline (chips filtrables) */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-              <div className="flex items-center gap-2 mb-3">
-                <h2 className="text-[13px] font-bold text-slate-800">Flujo global</h2>
-                <span className="text-[11px] text-slate-400">{negocios.length} en gestión</span>
-                {filtroEstado != null && (
-                  <button onClick={() => setFiltroEstado(null)}
-                    className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors">
-                    <X size={12} /> Ver todos
-                  </button>
+            {/* KPIs */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <KPI icon={<Layers size={17} />} label="Licitaciones en gestión" value={String(kpis.total)} tint="#4f46e5" />
+              <KPI icon={<DollarSign size={17} />} label="Monto ofertado / estimado" value={fmtMontoCorto(kpis.monto)} tint="#0d9488" />
+              <KPI icon={<Send size={17} />} label="Postuladas" value={String(kpis.postuladas)} tint="#b45309" />
+              <KPI icon={<Clock size={17} />} label="Cierran en ≤ 7 días" value={String(kpis.cierran)} tint={kpis.cierran > 0 ? '#dc2626' : '#64748b'} />
+            </div>
+
+            {/* Dashboard por perfil: cuántas licitaciones tiene cada uno en cada etapa.
+                La fila es clickeable → filtra el tablero por ese perfil. */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100">
+                <Users size={13} className="text-slate-400" />
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Licitaciones por perfil y etapa</span>
+                {perfil != null && (
+                  <button onClick={() => setPerfil(null)}
+                    className="ml-auto text-[11px] font-semibold text-indigo-600 hover:text-indigo-700">Ver todos</button>
                 )}
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {funnel.map(e => {
-                  const activo = filtroEstado === e.id;
-                  return (
-                    <button key={e.id} onClick={() => setFiltroEstado(activo ? null : e.id)}
-                      className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 py-1 rounded-full border transition-all"
-                      style={activo
-                        ? { background: e.color, borderColor: e.color, color: '#fff' }
-                        : { background: `${e.color}12`, borderColor: `${e.color}40`, color: e.color }}>
-                      {e.label}
-                      <span className="text-[10.5px] font-bold tabular-nums">{e.total}</span>
-                    </button>
-                  );
-                })}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-max">
+                  <thead>
+                    <tr className="text-[10.5px] text-slate-400 uppercase tracking-wide">
+                      <th className="font-semibold px-4 py-2 sticky left-0 bg-white">Perfil</th>
+                      {estadosPresentes.map(l => (
+                        <th key={l} className="font-semibold px-2.5 py-2 text-center whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full" style={{ background: colorDeLabel(l) }} />{l}
+                          </span>
+                        </th>
+                      ))}
+                      <th className="font-bold px-3 py-2 text-center">Total</th>
+                      <th className="font-semibold px-4 py-2 text-right">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {matriz.map(p => {
+                      const col = colorUsuario(p.email || p.key);
+                      const activo = perfil === p.key;
+                      return (
+                        <tr key={p.key} onClick={() => setPerfil(activo ? null : p.key)}
+                          className={`cursor-pointer transition-colors ${activo ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}>
+                          <td className={`px-4 py-2 sticky left-0 ${activo ? 'bg-indigo-50' : 'bg-white'}`}>
+                            <div className="flex items-center gap-2">
+                              <span className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0" style={{ background: col }}>
+                                {inicialesUsuario(p.nombre, p.email)}
+                              </span>
+                              <span className="text-[12.5px] font-semibold text-slate-700 truncate max-w-[140px]">{p.nombre}</span>
+                            </div>
+                          </td>
+                          {estadosPresentes.map(l => {
+                            const c = p.porEstado.get(l) || 0;
+                            return (
+                              <td key={l} className="px-2.5 py-2 text-center">
+                                {c > 0
+                                  ? <span className="inline-flex items-center justify-center min-w-[22px] text-[12px] font-bold tabular-nums px-1.5 py-0.5 rounded-md" style={{ background: `${colorDeLabel(l)}14`, color: colorDeLabel(l) }}>{c}</span>
+                                  : <span className="text-slate-200">·</span>}
+                              </td>
+                            );
+                          })}
+                          <td className="px-3 py-2 text-center text-[13px] font-bold text-slate-900 tabular-nums">{p.total}</td>
+                          <td className="px-4 py-2 text-right text-[12px] font-semibold text-slate-600 tabular-nums whitespace-nowrap">{fmtMontoCorto(p.monto)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-slate-200 bg-slate-50/60">
+                      <td className="px-4 py-2 text-[11px] font-bold text-slate-500 uppercase sticky left-0 bg-slate-50/60">Total</td>
+                      {estadosPresentes.map(l => (
+                        <td key={l} className="px-2.5 py-2 text-center text-[12px] font-bold text-slate-700 tabular-nums">{totales.porEstado.get(l) || 0}</td>
+                      ))}
+                      <td className="px-3 py-2 text-center text-[13px] font-extrabold text-slate-900 tabular-nums">{totales.total}</td>
+                      <td className="px-4 py-2 text-right text-[12px] font-bold text-slate-700 tabular-nums whitespace-nowrap">{fmtMontoCorto(totales.monto)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
             </div>
 
-            {/* Por usuario: seguimiento de sus licitaciones */}
-            <div className="space-y-3">
-              {porUsuario.map(u => {
-                const col = colorUsuario(u.email || u.key);
-                // Distribución de estados de este usuario (mini-flujo)
-                const dist = new Map<string, number>();
-                for (const n of u.negocios) dist.set(n.estado_pipeline, (dist.get(n.estado_pipeline) || 0) + 1);
-                const estadosU = ESTADOS_PIPELINE.filter(e => dist.has(e.id));
-                return (
-                  <div key={u.key} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-100" style={{ background: `${col}0a` }}>
-                      <span className="w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold text-white flex-shrink-0" style={{ background: col }}>
-                        {inicialesUsuario(u.nombre, u.email)}
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-[13.5px] font-bold text-slate-800 truncate">{u.nombre}</p>
-                        <p className="text-[11px] text-slate-400 truncate">{u.email}</p>
-                      </div>
-                      <div className="ml-auto flex items-center gap-1.5 flex-wrap justify-end">
-                        {estadosU.map(e => (
-                          <span key={e.id} className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-1.5 py-0.5 rounded"
-                            style={{ background: `${e.color}18`, color: e.color }} title={e.label}>
-                            <span className="w-1.5 h-1.5 rounded-full" style={{ background: e.color }} />
-                            {dist.get(e.id)}
-                          </span>
-                        ))}
-                        <span className="text-[13px] font-bold text-slate-900 ml-1 tabular-nums">{u.negocios.length}</span>
-                      </div>
+            {/* Tablero Kanban */}
+            <div className="overflow-x-auto pb-3 -mx-1 px-1">
+              <div className="flex gap-3 min-w-max">
+                {columnas.map(col => (
+                  <div key={col.label} className="w-[264px] flex-shrink-0 flex flex-col">
+                    {/* Cabecera de columna */}
+                    <div className="flex items-center gap-2 px-1 mb-2 sticky top-0">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: col.color }} />
+                      <span className="text-[12px] font-bold text-slate-700 uppercase tracking-wide truncate">{col.label}</span>
+                      <span className="ml-auto text-[11px] font-bold text-slate-400 tabular-nums bg-slate-100 px-1.5 py-0.5 rounded-md">{col.negocios.length}</span>
                     </div>
-
-                    <div className="divide-y divide-slate-50">
-                      {u.negocios.map(n => (
-                        <div key={n.id} className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{n.licitacion_codigo}</span>
-                              <EstadoChip id={n.estado_pipeline} />
+                    {/* Tarjetas */}
+                    <div className="space-y-2 rounded-xl p-1.5" style={{ background: `${col.color}0a` }}>
+                      {col.negocios.map(n => {
+                        const col2 = colorUsuario(n.usuario_email || n.usuario_nombre || 'sin');
+                        const d = diasHasta(n.licitacion_cierre);
+                        const cierreTint = d != null && d >= 0 ? (d <= 3 ? '#dc2626' : d <= 7 ? '#d97706' : '#64748b') : '#64748b';
+                        return (
+                          <Link key={n.id} href={`/negocios/${n.id}`}
+                            className="block bg-white rounded-lg border border-slate-200 hover:border-indigo-300 hover:shadow-sm transition-all p-3 group">
+                            <div className="flex items-center gap-1.5 mb-1.5">
+                              <span className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded truncate">{n.licitacion_codigo}</span>
+                              {(n.comentarios_count ?? 0) > 0 && (
+                                <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] text-slate-400" title="Comentarios">
+                                  <MessageSquare size={10} /> {n.comentarios_count}
+                                </span>
+                              )}
                             </div>
-                            <p className="text-[13px] font-semibold text-slate-800 mt-1 truncate">{n.licitacion_nombre || '(sin nombre)'}</p>
+                            <p className="text-[12.5px] font-semibold text-slate-800 leading-snug line-clamp-2 group-hover:text-indigo-700 transition-colors">
+                              {n.licitacion_nombre || '(sin nombre)'}
+                            </p>
                             {n.licitacion_organismo && (
-                              <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1 truncate"><Building2 size={10} /> {n.licitacion_organismo}</p>
+                              <p className="text-[10.5px] text-slate-400 mt-1 flex items-center gap-1 truncate"><Building2 size={9} /> {n.licitacion_organismo}</p>
                             )}
-                          </div>
-                          <div className="hidden sm:flex flex-col items-end text-[11px] text-slate-500 flex-shrink-0 gap-0.5">
-                            <span className="font-semibold text-slate-700">{fmtMonto(n.monto_ofertado || n.licitacion_monto)}</span>
-                            <span className="flex items-center gap-1"><Calendar size={10} /> {fmtFecha(n.licitacion_cierre)}</span>
-                          </div>
-                          {(n.comentarios_count ?? 0) > 0 && (
-                            <span className="hidden sm:inline-flex items-center gap-1 text-[11px] text-slate-400 flex-shrink-0" title="Comentarios">
-                              <MessageSquare size={11} /> {n.comentarios_count}
-                            </span>
-                          )}
-                          <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}`}
-                            className="flex-shrink-0 p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Ver detalle">
-                            <ExternalLink size={14} />
+                            <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-slate-50">
+                              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0"
+                                style={{ background: col2 }} title={n.usuario_nombre || n.usuario_email || ''}>
+                                {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
+                              </span>
+                              <span className="text-[11px] font-semibold text-slate-700 tabular-nums">{fmtMontoCorto(n.monto_ofertado || n.licitacion_monto || 0)}</span>
+                              <span className="ml-auto inline-flex items-center gap-1 text-[10.5px] font-medium tabular-nums" style={{ color: cierreTint }}>
+                                <Calendar size={9} /> {fmtFecha(n.licitacion_cierre)}
+                              </span>
+                            </div>
                           </Link>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
-                );
-              })}
+                ))}
+              </div>
             </div>
           </>
         )}

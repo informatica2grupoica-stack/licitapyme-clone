@@ -6,7 +6,7 @@
 
 import React, {
   createContext, useContext, useState,
-  useCallback, useRef, useEffect,
+  useCallback, useRef, useEffect, useMemo,
 } from 'react';
 import { CheckCircle2, XCircle, AlertTriangle, Info, X } from 'lucide-react';
 
@@ -147,12 +147,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     timers.current.set(id, t);
   }, [dismiss]);
 
-  const ctx: ToastCtx = {
+  // Identidad estable: sin useMemo cada toast/auto-dismiss re-renderizaba TODOS los
+  // consumidores de useToast (páginas completas) e invalidaba efectos que dependen de él.
+  const ctx = useMemo<ToastCtx>(() => ({
     success: (m, d) => show('success', m, d),
     error:   (m, d) => show('error',   m, d),
     warning: (m, d) => show('warning', m, d),
     info:    (m, d) => show('info',    m, d),
-  };
+  }), [show]);
 
   return (
     <Ctx.Provider value={ctx}>

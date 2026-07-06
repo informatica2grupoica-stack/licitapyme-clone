@@ -17,7 +17,7 @@ const sizeMap = {
   sm: 'max-w-sm',
   md: 'max-w-md',
   lg: 'max-w-lg',
-  xl: 'max-w-2xl',
+  xl: 'max-w-4xl',
 };
 
 export function Modal({
@@ -55,6 +55,7 @@ export function Modal({
         ref={ref}
         className={`
           relative w-full ${sizeMap[size]}
+          max-h-[88vh] flex flex-col
           bg-white rounded-2xl shadow-2xl
           modal-in overflow-hidden
         `}
@@ -72,6 +73,7 @@ export function Modal({
             </div>
             <button
               onClick={onClose}
+              aria-label="Cerrar"
               className="flex-shrink-0 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
             >
               <X size={16} />
@@ -79,8 +81,8 @@ export function Modal({
           </div>
         )}
 
-        {/* Body */}
-        <div className="px-6 py-5">{children}</div>
+        {/* Body: scroll interno si el contenido supera el alto del panel */}
+        <div className="px-6 py-5 overflow-y-auto flex-1 min-h-0">{children}</div>
 
         {/* Footer */}
         {footer && (

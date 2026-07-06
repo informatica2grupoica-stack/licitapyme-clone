@@ -68,7 +68,7 @@ export interface AnalisisIA {
 export function IABadge() {
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-600 border border-purple-200 text-xs rounded-full font-medium">
-      <Sparkles size={10} /> Extraído por IA
+      <Sparkles size={10} /> Extraído automáticamente
     </span>
   );
 }

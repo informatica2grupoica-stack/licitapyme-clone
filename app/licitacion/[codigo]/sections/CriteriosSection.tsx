@@ -1,9 +1,10 @@
 // app/licitacion/[codigo]/sections/CriteriosSection.tsx
 'use client';
 
-import { BarChart3, Sparkles, Loader2 } from 'lucide-react';
+import { BarChart3, Sparkles } from 'lucide-react';
 import { CriterioEvaluacion } from '@/app/types/search.types';
 import { AlertBanner, SectionHeader, AnalisisIA, IABadge } from '../utils';
+import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 
 const COLORS = [
   'bg-indigo-500', 'bg-violet-500', 'bg-cyan-500', 'bg-emerald-500',
@@ -43,31 +44,33 @@ export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, a
         />
 
         {analizandoIA ? (
-          <AlertBanner tipo="info" titulo="Analizando bases con IA...">
+          <AlertBanner tipo="info" titulo="Analizando las bases...">
             Estamos revisando los documentos de esta licitación para extraer los criterios de evaluación automáticamente.
           </AlertBanner>
         ) : (
           <AlertBanner tipo="info" titulo="Sin criterios informados">
-            Mercado Público no informó los criterios de evaluación de forma estructurada para esta licitación, y la IA
-            no encontró criterios en los documentos analizados. Puedes intentar extraerlos manualmente desde Inteligencia.
+            Mercado Público no informó los criterios de evaluación de forma estructurada para esta licitación, y el análisis
+            automático no encontró criterios en los documentos analizados. Puedes intentar extraerlos desde el asistente de documentos.
           </AlertBanner>
         )}
 
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-10 text-center">
-          <div className="w-14 h-14 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-4">
-            {analizandoIA
-              ? <Loader2 size={24} className="text-purple-400 animate-spin" />
-              : <BarChart3 size={24} className="text-purple-400" />}
-          </div>
+          {analizandoIA ? (
+            <div className="flex justify-center mb-4"><DocScanLoader /></div>
+          ) : (
+            <div className="w-14 h-14 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <BarChart3 size={24} className="text-purple-400" />
+            </div>
+          )}
           <h3 className="text-sm font-semibold text-slate-800 mb-1.5">Criterios de evaluación</h3>
           <p className="text-xs text-slate-500 mb-4 max-w-sm mx-auto">
-            Analiza las bases de licitación con IA para identificar los criterios de evaluación y su ponderación.
+            Analiza las bases de licitación para identificar los criterios de evaluación y su ponderación.
           </p>
           <button
             onClick={onIrAInteligencia}
             className="inline-flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-semibold rounded-lg transition-colors shadow-sm"
           >
-            <Sparkles size={13} /> Extraer criterios con IA
+            <Sparkles size={13} /> Extraer criterios automáticamente
           </button>
         </div>
       </div>
@@ -90,7 +93,7 @@ export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, a
       />
 
       {esExtraidoIA && (
-        <AlertBanner tipo="info" titulo="Criterios extraídos por IA">
+        <AlertBanner tipo="info" titulo="Criterios extraídos de las bases">
           <div className="flex items-center gap-2 flex-wrap">
             <span>Mercado Público no informó los criterios de forma estructurada. Estos fueron extraídos automáticamente desde las bases.</span>
             <IABadge />

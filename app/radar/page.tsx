@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useToast } from '@/app/components/ui/toast';
+import { useConfirm } from '@/app/components/ui/confirm';
 import { useSession } from '@/app/lib/session-context';
 import {
   Radar, Plus, Trash2, ExternalLink, Tag,
@@ -1154,6 +1155,7 @@ function AsignarModal({ usuarios, count, unaNombre = null, onClose, onConfirm, l
 export default function RadarPage() {
   const { usuario } = useSession();
   const toast       = useToast();
+  const confirmar   = useConfirm();
 
   const [keywords,      setKeywords]      = useState<PalabraClave[]>([]);
   const [alertas,       setAlertas]       = useState<Alerta[]>([]);
@@ -1238,6 +1240,25 @@ export default function RadarPage() {
 
   const limpiarFiltros = useCallback(() => setFiltros(FILTROS_DEFAULT), []); // eslint-disable-line
 
+  // Cuántos filtros están activos (para el badge del toggle, visible aun con el panel plegado).
+  const numFiltrosActivos = useMemo(() => {
+    let n = 0;
+    if (filtros.texto) n++;
+    if (filtros.tipos.length > 0) n++;
+    if (filtros.region) n++;
+    if (filtros.dias) n++;
+    if (filtros.monto) n++;
+    if (filtros.conDocumentos) n++;
+    if (filtros.soloNoLeidas) n++;
+    if (filtros.keyword) n++;
+    if (filtros.semaforos.length > 0) n++;
+    if (filtros.decisiones.length > 0) n++;
+    if (filtros.ocultarExcluidas) n++;
+    if (filtros.fechaDesde || filtros.fechaHasta) n++;
+    if (JSON.stringify(filtros.estados) !== JSON.stringify(ESTADOS_ACTIVOS_DEFAULT)) n++;
+    return n;
+  }, [filtros]);
+
   // ── Carga ─────────────────────────────────────────────────────────────────────
   const cargarKeywords = useCallback(async () => {
     try {
@@ -1308,13 +1329,18 @@ export default function RadarPage() {
   // total, solo para el popover de hover) y hacía que el payload superara el tope de 3.5 MB,
   // dejando el cache SIN guardar. Las tarjetas pintan igual al instante; el refetch en
   // segundo plano restaura el informe completo ~1-2 s después.
+  // Debounce 1.5s: durante los loops de fondo `alertas` cambia cada pocos segundos y
+  // serializar ~3.8MB en el hilo principal por cada lote producía jank visible.
   useEffect(() => {
     if (loadingAlerts) return;
-    try {
-      const ligeras = alertas.map(a => (a.viabilidad_informe ? { ...a, viabilidad_informe: null } : a));
-      const s = JSON.stringify({ alertas: ligeras, noLeidas, ts: Date.now() });
-      if (s.length < 3_800_000) sessionStorage.setItem(SS_ALERTAS, s); // ~3.8MB tope de seguridad
-    } catch { /* cuota llena → degrada a fetch normal */ }
+    const t = setTimeout(() => {
+      try {
+        const ligeras = alertas.map(a => (a.viabilidad_informe ? { ...a, viabilidad_informe: null } : a));
+        const s = JSON.stringify({ alertas: ligeras, noLeidas, ts: Date.now() });
+        if (s.length < 3_800_000) sessionStorage.setItem(SS_ALERTAS, s); // ~3.8MB tope de seguridad
+      } catch { /* cuota llena → degrada a fetch normal */ }
+    }, 1_500);
+    return () => clearTimeout(t);
   }, [alertas, noLeidas, loadingAlerts]);
 
   // ── Acciones ──────────────────────────────────────────────────────────────────
@@ -1385,7 +1411,13 @@ export default function RadarPage() {
   };
 
   const eliminarKeyword = async (id: number) => {
-    if (!confirm('¿Eliminar esta palabra clave y todas sus alertas?')) return;
+    const ok = await confirmar({
+      titulo: '¿Eliminar esta palabra clave?',
+      mensaje: 'Se eliminarán también todas sus alertas asociadas.',
+      confirmarLabel: 'Eliminar',
+      peligro: true,
+    });
+    if (!ok) return;
     try {
       await fetch(`/api/palabras-clave?id=${id}`, { method: 'DELETE' });
       setKeywords(prev => prev.filter(k => k.id !== id));
@@ -1411,6 +1443,13 @@ export default function RadarPage() {
   };
 
   const eliminarAlerta = async (id: number) => {
+    const ok = await confirmar({
+      titulo: '¿Eliminar esta alerta?',
+      mensaje: 'La licitación desaparecerá del radar. Esta acción no se puede deshacer.',
+      confirmarLabel: 'Eliminar',
+      peligro: true,
+    });
+    if (!ok) return;
     try {
       await fetch(`/api/alertas?id=${id}`, { method: 'DELETE' });
       setAlertas(prev => prev.filter(a => a.id !== id));
@@ -2117,7 +2156,7 @@ export default function RadarPage() {
                     <button
                       onClick={iniciarProcPasa}
                       className="ml-1 px-2 py-0.5 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-semibold text-[11px] transition-colors"
-                      title="Solo PASA/REVISION: descarga documentos si faltan y corre el análisis profundo IA (el mismo del botón manual). Reanudable."
+                      title="Solo PASA/REVISION: descarga documentos si faltan y corre el análisis profundo (el mismo del botón manual). Reanudable."
                     >
                       Procesar PASA
                     </button>
@@ -2345,16 +2384,30 @@ export default function RadarPage() {
               </div>
             ) : (
               <>
-                {/* Filtros toggle */}
+                {/* Filtros toggle — con contador visible aunque el panel esté plegado,
+                    para que nunca haya filtros activos "invisibles" recortando la lista */}
                 <div>
-                  <button
-                    onClick={() => setFiltrosOpen(v => !v)}
-                    className="flex items-center gap-2 text-[12px] font-semibold text-slate-500 hover:text-slate-800 transition-colors mb-2"
-                  >
-                    <SlidersHorizontal size={13} />
-                    Filtros y ordenamiento
-                    <ChevronDown size={12} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
-                  </button>
+                  <div className="flex items-center gap-2 mb-2">
+                    <button
+                      onClick={() => setFiltrosOpen(v => !v)}
+                      className="flex items-center gap-2 text-[12px] font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+                    >
+                      <SlidersHorizontal size={13} />
+                      Filtros y ordenamiento
+                      {numFiltrosActivos > 0 && (
+                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-indigo-600 text-white text-[10px] font-bold">
+                          {numFiltrosActivos}
+                        </span>
+                      )}
+                      <ChevronDown size={12} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
+                    </button>
+                    {numFiltrosActivos > 0 && !filtrosOpen && (
+                      <button onClick={limpiarFiltros}
+                        className="flex items-center gap-1 text-[11.5px] font-semibold text-slate-400 hover:text-red-600 transition-colors">
+                        <X size={11} /> Limpiar
+                      </button>
+                    )}
+                  </div>
                   {filtrosOpen && (
                     <PanelFiltros
                       alertas={alertas}
@@ -2407,7 +2460,7 @@ export default function RadarPage() {
                     { key: 'sin_asignar',    label: 'Sin asignar',     color: 'indigo' },
                     { key: 'asignadas',      label: 'Asignadas',       color: 'emerald' },
                     { key: 'descartadas',    label: 'Descartadas',     color: 'slate'  },
-                    { key: 'excluidas_pref', label: 'Excluidas (IA)',  color: 'amber'  },
+                    { key: 'excluidas_pref', label: 'Excluidas (prefiltro)', color: 'amber'  },
                   ] as const).map(g => {
                     const activo = filtros.gestion === g.key;
                     const clsActivo =
@@ -2544,7 +2597,7 @@ export default function RadarPage() {
                         </p>
                         <div className="flex items-center gap-1.5">
                           <button
-                            onClick={() => { setPagina(p => Math.max(1, p - 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            onClick={() => { setPagina(p => Math.max(1, p - 1)); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }); }}
                             disabled={paginaSegura <= 1}
                             className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                           >
@@ -2554,7 +2607,7 @@ export default function RadarPage() {
                             {paginaSegura} / {totalPaginas}
                           </span>
                           <button
-                            onClick={() => { setPagina(p => Math.min(totalPaginas, p + 1)); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                            onClick={() => { setPagina(p => Math.min(totalPaginas, p + 1)); document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' }); }}
                             disabled={paginaSegura >= totalPaginas}
                             className="px-3 py-1.5 text-[12px] font-semibold rounded-lg border border-slate-200 text-slate-600 hover:border-indigo-300 hover:text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                           >

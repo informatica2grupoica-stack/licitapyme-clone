@@ -38,6 +38,18 @@ export function AsignarNegocioModal({
       .finally(() => setCargando(false));
   }, []);
 
+  // Escape cierra + scroll-lock del fondo (mismo patrón que DocumentViewerModal).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose]);
+
   const handleAsignar = async () => {
     if (!asignandoA) return;
     setGuardando(true);
@@ -74,7 +86,11 @@ export function AsignarNegocioModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 overlay-in">
+    <div
+      className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 overlay-in"
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      role="dialog" aria-modal="true" aria-label="Asignar a Negocio"
+    >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md modal-in">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -86,7 +102,7 @@ export function AsignarNegocioModal({
               <p className="text-[11px] text-slate-500">Selecciona el responsable</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors">
             <X size={16} className="text-slate-500" />
           </button>
         </div>

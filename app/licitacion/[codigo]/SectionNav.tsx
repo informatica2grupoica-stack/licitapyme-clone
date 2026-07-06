@@ -1,8 +1,8 @@
 'use client';
 
 import {
-  LayoutDashboard, Calendar, Package, FileText, HelpCircle,
-  BarChart3, MessageSquare, Brain, Send, Settings, Gauge,
+  LayoutDashboard, Calendar, Package, FileText,
+  BarChart3, MessageSquare, Send, Gauge,
 } from 'lucide-react';
 
 export type SeccionLicitacion =
@@ -12,26 +12,20 @@ export type SeccionLicitacion =
 interface NavItem { key: SeccionLicitacion; label: string; icon: React.ReactNode; }
 interface NavGroup { label: string; items: NavItem[]; }
 
+// Lista única y ordenada (radar). Orden definido por el equipo:
+// Resumen · Documentos · Viabilidad · Criterios · Ítems · Fechas · Comentarios · Postulación.
 const GROUPS: NavGroup[] = [
   {
-    label: 'El negocio',
+    label: '',
     items: [
-      { key: 'resumen',     label: 'Resumen',           icon: <LayoutDashboard size={14} /> },
-      { key: 'fechas',      label: 'Fechas',             icon: <Calendar        size={14} /> },
-      { key: 'items',       label: 'Ítems',              icon: <Package         size={14} /> },
-      { key: 'documentos',  label: 'Documentos',         icon: <FileText        size={14} /> },
-      { key: 'preguntas',   label: 'Preguntas',          icon: <HelpCircle      size={14} /> },
-      { key: 'criterios',   label: 'Criterios',          icon: <BarChart3       size={14} /> },
-      { key: 'comentarios', label: 'Comentarios',        icon: <MessageSquare   size={14} /> },
-    ],
-  },
-  {
-    label: 'IA & Gestión',
-    items: [
-      { key: 'viabilidad',   label: 'Viabilidad',      icon: <Gauge    size={14} /> },
-      { key: 'inteligencia', label: 'Inteligencia IA', icon: <Brain    size={14} /> },
-      { key: 'postulacion',  label: 'Postulación',     icon: <Send     size={14} /> },
-      { key: 'gestion',      label: 'Gestión',         icon: <Settings size={14} /> },
+      { key: 'resumen',     label: 'Resumen',      icon: <LayoutDashboard size={14} /> },
+      { key: 'documentos',  label: 'Documentos',   icon: <FileText        size={14} /> },
+      { key: 'viabilidad',  label: 'Viabilidad',   icon: <Gauge           size={14} /> },
+      { key: 'criterios',   label: 'Criterios',    icon: <BarChart3       size={14} /> },
+      { key: 'items',       label: 'Ítems',        icon: <Package         size={14} /> },
+      { key: 'fechas',      label: 'Fechas',       icon: <Calendar        size={14} /> },
+      { key: 'comentarios', label: 'Comentarios',  icon: <MessageSquare   size={14} /> },
+      { key: 'postulacion', label: 'Postulación',  icon: <Send            size={14} /> },
     ],
   },
 ];
@@ -74,7 +68,7 @@ export function SectionNav({ active, onChange, counts = {} }: {
           : null;
       case 'inteligencia':
         return counts.ia
-          ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200 font-bold flex-shrink-0">IA</span>
+          ? <span className="w-2 h-2 rounded-full flex-shrink-0 bg-purple-400" />
           : null;
       default: return null;
     }
@@ -88,9 +82,11 @@ export function SectionNav({ active, onChange, counts = {} }: {
           {GROUPS.map((group, gi) => (
             <div key={group.label}>
               {gi > 0 && <div className="h-px bg-slate-100 mx-2 my-2" />}
-              <p className="px-3 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">
-                {group.label}
-              </p>
+              {group.label && (
+                <p className="px-3 pt-1.5 pb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">
+                  {group.label}
+                </p>
+              )}
               <div className="space-y-0.5">
                 {group.items.map(item => {
                   const activo = active === item.key;

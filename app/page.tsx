@@ -181,7 +181,7 @@ function HomeContent() {
           </h1>
           <p className="text-indigo-200 text-lg mb-8">
             Accede a todas las licitaciones de Chile en un solo lugar.
-            Busca, filtra y analiza con inteligencia artificial.
+            Busca, filtra y analiza de forma inteligente.
           </p>
           <SearchBar onSearch={handleSearch} loading={loading} />
         </div>

@@ -469,6 +469,13 @@ function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
 }
 
 function esCandidato(doc: DocTexto): boolean {
+  // NUNCA parsear NUESTROS propios archivos generados (COSTEO_*) ni los "documentos propios"
+  // que sube el usuario: el Excel de costeo trae 1 hoja por línea → el parser lo leería como
+  // por_linea, contaminando la detección suma_alzada vs por_linea (bucle de realimentación).
+  // (La ruta generar-costeo ya excluye estos mismos al armar el manifiesto; aquí se replica.)
+  if (/^costeo_/i.test(doc.nombre)) return false;
+  if ((doc.categoria || '').toUpperCase() === 'DOCUMENTOS_PROPIOS') return false;
+
   const n = normalizar(doc.nombre);
   if (/anexo.?o|anexo.?econom|economic|cotiza|itemiz|presupuesto|listado|formato.?\d|oferta.?econ/.test(n)) return true;
   if (/ett|tecnic|especif|bases/.test(n)) return true;

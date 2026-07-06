@@ -21,6 +21,7 @@ import { registrarActividad } from '@/app/lib/actividad';
 import { indexarLicitacion, evaluarKeyword, normalizar, tokenizar, type LicitacionIndexada } from '@/app/lib/text-match';
 import { leerCache, planificarEnriquecimiento, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
 import { matchearEInsertar } from '@/app/lib/radar-matching';
+import { enviarDigestRadar } from '@/app/lib/email';
 
 const CRON_SECRET        = process.env.CRON_SECRET || '';
 const DIAS_RECIENTES     = 15;
@@ -273,6 +274,7 @@ export async function GET(request: NextRequest) {
     enriquecimientoOmitido: false,
     keywordsProcesadas:     0,
     alertasNuevas:          0,
+    correosEnviados:        0,   // digests de radar enviados por perfil
     errores:                0,
     duracionMs:             0,
   };
@@ -479,6 +481,53 @@ export async function GET(request: NextRequest) {
     } else {
       stats.enriquecimientoOmitido = true;
       console.warn(`[Cron] ⏭ Enrichment de fondo omitido — sin presupuesto (${presupuesto}ms)`);
+    }
+
+    // ── Paso 6: Digest por correo a cada perfil con licitaciones nuevas ────────
+    // Un solo correo por usuario con SUS coincidencias nuevas de esta corrida. Se
+    // determina "nuevas" por created_at dentro de la ventana del run (INTERVAL desde
+    // NOW() del servidor de BD → sin depender del reloj de la app). Best-effort: si
+    // falla el envío o falta SMTP, NO rompe el cron (el radar ya tiene las alertas).
+    // Kill-switch: ALERTAS_EMAIL=false lo desactiva.
+    if (process.env.ALERTAS_EMAIL !== 'false') {
+      try {
+        const cutoffSeg = Math.ceil(elapsed() / 1000) + 120; // duración del run + margen
+        const [nuevasRows] = await pool.query(
+          `SELECT a.usuario_id, u.email, u.nombre,
+                  a.licitacion_codigo, a.licitacion_nombre, a.licitacion_organismo,
+                  a.licitacion_monto, a.licitacion_cierre, a.keyword_texto
+           FROM alertas_licitaciones a
+           JOIN usuarios u ON u.id = a.usuario_id AND u.activo = TRUE
+           WHERE a.created_at >= (NOW() - INTERVAL ? SECOND)
+             AND u.email IS NOT NULL AND u.email <> ''
+           ORDER BY a.usuario_id, a.created_at DESC`,
+          [cutoffSeg],
+        ) as any[];
+
+        // Agrupar por usuario (unique_alerta garantiza 1 fila por usuario+código).
+        const porUsuario = new Map<number, { email: string; nombre: string | null; items: any[] }>();
+        for (const r of nuevasRows as any[]) {
+          let g = porUsuario.get(r.usuario_id);
+          if (!g) { g = { email: r.email, nombre: r.nombre, items: [] }; porUsuario.set(r.usuario_id, g); }
+          g.items.push(r);
+        }
+
+        const TOP = 12; // máximo de licitaciones listadas en el correo (el resto va como "+N más")
+        for (const [, g] of porUsuario) {
+          const enviado = await enviarDigestRadar({
+            to: g.email, nombre: g.nombre,
+            totalNuevas: g.items.length,
+            licitaciones: g.items.slice(0, TOP).map(r => ({
+              codigo: r.licitacion_codigo, nombre: r.licitacion_nombre, organismo: r.licitacion_organismo,
+              monto: r.licitacion_monto, cierre: r.licitacion_cierre, keyword: r.keyword_texto,
+            })),
+          });
+          if (enviado) stats.correosEnviados++;
+        }
+        console.log(`[Cron] 📧 Digests enviados: ${stats.correosEnviados}/${porUsuario.size} perfiles con nuevas`);
+      } catch (e) {
+        console.error('[Cron] digest email falló (no crítico):', String(e));
+      }
     }
 
     stats.duracionMs = elapsed();

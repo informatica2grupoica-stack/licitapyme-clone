@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { Tag, Plus, Trash2, Edit3, Check, X, Loader2, AlertCircle } from 'lucide-react';
+import { useConfirm } from '@/app/components/ui/confirm';
+import { useToast } from '@/app/components/ui/toast';
 
 interface Etiqueta {
   id: number;
@@ -26,6 +28,8 @@ export default function EtiquetasAdminPage() {
   const [agregando, setAgregando]   = useState(false);
   const [editando, setEditando]     = useState<number | null>(null);
   const [editForm, setEditForm]     = useState({ nombre: '', color: '', descripcion: '' });
+  const confirmar = useConfirm();
+  const toast = useToast();
 
   const cargar = useCallback(async () => {
     try {
@@ -52,25 +56,40 @@ export default function EtiquetasAdminPage() {
       const data = await res.json();
       if (!res.ok) { setError(data.error); return; }
       setNueva({ nombre: '', color: '#3B82F6', descripcion: '' });
+      toast.success('Etiqueta creada');
       await cargar();
     } catch { setError('Error de conexión'); }
     finally { setAgregando(false); }
   };
 
   const guardarEdit = async (id: number) => {
-    await fetch('/api/etiquetas', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, ...editForm }),
-    });
-    setEditando(null);
-    await cargar();
+    try {
+      const res = await fetch('/api/etiquetas', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, ...editForm }),
+      });
+      if (!res.ok) throw new Error();
+      setEditando(null);
+      toast.success('Etiqueta actualizada');
+      await cargar();
+    } catch { toast.error('No se pudo actualizar la etiqueta'); }
   };
 
   const eliminar = async (id: number) => {
-    if (!confirm('¿Eliminar esta etiqueta? Se quitará de todos los negocios.')) return;
-    await fetch(`/api/etiquetas?id=${id}`, { method: 'DELETE' });
-    setEtiquetas(prev => prev.filter(e => e.id !== id));
+    const ok = await confirmar({
+      titulo: '¿Eliminar esta etiqueta?',
+      mensaje: 'Se quitará de todos los negocios que la usan.',
+      confirmarLabel: 'Eliminar',
+      peligro: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/etiquetas?id=${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      setEtiquetas(prev => prev.filter(e => e.id !== id));
+      toast.info('Etiqueta eliminada');
+    } catch { toast.error('No se pudo eliminar la etiqueta'); }
   };
 
   const startEdit = (et: Etiqueta) => {

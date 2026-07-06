@@ -34,7 +34,7 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
       />
 
       {analizandoIA && (
-        <AlertBanner tipo="info" titulo="Analizando bases con IA...">
+        <AlertBanner tipo="info" titulo="Analizando las bases...">
           <span className="inline-flex items-center gap-1.5">
             <Loader2 size={12} className="animate-spin" />
             Estamos revisando los documentos para completar datos que Mercado Público no informó (presupuesto, plazos, criterios, etc.)
@@ -195,10 +195,10 @@ export function ResumenSection({ licitacion, tipoLabel, diasRestantes, analisisI
       )}
 
       {(presupuestoIA?.monto || plazoIA) && (
-        <InfoCard title="Presupuesto y plazos (extraído por IA)" icon={<Wallet size={15} />}>
+        <InfoCard title="Presupuesto y plazos (extraídos de las bases)" icon={<Wallet size={15} />}>
           <div className="flex items-center gap-2 mb-3">
             <IABadge />
-            <span className="text-xs text-slate-400">Mercado Público no informó este dato; se extrajo de las bases con IA.</span>
+            <span className="text-xs text-slate-400">Mercado Público no informó este dato; se extrajo automáticamente de las bases.</span>
           </div>
           <div className="divide-y divide-slate-50">
             {presupuestoIA?.monto && (

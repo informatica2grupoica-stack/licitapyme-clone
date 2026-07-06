@@ -3,6 +3,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
+import { registrarEvento } from '@/app/lib/historial';
+import { enviarCorreoCambio, enviarCorreoAsignacion } from '@/app/lib/email';
+import { getEstadoPipeline } from '@/app/lib/pipeline';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -103,7 +106,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     // Verificar acceso
     const [rows] = await pool.query(
-      `SELECT asignado_a, licitacion_codigo, licitacion_nombre FROM negocios WHERE id = ?`, [id]
+      `SELECT asignado_a, licitacion_codigo, licitacion_nombre,
+              licitacion_organismo, licitacion_monto, licitacion_cierre
+       FROM negocios WHERE id = ?`, [id]
     ) as any;
     if (!(rows as any[]).length)
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
@@ -112,12 +117,20 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (rol !== 'admin' && neg.asignado_a !== userId)
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
+    // Cambios de esta petición → un correo consolidado al perfil asignado (al final).
+    const cambios: { tipo: string; detalle: string }[] = [];
+    let huboReasignacion = false;
+    const fmtCLP = (n?: number | null) => n
+      ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+      : null;
+
     // Actualizar monto
     if (monto_ofertado !== undefined) {
       await pool.query(
         `UPDATE negocios SET monto_ofertado = ? WHERE id = ?`,
         [monto_ofertado || 0, id]
       );
+      cambios.push({ tipo: 'Monto', detalle: `Monto ofertado: ${fmtCLP(Number(monto_ofertado)) || '$0'}.` });
     }
 
     // Actualizar estado del pipeline (cualquier usuario asignado o admin)
@@ -156,6 +169,10 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             : `Cambió el estado de "${neg.licitacion_nombre || neg.licitacion_codigo}" a ${estado_pipeline || '—'}`,
           metadata: { licitacion_codigo: neg.licitacion_codigo, estado_pipeline, motivo: motivo || undefined },
         });
+        const estadoLabel = getEstadoPipeline(estado_pipeline)?.label || estado_pipeline || '—';
+        cambios.push(estado_pipeline === 'DESCARTADA'
+          ? { tipo: 'Estado', detalle: `Se descartó. Motivo: ${motivo}` }
+          : { tipo: 'Estado', detalle: `Ahora está en ${estadoLabel}.` });
       } catch (colErr: any) {
         if (String(colErr).toLowerCase().includes('unknown column')) {
           return NextResponse.json({
@@ -188,6 +205,32 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           descripcion: `Reasignó "${neg.licitacion_nombre || neg.licitacion_codigo}" a otro usuario`,
           metadata: { licitacion_codigo: neg.licitacion_codigo, asignado_a: nuevo },
         });
+        huboReasignacion = true;
+        // Correo de (re)asignación al NUEVO responsable (best-effort, fire-and-forget).
+        try {
+          const [uRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [nuevo]);
+          const nu = (uRows as any[])[0];
+          const [aRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [userId]);
+          const actor = (aRows as any[])[0];
+          const actorNombre = actor?.nombre || actor?.email || 'Un administrador';
+          // Campana en tiempo real al NUEVO responsable (no requiere email).
+          registrarEvento({
+            tipo: 'REASIGNACION',
+            licitacionCodigo: neg.licitacion_codigo, licitacionNombre: neg.licitacion_nombre,
+            usuarioId: nuevo, usuarioNombre: nu?.nombre || nu?.email || null,
+            actorId: userId, actorNombre,
+            mensaje: `${actorNombre} te asignó ${neg.licitacion_nombre || neg.licitacion_codigo}`,
+            metadata: { licitacion_codigo: neg.licitacion_codigo, reasignacion: true },
+          }).catch(() => {});
+          if (nu?.email) {
+            enviarCorreoAsignacion({
+              to: nu.email, nombre: nu.nombre, codigo: neg.licitacion_codigo,
+              licitacionNombre: neg.licitacion_nombre, organismo: neg.licitacion_organismo,
+              monto: neg.licitacion_monto, cierre: neg.licitacion_cierre,
+              actorNombre, reasignacion: true,
+            }).catch(() => {});
+          }
+        } catch { /* no bloquear por notificación */ }
       }
     }
 
@@ -215,6 +258,56 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         descripcion: `Cambió las líneas de negocio de "${neg.licitacion_nombre || neg.licitacion_codigo}"${nombres.length ? ': ' + nombres.join(', ') : ' (sin líneas)'}`,
         metadata: { licitacion_codigo: neg.licitacion_codigo, etiquetas: nombres },
       });
+      cambios.push({
+        tipo: 'Líneas',
+        detalle: nombres.length ? nombres.join(', ') : 'Sin líneas de negocio.',
+      });
+    }
+
+    // Correo consolidado de cambios al perfil ASIGNADO. Se omite si:
+    //  · no hubo cambios notificables (solo reasignación → ya se envió su propio correo),
+    //  · quien hizo el cambio ES el propio asignado (no se auto-notifica),
+    //  · el negocio no tiene un asignado con email.
+    // Best-effort, fire-and-forget: nunca bloquea ni rompe la respuesta.
+    if (cambios.length > 0 && !huboReasignacion && Number(neg.asignado_a) !== Number(userId)) {
+      (async () => {
+        try {
+          const [aRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [userId]);
+          const actor = (aRows as any[])[0];
+          const actorNombre = actor?.nombre || actor?.email || 'Un administrador';
+          const [uRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [neg.asignado_a]);
+          const dest = (uRows as any[])[0];
+
+          // Tipo de evento según el cambio dominante.
+          const esDescarte = cambios.some(c => c.detalle.startsWith('Se descartó'));
+          const tieneEstado = cambios.some(c => c.tipo === 'Estado');
+          const tieneLineas = cambios.some(c => c.tipo === 'Líneas');
+          const tipoEvento = esDescarte ? 'DESCARTE'
+            : tieneEstado ? 'CAMBIO_ETAPA'
+            : tieneLineas ? 'CAMBIO_ETIQUETA'
+            : 'ACTUALIZACION';
+
+          // Campana en tiempo real al perfil asignado (no requiere email).
+          await registrarEvento({
+            tipo: tipoEvento,
+            licitacionCodigo: neg.licitacion_codigo, licitacionNombre: neg.licitacion_nombre,
+            usuarioId: Number(neg.asignado_a), usuarioNombre: dest?.nombre || dest?.email || null,
+            actorId: userId, actorNombre,
+            mensaje: `${actorNombre}: ${cambios.map(c => c.detalle).join(' · ')}`.slice(0, 500),
+            metadata: { licitacion_codigo: neg.licitacion_codigo, cambios },
+          });
+
+          // Correo consolidado — solo si el perfil tiene email.
+          if (dest?.email) {
+            await enviarCorreoCambio({
+              to: dest.email, nombre: dest.nombre, codigo: neg.licitacion_codigo,
+              licitacionNombre: neg.licitacion_nombre, organismo: neg.licitacion_organismo,
+              monto: neg.licitacion_monto, cierre: neg.licitacion_cierre,
+              actorNombre, cambios,
+            });
+          }
+        } catch (e) { console.error('[negocios:PATCH] notificación de cambio falló:', String(e)); }
+      })();
     }
 
     return NextResponse.json({ success: true });

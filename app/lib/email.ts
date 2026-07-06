@@ -48,38 +48,75 @@ interface AsignacionEmail {
   actorNombre?: string | null; reasignacion?: boolean;
 }
 
-function plantillaAsignacion(p: AsignacionEmail, appUrl: string): string {
-  const titulo = p.reasignacion ? 'Se te reasignó una licitación' : 'Nueva licitación asignada';
-  const url = appUrl ? `${appUrl.replace(/\/$/, '')}/licitacion/${encodeURIComponent(p.codigo)}` : '';
+// ─── Layout compartido (todos los correos usan esta base) ─────────────────────
+// Identidad real de la marca (logo = red de nodos cian sobre fondo oscuro): header
+// oscuro con wordmark de dos tonos + acento cian, tarjetas con franja indigo, botón
+// sólido. Estilo cuidado, no el gradiente genérico.
+const APP_NOMBRE = 'ICA Licitaciones';
+const C_TINTA   = '#0f172a'; // header oscuro (slate-900)
+const C_CIAN    = '#22d3ee'; // acento del logo
+const C_INDIGO  = '#4f46e5'; // acción / franja (primario de la app)
+
+// Wordmark de dos tonos: "ICA" en cian, "Licitaciones" en blanco.
+function wordmark(): string {
+  return `<span style="font-size:17px;font-weight:800;letter-spacing:-.01em;color:${C_CIAN};">ICA</span><span style="font-size:17px;font-weight:600;letter-spacing:-.01em;color:#ffffff;"> Licitaciones</span>`;
+}
+
+// Tarjeta estándar de una licitación (con franja de acento a la izquierda).
+function cardLicitacion(l: { codigo: string; nombre?: string | null; organismo?: string | null; monto?: number | null; cierre?: string | null }): string {
   const fila = (label: string, valor: string | null) => valor
-    ? `<tr><td style="padding:6px 0;color:#64748b;font-size:13px;width:130px;">${label}</td><td style="padding:6px 0;color:#0f172a;font-size:13px;font-weight:600;">${esc(valor)}</td></tr>`
+    ? `<tr><td style="padding:3px 0;color:#6b7280;font-size:13px;width:118px;">${label}</td><td style="padding:3px 0;color:#111827;font-size:13px;font-weight:500;">${esc(valor)}</td></tr>`
     : '';
   return `
-  <div style="background:#f1f5f9;padding:32px 16px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
-    <div style="max-width:540px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden;">
-      <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);padding:24px 28px;">
-        <p style="margin:0;color:#c7d2fe;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;">ICA Licitaciones</p>
-        <h1 style="margin:6px 0 0;color:#fff;font-size:20px;font-weight:800;">${titulo}</h1>
-      </div>
-      <div style="padding:28px;">
-        <p style="margin:0 0 16px;color:#334155;font-size:14px;">Hola ${esc(p.nombre || '')},</p>
-        <p style="margin:0 0 20px;color:#334155;font-size:14px;line-height:1.6;">
-          ${p.actorNombre ? esc(p.actorNombre) + ' te ' : 'Se te '}${p.reasignacion ? 'reasignó' : 'asignó'} la siguiente licitación para que la gestiones:
-        </p>
-        <div style="border:1px solid #e2e8f0;border-radius:12px;padding:16px 18px;background:#f8fafc;">
-          <p style="margin:0 0 4px;color:#0f172a;font-size:15px;font-weight:700;">${esc(p.licitacionNombre || p.codigo)}</p>
-          <p style="margin:0 0 12px;font-family:monospace;color:#6366f1;font-size:12px;">${esc(p.codigo)}</p>
-          <table style="width:100%;border-collapse:collapse;">
-            ${fila('Organismo', p.organismo || null)}
-            ${fila('Monto estimado', fmtMonto(p.monto))}
-            ${fila('Cierre', fmtFecha(p.cierre))}
-          </table>
-        </div>
-        ${url ? `<a href="${url}" style="display:inline-block;margin-top:22px;background:#4f46e5;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 22px;border-radius:10px;">Ver licitación →</a>` : ''}
-        <p style="margin:24px 0 0;color:#94a3b8;font-size:12px;line-height:1.6;">Este correo es automático. Si crees que es un error, contacta a tu administrador.</p>
-      </div>
-    </div>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${C_INDIGO};border-radius:8px;">
+      <tr><td style="padding:15px 18px;">
+        <div style="color:#0f172a;font-size:15px;font-weight:700;line-height:1.4;">${esc(l.nombre || l.codigo)}</div>
+        <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}</div>
+        <table style="width:100%;border-collapse:collapse;margin-top:11px;">
+          ${fila('Organismo', l.organismo || null)}
+          ${fila('Monto estimado', fmtMonto(l.monto))}
+          ${fila('Cierre', fmtFecha(l.cierre))}
+        </table>
+      </td></tr>
+    </table>`;
+}
+
+// Envoltura común. `titulo` y `cuerpo` se pasan como HTML ya escapado por el que llama.
+function layoutEmail(o: { titulo: string; cuerpo: string; cta?: { label: string; url: string } }): string {
+  return `
+  <div style="background:#eef1f5;padding:30px 16px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;">
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:540px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(15,23,42,.08);">
+      <tr><td style="background:${C_TINTA};padding:20px 26px;">
+        ${wordmark()}
+      </td></tr>
+      <tr><td style="height:3px;background:${C_CIAN};font-size:0;line-height:0;">&nbsp;</td></tr>
+      <tr><td style="padding:28px 26px 26px;">
+        <h1 style="margin:0 0 18px;color:#0f172a;font-size:19px;font-weight:700;line-height:1.3;">${o.titulo}</h1>
+        ${o.cuerpo}
+        ${o.cta ? `<div style="margin-top:22px;"><a href="${o.cta.url}" style="display:inline-block;background:${C_INDIGO};color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 22px;border-radius:8px;">${esc(o.cta.label)}</a></div>` : ''}
+      </td></tr>
+      <tr><td style="background:#f8fafc;padding:16px 26px;border-top:1px solid #eceef1;">
+        <div style="color:#64748b;font-size:12px;font-weight:600;">${APP_NOMBRE}</div>
+        <div style="margin-top:2px;color:#9ca3af;font-size:11.5px;line-height:1.5;">Notificación automática. Si no esperabas este correo, avísale a tu administrador.</div>
+      </td></tr>
+    </table>
   </div>`;
+}
+
+function plantillaAsignacion(p: AsignacionEmail, appUrl: string): string {
+  const url = appUrl ? `${appUrl.replace(/\/$/, '')}/licitacion/${encodeURIComponent(p.codigo)}` : '';
+  const quien = p.actorNombre ? `${esc(p.actorNombre)} te` : 'Se te';
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">
+      ${quien} ${p.reasignacion ? 'reasignó' : 'asignó'} esta licitación:
+    </p>
+    ${cardLicitacion({ codigo: p.codigo, nombre: p.licitacionNombre, organismo: p.organismo, monto: p.monto, cierre: p.cierre })}`;
+  return layoutEmail({
+    titulo: p.reasignacion ? 'Te reasignaron una licitación' : 'Te asignaron una licitación',
+    cuerpo,
+    cta: url ? { label: 'Abrir licitación', url } : undefined,
+  });
 }
 
 /** Envía el correo de asignación/reasignación por SMTP. Devuelve true si se envió. */
@@ -101,10 +138,151 @@ export async function enviarCorreoAsignacion(p: AsignacionEmail): Promise<boolea
   }
 }
 
+// ─── Digest de radar por perfil ──────────────────────────────────────────────
+// Correo con las licitaciones NUEVAS que calzaron las keywords de un perfil en la
+// última corrida del cron. Una sola pieza por usuario (no un correo por licitación).
+
+export interface LicitacionDigest {
+  codigo: string;
+  nombre?: string | null;
+  organismo?: string | null;
+  monto?: number | null;
+  cierre?: string | null;
+  keyword?: string | null;
+}
+interface DigestEmail {
+  to: string;
+  nombre?: string | null;
+  licitaciones: LicitacionDigest[];
+  totalNuevas: number; // total de nuevas (puede ser > licitaciones.length si se recortó la lista)
+}
+
+function plantillaDigest(p: DigestEmail, appUrl: string): string {
+  const base = appUrl ? appUrl.replace(/\/$/, '') : '';
+  const urlRadar = base ? `${base}/radar` : '';
+  const tarjeta = (l: LicitacionDigest) => {
+    const url = base ? `${base}/licitacion/${encodeURIComponent(l.codigo)}` : '';
+    const meta = [l.organismo, fmtMonto(l.monto), fmtFecha(l.cierre) ? `Cierre: ${fmtFecha(l.cierre)}` : null]
+      .filter(Boolean).map(v => esc(String(v))).join(' · ');
+    return `
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${C_INDIGO};border-radius:8px;margin-bottom:8px;">
+        <tr><td style="padding:13px 16px;">
+          <div style="font-size:14.5px;font-weight:700;line-height:1.4;">
+            ${url ? `<a href="${url}" style="color:#0f172a;text-decoration:none;">` : ''}${esc(l.nombre || l.codigo)}${url ? '</a>' : ''}
+          </div>
+          <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}${l.keyword ? ` · <span style="color:#6366f1;">${esc(l.keyword)}</span>` : ''}</div>
+          ${meta ? `<div style="margin-top:5px;color:#6b7280;font-size:12px;">${meta}</div>` : ''}
+        </td></tr>
+      </table>`;
+  };
+  const extra = p.totalNuevas > p.licitaciones.length
+    ? `<p style="margin:6px 0 0;color:#6b7280;font-size:13px;">y ${p.totalNuevas - p.licitaciones.length} más en el radar.</p>` : '';
+  const cuerpo = `
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}: estas licitaciones nuevas coinciden con tus palabras clave.</p>
+    ${p.licitaciones.map(tarjeta).join('')}
+    ${extra}`;
+  return layoutEmail({
+    titulo: `${p.totalNuevas} nueva${p.totalNuevas !== 1 ? 's' : ''} licitación${p.totalNuevas !== 1 ? 'es' : ''} en tu radar`,
+    cuerpo,
+    cta: urlRadar ? { label: 'Abrir el radar', url: urlRadar } : undefined,
+  });
+}
+
+// ─── Correo de cambios en una licitación asignada ─────────────────────────────
+export interface CambioEmail {
+  to: string;
+  nombre?: string | null;
+  codigo: string;
+  licitacionNombre?: string | null;
+  cambios: { tipo: string; detalle: string }[]; // uno o varios cambios de la misma acción
+  organismo?: string | null;
+  monto?: number | null;
+  cierre?: string | null;
+  actorNombre?: string | null;
+}
+
+function plantillaCambio(p: CambioEmail, appUrl: string): string {
+  const url = appUrl ? `${appUrl.replace(/\/$/, '')}/licitacion/${encodeURIComponent(p.codigo)}` : '';
+  const lineas = p.cambios.map(c => `
+    <tr>
+      <td style="padding:6px 0;width:118px;vertical-align:top;"><span style="color:${C_INDIGO};font-size:12.5px;font-weight:700;">${esc(c.tipo)}</span></td>
+      <td style="padding:6px 0;color:#111827;font-size:13.5px;line-height:1.5;">${esc(c.detalle)}</td>
+    </tr>`).join('');
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">
+      ${p.actorNombre ? esc(p.actorNombre) : 'Alguien'} actualizó una licitación que tienes asignada.
+    </p>
+    <table style="width:100%;border-collapse:collapse;margin:0 0 18px;border-top:1px solid #eef1f5;border-bottom:1px solid #eef1f5;">${lineas}</table>
+    ${cardLicitacion({ codigo: p.codigo, nombre: p.licitacionNombre, organismo: p.organismo, monto: p.monto, cierre: p.cierre })}`;
+  return layoutEmail({
+    titulo: 'Cambios en una licitación asignada',
+    cuerpo,
+    cta: url ? { label: 'Abrir licitación', url } : undefined,
+  });
+}
+
+/** Envía el correo de cambios (estado/etiquetas/monto…) al perfil asignado. */
+export async function enviarCorreoCambio(p: CambioEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — correo de cambio omitido'); return false; }
+  if (!p.to || p.cambios.length === 0) return false;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+  try {
+    await t.sendMail({
+      from: FROM(),
+      to: p.to,
+      subject: `Actualización: ${p.licitacionNombre || p.codigo}`,
+      html: plantillaCambio(p, appUrl),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío cambio SMTP falló:', String(e));
+    return false;
+  }
+}
+
+/** Envía el digest de radar a un perfil. Devuelve true si se envió. */
+export async function enviarDigestRadar(p: DigestEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — digest de radar omitido'); return false; }
+  if (!p.to || p.licitaciones.length === 0) return false;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+  try {
+    await t.sendMail({
+      from: FROM(),
+      to: p.to,
+      subject: `${p.totalNuevas} nueva${p.totalNuevas !== 1 ? 's' : ''} licitación${p.totalNuevas !== 1 ? 'es' : ''} en tu radar`,
+      html: plantillaDigest(p, appUrl),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío digest SMTP falló:', String(e));
+    return false;
+  }
+}
+
 /** Verifica la conexión SMTP (para un endpoint de prueba). */
 export async function verificarSMTP(): Promise<{ ok: boolean; error?: string }> {
   const t = transporter();
   if (!t) return { ok: false, error: 'SMTP no configurado (SMTP_HOST/USER/PASS)' };
   try { await t.verify(); return { ok: true }; }
   catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
+}
+
+/** Renderiza las plantillas con datos de muestra (para previsualizar el diseño sin enviar). */
+export function previewEmailsHTML(appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.icalicitaciones.cl'): { asignacion: string; digest: string; cambio: string } {
+  const lic = { codigo: '1523-45-LE26', nombre: 'Adquisición de maquinaria de aseo industrial para recinto municipal', organismo: 'Municipalidad de Temuco', monto: 45_000_000, cierre: '2026-08-15' };
+  return {
+    asignacion: plantillaAsignacion({ to: '', nombre: 'Camila', codigo: lic.codigo, licitacionNombre: lic.nombre, organismo: lic.organismo, monto: lic.monto, cierre: lic.cierre, actorNombre: 'Jorge' }, appUrl),
+    digest: plantillaDigest({ to: '', nombre: 'Camila', totalNuevas: 3, licitaciones: [
+      { codigo: '1523-45-LE26', nombre: 'Maquinaria de aseo industrial', organismo: 'Municipalidad de Temuco', monto: 45_000_000, cierre: '2026-08-15', keyword: 'maquinaria aseo' },
+      { codigo: '2044-12-LR26', nombre: 'Barredora y lavado de calles', organismo: 'Serviu Araucanía', monto: 88_000_000, cierre: '2026-08-20', keyword: 'barredora' },
+      { codigo: '3391-08-LE26', nombre: 'Equipos hidrolavadores de alta presión', organismo: 'Hospital Regional', monto: 12_000_000, cierre: '2026-08-10', keyword: 'hidrolavadora' },
+    ] }, appUrl),
+    cambio: plantillaCambio({ to: '', nombre: 'Camila', codigo: lic.codigo, licitacionNombre: lic.nombre, organismo: lic.organismo, monto: lic.monto, cierre: lic.cierre, actorNombre: 'Jorge', cambios: [
+      { tipo: 'Estado', detalle: 'Ahora está en EN PROCESO.' },
+      { tipo: 'Líneas', detalle: 'Aseo Industrial, Municipalidades' },
+    ] }, appUrl),
+  };
 }

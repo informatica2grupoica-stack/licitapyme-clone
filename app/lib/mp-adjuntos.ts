@@ -25,6 +25,27 @@ export interface ArchivoDescargado {
 }
 
 /**
+ * fetch con reintentos ante 502/503/504. La web de MP se degrada a ratos y su
+ * borde responde 503 "no healthy upstream" de forma INTERMITENTE: la misma
+ * request pasa al segundo o tercer intento (verificado 2026-07-05, cuando dejó
+ * de descargar documentos por esto). No reintenta 4xx: ésos son WAF/permisos.
+ */
+export async function fetchMPConReintentos(
+  url: string,
+  init: Parameters<typeof fetch>[1],
+  intentos = 3,
+): Promise<Response> {
+  let res: Response | null = null;
+  for (let i = 0; i < intentos; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 1500 * i)); // espera 1.5s, luego 3s
+    res = await fetch(url, init);
+    if (![502, 503, 504].includes(res.status)) return res;
+    console.log(`[MP] HTTP ${res.status} (intento ${i + 1}/${intentos}) en ${url.slice(0, 80)} — reintentando…`);
+  }
+  return res!;
+}
+
+/**
  * Extrae las cookies de un Response y devuelve solo los pares `nombre=valor`
  * concatenados (sin atributos Path/HttpOnly/etc), listos para el header Cookie.
  * Usa getSetCookie() (Node 20+/undici), con fallback al header plano.
@@ -73,7 +94,7 @@ export async function listarAdjuntos(codigo: string): Promise<FichaAdjuntos> {
   let html = '';
 
   for (let salto = 0; salto < 5; salto++) {
-    const res = await fetch(url, {
+    const res = await fetchMPConReintentos(url, {
       method: 'GET',
       redirect: 'manual', // capturamos el 302 a mano para conservar la SessionId
       headers: {
@@ -94,7 +115,11 @@ export async function listarAdjuntos(codigo: string): Promise<FichaAdjuntos> {
       continue;
     }
 
-    if (!res.ok) throw new Error(`La ficha de MP respondió ${res.status} (¿WAF o IP no chilena?)`);
+    if (!res.ok) {
+      throw new Error(res.status >= 500
+        ? `Mercado Público está temporalmente fuera de servicio (HTTP ${res.status}). No es un problema del sistema — reintenta en unos minutos.`
+        : `La ficha de MP respondió ${res.status} (¿WAF o IP no chilena?)`);
+    }
 
     html = await res.text();
     break;

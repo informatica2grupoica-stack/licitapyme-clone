@@ -11,7 +11,7 @@ import { useSession } from '@/app/lib/session-context';
 
 const FEATURES = [
   { icon: <TrendingUp size={16} />, text: 'Busca licitaciones en tiempo real' },
-  { icon: <Zap size={16} />, text: 'Análisis inteligente de bases con IA' },
+  { icon: <Zap size={16} />, text: 'Análisis inteligente de bases' },
   { icon: <Shield size={16} />, text: 'Alertas automáticas de nuevas oportunidades' },
   { icon: <CheckCircle size={16} />, text: 'Gestión de postulaciones y negocios' },
 ];
@@ -80,7 +80,7 @@ function LoginContent() {
               <span className="text-indigo-300">licitaciones</span>
             </h2>
             <p className="text-indigo-200 mt-3 text-[15px] leading-relaxed max-w-sm">
-              La plataforma inteligente para proveedores del Estado. Encuentra, analiza y postula a licitaciones de Mercado Público con el apoyo de IA.
+              La plataforma inteligente para proveedores del Estado. Encuentra, analiza y postula a licitaciones de Mercado Público desde un solo lugar.
             </p>
           </div>
 

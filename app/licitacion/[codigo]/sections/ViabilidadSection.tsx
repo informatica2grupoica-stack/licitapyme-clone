@@ -6,6 +6,7 @@ import {
   FileText, Wrench, FileWarning, Brain, ShieldAlert, FileCheck2, Ban, Lightbulb, Mail,
 } from 'lucide-react';
 import { SectionHeader, InfoCard, AnalisisIA } from '../utils';
+import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 
 // Forma flexible: tanto el objeto del POST como el reconstruido del GET.
 export interface Viabilidad {
@@ -141,12 +142,21 @@ export function ViabilidadSection({
     habilitantes: 'Habilitantes', administrativos: 'Administrativos', tecnicos: 'Técnicos', economicos: 'Económicos', prohibiciones: 'Prohibiciones',
   };
 
+  // El método interno de extracción (ej. "pdf-gemini-vision") no se muestra crudo:
+  // se traduce a una etiqueta neutra que el usuario entiende.
+  const metodoLabel = (m: string): string => {
+    const s = m.toLowerCase();
+    if (s.includes('vision') || s.includes('ocr') || s.includes('glm')) return 'documento escaneado';
+    if (s.includes('xlsx') || s.includes('planilla') || s.includes('excel')) return 'planilla';
+    return 'texto digital';
+  };
+
   return (
     <div className="space-y-5">
       <SectionHeader
         icon={<Gauge size={18} />}
         title="Score de control (determinista)"
-        subtitle="Respaldo numérico 0–100 — el análisis IA de arriba es el principal"
+        subtitle="Respaldo numérico 0–100 — el análisis de viabilidad de arriba es el principal"
         action={ocultarBoton ? undefined : (
           <button
             onClick={onRecalcular}
@@ -185,7 +195,7 @@ export function ViabilidadSection({
                     <p className="text-slate-800 font-medium break-words">{d.nombre}</p>
                     <p className={`text-[11.5px] mt-0.5 ${d.analizado ? 'text-slate-400' : 'text-amber-700'}`}>
                       {d.motivo}
-                      {d.analizado && d.metodo && <span className="text-slate-400"> · {d.metodo}</span>}
+                      {d.analizado && d.metodo && <span className="text-slate-400"> · {metodoLabel(d.metodo)}</span>}
                     </p>
                   </div>
                 </li>
@@ -220,9 +230,7 @@ export function ViabilidadSection({
       {/* Estado vacío / cargando */}
       {!viabilidad && analizando && (
         <div className="flex flex-col items-center justify-center py-16 bg-white rounded-2xl border border-slate-200">
-          <Loader2 size={28} className="animate-spin text-indigo-500 mb-3" />
-          <p className="text-[14px] font-semibold text-slate-700">Calculando viabilidad…</p>
-          <p className="text-[12px] text-slate-400 mt-1">Analizando bases con IA</p>
+          <DocScanLoader titulo="Calculando viabilidad…" subtitulo="Analizando las bases" />
         </div>
       )}
 
@@ -232,7 +240,7 @@ export function ViabilidadSection({
           <p className="text-[14px] font-semibold text-slate-700 mb-1">Sin análisis de viabilidad</p>
           <p className="text-[12px] text-slate-400 max-w-xs mb-4">
             {ocultarBoton
-              ? 'Pulsa “Analizar con IA” arriba: se calculará también este score de control.'
+              ? 'Pulsa “Analizar” arriba: se calculará también este score de control.'
               : hayDocumentos
                 ? 'Pulsa "Recalcular" para analizar la viabilidad de esta licitación.'
                 : 'Primero descarga los documentos de la licitación; luego se calculará la viabilidad automáticamente.'}

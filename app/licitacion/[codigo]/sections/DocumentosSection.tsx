@@ -103,7 +103,7 @@ function DocItem({
           type="button"
           onClick={(e) => { e.stopPropagation(); onOpenIA({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
           className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
-          title="Preguntar a la IA sobre este documento"
+          title="Preguntar sobre este documento"
           draggable={false}
         >
           <Sparkles size={11} />
@@ -483,7 +483,7 @@ function ProgresoBanner({ fase, totalDocs }: { fase: 'descargando' | 'clasifican
   const esDescarga = fase === 'descargando';
   const titulo = esDescarga
     ? 'Descargando documentos desde Mercado Público…'
-    : `Clasificando ${totalDocs > 0 ? `${totalDocs} documento${totalDocs !== 1 ? 's' : ''}` : 'documentos'} con IA…`;
+    : `Clasificando ${totalDocs > 0 ? `${totalDocs} documento${totalDocs !== 1 ? 's' : ''}` : 'documentos'}…`;
   const colorTexto = esDescarga ? 'text-indigo-700' : 'text-violet-700';
   const colorBg = esDescarga ? 'bg-indigo-50 border-indigo-200' : 'bg-violet-50 border-violet-200';
   const colorBar = esDescarga ? 'bg-indigo-500' : 'bg-violet-500';
@@ -635,7 +635,7 @@ export function DocumentosSection({
                 type="button"
                 onClick={handleRegenerarCosteo}
                 disabled={regenerandoCosteo}
-                title="Regenerar el Excel desde el informe IA (sin volver a analizar)"
+                title="Regenerar el Excel desde el informe guardado (sin volver a analizar)"
                 className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-60 px-2.5 py-1 rounded-lg transition-colors"
               >
                 {regenerandoCosteo

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
 import { respuestaConSession, type UsuarioSession } from '@/app/lib/auth';
+import { ipDeRequest, estaBloqueado, registrarIntento } from '@/app/lib/login-rate-limit';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,14 +16,32 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const emailLimpio = email.toLowerCase().trim();
+    const ip = ipDeRequest(request);
+
+    // ── Protección de fuerza bruta (MySQL, sin Redis) ──────────────────────────
+    // Antes de tocar la BD de usuarios, verificar que este email/IP no haya superado
+    // el umbral de intentos fallidos recientes. Bloqueo temporal → 429.
+    const bloqueo = await estaBloqueado(emailLimpio, ip);
+    if (bloqueo.bloqueado) {
+      return NextResponse.json(
+        {
+          error: `Demasiados intentos fallidos. Espera unos minutos e intenta de nuevo.`,
+          code: 'RATE_LIMITED',
+        },
+        { status: 429, headers: { 'Retry-After': String(bloqueo.esperaMin * 60) } }
+      );
+    }
+
     // Buscar usuario
     const [rows] = await pool.query(
       'SELECT id, email, password_hash, nombre, empresa, rol, activo FROM usuarios WHERE email = ? LIMIT 1',
-      [email.toLowerCase().trim()]
+      [emailLimpio]
     );
     const usuarios = rows as any[];
 
     if (usuarios.length === 0) {
+      await registrarIntento(emailLimpio, ip, false);
       return NextResponse.json(
         { error: 'Email o contraseña incorrectos' },
         { status: 401 }
@@ -41,11 +60,15 @@ export async function POST(request: NextRequest) {
     // Verificar contraseña
     const coincide = await bcrypt.compare(password, u.password_hash);
     if (!coincide) {
+      await registrarIntento(emailLimpio, ip, false);
       return NextResponse.json(
         { error: 'Email o contraseña incorrectos' },
         { status: 401 }
       );
     }
+
+    // Login correcto → registrar éxito (resetea el contador de fallos del email).
+    await registrarIntento(emailLimpio, ip, true);
 
     // Actualizar último login
     await pool.query(

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LayoutDashboard, Search, Users, LogOut, User,
@@ -195,8 +195,9 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
           </button>
         </div>
 
-        {/* Búsqueda rápida (oculta para EXTERNO: no accede al buscador) */}
-        {!esExterno && (
+        {/* Búsqueda rápida: solo admin — el buscador "/" es admin-only, mostrarla a un
+            usuario normal lo mandaba a un redirect confuso hacia /negocios. */}
+        {usuario?.rol === 'admin' && (
         <div className="px-3 pb-3 flex-shrink-0">
           <Link href="/" onClick={onCloseMobile}
             className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.07] transition-colors">
@@ -252,6 +253,10 @@ interface Noti { id?: number; tipo?: string; mensaje: string; licitacion_codigo?
 function NotificacionesBell() {
   const { usuario } = useSession();
   const toast = useToast();
+  // Ref para usar el toast dentro del efecto del SSE sin ponerlo en las deps:
+  // así la conexión EventSource vive toda la sesión y no se reabre por re-renders.
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   const [open, setOpen] = useState(false);
   const [eventos, setEventos] = useState<Noti[]>([]);
   const [noLeidas, setNoLeidas] = useState(0);
@@ -281,12 +286,12 @@ function NotificacionesBell() {
         const data: Noti = JSON.parse(ev.data);
         setEventos(prev => [data, ...prev].slice(0, 20));
         setNoLeidas(n => n + 1);
-        toast.info('Nueva notificación', data.mensaje);
+        toastRef.current.info('Nueva notificación', data.mensaje);
       } catch { /* ignore */ }
     });
     es.onerror = () => { /* EventSource reconecta solo */ };
     return () => es.close();
-  }, [usuario, cargar, toast]);
+  }, [usuario, cargar]);
 
   const marcarLeidas = async () => {
     if (noLeidas === 0) return;
@@ -406,6 +411,23 @@ function TopBar({ breadcrumb, onOpenMobile }: { breadcrumb?: BreadcrumbItem[]; o
 
 export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { usuario } = useSession();
+  const router = useRouter();
+
+  // Atajo ⌘K / Ctrl+K → buscador (solo admin, que es quien tiene acceso a "/").
+  // Hace real el hint que muestra la búsqueda rápida del sidebar.
+  useEffect(() => {
+    if (usuario?.rol !== 'admin') return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        router.push('/');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [usuario?.rol, router]);
+
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden">
       <Sidebar mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />

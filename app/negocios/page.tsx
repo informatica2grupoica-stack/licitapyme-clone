@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { useConfirm } from '@/app/components/ui/confirm';
+import { useToast } from '@/app/components/ui/toast';
 import {
   Briefcase, Plus, Search, ExternalLink, Trash2,
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
@@ -548,6 +550,7 @@ interface NegocioDetalle {
 function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Negocio; isAdmin: boolean; onClose: () => void }) {
   const [extra, setExtra]       = useState<NegocioDetalle | null>(null);
   const [loadingEx, setLoadingEx] = useState(true);
+  const [descExpandida, setDescExpandida] = useState(false);
 
   useEffect(() => {
     fetch(`/api/negocios/${neg.id}`)
@@ -556,6 +559,13 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
       .catch(() => {})
       .finally(() => setLoadingEx(false));
   }, [neg.id]);
+
+  // Escape cierra (el clic fuera ya está en el overlay).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const tipo   = extractTipoFromCodigo(neg.licitacion_codigo || '');
   const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
@@ -568,8 +578,9 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
   const inf  = extra?.viabilidad_informe;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}
+      role="dialog" aria-modal="true" aria-label={neg.licitacion_nombre || 'Detalle del negocio'}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
         {/* Header */}
         <div className="flex items-start gap-3 px-6 py-4 border-b border-slate-100 flex-shrink-0" style={{ borderLeft: `4px solid ${col}` }}>
           <div className="min-w-0 flex-1">
@@ -656,26 +667,26 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
                 <p className="text-[11px] text-slate-400 flex items-center gap-1.5"><Loader2 size={11} className="animate-spin" /> Cargando análisis…</p>
               )}
               {inf?.resumen && (
-                <p className="text-[12px] text-slate-700 leading-relaxed">{inf.resumen}</p>
+                <p className="text-[13.5px] text-slate-700 leading-relaxed">{inf.resumen}</p>
               )}
               {inf?.ventaja_competitiva && (
                 <div className="bg-white/60 rounded-lg px-3 py-2 border border-emerald-100">
                   <p className="text-[11px] font-bold text-emerald-700 mb-0.5">Ventaja competitiva</p>
-                  <p className="text-[11.5px] text-emerald-800 leading-snug">{inf.ventaja_competitiva}</p>
+                  <p className="text-[13px] text-emerald-800 leading-relaxed">{inf.ventaja_competitiva}</p>
                 </div>
               )}
               {inf?.recomendacion && (
                 <div className="bg-white/60 rounded-lg px-3 py-2 border border-indigo-100">
                   <p className="text-[11px] font-bold text-indigo-700 mb-0.5">Recomendación</p>
-                  <p className="text-[11.5px] text-indigo-800 leading-snug">{inf.recomendacion}</p>
+                  <p className="text-[13px] text-indigo-800 leading-relaxed">{inf.recomendacion}</p>
                 </div>
               )}
               {inf?.riesgos && inf.riesgos.length > 0 && (
                 <div className="bg-white/60 rounded-lg px-3 py-2 border border-red-100">
                   <p className="text-[11px] font-bold text-red-700 mb-1">Riesgos</p>
-                  <ul className="space-y-0.5">
+                  <ul className="space-y-1">
                     {inf.riesgos.map((r: string, i: number) => (
-                      <li key={i} className="text-[11px] text-red-700 leading-snug">• {r}</li>
+                      <li key={i} className="text-[13px] text-red-700 leading-relaxed">• {r}</li>
                     ))}
                   </ul>
                 </div>
@@ -687,7 +698,13 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
           {!loadingEx && extra?.licitacion_descripcion && (
             <div>
               <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Descripción</p>
-              <p className="text-[12.5px] text-slate-600 leading-relaxed line-clamp-4">{extra.licitacion_descripcion}</p>
+              <p className={`text-[13.5px] text-slate-600 leading-relaxed ${descExpandida ? '' : 'line-clamp-4'}`}>{extra.licitacion_descripcion}</p>
+              {extra.licitacion_descripcion.length > 320 && (
+                <button onClick={() => setDescExpandida(v => !v)}
+                  className="mt-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-800">
+                  {descExpandida ? 'Ver menos' : 'Ver más'}
+                </button>
+              )}
             </div>
           )}
 
@@ -885,6 +902,8 @@ function VistaSemana({ negocios, onAbrirNegocio }: { negocios: Negocio[]; onAbri
 // ── Página principal ──────────────────────────────────────────────────────────
 function NegociosContent() {
   const { usuario } = useSession();
+  const confirmar = useConfirm();
+  const toast = useToast();
   const isAdmin = usuario?.rol === 'admin';
 
   const [negocios, setNegocios]     = useState<Negocio[]>([]);
@@ -963,23 +982,38 @@ function NegociosContent() {
   useEffect(() => { if (hidratado) cargar(); }, [cargar, hidratado]);
 
   const eliminar = async (id: number) => {
-    if (!confirm('¿Quitar esta licitación del panel de negocios?')) return;
-    await fetch(`/api/negocios/${id}`, { method: 'DELETE' });
-    setNegocios(prev => prev.filter(n => n.id !== id));
+    const ok = await confirmar({
+      titulo: '¿Quitar esta licitación?',
+      mensaje: 'Se quitará del panel de negocios. Podrás volver a asignarla después.',
+      confirmarLabel: 'Quitar',
+      peligro: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/negocios/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      setNegocios(prev => prev.filter(n => n.id !== id));
+      toast.info('Licitación removida del panel');
+    } catch {
+      toast.error('No se pudo quitar la licitación');
+    }
   };
 
-  const negociosFiltrados = negocios.filter(n => {
-    const matchSearch = search === '' ||
-      n.licitacion_nombre?.toLowerCase().includes(search.toLowerCase()) ||
-      n.licitacion_codigo?.toLowerCase().includes(search.toLowerCase()) ||
-      n.licitacion_organismo?.toLowerCase().includes(search.toLowerCase());
-    const matchEt = filtroEtiqueta === '' ||
-      n.etiquetas.some(e => String(e.id) === filtroEtiqueta);
-    const tipoDelCodigo = extractTipoFromCodigo(n.licitacion_codigo || '');
-    const matchTipo = filtroTipo === '' || tipoDelCodigo === filtroTipo;
-    const matchEstado = filtroEstado === '' || (n.estado_pipeline || '1ASIGNADO') === filtroEstado;
-    return matchSearch && matchEt && matchTipo && matchEstado;
-  });
+  const negociosFiltrados = useMemo(() => {
+    const q = search.toLowerCase();
+    return negocios.filter(n => {
+      const matchSearch = q === '' ||
+        n.licitacion_nombre?.toLowerCase().includes(q) ||
+        n.licitacion_codigo?.toLowerCase().includes(q) ||
+        n.licitacion_organismo?.toLowerCase().includes(q);
+      const matchEt = filtroEtiqueta === '' ||
+        n.etiquetas.some(e => String(e.id) === filtroEtiqueta);
+      const tipoDelCodigo = extractTipoFromCodigo(n.licitacion_codigo || '');
+      const matchTipo = filtroTipo === '' || tipoDelCodigo === filtroTipo;
+      const matchEstado = filtroEstado === '' || (n.estado_pipeline || '1ASIGNADO') === filtroEstado;
+      return matchSearch && matchEt && matchTipo && matchEstado;
+    });
+  }, [negocios, search, filtroEtiqueta, filtroTipo, filtroEstado]);
 
   // Tipos presentes (para el select de filtro), en orden canónico.
   const tiposPresentes = useMemo(() => {
@@ -987,24 +1021,6 @@ function NegociosContent() {
     for (const n of negocios) { const t = extractTipoFromCodigo(n.licitacion_codigo || ''); if (t) s.add(t); }
     return TIPOS_FILTRO.filter(t => s.has(t));
   }, [negocios]);
-
-  // Agrupar por categoría (línea de negocio = primera etiqueta del negocio).
-  // Cada categoría es una "cajita"; los negocios sin etiqueta van a "Sin categoría".
-  const gruposCategoria = (() => {
-    const porCat = new Map<number, { nombre: string; color: string; items: Negocio[] }>();
-    const sinCat: Negocio[] = [];
-    for (const n of negociosFiltrados) {
-      const cat = n.etiquetas?.[0];
-      if (!cat) { sinCat.push(n); continue; }
-      if (!porCat.has(cat.id)) porCat.set(cat.id, { nombre: cat.nombre, color: cat.color, items: [] });
-      porCat.get(cat.id)!.items.push(n);
-    }
-    const grupos = Array.from(porCat.entries())
-      .map(([id, g]) => ({ id, ...g }))
-      .sort((a, b) => a.nombre.localeCompare(b.nombre));
-    if (sinCat.length > 0) grupos.push({ id: 0, nombre: 'Sin categoría', color: '#94a3b8', items: sinCat });
-    return grupos;
-  })();
 
   const ESTADO_COLOR: Record<string, string> = {
     'Publicada': 'bg-green-100 text-green-700',

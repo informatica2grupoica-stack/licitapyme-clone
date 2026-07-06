@@ -3,6 +3,7 @@ import { Inter, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { SessionProvider } from '@/app/lib/session-context';
 import { ToastProvider }   from '@/app/components/ui/toast';
+import { ConfirmProvider } from '@/app/components/ui/confirm';
 
 const inter = Inter({ variable: '--font-inter', subsets: ['latin'] });
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
@@ -20,7 +21,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-full flex flex-col bg-[#f5f5f7] text-zinc-900">
         <SessionProvider>
           <ToastProvider>
-            {children}
+            <ConfirmProvider>
+              {children}
+            </ConfirmProvider>
           </ToastProvider>
         </SessionProvider>
       </body>

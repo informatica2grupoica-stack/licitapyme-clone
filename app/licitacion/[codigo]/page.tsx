@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Star, StarOff, ExternalLink, Copy, Check,
@@ -79,7 +79,12 @@ export default function LicitacionDetallePage() {
   const codigoDecoded  = decodeURIComponent(codigo);
   const isAdmin        = usuario?.rol === 'admin';
 
-  const documentosAnalizables = documentosCache.filter(d => esUrlAnalizable(d.url_local || d.url));
+  // useMemo: es dependencia de efectos de auto-disparo y de calcularViabilidad; sin
+  // identidad estable esos efectos se re-ejecutaban en cada render.
+  const documentosAnalizables = useMemo(
+    () => documentosCache.filter(d => esUrlAnalizable(d.url_local || d.url)),
+    [documentosCache],
+  );
 
   // --- DESCARGA AUTOMÁTICA ---
   const handleAutoDescargar = async () => {

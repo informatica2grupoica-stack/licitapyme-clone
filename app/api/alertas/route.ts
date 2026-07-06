@@ -75,7 +75,6 @@ export async function GET(request: NextRequest) {
                 v.score_total AS viabilidad_score,
                 v.semaforo    AS viabilidad_semaforo,
                 v.area_negocio AS viabilidad_area,
-                v.informe_ejecutivo AS viabilidad_informe,
                 pf.decision  AS prefiltro_decision,
                 pf.categoria AS prefiltro_categoria,
                 pf.motivo    AS prefiltro_motivo,
@@ -120,13 +119,26 @@ export async function GET(request: NextRequest) {
     // tiene_documentos se resuelve aquí (no como JOIN). El LEFT JOIN a la tabla
     // derivada de documentos_cache costaba ~2 s (sin índice + collation utf8 →
     // nested loop), mientras que el DISTINCT suelto tarda ~0.2 s y lo mapeamos en JS.
-    const [asigRes, descRes, docsRes, countRes] = await Promise.allSettled([
+    // El resumen de viabilidad (popover del radar) se extrae APARTE, no como columna
+    // del query principal: informe_ejecutivo es un JSON que incluye el informe IA
+    // profundo (_informe_ia, ~0.5 MB/fila) → traerlo completo para todas las filas
+    // costaba ~8 s y ~10 MB. Aquí sacamos SOLO los 3 campos cortos que el popover usa
+    // (resumen/ventaja/recomendación) vía JSON_EXTRACT (guardado con JSON_VALID por si
+    // alguna fila trae JSON malformado). Aislado en allSettled: si la BD no soporta
+    // funciones JSON, el radar sigue mostrando el semáforo/score sin el popover.
+    const [asigRes, descRes, docsRes, countRes, resumenRes] = await Promise.allSettled([
       pool.query(
         `SELECT n.licitacion_codigo, n.asignado_a, u.nombre AS asignado_nombre, u.email AS asignado_email
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE`),
       pool.query(`SELECT licitacion_codigo FROM licitaciones_descartadas`),
       pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache`),
       pool.query(countSql, esAdmin ? [] : [userId]),
+      pool.query(
+        `SELECT licitacion_codigo,
+                CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.resumen')) END AS resumen,
+                CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.ventaja_competitiva')) END AS ventaja_competitiva,
+                CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.recomendacion')) END AS recomendacion
+         FROM viabilidad_licitacion`),
     ]);
 
     const lista = rows as any[];
@@ -142,6 +154,19 @@ export async function GET(request: NextRequest) {
     if (docsRes.status === 'fulfilled') {
       for (const r of ((docsRes.value as any)[0] as any[])) setDocs.add(r.licitacion_codigo);
     }
+    // Mapa código → resumen recortado (solo los 3 campos del popover).
+    const mapResumen = new Map<string, any>();
+    if (resumenRes.status === 'fulfilled') {
+      for (const r of ((resumenRes.value as any)[0] as any[])) {
+        if (r.resumen || r.ventaja_competitiva || r.recomendacion) {
+          mapResumen.set(r.licitacion_codigo, {
+            resumen: r.resumen ?? undefined,
+            ventaja_competitiva: r.ventaja_competitiva ?? undefined,
+            recomendacion: r.recomendacion ?? undefined,
+          });
+        }
+      }
+    }
     for (const a of lista) {
       const m = mapAsig.get(a.licitacion_codigo);
       a.asignada = !!m;
@@ -149,6 +174,8 @@ export async function GET(request: NextRequest) {
       a.asignado_nombre = m ? (m.asignado_nombre || m.asignado_email || null) : null;
       a.descartada = setDesc.has(a.licitacion_codigo);
       a.tiene_documentos = setDocs.has(a.licitacion_codigo) ? 1 : 0;
+      // viabilidad_informe recortado: mantiene el popover funcionando sin el JSON pesado.
+      a.viabilidad_informe = mapResumen.get(a.licitacion_codigo) ?? null;
     }
     const noLeidas = countRes.status === 'fulfilled' ? (((countRes.value as any)[0] as any[])[0]?.total || 0) : 0;
 

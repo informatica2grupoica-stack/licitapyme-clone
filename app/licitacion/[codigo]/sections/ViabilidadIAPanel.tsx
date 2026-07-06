@@ -6,8 +6,10 @@
 // y el detalle en secciones plegables (acordeón) para que no sea un muro de información.
 
 import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ZoomIn, ClipboardCheck, Compass, Swords, Ship } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
+import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 
 interface Feedback {
   id: number;
@@ -117,14 +119,22 @@ function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => vo
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', h);
+      document.body.style.overflow = prevOverflow;
+    };
   }, [onClose]);
 
   const pagina = estado.pagina ?? 1;
   const src = `/api/pdf-pagina?url=${encodeURIComponent(estado.url)}&pagina=${pagina}${estado.q ? `&q=${encodeURIComponent(estado.q)}` : ''}`;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+  // createPortal a body: los ancestros con animación (.fade-in, fill-mode both) dejan un
+  // transform residual que crea un containing block y confina el `fixed` a la sección.
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4" onClick={onClose}
+      role="dialog" aria-modal="true" aria-label={estado.titulo || 'Fuente del análisis'}>
       <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 flex-shrink-0">
           <div className="min-w-0">
@@ -145,7 +155,8 @@ function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => vo
             className={`${cargada ? 'block' : 'hidden'} h-fit rounded shadow ${zoom ? 'max-w-none w-[1100px]' : 'max-w-full'}`} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -347,8 +358,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         <div className="flex items-center gap-2 min-w-0">
           <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center flex-shrink-0"><Sparkles size={16} className="text-white" /></div>
           <div className="min-w-0">
-            <h2 className="text-[15px] font-bold text-slate-800 leading-tight">Viabilidad por IA</h2>
-            <p className="text-[11px] text-slate-400 truncate">Gemini lee todas las bases (incl. escaneadas) y emite el veredicto con su fuente</p>
+            <h2 className="text-[15px] font-bold text-slate-800 leading-tight">Análisis de viabilidad</h2>
+            <p className="text-[11px] text-slate-400 truncate">El sistema lee todas las bases (incl. escaneadas) y emite el veredicto con su fuente</p>
           </div>
         </div>
         {/* Primer análisis: lo puede correr cualquiera. RE-analizar (ya hay informe): solo admin. */}
@@ -360,26 +371,27 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         ) : (
           <button onClick={analizar}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white text-[13px] font-semibold rounded-lg transition-colors flex-shrink-0">
-            <Sparkles size={14} /> {informe ? 'Re-analizar' : 'Analizar con IA'}
+            <Sparkles size={14} /> {informe ? 'Re-analizar' : 'Analizar'}
           </button>
         )}
       </div>
 
-      {error && <div className="flex items-start gap-2 text-[13px] text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"><AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /><div><p className="font-semibold">No se pudo completar</p><p className="text-red-600">{error.includes('saturad') || error.includes('429') || error.includes('503') ? 'Gemini está saturado en este momento (demanda alta de Google). Reintenta en unos minutos.' : error}</p></div></div>}
+      {error && <div className="flex items-start gap-2 text-[13px] text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"><AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /><div><p className="font-semibold">No se pudo completar</p><p className="text-red-600">{error.includes('saturad') || error.includes('429') || error.includes('503') ? 'El servicio de análisis está saturado en este momento. Reintenta en unos minutos.' : error}</p></div></div>}
 
       {!informe && !cargando && !error && (
         <div className="flex flex-col items-center justify-center py-14 bg-white rounded-2xl border border-slate-200 text-center">
           <div className="w-12 h-12 rounded-xl bg-violet-50 flex items-center justify-center mb-3"><Sparkles size={22} className="text-violet-500" /></div>
           <p className="text-[14px] font-semibold text-slate-700">Aún sin análisis</p>
-          <p className="text-[12px] text-slate-400 max-w-xs mt-1">Pulsa “Analizar con IA”: leerá todos los documentos y entregará el score, el veredicto y todo el detalle con su fuente.</p>
+          <p className="text-[12px] text-slate-400 max-w-xs mt-1">Pulsa “Analizar”: se leerán todos los documentos y se entregará el score, el veredicto y todo el detalle con su fuente.</p>
         </div>
       )}
 
       {cargando && !informe && (
         <div className="flex flex-col items-center justify-center py-14 bg-white rounded-2xl border border-slate-200 text-center">
-          <Loader2 size={26} className="text-violet-500 animate-spin mb-3" />
-          <p className="text-[14px] font-semibold text-slate-700">Leyendo los documentos…</p>
-          <p className="text-[12px] text-slate-400 mt-1">Las bases escaneadas se leen con visión. Puede tardar 1–2 minutos la primera vez.</p>
+          <DocScanLoader
+            titulo="Leyendo los documentos…"
+            subtitulo="Las bases escaneadas también se procesan. Puede tardar 1–2 minutos la primera vez."
+          />
         </div>
       )}
 
@@ -686,9 +698,9 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
         <div className="flex items-center gap-2 mb-1">
           <GraduationCap size={16} className="text-violet-600" />
-          <h3 className="text-[13px] font-bold text-slate-800">Enséñale a la IA · Reglas de descarte y filtro</h3>
+          <h3 className="text-[13px] font-bold text-slate-800">Corregir el análisis · Reglas de descarte y filtro</h3>
         </div>
-        <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que la IA aplicará en <strong>todos los análisis futuros</strong>. Puedes agregar reglas aunque no hayas analizado esta licitación.</p>
+        <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que el sistema aplicará en <strong>todos los análisis futuros</strong>. Puedes agregar reglas aunque no hayas analizado esta licitación.</p>
 
         <div className="flex flex-wrap gap-1.5 mb-2">
           {([['viable', 'Sí es viable'], ['no_viable', 'No es viable'], ['parcial', 'Parcial']] as const).map(([v, lbl]) => (

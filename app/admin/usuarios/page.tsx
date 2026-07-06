@@ -8,6 +8,8 @@ import {
   Briefcase, Eye, EyeOff, Calendar
 } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
+import { useConfirm } from '@/app/components/ui/confirm';
+import { useToast } from '@/app/components/ui/toast';
 
 interface Permisos {
   ver_otros_negocios?: boolean;
@@ -31,7 +33,7 @@ interface UsuarioAdmin {
 const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string }[] = [
   { key: 'ver_otros_negocios',  label: 'Ver licitaciones de otros perfiles', desc: 'Por defecto solo ve las suyas asignadas.' },
   { key: 'acceso_radar',        label: 'Acceso al radar',                     desc: 'El radar es solo de admin por defecto.' },
-  { key: 'comentar_viabilidad', label: 'Comentar / corregir viabilidad',      desc: 'Enseñar a la IA en el análisis.' },
+  { key: 'comentar_viabilidad', label: 'Comentar / corregir viabilidad',      desc: 'Corregir y afinar el análisis de viabilidad.' },
   { key: 'exportar',            label: 'Exportar a Excel',                    desc: 'Descargar listados en Excel.' },
 ];
 
@@ -232,6 +234,8 @@ export default function AdminUsuariosPage() {
   const [cargando, setCargando] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [accionando, setAccionando] = useState<number | null>(null);
+  const confirmar = useConfirm();
+  const toast = useToast();
   const [permisosUser, setPermisosUser] = useState<UsuarioAdmin | null>(null);
 
   const cargarUsuarios = async () => {
@@ -249,22 +253,34 @@ export default function AdminUsuariosPage() {
   const toggleActivo = async (u: UsuarioAdmin) => {
     setAccionando(u.id);
     try {
-      await fetch('/api/admin/usuarios', {
+      const res = await fetch('/api/admin/usuarios', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: u.id, activo: !u.activo }),
       });
+      if (!res.ok) throw new Error();
+      toast.success(u.activo ? 'Usuario desactivado' : 'Usuario activado');
       await cargarUsuarios();
-    } finally { setAccionando(null); }
+    } catch { toast.error('No se pudo cambiar el estado del usuario'); }
+    finally { setAccionando(null); }
   };
 
   const eliminar = async (u: UsuarioAdmin) => {
-    if (!confirm(`¿Eliminar a ${u.nombre || u.email}? Esta acción no se puede deshacer.`)) return;
+    const ok = await confirmar({
+      titulo: `¿Eliminar a ${u.nombre || u.email}?`,
+      mensaje: 'Esta acción no se puede deshacer.',
+      confirmarLabel: 'Eliminar',
+      peligro: true,
+    });
+    if (!ok) return;
     setAccionando(u.id);
     try {
-      await fetch(`/api/admin/usuarios?id=${u.id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/usuarios?id=${u.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      toast.info('Usuario eliminado');
       await cargarUsuarios();
-    } finally { setAccionando(null); }
+    } catch { toast.error('No se pudo eliminar el usuario'); }
+    finally { setAccionando(null); }
   };
 
   const formatFecha = (f: string | null) => {

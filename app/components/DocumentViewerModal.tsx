@@ -10,6 +10,7 @@
 // (Radar) como en el detalle de Negocios.
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Download, ExternalLink, FileText, FileQuestion, Loader2 } from 'lucide-react';
 
 export interface VisorDoc { nombre: string; url: string }
@@ -54,7 +55,10 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
   // que necesita la URL pública directa (no el proxy local).
   const officeSrc = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.url)}`;
 
-  return (
+  // createPortal a body: los contenedores con animación .fade-in (fill-mode both) dejan
+  // un transform residual que crea un containing block y confinaba este `fixed` al área
+  // de la sección — el PDF no ocupaba toda la pantalla. Portaleado, siempre es fullscreen.
+  return createPortal(
     <div
       className="fixed inset-0 z-[100] flex flex-col bg-black/70 backdrop-blur-sm p-0 sm:p-3"
       onClick={onClose}
@@ -149,6 +153,7 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

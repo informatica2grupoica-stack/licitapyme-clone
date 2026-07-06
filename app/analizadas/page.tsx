@@ -49,7 +49,7 @@ export default function AnalizadasPage() {
             <div className="w-9 h-9 rounded-xl bg-violet-600 flex items-center justify-center"><Sparkles size={18} className="text-white" /></div>
             <div>
               <h1 className="text-[18px] font-bold text-slate-900 leading-tight">Licitaciones analizadas</h1>
-              <p className="text-[12px] text-slate-400">{lics.length} analizadas con IA (viabilidad PROMPT 2)</p>
+              <p className="text-[12px] text-slate-400">{lics.length} con análisis de viabilidad completado</p>
             </div>
           </div>
           <div className="relative">
@@ -65,7 +65,7 @@ export default function AnalizadasPage() {
           <div className="flex flex-col items-center py-20 bg-white rounded-2xl border border-slate-200 text-center">
             <Sparkles size={26} className="text-slate-300 mb-2" />
             <p className="text-[14px] font-semibold text-slate-700">Aún no hay licitaciones analizadas</p>
-            <p className="text-[12px] text-slate-400 mt-1 max-w-sm">Entra a una licitación del radar → Viabilidad → “Analizar con IA”. Aparecerán aquí.</p>
+            <p className="text-[12px] text-slate-400 mt-1 max-w-sm">Entra a una licitación del radar → Viabilidad → “Analizar”. Aparecerán aquí.</p>
           </div>
         ) : (
           <div className="space-y-2">

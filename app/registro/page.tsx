@@ -82,7 +82,7 @@ export default function RegistroPage() {
             <span className="text-indigo-300">plataforma</span>
           </h2>
           <p className="text-indigo-200 text-[14px] leading-relaxed max-w-xs">
-            Crea tu cuenta gratis y empieza a explorar miles de licitaciones del Estado chileno con análisis de IA.
+            Crea tu cuenta gratis y empieza a explorar miles de licitaciones del Estado chileno con análisis inteligente.
           </p>
           <div className="flex items-center gap-2 pt-2">
             <div className="flex -space-x-2">

@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/alertas",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/prefiltro",
+      "schedule": "30 9 * * *"
     }
   ],
   "functions": {
@@ -23,6 +27,9 @@
       "maxDuration": 30
     },
     "app/api/cron/alertas/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/prefiltro/route.ts": {
       "maxDuration": 60
     }
   },

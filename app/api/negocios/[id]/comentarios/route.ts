@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
+import { registrarEvento } from '@/app/lib/historial';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -138,6 +139,25 @@ export async function POST(request: NextRequest, { params }: Params) {
         descripcion: `Cambió el estado de "${negocio.licitacion_nombre || negocio.licitacion_codigo}" a ${nuevoEstado}`,
         metadata: { licitacion_codigo: negocio.licitacion_codigo, estado_pipeline: nuevoEstado },
       });
+    }
+
+    // Campana: avisar al perfil asignado que comentaron su licitación (si no es él mismo).
+    if (Number(negocio.asignado_a) !== Number(userId)) {
+      (async () => {
+        try {
+          const [aRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [userId]);
+          const actorNombre = (aRows as any[])[0]?.nombre || (aRows as any[])[0]?.email || 'Alguien';
+          const snippet = comentario.trim().replace(/\s+/g, ' ').slice(0, 120);
+          await registrarEvento({
+            tipo: 'COMENTARIO',
+            licitacionCodigo: negocio.licitacion_codigo, licitacionNombre: negocio.licitacion_nombre,
+            usuarioId: Number(negocio.asignado_a), usuarioNombre: null,
+            actorId: userId, actorNombre,
+            mensaje: `${actorNombre} comentó: “${snippet}”`,
+            metadata: { licitacion_codigo: negocio.licitacion_codigo, pipeline_estado: nuevoEstado },
+          });
+        } catch (e) { console.error('[comentarios] notif campana falló:', String(e)); }
+      })();
     }
 
     return NextResponse.json({ success: true, id: insertId, nuevo_estado: nuevoEstado });

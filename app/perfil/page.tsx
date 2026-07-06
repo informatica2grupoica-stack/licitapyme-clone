@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { useToast } from '@/app/components/ui/toast';
 import {
   User, Mail, Briefcase, Lock, Eye, EyeOff, Loader2,
   CheckCircle, AlertCircle, Save, Shield, Building2,
@@ -26,6 +27,7 @@ function AvatarPerfil({ nombre, email, size = 'lg' }: { nombre?: string; email?:
 
 export default function PerfilPage() {
   const { usuario, recargarSesion } = useSession();
+  const toast = useToast();
   const [form, setForm] = useState({
     nombre: usuario?.nombre || '',
     empresa: usuario?.empresa || '',
@@ -63,7 +65,7 @@ export default function PerfilPage() {
       if (!res.ok) {
         setMensaje({ tipo: 'error', texto: data.error });
       } else {
-        setMensaje({ tipo: 'ok', texto: 'Perfil actualizado correctamente' });
+        toast.success('Perfil actualizado correctamente');
         setForm(p => ({ ...p, passwordActual: '', passwordNuevo: '', confirmar: '' }));
         await recargarSesion();
       }

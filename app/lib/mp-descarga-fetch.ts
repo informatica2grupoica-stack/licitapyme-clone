@@ -22,6 +22,7 @@ import {
   combinarCookies,
   nombreDesdeDisposition,
   contentTypePorNombre,
+  fetchMPConReintentos,
 } from '@/app/lib/mp-adjuntos';
 
 type Cheerio$ = ReturnType<typeof cheerio.load>;
@@ -64,7 +65,7 @@ async function descargarGrilla(
 ): Promise<ArchivoDescargado[]> {
   const headers = headersBase(referer, cookies);
 
-  const getRes = await fetch(gridUrl, {
+  const getRes = await fetchMPConReintentos(gridUrl, {
     method: 'GET',
     headers,
     redirect: 'manual',
@@ -108,7 +109,8 @@ async function descargarGrilla(
     form.append(`${fila.ctl}.x`, '8');
     form.append(`${fila.ctl}.y`, '8');
 
-    const postRes = await fetch(gridUrl, {
+    // Reintenta 5xx: el POST solo descarga un binario, es seguro repetirlo.
+    const postRes = await fetchMPConReintentos(gridUrl, {
       method: 'POST',
       headers: {
         ...headers,
@@ -160,7 +162,7 @@ export async function descargarViaPopup(
   }
 
   // ViewAttachment.aspx: leer la página gate y derivar la URL de la grilla LC.
-  const gateRes = await fetch(encUrl, {
+  const gateRes = await fetchMPConReintentos(encUrl, {
     method: 'GET',
     headers: headersBase(referer, cookies),
     signal: AbortSignal.timeout(20_000),

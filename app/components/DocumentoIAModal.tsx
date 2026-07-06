@@ -107,7 +107,7 @@ export function DocumentoIAModal({
       if (data.error) throw new Error(data.error);
       setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'respuesta', texto: data.respuesta || 'Sin respuesta.' }]);
     } catch (e: any) {
-      setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'error', texto: e?.message || 'Error al consultar la IA.' }]);
+      setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'error', texto: e?.message || 'Error al consultar el asistente.' }]);
     } finally {
       setCargando(false);
       inputRef.current?.focus();
@@ -130,7 +130,7 @@ export function DocumentoIAModal({
       onClick={onClose}
       role="dialog"
       aria-modal="true"
-      aria-label={`Chat IA: ${doc.nombre}`}
+      aria-label={`Consultas del documento: ${doc.nombre}`}
     >
       <div
         className="flex flex-col w-full max-w-[95rem] mx-auto flex-1 min-h-0 bg-white rounded-2xl overflow-hidden shadow-2xl"
@@ -170,7 +170,9 @@ export function DocumentoIAModal({
         {/* Cuerpo: documento (izquierda) + chat (derecha) */}
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
           {/* ── Previsualización del documento ── */}
-          <div className="relative flex-1 min-h-[240px] lg:min-h-0 bg-slate-100 lg:border-r border-slate-200">
+          {/* En móvil ambos paneles llevan altura definida: sin tope, el chat crecía con el
+              historial y el input quedaba recortado bajo el overflow-hidden del panel. */}
+          <div className="relative flex-none h-[38vh] lg:h-auto lg:flex-1 lg:min-h-0 bg-slate-100 lg:border-r border-b lg:border-b-0 border-slate-200">
             {(tipo === 'pdf' || tipo === 'office') && cargandoDoc && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
                 <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
@@ -208,7 +210,7 @@ export function DocumentoIAModal({
                   <FileQuestion size={26} className="text-slate-400" />
                 </div>
                 <p className="text-sm font-semibold text-slate-700">Este tipo de archivo no se puede previsualizar</p>
-                <p className="text-xs text-slate-400 mt-1 mb-4">Puedes preguntarle a la IA igual, o abrirlo/descargarlo.</p>
+                <p className="text-xs text-slate-400 mt-1 mb-4">Puedes hacer preguntas igual, o abrirlo/descargarlo.</p>
                 <div className="flex items-center gap-2">
                   <a href={doc.url} target="_blank" rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors">
@@ -224,7 +226,7 @@ export function DocumentoIAModal({
           </div>
 
           {/* ── Chat ── */}
-          <div className="flex flex-col w-full lg:w-[440px] xl:w-[500px] flex-shrink-0 min-h-0 bg-white">
+          <div className="flex flex-col w-full flex-1 lg:flex-none lg:w-[440px] xl:w-[500px] min-h-0 bg-white">
             {/* Chips de preguntas rápidas */}
             <div className="flex gap-1.5 flex-wrap px-3 py-2.5 border-b border-slate-100 flex-shrink-0">
               {PREGUNTAS_RAPIDAS.map(p => (
@@ -267,7 +269,7 @@ export function DocumentoIAModal({
                   {msg.tipo === 'pregunta' ? (
                     <div className="max-w-[85%] bg-blue-600 text-white text-sm px-3 py-2 rounded-xl rounded-tr-sm">{msg.texto}</div>
                   ) : msg.tipo === 'error' ? (
-                    <div className="max-w-[85%] bg-red-50 border border-red-100 text-red-700 text-xs px-3 py-2 rounded-xl rounded-tl-sm flex items-start gap-1.5">
+                    <div className="max-w-[85%] bg-red-50 border border-red-100 text-red-700 text-[13px] px-3 py-2 rounded-xl rounded-tl-sm flex items-start gap-1.5">
                       <AlertCircle size={12} className="flex-shrink-0 mt-0.5" /> {msg.texto}
                     </div>
                   ) : (
