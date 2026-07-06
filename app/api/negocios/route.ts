@@ -76,7 +76,8 @@ export async function GET(request: NextRequest) {
          ORDER BY n.updated_at DESC`,
         params),
       pool.query(
-        `SELECT n.asignado_a AS usuario_id, u.nombre, u.email, n.licitacion_codigo AS codigo
+        `SELECT n.asignado_a AS usuario_id, u.nombre, u.email, n.licitacion_codigo AS codigo,
+                COALESCE(n.estado_pipeline, '1ASIGNADO') AS estado_pipeline
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
          WHERE n.activo = TRUE ${filtroCarga}`, pCarga),
       verOtros
@@ -126,10 +127,13 @@ export async function GET(request: NextRequest) {
 
     // Carga de trabajo por usuario, con DESGLOSE POR TIPO (L1/LE/LP/...). El tipo se
     // deriva del código en Node (extractTipoFromCodigo).
+    // `total` = SOLO las que se están trabajando (excluye DESCARTADA); `descartadas` aparte,
+    // para mostrarlas como detalle chico. El desglose por tipo tampoco cuenta las descartadas.
     const mapCarga = new Map<number, any>();
     for (const r of cargaRows as any[]) {
       let e = mapCarga.get(r.usuario_id);
-      if (!e) { e = { usuario_id: r.usuario_id, nombre: r.nombre, email: r.email, total: 0, porTipo: {} as Record<string, number> }; mapCarga.set(r.usuario_id, e); }
+      if (!e) { e = { usuario_id: r.usuario_id, nombre: r.nombre, email: r.email, total: 0, descartadas: 0, porTipo: {} as Record<string, number> }; mapCarga.set(r.usuario_id, e); }
+      if (r.estado_pipeline === 'DESCARTADA') { e.descartadas++; continue; }
       e.total++;
       const tipo = extractTipoFromCodigo(r.codigo || '') || '—';
       e.porTipo[tipo] = (e.porTipo[tipo] || 0) + 1;

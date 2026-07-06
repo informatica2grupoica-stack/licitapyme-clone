@@ -44,7 +44,7 @@ interface Negocio {
 }
 
 interface Usuario { id: number; nombre: string; email: string; }
-interface Carga { usuario_id: number; nombre?: string; email?: string; total: number; porTipo?: Record<string, number>; }
+interface Carga { usuario_id: number; nombre?: string; email?: string; total: number; descartadas?: number; porTipo?: Record<string, number>; }
 
 // Semáforo de viabilidad (colores/labels compactos para las tarjetas).
 const SEMAFORO: Record<string, { label: string; color: string; bg: string; text: string }> = {
@@ -419,7 +419,12 @@ function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
           </span>
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate">{nombre || email || 'Tú'}</p>
-            <p className="text-xs text-slate-400">licitación{c.total !== 1 ? 'es' : ''}</p>
+            <p className="text-xs text-slate-400">
+              en trabajo
+              {(c.descartadas ?? 0) > 0 && (
+                <span className="text-slate-400"> · <span className="text-rose-400">{c.descartadas} descartada{c.descartadas !== 1 ? 's' : ''}</span></span>
+              )}
+            </p>
           </div>
         </div>
         <span style={{ color: col }} className="text-2xl font-black tabular-nums flex-shrink-0 leading-none">{c.total}</span>
