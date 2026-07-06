@@ -117,10 +117,27 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/dashboard').then(r => r.json())
-      .then(d => { if (d.success) setData(d); else setError(d.error); })
-      .catch(() => setError('Error al cargar el dashboard'))
-      .finally(() => setCargando(false));
+    let vivo = true;
+    const cargar = () => fetch('/api/dashboard', { cache: 'no-store' }).then(r => r.json())
+      .then(d => { if (!vivo) return; if (d.success) setData(d); else setError(d.error); })
+      .catch(() => { if (vivo) setError('Error al cargar el dashboard'); })
+      .finally(() => { if (vivo) setCargando(false); });
+    cargar();
+    // Tiempo real: SSE empuja los eventos (asignación, descarte, cambio de etapa…) y
+    // recargamos al instante (con debounce corto para ráfagas). El intervalo de 30s y el
+    // refresco al volver a la pestaña quedan como respaldo si el stream se cae.
+    let debounce: ReturnType<typeof setTimeout> | null = null;
+    const recargar = () => { if (debounce) clearTimeout(debounce); debounce = setTimeout(cargar, 500); };
+    const es = new EventSource('/api/historial/stream');
+    es.addEventListener('notificacion', recargar);
+    const onVisible = () => { if (document.visibilityState === 'visible') cargar(); };
+    document.addEventListener('visibilitychange', onVisible);
+    const id = setInterval(() => { if (document.visibilityState === 'visible') cargar(); }, 30_000);
+    return () => {
+      vivo = false; clearInterval(id); es.close();
+      if (debounce) clearTimeout(debounce);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, []);
 
   const hora = new Date().getHours();
@@ -183,7 +200,7 @@ function VistaAdmin({ data }: { data: DashData }) {
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={<Building2 size={22} />} label="Licitaciones en radar" value={a.radar.totalLicitaciones.toLocaleString('es-CL')} sub={`${a.radar.conViabilidad} con viabilidad`} color="indigo" href="/radar" />
-        <StatCard icon={<Layers3 size={22} />} label="En pipeline" value={a.pipeline.reduce((s, p) => s + p.n, 0)} sub={fmtMonto(a.montoPipeline)} color="violet" href="/negocios" />
+        <StatCard icon={<Layers3 size={22} />} label="Negocios" value={a.pipeline.reduce((s, p) => s + p.n, 0)} sub={`${fmtMonto(a.montoPipeline)} · sin descartadas`} color="violet" href="/negocios" />
         <StatCard icon={<Users size={22} />} label="Usuarios activos" value={a.usuarios.activos} sub={`${a.usuarios.total} en total · +${a.usuarios.nuevosSemana} esta semana`} color="teal" href="/admin/usuarios" />
         <StatCard icon={<ListChecks size={22} />} label="Pasan el prefiltro" value={(a.prefiltro.find(p => p.decision === 'PASA')?.n || 0).toLocaleString('es-CL')} sub={`${a.prefiltro.find(p => p.decision === 'EXCLUIDO')?.n || 0} excluidas`} color="cyan" />
       </div>
@@ -234,7 +251,7 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Aún sin análisis de viabilidad</p>}
         </PanelCard>
 
-        <PanelCard title="Proyectos por estado" icon={<Layers3 size={15} className="text-indigo-500" />}>
+        <PanelCard title="Negocios en trabajo" icon={<Layers3 size={15} className="text-indigo-500" />}>
           {pipeData.length > 0 ? (
             <div className="flex items-center justify-center gap-8">
               <ResponsiveContainer width={170} height={170}>
@@ -274,7 +291,7 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Sin prefiltro</p>}
         </PanelCard>
 
-        <PanelCard title="Pipeline de negocios" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver todo</Link>}>
+        <PanelCard title="Negocios por etapa" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver todo</Link>}>
           {pipeData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={pipeData} layout="vertical" margin={{ top: 4, right: 4, bottom: 0, left: 60 }}>
@@ -287,7 +304,7 @@ function VistaAdmin({ data }: { data: DashData }) {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          ) : <p className="text-sm text-slate-400 text-center py-10">Sin negocios en pipeline</p>}
+          ) : <p className="text-sm text-slate-400 text-center py-10">Sin negocios en trabajo</p>}
         </PanelCard>
 
         {(a.porPerfil?.length ?? 0) > 0 && (
@@ -422,7 +439,7 @@ function VistaUsuario({ data }: { data: DashData }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        <StatCard icon={<Building2 size={22} />} label="Mis licitaciones" value={u.asignadas} sub="Asignadas a mí" color="indigo" href="/negocios" />
+        <StatCard icon={<Building2 size={22} />} label="Mis negocios" value={u.asignadas} sub="Asignados · sin descartadas" color="indigo" href="/negocios" />
         <StatCard icon={<Wallet size={22} />} label="Monto en gestión" value={fmtMonto(u.montoAsignadas)} sub="Suma de mis licitaciones" color="teal" />
         <StatCard icon={<CalendarClock size={22} />} label="Próximos cierres" value={u.proximosCierres.length} sub="En adelante" color="orange" />
       </div>
@@ -450,7 +467,7 @@ function VistaUsuario({ data }: { data: DashData }) {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PanelCard title="Mi pipeline" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver negocios</Link>}>
+        <PanelCard title="Mis negocios" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver negocios</Link>}>
           {totalPipe > 0 ? (
             <div className="flex items-center justify-center gap-8">
               <ResponsiveContainer width={170} height={170}>

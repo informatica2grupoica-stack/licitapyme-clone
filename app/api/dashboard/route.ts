@@ -57,11 +57,30 @@ export async function GET(request: NextRequest) {
            AND NOT EXISTS (
              SELECT 1 FROM negocios n
              WHERE n.licitacion_codigo = al.licitacion_codigo AND n.activo = TRUE)`);
-      const [tViab] = await q(`SELECT COUNT(*) AS n FROM viabilidad_licitacion`);
-      const viabilidad = await q(`SELECT semaforo, COUNT(*) AS n FROM viabilidad_licitacion WHERE semaforo IS NOT NULL GROUP BY semaforo`);
-      const prefiltro  = await q(`SELECT decision, COUNT(*) AS n FROM prefiltro_licitacion WHERE decision IS NOT NULL GROUP BY decision`);
-      const pipeline   = await q(`SELECT COALESCE(estado_pipeline,'1ASIGNADO') AS etapa, COUNT(*) AS n FROM negocios WHERE activo = TRUE GROUP BY etapa`);
-      const [mPipe] = await q(`SELECT COALESCE(SUM(licitacion_monto),0) AS total FROM negocios WHERE activo = TRUE`);
+      // Viabilidad y prefiltro reflejan el estado REAL: solo licitaciones que siguen
+      // activas (Publicada) en el radar, no el acumulado histórico de la tabla.
+      const [tViab] = await q(
+        `SELECT COUNT(DISTINCT v.licitacion_codigo) AS n FROM viabilidad_licitacion v
+         WHERE EXISTS (SELECT 1 FROM alertas_licitaciones al
+           WHERE al.licitacion_codigo = v.licitacion_codigo AND al.licitacion_estado = 'Publicada')`);
+      const viabilidad = await q(
+        `SELECT v.semaforo, COUNT(DISTINCT v.licitacion_codigo) AS n FROM viabilidad_licitacion v
+         WHERE v.semaforo IS NOT NULL
+           AND EXISTS (SELECT 1 FROM alertas_licitaciones al
+             WHERE al.licitacion_codigo = v.licitacion_codigo AND al.licitacion_estado = 'Publicada')
+         GROUP BY v.semaforo`);
+      const prefiltro  = await q(
+        `SELECT p.decision, COUNT(DISTINCT p.licitacion_codigo) AS n FROM prefiltro_licitacion p
+         WHERE p.decision IS NOT NULL
+           AND EXISTS (SELECT 1 FROM alertas_licitaciones al
+             WHERE al.licitacion_codigo = p.licitacion_codigo AND al.licitacion_estado = 'Publicada')
+         GROUP BY p.decision`);
+      // Pipeline = negocios EN TRABAJO (excluye las DESCARTADA: ya no se trabajan).
+      const pipeline   = await q(`SELECT COALESCE(estado_pipeline,'1ASIGNADO') AS etapa, COUNT(*) AS n
+         FROM negocios WHERE activo = TRUE AND COALESCE(estado_pipeline,'1ASIGNADO') <> 'DESCARTADA'
+         GROUP BY etapa`);
+      const [mPipe] = await q(`SELECT COALESCE(SUM(licitacion_monto),0) AS total
+         FROM negocios WHERE activo = TRUE AND COALESCE(estado_pipeline,'1ASIGNADO') <> 'DESCARTADA'`);
       // Detectadas por día (últimos 14 días) para la tendencia.
       const porDia = await q(
         `SELECT DATE(created_at) AS dia, COUNT(DISTINCT licitacion_codigo) AS n
@@ -83,8 +102,9 @@ export async function GET(request: NextRequest) {
       for (const r of perfilRows) {
         if (!perfilMap.has(r.uid)) perfilMap.set(r.uid, { id: r.uid, nombre: r.nombre, email: r.email, total: 0, monto: 0, descartadas: 0, pipeline: [] });
         const p = perfilMap.get(r.uid)!;
+        // Las DESCARTADA se cuentan aparte y NO entran en total/monto/flujo (en trabajo).
+        if (r.etapa === 'DESCARTADA') { p.descartadas += Number(r.n); continue; }
         p.total += Number(r.n); p.monto += Number(r.monto);
-        if (r.etapa === 'DESCARTADA') p.descartadas += Number(r.n);
         p.pipeline.push({ etapa: r.etapa, n: Number(r.n) });
       }
       const porPerfil = [...perfilMap.values()].sort((a, b) => b.total - a.total);
@@ -98,15 +118,17 @@ export async function GET(request: NextRequest) {
 
     // ── Vista USUARIO: sus licitaciones asignadas ────────────────────────────────
     // (también se calcula para admins, por si quieren ver "lo mío")
+    // Las DESCARTADA no cuentan como "en trabajo": fuera de conteos, montos y cierres.
+    const sinDescartadas = `AND COALESCE(n.estado_pipeline,'1ASIGNADO') <> 'DESCARTADA'`;
     const filtroNeg = verOtros ? '' : 'AND n.asignado_a = ?';
     const pNeg = verOtros ? [] : [sesion.id];
-    const [misCount] = await q(`SELECT COUNT(*) AS n, COALESCE(SUM(licitacion_monto),0) AS monto FROM negocios n WHERE n.activo = TRUE ${filtroNeg}`, pNeg);
-    const miPipeline = await q(`SELECT COALESCE(estado_pipeline,'1ASIGNADO') AS etapa, COUNT(*) AS n FROM negocios n WHERE n.activo = TRUE ${filtroNeg} GROUP BY etapa`, pNeg);
+    const [misCount] = await q(`SELECT COUNT(*) AS n, COALESCE(SUM(licitacion_monto),0) AS monto FROM negocios n WHERE n.activo = TRUE ${sinDescartadas} ${filtroNeg}`, pNeg);
+    const miPipeline = await q(`SELECT COALESCE(estado_pipeline,'1ASIGNADO') AS etapa, COUNT(*) AS n FROM negocios n WHERE n.activo = TRUE ${sinDescartadas} ${filtroNeg} GROUP BY etapa`, pNeg);
     const proximosCierres = await q(
       `SELECT n.licitacion_codigo AS codigo, n.licitacion_nombre AS nombre, n.licitacion_organismo AS organismo,
               n.licitacion_cierre AS cierre, n.licitacion_monto AS monto
        FROM negocios n
-       WHERE n.activo = TRUE AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre >= NOW() ${filtroNeg}
+       WHERE n.activo = TRUE AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre >= NOW() ${sinDescartadas} ${filtroNeg}
        ORDER BY n.licitacion_cierre ASC LIMIT 6`, pNeg);
 
     const usuario = {
