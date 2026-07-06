@@ -9,7 +9,13 @@ El flujo se divide en dos porque tienen requisitos distintos:
 | Paso | Dónde corre | Por qué |
 |------|-------------|---------|
 | **1. Prefiltro** (Fase 0) | Vercel (nube) | Usa DeepSeek. No necesita IP chilena. |
-| **2. Descarga de las PASA** | **PC/notebook con IP chilena** | El portal de Mercado Público solo deja descargar desde IP chilena. |
+| **2. Descarga AL ASIGNAR** | **PC/notebook con IP chilena** | El portal de Mercado Público solo deja descargar desde IP chilena. |
+
+> **CAMBIO DE ESTRATEGIA (2026-07-05):** la descarga ya NO baja todas las que pasan el prefiltro
+> (muchas se descartan aunque pasen). Ahora se descargan los documentos **cuando se ASIGNA** una
+> licitación (en `/api/negocios` POST, corre en el notebook), así solo se baja lo que se va a
+> trabajar. El scheduler `procesar-radar` / `scripts/scheduler-procesar-radar.mjs` que bajaba todas
+> las PASA queda RETIRADO (ya no hace falta encenderlo). Kill-switch: `DESCARGA_AL_ASIGNAR=false`.
 
 > ⚠️ Reemplaza en todo este documento:
 > - `TU-APP.vercel.app` → el dominio real de tu app en Vercel.

@@ -242,6 +242,30 @@ export async function POST(request: NextRequest) {
       }
     } catch { /* nunca bloquear la asignación por un fallo de notificación */ }
 
+    // ── Descarga automática de documentos AL ASIGNAR ───────────────────────────
+    // Estrategia elegida: en vez de bajar TODAS las que pasan el prefiltro (muchas se
+    // descartan aunque pasen), se bajan SOLO las que realmente se van a trabajar = las
+    // asignadas. Requiere IP chilena → corre en el notebook. Fire-and-forget: no bloquea
+    // la respuesta de asignación. Salta si la licitación ya tiene documentos.
+    // Kill-switch: DESCARGA_AL_ASIGNAR=false.
+    if (process.env.DESCARGA_AL_ASIGNAR !== 'false') {
+      (async () => {
+        try {
+          const [dc] = await pool.query(
+            `SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? LIMIT 1`, [licitacion_codigo]);
+          if ((dc as any[]).length) return; // ya tiene documentos → nada que bajar
+          const { descargarDocumentosLicitacion } = await import('@/app/lib/mp-descarga-orquestador');
+          const res = await descargarDocumentosLicitacion(licitacion_codigo);
+          // Tras descargar, encadenar el pipeline IA (clasificar → análisis → viabilidad).
+          if (res.exito && process.env.GEMINI_API_KEY) {
+            const { procesarLicitacionCompleta } = await import('@/app/lib/pipeline-licitacion');
+            try { await procesarLicitacionCompleta(licitacion_codigo); }
+            catch (e) { console.warn(`[negocios] pipeline al asignar ${licitacion_codigo}:`, String(e)); }
+          }
+        } catch (e) { console.error('[negocios] auto-descarga al asignar falló:', String(e)); }
+      })();
+    }
+
     return NextResponse.json({ success: true, id: negocioId });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
