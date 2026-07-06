@@ -321,10 +321,17 @@ export async function extractTextFromDocument(
       if (ocrProvider !== 'gemini' && ocrProvider !== 'tesseract' && opts.sourceUrl && esUrlOcrPublica(opts.sourceUrl) && process.env.ZAI_API_KEY) {
         console.log(`⚠️ PDF escaneado (${pdfData.text?.length || 0} chars, ${pdfData.numpages} págs). GLM-OCR (por URL)...`);
         try {
-          const { extraerTextoPdfPorUrlConGlmOcr } = await import('@/app/lib/zai-ocr');
+          const { extraerTextoPdfPorUrlConGlmOcr, ocrTieneHuecos } = await import('@/app/lib/zai-ocr');
           const textoGlm = await extraerTextoPdfPorUrlConGlmOcr(opts.sourceUrl, pdfData.numpages || 0);
           if (textoGlm && textoGlm.trim().length > 100) {
-            return { texto: textoGlm, numPages: pdfData.numpages, metodo: 'pdf-glm-ocr', confianza: 'alta' };
+            // Si alguna ventana quedó sin OCR (hueco), lo marcamos como incompleto y confianza
+            // BAJA: así el reuso de caché lo re-OCR-ea en vez de fijarlo (auto-sanación).
+            const incompleto = ocrTieneHuecos(textoGlm);
+            return {
+              texto: textoGlm, numPages: pdfData.numpages,
+              metodo: incompleto ? 'pdf-glm-ocr-incompleto' : 'pdf-glm-ocr',
+              confianza: incompleto ? 'baja' : 'alta',
+            };
           }
         } catch (glmErr) {
           console.warn('[OCR] GLM-OCR falló, caigo a Gemini:', glmErr instanceof Error ? glmErr.message : glmErr);

@@ -7,6 +7,7 @@ import pool from '@/app/lib/db';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { analizarLicitacionConGemini, analizarClasificarJuzgar, truncarTextoDocumentos, ViabilidadJuicioIA, MODELO_TEXTO } from '@/app/lib/gemini';
 import { persistirClasificacionFusionada } from '@/app/lib/clasificacion';
+import { ocrTieneHuecos } from '@/app/lib/zai-ocr';
 
 // Documentos cuyo OCR no aporta al análisis (planos, croquis, imágenes): se omite
 // OCR para no saturar la cuota de Gemini Vision y reservarla para las bases.
@@ -105,7 +106,9 @@ async function prepararAnalisis(
     const ext = (d.nombre.split('.').pop() || '').toLowerCase();
     const esPlanilla = ext === 'xlsx' || ext === 'xls';
     const cache = (d.textoCache || '').trim();
-    if (!esPlanilla && cache.length >= 50) {
+    // Auto-sanación: no reusar un OCR cacheado que quedó INCOMPLETO (marca de hueco) →
+    // se vuelve a OCR-ear para que el análisis lea todas las páginas.
+    if (!esPlanilla && cache.length >= 50 && !ocrTieneHuecos(cache)) {
       return { texto: cache, numPages: 0, metodo: d.metodoCache || 'cache', confianza: 'alta' as const };
     }
     const r = await descargarYExtraerTexto(d.url, d.nombre, { omitirOCR: noRequiereOCR(d.nombre) }).catch(() => null);

@@ -20,6 +20,7 @@ import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { cargarReglasAprendidas, bloqueReglasAprendidas } from '@/app/lib/viabilidad-feedback';
 import { crearChatIA, IA_TEXT_PROVIDER, iaTextoConfigurada, MODELO_TEXTO } from '@/app/lib/gemini';
 import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea } from '@/app/lib/planilla-costeo-parser';
+import { ocrTieneHuecos } from '@/app/lib/zai-ocr';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
@@ -223,8 +224,11 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
     const batch = docs.slice(i, i + 2);
     const res = await Promise.all(batch.map(async (d) => {
       // CACHÉ: si ya leímos este documento antes, reusamos el texto (no re-OCR) → rápido.
+      // EXCEPCIÓN (auto-sanación): si el OCR cacheado quedó INCOMPLETO (alguna ventana sin
+      // transcribir → marca de hueco), NO lo reusamos: se vuelve a OCR-ear para que el
+      // análisis lea TODAS las páginas. Así un hueco pasajero no queda fijado para siempre.
       const cacheTxt = (d.texto_extraido || '').trim();
-      if (cacheTxt.length >= 50) {
+      if (cacheTxt.length >= 50 && !ocrTieneHuecos(cacheTxt)) {
         return { nombre: d.documento_nombre, categoria: d.categoria, texto: cacheTxt, metodo: d.metodo_extraccion || 'cache', ok: true } as DocLeido;
       }
       const r = await descargarYExtraerTexto(d.documento_url_local, d.documento_nombre, { omitirOCR: noRequiereOCR(d.documento_nombre) }).catch(() => null);

@@ -27,13 +27,24 @@ const ZAI_MODEL = 'glm-ocr';
 // Págs por llamada (ventana). El endpoint tolera 100; usamos ventanas más chicas para
 // obtener marcadores de página con mejor granularidad y paralelizar (recomendación oficial).
 const PAGINAS_POR_LLAMADA = 8;
-// Tope de páginas a OCR-ear (presupuesto/criterios/garantías van casi siempre en el
-// primer tercio de las bases chilenas). Igual que el motor anterior.
-const MAX_PAGINAS_OCR = 45;
+// Tope de páginas a OCR-ear. REGLA: se leen TODAS las páginas del documento (la viabilidad
+// y el chat deben ser fidedignos; el presupuesto/criterios pueden estar en cualquier página,
+// como se comprobó con bases cuya cifra vivía en la pág. 2 y el OCR anterior la perdía). El
+// tope alto es solo un cortacircuito ante un PDF monstruoso; configurable por env.
+const MAX_PAGINAS_OCR = Math.max(1, Number(process.env.GLM_OCR_MAX_PAGINAS) || 200);
 // Ventanas en paralelo: reduce el muro total; los reintentos con backoff absorben 429/503.
 const CONCURRENCIA = 3;
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// Marca VISIBLE de una ventana que el OCR no pudo transcribir tras todos los reintentos.
+// NUNCA se descarta una página en silencio: si falla, queda esta marca en el texto para que
+// (a) sea evidente en el análisis/chat que faltan páginas y (b) el reuso de caché la detecte
+// y vuelva a OCR-ear el documento (auto-sanación). Ver ocrTieneHuecos().
+const MARCA_HUECO = 'OCR_NO_DISPONIBLE';
+export function ocrTieneHuecos(texto: string): boolean {
+  return typeof texto === 'string' && texto.includes(MARCA_HUECO);
+}
 
 // ─── Circuit breaker por SALDO AGOTADO (code 1113) ───────────────────────────────
 // Z.AI devuelve HTTP 429 con { code: 1113, "Insufficient balance ... recharge" } cuando
@@ -159,26 +170,62 @@ export async function extraerTextoPdfPorUrlConGlmOcr(
   for (let inicio = 1; inicio <= paginas; inicio += PAGINAS_POR_LLAMADA) {
     ventanas.push({ desde: inicio, hasta: Math.min(inicio + PAGINAS_POR_LLAMADA - 1, paginas) });
   }
+  const etiquetaDe = (v: { desde: number; hasta: number }) =>
+    v.desde === v.hasta ? `[[PÁGINA ${v.desde}]]` : `[[PÁGINA ${v.desde}-${v.hasta}]]`;
 
-  const procesarVentana = async (v: { desde: number; hasta: number }): Promise<string> => {
-    const t = await extraerPaginasConGlmOcr(url, v.desde, v.hasta);
-    const etiqueta = v.desde === v.hasta ? `[[PÁGINA ${v.desde}]]` : `[[PÁGINA ${v.desde}-${v.hasta}]]`;
-    console.log(`[glm-ocr] págs ${v.desde}-${v.hasta}: ${t.length} chars`);
-    return t ? `${etiqueta}\n${t}` : '';
+  // Estado por ventana: ok=true si la llamada RESPONDIÓ (aunque la página venga en blanco);
+  // ok=false si la API falló tras sus reintentos internos → candidata a reintento adicional.
+  // Distinguir "página en blanco" (ok, texto '') de "fallo de OCR" (no ok) evita marcar como
+  // hueco lo que realmente está vacío, y evita perder páginas por un 429 pasajero.
+  const estado = new Array<{ texto: string; ok: boolean }>(ventanas.length);
+
+  const correr = async (indices: number[], concurrencia: number) => {
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < indices.length) {
+        const i = indices[cursor++];
+        const v = ventanas[i];
+        try {
+          const t = (await glmLayoutParsing(url, { startPage: v.desde, endPage: v.hasta })).trim();
+          estado[i] = { texto: t, ok: true };
+          console.log(`[glm-ocr] págs ${v.desde}-${v.hasta}: ${t.length} chars`);
+        } catch (e) {
+          estado[i] = { texto: '', ok: false };
+          console.warn(`[glm-ocr] págs ${v.desde}-${v.hasta} FALLÓ: ${e instanceof Error ? e.message : e}`);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrencia, indices.length) }, worker));
   };
 
-  // Paralelo con concurrencia acotada; cada ventana escribe en su índice (preserva orden).
-  const resultados = new Array<string>(ventanas.length).fill('');
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < ventanas.length) {
-      const i = cursor++;
-      resultados[i] = await procesarVentana(ventanas[i]);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCIA, ventanas.length) }, worker));
+  // 1ª pasada en paralelo sobre todas las ventanas.
+  await correr(ventanas.map((_, i) => i), CONCURRENCIA);
 
-  let salida = resultados.filter(Boolean).join('\n\n');
+  // 2ª pasada (SERIAL) solo sobre las ventanas que fallaron: absorbe tormentas de 429/503
+  // que ya se despejaron. Serial para no volver a saturar. Sin esto, un fallo pasajero
+  // borraba 8 páginas en silencio (p.ej. el bloque con el presupuesto).
+  const fallidas = ventanas.map((_, i) => i).filter(i => !estado[i].ok);
+  if (fallidas.length && !glmOcrSinSaldo) {
+    console.warn(`[glm-ocr] reintentando ${fallidas.length} ventana(s) fallida(s) en serie...`);
+    await correr(fallidas, 1);
+  }
+
+  // Ensamblar EN ORDEN. Toda ventana que siga fallando deja una marca VISIBLE (no se descarta
+  // en silencio): así el análisis/chat sabe que falta y el reuso de caché la vuelve a OCR-ear.
+  const partes: string[] = [];
+  let huecos = 0;
+  for (let i = 0; i < ventanas.length; i++) {
+    const v = ventanas[i], et = etiquetaDe(v), s = estado[i];
+    if (s.ok && s.texto) partes.push(`${et}\n${s.texto}`);
+    else if (s.ok) partes.push(`${et}\n(página sin texto)`);
+    else { partes.push(`${et}\n[${MARCA_HUECO}: no se pudo OCR-ear estas páginas — se reintentará]`); huecos++; }
+  }
+  // Si TODO falló, devolvemos '' para que el llamador caiga al siguiente motor (Tesseract),
+  // en vez de cachear un documento entero de puras marcas de hueco.
+  if (huecos === ventanas.length) return '';
+
+  let salida = partes.join('\n\n');
+  if (huecos > 0) console.warn(`[glm-ocr] ⚠️ ${huecos}/${ventanas.length} ventana(s) quedaron sin OCR (marcadas para reintento).`);
   if (totalPaginas > MAX_PAGINAS_OCR && salida) {
     salida += `\n\n[NOTA: documento de ${totalPaginas} págs — OCR aplicado a las primeras ${MAX_PAGINAS_OCR}.]`;
   }

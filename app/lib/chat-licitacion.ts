@@ -18,9 +18,30 @@
 import pool from './db';
 import { crearChatIA, MODELO_TEXTO, geminiHabilitado } from './gemini';
 
-// ~30k tokens de contexto. Suficiente para el corpus de una licitación típica; el
-// exceso se trunca (el chat rápido de un documento casi nunca lo alcanza).
-export const MAX_CHARS_CONTEXTO = 120_000;
+// ~45k tokens de contexto. Holgado para el corpus de una licitación (bases admin +
+// técnicas + aclaraciones); el exceso se trunca SACRIFICANDO lo de menor jerarquía
+// (ver orden por precedencia en construirContextoChat), nunca las bases.
+export const MAX_CHARS_CONTEXTO = 180_000;
+
+// Precedencia documental para el corpus del chat: si hay que truncar, se conserva lo
+// soberano (aclaraciones/bases) y se sacrifican anexos/planos. Menor nº = va primero.
+// Mismo criterio que la viabilidad (prioridadDoc), para que el chat "vea" lo mismo.
+function prioridadChat(nombre: string, categoria: string | null): number {
+  const n = `${nombre} ${categoria || ''}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (/aclarac|respuesta|consulta|foro/.test(n)) return 0;
+  if (/especial/.test(n)) return 1;
+  if (/administrativ|bases_admin/.test(n)) return 2;
+  if (/tecnic/.test(n)) return 3;
+  if (/anexo|formulario|declarac/.test(n)) return 5;
+  if (/plano|croquis|lamina|elevacion|planta|isometric|render|imagen|fotograf/.test(n)) return 9;
+  return 4;
+}
+
+// Los documentos que generamos NOSOTROS (Excel de costeo) NO son fuente de la licitación:
+// son ruido que infla el contexto y puede desplazar a las bases. Se excluyen del corpus del
+// chat, igual que en la viabilidad.
+const FILTRO_NO_PROPIOS =
+  `AND (categoria IS NULL OR categoria <> 'DOCUMENTOS_PROPIOS') AND documento_nombre NOT LIKE 'COSTEO\\_%'`;
 // Turnos recientes que se envían al modelo como memoria de la conversación.
 const MAX_TURNOS = 6;
 
@@ -44,7 +65,8 @@ export async function construirContextoChat(
   const [srcRows] = await pool.query(
     `SELECT COUNT(*) AS n, COALESCE(MAX(UNIX_TIMESTAMP(texto_extraido_at)), 0) AS maxts
        FROM documentos_cache
-      WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL AND texto_extraido <> ''`,
+      WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL AND texto_extraido <> ''
+        ${FILTRO_NO_PROPIOS}`,
     [codigo],
   );
   const src = (srcRows as any[])[0];
@@ -67,18 +89,22 @@ export async function construirContextoChat(
     return { texto: cache.contexto_texto, encontrado: true, numDocumentos: nDocs };
   }
 
-  // Reconstruir el corpus desde el texto ya extraído.
+  // Reconstruir el corpus desde el texto ya extraído (excluyendo documentos propios).
   const [docRows] = await pool.query(
-    `SELECT documento_nombre AS nombre, texto_extraido AS texto
+    `SELECT documento_nombre AS nombre, categoria, texto_extraido AS texto
        FROM documentos_cache
       WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL AND texto_extraido <> ''
+        ${FILTRO_NO_PROPIOS}
       ORDER BY id ASC`,
     [codigo],
   );
-  const docs = docRows as Array<{ nombre: string; texto: string }>;
+  // Orden por PRECEDENCIA (aclaraciones/bases primero) para que un eventual truncado
+  // sacrifique lo de menor jerarquía (anexos/planos) y nunca las bases con el presupuesto.
+  const docs = (docRows as Array<{ nombre: string; categoria: string | null; texto: string }>)
+    .sort((a, b) => prioridadChat(a.nombre, a.categoria) - prioridadChat(b.nombre, b.categoria));
   let texto = docs.map(d => `${marcador(d.nombre)}\n${(d.texto || '').trim()}`).join('\n\n');
   if (texto.length > MAX_CHARS_CONTEXTO) {
-    texto = texto.slice(0, MAX_CHARS_CONTEXTO) + '\n[...contexto truncado...]';
+    texto = texto.slice(0, MAX_CHARS_CONTEXTO) + '\n[...contexto truncado: documentos de menor jerarquía omitidos...]';
   }
 
   await pool.query(
