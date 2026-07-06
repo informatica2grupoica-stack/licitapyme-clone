@@ -1,11 +1,18 @@
 // app/api/admin/usuarios/route.ts
-// Solo accesible para admins (el middleware verifica el rol)
+// Solo accesible para admins. El middleware (proxy.ts) ya bloquea /api/admin a no-admins,
+// pero además verificamos el rol AQUÍ contra el JWT (defensa en profundidad: si el
+// middleware se saltara, estas operaciones sensibles —crear/editar/resetear clave— no
+// deben quedar expuestas).
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
+import { esAdmin } from '@/app/lib/api-auth';
+
+const NO_AUTORIZADO = () => NextResponse.json({ error: 'Sin permisos de administrador' }, { status: 403 });
 
 // GET — listar todos los usuarios
-export async function GET() {
+export async function GET(request: NextRequest) {
+  if (!(await esAdmin(request))) return NO_AUTORIZADO();
   try {
     // Intentar con la columna permisos (migración 28); si no existe, sin ella.
     try {
@@ -29,6 +36,7 @@ export async function GET() {
 
 // POST — crear usuario (admin lo crea directamente, sin auto-registro)
 export async function POST(request: NextRequest) {
+  if (!(await esAdmin(request))) return NO_AUTORIZADO();
   try {
     const { email, password, nombre, empresa, rol } = await request.json();
 
@@ -61,10 +69,12 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH — actualizar usuario (activar/desactivar, cambiar rol)
+// PATCH — actualizar usuario (activar/desactivar, cambiar rol, editar datos,
+// resetear contraseña). El admin puede fijar una clave nueva directamente (password).
 export async function PATCH(request: NextRequest) {
+  if (!(await esAdmin(request))) return NO_AUTORIZADO();
   try {
-    const { id, activo, rol, nombre, empresa, permisos } = await request.json();
+    const { id, activo, rol, nombre, empresa, permisos, email, password } = await request.json();
 
     if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
 
@@ -77,6 +87,28 @@ export async function PATCH(request: NextRequest) {
     if (empresa !== undefined){ updates.push('empresa = ?');values.push(empresa || null); }
     // Permisos granulares (JSON). Requiere migración 28.
     if (permisos !== undefined) { updates.push('permisos = ?'); values.push(permisos == null ? null : JSON.stringify(permisos)); }
+
+    // Editar email (validar formato + unicidad).
+    if (email !== undefined) {
+      const emailLimpio = String(email).toLowerCase().trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpio)) {
+        return NextResponse.json({ error: 'Email inválido' }, { status: 400 });
+      }
+      const [dup] = await pool.query('SELECT id FROM usuarios WHERE email = ? AND id <> ? LIMIT 1', [emailLimpio, id]);
+      if ((dup as any[]).length > 0) {
+        return NextResponse.json({ error: 'Ese email ya está en uso por otro usuario' }, { status: 409 });
+      }
+      updates.push('email = ?'); values.push(emailLimpio);
+    }
+
+    // Resetear contraseña (el admin fija una clave nueva).
+    if (password !== undefined && password !== null && password !== '') {
+      if (String(password).length < 8) {
+        return NextResponse.json({ error: 'La contraseña debe tener al menos 8 caracteres' }, { status: 400 });
+      }
+      const passwordHash = await bcrypt.hash(String(password), 12);
+      updates.push('password_hash = ?'); values.push(passwordHash);
+    }
 
     if (updates.length === 0) {
       return NextResponse.json({ error: 'Sin campos para actualizar' }, { status: 400 });
@@ -93,6 +125,7 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE — eliminar usuario
 export async function DELETE(request: NextRequest) {
+  if (!(await esAdmin(request))) return NO_AUTORIZADO();
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get('id');

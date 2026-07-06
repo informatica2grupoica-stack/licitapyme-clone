@@ -138,6 +138,49 @@ export async function enviarCorreoAsignacion(p: AsignacionEmail): Promise<boolea
   }
 }
 
+// ─── Recuperación de contraseña ──────────────────────────────────────────────
+interface RecuperacionEmail {
+  to: string;
+  nombre?: string | null;
+  url: string;            // enlace completo con el token
+  vigenciaMin: number;    // minutos de validez del enlace
+}
+
+function plantillaRecuperacion(p: RecuperacionEmail): string {
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">
+      Recibimos una solicitud para restablecer tu contraseña. Haz clic en el botón para elegir una clave nueva.
+      El enlace vence en ${p.vigenciaMin} minutos y solo puede usarse una vez.
+    </p>
+    <p style="margin:0;color:#9ca3af;font-size:12.5px;line-height:1.55;">
+      Si tú no pediste esto, ignora este correo: tu contraseña no cambiará.
+    </p>`;
+  return layoutEmail({
+    titulo: 'Restablece tu contraseña',
+    cuerpo,
+    cta: { label: 'Crear contraseña nueva', url: p.url },
+  });
+}
+
+/** Envía el correo de recuperación de contraseña. Devuelve true si se envió. */
+export async function enviarCorreoRecuperacion(p: RecuperacionEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — correo de recuperación omitido'); return false; }
+  try {
+    await t.sendMail({
+      from: FROM(),
+      to: p.to,
+      subject: 'Restablece tu contraseña · ICA Licitaciones',
+      html: plantillaRecuperacion(p),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío SMTP (recuperación) falló:', String(e));
+    return false;
+  }
+}
+
 // ─── Digest de radar por perfil ──────────────────────────────────────────────
 // Correo con las licitaciones NUEVAS que calzaron las keywords de un perfil en la
 // última corrida del cron. Una sola pieza por usuario (no un correo por licitación).

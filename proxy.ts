@@ -6,9 +6,11 @@ import { getSessionFromRequest } from '@/app/lib/auth-edge';
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
   '/login',
-  '/registro',
+  '/recuperar',                 // solicitar recuperación de contraseña
+  '/restablecer',               // fijar la contraseña nueva con el token del correo
   '/api/auth/login',
-  '/api/auth/registro',
+  '/api/auth/recuperar',        // envía el enlace de reseteo
+  '/api/auth/restablecer',      // valida el token y cambia la clave
   '/api/auth/me',
   '/api/auth/logout',
   '/api/pdf-pagina',     // render de una página a PNG; solo PDFs ya públicos en R2/MercadoPúblico (anti-SSRF propio)
@@ -50,8 +52,8 @@ export async function proxy(request: NextRequest) {
 
   // Permitir rutas públicas
   if (RUTAS_PUBLICAS.some(r => pathname.startsWith(r))) {
-    // Si ya tiene sesión e intenta ir a login/registro → redirigir al dashboard
-    if (pathname === '/login' || pathname === '/registro') {
+    // Si ya tiene sesión e intenta ir al login → redirigir al dashboard
+    if (pathname === '/login') {
       const usuario = await getSessionFromRequest(request);
       if (usuario) {
         return NextResponse.redirect(new URL('/dashboard', request.url));

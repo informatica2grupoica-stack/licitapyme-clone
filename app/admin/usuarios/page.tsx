@@ -227,6 +227,116 @@ function ModalNuevoUsuario({
   );
 }
 
+// ─── Modal para editar usuario (datos + resetear contraseña) ────────────────
+function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
+  usuario: UsuarioAdmin; onGuardado: () => void; onCerrar: () => void;
+}) {
+  const [form, setForm] = useState({
+    nombre: usuario.nombre || '',
+    empresa: usuario.empresa || '',
+    email: usuario.email,
+    rol: usuario.rol,
+  });
+  const [password, setPassword] = useState('');           // vacío = no cambiar la clave
+  const [mostrarPass, setMostrarPass] = useState(false);
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (password && password.length < 8) { setError('La contraseña debe tener al menos 8 caracteres'); return; }
+    setCargando(true);
+    try {
+      const body: any = { id: usuario.id, nombre: form.nombre, empresa: form.empresa, email: form.email, rol: form.rol };
+      if (password) body.password = password;  // solo se envía si el admin escribió una clave
+      const res = await fetch('/api/admin/usuarios', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'No se pudo guardar'); return; }
+      onGuardado();
+    } catch { setError('Error de conexión'); }
+    finally { setCargando(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 text-lg">Editar usuario</h3>
+          <button onClick={onCerrar} className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors">
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3 rounded-lg">
+              <AlertCircle size={15} /> {error}
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre</label>
+            <div className="relative">
+              <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type="text" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
+                placeholder="Juan Pérez" className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
+            <div className="relative">
+              <Briefcase size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type="text" value={form.empresa} onChange={e => setForm(p => ({ ...p, empresa: e.target.value }))}
+                placeholder="Mi Empresa SpA" className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email *</label>
+            <div className="relative">
+              <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+                required className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
+            <select value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value as any }))}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
+              <option value="usuario">Usuario</option>
+              <option value="externo">Trabajador externo (acceso restringido)</option>
+              <option value="admin">Administrador</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nueva contraseña</label>
+            <div className="relative">
+              <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input type={mostrarPass ? 'text' : 'password'} value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="Dejar en blanco para no cambiarla" minLength={8}
+                className="w-full pl-8 pr-9 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+              <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                {mostrarPass ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-gray-500">Solo se cambia si escribes una clave nueva (mín. 8 caracteres).</p>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button type="button" onClick={onCerrar}
+              className="flex-1 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors">Cancelar</button>
+            <button type="submit" disabled={cargando || !form.email}
+              className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center gap-1.5">
+              {cargando ? <Loader2 size={14} className="animate-spin" /> : <Edit3 size={14} />} Guardar cambios
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Página principal ──────────────────────────────────────────────────────
 export default function AdminUsuariosPage() {
   const { usuario } = useSession();
@@ -237,6 +347,7 @@ export default function AdminUsuariosPage() {
   const confirmar = useConfirm();
   const toast = useToast();
   const [permisosUser, setPermisosUser] = useState<UsuarioAdmin | null>(null);
+  const [editUser, setEditUser] = useState<UsuarioAdmin | null>(null);
 
   const cargarUsuarios = async () => {
     setCargando(true);
@@ -373,6 +484,14 @@ export default function AdminUsuariosPage() {
                       <td className="px-4 py-3 text-xs text-gray-500">{formatFecha(u.created_at)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
+                          {/* Editar datos / resetear contraseña */}
+                          <button
+                            onClick={() => setEditUser(u)}
+                            title="Editar / resetear contraseña"
+                            className="p-1.5 text-gray-500 hover:bg-gray-100 rounded-lg transition-colors"
+                          >
+                            <Edit3 size={14} />
+                          </button>
                           {/* Permisos: solo para usuarios normales (el admin ya tiene todo) */}
                           {u.rol !== 'admin' && (
                             <button
@@ -433,6 +552,14 @@ export default function AdminUsuariosPage() {
           usuario={permisosUser}
           onGuardado={() => { setPermisosUser(null); cargarUsuarios(); }}
           onCerrar={() => setPermisosUser(null)}
+        />
+      )}
+
+      {editUser && (
+        <ModalEditarUsuario
+          usuario={editUser}
+          onGuardado={() => { setEditUser(null); cargarUsuarios(); toast.success('Usuario actualizado'); }}
+          onCerrar={() => setEditUser(null)}
         />
       )}
     </AppLayout>

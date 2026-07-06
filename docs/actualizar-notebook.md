@@ -26,7 +26,8 @@ Si el link cambió, la URL nueva sale en: `docker compose logs cloudflared`.
 
 - El código nuevo ya está en GitHub (`origin/master`). ✅ (commit ya pusheado.)
 - Las migraciones de base **YA están aplicadas** a Bluehost (base compartida): `migration-29`
-  (campana de notificaciones) y `migration-36` (login). **NO hay que re-correrlas.**
+  (campana de notificaciones), `migration-36` (login) y `migration-37` (recuperación de
+  contraseña, tabla `password_resets`). **NO hay que re-correrlas.**
 
 ---
 
@@ -79,6 +80,10 @@ El código nuevo ya está en GitHub (origin/master). NO reinicies cloudflared (p
 
 - **Radar** mucho más rápido (~9s → ~1s).
 - **Login** blindado contra fuerza bruta (tabla `login_intentos`).
+- **Recuperación de contraseña por correo** desde el login (enlace de reseteo, tabla
+  `password_resets`, migración 37). El admin también puede editar perfiles y resetear claves
+  desde Administración de Usuarios. **Se quitó el auto-registro:** solo el admin crea perfiles
+  (es una app interna). Requiere el SMTP del paso 2 para que lleguen los correos de reseteo.
 - **Prefiltro automático** (`/api/cron/prefiltro`, por cron-job.org) + **descarga de documentos
   AL ASIGNAR** la licitación (en `/api/negocios` POST; solo se bajan las que se van a trabajar).
 - **Alertas por correo** (digest de radar por perfil) + correos de asignación/cambios con

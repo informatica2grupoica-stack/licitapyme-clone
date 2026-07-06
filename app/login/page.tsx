@@ -178,9 +178,8 @@ function LoginContent() {
           </form>
 
           <p className="text-center text-[13px] text-slate-500 mt-6">
-            ¿No tienes cuenta?{' '}
-            <Link href="/registro" className="text-indigo-600 hover:text-indigo-800 font-semibold">
-              Regístrate aquí
+            <Link href="/recuperar" className="text-indigo-600 hover:text-indigo-800 font-semibold">
+              ¿Olvidaste tu contraseña?
             </Link>
           </p>
         </div>
