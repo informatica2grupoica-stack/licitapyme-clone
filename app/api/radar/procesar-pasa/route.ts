@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { descargarDocumentosLicitacion } from '@/app/lib/mp-descarga-orquestador';
 import { analizarYGuardarViabilidadIA } from '@/app/lib/viabilidad-ia';
+import { iaTextoConfigurada } from '@/app/lib/gemini';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -86,8 +87,8 @@ export async function POST(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
-  if (!process.env.GEMINI_API_KEY) {
-    return NextResponse.json({ error: 'GEMINI_API_KEY no configurada.' }, { status: 503 });
+  if (!iaTextoConfigurada()) {
+    return NextResponse.json({ error: 'No hay proveedor de IA configurado (ZAI_API_KEY).' }, { status: 503 });
   }
 
   const body = await request.json().catch(() => ({}));

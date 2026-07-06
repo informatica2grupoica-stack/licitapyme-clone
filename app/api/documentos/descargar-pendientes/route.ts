@@ -13,6 +13,7 @@ import pool from '@/app/lib/db';
 import { descargarDocumentosLicitacion } from '@/app/lib/mp-descarga-orquestador';
 import { procesarLicitacionCompleta } from '@/app/lib/pipeline-licitacion';
 import { getAuthedUser } from '@/app/lib/api-auth';
+import { iaTextoConfigurada } from '@/app/lib/gemini';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -157,7 +158,7 @@ export async function POST(request: NextRequest) {
 
         // Tras descargar, encadenar pipeline completo (clasificar → análisis → viabilidad).
         // Best-effort: si falla, NO se rompe el lote — la descarga ya quedó guardada.
-        if (res.exito && process.env.GEMINI_API_KEY) {
+        if (res.exito && iaTextoConfigurada()) {
           try {
             await procesarLicitacionCompleta(codigo);
           } catch (e: any) {

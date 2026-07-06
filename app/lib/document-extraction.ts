@@ -331,35 +331,39 @@ export async function extractTextFromDocument(
         }
       }
 
-      // RESPALDO (sin URL pública o GLM-OCR caído): Gemini File API sobre el PDF completo,
-      // luego OCR por bloques (grandes) / Gemini Vision inline (chicos).
-      console.log(`⚠️ PDF escaneado → respaldo Gemini File API...`);
-      try {
-        const { extraerTextoPdfConGeminiFileAPI } = await import('@/app/lib/gemini');
-        const textoFile = await extraerTextoPdfConGeminiFileAPI(buffer);
-        if (textoFile && textoFile.trim().length > 100) {
-          return { texto: textoFile, numPages: pdfData.numpages, metodo: 'pdf-gemini-fileapi', confianza: 'alta' };
+      // RESPALDO Gemini RETIRADO: File API / Vision solo corren si se reactiva Gemini a
+      // propósito (GEMINI_HABILITADO=1 + key). Sin eso, el flujo salta DIRECTO a Tesseract
+      // local (código Gemini dormido por si se vuelve a ocupar).
+      const { geminiHabilitado } = await import('@/app/lib/gemini');
+      if (geminiHabilitado()) {
+        console.log(`⚠️ PDF escaneado → respaldo Gemini File API...`);
+        try {
+          const { extraerTextoPdfConGeminiFileAPI } = await import('@/app/lib/gemini');
+          const textoFile = await extraerTextoPdfConGeminiFileAPI(buffer);
+          if (textoFile && textoFile.trim().length > 100) {
+            return { texto: textoFile, numPages: pdfData.numpages, metodo: 'pdf-gemini-fileapi', confianza: 'alta' };
+          }
+        } catch (fileErr) {
+          console.warn('[OCR] Gemini File API falló, caigo a OCR por bloques:', fileErr instanceof Error ? fileErr.message : fileErr);
         }
-      } catch (fileErr) {
-        console.warn('[OCR] Gemini File API falló, caigo a OCR por bloques:', fileErr instanceof Error ? fileErr.message : fileErr);
-      }
 
-      const esGrande = pdfData.numpages > 12;
-      try {
-        const { extraerTextoConGeminiVision } = await import('@/app/lib/gemini');
-        const textoVision = esGrande
-          ? await ocrPdfPorBloques(buffer, pdfData.numpages)
-          : await extraerTextoConGeminiVision(buffer);
-        if (textoVision && textoVision.trim().length > 100) {
-          return {
-            texto: textoVision,
-            numPages: pdfData.numpages,
-            metodo: esGrande ? 'pdf-gemini-vision-bloques' : 'pdf-gemini-vision',
-            confianza: 'alta',
-          };
+        const esGrande = pdfData.numpages > 12;
+        try {
+          const { extraerTextoConGeminiVision } = await import('@/app/lib/gemini');
+          const textoVision = esGrande
+            ? await ocrPdfPorBloques(buffer, pdfData.numpages)
+            : await extraerTextoConGeminiVision(buffer);
+          if (textoVision && textoVision.trim().length > 100) {
+            return {
+              texto: textoVision,
+              numPages: pdfData.numpages,
+              metodo: esGrande ? 'pdf-gemini-vision-bloques' : 'pdf-gemini-vision',
+              confianza: 'alta',
+            };
+          }
+        } catch (visionErr) {
+          console.warn('[OCR] Gemini Vision falló:', visionErr);
         }
-      } catch (visionErr) {
-        console.warn('[OCR] Gemini Vision falló:', visionErr);
       }
 
       // ÚLTIMO RESPALDO: OCR local Tesseract (si no se intentó ya como principal). Evita

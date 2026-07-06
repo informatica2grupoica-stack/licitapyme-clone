@@ -5,7 +5,7 @@
 
 import pool from '@/app/lib/db';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
-import { analizarLicitacionConGemini, analizarClasificarJuzgar, truncarTextoDocumentos, ViabilidadJuicioIA } from '@/app/lib/gemini';
+import { analizarLicitacionConGemini, analizarClasificarJuzgar, truncarTextoDocumentos, ViabilidadJuicioIA, MODELO_TEXTO } from '@/app/lib/gemini';
 import { persistirClasificacionFusionada } from '@/app/lib/clasificacion';
 
 // Documentos cuyo OCR no aporta al análisis (planos, croquis, imágenes): se omite
@@ -336,7 +336,7 @@ async function guardarAnalisis(
     JSON.stringify(analisis.analisisExperto        || null),
     nombreResumen,
     ...(conDetalle ? [JSON.stringify(documentosDetalle)] : []),
-    'gemini-2.5-flash',
+    MODELO_TEXTO,
   ];
   // Columnas que se actualizan en ON DUPLICATE KEY (todas menos la PK licitacion_codigo).
   const updates = cols.slice(1).map(c => `${c} = VALUES(${c})`).join(',\n       ');

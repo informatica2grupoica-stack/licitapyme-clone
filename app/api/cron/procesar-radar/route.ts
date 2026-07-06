@@ -23,6 +23,7 @@ import { prefiltrarYGuardar } from '@/app/lib/prefiltro';
 import { descargarDocumentosLicitacion } from '@/app/lib/mp-descarga-orquestador';
 import { procesarLicitacionCompleta } from '@/app/lib/pipeline-licitacion';
 import { tomarLock, liberarLock } from '@/app/lib/api-auth';
+import { iaTextoConfigurada } from '@/app/lib/gemini';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -163,7 +164,7 @@ export async function POST(req: NextRequest) {
             stats.descarga.exito++;
             stats.descarga.docsNuevos += res.nuevos || 0;
             // Pipeline IA best-effort: la descarga ya quedó guardada aunque esto falle.
-            if (process.env.GEMINI_API_KEY) {
+            if (iaTextoConfigurada()) {
               try { await procesarLicitacionCompleta(codigo); }
               catch (e: any) { console.warn(`[cron/procesar-radar] pipeline ${codigo}:`, e?.message); }
             }

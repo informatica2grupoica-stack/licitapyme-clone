@@ -18,7 +18,7 @@
 
 import pool from '@/app/lib/db';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
-import { crearChatIA } from '@/app/lib/gemini';
+import { crearChatIA, geminiHabilitado } from '@/app/lib/gemini';
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -359,8 +359,9 @@ async function extraerParaClasificar(
     }
   }
 
-  // RESPALDO: Gemini Vision sobre el buffer (URL no pública o GLM sin resultado).
-  if (esPdf && !textoPrimeraPagina && process.env.GEMINI_API_KEY) {
+  // RESPALDO Gemini RETIRADO: solo corre si se reactiva a propósito (GEMINI_HABILITADO=1
+  // + key). Sin eso, la primera página queda sin OCR de respaldo (GLM-OCR es el motor).
+  if (esPdf && !textoPrimeraPagina && geminiHabilitado()) {
     try {
       const fetchUrl = url.includes('.r2.dev') || url.includes(process.env.R2_ACCOUNT_ID || '__no__')
         ? url

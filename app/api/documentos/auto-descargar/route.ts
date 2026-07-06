@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { descargarDocumentosLicitacion } from '@/app/lib/mp-descarga-orquestador';
 import { procesarLicitacionCompleta } from '@/app/lib/pipeline-licitacion';
+import { iaTextoConfigurada } from '@/app/lib/gemini';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,7 +30,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Pipeline completo en background (Fase 1 clasificar → análisis → viabilidad)
-    if (triggerIA && process.env.GEMINI_API_KEY) {
+    if (triggerIA && iaTextoConfigurada()) {
       procesarLicitacionCompleta(licitacionCodigo).catch(e =>
         console.error('[auto-descargar] Error en pipeline IA automático:', e)
       );

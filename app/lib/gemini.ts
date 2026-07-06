@@ -120,16 +120,27 @@ function modeloGeminiSeguro(pedido: string | undefined, porDefecto: string): str
 
 type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean };
 const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
-  zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: 'glm-4.6',      sinThinking: true  },
+  zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL || 'glm-4.6', sinThinking: true  },
   deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat', sinThinking: false },
   gemini:   { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: modeloGeminiSeguro(process.env.GEMINI_MODEL, 'gemini-2.5-flash'), sinThinking: false },
 };
 export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();
+
+// ─── GEMINI RETIRADO (2026-07-06) ──────────────────────────────────────────────
+// Gemini NO se usa en ninguna parte, NI COMO RESPALDO. Todo el código Gemini de este
+// archivo queda dormido a propósito (por si se vuelve a ocupar). Para reactivarlo:
+// descomentar GEMINI_API_KEY en .env.local Y poner GEMINI_HABILITADO=1. Sin ambas
+// cosas, ningún camino (texto, OCR, chat, clasificación) intentará llamar a Gemini.
+export function geminiHabilitado(): boolean {
+  return process.env.GEMINI_HABILITADO === '1' && Boolean(process.env.GEMINI_API_KEY);
+}
 function cfgTexto(): ProveedorTexto { return PROVEEDORES_TEXTO[IA_TEXT_PROVIDER] ?? PROVEEDORES_TEXTO.zai; }
 // Proveedor de RESPALDO: el PRIMERO de los otros que tenga API key configurada (no
-// desperdicia créditos si el principal cae). Orden de preferencia: gemini → deepseek → zai.
+// desperdicia créditos si el principal cae). Orden de preferencia: deepseek → zai.
+// Gemini está RETIRADO del respaldo: solo participa si GEMINI_HABILITADO=1 (ver arriba).
 function cfgTextoAlterno(): ProveedorTexto {
-  const orden = ['gemini', 'deepseek', 'zai'].filter((k) => k !== IA_TEXT_PROVIDER);
+  const candidatos = geminiHabilitado() ? ['deepseek', 'gemini', 'zai'] : ['deepseek', 'zai'];
+  const orden = candidatos.filter((k) => k !== IA_TEXT_PROVIDER);
   for (const k of orden) {
     const cfg = PROVEEDORES_TEXTO[k];
     if (cfg && process.env[cfg.keyEnv]) return cfg;
@@ -291,6 +302,7 @@ function modelosOCR(): string[] {
 // Usa la API nativa de Gemini para leer PDFs con imágenes escaneadas.
 // Solo se llama cuando pdf-parse no puede extraer texto suficiente.
 export async function extraerTextoConGeminiVision(buffer: Buffer): Promise<string> {
+  if (!geminiHabilitado()) throw new Error('Gemini retirado (GEMINI_HABILITADO≠1) — usar GLM-OCR/Tesseract');
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY no configurada para OCR');
 
@@ -370,6 +382,7 @@ const FILEAPI_CHUNK_PAGINAS = 4; // págs por llamada: <90s y sin RECITATION (me
 const FILEAPI_CONCURRENCIA  = 3; // bloques en paralelo: reduce el tiempo total ~3x
 
 export async function extraerTextoPdfConGeminiFileAPI(buffer: Buffer): Promise<string> {
+  if (!geminiHabilitado()) throw new Error('Gemini retirado (GEMINI_HABILITADO≠1) — usar GLM-OCR/Tesseract');
   // ¿Cuántas páginas tiene? Si no se puede leer el conteo, una sola llamada con el doc completo.
   let totalPaginas = 0;
   try {

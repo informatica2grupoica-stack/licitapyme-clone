@@ -7,6 +7,7 @@ import { tienePermiso } from '@/app/lib/api-auth';
 import { registrarEvento } from '@/app/lib/historial';
 import { enviarCorreoAsignacion } from '@/app/lib/email';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
+import { iaTextoConfigurada } from '@/app/lib/gemini';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -261,7 +262,7 @@ export async function POST(request: NextRequest) {
           const { descargarDocumentosLicitacion } = await import('@/app/lib/mp-descarga-orquestador');
           const res = await descargarDocumentosLicitacion(licitacion_codigo);
           // Tras descargar, encadenar el pipeline IA (clasificar → análisis → viabilidad).
-          if (res.exito && process.env.GEMINI_API_KEY) {
+          if (res.exito && iaTextoConfigurada()) {
             const { procesarLicitacionCompleta } = await import('@/app/lib/pipeline-licitacion');
             try { await procesarLicitacionCompleta(licitacion_codigo); }
             catch (e) { console.warn(`[negocios] pipeline al asignar ${licitacion_codigo}:`, String(e)); }

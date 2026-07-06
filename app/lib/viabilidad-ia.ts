@@ -314,10 +314,11 @@ function repararJSONTruncado(txt: string): string | null {
 }
 
 // ─── Llamada al LLM (JSON forzado) ───────────────────────────────────────────────
-// Proveedor activo (IA_TEXT_PROVIDER): GLM de Z.AI por defecto (chat compatible OpenAI),
-// o Gemini nativo si se revierte a deepseek/Gemini. GLM evita el 429 crónico de Gemini.
+// Proveedor activo (IA_TEXT_PROVIDER): GLM de Z.AI (vía crearChatIA, chat compatible
+// OpenAI, con respaldo DeepSeek). El camino Gemini nativo SOLO se usa si se fuerza
+// IA_TEXT_PROVIDER=gemini (retirado: sin key no funciona).
 async function llamarGeminiJSON(systemPrompt: string, userPrompt: string): Promise<any> {
-  if (IA_TEXT_PROVIDER === 'zai') return llamarGlmJSON(systemPrompt, userPrompt);
+  if (IA_TEXT_PROVIDER !== 'gemini') return llamarGlmJSON(systemPrompt, userPrompt);
   return llamarGeminiNativoJSON(systemPrompt, userPrompt);
 }
 

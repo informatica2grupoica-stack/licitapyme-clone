@@ -16,7 +16,7 @@
 // DeepSeek (getGemini() del proyecto apunta a DeepSeek).
 
 import pool from './db';
-import { crearChatIA, MODELO_TEXTO } from './gemini';
+import { crearChatIA, MODELO_TEXTO, geminiHabilitado } from './gemini';
 
 // ~30k tokens de contexto. Suficiente para el corpus de una licitación típica; el
 // exceso se trunca (el chat rápido de un documento casi nunca lo alcanza).
@@ -237,11 +237,13 @@ export async function responderChat(opts: {
   pregunta: string;
 }): Promise<{ respuesta: string; modelo: string }> {
   const { contexto, historial, pregunta } = opts;
-  // Principal: GLM de Z.AI (Gemini nativo está sujeto a cuota/429). Respaldo: Gemini.
+  // Principal: GLM de Z.AI (crearChatIA ya trae respaldo DeepSeek automático). Gemini está
+  // RETIRADO: su respaldo solo corre si se reactiva a propósito (GEMINI_HABILITADO=1 + key).
   try {
     const respuesta = await responderConIA(contexto, historial, pregunta);
     return { respuesta, modelo: MODELO_TEXTO };
   } catch (e) {
+    if (!geminiHabilitado()) throw e;
     console.warn('[chat-licitacion] GLM falló, uso Gemini de respaldo:', e instanceof Error ? e.message : e);
     const respuesta = await responderConGemini(contexto, historial, pregunta);
     return { respuesta, modelo: MODELO_GEMINI };
