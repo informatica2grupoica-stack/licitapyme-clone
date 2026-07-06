@@ -1210,7 +1210,7 @@ export default function RadarPage() {
 
   // Filtros
   const FILTROS_DEFAULT = {
-    texto: '', estados: ESTADOS_ACTIVOS_DEFAULT, tipos: [] as string[], region: '',
+    texto: '', estados: ESTADOS_ACTIVOS_DEFAULT, tipos: ['LE', 'LP', 'LR', 'LS'] as string[], region: '',
     dias: '', monto: '', conDocumentos: false, soloNoLeidas: false, orden: 'publicacion-desc',
     semaforos: [] as string[], keyword: '',
     decisiones: [] as string[], ocultarExcluidas: false,

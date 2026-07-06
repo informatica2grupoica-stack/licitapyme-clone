@@ -46,7 +46,17 @@ export async function GET(request: NextRequest) {
         `SELECT id, email, nombre, empresa, rol, ultimo_login, created_at
          FROM usuarios ORDER BY COALESCE(ultimo_login, created_at) DESC LIMIT 6`);
 
-      const [tLic] = await q(`SELECT COUNT(DISTINCT licitacion_codigo) AS n FROM alertas_licitaciones`);
+      // "Licitaciones en radar" = SOLO las activas (Publicada), tipo LE/LP/LR/LS y que
+      // NO estén ya asignadas a un perfil (las que faltan por trabajar). El tipo sale del
+      // sufijo del código (…-LE26, …-LP26…). Excluye compra ágil (CO), L1, adjudicadas, etc.
+      const [tLic] = await q(
+        `SELECT COUNT(DISTINCT al.licitacion_codigo) AS n
+         FROM alertas_licitaciones al
+         WHERE al.licitacion_estado = 'Publicada'
+           AND al.licitacion_codigo REGEXP '-(LE|LP|LR|LS)[0-9]+$'
+           AND NOT EXISTS (
+             SELECT 1 FROM negocios n
+             WHERE n.licitacion_codigo = al.licitacion_codigo AND n.activo = TRUE)`);
       const [tViab] = await q(`SELECT COUNT(*) AS n FROM viabilidad_licitacion`);
       const viabilidad = await q(`SELECT semaforo, COUNT(*) AS n FROM viabilidad_licitacion WHERE semaforo IS NOT NULL GROUP BY semaforo`);
       const prefiltro  = await q(`SELECT decision, COUNT(*) AS n FROM prefiltro_licitacion WHERE decision IS NOT NULL GROUP BY decision`);
