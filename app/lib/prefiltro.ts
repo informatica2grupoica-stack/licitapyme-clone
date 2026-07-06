@@ -44,6 +44,9 @@ export interface PrefiltroResult {
   pasada: PasadaPrefiltro;
   palabra_negativa: { nivel: 'dura' | 'contextual' | null; termino: string } | null;
   destino: DestinoPrefiltro;
+  // Marca interna (NO se persiste): la IA no devolvió decisión real para este código
+  // (lote truncado/fallido) → cayó a PASA por defecto. No se guarda para que se REINTENTE.
+  _fallback?: boolean;
 }
 
 // Metadata de portada de una licitación para el prefiltro.
@@ -336,60 +339,67 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
     motivo: '', evidencia: '', confianza: 0,
     monto_neto: chequearPresupuesto(m).neto,
     pasada: null, palabra_negativa: null, destino: 'FASE_1',
+    _fallback: true, // no es decisión real de la IA → no persistir, reintentar
   });
 
   if (paraIA.length > 0 && iaTextoConfigurada()) {
     for (let i = 0; i < paraIA.length; i += LOTE_IA) {
       const chunk = paraIA.slice(i, i + LOTE_IA);
-      try {
-        const completion = await crearChatIA({
-          messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
-            { role: 'user', content: construirUserPrompt(chunk) },
-          ],
-          temperature: 0.1,
-          max_tokens: 4_000,
-          response_format: { type: 'json_object' },
-        });
-        const raw = completion.choices[0]?.message?.content || '';
-        const parsed: any = parseJsonIA(raw) ?? {};
-        const arr: any[] = Array.isArray(parsed?.resultados) ? parsed.resultados
-          : Array.isArray(parsed) ? parsed : [];
 
-        // Mapear por índice "i" (robusto ante reordenamiento de la IA).
-        const porIndice = new Map<number, any>();
-        for (const r of arr) {
-          const idx = Number(r?.i);
-          if (Number.isInteger(idx)) porIndice.set(idx, r);
-        }
-
-        chunk.forEach((m, j) => {
-          const r = porIndice.get(j);
-          if (!r) { out.set(m.codigo, fallbackPasa(m)); return; }
-          const confianza = Math.max(0, Math.min(1, Number(r.confianza) || 0));
-          const catRaw = normalizarCategoria(r.categoria_exclusion);
-          const { decision, categoria } = aplicarUmbral(r.decision, catRaw, confianza);
-          const termCtx = r.palabra_negativa_contextual
-            ? String(r.palabra_negativa_contextual).slice(0, 60) : null;
-          out.set(m.codigo, {
-            codigo: m.codigo,
-            decision,
-            categoria,
-            motivo: String(r.motivo || '').slice(0, 500),
-            evidencia: String(r.evidencia || '').slice(0, 500),
-            confianza,
-            monto_neto: chequearPresupuesto(m).neto,
-            pasada: '2_naturaleza',
-            palabra_negativa: termCtx
-              ? { nivel: 'contextual', termino: termCtx }
-              : null,
-            destino: calcularDestino(decision, categoria),
+      // Hasta 2 intentos: JSON truncado/vacío o error de red no deben caer directo a PASA.
+      // max_tokens amplio (el JSON de 15 ítems con motivo+evidencia truncaba a 4000).
+      let arr: any[] = [];
+      for (let intento = 0; intento < 2 && arr.length === 0; intento++) {
+        try {
+          const completion = await crearChatIA({
+            messages: [
+              { role: 'system', content: SYSTEM_PROMPT },
+              { role: 'user', content: construirUserPrompt(chunk) },
+            ],
+            temperature: 0.1,
+            max_tokens: 8_000,
+            response_format: { type: 'json_object' },
           });
-        });
-      } catch (e) {
-        console.warn('[prefiltro] Lote IA falló, marcando PASA por cautela:', String(e).slice(0, 150));
-        for (const m of chunk) out.set(m.codigo, fallbackPasa(m));
+          const raw = completion.choices[0]?.message?.content || '';
+          const parsed: any = parseJsonIA(raw) ?? {};
+          arr = Array.isArray(parsed?.resultados) ? parsed.resultados
+            : Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          console.warn(`[prefiltro] Lote IA intento ${intento + 1} falló:`, String(e).slice(0, 150));
+        }
       }
+
+      // Mapear por índice "i" (robusto ante reordenamiento de la IA).
+      const porIndice = new Map<number, any>();
+      for (const r of arr) {
+        const idx = Number(r?.i);
+        if (Number.isInteger(idx)) porIndice.set(idx, r);
+      }
+
+      chunk.forEach((m, j) => {
+        const r = porIndice.get(j);
+        // Sin decisión real de la IA para este código → fallback (NO se persiste: se reintenta).
+        if (!r) { out.set(m.codigo, fallbackPasa(m)); return; }
+        const confianza = Math.max(0, Math.min(1, Number(r.confianza) || 0));
+        const catRaw = normalizarCategoria(r.categoria_exclusion);
+        const { decision, categoria } = aplicarUmbral(r.decision, catRaw, confianza);
+        const termCtx = r.palabra_negativa_contextual
+          ? String(r.palabra_negativa_contextual).slice(0, 60) : null;
+        out.set(m.codigo, {
+          codigo: m.codigo,
+          decision,
+          categoria,
+          motivo: String(r.motivo || '').slice(0, 500),
+          evidencia: String(r.evidencia || '').slice(0, 500),
+          confianza,
+          monto_neto: chequearPresupuesto(m).neto,
+          pasada: '2_naturaleza',
+          palabra_negativa: termCtx
+            ? { nivel: 'contextual', termino: termCtx }
+            : null,
+          destino: calcularDestino(decision, categoria),
+        });
+      });
     }
   } else {
     // Sin API key → todo PASA (no se descarta nada).
@@ -401,6 +411,9 @@ export async function prefiltrarLote(metas: MetaLic[]): Promise<PrefiltroResult[
 
 // ─── Persistencia ──────────────────────────────────────────────────────────────────
 export async function guardarPrefiltro(results: PrefiltroResult[]): Promise<void> {
+  // NO persistir los fallback (IA no decidió): quedan sin fila → se reintentan en la próxima
+  // corrida en vez de quedar registrados como PASA falso (confianza 0, sin motivo).
+  results = results.filter(r => !r._fallback);
   if (results.length === 0) return;
   try {
     const placeholders = results.map(() => '(?,?,?,?,?,?,?,?)').join(',');

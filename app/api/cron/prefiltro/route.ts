@@ -62,19 +62,25 @@ export async function POST(req: NextRequest) {
   const lote = Math.min(Number(body.lote ?? req.nextUrl.searchParams.get('lote')) || LOTE_DEFAULT, 90);
 
   const t0 = Date.now();
-  const stats = { procesadas: 0, pasa: 0, revision: 0, excluido: 0, errores: 0, tandas: 0 };
+  const stats = { procesadas: 0, pasa: 0, revision: 0, excluido: 0, fallback: 0, errores: 0, tandas: 0 };
 
   try {
-    // Varias tandas mientras haya pendientes y quede presupuesto de tiempo.
+    // Los fallback (IA no decidió) ya NO se persisten → `pendientes` los devolvería otra vez.
+    // `intentados` evita re-procesar en bucle los mismos códigos DENTRO de esta corrida:
+    // se reintentan en la SIGUIENTE corrida del cron, no en esta.
+    const intentados = new Set<string>();
     while (Date.now() - t0 < PRESUPUESTO_MS) {
-      const codigos = await pendientes(lote);
+      const pend = await pendientes(lote * 3);
+      const codigos = pend.filter(c => !intentados.has(c)).slice(0, lote);
       if (codigos.length === 0) break;
+      for (const c of codigos) intentados.add(c);
       try {
         const results = await prefiltrarYGuardar(codigos);
         stats.tandas++;
         for (const r of results) {
           stats.procesadas++;
-          if (r.decision === 'PASA') stats.pasa++;
+          if (r._fallback) stats.fallback++;
+          else if (r.decision === 'PASA') stats.pasa++;
           else if (r.decision === 'REVISION_HUMANA') stats.revision++;
           else if (r.decision === 'EXCLUIDO') stats.excluido++;
         }
