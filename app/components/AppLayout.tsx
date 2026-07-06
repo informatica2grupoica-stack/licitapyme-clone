@@ -435,7 +435,7 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
         <TopBar breadcrumb={breadcrumb} onOpenMobile={() => setMobileOpen(true)} />
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
-      {/* Bloqueante: licitaciones vencidas sin resolver (postulada/descartada) */}
+      {/* Bloqueante: licitaciones vencidas sin resolver (postulada/descartadas) */}
       <CierreVencidoModal />
     </div>
   );
