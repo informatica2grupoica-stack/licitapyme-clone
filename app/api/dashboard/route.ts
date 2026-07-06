@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { ahoraChileSQL } from '@/app/lib/tz';
 
 function getUserFromHeaders(request: NextRequest) {
   const id = request.headers.get('x-user-id');
@@ -124,12 +125,14 @@ export async function GET(request: NextRequest) {
     const pNeg = verOtros ? [] : [sesion.id];
     const [misCount] = await q(`SELECT COUNT(*) AS n, COALESCE(SUM(licitacion_monto),0) AS monto FROM negocios n WHERE n.activo = TRUE ${sinDescartadas} ${filtroNeg}`, pNeg);
     const miPipeline = await q(`SELECT COALESCE(estado_pipeline,'1ASIGNADO') AS etapa, COUNT(*) AS n FROM negocios n WHERE n.activo = TRUE ${sinDescartadas} ${filtroNeg} GROUP BY etapa`, pNeg);
+    // "Próximos" = cierre (hora de pared de Chile) aún no ha pasado. Se compara contra la
+    // hora de Chile, NO contra NOW() (el servidor MySQL corre en otra zona, UTC-6).
     const proximosCierres = await q(
       `SELECT n.licitacion_codigo AS codigo, n.licitacion_nombre AS nombre, n.licitacion_organismo AS organismo,
               n.licitacion_cierre AS cierre, n.licitacion_monto AS monto
        FROM negocios n
-       WHERE n.activo = TRUE AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre >= NOW() ${sinDescartadas} ${filtroNeg}
-       ORDER BY n.licitacion_cierre ASC LIMIT 6`, pNeg);
+       WHERE n.activo = TRUE AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre >= ? ${sinDescartadas} ${filtroNeg}
+       ORDER BY n.licitacion_cierre ASC LIMIT 6`, [ahoraChileSQL(), ...pNeg]);
 
     const usuario = {
       asignadas: misCount?.n || 0,

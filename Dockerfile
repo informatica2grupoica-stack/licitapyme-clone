@@ -5,12 +5,19 @@ FROM node:20-bookworm-slim AS base
 WORKDIR /app
 
 # Chromium + fuentes para que el navegador headless renderice y descargue bien.
+# tzdata: el contenedor debe correr en hora de Chile (ver ENV TZ abajo).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium \
     ca-certificates \
     fonts-liberation \
     fonts-freefont-ttf \
+    tzdata \
   && rm -rf /var/lib/apt/lists/*
+
+# ZONA HORARIA: la app es 100% Chile. Sin esto el contenedor corre en UTC y mysql2 lee
+# las fechas de cierre (guardadas en hora de pared chilena) corridas 3-4h → licitaciones
+# marcadas "vencidas" antes de tiempo. Se puede sobreescribir con TZ en el .env.
+ENV TZ=America/Santiago
 
 # puppeteer-core NO descarga su propio Chromium: usamos el del sistema.
 ENV PUPPETEER_SKIP_DOWNLOAD=true \

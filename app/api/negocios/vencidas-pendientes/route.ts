@@ -4,6 +4,7 @@
 // obliga a cerrar el ciclo al entrar a la plataforma.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { ahoraChileSQL } from '@/app/lib/tz';
 
 // Estados que "cierran el ciclo": ya no se exige resolución.
 const ESTADOS_RESUELTOS = [
@@ -29,7 +30,9 @@ export async function GET(request: NextRequest) {
     const ph = ESTADOS_RESUELTOS.map(() => '?').join(',');
     // Admin ve (y debe resolver) todas; usuario normal solo las suyas.
     const filtroUsuario = rol === 'admin' ? '' : 'AND n.asignado_a = ?';
-    const params: any[] = [...ESTADOS_RESUELTOS];
+    // "Vencida" = el cierre (hora de pared de Chile) ya pasó respecto de la hora de Chile.
+    // NO se usa NOW() porque el servidor MySQL corre en otra zona (UTC-6).
+    const params: any[] = [ahoraChileSQL(), ...ESTADOS_RESUELTOS];
     if (rol !== 'admin') params.push(userId);
 
     const [rows] = await pool.query(
@@ -40,7 +43,7 @@ export async function GET(request: NextRequest) {
        JOIN usuarios u ON u.id = n.asignado_a
        WHERE n.activo = TRUE
          AND n.licitacion_cierre IS NOT NULL
-         AND n.licitacion_cierre < NOW()
+         AND n.licitacion_cierre < ?
          AND COALESCE(n.estado_pipeline, '1ASIGNADO') NOT IN (${ph})
          ${filtroUsuario}
        ORDER BY n.licitacion_cierre ASC`,
