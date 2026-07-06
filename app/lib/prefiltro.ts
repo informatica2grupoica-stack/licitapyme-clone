@@ -450,8 +450,43 @@ export async function guardarPrefiltro(results: PrefiltroResult[]): Promise<void
   }
 }
 
+// ─── Enriquecimiento previo (automático) ─────────────────────────────────────
+// Antes de prefiltrar, rellena descripción + ítems de los códigos que aún no los
+// tienen en caché, llamando a la API pública de MP (NO requiere IP chilena). Así el
+// prefiltro decide con metadata COMPLETA en vez de solo el nombre → mejores decisiones
+// y menos PASA por cautela. Best-effort y time-boxed: si falla o se acaba el tiempo,
+// se sigue con lo que haya (nunca bloquea el prefiltro). Reemplaza el botón manual.
+async function enriquecerFaltantes(codigos: string[], maxMs: number): Promise<number> {
+  if (!process.env.MERCADO_PUBLICO_TICKET) return 0; // sin ticket → no se puede enriquecer
+  try {
+    const cache = await leerCache(codigos);
+    // Faltantes = sin fila en caché, o con fila pero sin descripción.
+    const faltantes = codigos.filter(c => {
+      const e = cache.get(c);
+      return !e || !e.lic?.Descripcion;
+    });
+    if (faltantes.length === 0) return 0;
+    const { getMercadoPublicoClient } = await import('@/app/lib/mercado-publico');
+    const { enriquecerYCachear } = await import('@/app/lib/licitaciones-cache');
+    const res = await enriquecerYCachear(getMercadoPublicoClient(), faltantes, {
+      maxMs, baseDelayMs: 1_200, maxDelayMs: 8_000, guardarCada: 10,
+    });
+    return res.enriquecidas;
+  } catch (e) {
+    console.warn('[prefiltro] enriquecimiento previo (best-effort) falló:', String(e).slice(0, 150));
+    return 0;
+  }
+}
+
 // Prefiltra un lote de códigos y persiste en un solo paso. Devuelve los resultados.
-export async function prefiltrarYGuardar(codigos: string[]): Promise<PrefiltroResult[]> {
+// opts.enriquecer → enriquece la metadata faltante ANTES de decidir (automático).
+export async function prefiltrarYGuardar(
+  codigos: string[],
+  opts: { enriquecer?: boolean; maxEnriquecerMs?: number } = {},
+): Promise<PrefiltroResult[]> {
+  if (opts.enriquecer) {
+    await enriquecerFaltantes(codigos, opts.maxEnriquecerMs ?? 60_000);
+  }
   const metas = await cargarMetadata(codigos);
   const results = await prefiltrarLote(metas);
   await guardarPrefiltro(results);

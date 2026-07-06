@@ -75,7 +75,9 @@ export async function POST(req: NextRequest) {
       if (codigos.length === 0) break;
       for (const c of codigos) intentados.add(c);
       try {
-        const results = await prefiltrarYGuardar(codigos);
+        // enriquecer:true → metadata completa antes de decidir. Time-box corto por el
+        // límite de 60s de Vercel; lo que no alcance a enriquecerse queda para la próxima.
+        const results = await prefiltrarYGuardar(codigos, { enriquecer: true, maxEnriquecerMs: 20_000 });
         stats.tandas++;
         for (const r of results) {
           stats.procesadas++;

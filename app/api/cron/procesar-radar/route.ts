@@ -133,7 +133,9 @@ export async function POST(req: NextRequest) {
       const pendientes = await radarSinPrefiltro(lotePrefiltro);
       if (pendientes.length > 0) {
         try {
-          const results = await prefiltrarYGuardar(pendientes);
+          // enriquecer:true → rellena descripción/ítems faltantes antes de decidir
+          // (automático, best-effort). maxDuration 300 da margen para el enriquecido.
+          const results = await prefiltrarYGuardar(pendientes, { enriquecer: true, maxEnriquecerMs: 120_000 });
           stats.prefiltro.procesadas = results.length;
           for (const r of results) {
             if (r.decision === 'PASA') stats.prefiltro.pasa++;
