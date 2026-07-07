@@ -271,9 +271,14 @@ export async function POST(request: NextRequest) {
             } catch (e) { console.warn(`[negocios] pre-OCR al asignar ${licitacion_codigo}:`, String(e)); }
           }
           // Tras descargar, encadenar el pipeline IA (clasificar → análisis → viabilidad).
+          // forzar:true → una licitación ASIGNADA se procesa completa aunque el prefiltro la
+          // haya EXCLUIDO: la asignación es una decisión manual del admin que anula el prefiltro
+          // (la descarga ya lo anula). Sin esto, las asignadas-excluidas bajaban docs pero
+          // quedaban SIN clasificar/analizar/viabilidad, y el trabajo se difería (lento) al
+          // primer clic del usuario en la ficha.
           if (res.exito && iaTextoConfigurada()) {
             const { procesarLicitacionCompleta } = await import('@/app/lib/pipeline-licitacion');
-            try { await procesarLicitacionCompleta(licitacion_codigo); }
+            try { await procesarLicitacionCompleta(licitacion_codigo, { forzar: true }); }
             catch (e) { console.warn(`[negocios] pipeline al asignar ${licitacion_codigo}:`, String(e)); }
           }
         } catch (e) { console.error('[negocios] auto-descarga al asignar falló:', String(e)); }

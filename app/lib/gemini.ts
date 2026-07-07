@@ -121,6 +121,10 @@ function modeloGeminiSeguro(pedido: string | undefined, porDefecto: string): str
 type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean };
 const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL || 'glm-4.6', sinThinking: true  },
+  // Respaldo GLM en la MISMA cuenta Z.AI, con un modelo más liviano/rápido: si el modelo
+  // principal se cuelga o da 429 en una llamada grande, este lo cubre sin salir de GLM.
+  // Configurable con GLM_TEXT_MODEL_FALLBACK (por defecto glm-4.5-air: rápido y barato).
+  zai_alt:  { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL_FALLBACK || 'glm-4.5-air', sinThinking: true },
   deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat', sinThinking: false },
   gemini:   { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: modeloGeminiSeguro(process.env.GEMINI_MODEL, 'gemini-2.5-flash'), sinThinking: false },
 };
@@ -135,17 +139,24 @@ export function geminiHabilitado(): boolean {
   return process.env.GEMINI_HABILITADO === '1' && Boolean(process.env.GEMINI_API_KEY);
 }
 function cfgTexto(): ProveedorTexto { return PROVEEDORES_TEXTO[IA_TEXT_PROVIDER] ?? PROVEEDORES_TEXTO.zai; }
-// Proveedor de RESPALDO: el PRIMERO de los otros que tenga API key configurada (no
-// desperdicia créditos si el principal cae). Orden de preferencia: deepseek → zai.
-// Gemini está RETIRADO del respaldo: solo participa si GEMINI_HABILITADO=1 (ver arriba).
-function cfgTextoAlterno(): ProveedorTexto {
-  const candidatos = geminiHabilitado() ? ['deepseek', 'gemini', 'zai'] : ['deepseek', 'zai'];
-  const orden = candidatos.filter((k) => k !== IA_TEXT_PROVIDER);
-  for (const k of orden) {
-    const cfg = PROVEEDORES_TEXTO[k];
-    if (cfg && process.env[cfg.keyEnv]) return cfg;
-  }
-  return PROVEEDORES_TEXTO.deepseek;
+// CADENA de RESPALDO (ordenada, deduplicada) para cuando el modelo activo se cuelga/cae.
+// Filosofía: NO salir de GLM si se puede. Si el activo es GLM (zai), el 1er respaldo es
+// OTRO modelo GLM más liviano en la MISMA cuenta Z.AI (zai_alt, p.ej. glm-4.5-air) — barato
+// y rápido, cubre el timeout/429 del modelo grande sin cambiar de proveedor. DeepSeek queda
+// como ÚLTIMO recurso (solo si GLM entero está caído). Gemini solo si GEMINI_HABILITADO=1.
+// Se excluye cualquier config idéntica al activo (misma key + mismo modelo) y las duplicadas.
+function cfgTextoRespaldos(activo: ProveedorTexto): ProveedorTexto[] {
+  const chain: ProveedorTexto[] = [];
+  const add = (cfg?: ProveedorTexto) => {
+    if (!cfg || !process.env[cfg.keyEnv]) return;                                   // sin key → fuera
+    if (cfg.keyEnv === activo.keyEnv && cfg.model === activo.model) return;         // idéntico al activo
+    if (chain.some((c) => c.keyEnv === cfg.keyEnv && c.model === cfg.model)) return; // duplicado
+    chain.push(cfg);
+  };
+  if (activo.keyEnv === 'ZAI_API_KEY') add(PROVEEDORES_TEXTO.zai_alt); // 1) GLM liviano, misma cuenta
+  add(PROVEEDORES_TEXTO.deepseek);                                     // 2) DeepSeek (último recurso)
+  if (geminiHabilitado()) add(PROVEEDORES_TEXTO.gemini);              // 3) Gemini (solo si habilitado)
+  return chain;
 }
 
 // Modelo del proveedor activo (glm-4.6 por defecto). Exportado para etiquetar resultados.
@@ -254,18 +265,30 @@ async function intentarProveedor(cfg: ProveedorTexto, params: any, reqOpts: any,
   throw ultimo;
 }
 
+// Intenta una CADENA de respaldos en orden; devuelve el primero que responda.
+async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any): Promise<any> {
+  let ultimo: any;
+  for (const cfg of chain) {
+    try { return await intentarProveedor(cfg, params, reqOpts, true); }
+    catch (e: any) {
+      ultimo = e;
+      console.warn(`[ia] respaldo ${cfg.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 60)})${chain.indexOf(cfg) < chain.length - 1 ? ', siguiente...' : ''}`);
+    }
+  }
+  throw ultimo;
+}
+
 export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRespaldo?: boolean } = {}) {
   const activo = cfgTexto();
-  const alt = cfgTextoAlterno();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
   const reqOpts = opts.timeoutMs ? { timeout: opts.timeoutMs } : undefined;
-  // IA_SIN_RESPALDO=1 → fuerza usar SOLO el proveedor activo (sin caer al alterno). Útil para
-  // garantizar que TODO el análisis de texto corra 100% en un único proveedor (p.ej. GLM/zai).
+  // IA_SIN_RESPALDO=1 → fuerza usar SOLO el proveedor activo (sin caer a la cadena). Útil para
+  // medir/garantizar que TODO corra en un único modelo.
   const sinRespaldoGlobal = process.env.IA_SIN_RESPALDO === '1';
-  const hayRespaldo = !opts.sinRespaldo && !sinRespaldoGlobal && alt.keyEnv !== activo.keyEnv && !!process.env[alt.keyEnv];
+  const respaldos = (opts.sinRespaldo || sinRespaldoGlobal) ? [] : cfgTextoRespaldos(activo);
 
-  // Breaker: si el principal ya se declaró sin saldo y hay respaldo, vamos directo al respaldo.
-  if (textoPrincipalSinSaldo && hayRespaldo) return intentarProveedor(alt, params, reqOpts, true);
+  // Breaker: si el principal ya se declaró sin saldo y hay cadena, vamos directo al respaldo.
+  if (textoPrincipalSinSaldo && respaldos.length) return intentarCadena(respaldos, params, reqOpts);
 
   try {
     if (dbg) console.log(`[ia-dbg] chat PRINCIPAL → ${activo.model} (${activo.baseURL})${opts.timeoutMs ? ` timeout=${opts.timeoutMs}ms` : ''}`);
@@ -274,11 +297,11 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRe
     // Saldo agotado (1113) → activar breaker para no reintentar el principal en toda la sesión.
     if (esSaldoAgotadoTexto(e) && !textoPrincipalSinSaldo) {
       textoPrincipalSinSaldo = true;
-      console.warn(`[ia] ⛔ ${activo.model} SIN SALDO (code 1113) → circuit breaker ON: se usará ${alt.model} el resto de la sesión. Recarga en https://z.ai para reactivar.`);
+      console.warn(`[ia] ⛔ ${activo.model} SIN SALDO (code 1113) → circuit breaker ON: se usará el respaldo el resto de la sesión. Recarga en https://z.ai para reactivar.`);
     }
-    if (hayRespaldo) {
-      console.warn(`[ia] ${activo.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 80)}), respaldo → ${alt.model}`);
-      return intentarProveedor(alt, params, reqOpts, true); // el respaldo también reintenta transitorios
+    if (respaldos.length) {
+      console.warn(`[ia] ${activo.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 80)}), respaldo → ${respaldos.map((r) => r.model).join(' → ')}`);
+      return intentarCadena(respaldos, params, reqOpts); // cada respaldo también reintenta transitorios
     }
     throw e;
   }
