@@ -124,6 +124,69 @@ async function ocrPdfPorBloques(buffer: Buffer, totalPages: number): Promise<str
 }
 
 // ======================================================
+// OCR DE PDFs LARGOS (>100 págs) — TROCEO PARA GLM-OCR
+// ======================================================
+// GLM-OCR rechaza (code 1214) cualquier PDF de más de 100 págs, INCLUSO pidiendo un rango de
+// páginas: valida el total del archivo ANTES de aplicar start/end_page. Por eso una base de
+// 136 págs falla en TODAS las ventanas y la viabilidad se queda sin texto.
+// Solución: partir el PDF en sub-PDFs de ≤GLM_OCR_LIMITE_PAGINAS págs (con pdf-lib), subir cada
+// trozo a R2 (URL pública que GLM sí lee) y OCR-earlo con offset de página ABSOLUTO, de modo que
+// los marcadores [[PÁGINA N]] sigan apuntando a la página real del documento completo. Los
+// trozos temporales se borran al terminar (best-effort). Reutiliza toda la lógica de ventanas/
+// paralelismo/reintentos de zai-ocr.
+async function ocrPdfGrandePorChunksGlm(buffer: Buffer, totalPaginas: number, nombre: string): Promise<string> {
+  const { PDFDocument } = await import('pdf-lib');
+  const { subirDocumentoR2, borrarDocumentoR2 } = await import('@/app/lib/r2');
+  const { extraerTextoPdfPorUrlConGlmOcr, GLM_OCR_LIMITE_PAGINAS, MAX_PAGINAS_OCR } = await import('@/app/lib/zai-ocr');
+
+  // Tamaño de trozo: ≤ límite duro de GLM (100). Configurable con margen por si algún PDF trae
+  // páginas extra al copiar; default 90 (holgado y aún eficiente: pocas subidas a R2).
+  const CHUNK = Math.max(1, Math.min(GLM_OCR_LIMITE_PAGINAS, Number(process.env.GLM_OCR_CHUNK_PAGINAS) || 90));
+
+  let src;
+  try {
+    src = await PDFDocument.load(buffer, { ignoreEncryption: true });
+  } catch (e) {
+    console.warn('[glm-ocr] no se pudo abrir el PDF para trocear:', e instanceof Error ? e.message : e);
+    return '';
+  }
+
+  const paginas = Math.min(totalPaginas, MAX_PAGINAS_OCR);
+  const partes: string[] = [];
+  const urlsTemp: string[] = [];
+
+  for (let inicio = 0; inicio < paginas; inicio += CHUNK) {
+    const fin = Math.min(inicio + CHUNK, paginas);            // [inicio, fin) 0-based
+    const indices = Array.from({ length: fin - inicio }, (_, k) => inicio + k);
+    try {
+      const sub = await PDFDocument.create();
+      const copiadas = await sub.copyPages(src, indices);
+      copiadas.forEach(p => sub.addPage(p));
+      const subBuf = Buffer.from(await sub.save());
+      // Sub-PDF temporal en R2 bajo un prefijo aparte. Nombre .pdf → se sirve como application/pdf
+      // (embebible) y GLM lo acepta por URL. El nombre lleva el rango para depurar.
+      const nombreChunk = `_ocrtmp_${nombre.replace(/\.[^.]+$/, '')}.p${inicio + 1}-${fin}.pdf`;
+      const urlChunk = await subirDocumentoR2('_ocrtmp', nombreChunk, subBuf, 'application/pdf');
+      urlsTemp.push(urlChunk);
+      // OCR del trozo con su propio conteo de páginas y el offset absoluto (páginas previas).
+      const textoChunk = await extraerTextoPdfPorUrlConGlmOcr(urlChunk, fin - inicio, inicio);
+      if (textoChunk) partes.push(textoChunk);
+      console.log(`[glm-ocr] chunk págs ${inicio + 1}-${fin}: ${textoChunk.length} chars`);
+    } catch (e) {
+      console.warn(`[glm-ocr] chunk págs ${inicio + 1}-${fin} FALLÓ:`, e instanceof Error ? e.message : e);
+    }
+  }
+
+  // Limpieza best-effort de los trozos temporales (no bloquea ni rompe si falla).
+  for (const u of urlsTemp) borrarDocumentoR2(u).catch(() => {});
+
+  if (totalPaginas > MAX_PAGINAS_OCR && partes.length) {
+    partes.push(`\n[NOTA: documento de ${totalPaginas} págs — OCR aplicado a las primeras ${MAX_PAGINAS_OCR}.]`);
+  }
+  return partes.join('\n\n');
+}
+
+// ======================================================
 // EXTRACCIÓN DE TEXTO CON DETECCIÓN INTELIGENTE
 // ======================================================
 
@@ -321,8 +384,12 @@ export async function extractTextFromDocument(
       if (ocrProvider !== 'gemini' && ocrProvider !== 'tesseract' && opts.sourceUrl && esUrlOcrPublica(opts.sourceUrl) && process.env.ZAI_API_KEY) {
         console.log(`⚠️ PDF escaneado (${pdfData.text?.length || 0} chars, ${pdfData.numpages} págs). GLM-OCR (por URL)...`);
         try {
-          const { extraerTextoPdfPorUrlConGlmOcr, ocrTieneHuecos } = await import('@/app/lib/zai-ocr');
-          const textoGlm = await extraerTextoPdfPorUrlConGlmOcr(opts.sourceUrl, pdfData.numpages || 0);
+          const { extraerTextoPdfPorUrlConGlmOcr, ocrTieneHuecos, GLM_OCR_LIMITE_PAGINAS } = await import('@/app/lib/zai-ocr');
+          // GLM rechaza PDFs de >100 págs (code 1214) aunque se pida un rango: hay que trocear el
+          // archivo en sub-PDFs ≤100 págs, subirlos a R2 y OCR-ear cada uno con offset absoluto.
+          const textoGlm = (pdfData.numpages || 0) > GLM_OCR_LIMITE_PAGINAS
+            ? await ocrPdfGrandePorChunksGlm(buffer, pdfData.numpages, fileName)
+            : await extraerTextoPdfPorUrlConGlmOcr(opts.sourceUrl, pdfData.numpages || 0);
           if (textoGlm && textoGlm.trim().length > 100) {
             // Si alguna ventana quedó sin OCR (hueco), lo marcamos como incompleto y confianza
             // BAJA: así el reuso de caché lo re-OCR-ea en vez de fijarlo (auto-sanación).

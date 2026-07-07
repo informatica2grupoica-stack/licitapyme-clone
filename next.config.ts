@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: [
     'pdf-parse',
     'mupdf',
+    'tesseract.js',
     'mammoth',
     'puppeteer-core',
     'puppeteer-extra',

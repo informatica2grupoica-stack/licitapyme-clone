@@ -31,7 +31,11 @@ const PAGINAS_POR_LLAMADA = 8;
 // y el chat deben ser fidedignos; el presupuesto/criterios pueden estar en cualquier página,
 // como se comprobó con bases cuya cifra vivía en la pág. 2 y el OCR anterior la perdía). El
 // tope alto es solo un cortacircuito ante un PDF monstruoso; configurable por env.
-const MAX_PAGINAS_OCR = Math.max(1, Number(process.env.GLM_OCR_MAX_PAGINAS) || 400);
+export const MAX_PAGINAS_OCR = Math.max(1, Number(process.env.GLM_OCR_MAX_PAGINAS) || 400);
+// Límite DURO de GLM-OCR: rechaza (code 1214) cualquier PDF de >100 págs, incluso pidiendo
+// un rango. Por encima de esto hay que trocear el PDF en sub-archivos ≤ este tope (ver
+// document-extraction.ts → ocrPdfGrandePorChunks). Exportado para que el llamador decida.
+export const GLM_OCR_LIMITE_PAGINAS = 100;
 // Ventanas en paralelo: reduce el muro total; los reintentos con backoff absorben 429/503.
 // Configurable por env (GLM_OCR_CONCURRENCIA): subir acelera docs grandes, pero más alto arriesga
 // más 429/503 de Z.AI. Acotado a [1, 8] por seguridad.
@@ -123,9 +127,14 @@ async function glmLayoutParsing(
       }
       throw new Error(`GLM-OCR sin saldo (1113): ${errBody.slice(0, 120)}`);
     }
-    // Transitorios reales (429/503 SIN 1113) → reintentar con backoff.
-    if (res.status === 429 || res.status === 503) {
-      console.warn(`[glm-ocr] ${res.status} transitorio, reintento ${intento + 1}/${ESPERAS.length}...`);
+    // Transitorios → reintentar con backoff: 429/503, 5xx de red, o cuerpo que pide reintentar
+    // (code 1234 "Network error, please try again later", timeouts). NO se reintentan los 4xx
+    // permanentes (1214 = formato/>100 págs, 401/403 = credenciales): esos fallan de inmediato.
+    const esTransitorio =
+      res.status === 429 || res.status === 503 || res.status === 500 || res.status === 502 || res.status === 504 ||
+      /"code"\s*:\s*"?1234"?/.test(errBody) || /network error|try again later|timeout/i.test(errBody);
+    if (esTransitorio) {
+      console.warn(`[glm-ocr] ${res.status} transitorio (${errBody.slice(0, 70).replace(/\s+/g, ' ')}), reintento ${intento + 1}/${ESPERAS.length}...`);
       continue;
     }
     throw new Error(`GLM-OCR ${res.status}: ${errBody.slice(0, 300)}`);
@@ -190,11 +199,17 @@ export async function extraerPaginasConGlmOcr(
 }
 
 // ─── OCR de un PDF completo por URL (ventanas paralelas + marcadores absolutos) ──
-// `totalPaginas` es el conteo real (de pdf-parse). Si es 0/desconocido, una sola llamada
-// al documento completo (sin marcadores por-página). Devuelve '' si no transcribe nada.
+// `totalPaginas` es el conteo real (de pdf-parse) DE ESTE archivo/URL. Si es 0/desconocido,
+// una sola llamada al documento completo (sin marcadores por-página). Devuelve '' si no
+// transcribe nada.
+// `offsetAbsoluto` = páginas que preceden a este archivo dentro del documento ORIGINAL. Es 0
+// para un PDF entero; para un trozo (chunk) de una base larga se pasa el nº de páginas de los
+// trozos anteriores, así los marcadores [[PÁGINA N]] llevan el número absoluto del documento
+// completo (las llamadas a la API siguen usando el rango 1-based DENTRO del trozo).
 export async function extraerTextoPdfPorUrlConGlmOcr(
   url: string,
   totalPaginas: number,
+  offsetAbsoluto = 0,
 ): Promise<string> {
   // Circuit breaker: cuenta sin saldo → ni lo intentamos, el llamador cae a Gemini.
   if (glmOcrSinSaldo) return '';
@@ -212,8 +227,11 @@ export async function extraerTextoPdfPorUrlConGlmOcr(
   for (let inicio = 1; inicio <= paginas; inicio += PAGINAS_POR_LLAMADA) {
     ventanas.push({ desde: inicio, hasta: Math.min(inicio + PAGINAS_POR_LLAMADA - 1, paginas) });
   }
-  const etiquetaDe = (v: { desde: number; hasta: number }) =>
-    v.desde === v.hasta ? `[[PÁGINA ${v.desde}]]` : `[[PÁGINA ${v.desde}-${v.hasta}]]`;
+  // Etiquetas SIEMPRE en página absoluta (aplica el offset del trozo).
+  const etiquetaDe = (v: { desde: number; hasta: number }) => {
+    const a = v.desde + offsetAbsoluto, b = v.hasta + offsetAbsoluto;
+    return a === b ? `[[PÁGINA ${a}]]` : `[[PÁGINA ${a}-${b}]]`;
+  };
 
   // Estado por ventana: ok=true si la llamada RESPONDIÓ (aunque la página venga en blanco);
   // ok=false si la API falló tras sus reintentos internos → candidata a reintento adicional.
@@ -228,14 +246,16 @@ export async function extraerTextoPdfPorUrlConGlmOcr(
         const i = indices[cursor++];
         const v = ventanas[i];
         try {
+          // La API usa el rango 1-based DENTRO de este archivo (v.desde/v.hasta); el marcado
+          // de página se hace en ABSOLUTO (con el offset del trozo) para que las citas apunten
+          // a la página real del documento completo.
           const raw = (await glmLayoutParsing(url, { startPage: v.desde, endPage: v.hasta })).trim();
-          // Marcado de PÁGINA EXACTA (no el rango grosero): así la viabilidad cita la página real.
-          const t = raw ? segmentarPorPaginaExacta(raw, v.desde, v.hasta) : '';
+          const t = raw ? segmentarPorPaginaExacta(raw, v.desde + offsetAbsoluto, v.hasta + offsetAbsoluto) : '';
           estado[i] = { texto: t, ok: true };
-          console.log(`[glm-ocr] págs ${v.desde}-${v.hasta}: ${t.length} chars`);
+          console.log(`[glm-ocr] págs ${v.desde + offsetAbsoluto}-${v.hasta + offsetAbsoluto}: ${t.length} chars`);
         } catch (e) {
           estado[i] = { texto: '', ok: false };
-          console.warn(`[glm-ocr] págs ${v.desde}-${v.hasta} FALLÓ: ${e instanceof Error ? e.message : e}`);
+          console.warn(`[glm-ocr] págs ${v.desde + offsetAbsoluto}-${v.hasta + offsetAbsoluto} FALLÓ: ${e instanceof Error ? e.message : e}`);
         }
       }
     };

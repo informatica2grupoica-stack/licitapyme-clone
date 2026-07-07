@@ -1,5 +1,5 @@
 // src/lib/r2.ts
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 
 export const r2Client = new S3Client({
   region: 'auto',
@@ -71,6 +71,17 @@ export async function subirDocumentoR2(
   const publicBase = process.env.R2_PUBLIC_URL || `https://pub-${process.env.R2_ACCOUNT_ID}.r2.dev`;
   const publicUrl = `${publicBase}/${key}`;
   console.log(`📤 Documento subido a R2: ${publicUrl}`);
-  
+
   return publicUrl;
+}
+
+// Borra un objeto de R2 a partir de su URL pública. Usado para limpiar los sub-PDFs
+// temporales que se suben durante el OCR de bases largas (>100 págs). Best-effort:
+// si falla, no rompe el flujo (solo queda un objeto huérfano). La key es el pathname
+// de la URL pública (los docs se sirven como ${publicBase}/${key}).
+export async function borrarDocumentoR2(publicUrl: string): Promise<void> {
+  let key = '';
+  try { key = new URL(publicUrl).pathname.replace(/^\/+/, ''); } catch { return; }
+  if (!key) return;
+  await r2Client.send(new DeleteObjectCommand({ Bucket: process.env.R2_BUCKET_NAME, Key: key }));
 }
