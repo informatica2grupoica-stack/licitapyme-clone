@@ -28,7 +28,8 @@ async function leerInformeGuardado(codigo: string): Promise<any | null> {
   if (!row) return null;
   try {
     const ie = typeof row.informe_ejecutivo === 'string' ? JSON.parse(row.informe_ejecutivo) : row.informe_ejecutivo;
-    return ie?._informe_ia ?? null;
+    // Prefiere el informe v3 (nuevo esquema modular) si existe; si no, el v2.
+    return ie?._informe_ia_v3 ?? ie?._informe_ia ?? null;
   } catch { return null; }
 }
 
@@ -51,7 +52,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (row) {
       try {
         const ie = typeof row.informe_ejecutivo === 'string' ? JSON.parse(row.informe_ejecutivo) : row.informe_ejecutivo;
-        informeIA = ie?._informe_ia ?? null;
+        informeIA = ie?._informe_ia_v3 ?? ie?._informe_ia ?? null;   // prefiere v3 si existe
       } catch { /* json inválido */ }
     }
     return NextResponse.json({ success: true, informeIA });

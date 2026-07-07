@@ -19,7 +19,7 @@ function getUser(req: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const { id: userId, rol } = getUser(request);
+  const { id: userId } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
@@ -28,12 +28,13 @@ export async function GET(request: NextRequest) {
     catch { return NextResponse.json({ success: true, pendientes: [] }); }
 
     const ph = ESTADOS_RESUELTOS.map(() => '?').join(',');
-    // Admin ve (y debe resolver) todas; usuario normal solo las suyas.
-    const filtroUsuario = rol === 'admin' ? '' : 'AND n.asignado_a = ?';
+    // El modal bloqueante es POR USUARIO para TODOS (incluido admin): a cada quien lo
+    // bloquean SOLO sus propias asignadas vencidas sin resolver, no las de los demás.
+    // (La gestión global de vencidas de otros perfiles vive en el apartado Descartadas/gestión.)
+    const filtroUsuario = 'AND n.asignado_a = ?';
     // "Vencida" = el cierre (hora de pared de Chile) ya pasó respecto de la hora de Chile.
     // NO se usa NOW() porque el servidor MySQL corre en otra zona (UTC-6).
-    const params: any[] = [ahoraChileSQL(), ...ESTADOS_RESUELTOS];
-    if (rol !== 'admin') params.push(userId);
+    const params: any[] = [ahoraChileSQL(), ...ESTADOS_RESUELTOS, userId];
 
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,

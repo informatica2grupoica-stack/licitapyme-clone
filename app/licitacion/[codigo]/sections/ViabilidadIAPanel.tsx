@@ -200,6 +200,277 @@ function Seccion({ icon, titulo, badge, children, defaultOpen = false }: { icon:
 
 const estadoColor = (e?: string) => e === 'VENTAJA' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : e === 'DESVENTAJA' ? 'text-red-700 bg-red-50 border-red-200' : 'text-slate-500 bg-slate-50 border-slate-200';
 
+// ─── VISTA v3 (esquema modular: 9 módulos + Tarjeta de Decisión) ─────────────────
+// Se renderiza cuando el informe trae `_schema:'v3'` (flag VIABILIDAD_V3). Reusa Fuente
+// (citas con visor), Seccion (acordeón), Gauge y SEM. La vista v2 queda intacta.
+const TIPO_BADGE: Record<string, { label: string; cls: string }> = {
+  LEY_DEL_MINIMO: { label: '⭐ LEY DEL MÍNIMO', cls: 'bg-emerald-100 text-emerald-700' },
+  LEY_DEL_MAXIMO: { label: '⭐ LEY DEL MÁXIMO', cls: 'bg-emerald-100 text-emerald-700' },
+  TRAMO_CERRADO:  { label: 'TRAMO CERRADO',    cls: 'bg-slate-100 text-slate-500' },
+  BINARIO:        { label: 'BINARIO',          cls: 'bg-indigo-50 text-indigo-600' },
+};
+const VER_TARJETA: Record<string, { label: string; ring: string; text: string; bg: string; soft: string }> = {
+  GANABLE:  { label: 'GANABLE',  ring: '#10b981', text: 'text-emerald-700', bg: 'bg-emerald-600', soft: 'bg-emerald-50 border-emerald-200' },
+  PUEDE_SER:{ label: 'PUEDE SER',ring: '#eab308', text: 'text-yellow-700',  bg: 'bg-yellow-500',  soft: 'bg-yellow-50 border-yellow-200' },
+  NO_VAMOS: { label: 'NO VAMOS', ring: '#ef4444', text: 'text-red-700',     bg: 'bg-red-600',     soft: 'bg-red-50 border-red-200' },
+};
+const JUGADA_ICON: Record<string, string> = { OPORTUNIDAD: '🟢', RESOLVER: '🟡', EMPATE: '⚪', EN_CONTRA: '🔴' };
+const CRIT_ICON: Record<string, { ic: string; txt: string }> = {
+  ADMISIBILIDAD_DURA:     { ic: '🔴', txt: 'Admisibilidad dura' },
+  PUNTAJE_CONDICIONANTE:  { ic: '🟡', txt: 'Puntaje / condicionante' },
+  COMPROMISO_EJECUCION:   { ic: '🟢', txt: 'Compromiso de ejecución' },
+};
+
+function VistaV3({ informe }: { informe: any }) {
+  const t = informe.tarjeta_decision || {};
+  const score = Math.round(Number(informe.score_0_100) || 0);
+  const sem = SEM[informe.semaforo || ''] || SEM.NARANJA;
+  const ver = VER_TARJETA[t.veredicto] || VER_TARJETA.PUEDE_SER;
+  const esNoVamos = t.veredicto === 'NO_VAMOS';
+  const crit = informe.criterios_evaluacion || {};
+  const criterios: any[] = crit.criterios || [];
+  const sumaReal = Number(crit.suma_ponderaciones_real) || criterios.reduce((s, c) => s + (Number(c.ponderacion_efectiva) || 0), 0);
+  const adj = informe.adjudicacion || {};
+  const atr = informe.atractivo || {};
+  const est = informe.estrategia || {};
+  const dsd = est.donde_se_decide || {};
+  const adm = informe.requisitos_admisibilidad || {};
+  const plz = informe.plazos || {};
+  const mul = informe.multas || {};
+  const cost = informe.costeo || {};
+  const lin = informe.lineas_a_atacar || {};
+  const acc = informe.acciones_y_advertencias || {};
+  const enRevision = informe.veredicto?.estado_veredicto === 'REVISION_HUMANA';
+
+  return (
+    <div className="space-y-3">
+      {/* TARJETA DE DECISIÓN (corona) */}
+      <div className={`rounded-2xl border p-4 ${ver.soft}`}>
+        <div className="flex items-center gap-4">
+          <Gauge score={score} sem={sem} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-[11px] font-black text-white px-2 py-0.5 rounded ${ver.bg}`}>{ver.label}</span>
+              {informe.area_negocio && <span className="text-[11px] text-slate-500 bg-white/60 border border-slate-200 px-2 py-0.5 rounded-full">{cap(informe.area_negocio)}</span>}
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{enRevision ? 'REVISIÓN HUMANA' : 'DEFINITIVO'}</span>
+            </div>
+            {t.titular && <p className="text-[14px] font-bold text-slate-800 mt-1.5 leading-snug">{t.titular}</p>}
+          </div>
+        </div>
+        {esNoVamos ? (
+          t.porque_no && <p className="text-[13px] text-red-700 mt-3"><strong>POR QUÉ NO:</strong> {t.porque_no}</p>
+        ) : (
+          <div className="mt-3 space-y-2.5">
+            {t.se_gana_en && <div className="text-[13px]"><span className="font-bold text-slate-700">SE GANA EN: </span><span className="text-slate-600">{t.se_gana_en}</span></div>}
+            {(t.para_ganar?.length ?? 0) > 0 && (
+              <div><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Para ganar</p><ol className="text-[13px] text-slate-700 space-y-1 list-decimal pl-5">{t.para_ganar.map((x: string, i: number) => <li key={i}>{x}</li>)}</ol></div>
+            )}
+            {(t.no_quedes_fuera?.length ?? 0) > 0 && (
+              <div><p className="text-[11px] font-bold text-red-500 uppercase mb-1">No quedes fuera</p><ul className="text-[13px] text-slate-700 space-y-1 list-disc pl-5">{t.no_quedes_fuera.map((x: string, i: number) => <li key={i}>{x}</li>)}</ul></div>
+            )}
+            {t.antes_de_ir && <div className="text-[12px] text-slate-500"><span className="font-bold">ANTES DE IR: </span>{t.antes_de_ir}</div>}
+          </div>
+        )}
+      </div>
+
+      {/* Datos clave */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="bg-white border border-slate-200 rounded-xl p-3">
+          <p className="text-[10px] font-bold text-slate-400 uppercase">Presupuesto</p>
+          <p className="text-[15px] font-bold text-emerald-700 leading-tight">{atr.presupuesto_mostrar || fmt(informe.presupuesto?.neto ?? informe.presupuesto?.bruto)}</p>
+          {adm.presupuesto?.tipo === 'excluyente'
+            ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700">EXCLUYENTE</span>
+            : <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500">referencial</span>}
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-3">
+          <p className="text-[10px] font-bold text-slate-400 uppercase">Cómo se adjudica</p>
+          <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(adj.como_se_adjudica) || '—'}{adj.estado === 'REVISION_HUMANA' ? ' ⚠' : ''}</p>
+          {adj.cotizar_100_obligatorio && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700">COTIZAR 100%</span>}
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-3">
+          <p className="text-[10px] font-bold text-slate-400 uppercase">Colchón</p>
+          <p className="text-[15px] font-bold text-slate-800 leading-tight">{plz.colchon_dias_corridos != null ? `${plz.colchon_dias_corridos} días` : '—'}</p>
+          {plz.ventana_importacion
+            ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-sky-100 text-sky-700 inline-flex items-center gap-0.5"><Ship size={9} /> importar</span>
+            : <span className="text-[10px] text-slate-400">sin ventana</span>}
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-3">
+          <p className="text-[10px] font-bold text-slate-400 uppercase">Atractivo</p>
+          <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(atr.veredicto) || '—'}</p>
+        </div>
+      </div>
+
+      {/* Criterios */}
+      {criterios.length > 0 && (
+        <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Criterios de evaluación — dónde se gana el puntaje" badge={`suma ${Math.round(sumaReal)}%${crit.suma_valida ? ' ✓' : ' ⚠'}${crit.evaluacion_puntaje === 'por_linea' ? ' · por línea' : ' · al total'}`} defaultOpen>
+          <div className="space-y-2.5">
+            {[...criterios].sort((a, b) => (Number(b.ponderacion_efectiva) || 0) - (Number(a.ponderacion_efectiva) || 0)).map((c, i) => {
+              const tb = TIPO_BADGE[c.tipo_aplicacion];
+              return (
+                <div key={i} className="border-b border-slate-100 last:border-0 pb-2 last:pb-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[13px] font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                      {c.nombre}
+                      {tb && <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${tb.cls}`}>{tb.label}</span>}
+                    </p>
+                    <span className="text-[13px] font-bold text-slate-900 flex-shrink-0">{c.ponderacion_efectiva ?? 0}%</span>
+                  </div>
+                  {c.forma_aplicacion && <p className="text-[12px] text-slate-600 mt-0.5 leading-snug">{c.forma_aplicacion}</p>}
+                  {c.medio_verificacion && <p className="text-[11px] text-slate-400 mt-0.5">Verificación: {c.medio_verificacion}</p>}
+                  <div className="mt-0.5"><Fuente destacar={c.nombre}>{c.fuente}</Fuente></div>
+                </div>
+              );
+            })}
+            {(crit.alertas?.length ?? 0) > 0 && <div className="text-[12px] text-amber-700 space-y-0.5 pt-1">{crit.alertas.map((a: string, i: number) => <p key={i}>⚠ {a}</p>)}</div>}
+          </div>
+        </Seccion>
+      )}
+
+      {/* Atractivo */}
+      {atr.lectura_comercial && (
+        <Seccion icon={<Scale size={14} className="text-violet-500" />} titulo="Atractivo" badge={cap(atr.veredicto)} defaultOpen>
+          <p className="text-[13px] text-slate-700 leading-snug">{atr.lectura_comercial}</p>
+        </Seccion>
+      )}
+
+      {/* Estrategia */}
+      {((est.jugadas?.length ?? 0) > 0 || dsd.orden_final) && (
+        <Seccion icon={<ListChecks size={14} className="text-violet-500" />} titulo="Estrategia — dónde se gana y qué hacer" defaultOpen>
+          <div className="space-y-1.5 text-[12px]">
+            {(est.jugadas || []).map((j: any, i: number) => (
+              <div key={i} className="bg-slate-50 rounded-lg p-2">
+                <p className="font-semibold text-slate-700">{JUGADA_ICON[j.etiqueta] || '•'} {j.criterio}{TIPO_BADGE[j.tipo_aplicacion] ? ` · ${TIPO_BADGE[j.tipo_aplicacion].label}` : ''}{j.exige_respaldo ? ' · ⚠ EXIGE STOCK/RESPALDO' : ''}</p>
+                {j.lectura && <p className="text-slate-500 mt-0.5 leading-snug">{j.lectura}</p>}
+                {j.orden && <p className="text-slate-800 mt-0.5 font-semibold uppercase text-[11.5px]">▸ {j.orden}</p>}
+                {j.fuente && <div className="mt-0.5"><Fuente>{j.fuente}</Fuente></div>}
+              </div>
+            ))}
+            {dsd.orden_final && (
+              <div className="rounded-lg border border-violet-200 bg-violet-50/60 p-2.5 mt-1">
+                <p className="flex items-center gap-1.5 text-[12px] font-bold text-violet-800 mb-1"><Compass size={13} /> Dónde se decide</p>
+                <p className="text-[12px] text-slate-700 leading-snug">{dsd.orden_final}</p>
+                <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                  {dsd.se_decide_en && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white border border-violet-200 text-violet-700">se decide en: {cap(dsd.se_decide_en)}</span>}
+                  {dsd.tenemos_ventaja_costo === 'si' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">ventaja de costo</span>}
+                  {dsd.tenemos_ventaja_costo === 'no' && dsd.se_decide_en === 'precio' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700">⚠ guerra de precio</span>}
+                </div>
+              </div>
+            )}
+          </div>
+        </Seccion>
+      )}
+
+      {/* Requisitos de admisibilidad */}
+      <Seccion icon={<ShieldCheck size={14} className="text-violet-500" />} titulo="Requisitos de admisibilidad — qué nos deja fuera" badge={(adm.bloqueantes?.length ?? 0) > 0 ? `${adm.bloqueantes.length} bloqueante(s)` : 'sin bloqueantes'} defaultOpen>
+        <div className="space-y-1.5 text-[13px]">
+          <p className="flex items-start gap-1.5"><span className="flex-shrink-0">{adm.firma_puno_y_letra?.exigida ? '⚠' : '✓'}</span> Firma: {adm.firma_puno_y_letra?.exigida ? 'PUÑO Y LETRA exigida — requiere flujo físico' : 'electrónica válida — no se exige puño y letra'} <Fuente>{adm.firma_puno_y_letra?.fuente}</Fuente></p>
+          {adm.presupuesto?.tipo && <p className="flex items-start gap-1.5"><span>{adm.presupuesto.tipo === 'excluyente' ? '🔴' : '•'}</span> Presupuesto: {adm.presupuesto.tipo === 'excluyente' ? 'EXCLUYENTE — no superar el techo' : 'referencial'} <Fuente>{adm.presupuesto.fuente}</Fuente></p>}
+          {adm.cotizar_100?.aplica && <p className="flex items-start gap-1.5 text-red-700"><Ban size={13} className="mt-0.5 flex-shrink-0" /> Cotizar el 100% — falta 1 ítem = fuera <Fuente>{adm.cotizar_100.fuente}</Fuente></p>}
+          {adm.boleta?.aplica && <p className="flex items-start gap-1.5"><span>•</span> Boleta: {adm.boleta.detalle || `sobre ${adm.boleta.umbral_utm ?? 1000} UTM`}{adm.boleta.exigida_bajo_umbral ? ' (exigida aun bajo el umbral)' : ''} <Fuente>{adm.boleta.fuente}</Fuente></p>}
+          {adm.plazo_maximo?.existe && <p className="flex items-start gap-1.5"><span>•</span> Plazo máximo: {adm.plazo_maximo.valor} — superarlo = inadmisible <Fuente>{adm.plazo_maximo.fuente}</Fuente></p>}
+          {adm.marca_exclusiva?.es_exclusiva && <p className="flex items-start gap-1.5 text-amber-700"><span>⚠</span> MARCA EXCLUSIVA sin "o equivalente" — riesgo margen <Fuente>{adm.marca_exclusiva.fuente}</Fuente></p>}
+          {adm.marca_exclusiva && !adm.marca_exclusiva.es_exclusiva && adm.marca_exclusiva.admite_equivalente && <p className="flex items-start gap-1.5 text-emerald-700"><span>✓</span> Admite "o equivalente" — puerta abierta <Fuente>{adm.marca_exclusiva.fuente}</Fuente></p>}
+          {(adm.bloqueantes || []).map((b: any, i: number) => <p key={'bl' + i} className="flex items-start gap-1.5 text-red-700"><Ban size={13} className="mt-0.5 flex-shrink-0" /> {b.item} <Fuente>{b.fuente}</Fuente></p>)}
+          {(adm.a_favor || []).map((b: any, i: number) => <p key={'af' + i} className="flex items-start gap-1.5 text-emerald-700"><ShieldCheck size={13} className="mt-0.5 flex-shrink-0" /> {b.item} <Fuente>{b.fuente}</Fuente></p>)}
+        </div>
+      </Seccion>
+
+      {/* Documentos propios a crear */}
+      {(adm.orden_anexos_propios?.length ?? 0) > 0 && (
+        <Seccion icon={<ClipboardCheck size={14} className="text-violet-500" />} titulo="Documentos propios a crear — orden de trabajo" badge={`${adm.orden_anexos_propios.length}`} defaultOpen>
+          <div className="space-y-1.5 text-[12px]">
+            {[...adm.orden_anexos_propios].sort((a: any, b: any) => (a.criticidad === 'ADMISIBILIDAD_DURA' ? 0 : a.criticidad === 'PUNTAJE_CONDICIONANTE' ? 1 : 2) - (b.criticidad === 'ADMISIBILIDAD_DURA' ? 0 : b.criticidad === 'PUNTAJE_CONDICIONANTE' ? 1 : 2)).map((d: any, i: number) => {
+              const cr = CRIT_ICON[d.criticidad] || CRIT_ICON.COMPROMISO_EJECUCION;
+              return (
+                <div key={i} className="bg-slate-50 rounded-lg p-2">
+                  <div className="flex items-start gap-1.5">
+                    <span className="flex-shrink-0" title={cr.txt}>{cr.ic}</span>
+                    <p className="text-slate-800 font-semibold flex-1">{d.que_crear}</p>
+                    {d.responsable && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">{cap(d.responsable)}</span>}
+                  </div>
+                  {d.por_que && <p className="text-slate-500 mt-0.5 pl-5 leading-snug">POR QUÉ: {d.por_que}</p>}
+                  {d.que_debe_contener && <p className="text-slate-500 pl-5 leading-snug">CONTENER: {d.que_debe_contener}</p>}
+                  {d.que_cubre && <p className="text-slate-500 pl-5 leading-snug">CUBRE: {d.que_cubre}</p>}
+                  {d.fuente && <div className="mt-0.5 pl-5"><Fuente>{d.fuente}</Fuente></div>}
+                </div>
+              );
+            })}
+          </div>
+        </Seccion>
+      )}
+
+      {/* Plazos */}
+      {(plz.colchon_dias_corridos != null || (plz.hitos?.length ?? 0) > 0) && (
+        <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Plazos (colchón administrativo)" badge={plz.colchon_dias_corridos != null ? `colchón ${plz.colchon_dias_corridos} días` : undefined} defaultOpen>
+          <p className="text-[13px] text-slate-700 mb-2"><strong>Colchón:</strong> ≈ {plz.colchon_dias_corridos ?? '—'} días corridos · cadena {cap(plz.cadena)}{plz.ventana_importacion ? ' · ✅ VENTANA PARA IMPORTAR' : ''}</p>
+          {plz.frontera?.descripcion && <div className="text-[12px] text-slate-600 mb-2 bg-slate-50 rounded-lg p-2"><span className="font-semibold text-slate-700">Frontera (arranca la entrega):</span> {plz.frontera.descripcion}{plz.frontera.base_computo ? ` · ${cap(plz.frontera.base_computo)}` : ''} <Fuente>{plz.frontera.fuente}</Fuente></div>}
+          <div className="space-y-1.5">
+            {(plz.hitos || []).map((h: any, i: number) => (
+              <div key={i} className="flex items-start gap-2 text-[13px]">
+                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-1.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0"><p className="text-slate-700">{h.hito}{h.duracion != null ? ` — ${h.duracion} ${h.unidad || ''}` : ''}{h.inferido ? ' (inferido ⚠)' : ''}</p>{h.fuente && <p className="text-[11px] text-slate-400"><Fuente>{h.fuente}</Fuente></p>}</div>
+              </div>
+            ))}
+          </div>
+        </Seccion>
+      )}
+
+      {/* Multas */}
+      {(mul.detectadas || mul.estructura) && (
+        <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Multas por atraso">
+          {mul.detectadas === false
+            ? <p className="text-[13px] text-slate-500">No se detectaron multas por atraso en las bases.</p>
+            : <p className="text-[13px] text-slate-700">{mul.estructura}{mul.costo_por_dia_pesos ? ` · ${mul.costo_por_dia_pesos}/día` : ''}{mul.valor_utm_usado ? ` (UTM ${mul.valor_utm_usado})` : ''}{mul.tope ? ` · tope: ${mul.tope}` : ''}{mul.efecto_al_superar_tope ? ` · ${mul.efecto_al_superar_tope}` : ''}</p>}
+          <div className="mt-1"><Fuente>{mul.fuente}</Fuente></div>
+        </Seccion>
+      )}
+
+      {/* Costeo */}
+      {(cost.items?.length ?? 0) > 0 && (
+        <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Costeo — productos a costear" badge={`${cost.items.length} ítems · ${cost.hojas_segun_adjudicacion || ''}`}>
+          <div className="space-y-1">
+            {cost.items.map((p: any, i: number) => (
+              <div key={i} className="flex gap-2 text-[13px] border-b border-slate-100 last:border-0 py-1">
+                <span className="text-slate-400 w-6 flex-shrink-0">{p.linea ?? i + 1}.</span>
+                <span className="text-slate-700 flex-1">{p.descripcion_exacta}{p.marca_modelo ? ` · ${p.marca_modelo}` : ''}</span>
+                {p.cantidad != null && <span className="text-slate-500 flex-shrink-0">{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span>}
+                {p.ruta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">Ruta {p.ruta}</span>}
+                {p.marca_exclusiva && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0">⚠ marca exclusiva</span>}
+              </div>
+            ))}
+          </div>
+        </Seccion>
+      )}
+
+      {/* Líneas a atacar */}
+      {(lin.modo === 'POR_LINEAS' ? (lin.lineas?.length ?? 0) > 0 : !!lin.mensaje_global_o_lote) && (
+        <Seccion icon={<Swords size={14} className="text-violet-500" />} titulo="Líneas a atacar" badge={cap(lin.modo)}>
+          {lin.modo === 'POR_LINEAS'
+            ? <div className="space-y-1 text-[12px]">{(lin.lineas || []).map((l: any, i: number) => (
+                <div key={i} className="flex items-start gap-2 border-b border-slate-100 last:border-0 py-1">
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${l.decision === 'atacar' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>L{l.linea} · {cap(l.decision)}</span>
+                  <span className="text-slate-600 flex-1">{l.motivo}</span>
+                </div>))}</div>
+            : <p className="text-[13px] text-slate-700">{lin.mensaje_global_o_lote}</p>}
+        </Seccion>
+      )}
+
+      {/* Acciones y advertencias */}
+      {((acc.acciones?.length ?? 0) > 0 || (acc.advertencias?.length ?? 0) > 0) && (
+        <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Acciones y advertencias" defaultOpen>
+          {(acc.acciones?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-decimal pl-4 mb-2">{acc.acciones.map((a: any, i: number) => <li key={i}><span className="font-semibold">{a.orden}</span>{a.por_que ? ` — ${a.por_que}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
+          {(acc.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-red-500 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{acc.advertencias.map((a: any, i: number) => <li key={i}>⚠ {a.riesgo}{a.consecuencia ? ` — ${a.consecuencia}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
+        </Seccion>
+      )}
+
+      <p className="text-[11px] text-slate-400 text-center pt-1">
+        {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3.join(', ')} · </>}
+        Leídos {informe.documentos_leidos?.length ?? 0} doc(s) · confianza {Math.round((informe.confianza_global ?? 0) * 100)}% · <span className="text-violet-500 font-semibold">v3</span>
+      </p>
+    </div>
+  );
+}
+
 export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { codigo: string; onTambienAnalizar?: () => void; onComplete?: () => void }) {
   const { usuario } = useSession();
   // Solo admin puede (re)analizar la viabilidad (operación cara y central; el servidor lo valida).
@@ -400,6 +671,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       {informe && (
         <FuenteDocsContext.Provider value={docs}>
          <VisorContext.Provider value={setVisor}>
+          {(informe as any)._schema === 'v3' ? <VistaV3 informe={informe as any} /> : (<>
           {/* HERO: score + veredicto */}
           <div className={`rounded-2xl border p-4 ${sem.soft}`}>
             <div className="flex items-center gap-4">
@@ -689,6 +961,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3!.join(', ')} · </>}
             Leídos {informe.documentos_leidos?.length ?? 0} doc(s){(informe.documentos_no_leidos?.length ?? 0) > 0 ? ` · ${informe.documentos_no_leidos!.length} ilegibles` : ''} · confianza {Math.round((informe.confianza_global ?? 0) * 100)}%
           </p>
+          </>)}
          </VisorContext.Provider>
         </FuenteDocsContext.Provider>
       )}

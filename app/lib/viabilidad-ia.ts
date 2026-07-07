@@ -28,6 +28,13 @@ const GEMINI_MODEL = 'gemini-2.5-flash';
 // estable (medido: 6/6 en el mismo request grande). Se usa solo cuando el primario da 503/429.
 const GEMINI_MODEL_FALLBACK = 'gemini-flash-latest';
 const MAX_CHARS_DOCS = 400_000;   // ~100k tokens de documentos (Flash aguanta de sobra)
+// RECORTE DE INPUT PARA EL ANÁLISIS. El tope global de lo que ve el LLM (más chico que
+// MAX_CHARS_DOCS): menos tokens de entrada → análisis más rápido y barato. NO afecta a las señales
+// deterministas (parser/modalidad), que corren sobre el texto COMPLETO cacheado antes del recorte.
+const MAX_CHARS_DOCS_ANALISIS = Math.max(60_000, Number(process.env.VIABILIDAD_MAX_CHARS_ANALISIS) || 200_000);
+// Tope por documento de BAJA jerarquía (anexos/formularios en blanco). Los que deciden
+// (aclaraciones, bases admin/técnicas y la planilla de cotización) van ENTEROS.
+const MAX_CHARS_DOC_RELLENO = Math.max(3_000, Number(process.env.VIABILIDAD_MAX_CHARS_DOC_RELLENO) || 8_000);
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 // ─── Debug verboso (activable con VIABILIDAD_DEBUG=1) ─────────────────────────────
@@ -257,6 +264,19 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
   return out;
 }
 
+// Pre-OCR / calentamiento de caché. Fuerza la extracción de texto (OCR incluido) de TODOS los
+// documentos de la licitación y la persiste en documentos_cache.texto_extraido. Se invoca al
+// ASIGNAR (fire-and-forget): así el posterior "Analizar" encuentra el texto ya en BD y NO espera
+// al OCR (evita el timeout del túnel en el primer análisis). Reusa cargarDocumentos, que ya hace
+// OCR + persistencia y respeta la caché (solo OCR-ea lo que falta o quedó con huecos).
+export async function calentarCacheDocumentos(codigo: string): Promise<{ leidos: number; total: number }> {
+  const t0 = Date.now();
+  const docs = await cargarDocumentos(codigo);
+  const leidos = docs.filter(d => d.ok).length;
+  console.log(`[viabilidad-ia] 🔥 pre-OCR ${codigo}: ${leidos}/${docs.length} doc(s) con texto en caché (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+  return { leidos, total: docs.length };
+}
+
 // ─── Materia prima estructurada (DeepSeek / análisis exhaustivo + API MP) ─────────
 async function cargarContexto(codigo: string) {
   let meta = { nombre: '', organismo: '', region: '', monto: null as number | null, cierre: null as any };
@@ -354,11 +374,18 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
       const inTok  = Number(u.prompt_tokens ?? 0);
       const outTok = Number(u.completion_tokens ?? 0);
       const totTok = Number(u.total_tokens ?? (inTok + outTok));
+      // CACHÉ DE INPUT (Z.AI cachea el prefijo idéntico AUTOMÁTICAMENTE): los tokens ya cacheados
+      // se cobran mucho más barato. Medido: el system prompt (idéntico entre llamadas) sale ~99,7%
+      // cacheado en la 2ª llamada y el prefill baja ~4×. Descontamos su costo para no sobreestimar.
+      const cachedTok = Number(u.prompt_tokens_details?.cached_tokens ?? 0);
       const precIn  = Number(process.env.GLM_PRICE_IN_USD_PER_M  ?? 0.43); // GLM-4.6 Z.AI: $0.43/M in
       const precOut = Number(process.env.GLM_PRICE_OUT_USD_PER_M ?? 1.74); // GLM-4.6 Z.AI: $1.74/M out
-      const costo = (inTok / 1e6) * precIn + (outTok / 1e6) * precOut;
+      const precCached = Number(process.env.GLM_PRICE_CACHED_IN_USD_PER_M ?? precIn * 0.2); // input cacheado ~1/5
+      const inSinCache = Math.max(0, inTok - cachedTok);
+      const costo = (inSinCache / 1e6) * precIn + (cachedTok / 1e6) * precCached + (outTok / 1e6) * precOut;
+      const cacheStr = cachedTok > 0 ? ` (cache=${cachedTok}, ${Math.round((cachedTok / Math.max(1, inTok)) * 100)}%)` : '';
       console.log(
-        `[viabilidad-ia] 💰 GLM ${MODELO_TEXTO} · ${segs}s · in=${inTok} out=${outTok} tot=${totTok} tok · finish=${finish} · ~$${costo.toFixed(4)} USD (intento ${intento})`,
+        `[viabilidad-ia] 💰 GLM ${MODELO_TEXTO} · ${segs}s · in=${inTok}${cacheStr} out=${outTok} tot=${totTok} tok · finish=${finish} · ~$${costo.toFixed(4)} USD (intento ${intento})`,
       );
       dbg(`llamarGlmJSON: respuesta finish=${finish} · usage=${JSON.stringify(completion.usage ?? {})}`);
       const txt = String(completion.choices?.[0]?.message?.content ?? '');
@@ -650,7 +677,64 @@ function construirSenalModalidad(
   return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems tienen numeración CORRELATIVA CONTINUA 1..N (de corrido, no se reinicia por línea), aunque el documento venga partido en hojas/secciones tituladas "Línea N". Esto es INDICIO de suma_alzada (las hojas separadas NO son lotes de adjudicación), PERO la numeración por sí sola NO decide: si el FORMATO DE OFERTA ECONÓMICA cotiza precio UNITARIO por ítem sin un gran total al pie, o las bases dicen "se oferta/evalúa por línea", es por_linea. Verifícalo con el formato de oferta económica y el lenguaje de las bases, y decide.`;
 }
 
-function construirUserPrompt(codigo: string, ctx: any, docs: DocLeido[], senalModalidad = ''): string {
+// VEREDICTO DETERMINISTA de modalidad (VINCULANTE, no solo pista). A diferencia de
+// construirSenalModalidad (que solo sugiere al LLM), esto DECIDE la modalidad a partir de la
+// estructura REAL del listado de ítems — la doctrina del experto: "fíjate en la lista de ítems
+// y saca la conclusión, no te guíes por que digan 'líneas'". Devuelve el tipo cuando la señal es
+// CONCLUYENTE; null cuando el listado es ambiguo (ahí se respeta el juicio del LLM / REVISION_HUMANA).
+//
+// Orden de reglas (de mayor a menor autoridad):
+//   1. Total único al pie (formato de oferta manda) → suma_alzada, aunque las bases digan "por línea".
+//   2. Lenguaje explícito "se oferta/evalúa por línea" (sin total único) → por_linea.
+//   3. Correlativo CONTINUO 1..N cruzando hojas → suma_alzada (una planilla integrada, no lotes).
+//   4. Rubros/categorías A/B/C bajo un total → suma_alzada (costeo desglosado por rubro).
+//   5. Correlativo que REINICIA/REPITE por línea, o numeración compuesta 1.1/1.2 → por_linea.
+function veredictoModalidadDeterminista(
+  planilla: ReturnType<typeof parsearPlanillaCosteo>,
+  ofertaTotalUnico: boolean,
+  lenguajePorLinea: string | null,
+): { tipo: 'suma_alzada' | 'por_linea'; motivo: string } | null {
+  // 1. Regla maestra: el formato de la oferta económica manda sobre cómo se adjudica.
+  if (ofertaTotalUnico) return { tipo: 'suma_alzada', motivo: 'total único consolidado al pie del formulario económico' };
+  // 2. Lenguaje explícito de las bases (se oferta/evalúa cada línea por separado).
+  if (lenguajePorLinea) return { tipo: 'por_linea', motivo: `lenguaje explícito de las bases: "${lenguajePorLinea.slice(0, 80)}"` };
+  // Sin planilla suficiente → no forzar.
+  if (!planilla || planilla.items.length < 8) return null;
+  // 3-4. Suma alzada por numeración continua o por rubros/categorías bajo un total.
+  if (planilla.numeracion === 'continua') return { tipo: 'suma_alzada', motivo: `numeración correlativa continua 1..${planilla.items.length} (una planilla integrada, no lotes)` };
+  if (planilla.estructura === 'por_categoria') return { tipo: 'suma_alzada', motivo: `${planilla.items.length} ítems agrupados en rubros/categorías (${planilla.categorias.slice(0, 4).join(', ')}) bajo un único total` };
+  // 5. Por línea real: el correlativo reinicia/repite por lote (o numeración compuesta 1.1/1.2).
+  if (planilla.estructura === 'por_linea' && planilla.lineas.length >= 2 && planilla.numeracion === 'reinicia') {
+    return { tipo: 'por_linea', motivo: `${planilla.lineas.length} líneas/lotes con numeración que reinicia/repite por línea` };
+  }
+  // 'indefinida' u otros → ambiguo: respeta al LLM.
+  return null;
+}
+
+// Arma el bloque de documentos para el ANÁLISIS con recorte por jerarquía: los que DECIDEN
+// (aclaraciones/bases/técnicas por prioridadDoc ≤ 3, y la planilla del parser) van ENTEROS; los
+// anexos/formularios de relleno se recortan a MAX_CHARS_DOC_RELLENO; tope global MAX_CHARS_DOCS_ANALISIS.
+function recortarDocsParaAnalisis(leidos: DocLeido[], docFuentePlanilla?: string): { texto: string; recortadoDocs: number; truncadoGlobal: boolean } {
+  let recortadoDocs = 0;
+  const partes = leidos.map(d => {
+    const protegido = prioridadDoc(d.nombre, d.categoria) <= 3 || d.nombre === docFuentePlanilla;
+    let txt = d.texto;
+    if (!protegido && txt.length > MAX_CHARS_DOC_RELLENO) {
+      txt = txt.slice(0, MAX_CHARS_DOC_RELLENO) + '\n[...anexo/relleno recortado para el análisis...]';
+      recortadoDocs++;
+    }
+    return `\n\n===== DOCUMENTO: ${d.nombre} ${d.categoria ? `[${d.categoria}]` : ''} =====\n${txt}`;
+  });
+  let texto = partes.join('');
+  let truncadoGlobal = false;
+  if (texto.length > MAX_CHARS_DOCS_ANALISIS) {
+    texto = texto.slice(0, MAX_CHARS_DOCS_ANALISIS) + '\n[...truncado: documentos de menor jerarquía omitidos...]';
+    truncadoGlobal = true;
+  }
+  return { texto, recortadoDocs, truncadoGlobal };
+}
+
+function construirUserPrompt(codigo: string, ctx: any, docs: DocLeido[], senalModalidad = '', docFuentePlanilla?: string): string {
   // Ordenar por PRECEDENCIA documental antes de concatenar/truncar: lo soberano
   // (Aclaraciones/Especiales) va primero y sobrevive al recorte; los planos al final.
   const leidos = docs.filter(d => d.ok)
@@ -662,8 +746,8 @@ function construirUserPrompt(codigo: string, ctx: any, docs: DocLeido[], senalMo
   const itemsMPTxt = (ctx.itemsMP || []).slice(0, 40).map((it: any, i: number) =>
     `${i + 1}. ${it.nombre || it.descripcion}${it.categoria ? ` [${it.categoria}]` : ''}${it.cantidad ? ` (cant ${it.cantidad}${it.unidad ? ' ' + it.unidad : ''})` : ''}`).join('\n') || '(la API MP no entregó ítems)';
 
-  let docsTexto = leidos.map(d => `\n\n===== DOCUMENTO: ${d.nombre} ${d.categoria ? `[${d.categoria}]` : ''} =====\n${d.texto}`).join('');
-  if (docsTexto.length > MAX_CHARS_DOCS) docsTexto = docsTexto.slice(0, MAX_CHARS_DOCS) + '\n[...truncado: documentos de menor jerarquía omitidos...]';
+  const { texto: docsTexto, recortadoDocs, truncadoGlobal } = recortarDocsParaAnalisis(leidos, docFuentePlanilla);
+  if (VIAB_DEBUG) dbg(`${codigo}: recorte input → ${docsTexto.length} chars (≈${Math.round(docsTexto.length / 4)} tok)${recortadoDocs ? `, ${recortadoDocs} anexo(s) recortado(s)` : ''}${truncadoGlobal ? ', tope global aplicado' : ''}`);
 
   const tipoLic = extractTipoFromCodigo(codigo) || '(desconocido)';
   const utm = utmVigente();
@@ -918,7 +1002,7 @@ export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIA
     lenguajePorLinea = detectarLenguajePorLinea(leidos);
   } catch { /* señal opcional */ }
   const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea);
-  const userPrompt = construirUserPrompt(codigo, ctx, docs, senal);
+  const userPrompt = construirUserPrompt(codigo, ctx, docs, senal, planilla?.fuenteDoc);
   if (VIAB_DEBUG) {
     dbg(`${codigo}: prompt SYSTEM=${systemPrompt.length} chars · USER=${userPrompt.length} chars · monto portada=${ctx.meta.monto ?? 'reservado'} · señal=${senal ? senal.slice(0, 80) + '…' : '(ninguna)'}`);
     dbg(`${codigo}: planilla determinista → ${planilla ? `${planilla.items.length} ítems (${planilla.estructura}, ${planilla.lineas.length} línea(s), fuente "${planilla.fuenteDoc}")` : 'NO detectada'}`);
@@ -957,6 +1041,29 @@ export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIA
       }
     }
   }
+  // OVERRIDE DETERMINISTA DE MODALIDAD. El parser lee la estructura REAL del listado de ítems
+  // (numeración continua = suma alzada; reinicia/1.1-1.2 = por línea) y su veredicto MANDA sobre
+  // lo que dijo el LLM cuando es concluyente: GLM-4.6 (débil) a veces ignora la señal inyectada y
+  // confunde "adjudica por línea" (a quién) con "cómo se cotiza". Así el costeo queda coherente.
+  {
+    const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea);
+    if (det && det.tipo !== saneado.modalidad.tipo) {
+      console.log(`[viabilidad-ia] ${codigo}: MODALIDAD corregida por estructura del listado: LLM dijo "${saneado.modalidad.tipo}" → "${det.tipo}" (${det.motivo}).`);
+      saneado.modalidad.tipo = det.tipo;
+      saneado.modalidad.estado = 'DETERMINADA';
+      saneado.modalidad.evidencia = saneado.modalidad.evidencia
+        ? `${saneado.modalidad.evidencia} [modalidad ajustada por estructura del listado: ${det.motivo}]`
+        : `derivado de la estructura del listado de ítems: ${det.motivo}`;
+      saneado.modalidad.fuente = `${saneado.modalidad.fuente || ''} [ajuste determinista: ${det.motivo}]`.trim();
+      // Alinear los derivados con la modalidad corregida (mismos criterios que sanitizar()).
+      saneado.modalidad.como_se_adjudica = det.tipo === 'suma_alzada' ? 'GLOBAL' : 'POR_LINEAS';
+      saneado.modalidad.evaluacion_puntaje = det.tipo === 'por_linea' ? 'por_linea' : 'al_total';
+    } else if (det) {
+      // El LLM ya coincidía con la estructura → refuerza el estado a DETERMINADA.
+      saneado.modalidad.estado = 'DETERMINADA';
+    }
+  }
+
   if (VIAB_DEBUG) {
     const p = saneado.presupuesto, v = saneado.veredicto, ex = saneado.exclusion;
     dbg(`${codigo}: PRESUPUESTO bruto=${p.bruto ?? '—'} neto=${p.neto ?? '—'} gate=${p.gate} fuente="${(p.fuente || '').slice(0, 60)}"`);
@@ -1114,7 +1221,249 @@ export async function guardarViabilidadIA(codigo: string, r: ViabilidadIAResult)
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// VIABILIDAD v3.0 MODULAR — AHORA ES EL ANALIZADOR PRINCIPAL. Construye el informe con la
+// arquitectura de 9 módulos + Tarjeta de Decisión del doc "INSTRUCCIONES_Fase2_Analizador_
+// Viabilidad_Modular_v3". El stack completo está cableado: prompt (SYSTEM_PROMPT_V3), esquema
+// (esquemaV3), override determinista de adjudicación + puente al costeo (analizarViabilidadIAV3),
+// guardado (_informe_ia_v3), lectura (la ruta prefiere v3) y UI (VistaV3 en ViabilidadIAPanel,
+// se activa con _schema:'v3'). El resultado se guarda bajo _informe_ia_v3 sin borrar el _informe_ia
+// v2 previo (los análisis viejos siguen renderizando su vista v2 hasta que se re-analicen).
+// ESCAPE: VIABILIDAD_V3=0 vuelve al analizador v2.1 (por si hay que revertir sin redeploy grande).
+// ═══════════════════════════════════════════════════════════════════════════════
+export const VIABILIDAD_V3 = process.env.VIABILIDAD_V3 !== '0';
+
+const SYSTEM_PROMPT_V3 = `# FASE 2 — ANALIZADOR DE VIABILIDAD (v3.0 modular · Licitank)
+Eres un ANALISTA EXPERTO en licitaciones públicas chilenas (Ley 19.886, DS 250/2004, MercadoPúblico), para una empresa IMPORTADORA con espalda financiera, servicio técnico propio y bodega en Santiago, que VENDE bienes/equipamiento. Trabajas sobre las bases ya en Markdown (nativos vía pdf-parse/mammoth/xlsx; escaneados vía GLM-OCR, que preserva las tablas). Emites un INFORME DE VIABILIDAD que permita a un asistente comercial SIN experiencia decidir sin dudas si conviene y cómo ganarla.
+
+## PRINCIPIOS MARCO (columna vertebral de TODOS los módulos)
+1. Automatizar sin arriesgar la adjudicación: si algo pone en riesgo ganar, márcalo REVISION_HUMANA.
+2. Estricta sujeción a las bases: ofrece SOLO lo que piden; nunca ofrezcas de más si no da puntaje.
+3. Veracidad absoluta: nunca inventes datos, montos, artículos ni cifras. Cada resultado con su FUENTE literal (cita + documento + página/numeral). Sin fuente, no es válido. El texto trae marcadores [[PÁGINA N]] al inicio de cada página: USA ESE NÚMERO EXACTO al citar. Formato: "doc, Art./numeral, pág. N".
+4. Verificación doble de datos críticos: presupuesto, cómo se adjudica, criterios, plazos, garantías, multas, admisibilidad.
+5. Atención permanente a causales de admisibilidad, en cada paso.
+6. Detalle fino "hecho por un experto": cero errores, todo verificable.
+NO te bases en cajas vacías: si una sección viene vacía, busca el dato en el resto de los documentos.
+
+## GATES PREVIOS (corren antes; no cortan el flujo, solo marcan estado)
+- GATE 0.A EXCLUSIÓN por NATURALEZA del objeto (no por palabra clave): si el núcleo es provisión de bienes/equipamiento (aunque incluya instalación/capacitación accesorias) NO se excluye. Excluidos: servicios (incl. SERVICIO de aseo), consultoría/asesoría/capacitación pura, obra civil/construcción, convenio de suministro de largo horizonte (salvo RM→revisión), commodity puro de alta oferta, insumos/consumibles (dentales, tóner, ARTÍCULOS de aseo = palabra dura). PROTECCIÓN: la MAQUINARIA de aseo (barredoras, vacuolavadoras, hidrolavadoras, fregadoras) es NEGOCIO CENTRAL → NUNCA se excluye. Ante duda razonable → REVISION_HUMANA, nunca auto-descarte. confianza<0,7 → REVISION_HUMANA.
+- GATE 0.B PRESUPUESTO + régimen: total (no por línea), normaliza a NETO (÷1,19 si viene con IVA). Detecta régimen FORA (oferta exenta). Detecta EXCLUYENTE vs REFERENCIAL. gate: <$8M=NO_CALIFICA · $8-15M=continúa solo si (productos<15 o ≤5 especializados) · >$15M=OK · reservado/desconocido=INCIERTO (no botar por falta de dato). Si no hay monto explícito, acota por tipo del ID (LE 100-1.000 UTM, etc.) usando UTM_VIGENTE.
+- GATE CÓMO SE ADJUDICA (crítico): valores visibles GLOBAL (todo a un proveedor) · POR_LINEAS (se reparte; incluye multiproveedor y mixto) · POR_LOTES (se reparte por bloques). Ancla PRIMARIA conductual: ¿las bases permiten ofertar SOLO UNA PARTE? Sí→repartido; No ("no se aceptan ofertas parciales", "se adjudica en forma global")→GLOBAL. El eje de PAGO (suma alzada/precios unitarios) solo desambigua, NO se muestra. Si no queda fehaciente → REVISION_HUMANA. Causal admisibilidad GLOBAL/LOTE: cotizar el 100% o la oferta cae.
+- GATE LÍNEA DE NEGOCIO: ferreteria (materiales, ruta simple) | equipamiento (complejos, análisis doble) | mixto.
+
+## MÓDULOS DEL INFORME (produce cada bloque con su Fuente)
+M1 CRITERIOS DE EVALUACIÓN — DOBLE ANCLA: (A) estructural: la sección/tabla que REPARTE EL 100% del puntaje entre factores con ponderaciones y describe cómo se asigna la nota (fórmulas/tramos). LA ESTRUCTURA MANDA SOBRE EL TÍTULO. (B) léxica: Criterios/Factores de Evaluación, Ponderadores, Pauta/Metodología de Evaluación, etc. TABLA APLANADA (PDF nativo): reconstruye cada factor con su ponderación y fórmula aunque estén en líneas separadas. JERARQUÍA factor→subfactor: ponderación EFECTIVA = padre × relativa (Experiencia 50%×60%=30% real); la real manda. Por cada criterio/subfactor: nombre · ponderación real · TIPO DE APLICACIÓN [LEY_DEL_MINIMO (menor gana, continua SIN piso) | LEY_DEL_MAXIMO (mayor gana, continua SIN tope) | TRAMO_CERRADO (hay tramo que casi todos alcanzan y ahí se acaba) | BINARIO (cumple/no)] — REGLA DURA: si hay piso o tope alcanzable, NO es ley del mín/máx, es TRAMO_CERRADO · FORMA DE APLICACIÓN (fórmula/tramos/qué acredita, consolidada aunque viva en otra sección) · medio de verificación · fuente. VERIFICA SUMA=100% (±1%): si no cuadra → suma_valida=false + alerta + REVISION_HUMANA. Indica evaluacion_puntaje al_total|por_linea.
+M2 ATRACTIVO — calcula INTERNAMENTE (no lo muestras) y deriva veredicto ALTO|MEDIO|BAJO: presupuesto (mayor=más nuestra cancha), cantidad/tipo ítems (muchos commodity=pelea precio; pocos/especializados=nuestro; la cantidad NO penaliza si especializados), complejidad (más técnico y menos oferentes=mejor), dificultad de ejecución como barrera A LOS DEMÁS (logística ex-Santiago NO cuenta como problema propio), MODIFICADOR por cómo se adjudica (GLOBAL heterogéneo=máxima cancha; POR LÍNEAS de puras migajas=pierde atractivo). Escribe lectura_comercial en prosa corta con punch, SIN números salvo el presupuesto (que SIEMPRE se muestra en pesos).
+M3 ESTRATEGIA — JUGADAS, no descripciones. Por criterio: ¿nos DESPEGAMOS o solo EMPATAMOS? LEY_DEL_MINIMO→despegamos con el COLCHÓN (sin piso: NO sugieras número de días, ordena "OFERTA EL PLAZO MÍNIMO QUE PUEDAS CUMPLIR CON SEGURIDAD"; sin colchón/stock→"⚠ EXIGE STOCK/RESPALDO"). LEY_DEL_MAXIMO→despegamos con SERVICIO TÉCNICO PROPIO. TRAMO_CERRADO→solo empatamos: "CUMPLE EL TRAMO Y LISTO, NO GASTES PÓLVORA" (NUNCA lo vendas como ventaja). BINARIO→"PRESENTA [x] PARA NO REGALAR EL PUNTAJE". Toda condicionante CON su vía de solución (partner/carta). CIERRE OBLIGATORIO donde_se_decide: si todo salvo precio es cerrado/binario→se decide en PRECIO (con ventaja de costo "ENTRA AGRESIVO"; sin ventaja "GUERRA DE PRECIO, EVALUAR"). Prohibida la contradicción interna. Etiquetas: OPORTUNIDAD|RESOLVER|EMPATE|EN_CONTRA. Órdenes en MAYÚSCULA.
+M4 REQUISITOS DE ADMISIBILIDAD — barre Bases Admin Y Técnicas. CHECKLIST OBLIGATORIO (declara SIEMPRE el resultado, con fuente): FIRMA DE PUÑO Y LETRA (siempre presente la línea: exigida o no) · presupuesto EXCLUYENTE vs REFERENCIAL · COTIZAR 100% (global/lote) · BOLETA (regla >1.000 UTM pero MANDA EL TEXTO; calcula umbral UTM) · PLAZO MÁXIMO (si superarlo es inadmisible) · MARCA EXCLUSIVA vs "o equivalente/similar/referencial" (punto de primer orden). Bloqueante sin salida → veredicto DESCARTE. ORDEN DE TRABAJO orden_anexos_propios: por CADA documento/compromiso NUESTRO exigido → ①qué crear ②por qué (cita+fuente) ③qué debe contener (concreto) ④qué cubre; criticidad ADMISIBILIDAD_DURA|PUNTAJE_CONDICIONANTE|COMPROMISO_EJECUCION.
+M5 PLAZOS — COLCHÓN = tiempo administrativo GRATIS entre la ADJUDICACIÓN y la FRONTERA (inicio del plazo de entrega). El PLAZO DE ENTREGA NO es colchón (nunca lo sumes). FRONTERA (destácala, con fuente): desde cuándo corre la entrega (emisión/aceptación OC, firma/decreto contrato). CADENAS lineales/secuenciales (SUMA los hitos): CORTA (sin boleta ni contrato): Adjudicación→Emisión OC→Aceptación OC. LARGA (con boleta y/o contrato): +Boleta Fiel Cumpl.→Firma Contrato. NUNCA hitos pre-adjudicación. Aceptación OC: si no está → 5 días corridos (tope Ley Compras, inferido). Conversión hábiles→corridos ×7/5, colchón en días CORRIDOS TRUNCADO hacia abajo. ventana_importacion=true si colchón>10 corridos y producto importable.
+M6 MULTAS — en PESOS (si es UTM usa UTM_VIGENTE e indícalo): estructura, costo por día de atraso, tope y término anticipado. Si no hay → "no se detectaron multas por atraso en las bases" (no lo dejes vacío).
+M7 COSTEO — lista fiel de productos a costear desde las BASES TÉCNICAS (mandan las bases, no la API). FIDELIDAD PURA. Reconstruye tablas aplanadas. Por ítem: descripción técnica EXACTA (sin convertir "5000 clavos"→"50 cajas"), marca/modelo, cantidad ORIGINAL, unidad textual (si falta unidad_inferida=true, NUNCA vacía), presupuesto línea/lote (o libertad_de_pricing=true si solo hay total), tipo generico|especifico, ruta A (ferretería/local) | B (equipamiento/importación); marca_exclusiva=true si exige marca/modelo EXACTO sin "o equivalente". Hojas: GLOBAL:1 · POR_LOTES:n · POR_LINEAS:n. PROHIBIDO buscar precios/proveedores (eso es Fase 3).
+M8 LÍNEAS A ATACAR — GLOBAL/POR_LOTES: no se fragmenta ("se ataca el paquete/lote completo; cotizar 100% o quedar fuera"). POR_LINEAS: cada línea mini-proyecto → ATACAR (≥$5M, o especializado, o importable con margen) | SOLTAR (migaja = <$5M Y commodity, AND). Un solo veredicto de proyecto.
+M9 ACCIONES Y ADVERTENCIAS — VARA DURA: solo lo que nos DEJA FUERA, HACE GANAR o HACE PERDER. PROHIBIDAS obviedades (verifica stock, analiza flete, confirma disponibilidad). Acciones (imperativo, por prioridad) de Estrategia/Admisibilidad/Plazos. Advertencias (por gravedad) con consecuencia concreta y fuente.
+M0 TARJETA DE DECISIÓN (destila AL FINAL, NO contradice el detalle, NO introduce datos nuevos): titular tipo asunto de correo · veredicto GANABLE (MUY_VIABLE/VIABLE) | PUEDE_SER (POCO_VIABLE) | NO_VAMOS (DESCARTE) · se_gana_en · para_ganar[] (jugadas que mueven la aguja) · no_quedes_fuera[] (causales) · antes_de_ir · leyes_detectadas[]. Si NO_VAMOS: solo titular + veredicto + porque_no (motivo+fuente).
+
+## ENSAMBLAJE / VEREDICTO
+Nivel técnico interno MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE → mapea a la tarjeta. Un bloqueante de admisibilidad sin salida fuerza DESCARTE aunque el atractivo sea alto. estado_veredicto=REVISION_HUMANA si: cómo se adjudica no fehaciente, falta forma de aplicación de un criterio, o suma≠100% (motivos acumulados). NO inventes. Devuelve SOLO el JSON pedido, sin texto fuera.`;
+
+// Esquema JSON canónico v3 (Parte IV del doc). El modelo debe devolver EXACTAMENTE estas claves.
+function esquemaV3(codigo: string): string {
+  return `{
+  "meta": { "id": "${codigo}", "nombre": "", "organismo": "", "region": "", "linea_negocio": "ferreteria|equipamiento|mixto" },
+  "exclusion": { "excluido": false, "categoria": "servicio|consultoria|obra_civil|convenio_suministro|commodity|insumo_consumible|null", "motivo": "", "fuente": "", "confianza": 0.0 },
+  "presupuesto": { "bruto": null, "neto": null, "con_iva": true, "regimen_fora": false, "presupuesto_exento": false, "es_excluyente": false, "fuente": "doc+art+pág", "gate": "OK|NO_CALIFICA|DESCARTE_CONDICIONAL|INCIERTO" },
+  "adjudicacion": { "como_se_adjudica": "GLOBAL|POR_LINEAS|POR_LOTES", "estado": "DETERMINADA|REVISION_HUMANA", "evidencia": "frase textual de las bases", "confianza": 0.0, "cotizar_100_obligatorio": false, "fuente": "doc+art+pág" },
+  "criterios_evaluacion": { "fuente_datos": "bases|api|mixto|incompleto", "forma_aplicacion_completa": true, "suma_ponderaciones_real": 100, "suma_valida": true, "evaluacion_puntaje": "al_total|por_linea",
+    "criterios": [ { "nombre": "", "ponderacion_nominal": 0, "ponderacion_efectiva": 0, "tipo_aplicacion": "LEY_DEL_MINIMO|LEY_DEL_MAXIMO|TRAMO_CERRADO|BINARIO", "forma_aplicacion": "", "medio_verificacion": "", "fuente": "", "subfactores": [ { "nombre": "", "ponderacion_relativa": 0, "ponderacion_efectiva": 0, "tipo_aplicacion": "", "forma_aplicacion": "", "medio_verificacion": "", "fuente": "" } ] } ], "alertas": [] },
+  "atractivo": { "veredicto": "ALTO|MEDIO|BAJO", "lectura_comercial": "", "presupuesto_neto": 0, "presupuesto_mostrar": "$__ neto",
+    "_interno": { "pts_presupuesto": 0, "pts_cantidad": 0, "pts_complejidad": 0, "pts_ejecucion": 0, "modificador_adjudicacion": 0, "score_total": 0, "nivel_tecnico": "MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE" } },
+  "estrategia": { "jugadas": [ { "criterio": "", "etiqueta": "OPORTUNIDAD|RESOLVER|EMPATE|EN_CONTRA", "tipo_aplicacion": "LEY_DEL_MINIMO|LEY_DEL_MAXIMO|TRAMO_CERRADO|BINARIO", "lectura": "", "orden": "", "exige_respaldo": false, "fuente": "" } ],
+    "donde_se_decide": { "todo_paridad_salvo_precio": false, "se_decide_en": "precio|criterios_abiertos|mixto", "tenemos_ventaja_costo": "si|no|na", "criterios_diferenciadores": [], "orden_final": "" } },
+  "requisitos_admisibilidad": { "firma_puno_y_letra": { "exigida": false, "mostrar_alerta": false, "fuente": "" }, "presupuesto": { "tipo": "excluyente|referencial", "fuente": "" }, "cotizar_100": { "aplica": false, "fuente": "" }, "boleta": { "aplica": false, "umbral_utm": 1000, "exigida_bajo_umbral": false, "detalle": "", "fuente": "" }, "plazo_maximo": { "existe": false, "valor": "", "fuente": "" }, "marca_exclusiva": { "es_exclusiva": false, "admite_equivalente": false, "evidencia": "", "fuente": "" }, "bloqueantes": [ { "item": "", "fuente": "" } ], "a_favor": [ { "item": "", "fuente": "" } ],
+    "orden_anexos_propios": [ { "que_crear": "", "por_que": "", "fuente": "", "que_debe_contener": "", "que_cubre": "", "criticidad": "ADMISIBILIDAD_DURA|PUNTAJE_CONDICIONANTE|COMPROMISO_EJECUCION", "responsable": "fase4|operador|partner_externo" } ] },
+  "plazos": { "cadena": "corta|larga", "gatillo_cadena_larga": { "exige_boleta": false, "exige_contrato": false, "fuente": "" }, "frontera": { "descripcion": "", "base_computo": "emision_oc|aceptacion_oc|firma_contrato|decreto", "fuente": "" }, "hitos": [ { "hito": "", "duracion": 0, "unidad": "habiles|corridos", "desde": "", "inferido": false, "fuente": "" } ], "aceptacion_oc": { "duracion": 0, "unidad": "corridos", "inferido": false, "fuente": "" }, "colchon_dias_corridos": 0, "plazo_entrega_ofertable": { "valor": "", "unidad": "", "fuente": "" }, "ventana_importacion": false, "alertas": [] },
+  "multas": { "detectadas": true, "estructura": "", "costo_por_dia_pesos": "", "valor_utm_usado": "", "tope": "", "efecto_al_superar_tope": "", "otras": [], "fuente": "" },
+  "costeo": { "hojas_segun_adjudicacion": "GLOBAL:1", "items": [ { "linea": 1, "descripcion_exacta": "", "marca_modelo": "", "cantidad": 0, "unidad_medida": "", "unidad_inferida": false, "presupuesto_linea": 0, "libertad_de_pricing": false, "tipo": "generico|especifico", "ruta": "A|B", "marca_exclusiva": false } ] },
+  "lineas_a_atacar": { "aplica": true, "modo": "POR_LINEAS|GLOBAL|POR_LOTES", "mensaje_global_o_lote": "", "lineas": [ { "linea": 1, "decision": "atacar|soltar", "motivo": "" } ] },
+  "acciones_y_advertencias": { "acciones": [ { "orden": "", "por_que": "", "prioridad": 1, "fuente": "" } ], "advertencias": [ { "riesgo": "", "consecuencia": "", "gravedad": "alta|media", "fuente": "" } ] },
+  "tarjeta_decision": { "titular": "", "veredicto": "GANABLE|PUEDE_SER|NO_VAMOS", "se_gana_en": "", "para_ganar": [], "no_quedes_fuera": [], "antes_de_ir": "", "leyes_detectadas": [ { "criterio": "", "tipo": "LEY_DEL_MINIMO|LEY_DEL_MAXIMO", "exige_respaldo": false } ], "porque_no": "" },
+  "pendientes_fase3": ["importabilidad_real","densidad_de_oferta","margen"],
+  "veredicto": { "nivel": "MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE", "estado_veredicto": "DEFINITIVO|REVISION_HUMANA", "motivos_revision": [] }
+}`;
+}
+
+// User prompt v3: mismos documentos (ordenados por precedencia, sin documentos propios) + esquema v3.
+function construirUserPromptV3(codigo: string, ctx: any, docs: DocLeido[], senalModalidad = '', docFuentePlanilla?: string): string {
+  const leidos = docs.filter(d => d.ok)
+    .filter(d => (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre))
+    .slice()
+    .sort((a, b) => prioridadDoc(a.nombre, a.categoria) - prioridadDoc(b.nombre, b.categoria));
+  const itemsMPTxt = (ctx.itemsMP || []).slice(0, 40).map((it: any, i: number) =>
+    `${i + 1}. ${it.nombre || it.descripcion}${it.categoria ? ` [${it.categoria}]` : ''}${it.cantidad ? ` (cant ${it.cantidad}${it.unidad ? ' ' + it.unidad : ''})` : ''}`).join('\n') || '(la API MP no entregó ítems)';
+  const { texto: docsTexto } = recortarDocsParaAnalisis(leidos, docFuentePlanilla);
+  const tipoLic = extractTipoFromCodigo(codigo) || '(desconocido)';
+  const utm = utmVigente();
+  return `LICITACIÓN: ${codigo}
+TIPO DE LICITACIÓN (del ID): ${tipoLic}
+UTM_VIGENTE: $${utm.toLocaleString('es-CL')} CLP
+NOMBRE: ${ctx.meta.nombre || '(sin nombre)'}
+ORGANISMO: ${ctx.meta.organismo || '(sin organismo)'}
+REGIÓN: ${ctx.meta.region || '(sin región)'}
+PRESUPUESTO PORTADA (API MP): ${ctx.meta.monto ? '$' + Number(ctx.meta.monto).toLocaleString('es-CL') : 'reservado / no informado'}
+
+ÍTEMS SEGÚN API MERCADO PÚBLICO (referencia):
+${itemsMPTxt}
+${senalModalidad ? `\n${senalModalidad}\n` : ''}
+DOCUMENTOS DE LA LICITACIÓN (texto completo; escaneados ya leídos por visión). Cada página trae [[PÁGINA N]] — usa ESE número al citar.
+${docsTexto || '(no se pudo extraer texto)'}
+
+Analiza TODO y devuelve EXACTAMENTE este JSON (v3; cita FUENTE con documento+artículo+PÁGINA en cada punto; no inventes):
+${esquemaV3(codigo)}`;
+}
+
+// Deriva score/semáforo/área/confianza del informe v3 (usa atractivo._interno + veredicto + gate).
+function derivarV3(inf: any): { score: number; semaforo: string; area: string; confianza: number } {
+  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+  const scoreTot = Number(inf?.atractivo?._interno?.score_total) || 0; // 0-15
+  let score = clamp((scoreTot / 15) * 100);
+  const pres = inf?.presupuesto || {};
+  const nItems = Array.isArray(inf?.costeo?.items) ? inf.costeo.items.length : 0;
+  const gateEf = gatePresupuestoDeterminista(pres.bruto ?? null, pres.neto ?? null, nItems, !!pres.presupuesto_exento) ?? pres.gate;
+  const nivel = String(inf?.veredicto?.nivel || inf?.atractivo?._interno?.nivel_tecnico || '').toUpperCase();
+  const gateDuro = !!inf?.exclusion?.excluido || gateEf === 'NO_CALIFICA' || nivel === 'DESCARTE';
+  if (gateDuro) score = Math.min(score, 19);
+  else if (gateEf === 'DESCARTE_CONDICIONAL' || nivel === 'POCO_VIABLE') score = Math.min(score, 39);
+  const semaforo = score >= 80 ? 'VERDE' : score >= 60 ? 'AMARILLO' : score >= 40 ? 'NARANJA' : score >= 20 ? 'ROJO' : 'ROJO_DURO';
+  const area = String(inf?.meta?.linea_negocio || 'mixto').toUpperCase();
+  const areaNorm = area.startsWith('FERR') ? 'FERRETERIA' : area.startsWith('EQUIP') ? 'EQUIPAMIENTO' : 'MIXTO';
+  const confs = [inf?.exclusion?.confianza, inf?.adjudicacion?.confianza].filter((n: any) => typeof n === 'number' && n > 0);
+  let confianza = confs.length ? confs.reduce((a: number, b: number) => a + b, 0) / confs.length : 0.7;
+  if (inf?.veredicto?.estado_veredicto === 'REVISION_HUMANA') confianza = Math.min(confianza, 0.55);
+  return { score, semaforo, area: areaNorm, confianza: Math.round(confianza * 100) / 100 };
+}
+
+// Orquestación v3: reusa la carga de documentos/contexto/señal del v2, cambia prompt+esquema.
+export async function analizarViabilidadIAV3(codigo: string): Promise<any | null> {
+  const docs = await cargarDocumentos(codigo);
+  const leidos = docs.filter(d => d.ok);
+  if (leidos.length === 0) return null;
+  const ctx = await cargarContexto(codigo);
+
+  let planilla: ReturnType<typeof parsearPlanillaCosteo> = null;
+  try {
+    const fuentes = leidos.filter(d => (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre));
+    planilla = parsearPlanillaCosteo(fuentes.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
+  } catch { /* opcional */ }
+  let lineasForm: number[] = [];
+  let totalUnico = false;
+  let lenguajePorLinea: string | null = null;
+  try {
+    lineasForm = detectarLineasFormulario(leidos);
+    totalUnico = detectarOfertaTotalUnico(leidos);
+    lenguajePorLinea = detectarLenguajePorLinea(leidos);
+  } catch { /* señal opcional */ }
+  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea);
+
+  const userPrompt = construirUserPromptV3(codigo, ctx, docs, senal, planilla?.fuenteDoc);
+  const parsed = await llamarGeminiJSON(SYSTEM_PROMPT_V3, userPrompt);
+  if (!parsed || typeof parsed !== 'object') return null;
+
+  // OVERRIDE DETERMINISTA de "cómo se adjudica" (mismo criterio que el v2.1, adaptado al eje
+  // GLOBAL/POR_LINEAS del v3): el listado de ítems MANDA sobre el LLM cuando es concluyente.
+  const p3 = parsed as any;
+  const adj = p3.adjudicacion && typeof p3.adjudicacion === 'object' ? p3.adjudicacion : (p3.adjudicacion = {});
+  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea);
+  if (det) {
+    const comoDet = det.tipo === 'suma_alzada' ? 'GLOBAL' : 'POR_LINEAS';
+    const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
+    // No pisar POR_LOTES del modelo (suma_alzada por bloque que el parser no distingue de global).
+    if (!(det.tipo === 'suma_alzada' && comoLLM.includes('LOTE'))) {
+      if (comoLLM !== comoDet) console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación corregida por estructura del listado: "${comoLLM || '—'}" → "${comoDet}" (${det.motivo}).`);
+      adj.como_se_adjudica = comoDet;
+      adj.estado = 'DETERMINADA';
+      adj.evidencia = adj.evidencia ? `${adj.evidencia} [ajuste por estructura del listado: ${det.motivo}]` : `derivado de la estructura del listado de ítems: ${det.motivo}`;
+    }
+  }
+
+  // PUENTE AL COSTEO (shape v2): autoGenerarCosteo/adaptarViabilidadACosteo consumen
+  // manifiesto_productos + modalidad.tipo + estructura_costeo. El parser da el listado fiel con
+  // línea/categoría reales (misma regla que el v2.1: si trae ≥ ítems que el modelo, su manifiesto manda).
+  const comoFinal = String(adj.como_se_adjudica || '').toUpperCase();
+  const tipoCosteo: 'suma_alzada' | 'por_linea' = comoFinal.includes('LINEA') ? 'por_linea' : 'suma_alzada';
+  let manifiesto: ManifiestoLinea[] = Array.isArray(p3.costeo?.items)
+    ? p3.costeo.items.map((it: any) => ({
+        linea: Number(it.linea) || 1, categoria: it.categoria ?? null,
+        descripcion: _str(it.descripcion_exacta || it.descripcion), modelo: _str(it.marca_modelo),
+        cantidad: _num(it.cantidad), unidad_medida: _str(it.unidad_medida), unidad_inferida: _bool(it.unidad_inferida),
+        presupuesto_linea: _num(it.presupuesto_linea), tipo: _str(it.tipo) || 'generico', ruta: _str(it.ruta),
+      }))
+    : [];
+  let estructuraCosteo: 'por_categoria' | null = null;
+  if (planilla && planilla.items.length >= manifiesto.length && planilla.items.length >= 8) {
+    manifiesto = planilla.items.map(it => ({
+      linea: it.linea || 1, categoria: it.categoria, descripcion: it.descripcion, modelo: '',
+      cantidad: it.cantidad, unidad_medida: it.unidad, unidad_inferida: !it.unidad,
+      presupuesto_linea: null, tipo: 'generico', ruta: '',
+    }));
+    if (planilla.estructura === 'por_categoria') estructuraCosteo = 'por_categoria';
+    console.log(`[viabilidad-ia-v3] ${codigo}: manifiesto desde planilla "${planilla.fuenteDoc}" — ${planilla.items.length} ítems (${planilla.estructura}).`);
+  }
+  // Refleja la adjudicación corregida en el string de hojas del costeo (display v3).
+  if (p3.costeo && typeof p3.costeo === 'object') {
+    const nLineas = new Set(manifiesto.map(m => m.linea)).size || 1;
+    p3.costeo.hojas_segun_adjudicacion = tipoCosteo === 'por_linea' ? `POR_LINEAS:${nLineas}` : (comoFinal.includes('LOTE') ? `POR_LOTES:${nLineas}` : 'GLOBAL:1');
+  }
+
+  const { score, semaforo, area, confianza } = derivarV3(parsed);
+  return {
+    ...parsed,
+    _schema: 'v3',
+    score_0_100: score, semaforo, area_negocio: area, confianza_global: confianza,
+    // Puente al costeo (shape v2) — no se muestra en la pantalla v3, alimenta el Excel de costeo.
+    manifiesto_productos: manifiesto,
+    modalidad: { tipo: tipoCosteo },
+    estructura_costeo: estructuraCosteo,
+    documentos_leidos: leidos.map(d => d.nombre),
+    documentos_no_leidos: docs.filter(d => !d.ok).map(d => `${d.nombre} (${d.metodo})`),
+    docs_hash: await calcularDocsHash(codigo),
+  };
+}
+
+// Guarda el informe v3 bajo _informe_ia_v3 (NO pisa _informe_ia del v2). Actualiza también
+// score/semáforo/área para que el radar refleje el análisis probado con el flag.
+async function guardarViabilidadIAV3(codigo: string, r: any): Promise<void> {
+  const [rows] = await pool.query(`SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+  const fila = (rows as any[])[0];
+  if (fila) {
+    let ie: any = {};
+    try { ie = typeof fila.informe_ejecutivo === 'string' ? JSON.parse(fila.informe_ejecutivo) : (fila.informe_ejecutivo || {}); } catch { ie = {}; }
+    ie._informe_ia_v3 = r;
+    await pool.query(
+      `UPDATE viabilidad_licitacion SET informe_ejecutivo = ?, score_total = ?, semaforo = ?, area_negocio = ?, confianza_analisis = ?, modelo = ? WHERE licitacion_codigo = ?`,
+      [JSON.stringify(ie), r.score_0_100, r.semaforo, r.area_negocio, r.confianza_global ?? null, `ia+v3+${MODELO_TEXTO}`, codigo]);
+  } else {
+    await pool.query(
+      `INSERT INTO viabilidad_licitacion (licitacion_codigo, informe_ejecutivo, score_total, semaforo, area_negocio, confianza_analisis, modelo) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [codigo, JSON.stringify({ _informe_ia_v3: r }), r.score_0_100, r.semaforo, r.area_negocio, r.confianza_global ?? null, `ia+v3+${MODELO_TEXTO}`]);
+  }
+}
+
 export async function analizarYGuardarViabilidadIA(codigo: string): Promise<ViabilidadIAResult | null> {
+  // Camino v3 (flag): usa el prompt/esquema modular y guarda aparte, sin tocar el v2.1.
+  if (VIABILIDAD_V3) {
+    const rv3 = await analizarViabilidadIAV3(codigo);
+    if (!rv3) return null;
+    try { await guardarViabilidadIAV3(codigo, rv3); }
+    catch (e) { console.error('[viabilidad-ia-v3] guardar falló:', String(e).slice(0, 200)); }
+    // El v3 también vuelca ítems al negocio y genera el Excel de costeo (usa el puente
+    // manifiesto_productos/modalidad/estructura_costeo que arma analizarViabilidadIAV3).
+    try { await volcarManifiestoAItems(codigo, rv3 as any); }
+    catch (e) { console.error('[viabilidad-ia-v3] volcar ítems falló:', String(e).slice(0, 200)); }
+    try { await autoGenerarCosteo(codigo, rv3 as any); }
+    catch (e) { console.error('[viabilidad-ia-v3] generar costeo falló:', String(e).slice(0, 200)); }
+    return rv3 as any;
+  }
+
   const r = await analizarViabilidadIA(codigo);
   if (!r) return null;
   try { await guardarViabilidadIA(codigo, r); }

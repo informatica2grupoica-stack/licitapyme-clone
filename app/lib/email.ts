@@ -305,6 +305,77 @@ export async function enviarDigestRadar(p: DigestEmail): Promise<boolean> {
   }
 }
 
+// ─── Digest "cierran pronto" por perfil ──────────────────────────────────────
+// Correo con las licitaciones ASIGNADAS al perfil cuyo cierre cae dentro de la ventana
+// (p.ej. 48 h) y siguen sin resolver. Reusa el mismo layout/tarjetas del digest de radar.
+interface CierresEmail {
+  to: string;
+  nombre?: string | null;
+  licitaciones: LicitacionDigest[];
+  totalNuevas: number;
+  horas: number;
+}
+
+// Cierre con fecha + HORA (hora de Chile) — para estos avisos la hora es lo importante.
+const fmtCierreHora = (f?: string | null) => {
+  if (!f) return null;
+  try {
+    return new Date(f).toLocaleString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'long', hour: '2-digit', minute: '2-digit' });
+  } catch { return null; }
+};
+
+function plantillaCierres(p: CierresEmail, appUrl: string): string {
+  const base = appUrl ? appUrl.replace(/\/$/, '') : '';
+  const urlNegocios = base ? `${base}/negocios` : '';
+  const tarjeta = (l: LicitacionDigest) => {
+    const url = base ? `${base}/licitacion/${encodeURIComponent(l.codigo)}` : '';
+    const cierre = fmtCierreHora(l.cierre);
+    const meta = [l.organismo, fmtMonto(l.monto)].filter(Boolean).map(v => esc(String(v))).join(' · ');
+    return `
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #fecaca;border-left:3px solid #ef4444;border-radius:8px;margin-bottom:8px;">
+        <tr><td style="padding:13px 16px;">
+          <div style="font-size:14.5px;font-weight:700;line-height:1.4;">
+            ${url ? `<a href="${url}" style="color:#0f172a;text-decoration:none;">` : ''}${esc(l.nombre || l.codigo)}${url ? '</a>' : ''}
+          </div>
+          <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}</div>
+          ${cierre ? `<div style="margin-top:6px;color:#b91c1c;font-size:13px;font-weight:700;">⏰ Cierra: ${esc(cierre)}</div>` : ''}
+          ${meta ? `<div style="margin-top:4px;color:#6b7280;font-size:12px;">${meta}</div>` : ''}
+        </td></tr>
+      </table>`;
+  };
+  const extra = p.totalNuevas > p.licitaciones.length
+    ? `<p style="margin:6px 0 0;color:#6b7280;font-size:13px;">y ${p.totalNuevas - p.licitaciones.length} más por cerrar.</p>` : '';
+  const cuerpo = `
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}: estas licitaciones que tienes asignadas <strong>cierran dentro de ${p.horas} horas</strong> y siguen sin resolver. Revísalas antes de que venzan.</p>
+    ${p.licitaciones.map(tarjeta).join('')}
+    ${extra}`;
+  return layoutEmail({
+    titulo: `${p.totalNuevas} licitación${p.totalNuevas !== 1 ? 'es' : ''} tuya${p.totalNuevas !== 1 ? 's' : ''} cierra${p.totalNuevas !== 1 ? 'n' : ''} pronto`,
+    cuerpo,
+    cta: urlNegocios ? { label: 'Ver mis negocios', url: urlNegocios } : undefined,
+  });
+}
+
+/** Envía el digest de "cierran pronto" a un perfil. Devuelve true si se envió. */
+export async function enviarDigestCierresProximos(p: CierresEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — digest de cierres omitido'); return false; }
+  if (!p.to || p.licitaciones.length === 0) return false;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+  try {
+    await t.sendMail({
+      from: FROM(),
+      to: p.to,
+      subject: `⏰ ${p.totalNuevas} licitación${p.totalNuevas !== 1 ? 'es' : ''} tuya${p.totalNuevas !== 1 ? 's' : ''} cierra${p.totalNuevas !== 1 ? 'n' : ''} pronto`,
+      html: plantillaCierres(p, appUrl),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío digest cierres SMTP falló:', String(e));
+    return false;
+  }
+}
+
 /** Verifica la conexión SMTP (para un endpoint de prueba). */
 export async function verificarSMTP(): Promise<{ ok: boolean; error?: string }> {
   const t = transporter();

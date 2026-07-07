@@ -22,6 +22,10 @@ import { indexarLicitacion, evaluarKeyword, normalizar, tokenizar, type Licitaci
 import { leerCache, planificarEnriquecimiento, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
 import { matchearEInsertar } from '@/app/lib/radar-matching';
 import { enviarDigestRadar } from '@/app/lib/email';
+import { avisarCierresProximos } from '@/app/lib/cierres-proximos';
+
+// Ventana para el aviso "cierra pronto" (campana + correo por perfil), en horas.
+const CIERRE_PROXIMO_HORAS = Number(process.env.CIERRE_PROXIMO_HORAS) || 48;
 
 const CRON_SECRET        = process.env.CRON_SECRET || '';
 const DIAS_RECIENTES     = 15;
@@ -275,6 +279,8 @@ export async function GET(request: NextRequest) {
     keywordsProcesadas:     0,
     alertasNuevas:          0,
     correosEnviados:        0,   // digests de radar enviados por perfil
+    cierresAvisados:        0,   // eventos de campana "cierra pronto" empujados
+    correosCierre:          0,   // correos "cierra pronto" enviados por perfil
     errores:                0,
     duracionMs:             0,
   };
@@ -528,6 +534,19 @@ export async function GET(request: NextRequest) {
       } catch (e) {
         console.error('[Cron] digest email falló (no crítico):', String(e));
       }
+    }
+
+    // ── Paso 7: Aviso "cierra pronto" (campana + correo) de las ASIGNADAS ──────
+    // Licitaciones asignadas (negocios) que cierran dentro de CIERRE_PROXIMO_HORAS y
+    // siguen sin resolver → una notificación de campana al perfil + correo digest.
+    // Dedup por historial_eventos (no re-avisa la misma en días). Best-effort.
+    try {
+      const av = await avisarCierresProximos(CIERRE_PROXIMO_HORAS);
+      stats.cierresAvisados = av.eventos;
+      stats.correosCierre   = av.correos;
+      if (av.eventos > 0) console.log(`[Cron] ⏰ Cierres próximos: ${av.eventos} avisos, ${av.correos} correos`);
+    } catch (e) {
+      console.error('[Cron] aviso cierres próximos falló (no crítico):', String(e));
     }
 
     stats.duracionMs = elapsed();

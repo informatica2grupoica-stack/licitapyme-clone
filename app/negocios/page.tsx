@@ -1302,11 +1302,18 @@ function NegociosContent() {
                         )}
                       </div>
 
-                      {/* Cierre */}
+                      {/* Cierre: fecha + HORA exacta (hora de Chile). El estado se inactiva
+                          a esa hora puntual (diasRestantes usa el datetime completo). */}
                       <div className="hidden md:block text-sm">
                         {neg.licitacion_cierre ? (
                           <>
-                            <p className="text-gray-600">{new Date(neg.licitacion_cierre).toLocaleDateString('es-CL')}</p>
+                            <p className="text-gray-600">
+                              {new Date(neg.licitacion_cierre).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}
+                              {' '}
+                              <span className="text-gray-500 font-medium">
+                                {new Date(neg.licitacion_cierre).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </p>
                             <p className={`text-xs ${diasCls}`}>{dias}</p>
                           </>
                         ) : <span className="text-gray-400">—</span>}

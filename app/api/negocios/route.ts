@@ -261,6 +261,15 @@ export async function POST(request: NextRequest) {
           if ((dc as any[]).length) return; // ya tiene documentos → nada que bajar
           const { descargarDocumentosLicitacion } = await import('@/app/lib/mp-descarga-orquestador');
           const res = await descargarDocumentosLicitacion(licitacion_codigo);
+          // PRE-OCR: calentar la caché de texto (OCR incluido) AHORA, tras la descarga, para que
+          // el posterior "Analizar" encuentre el texto ya en BD y no espere al OCR (evita el
+          // timeout del túnel en el primer análisis). Flag: PRE_OCR_AL_ASIGNAR=false lo desactiva.
+          if (res.exito && process.env.PRE_OCR_AL_ASIGNAR !== 'false') {
+            try {
+              const { calentarCacheDocumentos } = await import('@/app/lib/viabilidad-ia');
+              await calentarCacheDocumentos(licitacion_codigo);
+            } catch (e) { console.warn(`[negocios] pre-OCR al asignar ${licitacion_codigo}:`, String(e)); }
+          }
           // Tras descargar, encadenar el pipeline IA (clasificar → análisis → viabilidad).
           if (res.exito && iaTextoConfigurada()) {
             const { procesarLicitacionCompleta } = await import('@/app/lib/pipeline-licitacion');

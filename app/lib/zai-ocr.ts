@@ -31,9 +31,11 @@ const PAGINAS_POR_LLAMADA = 8;
 // y el chat deben ser fidedignos; el presupuesto/criterios pueden estar en cualquier página,
 // como se comprobó con bases cuya cifra vivía en la pág. 2 y el OCR anterior la perdía). El
 // tope alto es solo un cortacircuito ante un PDF monstruoso; configurable por env.
-const MAX_PAGINAS_OCR = Math.max(1, Number(process.env.GLM_OCR_MAX_PAGINAS) || 200);
+const MAX_PAGINAS_OCR = Math.max(1, Number(process.env.GLM_OCR_MAX_PAGINAS) || 400);
 // Ventanas en paralelo: reduce el muro total; los reintentos con backoff absorben 429/503.
-const CONCURRENCIA = 3;
+// Configurable por env (GLM_OCR_CONCURRENCIA): subir acelera docs grandes, pero más alto arriesga
+// más 429/503 de Z.AI. Acotado a [1, 8] por seguridad.
+const CONCURRENCIA = Math.min(8, Math.max(1, Number(process.env.GLM_OCR_CONCURRENCIA) || 3));
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
