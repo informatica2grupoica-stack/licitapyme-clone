@@ -45,7 +45,9 @@ export async function GET(request: NextRequest) {
   const publicBase = process.env.R2_PUBLIC_URL || `https://pub-${process.env.R2_ACCOUNT_ID}.r2.dev`;
   const hash = createHash('sha1').update(url).digest('hex');
   // El sufijo de q en la key separa la versión resaltada de la limpia (cache distinto).
-  const qSuf = q ? `_h${createHash('sha1').update(q).digest('hex').slice(0, 10)}` : '';
+  // `h3` = versión del algoritmo de resaltado (búsqueda por frase + respaldo por palabras);
+  // subir el número invalida los PNG cacheados con la lógica anterior.
+  const qSuf = q ? `_h3${createHash('sha1').update(q).digest('hex').slice(0, 10)}` : '';
   const key = `previews/${hash}_p${pagina}_x${SCALE}${qSuf}.png`;
   const cacheHeaders = { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=31536000, immutable' };
 
@@ -75,13 +77,33 @@ export async function GET(request: NextRequest) {
     const page = doc.loadPage(idx);
 
     // Resaltado: busca q en la página y pinta un Highlight amarillo sobre cada coincidencia.
-    // Best-effort: si no hay coincidencias o falla, se renderiza la página sin resaltar.
+    // ROBUSTO: primero intenta la FRASE COMPLETA; si no aparece tal cual (mayúsculas distintas,
+    // texto en tabla, redacción algo diferente), cae a resaltar cada PALABRA CLAVE (≥4 letras,
+    // sin muletillas) para que SIEMPRE se marque en color la zona de donde salió el dato. Así el
+    // usuario ve exactamente dónde en la página está la fuente, no solo la página.
+    // Best-effort: si nada aparece o falla, se renderiza la página sin resaltar.
     if (q) {
       try {
-        const hits = page.search(q);              // array de matches; cada match = array de Quad
-        const quads = Array.isArray(hits) ? hits.flat() : [];
         // createAnnotation existe en PDFPage (no en el tipo base Page); los docs son PDF.
         const pdfPage = page as unknown as { createAnnotation(tipo: string): { setQuadPoints(q: number[][]): void; setColor(c: number[]): void; update(): void } };
+        const buscar = (t: string): number[][] => {
+          try { const h = page.search(t); return Array.isArray(h) ? h.flat() : []; } catch { return []; }
+        };
+        let quads = buscar(q);                     // 1) frase completa
+        if (!quads.length) {                       // 2) respaldo: palabras clave sueltas
+          const STOP = new Set(['para','como','este','esta','esas','esos','desde','entre','segun','sobre','pagina','pag','del','los','las','una','uno','que','con','por','articulo','numeral']);
+          // Trocear conservando las TILDES: mupdf.search es case-insensitive pero SÍ distingue
+          // acentos, así que hay que buscar la palabra ORIGINAL ("Económica"), no "economica".
+          const palabras = q.split(/[^0-9A-Za-zÁÉÍÓÚÜÑáéíóúüñ°]+/).filter(Boolean);
+          const vistas = new Set<string>();
+          for (const w of palabras) {
+            const wn = w.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); // solo para filtrar
+            if (wn.length < 4 || STOP.has(wn) || vistas.has(wn)) continue;
+            vistas.add(wn);
+            quads = quads.concat(buscar(w));        // buscar con la palabra original (con tildes)
+            if (quads.length >= 60) break;          // tope: no pintar la página entera
+          }
+        }
         if (quads.length && typeof pdfPage.createAnnotation === 'function') {
           const annot = pdfPage.createAnnotation('Highlight');
           annot.setQuadPoints(quads);

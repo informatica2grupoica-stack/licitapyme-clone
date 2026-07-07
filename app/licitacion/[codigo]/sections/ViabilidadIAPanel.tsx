@@ -61,9 +61,20 @@ const FuenteDocsContext = createContext<DocRef[]>([]);
 const _norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 // Número de página de una cita: "pág. 7", "pagina 3-4", "p. 12" → 7/3/12.
+// Exige la palabra "pag/pág/pg/p." (no un simple "p"+dígitos) para NO confundirse con un
+// número dentro del nombre del archivo (ej. "anexo_p2.pdf" o "BAE_...-70-LE26.pdf").
 function paginaDeCita(fuente: string): number | null {
-  const m = _norm(fuente).match(/\bp(?:ag|agina|g)?\.?\s*(\d+)/);
+  const m = _norm(fuente).match(/\bp(?:agina|ag|g|\.)\s*\.?\s*(\d+)/);
   return m ? parseInt(m[1], 10) : null;
+}
+
+// Ancla de RESALTADO derivada del texto de la cita cuando no se pasa `destacar`: busca una
+// referencia distintiva que SÍ aparece literalmente en la página (artículo, numeral, punto,
+// formulario, anexo…) para pintarla en color. Si no hay ninguna, devuelve undefined (sin
+// resaltado forzado, pero la página sigue siendo la correcta).
+function anclaDeFuente(fuente: string): string | undefined {
+  const m = (fuente || '').match(/(?:art[íi]?culo|art\.?|numeral|n[°º]|punto|cl[aá]usula|formulario|anexo|letra)\s*[a-z]?\s*\d+(?:[.\-]\d+)*/i);
+  return m ? m[0].trim() : undefined;
 }
 
 // A qué documento apunta la cita: solape de palabras clave del nombre del archivo
@@ -165,6 +176,9 @@ function Fuente({ children, destacar }: { children?: string; destacar?: string }
   const abrirVisor = useContext(VisorContext);
   if (!children) return null;
   const cita = resolverCita(children, docs);
+  // Texto a resaltar: el que se pasa explícito (ej. el nombre del criterio) o, si no, un ancla
+  // derivada de la propia cita (Art./numeral/Formulario…). Así el ojo marca algo en color siempre.
+  const aResaltar = destacar || anclaDeFuente(children);
   if (cita) {
     return (
       <span className="inline-flex items-center gap-1 text-[11px] text-indigo-600">
@@ -173,7 +187,7 @@ function Fuente({ children, destacar }: { children?: string; destacar?: string }
           <FileSearch size={10} />{children}
         </a>
         {abrirVisor && (
-          <button type="button" onClick={() => abrirVisor({ url: cita.href.split('#')[0], pagina: cita.pagina, q: destacar, titulo: children })}
+          <button type="button" onClick={() => abrirVisor({ url: cita.href.split('#')[0], pagina: cita.pagina, q: aResaltar, titulo: children })}
             title="Ver y resaltar en el documento"
             className="inline-flex items-center text-violet-500 hover:text-violet-700">
             <Eye size={13} />
