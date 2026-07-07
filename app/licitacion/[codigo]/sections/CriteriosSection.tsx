@@ -18,17 +18,23 @@ const TEXT_COLORS = [
 export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, analizandoIA, onIrAInteligencia }: {
   criterios?: CriterioEvaluacion[];
   analisisIA?: AnalisisIA | null;
-  // Criterios del informe de Viabilidad IA v2.0 (forma: ponderacion + forma_aplicacion + fuente).
-  criteriosViabilidad?: Array<{ nombre: string; ponderacion?: number; ponderacion_pct?: number; forma_aplicacion?: string; fuente?: string }>;
+  // Criterios del informe de Viabilidad IA. El v3 usa `ponderacion_efectiva` (la ponderación
+  // REAL, factor×subfactor); el v2 usaba `ponderacion`. Se aceptan ambas formas.
+  criteriosViabilidad?: Array<{ nombre: string; ponderacion?: number; ponderacion_efectiva?: number; ponderacion_nominal?: number; ponderacion_pct?: number; forma_aplicacion?: string; fuente?: string }>;
   analizandoIA?: boolean;
   onIrAInteligencia: () => void;
 }) {
   const criteriosIA = analisisIA?.criteriosEvaluacion;
-  // Normalizamos los criterios del informe de viabilidad al shape común. La descripción
-  // prioriza la FORMA DE APLICACIÓN (lo valioso del v2.0) y cae a la fuente si no hay.
+  // Normalizamos los criterios del informe de viabilidad al shape común. La ponderación toma la
+  // primera forma con valor (v3: ponderacion_efectiva; v2: ponderacion; respaldo: nominal/pct).
+  // La descripción prioriza la FORMA DE APLICACIÓN y cae a la fuente si no hay.
   const criteriosViab: CriterioEvaluacion[] = (criteriosViabilidad || [])
     .filter(c => c && c.nombre)
-    .map(c => ({ nombre: c.nombre, ponderacion: Number(c.ponderacion ?? c.ponderacion_pct) || 0, descripcion: c.forma_aplicacion || c.fuente }));
+    .map(c => ({
+      nombre: c.nombre,
+      ponderacion: Number(c.ponderacion_efectiva) || Number(c.ponderacion) || Number(c.ponderacion_nominal) || Number(c.ponderacion_pct) || 0,
+      descripcion: c.forma_aplicacion || c.fuente,
+    }));
 
   const tieneCriteriosMP   = !!criterios && criterios.length > 0;
   const tieneCriteriosIA   = !tieneCriteriosMP && !!criteriosIA && criteriosIA.length > 0;

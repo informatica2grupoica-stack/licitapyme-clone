@@ -252,6 +252,22 @@ function VistaV3({ informe }: { informe: any }) {
   const plz = informe.plazos || {};
   const mul = informe.multas || {};
   const cost = informe.costeo || {};
+  // Lista de ítems a mostrar = la MISMA que alimenta el Excel de costeo. El puente al costeo pone
+  // en `manifiesto_productos` la lista COMPLETA (del parser de la planilla cuando es más fiel que
+  // la del LLM), así que se muestra esa; se cae a `costeo.items` (LLM) si no hay manifiesto. Se
+  // normalizan los nombres de campo (descripcion/descripcion_exacta, modelo/marca_modelo).
+  const _manif: any[] = Array.isArray(informe.manifiesto_productos) ? informe.manifiesto_productos : [];
+  const _fuenteItems: any[] = _manif.length >= (cost.items?.length ?? 0) && _manif.length > 0 ? _manif : (cost.items || []);
+  const itemsCosteo = _fuenteItems.map((p: any, i: number) => ({
+    linea: p.linea ?? i + 1,
+    descripcion: p.descripcion ?? p.descripcion_exacta ?? '',
+    modelo: p.modelo ?? p.marca_modelo ?? '',
+    cantidad: p.cantidad,
+    unidad_medida: p.unidad_medida,
+    unidad_inferida: p.unidad_inferida,
+    ruta: p.ruta,
+    marca_exclusiva: p.marca_exclusiva,
+  }));
   const lin = informe.lineas_a_atacar || {};
   const acc = informe.acciones_y_advertencias || {};
   const enRevision = informe.veredicto?.estado_veredicto === 'REVISION_HUMANA';
@@ -310,7 +326,7 @@ function VistaV3({ informe }: { informe: any }) {
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3">
           <p className="text-[10px] font-bold text-slate-400 uppercase">Atractivo</p>
-          <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(atr.veredicto) || '—'}</p>
+          <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(atr.nivel || atr.veredicto) || '—'}</p>
         </div>
       </div>
 
@@ -342,7 +358,7 @@ function VistaV3({ informe }: { informe: any }) {
 
       {/* Atractivo */}
       {atr.lectura_comercial && (
-        <Seccion icon={<Scale size={14} className="text-violet-500" />} titulo="Atractivo" badge={cap(atr.veredicto)} defaultOpen>
+        <Seccion icon={<Scale size={14} className="text-violet-500" />} titulo="Atractivo" badge={cap(atr.nivel || atr.veredicto)} defaultOpen>
           <p className="text-[13px] text-slate-700 leading-snug">{atr.lectura_comercial}</p>
         </Seccion>
       )}
@@ -439,14 +455,14 @@ function VistaV3({ informe }: { informe: any }) {
         </Seccion>
       )}
 
-      {/* Costeo */}
-      {(cost.items?.length ?? 0) > 0 && (
-        <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Costeo — productos a costear" badge={`${cost.items.length} ítems · ${cost.hojas_segun_adjudicacion || ''}`}>
+      {/* Costeo — TODOS los ítems que alimentan el Excel de costeo (manifiesto completo) */}
+      {itemsCosteo.length > 0 && (
+        <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Costeo — productos a costear" badge={`${itemsCosteo.length} ítems · ${cost.hojas_segun_adjudicacion || ''}`}>
           <div className="space-y-1">
-            {cost.items.map((p: any, i: number) => (
+            {itemsCosteo.map((p, i) => (
               <div key={i} className="flex gap-2 text-[13px] border-b border-slate-100 last:border-0 py-1">
                 <span className="text-slate-400 w-6 flex-shrink-0">{p.linea ?? i + 1}.</span>
-                <span className="text-slate-700 flex-1">{p.descripcion_exacta}{p.marca_modelo ? ` · ${p.marca_modelo}` : ''}</span>
+                <span className="text-slate-700 flex-1">{p.descripcion}{p.modelo ? ` · ${p.modelo}` : ''}</span>
                 {p.cantidad != null && <span className="text-slate-500 flex-shrink-0">{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span>}
                 {p.ruta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">Ruta {p.ruta}</span>}
                 {p.marca_exclusiva && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0">⚠ marca exclusiva</span>}
