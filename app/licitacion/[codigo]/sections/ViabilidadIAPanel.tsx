@@ -7,7 +7,7 @@
 
 import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ZoomIn, ClipboardCheck, Compass, Swords, Ship } from 'lucide-react';
+import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ClipboardCheck, Compass, Swords, Ship } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 
@@ -68,6 +68,28 @@ function paginaDeCita(fuente: string): number | null {
   return m ? parseInt(m[1], 10) : null;
 }
 
+// RANGO de páginas de una cita: cuando la fuente abarca DOS o más páginas ("pág. 13-14",
+// "págs. 12 a 14", o el marcador aproximado "pág. 13 (aprox. rango 13-16)"), devolvemos TODAS
+// las páginas del rango para mostrarlas juntas y no obligar a scrollear el PDF. Si es una sola
+// página, devuelve [p]. Cap de 4 páginas para no renderizar el documento entero. Solo detecta el
+// rango PEGADO al token de página o tras la palabra "rango", para no confundir "art. 4 a 6" ni el
+// "35-2026" del nombre del archivo con un rango de páginas.
+function rangoDeCita(fuente: string): number[] {
+  const first = paginaDeCita(fuente);
+  if (first == null) return [];
+  const n = _norm(fuente);
+  let a = first, b = first;
+  const mRango = n.match(/rango\s*(\d+)\s*(?:-|–|a)\s*(\d+)/)
+    || n.match(/p(?:agina|ags?|ag|g|\.)s?\s*\.?\s*(\d+)\s*(?:-|–|a)\s*(\d+)/);
+  if (mRango) {
+    const x = parseInt(mRango[1], 10), y = parseInt(mRango[2], 10);
+    if (y > x && y - x <= 4) { a = x; b = y; }
+  }
+  const out: number[] = [];
+  for (let p = a; p <= b; p++) out.push(p);
+  return out;
+}
+
 // Ancla de RESALTADO derivada del texto de la cita cuando no se pasa `destacar`: busca una
 // referencia distintiva que SÍ aparece literalmente en la página (artículo, numeral, punto,
 // formulario, anexo…) para pintarla en color. Si no hay ninguna, devuelve undefined (sin
@@ -79,18 +101,23 @@ function anclaDeFuente(fuente: string): string | undefined {
 
 // A qué documento apunta la cita: solape de palabras clave del nombre del archivo
 // con el texto de la cita. Devuelve la URL con #page=N para el visor nativo del navegador.
-function resolverCita(fuente: string, docs: DocRef[]): { href: string; pagina: number | null } | null {
+function resolverCita(fuente: string, docs: DocRef[]): { href: string; pagina: number | null; paginas: number[] } | null {
   if (!fuente || !docs.length) return null;
   const f = _norm(fuente);
   let mejor: DocRef | null = null, mejorScore = 0;
   for (const d of docs) {
-    const tokens = _norm(d.nombre.replace(/\.[a-z0-9]+$/i, '')).split(/[^a-z0-9]+/).filter(t => t.length >= 4);
-    const score = tokens.reduce((s, t) => s + (f.includes(t) ? 1 : 0), 0);
+    const base = _norm(d.nombre.replace(/\.[a-z0-9]+$/i, ''));
+    const tokens = base.split(/[^a-z0-9]+/).filter(t => t.length >= 4);
+    let score = tokens.reduce((s, t) => s + (f.includes(t) ? 1 : 0), 0);
+    // BONUS FUERTE si el nombre base COMPLETO del archivo aparece TAL CUAL en la cita (regla nueva
+    // del prompt: citar el nombre EXACTO del documento). Así una cita bien formada apunta sin duda
+    // al PDF correcto, no al que casualmente comparte una palabra suelta.
+    if (base.length >= 6 && f.includes(base)) score += 5;
     if (score > mejorScore) { mejorScore = score; mejor = d; }
   }
   if (!mejor || mejorScore === 0) return null;
   const pag = paginaDeCita(fuente);
-  return { href: pag ? `${mejor.url}#page=${pag}` : mejor.url, pagina: pag };
+  return { href: pag ? `${mejor.url}#page=${pag}` : mejor.url, pagina: pag, paginas: rangoDeCita(fuente) };
 }
 
 const SEM: Record<string, { label: string; ring: string; text: string; bg: string; soft: string }> = {
@@ -120,13 +147,30 @@ function Gauge({ score, sem }: { score: number; sem: { ring: string } }) {
 // Visor de fuente: al hacer clic en el ojo de una cita, abre un MODAL grande con la
 // imagen de la página citada (renderizada por /api/pdf-pagina con mupdf) y, si se pasa
 // `q`, RESALTA en amarillo el texto de donde sale el dato. Antes era un hover diminuto.
-interface VisorOpts { url: string; pagina: number | null; q?: string; titulo?: string }
+interface VisorOpts { url: string; pagina: number | null; paginas?: number[]; q?: string; titulo?: string }
 const VisorContext = createContext<((o: VisorOpts) => void) | null>(null);
 
-function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => void }) {
+// UNA página del documento renderizada a imagen (con resaltado amarillo del texto `q`). Maneja su
+// propio estado de carga/error/zoom, así el visor puede apilar VARIAS páginas cuando la cita abarca
+// un rango. Clic en la imagen = ampliar/reducir.
+function PaginaImg({ url, pagina, q }: { url: string; pagina: number; q?: string }) {
   const [cargada, setCargada] = useState(false);
   const [error, setError] = useState(false);
   const [zoom, setZoom] = useState(false);
+  const src = `/api/pdf-pagina?url=${encodeURIComponent(url)}&pagina=${pagina}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+  return (
+    <div className="w-full flex flex-col items-center">
+      <div className="text-[11px] font-semibold text-slate-500 bg-white/80 rounded-full px-2 py-0.5 my-1 sticky top-0 z-10">Página {pagina}</div>
+      {!cargada && !error && <div className="flex items-center gap-2 text-slate-400 text-[13px] py-16"><Loader2 size={18} className="animate-spin" /> Renderizando página {pagina}…</div>}
+      {error && <div className="text-slate-400 text-[13px] py-16">No se pudo renderizar la página {pagina}. <a href={`${url}#page=${pagina}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">Abrir el PDF</a>.</div>}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={`Página ${pagina}`} onLoad={() => setCargada(true)} onError={() => setError(true)} onClick={() => setZoom(z => !z)}
+        className={`${cargada ? 'block' : 'hidden'} h-fit rounded shadow ${zoom ? 'max-w-none w-[1100px] cursor-zoom-out' : 'max-w-full cursor-zoom-in'}`} />
+    </div>
+  );
+}
+
+function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => void }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', h);
@@ -138,8 +182,10 @@ function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => vo
     };
   }, [onClose]);
 
-  const pagina = estado.pagina ?? 1;
-  const src = `/api/pdf-pagina?url=${encodeURIComponent(estado.url)}&pagina=${pagina}${estado.q ? `&q=${encodeURIComponent(estado.q)}` : ''}`;
+  // Páginas a mostrar: el rango de la cita (una o varias) o, de respaldo, la página única.
+  const paginas = (estado.paginas && estado.paginas.length ? estado.paginas : [estado.pagina ?? 1]);
+  const primera = paginas[0];
+  const etiqueta = paginas.length > 1 ? `Páginas ${paginas[0]}–${paginas[paginas.length - 1]}` : `Página ${primera}`;
 
   // createPortal a body: los ancestros con animación (.fade-in, fill-mode both) dejan un
   // transform residual que crea un containing block y confina el `fixed` a la sección.
@@ -150,20 +196,15 @@ function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => vo
         <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-slate-200 flex-shrink-0">
           <div className="min-w-0">
             <p className="text-[13px] font-semibold text-slate-800 truncate">{estado.titulo || 'Fuente del análisis'}</p>
-            <p className="text-[11px] text-slate-400 truncate">{estado.pagina != null ? `Página ${estado.pagina}` : 'Documento'}{estado.q ? ` · resaltado: “${estado.q}”` : ''}</p>
+            <p className="text-[11px] text-slate-400 truncate">{etiqueta}{estado.q ? ` · resaltado: “${estado.q}”` : ''}</p>
           </div>
           <div className="flex items-center gap-1 flex-shrink-0">
-            <button onClick={() => setZoom(z => !z)} title="Ampliar / reducir" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><ZoomIn size={16} /></button>
-            <a href={`${estado.url}#page=${pagina}`} target="_blank" rel="noopener noreferrer" title="Abrir el PDF completo" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><ExternalLink size={16} /></a>
+            <a href={`${estado.url}#page=${primera}`} target="_blank" rel="noopener noreferrer" title="Abrir el PDF completo" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><ExternalLink size={16} /></a>
             <button onClick={onClose} title="Cerrar (Esc)" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><X size={16} /></button>
           </div>
         </div>
-        <div className="overflow-auto bg-slate-100 flex-1 flex justify-center items-start p-3">
-          {!cargada && !error && <div className="flex items-center gap-2 text-slate-400 text-[13px] py-24"><Loader2 size={18} className="animate-spin" /> Renderizando página {pagina}…</div>}
-          {error && <div className="text-slate-400 text-[13px] py-24">No se pudo renderizar la página. <a href={`${estado.url}#page=${pagina}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">Abrir el PDF</a>.</div>}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={src} alt={`Página ${pagina}`} onLoad={() => setCargada(true)} onError={() => setError(true)}
-            className={`${cargada ? 'block' : 'hidden'} h-fit rounded shadow ${zoom ? 'max-w-none w-[1100px]' : 'max-w-full'}`} />
+        <div className="overflow-auto bg-slate-100 flex-1 flex flex-col justify-start items-center gap-3 p-3">
+          {paginas.map(p => <PaginaImg key={p} url={estado.url} pagina={p} q={estado.q} />)}
         </div>
       </div>
     </div>,
@@ -180,18 +221,24 @@ function Fuente({ children, destacar }: { children?: string; destacar?: string }
   // derivada de la propia cita (Art./numeral/Formulario…). Así el ojo marca algo en color siempre.
   const aResaltar = destacar || anclaDeFuente(children);
   if (cita) {
+    // Solo mostramos el "ojo" (visor de página con resaltado) cuando la cita trae PÁGINA real.
+    // Sin página, abrir el visor mostraba SIEMPRE la página 1 como si fuera la fuente (cita falsa):
+    // en su lugar dejamos solo el enlace al PDF completo + un aviso honesto "(sin pág.)".
+    const tienePagina = cita.pagina != null;
     return (
       <span className="inline-flex items-center gap-1 text-[11px] text-indigo-600">
         <a href={cita.href} target="_blank" rel="noopener noreferrer" title="Abrir el PDF completo"
           className="inline-flex items-center gap-1 hover:text-indigo-800 hover:underline">
           <FileSearch size={10} />{children}
         </a>
-        {abrirVisor && (
-          <button type="button" onClick={() => abrirVisor({ url: cita.href.split('#')[0], pagina: cita.pagina, q: aResaltar, titulo: children })}
+        {tienePagina && abrirVisor ? (
+          <button type="button" onClick={() => abrirVisor({ url: cita.href.split('#')[0], pagina: cita.pagina, paginas: cita.paginas, q: aResaltar, titulo: children })}
             title="Ver y resaltar en el documento"
             className="inline-flex items-center text-violet-500 hover:text-violet-700">
             <Eye size={13} />
           </button>
+        ) : (
+          <span className="text-[10px] text-amber-600" title="La cita no indica página: no se puede posicionar el resaltado. Abre el PDF y búscalo.">(sin pág.)</span>
         )}
       </span>
     );
@@ -342,6 +389,7 @@ function VistaV3({ informe }: { informe: any }) {
                     <p className="text-[13px] font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
                       {c.nombre}
                       {tb && <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${tb.cls}`}>{tb.label}</span>}
+                      {c.piso_o_tope && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700" title="Piso/tope que acota la agresividad">{c.piso_o_tope}</span>}
                     </p>
                     <span className="text-[13px] font-bold text-slate-900 flex-shrink-0">{c.ponderacion_efectiva ?? 0}%</span>
                   </div>
@@ -372,7 +420,7 @@ function VistaV3({ informe }: { informe: any }) {
                 <p className="font-semibold text-slate-700">{JUGADA_ICON[j.etiqueta] || '•'} {j.criterio}{TIPO_BADGE[j.tipo_aplicacion] ? ` · ${TIPO_BADGE[j.tipo_aplicacion].label}` : ''}{j.exige_respaldo ? ' · ⚠ EXIGE STOCK/RESPALDO' : ''}</p>
                 {j.lectura && <p className="text-slate-500 mt-0.5 leading-snug">{j.lectura}</p>}
                 {j.orden && <p className="text-slate-800 mt-0.5 font-semibold uppercase text-[11.5px]">▸ {j.orden}</p>}
-                {j.fuente && <div className="mt-0.5"><Fuente>{j.fuente}</Fuente></div>}
+                {j.fuente && <div className="mt-0.5"><Fuente destacar={j.criterio}>{j.fuente}</Fuente></div>}
               </div>
             ))}
             {dsd.orden_final && (
@@ -397,7 +445,10 @@ function VistaV3({ informe }: { informe: any }) {
           {adm.presupuesto?.tipo && <p className="flex items-start gap-1.5"><span>{adm.presupuesto.tipo === 'excluyente' ? '🔴' : '•'}</span> Presupuesto: {adm.presupuesto.tipo === 'excluyente' ? 'EXCLUYENTE — no superar el techo' : 'referencial'} <Fuente>{adm.presupuesto.fuente}</Fuente></p>}
           {adm.cotizar_100?.aplica && <p className="flex items-start gap-1.5 text-red-700"><Ban size={13} className="mt-0.5 flex-shrink-0" /> Cotizar el 100% — falta 1 ítem = fuera <Fuente>{adm.cotizar_100.fuente}</Fuente></p>}
           {adm.boleta?.aplica && <p className="flex items-start gap-1.5"><span>•</span> Boleta: {adm.boleta.detalle || `sobre ${adm.boleta.umbral_utm ?? 1000} UTM`}{adm.boleta.exigida_bajo_umbral ? ' (exigida aun bajo el umbral)' : ''} <Fuente>{adm.boleta.fuente}</Fuente></p>}
-          {adm.plazo_maximo?.existe && <p className="flex items-start gap-1.5"><span>•</span> Plazo máximo: {adm.plazo_maximo.valor} — superarlo = inadmisible <Fuente>{adm.plazo_maximo.fuente}</Fuente></p>}
+          {adm.fiel_cumplimiento?.exige && <p className="flex items-start gap-1.5 text-amber-700"><span>⚠</span> Garantía de fiel cumplimiento{adm.fiel_cumplimiento.forma ? ` (${cap(adm.fiel_cumplimiento.forma)})` : ''}{adm.fiel_cumplimiento.plazo_entrega ? ` — entregar en ${adm.fiel_cumplimiento.plazo_entrega}` : ''} · fuerza cadena LARGA <Fuente>{adm.fiel_cumplimiento.fuente}</Fuente></p>}
+          {adm.contrato?.exige && <p className="flex items-start gap-1.5"><span>•</span> Suscripción de contrato{adm.contrato.plazos ? ` — ${adm.contrato.plazos}` : ''} · fuerza cadena LARGA <Fuente>{adm.contrato.fuente}</Fuente></p>}
+          {adm.seriedad_oferta?.exige && <p className="flex items-start gap-1.5"><span>•</span> Garantía de seriedad de la oferta exigida <Fuente>{adm.seriedad_oferta.fuente}</Fuente></p>}
+          {(adm.plazo_entrega_rango?.min || adm.plazo_entrega_rango?.max) && <p className="flex items-start gap-1.5"><span>•</span> Plazo de entrega: {adm.plazo_entrega_rango.min ? `mín ${adm.plazo_entrega_rango.min}` : ''}{adm.plazo_entrega_rango.min && adm.plazo_entrega_rango.max ? ' · ' : ''}{adm.plazo_entrega_rango.max ? `máx ${adm.plazo_entrega_rango.max}` : ''}{adm.plazo_entrega_rango.fuera_de_rango_inadmisible ? ' — fuera de rango = inadmisible' : ''} <Fuente>{adm.plazo_entrega_rango.fuente}</Fuente></p>}
           {adm.marca_exclusiva?.es_exclusiva && <p className="flex items-start gap-1.5 text-amber-700"><span>⚠</span> MARCA EXCLUSIVA sin "o equivalente" — riesgo margen <Fuente>{adm.marca_exclusiva.fuente}</Fuente></p>}
           {adm.marca_exclusiva && !adm.marca_exclusiva.es_exclusiva && adm.marca_exclusiva.admite_equivalente && <p className="flex items-start gap-1.5 text-emerald-700"><span>✓</span> Admite "o equivalente" — puerta abierta <Fuente>{adm.marca_exclusiva.fuente}</Fuente></p>}
           {(adm.bloqueantes || []).map((b: any, i: number) => <p key={'bl' + i} className="flex items-start gap-1.5 text-red-700"><Ban size={13} className="mt-0.5 flex-shrink-0" /> {b.item} <Fuente>{b.fuente}</Fuente></p>)}
@@ -433,12 +484,15 @@ function VistaV3({ informe }: { informe: any }) {
       {(plz.colchon_dias_corridos != null || (plz.hitos?.length ?? 0) > 0) && (
         <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Plazos (colchón administrativo)" badge={plz.colchon_dias_corridos != null ? `colchón ${plz.colchon_dias_corridos} días` : undefined} defaultOpen>
           <p className="text-[13px] text-slate-700 mb-2"><strong>Colchón:</strong> ≈ {plz.colchon_dias_corridos ?? '—'} días corridos · cadena {cap(plz.cadena)}{plz.ventana_importacion ? ' · ✅ VENTANA PARA IMPORTAR' : ''}</p>
+          {plz.cadena === 'larga' && (plz.gatillo_cadena_larga?.exige_fiel_cumplimiento || plz.gatillo_cadena_larga?.exige_contrato) && (
+            <p className="text-[12px] text-amber-700 mb-2">⚠ Cadena LARGA por {[plz.gatillo_cadena_larga?.exige_fiel_cumplimiento ? 'garantía de fiel cumplimiento' : '', plz.gatillo_cadena_larga?.exige_contrato ? 'suscripción de contrato' : ''].filter(Boolean).join(' + ')} <Fuente>{plz.gatillo_cadena_larga?.fuente}</Fuente></p>
+          )}
           {plz.frontera?.descripcion && <div className="text-[12px] text-slate-600 mb-2 bg-slate-50 rounded-lg p-2"><span className="font-semibold text-slate-700">Frontera (arranca la entrega):</span> {plz.frontera.descripcion}{plz.frontera.base_computo ? ` · ${cap(plz.frontera.base_computo)}` : ''} <Fuente>{plz.frontera.fuente}</Fuente></div>}
           <div className="space-y-1.5">
             {(plz.hitos || []).map((h: any, i: number) => (
               <div key={i} className="flex items-start gap-2 text-[13px]">
                 <span className="w-1.5 h-1.5 rounded-full bg-violet-400 mt-1.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0"><p className="text-slate-700">{h.hito}{h.duracion != null ? ` — ${h.duracion} ${h.unidad || ''}` : ''}{h.inferido ? ' (inferido ⚠)' : ''}</p>{h.fuente && <p className="text-[11px] text-slate-400"><Fuente>{h.fuente}</Fuente></p>}</div>
+                <div className="flex-1 min-w-0"><p className="text-slate-700">{h.hito}{h.duracion != null ? ` — ${h.duracion} ${h.unidad || ''}` : ''}{h.duracion_corridos != null && h.duracion_corridos > 0 && h.unidad !== 'corridos' ? ` (≈ ${h.duracion_corridos} corridos)` : ''}{h.inferido ? ' (inferido ⚠)' : ''}</p>{h.fuente && <p className="text-[11px] text-slate-400"><Fuente>{h.fuente}</Fuente></p>}</div>
               </div>
             ))}
           </div>
