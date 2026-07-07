@@ -1061,6 +1061,23 @@ export async function analizarViabilidadIA(codigo: string): Promise<ViabilidadIA
     } else if (det) {
       // El LLM ya coincidía con la estructura → refuerza el estado a DETERMINADA.
       saneado.modalidad.estado = 'DETERMINADA';
+    } else if (saneado.modalidad.tipo === 'por_linea') {
+      // RED DE SEGURIDAD (misma doctrina que el v3): veredicto AMBIGUO + LLM dijo por_linea SIN
+      // evidencia objetiva (ni lenguaje explícito, ni ≥2 fichas "Línea N°", ni numeración que
+      // reinicia) → default SEGURO suma_alzada + REVISION_HUMANA. por_linea exige evidencia positiva.
+      const hayEvidenciaPorLinea = !!lenguajePorLinea
+        || lineasForm.length >= 2
+        || (!!planilla && planilla.estructura === 'por_linea' && planilla.numeracion === 'reinicia');
+      if (!hayEvidenciaPorLinea) {
+        console.log(`[viabilidad-ia] ${codigo}: por_linea del LLM SIN evidencia objetiva → default seguro suma_alzada + REVISION_HUMANA.`);
+        saneado.modalidad.tipo = 'suma_alzada';
+        saneado.modalidad.estado = 'REVISION_HUMANA';
+        saneado.modalidad.como_se_adjudica = 'GLOBAL';
+        saneado.modalidad.evaluacion_puntaje = 'al_total';
+        saneado.modalidad.evidencia = saneado.modalidad.evidencia
+          ? `${saneado.modalidad.evidencia} [sin evidencia de oferta por línea → default suma alzada; requiere confirmación humana]`
+          : `sin evidencia objetiva de oferta por línea → default suma alzada; requiere confirmación humana`;
+      }
     }
   }
 
@@ -1382,6 +1399,26 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
       adj.como_se_adjudica = comoDet;
       adj.estado = 'DETERMINADA';
       adj.evidencia = adj.evidencia ? `${adj.evidencia} [ajuste por estructura del listado: ${det.motivo}]` : `derivado de la estructura del listado de ítems: ${det.motivo}`;
+    }
+  } else {
+    // RED DE SEGURIDAD (doctrina del proyecto: "por_linea exige EVIDENCIA POSITIVA"). Cuando el
+    // veredicto determinista es AMBIGUO (det=null: no hay planilla parseable ni total único
+    // detectado) y el LLM eligió POR_LINEAS SIN respaldo objetivo —ni lenguaje explícito de oferta
+    // por línea, ni ≥2 fichas "Línea N°", ni numeración que reinicia— NO le creemos: ese es el
+    // falso positivo más común (el modelo confunde "se adjudica por línea" —a quién— con "se
+    // cotiza por línea" —cómo—). Default SEGURO = GLOBAL (suma alzada, un único total) y se marca
+    // REVISION_HUMANA para que un humano confirme. Evita costeos por-línea equivocados.
+    const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
+    const hayEvidenciaPorLinea = !!lenguajePorLinea
+      || lineasForm.length >= 2
+      || (!!planilla && planilla.estructura === 'por_linea' && planilla.numeracion === 'reinicia');
+    if (comoLLM.includes('LINEA') && !hayEvidenciaPorLinea) {
+      console.log(`[viabilidad-ia-v3] ${codigo}: POR_LINEAS del LLM SIN evidencia objetiva → default seguro GLOBAL (suma_alzada) + REVISION_HUMANA.`);
+      adj.como_se_adjudica = 'GLOBAL';
+      adj.estado = 'REVISION_HUMANA';
+      adj.evidencia = adj.evidencia
+        ? `${adj.evidencia} [sin evidencia de oferta por línea → default suma alzada; requiere confirmación humana]`
+        : `sin evidencia objetiva de oferta por línea (ni lenguaje explícito, ni fichas "Línea N°", ni numeración que reinicia) → default suma alzada; requiere confirmación humana`;
     }
   }
 
