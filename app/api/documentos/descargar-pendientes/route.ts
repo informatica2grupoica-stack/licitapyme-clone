@@ -11,9 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { descargarDocumentosLicitacion } from '@/app/lib/mp-descarga-orquestador';
-import { procesarLicitacionCompleta } from '@/app/lib/pipeline-licitacion';
 import { getAuthedUser } from '@/app/lib/api-auth';
-import { iaTextoConfigurada } from '@/app/lib/gemini';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -155,16 +153,7 @@ export async function POST(request: NextRequest) {
       try {
         const res = await descargarDocumentosLicitacion(codigo);
         procesados.push({ codigo, exito: res.exito, nuevos: res.nuevos, error: res.error });
-
-        // Tras descargar, encadenar pipeline completo (clasificar → análisis → viabilidad).
-        // Best-effort: si falla, NO se rompe el lote — la descarga ya quedó guardada.
-        if (res.exito && iaTextoConfigurada()) {
-          try {
-            await procesarLicitacionCompleta(codigo);
-          } catch (e: any) {
-            console.warn(`[descargar-pendientes] pipeline falló para ${codigo}:`, e.message);
-          }
-        }
+        // Solo descarga: el análisis/viabilidad es una acción MANUAL (botón "Analizar").
       } catch (e: any) {
         procesados.push({ codigo, exito: false, nuevos: 0, error: e.message });
       }

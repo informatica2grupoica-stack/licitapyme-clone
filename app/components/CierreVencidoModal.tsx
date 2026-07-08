@@ -26,7 +26,7 @@ type Resolucion = 'postulo' | 'descarto';
 
 function PendienteCard({ p, onResuelto }: { p: Pendiente; onResuelto: (id: number) => void }) {
   const [resolucion, setResolucion] = useState<Resolucion | null>(null);
-  const [estadoPostulado, setEstadoPostulado] = useState('7POSTULADO_JV');
+  const [estadoPostulado, setEstadoPostulado] = useState('POSTULADA');
   const [motivoSel, setMotivoSel] = useState('');
   const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
@@ -133,7 +133,7 @@ function PendienteCard({ p, onResuelto }: { p: Pendiente; onResuelto: (id: numbe
               onChange={e => setEstadoPostulado(e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[12.5px] text-slate-700 bg-white outline-none focus:ring-2 focus:ring-emerald-500"
             >
-              <option value="7POSTULADO_JV">Postulada</option>
+              <option value="POSTULADA">Postulada</option>
             </select>
           )}
           {resolucion === 'descarto' && (

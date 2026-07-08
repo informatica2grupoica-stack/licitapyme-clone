@@ -77,11 +77,11 @@ export async function GET(request: NextRequest) {
              WHERE al.licitacion_codigo = p.licitacion_codigo AND al.licitacion_estado = 'Publicada')
          GROUP BY p.decision`);
       // Pipeline = negocios EN TRABAJO (excluye las DESCARTADA: ya no se trabajan).
-      const pipeline   = await q(`SELECT COALESCE(estado_pipeline,'1ASIGNADO') AS etapa, COUNT(*) AS n
-         FROM negocios WHERE activo = TRUE AND COALESCE(estado_pipeline,'1ASIGNADO') <> 'DESCARTADA'
+      const pipeline   = await q(`SELECT COALESCE(estado_pipeline,'ASIGNADO') AS etapa, COUNT(*) AS n
+         FROM negocios WHERE activo = TRUE AND COALESCE(estado_pipeline,'ASIGNADO') <> 'DESCARTADA'
          GROUP BY etapa`);
       const [mPipe] = await q(`SELECT COALESCE(SUM(licitacion_monto),0) AS total
-         FROM negocios WHERE activo = TRUE AND COALESCE(estado_pipeline,'1ASIGNADO') <> 'DESCARTADA'`);
+         FROM negocios WHERE activo = TRUE AND COALESCE(estado_pipeline,'ASIGNADO') <> 'DESCARTADA'`);
       // Detectadas por día (últimos 14 días) para la tendencia.
       const porDia = await q(
         `SELECT DATE(created_at) AS dia, COUNT(DISTINCT licitacion_codigo) AS n
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
       // resto se arma en JS.
       const perfilRows = await q<{ uid: number; nombre: string | null; email: string; etapa: string; n: number; monto: number }>(
         `SELECT n.asignado_a AS uid, u.nombre, u.email,
-                COALESCE(n.estado_pipeline,'1ASIGNADO') AS etapa,
+                COALESCE(n.estado_pipeline,'ASIGNADO') AS etapa,
                 COUNT(*) AS n, COALESCE(SUM(n.licitacion_monto),0) AS monto
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
          WHERE n.activo = TRUE
@@ -120,11 +120,11 @@ export async function GET(request: NextRequest) {
     // ── Vista USUARIO: sus licitaciones asignadas ────────────────────────────────
     // (también se calcula para admins, por si quieren ver "lo mío")
     // Las DESCARTADA no cuentan como "en trabajo": fuera de conteos, montos y cierres.
-    const sinDescartadas = `AND COALESCE(n.estado_pipeline,'1ASIGNADO') <> 'DESCARTADA'`;
+    const sinDescartadas = `AND COALESCE(n.estado_pipeline,'ASIGNADO') <> 'DESCARTADA'`;
     const filtroNeg = verOtros ? '' : 'AND n.asignado_a = ?';
     const pNeg = verOtros ? [] : [sesion.id];
     const [misCount] = await q(`SELECT COUNT(*) AS n, COALESCE(SUM(licitacion_monto),0) AS monto FROM negocios n WHERE n.activo = TRUE ${sinDescartadas} ${filtroNeg}`, pNeg);
-    const miPipeline = await q(`SELECT COALESCE(estado_pipeline,'1ASIGNADO') AS etapa, COUNT(*) AS n FROM negocios n WHERE n.activo = TRUE ${sinDescartadas} ${filtroNeg} GROUP BY etapa`, pNeg);
+    const miPipeline = await q(`SELECT COALESCE(estado_pipeline,'ASIGNADO') AS etapa, COUNT(*) AS n FROM negocios n WHERE n.activo = TRUE ${sinDescartadas} ${filtroNeg} GROUP BY etapa`, pNeg);
     // "Próximos" = cierre (hora de pared de Chile) aún no ha pasado. Se compara contra la
     // hora de Chile, NO contra NOW() (el servidor MySQL corre en otra zona, UTC-6).
     const proximosCierres = await q(

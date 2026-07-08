@@ -8,8 +8,8 @@ import { ahoraChileSQL } from '@/app/lib/tz';
 
 // Estados que "cierran el ciclo": ya no se exige resolución.
 const ESTADOS_RESUELTOS = [
-  '7POSTULADO_JV', 'DESCARTADA',
-  'ADJ_JV', '8POSIBLE_ADJ', '9PERDIDA',
+  'POSTULADA', 'DESCARTADA',
+  'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA',
 ];
 
 function getUser(req: NextRequest) {
@@ -38,14 +38,14 @@ export async function GET(request: NextRequest) {
 
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
-              n.licitacion_cierre, COALESCE(n.estado_pipeline, '1ASIGNADO') AS estado_pipeline,
+              n.licitacion_cierre, COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline,
               u.nombre AS usuario_nombre, u.email AS usuario_email
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a
        WHERE n.activo = TRUE
          AND n.licitacion_cierre IS NOT NULL
          AND n.licitacion_cierre < ?
-         AND COALESCE(n.estado_pipeline, '1ASIGNADO') NOT IN (${ph})
+         AND COALESCE(n.estado_pipeline, 'ASIGNADO') NOT IN (${ph})
          ${filtroUsuario}
        ORDER BY n.licitacion_cierre ASC`,
       params,

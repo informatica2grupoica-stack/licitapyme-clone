@@ -108,7 +108,7 @@ export default function DescartadasPage() {
     }
   };
 
-  // Reactivar: vuelve a estado 1ASIGNADO (limpia el descarte) y, si se eligió otro usuario,
+  // Reactivar: vuelve a estado ASIGNADO (limpia el descarte) y, si se eligió otro usuario,
   // reasigna. Al revisarla puede volver a trabajarse.
   const reactivar = async (d: Descartada) => {
     setProcesando(d.id);
@@ -116,7 +116,7 @@ export default function DescartadasPage() {
       const destino = reasignarSel[d.id] ?? d.asignado_a;
       const res = await fetch(`/api/negocios/${d.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado_pipeline: '1ASIGNADO', asignado_a: destino }),
+        body: JSON.stringify({ estado_pipeline: 'ASIGNADO', asignado_a: destino }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al reactivar');
@@ -276,7 +276,7 @@ export default function DescartadasPage() {
                   <p className="text-[12.5px] text-slate-700">{d.descarte_motivo || '(sin motivo registrado)'}</p>
                 </div>
 
-                {/* Recuperar: reactivar (a 1ASIGNADO) y opcionalmente reasignar a otro usuario. */}
+                {/* Recuperar: reactivar (a ASIGNADO) y opcionalmente reasignar a otro usuario. */}
                 <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-2">
                   <span className="text-[11px] text-slate-400 font-medium">Volver a trabajar:</span>
                   <select

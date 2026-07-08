@@ -4,12 +4,18 @@ import { useState, useRef, useEffect } from 'react';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
-  Upload,
+  Upload, Trash2,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
+import { useConfirm } from '@/app/components/ui/confirm';
+import { useToast } from '@/app/components/ui/toast';
+
+// Categoría de documentos SUBIDOS por el equipo (los únicos que se pueden eliminar;
+// los oficiales descargados de Mercado Público quedan protegidos).
+const CAT_PROPIOS = 'DOCUMENTOS_PROPIOS';
 
 // ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
 // Estilo común a todas las cajas (neutro). El color real lo da el contenido.
@@ -69,14 +75,17 @@ function DocItem({
   isDragging,
   onView,
   onOpenIA,
+  onDelete,
 }: {
   doc: DocumentoAdjunto & { categoria?: string };
   onDragStart: (e: React.DragEvent, doc: DocumentoAdjunto) => void;
   isDragging: boolean;
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
+  onDelete?: (doc: DocumentoAdjunto & { categoria?: string }) => void;
 }) {
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
+  const esPropio = (doc.categoria || '').toUpperCase() === CAT_PROPIOS;
   return (
     <div
       draggable
@@ -126,6 +135,17 @@ function DocItem({
         >
           <Download size={11} />
         </a>
+        {esPropio && onDelete && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete(doc); }}
+            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+            title="Eliminar documento propio"
+            draggable={false}
+          >
+            <Trash2 size={11} />
+          </button>
+        )}
       </div>
     </div>
   );
@@ -146,6 +166,7 @@ function CajaDroppable({
   onView,
   onOpenIA,
   onUpload,
+  onDelete,
   subiendo,
 }: {
   caja: CajaConfig;
@@ -161,6 +182,7 @@ function CajaDroppable({
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onUpload: (file: File, categoria: string) => void;
+  onDelete: (doc: DocumentoAdjunto & { categoria?: string }) => void;
   subiendo: string | null; // key de la caja que está subiendo un archivo
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
@@ -219,6 +241,7 @@ function CajaDroppable({
             isDragging={draggingDoc?.nombre === doc.nombre}
             onView={onView}
             onOpenIA={onOpenIA}
+            onDelete={onDelete}
           />
         ))}
 
@@ -269,6 +292,48 @@ function DocumentosGrid({
   const [subiendo, setSubiendo] = useState<string | null>(null);
   const [errorSubida, setErrorSubida] = useState<string | null>(null);
   const dragEnterCount = useRef<Record<string, number>>({});
+  const confirmar = useConfirm();
+  const toast = useToast();
+
+  // Elimina un documento PROPIO (solo esa categoría). Confirma, llama al DELETE del
+  // backend (borra de R2 + caché) y actualiza el estado local de forma optimista.
+  const handleDelete = async (doc: DocumentoAdjunto & { categoria?: string }) => {
+    const ok = await confirmar({
+      titulo: '¿Eliminar documento?',
+      mensaje: `"${doc.nombre}" se eliminará de forma permanente. Esta acción no se puede deshacer.`,
+      confirmarLabel: 'Eliminar',
+      peligro: true,
+    });
+    if (!ok) return;
+
+    const cat = (doc.categoria || 'SIN_CATEGORIA');
+    // Optimista: sacarlo de su caja.
+    setGrupos(prev => {
+      const next: typeof prev = {};
+      for (const k in prev) next[k] = prev[k].filter(d => d.nombre !== doc.nombre);
+      return next;
+    });
+    try {
+      const res = await fetch(`/api/documentos/${encodeURIComponent(codigoDecoded)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: doc.url_local || doc.url, nombre: doc.nombre }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo eliminar');
+      toast.success('Documento eliminado');
+      onRefrescar();
+    } catch (e: any) {
+      // Revertir si falló.
+      setGrupos(prev => {
+        const next: typeof prev = {};
+        for (const k in prev) next[k] = [...prev[k]];
+        next[cat] = [...(next[cat] || []), doc];
+        return next;
+      });
+      toast.error('No se pudo eliminar', e?.message);
+    }
+  };
 
   // Sube un documento propio a la caja indicada: presign → PUT directo a R2 → guardar
   // en documentos_cache con su categoría (así la IA lo incluye en análisis posteriores).
@@ -438,6 +503,7 @@ function DocumentosGrid({
             onView={onView}
             onOpenIA={onOpenIA}
             onUpload={handleUpload}
+            onDelete={handleDelete}
             subiendo={subiendo}
           />
         ))}

@@ -11,12 +11,13 @@ import {
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
   ChevronDown, X, RefreshCw, Users, List, LayoutGrid,
   CalendarDays, ChevronLeft, ChevronRight, ArrowRight, FileText,
-  SlidersHorizontal, MapPin,
+  SlidersHorizontal, MapPin, Clock,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+import { semaforoRevision } from '@/app/lib/asignacion';
 
 interface Etiqueta { id: number; nombre: string; color: string; }
 
@@ -37,6 +38,7 @@ interface Negocio {
   usuario_email: string;
   etiquetas: Etiqueta[];
   comentarios_count: number;
+  created_at: string;
   updated_at: string;
   tiene_documentos?: number;
   viabilidad_semaforo?: string | null;
@@ -59,7 +61,7 @@ const SEMAFORO: Record<string, { label: string; color: string; bg: string; text:
 const TIPOS_FILTRO = TIPOS_LICITACION.map(t => t.codigo);
 
 function PipelineBadge({ estadoId }: { estadoId: string | null }) {
-  const e = getEstadoPipeline(estadoId || '1ASIGNADO');
+  const e = getEstadoPipeline(estadoId || 'ASIGNADO');
   if (!e) return null;
   return (
     <span
@@ -282,6 +284,7 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
     : dias.replace('d', '') !== '' && parseInt(dias) <= 3 ? 'text-red-500 font-semibold'
     : parseInt(dias) <= 7 ? 'text-orange-500' : 'text-gray-500';
   const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
+  const sem = (neg.estado_pipeline || '') !== 'DESCARTADA' ? semaforoRevision(neg.updated_at) : null;
   return (
     <Link
       href={`/negocios/${neg.id}`}
@@ -332,6 +335,130 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
       <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-50 gap-2">
         <span className="text-[12px] text-gray-700 font-medium truncate">{formatMonto(neg.licitacion_monto)}</span>
         {dias && <span className={`text-[11px] flex-shrink-0 ${diasCls}`}>{dias}</span>}
+      </div>
+      {sem && (
+        <div className="flex items-center justify-between gap-2 mt-1.5 text-[10px]">
+          {neg.created_at && (
+            <span className="text-slate-400 inline-flex items-center gap-1" title={`Asignada el ${dayjs(neg.created_at).format('DD/MM/YYYY HH:mm')}`}>
+              <Clock size={10} /> Asignada {dayjs(neg.created_at).format('DD/MM/YY')}
+            </span>
+          )}
+          <span className={`ml-auto inline-flex items-center gap-1 font-bold px-1.5 py-0.5 rounded-full ${sem.bg} ${sem.text}`}
+            title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
+            <span style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
+            {sem.etiqueta} sin cambios
+          </span>
+        </div>
+      )}
+    </Link>
+  );
+}
+
+// ── Fila de lista (vista "lista") — mismo layout limpio y alineado que el Radar,
+// pero con los datos del negocio (perfil, pipeline, semáforo de frescura). Segmentos
+// de ancho fijo → todo queda en columnas alineadas (a diferencia de la tabla anterior).
+function NegocioListItem({ neg, isAdmin, onEliminar }: {
+  neg: Negocio; isAdmin: boolean; onEliminar: (id: number) => void;
+}) {
+  const tipo   = extractTipoFromCodigo(neg.licitacion_codigo || '');
+  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
+  const col    = colorUsuario(neg.usuario_email || neg.usuario_nombre);
+  const descartada = (neg.estado_pipeline || '') === 'DESCARTADA';
+  const dias   = diasRestantes(neg.licitacion_cierre);
+  const diasCls = dias === 'Vencida' ? 'text-slate-400'
+    : (parseInt(dias) <= 3 ? 'text-red-600 font-semibold' : parseInt(dias) <= 7 ? 'text-orange-500' : 'text-slate-400');
+  const viab   = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
+  const sem    = !descartada ? semaforoRevision(neg.updated_at) : null;
+  const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
+
+  return (
+    <Link
+      href={`/negocios/${neg.id}`}
+      style={{ borderLeftColor: descartada ? '#DC2626' : col, borderLeftWidth: 3 }}
+      className={`group relative flex items-center gap-3 rounded-lg pl-3.5 pr-3 py-2.5 border transition-all ${
+        descartada ? 'bg-red-50/40 border-red-200 hover:bg-red-50' : 'bg-white border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/30'
+      }`}
+    >
+      {/* Tipo + código (+ perfil para admin) */}
+      <div className="flex-shrink-0 w-36">
+        <div className="flex items-center gap-1 mb-1">
+          {tipo && <span className={`${tipoBg} text-white text-[9px] font-black px-1.5 py-0.5 rounded`}>{tipo}</span>}
+          <span className="text-[10px] font-mono text-slate-500 truncate" title={neg.licitacion_codigo}>{neg.licitacion_codigo}</span>
+        </div>
+        {isAdmin && (
+          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400 max-w-full truncate" title={neg.usuario_nombre || neg.usuario_email}>
+            <span style={{ background: col }} className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-bold flex-shrink-0">{iniciales}</span>
+            <span className="truncate">{neg.usuario_nombre || neg.usuario_email}</span>
+          </span>
+        )}
+      </div>
+
+      {/* Nombre + organismo + pipeline/etiquetas */}
+      <div className="flex-1 min-w-0">
+        <p className="text-[12.5px] font-semibold text-slate-900 truncate group-hover:text-indigo-600 transition-colors" title={neg.licitacion_nombre}>
+          {neg.licitacion_nombre || neg.licitacion_codigo}
+        </p>
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+          <PipelineBadge estadoId={neg.estado_pipeline} />
+          {neg.licitacion_organismo && (
+            <span className="text-[10.5px] text-slate-500 truncate max-w-[240px]" title={neg.licitacion_organismo}>{neg.licitacion_organismo}</span>
+          )}
+          {neg.etiquetas.slice(0, 2).map(et => (
+            <span key={et.id} style={{ backgroundColor: et.color + '20', color: et.color, borderColor: et.color + '40' }}
+              className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold border flex-shrink-0">{et.nombre}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* Monto + cierre (fecha + hora Chile) */}
+      <div className="flex-shrink-0 w-32 text-right hidden sm:block">
+        <p className="text-[11.5px] font-bold text-emerald-700">{formatMonto(neg.licitacion_monto)}</p>
+        {neg.monto_ofertado > 0 && <p className="text-[9.5px] text-slate-400">Ofertó {formatMonto(neg.monto_ofertado)}</p>}
+        {neg.licitacion_cierre && (
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            {new Date(neg.licitacion_cierre).toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: '2-digit' })}
+            {' · '}
+            {new Date(neg.licitacion_cierre).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}
+            {' '}<span className={diasCls}>({dias})</span>
+          </p>
+        )}
+      </div>
+
+      {/* Badges: viabilidad + docs + semáforo de frescura */}
+      <div className="flex-shrink-0 hidden lg:flex items-center justify-end gap-1.5 w-44">
+        {viab && (
+          <span style={{ backgroundColor: viab.color + '18', color: viab.color, borderColor: viab.color + '40' }}
+            className="inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border flex-shrink-0" title={`Viabilidad: ${viab.label}`}>
+            <span style={{ background: viab.color }} className="w-1.5 h-1.5 rounded-full" />
+            {viab.label}{neg.viabilidad_score != null ? ` ${neg.viabilidad_score}` : ''}
+          </span>
+        )}
+        {neg.tiene_documentos ? (
+          <span className="inline-flex items-center gap-1 text-[9px] font-semibold text-teal-700 bg-teal-50 border border-teal-100 px-1.5 py-0.5 rounded-full flex-shrink-0">
+            <FileText size={9} /> Docs
+          </span>
+        ) : null}
+        {sem && (
+          <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${sem.bg} ${sem.text}`}
+            title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
+            <span style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
+            {sem.etiqueta}
+          </span>
+        )}
+      </div>
+
+      {/* Acciones */}
+      <div className="flex-shrink-0 flex items-center gap-1" onClick={e => e.preventDefault()}>
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 group-hover:text-indigo-700">
+          Ver <ArrowRight size={12} />
+        </span>
+        {isAdmin && (
+          <button onClick={e => { e.preventDefault(); onEliminar(neg.id); }}
+            className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors opacity-0 group-hover:opacity-100"
+            title="Quitar de Negocios">
+            <Trash2 size={13} />
+          </button>
+        )}
       </div>
     </Link>
   );
@@ -462,11 +589,13 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
   const dias   = neg.licitacion_cierre
     ? Math.ceil((new Date(neg.licitacion_cierre).getTime() - Date.now()) / 86400000)
     : null;
-  const pipeline = getEstadoPipeline(neg.estado_pipeline || '1ASIGNADO');
+  const pipeline = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO');
   const descartada = (neg.estado_pipeline || '') === 'DESCARTADA';
   const viab     = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
   const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
   const nombrePerfil = neg.usuario_nombre || neg.usuario_email || '';
+  // Semáforo de frescura: días sin cambio de estado (no aplica a descartadas).
+  const sem = !descartada ? semaforoRevision(neg.updated_at) : null;
 
   return (
     <button
@@ -486,6 +615,14 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
           </span>
         )}
       </div>
+
+      {/* Hora de cierre — el calendario agrupa por día; aquí se ve la HORA exacta. */}
+      {neg.licitacion_cierre && (
+        <div className="flex items-center gap-1 mb-1.5 text-[9.5px] font-semibold text-slate-500">
+          <Clock size={10} className="text-slate-400" />
+          Cierra {dayjs(neg.licitacion_cierre).format('HH:mm')} h
+        </div>
+      )}
 
       {/* Nombre */}
       <p className="text-[11.5px] font-semibold text-slate-800 line-clamp-2 leading-snug mb-1.5 group-hover:text-indigo-700 transition-colors" title={neg.licitacion_nombre}>
@@ -539,6 +676,22 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
           </span>
         )}
       </div>
+
+      {/* Asignación + semáforo de frescura (días sin cambio de estado) */}
+      {sem && (
+        <div className="flex items-center justify-between gap-1.5 mt-1.5 pt-1.5 border-t border-slate-50 text-[9px]">
+          {neg.created_at && (
+            <span className="text-slate-400" title={`Asignada el ${dayjs(neg.created_at).format('DD/MM/YYYY HH:mm')}`}>
+              Asignada {dayjs(neg.created_at).format('DD/MM')}
+            </span>
+          )}
+          <span className={`ml-auto inline-flex items-center gap-1 font-bold px-1.5 py-0.5 rounded-full ${sem.bg} ${sem.text}`}
+            title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
+            <span style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
+            {sem.etiqueta}
+          </span>
+        </div>
+      )}
     </button>
   );
 }
@@ -578,7 +731,7 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
   const dias   = neg.licitacion_cierre
     ? Math.ceil((new Date(neg.licitacion_cierre).getTime() - Date.now()) / 86400000)
     : null;
-  const e = getEstadoPipeline(neg.estado_pipeline || '1ASIGNADO');
+  const e = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO');
   const viab = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
   const inf  = extra?.viabilidad_informe;
 
@@ -1015,7 +1168,7 @@ function NegociosContent() {
         n.etiquetas.some(e => String(e.id) === filtroEtiqueta);
       const tipoDelCodigo = extractTipoFromCodigo(n.licitacion_codigo || '');
       const matchTipo = filtroTipo === '' || tipoDelCodigo === filtroTipo;
-      const matchEstado = filtroEstado === '' || (n.estado_pipeline || '1ASIGNADO') === filtroEstado;
+      const matchEstado = filtroEstado === '' || (n.estado_pipeline || 'ASIGNADO') === filtroEstado;
       return matchSearch && matchEt && matchTipo && matchEstado;
     });
   }, [negocios, search, filtroEtiqueta, filtroTipo, filtroEstado]);
@@ -1217,128 +1370,10 @@ function NegociosContent() {
             /* ── Vista calendario mensual ── */
             <VistaCalendario negocios={negociosFiltrados} onAbrirDia={setDiaSel} />
           ) : (
-            <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
-              {/* Tabla header */}
-              <div className="hidden md:grid grid-cols-[1fr_2.5fr_1.5fr_1fr_1.2fr_1fr_auto] gap-3 px-4 py-2.5 bg-slate-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                <span>ID</span>
-                <span>Nombre</span>
-                <span>Organismo</span>
-                <span>Tipo</span>
-                <span>Monto disponible</span>
-                <span>Cierre</span>
-                <span></span>
-              </div>
-
-              {/* Filas */}
-              <div className="divide-y divide-gray-50">
-                {negociosFiltrados.map(neg => {
-                  const estadoCls = ESTADO_COLOR[neg.licitacion_estado || ''] || 'bg-slate-100 text-gray-500';
-                  const tipo  = extractTipoFromCodigo(neg.licitacion_codigo || '');
-                  const tipoBg = TIPO_COLOR_CLASS[tipo] || 'bg-gray-400';
-                  const dias = diasRestantes(neg.licitacion_cierre);
-                  const diasCls = dias === 'Vencida' ? 'text-gray-400' :
-                    dias.replace('d', '') !== '' && parseInt(dias) <= 3 ? 'text-red-500 font-semibold' :
-                    parseInt(dias) <= 7 ? 'text-orange-500' : 'text-gray-500';
-
-                  return (
-                    <Link
-                      key={neg.id}
-                      href={`/negocios/${neg.id}`}
-                      className="grid md:grid-cols-[1fr_2.5fr_1.5fr_1fr_1.2fr_1fr_auto] gap-3 px-4 py-3.5 hover:bg-blue-50/30 transition-colors items-center group"
-                    >
-                      {/* ID + usuario */}
-                      <div>
-                        <p className="text-xs font-mono text-gray-600 font-semibold">{neg.licitacion_codigo}</p>
-                        {isAdmin && (
-                          <p className="text-xs text-gray-400 mt-0.5 flex items-center gap-1">
-                            <Users size={9} /> {neg.usuario_nombre || neg.usuario_email}
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Nombre + etiquetas + pipeline */}
-                      <div>
-                        <p className="text-sm text-gray-800 line-clamp-1 font-medium group-hover:text-indigo-600 transition-colors">
-                          {neg.licitacion_nombre || 'Sin nombre'}
-                        </p>
-                        <div className="flex flex-wrap gap-1 mt-1">
-                          <PipelineBadge estadoId={neg.estado_pipeline} />
-                          {neg.etiquetas.slice(0, 2).map(et => (
-                            <span
-                              key={et.id}
-                              style={{ backgroundColor: et.color + '20', color: et.color, borderColor: et.color + '40' }}
-                              className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold border"
-                            >
-                              {et.nombre}
-                            </span>
-                          ))}
-                          {neg.comentarios_count > 0 && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-gray-500">
-                              {neg.comentarios_count} com.
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Organismo */}
-                      <p className="text-xs text-gray-500 line-clamp-2 hidden md:block">
-                        {neg.licitacion_organismo}
-                      </p>
-
-                      {/* Tipo */}
-                      <div className="hidden md:block">
-                        {tipo && (
-                          <span className={`${tipoBg} text-white text-xs px-2 py-0.5 rounded font-bold`}>
-                            {tipo}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Monto */}
-                      <div className="hidden md:block">
-                        <p className="text-sm text-gray-700 font-medium">{formatMonto(neg.licitacion_monto)}</p>
-                        {neg.monto_ofertado > 0 && (
-                          <p className="text-xs text-gray-400">Ofertado: {formatMonto(neg.monto_ofertado)}</p>
-                        )}
-                      </div>
-
-                      {/* Cierre: fecha + HORA exacta (hora de Chile). El estado se inactiva
-                          a esa hora puntual (diasRestantes usa el datetime completo). */}
-                      <div className="hidden md:block text-sm">
-                        {neg.licitacion_cierre ? (
-                          <>
-                            <p className="text-gray-600">
-                              {new Date(neg.licitacion_cierre).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' })}
-                              {' '}
-                              <span className="text-gray-500 font-medium">
-                                {new Date(neg.licitacion_cierre).toLocaleTimeString('es-CL', { timeZone: 'America/Santiago', hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </p>
-                            <p className={`text-xs ${diasCls}`}>{dias}</p>
-                          </>
-                        ) : <span className="text-gray-400">—</span>}
-                      </div>
-
-                      {/* Acciones */}
-                      <div className="flex items-center gap-1" onClick={e => e.preventDefault()}>
-                        {neg.licitacion_estado && (
-                          <span className={`text-xs px-2 py-0.5 rounded-full hidden lg:inline-flex ${estadoCls}`}>
-                            {neg.licitacion_estado}
-                          </span>
-                        )}
-                        {isAdmin && (
-                          <button
-                            onClick={e => { e.preventDefault(); eliminar(neg.id); }}
-                            className="p-1.5 hover:bg-red-50 rounded-lg text-gray-300 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </Link>
-                  );
-                })}
-              </div>
+            <div className="space-y-1.5">
+              {negociosFiltrados.map(neg => (
+                <NegocioListItem key={neg.id} neg={neg} isAdmin={isAdmin} onEliminar={eliminar} />
+              ))}
             </div>
           )
         )}

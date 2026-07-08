@@ -60,10 +60,9 @@ const PREFILTRO: Record<string, { label: string; color: string }> = {
   REVISION_HUMANA: { label: 'Revisar',  color: '#ca8a04' },
   EXCLUIDO:        { label: 'Excluida', color: '#9ca3af' },
 };
-const ETAPA: Record<string, string> = {
-  '1ASIGNADO': 'Asignado', '3REVISION': 'En revisión',
-  '4ANEXOS': 'Anexos', '5OFERTA': 'Oferta', '6ENVIADA': 'Enviada', '7GANADA': 'Ganada', '8PERDIDA': 'Perdida',
-};
+// Nombre visible de una etapa del pipeline — resuelto desde la fuente de verdad
+// (app/lib/pipeline.ts), tolerante a ids legados vía getEstadoPipeline.
+const etapaLabel = (id: string) => getEstadoPipeline(id)?.label || id;
 const PIPE_COLORS = ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444'];
 
 function StatCard({ icon, label, value, sub, color = 'indigo', href }: {
@@ -191,7 +190,7 @@ function VistaAdmin({ data }: { data: DashData }) {
     n: p.n,
     color: PREFILTRO[p.decision]?.color || '#9ca3af',
   }));
-  const pipeData = a.pipeline.map((p, i) => ({ etapa: ETAPA[p.etapa] || p.etapa, n: p.n, color: PIPE_COLORS[i % PIPE_COLORS.length] }));
+  const pipeData = a.pipeline.map((p, i) => ({ etapa: etapaLabel(p.etapa), n: p.n, color: PIPE_COLORS[i % PIPE_COLORS.length] }));
   const tendencia = a.porDia.map(d => ({ dia: fmtFecha(d.dia), n: Number(d.n) }));
   const totalViab = viabData.reduce((s, v) => s + v.value, 0);
 
@@ -430,7 +429,7 @@ function MiniFlujo({ pipeline }: { pipeline: { etapa: string; n: number }[] }) {
 function VistaUsuario({ data }: { data: DashData }) {
   const u = data.usuario;
   const pipeData = u.pipeline.map((p, i) => ({
-    name: ETAPA[p.etapa] || p.etapa,
+    name: etapaLabel(p.etapa),
     value: p.n,
     color: PIPE_COLORS[i % PIPE_COLORS.length],
   }));

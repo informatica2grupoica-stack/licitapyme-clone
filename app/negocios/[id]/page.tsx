@@ -8,6 +8,7 @@ import { useToast }   from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useSession } from '@/app/lib/session-context';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
+import { semaforoRevision } from '@/app/lib/asignacion';
 import { MOTIVOS_DESCARTE, componerMotivo } from '@/app/lib/motivos-descarte';
 import { ViabilidadIAPanel } from '@/app/licitacion/[codigo]/sections/ViabilidadIAPanel';
 import { InteligenciaSection } from '@/app/licitacion/[codigo]/sections/InteligenciaSection';
@@ -50,6 +51,7 @@ interface Negocio {
   admin_nombre:         string | null;
   etiquetas:            Etiqueta[];
   created_at:           string;
+  updated_at:           string;
 }
 
 interface LicitacionRaw {
@@ -540,11 +542,14 @@ function SeccionResumen({
   );
 }
 
-// ── Sección Fechas ─────────────────────────────────────────────────────────────
+// ── Sección Fechas (timeline) ──────────────────────────────────────────────────
+// Ordena los hitos cronológicamente y marca en cuál vamos: las cumplidas quedan en
+// verde con ✓, el próximo hito (el primero aún no vencido) se resalta con una animación
+// para saber "de un vistazo" en qué etapa del proceso estamos.
 function SeccionFechas({ licitacion }: { licitacion: LicitacionRaw | null }) {
   if (!licitacion) return <div className="text-[13px] text-zinc-400 py-8 text-center">Cargando datos de la API…</div>;
 
-  const FECHAS = [
+  const RAW = [
     { label: 'Publicación',              value: licitacion.FechaPublicacion },
     { label: 'Cierre',                   value: licitacion.FechaCierre },
     { label: 'Creación',                 value: licitacion.FechaCreacion },
@@ -559,27 +564,78 @@ function SeccionFechas({ licitacion }: { licitacion: LicitacionRaw | null }) {
     { label: 'Entrega antecedentes',     value: licitacion.FechaEntregaAntecedentes },
   ].filter(f => f.value);
 
+  // Parsear + ordenar cronológicamente (se descartan las que no parsean).
+  const items = RAW
+    .map(f => ({ ...f, t: new Date(f.value as string).getTime() }))
+    .filter(f => !Number.isNaN(f.t))
+    .sort((a, b) => a.t - b.t);
+
+  const ahora = Date.now();
+  // "Vamos aquí" = primer hito aún no cumplido (fecha >= ahora). -1 si todo ya pasó.
+  const idxProxima = items.findIndex(f => f.t >= ahora);
+
+  const fmtRel = (t: number) => {
+    const d = Math.round((t - ahora) / 86_400_000);
+    if (d === 0) return 'hoy';
+    if (d === 1) return 'mañana';
+    if (d === -1) return 'ayer';
+    return d > 0 ? `en ${d} días` : `hace ${-d} días`;
+  };
+
   return (
     <div className="bg-white border border-zinc-200/60 rounded-xl overflow-hidden">
       <div className="px-5 py-3.5 border-b border-zinc-100">
         <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider">
-          Fechas ({FECHAS.length})
+          Fechas ({items.length})
         </h3>
       </div>
-      <div className="divide-y divide-zinc-50">
-        {FECHAS.map(f => (
-          <div key={f.label} className="flex items-center justify-between px-5 py-3">
-            <div className="flex items-center gap-2 text-[13px] text-zinc-600">
-              <Calendar size={13} className="text-zinc-400 flex-shrink-0" />
-              {f.label}
-            </div>
-            <span className="text-[13px] font-semibold text-zinc-800">{fmtFecha(f.value)}</span>
-          </div>
-        ))}
-        {FECHAS.length === 0 && (
-          <p className="px-5 py-6 text-[13px] text-zinc-400 text-center">Sin fechas disponibles</p>
-        )}
-      </div>
+      {items.length === 0 ? (
+        <p className="px-5 py-6 text-[13px] text-zinc-400 text-center">Sin fechas disponibles</p>
+      ) : (
+        <ol className="px-5 py-4">
+          {items.map((f, i) => {
+            const pasada  = f.t < ahora;
+            const proxima = i === idxProxima;
+            const ultimo  = i === items.length - 1;
+            return (
+              <li key={f.label} className="relative flex gap-3 pb-4 last:pb-0">
+                {/* Línea conectora entre hitos */}
+                {!ultimo && (
+                  <span className={`absolute left-[7px] top-4 bottom-0 w-px ${pasada ? 'bg-emerald-200' : 'bg-zinc-200'}`} />
+                )}
+                {/* Punto del hito */}
+                <span className="relative flex-shrink-0 mt-0.5">
+                  {proxima && <span className="absolute -inset-1 rounded-full bg-violet-400/40 animate-ping" />}
+                  <span className={`relative flex items-center justify-center w-3.5 h-3.5 rounded-full border-2 ${
+                    proxima ? 'bg-violet-600 border-violet-600'
+                    : pasada ? 'bg-emerald-500 border-emerald-500'
+                    : 'bg-white border-zinc-300'
+                  }`}>
+                    {pasada && <Check size={8} className="text-white" strokeWidth={3} />}
+                  </span>
+                </span>
+                {/* Contenido */}
+                <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className={`text-[13px] leading-tight ${
+                      proxima ? 'font-bold text-violet-700' : pasada ? 'text-zinc-400' : 'font-medium text-zinc-700'
+                    }`}>
+                      {f.label}
+                      {proxima && (
+                        <span className="ml-2 inline-flex items-center text-[10px] font-bold text-violet-600 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full align-middle">
+                          Vamos aquí · {fmtRel(f.t)}
+                        </span>
+                      )}
+                    </p>
+                    <p className={`text-[11.5px] mt-0.5 ${pasada ? 'text-zinc-300' : 'text-zinc-500'}`}>{fmtFecha(f.value)}</p>
+                  </div>
+                  {pasada && <span className="flex-shrink-0 text-[10px] font-semibold text-emerald-600">Cumplida</span>}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </div>
   );
 }
@@ -1220,7 +1276,7 @@ function DetalleContent() {
     if (estadoId === 'DESCARTADA' && !motivo) { setDescarteOpen(true); return; }
     // Postular EXIGE el monto ofertado → abrimos el modal (muestra el presupuesto real).
     // El modal hace su propio PATCH (estado + monto), no vuelve a pasar por aquí.
-    if (estadoId === '7POSTULADO_JV') {
+    if (estadoId === 'POSTULADA') {
       setMontoPostular(String(negocio.monto_ofertado || ''));
       setPostularOpen(true);
       return;
@@ -1255,11 +1311,11 @@ function DetalleContent() {
     setPostularOpen(false);
     const estadoAnterior = negocio.estado_pipeline;
     const montoAnterior = negocio.monto_ofertado;
-    setNegocio(prev => prev ? { ...prev, estado_pipeline: '7POSTULADO_JV', monto_ofertado: monto } : prev);
+    setNegocio(prev => prev ? { ...prev, estado_pipeline: 'POSTULADA', monto_ofertado: monto } : prev);
     try {
       const res = await fetch(`/api/negocios/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado_pipeline: '7POSTULADO_JV', monto_ofertado: monto }),
+        body: JSON.stringify({ estado_pipeline: 'POSTULADA', monto_ofertado: monto }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
@@ -1526,8 +1582,8 @@ function DetalleContent() {
             <PipelineSelector current={negocio.estado_pipeline} onChange={cambiarEstado} />
             {/* Acciones rápidas: avanzar (En proceso) o descartar (con motivo). */}
             <div className="flex gap-1.5 mt-2">
-              {negocio.estado_pipeline !== '3EN_PROCESO' && (
-                <button onClick={() => cambiarEstado('3EN_PROCESO')}
+              {negocio.estado_pipeline !== 'EN_PROCESO' && (
+                <button onClick={() => cambiarEstado('EN_PROCESO')}
                   className="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg py-1.5 transition-colors">
                   <PlayCircle size={12} /> En proceso
                 </button>
@@ -1540,6 +1596,27 @@ function DetalleContent() {
               )}
             </div>
           </div>
+
+          {/* Asignación: cuándo se asignó + semáforo de días sin cambio de estado
+              (verde 0-1 · amarillo 2 · rojo 3+). El punto late para llamar la atención. */}
+          {(() => {
+            const sem = (negocio.estado_pipeline || '') !== 'DESCARTADA' ? semaforoRevision(negocio.updated_at) : null;
+            return (
+              <div>
+                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Asignación</p>
+                <p className="text-[12px] text-zinc-600 font-medium">{fmtFecha(negocio.created_at)}</p>
+                {sem && (
+                  <span
+                    className={`mt-1.5 inline-flex items-center gap-1.5 text-[11px] font-bold px-2 py-1 rounded-lg ${sem.bg} ${sem.text}`}
+                    title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}
+                  >
+                    <span style={{ background: sem.color }} className="w-2 h-2 rounded-full animate-pulse" />
+                    {sem.etiqueta} sin cambios
+                  </span>
+                )}
+              </div>
+            );
+          })()}
 
           <div>
             <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Responsable</p>

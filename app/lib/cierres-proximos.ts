@@ -13,7 +13,7 @@ import { publicar } from '@/app/lib/sse-bus';
 import { enviarDigestCierresProximos, type LicitacionDigest } from '@/app/lib/email';
 
 // Estados que "cierran el ciclo" → ya no se avisa (mismos que el modal de vencidas).
-const ESTADOS_RESUELTOS = ['7POSTULADO_JV', 'DESCARTADA', 'ADJ_JV', '8POSIBLE_ADJ', '9PERDIDA'];
+const ESTADOS_RESUELTOS = ['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA'];
 
 interface FilaCierre {
   id: number; licitacion_codigo: string; licitacion_nombre: string | null;
@@ -45,7 +45,7 @@ export async function avisarCierresProximos(horas = 48): Promise<{ eventos: numb
          AND n.licitacion_cierre IS NOT NULL
          AND n.licitacion_cierre >= ?
          AND n.licitacion_cierre <= ?
-         AND COALESCE(n.estado_pipeline, '1ASIGNADO') NOT IN (${ph})
+         AND COALESCE(n.estado_pipeline, 'ASIGNADO') NOT IN (${ph})
          AND NOT EXISTS (
            SELECT 1 FROM historial_eventos h
            WHERE h.tipo = 'CIERRE_PROXIMO'

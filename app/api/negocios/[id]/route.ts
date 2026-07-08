@@ -29,7 +29,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const [rows] = await pool.query(
       `SELECT n.*,
-              COALESCE(n.estado_pipeline, '1ASIGNADO') AS estado_pipeline,
+              COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline,
               u.nombre AS usuario_nombre, u.email AS usuario_email,
               a.nombre AS admin_nombre,
               d.nombre AS descarte_por_nombre

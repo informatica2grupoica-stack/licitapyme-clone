@@ -12,11 +12,10 @@ import {
   BellOff, X, Clock, Search, Zap, ToggleLeft, ToggleRight,
   Sparkles, Filter, ChevronDown, FileText, Download, MapPin,
   ArrowUpDown, Eye, EyeOff, AlertCircle, Flame, SlidersHorizontal,
-  CheckSquare, Square, UserPlus, Undo2, UserCheck, PlayCircle,
-  Database, Ban, MinusCircle, History,
+  CheckSquare, Square, UserPlus, Undo2, UserCheck,
+  Ban, MinusCircle, History,
 } from 'lucide-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
-import { AUTOMATIZACION_PAUSADA } from '@/app/lib/automatizacion';
 import { Resaltar } from '@/app/components/Resaltar';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -1171,45 +1170,19 @@ export default function RadarPage() {
   const [etiquetas,     setEtiquetas]     = useState<Etiqueta[]>([]);
   const [agregando,     setAgregando]     = useState(false);
   const [actualizando,  setActualizando]  = useState(false);
+  // Texto de la fase en curso del botón "Actualizar" (intake → enriquecer → prefiltro).
+  const [faseActual,    setFaseActual]     = useState<string | null>(null);
   const [ultimaAct,     setUltimaAct]     = useState<string | null>(null);
   const [tab,           setTab]           = useState<'radar' | 'keywords'>('radar');
   const [filtrosOpen,   setFiltrosOpen]   = useState(true);
   const [exportando,    setExportando]    = useState(false);
   const [vistaRadar,    setVistaRadar]    = useState<'tarjetas' | 'lista'>('tarjetas');
 
-  // Descarga masiva de documentos
-  const [descargaInfo,   setDescargaInfo]   = useState<{ pendientes: number; total: number } | null>(null);
-  const [descargaActiva, setDescargaActiva] = useState(false);
-  const [descargaStats,  setDescargaStats]  = useState({ procesadas: 0, exitosas: 0, errores: 0 });
-
   // Descarga de documentos de NEGOCIOS (asignadas activas, todos los perfiles). Sin gate de prefiltro.
+  // Backlog de asignadas que quedaron sin docs (la descarga normal es AL ASIGNAR).
   const [descNegInfo,   setDescNegInfo]   = useState<{ pendientes: number; total: number } | null>(null);
   const [descNegActiva, setDescNegActiva] = useState(false);
   const [descNegStats,  setDescNegStats]  = useState({ procesadas: 0, exitosas: 0, errores: 0 });
-
-  // Análisis de viabilidad masivo (Fase 2)
-  const [viabPendientes, setViabPendientes] = useState(0);
-  const [viabActiva,     setViabActiva]     = useState(false);
-  const [viabStats,      setViabStats]      = useState({ procesadas: 0, errores: 0 });
-
-  // Prefiltro de perfil (Fase 0)
-  const [prefPendientes, setPrefPendientes] = useState(0);
-  const [prefActiva,     setPrefActiva]     = useState(false);
-  const [prefStats,      setPrefStats]      = useState({ procesadas: 0, excluidas: 0 });
-
-  // "Procesar PASA": descarga (si falta) + análisis profundo IA en cadena, solo PASA/REVISION.
-  const [procPasaPendientes, setProcPasaPendientes] = useState(0);
-  const [procPasaActiva,     setProcPasaActiva]     = useState(false);
-  const [procPasaStats,      setProcPasaStats]      = useState({ procesadas: 0, analizadas: 0, errores: 0 });
-  // Códigos que fallaron en esta corrida → se saltan para no bloquear el avance del resto.
-  const procPasaExcluir = useRef<Set<string>>(new Set());
-
-  // Enriquecimiento masivo: descarga ítems/categoría de TODAS las activas (la API solo
-  // los entrega 1×1) y re-matchea para encontrar las que solo calzan por rubro/ítems.
-  const [enriqInfo,      setEnriqInfo]      = useState<{ pendientes: number; totalActivas: number; enriquecidas: number } | null>(null);
-  const [enriqActiva,    setEnriqActiva]    = useState(false);
-  const [enriqStats,     setEnriqStats]     = useState({ enriquecidas: 0, alertasNuevas: 0, excluidas: 0, fechas: 0, errores: 0 });
-  const enriqExcluir = useRef<Set<string>>(new Set());
 
   // Filtros
   const FILTROS_DEFAULT = {
@@ -1363,26 +1336,69 @@ export default function RadarPage() {
   }, [alertas, noLeidas, loadingAlerts]);
 
   // ── Acciones ──────────────────────────────────────────────────────────────────
+  // "Actualizar ahora" = las 3 fases del automático por hora, orquestadas EN EL CLIENTE
+  // (secuenciales, con progreso y reanudables). No se hacen en una sola request porque el
+  // intake solo ya toma ~60s y encadenar todo excede el tope de duración (Vercel corta a 60s).
+  //   Paso 1: intake       → /api/radar/actualizar (admin; reusa cron/alertas server-side)
+  //   Paso 2: enriquecer    → /api/radar/enriquecer-pendientes (admin; loop reanudable)
+  //   Paso 3: prefiltro     → /api/prefiltro/analizar-pendientes (sesión; loop reanudable)
   const actualizarAhora = async () => {
     if (actualizando) return;
     setActualizando(true);
+    let totalNuevas = 0;
+    let intake: any = null;
+    const MAX_ITER = 60; // tope de seguridad por fase (evita bucle infinito)
     try {
-      // El disparo va por /api/radar/actualizar (protegido por sesión admin); el
-      // CRON_SECRET vive solo en el servidor y nunca se expone al navegador.
-      const res = await fetch('/api/radar/actualizar', {
-        method: 'POST',
-        signal: AbortSignal.timeout(120_000),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error('Error al actualizar', data.error || `HTTP ${res.status}`);
-      } else if (data.alertasNuevas > 0) {
+      // ── Paso 1/3: Intake (baja de MP + matchea keywords + inserta alertas) ──
+      setFaseActual('Paso 1/3: buscando…');
+      const res = await fetch('/api/radar/actualizar', { method: 'POST', signal: AbortSignal.timeout(120_000) });
+      intake = await res.json().catch(() => ({}));
+      if (!res.ok) { toast.error('Error al actualizar', intake.error || `HTTP ${res.status}`); return; }
+      totalNuevas += Number(intake.alertasNuevas || 0);
+
+      // ── Paso 2/3: Enriquecer (ítems/categoría/fecha real + re-match) ──
+      const excluir = new Set<string>();
+      for (let i = 0; i < MAX_ITER; i++) {
+        setFaseActual('Paso 2/3: enriqueciendo…');
+        let r: any;
+        try {
+          r = await fetch('/api/radar/enriquecer-pendientes', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lote: 12, excluir: Array.from(excluir) }),
+            signal: AbortSignal.timeout(290_000),
+          }).then(x => x.json());
+        } catch { break; } // timeout/red → cortar esta fase, seguir con prefiltro
+        if (!r || r.error) break;
+        totalNuevas += Number(r.alertasNuevas || 0);
+        for (const p of (r.procesados || [])) if (!p.exito) excluir.add(p.codigo);
+        if (typeof r.pendientes === 'number') setFaseActual(`Paso 2/3: enriqueciendo… ${r.pendientes} rest.`);
+        if (r.completado || (r.pendientes ?? 0) === 0) break;
+      }
+
+      // ── Paso 3/3: Prefiltro (decide PASA / EXCLUIDO / REVISION) ──
+      for (let i = 0; i < MAX_ITER; i++) {
+        setFaseActual('Paso 3/3: prefiltrando…');
+        let r: any;
+        try {
+          r = await fetch('/api/prefiltro/analizar-pendientes', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lote: 20 }),
+            signal: AbortSignal.timeout(290_000),
+          }).then(x => x.json());
+        } catch { break; }
+        if (!r || r.error) break;
+        if (typeof r.pendientes === 'number') setFaseActual(`Paso 3/3: prefiltrando… ${r.pendientes} rest.`);
+        if (r.completado || (r.pendientes ?? 0) === 0) break;
+      }
+
+      // ── Resumen ──
+      if (totalNuevas > 0) {
         toast.success(
-          `${data.alertasNuevas} licitación${data.alertasNuevas !== 1 ? 'es' : ''} nueva${data.alertasNuevas !== 1 ? 's' : ''}`,
-          `${data.licitacionesTotales ?? '?'} analizadas · ${data.keywordsProcesadas} palabras clave`,
+          `${totalNuevas} licitación${totalNuevas !== 1 ? 'es' : ''} nueva${totalNuevas !== 1 ? 's' : ''}`,
+          `${intake.licitacionesTotales ?? '?'} analizadas · ${intake.keywordsProcesadas ?? '?'} palabras clave · enriquecido y prefiltrado`,
         );
       } else {
-        toast.info('Sin resultados nuevos', `${data.licitacionesTotales ?? '?'} licitaciones analizadas`);
+        toast.info('Radar actualizado', `${intake.licitacionesTotales ?? '?'} licitaciones · sin nuevas · enriquecido y prefiltrado`);
       }
       await Promise.all([cargarKeywords(), cargarAlertas()]);
       setUltimaAct(new Date().toISOString());
@@ -1392,7 +1408,7 @@ export default function RadarPage() {
         isTimeout ? 'Tiempo de espera agotado' : 'Error de conexión',
         isTimeout ? 'El servidor tardó demasiado. Intenta de nuevo.' : 'Revisa la consola (F12)',
       );
-    } finally { setActualizando(false); }
+    } finally { setActualizando(false); setFaseActual(null); }
   };
 
   const agregarKeyword = async (e: React.FormEvent) => {
@@ -1642,77 +1658,6 @@ export default function RadarPage() {
   const activeKws = keywords.filter(k => k.activo).length;
   const keywordStrings = useMemo(() => keywords.filter(k => k.activo).map(k => k.keyword), [keywords]);
 
-  // ── Descarga masiva de documentos ─────────────────────────────────────────────
-  const cargarInfoDescarga = useCallback(async () => {
-    try {
-      const d = await fetch('/api/documentos/descargar-pendientes').then(r => r.json());
-      setDescargaInfo(d);
-    } catch { /* silencioso */ }
-  }, []);
-
-  useEffect(() => { cargarInfoDescarga(); }, [cargarInfoDescarga]);
-
-  // Loop de descarga: corre mientras descargaActiva = true, lote a lote sin parar
-  useEffect(() => {
-    if (!descargaActiva) return;
-    let cancelado = false;
-
-    const run = async () => {
-      while (!cancelado) {
-        try {
-          const res = await fetch('/api/documentos/descargar-pendientes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lote: 3 }),
-          }).then(r => r.json());
-
-          if (cancelado) break;
-
-          if (res.procesados?.length) {
-            const exitosos = res.procesados.filter((p: any) => p.exito).length;
-            const errores  = res.procesados.filter((p: any) => !p.exito).length;
-            setDescargaStats(prev => ({
-              procesadas: prev.procesadas + res.procesados.length,
-              exitosas:   prev.exitosas  + exitosos,
-              errores:    prev.errores   + errores,
-            }));
-            setDescargaInfo(prev => prev ? { ...prev, pendientes: res.pendientes } : prev);
-            // Marcar en memoria las filas que ahora tienen documentos (sin recargar todo).
-            const conDocs = res.procesados.filter((p: any) => p.exito && p.nuevos > 0);
-            if (!cancelado && conDocs.length) {
-              const set = new Set(conDocs.map((p: any) => p.codigo));
-              setAlertas(prev => prev.map(a => set.has(a.licitacion_codigo) ? { ...a, tiene_documentos: 1 } : a));
-            }
-          }
-
-          if (res.completado || res.pendientes === 0) {
-            if (!cancelado) {
-              setDescargaActiva(false);
-              cargarInfoDescarga();
-            }
-            break;
-          }
-        } catch {
-          // Pausa breve ante error de red antes de reintentar
-          if (!cancelado) await new Promise(r => setTimeout(r, 3000));
-        }
-      }
-    };
-
-    run();
-    return () => { cancelado = true; };
-  }, [descargaActiva, cargarInfoDescarga]); // eslint-disable-line
-
-  const iniciarDescarga = () => {
-    setDescargaStats({ procesadas: 0, exitosas: 0, errores: 0 });
-    setDescargaActiva(true);
-  };
-
-  const detenerDescarga = () => {
-    setDescargaActiva(false);
-    cargarInfoDescarga();
-  };
-
   // ── Descarga de documentos de NEGOCIOS (asignadas, todos los perfiles) ─────────
   const cargarInfoDescNeg = useCallback(async () => {
     try {
@@ -1777,291 +1722,6 @@ export default function RadarPage() {
     setDescNegActiva(false);
     cargarInfoDescNeg();
   };
-
-  // ── Análisis de viabilidad masivo (Fase 2) ────────────────────────────────────
-  const cargarViabPendientes = useCallback(async () => {
-    try {
-      const d = await fetch('/api/viabilidad/analizar-pendientes').then(r => r.json());
-      setViabPendientes(Number(d?.pendientes ?? 0));
-    } catch { /* silencioso */ }
-  }, []);
-
-  useEffect(() => { cargarViabPendientes(); }, [cargarViabPendientes]);
-
-  // Arranca el análisis automáticamente si hay pendientes (y no hay descarga en curso).
-  // En MODO MANUAL (AUTOMATIZACION_PAUSADA) no arranca solo: el usuario usa el botón "Analizar viabilidad".
-  useEffect(() => {
-    if (AUTOMATIZACION_PAUSADA) return;
-    if (viabActiva || descargaActiva) return;
-    if (viabPendientes > 0) {
-      setViabStats({ procesadas: 0, errores: 0 });
-      setViabActiva(true);
-    }
-  }, [viabPendientes, viabActiva, descargaActiva]);
-
-  // Loop de análisis: corre lote a lote mientras viabActiva = true
-  useEffect(() => {
-    if (!viabActiva) return;
-    let cancelado = false;
-
-    const run = async () => {
-      while (!cancelado) {
-        try {
-          const res = await fetch('/api/viabilidad/analizar-pendientes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lote: 2 }),
-          }).then(r => r.json());
-
-          if (cancelado) break;
-
-          if (res.procesados?.length) {
-            const errores = res.procesados.filter((p: any) => !p.exito).length;
-            setViabStats(prev => ({
-              procesadas: prev.procesadas + res.procesados.length,
-              errores:    prev.errores + errores,
-            }));
-            setViabPendientes(res.pendientes ?? 0);
-            // Mergear solo las filas procesadas en memoria (sin recargar toda la lista).
-            const exitosos = res.procesados.filter((p: any) => p.exito);
-            if (!cancelado && exitosos.length) {
-              const byCodigo = new Map<string, any>(exitosos.map((p: any) => [p.codigo, p]));
-              setAlertas(prev => prev.map(a => {
-                const p = byCodigo.get(a.licitacion_codigo);
-                return p
-                  ? { ...a, viabilidad_semaforo: p.semaforo ?? a.viabilidad_semaforo, viabilidad_score: p.score ?? a.viabilidad_score }
-                  : a;
-              }));
-            }
-          }
-
-          if (res.completado || res.pendientes === 0) {
-            if (!cancelado) { setViabActiva(false); setViabPendientes(0); }
-            break;
-          }
-        } catch {
-          if (!cancelado) await new Promise(r => setTimeout(r, 3000));
-        }
-      }
-    };
-
-    run();
-    return () => { cancelado = true; };
-  }, [viabActiva]);
-
-  // ── Prefiltro de perfil (Fase 0) ──────────────────────────────────────────────
-  const cargarPrefPendientes = useCallback(async () => {
-    try {
-      const d = await fetch('/api/prefiltro/analizar-pendientes').then(r => r.json());
-      setPrefPendientes(Number(d?.pendientes ?? 0));
-    } catch { /* silencioso */ }
-  }, []);
-
-  useEffect(() => { cargarPrefPendientes(); }, [cargarPrefPendientes]);
-
-  // Arranca el prefiltro automáticamente si hay pendientes (y nada más en curso).
-  // En MODO MANUAL no arranca solo: el usuario usa el botón "Prefiltrar".
-  useEffect(() => {
-    if (AUTOMATIZACION_PAUSADA) return;
-    if (prefActiva || descargaActiva || viabActiva) return;
-    if (prefPendientes > 0) {
-      setPrefStats({ procesadas: 0, excluidas: 0 });
-      setPrefActiva(true);
-    }
-  }, [prefPendientes, prefActiva, descargaActiva, viabActiva]);
-
-  // Loop de prefiltro: corre lote a lote mientras prefActiva = true
-  useEffect(() => {
-    if (!prefActiva) return;
-    let cancelado = false;
-
-    const run = async () => {
-      while (!cancelado) {
-        try {
-          const res = await fetch('/api/prefiltro/analizar-pendientes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lote: 30 }),
-          }).then(r => r.json());
-
-          if (cancelado) break;
-
-          if (res.procesados?.length) {
-            const excluidas = res.procesados.filter((p: any) => p.decision === 'EXCLUIDO').length;
-            setPrefStats(prev => ({
-              procesadas: prev.procesadas + res.procesados.length,
-              excluidas:  prev.excluidas + excluidas,
-            }));
-            setPrefPendientes(res.pendientes ?? 0);
-            // Mergear solo las decisiones procesadas en memoria (sin recargar toda la lista).
-            if (!cancelado && res.procesados.length) {
-              const byCodigo = new Map<string, any>(res.procesados.map((p: any) => [p.codigo, p]));
-              setAlertas(prev => prev.map(a => {
-                const p = byCodigo.get(a.licitacion_codigo);
-                return p
-                  ? { ...a, prefiltro_decision: p.decision ?? a.prefiltro_decision, prefiltro_categoria: p.categoria ?? a.prefiltro_categoria, prefiltro_confianza: p.confianza ?? a.prefiltro_confianza }
-                  : a;
-              }));
-            }
-          }
-
-          if (res.completado || res.pendientes === 0) {
-            if (!cancelado) { setPrefActiva(false); setPrefPendientes(0); }
-            break;
-          }
-        } catch {
-          if (!cancelado) await new Promise(r => setTimeout(r, 3000));
-        }
-      }
-    };
-
-    run();
-    return () => { cancelado = true; };
-  }, [prefActiva]);
-
-  // ── Procesar PASA: descarga (si falta) + análisis profundo IA, en cadena ─────────
-  const cargarProcPasa = useCallback(async () => {
-    try {
-      const d = await fetch('/api/radar/procesar-pasa').then(r => r.json());
-      setProcPasaPendientes(Number(d?.pendientes ?? 0));
-    } catch { /* silencioso */ }
-  }, []);
-  useEffect(() => { cargarProcPasa(); }, [cargarProcPasa]);
-
-  const iniciarProcPasa = () => {
-    procPasaExcluir.current = new Set();
-    setProcPasaStats({ procesadas: 0, analizadas: 0, errores: 0 });
-    setProcPasaActiva(true);
-  };
-  const detenerProcPasa = () => { setProcPasaActiva(false); cargarProcPasa(); };
-
-  // Loop: lote a lote (lote=1 porque cada análisis profundo es pesado, ~1-2 min).
-  useEffect(() => {
-    if (!procPasaActiva) return;
-    let cancelado = false;
-
-    const run = async () => {
-      while (!cancelado) {
-        try {
-          const res = await fetch('/api/radar/procesar-pasa', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lote: 1, excluir: Array.from(procPasaExcluir.current) }),
-          }).then(r => r.json());
-
-          if (cancelado) break;
-
-          if (res.procesados?.length) {
-            const analizadas = res.procesados.filter((p: any) => p.exito).length;
-            const errores    = res.procesados.filter((p: any) => !p.exito).length;
-            setProcPasaStats(prev => ({
-              procesadas: prev.procesadas + res.procesados.length,
-              analizadas: prev.analizadas + analizadas,
-              errores:    prev.errores + errores,
-            }));
-            // Saltar las que fallaron en próximas tandas (no bloquear el avance del resto).
-            for (const p of res.procesados) if (!p.exito) procPasaExcluir.current.add(p.codigo);
-            // Merge en memoria de las analizadas (actualiza semáforo/score sin recargar todo).
-            const oks = res.procesados.filter((p: any) => p.exito);
-            if (oks.length) {
-              const byCodigo = new Map<string, any>(oks.map((p: any) => [p.codigo, p]));
-              setAlertas(prev => prev.map(a => {
-                const p = byCodigo.get(a.licitacion_codigo);
-                return p
-                  ? { ...a, viabilidad_semaforo: p.semaforo ?? a.viabilidad_semaforo, viabilidad_score: p.score ?? a.viabilidad_score, viabilidad_area: p.area ?? a.viabilidad_area, tiene_documentos: 1 }
-                  : a;
-              }));
-            }
-          }
-          if (typeof res.pendientes === 'number') setProcPasaPendientes(res.pendientes);
-
-          if (res.completado || res.pendientes === 0) {
-            if (!cancelado) {
-              setProcPasaActiva(false);
-              cargarProcPasa();
-              const fall = procPasaExcluir.current.size;
-              toast.success('Procesar PASA terminado', fall > 0 ? `${fall} no se pudieron procesar (revisa sus documentos)` : 'Todas las PASA quedaron analizadas');
-            }
-            break;
-          }
-        } catch {
-          if (!cancelado) await new Promise(r => setTimeout(r, 3000));
-        }
-      }
-    };
-
-    run();
-    return () => { cancelado = true; };
-  }, [procPasaActiva, cargarProcPasa]); // eslint-disable-line
-
-  // ── Enriquecimiento masivo (cubrir TODAS las activas) ─────────────────────────
-  const cargarEnriqInfo = useCallback(async () => {
-    try {
-      const d = await fetch('/api/radar/enriquecer-pendientes').then(r => r.json());
-      if (d?.success) setEnriqInfo({ pendientes: d.pendientes ?? 0, totalActivas: d.totalActivas ?? 0, enriquecidas: d.enriquecidas ?? 0 });
-    } catch { /* silencioso */ }
-  }, []);
-  useEffect(() => { cargarEnriqInfo(); }, [cargarEnriqInfo]);
-
-  const iniciarEnriq = () => {
-    enriqExcluir.current = new Set();
-    setEnriqStats({ enriquecidas: 0, alertasNuevas: 0, excluidas: 0, fechas: 0, errores: 0 });
-    setEnriqActiva(true);
-  };
-  const detenerEnriq = () => { setEnriqActiva(false); cargarEnriqInfo(); };
-
-  // Loop: lote a lote desde el navegador (evita el tope de 60s de serverless).
-  useEffect(() => {
-    if (!enriqActiva) return;
-    let cancelado = false;
-
-    const run = async () => {
-      let alertasTotal = 0;
-      while (!cancelado) {
-        try {
-          const res = await fetch('/api/radar/enriquecer-pendientes', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lote: 12, excluir: Array.from(enriqExcluir.current) }),
-          }).then(r => r.json());
-
-          if (cancelado) break;
-
-          if (res.procesados?.length) {
-            const errores = res.procesados.filter((p: any) => !p.exito).length;
-            // Saltar las que fallaron (rate-limit/ilegibles) para no atascar el avance.
-            for (const p of res.procesados) if (!p.exito) enriqExcluir.current.add(p.codigo);
-            alertasTotal += res.alertasNuevas || 0;
-            setEnriqStats(prev => ({
-              enriquecidas:  prev.enriquecidas + (res.enriquecidas || 0),
-              alertasNuevas: prev.alertasNuevas + (res.alertasNuevas || 0),
-              excluidas:     prev.excluidas + (res.excluidasPorNegativa || 0),
-              fechas:        prev.fechas + (res.fechasCorregidas || 0),
-              errores:       prev.errores + errores,
-            }));
-            setEnriqInfo(prev => prev ? { ...prev, pendientes: res.pendientes ?? prev.pendientes } : prev);
-          }
-
-          if (res.completado || res.pendientes === 0) {
-            if (!cancelado) {
-              setEnriqActiva(false);
-              cargarEnriqInfo();
-              // Recargar alertas para mostrar las nuevas + fechas de publicación reales corregidas.
-              cargarAlertas(true);
-              if (alertasTotal > 0) toast.success('Enriquecimiento completo', `${alertasTotal} licitación(es) nueva(s) por rubro/ítems · fechas de publicación reales corregidas`);
-              else toast.success('Enriquecimiento completo', 'Fechas de publicación reales corregidas');
-            }
-            break;
-          }
-        } catch {
-          if (!cancelado) await new Promise(r => setTimeout(r, 3000));
-        }
-      }
-    };
-
-    run();
-    return () => { cancelado = true; };
-  }, [enriqActiva, cargarEnriqInfo, cargarAlertas, toast]);
 
   // ── Exportar Excel ────────────────────────────────────────────────────────────
   // Exporta TODO el radar (el set completo `alertas`, una fila por licitación), sin
@@ -2156,33 +1816,6 @@ export default function RadarPage() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {/* Procesar PASA: descarga (si falta) + análisis profundo IA en cadena */}
-            {(procPasaActiva || procPasaPendientes > 0) && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50 text-[12px]">
-                {procPasaActiva ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin text-fuchsia-600 flex-shrink-0" />
-                    <span className="text-fuchsia-700 font-medium">
-                      Procesando PASA · {procPasaStats.analizadas} analizadas · {procPasaPendientes} pendientes
-                      {procPasaStats.errores > 0 && <span className="text-red-500"> · {procPasaStats.errores} con error</span>}
-                    </span>
-                    <button onClick={detenerProcPasa} className="ml-1 text-fuchsia-700 hover:text-red-600 font-semibold">Detener</button>
-                  </>
-                ) : (
-                  <>
-                    <PlayCircle size={13} className="text-fuchsia-600 flex-shrink-0" />
-                    <span className="text-fuchsia-700 font-medium">{procPasaPendientes} PASA por procesar</span>
-                    <button
-                      onClick={iniciarProcPasa}
-                      className="ml-1 px-2 py-0.5 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-semibold text-[11px] transition-colors"
-                      title="Solo PASA/REVISION: descarga documentos si faltan y corre el análisis profundo (el mismo del botón manual). Reanudable."
-                    >
-                      Procesar PASA
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
             {/* Panel descarga NEGOCIOS (asignadas, todos los perfiles) — prioridad, sin gate */}
             {descNegInfo && descNegInfo.pendientes > 0 && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-emerald-200 bg-emerald-50 text-[12px]">
@@ -2213,116 +1846,6 @@ export default function RadarPage() {
               </div>
             )}
 
-            {/* Panel descarga RADAR (las que pasan el prefiltro) */}
-            {descargaInfo && descargaInfo.pendientes > 0 && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-amber-200 bg-amber-50 text-[12px]">
-                {descargaActiva ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin text-amber-600 flex-shrink-0" />
-                    <span className="text-amber-700 font-medium">
-                      Radar · {descargaStats.procesadas} descargadas · {descargaInfo.pendientes} pendientes
-                      {descargaStats.errores > 0 && <span className="text-red-500"> · {descargaStats.errores} errores</span>}
-                    </span>
-                    <button onClick={detenerDescarga} className="ml-1 text-amber-700 hover:text-red-600 font-semibold">Detener</button>
-                  </>
-                ) : (
-                  <>
-                    <FileText size={13} className="text-amber-600 flex-shrink-0" />
-                    <span className="text-amber-700 font-medium">
-                      <strong>{descargaInfo.pendientes}</strong> del radar (que pasan) sin documentos
-                    </span>
-                    <button
-                      onClick={iniciarDescarga}
-                      title="Descarga documentos de las licitaciones del radar que pasaron el prefiltro (PASA/REVISIÓN). Puede ser un volumen alto. Reanudable."
-                      className="ml-1 px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-white font-semibold text-[11px] transition-colors"
-                    >
-                      Descargar docs del Radar
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-            {/* Panel prefiltro (Fase 0) */}
-            {(prefActiva || prefPendientes > 0) && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-violet-200 bg-violet-50 text-[12px]">
-                {prefActiva ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin text-violet-600 flex-shrink-0" />
-                    <span className="text-violet-700 font-medium">
-                      Prefiltrando · {prefStats.procesadas} listas · {prefPendientes} pendientes
-                      {prefStats.excluidas > 0 && <span className="text-slate-500"> · {prefStats.excluidas} excluidas</span>}
-                    </span>
-                    <button onClick={() => setPrefActiva(false)} className="ml-1 text-violet-700 hover:text-red-600 font-semibold">Detener</button>
-                  </>
-                ) : (
-                  <>
-                    <Filter size={13} className="text-violet-600 flex-shrink-0" />
-                    <span className="text-violet-700 font-medium">{prefPendientes} sin prefiltrar</span>
-                    <button
-                      onClick={() => { setPrefStats({ procesadas: 0, excluidas: 0 }); setPrefActiva(true); }}
-                      className="ml-1 px-2 py-0.5 rounded-lg bg-violet-500 hover:bg-violet-400 text-white font-semibold text-[11px] transition-colors"
-                    >
-                      Prefiltrar
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-            {/* Panel análisis de viabilidad */}
-            {(viabActiva || viabPendientes > 0) && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-indigo-200 bg-indigo-50 text-[12px]">
-                {viabActiva ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin text-indigo-600 flex-shrink-0" />
-                    <span className="text-indigo-700 font-medium">
-                      Analizando viabilidad · {viabStats.procesadas} listas · {viabPendientes} pendientes
-                      {viabStats.errores > 0 && <span className="text-red-500"> · {viabStats.errores} errores</span>}
-                    </span>
-                    <button onClick={() => setViabActiva(false)} className="ml-1 text-indigo-700 hover:text-red-600 font-semibold">Detener</button>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={13} className="text-indigo-600 flex-shrink-0" />
-                    <span className="text-indigo-700 font-medium">{viabPendientes} sin viabilidad</span>
-                    <button
-                      onClick={() => { setViabStats({ procesadas: 0, errores: 0 }); setViabActiva(true); }}
-                      className="ml-1 px-2 py-0.5 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white font-semibold text-[11px] transition-colors"
-                    >
-                      Analizar viabilidad
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-            {/* Panel enriquecimiento masivo (cubrir TODAS las activas por rubro/ítems) */}
-            {usuario?.rol === 'admin' && enriqInfo && (enriqActiva || enriqInfo.pendientes > 0) && (
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-cyan-200 bg-cyan-50 text-[12px]">
-                {enriqActiva ? (
-                  <>
-                    <Loader2 size={13} className="animate-spin text-cyan-600 flex-shrink-0" />
-                    <span className="text-cyan-700 font-medium">
-                      Enriqueciendo · {enriqStats.enriquecidas} listas · {enriqInfo.pendientes} pendientes
-                      {enriqStats.alertasNuevas > 0 && <span className="text-emerald-600"> · {enriqStats.alertasNuevas} nuevas 🆕</span>}
-                      {enriqStats.fechas > 0 && <span className="text-indigo-600"> · {enriqStats.fechas} fechas reales 📅</span>}
-                      {enriqStats.errores > 0 && <span className="text-red-500"> · {enriqStats.errores} con error</span>}
-                    </span>
-                    <button onClick={detenerEnriq} className="ml-1 text-cyan-700 hover:text-red-600 font-semibold">Detener</button>
-                  </>
-                ) : (
-                  <>
-                    <Database size={13} className="text-cyan-600 flex-shrink-0" />
-                    <span className="text-cyan-700 font-medium">{enriqInfo.pendientes} sin rubro/ítems</span>
-                    <button
-                      onClick={iniciarEnriq}
-                      className="ml-1 px-2 py-0.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-[11px] transition-colors"
-                      title="Descarga ítems, categoría y FECHA REAL de publicación de TODAS las activas (la API solo los entrega 1×1), re-matchea para encontrar las que solo calzan por rubro/ítems (como Licitalab) y corrige la fecha de publicación real. Reanudable."
-                    >
-                      Enriquecer todo
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
             {(usuario?.rol === 'admin' || usuario?.permisos?.exportar) && (
             <button
               onClick={exportarExcel}
@@ -2338,18 +1861,22 @@ export default function RadarPage() {
               <span className="hidden sm:inline">Exportar Excel</span>
             </button>
             )}
+            {/* Solo admin: dispara el intake GLOBAL (todas las keywords de todos los perfiles),
+                por eso NO se gatea por las keywords personales del admin (podían ser 0 → botón gris). */}
+            {usuario?.rol === 'admin' && (
             <button
               onClick={actualizarAhora}
-              disabled={actualizando || activeKws === 0}
+              disabled={actualizando}
               className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
-                actualizando || activeKws === 0
+                actualizando
                   ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
                   : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 hover:-translate-y-px'
               }`}
             >
               {actualizando ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-              {actualizando ? 'Buscando…' : 'Actualizar ahora'}
+              {actualizando ? (faseActual || 'Actualizando…') : 'Actualizar ahora'}
             </button>
+            )}
           </div>
         </div>
 

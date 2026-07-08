@@ -1,6 +1,6 @@
 'use client';
 
-// Apartado "Postuladas": licitaciones marcadas como POSTULADA (estado 7POSTULADO_JV).
+// Apartado "Postuladas": licitaciones marcadas como POSTULADA (estado 'POSTULADA').
 // Muestra el presupuesto REAL de la licitación vs el MONTO OFERTADO (lo que se postuló),
 // y los documentos PROPIOS subidos (incluido el costeo).
 //
@@ -15,15 +15,18 @@ import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
-import { getEstadoPipeline } from '@/app/lib/pipeline';
+import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+import { useConfirm } from '@/app/components/ui/confirm';
+import { useToast } from '@/app/components/ui/toast';
 import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
+  Pencil, Trash2, Undo2, X, Save,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
-const ESTADO_POSTULADA = '7POSTULADO_JV';
+const ESTADO_POSTULADA = 'POSTULADA';
 
 interface Negocio {
   id: number;
@@ -147,10 +150,20 @@ function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
 }
 
 // Tarjeta: carga sus documentos PROPIOS y su estado de adjudicación de forma perezosa.
-function PostuladaCard({ n, color, label, isAdmin }: { n: Negocio; color: string; label: string; isAdmin: boolean }) {
+function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada }: {
+  n: Negocio; color: string; label: string; isAdmin: boolean;
+  onRevertida: (id: number) => void;
+  onActualizada: (id: number, patch: { monto_ofertado?: number; estado_pipeline?: string }) => void;
+}) {
   const [docs, setDocs] = useState<DocCache[]>([]);
   const [adj, setAdj] = useState<Adjudicacion | null>(null);
+  const [editando, setEditando] = useState(false);
+  const [montoEdit, setMontoEdit] = useState<string>(n.monto_ofertado ? String(n.monto_ofertado) : '');
+  const [estadoEdit, setEstadoEdit] = useState<string>(n.estado_pipeline || ESTADO_POSTULADA);
+  const [guardando, setGuardando] = useState(false);
   const perfilCol = colorUsuario(n.usuario_email || n.usuario_nombre || '');
+  const confirmar = useConfirm();
+  const toast = useToast();
 
   useEffect(() => {
     fetch(`/api/documentos/cache/${encodeURIComponent(n.licitacion_codigo)}`)
@@ -161,6 +174,74 @@ function PostuladaCard({ n, color, label, isAdmin }: { n: Negocio; color: string
       })
       .catch(() => {});
   }, [n.licitacion_codigo]);
+
+  // Editar (solo admin): guarda monto ofertado y/o estado del pipeline.
+  const guardarEdicion = async () => {
+    setGuardando(true);
+    try {
+      const monto = parseInt(String(montoEdit).replace(/\D/g, ''), 10) || 0;
+      const res = await fetch(`/api/negocios/${n.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ monto_ofertado: monto, estado_pipeline: estadoEdit }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
+      toast.success('Postulada actualizada');
+      setEditando(false);
+      onActualizada(n.id, { monto_ofertado: monto, estado_pipeline: estadoEdit });
+    } catch (e: any) {
+      toast.error('No se pudo guardar', e?.message);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  // Eliminar (solo admin): revierte la postulación → vuelve a EN PROCESO y sale del apartado.
+  // No borra el negocio.
+  const revertir = async () => {
+    const ok = await confirmar({
+      titulo: '¿Quitar de Postuladas?',
+      mensaje: 'La licitación volverá a "En proceso" y saldrá de este apartado. No se elimina el negocio.',
+      confirmarLabel: 'Quitar', peligro: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/negocios/${n.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado_pipeline: 'EN_PROCESO' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo revertir');
+      toast.success('Devuelta a En proceso');
+      onRevertida(n.id);
+    } catch (e: any) {
+      toast.error('No se pudo revertir', e?.message);
+    }
+  };
+
+  // Eliminar un documento propio (lo puede hacer el perfil, no requiere admin).
+  const borrarDoc = async (d: DocCache) => {
+    const ok = await confirmar({
+      titulo: '¿Eliminar documento?',
+      mensaje: `"${d.documento_nombre}" se eliminará de forma permanente.`,
+      confirmarLabel: 'Eliminar', peligro: true,
+    });
+    if (!ok) return;
+    const prev = docs;
+    setDocs(ds => ds.filter(x => x !== d));
+    try {
+      const res = await fetch(`/api/documentos/${encodeURIComponent(n.licitacion_codigo)}`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: d.documento_url_local, nombre: d.documento_nombre }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo eliminar');
+      toast.success('Documento eliminado');
+    } catch (e: any) {
+      setDocs(prev);
+      toast.error('No se pudo eliminar', e?.message);
+    }
+  };
 
   // Sondeo de adjudicación en vivo contra Mercado Público.
   useEffect(() => {
@@ -202,11 +283,60 @@ function PostuladaCard({ n, color, label, isAdmin }: { n: Negocio; color: string
             {n.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={12} />{dayjs(n.licitacion_cierre).format('DD/MM/YYYY')}</span>}
           </div>
         </div>
-        <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}`}
-          className="flex-shrink-0 inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700">
-          Ver <ExternalLink size={12} />
-        </Link>
+        <div className="flex-shrink-0 flex items-center gap-1">
+          {isAdmin && !editando && (
+            <>
+              <button onClick={() => setEditando(true)}
+                title="Editar monto y estado"
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-indigo-600 px-1.5 py-1 rounded-md hover:bg-indigo-50 transition-colors">
+                <Pencil size={13} />
+              </button>
+              <button onClick={revertir}
+                title="Quitar de Postuladas (vuelve a En proceso)"
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-red-600 px-1.5 py-1 rounded-md hover:bg-red-50 transition-colors">
+                <Undo2 size={13} />
+              </button>
+            </>
+          )}
+          <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}`}
+            className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700">
+            Ver <ExternalLink size={12} />
+          </Link>
+        </div>
       </div>
+
+      {/* Edición inline (solo admin) */}
+      {editando && (
+        <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-[11px] font-semibold text-slate-600">Monto ofertado</span>
+              <input type="text" inputMode="numeric" value={montoEdit}
+                onChange={e => setMontoEdit(e.target.value)}
+                placeholder="$"
+                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-indigo-400" />
+            </label>
+            <label className="block">
+              <span className="text-[11px] font-semibold text-slate-600">Estado</span>
+              <select value={estadoEdit} onChange={e => setEstadoEdit(e.target.value)}
+                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] bg-white outline-none focus:ring-2 focus:ring-indigo-400">
+                {ESTADOS_PIPELINE.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2">Si cambias el estado a uno distinto de <b>Postulada</b>, saldrá de este apartado.</p>
+          <div className="flex items-center justify-end gap-2 mt-3">
+            <button onClick={() => { setEditando(false); setMontoEdit(n.monto_ofertado ? String(n.monto_ofertado) : ''); setEstadoEdit(n.estado_pipeline || ESTADO_POSTULADA); }}
+              className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-slate-600 hover:bg-slate-200/60 px-3 py-1.5 rounded-lg transition-colors">
+              <X size={13} /> Cancelar
+            </button>
+            <button onClick={guardarEdicion} disabled={guardando}
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 px-3.5 py-1.5 rounded-lg transition-colors">
+              {guardando ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Guardar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Presupuesto real vs monto ofertado */}
       <div className="grid grid-cols-2 gap-2 mt-3">
@@ -229,11 +359,18 @@ function PostuladaCard({ n, color, label, isAdmin }: { n: Negocio; color: string
           <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Documentos propios ({docs.length})</p>
           <div className="flex flex-wrap gap-1.5">
             {docs.map((d, i) => (
-              <a key={i} href={d.documento_url_local} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[11.5px] text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md px-2 py-1 transition-colors max-w-[220px]">
-                <FileText size={11} className="flex-shrink-0 text-slate-400" />
-                <span className="truncate">{d.documento_nombre}</span>
-              </a>
+              <span key={i}
+                className="group inline-flex items-center gap-1 text-[11.5px] text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md pl-2 pr-1 py-1 transition-colors max-w-[240px]">
+                <a href={d.documento_url_local} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 min-w-0">
+                  <FileText size={11} className="flex-shrink-0 text-slate-400" />
+                  <span className="truncate">{d.documento_nombre}</span>
+                </a>
+                <button onClick={() => borrarDoc(d)} title="Eliminar documento"
+                  className="flex-shrink-0 p-0.5 text-slate-400 hover:text-red-600 rounded transition-colors">
+                  <Trash2 size={11} />
+                </button>
+              </span>
             ))}
           </div>
         </div>
@@ -343,7 +480,16 @@ export default function PostuladasPage() {
           </div>
         ) : (
           <div className="space-y-2.5">
-            {visibles.map(n => <PostuladaCard key={n.id} n={n} color={color} label={label} isAdmin={!!isAdmin} />)}
+            {visibles.map(n => (
+              <PostuladaCard key={n.id} n={n} color={color} label={label} isAdmin={!!isAdmin}
+                onRevertida={id => setNegocios(prev => prev.filter(x => x.id !== id))}
+                onActualizada={(id, patch) => setNegocios(prev =>
+                  patch.estado_pipeline && patch.estado_pipeline !== ESTADO_POSTULADA
+                    ? prev.filter(x => x.id !== id)
+                    : prev.map(x => x.id === id ? { ...x, ...patch } : x)
+                )}
+              />
+            ))}
           </div>
         )}
       </div>
