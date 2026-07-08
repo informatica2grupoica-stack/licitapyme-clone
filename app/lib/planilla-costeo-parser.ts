@@ -212,6 +212,38 @@ export function detectarLenguajePorLinea(docs: { texto: string }[]): string | nu
   return null;
 }
 
+// PRESUPUESTO POR LÍNEA — patrón muy común en bases ESCANEADAS (OCR) donde la oferta
+// económica NO es una planilla tabulable: las bases fijan un "monto máximo POR LÍNEA" y
+// listan ≥2 líneas, cada una con su propio destino y su propio "TOTAL IVA INCLUIDO $X"
+// (presupuestos independientes, típicamente imputados a ítems presupuestarios distintos).
+// Eso es por_linea de forma CONCLUYENTE, aunque:
+//   - el formulario económico venga EN BLANCO (encabezados + "XXX"),
+//   - los ítems estén dispersos en el texto (parser de planilla → null),
+//   - las etiquetas vengan pegadas/mutiladas por el OCR ("LíneaN°1", o "Línea" sin número).
+// Estrategia robusta al OCR: exige (a) la FRASE "monto/presupuesto (máximo) por línea" y
+// (b) ≥2 "TOTAL/monto por línea" (o ≥2 etiquetas "Línea N°"). Un suma_alzada tiene UN solo
+// total al pie y NO usa esa frase → no dispara (bajo riesgo de falso positivo).
+// Devuelve la frase-evidencia hallada, o null.
+export function detectarPresupuestoPorLinea(docs: { texto: string }[]): string | null {
+  const reFrase = /monto\s+(?:m[aá]ximo|disponible|total|referencial)\s+(?:por|de\s+cada|de\s+la)\s+l[ií]nea|presupuesto\s+(?:m[aá]ximo\s+|disponible\s+|referencial\s+)?por\s+l[ií]nea|monto\s+m[aá]ximo\s+por\s+l[ií]nea|disponibilidad\s+presupuestaria\s+por\s+l[ií]nea|monto\s+por\s+cada\s+l[ií]nea/i;
+  for (const d of docs) {
+    if (!d.texto) continue;
+    const mFrase = d.texto.match(reFrase);
+    if (!mFrase) continue;
+    // Cuenta señales de MÚLTIPLES líneas presupuestadas en el mismo documento:
+    //  - "TOTAL IVA INCLUIDO $X" repetido (un total por línea, no un único gran total), o
+    //  - etiquetas "Línea N°1/2/…" (tolerando OCR pegado y <td>).
+    const totalesPorLinea = (d.texto.match(/total\s+iva\s+incluido[^\d]{0,25}\$?\s*[\d.]{4,}/gi) || []).length;
+    const etiquetasLinea = new Set(
+      [...d.texto.matchAll(/l[ií]nea\s*n\s*[°º]\s*(\d{1,3})/gi)].map(m => parseInt(m[1], 10)),
+    ).size;
+    if (totalesPorLinea >= 2 || etiquetasLinea >= 2) {
+      return mFrase[0].replace(/\s+/g, ' ').trim();
+    }
+  }
+  return null;
+}
+
 // ¿Fila de categoría? Ej: ["", "A", "FERRETERIA", ""] o ["F", "HERRAMIENTAS"].
 function detectarCategoria(celdas: string[]): string | null {
   for (let i = 0; i < celdas.length - 1; i++) {
@@ -317,6 +349,46 @@ function segmentarLineasPorNumeracion(items: ItemPlanilla[]): void {
     if (it.numero != null) { if (it.numero <= prev) linea++; prev = it.numero; }
     it.linea = linea;
   }
+}
+
+// CATÁLOGO DE SUMINISTRO con VALOR UNITARIO (sin columna de cantidad). Formato típico de
+// convenios/suministros de ferretería-gasfitería: una tabla larga "Línea | Código interno |
+// Detalle | Valor Unitario Neto Referencial" con N productos numerados 1..N y su precio unitario
+// de referencia, PERO sin cantidad (se ofertan precios unitarios del catálogo). El parser tabular
+// normal lo ignora: (a) no hay pipes/comas (OCR aplana en varias líneas), (b) el 2º número es un
+// CÓDIGO de 7 díg (no cantidad), (c) el gate de cantidad lo rechaza. Aquí lo extraemos con el ancla
+// fuerte "nº(1-3) · código(6-8 díg) · descripción · $precio". Numeración 1..N continua ⇒ suma_alzada.
+function parsearCatalogoValorUnitario(doc: DocTexto): PlanillaParseResult | null {
+  const t = doc.texto;
+  // Header del catálogo (tolerante a saltos de línea del OCR entre los nombres de columna).
+  if (!/l[ií]nea[\s\S]{0,40}c[oó]digo[\s\S]{0,60}(?:detalle|descrip)[\s\S]{0,80}valor\s+unitario/i.test(t)
+      && !/c[oó]digo\s+interno[\s\S]{0,80}valor\s+unitario\s+neto/i.test(t)) return null;
+  // Fila: nº correlativo (1-3 díg) · código interno (6-8 díg) · descripción (puede traer saltos
+  // del OCR hasta el $) · $precio unitario. La descripción NO puede contener otro código largo.
+  const re = /(?:^|\n)\s*(\d{1,3})\s+(\d{6,8})\s+((?:(?!\d{6,8})[\s\S]){3,110}?)\s*\$\s*([\d.]+)/g;
+  // Dedupe por NÚMERO DE LÍNEA (1..N, el identificador canónico del ítem), NO por código: la
+  // tabla suele venir repetida (resumen + anexo) y el OCR desalinea número↔código entre copias,
+  // así que dedupear por código descartaba ítems válidos cuyo código ya se había visto pareado con
+  // otro número. Cantidad = 1 (catálogo de precios unitarios; el Excel necesita una cantidad base).
+  const porNumero = new Map<number, ItemPlanilla>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t)) !== null) {
+    const numero = parseInt(m[1], 10);
+    const desc = limpiarCelda(m[3]).replace(/\s+/g, ' ');
+    if (desc.length < 3 || !/[a-záéíóúñ]/i.test(desc)) continue;
+    if (PALABRAS_NO_ITEM.test(desc)) continue;
+    if (!porNumero.has(numero)) {
+      porNumero.set(numero, { linea: 1, categoria: null, numero, descripcion: desc, unidad: 'Unidad', cantidad: 1 });
+    }
+  }
+  const items = [...porNumero.values()].sort((a, b) => (a.numero ?? 0) - (b.numero ?? 0));
+  if (items.length < 8) return null;
+  // Sanidad: el correlativo debe arrancar cerca de 1 y cubrir la mayor parte del rango (evita
+  // capturar coincidencias sueltas "nº código $" fuera de la tabla real).
+  const nums = items.map(i => i.numero!).filter(n => n > 0);
+  const maxNum = Math.max(...nums);
+  if (Math.min(...nums) > 3 || items.length < maxNum * 0.6) return null;
+  return { estructura: 'plana', lineas: [1], categorias: [], items, numeracion: 'continua', fuenteDoc: doc.nombre };
 }
 
 function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
@@ -478,8 +550,11 @@ function esCandidato(doc: DocTexto): boolean {
 
   const n = normalizar(doc.nombre);
   if (/anexo.?o|anexo.?econom|economic|cotiza|itemiz|presupuesto|listado|formato.?\d|oferta.?econ/.test(n)) return true;
-  if (/ett|tecnic|especif|bases/.test(n)) return true;
+  if (/ett|tecnic|especif|bases|resoluc/.test(n)) return true;
   if ((doc.metodo || '') === 'excel') return true;
+  // Catálogo de suministro con valor unitario (aunque el doc no tenga "cantidad" ni nombre típico):
+  // la firma "Código interno … Valor Unitario Neto" identifica la tabla de productos a costear.
+  if (/c[oó]digo\s+interno|valor\s+unitario\s+neto/i.test(doc.texto)) return true;
   return /detalle|descrip/i.test(doc.texto) && /\bcant/i.test(doc.texto);
 }
 
@@ -490,7 +565,8 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
   for (const doc of docs) {
     if (!doc.texto || doc.texto.length < 40) continue;
     if (!esCandidato(doc)) continue;
-    const r = parsearDoc(doc);
+    // Catálogo con valor unitario (Línea/Código/Detalle/$) primero; si no, el parser tabular normal.
+    const r = parsearCatalogoValorUnitario(doc) || parsearDoc(doc);
     if (!r) continue;
     const mejorScore = (m: PlanillaParseResult) => m.items.length * 100 + m.lineas.length * 10 + m.categorias.length;
     if (!mejor || mejorScore(r) > mejorScore(mejor)) mejor = r;

@@ -153,14 +153,16 @@ const VisorContext = createContext<((o: VisorOpts) => void) | null>(null);
 // UNA página del documento renderizada a imagen (con resaltado amarillo del texto `q`). Maneja su
 // propio estado de carga/error/zoom, así el visor puede apilar VARIAS páginas cuando la cita abarca
 // un rango. Clic en la imagen = ampliar/reducir.
-function PaginaImg({ url, pagina, q }: { url: string; pagina: number; q?: string }) {
+function PaginaImg({ url, pagina, q, esCitada = true }: { url: string; pagina: number; q?: string; esCitada?: boolean }) {
   const [cargada, setCargada] = useState(false);
   const [error, setError] = useState(false);
   const [zoom, setZoom] = useState(false);
   const src = `/api/pdf-pagina?url=${encodeURIComponent(url)}&pagina=${pagina}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
   return (
     <div className="w-full flex flex-col items-center">
-      <div className="text-[11px] font-semibold text-slate-500 bg-white/80 rounded-full px-2 py-0.5 my-1 sticky top-0 z-10">Página {pagina}</div>
+      <div className={`text-[11px] font-semibold rounded-full px-2 py-0.5 my-1 sticky top-0 z-10 ${esCitada ? 'text-amber-800 bg-amber-100 ring-1 ring-amber-300' : 'text-slate-400 bg-white/80'}`}>
+        Página {pagina}{esCitada ? ' · citada' : ' · referencia'}
+      </div>
       {!cargada && !error && <div className="flex items-center gap-2 text-slate-400 text-[13px] py-16"><Loader2 size={18} className="animate-spin" /> Renderizando página {pagina}…</div>}
       {error && <div className="text-slate-400 text-[13px] py-16">No se pudo renderizar la página {pagina}. <a href={`${url}#page=${pagina}`} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">Abrir el PDF</a>.</div>}
       {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -182,10 +184,19 @@ function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => vo
     };
   }, [onClose]);
 
-  // Páginas a mostrar: el rango de la cita (una o varias) o, de respaldo, la página única.
-  const paginas = (estado.paginas && estado.paginas.length ? estado.paginas : [estado.pagina ?? 1]);
-  const primera = paginas[0];
-  const etiqueta = paginas.length > 1 ? `Páginas ${paginas[0]}–${paginas[paginas.length - 1]}` : `Página ${primera}`;
+  // Páginas CITADAS por el análisis (una o varias) o, de respaldo, la página única.
+  const citadas = (estado.paginas && estado.paginas.length ? estado.paginas : [estado.pagina ?? 1]);
+  // Añadimos PÁGINAS DE CONTEXTO (una antes y una después del rango citado): la numeración de
+  // página de una cita puede venir corrida ±1 (el nº impreso no siempre coincide con el índice del
+  // PDF, y el OCR a veces cae en la página vecina). Mostrar las de al lado como REFERENCIA evita
+  // que el usuario tenga que abrir el PDF y scrollear para encontrar el texto real.
+  const citSet = new Set(citadas);
+  const desde = Math.max(1, citadas[0] - 1);
+  const hasta = citadas[citadas.length - 1] + 1;
+  const paginas: number[] = [];
+  for (let p = desde; p <= hasta; p++) paginas.push(p);
+  const primera = citadas[0];
+  const etiqueta = citadas.length > 1 ? `Páginas ${citadas[0]}–${citadas[citadas.length - 1]} (+contexto)` : `Página ${primera} (+contexto)`;
 
   // createPortal a body: los ancestros con animación (.fade-in, fill-mode both) dejan un
   // transform residual que crea un containing block y confina el `fixed` a la sección.
@@ -204,7 +215,7 @@ function VisorPagina({ estado, onClose }: { estado: VisorOpts; onClose: () => vo
           </div>
         </div>
         <div className="overflow-auto bg-slate-100 flex-1 flex flex-col justify-start items-center gap-3 p-3">
-          {paginas.map(p => <PaginaImg key={p} url={estado.url} pagina={p} q={estado.q} />)}
+          {paginas.map(p => <PaginaImg key={p} url={estado.url} pagina={p} q={estado.q} esCitada={citSet.has(p)} />)}
         </div>
       </div>
     </div>,
@@ -567,12 +578,34 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   const [docs, setDocs] = useState<DocRef[]>([]);
   const [visor, setVisor] = useState<VisorOpts | null>(null);   // modal de fuente (página + resaltado)
   const abortRef = useRef<AbortController | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);  // poll de resultado tras timeout del proxy
+  // Huella liviana del informe para detectar cuándo el server terminó un re-análisis.
+  const fpInforme = (inf: InformeIA | null) =>
+    inf ? `${inf.score_0_100}|${inf.semaforo}|${(inf as any).docs_hash || ''}|${JSON.stringify(inf.veredicto || {})}` : '';
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
+  const [cargandoInforme, setCargandoInforme] = useState(true);   // cargando el informe YA guardado (GET inicial)
+  const [errorCarga, setErrorCarga] = useState(false);            // el GET del informe guardado falló tras reintentos
   const cargar = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`).then(x => x.json());
-      if (r?.informeIA) setInforme(r.informeIA);
-    } catch { /* silencioso */ }
+    setCargandoInforme(true); setErrorCarga(false);
+    // REINTENTOS: durante una viabilidad larga el pool de conexiones (chico) se satura y este GET
+    // puede fallar/timeout. Sin reintento el panel mostraba "Aún sin análisis" AUNQUE el informe SÍ
+    // exista en BD (el catch silencioso se lo tragaba). Ahora reintenta y, si de verdad no puede,
+    // muestra un aviso con botón "Reintentar" en vez de fingir que no hay análisis.
+    for (let intento = 1; intento <= 3; intento++) {
+      try {
+        const res = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`);
+        if (!res.ok) throw new Error(String(res.status));
+        const r = await res.json();
+        if (r?.informeIA) setInforme(r.informeIA);
+        setCargandoInforme(false);
+        return;
+      } catch {
+        if (intento < 3) await new Promise(rr => setTimeout(rr, intento * 900));
+      }
+    }
+    setCargandoInforme(false);
+    setErrorCarga(true);
   }, [codigo]);
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -631,10 +664,12 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   const detener = () => {
     abortRef.current?.abort();
     abortRef.current = null;
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   };
 
   const analizar = async () => {
     setCargando(true); setError(null);
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }  // corta un poll previo
     abortRef.current = new AbortController();
     try { onTambienAnalizar?.(); } catch { /* noop */ }
     try {
@@ -651,7 +686,30 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       // "Unexpected token '<' … is not valid JSON".
       const esJSON = (r.headers.get('content-type') || '').includes('application/json');
       if (!esJSON) {
-        setError('El análisis tardó más que el tiempo máximo de la conexión y esta se cortó, pero sigue procesándose en el servidor. Espera unos minutos y vuelve a abrir esta licitación: el informe quedará guardado.');
+        // El análisis tardó más que el timeout del proxy/túnel y la conexión se cortó, PERO el
+        // análisis sigue corriendo en el server (y generará el Excel de costeo al terminar). En vez
+        // de rendirnos, hacemos POLLING: refrescamos informe + documentos hasta que aparezca el
+        // resultado nuevo. Así el costeo automático aparece SOLO, sin tener que "Re-clasificar".
+        setError('El análisis tardó más que el tiempo máximo de la conexión. Sigue procesándose en el servidor y esta pantalla se actualizará sola cuando termine (puede tardar varios minutos).');
+        const previo = fpInforme(informe);
+        let intentos = 0;
+        if (pollRef.current) clearInterval(pollRef.current);
+        pollRef.current = setInterval(async () => {
+          intentos++;
+          try {
+            const rr = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`).then(x => x.json());
+            const nuevo = rr?.informeIA || null;
+            if (nuevo && fpInforme(nuevo) !== previo) {
+              setInforme(nuevo);
+              setError(null);
+              try { onComplete?.(); } catch { /* noop */ }               // refresca documentos → aparece el costeo
+              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+              return;
+            }
+          } catch { /* reintenta en el próximo tick */ }
+          try { onComplete?.(); } catch { /* noop */ }                    // por si el costeo ya cayó aunque el informe se vea igual
+          if (intentos >= 20) { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } }  // ~10 min máx
+        }, 30000);
         return;
       }
       const j = await r.json();
@@ -733,7 +791,27 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
       {error && <div className="flex items-start gap-2 text-[13px] text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"><AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /><div><p className="font-semibold">No se pudo completar</p><p className="text-red-600">{error.includes('saturad') || error.includes('429') || error.includes('503') ? 'El servicio de análisis está saturado en este momento. Reintenta en unos minutos.' : error}</p></div></div>}
 
-      {!informe && !cargando && !error && (
+      {/* Cargando el informe YA guardado (GET inicial): no confundir con "sin análisis". */}
+      {!informe && !cargando && cargandoInforme && (
+        <div className="flex flex-col items-center justify-center py-14 bg-white rounded-2xl border border-slate-200 text-center">
+          <Loader2 size={22} className="animate-spin text-violet-500 mb-3" />
+          <p className="text-[13px] text-slate-500">Cargando el análisis guardado…</p>
+        </div>
+      )}
+
+      {/* El informe existe en BD pero el GET falló (pool saturado / red): NO decir "sin análisis". */}
+      {!informe && !cargando && !cargandoInforme && errorCarga && (
+        <div className="flex flex-col items-center justify-center py-14 bg-white rounded-2xl border border-amber-200 bg-amber-50/40 text-center">
+          <AlertTriangle size={22} className="text-amber-500 mb-3" />
+          <p className="text-[13px] font-semibold text-slate-700">No se pudo cargar el análisis guardado</p>
+          <p className="text-[12px] text-slate-400 max-w-xs mt-1">El servidor puede estar ocupado (hay un análisis en curso). El informe sigue guardado.</p>
+          <button onClick={cargar} className="mt-3 flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-800 text-white text-[12px] font-semibold rounded-lg">
+            <Loader2 size={13} /> Reintentar
+          </button>
+        </div>
+      )}
+
+      {!informe && !cargando && !error && !cargandoInforme && !errorCarga && (
         <div className="flex flex-col items-center justify-center py-14 bg-white rounded-2xl border border-slate-200 text-center">
           <div className="w-12 h-12 rounded-xl bg-violet-50 flex items-center justify-center mb-3"><Sparkles size={22} className="text-violet-500" /></div>
           <p className="text-[14px] font-semibold text-slate-700">Aún sin análisis</p>

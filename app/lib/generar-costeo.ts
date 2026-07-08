@@ -17,6 +17,22 @@ export type ModalidadCosteo = 'suma_alzada' | 'por_linea' | 'por_categoria';
 
 export interface GrupoCosteo { nombre: string; items: ManifiestoLinea[] }
 
+// Precio de mercado de un ítem (viene del buscador Serper). Opcional: si no hay precios,
+// el costeo se genera igual que antes (columnas de precio vacías).
+export interface PrecioMercadoItem {
+  descripcion: string;                 // para casar con el ítem del manifiesto
+  precio_neto: number | null;          // neto (sin IVA) → columna L "Costo unitario REAL"
+  precio_iva: number | null;           // con IVA        → columna F "VALOR C/ IVA"
+  tienda: string | null;
+  link: string | null;
+  score: number | null;
+  nivel: string | null;                // exacta/alta/parcial/baja/nula
+  alerta_unidad?: boolean;             // el resultado parece venir en pack/caja/rollo
+  desde_cache?: boolean;
+  total?: number;                      // cuántos resultados se encontraron
+  alternativas?: Array<{ tienda: string; precio_iva: number; link: string; score: number }>;
+}
+
 export interface DatosCosteo {
   codigo: string;
   nombre: string;
@@ -24,6 +40,12 @@ export interface DatosCosteo {
   presupuesto_bruto: number | null;
   modalidad: ModalidadCosteo;
   grupos: GrupoCosteo[];   // 1 grupo = 1 hoja. suma_alzada → un único grupo con todo.
+  precios?: PrecioMercadoItem[];  // precios de mercado por ítem (match por descripción)
+}
+
+// Normaliza una descripción para casar ítem ↔ precio (minúsculas, sin acentos, sin dobles espacios).
+function normDesc(s: string): string {
+  return (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
 }
 
 // Estructura de la plantilla V3 (medida): hoja "Costeo" con ítems desde la fila 4 (20 filas
@@ -80,7 +102,11 @@ function desplazarReferencias(formula: string, pivot: number, delta: number): st
 
 // Rellena una hoja de costeo (Costeo o LINEAn) con sus ítems, expandiendo el bloque si hace
 // falta y corrigiendo las referencias de los totales. Devuelve cuántos ítems escribió.
-function rellenarCosteo(ws: ExcelJS.Worksheet, items: ManifiestoLinea[]): number {
+function rellenarCosteo(
+  ws: ExcelJS.Worksheet,
+  items: ManifiestoLinea[],
+  precioDe?: (it: ManifiestoLinea) => PrecioMercadoItem | null,
+): number {
   const N = items.length;
   if (N === 0) return 0;
 
@@ -97,6 +123,21 @@ function rellenarCosteo(ws: ExcelJS.Worksheet, items: ManifiestoLinea[]): number
     ws.getCell(`B${r}`).value = detalleDe(it);                           // Detalle de producto
     ws.getCell(`C${r}`).value = (it.unidad_medida || '').trim() || 'UN'; // Unidad de medida
     ws.getCell(`E${r}`).value = it.cantidad ?? null;                     // Cantidad original
+
+    // Precio de mercado (si lo hay): F = con IVA (alimenta G neto y H total);
+    // L = neto REAL (alimenta M total REAL, que es lo que la AUDITORIA suma).
+    // Los links del producto encontrado van a las columnas Link 1/2/3 (S/T/V) de la plantilla:
+    // Link 1 = mejor match, Link 2/3 = alternativas.
+    const p = precioDe?.(it) || null;
+    if (p) {
+      if (p.precio_iva != null)  ws.getCell(`F${r}`).value = p.precio_iva;   // VALOR C/ IVA
+      if (p.precio_neto != null) ws.getCell(`L${r}`).value = p.precio_neto;  // Costo unitario REAL
+      if (p.tienda)              ws.getCell(`D${r}`).value = p.tienda;       // Sku de proveedor (tienda)
+      if (p.link) ws.getCell(`S${r}`).value = { text: p.link, hyperlink: p.link } as any;   // Link 1
+      const alt = p.alternativas || [];
+      if (alt[1]?.link) ws.getCell(`T${r}`).value = { text: alt[1].link, hyperlink: alt[1].link } as any; // Link 2
+      if (alt[2]?.link) ws.getCell(`V${r}`).value = { text: alt[2].link, hyperlink: alt[2].link } as any; // Link 3
+    }
   });
 
   // Si hay MENOS ítems que filas base, limpiar los placeholders sobrantes ("Producto N")
@@ -172,6 +213,16 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
 
   const grupos = d.grupos.filter(g => g.items.length > 0);
   const refs: Array<{ hoja: string; fila: number }> = [];
+  const itemsOrden: ManifiestoLinea[] = []; // ítems en el mismo orden que refs (para la hoja de precios)
+
+  // Lookup de precios por descripción (match exacto y normalizado).
+  const precioLookup = new Map<string, PrecioMercadoItem>();
+  for (const p of (d.precios || [])) {
+    if (p?.descripcion) precioLookup.set(normDesc(p.descripcion), p);
+  }
+  const precioDe = precioLookup.size
+    ? (it: ManifiestoLinea) => precioLookup.get(normDesc(it.descripcion)) || null
+    : undefined;
 
   // MULTI-HOJA (por_categoria / por_linea): una hoja por grupo, clonando "Costeo".
   // Cada hoja trae su propio subtotal; AUDITORIA suma todas → total único.
@@ -212,8 +263,8 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
         ws.model = m;
         ws.name = nombre;
       }
-      rellenarCosteo(ws, g.items);
-      g.items.forEach((_, i) => refs.push({ hoja: nombre, fila: FILA_ITEM_1 + i }));
+      rellenarCosteo(ws, g.items, precioDe);
+      g.items.forEach((it, i) => { refs.push({ hoja: nombre, fila: FILA_ITEM_1 + i }); itemsOrden.push(it); });
     });
 
     // Recrear AUDITORIA al final, con su estilo original.
@@ -228,14 +279,81 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
     // suma_alzada (o una sola categoría/línea): TODOS los ítems en la hoja "Costeo".
     const ws = wb.getWorksheet(HOJA_COSTEO) || wb.worksheets[0];
     const todos = grupos.flatMap(g => g.items);
-    rellenarCosteo(ws, todos);
-    todos.forEach((_, i) => refs.push({ hoja: ws.name, fila: FILA_ITEM_1 + i }));
+    rellenarCosteo(ws, todos, precioDe);
+    todos.forEach((it, i) => { refs.push({ hoja: ws.name, fila: FILA_ITEM_1 + i }); itemsOrden.push(it); });
   }
 
   reconstruirAuditoria(wb, refs);
 
+  // Hoja auditable de precios de mercado (solo si se cotizó).
+  if (precioLookup.size) agregarHojaPreciosMercado(wb, itemsOrden, precioDe!);
+
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf as ArrayBuffer);
+}
+
+// ─── Hoja "PRECIOS MERCADO" ───────────────────────────────────────────────────
+// Lista, por ítem, el mejor match del buscador + alternativas y señales para auditar
+// (score, nivel de concordancia, alerta de unidad, tienda, link). No lleva fórmulas: es
+// una hoja de respaldo para revisar/corregir los precios que se volcaron al costeo.
+function agregarHojaPreciosMercado(
+  wb: ExcelJS.Workbook,
+  items: ManifiestoLinea[],
+  precioDe: (it: ManifiestoLinea) => PrecioMercadoItem | null,
+) {
+  const ws = wb.addWorksheet('PRECIOS MERCADO');
+  const cols = [
+    { header: '#', width: 5 },
+    { header: 'Ítem (descripción)', width: 46 },
+    { header: 'Unidad', width: 10 },
+    { header: 'Cantidad', width: 10 },
+    { header: 'Mejor tienda', width: 20 },
+    { header: 'Precio neto', width: 13 },
+    { header: 'Precio c/IVA', width: 13 },
+    { header: 'Match %', width: 9 },
+    { header: 'Concordancia', width: 14 },
+    { header: '⚠ Unidad', width: 10 },
+    { header: 'Fuente', width: 9 },
+    { header: 'Link', width: 50 },
+    { header: 'Alternativas (tienda · c/IVA · match%)', width: 60 },
+  ];
+  ws.columns = cols.map(c => ({ width: c.width }));
+  const head = ws.getRow(1);
+  cols.forEach((c, i) => { head.getCell(i + 1).value = c.header; });
+  head.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  head.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F5496' } };
+  head.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+
+  items.forEach((it, idx) => {
+    const p = precioDe(it);
+    const alt = (p?.alternativas || [])
+      .slice(0, 4)
+      .map(a => `${a.tienda} · $${(a.precio_iva || 0).toLocaleString('es-CL')} · ${a.score}%`)
+      .join('  |  ');
+    const row = ws.getRow(idx + 2);
+    row.getCell(1).value = idx + 1;
+    row.getCell(2).value = detalleDe(it);
+    row.getCell(3).value = (it.unidad_medida || '').trim() || 'UN';
+    row.getCell(4).value = it.cantidad ?? null;
+    row.getCell(5).value = p?.tienda || (p ? '—' : 'sin resultados');
+    row.getCell(6).value = p?.precio_neto ?? null;
+    row.getCell(7).value = p?.precio_iva ?? null;
+    row.getCell(8).value = p?.score ?? null;
+    row.getCell(9).value = p?.nivel || '';
+    row.getCell(10).value = p?.alerta_unidad ? 'REVISAR' : '';
+    row.getCell(11).value = p?.desde_cache ? 'caché' : (p ? 'web' : '');
+    if (p?.link) row.getCell(12).value = { text: p.link.slice(0, 120), hyperlink: p.link };
+    row.getCell(13).value = alt;
+    // Resaltar baja confianza / alerta de unidad para que salten a la vista.
+    const bajo = (p?.score ?? 100) < 60 || p?.alerta_unidad;
+    if (bajo) {
+      for (let c = 1; c <= 13; c++) {
+        row.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+      }
+    }
+  });
+  ws.views = [{ state: 'frozen', ySplit: 1 }];
+  ws.autoFilter = { from: 'A1', to: `M${items.length + 1}` };
 }
 
 // ─── Adaptador ViabilidadIAResult → DatosCosteo ──────────────────────────────

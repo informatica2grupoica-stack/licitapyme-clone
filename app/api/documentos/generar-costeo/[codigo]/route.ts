@@ -128,6 +128,26 @@ export async function POST(request: NextRequest, { params }: Params) {
     );
   }
 
+  // 2b) PRECIOS DE MERCADO (flag COSTEO_PRECIOS_MERCADO=1): cotiza cada ítem con el buscador
+  //     (Serper + caché) y los inyecta. Disponible para cualquier perfil (la viabilidad y su
+  //     costeo con precios ya no son exclusivos de admin). Si algo falla, se genera sin precios.
+  if (process.env.COSTEO_PRECIOS_MERCADO === '1' && process.env.SERPER_API_KEY) {
+    try {
+      const { cotizarManifiesto } = await import('@/app/lib/buscador-precios');
+      const manifiesto = Array.isArray(informeIA.manifiesto_productos) ? informeIA.manifiesto_productos : [];
+      const region = (informeIA as any).meta?.region || '';
+      const contexto = (informeIA as any).meta?.linea_negocio || '';
+      console.log(`[costeo:regenerar] ${codigoDecoded}: cotizando ${manifiesto.length} ítems (región="${region}")…`);
+      const t0 = Date.now();
+      const precios = await cotizarManifiesto(manifiesto, { region, contexto });
+      const hits = precios.filter(p => p.precio_neto != null).length;
+      if (hits > 0) { (datosCosteo as any).precios = precios; }
+      console.log(`[costeo:regenerar] ${codigoDecoded}: ${hits}/${precios.length} con precio en ${((Date.now()-t0)/1000).toFixed(1)}s`);
+    } catch (e) {
+      console.error(`[costeo:regenerar] ${codigoDecoded}: cotización falló (sigue sin precios):`, String(e).slice(0, 200));
+    }
+  }
+
   // 3) Generar Excel
   const buffer = await generarCosteoExcel(datosCosteo);
 
@@ -136,15 +156,17 @@ export async function POST(request: NextRequest, { params }: Params) {
   const nombreArchivo = `${NOMBRE_DOC_PREFIX}${codigoDecoded}_${fecha}.xlsx`;
   const url = await subirDocumentoR2(codigoDecoded, nombreArchivo, buffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 
-  // 5) Registrar en documentos_cache
+  // 5) Registrar en documentos_cache. Siempre DOCUMENTOS_PROPIOS: el costeo (con o sin precios
+  //    de mercado) es visible para cualquier perfil asignado a la licitación.
+  const categoriaDoc = 'DOCUMENTOS_PROPIOS';
   await pool.query(
     `INSERT INTO documentos_cache
        (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, usuario_id)
-     VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', ?)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON DUPLICATE KEY UPDATE
        documento_url_local = VALUES(documento_url_local),
        size_bytes          = VALUES(size_bytes),
-       categoria           = 'DOCUMENTOS_PROPIOS',
+       categoria           = VALUES(categoria),
        updated_at          = CURRENT_TIMESTAMP`,
     [
       codigoDecoded,
@@ -152,6 +174,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       url,
       buffer.length,
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      categoriaDoc,
       usuario.id,
     ],
   );

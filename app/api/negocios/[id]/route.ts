@@ -83,6 +83,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       } catch { negocio.viabilidad_informe = null; }
     }
 
+    // El costeo (con precios de mercado incluido) es visible para cualquier perfil asignado.
     negocio.documentos = (docRows as any)[0] as any[];
     negocio.total_documentos = negocio.documentos.length;
 

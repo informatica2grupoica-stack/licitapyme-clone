@@ -32,10 +32,13 @@ export async function GET(
       ) as any[];
     }
 
+    // El costeo (con precios de mercado incluido) es visible para cualquier perfil asignado.
+    const documentos = rows as any[];
+
     return NextResponse.json({
       success: true,
       codigo,
-      documentos: rows,
+      documentos,
     });
   } catch (error) {
     console.error('Error:', error);

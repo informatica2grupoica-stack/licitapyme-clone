@@ -20,7 +20,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos } from '@/app/lib/zai-ocr';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -367,7 +367,10 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         stream: false,
         max_tokens: 32_000,
         response_format: { type: 'json_object' },
-      }, { timeoutMs: 280_000 }); // el informe completo (~90k tokens in) tarda; GLM cae con 120s
+      }, { timeoutMs: Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000) });
+      // ↑ timeout primario. Los análisis buenos tardan ~180-200s; con 240s no se cortan, pero si
+      // glm-4.7-flashx se CUELGA (le pasa con inputs grandes) caemos al respaldo rápido (glm-4.5-air,
+      // ~137s) 40s antes que con los 280s previos. Configurable con VIABILIDAD_LLM_TIMEOUT_MS.
       const finish = completion.choices?.[0]?.finish_reason;
       // ── Telemetría SIEMPRE visible: tiempo + tokens + costo estimado ─────────────
       // Es la señal clave para optimizar: cuánto tardó, cuántos tokens de entrada/salida
@@ -496,7 +499,14 @@ function construirSenalModalidad(
   lineasFormulario: number[] = [],
   ofertaTotalUnico = false,
   lenguajePorLinea: string | null = null,
+  presupuestoPorLinea: string | null = null,
 ): string {
+  // PRIORIDAD 0.A — PRESUPUESTO/MONTO MÁXIMO POR LÍNEA con ≥2 líneas presupuestadas: cada línea
+  // tiene su propio monto máximo y su propio destino (lotes independientes). Es evidencia dura de
+  // por_linea aunque el formulario económico venga en blanco o los ítems estén dispersos.
+  if (presupuestoPorLinea && !ofertaTotalUnico) {
+    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de las bases): las bases fijan un MONTO MÁXIMO POR LÍNEA con presupuesto INDEPENDIENTE por línea ("${presupuestoPorLinea}") y listan ≥2 líneas, cada una con su propio total. Esto determina modalidad = por_linea (cada línea es un lote con su presupuesto y se oferta/adjudica por separado). El costeo debe ir POR LÍNEA (una hoja por línea).`;
+  }
   // PRIORIDAD 0 — LENGUAJE EXPLÍCITO de las bases (la declaración más directa del "cómo se
   // cotiza"): "ofertar por la línea de producto", "se evaluará cada línea de manera
   // individual", "se evaluarán únicamente las líneas que…". Es la señal MÁS confiable: si
@@ -557,11 +567,15 @@ function veredictoModalidadDeterminista(
   planilla: ReturnType<typeof parsearPlanillaCosteo>,
   ofertaTotalUnico: boolean,
   lenguajePorLinea: string | null,
+  presupuestoPorLinea: string | null = null,
 ): { tipo: 'suma_alzada' | 'por_linea'; motivo: string } | null {
   // 1. Regla maestra: el formato de la oferta económica manda sobre cómo se adjudica.
   if (ofertaTotalUnico) return { tipo: 'suma_alzada', motivo: 'total único consolidado al pie del formulario económico' };
   // 2. Lenguaje explícito de las bases (se oferta/evalúa cada línea por separado).
   if (lenguajePorLinea) return { tipo: 'por_linea', motivo: `lenguaje explícito de las bases: "${lenguajePorLinea.slice(0, 80)}"` };
+  // 2b. Presupuesto/monto MÁXIMO por línea con ≥2 líneas presupuestadas (cada una su total).
+  //     Evidencia dura de lotes independientes → por_linea, aunque no haya planilla tabulable.
+  if (presupuestoPorLinea) return { tipo: 'por_linea', motivo: `monto máximo por línea con presupuesto independiente por línea: "${presupuestoPorLinea.slice(0, 80)}"` };
   // Sin planilla suficiente → no forzar.
   if (!planilla || planilla.items.length < 8) return null;
   // 3-4. Suma alzada por numeración continua o por rubros/categorías bajo un total.
@@ -1048,12 +1062,14 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   let lineasForm: number[] = [];
   let totalUnico = false;
   let lenguajePorLinea: string | null = null;
+  let presupuestoPorLinea: string | null = null;
   try {
     lineasForm = detectarLineasFormulario(leidos);
     totalUnico = detectarOfertaTotalUnico(leidos);
     lenguajePorLinea = detectarLenguajePorLinea(leidos);
+    presupuestoPorLinea = detectarPresupuestoPorLinea(leidos);
   } catch { /* señal opcional */ }
-  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea);
+  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea);
 
   const userPrompt = construirUserPromptV3(codigo, ctx, docs, senal, planilla?.fuenteDoc);
   const parsed = await llamarGeminiJSON(SYSTEM_PROMPT_V3, userPrompt);
@@ -1063,7 +1079,7 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   // GLOBAL/POR_LINEAS del v3): el listado de ítems MANDA sobre el LLM cuando es concluyente.
   const p3 = parsed as any;
   const adj = p3.adjudicacion && typeof p3.adjudicacion === 'object' ? p3.adjudicacion : (p3.adjudicacion = {});
-  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea);
+  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea);
   if (det) {
     const comoDet = det.tipo === 'suma_alzada' ? 'GLOBAL' : 'POR_LINEAS';
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
@@ -1083,9 +1099,40 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     // cotiza por línea" —cómo—). Default SEGURO = GLOBAL (suma alzada, un único total) y se marca
     // REVISION_HUMANA para que un humano confirme. Evita costeos por-línea equivocados.
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
+    // CORROBORACIÓN POR EL MANIFIESTO DEL LLM (evidencia estructural): si el modelo agrupó los
+    // ítems en ≥2 LÍNEAS distintas y cada línea trae su PROPIO presupuesto (presupuesto_linea),
+    // eso refleja lotes presupuestados por separado en las bases (no un tag arbitrario). Es la
+    // señal que el experto lee "a ojo": los productos salen 1,1,1…2,2,2… con su monto por línea.
+    const itemsLLM: any[] = Array.isArray(p3.costeo?.items) ? p3.costeo.items : [];
+    const lineasLLM = new Set(itemsLLM.map(it => Number(it?.linea)).filter(n => Number.isFinite(n) && n > 0));
+    const presupuestosLLM = new Set(
+      itemsLLM.map(it => _num(it?.presupuesto_linea)).filter((n): n is number => n != null && n > 0),
+    );
+    // CLAVE — distinguir "líneas/lotes reales" de "correlativo 1..N de una planilla suma alzada".
+    // por_linea REAL agrupa VARIOS ítems por línea (pocas líneas, muchos ítems): 3480 = 2 líneas /
+    // 108 ítems = 54 ítems/línea. En cambio, UN ítem por línea (177 líneas / 177 ítems = 1) es el
+    // correlativo continuo de UNA planilla integrada = SUMA ALZADA (el LLM numeró cada ítem y le
+    // puso su precio de referencia; NO son 177 lotes). Exigimos ≥3 ítems por línea en promedio para
+    // que el manifiesto cuente como evidencia de lotes. (Doctrina "correlativo 1..N = suma alzada".)
+    const itemsPorLinea = lineasLLM.size > 0 ? itemsLLM.length / lineasLLM.size : 0;
+    const manifiestoPorLinea = lineasLLM.size >= 2 && presupuestosLLM.size >= 2 && itemsLLM.length >= 8 && itemsPorLinea >= 3;
     const hayEvidenciaPorLinea = !!lenguajePorLinea
+      || !!presupuestoPorLinea
       || lineasForm.length >= 2
-      || (!!planilla && planilla.estructura === 'por_linea' && planilla.numeracion === 'reinicia');
+      || (!!planilla && planilla.estructura === 'por_linea' && planilla.numeracion === 'reinicia')
+      || manifiestoPorLinea;
+    if (comoLLM.includes('LINEA') && manifiestoPorLinea && !presupuestoPorLinea && !lenguajePorLinea) {
+      // Evidencia MEDIA (viene del manifiesto del LLM, no de una señal 100% determinista): se
+      // RESPETA por_linea (para que el costeo salga por línea) pero se marca REVISION_HUMANA
+      // para que el experto confirme. Evita tanto el costeo global equivocado como confiar a
+      // ciegas en el modelo.
+      console.log(`[viabilidad-ia-v3] ${codigo}: POR_LINEAS sostenido por el manifiesto del LLM (${lineasLLM.size} líneas, ${presupuestosLLM.size} presupuestos independientes) → se respeta por_linea + REVISION_HUMANA.`);
+      adj.como_se_adjudica = 'POR_LINEAS';
+      adj.estado = 'REVISION_HUMANA';
+      adj.evidencia = adj.evidencia
+        ? `${adj.evidencia} [por_linea sostenido por el manifiesto: ${lineasLLM.size} líneas con presupuesto independiente; requiere confirmación humana]`
+        : `por_linea sostenido por la estructura del manifiesto (${lineasLLM.size} líneas con presupuesto independiente); requiere confirmación humana`;
+    }
     if (comoLLM.includes('LINEA') && !hayEvidenciaPorLinea) {
       console.log(`[viabilidad-ia-v3] ${codigo}: POR_LINEAS del LLM SIN evidencia objetiva → default seguro GLOBAL (suma_alzada) + REVISION_HUMANA.`);
       adj.como_se_adjudica = 'GLOBAL';
@@ -1184,6 +1231,23 @@ async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise
   const { subirDocumentoR2 } = await import('@/app/lib/r2');
 
   const datosCosteo = adaptarViabilidadACosteo(codigo, r);
+
+  // PRECIOS DE MERCADO (flag COSTEO_PRECIOS_MERCADO=1): cotiza cada ítem con el buscador
+  // (Serper + caché MySQL) y los inyecta en el Excel. Si algo falla, el costeo se genera
+  // igual, sin precios. Es tolerante a fallos por diseño (no debe romper la viabilidad).
+  if (process.env.COSTEO_PRECIOS_MERCADO === '1') {
+    try {
+      const precios = await cotizarPreciosManifiesto(codigo, manifiesto, r);
+      const conPrecio = precios.filter(p => p.precio_neto != null).length;
+      if (conPrecio > 0) {
+        (datosCosteo as any).precios = precios;
+        console.log(`[costeo] ${codigo}: precios de mercado → ${conPrecio}/${precios.length} ítems cotizados`);
+      }
+    } catch (e) {
+      console.error(`[costeo] ${codigo}: cotización de precios falló (se sigue sin precios):`, String(e).slice(0, 200));
+    }
+  }
+
   console.log(`[costeo] ${codigo}: generando Excel (${datosCosteo.modalidad}, ${datosCosteo.grupos.length} hoja(s))…`);
   const buffer = await generarCosteoExcel(datosCosteo);
   console.log(`[costeo] ${codigo}: buffer ${buffer.length} bytes — subiendo a R2…`);
@@ -1219,9 +1283,14 @@ async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise
       params.push('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     }
     if (existentes.has('categoria')) {
+      // El costeo (con o sin precios de mercado) queda como DOCUMENTOS_PROPIOS: visible para
+      // cualquier perfil asignado a la licitación. La viabilidad la puede hacer cualquiera y
+      // el costeo con precios se genera y se ve igual (ya no es exclusivo de admin).
+      const categoriaDoc = 'DOCUMENTOS_PROPIOS';
       colsExtra  += ', categoria';
-      valsExtra  += ", 'DOCUMENTOS_PROPIOS'";
-      updateExtra += ", categoria = 'DOCUMENTOS_PROPIOS'";
+      valsExtra  += ', ?';
+      updateExtra += ', categoria = VALUES(categoria)';
+      params.push(categoriaDoc);
     }
   } catch { /* si falla la introspección, continúa sin columnas extra */ }
 
@@ -1237,6 +1306,32 @@ async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise
   );
 
   console.log(`[costeo] ✅ ${codigo}: Excel guardado (${datosCosteo.modalidad}, ${datosCosteo.grupos.length} hoja(s), ${totalItems} ítems)`);
+}
+
+// Cotiza los ítems del manifiesto con el buscador de precios (Serper + caché) y devuelve
+// los PrecioMercadoItem que el Excel de costeo casa por descripción. Región y rubro salen
+// del meta de la licitación para afinar la búsqueda.
+async function cotizarPreciosManifiesto(
+  codigo: string,
+  manifiesto: ManifiestoLinea[],
+  r: ViabilidadIAResult,
+): Promise<import('@/app/lib/generar-costeo').PrecioMercadoItem[]> {
+  if (!process.env.SERPER_API_KEY) {
+    console.warn(`[costeo] ${codigo}: SERPER_API_KEY ausente → sin precios de mercado`);
+    return [];
+  }
+  const { cotizarManifiesto } = await import('@/app/lib/buscador-precios');
+
+  const region = r.meta?.region || '';
+  const contexto = r.meta?.linea_negocio || '';
+  console.log(`[costeo] ${codigo}: cotizando ${manifiesto.length} ítems (región="${region}", rubro="${contexto}")…`);
+  const t0 = Date.now();
+  const precios = await cotizarManifiesto(manifiesto, { region, contexto });
+  const segs = ((Date.now() - t0) / 1000).toFixed(1);
+  const hits = precios.filter(p => p.tienda).length;
+  const cacheHits = precios.filter(p => p.desde_cache).length;
+  console.log(`[costeo] ${codigo}: cotización lista en ${segs}s — ${hits}/${precios.length} con match (${cacheHits} de caché)`);
+  return precios;
 }
 
 // Vuelca el manifiesto de productos (lo que la IA encontró en la documentación) a

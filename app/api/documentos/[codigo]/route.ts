@@ -17,10 +17,11 @@ export async function GET(
 
   try {
     const [rows] = await pool.query(
-      `SELECT documento_nombre, documento_url_local, size_bytes, created_at
+      `SELECT documento_nombre, documento_url_local, size_bytes, created_at, categoria
        FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at ASC`,
       [codigo]
     );
+    // El costeo (con precios de mercado incluido) es visible para cualquier perfil asignado.
     const docs = rows as any[];
 
     return NextResponse.json({
@@ -76,7 +77,11 @@ export async function DELETE(
     const doc = (rows as any[])[0];
     if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
 
-    if ((doc.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS')
+    // Se pueden borrar los propios; el costeo con precios (COSTEO_ADMIN) solo el admin.
+    const cat = (doc.categoria || '').toUpperCase();
+    const esAdmin = request.headers.get('x-user-rol') === 'admin';
+    const borrable = cat === 'DOCUMENTOS_PROPIOS' || (cat === 'COSTEO_ADMIN' && esAdmin);
+    if (!borrable)
       return NextResponse.json(
         { error: 'Solo se pueden eliminar documentos propios; los oficiales de Mercado Público están protegidos.' },
         { status: 403 }
