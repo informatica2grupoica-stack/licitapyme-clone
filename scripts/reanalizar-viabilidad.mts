@@ -15,7 +15,13 @@ import fs from 'fs';
 //    leen process.env al importarse).
 for (const l of fs.readFileSync('.env.local', 'utf8').split('\n')) {
   const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-  if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
+  if (m && !process.env[m[1]]) {
+    let v = m[2].trim();
+    // Recorta el comentario inline "VAR=valor  # comentario" en valores SIN comillas (igual que
+    // @next/env). Sin esto, flags como COSTEO_PRECIOS_MERCADO=1 quedaban como "1  # ..." ≠ "1".
+    if (!/^["']/.test(v)) v = v.replace(/\s+#.*$/, '').trim();
+    process.env[m[1]] = v.replace(/^["']|["']$/g, '');
+  }
 }
 
 const args = process.argv.slice(2);

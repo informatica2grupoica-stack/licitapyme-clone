@@ -203,7 +203,7 @@ export function detectarOfertaTotalUnico(docs: { texto: string }[]): boolean {
 // NO incluye "adjudicación por línea/ítem" a secas: eso es "a quién se adjudica"
 // (adjudicación múltiple), no "cómo se cotiza" — por doctrina no gatilla por_linea.
 export function detectarLenguajePorLinea(docs: { texto: string }[]): string | null {
-  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|se\s+evaluar[aá]\s+cada\s+l[ií]nea(?:\s+de\s+manera\s+individual)?|cada\s+l[ií]nea\s+(?:se\s+evaluar[aá]|ser[aá]\s+evaluada)\s+de\s+manera\s+individual|podr[aá]n?\s+ofertar\s+(?:una\s+o\s+m[aá]s|por)\s+l[ií]neas?|se\s+evaluar[aá]n?\s+(?:[uú]nicamente\s+)?las\s+l[ií]neas\s+que|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas/i;
+  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+)?(?:una\s+o\s+m[aá]s|por)\s+l[ií]neas?|se\s+evaluar[aá]\s+cada\s+l[ií]nea(?:\s+de\s+manera\s+individual)?|cada\s+l[ií]nea\s+(?:se\s+evaluar[aá]|ser[aá]\s+evaluada)\s+de\s+manera\s+individual|se\s+evaluar[aá]n?\s+(?:[uú]nicamente\s+)?las\s+l[ií]neas\s+que|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas/i;
   for (const d of docs) {
     if (!d.texto) continue;
     const m = d.texto.match(re);
@@ -225,7 +225,11 @@ export function detectarLenguajePorLinea(docs: { texto: string }[]): string | nu
 // total al pie y NO usa esa frase → no dispara (bajo riesgo de falso positivo).
 // Devuelve la frase-evidencia hallada, o null.
 export function detectarPresupuestoPorLinea(docs: { texto: string }[]): string | null {
-  const reFrase = /monto\s+(?:m[aá]ximo|disponible|total|referencial)\s+(?:por|de\s+cada|de\s+la)\s+l[ií]nea|presupuesto\s+(?:m[aá]ximo\s+|disponible\s+|referencial\s+)?por\s+l[ií]nea|monto\s+m[aá]ximo\s+por\s+l[ií]nea|disponibilidad\s+presupuestaria\s+por\s+l[ií]nea|monto\s+por\s+cada\s+l[ií]nea/i;
+  // Frase-ancla: "presupuesto/monto [máximo|disponible|referencial|total|tope]* {por|de cada|de la|para (la)} línea".
+  // El {0,3} permite VARIOS calificativos encadenados ("presupuesto máximo DISPONIBLE por línea",
+  // "monto tope máximo disponible para la Línea") — antes solo aceptaba UNO y se caía justo en
+  // ese caso (KIT de soluciones hídricas 4524-2-LP26).
+  const reFrase = /(?:presupuesto|monto)\s+(?:(?:m[aá]ximo|disponible|referencial|total|tope)\s+){0,3}(?:por|de\s+cada|de\s+la|para(?:\s+la)?)\s+l[ií]nea|disponibilidad\s+presupuestaria\s+por\s+l[ií]nea/i;
   for (const d of docs) {
     if (!d.texto) continue;
     const mFrase = d.texto.match(reFrase);
@@ -242,6 +246,58 @@ export function detectarPresupuestoPorLinea(docs: { texto: string }[]): string |
     }
   }
   return null;
+}
+
+// SECCIONES "LÍNEA DE PRODUCTO N°X" en las BASES TÉCNICAS: cada una es un lote independiente
+// (con su propio kit de productos y su propio presupuesto). Es una señal estructural de por_linea
+// aunque el listado de productos NO sea tabulable de forma limpia (nombres de producto que contienen
+// palabras-unidad como "tira"/"caja" hacen el parseo de ítems poco confiable). NO extrae los ítems
+// —eso lo hace el LLM guiado con contexto—, solo reconoce la estructura y el número de líneas.
+// Devuelve los números de línea de producto detectados (en orden).
+export function detectarLineasProductoTecnicas(docs: { texto: string }[]): number[] {
+  const set = new Set<number>();
+  const re = /l[ií]nea\s+de\s+producto\s+n[°º]\s*(\d{1,2})/gi;
+  for (const d of docs) {
+    if (!d.texto) continue;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(d.texto)) !== null) {
+      const n = parseInt(m[1], 10);
+      if (n >= 1 && n <= 60) set.add(n);
+    }
+    re.lastIndex = 0;
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+// Extrae el TEXTO de cada sección "N.M. LÍNEA DE PRODUCTO N°X – Nombre" de las bases técnicas,
+// acotado hasta la siguiente sección de línea o el siguiente título numerado (p.ej. "3.5. FORMA
+// DE ENTREGA"). Es la MATERIA PRIMA para el extractor dedicado por IA: en este formato los ~100
+// productos vienen en tablas en prosa (PDF) que el parser tabular no puede desenredar, pero una
+// IA enfocada SOLO en estas secciones sí los lista. Devuelve [] si no hay ≥2 secciones.
+export function extraerSeccionesLineaProducto(docs: { nombre?: string; texto?: string | null }[]): { linea: number; nombre: string; texto: string }[] {
+  const re = /(\d{1,2})\.(\d{1,2})\.?\s*L[ÍI]NEA\s+DE\s+PRODUCTO\s+N[°º]\s*(\d{1,2})\s*[–\-]?\s*([^\n]{0,60})/gi;
+  for (const d of docs) {
+    const t = d.texto || '';
+    if (t.length < 200) continue;
+    const heads: { idx: number; linea: number; nombre: string }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(t)) !== null) heads.push({ idx: m.index, linea: parseInt(m[3], 10), nombre: (m[4] || '').trim() });
+    re.lastIndex = 0;
+    if (heads.length < 2) continue;
+    const out: { linea: number; nombre: string; texto: string }[] = [];
+    for (let i = 0; i < heads.length; i++) {
+      const start = heads[i].idx;
+      let end = i + 1 < heads.length ? heads[i + 1].idx : t.length;
+      // Última sección: cortar en el próximo título numerado "N.M TÍTULO" (FORMA DE ENTREGA, etc.).
+      if (i + 1 >= heads.length) {
+        const mNext = t.slice(start + 1, end).match(/\n\s*\d{1,2}\.\d{1,2}\.?\s+[A-ZÁÉÍÓÚ]{4,}/);
+        if (mNext && mNext.index != null) end = start + 1 + mNext.index;
+      }
+      out.push({ linea: heads[i].linea, nombre: heads[i].nombre, texto: t.slice(start, Math.min(end, start + 16000)) });
+    }
+    return out; // primer doc con ≥2 secciones (las bases técnicas)
+  }
+  return [];
 }
 
 // ¿Fila de categoría? Ej: ["", "A", "FERRETERIA", ""] o ["F", "HERRAMIENTAS"].

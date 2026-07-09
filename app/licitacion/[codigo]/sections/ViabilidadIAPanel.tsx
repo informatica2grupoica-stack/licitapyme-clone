@@ -279,7 +279,8 @@ const estadoColor = (e?: string) => e === 'VENTAJA' ? 'text-emerald-700 bg-emera
 const TIPO_BADGE: Record<string, { label: string; cls: string }> = {
   LEY_DEL_MINIMO: { label: '⭐ LEY DEL MÍNIMO', cls: 'bg-emerald-100 text-emerald-700' },
   LEY_DEL_MAXIMO: { label: '⭐ LEY DEL MÁXIMO', cls: 'bg-emerald-100 text-emerald-700' },
-  TRAMO_CERRADO:  { label: 'TRAMO CERRADO',    cls: 'bg-slate-100 text-slate-500' },
+  POR_TRAMOS:     { label: 'POR TRAMOS',       cls: 'bg-slate-100 text-slate-500' }, // v3.3
+  TRAMO_CERRADO:  { label: 'TRAMO CERRADO',    cls: 'bg-slate-100 text-slate-500' }, // v3.2 (informes guardados)
   BINARIO:        { label: 'BINARIO',          cls: 'bg-indigo-50 text-indigo-600' },
 };
 const VER_TARJETA: Record<string, { label: string; ring: string; text: string; bg: string; soft: string }> = {
@@ -310,23 +311,37 @@ function VistaV3({ informe }: { informe: any }) {
   const adm = informe.requisitos_admisibilidad || {};
   const plz = informe.plazos || {};
   const mul = informe.multas || {};
-  const cost = informe.costeo || {};
+  // v3.3: el bloque de ítems pasó de `costeo` a `productos`; caemos a `costeo` para informes guardados.
+  const cost = informe.productos || informe.costeo || {};
+  const hojasCosteo = cost.hojas_costeo_segun_adjudicacion || cost.hojas_segun_adjudicacion || '';
   // Lista de ítems a mostrar = la MISMA que alimenta el Excel de costeo. El puente al costeo pone
   // en `manifiesto_productos` la lista COMPLETA (del parser de la planilla cuando es más fiel que
-  // la del LLM), así que se muestra esa; se cae a `costeo.items` (LLM) si no hay manifiesto. Se
-  // normalizan los nombres de campo (descripcion/descripcion_exacta, modelo/marca_modelo).
+  // la del LLM), así que se muestra esa; se cae a `productos.items`/`costeo.items` (LLM) si no hay
+  // manifiesto. Se normalizan los nombres de campo entre shapes (nombre/descripcion/descripcion_exacta,
+  // marca_modelo_referencia/modelo/marca_modelo).
   const _manif: any[] = Array.isArray(informe.manifiesto_productos) ? informe.manifiesto_productos : [];
-  const _fuenteItems: any[] = _manif.length >= (cost.items?.length ?? 0) && _manif.length > 0 ? _manif : (cost.items || []);
+  const _prod: any[] = Array.isArray(cost.items) ? cost.items : [];
+  // Mostramos la lista MÁS COMPLETA (mirror del Excel de costeo). En empate preferimos la de
+  // productos/costeo del informe, que en v3.3 trae la ficha técnica (caracteristicas[]) y la
+  // clasificación genérico/específico; el manifiesto gana solo si es más largo (parser de planilla
+  // o extracción dedicada "LÍNEA DE PRODUCTO" añadieron ítems que el LLM había resumido).
+  const _fuenteItems: any[] = _manif.length > _prod.length ? _manif : (_prod.length ? _prod : _manif);
   const itemsCosteo = _fuenteItems.map((p: any, i: number) => ({
     linea: p.linea ?? i + 1,
-    descripcion: p.descripcion ?? p.descripcion_exacta ?? '',
-    modelo: p.modelo ?? p.marca_modelo ?? '',
+    descripcion: p.descripcion ?? p.nombre ?? p.descripcion_exacta ?? '',
+    modelo: p.modelo ?? p.marca_modelo_referencia ?? p.marca_modelo ?? '',
     cantidad: p.cantidad,
     unidad_medida: p.unidad_medida,
     unidad_inferida: p.unidad_inferida,
     ruta: p.ruta,
     marca_exclusiva: p.marca_exclusiva,
+    // v3.3: riqueza del módulo PRODUCTOS (si la fuente es productos.items; el manifiesto no la trae).
+    clasificacion: p.clasificacion ?? p.tipo ?? '',
+    caracteristicas: Array.isArray(p.caracteristicas) ? p.caracteristicas : [],
+    libertad_de_oferta: p.libertad_de_oferta ?? false,
+    admite_equivalente: p.admite_equivalente,
   }));
+  const entregablesWord: string[] = Array.isArray(cost.entregables_word) ? cost.entregables_word : [];
   const lin = informe.lineas_a_atacar || {};
   const acc = informe.acciones_y_advertencias || {};
   const enRevision = informe.veredicto?.estado_veredicto === 'REVISION_HUMANA';
@@ -394,14 +409,17 @@ function VistaV3({ informe }: { informe: any }) {
         <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Criterios de evaluación — dónde se gana el puntaje" badge={`suma ${Math.round(sumaReal)}%${crit.suma_valida ? ' ✓' : ' ⚠'}${crit.evaluacion_puntaje === 'por_linea' ? ' · por línea' : ' · al total'}`} defaultOpen>
           <div className="space-y-2.5">
             {[...criterios].sort((a, b) => (Number(b.ponderacion_efectiva) || 0) - (Number(a.ponderacion_efectiva) || 0)).map((c, i) => {
-              const tb = TIPO_BADGE[c.tipo_aplicacion];
+              const tb = TIPO_BADGE[c.clase ?? c.tipo_aplicacion]; // v3.3 clase; v3.2 tipo_aplicacion
+              // v3.3: POR TRAMOS registra el borde cómodo del tramo de máximo puntaje. v3.2 usaba
+              // piso_o_tope. Mostramos el que exista (borde cómodo prioriza).
+              const bordeComodo = c.tramo_max_puntaje?.borde_comodo || c.piso_o_tope;
               return (
                 <div key={i} className="border-b border-slate-100 last:border-0 pb-2 last:pb-0">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[13px] font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
                       {c.nombre}
                       {tb && <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${tb.cls}`}>{tb.label}</span>}
-                      {c.piso_o_tope && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700" title="Piso/tope que acota la agresividad">{c.piso_o_tope}</span>}
+                      {bordeComodo && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700" title="Borde cómodo del tramo de máximo puntaje / piso o tope">{bordeComodo}</span>}
                     </p>
                     <span className="text-[13px] font-bold text-slate-900 flex-shrink-0">{c.ponderacion_efectiva ?? 0}%</span>
                   </div>
@@ -429,9 +447,9 @@ function VistaV3({ informe }: { informe: any }) {
           <div className="space-y-1.5 text-[12px]">
             {(est.jugadas || []).map((j: any, i: number) => (
               <div key={i} className="bg-slate-50 rounded-lg p-2">
-                <p className="font-semibold text-slate-700">{JUGADA_ICON[j.etiqueta] || '•'} {j.criterio}{TIPO_BADGE[j.tipo_aplicacion] ? ` · ${TIPO_BADGE[j.tipo_aplicacion].label}` : ''}{j.exige_respaldo ? ' · ⚠ EXIGE STOCK/RESPALDO' : ''}</p>
+                <p className="font-semibold text-slate-700">{JUGADA_ICON[j.etiqueta] || '•'} {j.criterio}{TIPO_BADGE[j.clase ?? j.tipo_aplicacion] ? ` · ${TIPO_BADGE[j.clase ?? j.tipo_aplicacion].label}` : ''}{j.exige_respaldo ? ' · ⚠ EXIGE STOCK/RESPALDO' : ''}</p>
                 {j.lectura && <p className="text-slate-500 mt-0.5 leading-snug">{j.lectura}</p>}
-                {j.orden && <p className="text-slate-800 mt-0.5 font-semibold uppercase text-[11.5px]">▸ {j.orden}</p>}
+                {j.orden && <p className="text-slate-800 mt-0.5 font-semibold uppercase text-[11.5px]">▸ {j.orden}{j.valor_a_ofertar ? ` (${j.valor_a_ofertar})` : ''}</p>}
                 {j.fuente && <div className="mt-0.5"><Fuente destacar={j.criterio}>{j.fuente}</Fuente></div>}
               </div>
             ))}
@@ -523,17 +541,39 @@ function VistaV3({ informe }: { informe: any }) {
 
       {/* Costeo — TODOS los ítems que alimentan el Excel de costeo (manifiesto completo) */}
       {itemsCosteo.length > 0 && (
-        <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Costeo — productos a costear" badge={`${itemsCosteo.length} ítems · ${cost.hojas_segun_adjudicacion || ''}`}>
+        <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Productos a costear (base del scraping)" badge={`${itemsCosteo.length} ítems · ${hojasCosteo}`}>
+          {entregablesWord.length > 0 && (
+            <p className="text-[11px] text-slate-400 mb-1.5">Entregables: {entregablesWord.map(w => cap(w)).join(' · ')} <span className="text-slate-300">(fichas en el JSON; Word pendiente de generar)</span></p>
+          )}
           <div className="space-y-1">
-            {itemsCosteo.map((p, i) => (
-              <div key={i} className="flex gap-2 text-[13px] border-b border-slate-100 last:border-0 py-1">
-                <span className="text-slate-400 w-6 flex-shrink-0">{p.linea ?? i + 1}.</span>
-                <span className="text-slate-700 flex-1">{p.descripcion}{p.modelo ? ` · ${p.modelo}` : ''}</span>
-                {p.cantidad != null && <span className="text-slate-500 flex-shrink-0">{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span>}
-                {p.ruta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">Ruta {p.ruta}</span>}
-                {p.marca_exclusiva && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0">⚠ marca exclusiva</span>}
+            {itemsCosteo.map((p, i) => {
+              const esGenerico = String(p.clasificacion).toLowerCase() === 'generico';
+              const esEspecifico = String(p.clasificacion).toLowerCase() === 'especifico';
+              return (
+              <div key={i} className="text-[13px] border-b border-slate-100 last:border-0 py-1">
+                <div className="flex gap-2 items-start">
+                  <span className="text-slate-400 w-8 flex-shrink-0">{typeof p.linea === 'string' ? p.linea : `L${p.linea ?? i + 1}`}</span>
+                  <span className="text-slate-700 flex-1">{p.descripcion}{p.modelo ? ` · ${p.modelo}` : ''}</span>
+                  {p.cantidad != null && <span className="text-slate-500 flex-shrink-0">{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span>}
+                </div>
+                <div className="flex gap-1 flex-wrap pl-10 mt-0.5">
+                  {esEspecifico && <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600">Específico</span>}
+                  {esGenerico && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Genérico</span>}
+                  {p.libertad_de_oferta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" title="Sin specs en bases: podemos ofertar lo que queramos">🟢 Libertad de oferta</span>}
+                  {p.admite_equivalente === false && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">marca exacta</span>}
+                  {p.ruta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600">Ruta {p.ruta}</span>}
+                  {p.marca_exclusiva && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">⚠ marca exclusiva</span>}
+                </div>
+                {p.caracteristicas.length > 0 && (
+                  <details className="pl-10 mt-0.5">
+                    <summary className="text-[11px] text-violet-600 cursor-pointer select-none">Ficha técnica ({p.caracteristicas.length})</summary>
+                    <ul className="text-[11px] text-slate-500 list-disc pl-4 mt-0.5 space-y-0.5">
+                      {p.caracteristicas.map((c: string, k: number) => <li key={k}>{c}</li>)}
+                    </ul>
+                  </details>
+                )}
               </div>
-            ))}
+            );})}
           </div>
         </Seccion>
       )}
@@ -544,7 +584,7 @@ function VistaV3({ informe }: { informe: any }) {
           {lin.modo === 'POR_LINEAS'
             ? <div className="space-y-1 text-[12px]">{(lin.lineas || []).map((l: any, i: number) => (
                 <div key={i} className="flex items-start gap-2 border-b border-slate-100 last:border-0 py-1">
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${l.decision === 'atacar' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>L{l.linea} · {cap(l.decision)}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${l.decision === 'atacar' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{typeof l.linea === 'string' && /^L/i.test(l.linea) ? l.linea : `L${l.linea}`} · {cap(l.decision)}</span>
                   <span className="text-slate-600 flex-1">{l.motivo}</span>
                 </div>))}</div>
             : <p className="text-[13px] text-slate-700">{lin.mensaje_global_o_lote}</p>}

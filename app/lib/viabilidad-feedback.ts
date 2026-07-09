@@ -44,6 +44,63 @@ async function ensureTable(): Promise<void> {
   // soporta ADD COLUMN IF NOT EXISTS, así que se intenta y se ignora el error de "columna duplicada".
   try { await pool.query(`ALTER TABLE viabilidad_feedback ADD COLUMN ambito VARCHAR(40) NOT NULL DEFAULT 'global'`); }
   catch { /* la columna ya existe */ }
+  // FIRMA estructural del documento corregido (aprendizaje por formato): permite reconocer un
+  // documento PARECIDO en el futuro y aplicar la regla con prioridad. Solo se rellena en reglas
+  // de 'lectura'. Defensivo igual que 'ambito'.
+  try { await pool.query(`ALTER TABLE viabilidad_feedback ADD COLUMN firma TEXT NULL`); }
+  catch { /* la columna ya existe */ }
+}
+
+// ─── FIRMA ESTRUCTURAL DE DOCUMENTOS (aprendizaje por formato) ───────────────────
+// Cuando el experto corrige CÓMO se lee un documento, guardamos —además de la regla— una "huella"
+// del FORMATO/ESTRUCTURA del documento (no de su contenido): qué encabezados de tabla trae, si lista
+// "LÍNEA DE PRODUCTO N°X", si fija "monto por línea", si es catálogo "Código/Valor Unitario", etc.
+// Así, cuando llega una licitación con un documento del MISMO formato, reconocemos el caso y le
+// inyectamos la regla con prioridad máxima ("este documento se parece a uno que ya corregiste").
+// Los marcadores describen ESTRUCTURA, no productos concretos → una firma es comparable entre
+// licitaciones distintas del mismo tipo.
+const MARCADORES_FIRMA: [string, RegExp][] = [
+  ['linea_de_producto',       /l[ií]nea\s+de\s+producto\s+n[°º]/i],
+  ['ficha_linea',             /(?:formulario|ficha)\s+l[ií]nea\s*n[°º]/i],
+  ['monto_por_linea',         /(?:presupuesto|monto)\s+(?:\w+\s+){0,3}(?:por|de\s+cada|para(?:\s+la)?)\s+l[ií]nea/i],
+  ['kit',                     /\bkit(?:s|es)?\b/i],
+  ['tabla_item_articulo',     /[íi]tem\s+art[íi]culo/i],
+  ['col_unidad_cant_detalle', /unidad[\s\S]{0,25}cantidad[\s\S]{0,25}detalle/i],
+  ['catalogo_valor_unitario', /valor\s+unitario\s+neto|c[oó]digo\s+interno/i],
+  ['cumple_si_no',            /cumple[\s\S]{0,25}s[ií]\s*\/?\s*no/i],
+  ['caracteristicas_tecnicas',/caracter[íi]sticas?\s+t[eé]cnicas?/i],
+  ['anexo_economico',         /anexo\s+econ[oó]mico|oferta\s+econ[oó]mica|propuesta\s+econ[oó]mica/i],
+  ['subtotal_iva_total',      /sub\s*total[\s\S]{0,60}\biva\b[\s\S]{0,60}\btotal\b/i],
+  ['tabla_desc_precio_unit',  /(?:descrip|detalle)[\s\S]{0,40}precio\s+unitario/i],
+];
+
+// Firma = lista ordenada de los marcadores de formato presentes en el texto de los documentos.
+export function calcularFirmaDocumentos(docs: { texto?: string | null }[]): string {
+  const blob = docs.map(d => d.texto || '').join('\n');
+  if (blob.length < 40) return '';
+  return MARCADORES_FIRMA.filter(([, re]) => re.test(blob)).map(([k]) => k).sort().join('|');
+}
+
+function firmaSet(f: string): Set<string> { return new Set((f || '').split('|').filter(Boolean)); }
+
+// ¿Dos firmas describen el MISMO formato de documento? Jaccard ≥ 0.5 con al menos 2 marcadores
+// compartidos (evita matches por un solo marcador genérico como "kit").
+export function firmasSimilares(a: string, b: string): boolean {
+  const A = firmaSet(a), B = firmaSet(b);
+  if (A.size < 2 || B.size < 2) return false;
+  let inter = 0; for (const x of A) if (B.has(x)) inter++;
+  const union = A.size + B.size - inter;
+  return inter >= 2 && union > 0 && inter / union >= 0.5;
+}
+
+// Firma estructural de una licitación desde sus documentos cacheados (para guardar/comparar).
+export async function firmaDeLicitacion(codigo: string): Promise<string> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT texto_extraido AS texto FROM documentos_cache WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL`,
+      [codigo]);
+    return calcularFirmaDocumentos((rows as any[]).map(r => ({ texto: r.texto })));
+  } catch { return ''; }
 }
 
 // Destila el comentario libre del experto en UNA regla breve y GENERAL (sin el nombre de la
@@ -143,10 +200,13 @@ export async function guardarFeedback(input: {
     : await destilarRegla(input.comentario, input.veredictoHumano, input.veredictoIA);
   const veredictoHumano = ambito === 'lectura' ? null : input.veredictoHumano;
   const veredictoIA = ambito === 'lectura' ? null : input.veredictoIA;
+  // Solo las reglas de LECTURA guardan la firma del formato del documento (para reconocer casos
+  // parecidos). Se calcula de los documentos cacheados de la licitación corregida.
+  const firma = ambito === 'lectura' ? await firmaDeLicitacion(input.codigo) : '';
   await pool.query(
-    `INSERT INTO viabilidad_feedback (licitacion_codigo, usuario_id, veredicto_ia, veredicto_humano, comentario, regla, ambito)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [input.codigo, input.usuarioId, veredictoIA, veredictoHumano, input.comentario.trim(), regla, ambito],
+    `INSERT INTO viabilidad_feedback (licitacion_codigo, usuario_id, veredicto_ia, veredicto_humano, comentario, regla, ambito, firma)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [input.codigo, input.usuarioId, veredictoIA, veredictoHumano, input.comentario.trim(), regla, ambito, firma || null],
   );
   return { regla };
 }
@@ -181,6 +241,18 @@ export async function cargarReglasLectura(limite = MAX_REGLAS_INYECTADAS): Promi
   return cargarReglasAprendidas('lectura', limite);
 }
 
+// Reglas de lectura CON su firma de formato, para reconocer documentos parecidos al analizar.
+export async function cargarReglasLecturaConFirma(limite = MAX_REGLAS_INYECTADAS): Promise<{ regla: string; firma: string }[]> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT regla, COALESCE(firma, '') AS firma FROM viabilidad_feedback
+       WHERE activa = 1 AND ambito = 'lectura' ORDER BY created_at DESC LIMIT ?`, [limite]);
+    return (rows as any[])
+      .map(r => ({ regla: String(r.regla || '').trim(), firma: String(r.firma || '') }))
+      .filter(r => r.regla);
+  } catch { return []; }
+}
+
 // Bloque de texto listo para inyectar en el system prompt (vacío si no hay reglas).
 export function bloqueReglasAprendidas(reglas: string[]): string {
   if (!reglas.length) return '';
@@ -188,6 +260,20 @@ export function bloqueReglasAprendidas(reglas: string[]): string {
   return `REGLAS APRENDIDAS DEL EXPERTO (PRIORIDAD MÁXIMA — el equipo corrigió análisis previos de la IA; aplícalas SIEMPRE y NO repitas esos errores. Si una regla aplica al caso, ajusta el veredicto y el score en consecuencia y menciónala en las advertencias):
 ${lista}
 
+`;
+}
+
+// Bloque de MÁXIMA prioridad para cuando el documento actual se parece (por firma) a uno que el
+// experto ya corrigió: el formato coincide, así que la regla aprendida aplica casi con certeza.
+export function bloqueReglasLecturaSimilares(reglas: string[]): string {
+  if (!reglas.length) return '';
+  const lista = reglas.map((r, i) => `${i + 1}. ${r}`).join('\n');
+  return `
+════════ ⚠️ ESTE DOCUMENTO SE PARECE A UNO QUE EL EXPERTO YA CORRIGIÓ ════════
+El FORMATO/ESTRUCTURA de estos documentos coincide con casos donde el equipo ya te enseñó cómo
+leerlos. APLICA ESTAS REGLAS CON PRIORIDAD ABSOLUTA al EXTRAER ítems, cantidades y unidades, y al
+determinar la modalidad (suma alzada vs por línea). NO repitas el error de lectura anterior:
+${lista}
 `;
 }
 

@@ -811,12 +811,15 @@ export async function guardarViabilidad(codigo: string, v: ViabilidadResult): Pr
   const informeHibrido = { ...v.informe_ejecutivo, _riesgo_comercial: v.riesgo_comercial ?? null };
 
   // LA IA MANDA (fuente única del veredicto). Este score híbrido es solo CONTROL. Si ya
-  // existe un análisis IA (PROMPT 2) para este código, NO debemos pisar el `_informe_ia`
-  // ni degradar las columnas del radar (score/semáforo/área/modelo=ia+…). Antes, el
-  // ON DUPLICATE KEY UPDATE con informe_ejecutivo=VALUES() y modelo='hibrido+…' borraba el
-  // análisis IA cuando el pipeline de triaje re-tocaba una licitación ya analizada → la
-  // licitación desaparecía de "Analizadas". Aquí lo preservamos.
-  let iaBlob: any = null;
+  // existe un análisis IA (PROMPT 2) para este código, NO debemos pisar su informe ni degradar
+  // las columnas del radar (score/semáforo/área/modelo=ia+…). Antes, el ON DUPLICATE KEY UPDATE
+  // con informe_ejecutivo=VALUES() y modelo='hibrido+…' borraba el análisis IA cuando el pipeline
+  // de triaje re-tocaba una licitación ya analizada → la licitación desaparecía de "Analizadas".
+  // OJO: hay DOS blobs de IA — el v2 (`_informe_ia`) y el v3 (`_informe_ia_v3`, el ACTIVO que lee
+  // el panel). El guardia original solo miraba el v2, así que al re-tocar una licitación analizada
+  // con v3 SÍ le borraba el `_informe_ia_v3` (el panel quedaba en blanco). Preservamos AMBOS.
+  let iaBlob: any = null;      // v2 (_informe_ia)
+  let iaBlobV3: any = null;    // v3 (_informe_ia_v3) — el que muestra ViabilidadIAPanel
   let iaModelo: string | null = null;
   try {
     const [rows] = await pool.query(
@@ -824,15 +827,18 @@ export async function guardarViabilidad(codigo: string, v: ViabilidadResult): Pr
     const row = (rows as any[])[0];
     if (row) {
       const ie = typeof row.informe_ejecutivo === 'string' ? JSON.parse(row.informe_ejecutivo) : (row.informe_ejecutivo || {});
-      if (ie && ie._informe_ia) { iaBlob = ie._informe_ia; iaModelo = ie._modelo_ia ?? null; }
+      if (ie && ie._informe_ia)    { iaBlob = ie._informe_ia; iaModelo = ie._modelo_ia ?? null; }
+      if (ie && ie._informe_ia_v3) { iaBlobV3 = ie._informe_ia_v3; }
     }
   } catch { /* si falla la lectura, seguimos con el guardado híbrido normal */ }
 
-  if (iaBlob) {
-    // IA presente → conservar su veredicto y su blob; solo refrescar las columnas propias
+  if (iaBlob || iaBlobV3) {
+    // IA presente (v2 y/o v3) → conservar su(s) blob(s); solo refrescar las columnas propias
     // del análisis híbrido (desglose/penalizaciones/trigger/notas). NO tocar
     // score_total/semaforo/area_negocio/confianza_analisis/modelo (los posee la IA).
-    const informeMerge: any = { ...informeHibrido, _informe_ia: iaBlob };
+    const informeMerge: any = { ...informeHibrido };
+    if (iaBlob)   informeMerge._informe_ia = iaBlob;
+    if (iaBlobV3) informeMerge._informe_ia_v3 = iaBlobV3;
     if (iaModelo) informeMerge._modelo_ia = iaModelo;
     await pool.query(
       `UPDATE viabilidad_licitacion

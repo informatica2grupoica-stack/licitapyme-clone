@@ -620,6 +620,26 @@ export function DocumentosSection({
     }
   };
 
+  // Generación/regeneración del PDF del informe de viabilidad desde el informe guardado
+  // (sin re-analizar). Sirve tanto para crearlo la primera vez como para actualizarlo.
+  const [generandoInforme, setGenerandoInforme] = useState(false);
+  const [informeError, setInformeError] = useState<string | null>(null);
+
+  const handleGenerarInforme = async () => {
+    setGenerandoInforme(true);
+    setInformeError(null);
+    try {
+      const r = await fetch(`/api/documentos/generar-informe/${encodeURIComponent(codigoDecoded)}`, { method: 'POST' });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setInformeError(j.error || 'No se pudo generar el informe.'); return; }
+      fetchDocumentos();
+    } catch {
+      setInformeError('Error de red al generar el informe.');
+    } finally {
+      setGenerandoInforme(false);
+    }
+  };
+
   return (
     <div className="space-y-4 fade-in">
       <SectionHeader
@@ -717,6 +737,69 @@ export function DocumentosSection({
               </a>
             </div>
           );
+        })()}
+
+        {/* Banner informe PDF — si existe, ofrece regenerar/descargar; si hubo análisis (hay costeo)
+            pero aún no hay PDF (análisis previo a esta función), ofrece generarlo. */}
+        {!clasificando && (() => {
+          const informe = documentosCache.find(d =>
+            d.nombre?.startsWith('INFORME_') && (d as any).categoria === 'DOCUMENTOS_PROPIOS');
+          const hayAnalisis = documentosCache.some(d => d.nombre?.startsWith('COSTEO_'));
+          if (informe) {
+            return (
+              <div className="flex items-start gap-2.5 px-4 py-3 bg-violet-50 border border-violet-200 rounded-xl">
+                <FileText size={14} className="text-violet-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12.5px] font-semibold text-violet-800">Informe de viabilidad (PDF)</p>
+                  <p className="text-[11.5px] text-violet-700 mt-0.5 truncate">
+                    {informe.nombre} — disponible en <strong>Documentos Propios</strong>
+                  </p>
+                  {informeError && <p className="text-[11px] text-red-600 mt-1">{informeError}</p>}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGenerarInforme}
+                  disabled={generandoInforme}
+                  title="Regenerar el PDF desde el informe guardado (sin volver a analizar)"
+                  className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-100 hover:bg-indigo-200 disabled:opacity-60 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  {generandoInforme
+                    ? <><Loader2 size={11} className="animate-spin" /> Regenerando…</>
+                    : <><RefreshCw size={11} /> Regenerar</>}
+                </button>
+                <a
+                  href={(informe as any).url_local || (informe as any).url}
+                  download={informe.nombre}
+                  className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-violet-700 hover:text-violet-900 bg-violet-100 hover:bg-violet-200 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  <Download size={11} /> Descargar
+                </a>
+              </div>
+            );
+          }
+          if (hayAnalisis) {
+            return (
+              <div className="flex items-center gap-2.5 px-4 py-3 bg-violet-50 border border-violet-200 rounded-xl">
+                <FileText size={14} className="text-violet-600 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12.5px] font-semibold text-violet-800">Generar el informe en PDF</p>
+                  <p className="text-[11.5px] text-violet-700 mt-0.5">Crea el documento del informe de viabilidad para descargar/compartir.</p>
+                  {informeError && <p className="text-[11px] text-red-600 mt-1">{informeError}</p>}
+                </div>
+                <button
+                  type="button"
+                  onClick={handleGenerarInforme}
+                  disabled={generandoInforme}
+                  className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-white bg-violet-600 hover:bg-violet-700 disabled:opacity-60 px-2.5 py-1.5 rounded-lg transition-colors"
+                >
+                  {generandoInforme
+                    ? <><Loader2 size={11} className="animate-spin" /> Generando…</>
+                    : <><FileText size={11} /> Generar PDF</>}
+                </button>
+              </div>
+            );
+          }
+          return null;
         })()}
 
         {/* Banner set incompleto */}
