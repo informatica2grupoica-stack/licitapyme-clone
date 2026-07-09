@@ -1413,26 +1413,71 @@ export async function analizarYGuardarViabilidadIA(codigo: string): Promise<Viab
   catch (e) { console.error('[viabilidad-ia-v3] volcar ítems falló:', String(e).slice(0, 200)); }
   try { await autoGenerarCosteo(codigo, rv3 as any); }
   catch (e) { console.error('[viabilidad-ia-v3] generar costeo falló:', String(e).slice(0, 200)); }
-  // Genera el DOCUMENTO del informe (PDF legible, bloque B del prompt) para descargar/compartir.
+  // INFORME TÉCNICO (PDF): si hay maquinaria/equipos, arma la ficha técnica y la deja en Documentos
+  // Propios. Si NO hay maquinaria, no genera nada (la viabilidad completa se ve en pantalla).
   try { await autoGenerarInformePdf(codigo, rv3 as any); }
-  catch (e) { console.error('[viabilidad-ia-v3] generar informe PDF falló:', String(e).slice(0, 200)); }
+  catch (e) { console.error('[viabilidad-ia-v3] generar informe técnico falló:', String(e).slice(0, 200)); }
   return rv3 as any;
 }
 
-// Genera el PDF del informe de viabilidad tras el análisis y lo registra como documento propio.
-// Tolerante a fallos (chromium/R2): si algo falla, el análisis y el costeo NO se ven afectados.
+// Heurística barata para no gastar IA en materiales/insumos: un ítem es CANDIDATO a equipo/maquinaria
+// si trae una ficha técnica con suficientes características (los insumos vienen "a secas").
+function esCandidatoEquipo(it: any): boolean {
+  const caracts = Array.isArray(it?.caracteristicas) ? it.caracteristicas.filter(Boolean) : [];
+  return caracts.length >= 6;
+}
+
+// Genera el INFORME TÉCNICO (ficha de especificaciones) del equipamiento tras el análisis y lo registra
+// como documento propio. NO es la viabilidad completa. Detecta la maquinaria, separa las specs reales
+// (vía IA, reusando el analizador de equipamiento) y arma el PDF. Si no hay maquinaria, no genera nada.
+// Tolerante a fallos: si algo falla, el análisis y el costeo NO se ven afectados.
 export async function autoGenerarInformePdf(codigo: string, r: any): Promise<string | null> {
-  const { construirInformeHtml, generarInformePdf } = await import('@/app/lib/generar-informe');
+  const items: any[] = Array.isArray(r?.productos?.items) ? r.productos.items
+    : Array.isArray(r?.costeo?.items) ? r.costeo.items : [];
+  const candidatos = items.filter(esCandidatoEquipo).slice(0, 8); // tope defensivo de llamadas IA
+  if (candidatos.length === 0) {
+    console.log(`[informe-tecnico] ${codigo}: sin ítems con ficha técnica (no es maquinaria) → no se genera informe técnico.`);
+    return null;
+  }
+
+  const { generarBusquedaEquipamiento } = await import('@/app/lib/buscar-equipamiento');
+  const { construirInformeTecnicoHtml, generarInformePdf } = await import('@/app/lib/generar-informe');
   const { subirDocumentoR2 } = await import('@/app/lib/r2');
 
-  const html = construirInformeHtml(codigo, r);
+  const region = r?.meta?.region || '';
+  const fichas: import('@/app/lib/generar-informe').FichaTecnica[] = [];
+  for (const it of candidatos) {
+    try {
+      const res = await generarBusquedaEquipamiento({
+        nombre: _str(it.nombre || it.descripcion_exacta || it.descripcion),
+        caracteristicas: Array.isArray(it.caracteristicas) ? it.caracteristicas.map(String) : [],
+        cantidad: _num(it.cantidad), region,
+      });
+      if (!res.es_maquinaria) continue;         // la IA confirma que NO es maquinaria → se omite
+      fichas.push({
+        nombre: res.nombre || _str(it.nombre || it.descripcion),
+        marca_referencia: _str(it.marca_modelo_referencia || it.marca_modelo),
+        cantidad: _num(it.cantidad), unidad: _str(it.unidad_medida), ruta: _str(it.ruta),
+        admite_equivalente: it.admite_equivalente,
+        specs_tecnicas: res.specs_tecnicas.length ? res.specs_tecnicas : (Array.isArray(it.caracteristicas) ? it.caracteristicas.map(String) : []),
+        requisitos_admisibilidad: res.requisitos_admisibilidad,
+        condiciones_no_tecnicas: res.descartadas,
+      });
+    } catch (e) { console.warn(`[informe-tecnico] ${codigo}: ficha de un ítem falló:`, String(e).slice(0, 120)); }
+  }
+  if (fichas.length === 0) {
+    console.log(`[informe-tecnico] ${codigo}: la IA no confirmó maquinaria → no se genera informe técnico.`);
+    return null;
+  }
+
+  const html = construirInformeTecnicoHtml(codigo, r?.meta || {}, fichas);
   const buffer = await generarInformePdf(html);
-  console.log(`[informe-pdf] ${codigo}: PDF ${buffer.length} bytes — subiendo a R2…`);
+  console.log(`[informe-tecnico] ${codigo}: ${fichas.length} ficha(s), PDF ${buffer.length} bytes — subiendo a R2…`);
 
   const fecha = new Date().toISOString().slice(0, 10);
-  const nombreArchivo = `INFORME_${codigo}_${fecha}.pdf`;
+  const nombreArchivo = `INFORME_TECNICO_${codigo}_${fecha}.pdf`;
   const url = await subirDocumentoR2(codigo, nombreArchivo, buffer, 'application/pdf');
-  console.log(`[informe-pdf] ${codigo}: R2 OK → ${url}`);
+  console.log(`[informe-tecnico] ${codigo}: R2 OK → ${url}`);
 
   // Inserción defensiva (mismas columnas opcionales que el costeo).
   let colsExtra = '', valsExtra = '', updateExtra = '';
@@ -1457,7 +1502,7 @@ export async function autoGenerarInformePdf(codigo: string, r: any): Promise<str
        updated_at          = CURRENT_TIMESTAMP`,
     params);
 
-  console.log(`[informe-pdf] ✅ ${codigo}: informe PDF guardado`);
+  console.log(`[informe-tecnico] ✅ ${codigo}: informe técnico guardado`);
   return url;
 }
 

@@ -31,6 +31,7 @@ export async function GET(
         nombre: d.documento_nombre,
         url: d.documento_url_local,
         url_local: d.documento_url_local,
+        categoria: d.categoria,
         size: d.size_bytes,
         ya_descargado: true,
         fecha: d.created_at,
@@ -95,6 +96,48 @@ export async function DELETE(
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error borrando documento:', error);
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+// PATCH — RENOMBRA un documento PROPIO (solo cambia documento_nombre; el objeto R2 y la URL no cambian).
+// Protege los oficiales de MP (solo DOCUMENTOS_PROPIOS). Conserva la extensión del archivo.
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ codigo: string }> }
+) {
+  const { codigo } = await params;
+  if (!codigo) return NextResponse.json({ error: 'Código requerido' }, { status: 400 });
+  const codigoDec = decodeURIComponent(codigo);
+  if (!(await puedeVerLicitacion(request, codigoDec)))
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+
+  try {
+    const body = await request.json().catch(() => ({}));
+    const url: string | undefined = body?.url || body?.documento_url_local;
+    const nombre: string | undefined = body?.nombre || body?.documento_nombre;
+    let nuevoNombre: string = String(body?.nuevo_nombre || '').trim();
+    if ((!url && !nombre) || !nuevoNombre)
+      return NextResponse.json({ error: 'Falta identificar el documento o el nuevo nombre' }, { status: 400 });
+
+    const [rows] = await pool.query(
+      `SELECT id, documento_nombre, categoria FROM documentos_cache
+        WHERE licitacion_codigo = ? AND (documento_url_local = ? OR documento_nombre = ?) LIMIT 1`,
+      [codigoDec, url || '', nombre || '']);
+    const doc = (rows as any[])[0];
+    if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
+    if ((doc.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS')
+      return NextResponse.json({ error: 'Solo se pueden renombrar documentos propios.' }, { status: 403 });
+
+    // Conserva la extensión original si el nuevo nombre no la trae.
+    const extOrig = (doc.documento_nombre.match(/\.[a-z0-9]+$/i) || [''])[0];
+    if (extOrig && !new RegExp(`${extOrig}$`, 'i').test(nuevoNombre)) nuevoNombre += extOrig;
+    nuevoNombre = nuevoNombre.replace(/[\\/:*?"<>|]/g, '_').slice(0, 200); // sanea nombre de archivo
+
+    await pool.query(`UPDATE documentos_cache SET documento_nombre = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [nuevoNombre, doc.id]);
+    return NextResponse.json({ success: true, nombre: nuevoNombre });
+  } catch (error) {
+    console.error('Error renombrando documento:', error);
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

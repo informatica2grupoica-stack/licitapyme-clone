@@ -7,7 +7,7 @@
 
 import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ClipboardCheck, Compass, Swords, Ship } from 'lucide-react';
+import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ClipboardCheck, Compass, Swords, Ship, Search } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 
@@ -56,7 +56,7 @@ const fmt = (n?: number | null) => n != null ? new Intl.NumberFormat('es-CL', { 
 const cap = (s?: string) => (s || '').replace(/_/g, ' ');
 
 // ─── Explicabilidad: resolver una cita ("doc, art, pág N") al PDF en esa página ──
-interface DocRef { nombre: string; url: string }
+interface DocRef { nombre: string; url: string; categoria?: string }
 const FuenteDocsContext = createContext<DocRef[]>([]);
 
 const _norm = (s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -114,6 +114,14 @@ function resolverCita(fuente: string, docs: DocRef[]): { href: string; pagina: n
     // del prompt: citar el nombre EXACTO del documento). Así una cita bien formada apunta sin duda
     // al PDF correcto, no al que casualmente comparte una palabra suelta.
     if (base.length >= 6 && f.includes(base)) score += 5;
+    // MATCH POR CATEGORÍA (clave para que el ojo NO falle): el modelo a menudo cita por nombre
+    // GENÉRICO ("BASES ADMINISTRATIVAS", "BASES TÉCNICAS") en vez del nombre real del archivo (que
+    // puede llamarse "DECLARA_DESIERTA…pdf"). Si TODAS las palabras de la categoría del doc aparecen
+    // en la cita, es un match fuerte → resuelve igual y muestra el ojo. Evita el "sin ojo" cuando el
+    // archivo se llama distinto a como lo cita el análisis.
+    const cat = _norm((d.categoria || '').replace(/_/g, ' '));
+    const catWords = cat.split(/\s+/).filter(w => w.length >= 4);
+    if (catWords.length && catWords.every(w => f.includes(w))) score += 4;
     if (score > mejorScore) { mejorScore = score; mejor = d; }
   }
   if (!mejor || mejorScore === 0) return null;
@@ -272,6 +280,49 @@ function Seccion({ icon, titulo, badge, children, defaultOpen = false }: { icon:
 }
 
 const estadoColor = (e?: string) => e === 'VENTAJA' ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : e === 'DESVENTAJA' ? 'text-red-700 bg-red-50 border-red-200' : 'text-slate-500 bg-slate-50 border-slate-200';
+
+// Botón "Buscar en IA": para un producto de MAQUINARIA/EQUIPO, pide al backend que filtre las specs
+// reales y arme un prompt de búsqueda exhaustivo (3 homólogos/superiores en Chile o China), lo COPIA
+// al portapapeles y abre Gemini en otra pestaña (Gemini no admite prellenar por URL). Si el copiado
+// falla, deja el prompt visible para copiarlo a mano.
+function BotonBuscarEquipo({ codigo, producto, region }: { codigo: string; producto: { descripcion: string; caracteristicas: string[]; cantidad?: any }; region?: string }) {
+  const [estado, setEstado] = useState<'idle' | 'cargando' | 'ok' | 'error'>('idle');
+  const [prompt, setPrompt] = useState('');
+  const buscar = async () => {
+    setEstado('cargando'); setPrompt('');
+    try {
+      const r = await fetch(`/api/viabilidad/buscar-equipamiento/${encodeURIComponent(codigo)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre: producto.descripcion, caracteristicas: producto.caracteristicas, cantidad: producto.cantidad, region }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.prompt_busqueda) { setEstado('error'); return; }
+      setPrompt(j.prompt_busqueda);
+      let copiado = false;
+      try { await navigator.clipboard.writeText(j.prompt_busqueda); copiado = true; } catch { /* sin permiso de clipboard */ }
+      window.open('https://gemini.google.com/app', '_blank', 'noopener,noreferrer');
+      setEstado(copiado ? 'ok' : 'error');
+    } catch { setEstado('error'); }
+  };
+  return (
+    <div className="pl-10 mt-2">
+      <button type="button" onClick={buscar} disabled={estado === 'cargando'}
+        title="Genera un prompt con las specs limpias, lo copia y abre Gemini para buscar 3 proveedores chilenos"
+        className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60 px-3.5 py-2 rounded-lg shadow-sm shadow-violet-200 transition-all">
+        {estado === 'cargando' ? <><Loader2 size={14} className="animate-spin" /> Generando prompt…</> : <><Search size={14} /> Buscar proveedor en IA</>}
+      </button>
+      {estado === 'ok' && <span className="text-[10px] text-emerald-600 ml-2">✓ Prompt copiado — pégalo en Gemini (se abrió en otra pestaña)</span>}
+      {estado === 'error' && !prompt && <span className="text-[10px] text-red-600 ml-2">No se pudo generar. Reintenta.</span>}
+      {prompt && (
+        <details className="mt-1" open={estado === 'error'}>
+          <summary className="text-[10px] text-violet-600 cursor-pointer select-none">{estado === 'error' ? 'Copia el prompt manualmente (no se pudo copiar solo)' : 'Ver / copiar el prompt'}</summary>
+          <textarea readOnly value={prompt} onClick={e => (e.target as HTMLTextAreaElement).select()}
+            className="w-full mt-1 text-[10px] p-1.5 border border-slate-200 rounded bg-slate-50 h-28 font-mono" />
+        </details>
+      )}
+    </div>
+  );
+}
 
 // ─── VISTA v3 (esquema modular: 9 módulos + Tarjeta de Decisión) ─────────────────
 // Se renderiza cuando el informe trae `_schema:'v3'` (flag VIABILIDAD_V3). Reusa Fuente
@@ -547,8 +598,10 @@ function VistaV3({ informe }: { informe: any }) {
           )}
           <div className="space-y-1">
             {itemsCosteo.map((p, i) => {
-              const esGenerico = String(p.clasificacion).toLowerCase() === 'generico';
-              const esEspecifico = String(p.clasificacion).toLowerCase() === 'especifico';
+              // startsWith tolera typos del modelo (ej. "especificico") que un === exacto perdería.
+              const clas = String(p.clasificacion).toLowerCase();
+              const esGenerico = clas.startsWith('gener');
+              const esEspecifico = clas.startsWith('espec');
               return (
               <div key={i} className="text-[13px] border-b border-slate-100 last:border-0 py-1">
                 <div className="flex gap-2 items-start">
@@ -571,6 +624,11 @@ function VistaV3({ informe }: { informe: any }) {
                       {p.caracteristicas.map((c: string, k: number) => <li key={k}>{c}</li>)}
                     </ul>
                   </details>
+                )}
+                {/* Buscador de equipamiento: solo para ítems con ficha técnica (maquinaria/equipos). */}
+                {p.caracteristicas.length >= 3 && (
+                  <BotonBuscarEquipo codigo={String(informe.meta?.id || '')} region={informe.meta?.region}
+                    producto={{ descripcion: p.descripcion, caracteristicas: p.caracteristicas, cantidad: p.cantidad }} />
                 )}
               </div>
             );})}
@@ -657,7 +715,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       .then(x => x.json())
       .then(r => {
         const lista: DocRef[] = (Array.isArray(r?.documentos) ? r.documentos : [])
-          .map((d: any) => ({ nombre: d.nombre || d.documento_nombre || '', url: d.url || d.url_local || d.documento_url_local || '' }))
+          .map((d: any) => ({ nombre: d.nombre || d.documento_nombre || '', url: d.url || d.url_local || d.documento_url_local || '', categoria: d.categoria }))
           .filter((d: DocRef) => d.url);
         setDocs(lista);
       })

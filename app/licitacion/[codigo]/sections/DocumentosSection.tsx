@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
-  Upload, Trash2,
+  Upload, Trash2, Pencil, Check, X,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
@@ -268,12 +268,17 @@ function DocumentosGrid({
   onView,
   onOpenIA,
   onRefrescar,
+  modo,
 }: {
   documentos: (DocumentoAdjunto & { categoria?: string })[];
   codigoDecoded: string;
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onRefrescar: () => void;
+  // 'licitacion' = todas las cajas MENOS Documentos Propios (docs de la licitación);
+  // 'propios' = SOLO la caja Documentos Propios (lo que creamos/editamos);
+  // undefined = todas (comportamiento previo).
+  modo?: 'licitacion' | 'propios';
 }) {
   // Agrupa los documentos por su categoría real (sin pre-crear cajas vacías).
   const buildGrupos = (docs: (DocumentoAdjunto & { categoria?: string })[]) => {
@@ -477,7 +482,14 @@ function DocumentosGrid({
     k => k !== 'SIN_CATEGORIA' && !ORDEN_CAJAS.includes(k) && (grupos[k]?.length || 0) > 0,
   ).sort();
 
-  const cajasVisibles: CajaConfig[] = [...ORDEN_CAJAS, ...clavesExtra]
+  // Según el modo, elegimos qué cajas se muestran (para separar "Documentos y Bases" de
+  // "Documentos Propios" en dos apartados distintos).
+  const baseKeys = modo === 'propios'
+    ? [CAT_PROPIOS]
+    : modo === 'licitacion'
+      ? [...ORDEN_CAJAS.filter(k => k !== CAT_PROPIOS), ...clavesExtra]
+      : [...ORDEN_CAJAS, ...clavesExtra];
+  const cajasVisibles: CajaConfig[] = baseKeys
     .map(key => ({ key, label: labelDeCaja(key), ...ESTILO_CAJA }));
 
   return (
@@ -578,6 +590,121 @@ function ProgresoBanner({ fase, totalDocs }: { fase: 'descargando' | 'clasifican
   );
 }
 
+// Lista de "Documentos Propios" (los que creamos/editamos: costeo, informe, subidas). Formato lista
+// con acciones por fila: Ver, Descargar, Renombrar (inline), Reemplazar (subir versión nueva) y Eliminar.
+function DocumentosPropiosList({ docs, codigoDecoded, onView, onRefrescar }: {
+  docs: (DocumentoAdjunto & { categoria?: string })[];
+  codigoDecoded: string;
+  onView: (doc: VisorDoc) => void;
+  onRefrescar: () => void;
+}) {
+  const confirmar = useConfirm();
+  const toast = useToast();
+  const [editando, setEditando] = useState<string | null>(null);
+  const [valorNombre, setValorNombre] = useState('');
+  const [ocupado, setOcupado] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const docReemplazarRef = useRef<(DocumentoAdjunto & { categoria?: string }) | null>(null);
+
+  const urlDe = (d: DocumentoAdjunto & { categoria?: string }) => (d as any).url_local || (d as any).url;
+
+  const eliminar = async (doc: DocumentoAdjunto & { categoria?: string }) => {
+    const ok = await confirmar({ titulo: '¿Eliminar documento?', mensaje: `"${doc.nombre}" se eliminará de forma permanente.`, confirmarLabel: 'Eliminar', peligro: true });
+    if (!ok) return;
+    setOcupado(doc.nombre);
+    try {
+      const r = await fetch(`/api/documentos/${encodeURIComponent(codigoDecoded)}`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: urlDe(doc), nombre: doc.nombre }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); toast.error(j.error || 'No se pudo eliminar'); return; }
+      onRefrescar();
+    } catch { toast.error('Error de red al eliminar'); } finally { setOcupado(null); }
+  };
+
+  const guardarNombre = async (doc: DocumentoAdjunto & { categoria?: string }) => {
+    const nuevo = valorNombre.trim();
+    if (!nuevo || nuevo === doc.nombre) { setEditando(null); return; }
+    setOcupado(doc.nombre);
+    try {
+      const r = await fetch(`/api/documentos/${encodeURIComponent(codigoDecoded)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: urlDe(doc), nombre: doc.nombre, nuevo_nombre: nuevo }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); toast.error(j.error || 'No se pudo renombrar'); return; }
+      setEditando(null); onRefrescar();
+    } catch { toast.error('Error de red al renombrar'); } finally { setOcupado(null); }
+  };
+
+  const onPickReemplazo = async (file: File) => {
+    const doc = docReemplazarRef.current; docReemplazarRef.current = null;
+    if (!doc) return;
+    setOcupado(doc.nombre);
+    try {
+      const pres = await fetch('/api/documentos/presign', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licitacionCodigo: codigoDecoded, filename: doc.nombre, contentType: file.type || 'application/octet-stream', size: file.size }),
+      });
+      const p = await pres.json();
+      if (!pres.ok || !p.uploadUrl) throw new Error(p.error || 'presign');
+      const put = await fetch(p.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+      if (!put.ok) throw new Error('put');
+      // Guarda con el MISMO nombre y categoría → reemplaza la versión anterior.
+      const save = await fetch('/api/documentos/guardar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licitacionCodigo: codigoDecoded, documentoNombre: doc.nombre, url: p.publicUrl, size: file.size, categoria: 'DOCUMENTOS_PROPIOS' }),
+      });
+      if (!save.ok) throw new Error('save');
+      toast.success('Documento reemplazado'); onRefrescar();
+    } catch { toast.error('No se pudo reemplazar el documento'); } finally { setOcupado(null); }
+  };
+
+  if (docs.length === 0) return <p className="text-[12px] text-slate-400 py-2">Aún no hay documentos propios. El costeo y el informe técnico aparecerán aquí al analizar.</p>;
+
+  return (
+    <>
+      <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onPickReemplazo(f); e.target.value = ''; }} />
+      <ul className="divide-y divide-slate-100">
+        {docs.map(doc => {
+          const enEdicion = editando === doc.nombre;
+          const busy = ocupado === doc.nombre;
+          return (
+            <li key={doc.nombre} className="flex items-center gap-2 py-2">
+              <span className="text-lg flex-shrink-0">{getFileIcon(doc.nombre)}</span>
+              <div className="flex-1 min-w-0">
+                {enEdicion ? (
+                  <div className="flex items-center gap-1">
+                    <input autoFocus value={valorNombre} onChange={e => setValorNombre(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') guardarNombre(doc); if (e.key === 'Escape') setEditando(null); }}
+                      className="flex-1 text-[12px] px-2 py-1 border border-violet-300 rounded focus:outline-none focus:ring-1 focus:ring-violet-400" />
+                    <button onClick={() => guardarNombre(doc)} title="Guardar" className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><Check size={14} /></button>
+                    <button onClick={() => setEditando(null)} title="Cancelar" className="p-1 text-slate-400 hover:bg-slate-100 rounded"><X size={14} /></button>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-[12.5px] font-semibold text-slate-700 truncate" title={doc.nombre}>{doc.nombre}</p>
+                    {doc.size && <p className="text-[10px] text-slate-400 leading-tight">{formatFileSize(doc.size)}</p>}
+                  </>
+                )}
+              </div>
+              {!enEdicion && (
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  {busy && <Loader2 size={13} className="animate-spin text-violet-500 mr-1" />}
+                  <button onClick={() => onView({ nombre: doc.nombre, url: urlDe(doc) })} title="Ver" className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Eye size={13} /></button>
+                  <a href={urlDe(doc)} download={doc.nombre} title="Descargar" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded"><Download size={13} /></a>
+                  <button onClick={() => { docReemplazarRef.current = doc; fileRef.current?.click(); }} disabled={busy} title="Reemplazar (subir versión nueva)" className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded disabled:opacity-50"><Upload size={13} /></button>
+                  <button onClick={() => { setEditando(doc.nombre); setValorNombre(doc.nombre); }} disabled={busy} title="Renombrar" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-50"><Pencil size={13} /></button>
+                  <button onClick={() => eliminar(doc)} disabled={busy} title="Eliminar" className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"><Trash2 size={13} /></button>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
 export function DocumentosSection({
   codigoDecoded, mpUrl, documentosCache, cargandoDocs,
   descargandoAuto, handleAutoDescargar, fetchDocumentos,
@@ -595,6 +722,10 @@ export function DocumentosSection({
   resumenClasificacion?: { estado: 'completo' | 'incompleto'; falta: string[] } | null;
 }) {
   const yaClasificados = documentosCache.some(d => (d as any).categoria);
+  // Separación en dos apartados: "Documentos y Bases" (los de la licitación) vs "Documentos Propios"
+  // (los que NOSOTROS creamos o editamos: costeo, informe, y lo que subamos).
+  const docsLicitacion = documentosCache.filter(d => ((d as any).categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS');
+  const docsPropios = documentosCache.filter(d => ((d as any).categoria || '').toUpperCase() === 'DOCUMENTOS_PROPIOS');
   // Documento abierto en el visor inline (modal). null = cerrado.
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
   // Documento abierto en el chat rápido de IA (modal). null = cerrado.
@@ -632,6 +763,7 @@ export function DocumentosSection({
       const r = await fetch(`/api/documentos/generar-informe/${encodeURIComponent(codigoDecoded)}`, { method: 'POST' });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) { setInformeError(j.error || 'No se pudo generar el informe.'); return; }
+      if (j.sin_equipamiento) { setInformeError(j.mensaje || 'No se detectó equipamiento: el informe técnico solo aplica a maquinaria.'); return; }
       fetchDocumentos();
     } catch {
       setInformeError('Error de red al generar el informe.');
@@ -750,7 +882,7 @@ export function DocumentosSection({
               <div className="flex items-start gap-2.5 px-4 py-3 bg-violet-50 border border-violet-200 rounded-xl">
                 <FileText size={14} className="text-violet-600 flex-shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[12.5px] font-semibold text-violet-800">Informe de viabilidad (PDF)</p>
+                  <p className="text-[12.5px] font-semibold text-violet-800">Informe técnico del equipamiento (PDF)</p>
                   <p className="text-[11.5px] text-violet-700 mt-0.5 truncate">
                     {informe.nombre} — disponible en <strong>Documentos Propios</strong>
                   </p>
@@ -782,8 +914,8 @@ export function DocumentosSection({
               <div className="flex items-center gap-2.5 px-4 py-3 bg-violet-50 border border-violet-200 rounded-xl">
                 <FileText size={14} className="text-violet-600 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[12.5px] font-semibold text-violet-800">Generar el informe en PDF</p>
-                  <p className="text-[11.5px] text-violet-700 mt-0.5">Crea el documento del informe de viabilidad para descargar/compartir.</p>
+                  <p className="text-[12.5px] font-semibold text-violet-800">Generar informe técnico</p>
+                  <p className="text-[11.5px] text-violet-700 mt-0.5">Si la licitación tiene maquinaria/equipos, crea la ficha técnica en PDF (specs limpias) para sourcing.</p>
                   {informeError && <p className="text-[11px] text-red-600 mt-1">{informeError}</p>}
                 </div>
                 <button
@@ -826,7 +958,7 @@ export function DocumentosSection({
               <div className="flex items-center gap-2">
                 <CheckCircle size={13} className="text-emerald-500" />
                 <p className="text-[12.5px] font-semibold text-slate-600">
-                  {documentosCache.length} documento{documentosCache.length !== 1 ? 's' : ''} guardado{documentosCache.length !== 1 ? 's' : ''}
+                  {docsLicitacion.length} documento{docsLicitacion.length !== 1 ? 's' : ''} de la licitación
                 </p>
               </div>
               {onReClasificar && !clasificando && (
@@ -840,11 +972,12 @@ export function DocumentosSection({
             </div>
 
             <DocumentosGrid
-              documentos={documentosCache as (DocumentoAdjunto & { categoria?: string })[]}
+              documentos={docsLicitacion as (DocumentoAdjunto & { categoria?: string })[]}
               codigoDecoded={codigoDecoded}
               onView={setVisorDoc}
               onOpenIA={setIaDoc}
               onRefrescar={fetchDocumentos}
+              modo="licitacion"
             />
           </div>
         ) : (
@@ -859,6 +992,31 @@ export function DocumentosSection({
           </div>
         )}
       </div>
+
+      {/* ── APARTADO DOCUMENTOS PROPIOS ── (lo que NOSOTROS creamos/editamos: costeo, informe, subidas).
+          Separado de "Documentos y Bases" para no mezclar con los documentos de la licitación. */}
+      {docsPropios.length > 0 && (
+        <>
+          <SectionHeader
+            icon={<FileText size={18} />}
+            title="Documentos Propios"
+            subtitle="Costeo, informe y archivos que creamos o editamos de esta licitación"
+            badge={(
+              <span className="px-2 py-0.5 bg-violet-100 text-violet-700 text-xs rounded-full font-semibold">
+                {docsPropios.length}
+              </span>
+            )}
+          />
+          <div className="card p-5">
+            <DocumentosPropiosList
+              docs={docsPropios as (DocumentoAdjunto & { categoria?: string })[]}
+              codigoDecoded={codigoDecoded}
+              onView={setVisorDoc}
+              onRefrescar={fetchDocumentos}
+            />
+          </div>
+        </>
+      )}
 
       {/* Visor inline de documentos (PDF/imagen/Office) — sin descargar */}
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />

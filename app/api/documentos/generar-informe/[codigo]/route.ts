@@ -58,9 +58,14 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   try {
     const url = await autoGenerarInformePdf(codigoDecoded, informe);
+    // url === null → no se detectó maquinaria/equipos (el informe técnico solo aplica a equipamiento).
+    if (!url) {
+      return NextResponse.json({ success: true, sin_equipamiento: true, url: null,
+        mensaje: 'No se detectó maquinaria/equipos en esta licitación: el informe técnico solo se genera para equipamiento.' });
+    }
     return NextResponse.json({ success: true, url, nombre: `${NOMBRE_DOC_PREFIX}${codigoDecoded}` });
   } catch (e) {
-    console.error(`[informe-pdf] ${codigoDecoded}: error generando PDF:`, String(e).slice(0, 300));
-    return NextResponse.json({ error: 'No se pudo generar el PDF del informe. Reintenta en unos minutos.' }, { status: 500 });
+    console.error(`[informe-tecnico] ${codigoDecoded}: error generando PDF:`, String(e).slice(0, 300));
+    return NextResponse.json({ error: 'No se pudo generar el informe técnico. Reintenta en unos minutos.' }, { status: 500 });
   }
 }
