@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
@@ -11,7 +11,7 @@ import {
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
   ChevronDown, X, RefreshCw, Users, List, LayoutGrid,
   CalendarDays, ChevronLeft, ChevronRight, ArrowRight, FileText,
-  SlidersHorizontal, MapPin, Clock,
+  SlidersHorizontal, MapPin, Clock, Check,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
@@ -579,7 +579,62 @@ function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
 
 // Clave de sessionStorage: persiste los filtros para que al volver de un negocio
 // (o de una licitación) el panel conserve búsqueda, vista y filtros aplicados.
-const SS_NEG_FILTROS = 'negocios:filtros:v1';
+// v2: los filtros de estado/tipo/líneas pasaron de un valor a MÚLTIPLES (arrays).
+const SS_NEG_FILTROS = 'negocios:filtros:v2';
+
+// Filtro de SELECCIÓN MÚLTIPLE (dropdown con checkboxes). Reemplaza al <select> de un solo valor:
+// permite marcar varios estados/tipos/líneas a la vez. Cierra al hacer clic fuera.
+function MultiSelect({ label, options, selected, onChange }: {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const cerrar = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', cerrar);
+    return () => document.removeEventListener('mousedown', cerrar);
+  }, [open]);
+  const toggle = (v: string) => onChange(selected.includes(v) ? selected.filter(x => x !== v) : [...selected, v]);
+  const n = selected.length;
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-sm outline-none transition-colors ${n ? 'border-indigo-300 bg-indigo-50 text-indigo-700 font-semibold' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+        {label}
+        {n > 0 && <span className="text-[11px] font-bold bg-indigo-600 text-white rounded-full px-1.5 leading-5">{n}</span>}
+        <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="absolute z-30 mt-1 min-w-[210px] max-h-72 overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg p-1">
+          {options.length === 0 ? (
+            <p className="text-xs text-slate-400 px-2 py-1.5">Sin opciones</p>
+          ) : options.map(o => {
+            const on = selected.includes(o.value);
+            return (
+              <button key={o.value} type="button" onClick={() => toggle(o.value)}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-slate-50 text-sm text-left">
+                <span className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center ${on ? 'bg-indigo-600 border-indigo-600' : 'border-slate-300'}`}>
+                  {on && <Check size={11} className="text-white" />}
+                </span>
+                <span className="text-slate-700">{o.label}</span>
+              </button>
+            );
+          })}
+          {n > 0 && (
+            <button type="button" onClick={() => onChange([])}
+              className="w-full text-left text-[11px] text-red-500 hover:bg-red-50 rounded-md px-2 py-1.5 mt-0.5">
+              Limpiar selección
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Mini tarjeta para el calendario semanal ──────────────────────────────────
 function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }) {
@@ -1071,9 +1126,9 @@ function NegociosContent() {
   const [error, setError]           = useState<string | null>(null);
   const [search, setSearch]         = useState('');
   const [filtroUsuario, setFiltroUsuario] = useState('');
-  const [filtroEtiqueta, setFiltroEtiqueta] = useState('');
-  const [filtroTipo, setFiltroTipo]         = useState('');
-  const [filtroEstado, setFiltroEstado]     = useState('');
+  const [filtroEtiqueta, setFiltroEtiqueta] = useState<string[]>([]);
+  const [filtroTipo, setFiltroTipo]         = useState<string[]>([]);
+  const [filtroEstado, setFiltroEstado]     = useState<string[]>([]);
   const [showModal, setShowModal]       = useState(false);
   const [vista, setVista]               = useState<'lista' | 'calendario' | 'semana'>('semana');
   const [carga, setCarga]               = useState<Carga[]>([]);
@@ -1092,9 +1147,9 @@ function NegociosContent() {
         const f = JSON.parse(raw);
         if (typeof f.search === 'string')        setSearch(f.search);
         if (typeof f.filtroUsuario === 'string') setFiltroUsuario(f.filtroUsuario);
-        if (typeof f.filtroEtiqueta === 'string') setFiltroEtiqueta(f.filtroEtiqueta);
-        if (typeof f.filtroTipo === 'string')    setFiltroTipo(f.filtroTipo);
-        if (typeof f.filtroEstado === 'string')  setFiltroEstado(f.filtroEstado);
+        if (Array.isArray(f.filtroEtiqueta)) setFiltroEtiqueta(f.filtroEtiqueta.map(String));
+        if (Array.isArray(f.filtroTipo))     setFiltroTipo(f.filtroTipo.map(String));
+        if (Array.isArray(f.filtroEstado))   setFiltroEstado(f.filtroEstado.map(String));
         if (f.vista === 'lista' || f.vista === 'calendario' || f.vista === 'semana') setVista(f.vista);
       }
     } catch { /* sin persistencia */ }
@@ -1164,11 +1219,11 @@ function NegociosContent() {
         n.licitacion_nombre?.toLowerCase().includes(q) ||
         n.licitacion_codigo?.toLowerCase().includes(q) ||
         n.licitacion_organismo?.toLowerCase().includes(q);
-      const matchEt = filtroEtiqueta === '' ||
-        n.etiquetas.some(e => String(e.id) === filtroEtiqueta);
+      const matchEt = filtroEtiqueta.length === 0 ||
+        n.etiquetas.some(e => filtroEtiqueta.includes(String(e.id)));
       const tipoDelCodigo = extractTipoFromCodigo(n.licitacion_codigo || '');
-      const matchTipo = filtroTipo === '' || tipoDelCodigo === filtroTipo;
-      const matchEstado = filtroEstado === '' || (n.estado_pipeline || 'ASIGNADO') === filtroEstado;
+      const matchTipo = filtroTipo.length === 0 || filtroTipo.includes(tipoDelCodigo);
+      const matchEstado = filtroEstado.length === 0 || filtroEstado.includes(n.estado_pipeline || 'ASIGNADO');
       return matchSearch && matchEt && matchTipo && matchEstado;
     });
   }, [negocios, search, filtroEtiqueta, filtroTipo, filtroEstado]);
@@ -1280,14 +1335,14 @@ function NegociosContent() {
 
             {/* Filtros toggle + limpiar */}
             <div className="flex items-center gap-2">
-              {(search || filtroUsuario || filtroEtiqueta || filtroTipo || filtroEstado) && (
+              {(search || filtroUsuario || filtroEtiqueta.length || filtroTipo.length || filtroEstado.length) ? (
                 <button
-                  onClick={() => { setSearch(''); setFiltroUsuario(''); setFiltroEtiqueta(''); setFiltroTipo(''); setFiltroEstado(''); }}
+                  onClick={() => { setSearch(''); setFiltroUsuario(''); setFiltroEtiqueta([]); setFiltroTipo([]); setFiltroEstado([]); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
                 >
                   <X size={12} /> Limpiar filtros
                 </button>
-              )}
+              ) : null}
               <button
                 onClick={() => setFiltrosOpen(v => !v)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
@@ -1320,22 +1375,25 @@ function NegociosContent() {
                 </select>
               )}
               {etiquetas.length > 0 && (
-                <select value={filtroEtiqueta} onChange={e => setFiltroEtiqueta(e.target.value)}
-                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="">Todas las líneas</option>
-                  {etiquetas.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                </select>
+                <MultiSelect
+                  label={filtroEtiqueta.length ? 'Líneas' : 'Todas las líneas'}
+                  options={etiquetas.map(e => ({ value: String(e.id), label: e.nombre }))}
+                  selected={filtroEtiqueta}
+                  onChange={setFiltroEtiqueta}
+                />
               )}
-              <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                <option value="">Todos los tipos</option>
-                {tiposPresentes.map(t => <option key={t} value={t}>{t} · {getTipoLicitacion(t)?.label || t}</option>)}
-              </select>
-              <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                <option value="">Todos los estados</option>
-                {ESTADOS_PIPELINE.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
-              </select>
+              <MultiSelect
+                label={filtroTipo.length ? 'Tipos' : 'Todos los tipos'}
+                options={tiposPresentes.map(t => ({ value: t, label: `${t} · ${getTipoLicitacion(t)?.label || t}` }))}
+                selected={filtroTipo}
+                onChange={setFiltroTipo}
+              />
+              <MultiSelect
+                label={filtroEstado.length ? 'Estados' : 'Todos los estados'}
+                options={ESTADOS_PIPELINE.map(e => ({ value: e.id, label: e.label }))}
+                selected={filtroEstado}
+                onChange={setFiltroEstado}
+              />
             </div>
           )}
         </div>
@@ -1354,7 +1412,7 @@ function NegociosContent() {
             <div className="text-center py-20 bg-white rounded-xl border border-slate-100">
               <Briefcase size={36} className="text-gray-300 mx-auto mb-3" />
               <h3 className="text-lg font-semibold text-gray-700 mb-2">
-                {search || filtroEtiqueta ? 'Sin resultados' : 'No hay licitaciones asignadas'}
+                {search || filtroEtiqueta.length || filtroTipo.length || filtroEstado.length ? 'Sin resultados' : 'No hay licitaciones asignadas'}
               </h3>
               <p className="text-sm text-gray-400">
                 {isAdmin

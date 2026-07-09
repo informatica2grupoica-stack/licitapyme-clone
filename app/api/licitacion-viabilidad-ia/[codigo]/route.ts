@@ -20,6 +20,25 @@ export const maxDuration = 300;
 
 type Params = { params: Promise<{ codigo: string }> };
 
+// ── Registro EN MEMORIA de análisis en curso ──────────────────────────────────────────────
+// El análisis de viabilidad tarda 1-3 min (OCR + IA). El túnel de Cloudflare corta cualquier
+// respuesta HTTP a los ~100s, así que NO se puede esperar el resultado en la misma petición.
+// Solución: el POST arranca el análisis en SEGUNDO PLANO y responde de inmediato ("procesando");
+// el GET informa si sigue en curso o si terminó con error, y el front hace polling hasta que
+// aparece el informe. Este mapa vive en el proceso (el notebook corre un server Node persistente,
+// no serverless), así que el estado del job se conserva entre el POST y los GET de polling.
+type EstadoJob = { estado: 'procesando' | 'error'; error?: string; desde: number };
+const jobs = new Map<string, EstadoJob>();
+
+// Traduce el error interno del análisis a un mensaje claro para el usuario.
+function mensajeErrorAnalisis(error: unknown): string {
+  const msg = String((error as any)?.message ?? error);
+  if (msg.includes('429') || msg.toLowerCase().includes('quota')) return 'El servicio de IA quedó sin cuota (429). Reintenta más tarde.';
+  if (msg.includes('saturad') || msg.includes('503')) return 'El servicio de IA está saturado en este momento. Reintenta en unos minutos.';
+  console.error('[licitacion-viabilidad-ia] Error de fondo:', msg);
+  return 'No se pudo completar el análisis. Reintenta en unos minutos.';
+}
+
 // Lee el informe IA ya guardado (o null) sin volver a llamar al modelo.
 async function leerInformeGuardado(codigo: string): Promise<any | null> {
   const [rows] = await pool.query(
@@ -55,7 +74,14 @@ export async function GET(request: NextRequest, { params }: Params) {
         informeIA = ie?._informe_ia_v3 ?? ie?._informe_ia ?? null;   // prefiere v3 si existe
       } catch { /* json inválido */ }
     }
-    return NextResponse.json({ success: true, informeIA });
+    // Estado del análisis en segundo plano (para el polling del front).
+    const job = jobs.get(codigoDecoded);
+    return NextResponse.json({
+      success: true,
+      informeIA,
+      enProceso: job?.estado === 'procesando',
+      error: job?.estado === 'error' ? (job.error || 'No se pudo completar el análisis.') : null,
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
@@ -104,37 +130,35 @@ export async function POST(request: NextRequest, { params }: Params) {
     } catch { /* si falla la comprobación, seguimos al análisis normal */ }
   }
 
-  // 4) Lock: evita que dos disparos simultáneos del mismo código gasten Gemini dos veces.
-  const lockKey = `viab:${codigoDecoded}`;
-  if (!(await tomarLock(lockKey, 300))) {
-    return NextResponse.json({ error: 'Ya hay un análisis en curso para esta licitación.' }, { status: 409 });
+  // 4) ¿Ya hay un análisis en curso para este código? Responder "procesando" (no es un error):
+  //    el front seguirá con su polling y tomará el resultado cuando el job que ya corre termine.
+  if (jobs.get(codigoDecoded)?.estado === 'procesando') {
+    return NextResponse.json({ success: true, status: 'procesando' }, { status: 202 });
   }
 
-  try {
-    const informeIA = await analizarYGuardarViabilidadIA(codigoDecoded);
-    if (!informeIA) {
-      return NextResponse.json(
-        { error: 'No hay documentos legibles para analizar. Descárgalos primero.' },
-        { status: 400 },
-      );
-    }
-    return NextResponse.json({ success: true, informeIA });
-  } catch (error: any) {
-    const msg = String(error?.message ?? error);
-    // Cuota de Gemini agotada → mensaje claro para el usuario.
-    if (msg.includes('429') || msg.toLowerCase().includes('quota')) {
-      return NextResponse.json(
-        { error: 'Gemini sin cuota (429). Activa el plan de pago de Gemini para tu API key.' },
-        { status: 429 },
-      );
-    }
-    // Saturación transitoria de Gemini → mensaje accionable, sin filtrar el detalle interno.
-    if (msg.includes('saturad') || msg.includes('503')) {
-      return NextResponse.json({ error: 'Gemini está saturado en este momento. Reintenta en unos minutos.' }, { status: 503 });
-    }
-    console.error('[licitacion-viabilidad-ia] Error:', msg);
-    return NextResponse.json({ error: 'No se pudo completar el análisis.' }, { status: 500 });
-  } finally {
-    await liberarLock(lockKey);
+  // 5) Lock: evita que dos disparos simultáneos del mismo código gasten IA dos veces.
+  const lockKey = `viab:${codigoDecoded}`;
+  if (!(await tomarLock(lockKey, 300))) {
+    // Otro proceso/instancia ya lo está corriendo: tratarlo como "procesando", no como error.
+    return NextResponse.json({ success: true, status: 'procesando' }, { status: 202 });
   }
+
+  // 6) Arranca el análisis en SEGUNDO PLANO y responde de inmediato (antes del límite ~100s del
+  //    túnel). El resultado se guarda en BD; el front lo recoge por polling del GET. NO await:
+  //    el server del notebook es persistente, así que la promesa sigue viva tras responder.
+  jobs.set(codigoDecoded, { estado: 'procesando', desde: Date.now() });
+  analizarYGuardarViabilidadIA(codigoDecoded)
+    .then((informeIA) => {
+      if (!informeIA) {
+        jobs.set(codigoDecoded, { estado: 'error', error: 'No hay documentos legibles para analizar. Descárgalos primero.', desde: Date.now() });
+      } else {
+        jobs.delete(codigoDecoded); // OK: el informe quedó guardado en BD, el GET ya lo devuelve.
+      }
+    })
+    .catch((error) => {
+      jobs.set(codigoDecoded, { estado: 'error', error: mensajeErrorAnalisis(error), desde: Date.now() });
+    })
+    .finally(() => { void liberarLock(lockKey); });
+
+  return NextResponse.json({ success: true, status: 'procesando' }, { status: 202 });
 }

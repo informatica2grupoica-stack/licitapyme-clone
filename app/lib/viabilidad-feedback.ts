@@ -40,6 +40,10 @@ async function ensureTable(): Promise<void> {
     INDEX idx_codigo (licitacion_codigo),
     INDEX idx_activa (activa)
   )`);
+  // Defensivo: instancias antiguas cuya tabla se creó sin la columna 'ambito'. MySQL 5.7 no
+  // soporta ADD COLUMN IF NOT EXISTS, así que se intenta y se ignora el error de "columna duplicada".
+  try { await pool.query(`ALTER TABLE viabilidad_feedback ADD COLUMN ambito VARCHAR(40) NOT NULL DEFAULT 'global'`); }
+  catch { /* la columna ya existe */ }
 }
 
 // Destila el comentario libre del experto en UNA regla breve y GENERAL (sin el nombre de la
@@ -81,16 +85,68 @@ Devuelve {"regla": "..."} con UNA sola regla general.`,
   }
 }
 
+// Ámbitos de las reglas aprendidas:
+//   'global'  → reglas de VIABILIDAD/DESCARTE (afectan el veredicto de negocio). Ámbito por defecto.
+//   'lectura' → reglas de LECTURA/EXTRACCIÓN de documentos (cómo se leen planillas, ítems,
+//               cantidades, unidades y la modalidad suma_alzada vs por_línea). Mejoran el COSTEO.
+export type AmbitoRegla = 'global' | 'lectura';
+export const AMBITOS_VALIDOS: AmbitoRegla[] = ['global', 'lectura'];
+
+// Destila la corrección del experto sobre CÓMO SE LEE/EXTRAE un documento en UNA regla general de
+// lectura. A diferencia de la regla global (veredicto de negocio), esta se enfoca en la extracción
+// de datos: ítems, cantidades, unidades, columnas y la modalidad de la oferta económica.
+async function destilarReglaLectura(comentario: string): Promise<string> {
+  const limpio = comentario.trim();
+  if (!iaTextoConfigurada()) return limpio;
+  try {
+    const completion = await crearChatIA({
+      temperature: 0.2,
+      max_tokens: 300,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: `Conviertes la corrección de un experto sobre CÓMO SE LEE/EXTRAE un documento de una licitación pública chilena (planilla de cotización, anexo económico, listado de ítems, formulario ETT) en UNA regla breve, general y accionable para que un analista IA extraiga MEJOR los datos la próxima vez.
+La regla debe: (1) referirse a la LECTURA/EXTRACCIÓN de datos del documento (ítems, cantidad, unidad de medida, columnas, marca/modelo, o la modalidad suma alzada vs por línea), NO al veredicto de negocio; (2) ser CONDICIONAL cuando aplique ("Si el documento tiene ... entonces ..."); (3) NO mencionar el ID/nombre de la licitación concreta (generalízala para documentos parecidos); (4) máximo 240 caracteres.
+Devuelve SOLO JSON: {"regla": "..."}.`,
+        },
+        {
+          role: 'user',
+          content: `Corrección del experto sobre cómo leer/extraer el documento:
+${limpio}
+
+Devuelve {"regla": "..."} con UNA sola regla general de lectura.`,
+        },
+      ],
+    });
+    const txt = completion.choices[0]?.message?.content ?? '';
+    const ini = txt.indexOf('{'); const fin = txt.lastIndexOf('}');
+    const obj = JSON.parse(ini !== -1 ? txt.slice(ini, fin + 1) : txt);
+    const regla = String(obj?.regla || '').trim();
+    return regla.length >= 8 ? regla.slice(0, 240) : limpio;
+  } catch (e) {
+    console.warn('[viabilidad-feedback] destilación de lectura falló, uso el comentario crudo:', String(e).slice(0, 120));
+    return limpio;
+  }
+}
+
 export async function guardarFeedback(input: {
   codigo: string; usuarioId: number | null; comentario: string;
   veredictoHumano: string | null; veredictoIA: string | null;
+  ambito?: AmbitoRegla;
 }): Promise<{ regla: string }> {
   await ensureTable();
-  const regla = await destilarRegla(input.comentario, input.veredictoHumano, input.veredictoIA);
+  const ambito: AmbitoRegla = input.ambito === 'lectura' ? 'lectura' : 'global';
+  // La regla de lectura no depende del veredicto de negocio; la global sí.
+  const regla = ambito === 'lectura'
+    ? await destilarReglaLectura(input.comentario)
+    : await destilarRegla(input.comentario, input.veredictoHumano, input.veredictoIA);
+  const veredictoHumano = ambito === 'lectura' ? null : input.veredictoHumano;
+  const veredictoIA = ambito === 'lectura' ? null : input.veredictoIA;
   await pool.query(
-    `INSERT INTO viabilidad_feedback (licitacion_codigo, usuario_id, veredicto_ia, veredicto_humano, comentario, regla)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [input.codigo, input.usuarioId, input.veredictoIA, input.veredictoHumano, input.comentario.trim(), regla],
+    `INSERT INTO viabilidad_feedback (licitacion_codigo, usuario_id, veredicto_ia, veredicto_humano, comentario, regla, ambito)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [input.codigo, input.usuarioId, veredictoIA, veredictoHumano, input.comentario.trim(), regla, ambito],
   );
   return { regla };
 }
@@ -107,14 +163,22 @@ export async function eliminarFeedback(id: number): Promise<void> {
   try { await pool.query(`DELETE FROM viabilidad_feedback WHERE id = ?`, [id]); } catch { /* tabla puede no existir */ }
 }
 
-// Reglas activas para inyectar en el prompt (las más recientes primero). Resiliente: si la
-// tabla aún no existe, no rompe el análisis — simplemente no hay reglas aprendidas todavía.
-export async function cargarReglasAprendidas(limite = MAX_REGLAS_INYECTADAS): Promise<string[]> {
+// Reglas activas de un ÁMBITO para inyectar en el prompt (las más recientes primero). Resiliente:
+// si la tabla aún no existe, no rompe el análisis — simplemente no hay reglas aprendidas todavía.
+// Las reglas guardadas antes de existir la columna 'ambito' quedan como 'global' (default de la
+// tabla), así que el ámbito 'global' sigue leyendo todo lo histórico sin migración.
+export async function cargarReglasAprendidas(ambito: AmbitoRegla = 'global', limite = MAX_REGLAS_INYECTADAS): Promise<string[]> {
   try {
     const [rows] = await pool.query(
-      `SELECT regla FROM viabilidad_feedback WHERE activa = 1 ORDER BY created_at DESC LIMIT ?`, [limite]);
+      `SELECT regla FROM viabilidad_feedback WHERE activa = 1 AND ambito = ? ORDER BY created_at DESC LIMIT ?`,
+      [ambito, limite]);
     return (rows as any[]).map(r => String(r.regla || '').trim()).filter(Boolean);
   } catch { return []; }
+}
+
+// Atajo semántico: reglas de LECTURA/EXTRACCIÓN de documentos (mejoran el costeo).
+export async function cargarReglasLectura(limite = MAX_REGLAS_INYECTADAS): Promise<string[]> {
+  return cargarReglasAprendidas('lectura', limite);
 }
 
 // Bloque de texto listo para inyectar en el system prompt (vacío si no hay reglas).
@@ -124,5 +188,18 @@ export function bloqueReglasAprendidas(reglas: string[]): string {
   return `REGLAS APRENDIDAS DEL EXPERTO (PRIORIDAD MÁXIMA — el equipo corrigió análisis previos de la IA; aplícalas SIEMPRE y NO repitas esos errores. Si una regla aplica al caso, ajusta el veredicto y el score en consecuencia y menciónala en las advertencias):
 ${lista}
 
+`;
+}
+
+// Bloque de reglas de LECTURA/EXTRACCIÓN, para inyectar en el prompt que lee los documentos.
+export function bloqueReglasLectura(reglas: string[]): string {
+  if (!reglas.length) return '';
+  const lista = reglas.map((r, i) => `${i + 1}. ${r}`).join('\n');
+  return `
+═══════════════════════ REGLAS DE LECTURA APRENDIDAS DEL EXPERTO ═══════════════════════
+PRIORIDAD MÁXIMA — el equipo corrigió cómo la IA leyó documentos parecidos antes. Aplícalas al
+EXTRAER ítems, cantidades, unidades de medida, marcas/modelos y al determinar la modalidad
+(suma alzada vs por línea) de ESTE análisis. NO repitas esos errores de lectura:
+${lista}
 `;
 }

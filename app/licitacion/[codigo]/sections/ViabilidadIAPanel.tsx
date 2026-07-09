@@ -17,6 +17,7 @@ interface Feedback {
   veredicto_humano?: string | null;
   comentario: string;
   regla: string;
+  ambito?: string | null;
   created_at: string;
 }
 
@@ -575,6 +576,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   const [informe, setInforme] = useState<InformeIA | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [avisoProceso, setAvisoProceso] = useState<string | null>(null);  // "Analizando…" (info, NO error)
   const [docs, setDocs] = useState<DocRef[]>([]);
   const [visor, setVisor] = useState<VisorOpts | null>(null);   // modal de fuente (página + resaltado)
   const abortRef = useRef<AbortController | null>(null);
@@ -626,6 +628,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   const [feedback, setFeedback]   = useState<Feedback[]>([]);
   const [fbComentario, setFbComentario] = useState('');
   const [fbVeredicto, setFbVeredicto]   = useState<string>('');
+  const [fbAmbito, setFbAmbito]         = useState<'global' | 'lectura'>('global');
   const [fbEnviando, setFbEnviando]     = useState(false);
   const [fbOk, setFbOk]                 = useState<string | null>(null);
 
@@ -643,7 +646,11 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
     try {
       const r = await fetch(`/api/viabilidad-feedback/${encodeURIComponent(codigo)}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comentario: fbComentario.trim(), veredicto_humano: fbVeredicto || null }),
+        body: JSON.stringify({
+          comentario: fbComentario.trim(),
+          veredicto_humano: fbAmbito === 'lectura' ? null : (fbVeredicto || null),
+          ambito: fbAmbito,
+        }),
       });
       const j = await r.json();
       if (!r.ok) { setFbOk(j.error || 'No se pudo guardar.'); return; }
@@ -665,63 +672,81 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
     abortRef.current?.abort();
     abortRef.current = null;
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    setCargando(false);
+    setAvisoProceso(null);
+  };
+
+  // POLLING del resultado. El análisis corre en SEGUNDO PLANO en el server (dura 1-3 min, más que
+  // el límite ~100s del túnel), así que no lo esperamos en la petición: refrescamos el GET hasta
+  // que aparezca el informe nuevo, el server reporte un error de fondo, o se agote el tiempo.
+  // `previo` = huella del informe antes de arrancar (para detectar el cambio en un re-análisis).
+  const iniciarPolling = (previo: string) => {
+    setAvisoProceso('Analizando las bases… puede tardar 1 a 3 minutos. Esta pantalla se actualizará sola cuando termine — puedes seguir navegando.');
+    setError(null);
+    setCargando(true);
+    let intentos = 0;
+    const parar = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } setCargando(false); };
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      intentos++;
+      try {
+        const rr = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`).then(x => x.json());
+        const nuevo = rr?.informeIA || null;
+        // 1) Resultado nuevo listo → mostrarlo (y refrescar documentos: aparece el Excel de costeo).
+        if (nuevo && fpInforme(nuevo) !== previo) {
+          setInforme(nuevo); setError(null); setAvisoProceso(null);
+          try { onComplete?.(); } catch { /* noop */ }
+          parar(); return;
+        }
+        // 2) El server reportó un error de fondo → mostrarlo (rojo) y parar.
+        if (rr?.error && !rr?.enProceso) { setAvisoProceso(null); setError(rr.error); parar(); return; }
+        // 3) El job terminó sin cambiar la huella (resultado idéntico) → cerrar sin error.
+        if (rr?.enProceso === false) {
+          if (nuevo) setInforme(nuevo);
+          setAvisoProceso(null);
+          try { onComplete?.(); } catch { /* noop */ }
+          parar(); return;
+        }
+        // 4) Sigue en proceso → esperar al próximo tick.
+      } catch { /* reintenta en el próximo tick */ }
+      if (intentos >= 72) { setAvisoProceso(null); parar(); }  // ~6 min máx (poll cada 5s)
+    }, 5000);
   };
 
   const analizar = async () => {
-    setCargando(true); setError(null);
+    setCargando(true); setError(null); setAvisoProceso(null);
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }  // corta un poll previo
     abortRef.current = new AbortController();
+    const previo = fpInforme(informe);
     try { onTambienAnalizar?.(); } catch { /* noop */ }
     try {
-      // Si ya hay informe, el botón es "Re-analizar": fuerza una corrida fresca
-      // (ignora el cache por huella de documentos). El primer análisis sí usa cache.
+      // Si ya hay informe, el botón es "Re-analizar": fuerza una corrida fresca (ignora el cache
+      // por huella de documentos). El primer análisis sí usa cache.
       const qs = informe ? '?force=1' : '';
       const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}${qs}`, {
         method: 'POST',
         signal: abortRef.current.signal,
       });
-      // Los análisis largos pueden superar el timeout del proxy/tunnel: este corta la
-      // conexión y devuelve una página HTML (<!DOCTYPE…) en vez de JSON, pero el análisis
-      // SIGUE corriendo en el servidor. Avisar en claro en vez del críptico
-      // "Unexpected token '<' … is not valid JSON".
       const esJSON = (r.headers.get('content-type') || '').includes('application/json');
-      if (!esJSON) {
-        // El análisis tardó más que el timeout del proxy/túnel y la conexión se cortó, PERO el
-        // análisis sigue corriendo en el server (y generará el Excel de costeo al terminar). En vez
-        // de rendirnos, hacemos POLLING: refrescamos informe + documentos hasta que aparezca el
-        // resultado nuevo. Así el costeo automático aparece SOLO, sin tener que "Re-clasificar".
-        setError('El análisis tardó más que el tiempo máximo de la conexión. Sigue procesándose en el servidor y esta pantalla se actualizará sola cuando termine (puede tardar varios minutos).');
-        const previo = fpInforme(informe);
-        let intentos = 0;
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = setInterval(async () => {
-          intentos++;
-          try {
-            const rr = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`).then(x => x.json());
-            const nuevo = rr?.informeIA || null;
-            if (nuevo && fpInforme(nuevo) !== previo) {
-              setInforme(nuevo);
-              setError(null);
-              try { onComplete?.(); } catch { /* noop */ }               // refresca documentos → aparece el costeo
-              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-              return;
-            }
-          } catch { /* reintenta en el próximo tick */ }
-          try { onComplete?.(); } catch { /* noop */ }                    // por si el costeo ya cayó aunque el informe se vea igual
-          if (intentos >= 20) { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } }  // ~10 min máx
-        }, 30000);
+      // El POST ahora ARRANCA el análisis en segundo plano y responde al instante (202), así que
+      // no debería colgarse. Si aun así el proxy/túnel cortó y devolvió HTML, da igual: el análisis
+      // ya arrancó en el server → pasamos directo al polling (sin banner de error).
+      if (!esJSON) { iniciarPolling(previo); return; }
+      const j = await r.json();
+      if (!r.ok && r.status !== 202) { setError(j.error || 'Error al analizar.'); setCargando(false); return; }
+      // Cache hit / resultado inmediato: úsalo directo.
+      if (j.informeIA) {
+        setInforme(j.informeIA); setCargando(false);
+        try { onComplete?.(); } catch { /* noop */ }
         return;
       }
-      const j = await r.json();
-      if (!r.ok) { setError(j.error || 'Error al analizar.'); return; }
-      setInforme(j.informeIA);
-      // Refrescar documentos: el análisis puede haber generado el Excel de costeo
-      try { onComplete?.(); } catch { /* noop */ }
+      // Análisis corriendo en segundo plano (status 202 "procesando") → polling con aviso amable.
+      iniciarPolling(previo);
     } catch (e: any) {
-      if ((e as Error)?.name === 'AbortError') return; // cancelado por el usuario
-      setError(String(e?.message || e));
-    }
-    finally { setCargando(false); abortRef.current = null; }
+      if ((e as Error)?.name === 'AbortError') { setCargando(false); return; } // cancelado por el usuario
+      // Falló el propio POST (red caída, etc.): no arrancó nada → error real.
+      setError(String(e?.message || e)); setCargando(false);
+    } finally { abortRef.current = null; }
   };
 
   const v = informe?.veredicto;
@@ -790,6 +815,15 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       </div>
 
       {error && <div className="flex items-start gap-2 text-[13px] text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"><AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /><div><p className="font-semibold">No se pudo completar</p><p className="text-red-600">{error.includes('saturad') || error.includes('429') || error.includes('503') ? 'El servicio de análisis está saturado en este momento. Reintenta en unos minutos.' : error}</p></div></div>}
+
+      {/* Aviso "Analizando…" (segundo plano): NO es un error. El análisis dura más que el límite del
+          túnel, así que corre en el server y esta pantalla se actualiza sola por polling. */}
+      {avisoProceso && !error && (
+        <div className="flex items-start gap-2 text-[13px] text-sky-800 bg-sky-50 border border-sky-200 rounded-lg p-3">
+          <Loader2 size={15} className="flex-shrink-0 mt-0.5 animate-spin text-sky-600" />
+          <div><p className="font-semibold">Analizando…</p><p className="text-sky-700">{avisoProceso}</p></div>
+        </div>
+      )}
 
       {/* Cargando el informe YA guardado (GET inicial): no confundir con "sin análisis". */}
       {!informe && !cargando && cargandoInforme && (
@@ -1133,21 +1167,39 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
         <div className="flex items-center gap-2 mb-1">
           <GraduationCap size={16} className="text-violet-600" />
-          <h3 className="text-[13px] font-bold text-slate-800">Corregir el análisis · Reglas de descarte y filtro</h3>
+          <h3 className="text-[13px] font-bold text-slate-800">Enseñarle a la IA · Reglas que aprende</h3>
         </div>
         <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que el sistema aplicará en <strong>todos los análisis futuros</strong>. Puedes agregar reglas aunque no hayas analizado esta licitación.</p>
 
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {([['viable', 'Sí es viable'], ['no_viable', 'No es viable'], ['parcial', 'Parcial']] as const).map(([v, lbl]) => (
-            <button key={v} onClick={() => setFbVeredicto(fbVeredicto === v ? '' : v)}
-              className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${fbVeredicto === v ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
+        {/* Ámbito de la regla: veredicto de negocio vs. cómo se leen los documentos (costeo) */}
+        <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 mb-3 w-fit">
+          {([['global', 'Viabilidad / Descarte'], ['lectura', 'Lectura de documentos / Costeo']] as const).map(([a, lbl]) => (
+            <button key={a} onClick={() => setFbAmbito(a)}
+              className={`text-[12px] font-semibold px-3 py-1.5 rounded-md transition-colors ${fbAmbito === a ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
               {lbl}
             </button>
           ))}
         </div>
 
+        {fbAmbito === 'global' ? (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {([['viable', 'Sí es viable'], ['no_viable', 'No es viable'], ['parcial', 'Parcial']] as const).map(([v, lbl]) => (
+              <button key={v} onClick={() => setFbVeredicto(fbVeredicto === v ? '' : v)}
+                className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${fbVeredicto === v ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11.5px] text-violet-700 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2 mb-2">
+            Explica <strong>cómo debe leerse el documento</strong> para que la extracción de ítems y el costeo salgan bien. Se aplica al leer las planillas y anexos de futuras licitaciones.
+          </p>
+        )}
+
         <textarea value={fbComentario} onChange={e => setFbComentario(e.target.value)}
-          placeholder="Ej: No es viable porque exigen certificación ISO-9001 que no manejamos. / Descartar siempre que pidan fianza bancaria en UTM."
+          placeholder={fbAmbito === 'lectura'
+            ? 'Ej: En listados con encabezado "Cantidad solicitada", esa columna es la cantidad. / Si la descripción trae "MARCA SUGERIDA:", esa es referencial, no obligatoria. / Ignorar las filas de "Solped" y "Material" como si fueran ítems.'
+            : 'Ej: No es viable porque exigen certificación ISO-9001 que no manejamos. / Descartar siempre que pidan fianza bancaria en UTM.'}
           rows={3}
           className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 outline-none resize-y" />
 
@@ -1171,7 +1223,12 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
               <div key={f.id} className="flex items-start gap-2 text-[12px] bg-white rounded-lg border border-slate-200 p-2">
                 <GraduationCap size={13} className="text-violet-500 mt-0.5 flex-shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-slate-700"><strong>Regla:</strong> {f.regla}</p>
+                  <p className="text-slate-700">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mr-1.5 align-middle ${f.ambito === 'lectura' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}`}>
+                      {f.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}
+                    </span>
+                    <strong>Regla:</strong> {f.regla}
+                  </p>
                   {f.comentario && f.comentario !== f.regla && <p className="text-slate-400 text-[11px] mt-0.5">{f.comentario}</p>}
                 </div>
                 <button onClick={() => borrarFeedback(f.id)} title="Eliminar lección" className="text-slate-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>

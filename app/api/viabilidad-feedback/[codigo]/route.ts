@@ -53,12 +53,15 @@ export async function POST(request: NextRequest, { params }: Params) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }); }
   const comentario = typeof body?.comentario === 'string' ? body.comentario.trim() : '';
   const veredictoHumano = typeof body?.veredicto_humano === 'string' ? body.veredicto_humano : null;
+  // 'lectura' = regla sobre CÓMO se leen los documentos (mejora el costeo); 'global' = veredicto.
+  const ambito: 'global' | 'lectura' = body?.ambito === 'lectura' ? 'lectura' : 'global';
   if (comentario.length < 4) return NextResponse.json({ error: 'Escribe un comentario.' }, { status: 400 });
 
   try {
-    const veredictoIA = await veredictoIAActual(codigoDecoded);
+    // Solo tiene sentido registrar el veredicto de la IA cuando la regla es de negocio (global).
+    const veredictoIA = ambito === 'lectura' ? null : await veredictoIAActual(codigoDecoded);
     const { regla } = await guardarFeedback({
-      codigo: codigoDecoded, usuarioId: usuario.id, comentario, veredictoHumano, veredictoIA,
+      codigo: codigoDecoded, usuarioId: usuario.id, comentario, veredictoHumano, veredictoIA, ambito,
     });
     const feedback = await listarFeedback(codigoDecoded);
     return NextResponse.json({ success: true, regla, feedback });

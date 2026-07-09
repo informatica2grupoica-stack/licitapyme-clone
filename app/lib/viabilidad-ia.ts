@@ -22,6 +22,7 @@ import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO } from '@/app/lib/gemini';
 import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos } from '@/app/lib/zai-ocr';
+import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas } from '@/app/lib/viabilidad-feedback';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
@@ -1072,7 +1073,21 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea);
 
   const userPrompt = construirUserPromptV3(codigo, ctx, docs, senal, planilla?.fuenteDoc);
-  const parsed = await llamarGeminiJSON(SYSTEM_PROMPT_V3, userPrompt);
+  // REGLAS APRENDIDAS DEL EXPERTO — se INYECTAN al final del prompt para que el análisis mejore
+  // con el tiempo sin tocar el prompt base. Dos canales:
+  //   • global  → correcciones del VEREDICTO/DESCARTE (ajustan viabilidad y score).
+  //   • lectura → correcciones de CÓMO SE LEE el documento (ítems/cantidades/unidades/modalidad),
+  //               lo que mejora directamente el costeo.
+  let systemPrompt = SYSTEM_PROMPT_V3;
+  try {
+    const [reglasGlobal, reglasLectura] = await Promise.all([cargarReglasAprendidas('global'), cargarReglasLectura()]);
+    if (reglasGlobal.length) systemPrompt += '\n\n' + bloqueReglasAprendidas(reglasGlobal);
+    if (reglasLectura.length) systemPrompt += bloqueReglasLectura(reglasLectura);
+    if (reglasGlobal.length || reglasLectura.length) {
+      console.log(`[viabilidad-ia-v3] ${codigo}: reglas del experto inyectadas — ${reglasGlobal.length} de viabilidad, ${reglasLectura.length} de lectura.`);
+    }
+  } catch { /* las reglas son opcionales: si fallan, se analiza igual con el prompt base */ }
+  const parsed = await llamarGeminiJSON(systemPrompt, userPrompt);
   if (!parsed || typeof parsed !== 'object') return null;
 
   // OVERRIDE DETERMINISTA de "cómo se adjudica" (mismo criterio que el v2.1, adaptado al eje

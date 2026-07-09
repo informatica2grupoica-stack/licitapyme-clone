@@ -11,7 +11,7 @@
 // Público (/api/licitacion-adjudicacion). Si MP ya adjudicó (CodigoEstado 8) se muestra
 // el "resultado aperturado": ganador por línea, monto, N° de oferentes y link al acta.
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
@@ -22,7 +22,7 @@ import { useToast } from '@/app/components/ui/toast';
 import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
-  Pencil, Trash2, Undo2, X, Save,
+  Pencil, Trash2, Undo2, X, Save, Wallet, Clock4,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -150,10 +150,11 @@ function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
 }
 
 // Tarjeta: carga sus documentos PROPIOS y su estado de adjudicación de forma perezosa.
-function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada }: {
+function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, onAdj }: {
   n: Negocio; color: string; label: string; isAdmin: boolean;
   onRevertida: (id: number) => void;
   onActualizada: (id: number, patch: { monto_ofertado?: number; estado_pipeline?: string }) => void;
+  onAdj: (id: number, esAdjudicada: boolean, montoAdjudicado: number | null) => void;
 }) {
   const [docs, setDocs] = useState<DocCache[]>([]);
   const [adj, setAdj] = useState<Adjudicacion | null>(null);
@@ -247,12 +248,19 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada }:
   useEffect(() => {
     fetch(`/api/licitacion-adjudicacion/${encodeURIComponent(n.licitacion_codigo)}`)
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d?.success && d.esAdjudicada) setAdj(d); })
+      .then(d => {
+        if (d?.success && d.esAdjudicada) {
+          setAdj(d);
+          onAdj(n.id, true, d.montoAdjudicadoTotal ?? null);
+        }
+      })
       .catch(() => {});
-  }, [n.licitacion_codigo]);
+    // onAdj es estable (viene de un useCallback en el padre); no lo incluimos para no re-sondear.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [n.licitacion_codigo, n.id]);
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 hover:border-slate-300 transition-colors"
+    <div className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-all"
       style={isAdmin ? { borderLeftColor: perfilCol, borderLeftWidth: 3 } : undefined}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -379,6 +387,31 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada }:
   );
 }
 
+// KPI tile — mismo lenguaje visual que el dashboard (StatCard).
+function KpiCard({ icon, label, value, sub, color = 'indigo' }: {
+  icon: React.ReactNode; label: string; value: string | number; sub?: string; color?: string;
+}) {
+  const ICON_BG: Record<string, string> = {
+    indigo: 'bg-indigo-50 text-indigo-600', violet: 'bg-violet-50 text-violet-600',
+    teal: 'bg-teal-50 text-teal-600', emerald: 'bg-emerald-50 text-emerald-600',
+    amber: 'bg-amber-50 text-amber-600', orange: 'bg-orange-50 text-orange-600',
+  };
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 transition-shadow hover:shadow-md">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide mb-1">{label}</p>
+          <p className="text-[26px] font-black leading-none tabular-nums text-slate-900">{value}</p>
+          {sub && <p className="text-xs text-slate-400 mt-1 truncate">{sub}</p>}
+        </div>
+        <div className={`w-[42px] h-[42px] rounded-xl flex items-center justify-center flex-shrink-0 ${ICON_BG[color] || ICON_BG.indigo}`}>
+          {icon}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PostuladasPage() {
   const { usuario } = useSession();
   const isAdmin = usuario?.rol === 'admin';
@@ -387,6 +420,11 @@ export default function PostuladasPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [perfilSel, setPerfilSel] = useState<string>(''); // email del perfil (solo admin)
+  // Adjudicación por negocio (la reportan las tarjetas al sondear MP) → alimenta los KPIs.
+  const [adjMap, setAdjMap] = useState<Record<number, { esAdjudicada: boolean; monto: number | null }>>({});
+  const reportarAdj = useCallback((id: number, esAdjudicada: boolean, monto: number | null) => {
+    setAdjMap(prev => (prev[id]?.esAdjudicada === esAdjudicada && prev[id]?.monto === monto ? prev : { ...prev, [id]: { esAdjudicada, monto } }));
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -425,26 +463,50 @@ export default function PostuladasPage() {
     [negocios, perfilSel],
   );
 
+  // KPIs sobre el conjunto VISIBLE (respeta el filtro por perfil).
+  const stats = useMemo(() => {
+    const total = visibles.length;
+    let adjudicadas = 0, montoAdjudicado = 0;
+    for (const n of visibles) {
+      const a = adjMap[n.id];
+      if (a?.esAdjudicada) { adjudicadas++; if (a.monto) montoAdjudicado += a.monto; }
+    }
+    return { total, adjudicadas, enEvaluacion: total - adjudicadas, montoAdjudicado };
+  }, [visibles, adjMap]);
+
   return (
-    <AppLayout breadcrumb={[{ label: 'Postuladas' }]}>
-      <div className="max-w-5xl mx-auto p-5 sm:p-6">
-        <div className="flex items-center gap-2.5 mb-1">
-          <span className="p-1.5 rounded-lg" style={{ backgroundColor: color + '18', color }}><Send size={18} /></span>
-          <h1 className="text-[19px] font-bold text-slate-800">Postuladas</h1>
-          <span className="ml-1 text-[12px] font-semibold text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">{visibles.length}</span>
+    <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Postuladas' }]}>
+      <div className="p-4 sm:p-6 lg:p-8">
+        {/* Header — mismo estilo que Negocios */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <Send size={24} className="text-amber-600" /> Postuladas
+            </h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {cargando
+                ? 'Cargando…'
+                : `${visibles.length} licitación${visibles.length !== 1 ? 'es' : ''} postulada${visibles.length !== 1 ? 's' : ''}`}
+            </p>
+          </div>
         </div>
-        <p className="text-[12.5px] text-slate-500 mb-4">
-          {isAdmin
-            ? 'Todas las licitaciones postuladas por los perfiles. Cuando Mercado Público adjudica, aparece el resultado (ganador, monto y acta).'
-            : 'Tus licitaciones postuladas, con el monto ofertado y tus documentos. Cuando Mercado Público publique el resultado verás quién se adjudicó.'}
-        </p>
+
+        {/* KPIs */}
+        {!cargando && !error && visibles.length > 0 && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+            <KpiCard icon={<Send size={22} />} label="Postuladas" value={stats.total} sub="Ofertas presentadas" color="amber" />
+            <KpiCard icon={<Trophy size={22} />} label="Adjudicadas" value={stats.adjudicadas} sub={stats.total ? `${Math.round((stats.adjudicadas / stats.total) * 100)}% de éxito` : '—'} color="emerald" />
+            <KpiCard icon={<Clock4 size={22} />} label="En evaluación" value={stats.enEvaluacion} sub="Aún sin resultado" color="orange" />
+            <KpiCard icon={<Wallet size={22} />} label="Monto adjudicado" value={fmtCLP(stats.montoAdjudicado || null)} sub="Suma de lo ganado" color="violet" />
+          </div>
+        )}
 
         {/* Filtro por perfil (solo admin) */}
         {isAdmin && perfiles.length > 1 && (
-          <div className="flex flex-wrap gap-1.5 mb-4">
+          <div className="flex flex-wrap gap-1.5 mb-5">
             <button onClick={() => setPerfilSel('')}
-              className={`text-[12px] font-semibold px-3 py-1.5 rounded-full border transition-colors ${
-                perfilSel === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                perfilSel === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
               }`}>
               Todos <span className="opacity-70">({negocios.length})</span>
             </button>
@@ -454,7 +516,7 @@ export default function PostuladasPage() {
               return (
                 <button key={p.email} onClick={() => setPerfilSel(activo ? '' : p.email)}
                   style={activo ? { backgroundColor: col, borderColor: col } : { borderColor: col + '55' }}
-                  className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-full border transition-colors ${
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
                     activo ? 'text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
                   }`}>
                   <span style={{ background: activo ? 'rgba(255,255,255,.35)' : col }}
@@ -469,17 +531,17 @@ export default function PostuladasPage() {
         )}
 
         {cargando ? (
-          <div className="flex items-center gap-2 text-slate-500 text-sm py-16 justify-center"><Loader2 size={16} className="animate-spin" /> Cargando…</div>
+          <div className="flex items-center gap-2 text-slate-500 text-sm py-20 justify-center"><Loader2 size={16} className="animate-spin" /> Cargando…</div>
         ) : error ? (
-          <div className="text-red-600 text-sm py-10 text-center">{error}</div>
+          <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
         ) : visibles.length === 0 ? (
-          <div className="flex flex-col items-center gap-2 text-slate-400 py-16">
-            <Inbox size={28} />
-            <p className="text-sm">Todavía no hay licitaciones postuladas.</p>
-            <p className="text-[12px]">Marca una licitación como <b>Postulada</b> en su estado y aparecerá aquí.</p>
+          <div className="text-center py-20 bg-white rounded-xl border border-slate-100">
+            <Inbox size={36} className="text-gray-300 mx-auto mb-3" />
+            <h3 className="text-lg font-semibold text-gray-700 mb-2">Todavía no hay licitaciones postuladas</h3>
+            <p className="text-sm text-gray-400">Marca una licitación como <b>Postulada</b> en su estado y aparecerá aquí.</p>
           </div>
         ) : (
-          <div className="space-y-2.5">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
             {visibles.map(n => (
               <PostuladaCard key={n.id} n={n} color={color} label={label} isAdmin={!!isAdmin}
                 onRevertida={id => setNegocios(prev => prev.filter(x => x.id !== id))}
@@ -488,6 +550,7 @@ export default function PostuladasPage() {
                     ? prev.filter(x => x.id !== id)
                     : prev.map(x => x.id === id ? { ...x, ...patch } : x)
                 )}
+                onAdj={reportarAdj}
               />
             ))}
           </div>
