@@ -1,6 +1,5 @@
 {
   "regions": ["iad1"],
-  "_crons_nota": "Los crons NO viven en Vercel: la automatización (intake/prefiltro/descarga) corre en el scheduler del NOTEBOOK (docker-compose → servicio 'scheduler'), porque la descarga de documentos exige IP chilena. Ver scheduler/scheduler.mjs.",
   "functions": {
     "app/api/analizar-documento/route.ts": {
       "maxDuration": 60
