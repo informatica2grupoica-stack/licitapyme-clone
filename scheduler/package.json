@@ -1,0 +1,14 @@
+{
+  "name": "licitapyme-scheduler",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Scheduler del notebook chileno: dispara intake/prefiltro/descarga contra la app interna.",
+  "main": "scheduler.mjs",
+  "scripts": {
+    "start": "node scheduler.mjs"
+  },
+  "dependencies": {
+    "node-cron": "^3.0.3"
+  }
+}

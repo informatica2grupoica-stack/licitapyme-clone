@@ -29,6 +29,23 @@ services:
     ports:
       - "3003:3000"                  # opcional: probar en el propio notebook (http://localhost:3003)
 
+  # Scheduler: dispara intake (cada 4h), prefiltro (+1h) y reintento de descarga de
+  # documentos de Negocios (cada 2h) contra la app INTERNA (http://app:3000) con CRON_SECRET.
+  # Vive en el notebook (IP chilena) porque la descarga sale a Mercado Público. Sobrevive
+  # reinicios (restart: unless-stopped). Ver scheduler/scheduler.mjs para la agenda.
+  scheduler:
+    build:
+      context: ./scheduler
+    image: licitapyme-scheduler
+    container_name: licitapyme-scheduler
+    restart: unless-stopped
+    env_file: .env                   # aporta CRON_SECRET y NEXT_PUBLIC_AUTOMATIZACION_PAUSADA
+    environment:
+      SCHEDULER_APP_URL: http://app:3000
+      TZ: America/Santiago
+    depends_on:
+      - app
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: licitapyme-tunnel
