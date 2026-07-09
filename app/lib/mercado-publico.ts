@@ -323,7 +323,10 @@ export class MercadoPublicoClient {
 
       Items: itemsNorm,
 
-      Url: `https://www.mercadopublico.cl/Procurement/Modules/RFB/Details.aspx?qs=${item.CodigoExterno}`,
+      // Ficha pública de la licitación. Details.aspx?qs= espera un querystring ENCRIPTADO
+      // (no el código), así que ese formato lleva a una página vacía/errónea. El acceso directo
+      // por código es DetailsAcquisition.aspx?idlicitacion=<CodigoExterno>.
+      Url: `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(item.CodigoExterno)}`,
     };
   }
 

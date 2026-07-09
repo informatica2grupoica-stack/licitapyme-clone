@@ -26,7 +26,7 @@ import {
   Sparkles, BarChart3, BookOpen, AlertTriangle, ListChecks,
   TrendingUp, CheckCircle, Upload, ChevronRight, Files,
   ShieldAlert, DollarSign as DollarSignIcon, Award, Wrench,
-  PlayCircle, Ban,
+  PlayCircle, Ban, ShoppingCart,
 } from 'lucide-react';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -1115,6 +1115,8 @@ function DetalleContent() {
   const [clasificando, setClasificando]       = useState(false);
   const [resumenClasificacion, setResumenClasificacion] = useState<{ estado: 'completo' | 'incompleto'; falta: string[] } | null>(null);
   const clasificacionDisparada = useRef(false);
+  // "Productos a costeo": búsqueda de precios de mercado (Serper) bajo demanda.
+  const [productosCosteoLoading, setProductosCosteoLoading] = useState(false);
 
   // Análisis IA
   const [analisisIA, setAnalisisIA]   = useState<AnalisisIA | null>(null);
@@ -1303,6 +1305,30 @@ function DetalleContent() {
     }
   };
 
+  // "Productos a costeo": dispara la búsqueda de precios de mercado (Serper) para los ítems del
+  // costeo y regenera el Excel CON precios. Es la ÚNICA vía que gasta tokens de Serper (no corre en
+  // la viabilidad), por eso es un botón explícito del perfil que trabaja la licitación. El Excel
+  // resultante queda en Documentos Propios.
+  const handleProductosCosteo = async () => {
+    if (!negocio || productosCosteoLoading) return;
+    setProductosCosteoLoading(true);
+    toast.success('Buscando productos y precios…', 'Puede tardar ~30-60s');
+    try {
+      const r = await fetch(
+        `/api/documentos/generar-costeo/${encodeURIComponent(negocio.licitacion_codigo)}?precios=1`,
+        { method: 'POST' },
+      );
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error('No se pudo generar', j.error || 'Error al buscar productos'); return; }
+      toast.success('Costeo con precios listo', 'Revisa el Excel en Documentos Propios');
+      fetchDocumentos(negocio.licitacion_codigo);
+    } catch {
+      toast.error('Error de red al buscar productos');
+    } finally {
+      setProductosCosteoLoading(false);
+    }
+  };
+
   // Confirmar POSTULADA: guarda estado + monto ofertado en un solo PATCH.
   const confirmarPostular = async () => {
     if (!negocio) return;
@@ -1399,7 +1425,10 @@ function DetalleContent() {
 
   const tipo = getTipo(negocio.licitacion_codigo);
   const tipoColor = tipo ? (TIPO_COLORS[tipo] || '#6B7280') : null;
-  const mpUrl = licitacion?.Url || `https://www.mercadopublico.cl/Procurement/Modules/RFB/Details.aspx?qs=${negocio.licitacion_codigo}`;
+  // Ficha pública en MP. SIEMPRE por código (idlicitacion): el formato Details.aspx?qs= exige un
+  // querystring encriptado y lleva a una página vacía. Deterministic desde el código → inmune a un
+  // licitacion.Url viejo con el formato roto.
+  const mpUrl = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(negocio.licitacion_codigo)}`;
 
   // Negocios = vista breve para el usuario asignado. El análisis profundo (viabilidad,
   // IA de documentos) vive SOLO en el Radar (admin). Aquí solo brief + ítems + comentarios.
@@ -1594,6 +1623,25 @@ function DetalleContent() {
                   <Ban size={12} /> Descartar
                 </button>
               )}
+            </div>
+
+            {/* Productos a costeo: busca precios de mercado (Serper) para los ítems y regenera el
+                Excel CON precios. Es lo único que gasta Serper (no corre en la viabilidad) → botón
+                explícito del perfil que trabaja la licitación. */}
+            <div className="mt-2">
+              <button
+                onClick={handleProductosCosteo}
+                disabled={productosCosteoLoading}
+                title="Busca productos y precios de mercado (Chile) para los ítems del costeo y regenera el Excel con precios"
+                className="flex items-center justify-center gap-1.5 w-full text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg py-1.5 transition-colors disabled:opacity-60"
+              >
+                {productosCosteoLoading
+                  ? <><Loader2 size={12} className="animate-spin" /> Buscando productos…</>
+                  : <><ShoppingCart size={12} /> Productos a costeo</>}
+              </button>
+              <p className="text-[10px] text-zinc-400 mt-1 leading-snug">
+                Precios de mercado para <strong className="text-zinc-500">{negocio.usuario_nombre || negocio.usuario_email.split('@')[0]}</strong>. El Excel queda en Documentos Propios.
+              </p>
             </div>
           </div>
 

@@ -1517,16 +1517,18 @@ async function autoGenerarCosteo(codigo: string, r: ViabilidadIAResult): Promise
 
   const datosCosteo = adaptarViabilidadACosteo(codigo, r);
 
-  // PRECIOS DE MERCADO (flag COSTEO_PRECIOS_MERCADO=1): cotiza cada ítem con el buscador
-  // (Serper + caché MySQL) y los inyecta en el Excel. Si algo falla, el costeo se genera
-  // igual, sin precios. Es tolerante a fallos por diseño (no debe romper la viabilidad).
-  if (process.env.COSTEO_PRECIOS_MERCADO === '1') {
+  // PRECIOS DE MERCADO en la viabilidad: DESACTIVADO por defecto para NO gastar tokens de Serper
+  // en cada análisis. El costeo se genera aquí SIN precios; la búsqueda de productos (Serper) se
+  // dispara bajo demanda con el botón "Productos a costeo" en Negocios (cuando el perfil trabaja la
+  // licitación → estado En proceso), que llama a /api/documentos/generar-costeo con ?precios=1.
+  // Para volver a cotizar en automático durante la viabilidad, pon COSTEO_PRECIOS_AUTO=1.
+  if (process.env.COSTEO_PRECIOS_AUTO === '1') {
     try {
       const precios = await cotizarPreciosManifiesto(codigo, manifiesto, r);
       const conPrecio = precios.filter(p => p.precio_neto != null).length;
       if (conPrecio > 0) {
         (datosCosteo as any).precios = precios;
-        console.log(`[costeo] ${codigo}: precios de mercado → ${conPrecio}/${precios.length} ítems cotizados`);
+        console.log(`[costeo] ${codigo}: precios de mercado (auto) → ${conPrecio}/${precios.length} ítems cotizados`);
       }
     } catch (e) {
       console.error(`[costeo] ${codigo}: cotización de precios falló (se sigue sin precios):`, String(e).slice(0, 200));

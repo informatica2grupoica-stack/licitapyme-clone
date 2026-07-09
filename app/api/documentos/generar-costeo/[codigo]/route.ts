@@ -128,10 +128,13 @@ export async function POST(request: NextRequest, { params }: Params) {
     );
   }
 
-  // 2b) PRECIOS DE MERCADO (flag COSTEO_PRECIOS_MERCADO=1): cotiza cada ítem con el buscador
-  //     (Serper + caché) y los inyecta. Disponible para cualquier perfil (la viabilidad y su
-  //     costeo con precios ya no son exclusivos de admin). Si algo falla, se genera sin precios.
-  if (process.env.COSTEO_PRECIOS_MERCADO === '1' && process.env.SERPER_API_KEY) {
+  // 2b) PRECIOS DE MERCADO: cotiza cada ítem con el buscador (Serper + caché) y los inyecta.
+  //     La búsqueda de productos NO corre en la viabilidad (para no gastar tokens de Serper de más);
+  //     se dispara BAJO DEMANDA desde el botón "Productos a costeo" en Negocios, que llama a esta
+  //     ruta con ?precios=1. También corre si el flag global COSTEO_PRECIOS_MERCADO=1 está activo.
+  //     Disponible para cualquier perfil asignado. Si algo falla, se genera sin precios.
+  const forzarPrecios = new URL(request.url).searchParams.get('precios') === '1';
+  if ((forzarPrecios || process.env.COSTEO_PRECIOS_MERCADO === '1') && process.env.SERPER_API_KEY) {
     try {
       const { cotizarManifiesto } = await import('@/app/lib/buscador-precios');
       const manifiesto = Array.isArray(informeIA.manifiesto_productos) ? informeIA.manifiesto_productos : [];
