@@ -62,6 +62,7 @@ export async function GET(request: NextRequest) {
            n.licitacion_monto, n.licitacion_cierre, n.licitacion_estado,
            n.licitacion_tipo, n.licitacion_region, n.monto_ofertado,
            COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline,
+           n.empresa_id, emp.razon_social AS empresa_nombre,
            n.created_at, n.updated_at,
            u.nombre AS usuario_nombre, u.email AS usuario_email,
            GROUP_CONCAT(DISTINCT e.nombre ORDER BY e.nombre SEPARATOR ',') AS etiquetas_nombres,
@@ -69,6 +70,7 @@ export async function GET(request: NextRequest) {
            (SELECT COUNT(*) FROM comentarios_negocio cn WHERE cn.negocio_id = n.id) AS comentarios_count
          FROM negocios n
          JOIN usuarios u ON u.id = n.asignado_a
+         LEFT JOIN empresas emp ON emp.id = n.empresa_id
          LEFT JOIN negocios_etiquetas ne ON ne.negocio_id = n.id
          LEFT JOIN etiquetas e ON e.id = ne.etiqueta_id
          ${whereClause}

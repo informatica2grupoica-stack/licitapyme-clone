@@ -2,12 +2,12 @@
 
 import {
   LayoutDashboard, Calendar, Package, FileText,
-  BarChart3, MessageSquare, Send, Gauge,
+  BarChart3, MessageSquare, Send, Gauge, Trophy,
 } from 'lucide-react';
 
 export type SeccionLicitacion =
   | 'resumen' | 'fechas' | 'items' | 'documentos' | 'preguntas'
-  | 'criterios' | 'comentarios' | 'viabilidad' | 'inteligencia' | 'postulacion' | 'gestion';
+  | 'criterios' | 'comentarios' | 'viabilidad' | 'inteligencia' | 'postulacion' | 'gestion' | 'resultado';
 
 interface NavItem { key: SeccionLicitacion; label: string; icon: React.ReactNode; }
 interface NavGroup { label: string; items: NavItem[]; }
@@ -19,6 +19,7 @@ const GROUPS: NavGroup[] = [
     label: '',
     items: [
       { key: 'resumen',     label: 'Resumen',      icon: <LayoutDashboard size={14} /> },
+      { key: 'resultado',   label: 'Resultado',    icon: <Trophy          size={14} /> },
       { key: 'documentos',  label: 'Documentos',   icon: <FileText        size={14} /> },
       { key: 'viabilidad',  label: 'Viabilidad',   icon: <Gauge           size={14} /> },
       { key: 'criterios',   label: 'Criterios',    icon: <BarChart3       size={14} /> },
@@ -37,6 +38,7 @@ export interface SectionCounts {
   comentarios?: number;
   ia?: boolean;
   viabilidad?: string | null; // semáforo: VERDE | AMARILLO | ...
+  resultado?: boolean;        // licitación finalizada (adjudicada/cerrada/…) → mostrar tab Resultado
 }
 
 const SEMAFORO_DOT: Record<string, string> = {

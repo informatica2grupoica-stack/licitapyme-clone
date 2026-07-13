@@ -87,6 +87,16 @@ export async function GET(request: NextRequest, { params }: Params) {
     negocio.documentos = (docRows as any)[0] as any[];
     negocio.total_documentos = negocio.documentos.length;
 
+    // Empresa con la que se postuló (si hay). Best-effort.
+    if (negocio.empresa_id) {
+      try {
+        const [er] = await pool.query(
+          `SELECT id, razon_social, rut FROM empresas WHERE id = ?`, [negocio.empresa_id]);
+        negocio.empresa = (er as any[])[0] || null;
+        negocio.empresa_nombre = negocio.empresa?.razon_social ?? null;
+      } catch { /* migración 40 pendiente */ }
+    }
+
     return NextResponse.json({ success: true, negocio });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -102,7 +112,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
   try {
     const body = await request.json();
-    const { monto_ofertado, etiqueta_ids, estado_pipeline, asignado_a } = body;
+    const { monto_ofertado, etiqueta_ids, estado_pipeline, asignado_a, empresa_id } = body;
     const motivo = typeof body.motivo === 'string' ? body.motivo.trim() : '';
 
     // Verificar acceso
@@ -132,6 +142,19 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         [monto_ofertado || 0, id]
       );
       cambios.push({ tipo: 'Monto', detalle: `Monto ofertado: ${fmtCLP(Number(monto_ofertado)) || '$0'}.` });
+    }
+
+    // Empresa con la que se postula (NULL para desasignar). Tolerante si la columna
+    // aún no existe (migración 40 pendiente): degrada sin romper el resto del PATCH.
+    if (empresa_id !== undefined) {
+      try {
+        await pool.query(
+          `UPDATE negocios SET empresa_id = ? WHERE id = ?`,
+          [empresa_id ? Number(empresa_id) : null, id]
+        );
+      } catch (colErr: any) {
+        if (!String(colErr).toLowerCase().includes('unknown column')) throw colErr;
+      }
     }
 
     // Actualizar estado del pipeline (cualquier usuario asignado o admin)

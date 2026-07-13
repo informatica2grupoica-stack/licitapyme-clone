@@ -31,6 +31,7 @@ interface LineaAdjudicada {
   montoUnitario: number | null;
   rutProveedor: string | null;
   proveedor: string | null;
+  esNuestra?: boolean;   // ¿la ganó una de NUESTRAS empresas? (se calcula al responder)
 }
 
 interface RespuestaAdjudicacion {
@@ -48,7 +49,51 @@ interface RespuestaAdjudicacion {
   } | null;
   lineasAdjudicadas: LineaAdjudicada[];
   montoAdjudicadoTotal: number | null;
+  // Enriquecido en `enriquecer()`: ¿ganamos NOSOTROS al menos una línea? y ¿por cuánto?
+  ganamos: boolean;
+  montoNuestro: number | null;
   desdeCache: boolean;
+}
+
+// ── ¿Ganó una de NUESTRAS empresas? ───────────────────────────────────────────
+// MP entrega el RUT del adjudicado (p.ej. "78.388.175-6"). Lo comparamos con los RUT
+// de nuestras empresas normalizados (solo dígitos + K). Una licitación se puede adjudicar
+// a VARIOS proveedores por línea, y podemos ser uno de ellos → detectamos por línea.
+function normRut(r: string | null | undefined): string {
+  return String(r || '').toUpperCase().replace(/[^0-9K]/g, '');
+}
+
+let _rutsNuestros: { set: Set<string>; ts: number } | null = null;
+async function rutsNuestros(): Promise<Set<string>> {
+  if (_rutsNuestros && Date.now() - _rutsNuestros.ts < 5 * 60 * 1000) return _rutsNuestros.set;
+  const set = new Set<string>();
+  try {
+    const [rows] = await pool.query(`SELECT rut FROM empresas WHERE activo = TRUE`);
+    for (const r of rows as any[]) { const n = normRut(r.rut); if (n) set.add(n); }
+  } catch { /* sin tabla empresas → conjunto vacío (nunca marcamos "nuestra") */ }
+  _rutsNuestros = { set, ts: Date.now() };
+  return set;
+}
+
+// Marca cada línea con esNuestra y agrega ganamos + montoNuestro. Se aplica en TODA
+// respuesta (cache o vivo) para reflejar siempre los RUT vigentes de nuestras empresas.
+async function enriquecer(r: RespuestaAdjudicacion): Promise<RespuestaAdjudicacion> {
+  const nuestros = await rutsNuestros();
+  let montoNuestro = 0, ganamos = false;
+  const lineas = (r.lineasAdjudicadas || []).map(l => {
+    const esNuestra = !!l.rutProveedor && nuestros.has(normRut(l.rutProveedor));
+    if (esNuestra) {
+      ganamos = true;
+      montoNuestro += (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1);
+    }
+    return { ...l, esNuestra };
+  });
+  return {
+    ...r,
+    lineasAdjudicadas: lineas,
+    ganamos: r.esAdjudicada ? ganamos : false,
+    montoNuestro: montoNuestro || null,
+  };
 }
 
 // ── Cache: lectura ────────────────────────────────────────────────────────────
@@ -87,6 +132,8 @@ function respuestaDesdeCache(codigo: string, row: any): RespuestaAdjudicacion {
       : null,
     lineasAdjudicadas: lineas,
     montoAdjudicadoTotal: row.monto_adjudicado_total != null ? Number(row.monto_adjudicado_total) : null,
+    ganamos: false,       // lo calcula enriquecer()
+    montoNuestro: null,   // lo calcula enriquecer()
     desdeCache: true,
   };
 }
@@ -176,6 +223,8 @@ async function consultarMP(codigo: string): Promise<RespuestaAdjudicacion | null
       : null,
     lineasAdjudicadas,
     montoAdjudicadoTotal: montoAdjudicadoTotal || null,
+    ganamos: false,       // lo calcula enriquecer()
+    montoNuestro: null,   // lo calcula enriquecer()
     desdeCache: false,
   };
 }
@@ -197,19 +246,19 @@ export async function GET(
     // 1) Cache primero. Adjudicada = final (siempre válido); no adjudicada = válido < TTL.
     const cache = await leerCache(cod);
     if (cache) {
-      if (cache.row.es_adjudicada) return NextResponse.json(respuestaDesdeCache(cod, cache.row));
-      if (!force && cache.frescoHoras < TTL_HORAS) return NextResponse.json(respuestaDesdeCache(cod, cache.row));
+      if (cache.row.es_adjudicada) return NextResponse.json(await enriquecer(respuestaDesdeCache(cod, cache.row)));
+      if (!force && cache.frescoHoras < TTL_HORAS) return NextResponse.json(await enriquecer(respuestaDesdeCache(cod, cache.row)));
     }
 
     // 2) Consulta en vivo + actualizar cache.
     const vivo = await consultarMP(cod);
     if (vivo) {
       await guardarCache(cod, vivo);
-      return NextResponse.json(vivo);
+      return NextResponse.json(await enriquecer(vivo));
     }
 
     // 3) MP no respondió (rate-limit / caída): servir el cache viejo si existe.
-    if (cache) return NextResponse.json(respuestaDesdeCache(cod, cache.row));
+    if (cache) return NextResponse.json(await enriquecer(respuestaDesdeCache(cod, cache.row)));
     return NextResponse.json({ error: 'No encontrada en Mercado Público' }, { status: 404 });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

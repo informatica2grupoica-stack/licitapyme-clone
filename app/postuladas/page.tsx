@@ -1,32 +1,39 @@
 'use client';
 
-// Apartado "Postuladas": licitaciones marcadas como POSTULADA (estado 'POSTULADA').
-// Muestra el presupuesto REAL de la licitación vs el MONTO OFERTADO (lo que se postuló),
-// y los documentos PROPIOS subidos (incluido el costeo).
+// Apartado "Postuladas" — rediseño orientado al RESULTADO.
+//
+// Cada licitación postulada se cruza EN VIVO con la API de Mercado Público
+// (/api/licitacion-adjudicacion) y se clasifica en tres estados de color:
+//   · GANADA (verde)      → MP adjudicó y una de NUESTRAS empresas ganó ≥1 línea.
+//                           OJO: una licitación se adjudica a VARIOS proveedores por
+//                           línea; podemos ser uno de ellos. Se muestran TODOS los
+//                           ganadores y se resaltan los nuestros.
+//   · PERDIDA (rojo)      → MP adjudicó pero no ganamos ninguna línea (se muestra a
+//                           quién se la adjudicaron, con toda la info de la API).
+//   · EN EVALUACIÓN (ámbar) → aún sin resultado publicado.
 //
 // Roles: cada perfil ve SOLO sus postuladas; el admin ve TODAS y puede filtrarlas por
-// perfil (igual que en Negocios) — el filtrado por rol ya lo hace /api/negocios.
-//
-// Adjudicación: al pinchar/cargar cada tarjeta se consulta EN VIVO la API de Mercado
-// Público (/api/licitacion-adjudicacion). Si MP ya adjudicó (CodigoEstado 8) se muestra
-// el "resultado aperturado": ganador por línea, monto, N° de oferentes y link al acta.
+// perfil, empresa y resultado. El filtrado por rol lo hace /api/negocios.
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
-import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
+import { ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
-  Pencil, Trash2, Undo2, X, Save, Wallet, Clock4,
+  Pencil, Trash2, Undo2, X, Save, Wallet, CheckCircle2,
+  XCircle, Hourglass,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
 const ESTADO_POSTULADA = 'POSTULADA';
+
+type Resultado = 'ganada' | 'perdida' | 'evaluacion';
 
 interface Negocio {
   id: number;
@@ -35,11 +42,15 @@ interface Negocio {
   licitacion_organismo: string;
   licitacion_monto: number | null;
   licitacion_cierre: string | null;
+  licitacion_estado?: string | null;
   estado_pipeline: string | null;
   monto_ofertado?: number;
+  empresa_id?: number | null;
+  empresa_nombre?: string | null;
   usuario_nombre?: string;
   usuario_email?: string;
 }
+interface EmpresaOpc { id: number; razon_social: string; }
 interface DocCache { documento_nombre: string; documento_url_local: string; categoria: string | null; }
 
 interface LineaAdjudicada {
@@ -51,11 +62,14 @@ interface LineaAdjudicada {
   montoUnitario: number | null;
   rutProveedor: string | null;
   proveedor: string | null;
+  esNuestra?: boolean;
 }
 interface Adjudicacion {
   esAdjudicada: boolean;
-  estado?: string;
+  estado?: string | null;
   fechaAdjudicacion?: string | null;
+  ganamos?: boolean;
+  montoNuestro?: number | null;
   adjudicacion?: {
     tipo?: number;
     numeroResolucion?: string | null;
@@ -71,66 +85,131 @@ function fmtCLP(n: number | null | undefined) {
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 }
 
-// ── Bloque "Resultado de adjudicación" ────────────────────────────────────────
+// Orden de aparición: primero las ganadas (celebrar), luego en evaluación, luego perdidas.
+const ORDEN: Record<Resultado, number> = { ganada: 0, evaluacion: 1, perdida: 2 };
+
+// Clasifica una postulada según lo que dice la API de MP.
+function resultadoDe(adj: Adjudicacion | null | undefined): Resultado {
+  if (adj?.esAdjudicada && adj.ganamos) return 'ganada';
+  if (adj?.esAdjudicada) return 'perdida';
+  return 'evaluacion';
+}
+
+// Metadatos visuales por resultado (un solo lugar → coherencia de color en toda la vista).
+const META: Record<Resultado, {
+  label: string; short: string; color: string; ring: string; soft: string;
+  text: string; border: string; icon: typeof Trophy;
+}> = {
+  ganada: {
+    label: 'Ganada', short: 'Ganadas', color: '#059669', ring: 'rgba(5,150,105,.35)',
+    soft: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', icon: Trophy,
+  },
+  perdida: {
+    label: 'Perdida', short: 'Perdidas', color: '#dc2626', ring: 'rgba(220,38,38,.30)',
+    soft: 'bg-rose-50', text: 'text-rose-700', border: 'border-rose-200', icon: XCircle,
+  },
+  evaluacion: {
+    label: 'En evaluación', short: 'En evaluación', color: '#d97706', ring: 'rgba(217,119,6,.30)',
+    soft: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: Hourglass,
+  },
+};
+
+// Ejecuta `fn` sobre `items` con un tope de concurrencia (no golpear MP en ráfaga).
+async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>, onDone?: (x: T, r: R) => void) {
+  let i = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (i < items.length) {
+      const idx = i++;
+      const r = await fn(items[idx]);
+      onDone?.(items[idx], r);
+    }
+  });
+  await Promise.all(workers);
+}
+
+// ── Badge de resultado (con animación) ────────────────────────────────────────
+function ResultadoBadge({ r, pulso }: { r: Resultado; pulso?: boolean }) {
+  const m = META[r];
+  const Icon = m.icon;
+  return (
+    <span
+      className="pp-badge inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-bold border"
+      style={{ backgroundColor: m.color + '16', color: m.color, borderColor: m.color + '3d' }}
+    >
+      {pulso && <span className="pp-pulse" style={{ background: m.color }} />}
+      <Icon size={11} /> {m.label}
+    </span>
+  );
+}
+
+// ── Detalle de adjudicación (todos los ganadores por línea) ───────────────────
 function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
   const [abierto, setAbierto] = useState(false);
   const meta = adj.adjudicacion;
   const lineas = adj.lineasAdjudicadas || [];
+  const nuestras = lineas.filter(l => l.esNuestra).length;
+  const ganamos = !!adj.ganamos;
+  const acc = ganamos ? META.ganada : META.perdida;
 
   return (
     <div className="mt-3 pt-3 border-t border-slate-100">
-      <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
+      <div className="rounded-xl border p-3" style={{ borderColor: acc.color + '33', background: acc.color + '0c' }}>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-full">
-            <Trophy size={11} /> Adjudicada
+          <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border"
+            style={{ color: acc.color, background: acc.color + '18', borderColor: acc.color + '33' }}>
+            {ganamos ? <Trophy size={11} /> : <Award size={11} />}
+            {ganamos ? `Ganamos ${nuestras} línea${nuestras !== 1 ? 's' : ''}` : 'Adjudicada a terceros'}
           </span>
           {adj.fechaAdjudicacion && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700">
+            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
               <Calendar size={11} /> {dayjs(adj.fechaAdjudicacion).format('DD/MM/YYYY')}
             </span>
           )}
           {meta?.numeroOferentes != null && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700">
+            <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
               <Users size={11} /> {meta.numeroOferentes} oferente{meta.numeroOferentes !== 1 ? 's' : ''}
             </span>
           )}
           {meta?.numeroResolucion && (
-            <span className="text-[11px] text-emerald-700">Res. N° {meta.numeroResolucion}</span>
+            <span className="text-[11px] text-slate-500">Res. N° {meta.numeroResolucion}</span>
           )}
-          {adj.montoAdjudicadoTotal ? (
-            <span className="ml-auto text-[12px] font-bold text-emerald-800">
-              Adjudicado: {fmtCLP(adj.montoAdjudicadoTotal)}
-            </span>
-          ) : null}
         </div>
 
-        {/* Detalle por línea (aperturado): quién ganó y por cuánto */}
         {lineas.length > 0 && (
           <>
             <button
               onClick={() => setAbierto(o => !o)}
-              className="mt-2.5 inline-flex items-center gap-1 text-[11.5px] font-semibold text-emerald-700 hover:text-emerald-800"
+              className="mt-2.5 inline-flex items-center gap-1 text-[11.5px] font-semibold text-slate-600 hover:text-slate-800 transition-colors"
             >
               {abierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
               {abierto ? 'Ocultar' : 'Ver'} adjudicación por línea ({lineas.length})
             </button>
             {abierto && (
-              <div className="mt-2 space-y-1.5">
+              <div className="pp-lines mt-2 space-y-1.5">
                 {lineas.map((l, i) => (
-                  <div key={i} className="flex items-start justify-between gap-2 bg-white border border-emerald-100 rounded-lg px-2.5 py-1.5">
+                  <div key={i}
+                    className={`flex items-start justify-between gap-2 rounded-lg px-2.5 py-1.5 border transition-colors ${
+                      l.esNuestra ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'
+                    }`}>
                     <div className="min-w-0">
                       <p className="text-[11.5px] font-medium text-slate-700 truncate" title={l.producto || l.descripcion}>
                         {l.producto || l.descripcion || `Línea ${l.correlativo ?? i + 1}`}
                       </p>
-                      <p className="text-[10.5px] text-emerald-700 truncate" title={`${l.proveedor || ''} ${l.rutProveedor || ''}`}>
-                        <Award size={9} className="inline mr-0.5" />
+                      <p className={`text-[10.5px] truncate ${l.esNuestra ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`}
+                        title={`${l.proveedor || ''} ${l.rutProveedor || ''}`}>
+                        {l.esNuestra
+                          ? <CheckCircle2 size={10} className="inline mr-0.5 -mt-0.5" />
+                          : <Award size={9} className="inline mr-0.5" />}
                         {l.proveedor || 'Proveedor adjudicado'}
                         {l.rutProveedor ? ` · ${l.rutProveedor}` : ''}
                       </p>
                     </div>
-                    <span className="text-[11.5px] font-bold text-slate-800 whitespace-nowrap">
-                      {fmtCLP(l.montoUnitario)}
-                    </span>
+                    <div className="text-right whitespace-nowrap">
+                      {l.esNuestra && (
+                        <span className="block text-[8.5px] font-black tracking-wide text-emerald-600 uppercase">Nosotros</span>
+                      )}
+                      <span className="text-[11.5px] font-bold text-slate-800">{fmtCLP(l.montoUnitario)}</span>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -140,7 +219,8 @@ function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
 
         {meta?.urlActa && (
           <a href={meta.urlActa} target="_blank" rel="noopener noreferrer"
-            className="mt-2.5 inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-emerald-700 hover:text-emerald-800">
+            className="mt-2.5 inline-flex items-center gap-1.5 text-[11.5px] font-semibold hover:underline"
+            style={{ color: acc.color }}>
             <FileCheck2 size={12} /> Ver acta de adjudicación <ExternalLink size={11} />
           </a>
         )}
@@ -149,26 +229,29 @@ function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
   );
 }
 
-// Tarjeta: carga sus documentos PROPIOS y su estado de adjudicación de forma perezosa.
-function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, onAdj }: {
-  n: Negocio; color: string; label: string; isAdmin: boolean;
+// ── Tarjeta de una postulada ──────────────────────────────────────────────────
+function PostuladaCard({ n, adj, cargandoAdj, index, isAdmin, empresas, onRevertida, onActualizada }: {
+  n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; index: number;
+  isAdmin: boolean; empresas: EmpresaOpc[];
   onRevertida: (id: number) => void;
-  onActualizada: (id: number, patch: { monto_ofertado?: number; estado_pipeline?: string }) => void;
-  onAdj: (id: number, esAdjudicada: boolean, montoAdjudicado: number | null) => void;
+  onActualizada: (id: number, patch: { monto_ofertado?: number; estado_pipeline?: string; empresa_id?: number | null; empresa_nombre?: string | null }) => void;
 }) {
   const [docs, setDocs] = useState<DocCache[]>([]);
-  const [adj, setAdj] = useState<Adjudicacion | null>(null);
   const [editando, setEditando] = useState(false);
   const [montoEdit, setMontoEdit] = useState<string>(n.monto_ofertado ? String(n.monto_ofertado) : '');
   const [estadoEdit, setEstadoEdit] = useState<string>(n.estado_pipeline || ESTADO_POSTULADA);
+  const [empresaEdit, setEmpresaEdit] = useState<string>(n.empresa_id ? String(n.empresa_id) : '');
   const [guardando, setGuardando] = useState(false);
   const perfilCol = colorUsuario(n.usuario_email || n.usuario_nombre || '');
   const confirmar = useConfirm();
   const toast = useToast();
 
+  const r = resultadoDe(adj);
+  const m = META[r];
+
   useEffect(() => {
     fetch(`/api/documentos/cache/${encodeURIComponent(n.licitacion_codigo)}`)
-      .then(r => r.ok ? r.json() : null)
+      .then(res => res.ok ? res.json() : null)
       .then(d => {
         const todos: DocCache[] = d?.documentos || d?.docs || [];
         setDocs(todos.filter(x => (x.categoria || '').toUpperCase() === 'DOCUMENTOS_PROPIOS'));
@@ -176,20 +259,21 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, o
       .catch(() => {});
   }, [n.licitacion_codigo]);
 
-  // Editar (solo admin): guarda monto ofertado y/o estado del pipeline.
   const guardarEdicion = async () => {
     setGuardando(true);
     try {
       const monto = parseInt(String(montoEdit).replace(/\D/g, ''), 10) || 0;
+      const empresaId = empresaEdit ? Number(empresaEdit) : null;
       const res = await fetch(`/api/negocios/${n.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ monto_ofertado: monto, estado_pipeline: estadoEdit }),
+        body: JSON.stringify({ monto_ofertado: monto, estado_pipeline: estadoEdit, empresa_id: empresaId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
       toast.success('Postulada actualizada');
       setEditando(false);
-      onActualizada(n.id, { monto_ofertado: monto, estado_pipeline: estadoEdit });
+      const empresaNombre = empresas.find(e => e.id === empresaId)?.razon_social ?? null;
+      onActualizada(n.id, { monto_ofertado: monto, estado_pipeline: estadoEdit, empresa_id: empresaId, empresa_nombre: empresaNombre });
     } catch (e: any) {
       toast.error('No se pudo guardar', e?.message);
     } finally {
@@ -197,8 +281,6 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, o
     }
   };
 
-  // Eliminar (solo admin): revierte la postulación → vuelve a EN PROCESO y sale del apartado.
-  // No borra el negocio.
   const revertir = async () => {
     const ok = await confirmar({
       titulo: '¿Quitar de Postuladas?',
@@ -220,7 +302,6 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, o
     }
   };
 
-  // Eliminar un documento propio (lo puede hacer el perfil, no requiere admin).
   const borrarDoc = async (d: DocCache) => {
     const ok = await confirmar({
       titulo: '¿Eliminar documento?',
@@ -244,38 +325,28 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, o
     }
   };
 
-  // Sondeo de adjudicación en vivo contra Mercado Público.
-  useEffect(() => {
-    fetch(`/api/licitacion-adjudicacion/${encodeURIComponent(n.licitacion_codigo)}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (d?.success && d.esAdjudicada) {
-          setAdj(d);
-          onAdj(n.id, true, d.montoAdjudicadoTotal ?? null);
-        }
-      })
-      .catch(() => {});
-    // onAdj es estable (viene de un useCallback en el padre); no lo incluimos para no re-sondear.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [n.licitacion_codigo, n.id]);
+  // Métrica derecha según resultado.
+  const metricaResultado = r === 'ganada'
+    ? { label: 'Ganamos', valor: fmtCLP(adj?.montoNuestro), cls: 'bg-emerald-50 border-emerald-200 text-emerald-800', sub: 'text-emerald-700' }
+    : r === 'perdida'
+    ? { label: 'Adjudicado (total)', valor: fmtCLP(adj?.montoAdjudicadoTotal), cls: 'bg-rose-50 border-rose-200 text-rose-800', sub: 'text-rose-700' }
+    : { label: 'Postulamos con', valor: fmtCLP(n.monto_ofertado), cls: 'bg-amber-50 border-amber-200 text-amber-800', sub: 'text-amber-700' };
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 hover:shadow-md transition-all"
-      style={isAdmin ? { borderLeftColor: perfilCol, borderLeftWidth: 3 } : undefined}>
+    <div
+      className="pp-card group relative bg-white border border-slate-200 rounded-2xl p-4 pl-5 overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
+      style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}
+    >
+      {/* Barra de color por resultado */}
+      <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: m.color }} />
+
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="text-[11px] font-mono font-semibold text-slate-500">{n.licitacion_codigo}</span>
-            {adj?.esAdjudicada ? (
-              <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold border bg-emerald-100 text-emerald-700 border-emerald-200">
-                <Trophy size={10} /> Adjudicada
-              </span>
-            ) : (
-              <span style={{ backgroundColor: color + '18', color, borderColor: color + '40' }}
-                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold border">
-                <span style={{ backgroundColor: color }} className="w-1 h-1 rounded-full" />{label}
-              </span>
-            )}
+            {cargandoAdj
+              ? <span className="pp-shimmer inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-semibold text-slate-400 bg-slate-100 border border-slate-200"><Loader2 size={10} className="animate-spin" /> Consultando…</span>
+              : <ResultadoBadge r={r} pulso={r === 'ganada'} />}
             {isAdmin && (n.usuario_nombre || n.usuario_email) && (
               <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-medium">
                 <span style={{ background: perfilCol }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
@@ -287,21 +358,24 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, o
           </div>
           <h3 className="text-[14px] font-semibold text-slate-800 truncate">{n.licitacion_nombre || 'Sin nombre'}</h3>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-[12px] text-slate-500">
-            <span className="inline-flex items-center gap-1"><Building2 size={12} />{n.licitacion_organismo || '—'}</span>
+            <span className="inline-flex items-center gap-1 min-w-0"><Building2 size={12} className="flex-shrink-0" /><span className="truncate max-w-[240px]">{n.licitacion_organismo || '—'}</span></span>
             {n.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={12} />{dayjs(n.licitacion_cierre).format('DD/MM/YYYY')}</span>}
           </div>
+          {n.empresa_nombre && (
+            <span className="inline-flex items-center gap-1 mt-1.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
+              <Building2 size={11} /> {n.empresa_nombre}
+            </span>
+          )}
         </div>
         <div className="flex-shrink-0 flex items-center gap-1">
           {isAdmin && !editando && (
             <>
-              <button onClick={() => setEditando(true)}
-                title="Editar monto y estado"
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-indigo-600 px-1.5 py-1 rounded-md hover:bg-indigo-50 transition-colors">
+              <button onClick={() => setEditando(true)} title="Editar monto y estado"
+                className="inline-flex items-center text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition-colors">
                 <Pencil size={13} />
               </button>
-              <button onClick={revertir}
-                title="Quitar de Postuladas (vuelve a En proceso)"
-                className="inline-flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-red-600 px-1.5 py-1 rounded-md hover:bg-red-50 transition-colors">
+              <button onClick={revertir} title="Quitar de Postuladas (vuelve a En proceso)"
+                className="inline-flex items-center text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors">
                 <Undo2 size={13} />
               </button>
             </>
@@ -313,15 +387,13 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, o
         </div>
       </div>
 
-      {/* Edición inline (solo admin) */}
       {editando && (
         <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block">
               <span className="text-[11px] font-semibold text-slate-600">Monto ofertado</span>
               <input type="text" inputMode="numeric" value={montoEdit}
-                onChange={e => setMontoEdit(e.target.value)}
-                placeholder="$"
+                onChange={e => setMontoEdit(e.target.value)} placeholder="$"
                 className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] outline-none focus:ring-2 focus:ring-indigo-400" />
             </label>
             <label className="block">
@@ -331,10 +403,18 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, o
                 {ESTADOS_PIPELINE.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
               </select>
             </label>
+            <label className="block sm:col-span-2">
+              <span className="text-[11px] font-semibold text-slate-600">Empresa con la que se postuló</span>
+              <select value={empresaEdit} onChange={e => setEmpresaEdit(e.target.value)}
+                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] bg-white outline-none focus:ring-2 focus:ring-indigo-400">
+                <option value="">— Sin especificar —</option>
+                {empresas.map(e => <option key={e.id} value={e.id}>{e.razon_social}</option>)}
+              </select>
+            </label>
           </div>
           <p className="text-[11px] text-slate-500 mt-2">Si cambias el estado a uno distinto de <b>Postulada</b>, saldrá de este apartado.</p>
           <div className="flex items-center justify-end gap-2 mt-3">
-            <button onClick={() => { setEditando(false); setMontoEdit(n.monto_ofertado ? String(n.monto_ofertado) : ''); setEstadoEdit(n.estado_pipeline || ESTADO_POSTULADA); }}
+            <button onClick={() => { setEditando(false); setMontoEdit(n.monto_ofertado ? String(n.monto_ofertado) : ''); setEstadoEdit(n.estado_pipeline || ESTADO_POSTULADA); setEmpresaEdit(n.empresa_id ? String(n.empresa_id) : ''); }}
               className="inline-flex items-center gap-1 text-[12.5px] font-semibold text-slate-600 hover:bg-slate-200/60 px-3 py-1.5 rounded-lg transition-colors">
               <X size={13} /> Cancelar
             </button>
@@ -346,36 +426,45 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, o
         </div>
       )}
 
-      {/* Presupuesto real vs monto ofertado */}
-      <div className="grid grid-cols-2 gap-2 mt-3">
+      {/* Presupuesto real · Postulamos con · Métrica de resultado */}
+      <div className="grid grid-cols-3 gap-2 mt-3">
         <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
           <p className="text-[10.5px] text-slate-500">Presupuesto real</p>
-          <p className="text-[14px] font-bold text-slate-800">{fmtCLP(n.licitacion_monto)}</p>
+          <p className="text-[13.5px] font-bold text-slate-800">{fmtCLP(n.licitacion_monto)}</p>
         </div>
-        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2">
-          <p className="text-[10.5px] text-amber-700">Postulamos con</p>
-          <p className="text-[14px] font-bold text-amber-800">{fmtCLP(n.monto_ofertado)}</p>
+        <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+          <p className="text-[10.5px] text-slate-500">Postulamos con</p>
+          <p className="text-[13.5px] font-bold text-slate-800">{fmtCLP(n.monto_ofertado)}</p>
+        </div>
+        <div className={`rounded-lg border px-3 py-2 ${metricaResultado.cls}`}>
+          <p className={`text-[10.5px] ${metricaResultado.sub}`}>{metricaResultado.label}</p>
+          <p className="text-[13.5px] font-bold">{cargandoAdj ? '…' : metricaResultado.valor}</p>
         </div>
       </div>
 
-      {/* Resultado de adjudicación (si MP ya adjudicó) */}
+      {/* Detalle de adjudicación (ganada o perdida) */}
       {adj?.esAdjudicada && <BloqueAdjudicacion adj={adj} />}
 
-      {/* Documentos propios subidos (incluido el costeo) */}
+      {/* En evaluación: estado según MP */}
+      {!cargandoAdj && !adj?.esAdjudicada && (
+        <div className="mt-3 flex items-center gap-1.5 text-[11.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">
+          <Hourglass size={12} /> Sin resultado aún{adj?.estado ? ` · MP: ${adj.estado}` : ''}
+        </div>
+      )}
+
       {docs.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-100">
           <p className="text-[11px] font-semibold text-slate-500 mb-1.5">Documentos propios ({docs.length})</p>
           <div className="flex flex-wrap gap-1.5">
             {docs.map((d, i) => (
               <span key={i}
-                className="group inline-flex items-center gap-1 text-[11.5px] text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md pl-2 pr-1 py-1 transition-colors max-w-[240px]">
-                <a href={d.documento_url_local} target="_blank" rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 min-w-0">
+                className="group/doc inline-flex items-center gap-1 text-[11.5px] text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md pl-2 pr-1 py-1 transition-colors max-w-[240px]">
+                <a href={d.documento_url_local} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 min-w-0">
                   <FileText size={11} className="flex-shrink-0 text-slate-400" />
                   <span className="truncate">{d.documento_nombre}</span>
                 </a>
                 <button onClick={() => borrarDoc(d)} title="Eliminar documento"
-                  className="flex-shrink-0 p-0.5 text-slate-400 hover:text-red-600 rounded transition-colors">
+                  className="flex-shrink-0 p-0.5 text-slate-400 hover:text-rose-600 rounded transition-colors">
                   <Trash2 size={11} />
                 </button>
               </span>
@@ -387,24 +476,20 @@ function PostuladaCard({ n, color, label, isAdmin, onRevertida, onActualizada, o
   );
 }
 
-// KPI tile — mismo lenguaje visual que el dashboard (StatCard).
-function KpiCard({ icon, label, value, sub, color = 'indigo' }: {
-  icon: React.ReactNode; label: string; value: string | number; sub?: string; color?: string;
+// KPI tile.
+function KpiCard({ icon, label, value, sub, color }: {
+  icon: React.ReactNode; label: string; value: string | number; sub?: string; color: string;
 }) {
-  const ICON_BG: Record<string, string> = {
-    indigo: 'bg-indigo-50 text-indigo-600', violet: 'bg-violet-50 text-violet-600',
-    teal: 'bg-teal-50 text-teal-600', emerald: 'bg-emerald-50 text-emerald-600',
-    amber: 'bg-amber-50 text-amber-600', orange: 'bg-orange-50 text-orange-600',
-  };
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 transition-shadow hover:shadow-md">
+    <div className="pp-kpi bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 transition-shadow hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide mb-1">{label}</p>
           <p className="text-[26px] font-black leading-none tabular-nums text-slate-900">{value}</p>
           {sub && <p className="text-xs text-slate-400 mt-1 truncate">{sub}</p>}
         </div>
-        <div className={`w-[42px] h-[42px] rounded-xl flex items-center justify-center flex-shrink-0 ${ICON_BG[color] || ICON_BG.indigo}`}>
+        <div className="w-[42px] h-[42px] rounded-xl flex items-center justify-center flex-shrink-0"
+          style={{ background: color + '18', color }}>
           {icon}
         </div>
       </div>
@@ -417,14 +502,18 @@ export default function PostuladasPage() {
   const isAdmin = usuario?.rol === 'admin';
 
   const [negocios, setNegocios] = useState<Negocio[]>([]);
+  const [empresasOpc, setEmpresasOpc] = useState<EmpresaOpc[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [perfilSel, setPerfilSel] = useState<string>(''); // email del perfil (solo admin)
-  // Adjudicación por negocio (la reportan las tarjetas al sondear MP) → alimenta los KPIs.
-  const [adjMap, setAdjMap] = useState<Record<number, { esAdjudicada: boolean; monto: number | null }>>({});
-  const reportarAdj = useCallback((id: number, esAdjudicada: boolean, monto: number | null) => {
-    setAdjMap(prev => (prev[id]?.esAdjudicada === esAdjudicada && prev[id]?.monto === monto ? prev : { ...prev, [id]: { esAdjudicada, monto } }));
-  }, []);
+  const [perfilSel, setPerfilSel] = useState<string>('');
+  const [empresaSel, setEmpresaSel] = useState<string>('');
+  const [resultadoSel, setResultadoSel] = useState<Resultado | ''>('');
+
+  // Adjudicación por código (se consulta a MP en paralelo, con tope de concurrencia).
+  const [adjMap, setAdjMap] = useState<Record<string, Adjudicacion | null>>({});
+  const [resueltos, setResueltos] = useState<Set<string>>(new Set());
+  const [progreso, setProgreso] = useState(0);
+  const pedidos = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     (async () => {
@@ -442,68 +531,185 @@ export default function PostuladasPage() {
     })();
   }, []);
 
-  const badge = getEstadoPipeline(ESTADO_POSTULADA);
-  const color = badge?.color ?? '#B45309';
-  const label = badge?.label ?? 'POSTULADA';
+  useEffect(() => {
+    fetch('/api/empresas').then(r => r.json()).then(d => {
+      if (d.success) setEmpresasOpc(d.empresas || []);
+    }).catch(() => {});
+  }, []);
 
-  // Perfiles presentes (para el filtro del admin), con su conteo.
+  // Cruce con MP: para cada código único aún no pedido, consultar adjudicación.
+  useEffect(() => {
+    const codigos = Array.from(new Set(negocios.map(n => n.licitacion_codigo).filter(Boolean)))
+      .filter(c => !pedidos.current.has(c));
+    if (!codigos.length) return;
+    codigos.forEach(c => pedidos.current.add(c));
+
+    mapLimit(codigos, 6, async (codigo) => {
+      try {
+        const r = await fetch(`/api/licitacion-adjudicacion/${encodeURIComponent(codigo)}`);
+        return r.ok ? (await r.json()) as Adjudicacion : null;
+      } catch { return null; }
+    }, (codigo, data) => {
+      setAdjMap(prev => ({ ...prev, [codigo]: data }));
+      setResueltos(prev => { const s = new Set(prev); s.add(codigo); return s; });
+      setProgreso(p => p + 1);
+    });
+  }, [negocios]);
+
+  const totalCodigos = useMemo(() => new Set(negocios.map(n => n.licitacion_codigo)).size, [negocios]);
+  const consultando = negocios.length > 0 && progreso < totalCodigos;
+
+  // Perfiles presentes (filtro admin).
   const perfiles = useMemo(() => {
     const m = new Map<string, { email: string; nombre: string; total: number }>();
     for (const n of negocios) {
       const email = n.usuario_email || n.usuario_nombre || '—';
       const e = m.get(email) || { email, nombre: n.usuario_nombre || n.usuario_email || '—', total: 0 };
-      e.total++;
-      m.set(email, e);
+      e.total++; m.set(email, e);
     }
     return Array.from(m.values()).sort((a, b) => b.total - a.total);
   }, [negocios]);
 
-  const visibles = useMemo(
-    () => (perfilSel ? negocios.filter(n => (n.usuario_email || n.usuario_nombre) === perfilSel) : negocios),
-    [negocios, perfilSel],
+  // Empresas presentes (filtro).
+  const empresasFiltro = useMemo(() => {
+    const m = new Map<string, { id: string; nombre: string; total: number }>();
+    for (const n of negocios) {
+      if (!n.empresa_id) continue;
+      const id = String(n.empresa_id);
+      const e = m.get(id) || { id, nombre: n.empresa_nombre || `Empresa ${id}`, total: 0 };
+      e.total++; m.set(id, e);
+    }
+    return Array.from(m.values()).sort((a, b) => b.total - a.total);
+  }, [negocios]);
+
+  // Filtro por perfil + empresa (base para tabs de resultado y KPIs).
+  const base = useMemo(
+    () => negocios
+      .filter(n => !perfilSel || (n.usuario_email || n.usuario_nombre) === perfilSel)
+      .filter(n => !empresaSel || String(n.empresa_id || '') === empresaSel),
+    [negocios, perfilSel, empresaSel],
   );
 
-  // KPIs sobre el conjunto VISIBLE (respeta el filtro por perfil).
+  const resultadoDeNegocio = useCallback(
+    (n: Negocio): Resultado => resultadoDe(adjMap[n.licitacion_codigo]),
+    [adjMap],
+  );
+
+  // Conteo por resultado (sobre la base filtrada por perfil/empresa).
+  const conteo = useMemo(() => {
+    const c = { ganada: 0, perdida: 0, evaluacion: 0 };
+    for (const n of base) c[resultadoDeNegocio(n)]++;
+    return c;
+  }, [base, resultadoDeNegocio]);
+
+  const visibles = useMemo(() => {
+    return base
+      .filter(n => !resultadoSel || resultadoDeNegocio(n) === resultadoSel)
+      .sort((a, b) => {
+        const da = ORDEN[resultadoDeNegocio(a)] - ORDEN[resultadoDeNegocio(b)];
+        if (da !== 0) return da;
+        return dayjs(b.licitacion_cierre || 0).valueOf() - dayjs(a.licitacion_cierre || 0).valueOf();
+      });
+  }, [base, resultadoSel, resultadoDeNegocio]);
+
+  // KPIs.
   const stats = useMemo(() => {
-    const total = visibles.length;
-    let adjudicadas = 0, montoAdjudicado = 0;
-    for (const n of visibles) {
-      const a = adjMap[n.id];
-      if (a?.esAdjudicada) { adjudicadas++; if (a.monto) montoAdjudicado += a.monto; }
+    let montoGanado = 0;
+    for (const n of base) {
+      const a = adjMap[n.licitacion_codigo];
+      if (a?.ganamos && a.montoNuestro) montoGanado += a.montoNuestro;
     }
-    return { total, adjudicadas, enEvaluacion: total - adjudicadas, montoAdjudicado };
-  }, [visibles, adjMap]);
+    const resueltasTotal = conteo.ganada + conteo.perdida;
+    return {
+      total: base.length,
+      ...conteo,
+      montoGanado,
+      exito: resueltasTotal ? Math.round((conteo.ganada / resueltasTotal) * 100) : null,
+    };
+  }, [base, conteo, adjMap]);
+
+  const TABS: { id: Resultado | ''; label: string; count: number; color: string }[] = [
+    { id: '', label: 'Todas', count: base.length, color: '#334155' },
+    { id: 'ganada', label: 'Ganadas', count: conteo.ganada, color: META.ganada.color },
+    { id: 'evaluacion', label: 'En evaluación', count: conteo.evaluacion, color: META.evaluacion.color },
+    { id: 'perdida', label: 'Perdidas', count: conteo.perdida, color: META.perdida.color },
+  ];
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Postuladas' }]}>
+      {/* Animaciones y estados de la vista */}
+      <style>{`
+        @keyframes ppUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+        @keyframes ppLines { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+        @keyframes ppPulse { 0% { box-shadow: 0 0 0 0 var(--c); } 70% { box-shadow: 0 0 0 5px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+        @keyframes ppShimmer { 0% { background-position: -200px 0; } 100% { background-position: 200px 0; } }
+        .pp-card { animation: ppUp .45s cubic-bezier(.22,1,.36,1) both; }
+        .pp-kpi { animation: ppUp .4s ease both; }
+        .pp-lines { animation: ppLines .25s ease both; }
+        .pp-pulse { width: 6px; height: 6px; border-radius: 9999px; --c: rgba(5,150,105,.5); animation: ppPulse 1.8s infinite; }
+        .pp-shimmer { background-image: linear-gradient(90deg, #f1f5f9 0px, #e2e8f0 80px, #f1f5f9 160px); background-size: 400px 100%; animation: ppShimmer 1.2s infinite linear; }
+        @media (prefers-reduced-motion: reduce) { .pp-card, .pp-kpi, .pp-lines, .pp-pulse, .pp-shimmer { animation: none !important; } }
+      `}</style>
+
       <div className="p-4 sm:p-6 lg:p-8">
-        {/* Header — mismo estilo que Negocios */}
+        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <Send size={24} className="text-amber-600" /> Postuladas
             </h1>
-            <p className="text-sm text-gray-500 mt-0.5">
+            <p className="text-sm text-gray-500 mt-0.5 flex items-center gap-2">
               {cargando
                 ? 'Cargando…'
-                : `${visibles.length} licitación${visibles.length !== 1 ? 'es' : ''} postulada${visibles.length !== 1 ? 's' : ''}`}
+                : `${base.length} oferta${base.length !== 1 ? 's' : ''} presentada${base.length !== 1 ? 's' : ''}`}
+              {consultando && (
+                <span className="inline-flex items-center gap-1 text-[12px] text-slate-400">
+                  <Loader2 size={12} className="animate-spin" /> consultando resultados en Mercado Público… ({progreso}/{totalCodigos})
+                </span>
+              )}
             </p>
           </div>
         </div>
 
         {/* KPIs */}
-        {!cargando && !error && visibles.length > 0 && (
+        {!cargando && !error && base.length > 0 && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-            <KpiCard icon={<Send size={22} />} label="Postuladas" value={stats.total} sub="Ofertas presentadas" color="amber" />
-            <KpiCard icon={<Trophy size={22} />} label="Adjudicadas" value={stats.adjudicadas} sub={stats.total ? `${Math.round((stats.adjudicadas / stats.total) * 100)}% de éxito` : '—'} color="emerald" />
-            <KpiCard icon={<Clock4 size={22} />} label="En evaluación" value={stats.enEvaluacion} sub="Aún sin resultado" color="orange" />
-            <KpiCard icon={<Wallet size={22} />} label="Monto adjudicado" value={fmtCLP(stats.montoAdjudicado || null)} sub="Suma de lo ganado" color="violet" />
+            <KpiCard icon={<Trophy size={22} />} label="Ganadas" value={stats.ganada}
+              sub={stats.exito != null ? `${stats.exito}% de efectividad` : 'Resultados en curso'} color={META.ganada.color} />
+            <KpiCard icon={<XCircle size={22} />} label="Perdidas" value={stats.perdida} sub="Adjudicadas a terceros" color={META.perdida.color} />
+            <KpiCard icon={<Hourglass size={22} />} label="En evaluación" value={stats.evaluacion} sub="Aún sin resultado" color={META.evaluacion.color} />
+            <KpiCard icon={<Wallet size={22} />} label="Monto ganado" value={fmtCLP(stats.montoGanado || null)} sub="Lo adjudicado a nosotros" color="#7c3aed" />
           </div>
         )}
 
-        {/* Filtro por perfil (solo admin) */}
+        {/* Tabs de resultado */}
+        {!cargando && !error && base.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-5">
+            {TABS.map(t => {
+              const activo = resultadoSel === t.id;
+              return (
+                <button key={t.id || 'all'} onClick={() => setResultadoSel(t.id)}
+                  style={activo ? { backgroundColor: t.color, borderColor: t.color } : { borderColor: t.color + '40', color: t.color }}
+                  className={`inline-flex items-center gap-2 text-[12.5px] font-bold px-3.5 py-2 rounded-xl border transition-all ${
+                    activo ? 'text-white shadow-sm' : 'bg-white hover:bg-slate-50'
+                  }`}>
+                  {t.label}
+                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[11px] font-black"
+                    style={activo ? { background: 'rgba(255,255,255,.25)', color: '#fff' } : { background: t.color + '18', color: t.color }}>
+                    {t.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Filtro por perfil (admin) */}
         {isAdmin && perfiles.length > 1 && (
-          <div className="flex flex-wrap gap-1.5 mb-5">
+          <div className="flex flex-wrap items-center gap-1.5 mb-4">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mr-1 inline-flex items-center gap-1">
+              <Users size={12} /> Perfil
+            </span>
             <button onClick={() => setPerfilSel('')}
               className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
                 perfilSel === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
@@ -530,27 +736,61 @@ export default function PostuladasPage() {
           </div>
         )}
 
+        {/* Filtro por empresa */}
+        {empresasFiltro.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-5">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mr-1 inline-flex items-center gap-1">
+              <Building2 size={12} /> Empresa
+            </span>
+            <button onClick={() => setEmpresaSel('')}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                empresaSel === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}>
+              Todas
+            </button>
+            {empresasFiltro.map(e => {
+              const activo = empresaSel === e.id;
+              return (
+                <button key={e.id} onClick={() => setEmpresaSel(activo ? '' : e.id)}
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                    activo ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}>
+                  {e.nombre} <span className="opacity-70">({e.total})</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {cargando ? (
           <div className="flex items-center gap-2 text-slate-500 text-sm py-20 justify-center"><Loader2 size={16} className="animate-spin" /> Cargando…</div>
         ) : error ? (
-          <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>
+          <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm">{error}</div>
         ) : visibles.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-xl border border-slate-100">
+          <div className="text-center py-20 bg-white rounded-2xl border border-slate-100">
             <Inbox size={36} className="text-gray-300 mx-auto mb-3" />
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Todavía no hay licitaciones postuladas</h3>
-            <p className="text-sm text-gray-400">Marca una licitación como <b>Postulada</b> en su estado y aparecerá aquí.</p>
+            <h3 className="text-lg font-semibold text-gray-700 mb-2">
+              {base.length === 0 ? 'Todavía no hay licitaciones postuladas' : 'Nada en este filtro'}
+            </h3>
+            <p className="text-sm text-gray-400">
+              {base.length === 0
+                ? <>Marca una licitación como <b>Postulada</b> en su estado y aparecerá aquí.</>
+                : 'Prueba con otro resultado, perfil o empresa.'}
+            </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-            {visibles.map(n => (
-              <PostuladaCard key={n.id} n={n} color={color} label={label} isAdmin={!!isAdmin}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
+            {visibles.map((n, i) => (
+              <PostuladaCard key={n.id} n={n}
+                adj={adjMap[n.licitacion_codigo] ?? null}
+                cargandoAdj={!resueltos.has(n.licitacion_codigo)}
+                index={i} isAdmin={!!isAdmin} empresas={empresasOpc}
                 onRevertida={id => setNegocios(prev => prev.filter(x => x.id !== id))}
                 onActualizada={(id, patch) => setNegocios(prev =>
                   patch.estado_pipeline && patch.estado_pipeline !== ESTADO_POSTULADA
                     ? prev.filter(x => x.id !== id)
                     : prev.map(x => x.id === id ? { ...x, ...patch } : x)
                 )}
-                onAdj={reportarAdj}
               />
             ))}
           </div>

@@ -29,6 +29,7 @@ import { ViabilidadIAPanel } from './sections/ViabilidadIAPanel';
 import { InteligenciaSection } from './sections/InteligenciaSection';
 import { PostulacionSection } from './sections/PostulacionSection';
 import { GestionSection } from './sections/GestionSection';
+import { ResultadoSection } from './sections/ResultadoSection';
 import { Resaltar } from '@/app/components/Resaltar';
 
 // ======================================================
@@ -379,6 +380,10 @@ export default function LicitacionDetallePage() {
   const fechasProceso          = licitacion.fechas_proceso;
   const mpUrl                  = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(codigoDecoded)}`;
 
+  // ¿Proceso finalizado? Habilita el tab "Resultado" (como MP habilita esos botones al cerrar).
+  const finalizada = !!licitacion.fecha_adjudicacion ||
+    /adjudic|cerrad|desiert|revocad/i.test(licitacion.estado || '');
+
   // Timeline: solo fechas presentes
   const fechasAdic = [
     { label: 'Publicación',             fecha: licitacion.fecha_publicacion },
@@ -561,6 +566,7 @@ export default function LicitacionDetallePage() {
               fechas: fechasAdic.length || undefined,
               ia: documentosAnalizables.length > 0,
               viabilidad: viabilidad?.score_viabilidad?.semaforo ?? null,
+              resultado: finalizada,
             }}
           />
 
@@ -580,6 +586,9 @@ export default function LicitacionDetallePage() {
             )}
             {activeSection === 'items' && (
               <ItemsSection items={licitacion.items} keywords={keywords} />
+            )}
+            {activeSection === 'resultado' && (
+              <ResultadoSection codigo={codigoDecoded} mpUrl={mpUrl} />
             )}
             {activeSection === 'documentos' && (
               <DocumentosSection

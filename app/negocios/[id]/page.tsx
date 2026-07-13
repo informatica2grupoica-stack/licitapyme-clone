@@ -45,6 +45,8 @@ interface Negocio {
   licitacion_descripcion: string | null;
   estado_pipeline:      string | null;
   monto_ofertado:       number;
+  empresa_id:           number | null;
+  empresa_nombre:       string | null;
   asignado_a:           number;
   usuario_nombre:       string;
   usuario_email:        string;
@@ -1092,9 +1094,12 @@ function DetalleContent() {
   const [descarteOpen, setDescarteOpen] = useState(false);
   const [motivoSel, setMotivoSel] = useState('');
   const [motivoDescarte, setMotivoDescarte] = useState('');
-  // Postular: al marcar POSTULADA se pide el monto ofertado (mostrando el presupuesto real).
+  // Postular: al marcar POSTULADA se pide el monto ofertado (mostrando el presupuesto real)
+  // y con qué empresa se postuló.
   const [postularOpen, setPostularOpen] = useState(false);
   const [montoPostular, setMontoPostular] = useState('');
+  const [empresaPostular, setEmpresaPostular] = useState('');
+  const [empresas, setEmpresas] = useState<{ id: number; razon_social: string }[]>([]);
 
   // Escape cierra los modales de descarte/postulación (el clic fuera ya está en el overlay).
   useEffect(() => {
@@ -1280,6 +1285,7 @@ function DetalleContent() {
     // El modal hace su propio PATCH (estado + monto), no vuelve a pasar por aquí.
     if (estadoId === 'POSTULADA') {
       setMontoPostular(String(negocio.monto_ofertado || ''));
+      setEmpresaPostular(String(negocio.empresa_id || ''));
       setPostularOpen(true);
       return;
     }
@@ -1335,19 +1341,22 @@ function DetalleContent() {
     const monto = parseInt(String(montoPostular).replace(/\D/g, ''), 10);
     if (!monto || monto <= 0) { toast.error('Ingresa el monto que ofertaste'); return; }
     setPostularOpen(false);
+    const empresaId = empresaPostular ? Number(empresaPostular) : null;
+    const empresaNombre = empresas.find(e => e.id === empresaId)?.razon_social ?? null;
     const estadoAnterior = negocio.estado_pipeline;
     const montoAnterior = negocio.monto_ofertado;
-    setNegocio(prev => prev ? { ...prev, estado_pipeline: 'POSTULADA', monto_ofertado: monto } : prev);
+    const empresaAnterior = { id: negocio.empresa_id, nombre: negocio.empresa_nombre };
+    setNegocio(prev => prev ? { ...prev, estado_pipeline: 'POSTULADA', monto_ofertado: monto, empresa_id: empresaId, empresa_nombre: empresaNombre } : prev);
     try {
       const res = await fetch(`/api/negocios/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado_pipeline: 'POSTULADA', monto_ofertado: monto }),
+        body: JSON.stringify({ estado_pipeline: 'POSTULADA', monto_ofertado: monto, empresa_id: empresaId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       toast.success('Marcada como Postulada');
     } catch (e: any) {
-      setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoAnterior, monto_ofertado: montoAnterior } : prev);
+      setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoAnterior, monto_ofertado: montoAnterior, empresa_id: empresaAnterior.id, empresa_nombre: empresaAnterior.nombre } : prev);
       toast.error('Error al postular', e?.message);
     }
   };
@@ -1359,6 +1368,13 @@ function DetalleContent() {
       if (d.success) setUsuariosLista(d.usuarios || []);
     }).catch(() => {});
   }, [isAdmin]);
+
+  // Cargar empresas para el selector al postular (cualquier usuario asignado puede postular).
+  useEffect(() => {
+    fetch('/api/empresas').then(r => r.json()).then(d => {
+      if (d.success) setEmpresas(d.empresas || []);
+    }).catch(() => {});
+  }, []);
 
   // Reasignar el negocio a otro usuario (in-place: conserva historial/estado).
   const reasignar = async (nuevoId: number) => {
@@ -1832,6 +1848,22 @@ function DetalleContent() {
                   />
                 </div>
                 <p className="mt-1 text-[11px] text-slate-400">En pesos (CLP). Se verá en el apartado Postuladas.</p>
+              </div>
+              <div>
+                <label className="block text-[12.5px] font-semibold text-slate-700 mb-1">¿Con qué empresa postulaste?</label>
+                <div className="relative">
+                  <Building2 size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <select
+                    value={empresaPostular}
+                    onChange={e => setEmpresaPostular(e.target.value)}
+                    className="w-full text-[13px] rounded-lg border border-slate-200 bg-white pl-7 pr-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 outline-none">
+                    <option value="">— Sin especificar —</option>
+                    {empresas.map(e => <option key={e.id} value={e.id}>{e.razon_social}</option>)}
+                  </select>
+                </div>
+                {empresas.length === 0 && (
+                  <p className="mt-1 text-[11px] text-amber-600">No hay empresas cargadas. Créalas en la sección <b>Empresas</b>.</p>
+                )}
               </div>
               <div className="flex justify-end gap-2">
                 <button onClick={() => setPostularOpen(false)}
