@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { registrarActividad } from '@/app/lib/actividad';
 
 export async function POST(request: NextRequest) {
   try {
@@ -39,6 +40,14 @@ export async function POST(request: NextRequest) {
         [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0]
       );
     }
+
+    // Bitácora: subió un documento propio a esta licitación (best-effort).
+    registrarActividad({
+      usuarioId: userId ? parseInt(userId) : null, accion: 'documento',
+      entidadTipo: 'licitacion', entidadId: String(licitacionCodigo),
+      descripcion: `Subió el documento "${documentoNombre}"`,
+      metadata: { licitacion_codigo: licitacionCodigo, documento: documentoNombre, categoria: categoria || null },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

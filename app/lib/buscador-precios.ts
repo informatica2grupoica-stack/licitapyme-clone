@@ -981,7 +981,7 @@ export interface PrecioItemCosteo {
 
 export async function cotizarManifiesto(
   manifiesto: LineaManifiesto[],
-  opts: { region?: string; contexto?: string; concurrencia?: number } = {},
+  opts: { region?: string; contexto?: string; concurrencia?: number; minimo?: number } = {},
 ): Promise<PrecioItemCosteo[]> {
   const items: ItemACotizar[] = manifiesto.map((it, i) => ({
     clave: String(i),
@@ -989,10 +989,14 @@ export async function cotizarManifiesto(
     conversion: it.unidad_medida || 'unidad',
   }));
 
+  // Cuántos matches por ítem devolver. Default 2 (configurable con PRECIOS_TOP_ITEM).
+  const minimo = Math.min(Math.max(opts.minimo ?? Number(process.env.PRECIOS_TOP_ITEM ?? 2), 1), 5);
+
   const cotizaciones = await cotizarItems(items, {
     region: opts.region || '',
     contexto: opts.contexto || '',
     concurrencia: opts.concurrencia ?? Number(process.env.PRECIOS_CONCURRENCIA ?? 8),
+    minimo,
   });
 
   return cotizaciones.map((c) => {

@@ -8,9 +8,11 @@ import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { MultiSelect } from '@/app/components/ui/MultiSelect';
+import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import {
   Bell, MessageSquare, Tag, UserPlus, Radar as RadarIcon, GitBranch,
-  Eye, LogIn, Star, Activity, Filter, Loader2, AlertCircle, RefreshCw,
+  Eye, LogIn, Star, Activity, Filter, Loader2, AlertCircle, RefreshCw, Users, X,
 } from 'lucide-react';
 
 interface Actividad {
@@ -54,11 +56,6 @@ function tiempoRelativo(fecha: string): string {
   if (d < 30) return `hace ${d} d`;
   return new Date(fecha).toLocaleDateString('es-CL');
 }
-function iniciales(nombre: string | null, email: string | null): string {
-  const base = nombre || email || '?';
-  return base.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
-}
-
 function HistorialContent() {
   const { usuario } = useSession();
   const isAdmin = usuario?.rol === 'admin';
@@ -68,36 +65,52 @@ function HistorialContent() {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
   const [migracion, setMigracion]   = useState(false);
-  const [filtroUsuario, setFiltroUsuario] = useState('');
-  const [filtroAccion, setFiltroAccion]   = useState('');
+  // Filtros de SELECCIÓN MÚLTIPLE (se filtra en cliente sobre todo el historial cargado).
+  const [filtroUsuario, setFiltroUsuario] = useState<string[]>([]);
+  const [filtroAccion, setFiltroAccion]   = useState<string[]>([]);
 
   const cargar = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const qs = new URLSearchParams();
-      if (filtroUsuario) qs.set('usuarioId', filtroUsuario);
-      if (filtroAccion)  qs.set('accion', filtroAccion);
-      const d = await fetch(`/api/actividad?${qs.toString()}`).then(r => r.json());
+      const d = await fetch('/api/actividad?limit=1000').then(r => r.json());
       if (!d.success) throw new Error(d.error || 'Error');
       setActividad(d.actividad || []);
       setUsuarios(d.usuarios || []);
       setMigracion(!!d.migracionPendiente);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
-  }, [filtroUsuario, filtroAccion]);
+  }, []);
 
   useEffect(() => { if (isAdmin) cargar(); }, [isAdmin, cargar]);
 
-  // Alertas recientes: asignaciones + nuevas del radar (las últimas 6)
+  // Lista filtrada en cliente por usuario(s) y acción(es).
+  const filtrada = useMemo(() => actividad.filter(a =>
+    (filtroUsuario.length === 0 || (a.usuario_id != null && filtroUsuario.includes(String(a.usuario_id)))) &&
+    (filtroAccion.length === 0 || filtroAccion.includes(a.accion)),
+  ), [actividad, filtroUsuario, filtroAccion]);
+
+  // Alertas recientes: asignaciones + nuevas del radar (las últimas 6, sobre lo filtrado)
   const recientes = useMemo(
-    () => actividad.filter(a => a.accion === 'asignacion' || a.accion === 'radar_nuevas').slice(0, 6),
-    [actividad],
+    () => filtrada.filter(a => a.accion === 'asignacion' || a.accion === 'radar_nuevas').slice(0, 6),
+    [filtrada],
   );
-  // Acciones presentes (para el filtro)
-  const accionesDisponibles = useMemo(
-    () => [...new Set(actividad.map(a => a.accion))],
-    [actividad],
-  );
+  // Acciones presentes (para el filtro), con su conteo
+  const accionesDisponibles = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of actividad) m.set(a.accion, (m.get(a.accion) || 0) + 1);
+    return [...m.entries()].map(([accion, count]) => ({ accion, count }));
+  }, [actividad]);
+  // Usuarios presentes en el historial (con conteo), para el filtro
+  const usuariosConActividad = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const a of actividad) if (a.usuario_id != null) m.set(a.usuario_id, (m.get(a.usuario_id) || 0) + 1);
+    return usuarios
+      .filter(u => m.has(u.id))
+      .map(u => ({ ...u, count: m.get(u.id) || 0 }))
+      .sort((a, b) => b.count - a.count);
+  }, [actividad, usuarios]);
+
+  const hayFiltro = filtroUsuario.length > 0 || filtroAccion.length > 0;
 
   if (usuario && !isAdmin) {
     return (
@@ -162,19 +175,36 @@ function HistorialContent() {
           </div>
         )}
 
-        {/* Filtros */}
+        {/* Filtros (selección múltiple) */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <span className="text-[12px] text-slate-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
-          <select value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-[13px] focus:ring-2 focus:ring-indigo-500 outline-none">
-            <option value="">Todos los usuarios</option>
-            {usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre || u.email}</option>)}
-          </select>
-          <select value={filtroAccion} onChange={e => setFiltroAccion(e.target.value)}
-            className="px-3 py-2 border border-slate-200 rounded-lg text-[13px] focus:ring-2 focus:ring-indigo-500 outline-none">
-            <option value="">Todas las acciones</option>
-            {accionesDisponibles.map(ac => <option key={ac} value={ac}>{metaFor(ac).label}</option>)}
-          </select>
+          <MultiSelect
+            label={filtroUsuario.length ? 'Usuarios' : 'Todos los usuarios'}
+            icon={<Users size={13} />}
+            options={usuariosConActividad.map(u => ({
+              value: String(u.id), label: u.nombre || u.email, color: colorUsuario(u.email || u.id), count: u.count,
+            }))}
+            selected={filtroUsuario}
+            onChange={setFiltroUsuario}
+          />
+          <MultiSelect
+            label={filtroAccion.length ? 'Acciones' : 'Todas las acciones'}
+            icon={<Activity size={13} />}
+            options={accionesDisponibles.map(a => ({
+              value: a.accion, label: metaFor(a.accion).label, color: metaFor(a.accion).color, count: a.count,
+            }))}
+            selected={filtroAccion}
+            onChange={setFiltroAccion}
+          />
+          {hayFiltro && (
+            <button onClick={() => { setFiltroUsuario([]); setFiltroAccion([]); }}
+              className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 px-2.5 py-2 rounded-lg transition-colors">
+              <X size={12} /> Limpiar
+            </button>
+          )}
+          <span className="ml-auto text-[12px] text-slate-400 tabular-nums">
+            {filtrada.length}{hayFiltro ? ` de ${actividad.length}` : ''} evento{filtrada.length !== 1 ? 's' : ''}
+          </span>
         </div>
 
         {/* Timeline */}
@@ -186,35 +216,36 @@ function HistorialContent() {
 
         {loading ? (
           <div className="space-y-2">{[1,2,3,4,5].map(i => <div key={i} className="h-14 bg-slate-100 rounded-xl animate-pulse" />)}</div>
-        ) : actividad.length === 0 ? (
+        ) : filtrada.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-xl border border-slate-200">
             <Activity size={32} className="text-slate-300 mx-auto mb-3" />
-            <p className="text-[14px] font-semibold text-slate-700 mb-1">Sin actividad registrada</p>
-            <p className="text-[12px] text-slate-400">Cuando los usuarios comenten, cambien líneas de negocio o se asignen licitaciones, aparecerá aquí.</p>
+            <p className="text-[14px] font-semibold text-slate-700 mb-1">{hayFiltro ? 'Sin resultados para el filtro' : 'Sin actividad registrada'}</p>
+            <p className="text-[12px] text-slate-400">{hayFiltro ? 'Prueba con otro usuario o acción.' : 'Cuando los usuarios comenten, cambien líneas de negocio o se asignen licitaciones, aparecerá aquí.'}</p>
           </div>
         ) : (
           <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-50">
-            {actividad.map(a => {
+            {filtrada.map(a => {
               const m = metaFor(a.accion);
+              const col = colorUsuario(a.usuario_email || a.usuario_id);
               const link = a.entidad_tipo === 'licitacion' && a.entidad_id
                 ? `/licitacion/${encodeURIComponent(a.entidad_id)}`
                 : a.entidad_tipo === 'negocio' && a.entidad_id
                 ? `/negocios/${a.entidad_id}`
                 : null;
               const inner = (
-                <div className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/60 transition-colors">
+                <div className="flex items-start gap-3 px-4 py-3 hover:bg-slate-50/60 transition-colors border-l-[3px]" style={{ borderLeftColor: col }}>
                   <span style={{ color: m.color, backgroundColor: m.bg }} className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5">{m.icon}</span>
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] text-slate-800">{a.descripcion || m.label}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5">
+                    <p className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
                       <span className="inline-flex items-center gap-1">
-                        <span className="w-4 h-4 rounded-full bg-gradient-to-br from-indigo-400 to-violet-400 text-white text-[8px] font-bold flex items-center justify-center">
-                          {iniciales(a.usuario_nombre, a.usuario_email)}
+                        <span className="w-4 h-4 rounded-full text-white text-[8px] font-bold flex items-center justify-center" style={{ background: col }}>
+                          {inicialesUsuario(a.usuario_nombre, a.usuario_email)}
                         </span>
-                        {a.usuario_nombre || a.usuario_email || 'Sistema'}
+                        <span className="font-semibold" style={{ color: col }}>{a.usuario_nombre || a.usuario_email || 'Sistema'}</span>
                       </span>
                       · {tiempoRelativo(a.created_at)}
-                      <span className="text-slate-300">· {m.label}</span>
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold" style={{ color: m.color, background: m.bg }}>{m.label}</span>
                     </p>
                   </div>
                 </div>

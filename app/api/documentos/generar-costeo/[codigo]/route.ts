@@ -183,6 +183,15 @@ export async function POST(request: NextRequest, { params }: Params) {
     ],
   );
 
+  // Bitácora: generó/regeneró el costeo (best-effort). Distingue con o sin precios de mercado.
+  const { registrarActividad } = await import('@/app/lib/actividad');
+  registrarActividad({
+    usuarioId: usuario.id, accion: 'costeo',
+    entidadTipo: 'licitacion', entidadId: codigoDecoded,
+    descripcion: `Generó el costeo${forzarPrecios ? ' con precios de mercado' : ''} (${totalItems} ítems)`,
+    metadata: { licitacion_codigo: codigoDecoded, con_precios: forzarPrecios, items: totalItems },
+  });
+
   return NextResponse.json({
     success: true,
     url,

@@ -14,7 +14,11 @@ export type AccionActividad =
   | 'cambio_pipeline'
   | 'asignacion'
   | 'radar_nuevas'
-  | 'favorito';
+  | 'favorito'
+  | 'viabilidad'      // corrió el análisis de viabilidad IA
+  | 'costeo'          // generó/regeneró el costeo (con o sin precios de mercado)
+  | 'documento'       // subió o borró un documento propio
+  | 'ver_documento';  // abrió/descargó un documento
 
 export interface EventoActividad {
   usuarioId: number | null;

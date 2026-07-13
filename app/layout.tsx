@@ -9,7 +9,7 @@ const inter = Inter({ variable: '--font-inter', subsets: ['latin'] });
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'ICA Licitaciones — Portal de Compras Públicas Chile',
+  title: 'LICITANK — Portal de Compras Públicas Chile',
   description:
     'Plataforma profesional para buscar, analizar y gestionar licitaciones de Mercado Público (ChileCompra). Accede en tiempo real a oportunidades de compras públicas.',
   keywords: 'licitaciones, mercado público, chilecompra, licitaciones chile, compras públicas',

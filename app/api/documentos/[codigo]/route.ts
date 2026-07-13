@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { puedeVerLicitacion } from '@/app/lib/api-auth';
 import { borrarDocumentoR2 } from '@/app/lib/r2';
+import { registrarActividad, userIdFromHeaders } from '@/app/lib/actividad';
 
 export async function GET(
   request: NextRequest,
@@ -92,6 +93,14 @@ export async function DELETE(
     try { await borrarDocumentoR2(doc.documento_url_local); }
     catch (e) { console.warn(`[documentos:DELETE] R2 ${codigoDec}:`, String(e)); }
     await pool.query(`DELETE FROM documentos_cache WHERE id = ?`, [doc.id]);
+
+    // Bitácora: borró un documento propio de esta licitación (best-effort).
+    registrarActividad({
+      usuarioId: userIdFromHeaders(request.headers), accion: 'documento',
+      entidadTipo: 'licitacion', entidadId: codigoDec,
+      descripcion: `Borró el documento "${nombre || doc.documento_url_local}"`,
+      metadata: { licitacion_codigo: codigoDec, borrado: true },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

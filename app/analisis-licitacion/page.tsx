@@ -172,6 +172,16 @@ export default function AnalisisLicitacionPage() {
       .filter(e => (porEstadoMap.get(e.id) || 0) > 0)
       .map(e => ({ id: e.id, name: e.label, value: porEstadoMap.get(e.id)!, color: e.color, pct: total ? Math.round((porEstadoMap.get(e.id)! / total) * 100) : 0 }));
 
+    // Dona "en trabajo": EXCLUYE descartadas y postuladas (no son dato crudo de gestión activa).
+    // Muestra el dato real de lo que se está trabajando. Los % se recalculan sobre ese subtotal.
+    const EXCLUIDOS_TRABAJO = new Set(['DESCARTADA', 'POSTULADA']);
+    const totalTrabajo = ESTADOS_PIPELINE
+      .filter(e => !EXCLUIDOS_TRABAJO.has(e.id))
+      .reduce((acc, e) => acc + (porEstadoMap.get(e.id) || 0), 0);
+    const porEstadoTrabajo = ESTADOS_PIPELINE
+      .filter(e => !EXCLUIDOS_TRABAJO.has(e.id) && (porEstadoMap.get(e.id) || 0) > 0)
+      .map(e => ({ id: e.id, name: e.label, value: porEstadoMap.get(e.id)!, color: e.color, pct: totalTrabajo ? Math.round((porEstadoMap.get(e.id)! / totalTrabajo) * 100) : 0 }));
+
     const porTipo = [...porTipoMap.entries()]
       .map(([tipo, value]) => ({ tipo, name: tipo, value, color: getTipoLicitacion(tipo)?.color || '#94a3b8' }))
       .sort((a, b) => b.value - a.value);
@@ -190,7 +200,7 @@ export default function AnalisisLicitacionPage() {
     return {
       total, vigentes, asignadas, enProceso, postuladas, adjudicadas, descartadas, perdidas,
       cierran7, montoOfertado, montoAdjudicado, tasaAdj,
-      porEstado, porTipo, porMes, topOrg,
+      porEstado, porEstadoTrabajo, totalTrabajo, porTipo, porMes, topOrg,
     };
   }, [visibles]);
 
@@ -309,36 +319,22 @@ export default function AnalisisLicitacionPage() {
 
             {/* Gráficos */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Dona por estado */}
-              <ChartCard title="Distribución por estado" icon={<Layers size={13} />}>
+              {/* Dona por estado — TODAS (dato completo) */}
+              <ChartCard title="Distribución por estado · todas" icon={<Layers size={13} />}>
                 {stats.porEstado.length === 0 ? <SinDatos /> : (
-                  <div className="flex items-center gap-3">
-                    <div className="relative" style={{ width: 180, height: 200 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={stats.porEstado} dataKey="value" nameKey="name" cx="50%" cy="50%"
-                            innerRadius={52} outerRadius={80} paddingAngle={2} stroke="none">
-                            {stats.porEstado.map((e) => <Cell key={e.id} fill={e.color} />)}
-                          </Pie>
-                          <RTooltip content={<ChartTooltip sufijo="licitaciones" />} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <span className="text-[26px] font-black text-slate-900 leading-none tabular-nums">{stats.total}</span>
-                        <span className="text-[10px] text-slate-400 font-semibold">licitaciones</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 space-y-1.5 min-w-0">
-                      {stats.porEstado.map(e => (
-                        <div key={e.id} className="flex items-center gap-2 text-[12px]">
-                          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: e.color }} />
-                          <span className="text-slate-600 truncate flex-1">{e.name}</span>
-                          <span className="font-bold text-slate-800 tabular-nums">{e.value}</span>
-                          <span className="text-slate-400 tabular-nums w-9 text-right">{e.pct}%</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
+                  <DonaEstados data={stats.porEstado} total={stats.total} centroLabel="licitaciones" />
+                )}
+              </ChartCard>
+
+              {/* Dona "en trabajo" — EXCLUYE descartadas y postuladas (dato real de gestión activa) */}
+              <ChartCard title="En trabajo · sin descartadas ni postuladas" icon={<Briefcase size={13} />}>
+                {stats.porEstadoTrabajo.length === 0 ? <SinDatos /> : (
+                  <>
+                    <DonaEstados data={stats.porEstadoTrabajo} total={stats.totalTrabajo} centroLabel="en trabajo" />
+                    <p className="mt-2 text-[10.5px] text-slate-400 leading-snug">
+                      No incluye <span className="font-semibold text-red-600">descartadas</span> ni <span className="font-semibold text-amber-600">postuladas</span> — solo lo que sigue en gestión.
+                    </p>
+                  </>
                 )}
               </ChartCard>
 
@@ -518,4 +514,41 @@ function MiniStat({ label, value, color }: { label: string; value: number; color
 
 function SinDatos() {
   return <div className="h-[200px] flex items-center justify-center text-[12px] text-slate-300">Sin datos</div>;
+}
+
+// Dona por estado reutilizable (leyenda con valor y %). Se usa para "todas" y "en trabajo".
+function DonaEstados({ data, total, centroLabel }: {
+  data: { id: string; name: string; value: number; color: string; pct: number }[];
+  total: number;
+  centroLabel: string;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative flex-shrink-0" style={{ width: 180, height: 200 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%"
+              innerRadius={52} outerRadius={80} paddingAngle={2} stroke="none">
+              {data.map((e) => <Cell key={e.id} fill={e.color} />)}
+            </Pie>
+            <RTooltip content={<ChartTooltip sufijo="licitaciones" />} />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <span className="text-[26px] font-black text-slate-900 leading-none tabular-nums">{total}</span>
+          <span className="text-[10px] text-slate-400 font-semibold">{centroLabel}</span>
+        </div>
+      </div>
+      <div className="flex-1 space-y-1.5 min-w-0">
+        {data.map(e => (
+          <div key={e.id} className="flex items-center gap-2 text-[12px]">
+            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: e.color }} />
+            <span className="text-slate-600 truncate flex-1">{e.name}</span>
+            <span className="font-bold text-slate-800 tabular-nums">{e.value}</span>
+            <span className="text-slate-400 tabular-nums w-9 text-right">{e.pct}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

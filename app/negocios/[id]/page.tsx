@@ -28,6 +28,7 @@ import { CriteriosSection } from '@/app/licitacion/[codigo]/sections/CriteriosSe
 import { esUrlAnalizable } from '@/app/licitacion/[codigo]/utils';
 import { Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
+import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
   MessageSquare, Send, Trash2, Loader2, AlertCircle, ExternalLink,
@@ -37,7 +38,7 @@ import {
   Sparkles, BarChart3, BookOpen, AlertTriangle, ListChecks,
   TrendingUp, CheckCircle, Upload, ChevronRight, Files,
   ShieldAlert, DollarSign as DollarSignIcon, Award, Wrench,
-  PlayCircle, Ban, ShoppingCart,
+  PlayCircle, Ban, ShoppingCart, UserPlus, History,
 } from 'lucide-react';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -241,6 +242,83 @@ const TIPO_COLORS: Record<string, string> = {
   LE: '#EF4444', LP: '#3B82F6', LQ: '#A855F7',
   CO: '#10B981', L1: '#F97316', SU: '#14B8A6',
 };
+
+// ── Mini-historial de la licitación (de la tabla actividad_usuario) ────────────
+interface EventoLic {
+  id: number; tipo: string; mensaje: string | null;
+  actor_id: number | null; actor_nombre: string | null; actor_email: string | null;
+  created_at: string;
+}
+// Etiqueta + color por acción (valores de actividad_usuario, en minúscula).
+const EVENTO_META: Record<string, { label: string; color: string }> = {
+  asignacion:            { label: 'Asignación',        color: '#059669' },
+  cambio_pipeline:       { label: 'Cambio de estado',  color: '#0891b2' },
+  cambio_etiqueta:       { label: 'Líneas de negocio', color: '#7c3aed' },
+  comentario_negocio:    { label: 'Comentario',        color: '#2563eb' },
+  comentario_licitacion: { label: 'Comentario',        color: '#2563eb' },
+  ver_licitacion:        { label: 'Vio la licitación', color: '#64748b' },
+  ver_documento:         { label: 'Vio documento',     color: '#64748b' },
+  favorito:              { label: 'Favorito',          color: '#ca8a04' },
+  viabilidad:            { label: 'Viabilidad IA',     color: '#d97706' },
+  costeo:                { label: 'Costeo',             color: '#0d9488' },
+  documento:             { label: 'Documento',         color: '#0d9488' },
+};
+function eventoMeta(tipo: string) {
+  return EVENTO_META[tipo] || { label: (tipo || 'Evento').replace(/_/g, ' '), color: '#64748b' };
+}
+function tiempoRel(fecha: string): string {
+  const diff = Date.now() - new Date(fecha).getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return 'ahora';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `hace ${d} d`;
+  return new Date(fecha).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
+}
+
+// Timeline vertical del historial de la licitación. Color por PERFIL que ejecutó la acción.
+// Nadie puede borrar eventos (no hay acción de borrado); es una bitácora de auditoría.
+function HistorialLicitacion({ eventos }: { eventos: EventoLic[] }) {
+  if (eventos.length === 0) {
+    return <p className="text-[11px] text-zinc-400">Aún no hay actividad registrada.</p>;
+  }
+  // Más reciente arriba.
+  const orden = [...eventos].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return (
+    <div className="space-y-0">
+      {orden.map((e, i) => {
+        const m = eventoMeta(e.tipo);
+        const quien = e.actor_nombre || e.actor_email || 'Sistema';
+        const col = colorUsuario(e.actor_email ?? e.actor_id ?? quien);
+        const ultimo = i === orden.length - 1;
+        return (
+          <div key={e.id} className="flex gap-2.5">
+            {/* Rail con punto de color por acción + línea */}
+            <div className="flex flex-col items-center flex-shrink-0">
+              <span className="w-2.5 h-2.5 rounded-full mt-1.5" style={{ background: m.color }} />
+              {!ultimo && <span className="w-px flex-1 bg-zinc-200 my-0.5" />}
+            </div>
+            <div className="pb-3 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: m.color, background: m.color + '18' }}>{m.label}</span>
+                <span className="text-[10px] text-zinc-400">{tiempoRel(e.created_at)}</span>
+              </div>
+              <p className="text-[11.5px] text-zinc-600 mt-0.5 leading-snug">{e.mensaje || m.label}</p>
+              <span className="inline-flex items-center gap-1 mt-1 text-[10.5px] font-semibold" style={{ color: col }}>
+                <span className="w-3.5 h-3.5 rounded-full text-white text-[7px] font-bold flex items-center justify-center" style={{ background: col }}>
+                  {inicialesUsuario(quien, null)}
+                </span>
+                {quien}
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function getTipo(codigo: string): string | null {
   const m = codigo.match(/-([A-Z]{1,2})\d+$/i);
@@ -1123,6 +1201,9 @@ function DetalleContent() {
   }, [descarteOpen, postularOpen]);
   // Reasignación (admin): lista de usuarios para cambiar el responsable.
   const [usuariosLista, setUsuariosLista] = useState<{ id: number; nombre: string | null; email: string }[]>([]);
+  const [mostrarReasignar, setMostrarReasignar] = useState(false);
+  // Mini-historial de la licitación (acciones de cualquier perfil sobre ella).
+  const [historial, setHistorial] = useState<EventoLic[]>([]);
 
   // Documentos
   const [documentos, setDocumentos]           = useState<DocumentoLocal[]>([]);
@@ -1202,6 +1283,18 @@ function DetalleContent() {
   useEffect(() => {
     if (negocio?.licitacion_codigo) fetchDocumentos(negocio.licitacion_codigo);
   }, [negocio?.licitacion_codigo]); // eslint-disable-line
+
+  // Mini-historial: acciones sobre esta licitación (de cualquier perfil), orden cronológico.
+  const fetchHistorial = useCallback(async () => {
+    const cod = negocio?.licitacion_codigo;
+    if (!cod) return;
+    try {
+      const r = await fetch(`/api/historial?codigo=${encodeURIComponent(cod)}&limit=100`);
+      const d = await r.json();
+      if (d.success) setHistorial(d.eventos || []);
+    } catch { /* silencioso */ }
+  }, [negocio?.licitacion_codigo]);
+  useEffect(() => { fetchHistorial(); }, [fetchHistorial]);
 
   // Cargar análisis IA cacheado
   const fetchAnalisisIA = useCallback(async (codigo?: string) => {
@@ -1316,6 +1409,7 @@ function DetalleContent() {
       if (!res.ok) throw new Error(data.error || 'Error');
       const estadoInfo = estadoId ? getEstadoPipeline(estadoId) : null;
       toast.success(estadoInfo ? `Etapa: ${estadoInfo.label}` : 'Etapa removida');
+      fetchHistorial();
     } catch (e: any) {
       setNegocio(prev => prev ? { ...prev, estado_pipeline: estadoAnterior } : prev);
       toast.error('Error al actualizar etapa', e?.message);
@@ -1400,6 +1494,7 @@ function DetalleContent() {
       const u = usuariosLista.find(x => x.id === nuevoId);
       setNegocio(prev => prev ? { ...prev, asignado_a: nuevoId, usuario_nombre: u?.nombre || '', usuario_email: u?.email || '' } : prev);
       toast.success('Licitación reasignada', u ? `Ahora es de ${u.nombre || u.email}` : undefined);
+      fetchHistorial();
     } catch (e: any) {
       toast.error('No se pudo reasignar', e?.message);
     }
@@ -1711,16 +1806,32 @@ function DetalleContent() {
                 <p className="text-[11px] text-zinc-400 truncate">{negocio.usuario_email}</p>
               </div>
             </div>
-            {/* Reasignar a otro usuario (solo admin). */}
+            {/* Reasignar a otro usuario (solo admin): botón claro que abre el selector. */}
             {isAdmin && usuariosLista.length > 0 && (
-              <select
-                value={negocio.asignado_a}
-                onChange={e => reasignar(Number(e.target.value))}
-                title="Reasignar a otro usuario"
-                className="mt-2 w-full text-[12px] border border-zinc-200 rounded-lg px-2 py-1.5 bg-white text-zinc-700 focus:ring-1 focus:ring-indigo-500 outline-none"
-              >
-                {usuariosLista.map(u => <option key={u.id} value={u.id}>{u.nombre || u.email}</option>)}
-              </select>
+              <div className="mt-2">
+                {!mostrarReasignar ? (
+                  <button
+                    onClick={() => setMostrarReasignar(true)}
+                    className="w-full inline-flex items-center justify-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg py-1.5 transition-colors"
+                  >
+                    <UserPlus size={13} /> Reasignar responsable
+                  </button>
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] font-semibold text-zinc-400">Mover a otro perfil (conserva historial y estado):</p>
+                    <select
+                      autoFocus
+                      value={negocio.asignado_a}
+                      onChange={e => { reasignar(Number(e.target.value)); setMostrarReasignar(false); }}
+                      className="w-full text-[12px] border border-indigo-200 rounded-lg px-2 py-1.5 bg-white text-zinc-700 focus:ring-1 focus:ring-indigo-500 outline-none"
+                    >
+                      {usuariosLista.map(u => <option key={u.id} value={u.id}>{u.nombre || u.email}</option>)}
+                    </select>
+                    <button onClick={() => setMostrarReasignar(false)}
+                      className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 
@@ -1764,6 +1875,15 @@ function DetalleContent() {
               </span>
             </div>
           )}
+
+          {/* Mini-historial de la licitación — bitácora de acciones de cualquier perfil.
+              Nadie puede borrarla (auditoría); color por perfil que ejecutó la acción. */}
+          <div>
+            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <History size={11} /> Historial
+            </p>
+            <HistorialLicitacion eventos={historial} />
+          </div>
 
           <div className="mt-auto pt-4 border-t border-zinc-100 space-y-2">
             <a

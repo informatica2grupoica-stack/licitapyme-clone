@@ -13,11 +13,41 @@ export async function GET(request: NextRequest) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
-  const scope = new URL(request.url).searchParams.get('scope');
-  const limit = Math.min(parseInt(new URL(request.url).searchParams.get('limit') || '20', 10) || 20, 100);
+  const sp = new URL(request.url).searchParams;
+  const scope = sp.get('scope');
+  const codigo = sp.get('codigo');
+  const limit = Math.min(parseInt(sp.get('limit') || '20', 10) || 20, 100);
 
   try {
     let eventos: any[] = [];
+    if (codigo) {
+      // Mini-historial POR LICITACIÓN: bitácora de lo que hace CADA perfil sobre esta
+      // licitación (asignar, cambiar líneas/estado, comentar, ver, viabilidad, costeo,
+      // documentos…). Se lee de actividad_usuario (registra también las acciones propias
+      // del asignado, no solo las notificaciones entre usuarios). Orden cronológico.
+      // Requiere poder ver la licitación (externo → solo asignadas). Nadie puede borrar.
+      const { puedeVerLicitacion } = await import('@/app/lib/api-auth');
+      if (!(await puedeVerLicitacion(request, codigo))) {
+        return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+      }
+      try {
+        const [rows] = await pool.query(
+          `SELECT a.id, a.accion AS tipo, a.descripcion AS mensaje,
+                  a.usuario_id AS actor_id, u.nombre AS actor_nombre, u.email AS actor_email,
+                  a.created_at
+           FROM actividad_usuario a
+           LEFT JOIN usuarios u ON u.id = a.usuario_id
+           WHERE (a.entidad_tipo = 'licitacion' AND a.entidad_id = ?)
+              OR a.metadata LIKE CONCAT('%"licitacion_codigo":"', ?, '"%')
+           ORDER BY a.created_at ASC
+           LIMIT ?`,
+          [codigo, codigo, Math.min(limit, 200)]);
+        return NextResponse.json({ success: true, eventos: rows, noLeidas: 0 });
+      } catch {
+        // Tabla ausente (migración 18 pendiente) → sin historial, sin romper la UI.
+        return NextResponse.json({ success: true, eventos: [], noLeidas: 0 });
+      }
+    }
     if (scope === 'todos' && usuario.rol === 'admin') {
       // Auditoría completa (para la página de Historial del admin).
       const [rows] = await pool.query(

@@ -4,10 +4,11 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Building2, Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, LogIn,
+  Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, LogIn,
   Shield, TrendingUp, Zap, CheckCircle,
 } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
+import { LicitankIcon } from '@/app/components/LicitankLogo';
 
 const FEATURES = [
   { icon: <TrendingUp size={16} />, text: 'Busca licitaciones en tiempo real' },
@@ -64,10 +65,10 @@ function LoginContent() {
         {/* Logo */}
         <div className="relative z-10">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm border border-white/10">
-              <Building2 size={20} className="text-white" />
+            <div className="w-11 h-11 bg-white rounded-xl flex items-center justify-center shadow-lg">
+              <LicitankIcon size={30} />
             </div>
-            <span className="text-white text-[17px] font-bold tracking-tight">ICA Licitaciones</span>
+            <span className="text-white text-[19px] font-black tracking-tight">LICITANK</span>
           </div>
           <p className="text-indigo-300 text-sm ml-[52px]">Portal de Compras Públicas Chile</p>
         </div>
@@ -98,7 +99,7 @@ function LoginContent() {
 
         {/* Footer */}
         <p className="relative z-10 text-indigo-400 text-xs">
-          © 2026 ICA Licitaciones · Datos de Mercado Público Chile
+          © 2026 LICITANK · Datos de Mercado Público Chile
         </p>
       </div>
 
@@ -107,10 +108,8 @@ function LoginContent() {
         <div className="w-full max-w-sm">
           {/* Mobile logo */}
           <div className="lg:hidden text-center mb-8">
-            <div className="inline-flex items-center justify-center w-12 h-12 bg-indigo-600 rounded-2xl shadow-lg mb-3">
-              <Building2 size={22} className="text-white" />
-            </div>
-            <h1 className="text-xl font-bold text-slate-900">ICA Licitaciones</h1>
+            <div className="inline-flex items-center justify-center mb-3"><LicitankIcon size={48} /></div>
+            <h1 className="text-xl font-black tracking-tight text-slate-900">LICITANK</h1>
           </div>
 
           <div className="mb-8">

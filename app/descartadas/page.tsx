@@ -6,10 +6,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Ban, Loader2, ExternalLink, Building2, Calendar, User, RefreshCw, RotateCcw, BarChart3, X } from 'lucide-react';
+import { Ban, Loader2, ExternalLink, Building2, Calendar, User, RefreshCw, RotateCcw, BarChart3, X, Filter, Users, Tag } from 'lucide-react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
+import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 
 // El motivo se persiste como "<motivo del catálogo> — <comentario libre>". Para el KPI
@@ -58,9 +59,12 @@ export default function DescartadasPage() {
   // Usuario elegido para reasignar al reactivar (por negocio) + fila en proceso.
   const [reasignarSel, setReasignarSel] = useState<Record<number, number>>({});
   const [procesando, setProcesando] = useState<number | null>(null);
-  // Filtros del KPI: por usuario asignado y por motivo base.
-  const [filtroUsuario, setFiltroUsuario] = useState<number | null>(null);
-  const [filtroMotivo, setFiltroMotivo] = useState<string | null>(null);
+  // Filtros de SELECCIÓN MÚLTIPLE: por usuario asignado, por motivo base y por tipo.
+  const [filtroUsuario, setFiltroUsuario] = useState<string[]>([]);
+  const [filtroMotivo, setFiltroMotivo] = useState<string[]>([]);
+  const [filtroTipo, setFiltroTipo] = useState<string[]>([]);
+  const hayFiltro = filtroUsuario.length > 0 || filtroMotivo.length > 0 || filtroTipo.length > 0;
+  const limpiarFiltros = () => { setFiltroUsuario([]); setFiltroMotivo([]); setFiltroTipo([]); };
 
   const esAdmin = usuario?.rol === 'admin';
 
@@ -83,11 +87,19 @@ export default function DescartadasPage() {
     return { usuarios, motivos, max: usuarios[0]?.total || 1 };
   }, [items]);
 
-  // Lista filtrada por los chips del KPI.
+  // Tipos presentes (para el filtro).
+  const tiposPresentes = useMemo(() => {
+    const s = new Set<string>();
+    for (const d of items) if (d.licitacion_tipo) s.add(d.licitacion_tipo);
+    return [...s].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [items]);
+
+  // Lista filtrada (selección múltiple: si un filtro está vacío no restringe).
   const itemsFiltrados = useMemo(() => items.filter(d =>
-    (filtroUsuario == null || d.asignado_a === filtroUsuario) &&
-    (filtroMotivo == null || motivoBase(d.descarte_motivo) === filtroMotivo),
-  ), [items, filtroUsuario, filtroMotivo]);
+    (filtroUsuario.length === 0 || filtroUsuario.includes(String(d.asignado_a))) &&
+    (filtroMotivo.length === 0 || filtroMotivo.includes(motivoBase(d.descarte_motivo))) &&
+    (filtroTipo.length === 0 || (!!d.licitacion_tipo && filtroTipo.includes(d.licitacion_tipo))),
+  ), [items, filtroUsuario, filtroMotivo, filtroTipo]);
 
   useEffect(() => {
     if (!cargandoSesion && usuario && !esAdmin) router.replace('/negocios');
@@ -156,14 +168,53 @@ export default function DescartadasPage() {
 
         {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
+        {/* ── Barra de filtros (selección múltiple) ── */}
+        {!cargando && items.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[12px] text-slate-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
+            <MultiSelect
+              label={filtroUsuario.length ? 'Perfiles' : 'Todos los perfiles'}
+              icon={<Users size={13} />}
+              options={kpi.usuarios.map(u => ({ value: String(u.id), label: u.nombre, color: colorUsuario(u.email || u.id), count: u.total }))}
+              selected={filtroUsuario}
+              onChange={setFiltroUsuario}
+            />
+            <MultiSelect
+              label={filtroMotivo.length ? 'Motivos' : 'Todos los motivos'}
+              icon={<Ban size={13} />}
+              options={kpi.motivos.map(m => ({ value: m.motivo, label: m.motivo, count: m.total }))}
+              selected={filtroMotivo}
+              onChange={setFiltroMotivo}
+            />
+            {tiposPresentes.length > 0 && (
+              <MultiSelect
+                label={filtroTipo.length ? 'Tipos' : 'Todos los tipos'}
+                icon={<Tag size={13} />}
+                options={tiposPresentes.map(t => ({ value: t, label: t }))}
+                selected={filtroTipo}
+                onChange={setFiltroTipo}
+              />
+            )}
+            {hayFiltro && (
+              <button onClick={limpiarFiltros}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 px-2.5 py-2 rounded-lg transition-colors">
+                <X size={12} /> Limpiar
+              </button>
+            )}
+            <span className="ml-auto text-[12px] text-slate-400 tabular-nums">
+              {itemsFiltrados.length}{hayFiltro ? ` de ${items.length}` : ''} descartada{itemsFiltrados.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+        )}
+
         {/* ── KPI de descartadas: por usuario (cantidad) + motivos, con colores consistentes ── */}
         {!cargando && items.length > 0 && (
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
             <div className="flex items-center gap-2 mb-3">
               <BarChart3 size={15} className="text-slate-500" />
               <h2 className="text-[13px] font-bold text-slate-800">Descartadas por usuario</h2>
-              {(filtroUsuario != null || filtroMotivo != null) && (
-                <button onClick={() => { setFiltroUsuario(null); setFiltroMotivo(null); }}
+              {hayFiltro && (
+                <button onClick={limpiarFiltros}
                   className="ml-auto inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded-lg transition-colors">
                   <X size={12} /> Limpiar filtros
                 </button>
@@ -173,10 +224,10 @@ export default function DescartadasPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2.5">
               {kpi.usuarios.map(u => {
                 const col = colorUsuario(u.email || u.id);
-                const activo = filtroUsuario === u.id;
+                const activo = filtroUsuario.includes(String(u.id));
                 return (
                   <button key={u.id}
-                    onClick={() => setFiltroUsuario(activo ? null : u.id)}
+                    onClick={() => setFiltroUsuario(activo ? filtroUsuario.filter(x => x !== String(u.id)) : [...filtroUsuario, String(u.id)])}
                     className={`text-left rounded-lg px-2 py-1.5 transition-colors ${activo ? 'bg-slate-100 ring-1 ring-slate-300' : 'hover:bg-slate-50'}`}>
                     <div className="flex items-center gap-2">
                       <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0" style={{ background: col }}>
@@ -198,10 +249,10 @@ export default function DescartadasPage() {
               <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Motivos</p>
               <div className="flex flex-wrap gap-1.5">
                 {kpi.motivos.map(m => {
-                  const activo = filtroMotivo === m.motivo;
+                  const activo = filtroMotivo.includes(m.motivo);
                   return (
                     <button key={m.motivo}
-                      onClick={() => setFiltroMotivo(activo ? null : m.motivo)}
+                      onClick={() => setFiltroMotivo(activo ? filtroMotivo.filter(x => x !== m.motivo) : [...filtroMotivo, m.motivo])}
                       className={`inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1 rounded-full border transition-colors ${activo ? 'bg-red-600 border-red-600 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-red-300 hover:bg-red-50'}`}>
                       {m.motivo}
                       <span className={`text-[10.5px] font-bold tabular-nums ${activo ? 'text-white' : 'text-red-600'}`}>{m.total}</span>
@@ -228,7 +279,7 @@ export default function DescartadasPage() {
           <div className="space-y-2.5">
             <p className="text-xs text-slate-400 font-medium">
               {itemsFiltrados.length} descartada{itemsFiltrados.length !== 1 ? 's' : ''}
-              {(filtroUsuario != null || filtroMotivo != null) && ` de ${items.length}`}
+              {hayFiltro && ` de ${items.length}`}
             </p>
             {itemsFiltrados.length === 0 && (
               <p className="text-sm text-slate-500 py-6 text-center">Ninguna descartada coincide con el filtro.</p>

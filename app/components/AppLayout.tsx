@@ -8,7 +8,7 @@ import {
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
 } from 'lucide-react';
-import { IcaLogoIcon } from '@/app/components/IcaLogo';
+import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
@@ -181,9 +181,9 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
             <span className="text-slate-300 font-semibold text-[13px]">Mis licitaciones</span>
           ) : (
             <Link href="/dashboard" onClick={onCloseMobile} className="flex items-center gap-2.5 group">
-              <div className="group-hover:scale-105 transition-transform"><IcaLogoIcon size={36} /></div>
+              <div className="group-hover:scale-105 transition-transform"><LicitankIcon size={36} /></div>
               <div className="flex flex-col leading-none">
-                <span className="text-white font-bold text-[14px] tracking-tight">ICA</span>
+                <span className="text-white font-black text-[15px] tracking-tight">LICITANK</span>
                 <span className="text-slate-500 text-[9.5px] font-semibold tracking-[0.14em] uppercase mt-0.5">Licitaciones</span>
               </div>
             </Link>
