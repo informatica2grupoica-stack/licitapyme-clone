@@ -69,6 +69,7 @@ interface LineaAdjudicada {
 interface Adjudicacion {
   esAdjudicada: boolean;
   estado?: string | null;
+  codigoEstado?: number | null;
   fechaAdjudicacion?: string | null;
   ganamos?: boolean;
   montoNuestro?: number | null;
@@ -577,6 +578,8 @@ export default function PostuladasPage() {
   const [perfilSel, setPerfilSel] = useState<string>('');
   const [empresaSel, setEmpresaSel] = useState<string>('');
   const [resultadoSel, setResultadoSel] = useState<Resultado | ''>('');
+  // Filtro por estado de MP (Publicada/Cerrada/Adjudicada/Revocada/Desierta…) + "Aperturadas".
+  const [estadoMpSel, setEstadoMpSel] = useState<string>('');
 
   // Estado de cada postulada (adjudicación + apertura). Se resuelve TODO en el servidor en
   // una sola llamada (/api/postuladas/estado) → los totales aparecen juntos, sin animación
@@ -626,6 +629,26 @@ export default function PostuladasPage() {
     return () => { cancelado = true; };
   }, [negocios.length]);
 
+  // Refresco de APERTURAS en segundo plano (rasca el portal de MP, IP chilena) DESPUÉS de pintar
+  // → no bloquea la carga instantánea, pero igual detecta las aperturadas aunque el cron aún no
+  // haya corrido. Fusiona el resultado en cada tarjeta (chip Aperturada) sin recargar la página.
+  useEffect(() => {
+    if (!estadoCargado || negocios.length === 0) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/postuladas/aperturas');
+        const d = await r.json();
+        if (cancelado || !d?.aperturas) return;
+        setNegocios(prev => prev.map(n => ({
+          ...n,
+          aperturada: (n.aperturada || d.aperturas[n.licitacion_codigo]) ? 1 : 0,
+        })));
+      } catch { /* portal no accesible (fuera de Chile) → se queda con lo de la tabla */ }
+    })();
+    return () => { cancelado = true; };
+  }, [estadoCargado, negocios.length]);
+
   // Perfiles presentes (filtro admin).
   const perfiles = useMemo(() => {
     const m = new Map<string, { email: string; nombre: string; total: number }>();
@@ -662,6 +685,30 @@ export default function PostuladasPage() {
     [adjMap],
   );
 
+  // Estado de MP por postulada (texto tal cual lo entrega la API vía cache). Fallback si aún
+  // no hay dato en cache: usa el estado guardado en la licitación.
+  const estadoMpDe = useCallback(
+    (n: Negocio): string => adjMap[n.licitacion_codigo]?.estado || n.licitacion_estado || 'Sin dato',
+    [adjMap],
+  );
+
+  const APERTURADAS = '__APERTURADAS__';
+
+  // Lista de estados MP presentes (con conteo) + entrada especial "Aperturadas".
+  const estadosMp = useMemo(() => {
+    const m = new Map<string, number>();
+    let aperturadas = 0;
+    for (const n of base) {
+      m.set(estadoMpDe(n), (m.get(estadoMpDe(n)) || 0) + 1);
+      if (n.aperturada) aperturadas++;
+    }
+    const lista = Array.from(m.entries())
+      .map(([estado, total]) => ({ id: estado, label: estado, total }))
+      .sort((a, b) => b.total - a.total);
+    if (aperturadas > 0) lista.unshift({ id: APERTURADAS, label: 'Aperturadas', total: aperturadas });
+    return lista;
+  }, [base, estadoMpDe]);
+
   // Conteo por resultado (sobre la base filtrada por perfil/empresa).
   const conteo = useMemo(() => {
     const c = { ganada: 0, perdida: 0, evaluacion: 0 };
@@ -672,12 +719,14 @@ export default function PostuladasPage() {
   const visibles = useMemo(() => {
     return base
       .filter(n => !resultadoSel || resultadoDeNegocio(n) === resultadoSel)
+      .filter(n => !estadoMpSel
+        || (estadoMpSel === APERTURADAS ? !!n.aperturada : estadoMpDe(n) === estadoMpSel))
       .sort((a, b) => {
         const da = ORDEN[resultadoDeNegocio(a)] - ORDEN[resultadoDeNegocio(b)];
         if (da !== 0) return da;
         return dayjs(b.licitacion_cierre || 0).valueOf() - dayjs(a.licitacion_cierre || 0).valueOf();
       });
-  }, [base, resultadoSel, resultadoDeNegocio]);
+  }, [base, resultadoSel, resultadoDeNegocio, estadoMpSel, estadoMpDe]);
 
   // KPIs.
   const stats = useMemo(() => {
@@ -823,6 +872,36 @@ export default function PostuladasPage() {
                     activo ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
                   }`}>
                   {e.nombre} <span className="opacity-70">({e.total})</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Filtro por estado de Mercado Público (+ Aperturadas) */}
+        {!cargando && !error && estadosMp.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5 mb-5">
+            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mr-1 inline-flex items-center gap-1">
+              <FileText size={12} /> Estado
+            </span>
+            <button onClick={() => setEstadoMpSel('')}
+              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                estadoMpSel === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+              }`}>
+              Todos
+            </button>
+            {estadosMp.map(e => {
+              const activo = estadoMpSel === e.id;
+              const esAp = e.id === APERTURADAS;
+              return (
+                <button key={e.id} onClick={() => setEstadoMpSel(activo ? '' : e.id)}
+                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
+                    activo
+                      ? (esAp ? 'bg-sky-600 text-white border-sky-600' : 'bg-indigo-600 text-white border-indigo-600')
+                      : (esAp ? 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50')
+                  }`}>
+                  {esAp && <DoorOpen size={12} />}
+                  {e.label} <span className="opacity-70">({e.total})</span>
                 </button>
               );
             })}

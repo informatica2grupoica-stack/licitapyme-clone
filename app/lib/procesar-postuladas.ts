@@ -37,15 +37,24 @@ function fmtCLP(n: number | null | undefined): string {
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 }
 
-export async function procesarPostuladas(): Promise<{
+export async function procesarPostuladas(
+  opts: { promover?: boolean; soloCerradas?: boolean } = {},
+): Promise<{
   codigos: number; adjudicadas: number; perdidas: number; errores: number;
 }> {
+  // promover: si mueve la postulada a ADJUDICADA/PERDIDA (saca de Postuladas). El usuario pidió
+  //   que las adjudicadas SE QUEDEN en Postuladas → el cron de 2h llama con promover:false y solo
+  //   refresca el cache (estado + adjudicación) para KPIs/filtros instantáneos.
+  // soloCerradas: si limita a las que ya cerraron. false = también refresca las Publicadas
+  //   (abiertas), para que el filtro por estado en Postuladas tenga el estado real al día.
+  const promover     = opts.promover     ?? true;
+  const soloCerradas = opts.soloCerradas ?? true;
   const stats = { codigos: 0, adjudicadas: 0, perdidas: 0, errores: 0 };
   const inicio = Date.now();
 
   let filas: FilaPostulada[] = [];
   try {
-    // Postuladas activas cuyo cierre YA pasó (la adjudicación solo ocurre tras el cierre).
+    // Postuladas activas (opcionalmente solo las que ya cerraron: la adjudicación solo ocurre tras el cierre).
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a,
               u.nombre AS usuario_nombre
@@ -53,8 +62,7 @@ export async function procesarPostuladas(): Promise<{
        JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
        WHERE n.activo = TRUE
          AND n.estado_pipeline = 'POSTULADA'
-         AND n.licitacion_cierre IS NOT NULL
-         AND n.licitacion_cierre < NOW()
+         ${soloCerradas ? 'AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < NOW()' : ''}
        ORDER BY n.licitacion_codigo`,
     ) as any[];
     filas = rows as FilaPostulada[];
@@ -85,10 +93,11 @@ export async function procesarPostuladas(): Promise<{
       if (!lic) return;
 
       const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
-      // Refrescar el cache que lee el apartado Postuladas (best-effort).
+      // Refrescar el cache que lee el apartado Postuladas (best-effort). Esto es lo ÚNICO que
+      // hace el cron de 2h (promover:false) → las adjudicadas se quedan en Postuladas.
       await guardarCache(codigo, adj);
 
-      if (adj.esAdjudicada) {
+      if (adj.esAdjudicada && promover) {
         // ── RESULTADO: promover cada negocio del código ──
         const nuevoEstado = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
         for (const n of negocios) {

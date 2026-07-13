@@ -552,13 +552,13 @@ export async function GET(request: NextRequest) {
       console.error('[Cron] aviso cierres próximos falló (no crítico):', String(e));
     }
 
-    // ── Paso 8: Resultado de POSTULADAS (auto-promoción por adjudicación) ──────
-    // Recorre las postuladas ya cerradas: si MP publicó resultado, las promueve a
-    // ADJUDICADA/PERDIDA (con aviso al perfil) — así /adjudicadas y Análisis quedan con
-    // datos REALES. Usa la API oficial (sirve desde cualquier IP). La APERTURA es aparte
-    // (portal, IP chilena) en /api/cron/aperturas. Best-effort: nunca rompe el cron.
+    // ── Paso 8: Resultado de POSTULADAS (solo REFRESCO del cache, sin promover) ──────
+    // Recorre las postuladas ya cerradas y refresca adjudicacion_cache con el resultado de MP
+    // (API oficial, cualquier IP). NO promueve: por decisión del usuario las adjudicadas SE
+    // QUEDAN en Postuladas (con filtros por estado). La APERTURA es aparte (portal, IP chilena)
+    // en /api/cron/aperturas. Best-effort: nunca rompe el cron.
     try {
-      const pp = await procesarPostuladas();
+      const pp = await procesarPostuladas({ promover: false });
       stats.postAdjudicadas = pp.adjudicadas;
       stats.postPerdidas    = pp.perdidas;
       if (pp.adjudicadas || pp.perdidas)

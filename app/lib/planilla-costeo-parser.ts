@@ -87,10 +87,10 @@ interface ColMap { num: number; desc: number; unidad: number; cant: number }
 function detectarHeader(celdas: string[]): ColMap | null {
   const n = celdas.map(normalizar);
   const buscar = (claves: string[]) => n.findIndex(h => h && claves.some(k => h.includes(k)));
-  const desc = buscar(['detalle', 'descrip', 'producto', 'material', 'articulo', 'glosa', 'insumo', 'item a', 'nombre']);
+  const desc = buscar(['detalle', 'descrip', 'producto', 'material', 'articulo', 'glosa', 'insumo', 'item a', 'nombre', 'elemento']);
   const cant = buscar(['cantidad', 'cant', 'cdad']);
   if (desc < 0 || cant < 0) return null;
-  const num = n.findIndex(h => /^(item|itemn|n|no|numero)\.?$/.test(h) || h === 'n°' || h === 'nº');
+  const num = n.findIndex(h => /^(item|itemn|n|no|numero|linea|nro)\.?$/.test(h) || h === 'n°' || h === 'nº');
   const unidad = buscar(['unidad', 'medida']);
   return { num, desc, unidad, cant };
 }
@@ -447,6 +447,72 @@ function parsearCatalogoValorUnitario(doc: DocTexto): PlanillaParseResult | null
   return { estructura: 'plana', lineas: [1], categorias: [], items, numeracion: 'continua', fuenteDoc: doc.nombre };
 }
 
+// PARSER DE TABLAS HTML — formato que emite GLM-OCR para documentos ESCANEADOS:
+// "<table border=1><tr><td>1.</td><td>ELEMENTO</td><td>22</td><td></td></tr>…</table>". Todas las
+// filas vienen en UNA sola línea, así que el parser tabular por saltos de línea no las ve. Aquí
+// desarmamos <tr>/<td> y aplicamos la misma lógica de encabezado. Clave: la planilla suele PARTIRSE
+// en varios <table> tras cada salto de página SIN repetir el encabezado (empiezan directo en "10.",
+// "28."…) → arrastramos el layout de columnas (col) entre tablas. Las tablas de PUNTAJES (que van
+// antes, sin columna de cantidad) no fijan col → sus filas se ignoran. Numeración 1..N ⇒ suma alzada.
+function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
+  const t = doc.texto;
+  if (!/<tr[\s>]/i.test(t)) return null;
+
+  const filas: string[][] = [];
+  for (const trm of t.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const celdas = [...trm[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+      .map(c => limpiarCelda(c[1].replace(/<[^>]+>/g, ' ')));
+    if (celdas.length >= 2) filas.push(celdas);
+  }
+  if (filas.length < 8) return null;
+
+  let col: ColMap | null = null;
+  let vistoHeader = false;
+  const porNumero = new Map<number, ItemPlanilla>();
+  const items: ItemPlanilla[] = [];
+
+  for (const celdas of filas) {
+    if (esHeaderEspecificaciones(celdas)) { col = null; continue; }
+    const h = detectarHeader(celdas);
+    if (h) { col = h; vistoHeader = true; continue; }
+    if (!col) continue; // fuera de una tabla de cotización (p.ej. tablas de puntajes de evaluación)
+
+    const desc = limpiarCelda(celdas[col.desc] || '');
+    if (desc.length < 2 || !/[a-záéíóúñ]/i.test(desc)) continue;
+    if (PALABRAS_NO_ITEM.test(desc)) continue;
+
+    const numRaw = col.num >= 0 ? limpiarCelda(celdas[col.num] || '').replace(/\.$/, '') : '';
+    const numero = /^\d{1,3}$/.test(numRaw) ? parseInt(numRaw, 10) : null;
+
+    // Cantidad = número inicial de la celda CANT; lo que sigue (si hay) es la UNIDAD pegada por el
+    // OCR ("25 MTS", "01 ROLLO", "04 Tineta").
+    const cantRaw = col.cant >= 0 ? limpiarCelda(celdas[col.cant] || '') : '';
+    const mCant = cantRaw.match(/^(\d{1,5})\s*(.*)$/);
+    const cantidad = mCant ? parseInt(mCant[1], 10) : null;
+    let unidad = col.unidad >= 0 ? limpiarCelda(celdas[col.unidad] || '') : '';
+    if (!unidad && mCant && mCant[2]) unidad = mCant[2].trim();
+
+    // Sin correlativo NI cantidad = fila de nota/observación arrastrada ("DEBERÁ MENCIONAR EL
+    // TIEMPO DE ENTREGA…"), no un ítem a cotizar.
+    if (numero == null && cantidad == null) continue;
+
+    const item: ItemPlanilla = { linea: 1, categoria: null, numero, descripcion: desc, unidad, cantidad };
+    // Dedupe por correlativo (la tabla suele venir repetida: resumen + anexo económico).
+    if (numero != null) {
+      if (!porNumero.has(numero)) { porNumero.set(numero, item); items.push(item); }
+    } else {
+      items.push(item);
+    }
+  }
+
+  if (!vistoHeader || items.length < 8) return null;
+  // Gate de cotización: una planilla real trae CANTIDADES (evita colar tablas de texto).
+  const conCantidad = items.filter(i => i.cantidad != null && i.cantidad > 0).length;
+  if (conCantidad < Math.max(3, Math.ceil(items.length * 0.25))) return null;
+
+  return { estructura: 'plana', lineas: [1], categorias: [], items, numeracion: analizarNumeracion(items), fuenteDoc: doc.nombre };
+}
+
 function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
   const lineas = doc.texto.split(/\r?\n/);
   const items: ItemPlanilla[] = [];
@@ -621,8 +687,8 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
   for (const doc of docs) {
     if (!doc.texto || doc.texto.length < 40) continue;
     if (!esCandidato(doc)) continue;
-    // Catálogo con valor unitario (Línea/Código/Detalle/$) primero; si no, el parser tabular normal.
-    const r = parsearCatalogoValorUnitario(doc) || parsearDoc(doc);
+    // Orden: tablas HTML (GLM-OCR de escaneados) → catálogo valor unitario → parser tabular normal.
+    const r = parsearTablasHtml(doc) || parsearCatalogoValorUnitario(doc) || parsearDoc(doc);
     if (!r) continue;
     const mejorScore = (m: PlanillaParseResult) => m.items.length * 100 + m.lineas.length * 10 + m.categorias.length;
     if (!mejor || mejorScore(r) > mejorScore(mejor)) mejor = r;
