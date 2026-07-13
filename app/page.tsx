@@ -54,6 +54,8 @@ function HomeContent() {
   const [dataSource, setDataSource] = useState('');
   const [filters, setFilters] = useState<Filters>(FILTERS_DEFAULT);
   const [hasSearched, setHasSearched] = useState(false);
+  // Mapa código → a quién está asignada cada resultado (para mostrar "Asignada a X").
+  const [asignaciones, setAsignaciones] = useState<Record<string, { asignado_a: number; asignado_nombre: string | null }>>({});
 
   // Ref para detectar cambios reales en filtros (evita loop al montar)
   const prevFiltersRef = useRef<string>('');
@@ -132,6 +134,29 @@ function HomeContent() {
       setLoading(false);
     }
   }, [filters, showFavoritesOnly, favoriteCodes]);
+
+  // Consulta a qué perfil está asignada cada resultado, en UNA sola llamada batch.
+  const cargarAsignaciones = useCallback(async (codigos: string[]) => {
+    if (codigos.length === 0) { setAsignaciones({}); return; }
+    try {
+      const res = await fetch('/api/negocios/asignaciones', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigos }),
+      });
+      const data = await res.json();
+      if (data.success) setAsignaciones(data.asignaciones || {});
+    } catch { /* silencioso: sin chip de asignación */ }
+  }, []);
+
+  // Refresca las asignaciones de los resultados actuales (tras asignar/reasignar).
+  const refrescarAsignaciones = useCallback(() => {
+    cargarAsignaciones(opportunities.map(o => o.codigo));
+  }, [cargarAsignaciones, opportunities]);
+
+  // Cada vez que cambian los resultados, resolvemos sus asignaciones.
+  useEffect(() => {
+    cargarAsignaciones(opportunities.map(o => o.codigo));
+  }, [opportunities, cargarAsignaciones]);
 
   const handleSearch = (query: string) => {
     setLastQuery(query);
@@ -318,6 +343,8 @@ function HomeContent() {
               opportunities={opportunities}
               loading={loading}
               onFavoriteToggle={handleFavoriteToggle}
+              asignaciones={asignaciones}
+              onAsignada={refrescarAsignaciones}
             />
 
             {/* Estado vacío inicial */}

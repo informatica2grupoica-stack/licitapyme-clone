@@ -11,7 +11,7 @@ import {
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
   ChevronDown, X, RefreshCw, Users, List, LayoutGrid,
   CalendarDays, ChevronLeft, ChevronRight, ArrowRight, FileText,
-  SlidersHorizontal, MapPin, Clock, Check, Download,
+  SlidersHorizontal, MapPin, Clock, Check, Download, ArrowUpNarrowWide, ArrowDownWideNarrow,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
@@ -1149,6 +1149,8 @@ function NegociosContent() {
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [showModal, setShowModal]       = useState(false);
   const [vista, setVista]               = useState<'lista' | 'calendario' | 'semana'>('semana');
+  // Orden de la vista LISTA por fecha de cierre: false = próxima a cerrar primero (asc).
+  const [ordenCierreDesc, setOrdenCierreDesc] = useState(false);
   const [carga, setCarga]               = useState<Carga[]>([]);
   const [diaSel, setDiaSel]             = useState<string | null>(null);
   const [negocioModal, setNegocioModal] = useState<Negocio | null>(null);
@@ -1173,6 +1175,7 @@ function NegociosContent() {
         if (typeof f.filtroFechaDesde === 'string') setFiltroFechaDesde(f.filtroFechaDesde);
         if (typeof f.filtroFechaHasta === 'string') setFiltroFechaHasta(f.filtroFechaHasta);
         if (f.vista === 'lista' || f.vista === 'calendario' || f.vista === 'semana') setVista(f.vista);
+        if (typeof f.ordenCierreDesc === 'boolean') setOrdenCierreDesc(f.ordenCierreDesc);
       }
     } catch { /* sin persistencia */ }
     setHidratado(true);
@@ -1182,9 +1185,9 @@ function NegociosContent() {
   useEffect(() => {
     if (!hidratado) return;
     try {
-      sessionStorage.setItem(SS_NEG_FILTROS, JSON.stringify({ search, filtroUsuarios, filtroEtiqueta, filtroTipo, filtroEstado, filtroRegion, filtroFechaDesde, filtroFechaHasta, vista }));
+      sessionStorage.setItem(SS_NEG_FILTROS, JSON.stringify({ search, filtroUsuarios, filtroEtiqueta, filtroTipo, filtroEstado, filtroRegion, filtroFechaDesde, filtroFechaHasta, vista, ordenCierreDesc }));
     } catch { /* cuota llena */ }
-  }, [hidratado, search, filtroUsuarios, filtroEtiqueta, filtroTipo, filtroEstado, filtroRegion, filtroFechaDesde, filtroFechaHasta, vista]);
+  }, [hidratado, search, filtroUsuarios, filtroEtiqueta, filtroTipo, filtroEstado, filtroRegion, filtroFechaDesde, filtroFechaHasta, vista, ordenCierreDesc]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -1269,6 +1272,22 @@ function NegociosContent() {
       return true;
     });
   }, [negociosFiltrados]);
+
+  // LISTA: ordena por fecha de cierre. Por defecto la más próxima a cerrar primero (asc);
+  // el botón invierte a la que cierra más lejos primero (desc). Las sin cierre van al final.
+  const negociosLista = useMemo(() => {
+    const arr = [...negociosFiltrados];
+    arr.sort((a, b) => {
+      const ta = a.licitacion_cierre ? new Date(a.licitacion_cierre).getTime() : NaN;
+      const tb = b.licitacion_cierre ? new Date(b.licitacion_cierre).getTime() : NaN;
+      const na = Number.isNaN(ta), nb = Number.isNaN(tb);
+      if (na && nb) return 0;
+      if (na) return 1;   // sin cierre siempre al final
+      if (nb) return -1;
+      return ordenCierreDesc ? tb - ta : ta - tb;
+    });
+    return arr;
+  }, [negociosFiltrados, ordenCierreDesc]);
 
   // ── Exportar Excel ────────────────────────────────────────────────────────────
   // Exporta la VISTA ACTUAL (negociosFiltrados: respeta búsqueda y filtros activos), una
@@ -1438,6 +1457,18 @@ function NegociosContent() {
               ))}
             </div>
 
+            {/* Orden por fecha de cierre (solo vista lista) */}
+            {vista === 'lista' && (
+              <button
+                onClick={() => setOrdenCierreDesc(v => !v)}
+                title={ordenCierreDesc ? 'Ordenado: cierra más lejos primero — clic para invertir' : 'Ordenado: próxima a cerrar primero — clic para invertir'}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border bg-white text-slate-600 border-slate-200 hover:border-slate-400 transition-colors"
+              >
+                {ordenCierreDesc ? <ArrowDownWideNarrow size={13} /> : <ArrowUpNarrowWide size={13} />}
+                Cierre: {ordenCierreDesc ? 'más lejano' : 'más próximo'}
+              </button>
+            )}
+
             {/* Filtros toggle + limpiar */}
             <div className="flex items-center gap-2">
               {(search || filtroUsuarios.length || filtroEtiqueta.length || filtroTipo.length || filtroEstado.length || filtroRegion.length || filtroFechaDesde || filtroFechaHasta) ? (
@@ -1559,7 +1590,7 @@ function NegociosContent() {
             <VistaCalendario negocios={negociosVigentes} onAbrirDia={setDiaSel} />
           ) : (
             <div className="space-y-1.5">
-              {negociosFiltrados.map(neg => (
+              {negociosLista.map(neg => (
                 <NegocioListItem key={neg.id} neg={neg} isAdmin={isAdmin} onEliminar={eliminar} />
               ))}
             </div>

@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { Oportunidad, ESTADOS_LICITACION, TIPOS_LICITACION } from '@/app/types/search.types';
 import {
   Calendar, Building2, DollarSign, Clock, Star, StarOff,
-  ExternalLink, MapPin, Tag, ChevronRight, AlertCircle, Briefcase,
+  ExternalLink, MapPin, Tag, ChevronRight, AlertCircle, Briefcase, UserCheck,
 } from 'lucide-react';
 import { useFavorites } from '@/app/hooks/useFavorites';
 import { useState } from 'react';
@@ -12,10 +12,16 @@ import { useSession } from '@/app/lib/session-context';
 import { estadoEfectivoCodigo } from '@/app/lib/estado-mp';
 import { AsignarNegocioModal } from '@/app/components/AsignarNegocioModal';
 
+export interface AsignacionInfo { asignado_a: number; asignado_nombre: string | null; }
+
 interface ResultsGridProps {
   opportunities: Oportunidad[];
   loading?: boolean;
   onFavoriteToggle?: () => void;
+  // Mapa código → a quién está asignada (si lo está). Alimenta el chip "Asignada a X".
+  asignaciones?: Record<string, AsignacionInfo>;
+  // Se llama tras asignar/reasignar desde el buscador, para refrescar el mapa.
+  onAsignada?: () => void;
 }
 
 const formatDate = (d: string) => {
@@ -56,7 +62,7 @@ function SkeletonCard() {
   );
 }
 
-export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }: ResultsGridProps) {
+export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle, asignaciones = {}, onAsignada }: ResultsGridProps) {
   const { isFavorite, toggleFavorite } = useFavorites();
   const { usuario } = useSession();
   const isAdmin = usuario?.rol === 'admin';
@@ -97,6 +103,7 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
         const fav = isFavorite(opp.codigo);
         const isToggling = toggling === opp.codigo;
         const diasRestantes = opp.dias_cierre ?? -1;
+        const asig = asignaciones[opp.codigo];
         const monto = formatCLP(opp.monto_total || opp.monto_estimado);
         const tipoLabel = opp.tipo_licitacion ? (TIPOS_LICITACION[opp.tipo_licitacion] || opp.tipo_licitacion) : null;
 
@@ -201,13 +208,26 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
                 )}
 
                 <div className="flex items-center gap-2">
+                  {/* ¿A quién está asignada? Visible para todos (regla: la asignación se ve en toda la app). */}
+                  {asig && (
+                    <span
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded-lg"
+                      title={`Asignada a ${asig.asignado_nombre || 'un perfil'}`}
+                    >
+                      <UserCheck size={12} /> {asig.asignado_nombre || 'Asignada'}
+                    </span>
+                  )}
                   {isAdmin && (
                     <button
                       onClick={(e) => { e.stopPropagation(); setAsignarOpp(opp); }}
-                      className="flex items-center gap-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg transition-colors"
-                      title="Asignar esta licitación a un usuario como negocio"
+                      className={`flex items-center gap-1 text-xs font-semibold border px-2.5 py-1 rounded-lg transition-colors ${
+                        asig
+                          ? 'text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200'
+                          : 'text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border-indigo-200'
+                      }`}
+                      title={asig ? `Asignada a ${asig.asignado_nombre || 'un perfil'} — reasignar la mueve a otro perfil` : 'Asignar esta licitación a un usuario como negocio'}
                     >
-                      <Briefcase size={12} /> Asignar
+                      <Briefcase size={12} /> {asig ? 'Reasignar' : 'Asignar'}
                     </button>
                   )}
                   {opp.url && (
@@ -240,8 +260,9 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
       {asignarOpp && (
         <AsignarNegocioModal
           licitacion={asignarOpp}
+          asignadoNombre={asignaciones[asignarOpp.codigo]?.asignado_nombre ?? null}
           onClose={() => setAsignarOpp(null)}
-          onAsignada={() => {}}
+          onAsignada={() => onAsignada?.()}
         />
       )}
     </div>

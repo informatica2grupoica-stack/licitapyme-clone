@@ -196,6 +196,17 @@ export async function POST(request: NextRequest) {
     } catch { /* tabla nueva */ }
     const reasignacion = prevAsignado != null && Number(prevAsignado) !== Number(asignado_a);
 
+    // REGLA: una licitación pertenece a UN SOLO perfil. Antes de asignar, desactivamos
+    // cualquier OTRA asignación activa del mismo código (perfil distinto). Así, aunque la
+    // clave única sea compuesta (asignado_a, licitacion_codigo), nunca quedan dos filas
+    // activas para el mismo código → no se duplica; reasignar = MOVER.
+    try {
+      await pool.query(
+        `UPDATE negocios SET activo = FALSE
+         WHERE licitacion_codigo = ? AND asignado_a <> ? AND activo = TRUE`,
+        [licitacion_codigo, asignado_a]);
+    } catch { /* tabla nueva / sin filas: seguir */ }
+
     const [result] = await pool.query(
       `INSERT INTO negocios (
          licitacion_codigo, licitacion_nombre, licitacion_organismo, licitacion_monto,

@@ -302,13 +302,13 @@ function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
 }
 
 // ── Tarjeta de una postulada ──────────────────────────────────────────────────
-function PostuladaCard({ n, adj, cargandoAdj, index, isAdmin, empresas, onRevertida, onActualizada }: {
-  n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; index: number;
+function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, empresas, onRevertida, onActualizada }: {
+  n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; docsIniciales: DocCache[]; index: number;
   isAdmin: boolean; empresas: EmpresaOpc[];
   onRevertida: (id: number) => void;
   onActualizada: (id: number, patch: { monto_ofertado?: number; estado_pipeline?: string; empresa_id?: number | null; empresa_nombre?: string | null }) => void;
 }) {
-  const [docs, setDocs] = useState<DocCache[]>([]);
+  const [docs, setDocs] = useState<DocCache[]>(docsIniciales);
   const [editando, setEditando] = useState(false);
   const [montoEdit, setMontoEdit] = useState<string>(n.monto_ofertado ? String(n.monto_ofertado) : '');
   const [estadoEdit, setEstadoEdit] = useState<string>(n.estado_pipeline || ESTADO_POSTULADA);
@@ -321,15 +321,8 @@ function PostuladaCard({ n, adj, cargandoAdj, index, isAdmin, empresas, onRevert
   const r = resultadoDe(adj);
   const m = META[r];
 
-  useEffect(() => {
-    fetch(`/api/documentos/cache/${encodeURIComponent(n.licitacion_codigo)}`)
-      .then(res => res.ok ? res.json() : null)
-      .then(d => {
-        const todos: DocCache[] = d?.documentos || d?.docs || [];
-        setDocs(todos.filter(x => (x.categoria || '').toUpperCase() === 'DOCUMENTOS_PROPIOS'));
-      })
-      .catch(() => {});
-  }, [n.licitacion_codigo]);
+  // Los documentos propios llegan ya resueltos desde el padre (una sola llamada batch).
+  useEffect(() => { setDocs(docsIniciales); }, [docsIniciales]);
 
   const guardarEdicion = async () => {
     setGuardando(true);
@@ -586,6 +579,9 @@ export default function PostuladasPage() {
   // "una por una". adjMap por código; la apertura se refleja en cada negocio (n.aperturada).
   const [adjMap, setAdjMap] = useState<Record<string, Adjudicacion | null>>({});
   const [estadoCargado, setEstadoCargado] = useState(false);
+  // Documentos propios de TODAS las postuladas en UNA sola llamada (evita el N+1 de un
+  // fetch por tarjeta). Mapa código → docs (solo categoría DOCUMENTOS_PROPIOS).
+  const [docsPropiosMap, setDocsPropiosMap] = useState<Record<string, DocCache[]>>({});
 
   useEffect(() => {
     (async () => {
@@ -608,6 +604,21 @@ export default function PostuladasPage() {
       if (d.success) setEmpresasOpc(d.empresas || []);
     }).catch(() => {});
   }, []);
+
+  // Documentos propios de todas las postuladas en UNA sola petición batch.
+  useEffect(() => {
+    const codigos = negocios.map(n => n.licitacion_codigo).filter(Boolean);
+    if (codigos.length === 0) return;
+    let cancelado = false;
+    fetch('/api/documentos/cache/batch', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigos, categoria: 'DOCUMENTOS_PROPIOS' }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (!cancelado && d?.docs) setDocsPropiosMap(d.docs); })
+      .catch(() => {});
+    return () => { cancelado = true; };
+  }, [negocios]);
 
   // Cruce con MP en UNA sola llamada al servidor (adjudicación cache-first + apertura).
   useEffect(() => {
@@ -930,6 +941,7 @@ export default function PostuladasPage() {
               <PostuladaCard key={n.id} n={n}
                 adj={adjMap[n.licitacion_codigo] ?? null}
                 cargandoAdj={!estadoCargado}
+                docsIniciales={docsPropiosMap[n.licitacion_codigo] || []}
                 index={i} isAdmin={!!isAdmin} empresas={empresasOpc}
                 onRevertida={id => setNegocios(prev => prev.filter(x => x.id !== id))}
                 onActualizada={(id, patch) => setNegocios(prev =>

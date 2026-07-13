@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Star, StarOff, ExternalLink, Copy, Check,
   Building2, MapPin, Calendar, DollarSign, Hash,
-  Loader2, AlertCircle, Tag, RefreshCw, Briefcase,
+  Loader2, AlertCircle, Tag, RefreshCw, Briefcase, UserCheck,
 } from 'lucide-react';
 import { DocumentoAdjunto, Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP } from '@/app/types/mercado-publico.types';
@@ -52,6 +52,7 @@ export default function LicitacionDetallePage() {
   const [cargandoDocs,    setCargandoDocs]    = useState(false);
   const [activeSection,   setActiveSection]   = useState<SeccionLicitacion>('resumen');
   const [keywords,        setKeywords]        = useState<string[]>([]); // palabras clave activas del usuario, para resaltar
+  const [asignadoNombre,  setAsignadoNombre]  = useState<string | null>(null); // ¿a qué perfil está asignada?
 
   // --- ESTADO PARA DESCARGA AUTOMÁTICA ---
   const [descargandoAuto, setDescargandoAuto] = useState(false);
@@ -210,14 +211,28 @@ export default function LicitacionDetallePage() {
     } finally { setAnalizandoViab(false); }
   }, [codigoDecoded, documentosAnalizables, toastError]);
 
+  // ¿A qué perfil está asignada esta licitación? (regla: un solo perfil por licitación).
+  const fetchAsignacion = useCallback(async () => {
+    if (!codigoDecoded) return;
+    try {
+      const res = await fetch('/api/negocios/asignaciones', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigos: [codigoDecoded] }),
+      });
+      const data = await res.json();
+      setAsignadoNombre(data?.asignaciones?.[codigoDecoded]?.asignado_nombre ?? null);
+    } catch { /* silencioso */ }
+  }, [codigoDecoded]);
+
   useEffect(() => {
     if (codigoDecoded) {
       fetchLicitacion();
       fetchDocumentos();
       fetchAnalisisIA();
       fetchViabilidad();
+      fetchAsignacion();
     }
-  }, [codigoDecoded, fetchLicitacion, fetchDocumentos, fetchAnalisisIA, fetchViabilidad]);
+  }, [codigoDecoded, fetchLicitacion, fetchDocumentos, fetchAnalisisIA, fetchViabilidad, fetchAsignacion]);
 
   // Cargar el informe de Viabilidad IA (para alimentar la pestaña Criterios con sus criterios + fuentes)
   useEffect(() => {
@@ -502,13 +517,23 @@ export default function LicitacionDetallePage() {
                       : <StarOff size={16} className="text-indigo-300" />}
                 </button>
 
-                {/* Asignar negocio (admin) */}
+                {/* Estado de asignación — visible para todos (regla: se ve en toda la app). */}
+                {asignadoNombre && (
+                  <span
+                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-500/20 rounded-xl border border-blue-300/30 text-blue-100 text-xs font-semibold"
+                    title={`Asignada a ${asignadoNombre}`}
+                  >
+                    <UserCheck size={13} /> {asignadoNombre}
+                  </span>
+                )}
+
+                {/* Asignar / Reasignar negocio (admin) — salta a la sección Gestión. */}
                 {isAdmin && (
                   <button
                     onClick={() => setActiveSection('gestion')}
                     className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-xl border border-white/20 text-indigo-200 hover:text-white text-xs font-semibold transition-colors"
                   >
-                    <Briefcase size={13} /> Asignar
+                    <Briefcase size={13} /> {asignadoNombre ? 'Reasignar' : 'Asignar'}
                   </button>
                 )}
 
@@ -638,6 +663,8 @@ export default function LicitacionDetallePage() {
                 toggling={toggling}
                 handleToggleFavorite={handleToggleFavorite}
                 mpUrl={mpUrl}
+                asignadoNombre={asignadoNombre}
+                onAsignacionCambiada={fetchAsignacion}
               />
             )}
           </div>

@@ -17,13 +17,16 @@ interface UsuarioAsignacion {
 
 export function AsignarNegocioModal({
   licitacion,
+  asignadoNombre = null,
   onClose,
   onAsignada,
 }: {
   licitacion: Oportunidad;
+  asignadoNombre?: string | null;
   onClose: () => void;
   onAsignada: () => void;
 }) {
+  const yaAsignada = !!asignadoNombre;
   const [usuarios, setUsuarios] = useState<UsuarioAsignacion[]>([]);
   const [cargando, setCargando] = useState(true);
   const [asignandoA, setAsignandoA] = useState('');
@@ -72,7 +75,7 @@ export function AsignarNegocioModal({
       const data = await res.json();
       if (data.success) {
         const u = usuarios.find(u => String(u.id) === asignandoA);
-        toastSuccess('Licitación asignada', `Asignada a ${u?.nombre || 'usuario'}`);
+        toastSuccess(yaAsignada ? 'Licitación reasignada' : 'Licitación asignada', `${yaAsignada ? 'Movida' : 'Asignada'} a ${u?.nombre || 'usuario'}`);
         onAsignada();
         onClose();
       } else {
@@ -98,7 +101,7 @@ export function AsignarNegocioModal({
               <Briefcase size={16} className="text-indigo-600" />
             </div>
             <div>
-              <h3 className="text-[13px] font-bold text-slate-800">Asignar a Negocio</h3>
+              <h3 className="text-[13px] font-bold text-slate-800">{yaAsignada ? 'Reasignar Negocio' : 'Asignar a Negocio'}</h3>
               <p className="text-[11px] text-slate-500">Selecciona el responsable</p>
             </div>
           </div>
@@ -111,6 +114,11 @@ export function AsignarNegocioModal({
           <p className="text-[10px] font-mono text-slate-400 mb-0.5">{licitacion.codigo}</p>
           <p className="text-[13px] font-semibold text-slate-800 line-clamp-2">{licitacion.nombre}</p>
           <p className="text-xs text-slate-500 mt-0.5">{licitacion.organismo}</p>
+          {yaAsignada && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1 mt-2">
+              Actualmente asignada a <b>{asignadoNombre}</b>. Al reasignar se <b>mueve</b> al nuevo perfil (deja de estar en el actual).
+            </p>
+          )}
         </div>
 
         <div className="px-6 py-4">
@@ -152,7 +160,7 @@ export function AsignarNegocioModal({
             className="flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white text-[13px] font-semibold rounded-xl transition-colors"
           >
             {guardando ? <Loader2 size={14} className="animate-spin" /> : <Briefcase size={14} />}
-            {guardando ? 'Asignando...' : 'Asignar'}
+            {guardando ? (yaAsignada ? 'Reasignando...' : 'Asignando...') : (yaAsignada ? 'Reasignar' : 'Asignar')}
           </button>
         </div>
       </div>

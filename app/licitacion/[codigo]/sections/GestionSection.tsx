@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import {
-  Briefcase, Loader2, Star, StarOff, ExternalLink, Settings,
+  Briefcase, Loader2, Star, StarOff, ExternalLink, Settings, UserCheck,
 } from 'lucide-react';
 import { Oportunidad } from '@/app/types/search.types';
 import { AsignarNegocioModal } from '@/app/components/AsignarNegocioModal';
@@ -11,6 +11,7 @@ import { InfoCard, SectionHeader } from '../utils';
 
 export function GestionSection({
   licitacion, isAdmin, isFav, toggling, handleToggleFavorite, mpUrl,
+  asignadoNombre = null, onAsignacionCambiada,
 }: {
   licitacion: Oportunidad;
   isAdmin: boolean;
@@ -18,6 +19,9 @@ export function GestionSection({
   toggling: boolean;
   handleToggleFavorite: () => void;
   mpUrl: string;
+  // ¿A qué perfil está asignada? (lo resuelve la página; una sola asignación por licitación).
+  asignadoNombre?: string | null;
+  onAsignacionCambiada?: () => void;
 }) {
   const [asignarOpen, setAsignarOpen] = useState(false);
 
@@ -32,8 +36,9 @@ export function GestionSection({
       {asignarOpen && (
         <AsignarNegocioModal
           licitacion={licitacion}
+          asignadoNombre={asignadoNombre}
           onClose={() => setAsignarOpen(false)}
-          onAsignada={() => {}}
+          onAsignada={() => onAsignacionCambiada?.()}
         />
       )}
 
@@ -64,14 +69,27 @@ export function GestionSection({
       {isAdmin && (
         <InfoCard title="Asignación a negocio" icon={<Briefcase size={15} />}>
           <div className="flex items-center justify-between gap-3">
-            <p className="text-[13px] text-slate-600">
-              Asigna esta licitación a un miembro del equipo para darle seguimiento como negocio/oportunidad.
-            </p>
+            <div className="min-w-0">
+              {asignadoNombre ? (
+                <p className="text-[13px] text-slate-600 flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
+                    <UserCheck size={11} /> {asignadoNombre}
+                  </span>
+                  Reasignar la <b>mueve</b> a otro perfil (deja de estar en el actual).
+                </p>
+              ) : (
+                <p className="text-[13px] text-slate-600">
+                  Asigna esta licitación a un miembro del equipo para darle seguimiento como negocio/oportunidad.
+                </p>
+              )}
+            </div>
             <button
               onClick={() => setAsignarOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-colors flex-shrink-0"
+              className={`flex items-center gap-2 px-4 py-2 text-white text-[13px] font-semibold rounded-xl transition-colors flex-shrink-0 ${
+                asignadoNombre ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
+              }`}
             >
-              <Briefcase size={14} /> Asignar a Negocio
+              <Briefcase size={14} /> {asignadoNombre ? 'Reasignar' : 'Asignar a Negocio'}
             </button>
           </div>
         </InfoCard>
