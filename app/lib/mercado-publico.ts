@@ -229,6 +229,10 @@ export class MercadoPublicoClient {
       MontoUnitario: it.Adjudicacion?.MontoUnitario,
       RutProveedorAdjudicado: it.Adjudicacion?.RutProveedor,
       NombreProveedorAdjudicado: it.Adjudicacion?.NombreProveedor,
+      // La API entrega la cantidad adjudicada en Adjudicacion.Cantidad (a veces como string).
+      CantidadAdjudicada: it.Adjudicacion?.Cantidad != null
+        ? Number(it.Adjudicacion.Cantidad) || undefined
+        : undefined,
     }));
 
     return {

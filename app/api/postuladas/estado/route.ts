@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { tienePermiso } from '@/app/lib/api-auth';
 import { obtenerAdjudicacion } from '@/app/lib/adjudicacion';
-import { refrescarAperturas } from '@/app/lib/detectar-aperturas';
+import { leerAperturas } from '@/app/lib/detectar-aperturas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -48,10 +48,10 @@ export async function GET(request: NextRequest) {
     const codigos = (rows as any[]).map(r => r.codigo).filter(Boolean) as string[];
     if (codigos.length === 0) return NextResponse.json({ estados: {} });
 
-    // 1) Adjudicación: cache-first en paralelo (sin golpear MP en vivo si hay cache).
+    // 1) Adjudicación: SOLO cache (sin tocar MP) → respuesta casi instantánea. El cron
+    //    (procesar-postuladas) mantiene el cache al día en segundo plano.
     const estados: Record<string, any> = {};
-    await mapLimit(codigos, 8, async (codigo) => {
-      const adj = await obtenerAdjudicacion(codigo, { soloCache: true }).catch(() => null);
+    const setEstado = (codigo: string, adj: any) => {
       estados[codigo] = {
         esAdjudicada: !!adj?.esAdjudicada,
         estado: adj?.estado ?? null,
@@ -63,13 +63,30 @@ export async function GET(request: NextRequest) {
         lineasAdjudicadas: adj?.lineasAdjudicadas ?? [],
         aperturada: 0,
       };
+    };
+    await mapLimit(codigos, 12, async (codigo) => {
+      const adj = await obtenerAdjudicacion(codigo, { sinRed: true }).catch(() => null);
+      setEstado(codigo, adj);
     });
 
-    // 2) Apertura. Una licitación ADJUDICADA ya pasó por apertura (obvio) → aperturada sin
-    //    tocar el portal. Solo se consulta el portal para las que aún NO tienen resultado.
-    const sinResultado = codigos.filter(c => !estados[c]?.esAdjudicada);
-    const apertura = await refrescarAperturas(sinResultado, { maxDetectar: 15, presupuestoMs: 8_000 })
-      .catch(() => new Map<string, boolean>());
+    // 1b) Relleno en vivo ACOTADO: solo para los que aún no tienen cache, usando la API de MP
+    //     (rápida, no el portal). Cap y presupuesto de tiempo estrictos para no volver a
+    //     alentar la carga; el resto queda para que el cron lo rellene.
+    const sinCache = codigos.filter(c => !estados[c] || estados[c].estado == null);
+    const MAX_VIVO = 6;
+    const PRESUPUESTO_VIVO_MS = 6_000;
+    const iniVivo = Date.now();
+    let rellenados = 0;
+    await mapLimit(sinCache.slice(0, MAX_VIVO), 4, async (codigo) => {
+      if (Date.now() - iniVivo > PRESUPUESTO_VIVO_MS) return;
+      const adj = await obtenerAdjudicacion(codigo, { soloCache: true }).catch(() => null);
+      if (adj) { setEstado(codigo, adj); rellenados++; }
+    });
+
+    // 2) Apertura: se lee SOLO de la tabla (rápido, sin rascar el portal). La detección por
+    //    portal (IP chilena) la hace el cron /api/cron/aperturas. Una ADJUDICADA ya pasó por
+    //    apertura por definición → aperturada aunque no haya fila.
+    const apertura = await leerAperturas(codigos).catch(() => new Map<string, boolean>());
     for (const c of codigos) {
       estados[c].aperturada = estados[c].esAdjudicada || apertura.get(c) ? 1 : 0;
     }

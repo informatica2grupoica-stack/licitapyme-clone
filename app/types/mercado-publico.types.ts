@@ -123,7 +123,7 @@ export interface ItemAPI {
   Adjudicacion?: {
     RutProveedor?: string;
     NombreProveedor?: string;
-    CantidadAdjudicada?: string;
+    Cantidad?: number | string;   // cantidad adjudicada (la API la manda como Cantidad)
     MontoUnitario?: number;
   };
 }
@@ -340,6 +340,7 @@ export interface LicitacionItem {
   MontoTotal?: number;
   RutProveedorAdjudicado?: string;
   NombreProveedorAdjudicado?: string;
+  CantidadAdjudicada?: number;   // cantidad que MP adjudicó a ese proveedor (puede diferir de lo pedido)
 }
 
 export interface OrganismoResponse {

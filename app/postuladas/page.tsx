@@ -148,14 +148,41 @@ function AperturaChip({ aperturada }: { aperturada: boolean }) {
   );
 }
 
+// Agrupa las líneas por proveedor adjudicado → un resumen "quién ganó qué y por cuánto".
+// Cruza por RUT con nuestras empresas (esNuestra ya viene calculado desde el servidor).
+interface Ganador {
+  rut: string | null; proveedor: string; lineas: number;
+  cantidad: number; monto: number; esNuestra: boolean;
+}
+function agruparGanadores(lineas: LineaAdjudicada[]): Ganador[] {
+  const m = new Map<string, Ganador>();
+  for (const l of lineas) {
+    const key = (l.rutProveedor || l.proveedor || '—').toUpperCase();
+    const g = m.get(key) || {
+      rut: l.rutProveedor ?? null, proveedor: l.proveedor || 'Proveedor adjudicado',
+      lineas: 0, cantidad: 0, monto: 0, esNuestra: !!l.esNuestra,
+    };
+    g.lineas++;
+    g.cantidad += Number(l.cantidad) || 0;
+    g.monto += (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1);
+    g.esNuestra = g.esNuestra || !!l.esNuestra;
+    m.set(key, g);
+  }
+  // Nuestro primero, luego por monto descendente.
+  return Array.from(m.values()).sort((a, b) =>
+    (a.esNuestra === b.esNuestra ? b.monto - a.monto : a.esNuestra ? -1 : 1));
+}
+
 // ── Detalle de adjudicación (todos los ganadores por línea) ───────────────────
 function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
-  const [abierto, setAbierto] = useState(false);
   const meta = adj.adjudicacion;
   const lineas = adj.lineasAdjudicadas || [];
   const nuestras = lineas.filter(l => l.esNuestra).length;
   const ganamos = !!adj.ganamos;
   const acc = ganamos ? META.ganada : META.perdida;
+  const ganadores = useMemo(() => agruparGanadores(lineas), [lineas]);
+  // En las perdidas se muestra el detalle por línea abierto de una (para ver al ganador sin clic).
+  const [abierto, setAbierto] = useState(!ganamos);
 
   return (
     <div className="mt-3 pt-3 border-t border-slate-100">
@@ -181,6 +208,36 @@ function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
           )}
         </div>
 
+        {/* Resumen por ganador (siempre visible): quién se adjudicó, RUT, líneas y monto */}
+        {ganadores.length > 0 && (
+          <div className="mt-2.5 space-y-1.5">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              {ganadores.length === 1 ? 'Adjudicado a' : `Adjudicado a ${ganadores.length} proveedores`}
+            </p>
+            {ganadores.map((g, i) => (
+              <div key={i}
+                className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 border ${
+                  g.esNuestra ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'
+                }`}>
+                <div className="min-w-0">
+                  <p className={`text-[12px] font-semibold truncate ${g.esNuestra ? 'text-emerald-800' : 'text-slate-700'}`}
+                    title={g.proveedor}>
+                    {g.esNuestra
+                      ? <CheckCircle2 size={11} className="inline mr-1 -mt-0.5 text-emerald-600" />
+                      : <Building2 size={10} className="inline mr-1 text-slate-400" />}
+                    {g.proveedor}
+                    {g.esNuestra && <span className="ml-1.5 text-[8.5px] font-black tracking-wide text-emerald-600 uppercase">Nosotros</span>}
+                  </p>
+                  <p className="text-[10.5px] text-slate-500">
+                    {g.rut ? g.rut : 'RUT no informado'} · {g.lineas} línea{g.lineas !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <span className="text-[12.5px] font-bold text-slate-800 whitespace-nowrap">{fmtCLP(g.monto)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
         {lineas.length > 0 && (
           <>
             <button
@@ -192,14 +249,16 @@ function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
             </button>
             {abierto && (
               <div className="pp-lines mt-2 space-y-1.5">
-                {lineas.map((l, i) => (
+                {lineas.map((l, i) => {
+                  const totalLinea = (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1);
+                  return (
                   <div key={i}
                     className={`flex items-start justify-between gap-2 rounded-lg px-2.5 py-1.5 border transition-colors ${
                       l.esNuestra ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'
                     }`}>
                     <div className="min-w-0">
                       <p className="text-[11.5px] font-medium text-slate-700 truncate" title={l.producto || l.descripcion}>
-                        {l.producto || l.descripcion || `Línea ${l.correlativo ?? i + 1}`}
+                        {l.correlativo ? `${l.correlativo}. ` : ''}{l.producto || l.descripcion || `Línea ${l.correlativo ?? i + 1}`}
                       </p>
                       <p className={`text-[10.5px] truncate ${l.esNuestra ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`}
                         title={`${l.proveedor || ''} ${l.rutProveedor || ''}`}>
@@ -214,10 +273,16 @@ function BloqueAdjudicacion({ adj }: { adj: Adjudicacion }) {
                       {l.esNuestra && (
                         <span className="block text-[8.5px] font-black tracking-wide text-emerald-600 uppercase">Nosotros</span>
                       )}
-                      <span className="text-[11.5px] font-bold text-slate-800">{fmtCLP(l.montoUnitario)}</span>
+                      <span className="text-[11.5px] font-bold text-slate-800">{fmtCLP(totalLinea)}</span>
+                      {l.cantidad != null && (
+                        <span className="block text-[9.5px] text-slate-400">
+                          {l.cantidad} {l.unidad || 'u'} × {fmtCLP(l.montoUnitario)}
+                        </span>
+                      )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>

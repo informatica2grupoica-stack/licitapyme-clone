@@ -30,7 +30,8 @@ async function leerInformeIA(codigo: string): Promise<ViabilidadIAResult | null>
     const ie = typeof row.informe_ejecutivo === 'string'
       ? JSON.parse(row.informe_ejecutivo)
       : row.informe_ejecutivo;
-    return ie?._informe_ia ?? null;
+    // Prefiere el informe v3 (el ACTIVO); cae al v2 (_informe_ia) por compatibilidad.
+    return ie?._informe_ia_v3 ?? ie?._informe_ia ?? null;
   } catch { return null; }
 }
 

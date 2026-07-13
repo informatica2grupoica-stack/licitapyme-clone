@@ -103,7 +103,8 @@ export function construirDesdeLicitacion(lic: Licitacion, codigo: string): Respu
       correlativo:  it.Correlativo,
       producto:     it.NombreProducto,
       descripcion:  it.Descripcion,
-      cantidad:     it.Cantidad,
+      // Cantidad ADJUDICADA (lo que realmente ganó el proveedor); si falta, la pedida.
+      cantidad:     it.CantidadAdjudicada ?? it.Cantidad,
       unidad:       it.Unidad,
       montoUnitario: it.MontoUnitario ?? null,
       rutProveedor:  it.RutProveedorAdjudicado ?? null,
@@ -230,7 +231,7 @@ export async function guardarCache(codigo: string, r: RespuestaAdjudicacion): Pr
 // MP no respondió y no había cache.
 export async function obtenerAdjudicacion(
   codigo: string,
-  opts: { force?: boolean; soloCache?: boolean } = {},
+  opts: { force?: boolean; soloCache?: boolean; sinRed?: boolean } = {},
 ): Promise<RespuestaAdjudicacion | null> {
   const cache = await leerCache(codigo);
   if (cache) {
@@ -241,6 +242,9 @@ export async function obtenerAdjudicacion(
     // (evita la lentitud "una por una"). El refresco lo hace el cron en segundo plano.
     if (opts.soloCache) return enriquecer(respuestaDesdeCache(codigo, cache.row));
   }
+  // sinRed: nunca tocar MP. Devuelve lo que haya en cache (o null). Sirve para que la carga
+  // de página sea puramente de base de datos (rápida); el cron rellena en segundo plano.
+  if (opts.sinRed) return cache ? enriquecer(respuestaDesdeCache(codigo, cache.row)) : null;
   // soloCache y sin cache: una única consulta en vivo para poblar (rápida). Si falla, null.
   const vivo = await consultarMP(codigo);
   if (vivo) {
