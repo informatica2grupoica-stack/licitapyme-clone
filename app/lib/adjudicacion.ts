@@ -1,0 +1,252 @@
+// app/lib/adjudicacion.ts
+// Lógica compartida de "¿esta licitación fue adjudicada y ganamos NOSOTROS?".
+//
+// Antes vivía incrustada en app/api/licitacion-adjudicacion/[codigo]/route.ts. Se extrajo
+// aquí para tener UNA sola fuente de verdad, reutilizable tanto por esa ruta (consulta on-demand
+// del apartado Postuladas) como por el cron que auto-promueve las postuladas a
+// ADJUDICADA/PERDIDA y avisa la apertura (app/lib/procesar-postuladas.ts).
+//
+// CACHE: tabla adjudicacion_cache (migración 35). Ver la ruta para el detalle del TTL.
+import pool from '@/app/lib/db';
+import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
+import type { Licitacion } from '@/app/types/mercado-publico.types';
+
+// Horas que un "aún no adjudicada" se considera vigente antes de re-consultar MP.
+export const TTL_HORAS = 3;
+
+export interface LineaAdjudicada {
+  correlativo?: number;
+  producto?: string;
+  descripcion?: string;
+  cantidad?: number;
+  unidad?: string;
+  montoUnitario: number | null;
+  rutProveedor: string | null;
+  proveedor: string | null;
+  esNuestra?: boolean;   // ¿la ganó una de NUESTRAS empresas? (se calcula al responder)
+}
+
+export interface RespuestaAdjudicacion {
+  success: true;
+  codigo: string;
+  estado: string | null;
+  codigoEstado: number | null;
+  esAdjudicada: boolean;
+  fechaAdjudicacion: string | null;
+  adjudicacion: {
+    tipo: number | null;
+    numeroResolucion: string | null;
+    numeroOferentes: number | null;
+    urlActa: string | null;
+  } | null;
+  lineasAdjudicadas: LineaAdjudicada[];
+  montoAdjudicadoTotal: number | null;
+  // Enriquecido en `enriquecer()`: ¿ganamos NOSOTROS al menos una línea? y ¿por cuánto?
+  ganamos: boolean;
+  montoNuestro: number | null;
+  desdeCache: boolean;
+}
+
+// ── ¿Ganó una de NUESTRAS empresas? ───────────────────────────────────────────
+// MP entrega el RUT del adjudicado (p.ej. "78.388.175-6"). Lo comparamos con los RUT
+// de nuestras empresas normalizados (solo dígitos + K).
+export function normRut(r: string | null | undefined): string {
+  return String(r || '').toUpperCase().replace(/[^0-9K]/g, '');
+}
+
+let _rutsNuestros: { set: Set<string>; ts: number } | null = null;
+export async function rutsNuestros(): Promise<Set<string>> {
+  if (_rutsNuestros && Date.now() - _rutsNuestros.ts < 5 * 60 * 1000) return _rutsNuestros.set;
+  const set = new Set<string>();
+  try {
+    const [rows] = await pool.query(`SELECT rut FROM empresas WHERE activo = TRUE`);
+    for (const r of rows as any[]) { const n = normRut(r.rut); if (n) set.add(n); }
+  } catch { /* sin tabla empresas → conjunto vacío (nunca marcamos "nuestra") */ }
+  _rutsNuestros = { set, ts: Date.now() };
+  return set;
+}
+
+// Marca cada línea con esNuestra y agrega ganamos + montoNuestro. Se aplica en TODA
+// respuesta (cache o vivo) para reflejar siempre los RUT vigentes de nuestras empresas.
+export async function enriquecer(r: RespuestaAdjudicacion): Promise<RespuestaAdjudicacion> {
+  const nuestros = await rutsNuestros();
+  let montoNuestro = 0, ganamos = false;
+  const lineas = (r.lineasAdjudicadas || []).map(l => {
+    const esNuestra = !!l.rutProveedor && nuestros.has(normRut(l.rutProveedor));
+    if (esNuestra) {
+      ganamos = true;
+      montoNuestro += (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1);
+    }
+    return { ...l, esNuestra };
+  });
+  return {
+    ...r,
+    lineasAdjudicadas: lineas,
+    ganamos: r.esAdjudicada ? ganamos : false,
+    montoNuestro: montoNuestro || null,
+  };
+}
+
+// ── Construir la respuesta a partir de una Licitacion ya normalizada ──────────
+// Separado de la consulta de red para reutilizarlo cuando ya se tiene el detalle
+// (p.ej. el cron obtiene UNA vez el detalle y de ahí saca adjudicación + apertura).
+export function construirDesdeLicitacion(lic: Licitacion, codigo: string): RespuestaAdjudicacion {
+  // CodigoEstado 8 = Adjudicada. También lo confirmamos por el nombre por robustez.
+  const esAdjudicada =
+    Number(lic.CodigoEstado) === 8 ||
+    (lic.EstadoNombre || '').toLowerCase().includes('adjudicad');
+
+  // Detalle por línea: solo las que traen proveedor adjudicado.
+  const lineasAdjudicadas: LineaAdjudicada[] = (lic.Items || [])
+    .filter(it => it.NombreProveedorAdjudicado || it.RutProveedorAdjudicado)
+    .map(it => ({
+      correlativo:  it.Correlativo,
+      producto:     it.NombreProducto,
+      descripcion:  it.Descripcion,
+      cantidad:     it.Cantidad,
+      unidad:       it.Unidad,
+      montoUnitario: it.MontoUnitario ?? null,
+      rutProveedor:  it.RutProveedorAdjudicado ?? null,
+      proveedor:     it.NombreProveedorAdjudicado ?? null,
+    }));
+
+  const montoAdjudicadoTotal = lineasAdjudicadas.reduce(
+    (acc, l) => acc + (Number(l.montoUnitario) || 0) * (Number(l.cantidad) || 1),
+    0,
+  );
+
+  return {
+    success: true,
+    codigo,
+    estado: lic.EstadoNombre || null,
+    codigoEstado: lic.CodigoEstado ?? null,
+    esAdjudicada,
+    fechaAdjudicacion: lic.FechaAdjudicacion || lic.Adjudicacion?.Fecha || null,
+    adjudicacion: lic.Adjudicacion
+      ? {
+          tipo:             lic.Adjudicacion.Tipo ?? null,           // 2 = total, 1 = por línea
+          numeroResolucion: lic.Adjudicacion.Numero ?? null,
+          numeroOferentes:  lic.Adjudicacion.NumeroOferentes ?? null,
+          urlActa:          lic.Adjudicacion.UrlActa ?? null,
+        }
+      : null,
+    lineasAdjudicadas,
+    montoAdjudicadoTotal: montoAdjudicadoTotal || null,
+    ganamos: false,       // lo calcula enriquecer()
+    montoNuestro: null,   // lo calcula enriquecer()
+    desdeCache: false,
+  };
+}
+
+// ── Consulta en vivo a Mercado Público ────────────────────────────────────────
+export async function consultarMP(codigo: string): Promise<RespuestaAdjudicacion | null> {
+  const lic = await getMercadoPublicoClient().obtenerPorCodigo(codigo);
+  if (!lic) return null;
+  return construirDesdeLicitacion(lic, codigo);
+}
+
+// ── Cache: lectura ────────────────────────────────────────────────────────────
+export async function leerCache(codigo: string): Promise<{ row: any; frescoHoras: number } | null> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT *, TIMESTAMPDIFF(MINUTE, consultado_en, NOW()) / 60 AS horas
+       FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1`,
+      [codigo],
+    );
+    const row = (rows as any[])[0];
+    if (!row) return null;
+    return { row, frescoHoras: Number(row.horas) || 0 };
+  } catch {
+    return null; // tabla ausente (migración pendiente) o BD caída → sin cache
+  }
+}
+
+export function respuestaDesdeCache(codigo: string, row: any): RespuestaAdjudicacion {
+  let lineas: LineaAdjudicada[] = [];
+  try { lineas = row.lineas ? JSON.parse(row.lineas) : []; } catch { /* JSON corrupto → sin líneas */ }
+  return {
+    success: true,
+    codigo,
+    estado: row.estado ?? null,
+    codigoEstado: row.codigo_estado ?? null,
+    esAdjudicada: !!row.es_adjudicada,
+    fechaAdjudicacion: row.fecha_adjudicacion ? new Date(row.fecha_adjudicacion).toISOString() : null,
+    adjudicacion: row.es_adjudicada
+      ? {
+          tipo: row.tipo_adjudicacion ?? null,
+          numeroResolucion: row.numero_resolucion ?? null,
+          numeroOferentes: row.numero_oferentes ?? null,
+          urlActa: row.url_acta ?? null,
+        }
+      : null,
+    lineasAdjudicadas: lineas,
+    montoAdjudicadoTotal: row.monto_adjudicado_total != null ? Number(row.monto_adjudicado_total) : null,
+    ganamos: false,       // lo calcula enriquecer()
+    montoNuestro: null,   // lo calcula enriquecer()
+    desdeCache: true,
+  };
+}
+
+// ── Cache: escritura (best-effort, nunca bloquea la respuesta) ────────────────
+export async function guardarCache(codigo: string, r: RespuestaAdjudicacion): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO adjudicacion_cache (
+         licitacion_codigo, es_adjudicada, estado, codigo_estado, fecha_adjudicacion,
+         tipo_adjudicacion, numero_resolucion, numero_oferentes, url_acta,
+         monto_adjudicado_total, lineas
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         es_adjudicada = VALUES(es_adjudicada),
+         estado = VALUES(estado),
+         codigo_estado = VALUES(codigo_estado),
+         fecha_adjudicacion = VALUES(fecha_adjudicacion),
+         tipo_adjudicacion = VALUES(tipo_adjudicacion),
+         numero_resolucion = VALUES(numero_resolucion),
+         numero_oferentes = VALUES(numero_oferentes),
+         url_acta = VALUES(url_acta),
+         monto_adjudicado_total = VALUES(monto_adjudicado_total),
+         lineas = VALUES(lineas),
+         consultado_en = NOW()`,
+      [
+        codigo,
+        r.esAdjudicada ? 1 : 0,
+        r.estado,
+        r.codigoEstado,
+        r.fechaAdjudicacion ? new Date(r.fechaAdjudicacion) : null,
+        r.adjudicacion?.tipo ?? null,
+        r.adjudicacion?.numeroResolucion ?? null,
+        r.adjudicacion?.numeroOferentes ?? null,
+        r.adjudicacion?.urlActa ?? null,
+        r.montoAdjudicadoTotal,
+        JSON.stringify(r.lineasAdjudicadas || []),
+      ],
+    );
+  } catch { /* migración pendiente o BD caída → seguir sin cache */ }
+}
+
+// ── Orquestación cache→vivo→cache-viejo (la que usa la ruta on-demand) ────────
+// Devuelve la respuesta YA enriquecida (con esNuestra/ganamos/montoNuestro) o null si
+// MP no respondió y no había cache.
+export async function obtenerAdjudicacion(
+  codigo: string,
+  opts: { force?: boolean; soloCache?: boolean } = {},
+): Promise<RespuestaAdjudicacion | null> {
+  const cache = await leerCache(codigo);
+  if (cache) {
+    // Adjudicada = final (siempre válido); no adjudicada = válido < TTL.
+    if (cache.row.es_adjudicada) return enriquecer(respuestaDesdeCache(codigo, cache.row));
+    if (!opts.force && cache.frescoHoras < TTL_HORAS) return enriquecer(respuestaDesdeCache(codigo, cache.row));
+    // soloCache: en la carga de página NO golpeamos MP en vivo aunque el cache esté vencido
+    // (evita la lentitud "una por una"). El refresco lo hace el cron en segundo plano.
+    if (opts.soloCache) return enriquecer(respuestaDesdeCache(codigo, cache.row));
+  }
+  // soloCache y sin cache: una única consulta en vivo para poblar (rápida). Si falla, null.
+  const vivo = await consultarMP(codigo);
+  if (vivo) {
+    await guardarCache(codigo, vivo);
+    return enriquecer(vivo);
+  }
+  if (cache) return enriquecer(respuestaDesdeCache(codigo, cache.row));
+  return null;
+}

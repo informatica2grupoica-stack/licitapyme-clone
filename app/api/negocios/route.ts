@@ -79,6 +79,7 @@ export async function GET(request: NextRequest) {
         params),
       pool.query(
         `SELECT n.asignado_a AS usuario_id, u.nombre, u.email, n.licitacion_codigo AS codigo,
+                n.licitacion_cierre,
                 COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
          WHERE n.activo = TRUE ${filtroCarga}`, pCarga),
@@ -109,9 +110,12 @@ export async function GET(request: NextRequest) {
     const codigos = negocios.map(n => n.licitacion_codigo).filter(Boolean);
     if (codigos.length) {
       const ph = codigos.map(() => '?').join(',');
-      const [docsRes, viabRes] = await Promise.allSettled([
+      const [docsRes, viabRes, aperturaRes] = await Promise.allSettled([
         pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos),
         pool.query(`SELECT licitacion_codigo, semaforo, score_total FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos),
+        // Estado de apertura detectado por el poller del portal (migración 41). Tolerante:
+        // si la tabla no existe aún, degrada a "sin apertura conocida" sin romper la lista.
+        pool.query(`SELECT licitacion_codigo, aperturada, detectada_en FROM licitacion_apertura WHERE licitacion_codigo IN (${ph})`, codigos),
       ]);
       if (docsRes.status === 'fulfilled') {
         const setDocs = new Set(((docsRes.value as any)[0] as any[]).map(r => r.licitacion_codigo));
@@ -125,20 +129,37 @@ export async function GET(request: NextRequest) {
           n.viabilidad_score = v?.score_total ?? null;
         }
       }
+      if (aperturaRes.status === 'fulfilled') {
+        const mapAp = new Map(((aperturaRes.value as any)[0] as any[]).map(r => [r.licitacion_codigo, r]));
+        for (const n of negocios) {
+          const a = mapAp.get(n.licitacion_codigo) as any;
+          n.aperturada = a?.aperturada ? 1 : 0;
+          n.apertura_detectada_en = a?.detectada_en ?? null;
+        }
+      }
     }
 
-    // Carga de trabajo por usuario, con DESGLOSE POR TIPO (L1/LE/LP/...). El tipo se
-    // deriva del código en Node (extractTipoFromCodigo).
-    // `total` = SOLO las que se están trabajando (excluye DESCARTADA); `descartadas` aparte,
-    // para mostrarlas como detalle chico. El desglose por tipo tampoco cuenta las descartadas.
+    // Carga de trabajo por usuario. `total` = SOLO las VIGENTES = las que realmente se
+    // están trabajando: su cierre NO ha pasado Y no están en un estado resuelto (postulada/
+    // descartada/adjudicada/...). Así un perfil sin licitaciones activas queda en 0 aunque
+    // tenga históricas cerradas. `descartadas`/`vencidas`/`resueltas` van aparte como detalle.
+    // El desglose es POR ESTADO DEL PIPELINE (Asignado, En proceso, ...) sobre las vigentes.
+    const RESUELTOS_CARGA = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA']);
+    const ahora = Date.now();
     const mapCarga = new Map<number, any>();
     for (const r of cargaRows as any[]) {
       let e = mapCarga.get(r.usuario_id);
-      if (!e) { e = { usuario_id: r.usuario_id, nombre: r.nombre, email: r.email, total: 0, descartadas: 0, porTipo: {} as Record<string, number> }; mapCarga.set(r.usuario_id, e); }
-      if (r.estado_pipeline === 'DESCARTADA') { e.descartadas++; continue; }
+      if (!e) { e = { usuario_id: r.usuario_id, nombre: r.nombre, email: r.email, total: 0, descartadas: 0, vencidas: 0, resueltas: 0, porEstado: {} as Record<string, number> }; mapCarga.set(r.usuario_id, e); }
+      const estado = r.estado_pipeline || 'ASIGNADO';
+      if (estado === 'DESCARTADA') { e.descartadas++; continue; }
+      // Resuelta (postulada/adjudicada/...) → no cuenta como carga vigente.
+      if (RESUELTOS_CARGA.has(estado)) { e.resueltas++; continue; }
+      // Vencida (cierre ya pasó) → tampoco es carga vigente (se resuelve por el modal de vencidas).
+      const cierreMs = r.licitacion_cierre ? new Date(r.licitacion_cierre).getTime() : NaN;
+      if (!Number.isNaN(cierreMs) && cierreMs < ahora) { e.vencidas++; continue; }
+      // VIGENTE: cuenta y desglosa por estado del pipeline.
       e.total++;
-      const tipo = extractTipoFromCodigo(r.codigo || '') || '—';
-      e.porTipo[tipo] = (e.porTipo[tipo] || 0) + 1;
+      e.porEstado[estado] = (e.porEstado[estado] || 0) + 1;
     }
     const carga = Array.from(mapCarga.values()).sort((a, b) => b.total - a.total);
 

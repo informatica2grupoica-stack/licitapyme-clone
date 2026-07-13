@@ -8,6 +8,17 @@ import { useToast }   from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useSession } from '@/app/lib/session-context';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
+import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
+
+// Colores del badge de estado de Mercado Público (por código efectivo).
+const ESTADO_MP_STYLE: Record<number, { bg: string; color: string; border: string }> = {
+  5:  { bg: '#dcfce7', color: '#15803d', border: '#bbf7d0' }, // Publicada
+  6:  { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' }, // Cerrada
+  7:  { bg: '#ffedd5', color: '#c2410c', border: '#fed7aa' }, // Desierta
+  8:  { bg: '#e0e7ff', color: '#4338ca', border: '#c7d2fe' }, // Adjudicada
+  18: { bg: '#fee2e2', color: '#b91c1c', border: '#fecaca' }, // Revocada
+  19: { bg: '#fef9c3', color: '#a16207', border: '#fde68a' }, // Suspendida
+};
 import { semaforoRevision } from '@/app/lib/asignacion';
 import { MOTIVOS_DESCARTE, componerMotivo } from '@/app/lib/motivos-descarte';
 import { ViabilidadIAPanel } from '@/app/licitacion/[codigo]/sections/ViabilidadIAPanel';
@@ -1530,12 +1541,17 @@ function DetalleContent() {
                     {tipo}
                   </span>
                 )}
-                {negocio.licitacion_estado && (
-                  <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold border"
-                    style={{ backgroundColor: '#dcfce7', color: '#15803d', borderColor: '#bbf7d0' }}>
-                    {negocio.licitacion_estado}
-                  </span>
-                )}
+                {negocio.licitacion_estado && (() => {
+                  // Estado EFECTIVO de MP: si figura "Publicada" pero su cierre ya pasó → "Cerrada".
+                  const cod = estadoEfectivoCodigo(negocio.licitacion_estado, negocio.licitacion_cierre);
+                  const st = ESTADO_MP_STYLE[cod ?? -1] || { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
+                  return (
+                    <span className="text-[11px] px-2.5 py-0.5 rounded-full font-bold border"
+                      style={{ backgroundColor: st.bg, color: st.color, borderColor: st.border }}>
+                      {estadoEfectivoNombre(negocio.licitacion_estado, negocio.licitacion_cierre)}
+                    </span>
+                  );
+                })()}
                 {loadingLic && (
                   <span className="text-[11px] text-zinc-400 flex items-center gap-1">
                     <Loader2 size={10} className="animate-spin" /> Cargando desde MP…

@@ -2,6 +2,7 @@
 // Helpers y componentes compartidos entre las secciones de la ficha de licitación.
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, CheckCircle, XCircle, AlertCircle, Info, Sparkles } from 'lucide-react';
+import { estadoEfectivoCodigo, CODIGO_ESTADO_MP } from '@/app/lib/estado-mp';
 
 // ======================================================
 // ANÁLISIS IA (Gemini) — campos extraídos automáticamente de las bases
@@ -183,9 +184,13 @@ export const ESTADO_CONFIG: Record<string, { label: string; icon: React.ReactNod
   '19': { label: 'Suspendida',  icon: <AlertCircle size={13} />, badge: 'bg-yellow-50 border-yellow-200 text-yellow-700' },
 };
 
-export function estadoConfigFor(estado: string) {
-  return ESTADO_CONFIG[estado] || {
-    label: estado,
+// Config del estado EFECTIVO: si se pasa la fecha de cierre y la licitación figura
+// "Publicada" pero ya venció, se muestra como "Cerrada" (coherente con Mercado Público).
+export function estadoConfigFor(estado: string, fechaCierre?: string | null) {
+  const codigo = estadoEfectivoCodigo(estado, fechaCierre);
+  const key = codigo != null ? String(codigo) : estado;
+  return ESTADO_CONFIG[key] || {
+    label: CODIGO_ESTADO_MP[codigo ?? -1] || estado,
     icon: <Info size={13} />,
     badge: 'bg-zinc-100 border-zinc-200 text-zinc-600',
   };

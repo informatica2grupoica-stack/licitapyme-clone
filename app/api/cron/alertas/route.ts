@@ -23,6 +23,7 @@ import { leerCache, planificarEnriquecimiento, enriquecerYCachear } from '@/app/
 import { matchearEInsertar } from '@/app/lib/radar-matching';
 import { enviarDigestRadar } from '@/app/lib/email';
 import { avisarCierresProximos } from '@/app/lib/cierres-proximos';
+import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
 
 // Ventana para el aviso "cierra pronto" (campana + correo por perfil), en horas.
 const CIERRE_PROXIMO_HORAS = Number(process.env.CIERRE_PROXIMO_HORAS) || 48;
@@ -281,6 +282,8 @@ export async function GET(request: NextRequest) {
     correosEnviados:        0,   // digests de radar enviados por perfil
     cierresAvisados:        0,   // eventos de campana "cierra pronto" empujados
     correosCierre:          0,   // correos "cierra pronto" enviados por perfil
+    postAdjudicadas:        0,   // postuladas auto-promovidas a ADJUDICADA (ganamos)
+    postPerdidas:           0,   // postuladas auto-promovidas a PERDIDA (a terceros)
     errores:                0,
     duracionMs:             0,
   };
@@ -547,6 +550,21 @@ export async function GET(request: NextRequest) {
       if (av.eventos > 0) console.log(`[Cron] ⏰ Cierres próximos: ${av.eventos} avisos, ${av.correos} correos`);
     } catch (e) {
       console.error('[Cron] aviso cierres próximos falló (no crítico):', String(e));
+    }
+
+    // ── Paso 8: Resultado de POSTULADAS (auto-promoción por adjudicación) ──────
+    // Recorre las postuladas ya cerradas: si MP publicó resultado, las promueve a
+    // ADJUDICADA/PERDIDA (con aviso al perfil) — así /adjudicadas y Análisis quedan con
+    // datos REALES. Usa la API oficial (sirve desde cualquier IP). La APERTURA es aparte
+    // (portal, IP chilena) en /api/cron/aperturas. Best-effort: nunca rompe el cron.
+    try {
+      const pp = await procesarPostuladas();
+      stats.postAdjudicadas = pp.adjudicadas;
+      stats.postPerdidas    = pp.perdidas;
+      if (pp.adjudicadas || pp.perdidas)
+        console.log(`[Cron] 🎯 Postuladas: +${pp.adjudicadas} ganadas, +${pp.perdidas} perdidas (${pp.codigos} códigos)`);
+    } catch (e) {
+      console.error('[Cron] procesar postuladas falló (no crítico):', String(e));
     }
 
     stats.duracionMs = elapsed();

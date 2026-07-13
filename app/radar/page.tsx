@@ -16,6 +16,7 @@ import {
   Ban, MinusCircle, History,
 } from 'lucide-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
+import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { Resaltar } from '@/app/components/Resaltar';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -203,12 +204,15 @@ function dentroRangoPublicacion(fechaIso: string | null, desde: string, hasta: s
 }
 
 // ── Badges ────────────────────────────────────────────────────────────────────
-function EstadoBadge({ estado }: { estado: string | null }) {
-  if (!estado) return null;
-  const cfg = ESTADOS_CFG.find(e => e.key.toLowerCase() === estado.toLowerCase());
+function EstadoBadge({ estado, cierre }: { estado: string | null; cierre?: string | null }) {
+  // Estado EFECTIVO: si figura "Publicada" pero su cierre ya pasó, se muestra "Cerrada".
+  const efectivo = estadoEfectivoNombre(estado, cierre);
+  if (!efectivo) return null;
+  const cfg = ESTADOS_CFG.find(e => e.key.toLowerCase() === efectivo.toLowerCase());
+  const estadoMostrar = efectivo;
   if (!cfg) return (
     <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500 font-semibold border border-zinc-200">
-      {estado}
+      {estadoMostrar}
     </span>
   );
   return (
@@ -376,7 +380,7 @@ function LicitacionListItem({
         <div className="flex-shrink-0 w-32">
           <div className="flex items-center gap-1 mb-1">
             <TipoBadge codigo={alerta.licitacion_codigo} />
-            <EstadoBadge estado={alerta.licitacion_estado} />
+            <EstadoBadge estado={alerta.licitacion_estado} cierre={alerta.licitacion_cierre} />
           </div>
           <span className="text-[10px] font-mono text-slate-500">{alerta.licitacion_codigo}</span>
         </div>
@@ -530,7 +534,7 @@ function LicitacionCard({
               }
             </button>
             <TipoBadge codigo={alerta.licitacion_codigo} />
-            <EstadoBadge estado={alerta.licitacion_estado} />
+            <EstadoBadge estado={alerta.licitacion_estado} cierre={alerta.licitacion_cierre} />
             <span className="text-[10px] font-mono text-slate-400">{alerta.licitacion_codigo}</span>
             {alerta.asignada && (() => {
               const c = colorAsesor(alerta.asignado_a);
@@ -719,8 +723,9 @@ function PanelFiltros({
   const keywords     = useMemo(() => [...new Set(alertas.map(a => a.keyword_texto).filter(Boolean))].sort() as string[], [alertas]);
   const tipos        = useMemo(() => [...new Set(alertas.map(a => extractTipoFromCodigo(a.licitacion_codigo)).filter(Boolean))].sort() as string[], [alertas]);
   const estadosPresentes = useMemo(() => {
-    const set = new Set(alertas.map(a => (a.licitacion_estado || '').trim()));
-    return ESTADOS_CFG.filter(e => set.has(e.key) || alertas.some(a => (a.licitacion_estado || '').toLowerCase() === e.key.toLowerCase()));
+    // Estado EFECTIVO (Publicada vencida cuenta como Cerrada).
+    const set = new Set(alertas.map(a => (estadoEfectivoNombre(a.licitacion_estado, a.licitacion_cierre) || '').trim().toLowerCase()));
+    return ESTADOS_CFG.filter(e => set.has(e.key.toLowerCase()));
   }, [alertas]);
 
   const toggleEstado = (key: string) => {
@@ -738,7 +743,7 @@ function PanelFiltros({
   };
 
   const conteoEstado = (key: string) =>
-    alertas.filter(a => (a.licitacion_estado || '').toLowerCase() === key.toLowerCase()).length;
+    alertas.filter(a => (estadoEfectivoNombre(a.licitacion_estado, a.licitacion_cierre) || '').toLowerCase() === key.toLowerCase()).length;
 
   const conteoTipo = (t: string) =>
     alertas.filter(a => extractTipoFromCodigo(a.licitacion_codigo) === t).length;
@@ -1583,7 +1588,8 @@ export default function RadarPage() {
   const alertasFiltradas = useMemo(() => {
     let list = alertas.filter(a => {
       const tipo      = extractTipoFromCodigo(a.licitacion_codigo);
-      const estado    = (a.licitacion_estado || '').trim();
+      // Estado EFECTIVO (Publicada vencida → Cerrada) para que el filtro sea coherente con MP.
+      const estado    = (estadoEfectivoNombre(a.licitacion_estado, a.licitacion_cierre) || '').trim();
       const dias      = diasAlCierre(a.licitacion_cierre);
 
       if (filtros.texto) {

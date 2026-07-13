@@ -9,6 +9,7 @@ import {
 import { useFavorites } from '@/app/hooks/useFavorites';
 import { useState } from 'react';
 import { useSession } from '@/app/lib/session-context';
+import { estadoEfectivoCodigo } from '@/app/lib/estado-mp';
 import { AsignarNegocioModal } from '@/app/components/AsignarNegocioModal';
 
 interface ResultsGridProps {
@@ -90,7 +91,9 @@ export function ResultsGrid({ opportunities, loading = false, onFavoriteToggle }
   return (
     <div className="space-y-3">
       {opportunities.map(opp => {
-        const estado = ESTADO_STYLE[opp.estado] || { label: opp.estado, cls: 'bg-slate-100 text-gray-600 border-slate-200', dot: 'bg-gray-400' };
+        // Estado EFECTIVO: si figura "Publicada" pero su cierre ya pasó, se muestra "Cerrada".
+        const codigoEfectivo = estadoEfectivoCodigo(opp.estado, opp.fecha_cierre);
+        const estado = ESTADO_STYLE[String(codigoEfectivo ?? opp.estado)] || { label: opp.estado, cls: 'bg-slate-100 text-gray-600 border-slate-200', dot: 'bg-gray-400' };
         const fav = isFavorite(opp.codigo);
         const isToggling = toggling === opp.codigo;
         const diasRestantes = opp.dias_cierre ?? -1;

@@ -11,10 +11,11 @@ import {
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
   ChevronDown, X, RefreshCw, Users, List, LayoutGrid,
   CalendarDays, ChevronLeft, ChevronRight, ArrowRight, FileText,
-  SlidersHorizontal, MapPin, Clock, Check,
+  SlidersHorizontal, MapPin, Clock, Check, Download,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
+import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { semaforoRevision } from '@/app/lib/asignacion';
@@ -46,7 +47,11 @@ interface Negocio {
 }
 
 interface Usuario { id: number; nombre: string; email: string; }
-interface Carga { usuario_id: number; nombre?: string; email?: string; total: number; descartadas?: number; porTipo?: Record<string, number>; }
+interface Carga { usuario_id: number; nombre?: string; email?: string; total: number; descartadas?: number; vencidas?: number; resueltas?: number; porEstado?: Record<string, number>; }
+
+// Estados del pipeline que "cierran el ciclo": ya no cuentan como carga vigente ni salen
+// en el calendario/semana (son historia, no trabajo pendiente).
+const RESUELTOS_NEGOCIO = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA']);
 
 // Semáforo de viabilidad (colores/labels compactos para las tarjetas).
 const SEMAFORO: Record<string, { label: string; color: string; bg: string; text: string }> = {
@@ -532,14 +537,18 @@ function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
   c: Carga; nombre: string | null; email: string | null; activo: boolean; isAdmin: boolean; onClick: () => void;
 }) {
   const col = colorUsuario(email || c.usuario_id);
-  const tipos = Object.entries(c.porTipo || {}).sort((a, b) => b[1] - a[1]);
+  // Desglose por ESTADO del pipeline (Asignado, En proceso, ...) sobre las VIGENTES.
+  const estados = Object.entries(c.porEstado || {})
+    .map(([id, n]) => ({ id, n, cfg: getEstadoPipeline(id) }))
+    .sort((a, b) => b.n - a.n);
+  const colorEstado = (id: string) => getEstadoPipeline(id)?.color || '#94a3b8';
   return (
     <div
       onClick={isAdmin ? onClick : undefined}
       style={{ borderColor: activo ? col : undefined, borderWidth: activo ? 2 : 1, cursor: isAdmin ? 'pointer' : 'default' }}
       className={`bg-white rounded-lg border border-slate-200 p-3 ${isAdmin ? 'transition-shadow hover:shadow-sm' : ''}`}
     >
-      <div className={`flex items-center justify-between gap-2 ${tipos.length ? 'mb-2' : ''}`}>
+      <div className={`flex items-center justify-between gap-2 ${estados.length ? 'mb-2' : ''}`}>
         <div className="flex items-center gap-2 min-w-0">
           <span style={{ background: col }} className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-white text-[11px] font-bold flex-shrink-0">
             {inicialesUsuario(nombre, email)}
@@ -547,27 +556,30 @@ function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
           <div className="min-w-0">
             <p className="text-sm font-semibold truncate">{nombre || email || 'Tú'}</p>
             <p className="text-xs text-slate-400">
-              en trabajo
+              vigentes
+              {(c.vencidas ?? 0) > 0 && (
+                <span> · <span className="text-amber-500">{c.vencidas} vencida{c.vencidas !== 1 ? 's' : ''}</span></span>
+              )}
               {(c.descartadas ?? 0) > 0 && (
-                <span className="text-slate-400"> · <span className="text-rose-400">{c.descartadas} descartada{c.descartadas !== 1 ? 's' : ''}</span></span>
+                <span> · <span className="text-rose-400">{c.descartadas} descartada{c.descartadas !== 1 ? 's' : ''}</span></span>
               )}
             </p>
           </div>
         </div>
         <span style={{ color: col }} className="text-2xl font-black tabular-nums flex-shrink-0 leading-none">{c.total}</span>
       </div>
-      {tipos.length > 0 && (
+      {estados.length > 0 && (
         <>
           <div className="flex h-2 rounded overflow-hidden">
-            {tipos.map(([t, n]) => (
-              <div key={t} style={{ width: `${(n / c.total) * 100}%`, background: getTipoLicitacion(t)?.color || '#94a3b8' }} />
+            {estados.map(({ id, n }) => (
+              <div key={id} style={{ width: `${(n / c.total) * 100}%`, background: colorEstado(id) }} />
             ))}
           </div>
           <div className="flex flex-wrap gap-2 mt-1.5">
-            {tipos.slice(0, 6).map(([t, n]) => (
-              <span key={t} className="inline-flex items-center gap-1 text-[10.5px] text-gray-600">
-                <span style={{ background: getTipoLicitacion(t)?.color || '#94a3b8' }} className="w-2 h-2 rounded-sm flex-shrink-0" />
-                <strong>{t}</strong> {n}
+            {estados.slice(0, 6).map(({ id, n, cfg }) => (
+              <span key={id} className="inline-flex items-center gap-1 text-[10.5px] text-gray-600">
+                <span style={{ background: colorEstado(id) }} className="w-2 h-2 rounded-sm flex-shrink-0" />
+                <strong>{cfg?.label || id}</strong> {n}
               </span>
             ))}
           </div>
@@ -1125,10 +1137,16 @@ function NegociosContent() {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState<string | null>(null);
   const [search, setSearch]         = useState('');
-  const [filtroUsuario, setFiltroUsuario] = useState('');
+  // Filtro por perfil/usuario: SELECCIÓN MÚLTIPLE por email (cliente). El admin carga todos
+  // los negocios y filtra aquí, así compone con el resto de filtros y con el exportador.
+  const [filtroUsuarios, setFiltroUsuarios] = useState<string[]>([]);
   const [filtroEtiqueta, setFiltroEtiqueta] = useState<string[]>([]);
   const [filtroTipo, setFiltroTipo]         = useState<string[]>([]);
   const [filtroEstado, setFiltroEstado]     = useState<string[]>([]);
+  const [filtroRegion, setFiltroRegion]     = useState<string[]>([]);
+  // Rango por FECHA DE CIERRE (YYYY-MM-DD; '' = sin límite).
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [showModal, setShowModal]       = useState(false);
   const [vista, setVista]               = useState<'lista' | 'calendario' | 'semana'>('semana');
   const [carga, setCarga]               = useState<Carga[]>([]);
@@ -1136,6 +1154,7 @@ function NegociosContent() {
   const [negocioModal, setNegocioModal] = useState<Negocio | null>(null);
   const [yaActualizado, setYaActualizado] = useState(false);
   const [filtrosOpen, setFiltrosOpen]   = useState(false);
+  const [exportando, setExportando]     = useState(false);
   // Hidratado = ya restauramos los filtros guardados; evita persistir el default antes.
   const [hidratado, setHidratado]       = useState(false);
 
@@ -1146,10 +1165,13 @@ function NegociosContent() {
       if (raw) {
         const f = JSON.parse(raw);
         if (typeof f.search === 'string')        setSearch(f.search);
-        if (typeof f.filtroUsuario === 'string') setFiltroUsuario(f.filtroUsuario);
+        if (Array.isArray(f.filtroUsuarios)) setFiltroUsuarios(f.filtroUsuarios.map(String));
         if (Array.isArray(f.filtroEtiqueta)) setFiltroEtiqueta(f.filtroEtiqueta.map(String));
         if (Array.isArray(f.filtroTipo))     setFiltroTipo(f.filtroTipo.map(String));
         if (Array.isArray(f.filtroEstado))   setFiltroEstado(f.filtroEstado.map(String));
+        if (Array.isArray(f.filtroRegion))   setFiltroRegion(f.filtroRegion.map(String));
+        if (typeof f.filtroFechaDesde === 'string') setFiltroFechaDesde(f.filtroFechaDesde);
+        if (typeof f.filtroFechaHasta === 'string') setFiltroFechaHasta(f.filtroFechaHasta);
         if (f.vista === 'lista' || f.vista === 'calendario' || f.vista === 'semana') setVista(f.vista);
       }
     } catch { /* sin persistencia */ }
@@ -1160,17 +1182,18 @@ function NegociosContent() {
   useEffect(() => {
     if (!hidratado) return;
     try {
-      sessionStorage.setItem(SS_NEG_FILTROS, JSON.stringify({ search, filtroUsuario, filtroEtiqueta, filtroTipo, filtroEstado, vista }));
+      sessionStorage.setItem(SS_NEG_FILTROS, JSON.stringify({ search, filtroUsuarios, filtroEtiqueta, filtroTipo, filtroEstado, filtroRegion, filtroFechaDesde, filtroFechaHasta, vista }));
     } catch { /* cuota llena */ }
-  }, [hidratado, search, filtroUsuario, filtroEtiqueta, filtroTipo, filtroEstado, vista]);
+  }, [hidratado, search, filtroUsuarios, filtroEtiqueta, filtroTipo, filtroEstado, filtroRegion, filtroFechaDesde, filtroFechaHasta, vista]);
 
   const cargar = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const url = filtroUsuario ? `/api/negocios?usuarioId=${filtroUsuario}` : '/api/negocios';
+      // Se cargan TODOS los negocios visibles según el rol (admin = todos); el filtro por
+      // perfil es en cliente (multi-select) para que componga con el resto de filtros.
       const [negRes, etRes] = await Promise.all([
-        fetch(url),
+        fetch('/api/negocios'),
         fetch('/api/etiquetas'),
       ]);
       const negData = await negRes.json();
@@ -1186,7 +1209,7 @@ function NegociosContent() {
       setLoading(false);
       setYaActualizado(true);
     }
-  }, [filtroUsuario]);
+  }, []);
 
   // Solo cargar DESPUÉS de restaurar los filtros guardados. Si no, al montar se dispara
   // una carga con el filtro vacío (todos) y otra con el filtro restaurado (filtrados): la
@@ -1224,15 +1247,87 @@ function NegociosContent() {
       const tipoDelCodigo = extractTipoFromCodigo(n.licitacion_codigo || '');
       const matchTipo = filtroTipo.length === 0 || filtroTipo.includes(tipoDelCodigo);
       const matchEstado = filtroEstado.length === 0 || filtroEstado.includes(n.estado_pipeline || 'ASIGNADO');
-      return matchSearch && matchEt && matchTipo && matchEstado;
+      const matchUsuario = filtroUsuarios.length === 0 || (!!n.usuario_email && filtroUsuarios.includes(n.usuario_email));
+      const matchRegion = filtroRegion.length === 0 || (!!n.licitacion_region && filtroRegion.includes(n.licitacion_region));
+      // Rango por fecha de cierre (inclusive). Sin cierre → se excluye si hay filtro de fecha.
+      const cierre = n.licitacion_cierre ? dayjs(n.licitacion_cierre) : null;
+      const matchDesde = !filtroFechaDesde || (!!cierre && !cierre.isBefore(dayjs(filtroFechaDesde), 'day'));
+      const matchHasta = !filtroFechaHasta || (!!cierre && !cierre.isAfter(dayjs(filtroFechaHasta), 'day'));
+      return matchSearch && matchEt && matchTipo && matchEstado && matchUsuario && matchRegion && matchDesde && matchHasta;
     });
-  }, [negocios, search, filtroEtiqueta, filtroTipo, filtroEstado]);
+  }, [negocios, search, filtroEtiqueta, filtroTipo, filtroEstado, filtroUsuarios, filtroRegion, filtroFechaDesde, filtroFechaHasta]);
+
+  // VIGENTES: para el calendario/semana solo interesan las que siguen "vivas": cierre no
+  // vencido y sin resolver (fuera descartadas, postuladas, adjudicadas y ya vencidas).
+  const negociosVigentes = useMemo(() => {
+    const ahora = Date.now();
+    return negociosFiltrados.filter(n => {
+      const estado = n.estado_pipeline || 'ASIGNADO';
+      if (RESUELTOS_NEGOCIO.has(estado)) return false;
+      const cierreMs = n.licitacion_cierre ? new Date(n.licitacion_cierre).getTime() : NaN;
+      if (!Number.isNaN(cierreMs) && cierreMs < ahora) return false; // vencida
+      return true;
+    });
+  }, [negociosFiltrados]);
+
+  // ── Exportar Excel ────────────────────────────────────────────────────────────
+  // Exporta la VISTA ACTUAL (negociosFiltrados: respeta búsqueda y filtros activos), una
+  // fila por licitación. Incluye el estado EFECTIVO de MP (Publicada vencida → Cerrada).
+  const exportarExcel = async () => {
+    if (exportando) return;
+    if (negociosFiltrados.length === 0) {
+      toast.error('No hay licitaciones para exportar', 'Ajusta o limpia los filtros e inténtalo de nuevo.');
+      return;
+    }
+    setExportando(true);
+    try {
+      const XLSX = await import('xlsx');
+      const filas = negociosFiltrados.map(n => ({
+        'Código':            n.licitacion_codigo,
+        'Nombre':            n.licitacion_nombre || '',
+        'Organismo':         n.licitacion_organismo || '',
+        'Tipo':              extractTipoFromCodigo(n.licitacion_codigo || '') || '',
+        'Estado MP':         estadoEfectivoNombre(n.licitacion_estado, n.licitacion_cierre) || '',
+        'Estado gestión':    getEstadoPipeline(n.estado_pipeline || 'ASIGNADO')?.label || n.estado_pipeline || '',
+        'Monto (CLP)':       n.licitacion_monto ?? '',
+        'Monto ofertado':    n.monto_ofertado ?? '',
+        'Cierre':            n.licitacion_cierre ? new Date(n.licitacion_cierre).toLocaleString('es-CL') : '',
+        'Región':            n.licitacion_region || '',
+        'Líneas de negocio': (n.etiquetas || []).map(e => e.nombre).join(', '),
+        'Asignada a':        n.usuario_nombre || n.usuario_email || '',
+        'URL':               `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(n.licitacion_codigo)}`,
+      }));
+      const ws = XLSX.utils.json_to_sheet(filas);
+      ws['!cols'] = [
+        { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 }, { wch: 12 },
+        { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 20 },
+        { wch: 28 }, { wch: 22 }, { wch: 60 },
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Negocios');
+      const hoy = new Date().toLocaleDateString('es-CL').replace(/\//g, '-');
+      XLSX.writeFile(wb, `negocios-${hoy}.xlsx`);
+      toast.success(`Exportadas ${filas.length} licitación${filas.length !== 1 ? 'es' : ''}`, 'Se descargó el Excel con los filtros actuales.');
+    } catch (e) {
+      console.error('[negocios] exportar Excel falló:', e);
+      toast.error('No se pudo exportar el Excel', String((e as any)?.message || e));
+    } finally {
+      setExportando(false);
+    }
+  };
 
   // Tipos presentes (para el select de filtro), en orden canónico.
   const tiposPresentes = useMemo(() => {
     const s = new Set<string>();
     for (const n of negocios) { const t = extractTipoFromCodigo(n.licitacion_codigo || ''); if (t) s.add(t); }
     return TIPOS_FILTRO.filter(t => s.has(t));
+  }, [negocios]);
+
+  // Regiones presentes (para el filtro múltiple de región).
+  const regionesPresentes = useMemo(() => {
+    const s = new Set<string>();
+    for (const n of negocios) { if (n.licitacion_region) s.add(n.licitacion_region); }
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'es'));
   }, [negocios]);
 
   const ESTADO_COLOR: Record<string, string> = {
@@ -1273,6 +1368,15 @@ function NegociosContent() {
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
               {loading ? 'Cargando…' : yaActualizado ? 'Actualizado ✓' : 'Actualizar'}
             </button>
+            <button
+              onClick={exportarExcel}
+              disabled={exportando}
+              title="Exportar a Excel las licitaciones con los filtros actuales"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              Exportar
+            </button>
             {isAdmin && (
               <button
                 onClick={() => setShowModal(true)}
@@ -1291,19 +1395,20 @@ function NegociosContent() {
               <span className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
                 {isAdmin ? 'Carga de trabajo por perfil' : 'Tu carga de trabajo'}
               </span>
-              {isAdmin && filtroUsuario && (
-                <button onClick={() => setFiltroUsuario('')} className="text-xs text-indigo-600 hover:underline font-semibold">Ver todos</button>
+              {isAdmin && filtroUsuarios.length > 0 && (
+                <button onClick={() => setFiltroUsuarios([])} className="text-xs text-indigo-600 hover:underline font-semibold">Ver todos</button>
               )}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {carga.map(c => {
                 const nombre = c.nombre || (c.usuario_id === usuario?.id ? usuario?.nombre : null) || null;
                 const email  = c.email  || (c.usuario_id === usuario?.id ? usuario?.email  : null) || null;
+                const activo = !!email && filtroUsuarios.includes(email);
                 return (
                   <CargaCard
                     key={c.usuario_id} c={c} nombre={nombre} email={email}
-                    activo={String(c.usuario_id) === filtroUsuario} isAdmin={isAdmin}
-                    onClick={() => setFiltroUsuario(String(c.usuario_id) === filtroUsuario ? '' : String(c.usuario_id))}
+                    activo={activo} isAdmin={isAdmin}
+                    onClick={() => { if (!email) return; setFiltroUsuarios(prev => prev.includes(email) ? prev.filter(x => x !== email) : [...prev, email]); }}
                   />
                 );
               })}
@@ -1335,9 +1440,9 @@ function NegociosContent() {
 
             {/* Filtros toggle + limpiar */}
             <div className="flex items-center gap-2">
-              {(search || filtroUsuario || filtroEtiqueta.length || filtroTipo.length || filtroEstado.length) ? (
+              {(search || filtroUsuarios.length || filtroEtiqueta.length || filtroTipo.length || filtroEstado.length || filtroRegion.length || filtroFechaDesde || filtroFechaHasta) ? (
                 <button
-                  onClick={() => { setSearch(''); setFiltroUsuario(''); setFiltroEtiqueta([]); setFiltroTipo([]); setFiltroEstado([]); }}
+                  onClick={() => { setSearch(''); setFiltroUsuarios([]); setFiltroEtiqueta([]); setFiltroTipo([]); setFiltroEstado([]); setFiltroRegion([]); setFiltroFechaDesde(''); setFiltroFechaHasta(''); }}
                   className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-red-50 text-red-600 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
                 >
                   <X size={12} /> Limpiar filtros
@@ -1368,11 +1473,12 @@ function NegociosContent() {
                 />
               </div>
               {isAdmin && usuarios.length > 0 && (
-                <select value={filtroUsuario} onChange={e => setFiltroUsuario(e.target.value)}
-                  className="px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
-                  <option value="">Todos los usuarios</option>
-                  {usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre || u.email}</option>)}
-                </select>
+                <MultiSelect
+                  label={filtroUsuarios.length ? 'Perfiles' : 'Todos los perfiles'}
+                  options={usuarios.map(u => ({ value: u.email, label: u.nombre || u.email }))}
+                  selected={filtroUsuarios}
+                  onChange={setFiltroUsuarios}
+                />
               )}
               {etiquetas.length > 0 && (
                 <MultiSelect
@@ -1394,6 +1500,30 @@ function NegociosContent() {
                 selected={filtroEstado}
                 onChange={setFiltroEstado}
               />
+              {regionesPresentes.length > 0 && (
+                <MultiSelect
+                  label={filtroRegion.length ? 'Regiones' : 'Todas las regiones'}
+                  options={regionesPresentes.map(r => ({ value: r, label: r }))}
+                  selected={filtroRegion}
+                  onChange={setFiltroRegion}
+                />
+              )}
+              {/* Rango por fecha de cierre */}
+              <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1">
+                <Calendar size={13} className="text-slate-400 flex-shrink-0" />
+                <span className="text-[11px] font-semibold text-slate-500">Cierre</span>
+                <input type="date" value={filtroFechaDesde} onChange={e => setFiltroFechaDesde(e.target.value)}
+                  max={filtroFechaHasta || undefined}
+                  className="text-[12px] text-slate-700 bg-transparent outline-none w-[118px]" title="Cierre desde" />
+                <span className="text-slate-300">–</span>
+                <input type="date" value={filtroFechaHasta} onChange={e => setFiltroFechaHasta(e.target.value)}
+                  min={filtroFechaDesde || undefined}
+                  className="text-[12px] text-slate-700 bg-transparent outline-none w-[118px]" title="Cierre hasta" />
+                {(filtroFechaDesde || filtroFechaHasta) && (
+                  <button onClick={() => { setFiltroFechaDesde(''); setFiltroFechaHasta(''); }}
+                    title="Quitar rango de fecha" className="text-slate-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -1422,11 +1552,11 @@ function NegociosContent() {
               </p>
             </div>
           ) : vista === 'semana' ? (
-            /* ── Vista calendario semanal ── */
-            <VistaSemana negocios={negociosFiltrados} onAbrirNegocio={setNegocioModal} />
+            /* ── Vista calendario semanal (solo vigentes) ── */
+            <VistaSemana negocios={negociosVigentes} onAbrirNegocio={setNegocioModal} />
           ) : vista === 'calendario' ? (
-            /* ── Vista calendario mensual ── */
-            <VistaCalendario negocios={negociosFiltrados} onAbrirDia={setDiaSel} />
+            /* ── Vista calendario mensual (solo vigentes) ── */
+            <VistaCalendario negocios={negociosVigentes} onAbrirDia={setDiaSel} />
           ) : (
             <div className="space-y-1.5">
               {negociosFiltrados.map(neg => (

@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
-  Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2,
+  Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
 } from 'lucide-react';
 import { IcaLogoIcon } from '@/app/components/IcaLogo';
 import { useSession } from '@/app/lib/session-context';
@@ -35,6 +35,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard size={17} />, exact: true },
       { label: 'Negocios',  href: '/negocios',  icon: <Briefcase size={17} /> },
       { label: 'Postuladas', href: '/postuladas', icon: <Send size={17} /> },
+      { label: 'Adjudicadas', href: '/adjudicadas', icon: <Trophy size={17} /> },
     ],
   },
   {

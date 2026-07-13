@@ -86,7 +86,16 @@ export function combinarCookies(previas: string, nuevas: string): string {
  * a mano, acumulando cookies en cada salto: la SessionId resultante es la que
  * después necesita el POST de descarga.
  */
-export async function listarAdjuntos(codigo: string): Promise<FichaAdjuntos> {
+/**
+ * Baja el HTML de la ficha pública de MP siguiendo el 302 `?idlicitacion=` → `?qs=` a mano
+ * (para conservar el ASP.NET_SessionId). Devuelve el HTML final + cookies + URL final (que
+ * sirve de Referer y base relativa). Requiere IP chilena (WAF de MP).
+ *
+ * Se separó de listarAdjuntos() para reutilizar EXACTAMENTE el mismo "entrar al portal" en
+ * la detección de apertura (app/lib/mp-apertura.ts) sin duplicar la lógica de redirect/cookies
+ * ni tocar el flujo de descarga.
+ */
+export async function obtenerFichaHTML(codigo: string): Promise<{ html: string; cookies: string; referer: string }> {
   const inicial = `${MP_BASE}/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(codigo)}`;
 
   let cookies = '';
@@ -125,8 +134,12 @@ export async function listarAdjuntos(codigo: string): Promise<FichaAdjuntos> {
     break;
   }
 
-  // `url` quedó apuntando a la ficha final (?qs=...): sirve de Referer y base relativa.
-  return { cookies, referer: url, adjuntos: extraerLinksAdjuntos(html, url) };
+  return { html, cookies, referer: url };
+}
+
+export async function listarAdjuntos(codigo: string): Promise<FichaAdjuntos> {
+  const { html, cookies, referer } = await obtenerFichaHTML(codigo);
+  return { cookies, referer, adjuntos: extraerLinksAdjuntos(html, referer) };
 }
 
 /**

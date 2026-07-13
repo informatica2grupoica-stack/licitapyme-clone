@@ -15,7 +15,7 @@
 // Roles: cada perfil ve SOLO sus postuladas; el admin ve TODAS y puede filtrarlas por
 // perfil, empresa y resultado. El filtrado por rol lo hace /api/negocios.
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
@@ -27,7 +27,7 @@ import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
   Pencil, Trash2, Undo2, X, Save, Wallet, CheckCircle2,
-  XCircle, Hourglass,
+  XCircle, Hourglass, DoorOpen, DoorClosed,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -49,6 +49,8 @@ interface Negocio {
   empresa_nombre?: string | null;
   usuario_nombre?: string;
   usuario_email?: string;
+  aperturada?: number;                 // 1 si el poller del portal ya detectó la apertura
+  apertura_detectada_en?: string | null;
 }
 interface EmpresaOpc { id: number; razon_social: string; }
 interface DocCache { documento_nombre: string; documento_url_local: string; categoria: string | null; }
@@ -114,19 +116,6 @@ const META: Record<Resultado, {
   },
 };
 
-// Ejecuta `fn` sobre `items` con un tope de concurrencia (no golpear MP en ráfaga).
-async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>, onDone?: (x: T, r: R) => void) {
-  let i = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (i < items.length) {
-      const idx = i++;
-      const r = await fn(items[idx]);
-      onDone?.(items[idx], r);
-    }
-  });
-  await Promise.all(workers);
-}
-
 // ── Badge de resultado (con animación) ────────────────────────────────────────
 function ResultadoBadge({ r, pulso }: { r: Resultado; pulso?: boolean }) {
   const m = META[r];
@@ -138,6 +127,23 @@ function ResultadoBadge({ r, pulso }: { r: Resultado; pulso?: boolean }) {
     >
       {pulso && <span className="pp-pulse" style={{ background: m.color }} />}
       <Icon size={11} /> {m.label}
+    </span>
+  );
+}
+
+// ── Chip de apertura (detectado leyendo el portal de MP) ──────────────────────
+// Verde "Aperturada" cuando el poster ya vio el acto de apertura; gris "Sin apertura"
+// mientras no. El estado lo trae /api/negocios desde la tabla licitacion_apertura.
+function AperturaChip({ aperturada }: { aperturada: boolean }) {
+  return aperturada ? (
+    <span className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-bold border bg-sky-50 text-sky-700 border-sky-200"
+      title="Mercado Público ya realizó el acto de apertura de esta licitación">
+      <DoorOpen size={11} /> Aperturada
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-medium border bg-slate-100 text-slate-400 border-slate-200"
+      title="Aún sin acto de apertura en Mercado Público">
+      <DoorClosed size={11} /> Sin apertura
     </span>
   );
 }
@@ -334,8 +340,7 @@ function PostuladaCard({ n, adj, cargandoAdj, index, isAdmin, empresas, onRevert
 
   return (
     <div
-      className="pp-card group relative bg-white border border-slate-200 rounded-2xl p-4 pl-5 overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
-      style={{ animationDelay: `${Math.min(index, 12) * 45}ms` }}
+      className="group relative bg-white border border-slate-200 rounded-2xl p-4 pl-5 overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
     >
       {/* Barra de color por resultado */}
       <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: m.color }} />
@@ -344,9 +349,8 @@ function PostuladaCard({ n, adj, cargandoAdj, index, isAdmin, empresas, onRevert
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="text-[11px] font-mono font-semibold text-slate-500">{n.licitacion_codigo}</span>
-            {cargandoAdj
-              ? <span className="pp-shimmer inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-semibold text-slate-400 bg-slate-100 border border-slate-200"><Loader2 size={10} className="animate-spin" /> Consultando…</span>
-              : <ResultadoBadge r={r} pulso={r === 'ganada'} />}
+            {!cargandoAdj && <ResultadoBadge r={r} pulso={r === 'ganada'} />}
+            <AperturaChip aperturada={!!n.aperturada} />
             {isAdmin && (n.usuario_nombre || n.usuario_email) && (
               <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-medium">
                 <span style={{ background: perfilCol }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
@@ -509,11 +513,11 @@ export default function PostuladasPage() {
   const [empresaSel, setEmpresaSel] = useState<string>('');
   const [resultadoSel, setResultadoSel] = useState<Resultado | ''>('');
 
-  // Adjudicación por código (se consulta a MP en paralelo, con tope de concurrencia).
+  // Estado de cada postulada (adjudicación + apertura). Se resuelve TODO en el servidor en
+  // una sola llamada (/api/postuladas/estado) → los totales aparecen juntos, sin animación
+  // "una por una". adjMap por código; la apertura se refleja en cada negocio (n.aperturada).
   const [adjMap, setAdjMap] = useState<Record<string, Adjudicacion | null>>({});
-  const [resueltos, setResueltos] = useState<Set<string>>(new Set());
-  const [progreso, setProgreso] = useState(0);
-  const pedidos = useRef<Set<string>>(new Set());
+  const [estadoCargado, setEstadoCargado] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -537,27 +541,25 @@ export default function PostuladasPage() {
     }).catch(() => {});
   }, []);
 
-  // Cruce con MP: para cada código único aún no pedido, consultar adjudicación.
+  // Cruce con MP en UNA sola llamada al servidor (adjudicación cache-first + apertura).
   useEffect(() => {
-    const codigos = Array.from(new Set(negocios.map(n => n.licitacion_codigo).filter(Boolean)))
-      .filter(c => !pedidos.current.has(c));
-    if (!codigos.length) return;
-    codigos.forEach(c => pedidos.current.add(c));
-
-    mapLimit(codigos, 6, async (codigo) => {
+    if (negocios.length === 0) return;
+    let cancelado = false;
+    (async () => {
       try {
-        const r = await fetch(`/api/licitacion-adjudicacion/${encodeURIComponent(codigo)}`);
-        return r.ok ? (await r.json()) as Adjudicacion : null;
-      } catch { return null; }
-    }, (codigo, data) => {
-      setAdjMap(prev => ({ ...prev, [codigo]: data }));
-      setResueltos(prev => { const s = new Set(prev); s.add(codigo); return s; });
-      setProgreso(p => p + 1);
-    });
-  }, [negocios]);
-
-  const totalCodigos = useMemo(() => new Set(negocios.map(n => n.licitacion_codigo)).size, [negocios]);
-  const consultando = negocios.length > 0 && progreso < totalCodigos;
+        const r = await fetch('/api/postuladas/estado');
+        const d = await r.json();
+        if (cancelado) return;
+        if (d?.estados) {
+          setAdjMap(d.estados);
+          // Reflejar el estado de apertura en cada tarjeta (chip Aperturada / Sin apertura).
+          setNegocios(prev => prev.map(n => ({ ...n, aperturada: d.estados[n.licitacion_codigo]?.aperturada ? 1 : 0 })));
+        }
+      } catch { /* si falla, se muestran los negocios sin cruce */ }
+      finally { if (!cancelado) setEstadoCargado(true); }
+    })();
+    return () => { cancelado = true; };
+  }, [negocios.length]);
 
   // Perfiles presentes (filtro admin).
   const perfiles = useMemo(() => {
@@ -662,9 +664,9 @@ export default function PostuladasPage() {
               {cargando
                 ? 'Cargando…'
                 : `${base.length} oferta${base.length !== 1 ? 's' : ''} presentada${base.length !== 1 ? 's' : ''}`}
-              {consultando && (
+              {!cargando && !estadoCargado && base.length > 0 && (
                 <span className="inline-flex items-center gap-1 text-[12px] text-slate-400">
-                  <Loader2 size={12} className="animate-spin" /> consultando resultados en Mercado Público… ({progreso}/{totalCodigos})
+                  <Loader2 size={12} className="animate-spin" /> resolviendo resultados…
                 </span>
               )}
             </p>
@@ -783,7 +785,7 @@ export default function PostuladasPage() {
             {visibles.map((n, i) => (
               <PostuladaCard key={n.id} n={n}
                 adj={adjMap[n.licitacion_codigo] ?? null}
-                cargandoAdj={!resueltos.has(n.licitacion_codigo)}
+                cargandoAdj={!estadoCargado}
                 index={i} isAdmin={!!isAdmin} empresas={empresasOpc}
                 onRevertida={id => setNegocios(prev => prev.filter(x => x.id !== id))}
                 onActualizada={(id, patch) => setNegocios(prev =>

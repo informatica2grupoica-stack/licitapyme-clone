@@ -186,8 +186,6 @@ function CajaDroppable({
   subiendo: string | null; // key de la caja que está subiendo un archivo
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const estaSubiendo = subiendo === caja.key;
 
   return (
     <div
@@ -207,25 +205,8 @@ function CajaDroppable({
         <span className="flex-1 text-[11.5px] font-bold text-slate-700 truncate">
           {caja.label}
         </span>
-        <input
-          ref={fileInputRef}
-          type="file"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onUpload(f, caja.key);
-            e.target.value = ''; // permite volver a subir el mismo archivo
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={estaSubiendo}
-          title={`Subir documento propio a "${caja.label}"`}
-          className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50"
-        >
-          {estaSubiendo ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
-        </button>
+        {/* La subida de archivos propios ya NO va por caja: solo se sube a "Documentos para MP"
+            (apartado Documentos Propios). Aquí solo se reorganizan por arrastre los docs bajados. */}
         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${caja.colorCount}`}>
           {docs.length}
         </span>
@@ -603,7 +584,9 @@ function DocumentosPropiosList({ docs, codigoDecoded, onView, onRefrescar }: {
   const [editando, setEditando] = useState<string | null>(null);
   const [valorNombre, setValorNombre] = useState('');
   const [ocupado, setOcupado] = useState<string | null>(null);
+  const [subiendoNuevo, setSubiendoNuevo] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const nuevoRef = useRef<HTMLInputElement>(null);
   const docReemplazarRef = useRef<(DocumentoAdjunto & { categoria?: string }) | null>(null);
 
   const urlDe = (d: DocumentoAdjunto & { categoria?: string }) => (d as any).url_local || (d as any).url;
@@ -659,11 +642,51 @@ function DocumentosPropiosList({ docs, codigoDecoded, onView, onRefrescar }: {
     } catch { toast.error('No se pudo reemplazar el documento'); } finally { setOcupado(null); }
   };
 
-  if (docs.length === 0) return <p className="text-[12px] text-slate-400 py-2">Aún no hay documentos propios. El costeo y el informe técnico aparecerán aquí al analizar.</p>;
+  // Sube un documento NUEVO a "Documentos para MP" (categoría DOCUMENTOS_PROPIOS).
+  // Presign → PUT directo a R2 → guardar en documentos_cache. Este es el ÚNICO punto de
+  // subida de archivos propios (ya no se sube por caja en las bases de la licitación).
+  const subirNuevo = async (file: File) => {
+    if (file.size > 100 * 1024 * 1024) { toast.error('El archivo supera los 100 MB.'); return; }
+    setSubiendoNuevo(file.name);
+    try {
+      const pres = await fetch('/api/documentos/presign', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licitacionCodigo: codigoDecoded, filename: file.name, contentType: file.type || 'application/octet-stream', size: file.size }),
+      });
+      const p = await pres.json();
+      if (!pres.ok || !p.uploadUrl) throw new Error(p.error || 'presign');
+      const put = await fetch(p.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+      if (!put.ok) throw new Error('put');
+      const save = await fetch('/api/documentos/guardar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ licitacionCodigo: codigoDecoded, documentoNombre: file.name, url: p.publicUrl, size: file.size, categoria: 'DOCUMENTOS_PROPIOS' }),
+      });
+      if (!save.ok) throw new Error('save');
+      toast.success('Documento subido a «Documentos para MP»'); onRefrescar();
+    } catch { toast.error('No se pudo subir el documento'); } finally { setSubiendoNuevo(null); }
+  };
 
   return (
     <>
       <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onPickReemplazo(f); e.target.value = ''; }} />
+      <input ref={nuevoRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) subirNuevo(f); e.target.value = ''; }} />
+
+      {/* Botón único de subida: Documentos para MP */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-[11.5px] text-slate-400">Archivos que <strong className="text-slate-500">presentarás a Mercado Público</strong> (se guardan aquí).</p>
+        <button
+          type="button"
+          onClick={() => nuevoRef.current?.click()}
+          disabled={!!subiendoNuevo}
+          className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
+        >
+          {subiendoNuevo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Documentos para MP
+        </button>
+      </div>
+
+      {docs.length === 0 && (
+        <p className="text-[12px] text-slate-400 py-2">Aún no hay documentos. Sube los que presentarás a Mercado Público con el botón «Documentos para MP».</p>
+      )}
       <ul className="divide-y divide-slate-100">
         {docs.map(doc => {
           const enEdicion = editando === doc.nombre;
@@ -993,30 +1016,27 @@ export function DocumentosSection({
         )}
       </div>
 
-      {/* ── APARTADO DOCUMENTOS PROPIOS ── (lo que NOSOTROS creamos/editamos: costeo, informe, subidas).
-          Separado de "Documentos y Bases" para no mezclar con los documentos de la licitación. */}
-      {docsPropios.length > 0 && (
-        <>
-          <SectionHeader
-            icon={<FileText size={18} />}
-            title="Documentos Propios"
-            subtitle="Costeo, informe y archivos que creamos o editamos de esta licitación"
-            badge={(
-              <span className="px-2 py-0.5 bg-violet-100 text-violet-700 text-xs rounded-full font-semibold">
-                {docsPropios.length}
-              </span>
-            )}
-          />
-          <div className="card p-5">
-            <DocumentosPropiosList
-              docs={docsPropios as (DocumentoAdjunto & { categoria?: string })[]}
-              codigoDecoded={codigoDecoded}
-              onView={setVisorDoc}
-              onRefrescar={fetchDocumentos}
-            />
-          </div>
-        </>
-      )}
+      {/* ── APARTADO DOCUMENTOS PROPIOS / PARA MP ── (lo que NOSOTROS subimos o generamos:
+          costeo, informe y los archivos que presentaremos a Mercado Público). Siempre visible:
+          es el ÚNICO lugar para subir archivos propios (botón "Documentos para MP"). */}
+      <SectionHeader
+        icon={<FileText size={18} />}
+        title="Documentos para MP"
+        subtitle="Archivos que presentarás a Mercado Público (más costeo e informe generados)"
+        badge={docsPropios.length > 0 ? (
+          <span className="px-2 py-0.5 bg-violet-100 text-violet-700 text-xs rounded-full font-semibold">
+            {docsPropios.length}
+          </span>
+        ) : undefined}
+      />
+      <div className="card p-5">
+        <DocumentosPropiosList
+          docs={docsPropios as (DocumentoAdjunto & { categoria?: string })[]}
+          codigoDecoded={codigoDecoded}
+          onView={setVisorDoc}
+          onRefrescar={fetchDocumentos}
+        />
+      </div>
 
       {/* Visor inline de documentos (PDF/imagen/Office) — sin descargar */}
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />

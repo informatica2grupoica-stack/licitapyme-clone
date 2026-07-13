@@ -368,7 +368,7 @@ export default function LicitacionDetallePage() {
   }
 
   // ── Derivados ────────────────────────────────────────────────────────────────
-  const estadoConfig = estadoConfigFor(licitacion.estado);
+  const estadoConfig = estadoConfigFor(licitacion.estado, licitacion.fecha_cierre);
 
   const diasRestantes  = getDiasRestantes(licitacion.fecha_cierre);
   const isFav          = isFavorite(licitacion.codigo);

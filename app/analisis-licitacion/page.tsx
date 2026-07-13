@@ -1,21 +1,28 @@
 'use client';
 
-// Análisis de licitación (SOLO ADMIN): tablero tipo Kanban del pipeline. Las columnas son
-// las etapas (Asignado → En proceso → … → Postulada → Adjudicada) y cada licitación es una
-// tarjeta en la etapa donde está, con el perfil (avatar) responsable. Arriba, KPIs del estado
-// general; y un filtro por perfil. Se nutre de /api/negocios (admin = todos los negocios).
+// Análisis de licitación (SOLO ADMIN): tablero ANALÍTICO por perfil.
+// Se elige UN perfil (o "Todos") y se muestran SUS estadísticas: KPIs, gráficos
+// interactivos (dona por estado, barras por tipo, evolución mensual, top organismos,
+// tasa de adjudicación) y, aparte, la LISTA de sus licitaciones. Se nutre de
+// /api/negocios (admin = todos los negocios).
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Activity, Loader2, RefreshCw, Building2, Calendar, MessageSquare,
-  DollarSign, Send, Clock, Layers, Users,
+  Activity, Loader2, RefreshCw, Building2, Calendar, DollarSign, Send, Clock,
+  Layers, Users, Trophy, Ban, Briefcase, TrendingUp, Target, ChevronRight, ExternalLink,
 } from 'lucide-react';
+import {
+  ResponsiveContainer, PieChart, Pie, Cell, Tooltip as RTooltip, BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, AreaChart, Area, RadialBarChart, RadialBar,
+} from 'recharts';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
+import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licitacion';
+import { cierreVencido } from '@/app/lib/estado-mp';
 
 interface Negocio {
   id: number;
@@ -24,17 +31,23 @@ interface Negocio {
   licitacion_organismo: string | null;
   licitacion_monto: number | null;
   licitacion_cierre: string | null;
+  licitacion_region: string | null;
   monto_ofertado: number | null;
   estado_pipeline: string;
+  created_at: string | null;
   updated_at: string | null;
   usuario_nombre: string | null;
   usuario_email: string | null;
   comentarios_count?: number | null;
 }
 
+const RESUELTOS = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA']);
+const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+
 const fmtMonto = (n: number | null) =>
   n ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n) : '—';
 const fmtMontoCorto = (n: number) => {
+  if (!n) return '$0';
   if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(1)}MM`;
   if (n >= 1_000_000) return `$${Math.round(n / 1_000_000)}M`;
   if (n >= 1_000) return `$${Math.round(n / 1_000)}K`;
@@ -43,19 +56,31 @@ const fmtMontoCorto = (n: number) => {
 const fmtFecha = (s: string | null) => {
   if (!s) return '—';
   const d = new Date(s);
-  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: '2-digit' });
 };
 const diasHasta = (s: string | null): number | null => {
   if (!s) return null;
   const d = new Date(s); if (isNaN(d.getTime())) return null;
   return Math.ceil((d.getTime() - Date.now()) / 86_400_000);
 };
-
-// Orden de columnas del tablero (por LABEL, así los estados legado caen en su columna).
-const BOARD_LABELS = ['ASIGNADO', 'EN PROCESO', 'ANEXOS', 'ANEXO LISTO', 'VISADO', 'POSTULADA', 'POSIBLE ADJ', 'ADJUDICADA', 'PERDIDA', 'DESCARTADA'];
-const colorDeLabel = (label: string) => ESTADOS_PIPELINE.find(e => e.label === label)?.color || '#64748b';
 const labelDe = (estado: string) => getEstadoPipeline(estado)?.label || estado || 'ASIGNADO';
-const TERMINALES = new Set(['DESCARTADA', 'PERDIDA', 'ADJUDICADA']);
+const idDe = (estado: string) => getEstadoPipeline(estado)?.id || estado || 'ASIGNADO';
+
+// ── Tooltip común de los gráficos ─────────────────────────────────────────────
+function ChartTooltip({ active, payload, label, sufijo }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-[12px]">
+      {label != null && <p className="font-semibold text-slate-700 mb-0.5">{label}</p>}
+      {payload.map((p: any, i: number) => (
+        <p key={i} className="text-slate-600 flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-sm" style={{ background: p.color || p.payload?.color }} />
+          <span className="font-bold tabular-nums">{p.value}</span> {sufijo || p.name || ''}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 export default function AnalisisLicitacionPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
@@ -63,7 +88,8 @@ export default function AnalisisLicitacionPage() {
   const [negocios, setNegocios] = useState<Negocio[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [perfil, setPerfil] = useState<string | null>(null); // filtro por email de usuario
+  const [perfil, setPerfil] = useState<string | null>(null);   // email/nombre del perfil o null=Todos
+  const [estadoLista, setEstadoLista] = useState<string | null>(null); // filtro de la lista
 
   const esAdmin = usuario?.rol === 'admin';
 
@@ -83,87 +109,110 @@ export default function AnalisisLicitacionPage() {
   };
   useEffect(() => { if (esAdmin) cargar(); }, [esAdmin]);
 
+  // Perfiles disponibles (para el selector).
+  const perfiles = useMemo(() => {
+    const m = new Map<string, { key: string; nombre: string; email: string | null; total: number }>();
+    for (const n of negocios) {
+      const key = n.usuario_email || n.usuario_nombre || 'sin';
+      const e = m.get(key) || { key, nombre: n.usuario_nombre || n.usuario_email || 'Sin asignar', email: n.usuario_email, total: 0 };
+      e.total++; m.set(key, e);
+    }
+    return [...m.values()].sort((a, b) => b.total - a.total);
+  }, [negocios]);
+
+  // Conjunto visible según el perfil elegido.
   const visibles = useMemo(
     () => negocios.filter(n => perfil == null || (n.usuario_email || n.usuario_nombre) === perfil),
     [negocios, perfil]);
 
-  // KPIs sobre lo visible.
-  const kpis = useMemo(() => {
-    let monto = 0, postuladas = 0, adjudicadas = 0, cierran = 0;
+  // ── Métricas ────────────────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    let vigentes = 0, postuladas = 0, adjudicadas = 0, descartadas = 0, perdidas = 0,
+      enProceso = 0, asignadas = 0, cierran7 = 0, montoOfertado = 0, montoAdjudicado = 0;
+    const porEstadoMap = new Map<string, number>();
+    const porTipoMap = new Map<string, number>();
+    const porMesMap = new Map<string, number>();
+    const porOrgMap = new Map<string, number>();
+
     for (const n of visibles) {
-      monto += n.monto_ofertado || n.licitacion_monto || 0;
-      const label = labelDe(n.estado_pipeline);
-      if (label === 'POSTULADA') postuladas++;
-      if (label === 'ADJUDICADA') adjudicadas++;
+      const id = idDe(n.estado_pipeline);
+      porEstadoMap.set(id, (porEstadoMap.get(id) || 0) + 1);
+
+      if (id === 'ASIGNADO') asignadas++;
+      if (id === 'EN_PROCESO' || id === 'ANEXOS' || id === 'ANEXO_LISTO' || id === 'VISADO') enProceso++;
+      if (id === 'POSTULADA') postuladas++;
+      if (id === 'ADJUDICADA') { adjudicadas++; montoAdjudicado += n.monto_ofertado || n.licitacion_monto || 0; }
+      if (id === 'DESCARTADA') descartadas++;
+      if (id === 'PERDIDA') perdidas++;
+
+      const resuelta = RESUELTOS.has(id);
+      if (!resuelta && !cierreVencido(n.licitacion_cierre)) vigentes++;
+
       const d = diasHasta(n.licitacion_cierre);
-      if (d != null && d >= 0 && d <= 7 && !TERMINALES.has(label)) cierran++;
+      if (d != null && d >= 0 && d <= 7 && !resuelta) cierran7++;
+
+      montoOfertado += n.monto_ofertado || n.licitacion_monto || 0;
+
+      const tipo = extractTipoFromCodigo(n.licitacion_codigo || '') || '—';
+      porTipoMap.set(tipo, (porTipoMap.get(tipo) || 0) + 1);
+
+      if (n.licitacion_cierre) {
+        const dt = new Date(n.licitacion_cierre);
+        if (!isNaN(dt.getTime())) {
+          const k = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+          porMesMap.set(k, (porMesMap.get(k) || 0) + 1);
+        }
+      }
+      if (n.licitacion_organismo) porOrgMap.set(n.licitacion_organismo, (porOrgMap.get(n.licitacion_organismo) || 0) + 1);
     }
-    return { total: visibles.length, monto, postuladas, adjudicadas, cierran };
+
+    const total = visibles.length;
+    // Dona por estado, en orden del pipeline.
+    const porEstado = ESTADOS_PIPELINE
+      .filter(e => (porEstadoMap.get(e.id) || 0) > 0)
+      .map(e => ({ id: e.id, name: e.label, value: porEstadoMap.get(e.id)!, color: e.color, pct: total ? Math.round((porEstadoMap.get(e.id)! / total) * 100) : 0 }));
+
+    const porTipo = [...porTipoMap.entries()]
+      .map(([tipo, value]) => ({ tipo, name: tipo, value, color: getTipoLicitacion(tipo)?.color || '#94a3b8' }))
+      .sort((a, b) => b.value - a.value);
+
+    const porMes = [...porMesMap.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-8)
+      .map(([k, value]) => { const [y, m] = k.split('-'); return { mes: `${MESES[+m - 1]} ${y.slice(2)}`, value }; });
+
+    const topOrg = [...porOrgMap.entries()]
+      .map(([name, value]) => ({ name: name.length > 26 ? name.slice(0, 26) + '…' : name, value }))
+      .sort((a, b) => b.value - a.value).slice(0, 6);
+
+    const tasaAdj = postuladas + adjudicadas > 0 ? Math.round((adjudicadas / (postuladas + adjudicadas)) * 100) : 0;
+
+    return {
+      total, vigentes, asignadas, enProceso, postuladas, adjudicadas, descartadas, perdidas,
+      cierran7, montoOfertado, montoAdjudicado, tasaAdj,
+      porEstado, porTipo, porMes, topOrg,
+    };
   }, [visibles]);
 
-  // Estados presentes en TODO el conjunto (para las columnas del dashboard, estables).
-  const estadosPresentes = useMemo(() => {
-    const s = new Set(negocios.map(n => labelDe(n.estado_pipeline)));
-    return BOARD_LABELS.filter(l => s.has(l));
-  }, [negocios]);
-
-  // Dashboard por perfil: por cada usuario, cuántas licitaciones tiene en cada etapa + total + monto.
-  const matriz = useMemo(() => {
-    const g = new Map<string, { key: string; nombre: string; email: string | null; porEstado: Map<string, number>; total: number; monto: number }>();
-    for (const n of negocios) {
-      const key = n.usuario_email || n.usuario_nombre || 'sin';
-      let e = g.get(key);
-      if (!e) { e = { key, nombre: n.usuario_nombre || n.usuario_email || 'Sin asignar', email: n.usuario_email, porEstado: new Map(), total: 0, monto: 0 }; g.set(key, e); }
-      const label = labelDe(n.estado_pipeline);
-      e.porEstado.set(label, (e.porEstado.get(label) || 0) + 1);
-      e.total++; e.monto += n.monto_ofertado || n.licitacion_monto || 0;
-    }
-    return [...g.values()].sort((a, b) => b.total - a.total);
-  }, [negocios]);
-
-  // Fila de totales del dashboard.
-  const totales = useMemo(() => {
-    const porEstado = new Map<string, number>(); let total = 0, monto = 0;
-    for (const n of negocios) {
-      const l = labelDe(n.estado_pipeline);
-      porEstado.set(l, (porEstado.get(l) || 0) + 1);
-      total++; monto += n.monto_ofertado || n.licitacion_monto || 0;
-    }
-    return { porEstado, total, monto };
-  }, [negocios]);
-
-  // Columnas del tablero: label → negocios. Solo columnas con al menos 1 (o siempre las núcleo).
-  const columnas = useMemo(() => {
-    const g = new Map<string, Negocio[]>();
-    for (const n of visibles) {
-      const label = labelDe(n.estado_pipeline);
-      if (!g.has(label)) g.set(label, []);
-      g.get(label)!.push(n);
-    }
-    // Orden fijo del pipeline; se muestran solo las que tienen negocios.
-    const ordenadas = BOARD_LABELS.filter(l => g.has(l)).map(l => ({ label: l, color: colorDeLabel(l), negocios: g.get(l)! }));
-    // Etiquetas fuera del orden conocido (por si acaso), al final.
-    for (const [l, arr] of g) if (!BOARD_LABELS.includes(l)) ordenadas.push({ label: l, color: '#64748b', negocios: arr });
-    return ordenadas;
-  }, [visibles]);
+  // Lista (respeta el filtro por estado que se elija abajo).
+  const lista = useMemo(() => {
+    const arr = estadoLista ? visibles.filter(n => idDe(n.estado_pipeline) === estadoLista) : visibles;
+    return [...arr].sort((a, b) => {
+      const da = a.licitacion_cierre ? new Date(a.licitacion_cierre).getTime() : Infinity;
+      const db = b.licitacion_cierre ? new Date(b.licitacion_cierre).getTime() : Infinity;
+      return da - db;
+    });
+  }, [visibles, estadoLista]);
 
   if (!cargandoSesion && usuario && !esAdmin) {
     return <AppLayout breadcrumb={[{ label: 'Análisis de licitación' }]}><div className="p-10 text-center text-sm text-slate-500">Redirigiendo…</div></AppLayout>;
   }
 
-  const KPI = ({ icon, label, value, tint }: { icon: React.ReactNode; label: string; value: string; tint: string }) => (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
-      <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${tint}14`, color: tint }}>{icon}</div>
-      <div className="min-w-0">
-        <p className="text-[17px] font-bold text-slate-900 leading-none tabular-nums">{value}</p>
-        <p className="text-[11px] text-slate-400 mt-1 truncate">{label}</p>
-      </div>
-    </div>
-  );
+  const perfilNombre = perfil == null ? 'Todos los perfiles' : (perfiles.find(p => p.key === perfil)?.nombre || perfil);
 
   return (
     <AppLayout breadcrumb={[{ label: 'Análisis de licitación' }]}>
-      <div className="max-w-full space-y-4">
+      <div className="max-w-full space-y-5 pb-8">
         {/* Encabezado */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -172,7 +221,7 @@ export default function AnalisisLicitacionPage() {
             </div>
             <div>
               <h1 className="text-[16px] font-bold text-slate-900">Análisis de licitación</h1>
-              <p className="text-xs text-slate-500">Tablero del pipeline: cada licitación en su etapa</p>
+              <p className="text-xs text-slate-500">Estadísticas y gráficos por perfil</p>
             </div>
           </div>
           <button onClick={cargar} disabled={cargando}
@@ -196,136 +245,232 @@ export default function AnalisisLicitacionPage() {
           </div>
         ) : (
           <>
-            {/* KPIs */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-              <KPI icon={<Layers size={17} />} label="Licitaciones en gestión" value={String(kpis.total)} tint="#4f46e5" />
-              <KPI icon={<DollarSign size={17} />} label="Monto ofertado / estimado" value={fmtMontoCorto(kpis.monto)} tint="#0d9488" />
-              <KPI icon={<Send size={17} />} label="Postuladas" value={String(kpis.postuladas)} tint="#b45309" />
-              <KPI icon={<Clock size={17} />} label="Cierran en ≤ 7 días" value={String(kpis.cierran)} tint={kpis.cierran > 0 ? '#dc2626' : '#64748b'} />
-            </div>
-
-            {/* Dashboard por perfil: cuántas licitaciones tiene cada uno en cada etapa.
-                La fila es clickeable → filtra el tablero por ese perfil. */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100">
+            {/* Selector de perfil */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
+              <div className="flex items-center gap-2 mb-2.5">
                 <Users size={13} className="text-slate-400" />
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Licitaciones por perfil y etapa</span>
-                {perfil != null && (
-                  <button onClick={() => setPerfil(null)}
-                    className="ml-auto text-[11px] font-semibold text-indigo-600 hover:text-indigo-700">Ver todos</button>
-                )}
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Selecciona un perfil</span>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-max">
-                  <thead>
-                    <tr className="text-[10.5px] text-slate-400 uppercase tracking-wide">
-                      <th className="font-semibold px-4 py-2 sticky left-0 bg-white">Perfil</th>
-                      {estadosPresentes.map(l => (
-                        <th key={l} className="font-semibold px-2.5 py-2 text-center whitespace-nowrap">
-                          <span className="inline-flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full" style={{ background: colorDeLabel(l) }} />{l}
-                          </span>
-                        </th>
-                      ))}
-                      <th className="font-bold px-3 py-2 text-center">Total</th>
-                      <th className="font-semibold px-4 py-2 text-right">Monto</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {matriz.map(p => {
-                      const col = colorUsuario(p.email || p.key);
-                      const activo = perfil === p.key;
-                      return (
-                        <tr key={p.key} onClick={() => setPerfil(activo ? null : p.key)}
-                          className={`cursor-pointer transition-colors ${activo ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}>
-                          <td className={`px-4 py-2 sticky left-0 ${activo ? 'bg-indigo-50' : 'bg-white'}`}>
-                            <div className="flex items-center gap-2">
-                              <span className="w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0" style={{ background: col }}>
-                                {inicialesUsuario(p.nombre, p.email)}
-                              </span>
-                              <span className="text-[12.5px] font-semibold text-slate-700 truncate max-w-[140px]">{p.nombre}</span>
-                            </div>
-                          </td>
-                          {estadosPresentes.map(l => {
-                            const c = p.porEstado.get(l) || 0;
-                            return (
-                              <td key={l} className="px-2.5 py-2 text-center">
-                                {c > 0
-                                  ? <span className="inline-flex items-center justify-center min-w-[22px] text-[12px] font-bold tabular-nums px-1.5 py-0.5 rounded-md" style={{ background: `${colorDeLabel(l)}14`, color: colorDeLabel(l) }}>{c}</span>
-                                  : <span className="text-slate-200">·</span>}
-                              </td>
-                            );
-                          })}
-                          <td className="px-3 py-2 text-center text-[13px] font-bold text-slate-900 tabular-nums">{p.total}</td>
-                          <td className="px-4 py-2 text-right text-[12px] font-semibold text-slate-600 tabular-nums whitespace-nowrap">{fmtMontoCorto(p.monto)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t border-slate-200 bg-slate-50/60">
-                      <td className="px-4 py-2 text-[11px] font-bold text-slate-500 uppercase sticky left-0 bg-slate-50/60">Total</td>
-                      {estadosPresentes.map(l => (
-                        <td key={l} className="px-2.5 py-2 text-center text-[12px] font-bold text-slate-700 tabular-nums">{totales.porEstado.get(l) || 0}</td>
-                      ))}
-                      <td className="px-3 py-2 text-center text-[13px] font-extrabold text-slate-900 tabular-nums">{totales.total}</td>
-                      <td className="px-4 py-2 text-right text-[12px] font-bold text-slate-700 tabular-nums whitespace-nowrap">{fmtMontoCorto(totales.monto)}</td>
-                    </tr>
-                  </tfoot>
-                </table>
+              <div className="flex flex-wrap gap-2">
+                <button onClick={() => { setPerfil(null); setEstadoLista(null); }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold border transition-colors ${
+                    perfil === null ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
+                  }`}>
+                  <Layers size={13} /> Todos <span className="opacity-70">({negocios.length})</span>
+                </button>
+                {perfiles.map(p => {
+                  const activo = perfil === p.key;
+                  const col = colorUsuario(p.email || p.key);
+                  return (
+                    <button key={p.key} onClick={() => { setPerfil(activo ? null : p.key); setEstadoLista(null); }}
+                      style={activo ? { backgroundColor: col, borderColor: col } : { borderColor: col + '55' }}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold border transition-colors ${
+                        activo ? 'text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                      }`}>
+                      <span style={{ background: activo ? 'rgba(255,255,255,.3)' : col }}
+                        className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[9px] font-bold">
+                        {inicialesUsuario(p.nombre, p.email)}
+                      </span>
+                      {p.nombre} <span className="opacity-70">({p.total})</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Tablero Kanban */}
-            <div className="overflow-x-auto pb-3 -mx-1 px-1">
-              <div className="flex gap-3 min-w-max">
-                {columnas.map(col => (
-                  <div key={col.label} className="w-[264px] flex-shrink-0 flex flex-col">
-                    {/* Cabecera de columna */}
-                    <div className="flex items-center gap-2 px-1 mb-2 sticky top-0">
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: col.color }} />
-                      <span className="text-[12px] font-bold text-slate-700 uppercase tracking-wide truncate">{col.label}</span>
-                      <span className="ml-auto text-[11px] font-bold text-slate-400 tabular-nums bg-slate-100 px-1.5 py-0.5 rounded-md">{col.negocios.length}</span>
+            {/* Título del scope */}
+            <div className="flex items-center gap-2 text-[13px] text-slate-500">
+              <span className="font-bold text-slate-800">{perfilNombre}</span>
+              <span>·</span>
+              <span>{stats.total} licitación{stats.total !== 1 ? 'es' : ''} en total</span>
+            </div>
+
+            {/* KPIs */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <KPI icon={<Briefcase size={16} />} label="Vigentes" value={String(stats.vigentes)} tint="#4f46e5" sub="en trabajo" />
+              <KPI icon={<Send size={16} />} label="Postuladas" value={String(stats.postuladas)} tint="#b45309" />
+              <KPI icon={<Trophy size={16} />} label="Adjudicadas" value={String(stats.adjudicadas)} tint="#16a34a" />
+              <KPI icon={<Ban size={16} />} label="Descartadas" value={String(stats.descartadas)} tint="#dc2626" />
+              <KPI icon={<Target size={16} />} label="Tasa adjudicación" value={`${stats.tasaAdj}%`} tint="#7c3aed" sub="adj / postuladas" />
+              <KPI icon={<Clock size={16} />} label="Cierran ≤ 7 días" value={String(stats.cierran7)} tint={stats.cierran7 > 0 ? '#dc2626' : '#64748b'} />
+            </div>
+
+            {/* Montos */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="bg-gradient-to-br from-teal-50 to-white rounded-xl border border-teal-100 p-4 flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-teal-100 text-teal-600 flex items-center justify-center flex-shrink-0"><DollarSign size={20} /></div>
+                <div><p className="text-[11px] text-teal-700 font-semibold uppercase tracking-wide">Monto ofertado / estimado</p><p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoOfertado)}</p></div>
+              </div>
+              <div className="bg-gradient-to-br from-emerald-50 to-white rounded-xl border border-emerald-100 p-4 flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0"><Trophy size={20} /></div>
+                <div><p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">Monto adjudicado</p><p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoAdjudicado)}</p></div>
+              </div>
+            </div>
+
+            {/* Gráficos */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Dona por estado */}
+              <ChartCard title="Distribución por estado" icon={<Layers size={13} />}>
+                {stats.porEstado.length === 0 ? <SinDatos /> : (
+                  <div className="flex items-center gap-3">
+                    <div className="relative" style={{ width: 180, height: 200 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={stats.porEstado} dataKey="value" nameKey="name" cx="50%" cy="50%"
+                            innerRadius={52} outerRadius={80} paddingAngle={2} stroke="none">
+                            {stats.porEstado.map((e) => <Cell key={e.id} fill={e.color} />)}
+                          </Pie>
+                          <RTooltip content={<ChartTooltip sufijo="licitaciones" />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                        <span className="text-[26px] font-black text-slate-900 leading-none tabular-nums">{stats.total}</span>
+                        <span className="text-[10px] text-slate-400 font-semibold">licitaciones</span>
+                      </div>
                     </div>
-                    {/* Tarjetas */}
-                    <div className="space-y-2 rounded-xl p-1.5" style={{ background: `${col.color}0a` }}>
-                      {col.negocios.map(n => {
-                        const col2 = colorUsuario(n.usuario_email || n.usuario_nombre || 'sin');
-                        const d = diasHasta(n.licitacion_cierre);
-                        const cierreTint = d != null && d >= 0 ? (d <= 3 ? '#dc2626' : d <= 7 ? '#d97706' : '#64748b') : '#64748b';
-                        return (
-                          <Link key={n.id} href={`/negocios/${n.id}`}
-                            className="block bg-white rounded-lg border border-slate-200 hover:border-indigo-300 hover:shadow-sm transition-all p-3 group">
-                            <div className="flex items-center gap-1.5 mb-1.5">
-                              <span className="text-[10px] font-mono font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded truncate">{n.licitacion_codigo}</span>
-                              {(n.comentarios_count ?? 0) > 0 && (
-                                <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] text-slate-400" title="Comentarios">
-                                  <MessageSquare size={10} /> {n.comentarios_count}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-[12.5px] font-semibold text-slate-800 leading-snug line-clamp-2 group-hover:text-indigo-700 transition-colors">
-                              {n.licitacion_nombre || '(sin nombre)'}
-                            </p>
-                            {n.licitacion_organismo && (
-                              <p className="text-[10.5px] text-slate-400 mt-1 flex items-center gap-1 truncate"><Building2 size={9} /> {n.licitacion_organismo}</p>
-                            )}
-                            <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-slate-50">
-                              <span className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0"
-                                style={{ background: col2 }} title={n.usuario_nombre || n.usuario_email || ''}>
-                                {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
-                              </span>
-                              <span className="text-[11px] font-semibold text-slate-700 tabular-nums">{fmtMontoCorto(n.monto_ofertado || n.licitacion_monto || 0)}</span>
-                              <span className="ml-auto inline-flex items-center gap-1 text-[10.5px] font-medium tabular-nums" style={{ color: cierreTint }}>
-                                <Calendar size={9} /> {fmtFecha(n.licitacion_cierre)}
-                              </span>
-                            </div>
-                          </Link>
-                        );
-                      })}
+                    <div className="flex-1 space-y-1.5 min-w-0">
+                      {stats.porEstado.map(e => (
+                        <div key={e.id} className="flex items-center gap-2 text-[12px]">
+                          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: e.color }} />
+                          <span className="text-slate-600 truncate flex-1">{e.name}</span>
+                          <span className="font-bold text-slate-800 tabular-nums">{e.value}</span>
+                          <span className="text-slate-400 tabular-nums w-9 text-right">{e.pct}%</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                ))}
+                )}
+              </ChartCard>
+
+              {/* Tasa de adjudicación (radial) */}
+              <ChartCard title="Tasa de adjudicación" icon={<Target size={13} />}>
+                <div className="flex items-center gap-4">
+                  <div style={{ width: 180, height: 200 }} className="relative">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <RadialBarChart innerRadius="70%" outerRadius="100%" data={[{ name: 'tasa', value: stats.tasaAdj, fill: '#7c3aed' }]}
+                        startAngle={90} endAngle={90 - (stats.tasaAdj / 100) * 360}>
+                        <RadialBar background dataKey="value" cornerRadius={10} />
+                      </RadialBarChart>
+                    </ResponsiveContainer>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                      <span className="text-[30px] font-black text-violet-700 leading-none tabular-nums">{stats.tasaAdj}%</span>
+                      <span className="text-[10px] text-slate-400 font-semibold">éxito</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-2.5">
+                    <MiniStat label="Postuladas" value={stats.postuladas} color="#b45309" />
+                    <MiniStat label="Adjudicadas" value={stats.adjudicadas} color="#16a34a" />
+                    <MiniStat label="Perdidas" value={stats.perdidas} color="#9f1239" />
+                    <MiniStat label="Descartadas" value={stats.descartadas} color="#dc2626" />
+                  </div>
+                </div>
+              </ChartCard>
+
+              {/* Barras por tipo */}
+              <ChartCard title="Por tipo de licitación" icon={<Layers size={13} />}>
+                {stats.porTipo.length === 0 ? <SinDatos /> : (
+                  <ResponsiveContainer width="100%" height={210}>
+                    <BarChart data={stats.porTipo} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+                      <CartesianGrid horizontal={false} stroke="#f1f5f9" />
+                      <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} width={40} />
+                      <RTooltip content={<ChartTooltip sufijo="licitaciones" />} cursor={{ fill: '#f8fafc' }} />
+                      <Bar dataKey="value" radius={[0, 6, 6, 0]}>
+                        {stats.porTipo.map((e) => <Cell key={e.tipo} fill={e.color} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </ChartCard>
+
+              {/* Evolución mensual */}
+              <ChartCard title="Cierres por mes" icon={<TrendingUp size={13} />}>
+                {stats.porMes.length === 0 ? <SinDatos /> : (
+                  <ResponsiveContainer width="100%" height={210}>
+                    <AreaChart data={stats.porMes} margin={{ left: -18, right: 12, top: 8, bottom: 4 }}>
+                      <defs>
+                        <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#6366f1" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid vertical={false} stroke="#f1f5f9" />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                      <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} width={30} />
+                      <RTooltip content={<ChartTooltip sufijo="cierran" />} />
+                      <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} fill="url(#gradArea)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </ChartCard>
+
+              {/* Top organismos */}
+              <ChartCard title="Top organismos" icon={<Building2 size={13} />} className="lg:col-span-2">
+                {stats.topOrg.length === 0 ? <SinDatos /> : (
+                  <ResponsiveContainer width="100%" height={Math.max(120, stats.topOrg.length * 34)}>
+                    <BarChart data={stats.topOrg} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+                      <CartesianGrid horizontal={false} stroke="#f1f5f9" />
+                      <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} width={200} />
+                      <RTooltip content={<ChartTooltip sufijo="licitaciones" />} cursor={{ fill: '#f8fafc' }} />
+                      <Bar dataKey="value" fill="#0d9488" radius={[0, 6, 6, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </ChartCard>
+            </div>
+
+            {/* Lista de licitaciones (aparte de los gráficos) */}
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-100 flex-wrap">
+                <Briefcase size={13} className="text-slate-400" />
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Lista de licitaciones</span>
+                <span className="text-[11px] text-slate-400">({lista.length})</span>
+                {/* Filtro por estado */}
+                <div className="ml-auto flex flex-wrap gap-1">
+                  <button onClick={() => setEstadoLista(null)}
+                    className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-md border ${estadoLista === null ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>Todas</button>
+                  {stats.porEstado.map(e => (
+                    <button key={e.id} onClick={() => setEstadoLista(estadoLista === e.id ? null : e.id)}
+                      style={estadoLista === e.id ? { backgroundColor: e.color, borderColor: e.color, color: '#fff' } : { borderColor: e.color + '55', color: e.color }}
+                      className="text-[10.5px] font-semibold px-2 py-0.5 rounded-md border bg-white hover:bg-slate-50">
+                      {e.name} {e.value}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="divide-y divide-slate-50">
+                {lista.length === 0 ? (
+                  <p className="text-center text-sm text-slate-400 py-10">Sin licitaciones en este filtro</p>
+                ) : lista.map(n => {
+                  const cfg = getEstadoPipeline(n.estado_pipeline);
+                  const col = cfg?.color || '#64748b';
+                  const d = diasHasta(n.licitacion_cierre);
+                  const cierreTint = d != null && d >= 0 ? (d <= 3 ? '#dc2626' : d <= 7 ? '#d97706' : '#64748b') : '#94a3b8';
+                  const perfilCol = colorUsuario(n.usuario_email || n.usuario_nombre || 'sin');
+                  return (
+                    <Link key={n.id} href={`/negocios/${n.id}`}
+                      className="flex items-center gap-3 px-4 py-2.5 hover:bg-slate-50 transition-colors group">
+                      <span className="text-[10.5px] font-mono font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0 w-[130px] truncate">{n.licitacion_codigo}</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-semibold text-slate-800 truncate group-hover:text-indigo-700 transition-colors">{n.licitacion_nombre || '(sin nombre)'}</p>
+                        {n.licitacion_organismo && <p className="text-[11px] text-slate-400 truncate flex items-center gap-1"><Building2 size={9} /> {n.licitacion_organismo}</p>}
+                      </div>
+                      {perfil == null && (
+                        <span className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0" style={{ background: perfilCol }} title={n.usuario_nombre || n.usuario_email || ''}>
+                          {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border flex-shrink-0 whitespace-nowrap"
+                        style={{ background: col + '18', color: col, borderColor: col + '40' }}>{cfg?.label || n.estado_pipeline}</span>
+                      <span className="text-[12px] font-semibold text-slate-700 tabular-nums w-16 text-right flex-shrink-0">{fmtMontoCorto(n.monto_ofertado || n.licitacion_monto || 0)}</span>
+                      <span className="inline-flex items-center gap-1 text-[11px] font-medium tabular-nums w-20 justify-end flex-shrink-0" style={{ color: cierreTint }}>
+                        <Calendar size={10} /> {fmtFecha(n.licitacion_cierre)}
+                      </span>
+                      <ChevronRight size={14} className="text-slate-300 group-hover:text-indigo-500 flex-shrink-0" />
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           </>
@@ -333,4 +478,44 @@ export default function AnalisisLicitacionPage() {
       </div>
     </AppLayout>
   );
+}
+
+// ── Sub-componentes ────────────────────────────────────────────────────────────
+function KPI({ icon, label, value, tint, sub }: { icon: React.ReactNode; label: string; value: string; tint: string; sub?: string }) {
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-3.5 py-3">
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${tint}14`, color: tint }}>{icon}</div>
+        <p className="text-[10.5px] text-slate-400 font-semibold uppercase tracking-wide leading-tight">{label}</p>
+      </div>
+      <p className="text-[24px] font-black text-slate-900 leading-none tabular-nums">{value}</p>
+      {sub && <p className="text-[10px] text-slate-400 mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+function ChartCard({ title, icon, children, className = '' }: { title: string; icon: React.ReactNode; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`bg-white rounded-xl border border-slate-200 shadow-sm p-4 ${className}`}>
+      <div className="flex items-center gap-1.5 mb-3">
+        <span className="text-slate-400">{icon}</span>
+        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{title}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function MiniStat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: color }} />
+      <span className="text-[12px] text-slate-500 flex-1">{label}</span>
+      <span className="text-[15px] font-bold text-slate-800 tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+function SinDatos() {
+  return <div className="h-[200px] flex items-center justify-center text-[12px] text-slate-300">Sin datos</div>;
 }
