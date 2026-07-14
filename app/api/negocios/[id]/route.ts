@@ -7,6 +7,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } from '@/app/lib/email';
 import { getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
+import { refrescarEstadoCodigo } from '@/app/lib/refrescar-estados';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -137,6 +138,15 @@ export async function GET(request: NextRequest, { params }: Params) {
           : (viab.informe_ejecutivo ?? null);
       } catch { negocio.viabilidad_informe = null; }
     }
+
+    // Estado AUTORITATIVO desde la API (Capa 2), on-demand: si MP ya reporta un estado DEFINITIVO
+    // (Cerrada/Desierta/Adjudicada/Revocada/Suspendida) distinto del cacheado, se persiste en
+    // negocios + alertas y se refleja de inmediato en esta respuesta. Best-effort con timeout
+    // corto: si MP no responde, se devuelve el estado cacheado sin demorar el detalle.
+    try {
+      const nuevoEstado = await refrescarEstadoCodigo(codigo, negocio.licitacion_estado ?? null, 4_000);
+      if (nuevoEstado) negocio.licitacion_estado = nuevoEstado;
+    } catch { /* nunca bloquea el detalle */ }
 
     // El costeo (con precios de mercado incluido) es visible para cualquier perfil asignado.
     negocio.documentos = (docRows as any)[0] as any[];

@@ -24,6 +24,7 @@ import { matchearEInsertar } from '@/app/lib/radar-matching';
 import { enviarDigestRadar } from '@/app/lib/email';
 import { avisarCierresProximos } from '@/app/lib/cierres-proximos';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
+import { refrescarEstadosAsignadas } from '@/app/lib/refrescar-estados';
 
 // Ventana para el aviso "cierra pronto" (campana + correo por perfil), en horas.
 const CIERRE_PROXIMO_HORAS = Number(process.env.CIERRE_PROXIMO_HORAS) || 48;
@@ -284,6 +285,7 @@ export async function GET(request: NextRequest) {
     correosCierre:          0,   // correos "cierra pronto" enviados por perfil
     postAdjudicadas:        0,   // postuladas auto-promovidas a ADJUDICADA (ganamos)
     postPerdidas:           0,   // postuladas auto-promovidas a PERDIDA (a terceros)
+    estadosActualizados:    0,   // asignadas con licitacion_estado refrescado desde la API (Capa 2)
     errores:                0,
     duracionMs:             0,
   };
@@ -565,6 +567,19 @@ export async function GET(request: NextRequest) {
         console.log(`[Cron] 🎯 Postuladas: +${pp.adjudicadas} ganadas, +${pp.perdidas} perdidas (${pp.codigos} códigos)`);
     } catch (e) {
       console.error('[Cron] procesar postuladas falló (no crítico):', String(e));
+    }
+
+    // ── Paso 9: Estado AUTORITATIVO de MP para ASIGNADAS (Capa 2) ─────────────────────
+    // Por cada asignada viva, 1 llamada a MP; si el estado real es DEFINITIVO (Cerrada/Desierta/
+    // Adjudicada/Revocada/Suspendida) y difiere del cacheado, actualiza licitacion_estado en
+    // negocios Y alertas → el badge se ve real en detalle, lista, radar y buscador. Best-effort.
+    try {
+      const re = await refrescarEstadosAsignadas();
+      stats.estadosActualizados = re.actualizadas;
+      if (re.actualizadas > 0)
+        console.log(`[Cron] 🔄 Estados MP asignadas: ${re.actualizadas} actualizadas (${re.codigos} códigos)`);
+    } catch (e) {
+      console.error('[Cron] refrescar estados asignadas falló (no crítico):', String(e));
     }
 
     stats.duracionMs = elapsed();
