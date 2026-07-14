@@ -1176,7 +1176,7 @@ ${docsTexto || '(no se pudo extraer texto)'}
 REGLAS DE CITA (FUENTE) — OBLIGATORIAS para que el usuario pueda CORROBORAR cada dato en el PDF:
 1. Cada "fuente" DEBE tener este formato exacto: "<NOMBRE EXACTO DEL DOCUMENTO> · <artículo/punto/numeral> · pág. N".
 2. <NOMBRE EXACTO DEL DOCUMENTO> = cópialo TAL CUAL aparece tras "===== DOCUMENTO: " (mismo texto, sin abreviar, traducir ni renombrar). NO uses nombres genéricos como "Bases Administrativas" si el archivo se llama distinto: usa el nombre del separador.
-3. pág. N = el número del marcador [[PÁGINA N]] MÁS CERCANO (arriba) del texto que citas. Usa SIEMPRE un número que EXISTA como marcador en ese documento; jamás inventes una página. Si el marcador más cercano es un rango [[PÁGINA a-b]], escribe "pág. a (aprox. rango a-b)".
+3. pág. N = el número del marcador [[PÁGINA N]] MÁS CERCANO (arriba) del texto que citas. REGLA DURA: el ÚNICO origen válido del número de página es el marcador [[PÁGINA N]]. PROHIBIDO usar el número IMPRESO en el pie/encabezado del documento ("Página 29", "- 4 -", "Pág. 19 de 40", el artículo/numeral, etc.): ese número NO es la página del archivo y manda al usuario a la página equivocada. Antes de escribir "pág. N", verifica que exista literalmente un marcador [[PÁGINA N]] con ESE número en ese documento; si el número que ibas a poner no aparece como marcador, es que lo tomaste del texto impreso → NO lo uses, usa el del marcador más cercano. Si el marcador más cercano es un rango [[PÁGINA a-b]], escribe "pág. a (aprox. rango a-b)".
 4. Sin página no hay cita corroborable: si de verdad no hay marcador, escribe "pág. no especificada" y BAJA la confianza de ese dato.
 5. Incluye en la fuente la frase textual breve de donde sale el dato (cita literal), para poder resaltarla en la página.
 
@@ -1213,6 +1213,105 @@ function derivarV3(inf: any): { score: number; semaforo: string; area: string; c
   let confianza = confs.length ? confs.reduce((a: number, b: number) => a + b, 0) / confs.length : 0.7;
   if (inf?.veredicto?.estado_veredicto === 'REVISION_HUMANA') confianza = Math.min(confianza, 0.55);
   return { score, semaforo, area: areaNorm, confianza: Math.round(confianza * 100) / 100 };
+}
+
+// ─── CORRECTOR DETERMINISTA DE PÁGINAS DE CITA ───────────────────────────────────
+// El modelo cita a veces la página IMPRESA del PDF (footer "Página 7 de 36", que arranca tras
+// portadas/decreto), NO la página física. Aunque el prompt lo prohíbe, el modelo débil la sigue
+// usando → la cita manda al usuario a la página equivocada. Fix robusto: NO confiamos en el número
+// del modelo; ubicamos la sección citada en el documento (por encabezado de artículo numerado o por
+// keywords) y reescribimos la página al número del marcador [[PÁGINA N]] REAL. Solo se corrige
+// cuando la ubicación es CONFIABLE (para no romper citas que ya estaban bien).
+const _normCita = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+interface PagWin { pag: number; norm: string }
+function ventanasPagina(texto: string): PagWin[] {
+  const re = /\[\[P[ÁA]GINA\s*(\d+)(?:\s*-\s*\d+)?\]\]/gi;
+  const marks: { pag: number; idx: number }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(texto))) marks.push({ pag: Number(m[1]), idx: m.index });
+  if (!marks.length) return [];
+  const out: PagWin[] = [];
+  for (let i = 0; i < marks.length; i++) {
+    const fin = i + 1 < marks.length ? marks[i + 1].idx : texto.length;
+    out.push({ pag: marks[i].pag, norm: _normCita(texto.slice(marks[i].idx, fin)) });
+  }
+  return out;
+}
+// Mapa "número de artículo/punto" → primera página donde aparece su encabezado (## N. TÍTULO).
+function mapaArticulos(texto: string): Map<string, number> {
+  const map = new Map<string, number>();
+  let pag = 0;
+  for (const ln of texto.split('\n')) {
+    const pm = ln.match(/\[\[P[ÁA]GINA\s*(\d+)/i);
+    if (pm) { pag = Number(pm[1]); continue; }
+    const hm = ln.match(/^#{0,4}\s*(\d{1,2}(?:\.\d{1,2})?)[.\-)]\s+[A-Za-zÁÉÍÓÚÑ]/);
+    if (hm && pag > 0) { const n = hm[1]; if (!map.has(n)) map.set(n, pag); }
+  }
+  return map;
+}
+const _STOP_CITA = new Set(['de','la','el','los','las','del','y','o','a','en','para','por','con','se','un','una','al','que','su','sus','base','bases','oferta','ofertas','anexo','articulo','punto','numeral']);
+function _tokensSeccion(sec: string): { nums: string[]; palabras: string[] } {
+  const nums = (sec.match(/\d+(?:\.\d+)*/g) || []).filter(n => n.length <= 6);
+  const palabras = _normCita(sec).split(' ').filter(w => w.length >= 4 && !_STOP_CITA.has(w) && !/^\d/.test(w));
+  return { nums, palabras };
+}
+// Página real de una sección, o null si no se ubica con confianza suficiente.
+function paginaRealSeccion(seccion: string, wins: PagWin[], arts: Map<string, number>): number | null {
+  const tk = _tokensSeccion(seccion);
+  // 1) Sección con nombre → match por keywords sobre las ventanas de página.
+  if (tk.palabras.length) {
+    let best = -1, bestScore = 0, second = 0;
+    for (const w of wins) {
+      let s = 0;
+      for (const p of tk.palabras) if (w.norm.includes(p)) s++;
+      for (const n of tk.nums) if (new RegExp(`(^|[^\\d.])${n.replace('.', '\\.')}([^\\d]|$)`).test(w.norm)) s += 1;
+      if (s > bestScore) { second = bestScore; bestScore = s; best = w.pag; }
+      else if (s > second) second = s;
+    }
+    // Exige match FUERTE y claramente único para no reescribir a ciegas una cita ya correcta.
+    if (bestScore >= 3 && bestScore >= second + 2) return best;
+    return null;
+  }
+  // 2) Sección = número de artículo pelado → mapa de encabezados (muy confiable).
+  if (tk.nums.length === 1 && arts.has(tk.nums[0])) return arts.get(tk.nums[0])!;
+  return null;
+}
+// Recorre el informe y corrige la página de cada "fuente". Muta el objeto in situ.
+export function corregirPaginasCitas(inf: any, leidos: { nombre: string; texto: string }[]): { corregidas: number; total: number } {
+  const porDoc = new Map<string, { wins: PagWin[]; arts: Map<string, number> }>();
+  const normNombre = new Map<string, string>();
+  for (const d of leidos) {
+    if (!d.texto || !/\[\[P[ÁA]GINA/i.test(d.texto)) continue; // solo docs con marcadores
+    porDoc.set(d.nombre, { wins: ventanasPagina(d.texto), arts: mapaArticulos(d.texto) });
+    normNombre.set(_normCita(d.nombre), d.nombre);
+  }
+  let corregidas = 0, total = 0;
+  if (!porDoc.size) return { corregidas, total };
+  const walk = (o: any) => {
+    if (!o || typeof o !== 'object') return;
+    for (const [k, v] of Object.entries(o)) {
+      if (k === 'fuente' && typeof v === 'string' && v.includes('·')) {
+        const partes = v.split('·').map(s => s.trim());
+        const pm = partes.length >= 2 ? partes[partes.length - 1].match(/p[áa]g\.?\s*(\d+)/i) : null;
+        if (pm) {
+          total++;
+          const docCit = partes[0];
+          let doc = porDoc.get(docCit);
+          if (!doc) { const key = [...normNombre.keys()].find(kk => kk.includes(_normCita(docCit)) || _normCita(docCit).includes(kk)); if (key) doc = porDoc.get(normNombre.get(key)!); }
+          if (doc) {
+            const seccion = partes.slice(1, partes.length - 1).join(' · ');
+            const real = paginaRealSeccion(seccion, doc.wins, doc.arts);
+            if (real != null && real !== Number(pm[1])) {
+              (o as any)[k] = v.replace(/p[áa]g\.?\s*\d+(\s*\(aprox[^)]*\))?/i, `pág. ${real}`);
+              corregidas++;
+            }
+          }
+        }
+      } else walk(v);
+    }
+  };
+  walk(inf);
+  return { corregidas, total };
 }
 
 // Orquestación v3: reusa la carga de documentos/contexto/señal del v2, cambia prompt+esquema.
@@ -1278,6 +1377,14 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   } catch { /* las reglas son opcionales: si fallan, se analiza igual con el prompt base */ }
   const parsed = await llamarGeminiJSON(systemPrompt, userPrompt);
   if (!parsed || typeof parsed !== 'object') return null;
+
+  // CORRECCIÓN DETERMINISTA DE PÁGINAS DE CITA: el modelo a veces cita la página IMPRESA del PDF
+  // (footer), no la física; reescribimos cada "fuente" a la página del marcador [[PÁGINA N]] real
+  // ubicando la sección en el documento. Requiere marcadores por página (OCR ventana=1).
+  try {
+    const { corregidas, total } = corregirPaginasCitas(parsed, leidos.map(d => ({ nombre: d.nombre, texto: d.texto })));
+    if (corregidas) console.log(`[viabilidad-ia-v3] ${codigo}: ${corregidas}/${total} páginas de cita corregidas al marcador real.`);
+  } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: corrección de citas falló:`, String(e).slice(0, 120)); }
 
   // OVERRIDE DETERMINISTA de "cómo se adjudica" (mismo criterio que el v2.1, adaptado al eje
   // GLOBAL/POR_LINEAS del v3): el listado de ítems MANDA sobre el LLM cuando es concluyente.

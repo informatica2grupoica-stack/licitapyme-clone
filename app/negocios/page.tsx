@@ -518,8 +518,8 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {items.slice(0, 6).map((n, i) => (
                   <span key={i}
-                    title={`${n.usuario_nombre || n.usuario_email}${n.estado_pipeline === 'DESCARTADA' ? ' · Descartada' : ''}`}
-                    style={{ background: n.estado_pipeline === 'DESCARTADA' ? '#DC2626' : colorUsuario(n.usuario_email || n.usuario_nombre) }}
+                    title={`${n.usuario_nombre || n.usuario_email}${n.estado_pipeline === 'DESCARTADA' ? ' · Descartada' : n.estado_pipeline === 'POSTULADA' ? ' · Postulada' : ''}`}
+                    style={{ background: n.estado_pipeline === 'DESCARTADA' ? '#DC2626' : n.estado_pipeline === 'POSTULADA' ? '#059669' : colorUsuario(n.usuario_email || n.usuario_nombre) }}
                     className="w-2 h-2 rounded-full" />
                 ))}
                 {items.length > 6 && <span className="text-[8px] text-slate-400 leading-none self-center">+{items.length - 6}</span>}
@@ -658,6 +658,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
     : null;
   const pipeline = getEstadoPipeline(neg.estado_pipeline || 'ASIGNADO');
   const descartada = (neg.estado_pipeline || '') === 'DESCARTADA';
+  const postulada = (neg.estado_pipeline || '') === 'POSTULADA';
   const viab     = neg.viabilidad_semaforo ? SEMAFORO[neg.viabilidad_semaforo] : null;
   const iniciales = inicialesUsuario(neg.usuario_nombre, neg.usuario_email);
   const nombrePerfil = neg.usuario_nombre || neg.usuario_email || '';
@@ -676,7 +677,9 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
       <div className="flex items-center gap-1.5 mb-1.5">
         {tipo && <span className={`${tipoBg} text-white text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0`}>{tipo}</span>}
         <span className="text-[10px] font-mono text-slate-400 truncate" title={neg.licitacion_codigo}>{neg.licitacion_codigo}</span>
-        {dias !== null && (
+        {postulada ? (
+          <span className="ml-auto text-[9px] font-bold flex-shrink-0 text-emerald-600">Postulada</span>
+        ) : dias !== null && (
           <span className={`ml-auto text-[9px] font-bold flex-shrink-0 ${dias <= 0 ? 'text-slate-400' : dias <= 1 ? 'text-red-600' : dias <= 3 ? 'text-orange-500' : 'text-slate-400'}`}>
             {dias <= 0 ? 'Vencida' : `${dias}d`}
           </span>
@@ -1273,6 +1276,22 @@ function NegociosContent() {
     });
   }, [negociosFiltrados]);
 
+  // CALENDARIO (semana/mes): las VIGENTES + las POSTULADAS. Las postuladas ya se ofertaron
+  // (no son trabajo pendiente), pero el usuario quiere VERLAS en el calendario por su fecha de
+  // cierre; entran aunque estén vencidas (la oferta se hace antes del cierre). El resto de
+  // resueltas (descartada/adjudicada/perdida) sigue fuera. La vista LISTA las muestra todas.
+  const negociosCalendario = useMemo(() => {
+    const ahora = Date.now();
+    return negociosFiltrados.filter(n => {
+      const estado = n.estado_pipeline || 'ASIGNADO';
+      if (estado === 'POSTULADA') return !!n.licitacion_cierre; // postuladas SÍ, con fecha de cierre
+      if (RESUELTOS_NEGOCIO.has(estado)) return false;
+      const cierreMs = n.licitacion_cierre ? new Date(n.licitacion_cierre).getTime() : NaN;
+      if (!Number.isNaN(cierreMs) && cierreMs < ahora) return false; // vencida
+      return true;
+    });
+  }, [negociosFiltrados]);
+
   // LISTA: ordena por fecha de cierre. Por defecto la más próxima a cerrar primero (asc);
   // el botón invierte a la que cierra más lejos primero (desc). Las sin cierre van al final.
   const negociosLista = useMemo(() => {
@@ -1583,11 +1602,11 @@ function NegociosContent() {
               </p>
             </div>
           ) : vista === 'semana' ? (
-            /* ── Vista calendario semanal (solo vigentes) ── */
-            <VistaSemana negocios={negociosVigentes} onAbrirNegocio={setNegocioModal} />
+            /* ── Vista calendario semanal (vigentes + postuladas) ── */
+            <VistaSemana negocios={negociosCalendario} onAbrirNegocio={setNegocioModal} />
           ) : vista === 'calendario' ? (
-            /* ── Vista calendario mensual (solo vigentes) ── */
-            <VistaCalendario negocios={negociosVigentes} onAbrirDia={setDiaSel} />
+            /* ── Vista calendario mensual (vigentes + postuladas) ── */
+            <VistaCalendario negocios={negociosCalendario} onAbrirDia={setDiaSel} />
           ) : (
             <div className="space-y-1.5">
               {negociosLista.map(neg => (

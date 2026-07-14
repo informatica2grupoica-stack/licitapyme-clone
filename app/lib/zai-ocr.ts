@@ -24,9 +24,16 @@
 const ZAI_URL   = 'https://api.z.ai/api/paas/v4/layout_parsing';
 const ZAI_MODEL = 'glm-ocr';
 
-// Págs por llamada (ventana). El endpoint tolera 100; usamos ventanas más chicas para
-// obtener marcadores de página con mejor granularidad y paralelizar (recomendación oficial).
-const PAGINAS_POR_LLAMADA = 8;
+// Págs por llamada (ventana). El endpoint tolera 100. CITAS EXACTAS = 1 página por llamada:
+// GLM-OCR solo emite la marca de página cuando detecta una imagen/logo en ella (![](page=K,...)),
+// así que con ventanas grandes las páginas SIN logo se fusionan y los marcadores [[PÁGINA N]]
+// salían escasos (p.ej. 1,9,16,24… cada 8 págs) → el modelo, sin marcador cercano, citaba el
+// número IMPRESO del documento (pág. 29/4/19…) que NO calza con la página física y mandaba a la
+// página equivocada. Con ventana=1, segmentarPorPaginaExacta rotula SIEMPRE la página absoluta
+// (con o sin logo), así cada dato tiene su marcador exacto y la cita apunta a la página real.
+// Cuesta ~8× llamadas de OCR (baratas) pero se paralelizan (GLM_OCR_CONCURRENCIA). Para volver
+// al comportamiento anterior (más rápido, citas gruesas): GLM_OCR_PAGINAS_POR_LLAMADA=8.
+const PAGINAS_POR_LLAMADA = Math.max(1, Number(process.env.GLM_OCR_PAGINAS_POR_LLAMADA) || 1);
 // Tope de páginas a OCR-ear. REGLA: se leen TODAS las páginas del documento (la viabilidad
 // y el chat deben ser fidedignos; el presupuesto/criterios pueden estar en cualquier página,
 // como se comprobó con bases cuya cifra vivía en la pág. 2 y el OCR anterior la perdía). El
@@ -39,7 +46,7 @@ export const GLM_OCR_LIMITE_PAGINAS = 100;
 // Ventanas en paralelo: reduce el muro total; los reintentos con backoff absorben 429/503.
 // Configurable por env (GLM_OCR_CONCURRENCIA): subir acelera docs grandes, pero más alto arriesga
 // más 429/503 de Z.AI. Acotado a [1, 8] por seguridad.
-const CONCURRENCIA = Math.min(8, Math.max(1, Number(process.env.GLM_OCR_CONCURRENCIA) || 3));
+const CONCURRENCIA = Math.min(8, Math.max(1, Number(process.env.GLM_OCR_CONCURRENCIA) || 5));
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 

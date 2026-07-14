@@ -104,24 +104,31 @@ function anclaDeFuente(fuente: string): string | undefined {
 // con el texto de la cita. Devuelve la URL con #page=N para el visor nativo del navegador.
 function resolverCita(fuente: string, docs: DocRef[]): { href: string; pagina: number | null; paginas: number[] } | null {
   if (!fuente || !docs.length) return null;
-  const f = _norm(fuente);
+  // El formato de la cita es "NOMBRE_DOCUMENTO · sección · pág. N". Para elegir el documento SOLO
+  // se usa el PRIMER segmento (el nombre citado), NUNCA la sección: antes se puntuaba contra TODA
+  // la cita y la palabra de la sección (p.ej. "…Evaluación de las OFERTAS…") hacía match con un
+  // archivo ajeno ("ANEXO_4_OFERTA_ECONOMICA.xlsx") y el ojo abría el Excel en vez de las bases.
+  const segmentos = fuente.split('·');
+  const fDoc = _norm(segmentos[0] || fuente);      // segmento del nombre del documento
+  const fFull = _norm(fuente);                       // cita completa (solo para la categoría, como respaldo)
+  // Palabras (completas, ≥4) del nombre citado: el match es por PALABRA, no por substring, para
+  // que "oferta" NO calce dentro de "ofertas" ni una palabra suelta arrastre a otro archivo.
+  const palabrasDoc = new Set(fDoc.split(/[^a-z0-9]+/).filter(t => t.length >= 4));
   let mejor: DocRef | null = null, mejorScore = 0;
   for (const d of docs) {
     const base = _norm(d.nombre.replace(/\.[a-z0-9]+$/i, ''));
     const tokens = base.split(/[^a-z0-9]+/).filter(t => t.length >= 4);
-    let score = tokens.reduce((s, t) => s + (f.includes(t) ? 1 : 0), 0);
-    // BONUS FUERTE si el nombre base COMPLETO del archivo aparece TAL CUAL en la cita (regla nueva
-    // del prompt: citar el nombre EXACTO del documento). Así una cita bien formada apunta sin duda
-    // al PDF correcto, no al que casualmente comparte una palabra suelta.
-    if (base.length >= 6 && f.includes(base)) score += 5;
-    // MATCH POR CATEGORÍA (clave para que el ojo NO falle): el modelo a menudo cita por nombre
-    // GENÉRICO ("BASES ADMINISTRATIVAS", "BASES TÉCNICAS") en vez del nombre real del archivo (que
-    // puede llamarse "DECLARA_DESIERTA…pdf"). Si TODAS las palabras de la categoría del doc aparecen
-    // en la cita, es un match fuerte → resuelve igual y muestra el ojo. Evita el "sin ojo" cuando el
-    // archivo se llama distinto a como lo cita el análisis.
+    // 1) Nombre citado ≈ nombre del archivo (señal DOMINANTE): el segmento contiene el nombre base,
+    //    o el nombre base contiene al segmento. Gana por lejos a cualquier coincidencia de palabra.
+    let score = 0;
+    if (base.length >= 5 && (fDoc.includes(base) || base.includes(fDoc.replace(/\.[a-z0-9]+$/i, '')))) score += 10;
+    // 2) Solape de PALABRAS COMPLETAS entre el nombre citado y el del archivo.
+    score += tokens.reduce((s, t) => s + (palabrasDoc.has(t) ? 2 : 0), 0);
+    // 3) MATCH POR CATEGORÍA (respaldo para citas con nombre genérico "BASES ADMINISTRATIVAS" cuando
+    //    el archivo se llama distinto): TODAS las palabras de la categoría presentes en la cita.
     const cat = _norm((d.categoria || '').replace(/_/g, ' '));
     const catWords = cat.split(/\s+/).filter(w => w.length >= 4);
-    if (catWords.length && catWords.every(w => f.includes(w))) score += 4;
+    if (catWords.length && catWords.every(w => fFull.includes(w))) score += 3;
     if (score > mejorScore) { mejorScore = score; mejor = d; }
   }
   if (!mejor || mejorScore === 0) return null;
