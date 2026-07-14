@@ -1014,7 +1014,9 @@ JSON canónico (orden):
   "multas": { "detectadas":true, "estructura":"", "costo_por_dia_pesos":"", "valor_utm_usado":"", "tope":"", "efecto_al_superar_tope":"", "otras":[], "fuente":"" },
   "productos": { "total_items":0, "entregables_word":["GENERICOS","ESPECIFICOS"],
     "items":[ { "linea":"L1", "nombre":"", "clasificacion":"especifico|generico", "marca_modelo_referencia":"", "admite_equivalente":true, "libertad_de_oferta":false, "caracteristicas":[ "" ], "cantidad":0, "unidad_medida":"", "unidad_inferida":false, "presupuesto_linea":0, "libertad_de_pricing":false, "ruta":"A|B", "marca_exclusiva":false, "fuente":"" } ],
-    "hojas_costeo_segun_adjudicacion":"GLOBAL:1|POR_LOTES:n|POR_LINEAS:n" },
+    "hojas_costeo_segun_adjudicacion":"GLOBAL:1|POR_LOTES:n|POR_LINEAS:n",
+    "mapa_items":[ { "documento":"", "rol":"principal|parcial|especificaciones|espejo|sin_items", "que_contiene":"", "n_items":0 } ],
+    "hallazgos_formato":[] },
   "lineas_a_atacar": { "aplica":true, "modo":"POR_LINEAS|GLOBAL|POR_LOTES", "mensaje_global_o_lote":"", "lineas":[ { "linea":"L1", "decision":"atacar|soltar", "motivo":"" } ] },
   "acciones_y_advertencias": { "acciones":[ { "orden":"", "por_que":"", "prioridad":1, "fuente":"" } ], "advertencias":[ { "riesgo":"", "consecuencia":"", "gravedad":"alta|media", "fuente":"" } ] },
   "tarjeta_decision": { "titular":"", "veredicto":"GANABLE|PUEDE_SER|NO_VAMOS", "se_gana_en":"", "para_ganar":[], "no_quedes_fuera":[], "antes_de_ir":"", "leyes_detectadas":[ { "criterio":"", "clase":"LEY_DEL_MINIMO|LEY_DEL_MAXIMO", "exige_respaldo":false } ], "porque_no":"" },
@@ -1038,6 +1040,78 @@ AUTOCHEQUEO FINAL — COHERENCIA DE SISTEMA:
   frontera destacada. Firma puño y letra solo si expresa. Score con techo realista. Atractivo nunca vacío.
 - Cada resultado con Fuente. Cada ORDEN es texto imperativo real, nunca un número. Sin obviedades.
 - El análisis se completó hasta el final; estado_veredicto correcto.`;
+
+// ─── v3.5: BARRIDO MULTI-DOCUMENTO (CRITERIOS + ÍTEMS) — se APPENDEA a SYSTEM_PROMPT_V3 ───
+// 100% ADITIVO: no toca ninguna línea del prompt v3. Refuerza dos módulos donde el modelo
+// tiende a agarrar el documento equivocado: (1) los CRITERIOS DE EVALUACIÓN (caso real
+// 2126-107-LE26: colapsó 7 criterios de las BASES en un 60/40 inventado del anexo técnico),
+// y (2) el LISTADO DE ÍTEMS/PRODUCTOS. Como Z.AI cachea el prefijo idéntico, el costo
+// marginal es ~0 desde la 2ª llamada. Kill-switch: VIABILIDAD_BARRIDO_V35=0.
+const BLOQUE_BARRIDO_V35 = `
+═══════════════════════ ANEXO v3.5 — BARRIDO MULTI-DOCUMENTO ═══════════════════════
+Refuerza los módulos 1 (CRITERIOS DE EVALUACIÓN) y 7 (PRODUCTOS). No reemplaza reglas; las endurece.
+
+──── A. CRITERIOS DE EVALUACIÓN — NO COLAPSES LA TABLA ────
+REGLA DURA: la tabla que REPARTE EL 100% del puntaje entre criterios CON NOMBRE Y % PROPIO vive en
+las BASES ADMINISTRATIVAS (o el decreto que las aprueba), NO en un formulario/anexo de oferta.
+• Una tabla "EVALUACIÓN TÉCNICA / Cumple / Puntaje" dentro de un ANEXO o FORMULARIO editable es el
+  DETALLE INTERNO de UN criterio (Oferta Técnica / Especificaciones), NO la distribución de criterios.
+  NO la confundas con la lista de criterios ni cites el formulario como fuente de la distribución.
+• PROHIBIDO colapsar los criterios en "Técnica X% / Económica Y%" si las bases enumeran MÁS criterios
+  con ponderación propia (ej. Oferta Económica 20 + Oferta Técnica 25 + Especificaciones Técnicas 30 +
+  Plazo 10 + Experiencia 10 + Requisitos Formales 3 + Integridad 2 = 100). Emítelos TODOS, uno por uno.
+• VERIFICACIÓN DURA (suma=100 NO basta — una tabla inventada también suma 100): localiza en el texto
+  de las bases los pares "nombre de criterio + %" que totalizan 100 y confirma que tu lista los cubre
+  TODOS. Si emites MENOS criterios de nivel superior que los que las bases enumeran → es ERROR:
+  reconstruye la lista completa antes de cerrar el módulo.
+• Si tras barrer las bases NO logras reconstruir la tabla real con certeza → criterios_evaluacion.
+  fuente_datos="incompleto", agrega alerta, y estado_veredicto=REVISION_HUMANA con motivo
+  "criterios de evaluación no reconstruidos con certeza". NUNCA inventes una distribución plausible.
+
+──── B. ÍTEMS / PRODUCTOS — LOS ÍTEMS NO TIENEN DOMICILIO FIJO ────
+El listado de productos puede vivir en CUALQUIER documento: bases administrativas, bases técnicas/EETT,
+TTR, un ANEXO EXCEL, un formulario, el DECRETO que aprueba las bases, o un PDF de imágenes. PROHIBIDO
+emitir el módulo de productos habiendo mirado solo las bases técnicas: ANTES de listar, BARRE TODOS los
+documentos y construye el MAPA DE ÍTEMS (qué documento contiene qué listado) → productos.mapa_items.
+PASO 1 — MAPEO: por CADA documento, registra si contiene (a) el LISTADO PRINCIPAL con cantidades,
+(b) un listado PARCIAL/espejo (formulario de oferta que repite ítems), (c) solo ESPECIFICACIONES de
+ítems listados en otro doc, o (d) nada. Señales: columnas Ítem/Descripción/Cantidad/Unidad, "ARTÍCULOS
+QUE LO COMPONEN", "Bien o Servicio Requerido", "Se consulta el suministro de…".
+PASO 2 — FUENTE CANÓNICA: el documento con el listado MÁS DETALLADO Y CUANTIFICADO es la fuente del
+manifiesto (suele ser el anexo Excel o la tabla de la EETT, NO las bases administrativas). Si DOS
+documentos listan ítems, extrae del más completo y CRUZA los totales; si difieren, decláralo en las
+alertas con ambos conteos. Los ítems de la API MP son REFERENCIA de cruce, nunca la fuente.
+PASO 3 — FORMATOS (identifícalos y trátalos así):
+① DECRETO QUE EMBEBE LAS BASES: un "Decreto/Resolución que APRUEBA bases" suele CONTENER bases+anexos+
+   EETT íntegros. Bárrelo COMPLETO; no lo descartes como trámite. Cita el documento suelto si existe.
+② ANEXO EXCEL DE CANTIDADES: CADA HOJA es un ámbito propio (barre todas). SETS/KITS: el set NO es el
+   producto; los productos son las FILAS que lo componen (emite cada fila con el set como su línea).
+   CANTIDADES EN MATRIZ (producto × varias columnas de cantidad por set/tamaño): NO colapses ni elijas
+   una columna; emite el producto UNA VEZ POR VARIANTE (misma descripción, línea distinta por set,
+   cantidad de ESA columna). "EQUIVALENTE O SUPERIOR A: [marcas]" → marca de referencia, admite
+   equivalente, NO exclusiva. Columnas de precio vacías = formulario a llenar, NO presupuesto.
+③ TABLA JERÁRQUICA (1 / 1.1 / 1.2…): filas sin subnivel cuyas celdas REPITEN el mismo texto en todas
+   las columnas son CAPÍTULOS/PARTIDAS, NO productos; los productos son las filas x.y con cantidad y
+   unidad propias. Si mezcla BIENES con SERVICIOS/FAENAS (retiro/instalación), lístalo todo marcando el
+   tipo y evalúa en EXCLUSIÓN si el objeto principal es OBRA/servicio (no lo maquilles como venta).
+④ TTR/EETT POR SECCIONES ("Se consulta el suministro de: Excavadora… o similar"): cada sección = UN
+   ítem con su ficha técnica completa. "o similar/equivalente" → admite equivalente. Pocos ítems con
+   ficha larga es NORMAL en equipamiento; no inventes accesorios como ítems salvo cantidad propia.
+⑤ PDF DE IMÁGENES REFERENCIALES: los NOMBRES de los bienes SÍ son parte del listado (cruza cantidades
+   con el listado principal). Si un ítem solo aparece ahí sin cantidad → emítelo con cantidad null+alerta.
+⑥ DOCUMENTO CENTRAL ILEGIBLE: si el doc que DEBERÍA traer los ítems (por su nombre: bases/EETT/
+   cantidades) llega vacío/cortado (OCR fallido), NO lo compenses inventando ni desde la API MP: emite
+   los ítems con respaldo, declara el hueco en alertas y baja la confianza del módulo (el código escala
+   a revisión humana).
+PASO 4 — CIERRE: total_items = suma del mapa; cruza con la API MP (si trae MÁS líneas, revisa qué doc
+no barriste). Cada FILA con cantidad y unidad propia es UN producto; un SET/KIT jamás se emite como un
+solo ítem si el documento desglosa su contenido.
+
+SALIDA ADITIVA (claves nuevas dentro de "productos"; si no aplican, arrays vacíos):
+  "mapa_items": [ { "documento":"", "rol":"principal|parcial|especificaciones|espejo|sin_items",
+                    "que_contiene":"", "n_items":0 } ],
+  "hallazgos_formato": [ "patrón de formato detectado en ESTA licitación, como regla reutilizable y
+                          SIN datos de esta licitación (formato, no contenido)" ]`;
 
 // Esquema JSON canónico v3.3 (bloque SALIDA del prompt). El modelo debe devolver EXACTAMENTE estas
 // claves, sin agregar ni quitar. Novedades v3.3 sobre v3.2: criterios[].clase (LEY_DEL_MINIMO|
@@ -1063,7 +1137,9 @@ function esquemaV3(codigo: string): string {
   "multas": { "detectadas":true, "estructura":"", "costo_por_dia_pesos":"", "valor_utm_usado":"", "tope":"", "efecto_al_superar_tope":"", "otras":[], "fuente":"" },
   "productos": { "total_items":0, "entregables_word":["GENERICOS","ESPECIFICOS"],
     "items":[ { "linea":"L1", "nombre":"", "clasificacion":"especifico|generico", "marca_modelo_referencia":"", "admite_equivalente":true, "libertad_de_oferta":false, "caracteristicas":[ "" ], "cantidad":0, "unidad_medida":"", "unidad_inferida":false, "presupuesto_linea":0, "libertad_de_pricing":false, "ruta":"A|B", "marca_exclusiva":false, "fuente":"" } ],
-    "hojas_costeo_segun_adjudicacion":"GLOBAL:1|POR_LOTES:n|POR_LINEAS:n" },
+    "hojas_costeo_segun_adjudicacion":"GLOBAL:1|POR_LOTES:n|POR_LINEAS:n",
+    "mapa_items":[ { "documento":"", "rol":"principal|parcial|especificaciones|espejo|sin_items", "que_contiene":"", "n_items":0 } ],
+    "hallazgos_formato":[] },
   "lineas_a_atacar": { "aplica":true, "modo":"POR_LINEAS|GLOBAL|POR_LOTES", "mensaje_global_o_lote":"", "lineas":[ { "linea":"L1", "decision":"atacar|soltar", "motivo":"" } ] },
   "acciones_y_advertencias": { "acciones":[ { "orden":"", "por_que":"", "prioridad":1, "fuente":"" } ], "advertencias":[ { "riesgo":"", "consecuencia":"", "gravedad":"alta|media", "fuente":"" } ] },
   "tarjeta_decision": { "titular":"", "veredicto":"GANABLE|PUEDE_SER|NO_VAMOS", "se_gana_en":"", "para_ganar":[], "no_quedes_fuera":[], "antes_de_ir":"", "leyes_detectadas":[ { "criterio":"", "clase":"LEY_DEL_MINIMO|LEY_DEL_MAXIMO", "exige_respaldo":false } ], "porque_no":"" },
@@ -1173,7 +1249,9 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   //   • global  → correcciones del VEREDICTO/DESCARTE (ajustan viabilidad y score).
   //   • lectura → correcciones de CÓMO SE LEE el documento (ítems/cantidades/unidades/modalidad),
   //               lo que mejora directamente el costeo.
-  let systemPrompt = SYSTEM_PROMPT_V3;
+  // v3.5: barrido multi-documento (criterios + ítems). Aditivo, cacheable con el prefijo.
+  // Kill-switch: VIABILIDAD_BARRIDO_V35=0 vuelve al prompt v3 puro.
+  let systemPrompt = SYSTEM_PROMPT_V3 + (process.env.VIABILIDAD_BARRIDO_V35 === '0' ? '' : BLOQUE_BARRIDO_V35);
   try {
     const [reglasGlobal, reglasLecturaFirma] = await Promise.all([
       cargarReglasAprendidas('global'),

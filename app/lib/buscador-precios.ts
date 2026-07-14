@@ -323,6 +323,32 @@ function clasificarCategoria(nombre: string): string {
   return 'ferreteria_general';
 }
 
+// ─── Filtro de rubro para el buscador de precios ───────────────────────────────
+// El buscador (Serper) está pensado para retail de ferretería / eléctrico / consumibles
+// chileno (Sodimac, Easy, Construmart, PC Factory…). NO da buenos precios para maquinaria,
+// muebles, equipos médicos, tecnología/electrodomésticos ni construcción pesada, así que
+// esos rubros NO se cotizan automáticamente (el ítem igual aparece en el costeo, pero sin
+// precio de mercado para que el asistente lo complete a mano).
+//
+// Enfoque LISTA DE EXCLUSIÓN: se cotiza todo MENOS lo que caiga en estos patrones.
+// Es tolerante a ajustes: agrega/quita términos según lo que veas en los costeos.
+// Kill-switch: COSTEO_BUSCADOR_SIN_FILTRO=1 desactiva el filtro (vuelve a cotizar TODO).
+const RUBROS_NO_BUSCABLES: { rubro: string; re: RegExp }[] = [
+  { rubro: 'maquinaria/vehículos', re: /\b(excavadora|retroexcavadora|miniexcavadora|minicargador|cargador frontal|motoniveladora|bulldozer|buldozer|pavimentadora|compactador|apisonadora|betonera|barredora|grua|gruas|montacargas|tractor|retropala|dumper|camion|camiones|camioneta|furgon|minibus|automovil|vehiculo|ambulancia|grupo electrogeno|generador electrico|maquinaria)\b/ },
+  { rubro: 'muebles/mobiliario', re: /\b(escritorio|silla|sillas|sillon|butaca|mueble|muebles|mobiliario|estante|estanteria|estanterias|meson|sofa|catre|velador|closet|locker|casillero|archivador|cajonera|perchero|banca|banqueta|taburete|kardex)\b/ },
+  { rubro: 'equipos médicos', re: /\b(signos vitales|desfibrilador|ecografo|ecotomografo|electrocardiografo|camilla|silla de ruedas|oximetro|saturometro|tensiometro|esfigmomanometro|estetoscopio|nebulizador|autoclave|esterilizador|incubadora|ventilador mecanico|respirador|laringoscopio|bomba de infusion|negatoscopio|lampara quirurgica|sillon dental|rayos x|mamografo|endoscopio|equipo medico|equipamiento (clinico|hospitalario|medico)|insumo medico|instrumental (medico|quirurgico)|monitor (de signos|multiparametro))\b/ },
+  { rubro: 'tecnología/electrodomésticos', re: /\b(computador|computadora|notebook|laptop|all in one|servidor|impresora|multifuncional|escaner|scanner|proyector|data ?show|tablet|telefono|celular|smartphone|refrigerador|frigobar|congelador|freezer|lavadora|secadora|microondas|horno electrico|cocina (electrica|a gas)|encimera|aspiradora|hervidor|cafetera|estufa|calefactor|aire acondicionado|split|climatizador|television|televisor|smart tv)\b/ },
+  { rubro: 'construcción pesada', re: /\b(arena|grava|gravilla|ripio|estabilizado|aridos?|bolon|maicillo|hormigon premezclado|premezclado|asfalto|mezcla asfaltica|prefabricado|tubo de hormigon|soleras?|adoquin|pastelon|viga (de acero|estructural|metalica)|cercha|estructura metalica|acero estructural|perfil estructural|poste de hormigon)\b/ },
+];
+
+/** Devuelve el rubro EXCLUIDO si el producto no debe cotizarse, o null si SÍ se cotiza. */
+export function rubroNoBuscable(producto: string): string | null {
+  if (process.env.COSTEO_BUSCADOR_SIN_FILTRO === '1') return null;
+  const n = normalizar(producto);
+  for (const { rubro, re } of RUBROS_NO_BUSCABLES) if (re.test(n)) return rubro;
+  return null;
+}
+
 function analizarProducto(producto: string) {
   const productoLimpio = preprocesarProducto(producto);
   const categoria = clasificarCategoria(productoLimpio);
@@ -983,27 +1009,50 @@ export async function cotizarManifiesto(
   manifiesto: LineaManifiesto[],
   opts: { region?: string; contexto?: string; concurrencia?: number; minimo?: number } = {},
 ): Promise<PrecioItemCosteo[]> {
-  const items: ItemACotizar[] = manifiesto.map((it, i) => ({
-    clave: String(i),
-    producto: [it.descripcion, it.modelo].filter(Boolean).join(' ').trim() || it.descripcion,
-    conversion: it.unidad_medida || 'unidad',
-  }));
+  // Descripción a buscar por ítem (descripción + modelo).
+  const productos = manifiesto.map((it) =>
+    [it.descripcion, it.modelo].filter(Boolean).join(' ').trim() || it.descripcion);
+
+  // FILTRO DE RUBRO: no cotizar maquinaria/muebles/médicos/tecnología/construcción pesada.
+  // Se guarda el rubro excluido por índice; esos ítems se saltan (quedan sin precio).
+  const excluidoPorIndice = productos.map(rubroNoBuscable);
+  const nExcl = excluidoPorIndice.filter(Boolean).length;
+  if (nExcl > 0) {
+    const detalle = excluidoPorIndice.filter(Boolean).slice(0, 8).join(', ');
+    console.log(`[precios] ${nExcl}/${manifiesto.length} ítems NO cotizados por rubro (${detalle}${nExcl > 8 ? '…' : ''})`);
+  }
+
+  // Solo se cotizan los ítems buscables; se conserva el índice original en `clave`.
+  const items: ItemACotizar[] = [];
+  manifiesto.forEach((it, i) => {
+    if (excluidoPorIndice[i]) return;
+    items.push({ clave: String(i), producto: productos[i], conversion: it.unidad_medida || 'unidad' });
+  });
 
   // Cuántos matches por ítem devolver. Default 2 (configurable con PRECIOS_TOP_ITEM).
   const minimo = Math.min(Math.max(opts.minimo ?? Number(process.env.PRECIOS_TOP_ITEM ?? 2), 1), 5);
 
-  const cotizaciones = await cotizarItems(items, {
+  const cotizaciones = items.length ? await cotizarItems(items, {
     region: opts.region || '',
     contexto: opts.contexto || '',
     concurrencia: opts.concurrencia ?? Number(process.env.PRECIOS_CONCURRENCIA ?? 8),
     minimo,
-  });
+  }) : [];
+  const porClave = new Map(cotizaciones.map((c) => [c.clave, c]));
 
-  return cotizaciones.map((c) => {
-    const it = manifiesto[Number(c.clave)];
-    const m = c.mejor;
+  // Reconstruir alineado al manifiesto: los ítems excluidos quedan sin precio de mercado.
+  return manifiesto.map((it, i): PrecioItemCosteo => {
+    if (excluidoPorIndice[i]) {
+      return {
+        descripcion: it.descripcion, precio_neto: null, precio_iva: null, tienda: null,
+        link: null, score: null, nivel: null, alerta_unidad: false, desde_cache: false,
+        total: 0, alternativas: [],
+      };
+    }
+    const c = porClave.get(String(i));
+    const m = c?.mejor ?? null;
     return {
-      descripcion: it?.descripcion || c.producto,
+      descripcion: it.descripcion || c?.producto || '',
       precio_neto: m?.precio_neto ?? null,
       precio_iva: m?.precio_valor ?? null,
       tienda: m?.tienda ?? null,
@@ -1011,9 +1060,9 @@ export async function cotizarManifiesto(
       score: m?.score ?? null,
       nivel: m?.nivel_concordancia ?? null,
       alerta_unidad: m?.alerta_unidad ?? false,
-      desde_cache: c.desde_cache,
-      total: c.total,
-      alternativas: (c.alternativas || []).slice(0, 5).map((a) => ({
+      desde_cache: c?.desde_cache ?? false,
+      total: c?.total ?? 0,
+      alternativas: (c?.alternativas || []).slice(0, 5).map((a) => ({
         tienda: a.tienda, precio_iva: a.precio_valor, link: a.link, score: a.score,
       })),
     };
