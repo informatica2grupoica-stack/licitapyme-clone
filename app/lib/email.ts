@@ -285,6 +285,52 @@ export async function enviarCorreoCambio(p: CambioEmail): Promise<boolean> {
   }
 }
 
+// ─── Correo: una licitación entró a la etapa ANEXOS ───────────────────────────
+// Aviso para los perfiles con permiso 'alertas_anexos' (ej. Fernando): cuando un
+// asistente mueve su negocio a la etapa ANEXOS, es la señal de "listo para preparar
+// los anexos". No va al asignado, va a quien trabaja los anexos.
+export interface EtapaAnexosEmail {
+  to: string; nombre?: string | null; codigo: string; licitacionNombre?: string | null;
+  organismo?: string | null; monto?: number | null; cierre?: string | null;
+  actorNombre?: string | null;
+}
+
+function plantillaEtapaAnexos(p: EtapaAnexosEmail, appUrl: string): string {
+  const url = appUrl ? `${appUrl.replace(/\/$/, '')}/licitacion/${encodeURIComponent(p.codigo)}` : '';
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">
+      ${p.actorNombre ? esc(p.actorNombre) : 'Alguien'} movió esta licitación a la etapa
+      <strong>ANEXOS</strong>. Ya puedes revisar y preparar los anexos.
+    </p>
+    ${cardLicitacion({ codigo: p.codigo, nombre: p.licitacionNombre, organismo: p.organismo, monto: p.monto, cierre: p.cierre })}`;
+  return layoutEmail({
+    titulo: 'Una licitación pasó a la etapa ANEXOS',
+    cuerpo,
+    cta: url ? { label: 'Abrir licitación', url } : undefined,
+  });
+}
+
+/** Avisa a un perfil (ej. Fernando) que una licitación entró a la etapa ANEXOS. */
+export async function enviarCorreoEtapaAnexos(p: EtapaAnexosEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — correo de etapa ANEXOS omitido'); return false; }
+  if (!p.to) return false;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+  try {
+    await t.sendMail({
+      from: FROM(),
+      to: p.to,
+      subject: `Etapa ANEXOS: ${p.licitacionNombre || p.codigo}`,
+      html: plantillaEtapaAnexos(p, appUrl),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío etapa ANEXOS SMTP falló:', String(e));
+    return false;
+  }
+}
+
 /** Envía el digest de radar a un perfil. Devuelve true si se envió. */
 export async function enviarDigestRadar(p: DigestEmail): Promise<boolean> {
   const t = transporter();

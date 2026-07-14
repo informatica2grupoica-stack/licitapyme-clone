@@ -7,6 +7,7 @@
 --   acceso_radar        → entrar al radar (por defecto solo admin)
 --   comentar_viabilidad → comentar / corregir la viabilidad (enseñar a la IA)
 --   exportar            → exportar a Excel
+--   alertas_anexos      → recibir campana + correo cuando un perfil mueve una licitación a la etapa ANEXOS (ej. Fernando)
 --
 -- Ejemplo de valor: {"ver_otros_negocios": true, "exportar": true}
 --

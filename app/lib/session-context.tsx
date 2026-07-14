@@ -17,6 +17,7 @@ export interface UsuarioSession {
     acceso_radar?: boolean;
     comentar_viabilidad?: boolean;
     exportar?: boolean;
+    alertas_anexos?: boolean;
   };
 }
 

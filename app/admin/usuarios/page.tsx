@@ -16,6 +16,7 @@ interface Permisos {
   acceso_radar?: boolean;
   comentar_viabilidad?: boolean;
   exportar?: boolean;
+  alertas_anexos?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -35,6 +36,7 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string }[] 
   { key: 'acceso_radar',        label: 'Acceso al radar',                     desc: 'El radar es solo de admin por defecto.' },
   { key: 'comentar_viabilidad', label: 'Comentar / corregir viabilidad',      desc: 'Corregir y afinar el análisis de viabilidad.' },
   { key: 'exportar',            label: 'Exportar a Excel',                    desc: 'Descargar listados en Excel.' },
+  { key: 'alertas_anexos',      label: 'Recibir alertas de etapa ANEXOS',     desc: 'Le llega campana y correo cuando un perfil mueve una licitación a la etapa ANEXOS.' },
 ];
 
 function parsePermisos(p: Permisos | string | null | undefined): Permisos {

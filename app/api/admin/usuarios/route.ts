@@ -115,7 +115,19 @@ export async function PATCH(request: NextRequest) {
     }
 
     values.push(id);
-    await pool.query(`UPDATE usuarios SET ${updates.join(', ')} WHERE id = ?`, values);
+    try {
+      await pool.query(`UPDATE usuarios SET ${updates.join(', ')} WHERE id = ?`, values);
+    } catch (e: any) {
+      // La columna 'permisos' aún no existe (falta la migración 28): mensaje claro
+      // en vez del error crudo de MySQL, para que el admin sepa qué hacer.
+      if (e?.code === 'ER_BAD_FIELD_ERROR' && permisos !== undefined) {
+        return NextResponse.json({
+          error: 'Falta la migración 28: ejecuta en tu base de datos  ALTER TABLE usuarios ADD COLUMN permisos JSON NULL AFTER rol;',
+          migration_needed: true,
+        }, { status: 503 });
+      }
+      throw e;
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

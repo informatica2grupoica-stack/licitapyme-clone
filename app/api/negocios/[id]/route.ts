@@ -4,13 +4,67 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
-import { enviarCorreoCambio, enviarCorreoAsignacion } from '@/app/lib/email';
-import { getEstadoPipeline } from '@/app/lib/pipeline';
+import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } from '@/app/lib/email';
+import { getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
   const rol = req.headers.get('x-user-rol');
   return { id: id ? parseInt(id) : null, rol };
+}
+
+/**
+ * Avisa (campana + correo) a los perfiles con permiso 'alertas_anexos' (ej. Fernando)
+ * que una licitación ENTRÓ a la etapa ANEXOS. Best-effort: nunca lanza ni bloquea el PATCH.
+ * No auto-notifica a quien hizo el cambio.
+ */
+async function notificarEtapaAnexos(p: {
+  actorId: number | null;
+  codigo: string; nombre?: string | null;
+  organismo?: string | null; monto?: number | null; cierre?: string | null;
+}): Promise<void> {
+  try {
+    const [urows] = await pool.query(
+      `SELECT id, nombre, email, permisos FROM usuarios WHERE activo = TRUE`,
+    );
+    const destinatarios = (urows as any[]).filter(u => {
+      if (Number(u.id) === Number(p.actorId)) return false; // no auto-notificar al actor
+      let perm = u.permisos;
+      if (typeof perm === 'string') { try { perm = JSON.parse(perm); } catch { perm = null; } }
+      return !!(perm && perm.alertas_anexos);
+    });
+    if (destinatarios.length === 0) return;
+
+    // Nombre de quién movió la licitación a ANEXOS.
+    let actorNombre = 'Alguien';
+    if (p.actorId) {
+      const [aRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [p.actorId]);
+      const a = (aRows as any[])[0];
+      actorNombre = a?.nombre || a?.email || 'Alguien';
+    }
+
+    for (const d of destinatarios) {
+      // Campana en tiempo real (siempre, no requiere SMTP).
+      registrarEvento({
+        tipo: 'ETAPA_ANEXOS',
+        licitacionCodigo: p.codigo, licitacionNombre: p.nombre,
+        usuarioId: d.id, usuarioNombre: d.nombre || d.email || null,
+        actorId: p.actorId, actorNombre,
+        mensaje: `${actorNombre} movió ${p.nombre || p.codigo} a la etapa ANEXOS`,
+        metadata: { licitacion_codigo: p.codigo, etapa: 'ANEXOS' },
+      }).catch(() => {});
+      // Correo (best-effort, si el SMTP está configurado).
+      if (d.email) {
+        enviarCorreoEtapaAnexos({
+          to: d.email, nombre: d.nombre, codigo: p.codigo,
+          licitacionNombre: p.nombre, organismo: p.organismo,
+          monto: p.monto, cierre: p.cierre, actorNombre,
+        }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.warn('[negocios:PATCH] notificarEtapaAnexos:', String(e));
+  }
 }
 
 type Params = { params: Promise<{ id: string }> };
@@ -118,7 +172,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     // Verificar acceso
     const [rows] = await pool.query(
       `SELECT asignado_a, licitacion_codigo, licitacion_nombre,
-              licitacion_organismo, licitacion_monto, licitacion_cierre
+              licitacion_organismo, licitacion_monto, licitacion_cierre,
+              estado_pipeline
        FROM negocios WHERE id = ?`, [id]
     ) as any;
     if (!(rows as any[]).length)
@@ -197,6 +252,18 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         cambios.push(estado_pipeline === 'DESCARTADA'
           ? { tipo: 'Estado', detalle: `Se descartó. Motivo: ${motivo}` }
           : { tipo: 'Estado', detalle: `Ahora está en ${estadoLabel}.` });
+
+        // Alerta a los perfiles con permiso 'alertas_anexos' (ej. Fernando) SOLO en la
+        // transición hacia ANEXOS (no si el negocio ya estaba en esa etapa). Fire-and-forget.
+        if (normalizarEstado(estado_pipeline) === 'ANEXOS'
+            && normalizarEstado(neg.estado_pipeline) !== 'ANEXOS') {
+          notificarEtapaAnexos({
+            actorId: userId,
+            codigo: neg.licitacion_codigo, nombre: neg.licitacion_nombre,
+            organismo: neg.licitacion_organismo, monto: neg.licitacion_monto,
+            cierre: neg.licitacion_cierre,
+          }).catch(() => {});
+        }
       } catch (colErr: any) {
         if (String(colErr).toLowerCase().includes('unknown column')) {
           return NextResponse.json({
