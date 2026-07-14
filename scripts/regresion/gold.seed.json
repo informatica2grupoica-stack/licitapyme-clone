@@ -1,0 +1,2323 @@
+[
+  {
+    "codigo": "2920-30-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 155,
+      "score": 39,
+      "veredicto": null,
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 155,
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "3507-12-LE26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 10,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 10,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "1250623-4-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 7,
+      "score": 68,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 7,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2126-107-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2428-45-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2467-70-LE26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 65,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "1389488-29-LE26",
+    "_docs_ok": 9,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 34,
+      "score": 39,
+      "veredicto": "PUEDE_SER",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 34,
+      "veredicto": "PUEDE_SER",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2723-48-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 11,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "n_items_min": 11,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1057822-37-LE26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 5,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 5,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1271359-70-LE26",
+    "_docs_ok": 13,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 63,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 63,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3907-8-L126",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 20,
+      "score": 19,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 20,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1947-112-LP26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 12,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 12,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "2378-86-LE26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 4,
+      "score": 55,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "4956-52-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 2,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "n_items_min": 2,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "2328-41-LE26",
+    "_docs_ok": 8,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 35,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 35,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3459-15-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 202,
+      "score": 58,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 202,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2422-100-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 5,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 5,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "2981-189-LP26",
+    "_docs_ok": 13,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 2,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 78,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 2,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1180730-27-LE26",
+    "_docs_ok": 9,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 10,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 3,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 10,
+      "suma_valida": true,
+      "n_items_min": 3,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "1043-12-LE26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 9,
+      "score": 19,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 9,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3145-3-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 55,
+      "score": 55,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 55,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "608-145-LP26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 11,
+      "score": 72,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "n_items_min": 11,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "3172-50-LE26",
+    "_docs_ok": 4,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 2,
+      "score": 72,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 2,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "507428-74-LP26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 4,
+      "score": 55,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "2436-29-LE26",
+    "_docs_ok": 8,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 19,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2704-39-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 68,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2274-23-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2313-3-LE26",
+    "_docs_ok": 7,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "5586-95-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 3,
+      "score": 78,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "n_items_min": 3,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "2724-30-LE26",
+    "_docs_ok": 10,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 23,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 23,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2928-14-LR26",
+    "_docs_ok": 12,
+    "_actual": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 4,
+      "score": 78,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1079454-4-LP26",
+    "_docs_ok": 7,
+    "_actual": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 30,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 30,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1191688-50-LE26",
+    "_docs_ok": 8,
+    "_actual": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 26,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 26,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2723-46-LP26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 0,
+      "score": 72,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 0,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1191688-51-LE26",
+    "_docs_ok": 7,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 6,
+      "score": 78,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 6,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2660-55-LP26",
+    "_docs_ok": 7,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 56,
+      "score": 55,
+      "veredicto": null,
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "n_items_min": 56,
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1469-122-LE26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 72,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3132-25-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 3,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "n_items_min": 3,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2945-18-LP26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 2,
+      "score": 60,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "n_items_min": 2,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "2295-74-LE26",
+    "_docs_ok": 7,
+    "_actual": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 4,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "527481-52-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 41,
+      "score": 39,
+      "veredicto": "PUEDE_SER",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 41,
+      "veredicto": "PUEDE_SER",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "872-28-LE26",
+    "_docs_ok": 4,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 14,
+      "score": 55,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 14,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "5586-103-LE26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 4,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "4374-6-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 2,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 2,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2705-35-LE26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 68,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1180730-26-LE26",
+    "_docs_ok": 9,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 10,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 10,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3510-20-LP26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2126-106-LE26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 2,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 2,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1077195-8-LE26",
+    "_docs_ok": 4,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 3,
+      "score": 78,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 3,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1180828-26-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 58,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "759-21-LE26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 13,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 13,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1057474-24-LE26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 4,
+      "score": 55,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "5054-12-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 3,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 3,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2904-13-LP26",
+    "_docs_ok": 7,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 2,
+      "score": 78,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 2,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "4179-31-LE26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 72,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1574-24-LE26",
+    "_docs_ok": 7,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 35,
+      "score": 62,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "n_items_min": 35,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "4280-20-LP26",
+    "_docs_ok": 17,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 4,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3762-28-LP26",
+    "_docs_ok": 7,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 72,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 8,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2674-33-LE26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2409-33-LE26",
+    "_docs_ok": 12,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 0,
+      "suma_valida": false,
+      "suma_real": 0,
+      "n_items": 95,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 0,
+      "suma_valida": false,
+      "n_items_min": 95,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "4524-2-LP26",
+    "_docs_ok": 9,
+    "_actual": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 119,
+      "score": 68,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 119,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "4116-13-LP26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 55,
+      "veredicto": "PUEDE SER",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "PUEDE SER",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1003-14-LE26",
+    "_docs_ok": 1,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 6,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 6,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "741-19-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 571,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 571,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "4192-41-LP26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 2,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 2,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "4152-22-LE26",
+    "_docs_ok": 4,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 2,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 2,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "4590-12-LE26",
+    "_docs_ok": 1,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3482-4-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 47,
+      "score": 39,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 47,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "729-134-LE26",
+    "_docs_ok": 8,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 0,
+      "suma_valida": false,
+      "suma_real": 0,
+      "n_items": 53,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 0,
+      "suma_valida": false,
+      "n_items_min": 53,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3603-26-LE26",
+    "_docs_ok": 10,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 55,
+      "veredicto": "PUEDE SER",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "PUEDE SER",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2324-78-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 2,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "n_items_min": 2,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2775-81-LP26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 5,
+      "score": 68,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 5,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "673663-13-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1254658-10-LE26",
+    "_docs_ok": 8,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 17,
+      "score": 39,
+      "veredicto": "VIABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 17,
+      "veredicto": "VIABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "4099-18-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 45,
+      "veredicto": "POCO VIABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "POCO VIABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3480-14-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 108,
+      "score": 39,
+      "veredicto": "PUEDE SER",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 108,
+      "veredicto": "PUEDE SER",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "3890-114-L126",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 73,
+      "score": 19,
+      "veredicto": "NO VAMOS",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 73,
+      "veredicto": "NO VAMOS",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "4074-17-LE26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 2,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 74,
+      "score": 55,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 2,
+      "suma_valida": true,
+      "n_items_min": 74,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1057547-301-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 169,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 169,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "3729-58-LE26",
+    "_docs_ok": 10,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 24,
+      "score": 39,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 24,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1057547-302-LP26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 32,
+      "score": 65,
+      "veredicto": "VIABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 32,
+      "veredicto": "VIABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1471-6-LE26",
+    "_docs_ok": 13,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 19,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1211839-41-LE26",
+    "_docs_ok": 6,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 22,
+      "score": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 22,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2282-71-LP26",
+    "_docs_ok": 14,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 78,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1075963-296-LE26",
+    "_docs_ok": 11,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 3,
+      "score": 78,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 3,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1057509-148-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 20,
+      "score": 53,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 20,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "1057422-27-LE26",
+    "_docs_ok": 19,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 3,
+      "score": 100,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 3,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1180703-21-LR26",
+    "_docs_ok": 2,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 0,
+      "suma_valida": false,
+      "suma_real": 0,
+      "n_items": 1,
+      "score": 100,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 0,
+      "suma_valida": false,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1037-7-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "POR_LOTES",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 21,
+      "score": 100,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "POR_LOTES",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 21,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "1003473-61-LE26",
+    "_docs_ok": 10,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 5,
+      "score": 100,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 5,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "1057501-304-LE26",
+    "_docs_ok": 11,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 27,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "618641-20-LE26",
+    "_docs_ok": 5,
+    "_actual": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": 1,
+      "score": 19,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false,
+      "excluido": true
+    },
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "545774-28-LE26",
+    "_docs_ok": 3,
+    "_actual": {
+      "modalidad": null,
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "suma_real": 100,
+      "n_items": null,
+      "score": 40,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    },
+    "esperado": {
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  }
+]

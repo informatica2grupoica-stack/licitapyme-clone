@@ -1,0 +1,66 @@
+[
+  {
+    "codigo": "2920-30-LE26",
+    "nota": "seed",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 155,
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "3507-12-LE26",
+    "nota": "seed",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 10,
+      "veredicto": "GANABLE",
+      "revision_humana": true
+    }
+  },
+  {
+    "codigo": "1250623-4-LE26",
+    "nota": "seed",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 7,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2126-107-LE26",
+    "nota": "seed",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 7,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  },
+  {
+    "codigo": "2428-45-LE26",
+    "nota": "seed",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false
+    }
+  }
+]
