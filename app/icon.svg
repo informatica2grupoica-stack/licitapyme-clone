@@ -1,0 +1,26 @@
+<svg width="100" height="100" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="LICITANK">
+  <defs>
+    <linearGradient id="lk-body" x1="20" y1="18" x2="80" y2="82" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#4BE3C0" />
+      <stop offset="100%" stop-color="#2FC7A6" />
+    </linearGradient>
+    <linearGradient id="lk-base" x1="50" y1="50" x2="50" y2="92" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#1FA98C" stop-opacity="0.55" />
+      <stop offset="100%" stop-color="#1FA98C" stop-opacity="0" />
+    </linearGradient>
+    <clipPath id="lk-clip">
+      <rect x="18" y="18" width="64" height="64" rx="20" transform="rotate(45 50 50)" />
+    </clipPath>
+  </defs>
+
+  <!-- Cuerpo: rombo (cuadrado redondeado rotado 45°). -->
+  <rect x="18" y="18" width="64" height="64" rx="20" transform="rotate(45 50 50)" fill="url(#lk-body)" />
+
+  <!-- Base inferior con degradado (semicírculo dentro del rombo). -->
+  <g clip-path="url(#lk-clip)">
+    <circle cx="50" cy="60" r="26" fill="url(#lk-base)" />
+  </g>
+
+  <!-- Diamante blanco central. -->
+  <rect x="36" y="30" width="28" height="28" rx="3" transform="rotate(45 50 44)" fill="#ffffff" />
+</svg>
