@@ -18,7 +18,8 @@ export type AccionActividad =
   | 'viabilidad'      // corrió el análisis de viabilidad IA
   | 'costeo'          // generó/regeneró el costeo (con o sin precios de mercado)
   | 'documento'       // subió o borró un documento propio
-  | 'ver_documento';  // abrió/descargó un documento
+  | 'ver_documento'   // abrió/descargó un documento
+  | 'estado_mp';      // Mercado Público cambió el estado (Cerrada/Revocada/Desierta/…)
 
 export interface EventoActividad {
   usuarioId: number | null;

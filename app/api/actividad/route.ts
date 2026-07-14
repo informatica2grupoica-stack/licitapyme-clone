@@ -1,14 +1,49 @@
 // app/api/actividad/route.ts
-// Historial de actividad de usuarios — SOLO ADMIN.
-// GET: lista filtrable por usuario y acción. Devuelve también la lista de usuarios
-// (para el filtro) y un resumen de acciones.
+// Historial de actividad de usuarios.
+// GET  (solo admin): lista filtrable por usuario y acción, + lista de usuarios para el filtro.
+// POST (cualquier autenticado): registra una acción del CLIENTE que no tiene endpoint propio
+//      (ver/descargar un documento). Se limita a un conjunto seguro de acciones y exige acceso a
+//      la licitación. Aparece en el Historial de la licitación. Best-effort.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { registrarActividad, type AccionActividad } from '@/app/lib/actividad';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
   const rol = req.headers.get('x-user-rol');
   return { id: id ? parseInt(id, 10) : null, rol };
+}
+
+// Acciones que el cliente PUEDE registrar (las demás se registran server-side en su endpoint).
+const ACCIONES_CLIENTE: AccionActividad[] = ['ver_documento'];
+
+export async function POST(request: NextRequest) {
+  const usuario = await getAuthedUser(request);
+  if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+
+  let body: { accion?: string; licitacion_codigo?: string; descripcion?: string } = {};
+  try { body = await request.json(); } catch { /* body vacío */ }
+
+  const accion = String(body.accion || '') as AccionActividad;
+  const codigo = String(body.licitacion_codigo || '').trim();
+  if (!ACCIONES_CLIENTE.includes(accion) || !codigo) {
+    return NextResponse.json({ error: 'Petición inválida' }, { status: 400 });
+  }
+
+  // Acceso a la licitación (externo → solo asignadas). No se registra sobre lo que no puede ver.
+  if (!(await puedeVerLicitacion(request, codigo))) {
+    return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+  }
+
+  await registrarActividad({
+    usuarioId: usuario.id, accion,
+    entidadTipo: 'licitacion', entidadId: codigo,
+    descripcion: (body.descripcion || 'Vio un documento').toString().slice(0, 200),
+    metadata: { licitacion_codigo: codigo },
+  });
+
+  return NextResponse.json({ success: true });
 }
 
 export async function GET(request: NextRequest) {

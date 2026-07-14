@@ -79,6 +79,32 @@ function PipelineBadge({ estadoId }: { estadoId: string | null }) {
   );
 }
 
+// Estilo por estado MP terminal (mismos colores que el detalle del negocio).
+const ESTADO_MP_STYLE: Record<string, { bg: string; color: string; border: string }> = {
+  Cerrada:    { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
+  Desierta:   { bg: '#ffedd5', color: '#c2410c', border: '#fed7aa' },
+  Adjudicada: { bg: '#e0e7ff', color: '#4338ca', border: '#c7d2fe' },
+  Revocada:   { bg: '#fee2e2', color: '#b91c1c', border: '#fecaca' },
+  Suspendida: { bg: '#fef9c3', color: '#a16207', border: '#fde68a' },
+};
+// Badge del estado REAL en Mercado Público. Solo se muestra cuando es TERMINAL (Cerrada/Desierta/
+// Adjudicada/Revocada/Suspendida) — así el dueño ve de un vistazo las que MP ya resolvió; las
+// activas (Publicada) no lo muestran para no ensuciar la tarjeta. El estado se refresca desde la
+// API (refrescar-estados.ts) y aquí solo se lee la columna vía el helper efectivo.
+function EstadoMpBadge({ estado, cierre }: { estado: string | null; cierre?: string | null }) {
+  const nombre = estadoEfectivoNombre(estado, cierre);
+  if (!nombre || nombre === 'Publicada') return null;
+  const st = ESTADO_MP_STYLE[nombre] || { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
+  return (
+    <span
+      style={{ backgroundColor: st.bg, color: st.color, borderColor: st.border }}
+      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold border"
+    >
+      {nombre}
+    </span>
+  );
+}
+
 function formatMonto(n: number | null): string {
   if (!n) return '$0';
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -313,6 +339,7 @@ function NegocioCard({ neg, isAdmin, onEliminar }: {
       </p>
       <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
         <PipelineBadge estadoId={neg.estado_pipeline} />
+        <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} />
         {neg.viabilidad_semaforo && SEMAFORO[neg.viabilidad_semaforo] && (
           <span
             style={{ borderColor: SEMAFORO[neg.viabilidad_semaforo].color + '40' }}
@@ -405,6 +432,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
         </p>
         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
           <PipelineBadge estadoId={neg.estado_pipeline} />
+          <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} />
           {neg.licitacion_organismo && (
             <span className="text-[10.5px] text-slate-500 truncate max-w-[240px]" title={neg.licitacion_organismo}>{neg.licitacion_organismo}</span>
           )}
@@ -1655,6 +1683,7 @@ function NegociosContent() {
                           <span className="text-xs font-mono text-slate-400">{neg.licitacion_codigo}</span>
                           {tipo && <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-semibold">{tipo}</span>}
                           <PipelineBadge estadoId={neg.estado_pipeline} />
+                          <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} />
                         </div>
                         <p className="text-sm font-semibold text-slate-800 line-clamp-2">{neg.licitacion_nombre || 'Sin nombre'}</p>
                         {neg.licitacion_organismo && <p className="text-xs text-slate-400 truncate mt-0.5">{neg.licitacion_organismo}</p>}

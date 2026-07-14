@@ -5,8 +5,8 @@
 // terminales que la fecha NO puede saber —Cerrada(6), Desierta(7), Adjudicada(8), Revocada(18),
 // Suspendida(19)— requieren consultar la API. Aquí, por cada código asignado vivo, 1 llamada a MP;
 // si el estado real difiere y es DEFINITIVO, se escribe `licitacion_estado` en AMBAS tablas:
-//   · negocios  → lo ven el detalle del negocio, la lista y Análisis.
-//   · alertas   → lo ve el radar/buscador (las asignadas también viven ahí).
+//   · negocios             → lo ven el detalle del negocio, la lista y Análisis.
+//   · alertas_licitaciones → lo ve el radar/buscador (las asignadas también viven ahí).
 // Como el front lee `licitacion_estado` vía los helpers de estado-mp.ts en todas las vistas, con
 // solo actualizar la columna los badges muestran el estado real en todos lados, sin tocar el front.
 //
@@ -18,6 +18,9 @@
 import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { CODIGO_ESTADO_MP, codigoEstadoMP } from '@/app/lib/estado-mp';
+import { registrarActividad } from '@/app/lib/actividad';
+import { registrarEvento } from '@/app/lib/historial';
+import { enviarCorreoCambio } from '@/app/lib/email';
 
 const CODIGO_CONCURRENCIA = 4;       // detalles de MP consultados en paralelo
 const PRESUPUESTO_MS       = 25_000; // tope de tiempo del paso (margen bajo maxDuration del cron)
@@ -28,8 +31,119 @@ const MAX_CODIGOS          = 400;    // backstop de cuántos códigos se sondean
 // y difiere del cacheado, se persiste. Publicada(5) no se persiste (no aporta sobre la fecha).
 const ESTADOS_DEFINITIVOS = new Set([6, 7, 8, 18, 19]);
 
+// Estados que DISPARAN CORREO al admin + asignado (decisión del dueño). El resto de terminales
+// (Adjudicada/Suspendida) igual se persisten y avisan por campana, pero sin correo.
+const ESTADOS_CON_CORREO = new Set(['Cerrada', 'Revocada', 'Desierta']);
+
 // Estados del pipeline YA resueltos: no se refrescan aquí (POSTULADA la maneja procesar-postuladas).
 const PIPELINE_RESUELTOS = ['POSTULADA', 'ADJUDICADA', 'PERDIDA', 'DESCARTADA'];
+
+// Detección de estado terminal por NOMBRE. IMPORTANTE: MP usa códigos INCONSISTENTES para el mismo
+// estado (verificado en vivo: 2831-17-LR26 "Revocada" llega como CodigoEstado 15, no 18), así que
+// comparar solo por número se pierde casos reales. El texto ("Revocada"/"Desierta"/…) es fiable:
+// el cliente lo expone en EstadoNombre (cae al Estado crudo de la API cuando el código no está en
+// el mapa). Se resuelve por nombre primero y, de respaldo, por el código conocido.
+const TERMINALES_POR_NOMBRE: Array<[RegExp, string]> = [
+  [/revocad/, 'Revocada'],
+  [/desiert/, 'Desierta'],
+  [/adjudicad/, 'Adjudicada'],
+  [/suspend/, 'Suspendida'],
+  [/cerrad/, 'Cerrada'],
+];
+
+function normNombre(s: string | number | null | undefined): string {
+  return (s ?? '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+// Nombre canónico del estado DEFINITIVO de la licitación (uno de los 5 terminales), o null si sigue
+// publicada / no es terminal. Por NOMBRE primero (robusto ante códigos MP variables), luego por código.
+function estadoDefinitivoCanonico(lic: { EstadoNombre?: string; CodigoEstado?: number | null }): string | null {
+  const texto = normNombre(lic.EstadoNombre);
+  for (const [re, nombre] of TERMINALES_POR_NOMBRE) if (re.test(texto)) return nombre;
+  const cod = codigoEstadoMP(lic.CodigoEstado ?? null);
+  if (cod != null && ESTADOS_DEFINITIVOS.has(cod)) return CODIGO_ESTADO_MP[cod] ?? null;
+  return null;
+}
+
+// Persiste el estado en negocios + alertas y, SI hubo transición real, notifica una sola vez.
+// El UPDATE es ATÓMICO con guardia `licitacion_estado <> ?`: affectedRows>0 ⇒ cambió de verdad,
+// aun si dos corridas (cron + on-demand) coinciden → la notificación no se duplica.
+async function persistirYNotificar(codigo: string, nombre: string): Promise<boolean> {
+  const [res] = await pool.query(
+    `UPDATE negocios SET licitacion_estado = ?, updated_at = NOW()
+     WHERE licitacion_codigo = ? AND activo = TRUE
+       AND (licitacion_estado IS NULL OR licitacion_estado <> ?)`,
+    [nombre, codigo, nombre],
+  ) as any[];
+  const cambio = ((res as any)?.affectedRows ?? 0) > 0;
+  // El radar (tabla alertas_licitaciones) se alinea siempre (idempotente); no gatilla notificación
+  // por sí solo. Puede haber varias filas por código (una por perfil): se actualizan todas.
+  await pool.query(
+    `UPDATE alertas_licitaciones SET licitacion_estado = ? WHERE licitacion_codigo = ?`,
+    [nombre, codigo],
+  ).catch(() => { /* la fila puede no existir en el radar: no rompe */ });
+
+  if (cambio) {
+    await notificarCambioEstado(codigo, nombre).catch(e =>
+      console.error(`[refrescar-estados] notificar "${codigo}" falló:`, String(e)));
+  }
+  return cambio;
+}
+
+// Bitácora + campana + correo cuando MP cambia el estado a uno terminal. Best-effort.
+async function notificarCambioEstado(codigo: string, nombre: string): Promise<void> {
+  // Negocios activos del código (asignado + email + nombre de la licitación).
+  const [nrows] = await pool.query(
+    `SELECT n.licitacion_nombre, n.asignado_a, u.nombre AS usuario_nombre, u.email AS usuario_email
+     FROM negocios n JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
+     WHERE n.licitacion_codigo = ? AND n.activo = TRUE`,
+    [codigo],
+  ) as any[];
+  const negs = nrows as Array<{ licitacion_nombre: string | null; asignado_a: number; usuario_nombre: string | null; usuario_email: string | null }>;
+  const licNombre = negs[0]?.licitacion_nombre || codigo;
+
+  // Admins (siempre reciben campana; y correo en los estados con correo).
+  const [arows] = await pool.query(
+    `SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
+  ) as any[];
+  const admins = arows as Array<{ id: number; nombre: string | null; email: string | null }>;
+
+  // 1) Historial de la licitación (actor = Mercado Público). Aparece en el timeline del detalle.
+  await registrarActividad({
+    usuarioId: null, accion: 'estado_mp',
+    entidadTipo: 'licitacion', entidadId: codigo,
+    descripcion: `Mercado Público marcó la licitación como ${nombre}`,
+    metadata: { licitacion_codigo: codigo, estado: nombre },
+  });
+
+  // Destinatarios = asignado(s) + admins, deduplicados por id de usuario.
+  const dest = new Map<number, { nombre: string | null; email: string | null }>();
+  for (const n of negs) if (n.asignado_a) dest.set(Number(n.asignado_a), { nombre: n.usuario_nombre, email: n.usuario_email });
+  for (const a of admins) dest.set(Number(a.id), { nombre: a.nombre, email: a.email });
+
+  // 2) Campana + SSE.
+  const mensaje = `${licNombre} pasó a ${nombre} en Mercado Público`;
+  for (const [uid, u] of dest) {
+    registrarEvento({
+      tipo: 'ESTADO_MP', licitacionCodigo: codigo, licitacionNombre: licNombre,
+      usuarioId: uid, usuarioNombre: u.nombre,
+      actorId: null, actorNombre: 'Mercado Público',
+      mensaje, metadata: { licitacion_codigo: codigo, estado: nombre },
+    }).catch(() => {});
+  }
+
+  // 3) Correo SOLO para Cerrada/Revocada/Desierta, a admins + asignado (best-effort).
+  if (ESTADOS_CON_CORREO.has(nombre)) {
+    for (const [, u] of dest) {
+      if (!u.email) continue;
+      enviarCorreoCambio({
+        to: u.email, nombre: u.nombre, codigo, licitacionNombre: licNombre,
+        cambios: [{ tipo: 'Estado', detalle: `Estado en Mercado Público: ${nombre}` }],
+        actorNombre: 'Mercado Público',
+      }).catch(() => {});
+    }
+  }
+}
 
 export async function refrescarEstadosAsignadas(
   opts: { presupuestoMs?: number; timeoutMs?: number } = {},
@@ -74,28 +188,19 @@ export async function refrescarEstadosAsignadas(
       const lic = await client.obtenerPorCodigoRapido(codigo, timeoutMs);
       if (!lic) return;
 
-      const nuevoCodigo = codigoEstadoMP(lic.CodigoEstado ?? lic.EstadoNombre ?? null);
-      if (nuevoCodigo == null) return;
-
-      // Solo persistimos estados DEFINITIVOS que además DIFIEREN del cacheado (evita escrituras inútiles).
-      const cacheCodigo = codigoEstadoMP(fila.estado_cache);
-      if (!ESTADOS_DEFINITIVOS.has(nuevoCodigo) || nuevoCodigo === cacheCodigo) return;
-
-      const nombre = CODIGO_ESTADO_MP[nuevoCodigo];
+      // Estado DEFINITIVO por nombre (robusto ante códigos MP variables). null = sigue publicada.
+      const nombre = estadoDefinitivoCanonico(lic);
       if (!nombre) return;
 
-      // Escribir en AMBAS tablas por código (negocios = detalle/lista; alertas = radar/buscador).
-      await pool.query(
-        `UPDATE negocios SET licitacion_estado = ?, updated_at = NOW() WHERE licitacion_codigo = ? AND activo = TRUE`,
-        [nombre, codigo],
-      );
-      await pool.query(
-        `UPDATE alertas SET licitacion_estado = ? WHERE licitacion_codigo = ?`,
-        [nombre, codigo],
-      ).catch(() => { /* la fila puede no existir en alertas: no rompe */ });
+      // Corto-circuito barato: si el cache ya coincide, ni intentamos escribir.
+      if (normNombre(fila.estado_cache) === normNombre(nombre)) return;
 
-      stats.actualizadas++;
-      console.log(`[refrescar-estados] ${codigo}: ${fila.estado_cache ?? '—'} → ${nombre}`);
+      // Persistir (negocios + alertas) y notificar UNA vez si fue transición real.
+      const cambio = await persistirYNotificar(codigo, nombre);
+      if (cambio) {
+        stats.actualizadas++;
+        console.log(`[refrescar-estados] ${codigo}: ${fila.estado_cache ?? '—'} → ${nombre}`);
+      }
     } catch (e) {
       stats.errores++;
       console.error(`[refrescar-estados] "${codigo}" falló:`, String(e));
@@ -128,21 +233,13 @@ export async function refrescarEstadoCodigo(
     const client = getMercadoPublicoClient();
     const lic = await client.obtenerPorCodigoRapido(codigo, timeoutMs);
     if (!lic) return null;
-    const nuevoCodigo = codigoEstadoMP(lic.CodigoEstado ?? lic.EstadoNombre ?? null);
-    if (nuevoCodigo == null) return null;
-    const cacheCodigo = codigoEstadoMP(estadoCache);
-    if (!ESTADOS_DEFINITIVOS.has(nuevoCodigo) || nuevoCodigo === cacheCodigo) return null;
-    const nombre = CODIGO_ESTADO_MP[nuevoCodigo];
+    const nombre = estadoDefinitivoCanonico(lic);
     if (!nombre) return null;
-    await pool.query(
-      `UPDATE negocios SET licitacion_estado = ?, updated_at = NOW() WHERE licitacion_codigo = ? AND activo = TRUE`,
-      [nombre, codigo],
-    );
-    await pool.query(
-      `UPDATE alertas SET licitacion_estado = ? WHERE licitacion_codigo = ?`,
-      [nombre, codigo],
-    ).catch(() => {});
-    console.log(`[refrescar-estados] on-demand ${codigo}: ${estadoCache ?? '—'} → ${nombre}`);
+    if (normNombre(estadoCache) === normNombre(nombre)) return null;
+    const cambio = await persistirYNotificar(codigo, nombre);
+    if (cambio) console.log(`[refrescar-estados] on-demand ${codigo}: ${estadoCache ?? '—'} → ${nombre}`);
+    // Devuelve el nombre aunque no haya "cambio" nuevo (otra corrida pudo escribirlo): el detalle
+    // igual debe reflejar el estado terminal actual.
     return nombre;
   } catch (e) {
     console.error(`[refrescar-estados] on-demand "${codigo}" falló:`, String(e));

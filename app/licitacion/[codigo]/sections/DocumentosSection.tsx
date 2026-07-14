@@ -17,6 +17,21 @@ import { useToast } from '@/app/components/ui/toast';
 // los oficiales descargados de Mercado Público quedan protegidos).
 const CAT_PROPIOS = 'DOCUMENTOS_PROPIOS';
 
+// Bitácora: registra que se VIO o DESCARGÓ un documento (best-effort, aparece en el Historial de
+// la licitación). Dedup por (código+nombre+verbo) para no spamear si se repite en la misma sesión.
+const _docsRegistrados = new Set<string>();
+function registrarVerDocumento(codigo: string, nombre: string, verbo: 'Vio' | 'Descargó'): void {
+  if (!codigo || !nombre) return;
+  const clave = `${codigo}|${nombre}|${verbo}`;
+  if (_docsRegistrados.has(clave)) return;
+  _docsRegistrados.add(clave);
+  fetch('/api/actividad', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accion: 'ver_documento', licitacion_codigo: codigo, descripcion: `${verbo} el documento "${nombre}"` }),
+  }).catch(() => { _docsRegistrados.delete(clave); /* reintentable si falló la red */ });
+}
+
 // ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
 // Estilo común a todas las cajas (neutro). El color real lo da el contenido.
 const ESTILO_CAJA = {
@@ -71,6 +86,7 @@ interface CajaConfig {
 // ─── Item draggable ───────────────────────────────────────────────────────────
 function DocItem({
   doc,
+  codigoDecoded,
   onDragStart,
   isDragging,
   onView,
@@ -78,6 +94,7 @@ function DocItem({
   onDelete,
 }: {
   doc: DocumentoAdjunto & { categoria?: string };
+  codigoDecoded: string;
   onDragStart: (e: React.DragEvent, doc: DocumentoAdjunto) => void;
   isDragging: boolean;
   onView: (doc: VisorDoc) => void;
@@ -128,7 +145,7 @@ function DocItem({
         </button>
         <a
           href={doc.url_local || doc.url} download={doc.nombre}
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó'); }}
           className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
           title="Descargar"
           draggable={false}
@@ -155,6 +172,7 @@ function DocItem({
 function CajaDroppable({
   caja,
   docs,
+  codigoDecoded,
   isDragOver,
   isDraggingActive,
   draggingDoc,
@@ -170,6 +188,7 @@ function CajaDroppable({
   subiendo,
 }: {
   caja: CajaConfig;
+  codigoDecoded: string;
   docs: (DocumentoAdjunto & { categoria?: string })[];
   isDragOver: boolean;
   isDraggingActive: boolean;
@@ -218,6 +237,7 @@ function CajaDroppable({
           <DocItem
             key={doc.nombre}
             doc={doc}
+            codigoDecoded={codigoDecoded}
             onDragStart={onDragStart}
             isDragging={draggingDoc?.nombre === doc.nombre}
             onView={onView}
@@ -484,6 +504,7 @@ function DocumentosGrid({
           <CajaDroppable
             key={caja.key}
             caja={caja}
+            codigoDecoded={codigoDecoded}
             docs={grupos[caja.key] || []}
             isDragOver={dragOver === caja.key}
             isDraggingActive={isDraggingActive}
@@ -520,6 +541,7 @@ function DocumentosGrid({
               <DocItem
                 key={doc.nombre}
                 doc={doc}
+                codigoDecoded={codigoDecoded}
                 onDragStart={handleDragStart}
                 isDragging={draggingDoc?.nombre === doc.nombre}
                 onView={onView}
@@ -714,7 +736,7 @@ function DocumentosPropiosList({ docs, codigoDecoded, onView, onRefrescar }: {
                 <div className="flex items-center gap-0.5 flex-shrink-0">
                   {busy && <Loader2 size={13} className="animate-spin text-violet-500 mr-1" />}
                   <button onClick={() => onView({ nombre: doc.nombre, url: urlDe(doc) })} title="Ver" className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Eye size={13} /></button>
-                  <a href={urlDe(doc)} download={doc.nombre} title="Descargar" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded"><Download size={13} /></a>
+                  <a href={urlDe(doc)} download={doc.nombre} onClick={() => registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó')} title="Descargar" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded"><Download size={13} /></a>
                   <button onClick={() => { docReemplazarRef.current = doc; fileRef.current?.click(); }} disabled={busy} title="Reemplazar (subir versión nueva)" className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded disabled:opacity-50"><Upload size={13} /></button>
                   <button onClick={() => { setEditando(doc.nombre); setValorNombre(doc.nombre); }} disabled={busy} title="Renombrar" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-50"><Pencil size={13} /></button>
                   <button onClick={() => eliminar(doc)} disabled={busy} title="Eliminar" className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"><Trash2 size={13} /></button>
@@ -751,6 +773,8 @@ export function DocumentosSection({
   const docsPropios = documentosCache.filter(d => ((d as any).categoria || '').toUpperCase() === 'DOCUMENTOS_PROPIOS');
   // Documento abierto en el visor inline (modal). null = cerrado.
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
+  // Ver un documento: abre el visor Y registra la actividad "Vio el documento" (bitácora).
+  const verYRegistrar = (doc: VisorDoc) => { registrarVerDocumento(codigoDecoded, doc.nombre, 'Vio'); setVisorDoc(doc); };
   // Documento abierto en el chat rápido de IA (modal). null = cerrado.
   const [iaDoc, setIaDoc] = useState<{ nombre: string; url: string } | null>(null);
 
@@ -997,7 +1021,7 @@ export function DocumentosSection({
             <DocumentosGrid
               documentos={docsLicitacion as (DocumentoAdjunto & { categoria?: string })[]}
               codigoDecoded={codigoDecoded}
-              onView={setVisorDoc}
+              onView={verYRegistrar}
               onOpenIA={setIaDoc}
               onRefrescar={fetchDocumentos}
               modo="licitacion"
@@ -1033,7 +1057,7 @@ export function DocumentosSection({
         <DocumentosPropiosList
           docs={docsPropios as (DocumentoAdjunto & { categoria?: string })[]}
           codigoDecoded={codigoDecoded}
-          onView={setVisorDoc}
+          onView={verYRegistrar}
           onRefrescar={fetchDocumentos}
         />
       </div>

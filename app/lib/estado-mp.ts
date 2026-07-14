@@ -22,6 +22,9 @@ export const CODIGO_ESTADO_MP: Record<number, string> = {
   6: 'Cerrada',
   7: 'Desierta',
   8: 'Adjudicada',
+  // MP usa códigos inconsistentes para Revocada: se ha visto 15 (verificado en vivo con
+  // 2831-17-LR26) además de 18. Se mapean ambos para no perder el estado por el número.
+  15: 'Revocada',
   18: 'Revocada',
   19: 'Suspendida',
 };

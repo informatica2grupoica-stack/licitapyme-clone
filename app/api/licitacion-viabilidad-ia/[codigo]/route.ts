@@ -13,6 +13,7 @@ import pool from '@/app/lib/db';
 import { analizarYGuardarViabilidadIA, calcularDocsHash } from '@/app/lib/viabilidad-ia';
 import { getAuthedUser, tomarLock, liberarLock, permitido, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { iaTextoConfigurada } from '@/app/lib/gemini';
+import { registrarActividad } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -147,6 +148,13 @@ export async function POST(request: NextRequest, { params }: Params) {
   //    túnel). El resultado se guarda en BD; el front lo recoge por polling del GET. NO await:
   //    el server del notebook es persistente, así que la promesa sigue viva tras responder.
   jobs.set(codigoDecoded, { estado: 'procesando', desde: Date.now() });
+  // Bitácora: corrió (o re-corrió) el análisis de viabilidad IA (best-effort, aparece en el Historial).
+  registrarActividad({
+    usuarioId: usuario.id, accion: 'viabilidad',
+    entidadTipo: 'licitacion', entidadId: codigoDecoded,
+    descripcion: force ? 'Re-analizó la viabilidad IA' : 'Corrió el análisis de viabilidad IA',
+    metadata: { licitacion_codigo: codigoDecoded, force },
+  });
   analizarYGuardarViabilidadIA(codigoDecoded)
     .then((informeIA) => {
       if (!informeIA) {

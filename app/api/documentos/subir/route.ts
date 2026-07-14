@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { guardarDocumentoEnCache } from '@/app/services/documentosService.server';
+import { registrarActividad, userIdFromHeaders } from '@/app/lib/actividad';
 
 const CONTENT_TYPES: Record<string, string> = {
   pdf:  'application/pdf',
@@ -41,6 +42,14 @@ export async function POST(request: NextRequest) {
 
       const publicUrl = await subirDocumentoR2(licitacionCodigo, nombre, buffer, contentType);
       await guardarDocumentoEnCache(licitacionCodigo, nombre, publicUrl, buffer.length);
+
+      // Bitácora: subió un documento a esta licitación (best-effort, aparece en el Historial).
+      registrarActividad({
+        usuarioId: userIdFromHeaders(request.headers), accion: 'documento',
+        entidadTipo: 'licitacion', entidadId: licitacionCodigo,
+        descripcion: `Subió el documento "${nombre}"`,
+        metadata: { licitacion_codigo: licitacionCodigo, documento: nombre },
+      });
 
       resultado.push({ nombre, url: publicUrl, size: buffer.length });
     }

@@ -262,6 +262,7 @@ const EVENTO_META: Record<string, { label: string; color: string }> = {
   viabilidad:            { label: 'Viabilidad IA',     color: '#d97706' },
   costeo:                { label: 'Costeo',             color: '#0d9488' },
   documento:             { label: 'Documento',         color: '#0d9488' },
+  estado_mp:             { label: 'Estado en Mercado Público', color: '#dc2626' },
 };
 function eventoMeta(tipo: string) {
   return EVENTO_META[tipo] || { label: (tipo || 'Evento').replace(/_/g, ' '), color: '#64748b' };

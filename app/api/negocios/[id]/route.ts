@@ -139,6 +139,14 @@ export async function GET(request: NextRequest, { params }: Params) {
       } catch { negocio.viabilidad_informe = null; }
     }
 
+    // Bitácora: este perfil ENTRÓ a ver la licitación (best-effort, aparece en el Historial).
+    registrarActividad({
+      usuarioId: userId, accion: 'ver_licitacion',
+      entidadTipo: 'licitacion', entidadId: codigo,
+      descripcion: 'Abrió la licitación',
+      metadata: { licitacion_codigo: codigo, via: 'negocio' },
+    });
+
     // Estado AUTORITATIVO desde la API (Capa 2), on-demand: si MP ya reporta un estado DEFINITIVO
     // (Cerrada/Desierta/Adjudicada/Revocada/Suspendida) distinto del cacheado, se persiste en
     // negocios + alertas y se refleja de inmediato en esta respuesta. Best-effort con timeout
