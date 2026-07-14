@@ -11,7 +11,7 @@ import {
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
   ChevronDown, X, RefreshCw, Users, List, LayoutGrid,
   CalendarDays, ChevronLeft, ChevronRight, ArrowRight, FileText,
-  SlidersHorizontal, MapPin, Clock, Check, Download, ArrowUpNarrowWide, ArrowDownWideNarrow,
+  SlidersHorizontal, MapPin, Clock, Check, Download, ArrowUpNarrowWide, ArrowDownWideNarrow, Trophy,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
@@ -79,28 +79,37 @@ function PipelineBadge({ estadoId }: { estadoId: string | null }) {
   );
 }
 
-// Estilo por estado MP terminal (mismos colores que el detalle del negocio).
+// Estilo por estado MP terminal (mismos colores que el detalle del negocio) + Ganada.
 const ESTADO_MP_STYLE: Record<string, { bg: string; color: string; border: string }> = {
   Cerrada:    { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
   Desierta:   { bg: '#ffedd5', color: '#c2410c', border: '#fed7aa' },
   Adjudicada: { bg: '#e0e7ff', color: '#4338ca', border: '#c7d2fe' },
   Revocada:   { bg: '#fee2e2', color: '#b91c1c', border: '#fecaca' },
   Suspendida: { bg: '#fef9c3', color: '#a16207', border: '#fde68a' },
+  Ganada:     { bg: '#dcfce7', color: '#15803d', border: '#bbf7d0' },
 };
 // Badge del estado REAL en Mercado Público. Solo se muestra cuando es TERMINAL (Cerrada/Desierta/
 // Adjudicada/Revocada/Suspendida) — así el dueño ve de un vistazo las que MP ya resolvió; las
 // activas (Publicada) no lo muestran para no ensuciar la tarjeta. El estado se refresca desde la
 // API (refrescar-estados.ts) y aquí solo se lee la columna vía el helper efectivo.
-function EstadoMpBadge({ estado, cierre }: { estado: string | null; cierre?: string | null }) {
+//
+// Caso GANADA (en Negocios): si MP marca "Adjudicada" y la licitación es NUESTRA —la postulamos
+// (POSTULADA) o ya está adjudicada a nosotros (ADJUDICADA)— se muestra "Ganada" en verde. La
+// verificación fina por RUT (ganamos vs. terceros) vive en Postuladas; aquí basta con que sea
+// nuestra postulada adjudicada. Una Adjudicada que NO es nuestra postulada se muestra "Adjudicada".
+function EstadoMpBadge({ estado, cierre, pipeline }: { estado: string | null; cierre?: string | null; pipeline?: string | null }) {
   const nombre = estadoEfectivoNombre(estado, cierre);
   if (!nombre || nombre === 'Publicada') return null;
-  const st = ESTADO_MP_STYLE[nombre] || { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
+  const esNuestra = pipeline === 'POSTULADA' || pipeline === 'ADJUDICADA';
+  const label = (nombre === 'Adjudicada' && esNuestra) ? 'Ganada' : nombre;
+  const st = ESTADO_MP_STYLE[label] || { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
   return (
     <span
       style={{ backgroundColor: st.bg, color: st.color, borderColor: st.border }}
       className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold border"
     >
-      {nombre}
+      {label === 'Ganada' && <Trophy size={10} />}
+      {label}
     </span>
   );
 }
@@ -432,7 +441,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
         </p>
         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
           <PipelineBadge estadoId={neg.estado_pipeline} />
-          <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} />
+          <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} pipeline={neg.estado_pipeline} />
           {neg.licitacion_organismo && (
             <span className="text-[10.5px] text-slate-500 truncate max-w-[240px]" title={neg.licitacion_organismo}>{neg.licitacion_organismo}</span>
           )}
@@ -712,6 +721,13 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
             {dias <= 0 ? 'Vencida' : `${dias}d`}
           </span>
         )}
+      </div>
+
+      {/* Estado REAL en Mercado Público (refrescado desde la API). Solo si es terminal:
+          Cerrada/Desierta/Adjudicada/Revocada/Suspendida, o "Ganada" si es nuestra postulada
+          adjudicada. Así en la semana se ve de un vistazo cuáles ya resolvió MP. */}
+      <div className="mb-1.5 empty:hidden">
+        <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} pipeline={neg.estado_pipeline} />
       </div>
 
       {/* Hora de cierre — el calendario agrupa por día; aquí se ve la HORA exacta. */}
@@ -1188,6 +1204,10 @@ function NegociosContent() {
   const [yaActualizado, setYaActualizado] = useState(false);
   const [filtrosOpen, setFiltrosOpen]   = useState(false);
   const [exportando, setExportando]     = useState(false);
+  // Refresco de estados MP en curso (badge sutil "actualizando…"; no bloquea la vista).
+  const [refrescandoEstados, setRefrescandoEstados] = useState(false);
+  // Evita re-disparar el refresco de fondo más de una vez por montaje.
+  const estadosRefrescados = useRef(false);
   // Hidratado = ya restauramos los filtros guardados; evita persistir el default antes.
   const [hidratado, setHidratado]       = useState(false);
 
@@ -1220,8 +1240,8 @@ function NegociosContent() {
     } catch { /* cuota llena */ }
   }, [hidratado, search, filtroUsuarios, filtroEtiqueta, filtroTipo, filtroEstado, filtroRegion, filtroFechaDesde, filtroFechaHasta, vista, ordenCierreDesc]);
 
-  const cargar = useCallback(async () => {
-    setLoading(true);
+  const cargar = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       // Se cargan TODOS los negocios visibles según el rol (admin = todos); el filtro por
@@ -1250,6 +1270,39 @@ function NegociosContent() {
   // primera puede resolver última y pisar a la segunda → se ven "todos" con el filtro
   // marcado. Esperar a `hidratado` deja una sola carga, ya con el filtro correcto.
   useEffect(() => { if (hidratado) cargar(); }, [cargar, hidratado]);
+
+  // Refresco AUTORITATIVO de estados desde la API de MP para las asignadas vivas. Jala Cerrada/
+  // Desierta/Adjudicada/Revocada/Suspendida (y "Ganada" cuando es nuestra postulada adjudicada) y,
+  // si hubo cambios, recarga en silencio para pintar los badges. `force` salta el throttle (botón
+  // manual). Best-effort: si MP no responde, la vista sigue con lo cacheado.
+  const REFRESCO_MS = 2 * 60 * 60 * 1000; // 2 horas
+  const refrescarEstadosMP = useCallback(async (force = false) => {
+    if (refrescandoEstados) return;
+    if (!force) {
+      try {
+        const last = Number(localStorage.getItem('neg_estados_mp_last') || 0);
+        if (Date.now() - last < REFRESCO_MS) return; // aún fresco → no gasta API
+      } catch { /* sin storage: sigue */ }
+    }
+    setRefrescandoEstados(true);
+    try {
+      const res = await fetch('/api/negocios/refrescar-estados', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      try { localStorage.setItem('neg_estados_mp_last', String(Date.now())); } catch { /* cuota */ }
+      if (data?.success && (data.actualizadas ?? 0) > 0) {
+        await cargar(true); // recarga silenciosa: los badges cambian sin parpadeo de "Cargando…"
+      }
+    } catch { /* nunca bloquea la vista */ }
+    finally { setRefrescandoEstados(false); }
+  }, [cargar, refrescandoEstados, REFRESCO_MS]);
+
+  // Al abrir la vista (tras la primera carga), dispara el refresco en BACKGROUND, acotado a 2h.
+  // La vista ya mostró lo cacheado; esto solo actualiza los badges cuando MP resolvió algo.
+  useEffect(() => {
+    if (!yaActualizado || estadosRefrescados.current) return;
+    estadosRefrescados.current = true;
+    refrescarEstadosMP(false);
+  }, [yaActualizado, refrescarEstadosMP]);
 
   const eliminar = async (id: number) => {
     const ok = await confirmar({
@@ -1422,17 +1475,17 @@ function NegociosContent() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { setYaActualizado(false); cargar(); }}
-              disabled={loading}
-              title={yaActualizado ? 'Ya actualizado — clic para volver a cargar' : 'Actualizar lista'}
+              onClick={async () => { setYaActualizado(false); await cargar(); refrescarEstadosMP(true); }}
+              disabled={loading || refrescandoEstados}
+              title="Recargar y consultar Mercado Público (Cerrada/Desierta/Adjudicada/Revocada) para las asignadas"
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${
-                loading ? 'bg-slate-100 text-slate-400 cursor-not-allowed' :
+                loading || refrescandoEstados ? 'bg-slate-100 text-slate-400 cursor-not-allowed' :
                 yaActualizado ? 'bg-red-50 border border-red-200 text-red-600 hover:bg-red-100' :
                 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-sm'
               }`}
             >
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-              {loading ? 'Cargando…' : yaActualizado ? 'Actualizado ✓' : 'Actualizar'}
+              <RefreshCw size={14} className={loading || refrescandoEstados ? 'animate-spin' : ''} />
+              {loading ? 'Cargando…' : refrescandoEstados ? 'Estados MP…' : yaActualizado ? 'Actualizado ✓' : 'Actualizar'}
             </button>
             <button
               onClick={exportarExcel}
@@ -1610,7 +1663,7 @@ function NegociosContent() {
         {error && (
           <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm mb-4">
             <AlertCircle size={16} /> {error}
-            <button onClick={cargar} className="ml-auto hover:underline">Reintentar</button>
+            <button onClick={() => cargar()} className="ml-auto hover:underline">Reintentar</button>
           </div>
         )}
 
@@ -1720,7 +1773,7 @@ function NegociosContent() {
         <ModalAsignar
           open={showModal}
           onClose={() => setShowModal(false)}
-          onSuccess={cargar}
+          onSuccess={() => cargar()}
           usuarios={usuarios}
           etiquetas={etiquetas}
         />

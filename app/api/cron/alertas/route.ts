@@ -24,7 +24,7 @@ import { matchearEInsertar } from '@/app/lib/radar-matching';
 import { enviarDigestRadar } from '@/app/lib/email';
 import { avisarCierresProximos } from '@/app/lib/cierres-proximos';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
-import { refrescarEstadosAsignadas } from '@/app/lib/refrescar-estados';
+import { refrescarEstadosAsignadas, refrescarEstadosRadar, marcarCerradasPorFecha } from '@/app/lib/refrescar-estados';
 
 // Ventana para el aviso "cierra pronto" (campana + correo por perfil), en horas.
 const CIERRE_PROXIMO_HORAS = Number(process.env.CIERRE_PROXIMO_HORAS) || 48;
@@ -285,7 +285,9 @@ export async function GET(request: NextRequest) {
     correosCierre:          0,   // correos "cierra pronto" enviados por perfil
     postAdjudicadas:        0,   // postuladas auto-promovidas a ADJUDICADA (ganamos)
     postPerdidas:           0,   // postuladas auto-promovidas a PERDIDA (a terceros)
+    cerradasPorFecha:       0,   // filas marcadas Cerrada por fecha (barrido determinista, sin API)
     estadosActualizados:    0,   // asignadas con licitacion_estado refrescado desde la API (Capa 2)
+    estadosRadar:           0,   // radar (no asignadas) refrescadas desde la API (rodante)
     errores:                0,
     duracionMs:             0,
   };
@@ -569,7 +571,19 @@ export async function GET(request: NextRequest) {
       console.error('[Cron] procesar postuladas falló (no crítico):', String(e));
     }
 
-    // ── Paso 9: Estado AUTORITATIVO de MP para ASIGNADAS (Capa 2) ─────────────────────
+    // ── Paso 9a: Barrido Cerrada por FECHA (sin API) en TODA la base ──────────────────
+    // Publicada + cierre vencido → Cerrada, en negocios y radar. Barato y universal: persiste el
+    // estado terminal más común sin gastar API. Los demás (Revocada/Desierta/Adjudicada) van por API.
+    try {
+      const bc = await marcarCerradasPorFecha();
+      stats.cerradasPorFecha = bc.negocios + bc.radar;
+      if (bc.negocios || bc.radar)
+        console.log(`[Cron] 🗓️ Cerradas por fecha: ${bc.negocios} negocios + ${bc.radar} radar`);
+    } catch (e) {
+      console.error('[Cron] barrido cerradas por fecha falló (no crítico):', String(e));
+    }
+
+    // ── Paso 9b: Estado AUTORITATIVO de MP para ASIGNADAS (Capa 2) ─────────────────────
     // Por cada asignada viva, 1 llamada a MP; si el estado real es DEFINITIVO (Cerrada/Desierta/
     // Adjudicada/Revocada/Suspendida) y difiere del cacheado, actualiza licitacion_estado en
     // negocios Y alertas → el badge se ve real en detalle, lista, radar y buscador. Best-effort.
@@ -580,6 +594,18 @@ export async function GET(request: NextRequest) {
         console.log(`[Cron] 🔄 Estados MP asignadas: ${re.actualizadas} actualizadas (${re.codigos} códigos)`);
     } catch (e) {
       console.error('[Cron] refrescar estados asignadas falló (no crítico):', String(e));
+    }
+
+    // ── Paso 9c: Estado desde la API para el RADAR completo (rodante, acotado) ────────
+    // Lote por corrida (recientes primero) para capturar Revocada/Desierta/Adjudicada en TODO el
+    // radar sin saturar la API. Silencioso. Best-effort.
+    try {
+      const rr = await refrescarEstadosRadar();
+      stats.estadosRadar = rr.actualizadas;
+      if (rr.actualizadas > 0)
+        console.log(`[Cron] 📡 Estados MP radar: ${rr.actualizadas} actualizadas (${rr.codigos} consultadas)`);
+    } catch (e) {
+      console.error('[Cron] refrescar estados radar falló (no crítico):', String(e));
     }
 
     stats.duracionMs = elapsed();

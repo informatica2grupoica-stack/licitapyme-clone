@@ -65,29 +65,65 @@ function estadoDefinitivoCanonico(lic: { EstadoNombre?: string; CodigoEstado?: n
   return null;
 }
 
+// ── Barrido DETERMINISTA (sin API): Publicada vencida → Cerrada, en TODA la base ──────────────
+// El estado terminal más común (Cerrada por cierre) NO necesita la API: es pura fecha. Este barrido
+// persiste `licitacion_estado='Cerrada'` para cada licitación cuyo cierre ya pasó y que sigue figurando
+// Publicada, en negocios (cualquier pipeline, incluidas POSTULADA/etc.: es el estado de MP, no el
+// nuestro) y en el radar (alertas_licitaciones). Es barato (2 UPDATEs), cubre las ~1000+ que hoy están
+// desactualizadas y se corre en cada cron. SILENCIOSO: no dispara campana/correo (un cierre por fecha
+// es predecible y son demasiadas para notificar). Los estados que la fecha NO puede saber
+// (Revocada/Desierta/Adjudicada) se refrescan desde la API por separado, y esos SÍ notifican (asignadas).
+export async function marcarCerradasPorFecha(): Promise<{ negocios: number; radar: number }> {
+  // Publicada, código '5', o sin estado; con cierre en el pasado.
+  const pub = `(licitacion_estado IS NULL OR licitacion_estado IN ('Publicada','5'))`;
+  const venc = `licitacion_cierre IS NOT NULL AND licitacion_cierre < NOW()`;
+  let negocios = 0, radar = 0;
+  try {
+    // OJO: NO se toca updated_at (evita falsear el semáforo de frescura del negocio).
+    const [rn] = await pool.query(
+      `UPDATE negocios SET licitacion_estado = 'Cerrada' WHERE activo = TRUE AND ${pub} AND ${venc}`,
+    ) as any[];
+    negocios = (rn as any)?.affectedRows ?? 0;
+  } catch (e) { console.error('[refrescar-estados] barrido negocios falló:', String(e)); }
+  try {
+    const [rr] = await pool.query(
+      `UPDATE alertas_licitaciones SET licitacion_estado = 'Cerrada' WHERE ${pub} AND ${venc}`,
+    ) as any[];
+    radar = (rr as any)?.affectedRows ?? 0;
+  } catch (e) { console.error('[refrescar-estados] barrido radar falló:', String(e)); }
+  if (negocios || radar) console.log(`[refrescar-estados] barrido Cerrada por fecha: ${negocios} negocios, ${radar} radar`);
+  return { negocios, radar };
+}
+
 // Persiste el estado en negocios + alertas y, SI hubo transición real, notifica una sola vez.
 // El UPDATE es ATÓMICO con guardia `licitacion_estado <> ?`: affectedRows>0 ⇒ cambió de verdad,
 // aun si dos corridas (cron + on-demand) coinciden → la notificación no se duplica.
-async function persistirYNotificar(codigo: string, nombre: string): Promise<boolean> {
+// notificar: si dispara campana/correo/historial cuando hay transición. true para asignadas en vivo
+// (cron/on-demand); false para BACKFILL inicial (evita inundar de correos por cambios históricos) y
+// para el barrido del radar (no hay a quién avisar de 10k licitaciones no asignadas).
+async function persistirYNotificar(codigo: string, nombre: string, notificar = true): Promise<boolean> {
   const [res] = await pool.query(
     `UPDATE negocios SET licitacion_estado = ?, updated_at = NOW()
      WHERE licitacion_codigo = ? AND activo = TRUE
        AND (licitacion_estado IS NULL OR licitacion_estado <> ?)`,
     [nombre, codigo, nombre],
   ) as any[];
-  const cambio = ((res as any)?.affectedRows ?? 0) > 0;
+  const cambioNegocio = ((res as any)?.affectedRows ?? 0) > 0;
   // El radar (tabla alertas_licitaciones) se alinea siempre (idempotente); no gatilla notificación
   // por sí solo. Puede haber varias filas por código (una por perfil): se actualizan todas.
-  await pool.query(
-    `UPDATE alertas_licitaciones SET licitacion_estado = ? WHERE licitacion_codigo = ?`,
-    [nombre, codigo],
-  ).catch(() => { /* la fila puede no existir en el radar: no rompe */ });
+  const [resR] = await pool.query(
+    `UPDATE alertas_licitaciones SET licitacion_estado = ?
+     WHERE licitacion_codigo = ? AND (licitacion_estado IS NULL OR licitacion_estado <> ?)`,
+    [nombre, codigo, nombre],
+  ).catch(() => [{ affectedRows: 0 }] as any[]);
+  const cambioRadar = ((resR as any)?.affectedRows ?? 0) > 0;
 
-  if (cambio) {
+  // Solo notificamos si cambió un NEGOCIO (hay a quién avisar); el radar puro no notifica.
+  if (cambioNegocio && notificar) {
     await notificarCambioEstado(codigo, nombre).catch(e =>
       console.error(`[refrescar-estados] notificar "${codigo}" falló:`, String(e)));
   }
-  return cambio;
+  return cambioNegocio || cambioRadar;
 }
 
 // Bitácora + campana + correo cuando MP cambia el estado a uno terminal. Best-effort.
@@ -146,10 +182,11 @@ async function notificarCambioEstado(codigo: string, nombre: string): Promise<vo
 }
 
 export async function refrescarEstadosAsignadas(
-  opts: { presupuestoMs?: number; timeoutMs?: number } = {},
+  opts: { presupuestoMs?: number; timeoutMs?: number; notificar?: boolean } = {},
 ): Promise<{ codigos: number; actualizadas: number; errores: number }> {
   const presupuestoMs = opts.presupuestoMs ?? PRESUPUESTO_MS;
   const timeoutMs      = opts.timeoutMs ?? TIMEOUT_DETALLE_MS;
+  const notificar      = opts.notificar ?? true;
   const stats = { codigos: 0, actualizadas: 0, errores: 0 };
   const inicio = Date.now();
 
@@ -196,7 +233,7 @@ export async function refrescarEstadosAsignadas(
       if (normNombre(fila.estado_cache) === normNombre(nombre)) return;
 
       // Persistir (negocios + alertas) y notificar UNA vez si fue transición real.
-      const cambio = await persistirYNotificar(codigo, nombre);
+      const cambio = await persistirYNotificar(codigo, nombre, notificar);
       if (cambio) {
         stats.actualizadas++;
         console.log(`[refrescar-estados] ${codigo}: ${fila.estado_cache ?? '—'} → ${nombre}`);
@@ -245,4 +282,67 @@ export async function refrescarEstadoCodigo(
     console.error(`[refrescar-estados] on-demand "${codigo}" falló:`, String(e));
     return null;
   }
+}
+
+// ── Refresco RODANTE del RADAR completo (alertas_licitaciones) ────────────────────────────────
+// Para capturar Revocada/Desierta/Adjudicada en TODO el radar (no solo asignadas). Como son ~10k y
+// la API tiene tope de tasa, se procesa un LOTE por corrida, priorizando por cierre DESC (las más
+// recientes primero: es donde ocurren las transiciones que importan en tiempo real). Se excluyen las
+// que YA tienen un estado DEFINITIVO de API (Desierta/Adjudicada/Revocada) → esas dejan de gastar
+// llamadas y el foco se corre naturalmente hacia el resto. Las "Cerrada"/"Publicada" recientes se
+// re-consultan (una Cerrada puede pasar a Adjudicada semanas después). SILENCIOSO: no notifica (el
+// radar no está asignado a nadie); si un código además es un negocio, el refresco de asignadas avisa.
+export async function refrescarEstadosRadar(
+  opts: { limite?: number; presupuestoMs?: number; timeoutMs?: number } = {},
+): Promise<{ codigos: number; actualizadas: number; errores: number }> {
+  const limite        = opts.limite ?? 400;
+  const presupuestoMs = opts.presupuestoMs ?? PRESUPUESTO_MS;
+  const timeoutMs      = opts.timeoutMs ?? TIMEOUT_DETALLE_MS;
+  const stats = { codigos: 0, actualizadas: 0, errores: 0 };
+  const inicio = Date.now();
+
+  let codigos: string[] = [];
+  try {
+    // Candidatas: radar sin estado DEFINITIVO de API todavía (Publicada/Cerrada/otros), por cierre
+    // DESC (recientes primero). Un código puede tener varias filas → DISTINCT.
+    const [rows] = await pool.query(
+      `SELECT licitacion_codigo AS codigo
+       FROM alertas_licitaciones
+       WHERE (licitacion_estado IS NULL
+              OR licitacion_estado NOT IN ('Desierta','Adjudicada','Revocada'))
+       GROUP BY licitacion_codigo
+       ORDER BY MAX(licitacion_cierre) DESC
+       LIMIT ${Math.max(1, limite)}`,
+    ) as any[];
+    codigos = (rows as Array<{ codigo: string }>).map(r => r.codigo);
+  } catch (e) {
+    console.error('[refrescar-estados] radar carga inicial falló:', String(e));
+    return stats;
+  }
+  if (codigos.length === 0) return stats;
+
+  const client = getMercadoPublicoClient();
+  const procesar = async (codigo: string) => {
+    if (Date.now() - inicio > presupuestoMs) return;
+    try {
+      const lic = await client.obtenerPorCodigoRapido(codigo, timeoutMs);
+      if (!lic) return;
+      const nombre = estadoDefinitivoCanonico(lic);
+      if (!nombre) return;                          // sigue publicada → nada que persistir
+      const cambio = await persistirYNotificar(codigo, nombre, false); // radar = silencioso
+      if (cambio) stats.actualizadas++;
+    } catch (e) {
+      stats.errores++;
+      console.error(`[refrescar-estados] radar "${codigo}" falló:`, String(e));
+    }
+  };
+
+  let i = 0;
+  const workers = Array.from({ length: Math.min(CODIGO_CONCURRENCIA, codigos.length) }, async () => {
+    while (i < codigos.length) await procesar(codigos[i++]);
+  });
+  await Promise.all(workers);
+  stats.codigos = codigos.length;
+  if (stats.actualizadas) console.log(`[refrescar-estados] radar: ${stats.actualizadas} actualizadas de ${stats.codigos} consultadas`);
+  return stats;
 }
