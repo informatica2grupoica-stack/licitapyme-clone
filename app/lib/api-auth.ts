@@ -77,6 +77,24 @@ export async function permisosDeUsuario(userId: number, rol?: string | null): Pr
   }
 }
 
+/**
+ * ¿Puede VER/operar un negocio YA cargado (tenemos su asignado_a)?
+ *  · admin → sí.
+ *  · el propio asignado → sí.
+ *  · quien tenga ver_otros_negocios (ej. perfil privilegiado tipo Fernando) → sí.
+ * Se usa en el DETALLE del negocio y su hilo de comentarios, donde el guard por
+ * asignación dejaba fuera a los perfiles con ver_otros_negocios (podían ver la fila
+ * en la lista pero no abrirla).
+ */
+export async function puedeVerNegocioAsignado(
+  userId: number, rol: string | null | undefined, asignadoA: number | null | undefined,
+): Promise<boolean> {
+  if (rol === 'admin') return true;
+  if (asignadoA != null && Number(asignadoA) === Number(userId)) return true;
+  const p = await permisosDeUsuario(userId, rol);
+  return !!p.ver_otros_negocios;
+}
+
 /** ¿El request tiene el permiso dado? (admin siempre sí). Verificado contra el JWT. */
 export async function tienePermiso(req: NextRequest, permiso: Permiso): Promise<boolean> {
   const u = await getAuthedUser(req);

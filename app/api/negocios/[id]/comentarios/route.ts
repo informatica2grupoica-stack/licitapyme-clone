@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
+import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     ) as any;
     if (!(negRows as any[]).length)
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
-    if (rol !== 'admin' && (negRows as any[])[0].asignado_a !== userId)
+    if (!(await puedeVerNegocioAsignado(userId, rol, (negRows as any[])[0].asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     // pipeline_estado puede no existir si migration-5 no ha sido ejecutada
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!(negRows as any[]).length)
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     const negocio = (negRows as any[])[0];
-    if (rol !== 'admin' && negocio.asignado_a !== userId)
+    if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     // Insertar comentario

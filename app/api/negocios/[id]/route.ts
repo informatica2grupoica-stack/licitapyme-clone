@@ -6,6 +6,7 @@ import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
 import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } from '@/app/lib/email';
 import { getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
+import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -100,8 +101,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const negocio = (rows as any[])[0];
 
-    // Verificar acceso
-    if (rol !== 'admin' && negocio.asignado_a !== userId)
+    // Verificar acceso (admin · asignado · ver_otros_negocios).
+    if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
     // Etiquetas, viabilidad y documentos en paralelo
