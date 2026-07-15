@@ -24,7 +24,8 @@ export async function GET(request: NextRequest) {
       // Mini-historial POR LICITACIÓN: bitácora de lo que hace CADA perfil sobre esta
       // licitación (asignar, cambiar líneas/estado, comentar, ver, viabilidad, costeo,
       // documentos…). Se lee de actividad_usuario (registra también las acciones propias
-      // del asignado, no solo las notificaciones entre usuarios). Orden cronológico.
+      // del asignado, no solo las notificaciones entre usuarios). DESC: si la licitación
+      // supera el LIMIT, se recortan los eventos VIEJOS, no los recientes (el front reordena).
       // Requiere poder ver la licitación (externo → solo asignadas). Nadie puede borrar.
       const { puedeVerLicitacion } = await import('@/app/lib/api-auth');
       if (!(await puedeVerLicitacion(request, codigo))) {
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest) {
            LEFT JOIN usuarios u ON u.id = a.usuario_id
            WHERE (a.entidad_tipo = 'licitacion' AND a.entidad_id = ?)
               OR a.metadata LIKE CONCAT('%"licitacion_codigo":"', ?, '"%')
-           ORDER BY a.created_at ASC
+           ORDER BY a.created_at DESC
            LIMIT ?`,
           [codigo, codigo, Math.min(limit, 200)]);
         return NextResponse.json({ success: true, eventos: rows, noLeidas: 0 });

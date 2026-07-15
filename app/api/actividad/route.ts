@@ -2,12 +2,16 @@
 // Historial de actividad de usuarios.
 // GET  (solo admin): lista filtrable por usuario y acción, + lista de usuarios para el filtro.
 // POST (cualquier autenticado): registra una acción del CLIENTE que no tiene endpoint propio
-//      (ver/descargar un documento). Se limita a un conjunto seguro de acciones y exige acceso a
-//      la licitación. Aparece en el Historial de la licitación. Best-effort.
+//      (ver un documento, entrar a una sección, abrir una cita). Se limita a un conjunto seguro
+//      de acciones y exige acceso a la licitación. Aparece en el Historial de la licitación.
+//      Best-effort y DEDUPLICADO POR DÍA: el cliente puede reintentar sin ensuciar el historial.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
-import { registrarActividad, type AccionActividad } from '@/app/lib/actividad';
+import {
+  registrarActividadDiaria, LABEL_SECCION, SECCIONES_ACTIVIDAD,
+  type AccionActividad, type SeccionActividad,
+} from '@/app/lib/actividad';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -16,13 +20,13 @@ function getUser(req: NextRequest) {
 }
 
 // Acciones que el cliente PUEDE registrar (las demás se registran server-side en su endpoint).
-const ACCIONES_CLIENTE: AccionActividad[] = ['ver_documento'];
+const ACCIONES_CLIENTE: AccionActividad[] = ['ver_documento', 'ver_seccion', 'ver_cita'];
 
 export async function POST(request: NextRequest) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
-  let body: { accion?: string; licitacion_codigo?: string; descripcion?: string } = {};
+  let body: { accion?: string; licitacion_codigo?: string; descripcion?: string; seccion?: string; clave?: string } = {};
   try { body = await request.json(); } catch { /* body vacío */ }
 
   const accion = String(body.accion || '') as AccionActividad;
@@ -36,12 +40,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   }
 
-  await registrarActividad({
+  // Clave de deduplicación: qué sub-evento es dentro de la acción. Una línea por día para cada
+  // sección visitada / documento abierto / cita consultada, en vez de una por clic.
+  let clave: string;
+  let descripcion: string;
+  if (accion === 'ver_seccion') {
+    const seccion = String(body.seccion || '') as SeccionActividad;
+    if (!SECCIONES_ACTIVIDAD.includes(seccion)) {
+      return NextResponse.json({ error: 'Sección inválida' }, { status: 400 });
+    }
+    clave = seccion;
+    descripcion = `Revisó ${LABEL_SECCION[seccion]}`;
+  } else {
+    // ver_documento / ver_cita: el cliente manda la descripción y una clave estable
+    // (nombre del documento, texto de la cita). Sin clave, una sola línea por día.
+    descripcion = (body.descripcion || (accion === 'ver_cita' ? 'Consultó una cita' : 'Vio un documento'))
+      .toString().slice(0, 200);
+    clave = String(body.clave || descripcion).slice(0, 150);
+  }
+
+  await registrarActividadDiaria({
     usuarioId: usuario.id, accion,
     entidadTipo: 'licitacion', entidadId: codigo,
-    descripcion: (body.descripcion || 'Vio un documento').toString().slice(0, 200),
+    descripcion,
     metadata: { licitacion_codigo: codigo },
-  });
+  }, clave);
 
   return NextResponse.json({ success: true });
 }

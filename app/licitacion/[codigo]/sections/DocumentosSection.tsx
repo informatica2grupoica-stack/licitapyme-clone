@@ -12,25 +12,11 @@ import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentVie
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
+import { registrarVerDocumento } from '@/app/lib/actividad-cliente';
 
 // Categoría de documentos SUBIDOS por el equipo (los únicos que se pueden eliminar;
 // los oficiales descargados de Mercado Público quedan protegidos).
 const CAT_PROPIOS = 'DOCUMENTOS_PROPIOS';
-
-// Bitácora: registra que se VIO o DESCARGÓ un documento (best-effort, aparece en el Historial de
-// la licitación). Dedup por (código+nombre+verbo) para no spamear si se repite en la misma sesión.
-const _docsRegistrados = new Set<string>();
-function registrarVerDocumento(codigo: string, nombre: string, verbo: 'Vio' | 'Descargó'): void {
-  if (!codigo || !nombre) return;
-  const clave = `${codigo}|${nombre}|${verbo}`;
-  if (_docsRegistrados.has(clave)) return;
-  _docsRegistrados.add(clave);
-  fetch('/api/actividad', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ accion: 'ver_documento', licitacion_codigo: codigo, descripcion: `${verbo} el documento "${nombre}"` }),
-  }).catch(() => { _docsRegistrados.delete(clave); /* reintentable si falló la red */ });
-}
 
 // ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
 // Estilo común a todas las cajas (neutro). El color real lo da el contenido.

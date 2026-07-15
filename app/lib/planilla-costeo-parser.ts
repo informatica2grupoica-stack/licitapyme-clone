@@ -212,6 +212,49 @@ export function detectarLenguajePorLinea(docs: { texto: string }[]): string | nu
   return null;
 }
 
+// OFERTA POR SUBCONJUNTO — el oferente puede postular SOLO A ALGUNOS ítems/líneas y omitir el
+// resto ("podrán ofertar por una línea, más de una, o todas"; "pueden presentar oferta en uno o
+// más ítems"; "si la licitación fuere por ítem y un proveedor ofertare a dos o más ítems").
+//
+// Es evidencia CONCLUYENTE de por_linea y la EXCEPCIÓN a la regla del total único: suma alzada
+// significa todo-o-nada, así que si se puede ofertar a un subconjunto NO es suma alzada por
+// definición. El trío "Subtotal/IVA/Total" al pie de esos formularios NO es un gran total
+// consolidado: es la suma de LO QUE CADA OFERENTE ELIGIÓ ofertar.
+//
+// Caso que motivó la señal (1549-58-LE26): 3 equipos médicos heterogéneos, tabla con "Precio
+// Unitario Neto" por ítem y "Subtotal/IVA/Total" al pie → el total único forzaba suma_alzada y
+// el costeo salía global, cuando el propio anexo económico decía "Si la licitación fuere por
+// ítem y un proveedor ofertare a dos o más ítems…".
+//
+// Medido sobre 742 licitaciones con documentos: dispara en 26 (3,5%), todas verificadas como
+// por-línea reales. Devuelve la frase textual hallada (evidencia citable) o null.
+export function detectarOfertaSubconjuntoItems(docs: { texto: string }[]): string | null {
+  const patrones: RegExp[] = [
+    // "Si la licitación fuere por ítem [y un proveedor ofertare a dos o más ítems]"
+    /(?:si\s+)?la\s+licitaci[oó]n\s+(?:fuere|es|ser[aá])\s+por\s+[ií]tem/i,
+    // "ofertar/presentar oferta a|por|en {uno|una|dos} o más {ítems|líneas}"
+    /ofert\w+\s+(?:a|por|en)\s+(?:uno|una|dos)\s+o\s+m[aá]s\s+(?:[ií]tems?|l[ií]neas?)/i,
+    // "podrán/pueden ofertar a|por|en {una|varias} [o más] {líneas|ítems}"
+    /(?:podr[aá]n?|puede[n]?|pudiendo)\s+(?:\w+\s+){0,4}ofertar\s+(?:a|por|en)\s+(?:uno|una|varios|varias)\s+(?:o\s+m[aá]s\s+)?(?:[ií]tems?|l[ií]neas?)/i,
+    // "ofertar a|por {una|varias|algunas} [o más] {líneas|ítems}"
+    /ofertar\s+(?:a|por)\s+(?:uno|una|varios|varias|algunos|algunas)\s+(?:o\s+m[aá]s\s+)?(?:[ií]tems?|l[ií]neas?)/i,
+  ];
+  for (const d of docs) {
+    if (!d.texto) continue;
+    for (const re of patrones) {
+      const m = d.texto.match(re);
+      if (!m) continue;
+      // Guard de NEGACIÓN: "NO podrá ofertar por una línea…" dice lo contrario. Se mira la
+      // vecindad previa; si niega, esta aparición no cuenta (se siguen probando las demás).
+      const i = d.texto.indexOf(m[0]);
+      const previo = d.texto.slice(Math.max(0, i - 60), i);
+      if (/\bno\s+(?:se\s+)?(?:podr[aá]n?|puede[n]?|permit\w+|acept\w+)\b[^.]{0,40}$/i.test(previo)) continue;
+      return m[0].replace(/\s+/g, ' ').trim();
+    }
+  }
+  return null;
+}
+
 // PRESUPUESTO POR LÍNEA — patrón muy común en bases ESCANEADAS (OCR) donde la oferta
 // económica NO es una planilla tabulable: las bases fijan un "monto máximo POR LÍNEA" y
 // listan ≥2 líneas, cada una con su propio destino y su propio "TOTAL IVA INCLUIDO $X"

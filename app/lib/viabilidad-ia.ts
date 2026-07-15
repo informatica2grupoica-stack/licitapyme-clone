@@ -20,7 +20,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 
@@ -440,8 +440,14 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
       const inSinCache = Math.max(0, inTok - cachedTok);
       const costo = (inSinCache / 1e6) * precIn + (cachedTok / 1e6) * precCached + (outTok / 1e6) * precOut;
       const cacheStr = cachedTok > 0 ? ` (cache=${cachedTok}, ${Math.round((cachedTok / Math.max(1, inTok)) * 100)}%)` : '';
+      // MODELO REAL que respondió, no el primario configurado: cuando el primario se cuelga,
+      // crearChatIA cae a la cadena de respaldo y responde OTRO modelo. Loguear MODELO_TEXTO
+      // hacía que un análisis resuelto por DeepSeek apareciera como "GLM glm-4.7-flashx", con
+      // el costo calculado a tarifa GLM — engañoso justo cuando se está diagnosticando lentitud.
+      const modeloReal = String(completion.model || MODELO_TEXTO);
+      const esPrimario = modeloReal === MODELO_TEXTO;
       console.log(
-        `[viabilidad-ia] 💰 GLM ${MODELO_TEXTO} · ${segs}s · in=${inTok}${cacheStr} out=${outTok} tot=${totTok} tok · finish=${finish} · ~$${costo.toFixed(4)} USD (intento ${intento})`,
+        `[viabilidad-ia] 💰 ${modeloReal}${esPrimario ? '' : ' (RESPALDO)'} · ${segs}s · in=${inTok}${cacheStr} out=${outTok} tot=${totTok} tok · finish=${finish} · ~$${costo.toFixed(4)} USD${esPrimario ? '' : ' [costo a tarifa GLM, aprox.]'} (intento ${intento})`,
       );
       dbg(`llamarGlmJSON: respuesta finish=${finish} · usage=${JSON.stringify(completion.usage ?? {})}`);
       const txt = String(completion.choices?.[0]?.message?.content ?? '');
@@ -550,7 +556,13 @@ function construirSenalModalidad(
   ofertaTotalUnico = false,
   lenguajePorLinea: string | null = null,
   presupuestoPorLinea: string | null = null,
+  ofertaSubconjunto: string | null = null,
 ): string {
+  // PRIORIDAD MÁXIMA — SE PUEDE OFERTAR A UN SUBCONJUNTO de ítems/líneas. Descarta suma alzada
+  // por definición (todo-o-nada) aunque el formulario económico cierre con Subtotal/IVA/Total.
+  if (ofertaSubconjunto) {
+    return `SEÑAL DETERMINISTA DE MODALIDAD (lenguaje explícito de las bases): el texto dice literalmente "${ofertaSubconjunto}", o sea que un oferente PUEDE POSTULAR SOLO A ALGUNOS ítems/líneas y omitir el resto. Eso determina modalidad = por_linea: suma alzada significa todo-o-nada, así que poder ofertar a un subconjunto la descarta. OJO: si el formulario de oferta económica cierra con "Subtotal / IVA / Total", ese NO es un gran total consolidado de suma alzada — es la suma de LO QUE CADA OFERENTE ELIGIÓ ofertar. El costeo debe ir POR LÍNEA (una hoja por ítem/línea).`;
+  }
   // PRIORIDAD 0.A — PRESUPUESTO/MONTO MÁXIMO POR LÍNEA con ≥2 líneas presupuestadas: cada línea
   // tiene su propio monto máximo y su propio destino (lotes independientes). Es evidencia dura de
   // por_linea aunque el formulario económico venga en blanco o los ítems estén dispersos.
@@ -608,6 +620,8 @@ function construirSenalModalidad(
 // CONCLUYENTE; null cuando el listado es ambiguo (ahí se respeta el juicio del LLM / REVISION_HUMANA).
 //
 // Orden de reglas (de mayor a menor autoridad):
+//   0. Se puede ofertar a un SUBCONJUNTO de ítems/líneas → por_linea. Manda incluso sobre el
+//      total único: suma alzada es todo-o-nada, así que poder omitir ítems lo descarta.
 //   1. Total único al pie (formato de oferta manda) → suma_alzada, aunque las bases digan "por línea".
 //   2. Lenguaje explícito "se oferta/evalúa por línea" (sin total único) → por_linea.
 //   3. Correlativo CONTINUO 1..N cruzando hojas → suma_alzada (una planilla integrada, no lotes).
@@ -618,7 +632,14 @@ function veredictoModalidadDeterminista(
   ofertaTotalUnico: boolean,
   lenguajePorLinea: string | null,
   presupuestoPorLinea: string | null = null,
+  ofertaSubconjunto: string | null = null,
 ): { tipo: 'suma_alzada' | 'por_linea'; motivo: string } | null {
+  // 0. EXCEPCIÓN a la regla maestra: si el oferente puede postular solo a ALGUNOS ítems y omitir
+  //    el resto, no es suma alzada (que es todo-o-nada) por más que el formulario cierre con
+  //    "Subtotal/IVA/Total" — ese total es la suma de lo que CADA OFERENTE eligió, no un lote único.
+  if (ofertaSubconjunto) {
+    return { tipo: 'por_linea', motivo: `las bases permiten ofertar a un subconjunto de ítems/líneas: "${ofertaSubconjunto.slice(0, 80)}"` };
+  }
   // 1. Regla maestra: el formato de la oferta económica manda sobre cómo se adjudica.
   if (ofertaTotalUnico) return { tipo: 'suma_alzada', motivo: 'total único consolidado al pie del formulario económico' };
   // 2. Lenguaje explícito de las bases (se oferta/evalúa cada línea por separado).
@@ -1323,26 +1344,34 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   if (leidos.length === 0) return null;
   const ctx = await cargarContexto(codigo);
 
+  // FUENTES OFICIALES para las señales deterministas: NUNCA nuestros propios archivos. El Excel
+  // de costeo que genera este sistema queda en documentos_cache (DOCUMENTOS_PROPIOS) y trae un
+  // total al pie POR CONSTRUCCIÓN → si entrara aquí, dispararía "total único" y confirmaría la
+  // suma alzada que nosotros mismos escribimos: un bucle que se auto-refuerza. El parser ya lo
+  // excluía; las demás señales leían `leidos` (todo) y quedaban expuestas.
+  const fuentes = leidos.filter(d => (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre));
+
   let planilla: ReturnType<typeof parsearPlanillaCosteo> = null;
   try {
-    const fuentes = leidos.filter(d => (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre));
     planilla = parsearPlanillaCosteo(fuentes.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
   } catch { /* opcional */ }
   let lineasForm: number[] = [];
   let totalUnico = false;
   let lenguajePorLinea: string | null = null;
   let presupuestoPorLinea: string | null = null;
+  let ofertaSubconjunto: string | null = null;
   try {
-    lineasForm = detectarLineasFormulario(leidos);
+    lineasForm = detectarLineasFormulario(fuentes);
     // "LÍNEA DE PRODUCTO N°X" en bases técnicas = lotes independientes (mismo peso que las
     // fichas "FORMULARIO Línea N°X"): se fusionan como señal estructural de por_linea.
-    const lineasProducto = detectarLineasProductoTecnicas(leidos);
+    const lineasProducto = detectarLineasProductoTecnicas(fuentes);
     if (lineasProducto.length) lineasForm = [...new Set([...lineasForm, ...lineasProducto])].sort((a, b) => a - b);
-    totalUnico = detectarOfertaTotalUnico(leidos);
-    lenguajePorLinea = detectarLenguajePorLinea(leidos);
-    presupuestoPorLinea = detectarPresupuestoPorLinea(leidos);
+    totalUnico = detectarOfertaTotalUnico(fuentes);
+    lenguajePorLinea = detectarLenguajePorLinea(fuentes);
+    presupuestoPorLinea = detectarPresupuestoPorLinea(fuentes);
+    ofertaSubconjunto = detectarOfertaSubconjuntoItems(fuentes);
   } catch { /* señal opcional */ }
-  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea);
+  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto);
 
   const userPrompt = construirUserPromptV3(codigo, ctx, docs, senal, planilla?.fuenteDoc);
   // REGLAS APRENDIDAS DEL EXPERTO — se INYECTAN al final del prompt para que el análisis mejore
@@ -1439,7 +1468,7 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   }
 
   const adj = p3.adjudicacion && typeof p3.adjudicacion === 'object' ? p3.adjudicacion : (p3.adjudicacion = {});
-  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea);
+  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto);
   if (det) {
     const comoDet = det.tipo === 'suma_alzada' ? 'GLOBAL' : 'POR_LINEAS';
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
@@ -1479,6 +1508,7 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     const manifiestoPorLinea = lineasLLM.size >= 2 && presupuestosLLM.size >= 2 && itemsLLM.length >= 8 && itemsPorLinea >= 3;
     const hayEvidenciaPorLinea = !!lenguajePorLinea
       || !!presupuestoPorLinea
+      || !!ofertaSubconjunto
       || lineasForm.length >= 2
       || (!!planilla && planilla.estructura === 'por_linea' && planilla.numeracion === 'reinicia')
       || manifiestoPorLinea;

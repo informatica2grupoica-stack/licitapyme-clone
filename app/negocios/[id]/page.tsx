@@ -29,6 +29,7 @@ import { esUrlAnalizable } from '@/app/licitacion/[codigo]/utils';
 import { Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
 import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
   MessageSquare, Send, Trash2, Loader2, AlertCircle, ExternalLink,
@@ -257,7 +258,9 @@ const EVENTO_META: Record<string, { label: string; color: string }> = {
   comentario_negocio:    { label: 'Comentario',        color: '#2563eb' },
   comentario_licitacion: { label: 'Comentario',        color: '#2563eb' },
   ver_licitacion:        { label: 'Vio la licitación', color: '#64748b' },
+  ver_seccion:           { label: 'Revisó',            color: '#64748b' },
   ver_documento:         { label: 'Vio documento',     color: '#64748b' },
+  ver_cita:              { label: 'Verificó fuente',   color: '#7c3aed' },
   favorito:              { label: 'Favorito',          color: '#ca8a04' },
   viabilidad:            { label: 'Viabilidad IA',     color: '#d97706' },
   costeo:                { label: 'Costeo',             color: '#0d9488' },
@@ -276,7 +279,40 @@ function tiempoRel(fecha: string): string {
   if (h < 24) return `hace ${h} h`;
   const d = Math.floor(h / 24);
   if (d < 30) return `hace ${d} d`;
-  return new Date(fecha).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' });
+  return new Date(fecha).toLocaleDateString('es-CL', { timeZone: 'America/Santiago', day: '2-digit', month: 'short' });
+}
+// Fecha y hora exactas (hora de Chile), para el tooltip y la línea de cada evento.
+function fechaHoraChile(fecha: string): string {
+  return new Date(fecha).toLocaleString('es-CL', {
+    timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: '2-digit',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// Acciones de MIRAR (no cambian nada). Se agrupan: interesa que entró y cuántas veces, no cada
+// clic. Las que sí cambian algo (comentario, estado, asignación…) van una por una, siempre.
+const ACCIONES_VISTA = new Set(['ver_licitacion', 'ver_seccion', 'ver_documento', 'ver_cita']);
+
+interface EventoAgrupado extends EventoLic { veces: number; primera: string }
+
+// Agrupa las visitas repetidas del MISMO perfil sobre lo MISMO en una sola línea con contador.
+// Necesario para el historial ya acumulado: hasta el fix de dedupe se insertaba una fila por
+// cada carga del detalle (20+ al día). Nada se borra de la BD; solo se muestra plegado.
+function agruparEventos(eventos: EventoLic[]): EventoAgrupado[] {
+  const porClave = new Map<string, EventoAgrupado>();
+  const sueltos: EventoAgrupado[] = [];
+  for (const e of eventos) {
+    if (!ACCIONES_VISTA.has(e.tipo)) { sueltos.push({ ...e, veces: 1, primera: e.created_at }); continue; }
+    const clave = `${e.actor_id}|${e.tipo}|${e.mensaje}`;
+    const prev = porClave.get(clave);
+    if (!prev) { porClave.set(clave, { ...e, veces: 1, primera: e.created_at }); continue; }
+    prev.veces++;
+    // Se conserva la MÁS RECIENTE como fecha visible y la primera como dato del tooltip.
+    if (new Date(e.created_at) > new Date(prev.created_at)) { prev.created_at = e.created_at; prev.id = e.id; }
+    if (new Date(e.created_at) < new Date(prev.primera)) prev.primera = e.created_at;
+  }
+  return [...sueltos, ...porClave.values()]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 // Timeline vertical del historial de la licitación. Color por PERFIL que ejecutó la acción.
@@ -285,8 +321,7 @@ function HistorialLicitacion({ eventos }: { eventos: EventoLic[] }) {
   if (eventos.length === 0) {
     return <p className="text-[11px] text-zinc-400">Aún no hay actividad registrada.</p>;
   }
-  // Más reciente arriba.
-  const orden = [...eventos].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  const orden = agruparEventos(eventos); // más reciente arriba
   return (
     <div className="space-y-0">
       {orden.map((e, i) => {
@@ -294,17 +329,26 @@ function HistorialLicitacion({ eventos }: { eventos: EventoLic[] }) {
         const quien = e.actor_nombre || e.actor_email || 'Sistema';
         const col = colorUsuario(e.actor_email ?? e.actor_id ?? quien);
         const ultimo = i === orden.length - 1;
+        const titulo = e.veces > 1
+          ? `${e.veces} veces · primera: ${fechaHoraChile(e.primera)} · última: ${fechaHoraChile(e.created_at)}`
+          : fechaHoraChile(e.created_at);
         return (
-          <div key={e.id} className="flex gap-2.5">
+          <div key={`${e.tipo}-${e.id}`} className="flex gap-2.5">
             {/* Rail con punto de color por acción + línea */}
             <div className="flex flex-col items-center flex-shrink-0">
               <span className="w-2.5 h-2.5 rounded-full mt-1.5" style={{ background: m.color }} />
               {!ultimo && <span className="w-px flex-1 bg-zinc-200 my-0.5" />}
             </div>
             <div className="pb-3 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
+              <div className="flex items-center gap-1.5 flex-wrap" title={titulo}>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: m.color, background: m.color + '18' }}>{m.label}</span>
-                <span className="text-[10px] text-zinc-400">{tiempoRel(e.created_at)}</span>
+                <span className="text-[10px] text-zinc-400">{fechaHoraChile(e.created_at)}</span>
+                <span className="text-[10px] text-zinc-400">· {tiempoRel(e.created_at)}</span>
+                {e.veces > 1 && (
+                  <span className="text-[9.5px] font-bold text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded-full">
+                    {e.veces} veces
+                  </span>
+                )}
               </div>
               <p className="text-[11.5px] text-zinc-600 mt-0.5 leading-snug">{e.mensaje || m.label}</p>
               <span className="inline-flex items-center gap-1 mt-1 text-[10.5px] font-semibold" style={{ color: col }}>
@@ -1296,6 +1340,14 @@ function DetalleContent() {
     } catch { /* silencioso */ }
   }, [negocio?.licitacion_codigo]);
   useEffect(() => { fetchHistorial(); }, [fetchHistorial]);
+
+  // Bitácora: qué SECCIÓN de la licitación revisó cada perfil (resumen, documentos, viabilidad,
+  // criterios, ítems, fechas…). Se registra una vez por sección y día — el helper deduplica en
+  // memoria y el servidor de nuevo por día, así que ir y volver entre pestañas no ensucia nada.
+  useEffect(() => {
+    const cod = negocio?.licitacion_codigo;
+    if (cod) registrarVerSeccion(cod, seccion);
+  }, [negocio?.licitacion_codigo, seccion]);
 
   // Cargar análisis IA cacheado
   const fetchAnalisisIA = useCallback(async (codigo?: string) => {

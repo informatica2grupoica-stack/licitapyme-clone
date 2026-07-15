@@ -62,5 +62,30 @@
       "veredicto": "GANABLE",
       "revision_humana": false
     }
+  },
+  {
+    "codigo": "1549-58-LE26",
+    "nota": "CORREGIDO POR EL EXPERTO (2026-07-15): 3 equipos médicos heterogéneos (armario ventilado / miofeedback / compresor). El Anexo N°10 cierra con Subtotal/IVA/Total y eso forzaba suma_alzada, pero el mismo anexo dice 'Si la licitación fuere por ítem y un proveedor ofertare a dos o más ítems…' y el Art. 21 adjudica 'por línea o por ítem'. Es POR LÍNEA: el costeo global estaba mal.",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_items_min": 3
+    }
+  },
+  {
+    "codigo": "2450-52-LE26",
+    "nota": "por_linea con total único al pie: 'Podrán ofertar por una línea, más de una, o todas las líneas de productos, ajustándose al monto máximo establecido para cada línea'. Mismo patrón que 1549-58 (contra-ejemplo de la regla del total único).",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS"
+    }
+  },
+  {
+    "codigo": "1260058-2-LE26",
+    "nota": "por_linea explícito en las bases: 'la licitación es por línea, considerándose cada producto como una de ellas; un proveedor puede ofertar por una línea o más líneas'.",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS"
+    }
   }
 ]

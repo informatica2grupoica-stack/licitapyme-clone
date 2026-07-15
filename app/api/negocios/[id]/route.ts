@@ -2,7 +2,7 @@
 // Detalle de un negocio: GET, PATCH (actualizar monto ofertado / etiquetas), DELETE (admin)
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { registrarActividad } from '@/app/lib/actividad';
+import { registrarActividad, registrarActividadDiaria } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } from '@/app/lib/email';
@@ -140,8 +140,10 @@ export async function GET(request: NextRequest, { params }: Params) {
       } catch { negocio.viabilidad_informe = null; }
     }
 
-    // Bitácora: este perfil ENTRÓ a ver la licitación (best-effort, aparece en el Historial).
-    registrarActividad({
+    // Bitácora: este perfil ENTRÓ a ver la licitación. UNA VEZ AL DÍA por perfil: este GET se
+    // dispara en cada carga/refresco del detalle, así que sin dedupe dejaba ~20 líneas idénticas
+    // por día en el Historial. Best-effort, nunca bloquea la respuesta.
+    registrarActividadDiaria({
       usuarioId: userId, accion: 'ver_licitacion',
       entidadTipo: 'licitacion', entidadId: codigo,
       descripcion: 'Abrió la licitación',

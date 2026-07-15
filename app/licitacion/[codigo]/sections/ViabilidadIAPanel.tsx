@@ -10,6 +10,7 @@ import { createPortal } from 'react-dom';
 import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ClipboardCheck, Compass, Swords, Ship, Search } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
+import { registrarVerCita } from '@/app/lib/actividad-cliente';
 
 interface Feedback {
   id: number;
@@ -686,6 +687,12 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   const [avisoProceso, setAvisoProceso] = useState<string | null>(null);  // "Analizando…" (info, NO error)
   const [docs, setDocs] = useState<DocRef[]>([]);
   const [visor, setVisor] = useState<VisorOpts | null>(null);   // modal de fuente (página + resaltado)
+  // Abre el visor de una cita y lo deja en la bitácora: qué fuente concreta fue a verificar el
+  // perfil, no solo que entró a Viabilidad. Best-effort, una línea por cita y día.
+  const abrirVisor = useCallback((o: VisorOpts) => {
+    setVisor(o);
+    registrarVerCita(codigo, o.titulo || `pág. ${o.pagina ?? '?'}`);
+  }, [codigo]);
   const abortRef = useRef<AbortController | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);  // poll de resultado tras timeout del proxy
   // Huella liviana del informe para detectar cuándo el server terminó un re-análisis.
@@ -973,7 +980,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
 
       {informe && (
         <FuenteDocsContext.Provider value={docs}>
-         <VisorContext.Provider value={setVisor}>
+         <VisorContext.Provider value={abrirVisor}>
           {(informe as any)._schema === 'v3' ? <VistaV3 informe={informe as any} /> : (<>
           {/* HERO: score + veredicto */}
           <div className={`rounded-2xl border p-4 ${sem.soft}`}>
