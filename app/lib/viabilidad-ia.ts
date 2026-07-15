@@ -840,6 +840,8 @@ POR LÍNEAS de migajas (bajo presupuesto Y commodity) → PIERDE. GLOBAL suma; f
 cantidad no penaliza si es especializada.
 SALIDA: VEREDICTO en tres niveles SIN números (salvo PRESUPUESTO, en pesos): ALTO · MEDIO · BAJO +
 LECTURA COMERCIAL (2-4 frases con punch). El campo de atractivo del encabezado NUNCA queda vacío.
+PRESUPUESTO QUE SE MUESTRA (presupuesto_mostrar): el monto CON IVA (bruto), rotulado "IVA incl."
+(o "(exento)" si el régimen es exento/FORA, donde no se suma IVA). El neto es SOLO interno (gate).
 
 ──────── 3. ESTRATEGIA (dónde se gana y qué hacer) ────────
 JUGADAS, no descripciones. La ORDEN de cada criterio se DERIVA de su CLASE DE EVALUACIÓN (no se escribe
@@ -1006,7 +1008,7 @@ JSON canónico (orden):
   "adjudicacion": { "como_se_adjudica":"GLOBAL|POR_LINEAS|POR_LOTES", "heterogeneidad":"alta|baja|na", "modalidad_pago_interna":"suma_alzada|precios_unitarios", "estado":"DETERMINADA|REVISION_HUMANA", "cotizar_100_obligatorio":false, "libertad_de_pricing":false, "evaluacion_puntaje":"al_total|por_linea", "fuente":"", "confianza":0.0 },
   "criterios_evaluacion": { "fuente_datos":"bases|api|mixto|incompleto", "forma_aplicacion_completa":true, "suma_ponderaciones_real":100, "suma_valida":true, "evaluacion_puntaje":"al_total|por_linea",
     "criterios":[ { "nombre":"", "ponderacion_nominal":0, "ponderacion_efectiva":0, "clase":"LEY_DEL_MINIMO|LEY_DEL_MAXIMO|POR_TRAMOS|BINARIO", "tramo_max_puntaje":{ "descripcion":"", "borde_comodo":"" }, "rango_admisibilidad":{ "min":"", "max":"" }, "forma_aplicacion":"", "medio_verificacion":"", "fuente":"", "subfactores":[ { "nombre":"", "ponderacion_relativa":0, "ponderacion_efectiva":0, "clase":"", "forma_aplicacion":"", "medio_verificacion":"", "fuente":"" } ] } ], "alertas":[] },
-  "atractivo": { "veredicto":"ALTO|MEDIO|BAJO", "lectura_comercial":"", "presupuesto_neto":0, "presupuesto_mostrar":"$__ neto", "_interno":{ "dim_atractivo_0_40":0, "dim_ventaja_0_40":0, "dim_admisibilidad_0_20":0, "nivel_tecnico":"MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE" } },
+  "atractivo": { "veredicto":"ALTO|MEDIO|BAJO", "lectura_comercial":"", "presupuesto_neto":0, "presupuesto_mostrar":"$__ IVA incl.", "_interno":{ "dim_atractivo_0_40":0, "dim_ventaja_0_40":0, "dim_admisibilidad_0_20":0, "nivel_tecnico":"MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE" } },
   "estrategia": { "jugadas":[ { "criterio":"", "etiqueta":"OPORTUNIDAD|RESOLVER|EMPATE|EN_CONTRA", "clase":"", "lectura":"", "orden":"", "valor_a_ofertar":"", "exige_respaldo":false, "fuente":"" } ], "donde_se_decide":{ "todo_paridad_salvo_precio":false, "se_decide_en":"precio|criterios_continuos|mixto", "tenemos_ventaja_costo":"si|no|na", "criterios_diferenciadores":[], "orden_final":"" } },
   "requisitos_admisibilidad": { "firma_puno_y_letra":{ "exigida":false, "mostrar_alerta":false, "evidencia_textual":"", "fuente":"" }, "fiel_cumplimiento":{ "exige":false, "forma":"boleta|poliza|vale_vista|fianza|retencion|otra", "plazo_entrega":"", "fuente":"" }, "contrato":{ "exige":false, "plazos":"", "fuente":"" }, "seriedad_oferta":{ "exige":false, "fuente":"" }, "presupuesto":{ "tipo":"excluyente|referencial", "fuente":"" }, "cotizar_100":{ "aplica":false, "fuente":"" }, "boleta":{ "aplica":false, "umbral_utm":1000, "exigida_bajo_umbral":false, "detalle":"", "fuente":"" }, "plazo_entrega_rango":{ "min":"", "max":"", "fuera_de_rango_inadmisible":true, "fuente":"" }, "marca_exclusiva":{ "es_exclusiva":false, "admite_equivalente":false, "evidencia":"", "fuente":"" }, "bloqueantes":[], "a_favor":[],
     "orden_anexos_propios":[ { "que_crear":"", "por_que":"", "fuente":"", "que_debe_contener":"", "que_cubre":"", "criticidad":"ADMISIBILIDAD_DURA|PUNTAJE_CONDICIONANTE|COMPROMISO_EJECUCION", "responsable":"fase4|operador|partner_externo" } ] },
@@ -1129,7 +1131,7 @@ function esquemaV3(codigo: string): string {
   "adjudicacion": { "como_se_adjudica":"GLOBAL|POR_LINEAS|POR_LOTES", "heterogeneidad":"alta|baja|na", "modalidad_pago_interna":"suma_alzada|precios_unitarios", "estado":"DETERMINADA|REVISION_HUMANA", "cotizar_100_obligatorio":false, "libertad_de_pricing":false, "evaluacion_puntaje":"al_total|por_linea", "fuente":"", "confianza":0.0 },
   "criterios_evaluacion": { "fuente_datos":"bases|api|mixto|incompleto", "forma_aplicacion_completa":true, "suma_ponderaciones_real":100, "suma_valida":true, "evaluacion_puntaje":"al_total|por_linea",
     "criterios":[ { "nombre":"", "ponderacion_nominal":0, "ponderacion_efectiva":0, "clase":"LEY_DEL_MINIMO|LEY_DEL_MAXIMO|POR_TRAMOS|BINARIO", "tramo_max_puntaje":{ "descripcion":"", "borde_comodo":"" }, "rango_admisibilidad":{ "min":"", "max":"" }, "forma_aplicacion":"", "medio_verificacion":"", "fuente":"", "subfactores":[ { "nombre":"", "ponderacion_relativa":0, "ponderacion_efectiva":0, "clase":"", "forma_aplicacion":"", "medio_verificacion":"", "fuente":"" } ] } ], "alertas":[] },
-  "atractivo": { "veredicto":"ALTO|MEDIO|BAJO", "lectura_comercial":"", "presupuesto_neto":0, "presupuesto_mostrar":"$__ neto", "_interno":{ "dim_atractivo_0_40":0, "dim_ventaja_0_40":0, "dim_admisibilidad_0_20":0, "nivel_tecnico":"MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE" } },
+  "atractivo": { "veredicto":"ALTO|MEDIO|BAJO", "lectura_comercial":"", "presupuesto_neto":0, "presupuesto_mostrar":"$__ IVA incl.", "_interno":{ "dim_atractivo_0_40":0, "dim_ventaja_0_40":0, "dim_admisibilidad_0_20":0, "nivel_tecnico":"MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE" } },
   "estrategia": { "jugadas":[ { "criterio":"", "etiqueta":"OPORTUNIDAD|RESOLVER|EMPATE|EN_CONTRA", "clase":"", "lectura":"", "orden":"", "valor_a_ofertar":"", "exige_respaldo":false, "fuente":"" } ], "donde_se_decide":{ "todo_paridad_salvo_precio":false, "se_decide_en":"precio|criterios_continuos|mixto", "tenemos_ventaja_costo":"si|no|na", "criterios_diferenciadores":[], "orden_final":"" } },
   "requisitos_admisibilidad": { "firma_puno_y_letra":{ "exigida":false, "mostrar_alerta":false, "evidencia_textual":"", "fuente":"" }, "fiel_cumplimiento":{ "exige":false, "forma":"boleta|poliza|vale_vista|fianza|retencion|otra", "plazo_entrega":"", "fuente":"" }, "contrato":{ "exige":false, "plazos":"", "fuente":"" }, "seriedad_oferta":{ "exige":false, "fuente":"" }, "presupuesto":{ "tipo":"excluyente|referencial", "fuente":"" }, "cotizar_100":{ "aplica":false, "fuente":"" }, "boleta":{ "aplica":false, "umbral_utm":1000, "exigida_bajo_umbral":false, "detalle":"", "fuente":"" }, "plazo_entrega_rango":{ "min":"", "max":"", "fuera_de_rango_inadmisible":true, "fuente":"" }, "marca_exclusiva":{ "es_exclusiva":false, "admite_equivalente":false, "evidencia":"", "fuente":"" }, "bloqueantes":[], "a_favor":[],
     "orden_anexos_propios":[ { "que_crear":"", "por_que":"", "fuente":"", "que_debe_contener":"", "que_cubre":"", "criticidad":"ADMISIBILIDAD_DURA|PUNTAJE_CONDICIONANTE|COMPROMISO_EJECUCION", "responsable":"fase4|operador|partner_externo" } ] },
@@ -1407,10 +1409,31 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
         if (netoModelo != null) console.log(`[viabilidad-ia-v3] ${codigo}: presupuesto neto corregido ${netoModelo} → ${netoCalc} (bruto ${bruto}, ${exento ? 'exento' : '÷1,19'}).`);
         pres.neto = netoCalc;
       }
-      // Alinear el display del atractivo (usa presupuesto_neto / presupuesto_mostrar).
+      // Alinear el display del atractivo. IMPORTANTE: el GATE/score siguen sobre el NETO (los
+      // umbrales $8M/$15M de compras públicas son netos) → NO se toca pres.neto para la lógica.
+      // Pero lo que se MUESTRA al usuario es el monto CON IVA (bruto): así se lee "precio con IVA".
+      // Cuando el régimen es exento/FORA no hay IVA que sumar (bruto == neto) → se rotula "(exento)".
       if (p3.atractivo && typeof p3.atractivo === 'object') {
-        p3.atractivo.presupuesto_neto = pres.neto;
-        p3.atractivo.presupuesto_mostrar = `$${Number(pres.neto).toLocaleString('es-CL')} neto`;
+        p3.atractivo.presupuesto_neto = pres.neto;         // interno (gate/score)
+        const conIva = Number(bruto);                       // bruto = total CON IVA (o == neto si exento)
+        p3.atractivo.presupuesto_mostrar = exento
+          ? `$${conIva.toLocaleString('es-CL')} (exento)`
+          : `$${conIva.toLocaleString('es-CL')} IVA incl.`;
+      }
+    } else {
+      // El modelo no trajo bruto pero sí neto → reconstruimos el bruto (con IVA) para MOSTRARLO.
+      // Sin sumar IVA cuando el régimen es exento/FORA (no corresponde).
+      const netoN = _num(pres.neto);
+      if (netoN != null && netoN > 0) {
+        const exento = !!pres.presupuesto_exento || !!pres.regimen_fora || pres.con_iva === false;
+        const conIva = exento ? netoN : Math.round(netoN * 1.19);
+        if (pres.bruto == null || Number(pres.bruto) <= 0) pres.bruto = conIva; // para el fallback del front
+        if (p3.atractivo && typeof p3.atractivo === 'object') {
+          p3.atractivo.presupuesto_neto = netoN;
+          p3.atractivo.presupuesto_mostrar = exento
+            ? `$${conIva.toLocaleString('es-CL')} (exento)`
+            : `$${conIva.toLocaleString('es-CL')} IVA incl.`;
+        }
       }
     }
   }

@@ -4,7 +4,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
 import { tienePermiso } from '@/app/lib/api-auth';
+import { respuestaDesdeCache, enriquecer } from '@/app/lib/adjudicacion';
 import { registrarEvento } from '@/app/lib/historial';
+import { publicarCambio } from '@/app/lib/sse-bus';
 import { enviarCorreoAsignacion } from '@/app/lib/email';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 
@@ -110,12 +112,16 @@ export async function GET(request: NextRequest) {
     const codigos = negocios.map(n => n.licitacion_codigo).filter(Boolean);
     if (codigos.length) {
       const ph = codigos.map(() => '?').join(',');
-      const [docsRes, viabRes, aperturaRes] = await Promise.allSettled([
+      const [docsRes, viabRes, aperturaRes, adjRes] = await Promise.allSettled([
         pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos),
         pool.query(`SELECT licitacion_codigo, semaforo, score_total FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos),
         // Estado de apertura detectado por el poller del portal (migración 41). Tolerante:
         // si la tabla no existe aún, degrada a "sin apertura conocida" sin romper la lista.
         pool.query(`SELECT licitacion_codigo, aperturada, detectada_en FROM licitacion_apertura WHERE licitacion_codigo IN (${ph})`, codigos),
+        // Adjudicación REAL desde la API (cache poblado por el cron). Es la MISMA fuente que usa
+        // el apartado Postuladas: por línea, con RUT del adjudicado. De aquí sale si GANAMOS
+        // nosotros (adj_ganamos) o si se adjudicó a terceros (perdida). Migración 35; tolerante.
+        pool.query(`SELECT * FROM adjudicacion_cache WHERE licitacion_codigo IN (${ph})`, codigos),
       ]);
       if (docsRes.status === 'fulfilled') {
         const setDocs = new Set(((docsRes.value as any)[0] as any[]).map(r => r.licitacion_codigo));
@@ -135,6 +141,22 @@ export async function GET(request: NextRequest) {
           const a = mapAp.get(n.licitacion_codigo) as any;
           n.aperturada = a?.aperturada ? 1 : 0;
           n.apertura_detectada_en = a?.detectada_en ?? null;
+        }
+      }
+      // Adjudicación REAL (por RUT): marca cada negocio con su resultado autoritativo de MP.
+      //   adj_es_adjudicada = MP ya adjudicó el proceso (a alguien).
+      //   adj_ganamos       = una de NUESTRAS empresas ganó ≥1 línea (comparación de RUT).
+      // Con esto el badge de Negocios muestra "Ganada" SOLO cuando de verdad ganamos, y "Perdida"
+      // cuando se adjudicó a terceros — sin inventar (antes se asumía ganada por estar postulada).
+      if (adjRes.status === 'fulfilled') {
+        const mapAdj = new Map(((adjRes.value as any)[0] as any[]).map(r => [r.licitacion_codigo, r]));
+        for (const n of negocios) {
+          const row = mapAdj.get(n.licitacion_codigo) as any;
+          if (!row) { n.adj_es_adjudicada = 0; n.adj_ganamos = 0; continue; }
+          const adj = await enriquecer(respuestaDesdeCache(n.licitacion_codigo, row));
+          n.adj_es_adjudicada = adj.esAdjudicada ? 1 : 0;
+          n.adj_ganamos       = adj.ganamos ? 1 : 0;
+          n.adj_monto_nuestro = adj.montoNuestro ?? null;
         }
       }
     }
@@ -241,6 +263,9 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+
+    // Tiempo real: un negocio nuevo entra al pipeline → repintar los tableros abiertos.
+    publicarCambio('negocio');
 
     // Notificar al asignado: historial + tiempo real (SSE) + correo. Best-effort.
     try {

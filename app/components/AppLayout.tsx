@@ -7,8 +7,11 @@ import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
+  PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
+import { Tooltip } from '@/app/components/ui/Tooltip';
+import { suscribirRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
@@ -82,7 +85,7 @@ function AvatarIcon({ initials, color, size = 34 }: { initials: string; color: s
   );
 }
 
-function UserMenu({ dark = false }: { dark?: boolean }) {
+function UserMenu({ dark = false, angosto = false }: { dark?: boolean; angosto?: boolean }) {
   const { usuario, logout } = useSession();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -102,22 +105,25 @@ function UserMenu({ dark = false }: { dark?: boolean }) {
 
   return (
     <div ref={ref} className="relative">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className={`w-full rounded-xl p-2 transition-colors text-left ${dark ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-100'}`}
-      >
-        <div className="flex items-center gap-2.5">
-          <AvatarIcon initials={initials} color={colorDe(usuario.email)} />
-          <div className="flex-1 min-w-0">
-            <p className={`text-[12.5px] font-semibold truncate leading-tight ${dark ? 'text-slate-100' : 'text-slate-800'}`}>
-              {usuario.nombre?.split(' ')[0] || usuario.email.split('@')[0]}
-            </p>
-            <p className={`text-[11px] truncate leading-tight ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
-              {usuario.rol === 'admin' ? 'Administrador' : usuario.empresa || usuario.email}
-            </p>
+      <Tooltip label={usuario.nombre || usuario.email} disabled={!angosto}>
+        <button
+          onClick={() => setOpen(o => !o)}
+          className={`w-full rounded-xl p-2 transition-colors text-left ${dark ? 'hover:bg-white/[0.06]' : 'hover:bg-slate-100'}`}
+        >
+          <div className={`flex items-center gap-2.5 ${angosto ? 'lg:justify-center lg:gap-0' : ''}`}>
+            <AvatarIcon initials={initials} color={colorDe(usuario.email)} />
+            <div className={`min-w-0 overflow-hidden flex-1 transition-all duration-300
+              ${angosto ? 'lg:flex-none lg:w-0 lg:opacity-0' : 'opacity-100'}`}>
+              <p className={`text-[12.5px] font-semibold truncate leading-tight ${dark ? 'text-slate-100' : 'text-slate-800'}`}>
+                {usuario.nombre?.split(' ')[0] || usuario.email.split('@')[0]}
+              </p>
+              <p className={`text-[11px] truncate leading-tight ${dark ? 'text-slate-500' : 'text-slate-400'}`}>
+                {usuario.rol === 'admin' ? 'Administrador' : usuario.empresa || usuario.email}
+              </p>
+            </div>
           </div>
-        </div>
-      </button>
+        </button>
+      </Tooltip>
 
       {open && (
         <div className="absolute bottom-full left-0 mb-2 w-[230px] bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50">
@@ -149,10 +155,66 @@ function UserMenu({ dark = false }: { dark?: boolean }) {
   );
 }
 
+// Sidebar angostable.
+//
+// El colapso es SOLO de escritorio (>=1024px): en móvil es un cajón que se abre entero, donde
+// una tira de iconos no tendría sentido y además no hay hover para los tooltips. Por eso todo
+// lo que cambia al colapsar va con el prefijo `lg:` y el móvil ni se entera.
+//
+// La animación es CSS pura (transition-[width] en el <aside> + opacidad/ancho de las
+// etiquetas), no framer-motion: animar el ancho con estilos en línea también encogería el
+// cajón móvil. Los tooltips sí usan framer-motion — ver components/ui/Tooltip.
+const CLAVE_COLAPSO = 'sidebar-colapsado';
+const ANCHO_COLAPSADO = 'lg:w-[76px]';
+
+// Recuerda la preferencia FUERA del componente.
+//
+// Cada página renderiza su propio <AppLayout> (no está en layout.tsx), así que al navegar el
+// Sidebar se DESMONTA y se vuelve a montar — verificado: el <aside> es un nodo nuevo. Con el
+// estado dentro del componente, cada cambio de menú lo devolvía a "expandido" y el efecto lo
+// encogía después: se veía el menú abrirse a 256px y achicarse a 76px, animado, en cada clic.
+// Al vivir en el módulo, el valor ya se conoce en el primer render tras remontar → sin salto.
+//
+// `null` = todavía no se ha leído localStorage (solo antes del primer montaje del cliente).
+let colapsadoCache: boolean | null = null;
+
 function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMobile: () => void }) {
   const pathname = usePathname();
   const { usuario } = useSession();
   const isActive = (item: NavItem) => (item.exact ? pathname === item.href : pathname.startsWith(item.href));
+
+  // Si el módulo ya sabe la preferencia (o sea: no es la primera carga), se arranca con ella.
+  // En la primera carga arranca en false para coincidir con el HTML del servidor, que no puede
+  // leer localStorage; el efecto de abajo la corrige.
+  const [colapsado, setColapsado] = useState(() => colapsadoCache ?? false);
+  // Solo se anima el ancho cuando ya conocemos el valor. Así la corrección de la primera carga
+  // (expandido → colapsado) es instantánea en vez de un barrido de 300ms.
+  const [animarAncho, setAnimarAncho] = useState(colapsadoCache !== null);
+
+  useEffect(() => {
+    if (colapsadoCache === null) {
+      try { colapsadoCache = localStorage.getItem(CLAVE_COLAPSO) === '1'; } catch { colapsadoCache = false; }
+      setColapsado(colapsadoCache);
+      // Al siguiente fotograma: que la corrección inicial no se anime, pero el botón sí.
+      requestAnimationFrame(() => setAnimarAncho(true));
+    }
+  }, []);
+
+  const alternar = () => setColapsado(v => {
+    const next = !v;
+    colapsadoCache = next;   // para que el próximo montaje ya nazca bien
+    try { localStorage.setItem(CLAVE_COLAPSO, next ? '1' : '0'); } catch { /* no bloquear por storage */ }
+    return next;
+  });
+
+  // Con el cajón móvil abierto SIEMPRE se ve completo, aunque en escritorio esté colapsado.
+  const angosto = colapsado && !mobileOpen;
+  // `trans`: se apaga durante la corrección de la primera carga para que nada se anime hasta
+  // que sepamos el ancho real (si no, las etiquetas se desvanecían solas al abrir la app).
+  const trans = animarAncho ? 'transition-all duration-300' : '';
+  // Las etiquetas: ocupan su ancho normal, y al colapsar se desvanecen encogiendo a 0.
+  const clsEtiqueta = `flex items-center gap-2 overflow-hidden flex-1 ${trans}
+    ${angosto ? 'lg:flex-none lg:w-0 lg:opacity-0' : 'opacity-100'}`;
 
   const esExterno = usuario?.rol === 'externo';
   const visibleGroups = NAV_GROUPS.map(group => ({
@@ -172,22 +234,35 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       <aside className={`
         fixed top-0 left-0 h-full z-50 flex flex-col w-64
         bg-gradient-to-b from-[#1c2027] to-[#15181d]
-        transition-transform duration-300 ease-out
+        ${animarAncho ? 'transition-[transform,width]' : 'transition-transform'} duration-300 ease-out
+        ${angosto ? ANCHO_COLAPSADO : 'lg:w-64'}
         ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 lg:static lg:z-auto
       `}>
         {/* Cabecera: logo (oculto para EXTERNO, que no ve la marca de la app) */}
-        <div className="px-4 pt-5 pb-4 flex items-center justify-between flex-shrink-0">
+        <div className={`pt-5 pb-4 flex items-center justify-between flex-shrink-0 ${trans}
+          ${angosto ? 'px-4 lg:px-0 lg:flex-col lg:gap-3' : 'px-4'}`}>
           {esExterno ? (
-            <span className="text-slate-300 font-semibold text-[13px]">Mis licitaciones</span>
+            <span className={`text-slate-300 font-semibold text-[13px] ${angosto ? 'lg:hidden' : ''}`}>Mis licitaciones</span>
           ) : (
-            <Link href="/dashboard" onClick={onCloseMobile} className="flex items-center gap-2.5 group">
-              <div className="group-hover:scale-105 transition-transform"><LicitankIcon size={36} /></div>
-              <div className="flex flex-col leading-none">
+            <Link href="/dashboard" onClick={onCloseMobile} className="flex items-center gap-2.5 group min-w-0">
+              <div className="group-hover:scale-105 transition-transform flex-shrink-0"><LicitankIcon size={36} /></div>
+              <div className={`flex flex-col leading-none ${clsEtiqueta}`}>
                 <span className="text-white font-black text-[15px] tracking-tight">LICITANK</span>
                 <span className="text-slate-500 text-[9.5px] font-semibold tracking-[0.14em] uppercase mt-0.5">Licitaciones</span>
               </div>
             </Link>
           )}
+          {/* Angostar/ensanchar: solo escritorio. En móvil el cajón se cierra con la X. */}
+          <Tooltip label={angosto ? 'Ensanchar menú' : 'Angostar menú'} disabled={!angosto}>
+            <button
+              onClick={alternar}
+              className="hidden lg:flex p-1.5 rounded-lg text-slate-500 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+              aria-label={angosto ? 'Ensanchar menú' : 'Angostar menú'}
+              aria-expanded={!angosto}
+            >
+              {angosto ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+            </button>
+          </Tooltip>
           <button
             onClick={onCloseMobile}
             className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
@@ -200,39 +275,68 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
         {/* Búsqueda rápida: solo admin — el buscador "/" es admin-only, mostrarla a un
             usuario normal lo mandaba a un redirect confuso hacia /negocios. */}
         {usuario?.rol === 'admin' && (
-        <div className="px-3 pb-3 flex-shrink-0">
-          <Link href="/" onClick={onCloseMobile}
-            className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-slate-400 hover:text-slate-200 hover:bg-white/[0.07] transition-colors">
-            <Search size={15} className="text-slate-500" />
-            <span className="text-[12.5px] font-medium flex-1">Buscar licitaciones</span>
-            <span className="flex items-center gap-0.5 text-[10px] text-slate-600 border border-white/10 rounded px-1 py-0.5">
-              <Command size={9} /> K
-            </span>
-          </Link>
+        <div className={`pb-3 flex-shrink-0 ${trans} ${angosto ? 'px-3 lg:px-2' : 'px-3'}`}>
+          <Tooltip label="Buscar licitaciones  ⌘K" disabled={!angosto}>
+            <Link href="/" onClick={onCloseMobile}
+              className={`flex items-center gap-2.5 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06]
+                text-slate-400 hover:text-slate-200 hover:bg-white/[0.07] transition-colors
+                ${angosto ? 'px-3 lg:px-0 lg:justify-center lg:gap-0' : 'px-3'}`}>
+              <Search size={15} className="text-slate-500 flex-shrink-0" />
+              <span className={`text-[12.5px] font-medium ${clsEtiqueta}`}>
+                <span className="flex-1 truncate">Buscar licitaciones</span>
+                <span className="flex items-center gap-0.5 text-[10px] text-slate-600 border border-white/10 rounded px-1 py-0.5 flex-shrink-0">
+                  <Command size={9} /> K
+                </span>
+              </span>
+            </Link>
+          </Tooltip>
         </div>
         )}
 
         {/* Nav */}
         <div className="flex-1 overflow-y-auto scrollbar-thin">
-          <nav className="px-3 pb-2 space-y-5">
+          <nav className={`pb-2 space-y-5 ${trans} ${angosto ? 'px-3 lg:px-2' : 'px-3'}`}>
             {visibleGroups.map(group => (
               <div key={group.label}>
-                <p className="px-2 mb-1.5 text-[9.5px] font-bold text-slate-600 tracking-[0.14em] uppercase">{group.label}</p>
+                {/* Colapsado, el título del grupo cede su sitio a un separador: la agrupación
+                    se sigue leyendo sin gastar los 76px de ancho en texto. */}
+                <p className={`px-2 mb-1.5 text-[9.5px] font-bold text-slate-600 tracking-[0.14em] uppercase
+                  ${angosto ? 'lg:hidden' : ''}`}>{group.label}</p>
+                {angosto && <div className="hidden lg:block h-px bg-white/[0.07] mx-2 mb-2" />}
                 <div className="space-y-0.5">
                   {group.items.map(item => {
                     const active = isActive(item);
                     return (
-                      <Link key={item.href} href={item.href} onClick={onCloseMobile}
-                        className={`group relative flex items-center gap-3 px-3 py-2.5 text-[13px] transition-all duration-150
-                          ${active
-                            ? 'sidebar-tab-active -mr-3 rounded-l-2xl bg-slate-50 text-slate-900 font-semibold'
-                            : 'rounded-xl font-medium text-slate-400 hover:text-slate-100 hover:bg-white/[0.05]'}`}>
-                        <span className={active ? 'text-indigo-600' : 'text-slate-500 group-hover:text-slate-300'}>{item.icon}</span>
-                        <span className="flex-1">{item.label}</span>
-                        {item.badge != null && (
-                          <span className="text-[10px] font-semibold bg-red-500 text-white px-1.5 py-0.5 rounded">{item.badge}</span>
-                        )}
-                      </Link>
+                      <Tooltip key={item.href} label={item.label} disabled={!angosto}>
+                        <Link href={item.href} onClick={onCloseMobile}
+                          // OJO con la lista de propiedades: NO puede incluir `all`. La pestaña
+                          // activa cambia margin-right (0 → -12px) y border-radius, y animarlos
+                          // hacía que al cambiar de página la pestaña se deslizara y deformara
+                          // mientras sus muescas curvas (::before/::after, que son pseudo-
+                          // elementos y no heredan la transición) aparecían de golpe. El cambio
+                          // de forma va instantáneo; solo se animan color y espaciado.
+                          className={`group relative flex items-center gap-3 py-2.5 text-[13px]
+                            transition-[color,background-color,padding,gap] duration-150
+                            ${angosto ? 'px-3 lg:px-0 lg:justify-center lg:gap-0' : 'px-3'}
+                            ${active
+                              ? 'sidebar-tab-active -mr-3 rounded-l-2xl bg-slate-50 text-slate-900 font-semibold'
+                              : 'rounded-xl font-medium text-slate-400 hover:text-slate-100 hover:bg-white/[0.05]'}`}>
+                          <span className={`relative flex-shrink-0 ${active ? 'text-indigo-600' : 'text-slate-500 group-hover:text-slate-300'}`}>
+                            {item.icon}
+                            {/* Colapsado no cabe el número: queda un punto sobre el icono para
+                                que la alerta no desaparezca al angostar. */}
+                            {item.badge != null && angosto && (
+                              <span className="hidden lg:block absolute -top-0.5 -right-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-[#1c2027]" />
+                            )}
+                          </span>
+                          <span className={clsEtiqueta}>
+                            <span className="flex-1 truncate text-left">{item.label}</span>
+                            {item.badge != null && (
+                              <span className="text-[10px] font-semibold bg-red-500 text-white px-1.5 py-0.5 rounded flex-shrink-0">{item.badge}</span>
+                            )}
+                          </span>
+                        </Link>
+                      </Tooltip>
                     );
                   })}
                 </div>
@@ -242,8 +346,9 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
         </div>
 
         {/* Usuario */}
-        <div className="px-2.5 pb-4 pt-2 border-t border-white/[0.07] flex-shrink-0">
-          <UserMenu dark />
+        <div className={`pb-4 pt-2 border-t border-white/[0.07] flex-shrink-0 ${trans}
+          ${angosto ? 'px-2.5 lg:px-2' : 'px-2.5'}`}>
+          <UserMenu dark angosto={angosto} />
         </div>
       </aside>
     </>
@@ -279,20 +384,19 @@ function NotificacionesBell() {
     } catch { /* silencioso */ }
   }, []);
 
+  // Se engancha al bus compartido en vez de abrir su propia conexión: el navegador solo
+  // admite ~6 conexiones por dominio y un EventSource por componente las agotaba, dejando
+  // el resto de las peticiones encoladas para siempre. Ver app/lib/use-realtime.
   useEffect(() => {
     if (!usuario) return;
     cargar();
-    const es = new EventSource('/api/historial/stream');
-    es.addEventListener('notificacion', (ev: MessageEvent) => {
-      try {
-        const data: Noti = JSON.parse(ev.data);
-        setEventos(prev => [data, ...prev].slice(0, 20));
-        setNoLeidas(n => n + 1);
-        toastRef.current.info('Nueva notificación', data.mensaje);
-      } catch { /* ignore */ }
+    return suscribirRealtime(ev => {
+      if (ev.tipo !== 'notificacion') return;   // los 'cambio' son para los tableros
+      const data = ev.datos as Noti;
+      setEventos(prev => [data, ...prev].slice(0, 20));
+      setNoLeidas(n => n + 1);
+      toastRef.current.info('Nueva notificación', data.mensaje);
     });
-    es.onerror = () => { /* EventSource reconecta solo */ };
-    return () => es.close();
   }, [usuario, cargar]);
 
   const marcarLeidas = async () => {

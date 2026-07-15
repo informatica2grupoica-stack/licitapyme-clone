@@ -439,7 +439,9 @@ function VistaV3({ informe }: { informe: any }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="bg-white border border-slate-200 rounded-xl p-3">
           <p className="text-[10px] font-bold text-slate-400 uppercase">Presupuesto</p>
-          <p className="text-[15px] font-bold text-emerald-700 leading-tight">{atr.presupuesto_mostrar || fmt(informe.presupuesto?.neto ?? informe.presupuesto?.bruto)}</p>
+          {/* Se muestra CON IVA (bruto) desde el dato estructurado — no del string cacheado del
+              modelo (los informes viejos traían "$__ neto"); así se ve con IVA sin re-analizar. */}
+          <p className="text-[15px] font-bold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.bruto ?? informe.presupuesto?.neto)}{informe.presupuesto?.bruto && !informe.presupuesto?.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
           {adm.presupuesto?.tipo === 'excluyente'
             ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700">EXCLUYENTE</span>
             : <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500">referencial</span>}
@@ -1008,7 +1010,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Presupuesto</p>
-              <p className="text-[15px] font-bold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.neto ?? informe.presupuesto?.bruto)}</p>
+              <p className="text-[15px] font-bold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.bruto ?? informe.presupuesto?.neto)}{informe.presupuesto?.bruto && !informe.presupuesto?.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
               <div className="flex items-center gap-1 flex-wrap mt-0.5">
                 {informe.presupuesto?.es_excluyente
                   ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700">EXCLUYENTE</span>
@@ -1016,8 +1018,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                 {informe.presupuesto?.regimen_fora && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-violet-100 text-violet-700">FORA</span>}
               </div>
               {hrefCita(informe.presupuesto?.fuente)
-                ? <a href={hrefCita(informe.presupuesto?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.neto ? 'neto · ' : ''}{informe.presupuesto?.fuente}</a>
-                : <p className="text-[10px] text-slate-400 truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.neto ? 'neto · ' : ''}{informe.presupuesto?.fuente}</p>}
+                ? <a href={hrefCita(informe.presupuesto?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.bruto ? (informe.presupuesto?.regimen_fora ? 'exento · ' : 'IVA incl. · ') : ''}{informe.presupuesto?.fuente}</a>
+                : <p className="text-[10px] text-slate-400 truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.bruto ? (informe.presupuesto?.regimen_fora ? 'exento · ' : 'IVA incl. · ') : ''}{informe.presupuesto?.fuente}</p>}
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Cómo se adjudica</p>

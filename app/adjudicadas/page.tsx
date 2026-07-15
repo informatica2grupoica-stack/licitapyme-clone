@@ -10,10 +10,11 @@
 // Roles: cada perfil ve SOLO lo suyo; el admin ve todo y filtra por perfil/empresa. El
 // filtrado por rol lo hace /api/negocios.
 
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { useRealtime } from '@/app/lib/use-realtime';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import {
   Trophy, XCircle, ExternalLink, Building2, Calendar, Loader2, Inbox,
@@ -57,17 +58,14 @@ const META: Record<Resultado, { label: string; short: string; color: string; ico
   perdida: { label: 'Perdida', short: 'Perdidas', color: '#dc2626', icon: XCircle },
 };
 
-// Resultado según el estado_pipeline (fuente de verdad tras la auto-promoción).
-function resultadoDe(n: Negocio): Resultado {
+// Resultado real: si tenemos el detalle de adjudicación (cache MP), manda ESE (ganamos por RUT
+// ≥1 línea). Si aún no cargó, caemos al estado ya promovido. Así no dependemos de que el cron
+// haya movido estado_pipeline: la verdad es la misma que ve Postuladas.
+function resultadoDe(n: Negocio, adj?: Adjudicacion | null): Resultado {
+  if (adj && adj.esAdjudicada) return adj.ganamos ? 'ganada' : 'perdida';
   return n.estado_pipeline === 'PERDIDA' ? 'perdida' : 'ganada';
 }
 
-async function mapLimit<T>(items: T[], limit: number, fn: (x: T) => Promise<void>) {
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (i < items.length) { const idx = i++; await fn(items[idx]); }
-  }));
-}
 
 // ── Detalle de adjudicación (líneas + acta) ───────────────────────────────────
 function BloqueAdjudicacion({ adj, ganamos }: { adj: Adjudicacion; ganamos: boolean }) {
@@ -136,7 +134,7 @@ function BloqueAdjudicacion({ adj, ganamos }: { adj: Adjudicacion; ganamos: bool
 
 // ── Tarjeta ───────────────────────────────────────────────────────────────────
 function Card({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; isAdmin: boolean }) {
-  const r = resultadoDe(n);
+  const r = resultadoDe(n, adj);
   const m = META[r];
   const perfilCol = colorUsuario(n.usuario_email || n.usuario_nombre || '');
   const metrica = r === 'ganada'
@@ -233,63 +231,94 @@ export default function AdjudicadasPage() {
 
   const [adjMap, setAdjMap] = useState<Record<string, Adjudicacion | null>>({});
   const [resueltos, setResueltos] = useState<Set<string>>(new Set());
-  const pedidos = useRef<Set<string>>(new Set());
+  // El cruce con el cache llega en 1 llamada. Hasta que esté, no pintamos conteos (evita el
+  // salto de "solo promovidas" → total). Así el resultado aparece completo de una.
+  const [cruceListo, setCruceListo] = useState(false);
+
+  // Tiempo real: el cron de 2h refresca el cache de adjudicación desde MP y publica un
+  // evento; también llega cuando alguien mueve una postulada. Sube `version` → recarga.
+  const [version, setVersion] = useState(0);
+  useRealtime(useCallback(() => setVersion(v => v + 1), []));
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/negocios');
+        const res = await fetch('/api/negocios', { cache: 'no-store' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'No se pudo cargar');
         const todas: Negocio[] = data.negocios || [];
-        setNegocios(todas.filter(n => n.estado_pipeline === 'ADJUDICADA' || n.estado_pipeline === 'PERDIDA'));
+        // Universo amplio: además de las ya promovidas (ADJUDICADA/PERDIDA), incluimos las que
+        // siguen en POSTULADA pero MP ya adjudicó. El gate `esResuelta` (por cache) deja solo las
+        // realmente resueltas → el resultado real aparece aquí sin esperar la promoción del cron.
+        const univ = todas.filter(n => ['ADJUDICADA', 'PERDIDA', 'POSTULADA', 'POSIBLE_ADJ'].includes(n.estado_pipeline || ''));
+        setNegocios(univ);
+        if (univ.length === 0) setCruceListo(true); // nada que cruzar
       } catch (e: any) { setError(String(e?.message ?? e)); }
       finally { setCargando(false); }
     })();
-  }, []);
+  }, [version]);
 
-  // Cruce con MP para el detalle (líneas/acta). Cache final → barato.
+  // Cruce con la adjudicación en UNA sola llamada al servidor (SOLO cache de la BD, sin tocar
+  // MP): el resultado aparece de una, sin ir subiendo progresivamente y sin recargar cada vez.
+  // El refresco lo hace el cron cada 2h cuando MP publica un cambio de estado.
   useEffect(() => {
-    const codigos = Array.from(new Set(negocios.map(n => n.licitacion_codigo).filter(Boolean))).filter(c => !pedidos.current.has(c));
-    if (!codigos.length) return;
-    codigos.forEach(c => pedidos.current.add(c));
-    mapLimit(codigos, 6, async (codigo) => {
-      let data: Adjudicacion | null = null;
-      try { const r = await fetch(`/api/licitacion-adjudicacion/${encodeURIComponent(codigo)}`); data = r.ok ? await r.json() : null; } catch { data = null; }
-      setAdjMap(prev => ({ ...prev, [codigo]: data }));
-      setResueltos(prev => { const s = new Set(prev); s.add(codigo); return s; });
-    });
+    if (negocios.length === 0) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const r = await fetch('/api/postuladas/estado', { cache: 'no-store' });
+        const d = await r.json();
+        if (cancelado) return;
+        if (d?.estados) setAdjMap(d.estados);
+      } catch { /* sin cruce → cae a la clasificación por estado */ }
+      finally {
+        if (!cancelado) {
+          setResueltos(new Set(negocios.map(n => n.licitacion_codigo).filter(Boolean)));
+          setCruceListo(true);
+        }
+      }
+    })();
+    return () => { cancelado = true; };
   }, [negocios]);
+
+  // Gate de "resuelta": manda el cache de adjudicación (esAdjudicada); si aún no cargó, el estado
+  // ya promovido. Solo las resueltas se muestran en Adjudicadas.
+  const esResuelta = useCallback((n: Negocio) => {
+    const a = adjMap[n.licitacion_codigo];
+    if (a) return a.esAdjudicada;
+    return n.estado_pipeline === 'ADJUDICADA' || n.estado_pipeline === 'PERDIDA';
+  }, [adjMap]);
+  const resueltas = useMemo(() => negocios.filter(esResuelta), [negocios, esResuelta]);
 
   const perfiles = useMemo(() => {
     const m = new Map<string, { email: string; nombre: string; total: number }>();
-    for (const n of negocios) {
+    for (const n of resueltas) {
       const email = n.usuario_email || n.usuario_nombre || '—';
       const e = m.get(email) || { email, nombre: n.usuario_nombre || n.usuario_email || '—', total: 0 };
       e.total++; m.set(email, e);
     }
     return Array.from(m.values()).sort((a, b) => b.total - a.total);
-  }, [negocios]);
+  }, [resueltas]);
 
   const base = useMemo(
-    () => negocios.filter(n => !perfilSel || (n.usuario_email || n.usuario_nombre) === perfilSel),
-    [negocios, perfilSel]);
+    () => resueltas.filter(n => !perfilSel || (n.usuario_email || n.usuario_nombre) === perfilSel),
+    [resueltas, perfilSel]);
 
   const conteo = useMemo(() => {
     const c = { ganada: 0, perdida: 0 };
-    for (const n of base) c[resultadoDe(n)]++;
+    for (const n of base) c[resultadoDe(n, adjMap[n.licitacion_codigo])]++;
     return c;
-  }, [base]);
+  }, [base, adjMap]);
 
   const visibles = useMemo(
-    () => base.filter(n => !resultadoSel || resultadoDe(n) === resultadoSel)
+    () => base.filter(n => !resultadoSel || resultadoDe(n, adjMap[n.licitacion_codigo]) === resultadoSel)
       .sort((a, b) => dayjs(b.licitacion_cierre || 0).valueOf() - dayjs(a.licitacion_cierre || 0).valueOf()),
-    [base, resultadoSel]);
+    [base, resultadoSel, adjMap]);
 
   const stats = useMemo(() => {
     let montoGanado = 0;
     for (const n of base) {
-      if (resultadoDe(n) !== 'ganada') continue;
+      if (resultadoDe(n, adjMap[n.licitacion_codigo]) !== 'ganada') continue;
       const a = adjMap[n.licitacion_codigo];
       montoGanado += (a?.montoNuestro ?? n.monto_ofertado ?? 0) || 0;
     }
@@ -303,6 +332,10 @@ export default function AdjudicadasPage() {
     { id: 'perdida', label: 'Perdidas', count: conteo.perdida, color: META.perdida.color },
   ];
 
+  // Hasta que el cruce con el cache no esté listo, tratamos la vista como "cargando" para no
+  // mostrar un conteo parcial que luego salta.
+  const cargandoTodo = cargando || !cruceListo;
+
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Adjudicadas' }]}>
       <div className="p-4 sm:p-6 lg:p-8">
@@ -312,12 +345,12 @@ export default function AdjudicadasPage() {
               <Trophy size={24} className="text-emerald-600" /> Adjudicadas
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              {cargando ? 'Cargando…' : `${base.length} resuelta${base.length !== 1 ? 's' : ''} · resultado real de Mercado Público`}
+              {cargandoTodo ? 'Cargando…' : `${base.length} resuelta${base.length !== 1 ? 's' : ''} · resultado real de Mercado Público`}
             </p>
           </div>
         </div>
 
-        {!cargando && !error && base.length > 0 && (
+        {!cargandoTodo && !error && base.length > 0 && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
             <KpiCard icon={<Trophy size={22} />} label="Ganadas" value={conteo.ganada} sub={stats.exito != null ? `${stats.exito}% de efectividad` : undefined} color={META.ganada.color} />
             <KpiCard icon={<XCircle size={22} />} label="Perdidas" value={conteo.perdida} sub="Adjudicadas a terceros" color={META.perdida.color} />
@@ -326,7 +359,7 @@ export default function AdjudicadasPage() {
           </div>
         )}
 
-        {!cargando && !error && base.length > 0 && (
+        {!cargandoTodo && !error && base.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-5">
             {TABS.map(t => {
               const activo = resultadoSel === t.id;
@@ -348,7 +381,7 @@ export default function AdjudicadasPage() {
             <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mr-1 inline-flex items-center gap-1"><Users size={12} /> Perfil</span>
             <button onClick={() => setPerfilSel('')}
               className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${perfilSel === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
-              Todos <span className="opacity-70">({negocios.length})</span>
+              Todos <span className="opacity-70">({resueltas.length})</span>
             </button>
             {perfiles.map(p => {
               const activo = perfilSel === p.email;
@@ -367,7 +400,7 @@ export default function AdjudicadasPage() {
           </div>
         )}
 
-        {cargando ? (
+        {cargandoTodo ? (
           <div className="flex items-center gap-2 text-slate-500 text-sm py-20 justify-center"><Loader2 size={16} className="animate-spin" /> Cargando…</div>
         ) : error ? (
           <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm">{error}</div>

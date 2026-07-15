@@ -29,9 +29,12 @@ export async function GET(request: NextRequest) {
   try {
     // Alcance por rol: admin ve todas; el resto solo las suyas (igual que /api/negocios).
     const verOtros = await tienePermiso(request, 'ver_otros_negocios').catch(() => false);
+    // Universo = TODO lo que pasó por postulación (no solo las que siguen en POSTULADA): así
+    // Postuladas y /adjudicadas comparten la MISMA fuente instantánea y sus conteos cuadran.
+    const ESTADOS = `n.estado_pipeline IN ('POSTULADA','POSIBLE_ADJ','ADJUDICADA','PERDIDA')`;
     const where = verOtros
-      ? `n.activo = TRUE AND n.estado_pipeline = 'POSTULADA'`
-      : `n.activo = TRUE AND n.estado_pipeline = 'POSTULADA' AND n.asignado_a = ?`;
+      ? `n.activo = TRUE AND ${ESTADOS}`
+      : `n.activo = TRUE AND ${ESTADOS} AND n.asignado_a = ?`;
     const [rows] = await pool.query(
       `SELECT DISTINCT n.licitacion_codigo AS codigo FROM negocios n WHERE ${where}`,
       verOtros ? [] : [userId],

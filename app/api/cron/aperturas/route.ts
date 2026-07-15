@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { detectarAperturas, contarPendientesApertura } from '@/app/lib/detectar-aperturas';
+import { publicarCambio } from '@/app/lib/sse-bus';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,10 @@ export async function POST(req: NextRequest) {
   try {
     const r = await detectarAperturas(lote);
     const pendientes = await contarPendientesApertura();
-    if (r.aperturas > 0) console.log(`[cron/aperturas] ${r.aperturas} aperturas nuevas detectadas`);
+    if (r.aperturas > 0) {
+      console.log(`[cron/aperturas] ${r.aperturas} aperturas nuevas detectadas`);
+      publicarCambio('apertura'); // los tableros repintan el chip/SLA de apertura al instante
+    }
     return NextResponse.json({ success: true, ...r, pendientes, completado: pendientes === 0, duracionMs: Date.now() - t0 });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });

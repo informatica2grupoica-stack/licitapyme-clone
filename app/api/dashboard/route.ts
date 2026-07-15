@@ -15,10 +15,15 @@ function getUserFromHeaders(request: NextRequest) {
   return { id: n, email: request.headers.get('x-user-email') || '', rol: request.headers.get('x-user-rol') || 'usuario' };
 }
 
-// Helper: query que no rompe el dashboard si una tabla/columna falta.
+// Helper: query que no rompe el dashboard si una tabla/columna falta. Loguea siempre: un
+// catch mudo aquí devuelve un 0 indistinguible de "no hay nada", y así fue como un choque de
+// collations dejó KPIs mintiendo sin que nadie lo notara.
 async function q<T = any>(sql: string, params: any[] = []): Promise<T[]> {
   try { const [rows] = await pool.query(sql, params); return rows as T[]; }
-  catch { return []; }
+  catch (e) {
+    console.error('[dashboard] query falló → se degrada:', String(e).slice(0, 200));
+    return [];
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -47,34 +52,42 @@ export async function GET(request: NextRequest) {
         `SELECT id, email, nombre, empresa, rol, ultimo_login, created_at
          FROM usuarios ORDER BY COALESCE(ultimo_login, created_at) DESC LIMIT 6`);
 
-      // "Licitaciones en radar" = SOLO las activas (Publicada), tipo LE/LP/LR/LS y que
-      // NO estén ya asignadas a un perfil (las que faltan por trabajar). El tipo sale del
-      // sufijo del código (…-LE26, …-LP26…). Excluye compra ágil (CO), L1, adjudicadas, etc.
-      const [tLic] = await q(
-        `SELECT COUNT(DISTINCT al.licitacion_codigo) AS n
-         FROM alertas_licitaciones al
-         WHERE al.licitacion_estado = 'Publicada'
+      // UNIVERSO DEL RADAR: activas (Publicada), tipo LE/LP/LR/LS y NO asignadas todavía a un
+      // perfil (las que faltan por trabajar). El tipo sale del sufijo del código (…-LE26,
+      // …-LP26…). Excluye compra ágil (CO), L1, adjudicadas, etc.
+      //
+      // Este mismo fragmento lo usan la tarjeta del radar, la viabilidad Y el prefiltro, a
+      // propósito: antes cada uno medía un universo distinto (viabilidad y prefiltro contaban
+      // TODAS las Publicadas, incluidas las ya asignadas y los tipos que el radar ni muestra),
+      // así que "281 con viabilidad" colgaba de "1.631 en radar" sin ser un subconjunto suyo
+      // — dentro del radar real eran 175. Los números eran ciertos pero no comparables.
+      const UNIVERSO_RADAR = `al.licitacion_estado = 'Publicada'
            AND al.licitacion_codigo REGEXP '-(LE|LP|LR|LS)[0-9]+$'
            AND NOT EXISTS (
              SELECT 1 FROM negocios n
-             WHERE n.licitacion_codigo = al.licitacion_codigo AND n.activo = TRUE)`);
-      // Viabilidad y prefiltro reflejan el estado REAL: solo licitaciones que siguen
-      // activas (Publicada) en el radar, no el acumulado histórico de la tabla.
+             WHERE n.licitacion_codigo = al.licitacion_codigo AND n.activo = TRUE)`;
+
+      const [tLic] = await q(
+        `SELECT COUNT(DISTINCT al.licitacion_codigo) AS n
+         FROM alertas_licitaciones al
+         WHERE ${UNIVERSO_RADAR}`);
       const [tViab] = await q(
-        `SELECT COUNT(DISTINCT v.licitacion_codigo) AS n FROM viabilidad_licitacion v
-         WHERE EXISTS (SELECT 1 FROM alertas_licitaciones al
-           WHERE al.licitacion_codigo = v.licitacion_codigo AND al.licitacion_estado = 'Publicada')`);
+        `SELECT COUNT(DISTINCT al.licitacion_codigo) AS n
+         FROM alertas_licitaciones al
+         WHERE ${UNIVERSO_RADAR}
+           AND EXISTS (SELECT 1 FROM viabilidad_licitacion v
+             WHERE v.licitacion_codigo = al.licitacion_codigo)`);
       const viabilidad = await q(
-        `SELECT v.semaforo, COUNT(DISTINCT v.licitacion_codigo) AS n FROM viabilidad_licitacion v
-         WHERE v.semaforo IS NOT NULL
-           AND EXISTS (SELECT 1 FROM alertas_licitaciones al
-             WHERE al.licitacion_codigo = v.licitacion_codigo AND al.licitacion_estado = 'Publicada')
+        `SELECT v.semaforo, COUNT(DISTINCT al.licitacion_codigo) AS n
+         FROM alertas_licitaciones al
+         JOIN viabilidad_licitacion v ON v.licitacion_codigo = al.licitacion_codigo
+         WHERE ${UNIVERSO_RADAR} AND v.semaforo IS NOT NULL
          GROUP BY v.semaforo`);
       const prefiltro  = await q(
-        `SELECT p.decision, COUNT(DISTINCT p.licitacion_codigo) AS n FROM prefiltro_licitacion p
-         WHERE p.decision IS NOT NULL
-           AND EXISTS (SELECT 1 FROM alertas_licitaciones al
-             WHERE al.licitacion_codigo = p.licitacion_codigo AND al.licitacion_estado = 'Publicada')
+        `SELECT p.decision, COUNT(DISTINCT al.licitacion_codigo) AS n
+         FROM alertas_licitaciones al
+         JOIN prefiltro_licitacion p ON p.licitacion_codigo = al.licitacion_codigo
+         WHERE ${UNIVERSO_RADAR} AND p.decision IS NOT NULL
          GROUP BY p.decision`);
       // Pipeline = negocios EN TRABAJO (excluye las DESCARTADA: ya no se trabajan).
       const pipeline   = await q(`SELECT COALESCE(estado_pipeline,'ASIGNADO') AS etapa, COUNT(*) AS n

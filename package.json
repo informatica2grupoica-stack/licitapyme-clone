@@ -33,6 +33,7 @@
     "date-fns": "^4.2.1",
     "dayjs": "^1.11.21",
     "exceljs": "^4.4.0",
+    "framer-motion": "^12.42.2",
     "jose": "^6.2.3",
     "lucide-react": "^1.16.0",
     "mammoth": "^1.12.0",

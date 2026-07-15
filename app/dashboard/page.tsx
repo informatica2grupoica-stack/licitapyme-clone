@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { useRealtime } from '@/app/lib/use-realtime';
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
@@ -15,6 +16,7 @@ import {
 } from 'lucide-react';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
+import { AnaliticaGestion } from '@/app/components/AnaliticaGestion';
 
 interface DashData {
   success: boolean; rol: string;
@@ -115,29 +117,16 @@ export default function DashboardPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let vivo = true;
-    const cargar = () => fetch('/api/dashboard', { cache: 'no-store' }).then(r => r.json())
-      .then(d => { if (!vivo) return; if (d.success) setData(d); else setError(d.error); })
-      .catch(() => { if (vivo) setError('Error al cargar el dashboard'); })
-      .finally(() => { if (vivo) setCargando(false); });
-    cargar();
-    // Tiempo real: SSE empuja los eventos (asignación, descarte, cambio de etapa…) y
-    // recargamos al instante (con debounce corto para ráfagas). El intervalo de 30s y el
-    // refresco al volver a la pestaña quedan como respaldo si el stream se cae.
-    let debounce: ReturnType<typeof setTimeout> | null = null;
-    const recargar = () => { if (debounce) clearTimeout(debounce); debounce = setTimeout(cargar, 500); };
-    const es = new EventSource('/api/historial/stream');
-    es.addEventListener('notificacion', recargar);
-    const onVisible = () => { if (document.visibilityState === 'visible') cargar(); };
-    document.addEventListener('visibilitychange', onVisible);
-    const id = setInterval(() => { if (document.visibilityState === 'visible') cargar(); }, 30_000);
-    return () => {
-      vivo = false; clearInterval(id); es.close();
-      if (debounce) clearTimeout(debounce);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
+  // Tiempo real: el hook escucha el SSE (evento `cambio` de cualquier usuario + campana
+  // propia) y recarga; el intervalo y el refresco al volver a la pestaña son el respaldo.
+  const cargar = useCallback(() => {
+    fetch('/api/dashboard', { cache: 'no-store' }).then(r => r.json())
+      .then(d => { if (d.success) { setData(d); setError(null); } else setError(d.error); })
+      .catch(() => setError('Error al cargar el dashboard'))
+      .finally(() => setCargando(false));
   }, []);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(cargar, { intervaloMs: 30_000 });
 
   const hora = new Date().getHours();
   const saludo = hora < 12 ? 'Buenos días' : hora < 18 ? 'Buenas tardes' : 'Buenas noches';
@@ -201,8 +190,17 @@ function VistaAdmin({ data }: { data: DashData }) {
         <StatCard icon={<Building2 size={22} />} label="Licitaciones en radar" value={a.radar.totalLicitaciones.toLocaleString('es-CL')} sub={`${a.radar.conViabilidad} con viabilidad`} color="indigo" href="/radar" />
         <StatCard icon={<Layers3 size={22} />} label="Negocios" value={a.pipeline.reduce((s, p) => s + p.n, 0)} sub={`${fmtMonto(a.montoPipeline)} · sin descartadas`} color="violet" href="/negocios" />
         <StatCard icon={<Users size={22} />} label="Usuarios activos" value={a.usuarios.activos} sub={`${a.usuarios.total} en total · +${a.usuarios.nuevosSemana} esta semana`} color="teal" href="/admin/usuarios" />
-        <StatCard icon={<ListChecks size={22} />} label="Pasan el prefiltro" value={(a.prefiltro.find(p => p.decision === 'PASA')?.n || 0).toLocaleString('es-CL')} sub={`${a.prefiltro.find(p => p.decision === 'EXCLUIDO')?.n || 0} excluidas`} color="cyan" />
+        {/* El subtítulo nombra los TRES destinos del prefiltro. Antes solo decía PASA y
+            EXCLUIDO, y las que quedan en revisión humana (un centenar) no aparecían por
+            ningún lado: la tarjeta daba a entender que el prefiltro ya decidió todo. */}
+        <StatCard icon={<ListChecks size={22} />} label="Pasan el prefiltro"
+          value={(a.prefiltro.find(p => p.decision === 'PASA')?.n || 0).toLocaleString('es-CL')}
+          sub={`${(a.prefiltro.find(p => p.decision === 'EXCLUIDO')?.n || 0).toLocaleString('es-CL')} excluidas · ${a.prefiltro.find(p => p.decision === 'REVISION_HUMANA')?.n || 0} por revisar`}
+          color="cyan" />
       </div>
+
+      {/* Analítica de gestión INTERACTIVA (pipeline · descartes · postuladas) */}
+      <AnaliticaGestion />
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

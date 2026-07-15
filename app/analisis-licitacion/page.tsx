@@ -3,15 +3,29 @@
 // Análisis de licitación (SOLO ADMIN): tablero ANALÍTICO por perfil.
 // Se elige UN perfil (o "Todos") y se muestran SUS estadísticas: KPIs, gráficos
 // interactivos (dona por estado, barras por tipo, evolución mensual, top organismos,
-// tasa de adjudicación) y, aparte, la LISTA de sus licitaciones. Se nutre de
-// /api/negocios (admin = todos los negocios).
+// tasa de adjudicación) y, aparte, la LISTA de sus licitaciones.
+//
+// FUENTES (las dos reales, ninguna inventada):
+//   · /api/negocios         → los negocios (admin = todos).
+//   · /api/postuladas/estado→ el RESULTADO de adjudicación desde el acta de MP (cache de BD
+//                             que refresca el cron cada 2h). Es la MISMA fuente de Postuladas,
+//                             /adjudicadas y el dashboard, así que los números cuadran entre sí.
+//     Antes se contaban las adjudicadas por `estado_pipeline`, que solo cambia si alguien la
+//     mueve a mano → este tablero decía otra cosa que el resto del sistema.
+//
+// SELECTIVO: las tortas y las barras de tipo son filtros. Al tocar un segmento, TODO lo demás
+// (KPIs, montos, cierres por mes, organismos y la lista) se remide sobre esa selección; el
+// gráfico selector sigue mostrando el universo completo para no perder el contexto.
+//
+// TIEMPO REAL: useRealtime recarga en cuanto alguien postula/descarta/cambia etapa o el cron
+// trae adjudicaciones nuevas desde MP.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Activity, Loader2, RefreshCw, Building2, Calendar, DollarSign, Send, Clock,
-  Layers, Users, Trophy, Ban, Briefcase, TrendingUp, Target, ChevronRight, ExternalLink,
+  Layers, Users, Trophy, Ban, Briefcase, TrendingUp, Target, ChevronRight, ExternalLink, X, Filter,
 } from 'lucide-react';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip as RTooltip, BarChart, Bar,
@@ -19,6 +33,8 @@ import {
 } from 'recharts';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { useRealtime } from '@/app/lib/use-realtime';
+import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licitacion';
@@ -41,7 +57,17 @@ interface Negocio {
   comentarios_count?: number | null;
 }
 
+// Estado de adjudicación tal como lo devuelve /api/postuladas/estado (solo lo que se usa aquí).
+interface EstadoAdj {
+  esAdjudicada: boolean;
+  ganamos: boolean;
+  montoNuestro: number | null;
+  montoAdjudicadoTotal: number | null;
+}
+
 const RESUELTOS = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA']);
+// Universo que pasó por postulación: solo de aquí puede salir un resultado ganada/perdida.
+const UNIVERSO_POSTULADA = new Set(['POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA']);
 const MESES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 
 const fmtMonto = (n: number | null) =>
@@ -65,6 +91,9 @@ const diasHasta = (s: string | null): number | null => {
 };
 const labelDe = (estado: string) => getEstadoPipeline(estado)?.label || estado || 'ASIGNADO';
 const idDe = (estado: string) => getEstadoPipeline(estado)?.id || estado || 'ASIGNADO';
+// Clave del perfil responsable. Una sola definición: antes el selector agrupaba con fallback
+// 'sin' pero el filtro comparaba sin él, así que "Sin asignar" nunca filtraba nada.
+const claveDe = (n: Negocio) => n.usuario_email || n.usuario_nombre || 'sin';
 
 // ── Tooltip común de los gráficos ─────────────────────────────────────────────
 function ChartTooltip({ active, payload, label, sufijo }: any) {
@@ -88,8 +117,15 @@ export default function AnalisisLicitacionPage() {
   const [negocios, setNegocios] = useState<Negocio[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [perfil, setPerfil] = useState<string | null>(null);   // email/nombre del perfil o null=Todos
-  const [estadoLista, setEstadoLista] = useState<string | null>(null); // filtro de la lista
+  const [adjMap, setAdjMap] = useState<Record<string, EstadoAdj | null>>({});
+  // TODOS los filtros son de selección múltiple y se combinan entre sí (AND entre filtros,
+  // OR dentro de cada uno). Vacío = sin filtrar por esa dimensión.
+  //   · perfiles → define el UNIVERSO que miden los gráficos-selector.
+  //   · estados/tipos/organismos → recortan lo que se mide dentro de ese universo.
+  const [perfilesSel, setPerfilesSel] = useState<string[]>([]);
+  const [estadosSel, setEstadosSel] = useState<string[]>([]);
+  const [tiposSel, setTiposSel] = useState<string[]>([]);
+  const [organismosSel, setOrganismosSel] = useState<string[]>([]);
 
   const esAdmin = usuario?.rol === 'admin';
 
@@ -97,77 +133,87 @@ export default function AnalisisLicitacionPage() {
     if (!cargandoSesion && usuario && !esAdmin) router.replace('/negocios');
   }, [cargandoSesion, usuario, esAdmin, router]);
 
-  const cargar = async () => {
-    setCargando(true); setError(null);
+  // Carga en una pasada: negocios + resultado real de adjudicación. `silencioso` evita el
+  // spinner cuando la recarga viene del tiempo real (no parpadea ni pierde la selección).
+  const cargar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setCargando(true);
     try {
-      const res = await fetch('/api/negocios');
+      const res = await fetch('/api/negocios', { cache: 'no-store' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al cargar');
       setNegocios(data.negocios || []);
+      setError(null);
+      // Resultado real (acta de MP) para las que pasaron por postulación.
+      try {
+        const r = await fetch('/api/postuladas/estado', { cache: 'no-store' });
+        const d = await r.json();
+        if (d?.estados) setAdjMap(d.estados);
+      } catch { /* sin cruce → se cae al estado_pipeline, que es lo que había antes */ }
     } catch (e: any) { setError(e.message); }
     finally { setCargando(false); }
-  };
-  useEffect(() => { if (esAdmin) cargar(); }, [esAdmin]);
+  }, []);
+  useEffect(() => { if (esAdmin) cargar(); }, [esAdmin, cargar]);
+  useRealtime(useCallback(() => { if (esAdmin) cargar(true); }, [esAdmin, cargar]));
 
   // Perfiles disponibles (para el selector).
   const perfiles = useMemo(() => {
     const m = new Map<string, { key: string; nombre: string; email: string | null; total: number }>();
     for (const n of negocios) {
-      const key = n.usuario_email || n.usuario_nombre || 'sin';
+      const key = claveDe(n);
       const e = m.get(key) || { key, nombre: n.usuario_nombre || n.usuario_email || 'Sin asignar', email: n.usuario_email, total: 0 };
       e.total++; m.set(key, e);
     }
     return [...m.values()].sort((a, b) => b.total - a.total);
   }, [negocios]);
 
-  // Conjunto visible según el perfil elegido.
-  const visibles = useMemo(
-    () => negocios.filter(n => perfil == null || (n.usuario_email || n.usuario_nombre) === perfil),
-    [negocios, perfil]);
+  // Universo de los perfiles elegidos. Es la base de los gráficos-SELECTOR (dona por estado y
+  // barras por tipo): siguen mostrando el total aunque haya una selección activa.
+  const base = useMemo(
+    () => negocios.filter(n => perfilesSel.length === 0 || perfilesSel.includes(claveDe(n))),
+    [negocios, perfilesSel]);
 
-  // ── Métricas ────────────────────────────────────────────────────────────────
-  const stats = useMemo(() => {
-    let vigentes = 0, postuladas = 0, adjudicadas = 0, descartadas = 0, perdidas = 0,
-      enProceso = 0, asignadas = 0, cierran7 = 0, montoOfertado = 0, montoAdjudicado = 0;
+  const tipoDe = (n: Negocio) => extractTipoFromCodigo(n.licitacion_codigo || '') || '—';
+
+  // Organismos del universo, para el selector (con su conteo).
+  const organismos = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of base) if (n.licitacion_organismo) m.set(n.licitacion_organismo, (m.get(n.licitacion_organismo) || 0) + 1);
+    return [...m.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count);
+  }, [base]);
+
+  // Resultado REAL de una postulada, con el acta de MP por delante del estado interno:
+  // el cache dice si MP adjudicó y si ganó una de nuestras empresas (match por RUT). El
+  // estado_pipeline solo se usa de respaldo (si el cruce aún no cargó o la tabla no tiene
+  // esa licitación), que es como se contaba antes.
+  const resultadoDe = useCallback((n: Negocio): 'ganada' | 'perdida' | 'evaluacion' | null => {
+    const id = idDe(n.estado_pipeline);
+    if (!UNIVERSO_POSTULADA.has(id)) return null;
+    const a = adjMap[n.licitacion_codigo];
+    if (a?.esAdjudicada) return a.ganamos ? 'ganada' : 'perdida';
+    if (id === 'ADJUDICADA') return 'ganada';
+    if (id === 'PERDIDA') return 'perdida';
+    return 'evaluacion';   // postulada, MP todavía no resuelve
+  }, [adjMap]);
+
+  // Conjunto MEDIDO = universo ∩ todos los filtros activos. Todo lo de abajo (KPIs, montos,
+  // cierres por mes, organismos y la lista) se calcula sobre esto.
+  const seleccion = useMemo(() => base.filter(n =>
+    (estadosSel.length === 0 || estadosSel.includes(idDe(n.estado_pipeline))) &&
+    (tiposSel.length === 0 || tiposSel.includes(tipoDe(n))) &&
+    (organismosSel.length === 0 || (n.licitacion_organismo != null && organismosSel.includes(n.licitacion_organismo))),
+  ), [base, estadosSel, tiposSel, organismosSel]);
+
+  // ── Gráficos-selector: se calculan sobre el universo, NO sobre la selección ──
+  const selectores = useMemo(() => {
     const porEstadoMap = new Map<string, number>();
     const porTipoMap = new Map<string, number>();
-    const porMesMap = new Map<string, number>();
-    const porOrgMap = new Map<string, number>();
-
-    for (const n of visibles) {
+    for (const n of base) {
       const id = idDe(n.estado_pipeline);
       porEstadoMap.set(id, (porEstadoMap.get(id) || 0) + 1);
-
-      if (id === 'ASIGNADO') asignadas++;
-      if (id === 'EN_PROCESO' || id === 'ANEXOS' || id === 'ANEXO_LISTO' || id === 'VISADO') enProceso++;
-      if (id === 'POSTULADA') postuladas++;
-      if (id === 'ADJUDICADA') { adjudicadas++; montoAdjudicado += n.monto_ofertado || n.licitacion_monto || 0; }
-      if (id === 'DESCARTADA') descartadas++;
-      if (id === 'PERDIDA') perdidas++;
-
-      const resuelta = RESUELTOS.has(id);
-      if (!resuelta && !cierreVencido(n.licitacion_cierre)) vigentes++;
-
-      const d = diasHasta(n.licitacion_cierre);
-      if (d != null && d >= 0 && d <= 7 && !resuelta) cierran7++;
-
-      montoOfertado += n.monto_ofertado || n.licitacion_monto || 0;
-
-      const tipo = extractTipoFromCodigo(n.licitacion_codigo || '') || '—';
-      porTipoMap.set(tipo, (porTipoMap.get(tipo) || 0) + 1);
-
-      if (n.licitacion_cierre) {
-        const dt = new Date(n.licitacion_cierre);
-        if (!isNaN(dt.getTime())) {
-          const k = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
-          porMesMap.set(k, (porMesMap.get(k) || 0) + 1);
-        }
-      }
-      if (n.licitacion_organismo) porOrgMap.set(n.licitacion_organismo, (porOrgMap.get(n.licitacion_organismo) || 0) + 1);
+      const t = tipoDe(n);
+      porTipoMap.set(t, (porTipoMap.get(t) || 0) + 1);
     }
-
-    const total = visibles.length;
-    // Dona por estado, en orden del pipeline.
+    const total = base.length;
     const porEstado = ESTADOS_PIPELINE
       .filter(e => (porEstadoMap.get(e.id) || 0) > 0)
       .map(e => ({ id: e.id, name: e.label, value: porEstadoMap.get(e.id)!, color: e.color, pct: total ? Math.round((porEstadoMap.get(e.id)! / total) * 100) : 0 }));
@@ -186,6 +232,55 @@ export default function AnalisisLicitacionPage() {
       .map(([tipo, value]) => ({ tipo, name: tipo, value, color: getTipoLicitacion(tipo)?.color || '#94a3b8' }))
       .sort((a, b) => b.value - a.value);
 
+    return { porEstado, porEstadoTrabajo, totalTrabajo, porTipo, totalBase: total };
+  }, [base]);
+
+  // ── Métricas de la selección ────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    let vigentes = 0, postuladas = 0, adjudicadas = 0, descartadas = 0, perdidas = 0,
+      enEvaluacion = 0, cierran7 = 0, montoOfertado = 0, montoAdjudicado = 0;
+    const porMesMap = new Map<string, number>();
+    const porOrgMap = new Map<string, number>();
+
+    for (const n of seleccion) {
+      const id = idDe(n.estado_pipeline);
+
+      if (id === 'DESCARTADA') descartadas++;
+
+      // Ganadas/perdidas por el acta de MP, no por la etapa interna.
+      const res = resultadoDe(n);
+      // "Postuladas" = OFERTAS PRESENTADAS = todo lo que pasó por postulación, igual que el
+      // apartado /postuladas (64). Contar solo estado === 'POSTULADA' daba 57: al promover una
+      // a ADJUDICADA/PERDIDA desaparecía del conteo, como si nunca se hubiera ofertado.
+      // Se cumple: postuladas = adjudicadas + perdidas + enEvaluacion.
+      if (res != null) postuladas++;
+      if (res === 'ganada') {
+        adjudicadas++;
+        const a = adjMap[n.licitacion_codigo];
+        // Monto NETO: lo que MP nos adjudicó según el acta; si no está, lo ofertado.
+        montoAdjudicado += a?.montoNuestro || n.monto_ofertado || n.licitacion_monto || 0;
+      }
+      if (res === 'perdida') perdidas++;
+      if (res === 'evaluacion') enEvaluacion++;
+
+      const resuelta = RESUELTOS.has(id);
+      if (!resuelta && !cierreVencido(n.licitacion_cierre)) vigentes++;
+
+      const d = diasHasta(n.licitacion_cierre);
+      if (d != null && d >= 0 && d <= 7 && !resuelta) cierran7++;
+
+      montoOfertado += n.monto_ofertado || n.licitacion_monto || 0;
+
+      if (n.licitacion_cierre) {
+        const dt = new Date(n.licitacion_cierre);
+        if (!isNaN(dt.getTime())) {
+          const k = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+          porMesMap.set(k, (porMesMap.get(k) || 0) + 1);
+        }
+      }
+      if (n.licitacion_organismo) porOrgMap.set(n.licitacion_organismo, (porOrgMap.get(n.licitacion_organismo) || 0) + 1);
+    }
+
     const porMes = [...porMesMap.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
       .slice(-8)
@@ -195,34 +290,47 @@ export default function AnalisisLicitacionPage() {
       .map(([name, value]) => ({ name: name.length > 26 ? name.slice(0, 26) + '…' : name, value }))
       .sort((a, b) => b.value - a.value).slice(0, 6);
 
-    const tasaAdj = postuladas + adjudicadas > 0 ? Math.round((adjudicadas / (postuladas + adjudicadas)) * 100) : 0;
+    // Tasa = ganadas sobre lo RESUELTO por MP (ganadas + perdidas). Las que siguen en
+    // evaluación no entran: no se sabe todavía. Es el mismo cálculo del dashboard
+    // ("Éxito competitivo"), así que ambos tableros dan el mismo número.
+    const resueltas = adjudicadas + perdidas;
+    const tasaAdj = resueltas > 0 ? Math.round((adjudicadas / resueltas) * 100) : 0;
 
     return {
-      total, vigentes, asignadas, enProceso, postuladas, adjudicadas, descartadas, perdidas,
-      cierran7, montoOfertado, montoAdjudicado, tasaAdj,
-      porEstado, porEstadoTrabajo, totalTrabajo, porTipo, porMes, topOrg,
+      total: seleccion.length, vigentes, postuladas, adjudicadas, descartadas, perdidas,
+      enEvaluacion, resueltas, cierran7, montoOfertado, montoAdjudicado, tasaAdj, porMes, topOrg,
     };
-  }, [visibles]);
+  }, [seleccion, resultadoDe, adjMap]);
 
-  // Lista (respeta el filtro por estado que se elija abajo).
-  const lista = useMemo(() => {
-    const arr = estadoLista ? visibles.filter(n => idDe(n.estado_pipeline) === estadoLista) : visibles;
-    return [...arr].sort((a, b) => {
-      const da = a.licitacion_cierre ? new Date(a.licitacion_cierre).getTime() : Infinity;
-      const db = b.licitacion_cierre ? new Date(b.licitacion_cierre).getTime() : Infinity;
-      return da - db;
-    });
-  }, [visibles, estadoLista]);
+  // Lista: el mismo conjunto medido, por cierre más próximo.
+  const lista = useMemo(() => [...seleccion].sort((a, b) => {
+    const da = a.licitacion_cierre ? new Date(a.licitacion_cierre).getTime() : Infinity;
+    const db = b.licitacion_cierre ? new Date(b.licitacion_cierre).getTime() : Infinity;
+    return da - db;
+  }), [seleccion]);
+
+  // Los gráficos son otra forma de operar los MISMOS filtros del selector de arriba: clic en un
+  // segmento lo suma a la selección, clic de nuevo lo quita. Los dos controles se reflejan.
+  const limpiarSeleccion = () => { setEstadosSel([]); setTiposSel([]); setOrganismosSel([]); };
+  const toggleEstado = (id: string) => setEstadosSel(a => (a.includes(id) ? a.filter(x => x !== id) : [...a, id]));
+  const toggleTipo = (t: string) => setTiposSel(a => (a.includes(t) ? a.filter(x => x !== t) : [...a, t]));
+  const haySeleccion = estadosSel.length > 0 || tiposSel.length > 0 || organismosSel.length > 0;
 
   if (!cargandoSesion && usuario && !esAdmin) {
     return <AppLayout breadcrumb={[{ label: 'Análisis de licitación' }]}><div className="p-10 text-center text-sm text-slate-500">Redirigiendo…</div></AppLayout>;
   }
 
-  const perfilNombre = perfil == null ? 'Todos los perfiles' : (perfiles.find(p => p.key === perfil)?.nombre || perfil);
+  const perfilNombre = perfilesSel.length === 0
+    ? 'Todos los perfiles'
+    : perfilesSel.length === 1
+      ? (perfiles.find(p => p.key === perfilesSel[0])?.nombre || perfilesSel[0])
+      : `${perfilesSel.length} perfiles`;
 
   return (
     <AppLayout breadcrumb={[{ label: 'Análisis de licitación' }]}>
-      <div className="max-w-full space-y-5 pb-8">
+      {/* <main> no trae padding: cada página pone el suyo. Esta no lo hacía y el contenido
+          quedaba pegado al sidebar. Mismo espaciado que Postuladas/Adjudicadas. */}
+      <div className="p-4 sm:p-6 lg:p-8 space-y-5">
         {/* Encabezado */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -234,7 +342,7 @@ export default function AnalisisLicitacionPage() {
               <p className="text-xs text-slate-500">Estadísticas y gráficos por perfil</p>
             </div>
           </div>
-          <button onClick={cargar} disabled={cargando}
+          <button onClick={() => cargar()} disabled={cargando}
             className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
             <RefreshCw size={15} className={cargando ? 'animate-spin' : ''} />
           </button>
@@ -255,53 +363,79 @@ export default function AnalisisLicitacionPage() {
           </div>
         ) : (
           <>
-            {/* Selector de perfil */}
+            {/* Barra de filtros: TODOS de selección múltiple y combinables entre sí. */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
               <div className="flex items-center gap-2 mb-2.5">
-                <Users size={13} className="text-slate-400" />
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Selecciona un perfil</span>
+                <Filter size={13} className="text-slate-400" />
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filtros</span>
+                <span className="text-[11px] text-slate-400">— combínalos: la medición se recalcula al instante</span>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button onClick={() => { setPerfil(null); setEstadoLista(null); }}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold border transition-colors ${
-                    perfil === null ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                  }`}>
-                  <Layers size={13} /> Todos <span className="opacity-70">({negocios.length})</span>
-                </button>
-                {perfiles.map(p => {
-                  const activo = perfil === p.key;
-                  const col = colorUsuario(p.email || p.key);
-                  return (
-                    <button key={p.key} onClick={() => { setPerfil(activo ? null : p.key); setEstadoLista(null); }}
-                      style={activo ? { backgroundColor: col, borderColor: col } : { borderColor: col + '55' }}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12.5px] font-semibold border transition-colors ${
-                        activo ? 'text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
-                      }`}>
-                      <span style={{ background: activo ? 'rgba(255,255,255,.3)' : col }}
-                        className="inline-flex items-center justify-center w-5 h-5 rounded-full text-white text-[9px] font-bold">
-                        {inicialesUsuario(p.nombre, p.email)}
-                      </span>
-                      {p.nombre} <span className="opacity-70">({p.total})</span>
-                    </button>
-                  );
-                })}
+              <div className="flex flex-wrap items-center gap-2">
+                <MultiSelect label="Perfil" icon={<Users size={13} />} selected={perfilesSel}
+                  onChange={next => { setPerfilesSel(next); limpiarSeleccion(); }}
+                  options={perfiles.map(p => ({ value: p.key, label: p.nombre, color: colorUsuario(p.email || p.key), count: p.total }))} />
+                <MultiSelect label="Estado" icon={<Layers size={13} />} selected={estadosSel} onChange={setEstadosSel}
+                  options={selectores.porEstado.map(e => ({ value: e.id, label: e.name, color: e.color, count: e.value }))} />
+                <MultiSelect label="Tipo" icon={<Layers size={13} />} selected={tiposSel} onChange={setTiposSel} minWidth={170}
+                  options={selectores.porTipo.map(t => ({ value: t.tipo, label: t.name, color: t.color, count: t.value }))} />
+                <MultiSelect label="Organismo" icon={<Building2 size={13} />} selected={organismosSel} onChange={setOrganismosSel} minWidth={320}
+                  options={organismos.map(o => ({ value: o.value, label: o.value, count: o.count }))} />
+                {(haySeleccion || perfilesSel.length > 0) && (
+                  <button onClick={() => { setPerfilesSel([]); limpiarSeleccion(); }}
+                    className="inline-flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-red-600 px-2 py-2">
+                    <X size={13} /> Limpiar todo
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* Título del scope */}
-            <div className="flex items-center gap-2 text-[13px] text-slate-500">
+            {/* Título del scope + chips de lo que se está midiendo ahora mismo */}
+            <div className="flex items-center gap-2 text-[13px] text-slate-500 flex-wrap">
               <span className="font-bold text-slate-800">{perfilNombre}</span>
               <span>·</span>
-              <span>{stats.total} licitación{stats.total !== 1 ? 'es' : ''} en total</span>
+              <span>
+                {stats.total} licitación{stats.total !== 1 ? 'es' : ''}
+                {haySeleccion ? ` de ${selectores.totalBase}` : ' en total'}
+              </span>
+              {estadosSel.map(id => {
+                const col = getEstadoPipeline(id)?.color || '#64748b';
+                return (
+                  <button key={id} onClick={() => toggleEstado(id)}
+                    style={{ background: col + '18', color: col, borderColor: col + '40' }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75">
+                    {labelDe(id)} <X size={11} />
+                  </button>
+                );
+              })}
+              {tiposSel.map(t => {
+                const col = getTipoLicitacion(t)?.color || '#64748b';
+                return (
+                  <button key={t} onClick={() => toggleTipo(t)}
+                    style={{ background: col + '18', color: col, borderColor: col + '40' }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75">
+                    Tipo {t} <X size={11} />
+                  </button>
+                );
+              })}
+              {organismosSel.map(o => (
+                <button key={o} onClick={() => setOrganismosSel(a => a.filter(x => x !== o))}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75 max-w-[220px]">
+                  <span className="truncate">{o}</span> <X size={11} className="flex-shrink-0" />
+                </button>
+              ))}
+              {haySeleccion
+                ? <button onClick={limpiarSeleccion} className="text-[11px] font-semibold text-slate-400 hover:text-slate-700 underline">quitar filtros</button>
+                : <span className="text-[11px] text-slate-400">— toca un segmento de las tortas o una barra de tipo para medir solo ese tramo</span>}
             </div>
 
             {/* KPIs */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               <KPI icon={<Briefcase size={16} />} label="Vigentes" value={String(stats.vigentes)} tint="#4f46e5" sub="en trabajo" />
-              <KPI icon={<Send size={16} />} label="Postuladas" value={String(stats.postuladas)} tint="#b45309" />
-              <KPI icon={<Trophy size={16} />} label="Adjudicadas" value={String(stats.adjudicadas)} tint="#16a34a" />
+              <KPI icon={<Send size={16} />} label="Postuladas" value={String(stats.postuladas)} tint="#b45309" sub="ofertas presentadas" />
+              <KPI icon={<Trophy size={16} />} label="Adjudicadas" value={String(stats.adjudicadas)} tint="#16a34a" sub="ganadas según acta" />
               <KPI icon={<Ban size={16} />} label="Descartadas" value={String(stats.descartadas)} tint="#dc2626" />
-              <KPI icon={<Target size={16} />} label="Tasa adjudicación" value={`${stats.tasaAdj}%`} tint="#7c3aed" sub="adj / postuladas" />
+              <KPI icon={<Target size={16} />} label="Tasa adjudicación" value={`${stats.tasaAdj}%`} tint="#7c3aed"
+                sub={stats.resueltas ? `${stats.adjudicadas} de ${stats.resueltas} resueltas` : 'sin resueltas aún'} />
               <KPI icon={<Clock size={16} />} label="Cierran ≤ 7 días" value={String(stats.cierran7)} tint={stats.cierran7 > 0 ? '#dc2626' : '#64748b'} />
             </div>
 
@@ -313,24 +447,31 @@ export default function AnalisisLicitacionPage() {
               </div>
               <div className="bg-gradient-to-br from-emerald-50 to-white rounded-xl border border-emerald-100 p-4 flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0"><Trophy size={20} /></div>
-                <div><p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">Monto adjudicado</p><p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoAdjudicado)}</p></div>
+                <div>
+                  <p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">Monto adjudicado</p>
+                  <p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoAdjudicado)}</p>
+                  <p className="text-[10px] text-slate-400">neto según el acta de Mercado Público</p>
+                </div>
               </div>
             </div>
 
             {/* Gráficos */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Dona por estado — TODAS (dato completo) */}
+              {/* Dona por estado — TODAS (dato completo). Selectiva: toca un segmento y todo
+                  el tablero se remide sobre ese estado. */}
               <ChartCard title="Distribución por estado · todas" icon={<Layers size={13} />}>
-                {stats.porEstado.length === 0 ? <SinDatos /> : (
-                  <DonaEstados data={stats.porEstado} total={stats.total} centroLabel="licitaciones" />
+                {selectores.porEstado.length === 0 ? <SinDatos /> : (
+                  <DonaEstados data={selectores.porEstado} total={selectores.totalBase} centroLabel="licitaciones"
+                    seleccion={estadosSel} onSelect={toggleEstado} />
                 )}
               </ChartCard>
 
               {/* Dona "en trabajo" — EXCLUYE descartadas y postuladas (dato real de gestión activa) */}
               <ChartCard title="En trabajo · sin descartadas ni postuladas" icon={<Briefcase size={13} />}>
-                {stats.porEstadoTrabajo.length === 0 ? <SinDatos /> : (
+                {selectores.porEstadoTrabajo.length === 0 ? <SinDatos /> : (
                   <>
-                    <DonaEstados data={stats.porEstadoTrabajo} total={stats.totalTrabajo} centroLabel="en trabajo" />
+                    <DonaEstados data={selectores.porEstadoTrabajo} total={selectores.totalTrabajo} centroLabel="en trabajo"
+                      seleccion={estadosSel} onSelect={toggleEstado} />
                     <p className="mt-2 text-[10.5px] text-slate-400 leading-snug">
                       No incluye <span className="font-semibold text-red-600">descartadas</span> ni <span className="font-semibold text-amber-600">postuladas</span> — solo lo que sigue en gestión.
                     </p>
@@ -353,26 +494,36 @@ export default function AnalisisLicitacionPage() {
                       <span className="text-[10px] text-slate-400 font-semibold">éxito</span>
                     </div>
                   </div>
+                  {/* Las 3 primeras son el desglose de "Ofertas presentadas": suman exactamente
+                      ese total. Descartadas va aparte: nunca se llegó a ofertar. */}
                   <div className="flex-1 space-y-2.5">
-                    <MiniStat label="Postuladas" value={stats.postuladas} color="#b45309" />
-                    <MiniStat label="Adjudicadas" value={stats.adjudicadas} color="#16a34a" />
-                    <MiniStat label="Perdidas" value={stats.perdidas} color="#9f1239" />
-                    <MiniStat label="Descartadas" value={stats.descartadas} color="#dc2626" />
+                    <MiniStat label="Ofertas presentadas" value={stats.postuladas} color="#b45309" />
+                    <MiniStat label="· Adjudicadas" value={stats.adjudicadas} color="#16a34a" />
+                    <MiniStat label="· Perdidas" value={stats.perdidas} color="#9f1239" />
+                    <MiniStat label="· En evaluación" value={stats.enEvaluacion} color="#64748b" />
+                    <MiniStat label="Descartadas (no se ofertó)" value={stats.descartadas} color="#dc2626" />
                   </div>
                 </div>
+                <p className="mt-2 text-[10.5px] text-slate-400 leading-snug">
+                  Ganadas sobre lo que MP ya resolvió (ganadas + perdidas). Las que siguen en evaluación no entran en el cálculo.
+                </p>
               </ChartCard>
 
-              {/* Barras por tipo */}
+              {/* Barras por tipo — también selectivas (clic en una barra filtra el tablero) */}
               <ChartCard title="Por tipo de licitación" icon={<Layers size={13} />}>
-                {stats.porTipo.length === 0 ? <SinDatos /> : (
+                {selectores.porTipo.length === 0 ? <SinDatos /> : (
                   <ResponsiveContainer width="100%" height={210}>
-                    <BarChart data={stats.porTipo} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
+                    <BarChart data={selectores.porTipo} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
                       <CartesianGrid horizontal={false} stroke="#f1f5f9" />
                       <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
                       <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} width={40} />
                       <RTooltip content={<ChartTooltip sufijo="licitaciones" />} cursor={{ fill: '#f8fafc' }} />
-                      <Bar dataKey="value" radius={[0, 6, 6, 0]}>
-                        {stats.porTipo.map((e) => <Cell key={e.tipo} fill={e.color} />)}
+                      <Bar dataKey="value" radius={[0, 6, 6, 0]} className="cursor-pointer"
+                        onClick={(d: any) => d?.tipo && toggleTipo(d.tipo)}>
+                        {selectores.porTipo.map((e) => (
+                          // La barra elegida queda a color pleno; el resto se atenúa.
+                          <Cell key={e.tipo} fill={e.color} fillOpacity={tiposSel.length && !tiposSel.includes(e.tipo) ? 0.25 : 1} />
+                        ))}
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
@@ -422,13 +573,13 @@ export default function AnalisisLicitacionPage() {
                 <Briefcase size={13} className="text-slate-400" />
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Lista de licitaciones</span>
                 <span className="text-[11px] text-slate-400">({lista.length})</span>
-                {/* Filtro por estado */}
+                {/* Filtro por estado — es el MISMO estado que la dona: los dos se reflejan. */}
                 <div className="ml-auto flex flex-wrap gap-1">
-                  <button onClick={() => setEstadoLista(null)}
-                    className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-md border ${estadoLista === null ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>Todas</button>
-                  {stats.porEstado.map(e => (
-                    <button key={e.id} onClick={() => setEstadoLista(estadoLista === e.id ? null : e.id)}
-                      style={estadoLista === e.id ? { backgroundColor: e.color, borderColor: e.color, color: '#fff' } : { borderColor: e.color + '55', color: e.color }}
+                  <button onClick={() => setEstadosSel([])}
+                    className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-md border ${estadosSel.length === 0 ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'}`}>Todas</button>
+                  {selectores.porEstado.map(e => (
+                    <button key={e.id} onClick={() => toggleEstado(e.id)}
+                      style={estadosSel.includes(e.id) ? { backgroundColor: e.color, borderColor: e.color, color: '#fff' } : { borderColor: e.color + '55', color: e.color }}
                       className="text-[10.5px] font-semibold px-2 py-0.5 rounded-md border bg-white hover:bg-slate-50">
                       {e.name} {e.value}
                     </button>
@@ -452,7 +603,8 @@ export default function AnalisisLicitacionPage() {
                         <p className="text-[13px] font-semibold text-slate-800 truncate group-hover:text-indigo-700 transition-colors">{n.licitacion_nombre || '(sin nombre)'}</p>
                         {n.licitacion_organismo && <p className="text-[11px] text-slate-400 truncate flex items-center gap-1"><Building2 size={9} /> {n.licitacion_organismo}</p>}
                       </div>
-                      {perfil == null && (
+                      {/* El avatar sobra solo si estás mirando UN perfil: ahí ya se sabe de quién es. */}
+                      {perfilesSel.length !== 1 && (
                         <span className="w-6 h-6 rounded-full flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0" style={{ background: perfilCol }} title={n.usuario_nombre || n.usuario_email || ''}>
                           {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
                         </span>
@@ -517,19 +669,28 @@ function SinDatos() {
 }
 
 // Dona por estado reutilizable (leyenda con valor y %). Se usa para "todas" y "en trabajo".
-function DonaEstados({ data, total, centroLabel }: {
+// SELECTIVA y MÚLTIPLE: clic en un segmento (o en su fila de la leyenda) suma ese estado a la
+// selección y el tablero entero se remide sobre ella; clic de nuevo lo quita. Se pueden marcar
+// varios a la vez. Los elegidos quedan a color pleno y el resto se atenúa, para que se vea de
+// un vistazo qué tramo se está midiendo.
+function DonaEstados({ data, total, centroLabel, seleccion = [], onSelect }: {
   data: { id: string; name: string; value: number; color: string; pct: number }[];
   total: number;
   centroLabel: string;
+  seleccion?: string[];
+  onSelect?: (id: string) => void;
 }) {
+  const atenuado = (id: string) => (seleccion.length > 0 && !seleccion.includes(id) ? 0.25 : 1);
   return (
     <div className="flex items-center gap-3">
       <div className="relative flex-shrink-0" style={{ width: 180, height: 200 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%"
-              innerRadius={52} outerRadius={80} paddingAngle={2} stroke="none">
-              {data.map((e) => <Cell key={e.id} fill={e.color} />)}
+              innerRadius={52} outerRadius={80} paddingAngle={2} stroke="none"
+              className={onSelect ? 'cursor-pointer' : undefined}
+              onClick={(d: any) => { const id = d?.id ?? d?.payload?.id; if (id) onSelect?.(id); }}>
+              {data.map((e) => <Cell key={e.id} fill={e.color} fillOpacity={atenuado(e.id)} />)}
             </Pie>
             <RTooltip content={<ChartTooltip sufijo="licitaciones" />} />
           </PieChart>
@@ -540,14 +701,21 @@ function DonaEstados({ data, total, centroLabel }: {
         </div>
       </div>
       <div className="flex-1 space-y-1.5 min-w-0">
-        {data.map(e => (
-          <div key={e.id} className="flex items-center gap-2 text-[12px]">
-            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: e.color }} />
-            <span className="text-slate-600 truncate flex-1">{e.name}</span>
-            <span className="font-bold text-slate-800 tabular-nums">{e.value}</span>
-            <span className="text-slate-400 tabular-nums w-9 text-right">{e.pct}%</span>
-          </div>
-        ))}
+        {data.map(e => {
+          const activo = seleccion.includes(e.id);
+          return (
+            <button key={e.id} type="button" onClick={() => onSelect?.(e.id)}
+              className={`w-full flex items-center gap-2 text-[12px] rounded px-1 py-0.5 text-left transition-colors ${
+                onSelect ? 'hover:bg-slate-50 cursor-pointer' : 'cursor-default'
+              }`}
+              style={{ opacity: atenuado(e.id) }}>
+              <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: e.color }} />
+              <span className={`truncate flex-1 ${activo ? 'font-bold text-slate-900' : 'text-slate-600'}`}>{e.name}</span>
+              <span className="font-bold text-slate-800 tabular-nums">{e.value}</span>
+              <span className="text-slate-400 tabular-nums w-9 text-right">{e.pct}%</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );

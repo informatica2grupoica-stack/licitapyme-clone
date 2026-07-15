@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
+import { publicarCambio } from '@/app/lib/sse-bus';
 import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } from '@/app/lib/email';
 import { getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
@@ -420,6 +421,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       })();
     }
 
+    // Tiempo real: avisar a TODOS los tableros abiertos que el pipeline se movió. Va aparte
+    // de la campana de arriba, que solo llega al perfil asignado y se omite cuando el propio
+    // asignado es quien hace el cambio — de ahí que el admin no veía nada en vivo.
+    if (cambios.length > 0 || huboReasignacion || empresa_id !== undefined) publicarCambio('negocio');
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -436,6 +442,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
   try {
     await pool.query(`UPDATE negocios SET activo = FALSE WHERE id = ?`, [id]);
+    publicarCambio('negocio');
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

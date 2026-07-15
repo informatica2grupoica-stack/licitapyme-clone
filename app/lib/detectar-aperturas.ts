@@ -146,9 +146,12 @@ export async function refrescarAperturas(
 export async function contarPendientesApertura(): Promise<number> {
   try {
     const [rows] = await pool.query(
+      // COLLATE obligatorio: negocios.licitacion_codigo es general_ci y licitacion_apertura
+      // unicode_ci. Sin él, MySQL lanza "Illegal mix of collations", el catch de abajo lo
+      // convertía en 0 y el cron creía que no había NADA pendiente → nunca detectó una apertura.
       `SELECT COUNT(DISTINCT n.licitacion_codigo) AS n
        FROM negocios n
-       LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo
+       LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo COLLATE utf8mb4_unicode_ci
        WHERE n.activo = TRUE
          AND n.estado_pipeline = 'POSTULADA'
          AND n.licitacion_cierre IS NOT NULL
@@ -156,7 +159,11 @@ export async function contarPendientesApertura(): Promise<number> {
          AND (la.aperturada IS NULL OR la.aperturada = 0)`,
     ) as any[];
     return Number((rows as any[])[0]?.n) || 0;
-  } catch { return 0; }
+  } catch (e) {
+    // No enmudecer: un 0 silencioso aquí es indistinguible de "está todo al día".
+    console.error('[detectar-aperturas] contarPendientes falló:', String(e).slice(0, 200));
+    return 0;
+  }
 }
 
 // ── Poller del cron: postuladas cerradas aún no aperturadas ───────────────────
@@ -169,9 +176,11 @@ export async function detectarAperturas(lote = 40): Promise<{
   let codigos: string[] = [];
   try {
     const [rows] = await pool.query(
+      // COLLATE: ver la nota de contarPendientesApertura. Sin él la lista salía vacía y el
+      // cron no verificaba ninguna.
       `SELECT DISTINCT n.licitacion_codigo AS codigo, MAX(n.licitacion_cierre) AS cierre
        FROM negocios n
-       LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo
+       LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo COLLATE utf8mb4_unicode_ci
        WHERE n.activo = TRUE
          AND n.estado_pipeline = 'POSTULADA'
          AND n.licitacion_cierre IS NOT NULL

@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
+import { publicarCambio } from '@/app/lib/sse-bus';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,6 +36,9 @@ export async function POST(req: NextRequest) {
     // promover:false → las adjudicadas SE QUEDAN en Postuladas (decisión del usuario).
     // soloCerradas:false → también refresca las Publicadas para el filtro por estado.
     const r = await procesarPostuladas({ promover: false, soloCerradas: false });
+    // Refrescó el cache desde MP → avisar a los tableros abiertos para que repinten con el
+    // resultado nuevo (Postuladas y Adjudicadas leen ese mismo cache).
+    if (r.codigos > 0) publicarCambio('adjudicacion');
     // Es una pasada acotada por presupuesto interno; no expone cola → completado siempre true.
     return NextResponse.json({ success: true, ...r, completado: true, pendientes: 0, duracionMs: Date.now() - t0 });
   } catch (e: any) {

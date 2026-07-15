@@ -7,7 +7,7 @@ import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useSession } from '@/app/lib/session-context';
-import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
+import { ESTADOS_PIPELINE, getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
 // Colores del badge de estado de Mercado Público (por código efectivo).
@@ -20,7 +20,7 @@ const ESTADO_MP_STYLE: Record<number, { bg: string; color: string; border: strin
   19: { bg: '#fef9c3', color: '#a16207', border: '#fde68a' }, // Suspendida
 };
 import { semaforoRevision } from '@/app/lib/asignacion';
-import { MOTIVOS_DESCARTE, componerMotivo } from '@/app/lib/motivos-descarte';
+import { motivosParaEstado, nivelPorEstado, NIVEL_LABEL, componerMotivo } from '@/app/lib/motivos-descarte';
 import { ViabilidadIAPanel } from '@/app/licitacion/[codigo]/sections/ViabilidadIAPanel';
 import { InteligenciaSection } from '@/app/licitacion/[codigo]/sections/InteligenciaSection';
 import { DocumentosSection } from '@/app/licitacion/[codigo]/sections/DocumentosSection';
@@ -481,7 +481,7 @@ function SeccionResumen({
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
-            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Presupuesto</p><p className="text-[13px] font-bold text-emerald-700">{fmtCLP(viabIA?.presupuesto?.neto ?? viabIA?.presupuesto?.bruto)}</p></div>
+            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Presupuesto {viabIA?.presupuesto?.bruto && !viabIA?.presupuesto?.regimen_fora ? '(IVA incl.)' : ''}</p><p className="text-[13px] font-bold text-emerald-700">{fmtCLP(viabIA?.presupuesto?.bruto ?? viabIA?.presupuesto?.neto)}</p></div>
             <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Modalidad</p><p className="text-[13px] font-semibold text-zinc-700">{String(viabIA?.modalidad?.general || viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}</p></div>
             <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Líneas</p><p className="text-[13px] font-bold text-zinc-700">{viabIA?.manifiesto_productos?.length || '—'}</p></div>
           </div>
@@ -1920,6 +1920,9 @@ function DetalleContent() {
               <p className="text-[13px] text-slate-600">
                 Selecciona el <strong>motivo</strong> del descarte (obligatorio) y agrega comentarios. Queda registrado quién y cuándo, y se ve en el apartado <em>Descartadas</em>.
               </p>
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2.5 py-1">
+                <Ban size={11} className="text-red-500" /> {NIVEL_LABEL[nivelPorEstado(normalizarEstado(negocio?.estado_pipeline))]}
+              </div>
               <select
                 value={motivoSel}
                 onChange={e => setMotivoSel(e.target.value)}
@@ -1927,13 +1930,13 @@ function DetalleContent() {
                 className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 bg-white focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none"
               >
                 <option value="">— Selecciona el motivo —</option>
-                {MOTIVOS_DESCARTE.map(m => <option key={m} value={m}>{m}</option>)}
+                {motivosParaEstado(normalizarEstado(negocio?.estado_pipeline)).map(m => <option key={m} value={m}>{m}</option>)}
               </select>
               <textarea
                 value={motivoDescarte}
                 onChange={e => setMotivoDescarte(e.target.value)}
                 rows={3}
-                placeholder={motivoSel === 'Otro' ? 'Describe el motivo (obligatorio)…' : 'Comentarios adicionales (opcional)…'}
+                placeholder={motivoSel.startsWith('Otro') ? 'Describe el motivo (obligatorio)…' : 'Comentarios adicionales (opcional)…'}
                 className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none resize-y"
               />
               <div className="flex justify-end gap-2">
@@ -1944,11 +1947,11 @@ function DetalleContent() {
                 <button
                   onClick={async () => {
                     if (!motivoSel) { toast.error('Selecciona el motivo del descarte'); return; }
-                    if (motivoSel === 'Otro' && !motivoDescarte.trim()) { toast.error('Describe el motivo del descarte'); return; }
+                    if (motivoSel.startsWith('Otro') && !motivoDescarte.trim()) { toast.error('Describe el motivo del descarte'); return; }
                     setDescarteOpen(false);
                     await cambiarEstado('DESCARTADA', componerMotivo(motivoSel, motivoDescarte));
                   }}
-                  disabled={!motivoSel || (motivoSel === 'Otro' && !motivoDescarte.trim())}
+                  disabled={!motivoSel || (motivoSel.startsWith('Otro') && !motivoDescarte.trim())}
                   className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 disabled:bg-slate-300 text-white text-[13px] font-semibold rounded-lg transition-colors"
                 >
                   <Ban size={14} /> Descartar

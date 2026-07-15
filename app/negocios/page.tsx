@@ -44,6 +44,11 @@ interface Negocio {
   tiene_documentos?: number;
   viabilidad_semaforo?: string | null;
   viabilidad_score?: number | null;
+  // Adjudicación REAL desde la API (misma fuente que Postuladas: por RUT). El endpoint las
+  // rellena desde adjudicacion_cache. Definen "Ganada"/"Perdida" sin suposiciones.
+  adj_es_adjudicada?: number;   // MP ya adjudicó el proceso (a alguien)
+  adj_ganamos?: number;         // una de NUESTRAS empresas ganó ≥1 línea (RUT)
+  adj_monto_nuestro?: number | null;
 }
 
 interface Usuario { id: number; nombre: string; email: string; }
@@ -79,7 +84,7 @@ function PipelineBadge({ estadoId }: { estadoId: string | null }) {
   );
 }
 
-// Estilo por estado MP terminal (mismos colores que el detalle del negocio) + Ganada.
+// Estilo por estado MP terminal (mismos colores que el detalle del negocio) + Ganada/Perdida.
 const ESTADO_MP_STYLE: Record<string, { bg: string; color: string; border: string }> = {
   Cerrada:    { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' },
   Desierta:   { bg: '#ffedd5', color: '#c2410c', border: '#fed7aa' },
@@ -87,21 +92,29 @@ const ESTADO_MP_STYLE: Record<string, { bg: string; color: string; border: strin
   Revocada:   { bg: '#fee2e2', color: '#b91c1c', border: '#fecaca' },
   Suspendida: { bg: '#fef9c3', color: '#a16207', border: '#fde68a' },
   Ganada:     { bg: '#dcfce7', color: '#15803d', border: '#bbf7d0' },
+  Perdida:    { bg: '#fee2e2', color: '#b91c1c', border: '#fecaca' },
 };
-// Badge del estado REAL en Mercado Público. Solo se muestra cuando es TERMINAL (Cerrada/Desierta/
-// Adjudicada/Revocada/Suspendida) — así el dueño ve de un vistazo las que MP ya resolvió; las
-// activas (Publicada) no lo muestran para no ensuciar la tarjeta. El estado se refresca desde la
-// API (refrescar-estados.ts) y aquí solo se lee la columna vía el helper efectivo.
+// Badge del estado REAL en Mercado Público. Solo se muestra cuando es TERMINAL — así el dueño ve
+// de un vistazo las que MP ya resolvió; las activas (Publicada) no lo muestran.
 //
-// Caso GANADA (en Negocios): si MP marca "Adjudicada" y la licitación es NUESTRA —la postulamos
-// (POSTULADA) o ya está adjudicada a nosotros (ADJUDICADA)— se muestra "Ganada" en verde. La
-// verificación fina por RUT (ganamos vs. terceros) vive en Postuladas; aquí basta con que sea
-// nuestra postulada adjudicada. Una Adjudicada que NO es nuestra postulada se muestra "Adjudicada".
-function EstadoMpBadge({ estado, cierre, pipeline }: { estado: string | null; cierre?: string | null; pipeline?: string | null }) {
+// FUENTE DE VERDAD para el resultado de una adjudicación: `adjEsAdjudicada`/`adjGanamos`, que el
+// endpoint calcula desde `adjudicacion_cache` (la MISMA data que Postuladas: por línea, con el RUT
+// del adjudicado). NO se infiere "ganada" por estar postulada:
+//   · adjudicada + ganamos ≥1 línea (RUT nuestro) → "Ganada" (verde, 🏆)  ← dato real de la API
+//   · adjudicada a terceros                        → "Perdida" (rojo)      ← dato real de la API
+//   · resto de terminales (Cerrada/Desierta/Revocada/Suspendida) → tal cual el estado efectivo
+// Si MP ya adjudicó pero el cache aún no tiene el detalle por línea, se muestra "Adjudicada" neutro.
+function EstadoMpBadge({ estado, cierre, adjEsAdjudicada, adjGanamos }: {
+  estado: string | null; cierre?: string | null; adjEsAdjudicada?: number; adjGanamos?: number;
+}) {
   const nombre = estadoEfectivoNombre(estado, cierre);
-  if (!nombre || nombre === 'Publicada') return null;
-  const esNuestra = pipeline === 'POSTULADA' || pipeline === 'ADJUDICADA';
-  const label = (nombre === 'Adjudicada' && esNuestra) ? 'Ganada' : nombre;
+  const adjudicada = adjEsAdjudicada === 1 || nombre === 'Adjudicada';
+  // Resultado real de adjudicación (por RUT) tiene prioridad sobre el estado genérico.
+  let label: string | null;
+  if (adjEsAdjudicada === 1) label = adjGanamos === 1 ? 'Ganada' : 'Perdida';
+  else if (adjudicada)       label = 'Adjudicada';       // MP adjudicó, cache por línea aún no
+  else                       label = nombre;
+  if (!label || label === 'Publicada') return null;
   const st = ESTADO_MP_STYLE[label] || { bg: '#f1f5f9', color: '#475569', border: '#e2e8f0' };
   return (
     <span
@@ -441,7 +454,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
         </p>
         <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
           <PipelineBadge estadoId={neg.estado_pipeline} />
-          <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} pipeline={neg.estado_pipeline} />
+          <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} adjEsAdjudicada={neg.adj_es_adjudicada} adjGanamos={neg.adj_ganamos} />
           {neg.licitacion_organismo && (
             <span className="text-[10.5px] text-slate-500 truncate max-w-[240px]" title={neg.licitacion_organismo}>{neg.licitacion_organismo}</span>
           )}
@@ -727,7 +740,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
           Cerrada/Desierta/Adjudicada/Revocada/Suspendida, o "Ganada" si es nuestra postulada
           adjudicada. Así en la semana se ve de un vistazo cuáles ya resolvió MP. */}
       <div className="mb-1.5 empty:hidden">
-        <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} pipeline={neg.estado_pipeline} />
+        <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} adjEsAdjudicada={neg.adj_es_adjudicada} adjGanamos={neg.adj_ganamos} />
       </div>
 
       {/* Hora de cierre — el calendario agrupa por día; aquí se ve la HORA exacta. */}

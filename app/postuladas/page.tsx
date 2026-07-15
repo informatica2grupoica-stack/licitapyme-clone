@@ -19,6 +19,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { useRealtime } from '@/app/lib/use-realtime';
 import { ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useConfirm } from '@/app/components/ui/confirm';
@@ -27,7 +28,7 @@ import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
   Pencil, Trash2, Undo2, X, Save, Wallet, CheckCircle2,
-  XCircle, Hourglass, DoorOpen, DoorClosed,
+  XCircle, Hourglass, DoorOpen, DoorClosed, Search,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -568,6 +569,7 @@ export default function PostuladasPage() {
   const [empresasOpc, setEmpresasOpc] = useState<EmpresaOpc[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busqueda, setBusqueda] = useState<string>('');
   const [perfilSel, setPerfilSel] = useState<string>('');
   const [empresaSel, setEmpresaSel] = useState<string>('');
   const [resultadoSel, setResultadoSel] = useState<Resultado | ''>('');
@@ -583,21 +585,31 @@ export default function PostuladasPage() {
   // fetch por tarjeta). Mapa código → docs (solo categoría DOCUMENTOS_PROPIOS).
   const [docsPropiosMap, setDocsPropiosMap] = useState<Record<string, DocCache[]>>({});
 
+  // Tiempo real: cada evento del SSE (alguien postuló, cambió una etapa, o el cron trajo
+  // adjudicaciones/aperturas desde MP) sube `version` y re-dispara toda la cadena de carga:
+  // negocios → estado (adjudicación + apertura) → refresco de aperturas.
+  const [version, setVersion] = useState(0);
+  useRealtime(useCallback(() => setVersion(v => v + 1), []));
+
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch('/api/negocios');
+        const res = await fetch('/api/negocios', { cache: 'no-store' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'No se pudo cargar');
         const todas: Negocio[] = data.negocios || [];
-        setNegocios(todas.filter(n => n.estado_pipeline === ESTADO_POSTULADA));
+        // Universo = TODO lo que pasó por postulación. Incluye las que siguen en POSTULADA,
+        // las marcadas POSIBLE_ADJ, y las ya resueltas/promovidas (ADJUDICADA/PERDIDA) — así
+        // Postuladas es el superconjunto real y sus ganadas/perdidas CUADRAN con /adjudicadas
+        // (que muestra solo ese subconjunto). El resultado se clasifica por el cache de MP.
+        setNegocios(todas.filter(n => ['POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA'].includes(n.estado_pipeline || '')));
       } catch (e: any) {
         setError(String(e?.message ?? e));
       } finally {
         setCargando(false);
       }
     })();
-  }, []);
+  }, [version]);
 
   useEffect(() => {
     fetch('/api/empresas').then(r => r.json()).then(d => {
@@ -626,7 +638,7 @@ export default function PostuladasPage() {
     let cancelado = false;
     (async () => {
       try {
-        const r = await fetch('/api/postuladas/estado');
+        const r = await fetch('/api/postuladas/estado', { cache: 'no-store' });
         const d = await r.json();
         if (cancelado) return;
         if (d?.estados) {
@@ -638,7 +650,7 @@ export default function PostuladasPage() {
       finally { if (!cancelado) setEstadoCargado(true); }
     })();
     return () => { cancelado = true; };
-  }, [negocios.length]);
+  }, [negocios.length, version]);
 
   // Refresco de APERTURAS en segundo plano (rasca el portal de MP, IP chilena) DESPUÉS de pintar
   // → no bloquea la carga instantánea, pero igual detecta las aperturadas aunque el cron aún no
@@ -658,7 +670,7 @@ export default function PostuladasPage() {
       } catch { /* portal no accesible (fuera de Chile) → se queda con lo de la tabla */ }
     })();
     return () => { cancelado = true; };
-  }, [estadoCargado, negocios.length]);
+  }, [estadoCargado, negocios.length, version]);
 
   // Perfiles presentes (filtro admin).
   const perfiles = useMemo(() => {
@@ -683,16 +695,29 @@ export default function PostuladasPage() {
     return Array.from(m.values()).sort((a, b) => b.total - a.total);
   }, [negocios]);
 
-  // Filtro por perfil + empresa (base para tabs de resultado y KPIs).
-  const base = useMemo(
-    () => negocios
+  // Filtro por búsqueda (nombre / código / organismo) + perfil + empresa. Base para tabs y KPIs,
+  // así el buscador acota TODO (conteos incluidos), no solo la lista visible.
+  const base = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return negocios
+      .filter(n => !q
+        || (n.licitacion_nombre || '').toLowerCase().includes(q)
+        || (n.licitacion_codigo || '').toLowerCase().includes(q)
+        || (n.licitacion_organismo || '').toLowerCase().includes(q))
       .filter(n => !perfilSel || (n.usuario_email || n.usuario_nombre) === perfilSel)
-      .filter(n => !empresaSel || String(n.empresa_id || '') === empresaSel),
-    [negocios, perfilSel, empresaSel],
-  );
+      .filter(n => !empresaSel || String(n.empresa_id || '') === empresaSel);
+  }, [negocios, busqueda, perfilSel, empresaSel]);
 
   const resultadoDeNegocio = useCallback(
-    (n: Negocio): Resultado => resultadoDe(adjMap[n.licitacion_codigo]),
+    (n: Negocio): Resultado => {
+      const a = adjMap[n.licitacion_codigo];
+      if (a) return resultadoDe(a);
+      // Sin cache aún: si ya quedó resuelta por estado, respétalo (coincide con /adjudicadas
+      // durante la carga y si MP no respondiera).
+      if (n.estado_pipeline === 'ADJUDICADA') return 'ganada';
+      if (n.estado_pipeline === 'PERDIDA') return 'perdida';
+      return 'evaluacion';
+    },
     [adjMap],
   );
 
@@ -796,10 +821,28 @@ export default function PostuladasPage() {
               )}
             </p>
           </div>
+
+          {/* Buscador por nombre / ID de licitación (acota tabs, KPIs y lista). */}
+          <div className="relative w-full sm:w-80">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <input
+              type="text"
+              value={busqueda}
+              onChange={e => setBusqueda(e.target.value)}
+              placeholder="Buscar por nombre o ID de licitación…"
+              className="w-full pl-9 pr-8 py-2 text-sm rounded-xl border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-400 transition"
+            />
+            {busqueda && (
+              <button onClick={() => setBusqueda('')} title="Limpiar búsqueda"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* KPIs */}
-        {!cargando && !error && base.length > 0 && (
+        {!cargando && estadoCargado && !error && base.length > 0 && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
             <KpiCard icon={<Trophy size={22} />} label="Ganadas" value={stats.ganada}
               sub={stats.exito != null ? `${stats.exito}% de efectividad` : 'Resultados en curso'} color={META.ganada.color} />
@@ -810,7 +853,7 @@ export default function PostuladasPage() {
         )}
 
         {/* Tabs de resultado */}
-        {!cargando && !error && base.length > 0 && (
+        {!cargando && estadoCargado && !error && base.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-5">
             {TABS.map(t => {
               const activo = resultadoSel === t.id;
@@ -927,12 +970,12 @@ export default function PostuladasPage() {
           <div className="text-center py-20 bg-white rounded-2xl border border-slate-100">
             <Inbox size={36} className="text-gray-300 mx-auto mb-3" />
             <h3 className="text-lg font-semibold text-gray-700 mb-2">
-              {base.length === 0 ? 'Todavía no hay licitaciones postuladas' : 'Nada en este filtro'}
+              {negocios.length === 0 ? 'Todavía no hay licitaciones postuladas' : 'Nada en este filtro'}
             </h3>
             <p className="text-sm text-gray-400">
-              {base.length === 0
+              {negocios.length === 0
                 ? <>Marca una licitación como <b>Postulada</b> en su estado y aparecerá aquí.</>
-                : 'Prueba con otro resultado, perfil o empresa.'}
+                : busqueda ? 'Prueba con otro nombre o ID de licitación.' : 'Prueba con otro resultado, perfil o empresa.'}
             </p>
           </div>
         ) : (
