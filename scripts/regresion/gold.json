@@ -26,10 +26,10 @@
   },
   {
     "codigo": "1250623-4-LE26",
-    "nota": "seed",
+    "nota": "corregido 2026-07-15: las bases dicen 'se evaluará por línea de producto' (considerando SEGUNDO) → por_linea; la IA la daba GLOBAL",
     "esperado": {
-      "modalidad": "suma_alzada",
-      "adjudicacion": "GLOBAL",
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
       "n_criterios": 5,
       "suma_valida": true,
       "n_items_min": 7,

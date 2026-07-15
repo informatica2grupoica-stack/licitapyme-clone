@@ -52,43 +52,59 @@ export async function GET(request: NextRequest) {
         `SELECT id, email, nombre, empresa, rol, ultimo_login, created_at
          FROM usuarios ORDER BY COALESCE(ultimo_login, created_at) DESC LIMIT 6`);
 
-      // UNIVERSO DEL RADAR: activas (Publicada), tipo LE/LP/LR/LS y NO asignadas todavía a un
-      // perfil (las que faltan por trabajar). El tipo sale del sufijo del código (…-LE26,
-      // …-LP26…). Excluye compra ágil (CO), L1, adjudicadas, etc.
+      // UNIVERSO DEL RADAR: EXACTAMENTE lo que la pestaña "Licitaciones" del radar muestra en
+      // su contador, para que el dashboard y el radar nunca discrepen. La definición vive en
+      // /api/alertas (GET): una fila por licitación detectada por las palabras clave, ACTIVA =
+      // su cierre aún no ha pasado (o no tiene cierre publicado). Sin filtro de estado, de
+      // tipo ni de asignación: si el radar la lista, aquí se cuenta.
       //
-      // Este mismo fragmento lo usan la tarjeta del radar, la viabilidad Y el prefiltro, a
-      // propósito: antes cada uno medía un universo distinto (viabilidad y prefiltro contaban
-      // TODAS las Publicadas, incluidas las ya asignadas y los tipos que el radar ni muestra),
-      // así que "281 con viabilidad" colgaba de "1.631 en radar" sin ser un subconjunto suyo
-      // — dentro del radar real eran 175. Los números eran ciertos pero no comparables.
-      const UNIVERSO_RADAR = `al.licitacion_estado = 'Publicada'
-           AND al.licitacion_codigo REGEXP '-(LE|LP|LR|LS)[0-9]+$'
-           AND NOT EXISTS (
-             SELECT 1 FROM negocios n
-             WHERE n.licitacion_codigo = al.licitacion_codigo AND n.activo = TRUE)`;
+      // El cierre se compara contra la hora de pared de Chile, NUNCA contra NOW(): el MySQL de
+      // Bluehost corre en UTC-6 y marcaría vencidas antes de tiempo.
+      //
+      // ANTES este fragmento medía otra cosa (Publicada + tipo LE/LP/LR/LS + no asignada, sin
+      // mirar el cierre) y por eso la tarjeta decía 2.453 mientras el radar decía 1.942: la
+      // diferencia eran ~879 publicadas ya vencidas que el radar no lista, menos las asignadas
+      // y los tipos que ese filtro descartaba.
+      //
+      // El total y las distribuciones (viabilidad, prefiltro) comparten el fragmento a
+      // propósito: así cada corte es siempre un subconjunto real del total mostrado.
+      const UNIVERSO_RADAR = `(al.licitacion_cierre >= ? OR al.licitacion_cierre IS NULL)`;
+      const pRadar = [ahoraChileSQL()];
 
       const [tLic] = await q(
         `SELECT COUNT(DISTINCT al.licitacion_codigo) AS n
          FROM alertas_licitaciones al
-         WHERE ${UNIVERSO_RADAR}`);
-      const [tViab] = await q(
+         WHERE ${UNIVERSO_RADAR}`, pRadar);
+      // SIN ASIGNAR = la cola de trabajo pendiente: activas que nadie tomó y que nadie descartó.
+      // Es el filtro "Sin asignar" del radar (app/radar/page.tsx, filtros.gestion) —
+      // `if (a.descartada || a.asignada) return false` — MÁS una exclusión que el radar no hace.
+      //
+      //  • Sin el NOT EXISTS de descartadas el número salta de ~300 a ~1.780: el 83% de lo no
+      //    asignado ya se revisó y se botó a mano, no es trabajo pendiente.
+      //  • Se excluyen las Revocada (4 al 2026-07-15): siguen "activas" por fecha de cierre pero
+      //    ya no se pueden postular, así que no son cola. OJO: por esto la tarjeta puede decir
+      //    298 mientras el radar filtrado por "Sin asignar" muestra 302 — el radar sí las lista.
+      const [tSinAsig] = await q(
         `SELECT COUNT(DISTINCT al.licitacion_codigo) AS n
          FROM alertas_licitaciones al
          WHERE ${UNIVERSO_RADAR}
-           AND EXISTS (SELECT 1 FROM viabilidad_licitacion v
-             WHERE v.licitacion_codigo = al.licitacion_codigo)`);
+           AND (al.licitacion_estado IS NULL OR al.licitacion_estado <> 'Revocada')
+           AND NOT EXISTS (SELECT 1 FROM negocios n
+             WHERE n.licitacion_codigo = al.licitacion_codigo AND n.activo = TRUE)
+           AND NOT EXISTS (SELECT 1 FROM licitaciones_descartadas d
+             WHERE d.licitacion_codigo = al.licitacion_codigo)`, pRadar);
       const viabilidad = await q(
         `SELECT v.semaforo, COUNT(DISTINCT al.licitacion_codigo) AS n
          FROM alertas_licitaciones al
          JOIN viabilidad_licitacion v ON v.licitacion_codigo = al.licitacion_codigo
          WHERE ${UNIVERSO_RADAR} AND v.semaforo IS NOT NULL
-         GROUP BY v.semaforo`);
+         GROUP BY v.semaforo`, pRadar);
       const prefiltro  = await q(
         `SELECT p.decision, COUNT(DISTINCT al.licitacion_codigo) AS n
          FROM alertas_licitaciones al
          JOIN prefiltro_licitacion p ON p.licitacion_codigo = al.licitacion_codigo
          WHERE ${UNIVERSO_RADAR} AND p.decision IS NOT NULL
-         GROUP BY p.decision`);
+         GROUP BY p.decision`, pRadar);
       // Pipeline = negocios EN TRABAJO (excluye las DESCARTADA: ya no se trabajan).
       const pipeline   = await q(`SELECT COALESCE(estado_pipeline,'ASIGNADO') AS etapa, COUNT(*) AS n
          FROM negocios WHERE activo = TRUE AND COALESCE(estado_pipeline,'ASIGNADO') <> 'DESCARTADA'
@@ -125,7 +141,7 @@ export async function GET(request: NextRequest) {
 
       admin = {
         usuarios: { total: tUsers?.n || 0, activos: aUsers?.n || 0, nuevosSemana: nUsers?.n || 0, ultimosAccesos },
-        radar: { totalLicitaciones: tLic?.n || 0, conViabilidad: tViab?.n || 0 },
+        radar: { totalLicitaciones: tLic?.n || 0, sinAsignar: tSinAsig?.n || 0 },
         viabilidad, prefiltro, pipeline, montoPipeline: Number(mPipe?.total || 0), porDia, porPerfil,
       };
     }

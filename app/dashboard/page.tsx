@@ -10,7 +10,7 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import {
-  Search, Building2, Users, Wallet, CalendarClock, ArrowUpRight, Layers3,
+  Search, Building2, Users, Wallet, CalendarClock, ArrowUpRight, Layers3, UserPlus,
   Gauge, ListChecks, TriangleAlert, Clock4, ChevronRight, FolderClock,
   Loader2, UsersRound, Ban,
 } from 'lucide-react';
@@ -22,7 +22,7 @@ interface DashData {
   success: boolean; rol: string;
   admin: null | {
     usuarios: { total: number; activos: number; nuevosSemana: number; ultimosAccesos: any[] };
-    radar: { totalLicitaciones: number; conViabilidad: number };
+    radar: { totalLicitaciones: number; sinAsignar: number };
     viabilidad: { semaforo: string; n: number }[];
     prefiltro: { decision: string; n: number }[];
     pipeline: { etapa: string; n: number }[];
@@ -67,8 +67,11 @@ const PREFILTRO: Record<string, { label: string; color: string }> = {
 const etapaLabel = (id: string) => getEstadoPipeline(id)?.label || id;
 const PIPE_COLORS = ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444'];
 
-function StatCard({ icon, label, value, sub, color = 'indigo', href }: {
+function StatCard({ icon, label, value, sub, color = 'indigo', href, hint }: {
   icon: React.ReactNode; label: string; value: string | number; sub?: string; color?: string; href?: string;
+  // hint: definición del número al pasar el mouse. Sin esto, un KPI que no cuadra con otra
+  // pantalla obliga a leer el SQL para saber qué mide.
+  hint?: string;
 }) {
   const ICON_BG: Record<string, string> = {
     indigo: 'bg-indigo-50 text-indigo-600', violet: 'bg-violet-50 text-violet-600',
@@ -76,7 +79,7 @@ function StatCard({ icon, label, value, sub, color = 'indigo', href }: {
     orange: 'bg-orange-50 text-orange-600',
   };
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 transition-shadow hover:shadow-md">
+    <div className="bg-white border border-slate-200 rounded-xl p-5 transition-shadow hover:shadow-md" title={hint}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide mb-1">{label}</p>
@@ -187,8 +190,16 @@ function VistaAdmin({ data }: { data: DashData }) {
     <div className="space-y-6">
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard icon={<Building2 size={22} />} label="Licitaciones en radar" value={a.radar.totalLicitaciones.toLocaleString('es-CL')} sub={`${a.radar.conViabilidad} con viabilidad`} color="indigo" href="/radar" />
-        <StatCard icon={<Layers3 size={22} />} label="Negocios" value={a.pipeline.reduce((s, p) => s + p.n, 0)} sub={`${fmtMonto(a.montoPipeline)} · sin descartadas`} color="violet" href="/negocios" />
+        <StatCard icon={<Building2 size={22} />} label="Licitaciones en radar"
+          value={a.radar.totalLicitaciones.toLocaleString('es-CL')}
+          sub="Activas ahora · igual que el radar"
+          color="indigo" href="/radar"
+          hint={'Mismo número que la pestaña "Licitaciones" del radar: licitaciones detectadas por tus palabras clave cuyo cierre todavía no ha pasado (hora de Chile). Sube cuando el intake encuentra nuevas y baja sola a medida que van venciendo.'} />
+        <StatCard icon={<UserPlus size={22} />} label="Sin asignar"
+          value={a.radar.sinAsignar.toLocaleString('es-CL')}
+          sub={`De ${a.radar.totalLicitaciones.toLocaleString('es-CL')} activas · por repartir`}
+          color="violet" href="/radar"
+          hint={'La cola pendiente: licitaciones activas del radar que nadie tomó todavía, sin contar las descartadas ni las revocadas. Equivale al filtro "Sin asignar" del radar.'} />
         <StatCard icon={<Users size={22} />} label="Usuarios activos" value={a.usuarios.activos} sub={`${a.usuarios.total} en total · +${a.usuarios.nuevosSemana} esta semana`} color="teal" href="/admin/usuarios" />
         {/* El subtítulo nombra los TRES destinos del prefiltro. Antes solo decía PASA y
             EXCLUIDO, y las que quedan en revisión humana (un centenar) no aparecían por

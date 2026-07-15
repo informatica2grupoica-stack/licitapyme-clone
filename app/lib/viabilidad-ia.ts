@@ -1623,15 +1623,29 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
 // Guarda el informe v3 bajo _informe_ia_v3 (NO pisa _informe_ia del v2). Actualiza también
 // score/semáforo/área para que el radar refleje el análisis probado con el flag.
 async function guardarViabilidadIAV3(codigo: string, r: any): Promise<void> {
-  const [rows] = await pool.query(`SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+  const [rows] = await pool.query(`SELECT informe_ejecutivo, desglose FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
   const fila = (rows as any[])[0];
   if (fila) {
     let ie: any = {};
     try { ie = typeof fila.informe_ejecutivo === 'string' ? JSON.parse(fila.informe_ejecutivo) : (fila.informe_ejecutivo || {}); } catch { ie = {}; }
     ie._informe_ia_v3 = r;
+    // SINCRONIZAR el desglose determinista con el veredicto de adjudicación del v3: la tarjeta
+    // "Productos y modalidad" del front lee desglose.modalidad_adjudicacion, que se calcula solo
+    // con la ficha de la API MP (casi siempre "no_especificada — se asume suma alzada"). El v3 sí
+    // lee las bases (señales deterministas + LLM), así que su veredicto manda cuando existe.
+    // Caso real: 1250623-4-LE26 quedó POR_LINEAS en el informe IA pero la tarjeta seguía en ámbar.
+    let desg: any = null;
+    try { desg = typeof fila.desglose === 'string' ? JSON.parse(fila.desglose) : fila.desglose; } catch { desg = null; }
+    const comoV3 = String(r?.adjudicacion?.como_se_adjudica || '').toUpperCase();
+    if (desg?.modalidad_adjudicacion && comoV3) {
+      const esPorLinea = comoV3.includes('LINEA');
+      desg.modalidad_adjudicacion.modalidad = esPorLinea ? 'por_linea' : 'suma_alzada';
+      desg.modalidad_adjudicacion.es_por_linea = esPorLinea;
+      desg.modalidad_adjudicacion.notas = `${esPorLinea ? 'Por línea' : 'Suma alzada'} — según análisis IA de las bases${r?.adjudicacion?.evidencia ? ` (${String(r.adjudicacion.evidencia).slice(0, 160)})` : ''}.`;
+    }
     await pool.query(
-      `UPDATE viabilidad_licitacion SET informe_ejecutivo = ?, score_total = ?, semaforo = ?, area_negocio = ?, confianza_analisis = ?, modelo = ? WHERE licitacion_codigo = ?`,
-      [JSON.stringify(ie), r.score_0_100, r.semaforo, r.area_negocio, r.confianza_global ?? null, `ia+v3+${MODELO_TEXTO}`, codigo]);
+      `UPDATE viabilidad_licitacion SET informe_ejecutivo = ?, desglose = COALESCE(?, desglose), score_total = ?, semaforo = ?, area_negocio = ?, confianza_analisis = ?, modelo = ? WHERE licitacion_codigo = ?`,
+      [JSON.stringify(ie), desg ? JSON.stringify(desg) : null, r.score_0_100, r.semaforo, r.area_negocio, r.confianza_global ?? null, `ia+v3+${MODELO_TEXTO}`, codigo]);
   } else {
     await pool.query(
       `INSERT INTO viabilidad_licitacion (licitacion_codigo, informe_ejecutivo, score_total, semaforo, area_negocio, confianza_analisis, modelo) VALUES (?, ?, ?, ?, ?, ?, ?)`,

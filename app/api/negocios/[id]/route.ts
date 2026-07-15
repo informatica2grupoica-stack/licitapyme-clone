@@ -302,12 +302,21 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (asignado_a !== undefined && rol === 'admin') {
       const nuevo = Number(asignado_a);
       if (nuevo && nuevo !== Number(neg.asignado_a)) {
-        // Evita el choque con la unique (asignado_a, licitacion_codigo): si el destino ya
-        // tenía un negocio activo para este código, se desactiva ese duplicado.
-        await pool.query(
-          `UPDATE negocios SET activo = FALSE WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE AND id <> ?`,
+        // Evita el choque con la unique (asignado_a, licitacion_codigo). OJO: la unique NO mira
+        // `activo`, así que desactivar el duplicado del destino no basta — CUALQUIER fila suya
+        // (activa o inactiva) bloquea el UPDATE. Se FUSIONA: sus comentarios/etiquetas pasan al
+        // negocio vigente (que conserva historial y estado) y la fila fantasma se elimina.
+        const [dups] = await pool.query(
+          `SELECT id FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND id <> ?`,
           [neg.licitacion_codigo, nuevo, id],
         );
+        for (const dup of dups as { id: number }[]) {
+          await pool.query(`UPDATE comentarios_negocio SET negocio_id = ? WHERE negocio_id = ?`, [id, dup.id]);
+          // UPDATE IGNORE: si el negocio vigente ya tiene esa etiqueta, el duplicado se descarta abajo.
+          await pool.query(`UPDATE IGNORE negocios_etiquetas SET negocio_id = ? WHERE negocio_id = ?`, [id, dup.id]);
+          await pool.query(`DELETE FROM negocios_etiquetas WHERE negocio_id = ?`, [dup.id]);
+          await pool.query(`DELETE FROM negocios WHERE id = ?`, [dup.id]);
+        }
         await pool.query(
           `UPDATE negocios SET asignado_a = ?, asignado_por = ?, updated_at = NOW() WHERE id = ?`,
           [nuevo, userId, id],

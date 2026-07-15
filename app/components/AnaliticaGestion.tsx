@@ -15,7 +15,7 @@ import { motion } from 'framer-motion';
 import {
   Loader2, Filter, X, Users, Building2, Layers3, Gauge, Clock, Wallet,
   Trophy, Ban, AlertTriangle, DoorOpen, Sparkles, TriangleAlert, RefreshCw, Percent, ListChecks,
-  Tag, Timer, Target,
+  Tag, Timer, Target, Send,
 } from 'lucide-react';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
@@ -41,10 +41,10 @@ interface Payload {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
+// Peso a peso, sin abreviar: "$1.245.980.850", no "$1.2B". Redondear a un decimal escondía
+// diferencias de decenas de millones entre dos cifras que se veían idénticas.
 const fmtMonto = (n: number) =>
-  n >= 1_000_000_000 ? `$${(n / 1_000_000_000).toFixed(1)}B`
-  : n >= 1_000_000 ? `$${(n / 1_000_000).toFixed(0)}M`
-  : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n || 0);
+  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n || 0);
 const pct = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0);
 const mediana = (arr: number[]) => {
   if (!arr.length) return null;
@@ -56,7 +56,16 @@ const motivoBase = (m: string | null) => (m || '').split(' — ')[0].trim() || '
 
 const esVigente = (r: Row) => r.mpEstado === 'Publicada' && r.estado !== 'DESCARTADA';
 const ESTADOS_VIGENTES = ['ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA'];
+// Ya ofertamos: incluye las resueltas (ganada/perdida), porque "lo que postulamos" es histórico
+// y no deja de serlo cuando MP publica el resultado. Ojo: en la práctica NINGUNA postulada es
+// `esVigente` — al postular, la licitación cierra a los días y deja de estar Publicada.
+const ESTADOS_POSTULADOS = ['POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA'];
 const PRE_POSTULADO = ['ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO'];
+// EN TRABAJO = ESTADOS_VIGENTES menos ASIGNADO: alguien ya le metió mano. Es la SELECCIÓN INICIAL
+// de los chips de estado, para que el tablero abra respondiendo la pregunta que importa: "de lo
+// vigente, ¿qué % está realmente trabajándose?" (hoy 13% — el resto sigue solo repartido).
+// Es un default, no un candado: los chips siguen vivos y "Limpiar" devuelve el 100%.
+const ESTADOS_EN_TRABAJO = ['EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA'];
 const NIVEL_META: Record<string, { label: string; color: string; desc: string }> = {
   N1: { label: 'Nivel 1 · recién asignada', color: '#d97706', desc: 'Descartada al abrir las bases' },
   N2: { label: 'Nivel 2 · tras análisis', color: '#dc2626', desc: 'Descartada tras costeo/análisis' },
@@ -92,7 +101,11 @@ function Kpi({ label, value, sub, icon, color, delay = 0 }: { label: string; val
         <span className="text-[10.5px] font-semibold text-slate-400 uppercase tracking-wide">{label}</span>
         <span style={{ color }}>{icon}</span>
       </div>
-      <p className="text-[26px] font-black leading-none tabular-nums text-slate-900 mt-2">{value}</p>
+      {/* Los montos van completos ("$9.233.366.323" = 14 chars) y a 26px desbordaban la tarjeta.
+          El tamaño baja según el largo en vez de truncar: un monto cortado es peor que uno chico. */}
+      <p className={`font-black leading-none tabular-nums text-slate-900 mt-2 ${
+        String(value).length > 12 ? 'text-[17px]' : String(value).length > 9 ? 'text-[21px]' : 'text-[26px]'
+      }`}>{value}</p>
       {sub && <p className="text-[11px] text-slate-400 mt-1">{sub}</p>}
     </motion.div>
   );
@@ -206,7 +219,7 @@ export function AnaliticaGestion() {
 
   const [selAnalistas, setSelAnalistas] = useState<number[]>([]);
   const [selEmpresas, setSelEmpresas] = useState<number[]>([]);
-  const [selEstados, setSelEstados] = useState<string[]>([]);
+  const [selEstados, setSelEstados] = useState<string[]>(ESTADOS_EN_TRABAJO);
   const [selLineas, setSelLineas] = useState<string[]>([]);
 
   // No se marca "cargando" al refrescar: el tablero se repinta con el dato nuevo sin
@@ -252,6 +265,20 @@ export function AnaliticaGestion() {
   }, [pipeSel]);
   const triageMed = useMemo(() => mediana(pipeSel.filter(r => r.triageDias != null).map(r => r.triageDias!)), [pipeSel]);
   const montoPipe = useMemo(() => pipeSel.reduce((s, r) => s + r.monto, 0), [pipeSel]);
+  // "Postulamos con": suma de monto_ofertado, lo que el equipo carga A MANO al postular. Es un
+  // universo DISTINTO al de los otros KPIs de la fila (que miden las vigentes): sumar ofertado
+  // sobre las vigentes daría $0 siempre. Sigue los filtros de analista/empresa/línea (baseRows),
+  // no el de estado —ese es del bloque de vigentes—. La cobertura va en el subtítulo porque hoy
+  // solo 33 de 57 tienen el monto cargado: sin ese dato, el total parecería el 100% de lo ofertado.
+  const ofertado = useMemo(() => {
+    const post = baseRows.filter(r => ESTADOS_POSTULADOS.includes(r.estado));
+    const conMonto = post.filter(r => (r.montoOfertado || 0) > 0);
+    return {
+      suma: conMonto.reduce((s, r) => s + (r.montoOfertado || 0), 0),
+      conMonto: conMonto.length,
+      total: post.length,
+    };
+  }, [baseRows]);
 
   // ── Adjudicación + tasas (datos ya persistidos desde la API en Postuladas) ──────
   const adj = useMemo(() => {
@@ -286,7 +313,7 @@ export function AnaliticaGestion() {
 
   // ── Postuladas por sub-estado (Módulo 3) ────────────────────────────────────────
   const postuladas = useMemo(() => {
-    const post = baseRows.filter(r => ['POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA'].includes(r.estado));
+    const post = baseRows.filter(r => ESTADOS_POSTULADOS.includes(r.estado));
     // Sub-estados finos (§4.1/4.3). "Resuelta" = MP ya publicó resultado (cache), aunque el
     // estado interno siga en POSTULADA.
     const resueltas = post.filter(r => r.resultado === 'ganada' || r.resultado === 'perdida');
@@ -389,11 +416,14 @@ export function AnaliticaGestion() {
       </Reveal>
 
       {/* ── KPIs vivos ────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <Kpi label="Licitaciones" value={pipeSel.length} sub={`de ${vigentes.length} vigentes`} icon={<Layers3 size={18} />} color="#4f46e5" delay={0} />
-        <Kpi label="Monto seleccionado" value={fmtMonto(montoPipe)} sub="suma en gestión" icon={<Wallet size={18} />} color="#0d9488" delay={0.05} />
-        <Kpi label="% del pipeline" value={`${pct(pipeSel.length, vigentes.length)}%`} sub="del total vigente" icon={<Gauge size={18} />} color="#9333ea" delay={0.1} />
-        <Kpi label="Mediana triage" value={triageMed != null ? `${triageMed}d` : '—'} sub="asignación → decisión" icon={<Clock size={18} />} color="#ea580c" delay={0.15} />
+        {/* "Presupuesto MP", no "suma en gestión": es la plata que publica el organismo, no la
+            nuestra. Con el rótulo viejo se leía como si fuera lo que ofertamos. */}
+        <Kpi label="Presupuesto en gestión" value={fmtMonto(montoPipe)} sub="lo que publica MP" icon={<Wallet size={18} />} color="#0d9488" delay={0.05} />
+        <Kpi label="Postulamos con" value={fmtMonto(ofertado.suma)} sub={`${ofertado.conMonto} de ${ofertado.total} con monto`} icon={<Send size={18} />} color="#0891b2" delay={0.1} />
+        <Kpi label="% del pipeline" value={`${pct(pipeSel.length, vigentes.length)}%`} sub="del total vigente" icon={<Gauge size={18} />} color="#9333ea" delay={0.15} />
+        <Kpi label="Mediana triage" value={triageMed != null ? `${triageMed}d` : '—'} sub="asignación → decisión" icon={<Clock size={18} />} color="#ea580c" delay={0.2} />
       </div>
 
       {/* ── Módulo 1: Pipeline (torta por estado × barras por analista) ─────────── */}
@@ -443,7 +473,7 @@ export function AnaliticaGestion() {
             </motion.div>
             <motion.div whileHover={{ y: -3 }} className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
               <p className="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1"><Wallet size={11} /> Monto neto real</p>
-              <p className="text-[22px] font-black text-slate-800 leading-none mt-1.5 tabular-nums">{fmtMonto(adj.montoNeto)}</p>
+              <p className="text-[17px] font-black text-slate-800 leading-none mt-1.5 tabular-nums">{fmtMonto(adj.montoNeto)}</p>
               <p className="text-[11px] text-slate-400 mt-1">adjudicado según acta</p>
             </motion.div>
           </div>
