@@ -454,6 +454,8 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
       // Parser tolerante compartido: sanea caracteres de control y repara truncado.
       const parsed = parseJsonIA(txt);
       if (parsed) return parsed;
+      // Sin esto, un JSON inválido es indiagnosticable: deja ver QUÉ devolvió el modelo.
+      console.warn(`[viabilidad-ia] JSON inválido (${txt.length} chars). Inicio: ${JSON.stringify(txt.slice(0, 250))} … Fin: ${JSON.stringify(txt.slice(-250))}`);
       throw new Error(`GLM devolvió JSON inválido (finish=${finish})`);
     } catch (e: any) {
       const status = e?.status ?? 0;
@@ -1553,7 +1555,19 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     presupuesto_linea: _num(it.presupuesto_linea), tipo: _str(it.clasificacion || it.tipo) || 'generico', ruta: _str(it.ruta),
   }));
   let estructuraCosteo: 'por_categoria' | null = null;
-  if (planilla && planilla.items.length >= manifiesto.length && planilla.items.length >= 8) {
+  // GATE DE CALIDAD para que el parser pise al LLM (caso real 2178-14-LE26: un Excel CSV mal
+  // mapeado daba 15 "ítems" basura que reemplazaban los 10 productos correctos del modelo):
+  //  (a) sus descripciones deben ser mayoritariamente reales (con letras, no correlativos), y
+  //  (b) si la modalidad final es POR LÍNEA y el LLM trae ≥2 líneas pero la planilla las perdió
+  //      (todo línea 1), el reemplazo destruiría las hojas del costeo → se conserva el del LLM.
+  const planillaSana = !!planilla
+    && planilla.items.filter(i => /[a-záéíóúñ]/i.test(i.descripcion)).length >= planilla.items.length * 0.7;
+  const planillaDegradaLineas = !!planilla
+    && tipoCosteo === 'por_linea'
+    && new Set(planilla.items.map(i => i.linea || 1)).size < 2
+    && new Set(manifiesto.map(m => m.linea)).size >= 2;
+  if (planilla && planillaSana && !planillaDegradaLineas
+      && planilla.items.length >= manifiesto.length && planilla.items.length >= 8) {
     manifiesto = planilla.items.map(it => ({
       linea: it.linea || 1, categoria: it.categoria, descripcion: it.descripcion, modelo: '',
       cantidad: it.cantidad, unidad_medida: it.unidad, unidad_inferida: !it.unidad,

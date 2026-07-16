@@ -86,11 +86,19 @@ interface ColMap { num: number; desc: number; unidad: number; cant: number }
 
 function detectarHeader(celdas: string[]): ColMap | null {
   const n = celdas.map(normalizar);
-  const buscar = (claves: string[]) => n.findIndex(h => h && claves.some(k => h.includes(k)));
+  // La columna de NUMERACIÓN se detecta primero: "N°", "Ítem", "Línea" y también compuestos
+  // como "Línea de insumo" / "N° de línea" (caso real 2178-14-LE26: el encabezado "Línea de
+  // insumo" contiene la palabra "insumo" y se elegía como DESCRIPCIÓN → ítems basura "10","11"…).
+  const num = n.findIndex(h => /^(item|itemn|n|no|numero|linea|nro)\.?$/.test(h) || h === 'n°' || h === 'nº'
+    || /^(l[ií]nea|item|numero|nro|n[°º]?)\s+de\s+(insumo|producto|item|l[ií]nea|parte)s?$/.test(h));
+  // Un rótulo de encabezado es CORTO ("INSUMO", "CANTIDAD"): una frase larga que menciona
+  // "producto"/"cantidad" es prosa (nota al pie), no un encabezado (caso real 2178-14-LE26:
+  // "1. Valor unitario neto … del producto … la cantidad 1 …" fijaba desc=cant=0 y las notas
+  // siguientes entraban como ítems).
+  const buscar = (claves: string[]) => n.findIndex((h, i) => i !== num && h && h.length <= 60 && claves.some(k => h.includes(k)));
   const desc = buscar(['detalle', 'descrip', 'producto', 'material', 'articulo', 'glosa', 'insumo', 'item a', 'nombre', 'elemento']);
   const cant = buscar(['cantidad', 'cant', 'cdad']);
-  if (desc < 0 || cant < 0) return null;
-  const num = n.findIndex(h => /^(item|itemn|n|no|numero|linea|nro)\.?$/.test(h) || h === 'n°' || h === 'nº');
+  if (desc < 0 || cant < 0 || desc === cant) return null;
   const unidad = buscar(['unidad', 'medida']);
   return { num, desc, unidad, cant };
 }
@@ -380,7 +388,9 @@ type ItemExtraido = Omit<ItemPlanilla, 'categoria' | 'linea'> & { lineaCompuesta
 function extraerItem(celdas: string[], col: ColMap | null): ItemExtraido | null {
   if (col) {
     const desc = limpiarCelda(celdas[col.desc] || '');
-    if (desc.length < 2) return null;
+    // Debe tener letras: una celda puramente numérica es un correlativo/cantidad mal mapeado,
+    // no un producto (misma regla que la rama sin mapa de columnas).
+    if (desc.length < 2 || !/[a-záéíóúñ]/i.test(desc)) return null;
     const numRaw = col.num >= 0 ? celdas[col.num] : '';
     if (col.num >= 0 && !esEntero(numRaw) && !esCompuesto(numRaw)) return null;
     const unidad = col.unidad >= 0 ? limpiarCelda(celdas[col.unidad] || '') : '';
@@ -407,7 +417,7 @@ function extraerItem(celdas: string[], col: ColMap | null): ItemExtraido | null 
   return { numero: Number(limpiarCelda(numRaw)), ...base };
 }
 
-const PALABRAS_NO_ITEM = /^(total|subtotal|valor|monto|observ|nota|precio|rut|item|detalle|descrip|n°|nº|#)\b/i;
+const PALABRAS_NO_ITEM = /^(total|subtotal|valor|monto|observ|notas?|precio|rut|item|detalle|descrip|n°|nº|#)\b/i;
 
 // Analiza el patrón del correlativo de los ítems (heurística del experto):
 //   de corrido 1,2,3,…,N (único, creciente, sin reinicios) → suma alzada;

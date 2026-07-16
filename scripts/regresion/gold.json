@@ -81,6 +81,15 @@
     }
   },
   {
+    "codigo": "2178-14-LE26",
+    "nota": "corregido 2026-07-15: los ítems NO están en las bases sino en el Formulario_Económico_N°1.xlsx (20 filas = 10 productos × original/alternativo, nota '5. Se evaluará por linea de insumo'). El parser CSV detectaba las notas al pie 1-3 como encabezado falso (desc=cant=misma celda) y colaba las notas 4-6 como ítems, pisando el manifiesto correcto del LLM (10 productos L1..L10) y colapsando el costeo a 1 hoja.",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_items_min": 10
+    }
+  },
+  {
     "codigo": "1260058-2-LE26",
     "nota": "por_linea explícito en las bases: 'la licitación es por línea, considerándose cada producto como una de ellas; un proveedor puede ofertar por una línea o más líneas'.",
     "esperado": {
