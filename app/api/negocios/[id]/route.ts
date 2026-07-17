@@ -240,6 +240,29 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       if (estado_pipeline === 'DESCARTADA' && !motivo) {
         return NextResponse.json({ error: 'Para descartar la licitación debes indicar un motivo.' }, { status: 400 });
       }
+      // "En proceso" EXIGE viabilidad IA realizada (mismo guard que el front, pero aquí
+      // es la protección real: cubre lista, selector y llamadas directas a la API).
+      if (normalizarEstado(estado_pipeline) === 'EN_PROCESO'
+          && normalizarEstado(neg.estado_pipeline) !== 'EN_PROCESO') {
+        let tieneViabilidad = false;
+        try {
+          const [vrows] = await pool.query(
+            `SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`,
+            [neg.licitacion_codigo],
+          );
+          const vr = (vrows as any[])[0];
+          if (vr) {
+            const ie = typeof vr.informe_ejecutivo === 'string' ? JSON.parse(vr.informe_ejecutivo) : vr.informe_ejecutivo;
+            tieneViabilidad = !!(ie?._informe_ia_v3 ?? ie?._informe_ia);
+          }
+          if (!tieneViabilidad) {
+            return NextResponse.json(
+              { error: 'Primero realiza el análisis de viabilidad IA antes de pasar la licitación a "En proceso".' },
+              { status: 409 },
+            );
+          }
+        } catch { /* fallo de lectura (tabla/JSON): no bloquea — el front ya gatea */ }
+      }
       try {
         if (estado_pipeline === 'DESCARTADA') {
           await pool.query(

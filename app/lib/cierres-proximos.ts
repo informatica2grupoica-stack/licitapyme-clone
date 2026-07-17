@@ -1,6 +1,11 @@
 // app/lib/cierres-proximos.ts
-// Aviso "cierra pronto": licitaciones ASIGNADAS (negocios) cuyo cierre cae dentro de una
-// ventana (por defecto 48 h) y que siguen sin resolver (ni postuladas ni descartadas).
+// Aviso "cierra pronto": licitaciones ASIGNADAS (negocios) que siguen sin resolver
+// (ni postuladas ni descartadas) y cuyo plazo se está agotando. Regla (jul-2026):
+//   · Dispara cuando ya transcurrió el 65% del plazo total (publicación → cierre),
+//     así el aviso se adapta al tiempo real de cada licitación (20 días → avisa a
+//     los 13; 6 días → avisa a los ~4).
+//   · Piso de seguridad: si faltan ≤ `horas` (72 por defecto) para el cierre, avisa
+//     igual — cubre las que no tienen fecha de publicación y los plazos muy cortos.
 // Por cada una se empuja UNA notificación a la campana del perfil asignado y se manda un
 // correo digest por perfil. Dedup vía historial_eventos: no se re-avisa la misma en días.
 //
@@ -10,7 +15,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { publicar } from '@/app/lib/sse-bus';
-import { enviarDigestCierresProximos, type LicitacionDigest } from '@/app/lib/email';
+import { enviarDigestCierresProximos } from '@/app/lib/email';
 
 // Estados que "cierran el ciclo" → ya no se avisa (mismos que el modal de vencidas).
 const ESTADOS_RESUELTOS = ['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA'];
@@ -23,89 +28,171 @@ interface FilaCierre {
 
 const TOP_CORREO = 15; // máx licitaciones listadas por correo
 
-// Avisa (campana + correo) las asignadas que cierran dentro de `horas` y no están resueltas.
-// Devuelve cuántos eventos de campana y cuántos correos se generaron.
-export async function avisarCierresProximos(horas = 48): Promise<{ eventos: number; correos: number }> {
+// Fracción del plazo total (publicación → cierre) que debe haber transcurrido para avisar.
+const FRACCION_PLAZO = (() => {
+  const v = Number(process.env.CIERRE_FRACCION_PLAZO);
+  return v > 0 && v < 1 ? v : 0.65;
+})();
+
+// Avisa (campana + correo) las asignadas sin resolver cuyo plazo se agota: transcurrió el
+// 65% del plazo total, o faltan ≤ `horas` para el cierre (piso). Devuelve cuántos eventos
+// de campana y cuántos correos se generaron.
+export async function avisarCierresProximos(horas = 72): Promise<{ eventos: number; correos: number }> {
   let eventos = 0, correos = 0;
   try {
     const ahora    = ahoraChileSQL();
-    const limite   = ahoraChileSQL(new Date(Date.now() + horas * 3_600_000));
     const ph       = ESTADOS_RESUELTOS.map(() => '?').join(',');
 
-    // Asignadas activas que cierran entre AHORA y AHORA+horas, sin resolver, y que NO se
-    // hayan avisado ya (evento CIERRE_PROXIMO del mismo perfil+código en los últimos 3 días).
-    // La ventana anti-duplicado usa NOW() del server (mismo reloj que created_at) → consistente.
+    // Candidatas: TODAS las asignadas vivas con cierre futuro y sin resolver. El filtro fino
+    // (65% del plazo o piso de horas) se decide abajo con la fecha de publicación en mano, y
+    // la deduplicación (no re-avisar en 3 días) se hace POR DESTINATARIO en JS — así el perfil
+    // asignado y cada admin se evalúan por separado (el admin recibe TODAS, etiquetadas por
+    // perfil; el perfil recibe las suyas). seg_restantes se calcula en SQL contra el MISMO
+    // reloj naive de Chile que el cierre, así no depende de la TZ del proceso Node.
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
               n.licitacion_monto, n.licitacion_cierre, n.asignado_a,
-              u.email, u.nombre
+              u.email, u.nombre,
+              TIMESTAMPDIFF(SECOND, ?, n.licitacion_cierre) AS seg_restantes
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
        WHERE n.activo = TRUE
          AND n.licitacion_cierre IS NOT NULL
          AND n.licitacion_cierre >= ?
-         AND n.licitacion_cierre <= ?
          AND COALESCE(n.estado_pipeline, 'ASIGNADO') NOT IN (${ph})
-         AND NOT EXISTS (
-           SELECT 1 FROM historial_eventos h
-           WHERE h.tipo = 'CIERRE_PROXIMO'
-             AND h.licitacion_codigo = n.licitacion_codigo
-             AND h.usuario_id = n.asignado_a
-             AND h.created_at >= (NOW() - INTERVAL 3 DAY)
-         )
        ORDER BY n.asignado_a, n.licitacion_cierre ASC`,
-      [ahora, limite, ...ESTADOS_RESUELTOS],
+      [ahora, ahora, ...ESTADOS_RESUELTOS],
     ) as any[];
 
-    const filas = rows as FilaCierre[];
+    const candidatas = rows as (FilaCierre & { seg_restantes: number })[];
+    if (candidatas.length === 0) return { eventos: 0, correos: 0 };
+
+    // Fecha de publicación por código, desde alertas_licitaciones (negocios no la guarda).
+    // Query aparte con IN (sin JOIN: las collations mixtas de Bluehost matan los JOINs) y
+    // el transcurrido se calcula también en SQL contra el mismo `ahora` chileno.
+    const segDesdePub = new Map<string, number>();
+    try {
+      const codigos = [...new Set(candidatas.map(f => f.licitacion_codigo))];
+      const phCod   = codigos.map(() => '?').join(',');
+      const [pubs] = await pool.query(
+        `SELECT licitacion_codigo,
+                TIMESTAMPDIFF(SECOND, MAX(licitacion_fecha_publicacion), ?) AS seg_desde_pub
+         FROM alertas_licitaciones
+         WHERE licitacion_codigo IN (${phCod})
+           AND licitacion_fecha_publicacion IS NOT NULL
+         GROUP BY licitacion_codigo`,
+        [ahora, ...codigos],
+      ) as any[];
+      for (const p of pubs as any[]) {
+        if (p.seg_desde_pub != null) segDesdePub.set(p.licitacion_codigo, Number(p.seg_desde_pub));
+      }
+    } catch { /* sin fecha de publicación → decide solo el piso de horas */ }
+
+    const pisoSeg = horas * 3600;
+    const filas = candidatas.filter(f => {
+      const restantes = Number(f.seg_restantes);
+      if (!Number.isFinite(restantes) || restantes < 0) return false;
+      if (restantes <= pisoSeg) return true; // piso: quedan ≤ `horas` para el cierre
+      const transcurrido = segDesdePub.get(f.licitacion_codigo);
+      if (transcurrido == null || transcurrido <= 0) return false; // sin publicación y lejos del piso
+      const total = transcurrido + restantes; // plazo completo publicación → cierre
+      return transcurrido / total >= FRACCION_PLAZO;
+    });
     if (filas.length === 0) return { eventos: 0, correos: 0 };
 
-    // Campana: UN SOLO INSERT masivo (no 1 round-trip por fila — el cron tiene presupuesto
-    // ajustado y Bluehost tiene latencia alta). El SSE se empuja en memoria después.
-    const mensajes = filas.map(f => `Cierra pronto (${fmtHoraCL(f.licitacion_cierre)}): ${f.licitacion_nombre || f.licitacion_codigo}`);
-    const values: unknown[] = [];
-    for (let i = 0; i < filas.length; i++) {
-      const f = filas[i];
-      values.push('CIERRE_PROXIMO', f.licitacion_codigo, f.licitacion_nombre, f.asignado_a, f.nombre,
-        null, null, mensajes[i], JSON.stringify({ cierre: f.licitacion_cierre }));
+    // Admins activos: reciben TODAS las licitaciones por cerrar del equipo, etiquetadas con
+    // el perfil responsable. Los perfiles no-admin reciben solo las suyas.
+    const [arows] = await pool.query(
+      `SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
+    ) as any[];
+    const admins = arows as Array<{ id: number; nombre: string | null; email: string | null }>;
+
+    // Dedup POR DESTINATARIO (código+usuario avisado en los últimos 3 días). Un solo query
+    // para todos los códigos en ventana; se arma un Set `codigo|uid`.
+    const yaAvisado = new Set<string>();
+    try {
+      const codsVent = [...new Set(filas.map(f => f.licitacion_codigo))];
+      const phv = codsVent.map(() => '?').join(',');
+      const [hrows] = await pool.query(
+        `SELECT licitacion_codigo, usuario_id FROM historial_eventos
+         WHERE tipo = 'CIERRE_PROXIMO' AND created_at >= (NOW() - INTERVAL 3 DAY)
+           AND licitacion_codigo IN (${phv})`,
+        codsVent,
+      ) as any[];
+      for (const h of hrows as any[]) yaAvisado.add(`${h.licitacion_codigo}|${h.usuario_id}`);
+    } catch { /* si falla, no deduplica (peor caso: re-aviso) */ }
+
+    // Fan-out: cada fila va a su perfil asignado (sin etiqueta) y a cada admin (etiquetada
+    // con el perfil), saltando a quien ya se le avisó en los últimos 3 días.
+    type Item = { fila: FilaCierre; perfil: string | null };
+    const destinatarios = new Map<number, { nombre: string | null; email: string | null; esAdmin: boolean; items: Item[] }>();
+    const push = (uid: number, nombre: string | null, email: string | null, esAdmin: boolean, it: Item) => {
+      if (yaAvisado.has(`${it.fila.licitacion_codigo}|${uid}`)) return;
+      let g = destinatarios.get(uid);
+      if (!g) { g = { nombre, email, esAdmin, items: [] }; destinatarios.set(uid, g); }
+      g.items.push(it);
+    };
+    const adminIds = new Set(admins.map(a => Number(a.id)));
+    for (const f of filas) {
+      // Perfil asignado (si no es admin: los admins reciben el digest global etiquetado).
+      if (!adminIds.has(Number(f.asignado_a))) {
+        push(Number(f.asignado_a), f.nombre, f.email, false, { fila: f, perfil: null });
+      }
+      // Cada admin recibe TODAS, etiquetadas con el perfil responsable.
+      for (const a of admins) {
+        const propia = Number(a.id) === Number(f.asignado_a);
+        push(Number(a.id), a.nombre, a.email, true, { fila: f, perfil: propia ? null : (f.nombre || null) });
+      }
     }
-    const ph2 = filas.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
-    let baseId = 0;
+    if (destinatarios.size === 0) return { eventos: 0, correos: 0 };
+
+    // Mensaje de campana por item (incluye el perfil cuando es la vista de admin).
+    const msgDe = (it: Item) => {
+      const base = `Cierra pronto (${fmtHoraCL(it.fila.licitacion_cierre)})`;
+      const nom = it.fila.licitacion_nombre || it.fila.licitacion_codigo;
+      return it.perfil ? `${base} · ${it.perfil}: ${nom}` : `${base}: ${nom}`;
+    };
+
+    // Campana: UN SOLO INSERT masivo con todos los items de todos los destinatarios (el cron
+    // tiene presupuesto ajustado y Bluehost tiene latencia alta). El SSE se empuja en memoria.
+    const planos: Array<{ uid: number; nombre: string | null; it: Item; msg: string }> = [];
+    for (const [uid, g] of destinatarios) {
+      for (const it of g.items) planos.push({ uid, nombre: g.nombre, it, msg: msgDe(it) });
+    }
+    const values: unknown[] = [];
+    for (const p of planos) {
+      values.push('CIERRE_PROXIMO', p.it.fila.licitacion_codigo, p.it.fila.licitacion_nombre, p.uid, p.nombre,
+        null, null, p.msg, JSON.stringify({ cierre: p.it.fila.licitacion_cierre, perfil: p.it.perfil || undefined }));
+    }
+    const ph2 = planos.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
     const [ins] = await pool.query(
       `INSERT INTO historial_eventos
          (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata)
        VALUES ${ph2}`,
       values,
     ) as any[];
-    baseId = (ins as any).insertId || 0; // MySQL: insertId del PRIMER registro del lote
-    eventos = filas.length;
+    const baseId = (ins as any).insertId || 0; // MySQL: insertId del PRIMER registro del lote
+    eventos = planos.length;
 
     // SSE en vivo (en memoria, sin BD): al que esté con la app abierta le aparece al toque.
-    filas.forEach((f, i) => {
-      publicar(f.asignado_a, {
-        id: baseId ? baseId + i : undefined, tipo: 'CIERRE_PROXIMO', mensaje: mensajes[i],
-        licitacion_codigo: f.licitacion_codigo, leido: false, created_at: new Date().toISOString(),
+    planos.forEach((p, i) => {
+      publicar(p.uid, {
+        id: baseId ? baseId + i : undefined, tipo: 'CIERRE_PROXIMO', mensaje: p.msg,
+        licitacion_codigo: p.it.fila.licitacion_codigo, leido: false, created_at: new Date().toISOString(),
       });
     });
 
-    // Agrupar por perfil para el correo.
-    const porUsuario = new Map<number, { email: string | null; nombre: string | null; items: LicitacionDigest[] }>();
-    for (const f of filas) {
-      let g = porUsuario.get(f.asignado_a);
-      if (!g) { g = { email: f.email, nombre: f.nombre, items: [] }; porUsuario.set(f.asignado_a, g); }
-      g.items.push({
-        codigo: f.licitacion_codigo, nombre: f.licitacion_nombre,
-        organismo: f.licitacion_organismo, monto: f.licitacion_monto, cierre: f.licitacion_cierre,
-      });
-    }
-
-    // Correo por perfil (best-effort; kill-switch compartido ALERTAS_EMAIL=false).
+    // Correo por destinatario (best-effort; kill-switch compartido ALERTAS_EMAIL=false).
     if (process.env.ALERTAS_EMAIL !== 'false') {
-      for (const [, g] of porUsuario) {
+      for (const [, g] of destinatarios) {
         if (!g.email) continue;
         const enviado = await enviarDigestCierresProximos({
-          to: g.email, nombre: g.nombre, horas,
-          licitaciones: g.items.slice(0, TOP_CORREO),
+          to: g.email, nombre: g.nombre, horas, esAdmin: g.esAdmin,
+          licitaciones: g.items.slice(0, TOP_CORREO).map(it => ({
+            codigo: it.fila.licitacion_codigo, nombre: it.fila.licitacion_nombre,
+            organismo: it.fila.licitacion_organismo, monto: it.fila.licitacion_monto,
+            cierre: it.fila.licitacion_cierre, perfil: it.perfil,
+          })),
           totalNuevas: g.items.length,
         });
         if (enviado) correos++;

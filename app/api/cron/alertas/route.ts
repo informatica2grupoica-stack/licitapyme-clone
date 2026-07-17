@@ -26,8 +26,10 @@ import { avisarCierresProximos } from '@/app/lib/cierres-proximos';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
 import { refrescarEstadosAsignadas, refrescarEstadosRadar, marcarCerradasPorFecha } from '@/app/lib/refrescar-estados';
 
-// Ventana para el aviso "cierra pronto" (campana + correo por perfil), en horas.
-const CIERRE_PROXIMO_HORAS = Number(process.env.CIERRE_PROXIMO_HORAS) || 48;
+// PISO del aviso "cierra pronto" (campana + correo por perfil), en horas. La regla
+// principal es proporcional (65% del plazo publicación→cierre, ver cierres-proximos.ts);
+// este piso garantiza el aviso aunque falte la fecha de publicación o el plazo sea corto.
+const CIERRE_PROXIMO_HORAS = Number(process.env.CIERRE_PROXIMO_HORAS) || 72;
 
 const CRON_SECRET        = process.env.CRON_SECRET || '';
 const DIAS_RECIENTES     = 15;

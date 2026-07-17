@@ -136,6 +136,22 @@ async function notificarCambioEstado(codigo: string, nombre: string): Promise<vo
     [codigo],
   ) as any[];
   const negs = nrows as Array<{ licitacion_nombre: string | null; asignado_a: number; usuario_nombre: string | null; usuario_email: string | null }>;
+
+  // Sin negocio ACTIVO con un usuario asignado VÁLIDO (activo) → no la trabaja nadie:
+  // NO se notifica (ni a los admins). Antes, si el asignado había sido eliminado o el
+  // negocio quedó inactivo, el JOIN dejaba `negs` vacío pero igual se avisaba a todos los
+  // admins con solo el código ("2295-68-LE26 pasó a Adjudicada") → ruido de licitaciones
+  // ajenas del radar general de Mercado Público. La bitácora del código igual se registra
+  // aparte (persistirYNotificar solo llama aquí cuando cambió un negocio del código).
+  if (negs.length === 0) {
+    await registrarActividad({
+      usuarioId: null, accion: 'estado_mp',
+      entidadTipo: 'licitacion', entidadId: codigo,
+      descripcion: `Mercado Público marcó la licitación como ${nombre}`,
+      metadata: { licitacion_codigo: codigo, estado: nombre },
+    }).catch(() => {});
+    return;
+  }
   const licNombre = negs[0]?.licitacion_nombre || codigo;
 
   // Admins (siempre reciben campana; y correo en los estados con correo).

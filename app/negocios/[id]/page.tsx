@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
+import { Select } from '@/app/components/ui/Select';
 import { useSession } from '@/app/lib/session-context';
 import { ESTADOS_PIPELINE, getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
@@ -33,7 +34,7 @@ import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
 import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
   MessageSquare, Send, Trash2, Loader2, AlertCircle, ExternalLink,
-  FileText, Check, X, ChevronDown, Package, Hash,
+  FileText, Check, X, ChevronDown, ChevronUp, Package, Hash,
   Edit3, Clock, Globe, Users,
   Download, Bot, Brain, RefreshCw, Eye, FolderOpen,
   Sparkles, BarChart3, BookOpen, AlertTriangle, ListChecks,
@@ -317,11 +318,31 @@ function agruparEventos(eventos: EventoLic[]): EventoAgrupado[] {
 
 // Timeline vertical del historial de la licitación. Color por PERFIL que ejecutó la acción.
 // Nadie puede borrar eventos (no hay acción de borrado); es una bitácora de auditoría.
+// ACOTADO: la bitácora crece sin límite y estiraba el panel lateral varios miles de píxeles.
+// Colapsado muestra ~300px con scroll interno; "Ver todo" lo despliega completo.
 function HistorialLicitacion({ eventos }: { eventos: EventoLic[] }) {
+  const [expandido, setExpandido] = useState(false);
   if (eventos.length === 0) {
     return <p className="text-[11px] text-zinc-400">Aún no hay actividad registrada.</p>;
   }
   const orden = agruparEventos(eventos); // más reciente arriba
+  return (
+    <div>
+      <div className={`pr-1 ${expandido ? '' : 'max-h-[300px] overflow-y-auto scrollbar-thin'}`}>
+        <Timeline orden={orden} />
+      </div>
+      {orden.length > 6 && (
+        <button onClick={() => setExpandido(e => !e)}
+          className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 transition-colors">
+          {expandido ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          {expandido ? 'Compactar historial' : `Ver todo (${orden.length} eventos)`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function Timeline({ orden }: { orden: EventoAgrupado[] }) {
   return (
     <div className="space-y-0">
       {orden.map((e, i) => {
@@ -1436,6 +1457,13 @@ function DetalleContent() {
   // ── Acciones ─────────────────────────────────────────────────────────────────
   const cambiarEstado = async (estadoId: string, motivo?: string) => {
     if (!negocio) return;
+    // "En proceso" EXIGE viabilidad IA realizada → avisamos y llevamos a la pestaña.
+    // (El servidor tiene el mismo guard, por si se llega por otra vía.)
+    if (estadoId === 'EN_PROCESO' && !viabIA) {
+      toast.error('Primero realiza la viabilidad IA', 'El análisis de viabilidad debe estar hecho antes de pasar a "En proceso".');
+      setSeccion('viabilidad');
+      return;
+    }
     // Descartar EXIGE un motivo → si no viene, abrimos el modal para pedirlo.
     if (estadoId === 'DESCARTADA' && !motivo) { setDescarteOpen(true); return; }
     // Postular EXIGE el monto ofertado → abrimos el modal (muestra el presupuesto real).
@@ -1793,7 +1821,12 @@ function DetalleContent() {
             <div className="flex gap-1.5 mt-2">
               {negocio.estado_pipeline !== 'EN_PROCESO' && (
                 <button onClick={() => cambiarEstado('EN_PROCESO')}
-                  className="flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 rounded-lg py-1.5 transition-colors">
+                  title={!viabIA ? 'Bloqueado: primero realiza el análisis de viabilidad IA' : undefined}
+                  className={`flex-1 flex items-center justify-center gap-1 text-[11px] font-semibold border rounded-lg py-1.5 transition-colors ${
+                    viabIA
+                      ? 'text-violet-700 bg-violet-50 hover:bg-violet-100 border-violet-200'
+                      : 'text-zinc-400 bg-zinc-50 border-zinc-200 cursor-not-allowed'
+                  }`}>
                   <PlayCircle size={12} /> En proceso
                 </button>
               )}
@@ -1872,14 +1905,13 @@ function DetalleContent() {
                 ) : (
                   <div className="space-y-1.5">
                     <p className="text-[10px] font-semibold text-zinc-400">Mover a otro perfil (conserva historial y estado):</p>
-                    <select
-                      autoFocus
-                      value={negocio.asignado_a}
-                      onChange={e => { reasignar(Number(e.target.value)); setMostrarReasignar(false); }}
-                      className="w-full text-[12px] border border-indigo-200 rounded-lg px-2 py-1.5 bg-white text-zinc-700 focus:ring-1 focus:ring-indigo-500 outline-none"
-                    >
-                      {usuariosLista.map(u => <option key={u.id} value={u.id}>{u.nombre || u.email}</option>)}
-                    </select>
+                    <Select
+                      value={String(negocio.asignado_a)}
+                      onChange={v => { reasignar(Number(v)); setMostrarReasignar(false); }}
+                      options={usuariosLista.map(u => ({
+                        value: String(u.id), label: u.nombre || u.email,
+                        color: colorUsuario(u.email || u.nombre || ''), description: u.email,
+                      }))} />
                     <button onClick={() => setMostrarReasignar(false)}
                       className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
                   </div>
@@ -1975,15 +2007,11 @@ function DetalleContent() {
               <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 rounded-full px-2.5 py-1">
                 <Ban size={11} className="text-red-500" /> {NIVEL_LABEL[nivelPorEstado(normalizarEstado(negocio?.estado_pipeline))]}
               </div>
-              <select
+              <Select
                 value={motivoSel}
-                onChange={e => setMotivoSel(e.target.value)}
-                autoFocus
-                className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 bg-white focus:ring-2 focus:ring-red-500/20 focus:border-red-400 outline-none"
-              >
-                <option value="">— Selecciona el motivo —</option>
-                {motivosParaEstado(normalizarEstado(negocio?.estado_pipeline)).map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+                onChange={setMotivoSel}
+                placeholder="— Selecciona el motivo —"
+                options={motivosParaEstado(normalizarEstado(negocio?.estado_pipeline)).map(m => ({ value: m, label: m }))} />
               <textarea
                 value={motivoDescarte}
                 onChange={e => setMotivoDescarte(e.target.value)}
@@ -2043,16 +2071,12 @@ function DetalleContent() {
               </div>
               <div>
                 <label className="block text-[12.5px] font-semibold text-slate-700 mb-1">¿Con qué empresa postulaste?</label>
-                <div className="relative">
-                  <Building2 size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <select
-                    value={empresaPostular}
-                    onChange={e => setEmpresaPostular(e.target.value)}
-                    className="w-full text-[13px] rounded-lg border border-slate-200 bg-white pl-7 pr-3 py-2.5 focus:ring-2 focus:ring-amber-500/20 focus:border-amber-400 outline-none">
-                    <option value="">— Sin especificar —</option>
-                    {empresas.map(e => <option key={e.id} value={e.id}>{e.razon_social}</option>)}
-                  </select>
-                </div>
+                <Select
+                  value={empresaPostular}
+                  onChange={setEmpresaPostular}
+                  icon={<Building2 size={14} />}
+                  placeholder="— Sin especificar —"
+                  options={[{ value: '', label: '— Sin especificar —' }, ...empresas.map(e => ({ value: String(e.id), label: e.razon_social }))]} />
                 {empresas.length === 0 && (
                   <p className="mt-1 text-[11px] text-amber-600">No hay empresas cargadas. Créalas en la sección <b>Empresas</b>.</p>
                 )}

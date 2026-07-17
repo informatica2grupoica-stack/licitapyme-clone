@@ -14,17 +14,20 @@
 // adjudicación — y TARJETAS), buscador de texto, filtros multi-select (perfil/empresa),
 // orden configurable y paginación en el cliente.
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
+import { Select } from '@/app/components/ui/Select';
+import { Banner } from '@/app/components/ui/Banner';
+import { StatCard } from '@/app/components/ui/StatCard';
 import {
-  Trophy, XCircle, ExternalLink, Building2, Calendar, Loader2, Inbox,
+  Trophy, XCircle, ExternalLink, Building2, Calendar, Inbox,
   Award, Users, FileCheck2, ChevronDown, ChevronUp, CheckCircle2, Wallet, Target,
-  Search, LayoutList, LayoutGrid, X, ArrowUpDown, ChevronLeft, ChevronRight, Filter,
+  Search, LayoutList, LayoutGrid, X, ArrowUpDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -57,28 +60,34 @@ interface Adjudicacion {
 }
 
 function fmtCLP(n: number | null | undefined) {
-  if (n == null || n === 0) return '—';
+  if (n == null || !Number.isFinite(n) || n === 0) return '—';
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 }
+// Fecha defensiva: zero-dates de MySQL o basura no deben pintar "Invalid Date".
+function fmtFecha(s: string | null | undefined, formato = 'DD/MM/YYYY') {
+  if (!s) return '—';
+  const d = dayjs(s);
+  return d.isValid() ? d.format(formato) : '—';
+}
+const tsDe = (s: string | null | undefined) => { const d = dayjs(s ?? ''); return d.isValid() ? d.valueOf() : 0; };
 
 const META: Record<Resultado, { label: string; short: string; color: string; icon: typeof Trophy }> = {
   ganada:  { label: 'Ganada',  short: 'Ganadas',  color: '#059669', icon: Trophy },
   perdida: { label: 'Perdida', short: 'Perdidas', color: '#dc2626', icon: XCircle },
 };
 
-const ORDEN_LABEL: Record<Orden, string> = {
-  recientes: 'Más recientes',
-  antiguas: 'Más antiguas',
-  monto_ganado: 'Monto ganado',
-  presupuesto: 'Presupuesto',
-  nombre: 'Nombre A-Z',
-};
+const OPCIONES_ORDEN: { value: Orden; label: string }[] = [
+  { value: 'recientes', label: 'Más recientes' },
+  { value: 'antiguas', label: 'Más antiguas' },
+  { value: 'monto_ganado', label: 'Monto del resultado' },
+  { value: 'presupuesto', label: 'Presupuesto' },
+  { value: 'nombre', label: 'Nombre A-Z' },
+];
 
-// Resultado real: si tenemos el detalle de adjudicación (cache MP), manda ESE (ganamos por RUT
-// ≥1 línea). Si aún no cargó, caemos al estado ya promovido. Así no dependemos de que el cron
-// haya movido estado_pipeline: la verdad es la misma que ve Postuladas.
+// Resultado real: si el cache de MP trae el dato COMPLETO (esAdjudicada + ganamos calculado),
+// manda ese. Si viene parcial o aún no cargó, cae al estado ya promovido por el cron.
 function resultadoDe(n: Negocio, adj?: Adjudicacion | null): Resultado {
-  if (adj && adj.esAdjudicada) return adj.ganamos ? 'ganada' : 'perdida';
+  if (adj?.esAdjudicada && typeof adj.ganamos === 'boolean') return adj.ganamos ? 'ganada' : 'perdida';
   return n.estado_pipeline === 'PERDIDA' ? 'perdida' : 'ganada';
 }
 
@@ -101,10 +110,10 @@ function BloqueAdjudicacion({ adj, ganamos, defaultAbierto = false }: { adj: Adj
         <span className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border"
           style={{ color: acc.color, background: acc.color + '18', borderColor: acc.color + '33' }}>
           {ganamos ? <Trophy size={11} /> : <Award size={11} />}
-          {ganamos ? `Ganamos ${nuestras} línea${nuestras !== 1 ? 's' : ''}` : 'Adjudicada a terceros'}
+          {ganamos ? (nuestras > 0 ? `Ganamos ${nuestras} línea${nuestras !== 1 ? 's' : ''}` : 'Ganada') : 'Adjudicada a terceros'}
         </span>
         {adj.fechaAdjudicacion && (
-          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500"><Calendar size={11} /> {dayjs(adj.fechaAdjudicacion).format('DD/MM/YYYY')}</span>
+          <span className="inline-flex items-center gap-1 text-[11px] text-slate-500"><Calendar size={11} /> {fmtFecha(adj.fechaAdjudicacion)}</span>
         )}
         {meta?.numeroOferentes != null && (
           <span className="inline-flex items-center gap-1 text-[11px] text-slate-500"><Users size={11} /> {meta.numeroOferentes} oferente{meta.numeroOferentes !== 1 ? 's' : ''}</span>
@@ -114,30 +123,32 @@ function BloqueAdjudicacion({ adj, ganamos, defaultAbierto = false }: { adj: Adj
 
       {lineas.length > 0 && (
         <>
-          <button onClick={() => setAbierto(o => !o)}
+          <button onClick={() => setAbierto(o => !o)} aria-expanded={abierto}
             className="mt-2.5 inline-flex items-center gap-1 text-[11.5px] font-semibold text-slate-600 hover:text-slate-800 transition-colors">
             {abierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
             {abierto ? 'Ocultar' : 'Ver'} adjudicación por línea ({lineas.length})
           </button>
-          {abierto && (
-            <div className="mt-2 space-y-1.5">
-              {lineas.map((l, i) => (
-                <div key={i} className={`flex items-start justify-between gap-2 rounded-lg px-2.5 py-1.5 border ${l.esNuestra ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
-                  <div className="min-w-0">
-                    <p className="text-[11.5px] font-medium text-slate-700 truncate" title={l.producto || l.descripcion}>{l.producto || l.descripcion || `Línea ${l.correlativo ?? i + 1}`}</p>
-                    <p className={`text-[10.5px] truncate ${l.esNuestra ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`} title={`${l.proveedor || ''} ${l.rutProveedor || ''}`}>
-                      {l.esNuestra ? <CheckCircle2 size={10} className="inline mr-0.5 -mt-0.5" /> : <Award size={9} className="inline mr-0.5" />}
-                      {l.proveedor || 'Proveedor adjudicado'}{l.rutProveedor ? ` · ${l.rutProveedor}` : ''}
-                    </p>
+          <div className="colapsable" data-abierto={abierto ? '1' : '0'}>
+            <div className="colapsable-inner">
+              <div className="mt-2 space-y-1.5">
+                {lineas.map((l, i) => (
+                  <div key={i} className={`flex items-start justify-between gap-2 rounded-lg px-2.5 py-1.5 border ${l.esNuestra ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+                    <div className="min-w-0">
+                      <p className="text-[11.5px] font-medium text-slate-700 truncate" title={l.producto || l.descripcion}>{l.producto || l.descripcion || `Línea ${l.correlativo ?? i + 1}`}</p>
+                      <p className={`text-[10.5px] truncate ${l.esNuestra ? 'text-emerald-700 font-semibold' : 'text-slate-500'}`} title={`${l.proveedor || ''} ${l.rutProveedor || ''}`}>
+                        {l.esNuestra ? <CheckCircle2 size={10} className="inline mr-0.5 -mt-0.5" /> : <Award size={9} className="inline mr-0.5" />}
+                        {l.proveedor || 'Proveedor adjudicado'}{l.rutProveedor ? ` · ${l.rutProveedor}` : ''}
+                      </p>
+                    </div>
+                    <div className="text-right whitespace-nowrap">
+                      {l.esNuestra && <span className="block text-[9px] font-black tracking-wide text-emerald-600 uppercase">Nosotros</span>}
+                      <span className="text-[11.5px] font-bold text-slate-800">{fmtCLP(l.montoUnitario)}</span>
+                    </div>
                   </div>
-                  <div className="text-right whitespace-nowrap">
-                    {l.esNuestra && <span className="block text-[8.5px] font-black tracking-wide text-emerald-600 uppercase">Nosotros</span>}
-                    <span className="text-[11.5px] font-bold text-slate-800">{fmtCLP(l.montoUnitario)}</span>
-                  </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          )}
+          </div>
         </>
       )}
 
@@ -193,10 +204,10 @@ function Card({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
             <BadgeResultado r={r} />
             {isAdmin && <ChipPerfil n={n} />}
           </div>
-          <h3 className="text-[14px] font-semibold text-slate-800 truncate" title={n.licitacion_nombre}>{n.licitacion_nombre || 'Sin nombre'}</h3>
+          <h3 className="text-[14px] font-semibold text-slate-800 line-clamp-2 leading-snug" title={n.licitacion_nombre}>{n.licitacion_nombre || 'Sin nombre'}</h3>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-[12px] text-slate-500">
             <span className="inline-flex items-center gap-1 min-w-0"><Building2 size={12} className="flex-shrink-0" /><span className="truncate max-w-[240px]">{n.licitacion_organismo || '—'}</span></span>
-            {n.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={12} />{dayjs(n.licitacion_cierre).format('DD/MM/YYYY')}</span>}
+            {n.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={12} />{fmtFecha(n.licitacion_cierre)}</span>}
           </div>
           {n.empresa_nombre && (
             <span className="inline-flex items-center gap-1 mt-1.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
@@ -237,6 +248,11 @@ function Card({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
 }
 
 // ── Vista LISTA (fila expandible) ─────────────────────────────────────────────
+// Los templates del grid se declaran COMPLETOS (Tailwind los extrae estáticamente):
+// para no-admin la columna Perfil no existe (evita un hueco muerto de 150px).
+const GRID_ADMIN = 'lg:grid-cols-[minmax(0,1fr)_150px_170px_130px_96px_70px]';
+const GRID_USER  = 'lg:grid-cols-[minmax(0,1fr)_170px_130px_96px_70px]';
+
 function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion | null; cargandoAdj: boolean; isAdmin: boolean }) {
   const [abierta, setAbierta] = useState(false);
   const r = resultadoDe(n, adj);
@@ -252,14 +268,21 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
       <div
         role={expandible ? 'button' : undefined}
         tabIndex={expandible ? 0 : undefined}
+        aria-expanded={expandible ? abierta : undefined}
+        aria-label={expandible ? `Detalle de ${n.licitacion_codigo}` : undefined}
         onClick={() => expandible && setAbierta(o => !o)}
-        onKeyDown={e => { if (expandible && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setAbierta(o => !o); } }}
-        className={`grid grid-cols-[1fr_auto] lg:grid-cols-[minmax(0,1fr)_150px_170px_130px_96px_70px] items-center gap-x-3 gap-y-1 pl-4 pr-3 py-2.5 ${expandible ? 'cursor-pointer' : ''}`}>
+        onKeyDown={e => {
+          // Solo cuando el evento nace en la FILA: si viene de un link/botón interno
+          // (p.ej. Enter sobre "Ver"), se respeta la acción del elemento.
+          if (e.target !== e.currentTarget) return;
+          if (expandible && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setAbierta(o => !o); }
+        }}
+        className={`grid grid-cols-[1fr_auto] ${isAdmin ? GRID_ADMIN : GRID_USER} items-center gap-x-3 gap-y-1 pl-4 pr-3 py-2.5 ${expandible ? 'cursor-pointer' : ''}`}>
 
         {/* Código + nombre + organismo */}
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10.5px] font-mono font-semibold text-slate-400">{n.licitacion_codigo}</span>
+            <span className="text-[10.5px] font-mono font-semibold text-slate-500">{n.licitacion_codigo}</span>
             <BadgeResultado r={r} />
             {r === 'ganada' && nuestras > 0 && (
               <span className="hidden sm:inline-flex text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-1.5 py-px">
@@ -268,17 +291,17 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
             )}
           </div>
           <p className="text-[13px] font-semibold text-slate-800 truncate mt-0.5" title={n.licitacion_nombre}>{n.licitacion_nombre || 'Sin nombre'}</p>
-          <p className="text-[11px] text-slate-400 truncate flex items-center gap-1"><Building2 size={10} className="flex-shrink-0" />{n.licitacion_organismo || '—'}</p>
+          <p className="text-[11px] text-slate-500 truncate flex items-center gap-1"><Building2 size={10} className="flex-shrink-0" />{n.licitacion_organismo || '—'}</p>
         </div>
 
-        {/* Perfil (admin) */}
-        <div className="hidden lg:block min-w-0">{isAdmin ? <ChipPerfil n={n} /> : null}</div>
+        {/* Perfil (solo admin: la columna no existe para usuarios) */}
+        {isAdmin && <div className="hidden lg:block min-w-0"><ChipPerfil n={n} /></div>}
 
         {/* Empresa */}
         <div className="hidden lg:block min-w-0">
           {n.empresa_nombre
             ? <span className="inline-flex items-center gap-1 max-w-full text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5"><Building2 size={10} className="flex-shrink-0" /><span className="truncate">{n.empresa_nombre}</span></span>
-            : <span className="text-[11px] text-slate-300">—</span>}
+            : <span className="text-[11px] text-slate-400">—</span>}
         </div>
 
         {/* Monto resultado */}
@@ -289,13 +312,15 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
 
         {/* Fecha cierre */}
         <div className="hidden lg:block text-right">
-          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-400">Cierre</p>
-          <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{n.licitacion_cierre ? dayjs(n.licitacion_cierre).format('DD/MM/YY') : '—'}</p>
+          <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500">Cierre</p>
+          <p className="text-[12px] font-semibold text-slate-600 tabular-nums">{fmtFecha(n.licitacion_cierre, 'DD/MM/YY')}</p>
         </div>
 
         {/* Acciones */}
         <div className="flex items-center justify-end gap-1 row-start-1 col-start-2 lg:row-auto lg:col-auto">
-          <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}`} onClick={e => e.stopPropagation()}
+          <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}`}
+            onClick={e => e.stopPropagation()}
+            onKeyDown={e => e.stopPropagation()}
             title="Ver licitación"
             className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors">
             <ExternalLink size={14} />
@@ -307,82 +332,92 @@ function Fila({ n, adj, cargandoAdj, isAdmin }: { n: Negocio; adj: Adjudicacion 
           )}
         </div>
 
-        {/* Resumen compacto en móvil */}
+        {/* Resumen compacto en móvil (con etiqueta del monto: en perdidas es plata de terceros) */}
         <div className="lg:hidden col-span-2 flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
           {isAdmin && <ChipPerfil n={n} />}
           {n.empresa_nombre && <span className="inline-flex items-center gap-1 font-semibold text-indigo-700"><Building2 size={10} />{n.empresa_nombre}</span>}
-          <span className="font-bold text-slate-700 tabular-nums">{cargandoAdj ? '…' : fmtCLP(monto)}</span>
-          {n.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={10} />{dayjs(n.licitacion_cierre).format('DD/MM/YY')}</span>}
+          <span className="inline-flex items-center gap-1">
+            <span className="font-semibold uppercase text-[9.5px] tracking-wide" style={{ color: m.color }}>{r === 'ganada' ? 'Ganamos' : 'Adjudicado'}</span>
+            <span className="font-bold text-slate-700 tabular-nums">{cargandoAdj ? '…' : fmtCLP(monto)}</span>
+          </span>
+          {n.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={10} />{fmtFecha(n.licitacion_cierre, 'DD/MM/YY')}</span>}
         </div>
       </div>
 
-      {abierta && adj?.esAdjudicada && (
-        <div className="px-4 pb-3 pt-1 border-t border-slate-100 bg-slate-50/50">
-          <div className="grid grid-cols-3 gap-2 my-2.5 max-w-xl">
-            <div className="rounded-lg bg-white border border-slate-200 px-3 py-1.5">
-              <p className="text-[10px] text-slate-500">Presupuesto real</p>
-              <p className="text-[12.5px] font-bold text-slate-800">{fmtCLP(n.licitacion_monto)}</p>
-            </div>
-            <div className="rounded-lg bg-white border border-slate-200 px-3 py-1.5">
-              <p className="text-[10px] text-slate-500">Postulamos con</p>
-              <p className="text-[12.5px] font-bold text-slate-800">{fmtCLP(n.monto_ofertado)}</p>
-            </div>
-            <div className="rounded-lg bg-white border border-slate-200 px-3 py-1.5">
-              <p className="text-[10px]" style={{ color: m.color }}>{r === 'ganada' ? 'Ganamos' : 'Adjudicado (total)'}</p>
-              <p className="text-[12.5px] font-bold" style={{ color: m.color }}>{fmtCLP(monto)}</p>
+      {/* Detalle expandido — con transición de altura (grid 0fr→1fr) */}
+      {expandible && (
+        <div className="colapsable" data-abierto={abierta ? '1' : '0'}>
+          <div className="colapsable-inner">
+            <div className="px-4 pb-3 pt-1 border-t border-slate-100 bg-slate-50/50">
+              <p className="text-[12.5px] font-semibold text-slate-700 mt-2">{n.licitacion_nombre}</p>
+              <div className="grid grid-cols-3 gap-2 my-2.5 max-w-xl">
+                <div className="rounded-lg bg-white border border-slate-200 px-3 py-1.5">
+                  <p className="text-[10px] text-slate-500">Presupuesto real</p>
+                  <p className="text-[12.5px] font-bold text-slate-800">{fmtCLP(n.licitacion_monto)}</p>
+                </div>
+                <div className="rounded-lg bg-white border border-slate-200 px-3 py-1.5">
+                  <p className="text-[10px] text-slate-500">Postulamos con</p>
+                  <p className="text-[12.5px] font-bold text-slate-800">{fmtCLP(n.monto_ofertado)}</p>
+                </div>
+                <div className="rounded-lg bg-white border border-slate-200 px-3 py-1.5">
+                  <p className="text-[10px]" style={{ color: m.color }}>{r === 'ganada' ? 'Ganamos' : 'Adjudicado (total)'}</p>
+                  <p className="text-[12.5px] font-bold" style={{ color: m.color }}>{fmtCLP(monto)}</p>
+                </div>
+              </div>
+              {adj?.esAdjudicada && <BloqueAdjudicacion adj={adj} ganamos={r === 'ganada'} defaultAbierto />}
             </div>
           </div>
-          <BloqueAdjudicacion adj={adj} ganamos={r === 'ganada'} defaultAbierto />
         </div>
       )}
     </div>
   );
 }
 
-function KpiCard({ icon, label, value, sub, color }: { icon: React.ReactNode; label: string; value: string | number; sub?: string; color: string }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 transition-shadow hover:shadow-md">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide mb-1">{label}</p>
-          <p className="text-[26px] font-black leading-none tabular-nums text-slate-900">{value}</p>
-          {sub && <p className="text-xs text-slate-400 mt-1 truncate">{sub}</p>}
-        </div>
-        <div className="w-[42px] h-[42px] rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: color + '18', color }}>{icon}</div>
-      </div>
-    </div>
-  );
-}
-
-// Esqueleto de carga (shimmer) — evita el spinner solitario y el salto de layout.
+// Esqueleto de carga (shimmer) — reserva KPIs + toolbar + filas para no saltar al cargar.
 function Esqueleto({ vista }: { vista: Vista }) {
   const filas = Array.from({ length: 6 });
-  return vista === 'tarjetas' ? (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
-      {filas.map((_, i) => (
-        <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 animate-pulse">
-          <div className="h-3 w-40 bg-slate-200 rounded mb-3" />
-          <div className="h-4 w-3/4 bg-slate-200 rounded mb-2" />
-          <div className="h-3 w-1/2 bg-slate-100 rounded mb-4" />
-          <div className="grid grid-cols-3 gap-2">
-            <div className="h-12 bg-slate-100 rounded-lg" /><div className="h-12 bg-slate-100 rounded-lg" /><div className="h-12 bg-slate-100 rounded-lg" />
+  return (
+    <>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 animate-pulse">
+            <div className="h-3 w-20 bg-slate-200 rounded mb-3" />
+            <div className="h-7 w-16 bg-slate-200 rounded" />
           </div>
+        ))}
+      </div>
+      <div className="bg-white border border-slate-200 rounded-2xl p-3 mb-5 animate-pulse">
+        <div className="h-9 w-64 bg-slate-100 rounded-xl mb-2.5" />
+        <div className="h-9 w-full max-w-md bg-slate-100 rounded-lg" />
+      </div>
+      {vista === 'tarjetas' ? (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
+          {filas.map((_, i) => (
+            <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 animate-pulse">
+              <div className="h-3 w-40 bg-slate-200 rounded mb-3" />
+              <div className="h-4 w-3/4 bg-slate-200 rounded mb-2" />
+              <div className="h-3 w-1/2 bg-slate-100 rounded mb-4" />
+              <div className="grid grid-cols-3 gap-2">
+                <div className="h-12 bg-slate-100 rounded-lg" /><div className="h-12 bg-slate-100 rounded-lg" /><div className="h-12 bg-slate-100 rounded-lg" />
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
-  ) : (
-    <div className="space-y-2">
-      {filas.map((_, i) => (
-        <div key={i} className="bg-white border border-slate-200 rounded-xl px-4 py-3 animate-pulse flex items-center gap-4">
-          <div className="flex-1">
-            <div className="h-3 w-36 bg-slate-200 rounded mb-2" />
-            <div className="h-4 w-2/3 bg-slate-200 rounded" />
-          </div>
-          <div className="h-4 w-24 bg-slate-100 rounded hidden lg:block" />
-          <div className="h-4 w-20 bg-slate-100 rounded hidden lg:block" />
+      ) : (
+        <div className="space-y-2">
+          {filas.map((_, i) => (
+            <div key={i} className="bg-white border border-slate-200 rounded-xl px-4 py-3 animate-pulse flex items-center gap-4">
+              <div className="flex-1">
+                <div className="h-3 w-36 bg-slate-200 rounded mb-2" />
+                <div className="h-4 w-2/3 bg-slate-200 rounded" />
+              </div>
+              <div className="h-4 w-24 bg-slate-100 rounded hidden lg:block" />
+              <div className="h-4 w-20 bg-slate-100 rounded hidden lg:block" />
+            </div>
+          ))}
         </div>
-      ))}
-    </div>
+      )}
+    </>
   );
 }
 
@@ -409,34 +444,32 @@ function Paginacion({ pagina, totalPaginas, total, desde, hasta, porPagina, onPa
     <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-5">
       <div className="flex items-center gap-3 text-[12px] text-slate-500">
         <span><b className="text-slate-700">{desde}–{hasta}</b> de <b className="text-slate-700">{total}</b></span>
-        <label className="inline-flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1.5">
           Por página
-          <select value={porPagina} onChange={e => onPorPagina(Number(e.target.value))}
-            className="border border-slate-200 rounded-lg px-1.5 py-1 text-[12px] bg-white outline-none focus:border-indigo-400">
-            {[10, 25, 50].map(nv => <option key={nv} value={nv}>{nv}</option>)}
-          </select>
-        </label>
+          <Select value={String(porPagina)} onChange={v => onPorPagina(Number(v))} minWidth={70}
+            options={[10, 25, 50].map(nv => ({ value: String(nv), label: String(nv) }))} />
+        </span>
       </div>
       {totalPaginas > 1 && (
-        <div className="flex items-center gap-1">
-          <button onClick={() => onPagina(pagina - 1)} disabled={pagina <= 1}
+        <nav className="flex items-center gap-1" aria-label="Paginación">
+          <button onClick={() => onPagina(pagina - 1)} disabled={pagina <= 1} aria-label="Página anterior"
             className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
             <ChevronLeft size={15} />
           </button>
           {numerosPagina(pagina, totalPaginas).map((p, i) => p === '…'
             ? <span key={`e${i}`} className="w-8 text-center text-slate-400 text-[12px]">…</span>
             : (
-              <button key={p} onClick={() => onPagina(p)}
+              <button key={p} onClick={() => onPagina(p)} aria-current={p === pagina ? 'page' : undefined}
                 className={`inline-flex items-center justify-center min-w-[32px] h-8 px-1 rounded-lg text-[12.5px] font-semibold transition-colors ${
                   p === pagina ? 'bg-slate-800 text-white' : 'border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                 {p}
               </button>
             ))}
-          <button onClick={() => onPagina(pagina + 1)} disabled={pagina >= totalPaginas}
+          <button onClick={() => onPagina(pagina + 1)} disabled={pagina >= totalPaginas} aria-label="Página siguiente"
             className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
             <ChevronRight size={15} />
           </button>
-        </div>
+        </nav>
       )}
     </div>
   );
@@ -449,6 +482,7 @@ export default function AdjudicadasPage() {
   const [negocios, setNegocios] = useState<Negocio[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorCruce, setErrorCruce] = useState(false);
 
   // ── Estado de la UI (vista, buscador, filtros, orden, paginación) ──────────
   const [vista, setVista] = useState<Vista>('lista');
@@ -459,11 +493,15 @@ export default function AdjudicadasPage() {
   const [orden, setOrden] = useState<Orden>('recientes');
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(25);
+  const listaRef = useRef<HTMLDivElement>(null);
 
-  // Preferencia de vista persistida (por navegador).
+  // Preferencia de vista persistida (por navegador). En efecto y con try/catch:
+  // el acceso a localStorage puede LANZAR con almacenamiento bloqueado.
   useEffect(() => {
-    const v = typeof window !== 'undefined' ? window.localStorage.getItem('adjudicadas_vista') : null;
-    if (v === 'lista' || v === 'tarjetas') setVista(v);
+    try {
+      const v = window.localStorage.getItem('adjudicadas_vista');
+      if (v === 'lista' || v === 'tarjetas') setVista(v);
+    } catch { /* almacenamiento bloqueado */ }
   }, []);
   const cambiarVista = (v: Vista) => { setVista(v); try { window.localStorage.setItem('adjudicadas_vista', v); } catch { /* privado */ } };
 
@@ -472,6 +510,7 @@ export default function AdjudicadasPage() {
   // El cruce con el cache llega en 1 llamada. Hasta que esté, no pintamos conteos (evita el
   // salto de "solo promovidas" → total). Así el resultado aparece completo de una.
   const [cruceListo, setCruceListo] = useState(false);
+  const [cruceVersion, setCruceVersion] = useState(0); // para el botón Reintentar
 
   // Tiempo real: el cron de 2h refresca el cache de adjudicación desde MP y publica un
   // evento; también llega cuando alguien mueve una postulada. Sube `version` → recarga.
@@ -479,21 +518,37 @@ export default function AdjudicadasPage() {
   useRealtime(useCallback(() => setVersion(v => v + 1), []));
 
   useEffect(() => {
+    let cancelado = false; // una respuesta vieja no debe pisar a la nueva
     (async () => {
       try {
         const res = await fetch('/api/negocios', { cache: 'no-store' });
         const data = await res.json();
+        if (cancelado) return;
         if (!res.ok) throw new Error(data.error || 'No se pudo cargar');
         const todas: Negocio[] = data.negocios || [];
         // Universo amplio: además de las ya promovidas (ADJUDICADA/PERDIDA), incluimos las que
         // siguen en POSTULADA pero MP ya adjudicó. El gate `esResuelta` (por cache) deja solo las
         // realmente resueltas → el resultado real aparece aquí sin esperar la promoción del cron.
-        const univ = todas.filter(n => ['ADJUDICADA', 'PERDIDA', 'POSTULADA', 'POSIBLE_ADJ'].includes(n.estado_pipeline || ''));
-        setNegocios(univ);
-        if (univ.length === 0) setCruceListo(true); // nada que cruzar
-      } catch (e: any) { setError(String(e?.message ?? e)); }
-      finally { setCargando(false); }
+        const univ = todas.filter(n => n.licitacion_codigo && ['ADJUDICADA', 'PERDIDA', 'POSTULADA', 'POSIBLE_ADJ'].includes(n.estado_pipeline || ''));
+        // Dedup defensivo por código (bug conocido de filas duplicadas al reasignar):
+        // se conserva la fila más reciente (id mayor) por licitación.
+        const porCodigo = new Map<string, Negocio>();
+        for (const n of univ) {
+          const prev = porCodigo.get(n.licitacion_codigo);
+          if (!prev || n.id > prev.id) porCodigo.set(n.licitacion_codigo, n);
+        }
+        setNegocios([...porCodigo.values()]);
+        setError(null); // un fallo transitorio anterior no debe quedar pegado
+        if (porCodigo.size === 0) setCruceListo(true); // nada que cruzar
+      } catch (e: any) {
+        if (cancelado) return;
+        setError(String(e?.message ?? e));
+        setCruceListo(true); // sin esto el error quedaba oculto tras el skeleton eterno
+      } finally {
+        if (!cancelado) setCargando(false);
+      }
     })();
+    return () => { cancelado = true; };
   }, [version]);
 
   // Cruce con la adjudicación en UNA sola llamada al servidor (SOLO cache de la BD, sin tocar
@@ -507,9 +562,12 @@ export default function AdjudicadasPage() {
         const r = await fetch('/api/postuladas/estado', { cache: 'no-store' });
         const d = await r.json();
         if (cancelado) return;
-        if (d?.estados) setAdjMap(d.estados);
-      } catch { /* sin cruce → cae a la clasificación por estado */ }
-      finally {
+        if (d?.estados) { setAdjMap(d.estados); setErrorCruce(false); }
+        else setErrorCruce(true);
+      } catch {
+        // sin cruce → cae a la clasificación por estado, pero se AVISA (banner con reintentar)
+        if (!cancelado) setErrorCruce(true);
+      } finally {
         if (!cancelado) {
           setResueltos(new Set(negocios.map(n => n.licitacion_codigo).filter(Boolean)));
           setCruceListo(true);
@@ -517,7 +575,7 @@ export default function AdjudicadasPage() {
       }
     })();
     return () => { cancelado = true; };
-  }, [negocios]);
+  }, [negocios, cruceVersion]);
 
   // Gate de "resuelta": manda el cache de adjudicación (esAdjudicada); si aún no cargó, el estado
   // ya promovido. Solo las resueltas se muestran en Adjudicadas.
@@ -546,6 +604,17 @@ export default function AdjudicadasPage() {
     return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([v, c]) => ({ value: v, label: v, count: c }));
   }, [resueltas]);
 
+  // Filtros FANTASMA: si tras un refetch una selección ya no existe entre las opciones,
+  // se poda sola (si no, seguiría filtrando sin que haya control visible que lo muestre).
+  useEffect(() => {
+    const vals = new Set(opcionesPerfil.map(o => o.value));
+    setFPerfil(p => p.every(v => vals.has(v)) ? p : p.filter(v => vals.has(v)));
+  }, [opcionesPerfil]);
+  useEffect(() => {
+    const vals = new Set(opcionesEmpresa.map(o => o.value));
+    setFEmpresa(p => p.every(v => vals.has(v)) ? p : p.filter(v => vals.has(v)));
+  }, [opcionesEmpresa]);
+
   // ── Cadena de filtrado: perfil/empresa/búsqueda → base (para KPIs y tabs) ───
   const base = useMemo(() => {
     const texto = q.trim().toLowerCase();
@@ -557,9 +626,10 @@ export default function AdjudicadasPage() {
         || (n.licitacion_codigo || '').toLowerCase().includes(texto)
         || (n.licitacion_organismo || '').toLowerCase().includes(texto)
         || (n.empresa_nombre || '').toLowerCase().includes(texto)
-        || (n.usuario_nombre || '').toLowerCase().includes(texto)
-        || (n.usuario_email || '').toLowerCase().includes(texto)));
-  }, [resueltas, fPerfil, fEmpresa, q]);
+        // El perfil solo es un campo visible (y por tanto buscable) para el admin.
+        || (isAdmin && ((n.usuario_nombre || '').toLowerCase().includes(texto)
+          || (n.usuario_email || '').toLowerCase().includes(texto)))));
+  }, [resueltas, fPerfil, fEmpresa, q, isAdmin]);
 
   const conteo = useMemo(() => {
     const c = { ganada: 0, perdida: 0 };
@@ -571,11 +641,11 @@ export default function AdjudicadasPage() {
     const lista = base.filter(n => !resultadoSel || resultadoDe(n, adjMap[n.licitacion_codigo]) === resultadoSel);
     const val = (n: Negocio) => montoResultado(n, adjMap[n.licitacion_codigo] ?? null, resultadoDe(n, adjMap[n.licitacion_codigo])) ?? -1;
     switch (orden) {
-      case 'antiguas':     return lista.sort((a, b) => dayjs(a.licitacion_cierre || 0).valueOf() - dayjs(b.licitacion_cierre || 0).valueOf());
+      case 'antiguas':     return lista.sort((a, b) => tsDe(a.licitacion_cierre) - tsDe(b.licitacion_cierre));
       case 'monto_ganado': return lista.sort((a, b) => val(b) - val(a));
       case 'presupuesto':  return lista.sort((a, b) => (b.licitacion_monto ?? -1) - (a.licitacion_monto ?? -1));
       case 'nombre':       return lista.sort((a, b) => (a.licitacion_nombre || '').localeCompare(b.licitacion_nombre || '', 'es'));
-      default:             return lista.sort((a, b) => dayjs(b.licitacion_cierre || 0).valueOf() - dayjs(a.licitacion_cierre || 0).valueOf());
+      default:             return lista.sort((a, b) => tsDe(b.licitacion_cierre) - tsDe(a.licitacion_cierre));
     }
   }, [base, resultadoSel, adjMap, orden]);
 
@@ -585,8 +655,17 @@ export default function AdjudicadasPage() {
   const enPagina = useMemo(
     () => visibles.slice((paginaSegura - 1) * porPagina, paginaSegura * porPagina),
     [visibles, paginaSegura, porPagina]);
-  // Cualquier cambio de filtro/orden/vista vuelve a la página 1.
-  useEffect(() => { setPagina(1); }, [q, fPerfil, fEmpresa, resultadoSel, orden, porPagina, vista]);
+  // Cambio de filtro/orden vuelve a la página 1 (cambiar de VISTA no: son los mismos datos).
+  useEffect(() => { setPagina(1); }, [q, fPerfil, fEmpresa, resultadoSel, orden, porPagina]);
+  // Si los datos en vivo encogen el total, el estado no puede quedar apuntando a una
+  // página que ya no existe (el clamp del render solo corrige lo visible).
+  useEffect(() => { if (pagina > totalPaginas) setPagina(totalPaginas); }, [pagina, totalPaginas]);
+
+  const irAPagina = (p: number) => {
+    setPagina(Math.min(Math.max(1, p), totalPaginas));
+    // El usuario quedaba mirando el FONDO de la lista nueva: subir al inicio del listado.
+    listaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const stats = useMemo(() => {
     let montoGanado = 0;
@@ -627,151 +706,171 @@ export default function AdjudicadasPage() {
           </div>
         </div>
 
-        {/* KPIs */}
-        {!cargandoTodo && !error && resueltas.length > 0 && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-            <KpiCard icon={<Trophy size={22} />} label="Ganadas" value={conteo.ganada} sub={stats.exito != null ? `${stats.exito}% de efectividad` : undefined} color={META.ganada.color} />
-            <KpiCard icon={<XCircle size={22} />} label="Perdidas" value={conteo.perdida} sub="Adjudicadas a terceros" color={META.perdida.color} />
-            <KpiCard icon={<Target size={22} />} label="Tasa de éxito" value={stats.exito != null ? `${stats.exito}%` : '—'} sub="ganadas / resueltas" color="#7c3aed" />
-            <KpiCard icon={<Wallet size={22} />} label="Monto ganado" value={fmtCLP(stats.montoGanado || null)} sub="Lo adjudicado a nosotros" color="#0d9488" />
-          </div>
+        {/* Aviso no bloqueante: el detalle de adjudicación (cache MP) no cargó */}
+        {!cargandoTodo && errorCruce && (
+          <Banner variante="warning" className="mb-4"
+            accion={{ label: 'Reintentar', onClick: () => setCruceVersion(v => v + 1) }}>
+            No se pudo cargar el detalle de adjudicación desde el servidor — se muestra la
+            clasificación por estado, que puede estar incompleta.
+          </Banner>
         )}
 
-        {/* Barra de herramientas: tabs resultado · buscador · filtros · orden · vista */}
-        {!cargandoTodo && !error && resueltas.length > 0 && (
-          <div className="bg-white border border-slate-200 rounded-2xl p-3 mb-5 space-y-2.5">
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Tabs de resultado */}
-              <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-0.5">
-                {TABS.map(t => {
-                  const activo = resultadoSel === t.id;
-                  return (
-                    <button key={t.id || 'all'} onClick={() => setResultadoSel(t.id)}
-                      className={`inline-flex items-center gap-1.5 text-[12.5px] font-bold px-3 py-1.5 rounded-lg transition-all ${
-                        activo ? 'bg-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                      style={activo ? { color: t.color } : undefined}>
-                      {t.label}
-                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[10.5px] font-black"
-                        style={{ background: t.color + (activo ? '18' : '10'), color: activo ? t.color : '#64748b' }}>{t.count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="flex-1 min-w-[160px]" />
-
-              {/* Conmutador de vista */}
-              <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-0.5" role="group" aria-label="Tipo de vista">
-                <button onClick={() => cambiarVista('lista')} title="Vista de lista" aria-pressed={vista === 'lista'}
-                  className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg transition-all ${
-                    vista === 'lista' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                  <LayoutList size={14} /> Lista
-                </button>
-                <button onClick={() => cambiarVista('tarjetas')} title="Vista de tarjetas" aria-pressed={vista === 'tarjetas'}
-                  className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg transition-all ${
-                    vista === 'tarjetas' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-                  <LayoutGrid size={14} /> Tarjetas
-                </button>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Buscador */}
-              <div className="relative flex-1 min-w-[200px] max-w-md">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input value={q} onChange={e => setQ(e.target.value)}
-                  placeholder="Buscar por nombre, código, organismo, empresa o perfil…"
-                  className="w-full pl-8 pr-8 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none" />
-                {q && (
-                  <button onClick={() => setQ('')} title="Limpiar búsqueda"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-
-              {/* Filtros multi-select */}
-              {isAdmin && opcionesPerfil.length > 1 && (
-                <MultiSelect label="Perfil" icon={<Users size={13} />} options={opcionesPerfil} selected={fPerfil} onChange={setFPerfil} />
-              )}
-              {opcionesEmpresa.length > 1 && (
-                <MultiSelect label="Empresa" icon={<Building2 size={13} />} options={opcionesEmpresa} selected={fEmpresa} onChange={setFEmpresa} />
-              )}
-
-              {/* Orden */}
-              <label className="inline-flex items-center gap-1.5 text-[12px] text-slate-500">
-                <ArrowUpDown size={13} className="text-slate-400" />
-                <select value={orden} onChange={e => setOrden(e.target.value as Orden)}
-                  className="border border-slate-200 rounded-lg px-2 py-2 text-[12.5px] bg-white text-slate-700 outline-none focus:border-indigo-400">
-                  {(Object.keys(ORDEN_LABEL) as Orden[]).map(o => <option key={o} value={o}>{ORDEN_LABEL[o]}</option>)}
-                </select>
-              </label>
-
-              {hayFiltros && (
-                <button onClick={limpiarFiltros}
-                  className="inline-flex items-center gap-1 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-lg px-2.5 py-2 transition-colors">
-                  <X size={13} /> Limpiar
-                </button>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Contenido */}
         {cargandoTodo ? (
           <Esqueleto vista={vista} />
         ) : error ? (
-          <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-xl text-sm">{error}</div>
-        ) : visibles.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-2xl border border-slate-100">
-            <Inbox size={36} className="text-gray-300 mx-auto mb-3" />
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">
-              {resueltas.length === 0 ? 'Todavía no hay licitaciones resueltas' : 'Nada con estos filtros'}
-            </h3>
-            <p className="text-sm text-gray-400">
-              {resueltas.length === 0
-                ? <>Cuando Mercado Público publique el resultado de una postulada, aparecerá aquí como <b>Ganada</b> o <b>Perdida</b>.</>
-                : 'Prueba con otra búsqueda, resultado o perfil.'}
-            </p>
-            {hayFiltros && resueltas.length > 0 && (
-              <button onClick={limpiarFiltros}
-                className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 hover:text-indigo-700">
-                <X size={14} /> Limpiar filtros
-              </button>
-            )}
-          </div>
+          <Banner variante="error" accion={{ label: 'Reintentar', onClick: () => { setCargando(true); setVersion(v => v + 1); } }}>
+            {error}
+          </Banner>
         ) : (
           <>
-            {vista === 'tarjetas' ? (
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
-                {enPagina.map(n => (
-                  <Card key={n.id} n={n} adj={adjMap[n.licitacion_codigo] ?? null}
-                    cargandoAdj={!resueltos.has(n.licitacion_codigo)} isAdmin={!!isAdmin} />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {/* Encabezado de columnas (solo escritorio) */}
-                <div className="hidden lg:grid grid-cols-[minmax(0,1fr)_150px_170px_130px_96px_70px] gap-x-3 px-4 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-400">
-                  <span>Licitación</span>
-                  <span>{isAdmin ? 'Perfil' : ''}</span>
-                  <span>Empresa</span>
-                  <span className="text-right">Resultado $</span>
-                  <span className="text-right">Cierre</span>
-                  <span />
+            {/* KPIs */}
+            {resueltas.length > 0 && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+                <div className="stagger-item" style={{ '--stagger-i': 0 } as React.CSSProperties}>
+                  <StatCard icon={<Trophy size={22} />} label="Ganadas" value={conteo.ganada} sub={stats.exito != null ? `${stats.exito}% de efectividad` : undefined} color={META.ganada.color} />
                 </div>
-                {enPagina.map(n => (
-                  <Fila key={n.id} n={n} adj={adjMap[n.licitacion_codigo] ?? null}
-                    cargandoAdj={!resueltos.has(n.licitacion_codigo)} isAdmin={!!isAdmin} />
-                ))}
+                <div className="stagger-item" style={{ '--stagger-i': 1 } as React.CSSProperties}>
+                  <StatCard icon={<XCircle size={22} />} label="Perdidas" value={conteo.perdida} sub="Adjudicadas a terceros" color={META.perdida.color} />
+                </div>
+                <div className="stagger-item" style={{ '--stagger-i': 2 } as React.CSSProperties}>
+                  <StatCard icon={<Target size={22} />} label="Tasa de éxito" value={stats.exito != null ? `${stats.exito}%` : '—'} sub="ganadas / resueltas" color="#7c3aed" />
+                </div>
+                <div className="stagger-item" style={{ '--stagger-i': 3 } as React.CSSProperties}>
+                  <StatCard icon={<Wallet size={22} />} label="Monto ganado" value={stats.montoGanado || '—'} formato={fmtCLP} sub="Lo adjudicado a nosotros" color="#0d9488" />
+                </div>
               </div>
             )}
+
+            {/* Barra de herramientas: tabs resultado · vista · buscador · filtros · orden */}
+            {resueltas.length > 0 && (
+              <div className="bg-white border border-slate-200 rounded-2xl p-3 mb-5 space-y-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Tabs de resultado */}
+                  <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-0.5">
+                    {TABS.map(t => {
+                      const activo = resultadoSel === t.id;
+                      return (
+                        <button key={t.id || 'all'} onClick={() => setResultadoSel(t.id)}
+                          className={`inline-flex items-center gap-1.5 text-[12.5px] font-bold px-3 py-1.5 rounded-lg transition-all ${
+                            activo ? 'bg-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                          style={activo ? { color: t.color } : undefined}>
+                          {t.label}
+                          <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[10.5px] font-black"
+                            style={{ background: t.color + (activo ? '18' : '10'), color: activo ? t.color : '#64748b' }}>{t.count}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="flex-1 min-w-[160px]" />
+
+                  {/* Conmutador de vista */}
+                  <div className="flex items-center gap-0.5 bg-slate-100 rounded-xl p-0.5" role="group" aria-label="Tipo de vista">
+                    <button onClick={() => cambiarVista('lista')} title="Vista de lista" aria-pressed={vista === 'lista'}
+                      className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg transition-all ${
+                        vista === 'lista' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                      <LayoutList size={14} /> Lista
+                    </button>
+                    <button onClick={() => cambiarVista('tarjetas')} title="Vista de tarjetas" aria-pressed={vista === 'tarjetas'}
+                      className={`inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg transition-all ${
+                        vista === 'tarjetas' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                      <LayoutGrid size={14} /> Tarjetas
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Buscador */}
+                  <div className="relative flex-1 min-w-[200px] max-w-md">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input value={q} onChange={e => setQ(e.target.value)}
+                      placeholder={isAdmin ? 'Buscar por nombre, código, organismo, empresa o perfil…' : 'Buscar por nombre, código, organismo o empresa…'}
+                      className="w-full pl-8 pr-8 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none" />
+                    {q && (
+                      <button onClick={() => setQ('')} title="Limpiar búsqueda"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Filtros multi-select */}
+                  {isAdmin && opcionesPerfil.length > 1 && (
+                    <MultiSelect label="Perfil" icon={<Users size={13} />} options={opcionesPerfil} selected={fPerfil} onChange={setFPerfil} />
+                  )}
+                  {opcionesEmpresa.length > 1 && (
+                    <MultiSelect label="Empresa" icon={<Building2 size={13} />} options={opcionesEmpresa} selected={fEmpresa} onChange={setFEmpresa} />
+                  )}
+
+                  {/* Orden */}
+                  <Select value={orden} onChange={v => setOrden(v as Orden)} options={OPCIONES_ORDEN}
+                    icon={<ArrowUpDown size={13} />} minWidth={190} />
+
+                  {hayFiltros && (
+                    <button onClick={limpiarFiltros}
+                      className="inline-flex items-center gap-1 text-[12px] font-semibold text-rose-600 hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-lg px-2.5 py-2 transition-colors">
+                      <X size={13} /> Limpiar
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Contenido */}
+            <div ref={listaRef} className="scroll-mt-16">
+              {visibles.length === 0 ? (
+                <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 fade-in">
+                  <Inbox size={36} className="text-gray-300 mx-auto mb-3" />
+                  <h3 className="text-lg font-semibold text-gray-700 mb-2">
+                    {resueltas.length === 0 ? 'Todavía no hay licitaciones resueltas' : 'Nada con estos filtros'}
+                  </h3>
+                  <p className="text-sm text-gray-400">
+                    {resueltas.length === 0
+                      ? <>Cuando Mercado Público publique el resultado de una postulada, aparecerá aquí como <b>Ganada</b> o <b>Perdida</b>.</>
+                      : isAdmin ? 'Prueba con otra búsqueda, resultado o perfil.' : 'Prueba con otra búsqueda, resultado o empresa.'}
+                  </p>
+                  {hayFiltros && resueltas.length > 0 && (
+                    <button onClick={limpiarFiltros}
+                      className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 hover:text-indigo-700">
+                      <X size={14} /> Limpiar filtros
+                    </button>
+                  )}
+                </div>
+              ) : vista === 'tarjetas' ? (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
+                  {enPagina.map((n, i) => (
+                    <div key={n.id} className="stagger-item" style={{ '--stagger-i': Math.min(i, 12) } as React.CSSProperties}>
+                      <Card n={n} adj={adjMap[n.licitacion_codigo] ?? null}
+                        cargandoAdj={!resueltos.has(n.licitacion_codigo)} isAdmin={!!isAdmin} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {/* Encabezado de columnas (solo escritorio) */}
+                  <div className={`hidden lg:grid ${isAdmin ? GRID_ADMIN : GRID_USER} gap-x-3 px-4 pb-1 text-[10.5px] font-bold uppercase tracking-wide text-slate-500`}>
+                    <span>Licitación</span>
+                    {isAdmin && <span>Perfil</span>}
+                    <span>Empresa</span>
+                    <span className="text-right">Resultado $</span>
+                    <span className="text-right">Cierre</span>
+                    <span />
+                  </div>
+                  {enPagina.map((n, i) => (
+                    <div key={n.id} className="stagger-item" style={{ '--stagger-i': Math.min(i, 12) } as React.CSSProperties}>
+                      <Fila n={n} adj={adjMap[n.licitacion_codigo] ?? null}
+                        cargandoAdj={!resueltos.has(n.licitacion_codigo)} isAdmin={!!isAdmin} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <Paginacion
               pagina={paginaSegura} totalPaginas={totalPaginas} total={visibles.length}
               desde={(paginaSegura - 1) * porPagina + 1}
               hasta={Math.min(paginaSegura * porPagina, visibles.length)}
-              porPagina={porPagina} onPagina={p => setPagina(Math.min(Math.max(1, p), totalPaginas))} onPorPagina={setPorPagina} />
+              porPagina={porPagina} onPagina={irAPagina} onPorPagina={setPorPagina} />
           </>
         )}
       </div>

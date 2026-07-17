@@ -21,7 +21,7 @@ import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO } from '@/app/lib/gemini';
 import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto } from '@/app/lib/planilla-costeo-parser';
-import { ocrTieneHuecos } from '@/app/lib/zai-ocr';
+import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
@@ -235,11 +235,11 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
     const batch = docs.slice(i, i + 2);
     const res = await Promise.all(batch.map(async (d) => {
       // CACHÉ: si ya leímos este documento antes, reusamos el texto (no re-OCR) → rápido.
-      // EXCEPCIÓN (auto-sanación): si el OCR cacheado quedó INCOMPLETO (alguna ventana sin
-      // transcribir → marca de hueco), NO lo reusamos: se vuelve a OCR-ear para que el
-      // análisis lea TODAS las páginas. Así un hueco pasajero no queda fijado para siempre.
+      // EXCEPCIÓN (auto-sanación): si el OCR cacheado quedó INCOMPLETO (marca de hueco) o
+      // es BASURA (capa de texto ilegible del escáner — caso 2731-21-LE26), NO lo reusamos:
+      // se re-extrae (document-extraction ahora enruta la basura a GLM-OCR) y se persiste.
       const cacheTxt = (d.texto_extraido || '').trim();
-      if (cacheTxt.length >= 50 && !ocrTieneHuecos(cacheTxt)) {
+      if (cacheTxt.length >= 50 && !ocrTieneHuecos(cacheTxt) && !esTextoBasuraOCR(cacheTxt)) {
         return { nombre: d.documento_nombre, categoria: d.categoria, texto: cacheTxt, metodo: d.metodo_extraccion || 'cache', ok: true } as DocLeido;
       }
       const r = await descargarYExtraerTexto(d.documento_url_local, d.documento_nombre, { omitirOCR: noRequiereOCR(d.documento_nombre) }).catch(() => null);
@@ -1128,6 +1128,12 @@ PASO 3 — FORMATOS (identifícalos y trátalos así):
    cantidades) llega vacío/cortado (OCR fallido), NO lo compenses inventando ni desde la API MP: emite
    los ítems con respaldo, declara el hueco en alertas y baja la confianza del módulo (el código escala
    a revisión humana).
+⑦ CATÁLOGO DE SUMINISTRO SIN CANTIDADES (formularios "Solicitud de Compra" / "Bienes o Servicios
+   Requeridos" de contratos de suministro, a menudo ESCANEADOS): una lista larga de productos donde la
+   columna Cantidad viene VACÍA en todas las filas. CADA FILA ES UN ÍTEM: emítelos TODOS con cantidad
+   null (o 1 como base) y unidad_inferida=true. PROHIBIDO listar solo los primeros N como muestra: si el
+   listado es muy largo, total_items debe reflejar el conteo REAL de filas y, si no alcanzas a emitir
+   cada ficha, decláralo en alertas/hallazgos_formato — NUNCA presentes 3 ítems como si fueran todos.
 PASO 4 — CIERRE: total_items = suma del mapa; cruza con la API MP (si trae MÁS líneas, revisa qué doc
 no barriste). Cada FILA con cantidad y unidad propia es UN producto; un SET/KIT jamás se emite como un
 solo ítem si el documento desglosa su contenido.

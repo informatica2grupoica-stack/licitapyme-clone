@@ -96,5 +96,14 @@
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS"
     }
+  },
+  {
+    "codigo": "1057822-37-LE26",
+    "nota": "corregido 2026-07-17 (experto): Mobiliario Cesfam O'Higgins – Concepción. La plataforma la daba suma_alzada/GLOBAL por el 'Monto total' único, pero el punto 16 abre 'Presupuesto por línea:' con Línea 1..5 y su monto (5 líneas presupuestadas) y el punto 21 adjudica bajo 'Adjudicación Múltiple' → por_linea. detectarPresupuestoPorLinea no contaba las etiquetas 'Línea N:' SIN 'N°' ni montos '(IVA incluido)'; se agregó el contador 'Línea N: $monto'.",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_items_min": 5
+    }
   }
 ]

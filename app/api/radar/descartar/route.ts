@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
+import { registrarActividad } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -47,6 +48,19 @@ export async function POST(request: NextRequest) {
       const placeholders = codigos.map(() => '?').join(',');
       await pool.query(`DELETE FROM licitaciones_descartadas WHERE licitacion_codigo IN (${placeholders})`, codigos);
     }
+
+    // Bitácora: una línea por licitación para que cada una tenga su historial completo.
+    for (const c of codigos) {
+      registrarActividad({
+        usuarioId: usuario.id, accion: 'descarte_radar',
+        entidadTipo: 'licitacion', entidadId: c,
+        descripcion: descartar
+          ? `Descartó ${c} del radar${motivo ? `: ${motivo}` : ''}`
+          : `Restauró ${c} al radar`,
+        metadata: { licitacion_codigo: c, descartada: descartar, motivo: motivo || undefined },
+      });
+    }
+
     return NextResponse.json({ success: true, count: codigos.length, descartada: descartar });
   } catch (error) {
     console.error('[radar:descartar]', String(error));

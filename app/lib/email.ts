@@ -192,6 +192,7 @@ export interface LicitacionDigest {
   monto?: number | null;
   cierre?: string | null;
   keyword?: string | null;
+  perfil?: string | null; // nombre del perfil asignado (solo en el digest de cierres para admins)
 }
 interface DigestEmail {
   to: string;
@@ -360,6 +361,7 @@ interface CierresEmail {
   licitaciones: LicitacionDigest[];
   totalNuevas: number;
   horas: number;
+  esAdmin?: boolean; // true = digest global de la empresa (muestra el perfil de cada una)
 }
 
 // Cierre con fecha + HORA (hora de Chile) — para estos avisos la hora es lo importante.
@@ -384,6 +386,7 @@ function plantillaCierres(p: CierresEmail, appUrl: string): string {
             ${url ? `<a href="${url}" style="color:#0f172a;text-decoration:none;">` : ''}${esc(l.nombre || l.codigo)}${url ? '</a>' : ''}
           </div>
           <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}</div>
+          ${l.perfil ? `<div style="margin-top:5px;"><span style="display:inline-block;background:#eef2ff;color:#4338ca;font-size:11.5px;font-weight:700;padding:2px 8px;border-radius:999px;">👤 ${esc(l.perfil)}</span></div>` : ''}
           ${cierre ? `<div style="margin-top:6px;color:#b91c1c;font-size:13px;font-weight:700;">⏰ Cierra: ${esc(cierre)}</div>` : ''}
           ${meta ? `<div style="margin-top:4px;color:#6b7280;font-size:12px;">${meta}</div>` : ''}
         </td></tr>
@@ -391,14 +394,19 @@ function plantillaCierres(p: CierresEmail, appUrl: string): string {
   };
   const extra = p.totalNuevas > p.licitaciones.length
     ? `<p style="margin:6px 0 0;color:#6b7280;font-size:13px;">y ${p.totalNuevas - p.licitaciones.length} más por cerrar.</p>` : '';
+  const intro = p.esAdmin
+    ? `Hola ${esc(p.nombre || '')}: estas licitaciones asignadas al equipo <strong>están por cerrar</strong> y siguen sin resolver. Cada tarjeta indica el perfil responsable.`
+    : `Hola ${esc(p.nombre || '')}: estas licitaciones que tienes asignadas <strong>están por cerrar</strong> y siguen sin resolver. Revísalas antes de que venzan.`;
   const cuerpo = `
-    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}: estas licitaciones que tienes asignadas <strong>cierran dentro de ${p.horas} horas</strong> y siguen sin resolver. Revísalas antes de que venzan.</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">${intro}</p>
     ${p.licitaciones.map(tarjeta).join('')}
     ${extra}`;
   return layoutEmail({
-    titulo: `${p.totalNuevas} licitación${p.totalNuevas !== 1 ? 'es' : ''} tuya${p.totalNuevas !== 1 ? 's' : ''} cierra${p.totalNuevas !== 1 ? 'n' : ''} pronto`,
+    titulo: p.esAdmin
+      ? `${p.totalNuevas} licitación${p.totalNuevas !== 1 ? 'es' : ''} del equipo cierra${p.totalNuevas !== 1 ? 'n' : ''} pronto`
+      : `${p.totalNuevas} licitación${p.totalNuevas !== 1 ? 'es' : ''} tuya${p.totalNuevas !== 1 ? 's' : ''} cierra${p.totalNuevas !== 1 ? 'n' : ''} pronto`,
     cuerpo,
-    cta: urlNegocios ? { label: 'Ver mis negocios', url: urlNegocios } : undefined,
+    cta: urlNegocios ? { label: 'Ver los negocios', url: urlNegocios } : undefined,
   });
 }
 
@@ -412,7 +420,9 @@ export async function enviarDigestCierresProximos(p: CierresEmail): Promise<bool
     await t.sendMail({
       from: FROM(),
       to: p.to,
-      subject: `⏰ ${p.totalNuevas} licitación${p.totalNuevas !== 1 ? 'es' : ''} tuya${p.totalNuevas !== 1 ? 's' : ''} cierra${p.totalNuevas !== 1 ? 'n' : ''} pronto`,
+      subject: p.esAdmin
+        ? `⏰ ${p.totalNuevas} licitación${p.totalNuevas !== 1 ? 'es' : ''} del equipo cierra${p.totalNuevas !== 1 ? 'n' : ''} pronto`
+        : `⏰ ${p.totalNuevas} licitación${p.totalNuevas !== 1 ? 'es' : ''} tuya${p.totalNuevas !== 1 ? 's' : ''} cierra${p.totalNuevas !== 1 ? 'n' : ''} pronto`,
       html: plantillaCierres(p, appUrl),
     });
     return true;

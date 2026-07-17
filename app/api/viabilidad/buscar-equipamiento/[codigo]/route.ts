@@ -4,6 +4,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuthedUser, puedeVerLicitacion, permitido } from '@/app/lib/api-auth';
 import { generarBusquedaEquipamiento } from '@/app/lib/buscar-equipamiento';
+import { registrarActividad } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -36,6 +37,12 @@ export async function POST(request: NextRequest, { params }: Params) {
       caracteristicas,
       cantidad: body?.cantidad ?? null,
       region: body?.region ? String(body.region) : undefined,
+    });
+    registrarActividad({
+      usuarioId: usuario.id, accion: 'busqueda_equipamiento',
+      entidadTipo: 'licitacion', entidadId: codigoDecoded,
+      descripcion: `Generó búsqueda de equipamiento en ${codigoDecoded}${nombre ? `: ${nombre}` : ''}`,
+      metadata: { licitacion_codigo: codigoDecoded, producto: nombre || undefined },
     });
     return NextResponse.json({ success: true, ...resultado });
   } catch (e) {

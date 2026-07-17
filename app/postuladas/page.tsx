@@ -24,11 +24,14 @@ import { ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
+import { Select } from '@/app/components/ui/Select';
+import { StatCard } from '@/app/components/ui/StatCard';
+import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
   Pencil, Trash2, Undo2, X, Save, Wallet, CheckCircle2,
-  XCircle, Hourglass, DoorOpen, DoorClosed, Search,
+  XCircle, Hourglass, DoorOpen, DoorClosed, Search, Filter, ArrowUpDown,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -462,18 +465,14 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
             </label>
             <label className="block">
               <span className="text-[11px] font-semibold text-slate-600">Estado</span>
-              <select value={estadoEdit} onChange={e => setEstadoEdit(e.target.value)}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] bg-white outline-none focus:ring-2 focus:ring-indigo-400">
-                {ESTADOS_PIPELINE.map(e => <option key={e.id} value={e.id}>{e.label}</option>)}
-              </select>
+              <div className="mt-1"><Select value={estadoEdit} onChange={setEstadoEdit}
+                options={ESTADOS_PIPELINE.map(e => ({ value: e.id, label: e.label }))} /></div>
             </label>
             <label className="block sm:col-span-2">
               <span className="text-[11px] font-semibold text-slate-600">Empresa con la que se postuló</span>
-              <select value={empresaEdit} onChange={e => setEmpresaEdit(e.target.value)}
-                className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-[13px] bg-white outline-none focus:ring-2 focus:ring-indigo-400">
-                <option value="">— Sin especificar —</option>
-                {empresas.map(e => <option key={e.id} value={e.id}>{e.razon_social}</option>)}
-              </select>
+              <div className="mt-1"><Select value={empresaEdit} onChange={setEmpresaEdit}
+                placeholder="— Sin especificar —"
+                options={[{ value: '', label: '— Sin especificar —' }, ...empresas.map(e => ({ value: String(e.id), label: e.razon_social }))]} /></div>
             </label>
           </div>
           <p className="text-[11px] text-slate-500 mt-2">Si cambias el estado a uno distinto de <b>Postulada</b>, saldrá de este apartado.</p>
@@ -540,23 +539,14 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
   );
 }
 
-// KPI tile.
+// KPI tile — delega en la StatCard compartida (mismo estilo en todos los dashboards);
+// el wrapper pp-kpi conserva la animación de entrada propia de esta página.
 function KpiCard({ icon, label, value, sub, color }: {
   icon: React.ReactNode; label: string; value: string | number; sub?: string; color: string;
 }) {
   return (
-    <div className="pp-kpi bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 transition-shadow hover:shadow-md">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide mb-1">{label}</p>
-          <p className="text-[26px] font-black leading-none tabular-nums text-slate-900">{value}</p>
-          {sub && <p className="text-xs text-slate-400 mt-1 truncate">{sub}</p>}
-        </div>
-        <div className="w-[42px] h-[42px] rounded-xl flex items-center justify-center flex-shrink-0"
-          style={{ background: color + '18', color }}>
-          {icon}
-        </div>
-      </div>
+    <div className="pp-kpi h-full">
+      <StatCard icon={icon} label={label} value={value} sub={sub} color={color} />
     </div>
   );
 }
@@ -570,11 +560,16 @@ export default function PostuladasPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState<string>('');
-  const [perfilSel, setPerfilSel] = useState<string>('');
-  const [empresaSel, setEmpresaSel] = useState<string>('');
+  // Filtros de SELECCIÓN MÚLTIPLE (mismo patrón que Analizadas/Descartadas/Historial):
+  // AND entre filtros, OR dentro de cada uno; vacío = sin filtrar por esa dimensión.
+  const [perfilesSel, setPerfilesSel] = useState<string[]>([]);
+  const [empresasSel, setEmpresasSel] = useState<string[]>([]);
   const [resultadoSel, setResultadoSel] = useState<Resultado | ''>('');
   // Filtro por estado de MP (Publicada/Cerrada/Adjudicada/Revocada/Desierta…) + "Aperturadas".
-  const [estadoMpSel, setEstadoMpSel] = useState<string>('');
+  const [estadosMpSel, setEstadosMpSel] = useState<string[]>([]);
+  // Ordenamiento de las tarjetas y carga incremental (las adjudicaciones hacen pesada cada tarjeta).
+  const [orden, setOrden] = useState<'resultado' | 'cierre' | 'monto'>('resultado');
+  const [maxVisibles, setMaxVisibles] = useState(24);
 
   // Estado de cada postulada (adjudicación + apertura). Se resuelve TODO en el servidor en
   // una sola llamada (/api/postuladas/estado) → los totales aparecen juntos, sin animación
@@ -704,9 +699,9 @@ export default function PostuladasPage() {
         || (n.licitacion_nombre || '').toLowerCase().includes(q)
         || (n.licitacion_codigo || '').toLowerCase().includes(q)
         || (n.licitacion_organismo || '').toLowerCase().includes(q))
-      .filter(n => !perfilSel || (n.usuario_email || n.usuario_nombre) === perfilSel)
-      .filter(n => !empresaSel || String(n.empresa_id || '') === empresaSel);
-  }, [negocios, busqueda, perfilSel, empresaSel]);
+      .filter(n => perfilesSel.length === 0 || perfilesSel.includes(n.usuario_email || n.usuario_nombre || '—'))
+      .filter(n => empresasSel.length === 0 || empresasSel.includes(String(n.empresa_id || '')));
+  }, [negocios, busqueda, perfilesSel, empresasSel]);
 
   const resultadoDeNegocio = useCallback(
     (n: Negocio): Resultado => {
@@ -755,14 +750,19 @@ export default function PostuladasPage() {
   const visibles = useMemo(() => {
     return base
       .filter(n => !resultadoSel || resultadoDeNegocio(n) === resultadoSel)
-      .filter(n => !estadoMpSel
-        || (estadoMpSel === APERTURADAS ? !!n.aperturada : estadoMpDe(n) === estadoMpSel))
+      .filter(n => estadosMpSel.length === 0
+        || estadosMpSel.some(sel => sel === APERTURADAS ? !!n.aperturada : estadoMpDe(n) === sel))
       .sort((a, b) => {
+        if (orden === 'cierre') return dayjs(b.licitacion_cierre || 0).valueOf() - dayjs(a.licitacion_cierre || 0).valueOf();
+        if (orden === 'monto') return (b.monto_ofertado || b.licitacion_monto || 0) - (a.monto_ofertado || a.licitacion_monto || 0);
         const da = ORDEN[resultadoDeNegocio(a)] - ORDEN[resultadoDeNegocio(b)];
         if (da !== 0) return da;
         return dayjs(b.licitacion_cierre || 0).valueOf() - dayjs(a.licitacion_cierre || 0).valueOf();
       });
-  }, [base, resultadoSel, resultadoDeNegocio, estadoMpSel, estadoMpDe]);
+  }, [base, resultadoSel, resultadoDeNegocio, estadosMpSel, estadoMpDe, orden]);
+
+  // Al cambiar cualquier filtro se reinicia la carga incremental de tarjetas.
+  useEffect(() => { setMaxVisibles(24); }, [busqueda, perfilesSel, empresasSel, estadosMpSel, resultadoSel, orden]);
 
   // KPIs.
   const stats = useMemo(() => {
@@ -852,113 +852,106 @@ export default function PostuladasPage() {
           </div>
         )}
 
-        {/* Tabs de resultado */}
-        {!cargando && estadoCargado && !error && base.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-5">
-            {TABS.map(t => {
-              const activo = resultadoSel === t.id;
-              return (
-                <button key={t.id || 'all'} onClick={() => setResultadoSel(t.id)}
-                  style={activo ? { backgroundColor: t.color, borderColor: t.color } : { borderColor: t.color + '40', color: t.color }}
-                  className={`inline-flex items-center gap-2 text-[12.5px] font-bold px-3.5 py-2 rounded-xl border transition-all ${
-                    activo ? 'text-white shadow-sm' : 'bg-white hover:bg-slate-50'
-                  }`}>
-                  {t.label}
-                  <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[11px] font-black"
-                    style={activo ? { background: 'rgba(255,255,255,.25)', color: '#fff' } : { background: t.color + '18', color: t.color }}>
-                    {t.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        {/* Barra de control: tabs de resultado + filtros multi-select + orden (una sola tarjeta) */}
+        {!cargando && !error && base.length + negocios.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 mb-5">
+            {/* Tabs de resultado (segmentado) */}
+            {estadoCargado && (
+              <div className="flex flex-wrap gap-2 mb-3">
+                {TABS.map(t => {
+                  const activo = resultadoSel === t.id;
+                  return (
+                    <button key={t.id || 'all'} onClick={() => setResultadoSel(t.id)}
+                      style={activo ? { backgroundColor: t.color, borderColor: t.color } : { borderColor: t.color + '40', color: t.color }}
+                      className={`inline-flex items-center gap-2 text-[12.5px] font-bold px-3.5 py-2 rounded-xl border transition-all ${
+                        activo ? 'text-white shadow-sm' : 'bg-white hover:bg-slate-50'
+                      }`}>
+                      {t.label}
+                      <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1 rounded-full text-[11px] font-black"
+                        style={activo ? { background: 'rgba(255,255,255,.25)', color: '#fff' } : { background: t.color + '18', color: t.color }}>
+                        {t.count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-        {/* Filtro por perfil (admin) */}
-        {isAdmin && perfiles.length > 1 && (
-          <div className="flex flex-wrap items-center gap-1.5 mb-4">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mr-1 inline-flex items-center gap-1">
-              <Users size={12} /> Perfil
-            </span>
-            <button onClick={() => setPerfilSel('')}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                perfilSel === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-              }`}>
-              Todos <span className="opacity-70">({negocios.length})</span>
-            </button>
-            {perfiles.map(p => {
-              const activo = perfilSel === p.email;
-              const col = colorUsuario(p.email);
-              return (
-                <button key={p.email} onClick={() => setPerfilSel(activo ? '' : p.email)}
-                  style={activo ? { backgroundColor: col, borderColor: col } : { borderColor: col + '55' }}
-                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                    activo ? 'text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
-                  }`}>
-                  <span style={{ background: activo ? 'rgba(255,255,255,.35)' : col }}
-                    className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
-                    {inicialesUsuario(p.nombre, p.email)}
-                  </span>
-                  {p.nombre} <span className="opacity-70">({p.total})</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+            {/* Filtros combinables + orden */}
+            <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
+                <Filter size={12} /> Filtros
+              </span>
+              {isAdmin && perfiles.length > 1 && (
+                <MultiSelect label="Perfil" icon={<Users size={13} />} selected={perfilesSel} onChange={setPerfilesSel}
+                  options={perfiles.map(p => ({ value: p.email, label: p.nombre, color: colorUsuario(p.email), count: p.total }))} />
+              )}
+              {empresasFiltro.length > 1 && (
+                <MultiSelect label="Empresa" icon={<Building2 size={13} />} selected={empresasSel} onChange={setEmpresasSel} minWidth={260}
+                  options={empresasFiltro.map(e => ({ value: e.id, label: e.nombre, count: e.total }))} />
+              )}
+              {estadosMp.length > 1 && (
+                <MultiSelect label="Estado MP" icon={<FileText size={13} />} selected={estadosMpSel} onChange={setEstadosMpSel} minWidth={230}
+                  options={estadosMp.map(e => ({
+                    value: e.id, label: e.label, count: e.total,
+                    color: e.id === APERTURADAS ? '#0284c7' : undefined,
+                  }))} />
+              )}
+              <div className="inline-flex items-center gap-1.5 ml-auto">
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400">
+                  <ArrowUpDown size={12} /> Ordenar
+                </span>
+                <Select value={orden} onChange={v => setOrden(v as typeof orden)}
+                  options={[
+                    { value: 'resultado', label: 'Resultado' },
+                    { value: 'cierre', label: 'Cierre reciente' },
+                    { value: 'monto', label: 'Monto (mayor)' },
+                  ]} />
+              </div>
+            </div>
 
-        {/* Filtro por empresa */}
-        {empresasFiltro.length > 1 && (
-          <div className="flex flex-wrap items-center gap-1.5 mb-5">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mr-1 inline-flex items-center gap-1">
-              <Building2 size={12} /> Empresa
-            </span>
-            <button onClick={() => setEmpresaSel('')}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                empresaSel === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-              }`}>
-              Todas
-            </button>
-            {empresasFiltro.map(e => {
-              const activo = empresaSel === e.id;
-              return (
-                <button key={e.id} onClick={() => setEmpresaSel(activo ? '' : e.id)}
-                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                    activo ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                  }`}>
-                  {e.nombre} <span className="opacity-70">({e.total})</span>
+            {/* Chips de filtros activos */}
+            {(perfilesSel.length > 0 || empresasSel.length > 0 || estadosMpSel.length > 0 || busqueda) && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+                <span className="text-[11px] text-slate-400">Filtrando:</span>
+                {busqueda && (
+                  <button onClick={() => setBusqueda('')}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 hover:opacity-75">
+                    <Search size={10} /> “{busqueda}” <X size={11} />
+                  </button>
+                )}
+                {perfilesSel.map(p => {
+                  const per = perfiles.find(x => x.email === p);
+                  const col = colorUsuario(p);
+                  return (
+                    <button key={p} onClick={() => setPerfilesSel(a => a.filter(x => x !== p))}
+                      style={{ background: col + '18', color: col, borderColor: col + '40' }}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75">
+                      {per?.nombre || p} <X size={11} />
+                    </button>
+                  );
+                })}
+                {empresasSel.map(id => (
+                  <button key={id} onClick={() => setEmpresasSel(a => a.filter(x => x !== id))}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-indigo-50 text-indigo-700 border-indigo-200 hover:opacity-75 max-w-[220px]">
+                    <span className="truncate">{empresasFiltro.find(e => e.id === id)?.nombre || `Empresa ${id}`}</span> <X size={11} className="flex-shrink-0" />
+                  </button>
+                ))}
+                {estadosMpSel.map(id => (
+                  <button key={id} onClick={() => setEstadosMpSel(a => a.filter(x => x !== id))}
+                    className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75 ${
+                      id === APERTURADAS ? 'bg-sky-50 text-sky-700 border-sky-200' : 'bg-slate-50 text-slate-600 border-slate-200'
+                    }`}>
+                    {id === APERTURADAS ? <DoorOpen size={11} /> : null}
+                    {id === APERTURADAS ? 'Aperturadas' : id} <X size={11} />
+                  </button>
+                ))}
+                <button onClick={() => { setBusqueda(''); setPerfilesSel([]); setEmpresasSel([]); setEstadosMpSel([]); }}
+                  className="text-[11px] font-semibold text-slate-400 hover:text-red-600 underline ml-1">
+                  Limpiar todo
                 </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Filtro por estado de Mercado Público (+ Aperturadas) */}
-        {!cargando && !error && estadosMp.length > 1 && (
-          <div className="flex flex-wrap items-center gap-1.5 mb-5">
-            <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mr-1 inline-flex items-center gap-1">
-              <FileText size={12} /> Estado
-            </span>
-            <button onClick={() => setEstadoMpSel('')}
-              className={`text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                estadoMpSel === '' ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-              }`}>
-              Todos
-            </button>
-            {estadosMp.map(e => {
-              const activo = estadoMpSel === e.id;
-              const esAp = e.id === APERTURADAS;
-              return (
-                <button key={e.id} onClick={() => setEstadoMpSel(activo ? '' : e.id)}
-                  className={`inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ${
-                    activo
-                      ? (esAp ? 'bg-sky-600 text-white border-sky-600' : 'bg-indigo-600 text-white border-indigo-600')
-                      : (esAp ? 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50')
-                  }`}>
-                  {esAp && <DoorOpen size={12} />}
-                  {e.label} <span className="opacity-70">({e.total})</span>
-                </button>
-              );
-            })}
+              </div>
+            )}
           </div>
         )}
 
@@ -979,22 +972,33 @@ export default function PostuladasPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
-            {visibles.map((n, i) => (
-              <PostuladaCard key={n.id} n={n}
-                adj={adjMap[n.licitacion_codigo] ?? null}
-                cargandoAdj={!estadoCargado}
-                docsIniciales={docsPropiosMap[n.licitacion_codigo] || []}
-                index={i} isAdmin={!!isAdmin} empresas={empresasOpc}
-                onRevertida={id => setNegocios(prev => prev.filter(x => x.id !== id))}
-                onActualizada={(id, patch) => setNegocios(prev =>
-                  patch.estado_pipeline && patch.estado_pipeline !== ESTADO_POSTULADA
-                    ? prev.filter(x => x.id !== id)
-                    : prev.map(x => x.id === id ? { ...x, ...patch } : x)
-                )}
-              />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
+              {visibles.slice(0, maxVisibles).map((n, i) => (
+                <PostuladaCard key={n.id} n={n}
+                  adj={adjMap[n.licitacion_codigo] ?? null}
+                  cargandoAdj={!estadoCargado}
+                  docsIniciales={docsPropiosMap[n.licitacion_codigo] || []}
+                  index={i} isAdmin={!!isAdmin} empresas={empresasOpc}
+                  onRevertida={id => setNegocios(prev => prev.filter(x => x.id !== id))}
+                  onActualizada={(id, patch) => setNegocios(prev =>
+                    patch.estado_pipeline && patch.estado_pipeline !== ESTADO_POSTULADA
+                      ? prev.filter(x => x.id !== id)
+                      : prev.map(x => x.id === id ? { ...x, ...patch } : x)
+                  )}
+                />
+              ))}
+            </div>
+            {visibles.length > maxVisibles && (
+              <div className="flex justify-center mt-5">
+                <button onClick={() => setMaxVisibles(m => m + 24)}
+                  className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-600 bg-white border border-slate-200 hover:border-slate-400 hover:shadow-sm px-5 py-2.5 rounded-xl transition-all">
+                  <ChevronDown size={15} />
+                  Mostrar más ({visibles.length - maxVisibles} restantes)
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </AppLayout>

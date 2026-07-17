@@ -56,7 +56,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       await fetch('/api/auth/logout', { method: 'POST' });
     } finally {
       setUsuario(null);
-      window.location.href = '/login';
+      window.location.href = '/bienvenida';
     }
   }, []);
 

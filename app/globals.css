@@ -138,6 +138,41 @@
   .modal-in       { animation: modalIn      0.22s cubic-bezier(0.32,0.72,0,1) both; }
   .overlay-in     { animation: overlayIn    0.18s ease-out both; }
 
+  /* Entrada ESCALONADA de listas/grillas: cada ítem sube y aparece con un pequeño
+     retardo según su posición (tope 12 para que las listas largas no tarden).
+     Uso: <div className="stagger-item" style={{ '--stagger-i': Math.min(i, 12) }}> */
+  .stagger-item {
+    animation: slideInUp 0.3s ease-out both;
+    animation-delay: calc(var(--stagger-i, 0) * 35ms);
+  }
+
+  /* Expandible suave sin medir alturas: la fila del grid anima 0fr → 1fr.
+     Uso: <div className="colapsable" data-abierto={abierto ? '1' : '0'}>
+            <div className="colapsable-inner">…contenido…</div>
+          </div> */
+  .colapsable {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  .colapsable[data-abierto='1'] { grid-template-rows: 1fr; }
+  .colapsable-inner { overflow: hidden; min-height: 0; }
+
+  /* Variante sin JS: escalona los HIJOS DIRECTOS de una grilla (KPIs, tarjetas). */
+  .stagger-grid > * { animation: slideInUp 0.3s ease-out both; }
+  .stagger-grid > *:nth-child(2) { animation-delay: 40ms; }
+  .stagger-grid > *:nth-child(3) { animation-delay: 80ms; }
+  .stagger-grid > *:nth-child(4) { animation-delay: 120ms; }
+  .stagger-grid > *:nth-child(5) { animation-delay: 160ms; }
+  .stagger-grid > *:nth-child(6) { animation-delay: 200ms; }
+  .stagger-grid > *:nth-child(n+7) { animation-delay: 240ms; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stagger-item { animation: none; }
+    .stagger-grid > * { animation: none; }
+    .colapsable { transition: none; }
+  }
+
   /* DocScanLoader (ver app/components/ui/DocScanLoader.tsx) */
   .docscan { position: relative; width: 96px; height: 100px; }
   .docscan-doc {

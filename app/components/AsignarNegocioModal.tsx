@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react';
 import { Briefcase, Loader2, X } from 'lucide-react';
 import { Oportunidad } from '@/app/types/search.types';
 import { useToast } from '@/app/components/ui/toast';
+import { Select } from '@/app/components/ui/Select';
 
 interface UsuarioAsignacion {
   id: number;
@@ -133,18 +134,14 @@ export function AsignarNegocioModal({
               <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                 Asignar a
               </label>
-              <select
+              <Select
                 value={asignandoA}
-                onChange={e => setAsignandoA(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-[13px] text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white outline-none"
-              >
-                <option value="">— Selecciona un usuario —</option>
-                {usuarios.map(u => (
-                  <option key={u.id} value={String(u.id)}>
-                    {u.nombre || u.email} {u.nombre ? `(${u.email})` : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={setAsignandoA}
+                placeholder="— Selecciona un usuario —"
+                options={usuarios.map(u => ({
+                  value: String(u.id), label: u.nombre || u.email,
+                  description: u.nombre ? u.email : undefined,
+                }))} />
             </div>
           )}
         </div>

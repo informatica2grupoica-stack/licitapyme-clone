@@ -96,7 +96,9 @@ function detectarHeader(celdas: string[]): ColMap | null {
   // "1. Valor unitario neto … del producto … la cantidad 1 …" fijaba desc=cant=0 y las notas
   // siguientes entraban como ítems).
   const buscar = (claves: string[]) => n.findIndex((h, i) => i !== num && h && h.length <= 60 && claves.some(k => h.includes(k)));
-  const desc = buscar(['detalle', 'descrip', 'producto', 'material', 'articulo', 'glosa', 'insumo', 'item a', 'nombre', 'elemento']);
+  // 'bienes': formularios municipales de suministro ("Bienes o Servicios Requeridos" es la
+  // columna del NOMBRE del ítem; la de "Descripción..." suele venir vacía — caso 2731-21-LE26).
+  const desc = buscar(['detalle', 'descrip', 'producto', 'material', 'articulo', 'glosa', 'insumo', 'item a', 'nombre', 'elemento', 'bienes']);
   const cant = buscar(['cantidad', 'cant', 'cdad']);
   if (desc < 0 || cant < 0 || desc === cant) return null;
   const unidad = buscar(['unidad', 'medida']);
@@ -295,7 +297,17 @@ export function detectarPresupuestoPorLinea(docs: { texto: string }[]): string |
     const etiquetasLinea = new Set(
       [...d.texto.matchAll(/l[ií]nea\s*n\s*[°º]\s*(\d{1,3})/gi)].map(m => parseInt(m[1], 10)),
     ).size;
-    if (totalesPorLinea >= 2 || etiquetasLinea >= 2) {
+    // ENUMERACIÓN "Línea N: $monto" (con o sin "N°"): cada línea listada con su propio
+    // presupuesto. Cubre el formato donde el punto "Presupuesto por línea:" abre una lista
+    // "Línea 1: $ 1.970.640 (IVA incluido) … Línea 5: $ 4.069.995" — etiquetas SIN "N°" y
+    // montos "(IVA incluido)" en vez de "TOTAL IVA INCLUIDO $", que los otros dos contadores
+    // no ven. Exige el "$" pegado al número para no contar "Línea 1" suelto en prosa. Caso
+    // real 1057822-37-LE26 (Mobiliario Cesfam O'Higgins – Concepción, 5 líneas presupuestadas;
+    // el experto confirmó por_línea y la plataforma lo tomaba como global).
+    const lineasConMonto = new Set(
+      [...d.texto.matchAll(/l[ií]nea\s*(?:n\s*[°º]\s*)?(\d{1,3})\s*[:.\-)]?\s*\$\s*[\d.]{4,}/gi)].map(m => parseInt(m[1], 10)),
+    ).size;
+    if (totalesPorLinea >= 2 || etiquetasLinea >= 2 || lineasConMonto >= 2) {
       return mFrase[0].replace(/\s+/g, ' ').trim();
     }
   }
@@ -526,6 +538,11 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
   let vistoHeader = false;
   const porNumero = new Map<number, ItemPlanilla>();
   const items: ItemPlanilla[] = [];
+  // CATÁLOGO DE SUMINISTRO SIN CANTIDADES (caso real 2731-21-LE26: "Solicitud de Compra" municipal
+  // con ~290 productos de ferretería, columna Cantidad VACÍA en todas las filas): las filas con
+  // descripción real pero sin correlativo NI cantidad se juntan aparte; si la tabla resulta ser un
+  // catálogo (muchas de estas filas y casi ningún ítem "normal"), SÍ son el listado a costear.
+  const catalogo: ItemPlanilla[] = [];
 
   for (const celdas of filas) {
     if (esHeaderEspecificaciones(celdas)) { col = null; continue; }
@@ -548,9 +565,17 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
     let unidad = col.unidad >= 0 ? limpiarCelda(celdas[col.unidad] || '') : '';
     if (!unidad && mCant && mCant[2]) unidad = mCant[2].trim();
 
-    // Sin correlativo NI cantidad = fila de nota/observación arrastrada ("DEBERÁ MENCIONAR EL
-    // TIEMPO DE ENTREGA…"), no un ítem a cotizar.
-    if (numero == null && cantidad == null) continue;
+    // Sin correlativo NI cantidad: puede ser una nota/observación arrastrada ("DEBERÁ MENCIONAR EL
+    // TIEMPO DE ENTREGA…") o una fila de CATÁLOGO sin cantidades. FIRMA DEL CATÁLOGO: solo la celda
+    // de descripción (y a lo más la de unidad) trae contenido y el resto viene VACÍO — las tablas
+    // administrativas (etapas, puntajes, formularios) llenan varias columnas y quedan fuera.
+    if (numero == null && cantidad == null) {
+      const soloDescripcion = celdas.every((c, i) => i === col!.desc || i === col!.unidad || !limpiarCelda(c));
+      if (soloDescripcion && desc.length <= 90) {
+        catalogo.push({ linea: 1, categoria: null, numero: null, descripcion: desc, unidad: unidad || 'Unidad', cantidad: 1 });
+      }
+      continue;
+    }
 
     const item: ItemPlanilla = { linea: 1, categoria: null, numero, descripcion: desc, unidad, cantidad };
     // Dedupe por correlativo (la tabla suele venir repetida: resumen + anexo económico).
@@ -558,6 +583,23 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
       if (!porNumero.has(numero)) { porNumero.set(numero, item); items.push(item); }
     } else {
       items.push(item);
+    }
+  }
+
+  // MODO CATÁLOGO: hubo header de planilla ("Bienes o Servicios Requeridos | Cantidad | …") pero
+  // casi ninguna fila trajo correlativo/cantidad → es un catálogo de suministro (contrato marco de
+  // ferretería/construcción): cada fila ES un producto a costear con cantidad base 1. Se exige un
+  // volumen alto (≥15 tras dedupe) para no confundir notas sueltas con un catálogo real.
+  if (vistoHeader && items.length < 8 && catalogo.length >= 15) {
+    const vistos = new Set<string>();
+    const itemsCat = catalogo.filter(i => {
+      const k = i.descripcion.toUpperCase();
+      if (vistos.has(k)) return false;
+      vistos.add(k);
+      return true;
+    });
+    if (itemsCat.length >= 15) {
+      return { estructura: 'plana', lineas: [1], categorias: [], items: itemsCat, numeracion: 'indefinida', fuenteDoc: doc.nombre };
     }
   }
 

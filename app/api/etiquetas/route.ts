@@ -2,6 +2,7 @@
 // Gestión de etiquetas/líneas de negocio — GET público, POST/DELETE solo admin
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { registrarActividad } from '@/app/lib/actividad';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -39,6 +40,10 @@ export async function POST(request: NextRequest) {
       `INSERT INTO etiquetas (nombre, color, descripcion, created_by) VALUES (?, ?, ?, ?)`,
       [nombre.trim().toUpperCase(), color || '#3B82F6', descripcion || null, userId]
     );
+    registrarActividad({
+      usuarioId: userId, accion: 'cambio_etiqueta',
+      descripcion: `Creó la línea de negocio "${nombre.trim().toUpperCase()}"`,
+    });
     return NextResponse.json({ success: true, id: (result as any).insertId });
   } catch (error: any) {
     if (error.code === 'ER_DUP_ENTRY')
@@ -61,6 +66,10 @@ export async function PATCH(request: NextRequest) {
       `UPDATE etiquetas SET nombre=?, color=?, descripcion=?, activa=? WHERE id=?`,
       [nombre, color, descripcion || null, activa ? 1 : 0, id]
     );
+    registrarActividad({
+      usuarioId: userId, accion: 'cambio_etiqueta',
+      descripcion: `Editó la línea de negocio "${nombre}"${activa ? '' : ' (desactivada)'}`,
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -78,7 +87,17 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
 
   try {
+    // Leer el nombre antes de borrar para dejarlo en la bitácora.
+    let nombre: string | null = null;
+    try {
+      const [rows] = await pool.query(`SELECT nombre FROM etiquetas WHERE id = ?`, [id]);
+      nombre = (rows as any[])[0]?.nombre ?? null;
+    } catch { /* noop */ }
     await pool.query(`DELETE FROM etiquetas WHERE id = ?`, [id]);
+    registrarActividad({
+      usuarioId: userId, accion: 'cambio_etiqueta',
+      descripcion: `Eliminó la línea de negocio "${nombre || `#${id}`}"`,
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

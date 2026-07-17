@@ -17,6 +17,7 @@ import {
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { AnaliticaGestion } from '@/app/components/AnaliticaGestion';
+import { StatCard } from '@/app/components/ui/StatCard';
 
 interface DashData {
   success: boolean; rol: string;
@@ -67,41 +68,9 @@ const PREFILTRO: Record<string, { label: string; color: string }> = {
 const etapaLabel = (id: string) => getEstadoPipeline(id)?.label || id;
 const PIPE_COLORS = ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444'];
 
-function StatCard({ icon, label, value, sub, color = 'indigo', href, hint }: {
-  icon: React.ReactNode; label: string; value: string | number; sub?: string; color?: string; href?: string;
-  // hint: definición del número al pasar el mouse. Sin esto, un KPI que no cuadra con otra
-  // pantalla obliga a leer el SQL para saber qué mide.
-  hint?: string;
-}) {
-  const ICON_BG: Record<string, string> = {
-    indigo: 'bg-indigo-50 text-indigo-600', violet: 'bg-violet-50 text-violet-600',
-    teal: 'bg-teal-50 text-teal-600', cyan: 'bg-cyan-50 text-cyan-600',
-    orange: 'bg-orange-50 text-orange-600',
-  };
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-5 transition-shadow hover:shadow-md" title={hint}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] text-slate-400 font-semibold uppercase tracking-wide mb-1">{label}</p>
-          <p className="text-[28px] font-black leading-none tabular-nums text-slate-900">{value}</p>
-          {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
-        </div>
-        <div className={`w-[42px] h-[42px] rounded-xl flex items-center justify-center flex-shrink-0 ${ICON_BG[color] || 'bg-indigo-50 text-indigo-600'}`}>
-          {icon}
-        </div>
-      </div>
-      {href && (
-        <Link href={href} className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700 mt-3">
-          Ver detalle <ArrowUpRight size={12} />
-        </Link>
-      )}
-    </div>
-  );
-}
-
 function PanelCard({ title, icon, right, children }: { title: string; icon?: React.ReactNode; right?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+    <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
         <div className="flex items-center gap-2">
           {icon}
@@ -188,8 +157,8 @@ function VistaAdmin({ data }: { data: DashData }) {
 
   return (
     <div className="space-y-6">
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* KPIs (entrada escalonada; el data-stagger lo reparte el CSS por posición) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-grid">
         <StatCard icon={<Building2 size={22} />} label="Licitaciones en radar"
           value={a.radar.totalLicitaciones.toLocaleString('es-CL')}
           sub="Activas ahora · igual que el radar"
@@ -446,7 +415,7 @@ function VistaUsuario({ data }: { data: DashData }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 stagger-grid">
         <StatCard icon={<Building2 size={22} />} label="Mis negocios" value={u.asignadas} sub="Asignados · sin descartadas" color="indigo" href="/negocios" />
         <StatCard icon={<Wallet size={22} />} label="Monto en gestión" value={fmtMonto(u.montoAsignadas)} sub="Suma de mis licitaciones" color="teal" />
         <StatCard icon={<CalendarClock size={22} />} label="Próximos cierres" value={u.proximosCierres.length} sub="En adelante" color="orange" />

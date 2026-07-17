@@ -59,6 +59,38 @@ export function ocrTieneHuecos(texto: string): boolean {
   return typeof texto === 'string' && texto.includes(MARCA_HUECO);
 }
 
+// ─── Detector de CAPA DE TEXTO BASURA (caso real 2731-21-LE26) ───────────────────
+// Un PDF fotocopiado puede traer una capa de texto generada por el OCR del ESCÁNER
+// municipal, de pésima calidad ("I-MTJNICIPALIDAO", "MUR¡ÁTICO", "RENDICIOXE§"). Esa
+// capa pasa el gate de densidad (hay muchos chars por página) y el documento se marca
+// 'pdf-text' exitoso → GLM-OCR nunca corre y el análisis recibe texto ilegible. Este
+// detector mira la CALIDAD, no la cantidad, con tres señales que en español sano casi
+// no ocurren; si el texto es basura, el pipeline lo trata como escaneado (re-OCR).
+export function esTextoBasuraOCR(texto: string): boolean {
+  const t = (texto || '').replace(/\[\[P[ÁA]GINA[^\]]*\]\]/gi, '').trim();
+  if (t.length < 400) return false; // con tan poco texto decide la densidad, no la calidad
+  const kchars = t.length / 1000;
+
+  // Señal 1 — símbolos que jamás van DENTRO de una palabra: "MUR¡ÁTICO", "Adqu¡sic¡ones",
+  // "RENDICIOXE§". Un texto sano usa ¡/¿ solo abriendo frase.
+  const raros = (t.match(/[A-Za-zÁÉÍÓÚÑÜáéíóúñü][¡§¿\\|][A-Za-zÁÉÍÓÚÑÜáéíóúñü]/g) || []).length;
+
+  // Señal 2 — palabras "molidas": 5+ consonantes seguidas ("MTJNICIPALIDAO", y sobre todo
+  // PDFs con fuentes CID rotas: ")HFKD FUHDFL­Q"). Umbral ALTO: un texto sano con siglas
+  // técnicas ronda 1/K; la fuente rota de un escaneado supera 30/K (medido en BD real).
+  const molidas = (t.match(/[bcdfghjklmnpqrstvwxz]{5,}/gi) || []).length;
+
+  // Señal 3 — texto pulverizado en líneas de 1-2 chars ("A", "e\", "n¡", "¿", "ci"). Solo
+  // CORROBORA (un formulario Word en blanco también tiene muchas líneas cortas legítimas).
+  const lineas = t.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const cortas = lineas.filter(l => l.length <= 2).length;
+  const fracCortas = lineas.length >= 60 ? cortas / lineas.length : 0;
+
+  return (raros >= 5 && raros / kchars >= 0.5)
+      || (molidas >= 15 && molidas / kchars >= 5)
+      || (fracCortas >= 0.35 && (raros >= 3 || molidas / kchars >= 2));
+}
+
 // ─── Circuit breaker por SALDO AGOTADO (code 1113) ───────────────────────────────
 // Z.AI devuelve HTTP 429 con { code: 1113, "Insufficient balance ... recharge" } cuando
 // la cuenta NO tiene saldo. Eso es PERMANENTE, no transitorio: reintentarlo (4× por ventana

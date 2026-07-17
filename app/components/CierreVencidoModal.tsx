@@ -10,6 +10,7 @@ import { AlertTriangle, Loader2, Send, Ban, Building2, CalendarClock } from 'luc
 import { useSession } from '@/app/lib/session-context';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
 import { MOTIVOS_DESCARTE, componerMotivo } from '@/app/lib/motivos-descarte';
+import { Select } from '@/app/components/ui/Select';
 
 interface Pendiente {
   id: number;
@@ -128,23 +129,17 @@ function PendienteCard({ p, onResuelto }: { p: Pendiente; onResuelto: (id: numbe
       {resolucion && (
         <div className="mt-3 space-y-2.5">
           {resolucion === 'postulo' && (
-            <select
+            <Select
               value={estadoPostulado}
-              onChange={e => setEstadoPostulado(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[12.5px] text-slate-700 bg-white outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="POSTULADA">Postulada</option>
-            </select>
+              onChange={setEstadoPostulado}
+              options={[{ value: 'POSTULADA', label: 'Postulada' }]} />
           )}
           {resolucion === 'descarto' && (
-            <select
+            <Select
               value={motivoSel}
-              onChange={e => setMotivoSel(e.target.value)}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-[12.5px] text-slate-700 bg-white outline-none focus:ring-2 focus:ring-red-500"
-            >
-              <option value="">— Selecciona el motivo del descarte —</option>
-              {MOTIVOS_DESCARTE.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
+              onChange={setMotivoSel}
+              placeholder="— Selecciona el motivo del descarte —"
+              options={MOTIVOS_DESCARTE.map(m => ({ value: m, label: m }))} />
           )}
           <textarea
             value={motivo}

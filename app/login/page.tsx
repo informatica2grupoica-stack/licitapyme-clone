@@ -3,18 +3,23 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
-  Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, LogIn,
-  Shield, TrendingUp, Zap, CheckCircle,
+  Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, LogIn, Check, ArrowLeft,
 } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
+import { MercadoPublicoMark } from '@/app/components/MercadoPublicoLogo';
+import { IlustracionAsistente } from '@/app/components/IlustracionAsistente';
 
-const FEATURES = [
-  { icon: <TrendingUp size={16} />, text: 'Busca licitaciones en tiempo real' },
-  { icon: <Zap size={16} />, text: 'Análisis inteligente de bases' },
-  { icon: <Shield size={16} />, text: 'Alertas automáticas de nuevas oportunidades' },
-  { icon: <CheckCircle size={16} />, text: 'Gestión de postulaciones y negocios' },
+/* Misma identidad que la landing (/bienvenida): claro + teal del logo. */
+const BRAND = '#2FC7A6';
+const BRAND_INK = '#0e8f72';
+
+const PUNTOS = [
+  'Radar de Mercado Público con puntaje por perfil',
+  'Viabilidad con IA citando documento, artículo y página',
+  'Costeo, postulación y resultado en un solo flujo',
 ];
 
 function LoginContent() {
@@ -22,6 +27,7 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const { recargarSesion, usuario } = useSession();
   const returnUrl = searchParams.get('returnUrl') || '/';
+  const reduce = useReducedMotion();
 
   const [form, setForm] = useState({ email: '', password: '' });
   const [mostrarPass, setMostrarPass] = useState(false);
@@ -53,136 +59,154 @@ function LoginContent() {
     }
   };
 
+  const inputCls =
+    'w-full rounded-xl border border-zinc-200 bg-white py-2.5 pl-10 text-[13.5px] text-zinc-900 outline-none transition-all placeholder:text-zinc-400 focus:border-[#2FC7A6] focus:ring-2 focus:ring-[#2FC7A6]/25';
+
   return (
-    <div className="min-h-screen flex">
-      {/* Panel izquierdo — marca */}
-      <div className="hidden lg:flex lg:w-[52%] bg-gradient-to-br from-[#1e1b4b] via-[#312e81] to-[#1e3a8a] flex-col justify-between p-12 relative overflow-hidden">
-        {/* Decoración */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2" />
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-white/5 rounded-full translate-y-1/2 -translate-x-1/2" />
-        <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-indigo-500/10 rounded-full -translate-x-1/2 -translate-y-1/2" />
+    <div className="relative flex min-h-screen flex-col bg-[#fafafa] text-zinc-900 antialiased">
+      {/* textura de puntos, como en la landing */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0"
+        style={{
+          backgroundImage: 'radial-gradient(circle, rgba(24,24,27,0.05) 1px, transparent 1px)',
+          backgroundSize: '22px 22px',
+          maskImage: 'linear-gradient(to bottom, black 0%, transparent 85%)',
+          WebkitMaskImage: 'linear-gradient(to bottom, black 0%, transparent 85%)',
+        }} />
 
-        {/* Logo */}
-        <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-11 h-11 bg-white rounded-xl flex items-center justify-center shadow-lg">
-              <LicitankIcon size={30} />
-            </div>
-            <span className="text-white text-[19px] font-black tracking-tight">LICITANK</span>
-          </div>
-          <p className="text-indigo-300 text-sm ml-[52px]">Portal de Compras Públicas Chile</p>
+      {/* ── Header (vuelta clara a la portada) ───────────────────────────── */}
+      <header className="relative z-10 border-b border-zinc-200/80 bg-white/85 backdrop-blur-md">
+        <div className="mx-auto flex h-[60px] max-w-6xl items-center justify-between px-4 sm:px-6">
+          <Link href="/bienvenida" className="flex items-center gap-2.5">
+            <LicitankIcon size={30} />
+            <span className="text-[15px] font-black tracking-tight">LICITANK</span>
+          </Link>
+          <Link href="/bienvenida"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-3.5 py-2 text-[13px] font-semibold text-zinc-700 transition-colors hover:border-zinc-400 hover:bg-zinc-50">
+            <ArrowLeft size={14} />
+            <span className="hidden sm:inline">Conocer la plataforma</span>
+            <span className="sm:hidden">Portada</span>
+          </Link>
         </div>
+      </header>
 
-        {/* Hero text */}
-        <div className="relative z-10 space-y-6">
-          <div>
-            <h2 className="text-4xl font-bold text-white leading-tight">
-              Gana más<br />
-              <span className="text-indigo-300">licitaciones</span>
-            </h2>
-            <p className="text-indigo-200 mt-3 text-[15px] leading-relaxed max-w-sm">
-              La plataforma inteligente para proveedores del Estado. Encuentra, analiza y postula a licitaciones de Mercado Público desde un solo lugar.
+      {/* ── Contenido ────────────────────────────────────────────────────── */}
+      <main className="relative z-10 mx-auto grid w-full max-w-6xl flex-1 items-center gap-12 px-4 py-12 sm:px-6 lg:grid-cols-[1.05fr_.95fr] lg:gap-16">
+        {/* Panel izquierdo: marca + ilustración */}
+        <motion.div
+          initial={{ opacity: 0, y: reduce ? 0 : 14 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55 }}
+          className="hidden lg:block">
+          <h1 className="max-w-md text-[34px] font-black leading-[1.1] tracking-tight">
+            El radar del equipo para{' '}
+            <span style={{ color: BRAND_INK }}>ganar licitaciones</span>.
+          </h1>
+          <ul className="mt-6 space-y-3">
+            {PUNTOS.map(t => (
+              <li key={t} className="flex items-start gap-2.5 text-[14px] text-zinc-600">
+                <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#2FC7A6]/15">
+                  <Check size={12} strokeWidth={3} style={{ color: BRAND_INK }} />
+                </span>
+                {t}
+              </li>
+            ))}
+          </ul>
+          <IlustracionAsistente className="mt-4 w-full max-w-[460px]" />
+        </motion.div>
+
+        {/* Formulario */}
+        <motion.div
+          initial={{ opacity: 0, y: reduce ? 0 : 16 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55, delay: 0.08 }}
+          className="mx-auto w-full max-w-sm lg:max-w-md">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-7 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_20px_50px_-24px_rgba(24,24,27,0.18)] sm:p-9">
+            <div className="mb-7 lg:hidden">
+              <LicitankIcon size={40} />
+            </div>
+            <h2 className="text-[22px] font-black tracking-tight">Iniciar sesión</h2>
+            <p className="mt-1 text-[13px] text-zinc-500">Ingresa con tu cuenta del equipo para continuar.</p>
+
+            {error && (
+              <div className="mt-5 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+                <AlertCircle size={15} className="shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+              <div>
+                <label className="mb-1.5 block text-[12px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Correo electrónico
+                </label>
+                <div className="relative">
+                  <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+                    placeholder="tu@empresa.cl"
+                    required
+                    autoComplete="email"
+                    className={`${inputCls} pr-4`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-[12px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Contraseña
+                </label>
+                <div className="relative">
+                  <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input
+                    type={mostrarPass ? 'text' : 'password'}
+                    value={form.password}
+                    onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+                    placeholder="••••••••"
+                    required
+                    autoComplete="current-password"
+                    className={`${inputCls} pr-10`}
+                  />
+                  <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-400 transition-colors hover:text-zinc-600">
+                    {mostrarPass ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={cargando || !form.email || !form.password}
+                className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 py-3 text-[14px] font-bold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:bg-zinc-300"
+              >
+                {cargando
+                  ? <><Loader2 size={15} className="animate-spin" />Iniciando sesión...</>
+                  : <><LogIn size={15} />Iniciar sesión</>}
+              </button>
+            </form>
+
+            <p className="mt-6 text-center text-[13px]">
+              <Link href="/recuperar" className="font-semibold transition-opacity hover:opacity-75" style={{ color: BRAND_INK }}>
+                ¿Olvidaste tu contraseña?
+              </Link>
             </p>
           </div>
 
-          <div className="space-y-3">
-            {FEATURES.map((f, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center text-indigo-300 flex-shrink-0">
-                  {f.icon}
-                </div>
-                <span className="text-indigo-100 text-sm">{f.text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <p className="relative z-10 text-indigo-400 text-xs">
-          © 2026 LICITANK · Datos de Mercado Público Chile
-        </p>
-      </div>
-
-      {/* Panel derecho — formulario */}
-      <div className="flex-1 flex items-center justify-center bg-slate-50 px-6 py-10">
-        <div className="w-full max-w-sm">
-          {/* Mobile logo */}
-          <div className="lg:hidden text-center mb-8">
-            <div className="inline-flex items-center justify-center mb-3"><LicitankIcon size={48} /></div>
-            <h1 className="text-xl font-black tracking-tight text-slate-900">LICITANK</h1>
-          </div>
-
-          <div className="mb-8">
-            <h2 className="text-2xl font-bold text-slate-900 mb-1">Iniciar sesión</h2>
-            <p className="text-[13px] text-slate-500">Ingresa tus credenciales para continuar</p>
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-[13px] px-4 py-3 rounded-xl mb-5">
-              <AlertCircle size={15} className="flex-shrink-0" />
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">
-                Correo electrónico
-              </label>
-              <div className="relative">
-                <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-                  placeholder="tu@empresa.cl"
-                  required
-                  autoComplete="email"
-                  className="w-full pl-10 pr-4 py-2.5 border border-slate-200 bg-white rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all shadow-sm"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[12px] font-semibold text-slate-600 mb-1.5 uppercase tracking-wider">
-                Contraseña
-              </label>
-              <div className="relative">
-                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type={mostrarPass ? 'text' : 'password'}
-                  value={form.password}
-                  onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
-                  placeholder="••••••••"
-                  required
-                  autoComplete="current-password"
-                  className="w-full pl-10 pr-10 py-2.5 border border-slate-200 bg-white rounded-xl text-[13px] focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all shadow-sm"
-                />
-                <button type="button" onClick={() => setMostrarPass(!mostrarPass)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors">
-                  {mostrarPass ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={cargando || !form.email || !form.password}
-              className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-xl transition-colors text-[14px] shadow-sm shadow-indigo-200 mt-1"
-            >
-              {cargando
-                ? <><Loader2 size={15} className="animate-spin" />Iniciando sesión...</>
-                : <><LogIn size={15} />Iniciar sesión</>}
-            </button>
-          </form>
-
-          <p className="text-center text-[13px] text-slate-500 mt-6">
-            <Link href="/recuperar" className="text-indigo-600 hover:text-indigo-800 font-semibold">
-              ¿Olvidaste tu contraseña?
+          <p className="mt-5 text-center text-[12.5px] text-zinc-400">
+            <Link href="/bienvenida" className="inline-flex items-center gap-1 transition-colors hover:text-zinc-600">
+              <ArrowLeft size={12} />
+              Volver a la portada
             </Link>
           </p>
+        </motion.div>
+      </main>
+
+      {/* ── Pie ──────────────────────────────────────────────────────────── */}
+      <footer className="relative z-10 border-t border-zinc-200 bg-white/70">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-4 py-5 sm:flex-row sm:px-6">
+          <p className="text-[11.5px] text-zinc-400">© {new Date().getFullYear()} LICITANK · Inteligencia de licitaciones públicas</p>
+          <MercadoPublicoMark size={24} tone="dark" />
         </div>
-      </div>
+      </footer>
     </div>
   );
 }

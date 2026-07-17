@@ -334,7 +334,12 @@ export async function extractTextFromDocument(
       const textoReal = (pdfData.text || '').replace(/\[\[P[ÁA]GINA[^\]]*\]\]/gi, '').trim();
       const numPags = Math.max(1, pdfData.numpages || 1);
       const densidad = textoReal.length / numPags;  // chars de texto real por página
-      const tieneCapaDeTexto = textoReal.length > 300 && densidad >= 120;
+      // CALIDAD además de cantidad (caso real 2731-21-LE26): una fotocopia puede traer una
+      // capa de texto del OCR del escáner municipal — pasa la densidad pero es ilegible
+      // ("MUR¡ÁTICO", "I-MTJNICIPALIDAO"). Si es basura, se trata como escaneado → GLM-OCR.
+      const { esTextoBasuraOCR } = await import('@/app/lib/zai-ocr');
+      const capaBasura = esTextoBasuraOCR(textoReal);
+      const tieneCapaDeTexto = textoReal.length > 300 && densidad >= 120 && !capaBasura;
 
       if (tieneCapaDeTexto) {
         console.log(`✅ PDF con texto: ${textoReal.length} chars reales, ${numPags} págs (densidad ${Math.round(densidad)}/pág)`);
@@ -345,7 +350,9 @@ export async function extractTextFromDocument(
           confianza: 'alta'
         };
       }
-      console.log(`⚠️ PDF con poca capa de texto: ${textoReal.length} chars reales en ${numPags} págs (densidad ${Math.round(densidad)}/pág) → tratado como escaneado`);
+      console.log(capaBasura
+        ? `⚠️ PDF con capa de texto BASURA (OCR del escáner ilegible): ${textoReal.length} chars, ${numPags} págs → re-OCR como escaneado`
+        : `⚠️ PDF con poca capa de texto: ${textoReal.length} chars reales en ${numPags} págs (densidad ${Math.round(densidad)}/pág) → tratado como escaneado`);
 
       // PDF escaneado pero se pidió OMITIR OCR (p.ej. planos/imágenes que no aportan
       // al análisis): devolver lo poco que haya sin gastar cuota de OCR.

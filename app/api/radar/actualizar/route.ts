@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GET as ejecutarIntake } from '@/app/api/cron/alertas/route';
 import { getAuthedUser } from '@/app/lib/api-auth';
+import { registrarActividad } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,13 @@ export async function POST(request: NextRequest) {
 
   const secret = process.env.CRON_SECRET || '';
   if (!secret) return NextResponse.json({ error: 'CRON_SECRET no configurado en el servidor' }, { status: 503 });
+
+  // Bitácora: quién disparó la actualización manual del radar.
+  registrarActividad({
+    usuarioId: usuario.id, accion: 'radar_manual',
+    entidadTipo: 'radar',
+    descripcion: 'Actualizó el radar manualmente (intake de Mercado Público)',
+  });
 
   // Reusa el handler del cron de intake pasándole el secreto del servidor (nunca sale al cliente).
   const cronReq = new NextRequest(new URL('/api/cron/alertas', request.url), {

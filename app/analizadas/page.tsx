@@ -146,11 +146,12 @@ export default function AnalizadasPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {filtradas.map(l => {
+            {filtradas.map((l, i) => {
               const sem = SEM[l.semaforo || ''] || { bg: 'bg-zinc-400', text: 'text-zinc-600', label: '—' };
               return (
                 <Link key={l.codigo} href={`/licitacion/${encodeURIComponent(l.codigo)}`}
-                  className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl p-3.5 hover:border-violet-300 hover:shadow-sm transition-all group">
+                  style={{ '--stagger-i': Math.min(i, 12) } as React.CSSProperties}
+                  className="stagger-item flex items-center gap-4 bg-white border border-slate-200 rounded-xl p-3.5 hover:border-violet-300 hover:shadow-sm transition-all group">
                   <div className={`w-12 h-12 rounded-xl ${sem.bg} flex flex-col items-center justify-center text-white flex-shrink-0`}>
                     <span className="text-[15px] font-black leading-none">{l.score ?? '—'}</span>
                     <span className="text-[8px] opacity-80">/100</span>

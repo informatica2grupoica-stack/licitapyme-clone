@@ -5,6 +5,7 @@ import { getSessionFromRequest } from '@/app/lib/auth-edge';
 
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
+  '/bienvenida',                // landing pública de presentación (antes del login)
   '/login',
   '/recuperar',                 // solicitar recuperación de contraseña
   '/restablecer',               // fijar la contraseña nueva con el token del correo
@@ -73,7 +74,11 @@ export async function proxy(request: NextRequest) {
         { status: 401 }
       );
     }
-    // Páginas → redirigir a login conservando la URL de destino
+    // Entrada "en frío" a la raíz → mostrar la landing de presentación (no el login directo).
+    if (pathname === '/') {
+      return NextResponse.redirect(new URL('/bienvenida', request.url));
+    }
+    // Resto de páginas → login conservando la URL de destino (returnUrl).
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('returnUrl', pathname);
     return NextResponse.redirect(loginUrl);

@@ -16,6 +16,7 @@ import {
   guardarTurno,
   responderChat,
 } from '@/app/lib/chat-licitacion';
+import { registrarActividadDiaria } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,15 @@ export async function POST(request: NextRequest, { params }: Params) {
     const historial = await obtenerHistorial(codigoDecoded, sesionId);
     const { respuesta, modelo } = await responderChat({ contexto, historial, pregunta });
     await guardarTurno(codigoDecoded, sesionId, pregunta, respuesta, modelo, usuario.id ?? null);
+    // Bitácora: UNA vez al día por usuario/licitación/ámbito (evita una línea por pregunta).
+    registrarActividadDiaria({
+      usuarioId: usuario.id, accion: 'chat_ia',
+      entidadTipo: 'licitacion', entidadId: codigoDecoded,
+      descripcion: documento
+        ? `Consultó a la IA sobre el documento "${documento}" de ${codigoDecoded}`
+        : `Consultó a la IA sobre la licitación ${codigoDecoded}`,
+      metadata: { licitacion_codigo: codigoDecoded },
+    }, documento ? `doc:${documento}` : 'corpus');
     return NextResponse.json({ respuesta, modelo });
   } catch (e) {
     console.error('[chat] error respondiendo:', e instanceof Error ? e.message : e);

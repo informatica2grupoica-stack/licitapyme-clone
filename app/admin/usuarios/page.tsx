@@ -10,6 +10,7 @@ import {
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
+import { Select } from '@/app/components/ui/Select';
 
 interface Permisos {
   ver_otros_negocios?: boolean;
@@ -202,12 +203,12 @@ function ModalNuevoUsuario({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
-            <select value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value as any }))}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-              <option value="usuario">Usuario</option>
-              <option value="externo">Trabajador externo (acceso restringido)</option>
-              <option value="admin">Administrador</option>
-            </select>
+            <Select value={form.rol} onChange={v => setForm(p => ({ ...p, rol: v as any }))}
+              options={[
+                { value: 'usuario', label: 'Usuario' },
+                { value: 'externo', label: 'Trabajador externo', description: 'Acceso restringido a lo asignado' },
+                { value: 'admin', label: 'Administrador' },
+              ]} />
             {form.rol === 'externo' && (
               <p className="mt-1 text-[11px] text-gray-500">Solo ve las licitaciones que le asignes; sin logo, sin dashboard, sin buscador. Puede correr la viabilidad pero no re-analizar.</p>
             )}
@@ -304,12 +305,12 @@ function ModalEditarUsuario({ usuario, onGuardado, onCerrar }: {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Rol</label>
-            <select value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value as any }))}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none bg-white">
-              <option value="usuario">Usuario</option>
-              <option value="externo">Trabajador externo (acceso restringido)</option>
-              <option value="admin">Administrador</option>
-            </select>
+            <Select value={form.rol} onChange={v => setForm(p => ({ ...p, rol: v as any }))}
+              options={[
+                { value: 'usuario', label: 'Usuario' },
+                { value: 'externo', label: 'Trabajador externo', description: 'Acceso restringido a lo asignado' },
+                { value: 'admin', label: 'Administrador' },
+              ]} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Nueva contraseña</label>

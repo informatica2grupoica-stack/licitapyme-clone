@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { ESTADOS_LICITACION, REGIONES_CHILE } from '@/app/types/search.types';
 import { Filter, ChevronDown, ChevronUp, X, SlidersHorizontal } from 'lucide-react';
+import { Select } from '@/app/components/ui/Select';
 import { TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 
 interface FilterValues {
@@ -122,15 +123,10 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
 
           {/* Ordenamiento */}
           <Section title="Ordenar por">
-            <select
+            <Select
               value={filters.tipoOrden}
-              onChange={e => onChange({ ...filters, tipoOrden: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-indigo-500 bg-white"
-            >
-              {ORDEN_OPTIONS.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+              onChange={v => onChange({ ...filters, tipoOrden: v })}
+              options={ORDEN_OPTIONS.map(o => ({ value: o.value, label: o.label }))} />
           </Section>
 
           {/* Estado */}
@@ -175,16 +171,16 @@ export function FiltersPanel({ filters, onChange, onClear, onApply }: FiltersPan
 
           {/* Región */}
           <Section title="Región">
-            <select
+            <Select
               value={filters.region}
-              onChange={e => onChange({ ...filters, region: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-blue-500 focus:border-indigo-500 bg-white"
-            >
-              <option value="">Todas las regiones</option>
-              {REGIONES_CHILE.map(r => (
-                <option key={r} value={r}>{r.replace('Región de ', '').replace('Región del ', '').replace('Región Metropolitana de ', 'RM · ')}</option>
-              ))}
-            </select>
+              onChange={v => onChange({ ...filters, region: v })}
+              options={[
+                { value: '', label: 'Todas las regiones' },
+                ...REGIONES_CHILE.map(r => ({
+                  value: r,
+                  label: r.replace('Región de ', '').replace('Región del ', '').replace('Región Metropolitana de ', 'RM · '),
+                })),
+              ]} />
           </Section>
 
           {/* Monto */}

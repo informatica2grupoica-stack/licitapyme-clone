@@ -6,6 +6,7 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
+import { Select } from '@/app/components/ui/Select';
 import {
   Briefcase, Plus, Search, ExternalLink, Trash2,
   Calendar, DollarSign, Building2, AlertCircle, Loader2,
@@ -268,16 +269,11 @@ function ModalAsignar({
           {/* Asignar a */}
           <div>
             <label className="text-sm font-medium text-gray-700 mb-1.5 block">Asignar a usuario</label>
-            <select
+            <Select
               value={form.asignado_a}
-              onChange={e => setForm(p => ({ ...p, asignado_a: e.target.value }))}
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none"
-            >
-              <option value="">Seleccionar usuario...</option>
-              {usuarios.map(u => (
-                <option key={u.id} value={u.id}>{u.nombre || u.email}</option>
-              ))}
-            </select>
+              onChange={v => setForm(p => ({ ...p, asignado_a: v }))}
+              placeholder="Seleccionar usuario..."
+              options={usuarios.map(u => ({ value: String(u.id), label: u.nombre || u.email, description: u.email }))} />
           </div>
 
           {/* Etiquetas */}
@@ -1171,8 +1167,10 @@ function VistaSemana({ negocios, onAbrirNegocio }: { negocios: Negocio[]; onAbri
                 {items.length === 0 ? (
                   <p className="text-[10px] text-slate-300 text-center pt-6">Sin cierres</p>
                 ) : (
-                  items.map(n => (
-                    <NegocioMiniCard key={n.id} neg={n} onClick={() => onAbrirNegocio(n)} />
+                  items.map((n, i) => (
+                    <div key={n.id} className="stagger-item" style={{ '--stagger-i': Math.min(i, 8) } as React.CSSProperties}>
+                      <NegocioMiniCard neg={n} onClick={() => onAbrirNegocio(n)} />
+                    </div>
                   ))
                 )}
               </div>
@@ -1403,18 +1401,20 @@ function NegociosContent() {
   }, [negociosFiltrados, ordenCierreDesc]);
 
   // ── Exportar Excel ────────────────────────────────────────────────────────────
-  // Exporta la VISTA ACTUAL (negociosFiltrados: respeta búsqueda y filtros activos), una
-  // fila por licitación. Incluye el estado EFECTIVO de MP (Publicada vencida → Cerrada).
+  // Exporta la VISTA ACTUAL (negociosLista: respeta búsqueda y TODOS los filtros activos
+  // —etiqueta, tipo, estado, usuario, región, rango de cierre— y sale en el mismo orden por
+  // cierre que la lista en pantalla). Una fila por licitación. Incluye el estado EFECTIVO de
+  // MP (Publicada vencida → Cerrada).
   const exportarExcel = async () => {
     if (exportando) return;
-    if (negociosFiltrados.length === 0) {
+    if (negociosLista.length === 0) {
       toast.error('No hay licitaciones para exportar', 'Ajusta o limpia los filtros e inténtalo de nuevo.');
       return;
     }
     setExportando(true);
     try {
       const XLSX = await import('xlsx');
-      const filas = negociosFiltrados.map(n => ({
+      const filas = negociosLista.map(n => ({
         'Código':            n.licitacion_codigo,
         'Nombre':            n.licitacion_nombre || '',
         'Organismo':         n.licitacion_organismo || '',

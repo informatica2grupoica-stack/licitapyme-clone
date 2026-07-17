@@ -1,6 +1,7 @@
 // app/api/favorites/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { registrarActividad } from '@/app/lib/actividad';
 
 function getUserId(request: NextRequest): number | null {
   const id = request.headers.get('x-user-id');
@@ -110,6 +111,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    registrarActividad({
+      usuarioId: userId, accion: 'favorito',
+      entidadTipo: 'licitacion', entidadId: body.codigo,
+      descripcion: `Marcó como favorita "${body.nombre || body.codigo}"`,
+      metadata: { licitacion_codigo: body.codigo },
+    });
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error al agregar favorito:', error);
@@ -132,6 +140,12 @@ export async function DELETE(request: NextRequest) {
     } else {
       await pool.query(`DELETE FROM favorites WHERE codigo = ?`, [codigo]);
     }
+    registrarActividad({
+      usuarioId: userId, accion: 'favorito',
+      entidadTipo: 'licitacion', entidadId: codigo,
+      descripcion: `Quitó de favoritos ${codigo}`,
+      metadata: { licitacion_codigo: codigo, quitado: true },
+    });
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error al eliminar favorito:', error);

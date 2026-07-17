@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession }  from '@/app/lib/session-context';
 import { useToast }    from '@/app/components/ui/toast';
+import { Select } from '@/app/components/ui/Select';
 import {
   Star, ExternalLink, Trash2, Search, Building2, Calendar,
   DollarSign, MapPin, RefreshCw, AlertCircle, FileText,
@@ -168,19 +169,11 @@ function ModalAsignar({
                 <label className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1.5 block">
                   Usuario destino *
                 </label>
-                <div className="relative">
-                  <select
-                    value={usuarioId}
-                    onChange={e => setUsuarioId(e.target.value ? parseInt(e.target.value) : '')}
-                    className="w-full px-3.5 py-2.5 bg-white border border-zinc-200 rounded-xl text-[13px] text-zinc-800 focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-400 outline-none appearance-none pr-9"
-                  >
-                    <option value="">Selecciona un usuario…</option>
-                    {usuarios.map(u => (
-                      <option key={u.id} value={u.id}>{u.nombre || u.email.split('@')[0]}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none" />
-                </div>
+                <Select
+                  value={usuarioId === '' ? '' : String(usuarioId)}
+                  onChange={v => setUsuarioId(v ? parseInt(v) : '')}
+                  placeholder="Selecciona un usuario…"
+                  options={usuarios.map(u => ({ value: String(u.id), label: u.nombre || u.email.split('@')[0], description: u.email }))} />
               </div>
 
               {etiquetas.length > 0 && (

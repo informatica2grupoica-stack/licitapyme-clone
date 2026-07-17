@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
          LEFT JOIN palabras_clave pc ON pc.id = a.palabra_clave_id
          LEFT JOIN etiquetas cat ON cat.id = pc.categoria_id
          WHERE ${whereScope}${whereExtra}${vencClause}
-         ORDER BY COALESCE(a.licitacion_fecha_publicacion, a.licitacion_cierre, a.created_at) DESC`;
+         ORDER BY COALESCE(a.licitacion_fecha_publicacion, a.created_at) DESC`;
       const query = `${selectCols}${limitClause}`;
       [rows] = await pool.query(query, params) as any[];
     } catch {
@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
          FROM alertas_licitaciones a
          ${adminJoin}
          WHERE ${whereScope}${whereExtra}${vencClause}
-         ORDER BY COALESCE(a.licitacion_cierre, a.created_at) DESC${limitClause}`;
+         ORDER BY a.created_at DESC${limitClause}`;
       [rows] = await pool.query(query, params) as any[];
     }
 
@@ -119,11 +119,16 @@ export async function GET(request: NextRequest) {
     // paralelo (antes iban en secuencia, sumando ~3 round-trips de latencia).
     // Desacopladas del query principal (sin JOINs → sin choque de collation) y
     // resilientes vía allSettled: si una tabla falta, el radar sigue funcionando.
+    // El contador de "no leídas" EXCLUYE las vencidas/cerradas: una licitación cuyo cierre
+    // ya pasó jamás se va a trabajar, y contarla dejaba la burbuja inflada para siempre.
+    // Misma comparación de cierre (hora Chile) que el listado de activas.
+    const countVenc = ' AND (a.licitacion_cierre >= ? OR a.licitacion_cierre IS NULL)';
     const countSql = esAdmin
       ? `SELECT COUNT(*) AS total FROM alertas_licitaciones a
          JOIN (SELECT MAX(id) AS mid FROM alertas_licitaciones GROUP BY licitacion_codigo) latest ON latest.mid = a.id
-         WHERE a.leida = FALSE`
-      : `SELECT COUNT(*) AS total FROM alertas_licitaciones WHERE usuario_id = ? AND leida = FALSE`;
+         WHERE a.leida = FALSE${countVenc}`
+      : `SELECT COUNT(*) AS total FROM alertas_licitaciones a WHERE a.usuario_id = ? AND a.leida = FALSE${countVenc}`;
+    const countParams = esAdmin ? [ahoraChileSQL()] : [userId, ahoraChileSQL()];
 
     // tiene_documentos se resuelve aquí (no como JOIN). El LEFT JOIN a la tabla
     // derivada de documentos_cache costaba ~2 s (sin índice + collation utf8 →
@@ -141,7 +146,7 @@ export async function GET(request: NextRequest) {
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE`),
       pool.query(`SELECT licitacion_codigo FROM licitaciones_descartadas`),
       pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache`),
-      pool.query(countSql, esAdmin ? [] : [userId]),
+      pool.query(countSql, countParams),
       pool.query(
         `SELECT licitacion_codigo,
                 CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.resumen')) END AS resumen,
@@ -197,24 +202,43 @@ export async function GET(request: NextRequest) {
 
 // PATCH — marcar como leída(s)
 // Body: { ids: number[] } o { all: true } para marcar todas
+// ALCANCE: igual que el GET. El radar del admin muestra alertas de TODA la empresa
+// (deduplicadas por licitación), así que marcar leída debe alcanzar cualquier fila.
+// Antes filtraba por usuario_id siempre → el admin "marcaba" filas ajenas sin efecto
+// y el contador de no leídas volvía a subir al recargar (BUG "el número no baja").
 export async function PATCH(request: NextRequest) {
   const userId = getUserId(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
     const { ids, all } = await request.json();
+    const esAdmin = (await usuarioEsAdmin(userId))
+      || (await permisosDeUsuario(userId, 'usuario')).acceso_radar === true;
 
     if (all) {
-      await pool.query(
-        `UPDATE alertas_licitaciones SET leida = TRUE WHERE usuario_id = ?`,
-        [userId]
-      );
+      if (esAdmin) {
+        await pool.query(`UPDATE alertas_licitaciones SET leida = TRUE WHERE leida = FALSE`);
+      } else {
+        await pool.query(`UPDATE alertas_licitaciones SET leida = TRUE WHERE usuario_id = ?`, [userId]);
+      }
     } else if (ids?.length) {
       const placeholders = ids.map(() => '?').join(',');
-      await pool.query(
-        `UPDATE alertas_licitaciones SET leida = TRUE WHERE id IN (${placeholders}) AND usuario_id = ?`,
-        [...ids, userId]
-      );
+      if (esAdmin) {
+        // Marcar TODAS las filas de esas licitaciones (de cualquier usuario): el conteo es
+        // "una fila por código", así que dejar filas hermanas sin leer lo volvería a inflar.
+        const [rs] = await pool.query(
+          `SELECT DISTINCT licitacion_codigo FROM alertas_licitaciones WHERE id IN (${placeholders})`, ids);
+        const codigos = (rs as any[]).map(r => r.licitacion_codigo).filter(Boolean);
+        if (codigos.length) {
+          await pool.query(
+            `UPDATE alertas_licitaciones SET leida = TRUE WHERE licitacion_codigo IN (?)`, [codigos]);
+        }
+      } else {
+        await pool.query(
+          `UPDATE alertas_licitaciones SET leida = TRUE WHERE id IN (${placeholders}) AND usuario_id = ?`,
+          [...ids, userId]
+        );
+      }
     }
 
     return NextResponse.json({ success: true });
@@ -234,10 +258,24 @@ export async function DELETE(request: NextRequest) {
   if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
 
   try {
-    await pool.query(
-      `DELETE FROM alertas_licitaciones WHERE id = ? AND usuario_id = ?`,
-      [id, userId]
-    );
+    const esAdmin = (await usuarioEsAdmin(userId))
+      || (await permisosDeUsuario(userId, 'usuario')).acceso_radar === true;
+    if (esAdmin) {
+      // Mismo alcance que el GET: el admin ve una fila por licitación (de cualquier usuario).
+      // Borrar solo esa fila haría "reaparecer" la alerta hermana de otro usuario al recargar
+      // → se elimina la licitación completa del radar (todas sus filas).
+      const [rs] = await pool.query(
+        `SELECT licitacion_codigo FROM alertas_licitaciones WHERE id = ? LIMIT 1`, [id]);
+      const codigo = (rs as any[])[0]?.licitacion_codigo;
+      if (codigo) {
+        await pool.query(`DELETE FROM alertas_licitaciones WHERE licitacion_codigo = ?`, [codigo]);
+      }
+    } else {
+      await pool.query(
+        `DELETE FROM alertas_licitaciones WHERE id = ? AND usuario_id = ?`,
+        [id, userId]
+      );
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('[alertas:DELETE]', String(error));

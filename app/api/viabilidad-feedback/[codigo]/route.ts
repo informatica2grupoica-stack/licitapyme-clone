@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, tienePermiso, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { guardarFeedback, listarFeedback, eliminarFeedback } from '@/app/lib/viabilidad-feedback';
+import { registrarActividad } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,6 +64,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     const { regla } = await guardarFeedback({
       codigo: codigoDecoded, usuarioId: usuario.id, comentario, veredictoHumano, veredictoIA, ambito,
     });
+    registrarActividad({
+      usuarioId: usuario.id, accion: 'feedback_viabilidad',
+      entidadTipo: 'licitacion', entidadId: codigoDecoded,
+      descripcion: `Corrigió la viabilidad de ${codigoDecoded} (${ambito}): ${comentario.slice(0, 200)}`,
+      metadata: { licitacion_codigo: codigoDecoded, ambito, veredicto_humano: veredictoHumano || undefined },
+    });
     const feedback = await listarFeedback(codigoDecoded);
     return NextResponse.json({ success: true, regla, feedback });
   } catch (error) {
@@ -81,6 +88,12 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   const id = parseInt(new URL(request.url).searchParams.get('id') || '', 10);
   if (!id) return NextResponse.json({ error: 'id requerido' }, { status: 400 });
   await eliminarFeedback(id);
+  registrarActividad({
+    usuarioId: usuario.id, accion: 'feedback_viabilidad',
+    entidadTipo: 'licitacion', entidadId: decodeURIComponent(codigo),
+    descripcion: `Eliminó una corrección de viabilidad de ${decodeURIComponent(codigo)}`,
+    metadata: { licitacion_codigo: decodeURIComponent(codigo), feedback_id: id, eliminado: true },
+  });
   const feedback = await listarFeedback(decodeURIComponent(codigo));
   return NextResponse.json({ success: true, feedback });
 }

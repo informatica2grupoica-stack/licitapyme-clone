@@ -254,6 +254,14 @@ export async function POST(request: NextRequest) {
 
     const negocioId = (result as any).insertId || null;
 
+    // Asignar cuenta como REVISAR: marcar la alerta como leída para TODOS los perfiles
+    // (se puede asignar sin abrir la licitación; ya pasó a trabajo, nadie necesita
+    // "revisarla" en el radar → baja el contador de no leídas). Best-effort.
+    pool.query(
+      `UPDATE alertas_licitaciones SET leida = TRUE WHERE licitacion_codigo = ? AND leida = FALSE`,
+      [licitacion_codigo],
+    ).catch(() => { /* nunca bloquear la asignación */ });
+
     // Si tenemos el id (INSERT) asignar etiquetas
     if (negocioId && etiqueta_ids.length > 0) {
       for (const eId of etiqueta_ids) {

@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { autoGenerarInformePdf } from '@/app/lib/viabilidad-ia';
+import { registrarActividad } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,6 +64,12 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ success: true, sin_equipamiento: true, url: null,
         mensaje: 'No se detectó maquinaria/equipos en esta licitación: el informe técnico solo se genera para equipamiento.' });
     }
+    registrarActividad({
+      usuarioId: usuario.id, accion: 'informe',
+      entidadTipo: 'licitacion', entidadId: codigoDecoded,
+      descripcion: `Generó el informe técnico PDF de ${codigoDecoded}`,
+      metadata: { licitacion_codigo: codigoDecoded },
+    });
     return NextResponse.json({ success: true, url, nombre: `${NOMBRE_DOC_PREFIX}${codigoDecoded}` });
   } catch (e) {
     console.error(`[informe-tecnico] ${codigoDecoded}: error generando PDF:`, String(e).slice(0, 300));

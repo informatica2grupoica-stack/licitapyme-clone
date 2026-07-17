@@ -6,10 +6,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Ban, Loader2, ExternalLink, Building2, Calendar, User, RefreshCw, RotateCcw, BarChart3, X, Filter, Users, Tag } from 'lucide-react';
+import { Ban, Loader2, ExternalLink, Building2, Calendar, User, RefreshCw, RotateCcw, BarChart3, X, Filter, Users, Tag, Search } from 'lucide-react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
+import { Select } from '@/app/components/ui/Select';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 
@@ -22,6 +23,20 @@ const motivoBase = (m: string | null): string => {
 };
 
 interface UsuarioLite { id: number; nombre: string | null; email: string; }
+
+// Descarte hecho desde el RADAR (tabla licitaciones_descartadas): nunca llegó a Negocios.
+interface DescartadaRadar {
+  licitacion_codigo: string;
+  motivo: string | null;
+  created_at: string | null;
+  descartada_por_nombre: string | null;
+  descartada_por_email: string | null;
+  licitacion_nombre: string | null;
+  licitacion_organismo: string | null;
+  licitacion_monto: number | null;
+  licitacion_cierre: string | null;
+  licitacion_tipo: string | null;
+}
 
 interface Descartada {
   id: number;
@@ -40,6 +55,17 @@ interface Descartada {
   descarte_por_email: string | null;
 }
 
+// ¿Una fecha cae dentro del rango [desde, hasta]? (ambos opcionales, formato yyyy-mm-dd)
+const enRango = (fecha: string | null, desde: string, hasta: string): boolean => {
+  if (!desde && !hasta) return true;
+  if (!fecha) return false;
+  const t = new Date(fecha).getTime();
+  if (isNaN(t)) return false;
+  if (desde && t < new Date(`${desde}T00:00:00`).getTime()) return false;
+  if (hasta && t > new Date(`${hasta}T23:59:59`).getTime()) return false;
+  return true;
+};
+
 const fmtMonto = (n: number | null) =>
   n ? new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n) : '—';
 const fmtFecha = (s: string | null) => {
@@ -53,6 +79,8 @@ export default function DescartadasPage() {
   const toast = useToast();
   const router = useRouter();
   const [items, setItems] = useState<Descartada[]>([]);
+  const [radarItems, setRadarItems] = useState<DescartadaRadar[]>([]);
+  const [restaurando, setRestaurando] = useState<string | null>(null);
   const [usuarios, setUsuarios] = useState<UsuarioLite[]>([]);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -63,8 +91,16 @@ export default function DescartadasPage() {
   const [filtroUsuario, setFiltroUsuario] = useState<string[]>([]);
   const [filtroMotivo, setFiltroMotivo] = useState<string[]>([]);
   const [filtroTipo, setFiltroTipo] = useState<string[]>([]);
-  const hayFiltro = filtroUsuario.length > 0 || filtroMotivo.length > 0 || filtroTipo.length > 0;
-  const limpiarFiltros = () => { setFiltroUsuario([]); setFiltroMotivo([]); setFiltroTipo([]); };
+  // Buscador (nombre, código u organismo) + rango de la FECHA DE DESCARTE.
+  const [busqueda, setBusqueda] = useState('');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const hayFiltro = filtroUsuario.length > 0 || filtroMotivo.length > 0 || filtroTipo.length > 0
+    || busqueda.trim() !== '' || fechaDesde !== '' || fechaHasta !== '';
+  const limpiarFiltros = () => {
+    setFiltroUsuario([]); setFiltroMotivo([]); setFiltroTipo([]);
+    setBusqueda(''); setFechaDesde(''); setFechaHasta('');
+  };
 
   const esAdmin = usuario?.rol === 'admin';
 
@@ -95,11 +131,26 @@ export default function DescartadasPage() {
   }, [items]);
 
   // Lista filtrada (selección múltiple: si un filtro está vacío no restringe).
+  const q = busqueda.trim().toLowerCase();
   const itemsFiltrados = useMemo(() => items.filter(d =>
     (filtroUsuario.length === 0 || filtroUsuario.includes(String(d.asignado_a))) &&
     (filtroMotivo.length === 0 || filtroMotivo.includes(motivoBase(d.descarte_motivo))) &&
-    (filtroTipo.length === 0 || (!!d.licitacion_tipo && filtroTipo.includes(d.licitacion_tipo))),
-  ), [items, filtroUsuario, filtroMotivo, filtroTipo]);
+    (filtroTipo.length === 0 || (!!d.licitacion_tipo && filtroTipo.includes(d.licitacion_tipo))) &&
+    (!q || d.licitacion_codigo.toLowerCase().includes(q)
+        || (d.licitacion_nombre || '').toLowerCase().includes(q)
+        || (d.licitacion_organismo || '').toLowerCase().includes(q)) &&
+    enRango(d.descarte_at, fechaDesde, fechaHasta),
+  ), [items, filtroUsuario, filtroMotivo, filtroTipo, q, fechaDesde, fechaHasta]);
+
+  // La sección del radar comparte buscador, rango de fechas y tipo. Los filtros de
+  // usuario/motivo son propios de Negocios (los descartes del radar no tienen perfil asignado).
+  const radarFiltrados = useMemo(() => radarItems.filter(r =>
+    (filtroTipo.length === 0 || (!!r.licitacion_tipo && filtroTipo.includes(r.licitacion_tipo))) &&
+    (!q || r.licitacion_codigo.toLowerCase().includes(q)
+        || (r.licitacion_nombre || '').toLowerCase().includes(q)
+        || (r.licitacion_organismo || '').toLowerCase().includes(q)) &&
+    enRango(r.created_at, fechaDesde, fechaHasta),
+  ), [radarItems, filtroTipo, q, fechaDesde, fechaHasta]);
 
   useEffect(() => {
     if (!cargandoSesion && usuario && !esAdmin) router.replace('/negocios');
@@ -112,6 +163,7 @@ export default function DescartadasPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error al cargar');
       setItems(data.descartadas || []);
+      setRadarItems(data.radar || []);
       setUsuarios(data.usuarios || []);
     } catch (e: any) {
       setError(e.message);
@@ -141,6 +193,25 @@ export default function DescartadasPage() {
     }
   };
 
+  // Restaurar un descarte del radar: vuelve a la vista base del radar.
+  const restaurarRadar = async (codigo: string) => {
+    setRestaurando(codigo);
+    try {
+      const res = await fetch('/api/radar/descartar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigos: [codigo], descartar: false }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error al restaurar');
+      setRadarItems(prev => prev.filter(r => r.licitacion_codigo !== codigo));
+      toast.success('Restaurada al radar', 'Vuelve a aparecer entre las activas');
+    } catch (e: any) {
+      toast.error('No se pudo restaurar', e?.message);
+    } finally {
+      setRestaurando(null);
+    }
+  };
+
   useEffect(() => { if (esAdmin) cargar(); }, [esAdmin]);
 
   if (!cargandoSesion && usuario && !esAdmin) {
@@ -149,7 +220,8 @@ export default function DescartadasPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Descartadas' }]}>
-      <div className="max-w-6xl mx-auto space-y-4">
+      {/* p-4/6/8: mismo padding estándar que el resto de las páginas (antes quedaba pegada a los bordes) */}
+      <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-4">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center text-red-600">
@@ -157,10 +229,10 @@ export default function DescartadasPage() {
             </div>
             <div>
               <h1 className="text-[16px] font-bold text-slate-900">Licitaciones descartadas</h1>
-              <p className="text-xs text-slate-500">Quién la descartó, el motivo y el detalle de cada una</p>
+              <p className="text-xs text-slate-500">Los descartes de Negocios (con responsable) y los del Radar, con quién, cuándo y por qué</p>
             </div>
           </div>
-          <button onClick={cargar} disabled={cargando}
+          <button onClick={cargar} disabled={cargando} title="Recargar la lista"
             className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
             <RefreshCw size={15} className={cargando ? 'animate-spin' : ''} />
           </button>
@@ -168,10 +240,38 @@ export default function DescartadasPage() {
 
         {error && <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">{error}</div>}
 
-        {/* ── Barra de filtros (selección múltiple) ── */}
-        {!cargando && items.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
+        {/* ── Barra de filtros (buscador + fechas + selección múltiple) ── */}
+        {!cargando && (items.length > 0 || radarItems.length > 0) && (
+          <div className="flex flex-wrap items-center gap-2 bg-white border border-slate-200 rounded-xl p-2.5">
             <span className="text-[12px] text-slate-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
+            <div className="relative flex-1 min-w-[210px]">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+              <input
+                type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
+                placeholder="Buscar por nombre, código u organismo…"
+                title="Busca en el nombre de la licitación, su código (ej: 1499887-11-LE26) y el organismo. Aplica a ambas secciones."
+                className="w-full pl-8 pr-7 py-2 border border-slate-200 rounded-lg text-[12px] bg-slate-50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 outline-none transition-all"
+              />
+              {busqueda && (
+                <button onClick={() => setBusqueda('')} title="Limpiar búsqueda"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><X size={12} /></button>
+              )}
+            </div>
+            <div className="inline-flex items-center gap-1.5 border border-slate-200 rounded-lg px-2 py-[5px] bg-white"
+              title="Rango de la FECHA DEL DESCARTE (cuándo se descartó, no cuándo cierra la licitación)">
+              <Calendar size={12} className="text-slate-400 flex-shrink-0" />
+              <input type="date" value={fechaDesde} max={fechaHasta || undefined}
+                onChange={e => setFechaDesde(e.target.value)}
+                className="text-[12px] text-slate-600 outline-none bg-transparent w-[112px]" />
+              <span className="text-slate-300 text-[11px]">→</span>
+              <input type="date" value={fechaHasta} min={fechaDesde || undefined}
+                onChange={e => setFechaHasta(e.target.value)}
+                className="text-[12px] text-slate-600 outline-none bg-transparent w-[112px]" />
+              {(fechaDesde || fechaHasta) && (
+                <button onClick={() => { setFechaDesde(''); setFechaHasta(''); }}
+                  title="Limpiar fechas" className="text-slate-400 hover:text-red-500"><X size={12} /></button>
+              )}
+            </div>
             <MultiSelect
               label={filtroUsuario.length ? 'Perfiles' : 'Todos los perfiles'}
               icon={<Users size={13} />}
@@ -201,8 +301,10 @@ export default function DescartadasPage() {
                 <X size={12} /> Limpiar
               </button>
             )}
-            <span className="ml-auto text-[12px] text-slate-400 tabular-nums">
-              {itemsFiltrados.length}{hayFiltro ? ` de ${items.length}` : ''} descartada{itemsFiltrados.length !== 1 ? 's' : ''}
+            <span className="ml-auto text-[12px] text-slate-400 tabular-nums"
+              title="Descartes de Negocios + descartes del Radar que pasan los filtros actuales">
+              {itemsFiltrados.length + radarFiltrados.length}
+              {hayFiltro ? ` de ${items.length + radarItems.length}` : ''} descartada{(itemsFiltrados.length + radarFiltrados.length) !== 1 ? 's' : ''}
             </span>
           </div>
         )}
@@ -330,13 +432,12 @@ export default function DescartadasPage() {
                 {/* Recuperar: reactivar (a ASIGNADO) y opcionalmente reasignar a otro usuario. */}
                 <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-2">
                   <span className="text-[11px] text-slate-400 font-medium">Volver a trabajar:</span>
-                  <select
-                    value={reasignarSel[d.id] ?? d.asignado_a}
-                    onChange={e => setReasignarSel(prev => ({ ...prev, [d.id]: Number(e.target.value) }))}
-                    className="text-xs border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-emerald-500 outline-none"
-                  >
-                    {usuarios.map(u => <option key={u.id} value={u.id}>{u.nombre || u.email}</option>)}
-                  </select>
+                  <Select
+                    value={String(reasignarSel[d.id] ?? d.asignado_a)}
+                    onChange={v => setReasignarSel(prev => ({ ...prev, [d.id]: Number(v) }))}
+                    minWidth={190}
+                    buttonClassName="!px-2 !py-1.5 !text-xs"
+                    options={usuarios.map(u => ({ value: String(u.id), label: u.nombre || u.email }))} />
                   <button
                     onClick={() => reactivar(d)}
                     disabled={procesando === d.id}
@@ -348,6 +449,55 @@ export default function DescartadasPage() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ── Descartadas desde el RADAR (nunca llegaron a Negocios) ── */}
+        {!cargando && radarFiltrados.length > 0 && (
+          <div className="pt-2">
+            <div className="flex items-center gap-2 mb-2.5">
+              <h2 className="text-[13px] font-bold text-slate-800">Descartadas desde el Radar</h2>
+              <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full tabular-nums">
+                {radarFiltrados.length}{hayFiltro && radarFiltrados.length !== radarItems.length ? ` de ${radarItems.length}` : ''}
+              </span>
+              <span className="text-[11px] text-slate-400">— sacadas del radar antes de asignarse a un perfil; se pueden restaurar</span>
+            </div>
+            <div className="space-y-2">
+              {radarFiltrados.map(r => (
+                <div key={r.licitacion_codigo} className="bg-white rounded-xl border border-slate-200 border-l-4 border-l-slate-400 p-3.5 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[11px] font-mono font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">{r.licitacion_codigo}</span>
+                        {r.licitacion_tipo && <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{r.licitacion_tipo}</span>}
+                      </div>
+                      <p className="text-[13px] font-semibold text-slate-800 mt-1 leading-snug">{r.licitacion_nombre || '(sin nombre en el radar)'}</p>
+                      <p className="text-[11.5px] text-slate-500 mt-0.5 flex items-center gap-x-3 gap-y-0.5 flex-wrap">
+                        {r.licitacion_organismo && <span className="inline-flex items-center gap-1"><Building2 size={10} /> {r.licitacion_organismo}</span>}
+                        <span>{fmtMonto(r.licitacion_monto)}</span>
+                        {r.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={10} /> Cierre {fmtFecha(r.licitacion_cierre)}</span>}
+                      </p>
+                      <p className="text-[11.5px] text-slate-500 mt-1">
+                        <span className="font-semibold text-slate-600">{r.descartada_por_nombre || r.descartada_por_email || '—'}</span>
+                        {' '}la descartó el {fmtFecha(r.created_at)}{r.motivo ? ` · Motivo: ${r.motivo}` : ' · (sin motivo)'}
+                      </p>
+                    </div>
+                    <div className="flex-shrink-0 flex items-center gap-1.5">
+                      <Link href={`/licitacion/${encodeURIComponent(r.licitacion_codigo)}`}
+                        className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-lg transition-colors">
+                        <ExternalLink size={13} /> Ver
+                      </Link>
+                      <button onClick={() => restaurarRadar(r.licitacion_codigo)} disabled={restaurando === r.licitacion_codigo}
+                        title="Devolverla a la vista base del radar"
+                        className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 disabled:opacity-60 px-2.5 py-1.5 rounded-lg transition-colors">
+                        {restaurando === r.licitacion_codigo ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                        Restaurar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

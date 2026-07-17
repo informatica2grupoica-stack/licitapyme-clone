@@ -4,6 +4,7 @@ import bcrypt from 'bcryptjs';
 import pool from '@/app/lib/db';
 import { respuestaConSession, type UsuarioSession } from '@/app/lib/auth';
 import { ipDeRequest, estaBloqueado, registrarIntento } from '@/app/lib/login-rate-limit';
+import { registrarActividad } from '@/app/lib/actividad';
 
 export async function POST(request: NextRequest) {
   try {
@@ -69,6 +70,13 @@ export async function POST(request: NextRequest) {
 
     // Login correcto → registrar éxito (resetea el contador de fallos del email).
     await registrarIntento(emailLimpio, ip, true);
+
+    // Bitácora: quién y cuándo inició sesión (best-effort, nunca bloquea el login).
+    registrarActividad({
+      usuarioId: u.id, accion: 'login',
+      descripcion: `Inició sesión (${u.email})`,
+      metadata: { ip },
+    });
 
     // Actualizar último login
     await pool.query(

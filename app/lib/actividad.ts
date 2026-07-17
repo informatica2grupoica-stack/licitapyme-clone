@@ -22,7 +22,13 @@ export type AccionActividad =
   | 'costeo'          // generó/regeneró el costeo (con o sin precios de mercado)
   | 'documento'       // subió o borró un documento propio
   | 'ver_documento'   // abrió/descargó un documento
-  | 'estado_mp';      // Mercado Público cambió el estado (Cerrada/Revocada/Desierta/…)
+  | 'estado_mp'       // Mercado Público cambió el estado (Cerrada/Revocada/Desierta/…)
+  | 'descarte_radar'  // descartó/restauró una licitación del radar (nivel empresa)
+  | 'feedback_viabilidad' // el experto corrigió/eliminó una corrección de viabilidad
+  | 'chat_ia'         // consultó al chatbot IA de la licitación
+  | 'informe'         // generó el informe técnico PDF
+  | 'busqueda_equipamiento' // generó el prompt de búsqueda de equipamiento
+  | 'radar_manual';   // disparó manualmente la actualización del radar
 
 // Pestañas del detalle de la licitación que se registran como 'ver_seccion'.
 export const SECCIONES_ACTIVIDAD = [

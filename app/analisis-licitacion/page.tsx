@@ -26,6 +26,7 @@ import Link from 'next/link';
 import {
   Activity, Loader2, RefreshCw, Building2, Calendar, DollarSign, Send, Clock,
   Layers, Users, Trophy, Ban, Briefcase, TrendingUp, Target, ChevronRight, ExternalLink, X, Filter,
+  Search, ArrowUpDown, ChevronDown,
 } from 'lucide-react';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip as RTooltip, BarChart, Bar,
@@ -35,6 +36,8 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
+import { Select } from '@/app/components/ui/Select';
+import { ChartCard } from '@/app/components/ui/ChartCard';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licitacion';
@@ -126,6 +129,11 @@ export default function AnalisisLicitacionPage() {
   const [estadosSel, setEstadosSel] = useState<string[]>([]);
   const [tiposSel, setTiposSel] = useState<string[]>([]);
   const [organismosSel, setOrganismosSel] = useState<string[]>([]);
+  // Búsqueda libre (nombre / código / organismo): recorta la MEDICIÓN igual que los demás filtros.
+  const [busqueda, setBusqueda] = useState('');
+  // Orden y carga incremental de la lista (con cientos de filas, pintar todas de una es lento).
+  const [ordenLista, setOrdenLista] = useState<'cierre' | 'monto' | 'reciente'>('cierre');
+  const [maxLista, setMaxLista] = useState(30);
 
   const esAdmin = usuario?.rol === 'admin';
 
@@ -197,11 +205,18 @@ export default function AnalisisLicitacionPage() {
 
   // Conjunto MEDIDO = universo ∩ todos los filtros activos. Todo lo de abajo (KPIs, montos,
   // cierres por mes, organismos y la lista) se calcula sobre esto.
-  const seleccion = useMemo(() => base.filter(n =>
-    (estadosSel.length === 0 || estadosSel.includes(idDe(n.estado_pipeline))) &&
-    (tiposSel.length === 0 || tiposSel.includes(tipoDe(n))) &&
-    (organismosSel.length === 0 || (n.licitacion_organismo != null && organismosSel.includes(n.licitacion_organismo))),
-  ), [base, estadosSel, tiposSel, organismosSel]);
+  const seleccion = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return base.filter(n =>
+      (estadosSel.length === 0 || estadosSel.includes(idDe(n.estado_pipeline))) &&
+      (tiposSel.length === 0 || tiposSel.includes(tipoDe(n))) &&
+      (organismosSel.length === 0 || (n.licitacion_organismo != null && organismosSel.includes(n.licitacion_organismo))) &&
+      (!q
+        || (n.licitacion_nombre || '').toLowerCase().includes(q)
+        || (n.licitacion_codigo || '').toLowerCase().includes(q)
+        || (n.licitacion_organismo || '').toLowerCase().includes(q)),
+    );
+  }, [base, estadosSel, tiposSel, organismosSel, busqueda]);
 
   // ── Gráficos-selector: se calculan sobre el universo, NO sobre la selección ──
   const selectores = useMemo(() => {
@@ -302,12 +317,21 @@ export default function AnalisisLicitacionPage() {
     };
   }, [seleccion, resultadoDe, adjMap]);
 
-  // Lista: el mismo conjunto medido, por cierre más próximo.
+  // Lista: el mismo conjunto medido, con orden seleccionable (cierre próximo por defecto).
   const lista = useMemo(() => [...seleccion].sort((a, b) => {
+    if (ordenLista === 'monto') {
+      return (b.monto_ofertado || b.licitacion_monto || 0) - (a.monto_ofertado || a.licitacion_monto || 0);
+    }
+    if (ordenLista === 'reciente') {
+      return new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime();
+    }
     const da = a.licitacion_cierre ? new Date(a.licitacion_cierre).getTime() : Infinity;
     const db = b.licitacion_cierre ? new Date(b.licitacion_cierre).getTime() : Infinity;
     return da - db;
-  }), [seleccion]);
+  }), [seleccion, ordenLista]);
+
+  // Al cambiar cualquier filtro se reinicia la carga incremental de la lista.
+  useEffect(() => { setMaxLista(30); }, [busqueda, perfilesSel, estadosSel, tiposSel, organismosSel, ordenLista]);
 
   // Los gráficos son otra forma de operar los MISMOS filtros del selector de arriba: clic en un
   // segmento lo suma a la selección, clic de nuevo lo quita. Los dos controles se reflejan.
@@ -363,14 +387,26 @@ export default function AnalisisLicitacionPage() {
           </div>
         ) : (
           <>
-            {/* Barra de filtros: TODOS de selección múltiple y combinables entre sí. */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
-              <div className="flex items-center gap-2 mb-2.5">
-                <Filter size={13} className="text-slate-400" />
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filtros</span>
-                <span className="text-[11px] text-slate-400">— combínalos: la medición se recalcula al instante</span>
-              </div>
+            {/* Barra de filtros PEGAJOSA: todos multi-select y combinables + búsqueda libre.
+                Queda fija al hacer scroll para poder re-filtrar sin volver arriba. */}
+            <div className="sticky top-0 z-30 bg-white/95 backdrop-blur rounded-xl border border-slate-200 shadow-sm p-3">
               <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">
+                  <Filter size={13} className="text-slate-400" /> Filtros
+                </span>
+                <div className="relative w-full sm:w-64 order-last sm:order-none">
+                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text" value={busqueda} onChange={e => setBusqueda(e.target.value)}
+                    placeholder="Nombre, código u organismo…"
+                    className="w-full pl-8 pr-7 py-2 text-[13px] rounded-lg border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-400 transition" />
+                  {busqueda && (
+                    <button onClick={() => setBusqueda('')} title="Limpiar búsqueda"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition">
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
                 <MultiSelect label="Perfil" icon={<Users size={13} />} selected={perfilesSel}
                   onChange={next => { setPerfilesSel(next); limpiarSeleccion(); }}
                   options={perfiles.map(p => ({ value: p.key, label: p.nombre, color: colorUsuario(p.email || p.key), count: p.total }))} />
@@ -380,8 +416,8 @@ export default function AnalisisLicitacionPage() {
                   options={selectores.porTipo.map(t => ({ value: t.tipo, label: t.name, color: t.color, count: t.value }))} />
                 <MultiSelect label="Organismo" icon={<Building2 size={13} />} selected={organismosSel} onChange={setOrganismosSel} minWidth={320}
                   options={organismos.map(o => ({ value: o.value, label: o.value, count: o.count }))} />
-                {(haySeleccion || perfilesSel.length > 0) && (
-                  <button onClick={() => { setPerfilesSel([]); limpiarSeleccion(); }}
+                {(haySeleccion || perfilesSel.length > 0 || busqueda) && (
+                  <button onClick={() => { setPerfilesSel([]); setBusqueda(''); limpiarSeleccion(); }}
                     className="inline-flex items-center gap-1 text-[12px] font-semibold text-slate-500 hover:text-red-600 px-2 py-2">
                     <X size={13} /> Limpiar todo
                   </button>
@@ -423,13 +459,19 @@ export default function AnalisisLicitacionPage() {
                   <span className="truncate">{o}</span> <X size={11} className="flex-shrink-0" />
                 </button>
               ))}
+              {busqueda && (
+                <button onClick={() => setBusqueda('')}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-amber-50 text-amber-700 border-amber-200 hover:opacity-75">
+                  <Search size={10} /> “{busqueda}” <X size={11} />
+                </button>
+              )}
               {haySeleccion
                 ? <button onClick={limpiarSeleccion} className="text-[11px] font-semibold text-slate-400 hover:text-slate-700 underline">quitar filtros</button>
                 : <span className="text-[11px] text-slate-400">— toca un segmento de las tortas o una barra de tipo para medir solo ese tramo</span>}
             </div>
 
             {/* KPIs */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 stagger-grid">
               <KPI icon={<Briefcase size={16} />} label="Vigentes" value={String(stats.vigentes)} tint="#4f46e5" sub="en trabajo" />
               <KPI icon={<Send size={16} />} label="Postuladas" value={String(stats.postuladas)} tint="#b45309" sub="ofertas presentadas" />
               <KPI icon={<Trophy size={16} />} label="Adjudicadas" value={String(stats.adjudicadas)} tint="#16a34a" sub="ganadas según acta" />
@@ -573,6 +615,17 @@ export default function AnalisisLicitacionPage() {
                 <Briefcase size={13} className="text-slate-400" />
                 <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Lista de licitaciones</span>
                 <span className="text-[11px] text-slate-400">({lista.length})</span>
+                <div className="inline-flex items-center gap-1.5 ml-2">
+                  <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-slate-400">
+                    <ArrowUpDown size={11} /> Orden
+                  </span>
+                  <Select value={ordenLista} onChange={v => setOrdenLista(v as typeof ordenLista)}
+                    options={[
+                      { value: 'cierre', label: 'Cierre próximo' },
+                      { value: 'monto', label: 'Monto (mayor)' },
+                      { value: 'reciente', label: 'Actividad reciente' },
+                    ]} />
+                </div>
                 {/* Filtro por estado — es el MISMO estado que la dona: los dos se reflejan. */}
                 <div className="ml-auto flex flex-wrap gap-1">
                   <button onClick={() => setEstadosSel([])}
@@ -589,7 +642,7 @@ export default function AnalisisLicitacionPage() {
               <div className="divide-y divide-slate-50">
                 {lista.length === 0 ? (
                   <p className="text-center text-sm text-slate-400 py-10">Sin licitaciones en este filtro</p>
-                ) : lista.map(n => {
+                ) : lista.slice(0, maxLista).map(n => {
                   const cfg = getEstadoPipeline(n.estado_pipeline);
                   const col = cfg?.color || '#64748b';
                   const d = diasHasta(n.licitacion_cierre);
@@ -619,6 +672,15 @@ export default function AnalisisLicitacionPage() {
                     </Link>
                   );
                 })}
+                {lista.length > maxLista && (
+                  <div className="flex justify-center py-3">
+                    <button onClick={() => setMaxLista(m => m + 50)}
+                      className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-600 bg-white border border-slate-200 hover:border-slate-400 hover:shadow-sm px-4 py-2 rounded-lg transition-all">
+                      <ChevronDown size={13} />
+                      Mostrar más ({lista.length - maxLista} restantes)
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </>
@@ -638,18 +700,6 @@ function KPI({ icon, label, value, tint, sub }: { icon: React.ReactNode; label: 
       </div>
       <p className="text-[24px] font-black text-slate-900 leading-none tabular-nums">{value}</p>
       {sub && <p className="text-[10px] text-slate-400 mt-1">{sub}</p>}
-    </div>
-  );
-}
-
-function ChartCard({ title, icon, children, className = '' }: { title: string; icon: React.ReactNode; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`bg-white rounded-xl border border-slate-200 shadow-sm p-4 ${className}`}>
-      <div className="flex items-center gap-1.5 mb-3">
-        <span className="text-slate-400">{icon}</span>
-        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">{title}</span>
-      </div>
-      {children}
     </div>
   );
 }
