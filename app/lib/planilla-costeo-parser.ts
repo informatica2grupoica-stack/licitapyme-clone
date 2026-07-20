@@ -268,6 +268,50 @@ export function detectarOfertaSubconjuntoItems(docs: { texto: string }[]): strin
   return null;
 }
 
+// CUADRO ECONÓMICO POR LÍNEA — el formulario de oferta económica trae UNA TABLA POR LÍNEA,
+// cada una cerrando con su PROPIO bloque de totales ("TOTAL NETO $ / 19% IVA $ / TOTAL $"),
+// y NO existe un gran total consolidado que las sume. Por la regla maestra del experto
+// ("el formato de la oferta económica manda"), ese formato ES por_linea: cada línea se
+// cotiza y se cierra por separado, así que el oferente puede ofertar solo las líneas que
+// le interesen (suma alzada tendría UN único cierre al pie).
+//
+// Caso que motivó la señal (1057489-203-LP26, Hospital del Salvador): Anexo N°7 con
+// "Línea 1. Procesador…", "Línea 2. Resectoscopio…", "Línea 3. Ureteroscopio…", "Línea 4.
+// Espirómetro…" — CADA una con su "TOTAL NETO$ / 19% IVA$ / TOTAL$" — y Art. 25° "se
+// procederá a adjudicar por línea". Ninguna señal existente disparaba: el detector de
+// total único no ve gran total (correcto), el parser no tabula (solo 4 ítems, piso 8),
+// y el lenguaje "adjudicar por línea" a secas no gatilla por doctrina → el LLM quedó
+// solo y lo clasificó GLOBAL con confianza 1. Esta señal cierra ese hueco.
+// Devuelve la frase-evidencia (citable) o null.
+export function detectarCuadroEconomicoPorLinea(docs: { texto: string }[]): string | null {
+  const reTitulo = /cuadro\s+de\s+oferta\s+econ[oó]mica|formulario\s+(?:de\s+)?oferta\s+econ[oó]mica|anexo\s+econ[oó]mico/gi;
+  // Un bloque = etiqueta "Línea N" seguida (a corta distancia) de su cierre de totales
+  // "TOTAL [NETO] $ … IVA … TOTAL": el trío de consolidación, pero de UNA sola línea.
+  const reBloque = /l[ií]nea\s*(?:n\s*[°º])?\s*(\d{1,3})[\s\S]{0,1800}?total(?:\s+neto)?\s*\$?[\s\S]{0,100}?iva\s*\$?[\s\S]{0,100}?total\s*\$?/gi;
+  for (const d of docs) {
+    if (!d.texto) continue;
+    let m: RegExpExecArray | null;
+    reTitulo.lastIndex = 0;
+    while ((m = reTitulo.exec(d.texto)) !== null) {
+      const ventana = d.texto.slice(m.index, m.index + 12_000);
+      reBloque.lastIndex = 0;
+      const lineas = new Set<number>();
+      let fin = 0;
+      let b: RegExpExecArray | null;
+      while ((b = reBloque.exec(ventana)) !== null) {
+        lineas.add(parseInt(b[1], 10));
+        fin = b.index + b[0].length;
+      }
+      if (lineas.size < 2) continue;
+      // Si tras el último bloque hay un GRAN TOTAL consolidado, mandaría suma alzada → no dispara.
+      const cola = ventana.slice(fin, fin + 700);
+      if (/total\s+general|gran\s+total|monto\s+total\s+de\s+la\s+oferta|sumatoria\s+de\s+(?:todas\s+)?las\s+l[ií]neas/i.test(cola)) continue;
+      return `cuadro de oferta económica con ${lineas.size} líneas independientes (líneas ${[...lineas].sort((a, b) => a - b).slice(0, 8).join(', ')}), cada una con su propio bloque de totales TOTAL/IVA/TOTAL y sin gran total consolidado`;
+    }
+  }
+  return null;
+}
+
 // PRESUPUESTO POR LÍNEA — patrón muy común en bases ESCANEADAS (OCR) donde la oferta
 // económica NO es una planilla tabulable: las bases fijan un "monto máximo POR LÍNEA" y
 // listan ≥2 líneas, cada una con su propio destino y su propio "TOTAL IVA INCLUIDO $X"

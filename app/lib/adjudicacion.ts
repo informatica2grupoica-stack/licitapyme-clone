@@ -33,6 +33,10 @@ export interface RespuestaAdjudicacion {
   codigoEstado: number | null;
   esAdjudicada: boolean;
   fechaAdjudicacion: string | null;
+  // Fechas ESTIMADAS de la ficha (planificación del organismo, aún sin resultado):
+  // cuándo piensa adjudicar y cuándo es el acto de apertura técnica. Para /postuladas.
+  fechaEstimadaAdjudicacion: string | null;
+  fechaAperturaTecnica: string | null;
   adjudicacion: {
     tipo: number | null;
     numeroResolucion: string | null;
@@ -123,6 +127,10 @@ export function construirDesdeLicitacion(lic: Licitacion, codigo: string): Respu
     codigoEstado: lic.CodigoEstado ?? null,
     esAdjudicada,
     fechaAdjudicacion: lic.FechaAdjudicacion || lic.Adjudicacion?.Fecha || null,
+    // Estimada: la que planificó el organismo. Fallback a FechaAdjudicacion (algunas fichas
+    // solo traen esa) para no dejar la columna vacía cuando sí hay una fecha útil.
+    fechaEstimadaAdjudicacion: lic.FechaEstimadaAdjudicacion || lic.FechaAdjudicacion || null,
+    fechaAperturaTecnica: lic.FechaAperturaTecnica || null,
     adjudicacion: lic.Adjudicacion
       ? {
           tipo:             lic.Adjudicacion.Tipo ?? null,           // 2 = total, 1 = por línea
@@ -172,6 +180,8 @@ export function respuestaDesdeCache(codigo: string, row: any): RespuestaAdjudica
     codigoEstado: row.codigo_estado ?? null,
     esAdjudicada: !!row.es_adjudicada,
     fechaAdjudicacion: row.fecha_adjudicacion ? new Date(row.fecha_adjudicacion).toISOString() : null,
+    fechaEstimadaAdjudicacion: row.fecha_estimada_adjudicacion ? new Date(row.fecha_estimada_adjudicacion).toISOString() : null,
+    fechaAperturaTecnica: row.fecha_apertura_tecnica ? new Date(row.fecha_apertura_tecnica).toISOString() : null,
     adjudicacion: row.es_adjudicada
       ? {
           tipo: row.tipo_adjudicacion ?? null,
@@ -194,14 +204,17 @@ export async function guardarCache(codigo: string, r: RespuestaAdjudicacion): Pr
     await pool.query(
       `INSERT INTO adjudicacion_cache (
          licitacion_codigo, es_adjudicada, estado, codigo_estado, fecha_adjudicacion,
+         fecha_estimada_adjudicacion, fecha_apertura_tecnica,
          tipo_adjudicacion, numero_resolucion, numero_oferentes, url_acta,
          monto_adjudicado_total, lineas
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          es_adjudicada = VALUES(es_adjudicada),
          estado = VALUES(estado),
          codigo_estado = VALUES(codigo_estado),
          fecha_adjudicacion = VALUES(fecha_adjudicacion),
+         fecha_estimada_adjudicacion = VALUES(fecha_estimada_adjudicacion),
+         fecha_apertura_tecnica = VALUES(fecha_apertura_tecnica),
          tipo_adjudicacion = VALUES(tipo_adjudicacion),
          numero_resolucion = VALUES(numero_resolucion),
          numero_oferentes = VALUES(numero_oferentes),
@@ -215,6 +228,8 @@ export async function guardarCache(codigo: string, r: RespuestaAdjudicacion): Pr
         r.estado,
         r.codigoEstado,
         r.fechaAdjudicacion ? new Date(r.fechaAdjudicacion) : null,
+        r.fechaEstimadaAdjudicacion ? new Date(r.fechaEstimadaAdjudicacion) : null,
+        r.fechaAperturaTecnica ? new Date(r.fechaAperturaTecnica) : null,
         r.adjudicacion?.tipo ?? null,
         r.adjudicacion?.numeroResolucion ?? null,
         r.adjudicacion?.numeroOferentes ?? null,

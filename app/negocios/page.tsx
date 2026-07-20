@@ -129,7 +129,8 @@ function EstadoMpBadge({ estado, cierre, adjEsAdjudicada, adjGanamos }: {
 }
 
 function formatMonto(n: number | null): string {
-  if (!n) return '$0';
+  // "$0" leía como si la licitación valiera cero; en realidad es "MP no informó monto".
+  if (!n) return '—';
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 }
 
@@ -493,7 +494,7 @@ function NegocioListItem({ neg, isAdmin, onEliminar }: {
           <span className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${sem.bg} ${sem.text}`}
             title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
             <span style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
-            {sem.etiqueta}
+            {sem.dias === 0 ? sem.etiqueta : `${sem.etiqueta} sin cambios`}
           </span>
         )}
       </div>
@@ -811,7 +812,7 @@ function NegocioMiniCard({ neg, onClick }: { neg: Negocio; onClick: () => void }
           <span className={`ml-auto inline-flex items-center gap-1 font-bold px-1.5 py-0.5 rounded-full ${sem.bg} ${sem.text}`}
             title={`${sem.dias} día${sem.dias === 1 ? '' : 's'} sin cambio de estado`}>
             <span style={{ background: sem.color }} className="w-1.5 h-1.5 rounded-full" />
-            {sem.etiqueta}
+            {sem.dias === 0 ? sem.etiqueta : `${sem.etiqueta} sin cambios`}
           </span>
         </div>
       )}

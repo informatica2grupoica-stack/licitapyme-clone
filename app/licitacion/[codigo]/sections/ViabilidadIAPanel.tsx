@@ -5,7 +5,7 @@
 // análisis con su FUENTE. Front profesional: hero con score + veredicto + datos clave,
 // y el detalle en secciones plegables (acordeón) para que no sea un muro de información.
 
-import { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useRef, useState, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ClipboardCheck, Compass, Swords, Ship, Search } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
@@ -313,7 +313,7 @@ function BotonBuscarEquipo({ codigo, producto, region }: { codigo: string; produ
     } catch { setEstado('error'); }
   };
   return (
-    <div className="pl-10 mt-2">
+    <div className="mt-2">
       <button type="button" onClick={buscar} disabled={estado === 'cargando'}
         title="Genera un prompt con las specs limpias, lo copia y abre Gemini para buscar 3 proveedores chilenos"
         className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60 px-3.5 py-2 rounded-lg shadow-sm shadow-violet-200 transition-all">
@@ -335,17 +335,19 @@ function BotonBuscarEquipo({ codigo, producto, region }: { codigo: string; produ
 // ─── VISTA v3 (esquema modular: 9 módulos + Tarjeta de Decisión) ─────────────────
 // Se renderiza cuando el informe trae `_schema:'v3'` (flag VIABILIDAD_V3). Reusa Fuente
 // (citas con visor), Seccion (acordeón), Gauge y SEM. La vista v2 queda intacta.
-const TIPO_BADGE: Record<string, { label: string; cls: string }> = {
-  LEY_DEL_MINIMO: { label: '⭐ LEY DEL MÍNIMO', cls: 'bg-emerald-100 text-emerald-700' },
-  LEY_DEL_MAXIMO: { label: '⭐ LEY DEL MÁXIMO', cls: 'bg-emerald-100 text-emerald-700' },
-  POR_TRAMOS:     { label: 'POR TRAMOS',       cls: 'bg-slate-100 text-slate-500' }, // v3.3
-  TRAMO_CERRADO:  { label: 'TRAMO CERRADO',    cls: 'bg-slate-100 text-slate-500' }, // v3.2 (informes guardados)
-  BINARIO:        { label: 'BINARIO',          cls: 'bg-indigo-50 text-indigo-600' },
+// Los `tip` son para trabajadores nuevos: explican la jerga del análisis en lenguaje simple
+// (se muestran al pasar el mouse sobre el badge).
+const TIPO_BADGE: Record<string, { label: string; cls: string; tip: string }> = {
+  LEY_DEL_MINIMO: { label: '⭐ LEY DEL MÍNIMO', cls: 'bg-emerald-100 text-emerald-700', tip: 'Gana quien oferte el valor más BAJO (ej.: menor precio = máximo puntaje). Es un criterio decisivo.' },
+  LEY_DEL_MAXIMO: { label: '⭐ LEY DEL MÁXIMO', cls: 'bg-emerald-100 text-emerald-700', tip: 'Gana quien oferte el valor más ALTO (ej.: más meses de garantía = máximo puntaje). Es un criterio decisivo.' },
+  POR_TRAMOS:     { label: 'POR TRAMOS',       cls: 'bg-slate-100 text-slate-500', tip: 'El puntaje se asigna por rangos: basta con quedar dentro del mejor tramo, no hace falta ser el mejor absoluto.' }, // v3.3
+  TRAMO_CERRADO:  { label: 'TRAMO CERRADO',    cls: 'bg-slate-100 text-slate-500', tip: 'El puntaje se asigna por rangos cerrados definidos en las bases.' }, // v3.2 (informes guardados)
+  BINARIO:        { label: 'BINARIO',          cls: 'bg-indigo-50 text-indigo-600', tip: 'Se cumple o no se cumple: no hay puntaje intermedio.' },
 };
-const VER_TARJETA: Record<string, { label: string; ring: string; text: string; bg: string; soft: string }> = {
-  GANABLE:  { label: 'GANABLE',  ring: '#10b981', text: 'text-emerald-700', bg: 'bg-emerald-600', soft: 'bg-emerald-50 border-emerald-200' },
-  PUEDE_SER:{ label: 'PUEDE SER',ring: '#eab308', text: 'text-yellow-700',  bg: 'bg-yellow-500',  soft: 'bg-yellow-50 border-yellow-200' },
-  NO_VAMOS: { label: 'NO VAMOS', ring: '#ef4444', text: 'text-red-700',     bg: 'bg-red-600',     soft: 'bg-red-50 border-red-200' },
+const VER_TARJETA: Record<string, { label: string; ring: string; text: string; bg: string; soft: string; tip: string }> = {
+  GANABLE:  { label: 'GANABLE',  ring: '#10b981', text: 'text-emerald-700', bg: 'bg-emerald-600', soft: 'bg-emerald-50 border-emerald-200', tip: 'El análisis estima que esta licitación se puede ganar siguiendo las instrucciones de esta tarjeta.' },
+  PUEDE_SER:{ label: 'PUEDE SER',ring: '#eab308', text: 'text-yellow-700',  bg: 'bg-yellow-500',  soft: 'bg-yellow-50 border-yellow-200', tip: 'Ganable bajo condiciones: revisa los puntos de esta tarjeta antes de decidir.' },
+  NO_VAMOS: { label: 'NO VAMOS', ring: '#ef4444', text: 'text-red-700',     bg: 'bg-red-600',     soft: 'bg-red-50 border-red-200', tip: 'El análisis recomienda no postular; el motivo está en esta tarjeta.' },
 };
 const JUGADA_ICON: Record<string, string> = { OPORTUNIDAD: '🟢', RESOLVER: '🟡', EMPATE: '⚪', EN_CONTRA: '🔴' };
 const CRIT_ICON: Record<string, { ic: string; txt: string }> = {
@@ -354,7 +356,25 @@ const CRIT_ICON: Record<string, { ic: string; txt: string }> = {
   COMPROMISO_EJECUCION:   { ic: '🟢', txt: 'Compromiso de ejecución' },
 };
 
-function VistaV3({ informe }: { informe: any }) {
+// Hint de primera vez: le explica a un usuario nuevo que el "ojo" de cada cita abre la
+// página exacta del documento. Se muestra una sola vez (persistido en localStorage).
+function HintOjo() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    try { if (!localStorage.getItem('licitank_hint_ojo_visto')) setVisible(true); } catch { /* sin storage */ }
+  }, []);
+  if (!visible) return null;
+  const cerrar = () => { setVisible(false); try { localStorage.setItem('licitank_hint_ojo_visto', '1'); } catch { /* noop */ } };
+  return (
+    <div className="flex items-center gap-2.5 text-[12.5px] text-violet-800 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
+      <Eye size={15} className="flex-shrink-0 text-violet-500" />
+      <p className="flex-1 leading-snug">Cada dato de este análisis trae su fuente: haz clic en el ojo <Eye size={12} className="inline align-[-1px] text-violet-500" /> de cualquier cita para ver la página exacta de las bases donde aparece, con el texto resaltado.</p>
+      <button onClick={cerrar} className="text-violet-400 hover:text-violet-700 flex-shrink-0" title="Entendido, no volver a mostrar"><X size={15} /></button>
+    </div>
+  );
+}
+
+function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: React.ReactNode }) {
   const t = informe.tarjeta_decision || {};
   const score = Math.round(Number(informe.score_0_100) || 0);
   const sem = SEM[informe.semaforo || ''] || SEM.NARANJA;
@@ -405,6 +425,38 @@ function VistaV3({ informe }: { informe: any }) {
   const acc = informe.acciones_y_advertencias || {};
   const enRevision = informe.veredicto?.estado_veredicto === 'REVISION_HUMANA';
 
+  // ── Checklist de riesgos: los requisitos de admisibilidad se APLANAN a una lista única
+  // ordenada por gravedad (0 = bloqueante/deja fuera, 1 = advertencia, 2 = condición
+  // neutra, 3 = a favor). Es la misma información de antes, sin párrafos mezclados.
+  const riesgos: Array<{ sev: number; titulo: string; detalle?: string; fuente?: string }> = [];
+  if (adm.presupuesto?.tipo === 'excluyente') riesgos.push({ sev: 0, titulo: 'Presupuesto EXCLUYENTE', detalle: 'Superar el techo deja la oferta inadmisible.', fuente: adm.presupuesto.fuente });
+  else if (adm.presupuesto?.tipo) riesgos.push({ sev: 2, titulo: 'Presupuesto referencial', detalle: 'No es un techo duro de admisibilidad.', fuente: adm.presupuesto.fuente });
+  if (adm.cotizar_100?.aplica) riesgos.push({ sev: 0, titulo: 'Cotizar el 100% de los ítems', detalle: 'Falta 1 ítem y la oferta queda fuera.', fuente: adm.cotizar_100.fuente });
+  for (const b of adm.bloqueantes || []) if (String(b.item || '').trim()) riesgos.push({ sev: 0, titulo: b.item, fuente: b.fuente });
+  if (adm.firma_puno_y_letra?.exigida) riesgos.push({ sev: 1, titulo: 'Firma a PUÑO Y LETRA exigida', detalle: 'Requiere flujo físico de documentos.', fuente: adm.firma_puno_y_letra?.fuente });
+  if (adm.fiel_cumplimiento?.exige) riesgos.push({ sev: 1, titulo: `Garantía de fiel cumplimiento${adm.fiel_cumplimiento.forma ? ` (${cap(adm.fiel_cumplimiento.forma)})` : ''}`, detalle: `${adm.fiel_cumplimiento.plazo_entrega ? `Entregar en ${adm.fiel_cumplimiento.plazo_entrega}. ` : ''}Suma trámites entre la adjudicación y la entrega (cadena larga).`, fuente: adm.fiel_cumplimiento.fuente });
+  if (adm.marca_exclusiva?.es_exclusiva) riesgos.push({ sev: 1, titulo: 'MARCA EXCLUSIVA sin "o equivalente"', detalle: 'Riesgo de margen: no se puede ofertar alternativa.', fuente: adm.marca_exclusiva.fuente });
+  if (adm.plazo_entrega_rango?.min || adm.plazo_entrega_rango?.max) riesgos.push({ sev: adm.plazo_entrega_rango.fuera_de_rango_inadmisible ? 1 : 2, titulo: `Plazo de entrega: ${[adm.plazo_entrega_rango.min ? `mín ${adm.plazo_entrega_rango.min}` : '', adm.plazo_entrega_rango.max ? `máx ${adm.plazo_entrega_rango.max}` : ''].filter(Boolean).join(' · ')}`, detalle: adm.plazo_entrega_rango.fuera_de_rango_inadmisible ? 'Fuera de rango = inadmisible.' : undefined, fuente: adm.plazo_entrega_rango.fuente });
+  if (adm.boleta?.aplica) riesgos.push({ sev: 2, titulo: 'Boleta de garantía', detalle: `${adm.boleta.detalle || `Sobre ${adm.boleta.umbral_utm ?? 1000} UTM`}${adm.boleta.exigida_bajo_umbral ? ' (exigida aun bajo el umbral)' : ''}`, fuente: adm.boleta.fuente });
+  if (adm.contrato?.exige) riesgos.push({ sev: 2, titulo: 'Suscripción de contrato', detalle: `${adm.contrato.plazos ? `${adm.contrato.plazos}. ` : ''}Suma trámites entre la adjudicación y la entrega (cadena larga).`, fuente: adm.contrato.fuente });
+  if (adm.seriedad_oferta?.exige) riesgos.push({ sev: 2, titulo: 'Garantía de seriedad de la oferta exigida', fuente: adm.seriedad_oferta.fuente });
+  if (adm.firma_puno_y_letra && !adm.firma_puno_y_letra.exigida) riesgos.push({ sev: 3, titulo: 'Firma electrónica válida', detalle: 'No se exige puño y letra.', fuente: adm.firma_puno_y_letra.fuente });
+  if (adm.marca_exclusiva && !adm.marca_exclusiva.es_exclusiva && adm.marca_exclusiva.admite_equivalente) riesgos.push({ sev: 3, titulo: 'Admite "o equivalente"', detalle: 'Puerta abierta a alternativas.', fuente: adm.marca_exclusiva.fuente });
+  for (const b of adm.a_favor || []) if (String(b.item || '').trim()) riesgos.push({ sev: 3, titulo: b.item, fuente: b.fuente });
+  riesgos.sort((a, b) => a.sev - b.sev);
+  const nBloq = riesgos.filter(r => r.sev === 0).length;
+
+  // ── Pestañas: el detalle se agrupa en 4 vistas temáticas en vez de un muro de acordeones.
+  const hayProductos = itemsCosteo.length > 0 || (lin.modo === 'POR_LINEAS' ? (lin.lineas?.length ?? 0) > 0 : !!lin.mensaje_global_o_lote);
+  const hayPrep = (adm.orden_anexos_propios?.length ?? 0) > 0 || (acc.acciones?.length ?? 0) > 0 || (acc.advertencias?.length ?? 0) > 0 || !!feedbackPanel;
+  const [tab, setTab] = useState<'ganar' | 'riesgos' | 'productos' | 'preparacion'>('ganar');
+  const tabs: Array<{ id: typeof tab; label: string; icon: React.ReactNode; badge?: string; badgeRojo?: boolean }> = [
+    { id: 'ganar', label: 'Cómo ganar', icon: <Target size={14} /> },
+    { id: 'riesgos', label: 'Riesgos', icon: <ShieldCheck size={14} />, badge: nBloq > 0 ? String(nBloq) : undefined, badgeRojo: nBloq > 0 },
+    ...(hayProductos ? [{ id: 'productos' as const, label: 'Productos', icon: <Package size={14} />, badge: itemsCosteo.length ? String(itemsCosteo.length) : undefined }] : []),
+    ...(hayPrep ? [{ id: 'preparacion' as const, label: 'Preparación', icon: <ClipboardCheck size={14} /> }] : []),
+  ];
+
   return (
     <div className="space-y-3">
       {/* TARJETA DE DECISIÓN (corona) */}
@@ -413,11 +465,19 @@ function VistaV3({ informe }: { informe: any }) {
           <Gauge score={score} sem={sem} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-[11px] font-black text-white px-2 py-0.5 rounded ${ver.bg}`}>{ver.label}</span>
+              <span title={ver.tip} className={`text-[11px] font-black text-white px-2 py-0.5 rounded cursor-help ${ver.bg}`}>{ver.label}</span>
               {informe.area_negocio && <span className="text-[11px] text-slate-500 bg-white/60 border border-slate-200 px-2 py-0.5 rounded-full">{cap(informe.area_negocio)}</span>}
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{enRevision ? 'REVISIÓN HUMANA' : 'DEFINITIVO'}</span>
+              <span title={enRevision ? 'La IA no quedó 100% segura del veredicto: una persona debe confirmarlo antes de decidir' : 'Análisis firme: no requiere confirmación humana'}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border cursor-help ${enRevision ? 'bg-amber-100 text-amber-700 border-amber-300' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}`}>{enRevision ? 'REVISIÓN HUMANA' : 'DEFINITIVO'}</span>
             </div>
-            {t.titular && <p className="text-[14px] font-bold text-slate-800 mt-1.5 leading-snug">{t.titular}</p>}
+            {t.titular && <p className="text-[14.5px] font-bold text-slate-800 mt-1.5 leading-snug">{t.titular}</p>}
+            {/* Resumen de riesgos en una línea: lo crítico visible sin abrir nada */}
+            <p className="text-[12px] mt-1 flex items-center gap-1.5 flex-wrap">
+              {nBloq > 0
+                ? <span className="text-red-700 font-semibold inline-flex items-center gap-1"><Ban size={12} /> {nBloq} requisito{nBloq > 1 ? 's' : ''} puede{nBloq > 1 ? 'n' : ''} dejarte fuera</span>
+                : <span className="text-emerald-700 inline-flex items-center gap-1"><ShieldCheck size={12} /> sin bloqueantes detectados</span>}
+              {plz.colchon_dias_corridos != null && <span className="text-slate-500">· colchón {plz.colchon_dias_corridos} días</span>}
+            </p>
           </div>
         </div>
         {esNoVamos ? (
@@ -444,48 +504,69 @@ function VistaV3({ informe }: { informe: any }) {
               modelo (los informes viejos traían "$__ neto"); así se ve con IVA sin re-analizar. */}
           <p className="text-[15px] font-bold text-emerald-700 leading-tight">{fmt(informe.presupuesto?.bruto ?? informe.presupuesto?.neto)}{informe.presupuesto?.bruto && !informe.presupuesto?.regimen_fora ? <span className="text-[10px] font-semibold text-slate-400"> IVA incl.</span> : null}</p>
           {adm.presupuesto?.tipo === 'excluyente'
-            ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700">EXCLUYENTE</span>
-            : <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500">referencial</span>}
+            ? <span title="Si la oferta supera este monto queda inadmisible (fuera de bases)" className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">EXCLUYENTE</span>
+            : <span title="Monto de referencia: se puede ofertar por sobre él, aunque puede restar competitividad" className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help">referencial</span>}
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3">
           <p className="text-[10px] font-bold text-slate-400 uppercase">Cómo se adjudica</p>
-          <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(adj.como_se_adjudica) || '—'}{adj.estado === 'REVISION_HUMANA' ? ' ⚠' : ''}</p>
-          {adj.cotizar_100_obligatorio && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700">COTIZAR 100%</span>}
+          <p title={adj.estado === 'REVISION_HUMANA' ? 'El ⚠ indica que la forma de adjudicación no quedó totalmente clara en las bases: conviene verificarla' : 'Cómo reparte la compra el organismo: global (todo a un proveedor) o por línea/lote (puede dividirla)'}
+            className="text-[14px] font-semibold text-slate-800 leading-tight cursor-help">{cap(adj.como_se_adjudica) || '—'}{adj.estado === 'REVISION_HUMANA' ? ' ⚠' : ''}</p>
+          {adj.cotizar_100_obligatorio && <span title="Hay que ofertar TODOS los ítems: si falta uno, la oferta completa queda fuera" className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">COTIZAR 100%</span>}
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <p className="text-[10px] font-bold text-slate-400 uppercase">Colchón</p>
+        <div className="bg-white border border-slate-200 rounded-xl p-3" title="Días “gratis” entre la adjudicación y el inicio del plazo de entrega: la holgura administrativa para conseguir los productos">
+          <p className="text-[10px] font-bold text-slate-400 uppercase cursor-help">Colchón de tiempo</p>
           <p className="text-[15px] font-bold text-slate-800 leading-tight">{plz.colchon_dias_corridos != null ? `${plz.colchon_dias_corridos} días` : '—'}</p>
           {plz.ventana_importacion
-            ? <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-sky-100 text-sky-700 inline-flex items-center gap-0.5"><Ship size={9} /> importar</span>
-            : <span className="text-[10px] text-slate-400">sin ventana</span>}
+            ? <span title="La holgura alcanza para importar productos desde el extranjero" className="text-[9px] font-bold px-1 py-0.5 rounded bg-sky-100 text-sky-700 inline-flex items-center gap-0.5 cursor-help"><Ship size={9} /> alcanza a importar</span>
+            : <span title="La holgura NO alcanza para importar: hay que tener stock local" className="text-[10px] text-slate-400 cursor-help">no alcanza a importar</span>}
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <p className="text-[10px] font-bold text-slate-400 uppercase">Atractivo</p>
+        <div className="bg-white border border-slate-200 rounded-xl p-3" title="Qué tan atractivo es el negocio según presupuesto, cantidad de ítems, complejidad y ejecución">
+          <p className="text-[10px] font-bold text-slate-400 uppercase cursor-help">Atractivo</p>
           <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(atr.nivel || atr.veredicto) || '—'}</p>
         </div>
       </div>
 
+      {/* Barra de pestañas: agrupa el detalle por pregunta (¿cómo se gana? / ¿qué nos deja
+          fuera? / ¿qué se vende? / ¿qué hay que preparar?) en vez de apilar 11 acordeones. */}
+      <div className="flex items-end gap-0.5 border-b border-slate-200 overflow-x-auto">
+        {tabs.map(tb => (
+          <button key={tb.id} onClick={() => setTab(tb.id)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${tab === tb.id ? 'border-violet-600 text-violet-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+            {tb.icon} {tb.label}
+            {tb.badge && <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded-full ${tb.badgeRojo ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-500'}`}>{tb.badge}</span>}
+          </button>
+        ))}
+      </div>
+
+      {/* Hint de primera vez: cómo usar el ojo de las citas */}
+      <HintOjo />
+
       {/* Criterios */}
-      {criterios.length > 0 && (
+      {tab === 'ganar' && criterios.length > 0 && (
         <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Criterios de evaluación — dónde se gana el puntaje" badge={`suma ${Math.round(sumaReal)}%${crit.suma_valida ? ' ✓' : ' ⚠'}${crit.evaluacion_puntaje === 'por_linea' ? ' · por línea' : ' · al total'}`} defaultOpen>
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             {[...criterios].sort((a, b) => (Number(b.ponderacion_efectiva) || 0) - (Number(a.ponderacion_efectiva) || 0)).map((c, i) => {
               const tb = TIPO_BADGE[c.clase ?? c.tipo_aplicacion]; // v3.3 clase; v3.2 tipo_aplicacion
               // v3.3: POR TRAMOS registra el borde cómodo del tramo de máximo puntaje. v3.2 usaba
               // piso_o_tope. Mostramos el que exista (borde cómodo prioriza).
               const bordeComodo = c.tramo_max_puntaje?.borde_comodo || c.piso_o_tope;
+              const pond = Number(c.ponderacion_efectiva) || 0;
               return (
-                <div key={i} className="border-b border-slate-100 last:border-0 pb-2 last:pb-0">
+                <div key={i} className="border-b border-slate-100 last:border-0 pb-2.5 last:pb-0">
                   <div className="flex items-center justify-between gap-2">
-                    <p className="text-[13px] font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                    <p className="text-[13.5px] font-semibold text-slate-800 flex items-center gap-1.5 flex-wrap">
                       {c.nombre}
-                      {tb && <span className={`text-[9px] font-bold px-1 py-0.5 rounded ${tb.cls}`}>{tb.label}</span>}
-                      {bordeComodo && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700" title="Borde cómodo del tramo de máximo puntaje / piso o tope">{bordeComodo}</span>}
+                      {tb && <span title={tb.tip} className={`text-[10px] font-bold px-1.5 py-0.5 rounded cursor-help ${tb.cls}`}>{tb.label}</span>}
+                      {bordeComodo && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 cursor-help" title="El valor a ofertar para obtener el máximo puntaje de este criterio sin apretar la operación más de lo necesario">{bordeComodo}</span>}
                     </p>
-                    <span className="text-[13px] font-bold text-slate-900 flex-shrink-0">{c.ponderacion_efectiva ?? 0}%</span>
+                    <span className="text-[14px] font-bold text-slate-900 flex-shrink-0">{pond}%</span>
                   </div>
-                  {c.forma_aplicacion && <p className="text-[12px] text-slate-600 mt-0.5 leading-snug">{c.forma_aplicacion}</p>}
-                  {c.medio_verificacion && <p className="text-[11px] text-slate-400 mt-0.5">Verificación: {c.medio_verificacion}</p>}
+                  {/* Barra proporcional: dónde está el puntaje, de un vistazo (verde = el que más pesa) */}
+                  <div className="h-1.5 bg-slate-100 rounded-full mt-1.5 overflow-hidden">
+                    <div className={`h-full rounded-full ${i === 0 ? 'bg-emerald-500' : 'bg-violet-400'}`} style={{ width: `${Math.max(2, Math.min(100, pond))}%` }} />
+                  </div>
+                  {c.forma_aplicacion && <p className="text-[12.5px] text-slate-600 mt-1.5 leading-snug">{c.forma_aplicacion}</p>}
+                  {c.medio_verificacion && <p className="text-[11.5px] text-slate-400 mt-0.5">Verificación: {c.medio_verificacion}</p>}
                   <div className="mt-0.5"><Fuente destacar={c.nombre}>{c.fuente}</Fuente></div>
                 </div>
               );
@@ -496,14 +577,14 @@ function VistaV3({ informe }: { informe: any }) {
       )}
 
       {/* Atractivo */}
-      {atr.lectura_comercial && (
+      {tab === 'ganar' && atr.lectura_comercial && (
         <Seccion icon={<Scale size={14} className="text-violet-500" />} titulo="Atractivo" badge={cap(atr.nivel || atr.veredicto)} defaultOpen>
           <p className="text-[13px] text-slate-700 leading-snug">{atr.lectura_comercial}</p>
         </Seccion>
       )}
 
       {/* Estrategia */}
-      {((est.jugadas?.length ?? 0) > 0 || dsd.orden_final) && (
+      {tab === 'ganar' && ((est.jugadas?.length ?? 0) > 0 || dsd.orden_final) && (
         <Seccion icon={<ListChecks size={14} className="text-violet-500" />} titulo="Estrategia — dónde se gana y qué hacer" defaultOpen>
           <div className="space-y-1.5 text-[12px]">
             {(est.jugadas || []).map((j: any, i: number) => (
@@ -529,26 +610,30 @@ function VistaV3({ informe }: { informe: any }) {
         </Seccion>
       )}
 
-      {/* Requisitos de admisibilidad */}
-      <Seccion icon={<ShieldCheck size={14} className="text-violet-500" />} titulo="Requisitos de admisibilidad — qué nos deja fuera" badge={(adm.bloqueantes?.length ?? 0) > 0 ? `${adm.bloqueantes.length} bloqueante(s)` : 'sin bloqueantes'} defaultOpen>
-        <div className="space-y-1.5 text-[13px]">
-          <p className="flex items-start gap-1.5"><span className="flex-shrink-0">{adm.firma_puno_y_letra?.exigida ? '⚠' : '✓'}</span> Firma: {adm.firma_puno_y_letra?.exigida ? 'PUÑO Y LETRA exigida — requiere flujo físico' : 'electrónica válida — no se exige puño y letra'} <Fuente>{adm.firma_puno_y_letra?.fuente}</Fuente></p>
-          {adm.presupuesto?.tipo && <p className="flex items-start gap-1.5"><span>{adm.presupuesto.tipo === 'excluyente' ? '🔴' : '•'}</span> Presupuesto: {adm.presupuesto.tipo === 'excluyente' ? 'EXCLUYENTE — no superar el techo' : 'referencial'} <Fuente>{adm.presupuesto.fuente}</Fuente></p>}
-          {adm.cotizar_100?.aplica && <p className="flex items-start gap-1.5 text-red-700"><Ban size={13} className="mt-0.5 flex-shrink-0" /> Cotizar el 100% — falta 1 ítem = fuera <Fuente>{adm.cotizar_100.fuente}</Fuente></p>}
-          {adm.boleta?.aplica && <p className="flex items-start gap-1.5"><span>•</span> Boleta: {adm.boleta.detalle || `sobre ${adm.boleta.umbral_utm ?? 1000} UTM`}{adm.boleta.exigida_bajo_umbral ? ' (exigida aun bajo el umbral)' : ''} <Fuente>{adm.boleta.fuente}</Fuente></p>}
-          {adm.fiel_cumplimiento?.exige && <p className="flex items-start gap-1.5 text-amber-700"><span>⚠</span> Garantía de fiel cumplimiento{adm.fiel_cumplimiento.forma ? ` (${cap(adm.fiel_cumplimiento.forma)})` : ''}{adm.fiel_cumplimiento.plazo_entrega ? ` — entregar en ${adm.fiel_cumplimiento.plazo_entrega}` : ''} · fuerza cadena LARGA <Fuente>{adm.fiel_cumplimiento.fuente}</Fuente></p>}
-          {adm.contrato?.exige && <p className="flex items-start gap-1.5"><span>•</span> Suscripción de contrato{adm.contrato.plazos ? ` — ${adm.contrato.plazos}` : ''} · fuerza cadena LARGA <Fuente>{adm.contrato.fuente}</Fuente></p>}
-          {adm.seriedad_oferta?.exige && <p className="flex items-start gap-1.5"><span>•</span> Garantía de seriedad de la oferta exigida <Fuente>{adm.seriedad_oferta.fuente}</Fuente></p>}
-          {(adm.plazo_entrega_rango?.min || adm.plazo_entrega_rango?.max) && <p className="flex items-start gap-1.5"><span>•</span> Plazo de entrega: {adm.plazo_entrega_rango.min ? `mín ${adm.plazo_entrega_rango.min}` : ''}{adm.plazo_entrega_rango.min && adm.plazo_entrega_rango.max ? ' · ' : ''}{adm.plazo_entrega_rango.max ? `máx ${adm.plazo_entrega_rango.max}` : ''}{adm.plazo_entrega_rango.fuera_de_rango_inadmisible ? ' — fuera de rango = inadmisible' : ''} <Fuente>{adm.plazo_entrega_rango.fuente}</Fuente></p>}
-          {adm.marca_exclusiva?.es_exclusiva && <p className="flex items-start gap-1.5 text-amber-700"><span>⚠</span> MARCA EXCLUSIVA sin "o equivalente" — riesgo margen <Fuente>{adm.marca_exclusiva.fuente}</Fuente></p>}
-          {adm.marca_exclusiva && !adm.marca_exclusiva.es_exclusiva && adm.marca_exclusiva.admite_equivalente && <p className="flex items-start gap-1.5 text-emerald-700"><span>✓</span> Admite "o equivalente" — puerta abierta <Fuente>{adm.marca_exclusiva.fuente}</Fuente></p>}
-          {(adm.bloqueantes || []).map((b: any, i: number) => <p key={'bl' + i} className="flex items-start gap-1.5 text-red-700"><Ban size={13} className="mt-0.5 flex-shrink-0" /> {b.item} <Fuente>{b.fuente}</Fuente></p>)}
-          {(adm.a_favor || []).map((b: any, i: number) => <p key={'af' + i} className="flex items-start gap-1.5 text-emerald-700"><ShieldCheck size={13} className="mt-0.5 flex-shrink-0" /> {b.item} <Fuente>{b.fuente}</Fuente></p>)}
-        </div>
-      </Seccion>
+      {/* Requisitos de admisibilidad — checklist única ordenada por gravedad */}
+      {tab === 'riesgos' && (
+        <Seccion icon={<ShieldCheck size={14} className="text-violet-500" />} titulo="Requisitos de admisibilidad — qué nos deja fuera" badge={nBloq > 0 ? `${nBloq} bloqueante(s)` : 'sin bloqueantes'} defaultOpen>
+          <div className="space-y-1.5">
+            {riesgos.length === 0 && <p className="text-[13px] text-slate-500">Sin requisitos de admisibilidad detectados en las bases.</p>}
+            {riesgos.map((r, i) => (
+              <div key={i} className={`flex items-start gap-2.5 rounded-lg border p-2.5 ${r.sev === 0 ? 'border-red-200 bg-red-50/50' : r.sev === 1 ? 'border-amber-200 bg-amber-50/40' : 'border-slate-200 bg-white'}`}>
+                {r.sev === 0 ? <Ban size={15} className="text-red-600 mt-0.5 flex-shrink-0" />
+                  : r.sev === 1 ? <AlertTriangle size={15} className="text-amber-600 mt-0.5 flex-shrink-0" />
+                  : r.sev === 3 ? <ShieldCheck size={15} className="text-emerald-600 mt-0.5 flex-shrink-0" />
+                  : <span className="w-[15px] flex-shrink-0 text-center text-slate-400 leading-5">•</span>}
+                <div className="min-w-0 flex-1">
+                  <p className={`text-[13px] font-semibold leading-snug ${r.sev === 0 ? 'text-red-800' : r.sev === 1 ? 'text-amber-800' : r.sev === 3 ? 'text-emerald-800' : 'text-slate-700'}`}>{r.titulo}</p>
+                  {r.detalle && <p className="text-[12.5px] text-slate-500 mt-0.5 leading-snug">{r.detalle}</p>}
+                  {r.fuente && <div className="mt-0.5"><Fuente>{r.fuente}</Fuente></div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Seccion>
+      )}
 
       {/* Documentos propios a crear */}
-      {(adm.orden_anexos_propios?.length ?? 0) > 0 && (
+      {tab === 'preparacion' && (adm.orden_anexos_propios?.length ?? 0) > 0 && (
         <Seccion icon={<ClipboardCheck size={14} className="text-violet-500" />} titulo="Documentos propios a crear — orden de trabajo" badge={`${adm.orden_anexos_propios.length}`} defaultOpen>
           <div className="space-y-1.5 text-[12px]">
             {[...adm.orden_anexos_propios].sort((a: any, b: any) => (a.criticidad === 'ADMISIBILIDAD_DURA' ? 0 : a.criticidad === 'PUNTAJE_CONDICIONANTE' ? 1 : 2) - (b.criticidad === 'ADMISIBILIDAD_DURA' ? 0 : b.criticidad === 'PUNTAJE_CONDICIONANTE' ? 1 : 2)).map((d: any, i: number) => {
@@ -558,7 +643,7 @@ function VistaV3({ informe }: { informe: any }) {
                   <div className="flex items-start gap-1.5">
                     <span className="flex-shrink-0" title={cr.txt}>{cr.ic}</span>
                     <p className="text-slate-800 font-semibold flex-1">{d.que_crear}</p>
-                    {d.responsable && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">{cap(d.responsable)}</span>}
+                    {d.responsable && <span title="Quién (o en qué fase del flujo) se prepara este documento" className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0 cursor-help">{cap(d.responsable)}</span>}
                   </div>
                   {d.por_que && <p className="text-slate-500 mt-0.5 pl-5 leading-snug">POR QUÉ: {d.por_que}</p>}
                   {d.que_debe_contener && <p className="text-slate-500 pl-5 leading-snug">CONTENER: {d.que_debe_contener}</p>}
@@ -572,9 +657,13 @@ function VistaV3({ informe }: { informe: any }) {
       )}
 
       {/* Plazos */}
-      {(plz.colchon_dias_corridos != null || (plz.hitos?.length ?? 0) > 0) && (
+      {tab === 'riesgos' && (plz.colchon_dias_corridos != null || (plz.hitos?.length ?? 0) > 0) && (
         <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Plazos (colchón administrativo)" badge={plz.colchon_dias_corridos != null ? `colchón ${plz.colchon_dias_corridos} días` : undefined} defaultOpen>
-          <p className="text-[13px] text-slate-700 mb-2"><strong>Colchón:</strong> ≈ {plz.colchon_dias_corridos ?? '—'} días corridos · cadena {cap(plz.cadena)}{plz.ventana_importacion ? ' · ✅ VENTANA PARA IMPORTAR' : ''}</p>
+          <p className="text-[13px] text-slate-700 mb-2">
+            <strong title="Días “gratis” entre la adjudicación y el inicio del plazo de entrega" className="cursor-help">Colchón:</strong> ≈ {plz.colchon_dias_corridos ?? '—'} días corridos
+            {' · '}<span title={plz.cadena === 'larga' ? 'Cadena LARGA: hay contrato y/o garantía que firmar antes de poder empezar a entregar (más trámites, más días)' : 'Cadena corta: casi no hay trámites entre la adjudicación y el inicio de la entrega'} className="cursor-help underline decoration-dotted decoration-slate-300 underline-offset-2">cadena {cap(plz.cadena)}</span>
+            {plz.ventana_importacion ? ' · ✅ ALCANZA A IMPORTAR' : ''}
+          </p>
           {plz.cadena === 'larga' && (plz.gatillo_cadena_larga?.exige_fiel_cumplimiento || plz.gatillo_cadena_larga?.exige_contrato) && (
             <p className="text-[12px] text-amber-700 mb-2">⚠ Cadena LARGA por {[plz.gatillo_cadena_larga?.exige_fiel_cumplimiento ? 'garantía de fiel cumplimiento' : '', plz.gatillo_cadena_larga?.exige_contrato ? 'suscripción de contrato' : ''].filter(Boolean).join(' + ')} <Fuente>{plz.gatillo_cadena_larga?.fuente}</Fuente></p>
           )}
@@ -591,8 +680,8 @@ function VistaV3({ informe }: { informe: any }) {
       )}
 
       {/* Multas */}
-      {(mul.detectadas || mul.estructura) && (
-        <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Multas por atraso">
+      {tab === 'riesgos' && (mul.detectadas || mul.estructura) && (
+        <Seccion icon={<Gavel size={14} className="text-violet-500" />} titulo="Multas por atraso" defaultOpen>
           {mul.detectadas === false
             ? <p className="text-[13px] text-slate-500">No se detectaron multas por atraso en las bases.</p>
             : <p className="text-[13px] text-slate-700">{mul.estructura}{mul.costo_por_dia_pesos ? ` · ${mul.costo_por_dia_pesos}/día` : ''}{mul.valor_utm_usado ? ` (UTM ${mul.valor_utm_usado})` : ''}{mul.tope ? ` · tope: ${mul.tope}` : ''}{mul.efecto_al_superar_tope ? ` · ${mul.efecto_al_superar_tope}` : ''}</p>}
@@ -600,55 +689,83 @@ function VistaV3({ informe }: { informe: any }) {
         </Seccion>
       )}
 
-      {/* Costeo — TODOS los ítems que alimentan el Excel de costeo (manifiesto completo) */}
-      {itemsCosteo.length > 0 && (
-        <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Productos a costear (base del scraping)" badge={`${itemsCosteo.length} ítems · ${hojasCosteo}`}>
+      {/* Costeo — TODOS los ítems que alimentan el Excel de costeo (manifiesto completo),
+          ahora como TABLA: con 10+ ítems las cantidades y tipos quedan alineados y legibles. */}
+      {tab === 'productos' && itemsCosteo.length > 0 && (
+        <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Productos a cotizar" badge={`${itemsCosteo.length} ítems · ${hojasCosteo}`} defaultOpen>
           {entregablesWord.length > 0 && (
             <p className="text-[11px] text-slate-400 mb-1.5">Entregables: {entregablesWord.map(w => cap(w)).join(' · ')} <span className="text-slate-300">(fichas en el JSON; Word pendiente de generar)</span></p>
           )}
-          <div className="space-y-1">
-            {itemsCosteo.map((p, i) => {
-              // startsWith tolera typos del modelo (ej. "especificico") que un === exacto perdería.
-              const clas = String(p.clasificacion).toLowerCase();
-              const esGenerico = clas.startsWith('gener');
-              const esEspecifico = clas.startsWith('espec');
-              return (
-              <div key={i} className="text-[13px] border-b border-slate-100 last:border-0 py-1">
-                <div className="flex gap-2 items-start">
-                  <span className="text-slate-400 w-8 flex-shrink-0">{typeof p.linea === 'string' ? p.linea : `L${p.linea ?? i + 1}`}</span>
-                  <span className="text-slate-700 flex-1">{p.descripcion}{p.modelo ? ` · ${p.modelo}` : ''}</span>
-                  {p.cantidad != null && <span className="text-slate-500 flex-shrink-0">{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</span>}
-                </div>
-                <div className="flex gap-1 flex-wrap pl-10 mt-0.5">
-                  {esEspecifico && <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600">Específico</span>}
-                  {esGenerico && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Genérico</span>}
-                  {p.libertad_de_oferta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700" title="Sin specs en bases: podemos ofertar lo que queramos">🟢 Libertad de oferta</span>}
-                  {p.admite_equivalente === false && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">marca exacta</span>}
-                  {p.ruta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600">Ruta {p.ruta}</span>}
-                  {p.marca_exclusiva && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">⚠ marca exclusiva</span>}
-                </div>
-                {p.caracteristicas.length > 0 && (
-                  <details className="pl-10 mt-0.5">
-                    <summary className="text-[11px] text-violet-600 cursor-pointer select-none">Ficha técnica ({p.caracteristicas.length})</summary>
-                    <ul className="text-[11px] text-slate-500 list-disc pl-4 mt-0.5 space-y-0.5">
-                      {p.caracteristicas.map((c: string, k: number) => <li key={k}>{c}</li>)}
-                    </ul>
-                  </details>
-                )}
-                {/* Buscador de equipamiento: solo para ítems con ficha técnica (maquinaria/equipos). */}
-                {p.caracteristicas.length >= 3 && (
-                  <BotonBuscarEquipo codigo={String(informe.meta?.id || '')} region={informe.meta?.region}
-                    producto={{ descripcion: p.descripcion, caracteristicas: p.caracteristicas, cantidad: p.cantidad }} />
-                )}
-              </div>
-            );})}
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="text-left text-[10.5px] text-slate-400 uppercase">
+                  <th className="py-1.5 pr-2 font-bold w-10">L</th>
+                  <th className="py-1.5 pr-2 font-bold">Descripción</th>
+                  <th className="py-1.5 pr-2 font-bold text-right w-20 whitespace-nowrap">Cant.</th>
+                  <th className="py-1.5 font-bold w-28">Tipo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itemsCosteo.map((p, i) => {
+                  // startsWith tolera typos del modelo (ej. "especificico") que un === exacto perdería.
+                  const clas = String(p.clasificacion).toLowerCase();
+                  const esGenerico = clas.startsWith('gener');
+                  const esEspecifico = clas.startsWith('espec');
+                  const hayFicha = p.caracteristicas.length > 0;
+                  return (
+                    <Fragment key={i}>
+                      <tr className="border-t border-slate-100 align-top">
+                        <td className="py-1.5 pr-2 text-slate-400 whitespace-nowrap">{typeof p.linea === 'string' ? p.linea : `L${p.linea ?? i + 1}`}</td>
+                        <td className="py-1.5 pr-2 text-slate-700">
+                          {p.descripcion}{p.modelo ? <span className="text-slate-500"> · {p.modelo}</span> : null}
+                          {(p.libertad_de_oferta || p.admite_equivalente === false || p.ruta || p.marca_exclusiva) && (
+                            <span className="inline-flex gap-1 flex-wrap ml-1.5 align-middle">
+                              {p.libertad_de_oferta && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 cursor-help" title="Las bases no exigen especificaciones para este ítem: se puede ofertar el producto que más nos convenga">🟢 Libertad de oferta</span>}
+                              {p.admite_equivalente === false && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 cursor-help" title="Piden una marca específica y NO aceptan alternativas equivalentes en este ítem">marca exacta</span>}
+                              {p.ruta && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 cursor-help" title="Ruta de abastecimiento sugerida por el análisis para conseguir este producto">Ruta {p.ruta}</span>}
+                              {p.marca_exclusiva && <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 cursor-help" title="Exigen una marca sin admitir “o equivalente”: riesgo de margen">⚠ marca exclusiva</span>}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1.5 pr-2 text-right text-slate-600 whitespace-nowrap">{p.cantidad != null ? <>{p.cantidad}{p.unidad_medida ? ` ${p.unidad_medida}` : ''}{p.unidad_inferida ? '*' : ''}</> : '—'}</td>
+                        <td className="py-1.5">
+                          {esEspecifico ? <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 cursor-help" title="Ítem con especificaciones técnicas detalladas en las bases: hay que cumplirlas">Específico</span>
+                            : esGenerico ? <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help" title="Ítem sin especificaciones detalladas: más libertad para elegir qué ofertar">Genérico</span>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                      </tr>
+                      {hayFicha && (
+                        <tr>
+                          <td />
+                          <td colSpan={3} className="pb-2">
+                            <details>
+                              <summary className="text-[11px] text-violet-600 cursor-pointer select-none">Ficha técnica ({p.caracteristicas.length})</summary>
+                              <ul className="text-[11px] text-slate-500 list-disc pl-4 mt-0.5 space-y-0.5">
+                                {p.caracteristicas.map((c: string, k: number) => <li key={k}>{c}</li>)}
+                              </ul>
+                            </details>
+                            {/* Buscador de equipamiento: solo para ítems con ficha técnica (maquinaria/equipos). */}
+                            {p.caracteristicas.length >= 3 && (
+                              <BotonBuscarEquipo codigo={String(informe.meta?.id || '')} region={informe.meta?.region}
+                                producto={{ descripcion: p.descripcion, caracteristicas: p.caracteristicas, cantidad: p.cantidad }} />
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
+          {itemsCosteo.some(p => p.unidad_inferida) && <p className="text-[10.5px] text-slate-400 pt-1">* unidad de medida inferida (no especificada en las bases)</p>}
         </Seccion>
       )}
 
       {/* Líneas a atacar */}
-      {(lin.modo === 'POR_LINEAS' ? (lin.lineas?.length ?? 0) > 0 : !!lin.mensaje_global_o_lote) && (
-        <Seccion icon={<Swords size={14} className="text-violet-500" />} titulo="Líneas a atacar" badge={cap(lin.modo)}>
+      {tab === 'productos' && (lin.modo === 'POR_LINEAS' ? (lin.lineas?.length ?? 0) > 0 : !!lin.mensaje_global_o_lote) && (
+        <Seccion icon={<Swords size={14} className="text-violet-500" />} titulo="Líneas a atacar" badge={cap(lin.modo)} defaultOpen>
           {lin.modo === 'POR_LINEAS'
             ? <div className="space-y-1 text-[12px]">{(lin.lineas || []).map((l: any, i: number) => (
                 <div key={i} className="flex items-start gap-2 border-b border-slate-100 last:border-0 py-1">
@@ -660,12 +777,15 @@ function VistaV3({ informe }: { informe: any }) {
       )}
 
       {/* Acciones y advertencias */}
-      {((acc.acciones?.length ?? 0) > 0 || (acc.advertencias?.length ?? 0) > 0) && (
+      {tab === 'preparacion' && ((acc.acciones?.length ?? 0) > 0 || (acc.advertencias?.length ?? 0) > 0) && (
         <Seccion icon={<Target size={14} className="text-violet-500" />} titulo="Acciones y advertencias" defaultOpen>
           {(acc.acciones?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-slate-400 uppercase mb-1">Para postular</p><ul className="text-[12px] text-slate-700 space-y-1 list-decimal pl-4 mb-2">{acc.acciones.map((a: any, i: number) => <li key={i}><span className="font-semibold">{a.orden}</span>{a.por_que ? ` — ${a.por_que}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
           {(acc.advertencias?.length ?? 0) > 0 && <><p className="text-[11px] font-bold text-red-500 uppercase mb-1">Advertencias</p><ul className="text-[12px] text-amber-700 space-y-1 list-disc pl-4">{acc.advertencias.map((a: any, i: number) => <li key={i}>⚠ {a.riesgo}{a.consecuencia ? ` — ${a.consecuencia}` : ''} <Fuente>{a.fuente}</Fuente></li>)}</ul></>}
         </Seccion>
       )}
+
+      {/* "Enseñar a la IA" vive en Preparación: es herramienta de corrección, no parte del informe */}
+      {tab === 'preparacion' && feedbackPanel}
 
       <p className="text-[11px] text-slate-400 text-center pt-1">
         {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3.join(', ')} · </>}
@@ -903,6 +1023,84 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   // Enlace al PDF para citas mostradas fuera del componente <Fuente> (chips).
   const hrefCita = (f?: string) => (f ? resolverCita(f, docs)?.href : undefined);
 
+  // Panel "Enseñar a la IA": en la vista v3 se muestra dentro de la pestaña Preparación;
+  // en la v2 (o sin informe) se mantiene al final de la página, como antes.
+  const panelFeedback = puedeComentar ? (
+      <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
+        <div className="flex items-center gap-2 mb-1">
+          <GraduationCap size={16} className="text-violet-600" />
+          <h3 className="text-[13px] font-bold text-slate-800">Enseñarle a la IA · Reglas que aprende</h3>
+        </div>
+        <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que el sistema aplicará en <strong>todos los análisis futuros</strong>. Puedes agregar reglas aunque no hayas analizado esta licitación.</p>
+
+        {/* Ámbito de la regla: veredicto de negocio vs. cómo se leen los documentos (costeo) */}
+        <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 mb-3 w-fit">
+          {([['global', 'Viabilidad / Descarte'], ['lectura', 'Lectura de documentos / Costeo']] as const).map(([a, lbl]) => (
+            <button key={a} onClick={() => setFbAmbito(a)}
+              className={`text-[12px] font-semibold px-3 py-1.5 rounded-md transition-colors ${fbAmbito === a ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        {fbAmbito === 'global' ? (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {([['viable', 'Sí es viable'], ['no_viable', 'No es viable'], ['parcial', 'Parcial']] as const).map(([v, lbl]) => (
+              <button key={v} onClick={() => setFbVeredicto(fbVeredicto === v ? '' : v)}
+                className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${fbVeredicto === v ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11.5px] text-violet-700 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2 mb-2">
+            Explica <strong>cómo debe leerse el documento</strong> para que la extracción de ítems y el costeo salgan bien. Se aplica al leer las planillas y anexos de futuras licitaciones.
+          </p>
+        )}
+
+        <textarea value={fbComentario} onChange={e => setFbComentario(e.target.value)}
+          placeholder={fbAmbito === 'lectura'
+            ? 'Ej: En listados con encabezado "Cantidad solicitada", esa columna es la cantidad. / Si la descripción trae "MARCA SUGERIDA:", esa es referencial, no obligatoria. / Ignorar las filas de "Solped" y "Material" como si fueran ítems.'
+            : 'Ej: No es viable porque exigen certificación ISO-9001 que no manejamos. / Descartar siempre que pidan fianza bancaria en UTM.'}
+          rows={3}
+          className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 outline-none resize-y" />
+
+        <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+          <p className={`text-[11.5px] ${fbOk?.startsWith('Aprendido') ? 'text-emerald-600' : 'text-amber-600'}`}>{fbOk}</p>
+          <div className="flex items-center gap-2">
+            {informe && fbOk?.startsWith('Aprendido') && esAdmin && (
+              <button onClick={analizar} disabled={cargando} className="text-[12px] font-semibold text-violet-600 hover:underline">Re-analizar con lo aprendido</button>
+            )}
+            <button onClick={enviarFeedback} disabled={fbEnviando || fbComentario.trim().length < 4}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg">
+              {fbEnviando ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Guardar y enseñar
+            </button>
+          </div>
+        </div>
+
+        {feedback.length > 0 && (
+          <div className="mt-3 pt-3 border-t border-violet-100 space-y-2">
+            <p className="text-[11px] font-bold text-slate-400 uppercase">Lecciones registradas ({feedback.length})</p>
+            {feedback.map(f => (
+              <div key={f.id} className="flex items-start gap-2 text-[12px] bg-white rounded-lg border border-slate-200 p-2">
+                <GraduationCap size={13} className="text-violet-500 mt-0.5 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-slate-700">
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mr-1.5 align-middle ${f.ambito === 'lectura' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}`}>
+                      {f.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}
+                    </span>
+                    <strong>Regla:</strong> {f.regla}
+                  </p>
+                  {f.comentario && f.comentario !== f.regla && <p className="text-slate-400 text-[11px] mt-0.5">{f.comentario}</p>}
+                </div>
+                <button onClick={() => borrarFeedback(f.id)} title="Eliminar lección" className="text-slate-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+  ) : null;
+
   return (
     <div className="space-y-3">
       {/* Cabecera + acción */}
@@ -981,7 +1179,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       {informe && (
         <FuenteDocsContext.Provider value={docs}>
          <VisorContext.Provider value={abrirVisor}>
-          {(informe as any)._schema === 'v3' ? <VistaV3 informe={informe as any} /> : (<>
+          {(informe as any)._schema === 'v3' ? <VistaV3 informe={informe as any} feedbackPanel={panelFeedback} /> : (<>
           {/* HERO: score + veredicto */}
           <div className={`rounded-2xl border p-4 ${sem.soft}`}>
             <div className="flex items-center gap-4">
@@ -1276,82 +1474,9 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         </FuenteDocsContext.Provider>
       )}
 
-      {/* Feedback loop: enseñar a la IA — visible siempre, no requiere análisis previo */}
-      {puedeComentar && (
-      <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-4">
-        <div className="flex items-center gap-2 mb-1">
-          <GraduationCap size={16} className="text-violet-600" />
-          <h3 className="text-[13px] font-bold text-slate-800">Enseñarle a la IA · Reglas que aprende</h3>
-        </div>
-        <p className="text-[11.5px] text-slate-500 mb-3">Tu corrección se convierte en una regla que el sistema aplicará en <strong>todos los análisis futuros</strong>. Puedes agregar reglas aunque no hayas analizado esta licitación.</p>
-
-        {/* Ámbito de la regla: veredicto de negocio vs. cómo se leen los documentos (costeo) */}
-        <div className="flex items-center gap-0.5 bg-slate-100 rounded-lg p-0.5 mb-3 w-fit">
-          {([['global', 'Viabilidad / Descarte'], ['lectura', 'Lectura de documentos / Costeo']] as const).map(([a, lbl]) => (
-            <button key={a} onClick={() => setFbAmbito(a)}
-              className={`text-[12px] font-semibold px-3 py-1.5 rounded-md transition-colors ${fbAmbito === a ? 'bg-white text-violet-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-              {lbl}
-            </button>
-          ))}
-        </div>
-
-        {fbAmbito === 'global' ? (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {([['viable', 'Sí es viable'], ['no_viable', 'No es viable'], ['parcial', 'Parcial']] as const).map(([v, lbl]) => (
-              <button key={v} onClick={() => setFbVeredicto(fbVeredicto === v ? '' : v)}
-                className={`text-[12px] font-semibold px-3 py-1.5 rounded-lg border transition-colors ${fbVeredicto === v ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-slate-600 border-slate-200 hover:border-violet-300'}`}>
-                {lbl}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <p className="text-[11.5px] text-violet-700 bg-violet-50 border border-violet-100 rounded-lg px-2.5 py-2 mb-2">
-            Explica <strong>cómo debe leerse el documento</strong> para que la extracción de ítems y el costeo salgan bien. Se aplica al leer las planillas y anexos de futuras licitaciones.
-          </p>
-        )}
-
-        <textarea value={fbComentario} onChange={e => setFbComentario(e.target.value)}
-          placeholder={fbAmbito === 'lectura'
-            ? 'Ej: En listados con encabezado "Cantidad solicitada", esa columna es la cantidad. / Si la descripción trae "MARCA SUGERIDA:", esa es referencial, no obligatoria. / Ignorar las filas de "Solped" y "Material" como si fueran ítems.'
-            : 'Ej: No es viable porque exigen certificación ISO-9001 que no manejamos. / Descartar siempre que pidan fianza bancaria en UTM.'}
-          rows={3}
-          className="w-full text-[13px] rounded-lg border border-slate-200 p-2.5 focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 outline-none resize-y" />
-
-        <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
-          <p className={`text-[11.5px] ${fbOk?.startsWith('Aprendido') ? 'text-emerald-600' : 'text-amber-600'}`}>{fbOk}</p>
-          <div className="flex items-center gap-2">
-            {informe && fbOk?.startsWith('Aprendido') && esAdmin && (
-              <button onClick={analizar} disabled={cargando} className="text-[12px] font-semibold text-violet-600 hover:underline">Re-analizar con lo aprendido</button>
-            )}
-            <button onClick={enviarFeedback} disabled={fbEnviando || fbComentario.trim().length < 4}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white text-[12px] font-semibold rounded-lg">
-              {fbEnviando ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Guardar y enseñar
-            </button>
-          </div>
-        </div>
-
-        {feedback.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-violet-100 space-y-2">
-            <p className="text-[11px] font-bold text-slate-400 uppercase">Lecciones registradas ({feedback.length})</p>
-            {feedback.map(f => (
-              <div key={f.id} className="flex items-start gap-2 text-[12px] bg-white rounded-lg border border-slate-200 p-2">
-                <GraduationCap size={13} className="text-violet-500 mt-0.5 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-slate-700">
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded mr-1.5 align-middle ${f.ambito === 'lectura' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'}`}>
-                      {f.ambito === 'lectura' ? 'Lectura' : 'Viabilidad'}
-                    </span>
-                    <strong>Regla:</strong> {f.regla}
-                  </p>
-                  {f.comentario && f.comentario !== f.regla && <p className="text-slate-400 text-[11px] mt-0.5">{f.comentario}</p>}
-                </div>
-                <button onClick={() => borrarFeedback(f.id)} title="Eliminar lección" className="text-slate-300 hover:text-red-500 flex-shrink-0"><Trash2 size={13} /></button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      )}
+      {/* Feedback loop: en la vista v3 vive dentro de la pestaña Preparación; aquí solo se
+          muestra para la vista v2 legada o cuando aún no hay informe. */}
+      {(!informe || (informe as any)._schema !== 'v3') && panelFeedback}
     </div>
   );
 }

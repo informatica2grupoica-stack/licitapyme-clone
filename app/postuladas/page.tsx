@@ -75,6 +75,10 @@ interface Adjudicacion {
   estado?: string | null;
   codigoEstado?: number | null;
   fechaAdjudicacion?: string | null;
+  // Fecha ESTIMADA de adjudicación (planificación del organismo, de la ficha MP) — cuándo
+  // se decide. Y la apertura técnica. Sirven para ordenar por "la más cercana".
+  fechaEstimadaAdjudicacion?: string | null;
+  fechaAperturaTecnica?: string | null;
   ganamos?: boolean;
   montoNuestro?: number | null;
   adjudicacion?: {
@@ -149,6 +153,40 @@ function AperturaChip({ aperturada }: { aperturada: boolean }) {
     <span className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-medium border bg-slate-100 text-slate-400 border-slate-200"
       title="Aún sin acto de apertura en Mercado Público">
       <DoorClosed size={11} /> Sin apertura
+    </span>
+  );
+}
+
+// ── Chip de FECHA DE ADJUDICACIÓN ─────────────────────────────────────────────
+// La info que el usuario más pide en Postuladas: ¿cuándo se decide cada una? Si ya se
+// adjudicó, muestra la fecha real; si sigue en evaluación, la ESTIMADA de la ficha MP con
+// el "en X días" para saber de un vistazo cuál se resuelve antes. El color sube de tono a
+// medida que se acerca (o si ya se pasó la fecha estimada sin resultado).
+function FechaAdjChip({ adj }: { adj: Adjudicacion | null }) {
+  if (!adj) return null;
+  const iso = adj.esAdjudicada ? adj.fechaAdjudicacion : adj.fechaEstimadaAdjudicacion;
+  if (!iso) return null;
+  const d = dayjs(iso);
+  if (!d.isValid()) return null;
+
+  if (adj.esAdjudicada) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-semibold border rounded-full px-2 py-0.5 bg-emerald-50 border-emerald-200 text-emerald-800"
+        title={`Fecha de adjudicación: ${d.format('DD/MM/YYYY')}`}>
+        <Award size={11} /> Adjudicada {d.format('DD/MM/YYYY')}
+      </span>
+    );
+  }
+  const dias = d.startOf('day').diff(dayjs().startOf('day'), 'day');
+  const rel = dias < 0 ? `atrasada ${-dias} d` : dias === 0 ? 'hoy' : dias === 1 ? 'mañana' : `en ${dias} días`;
+  const tono = dias < 0 ? 'bg-rose-50 border-rose-200 text-rose-700'
+    : dias <= 3 ? 'bg-orange-50 border-orange-200 text-orange-800'
+    : dias <= 10 ? 'bg-sky-50 border-sky-200 text-sky-800'
+    : 'bg-slate-50 border-slate-200 text-slate-600';
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold border rounded-full px-2 py-0.5 ${tono}`}
+      title={`Fecha estimada de adjudicación (ficha de Mercado Público): ${d.format('DD/MM/YYYY HH:mm')}`}>
+      <Hourglass size={11} /> Se decide {d.format('DD/MM/YYYY')} · {rel}
     </span>
   );
 }
@@ -313,6 +351,7 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
   onActualizada: (id: number, patch: { monto_ofertado?: number; estado_pipeline?: string; empresa_id?: number | null; empresa_nombre?: string | null }) => void;
 }) {
   const [docs, setDocs] = useState<DocCache[]>(docsIniciales);
+  const [expandido, setExpandido] = useState(false);
   const [editando, setEditando] = useState(false);
   const [montoEdit, setMontoEdit] = useState<string>(n.monto_ofertado ? String(n.monto_ofertado) : '');
   const [estadoEdit, setEstadoEdit] = useState<string>(n.estado_pipeline || ESTADO_POSTULADA);
@@ -402,57 +441,83 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
     : { label: 'Postulamos con', valor: fmtCLP(n.monto_ofertado), cls: 'bg-amber-50 border-amber-200 text-amber-800', sub: 'text-amber-700' };
 
   return (
-    <div
-      className="group relative bg-white border border-slate-200 rounded-2xl p-4 pl-5 overflow-hidden hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
-    >
+    <div className="group relative bg-white border border-slate-200 rounded-xl overflow-hidden hover:border-slate-300 transition-colors">
       {/* Barra de color por resultado */}
-      <span className="absolute left-0 top-0 bottom-0 w-1.5" style={{ background: m.color }} />
+      <span className="absolute left-0 top-0 bottom-0 w-1" style={{ background: m.color }} />
 
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="text-[11px] font-mono font-semibold text-slate-500">{n.licitacion_codigo}</span>
-            {!cargandoAdj && <ResultadoBadge r={r} pulso={r === 'ganada'} />}
-            <AperturaChip aperturada={!!n.aperturada} />
+      {/* ── FILA COMPACTA (siempre visible; clic para expandir) ─────────────── */}
+      <div className="flex items-center gap-3 py-2.5 pl-4 pr-3 cursor-pointer select-none"
+        onClick={() => setExpandido(e => !e)}>
+        <ChevronDown size={15} className={`flex-shrink-0 text-slate-300 transition-transform ${expandido ? 'rotate-180' : ''}`} />
+
+        {/* Identidad: código + título + organismo */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-[10.5px] font-mono font-semibold text-slate-400 flex-shrink-0">{n.licitacion_codigo}</span>
+            <h3 className="text-[13px] font-semibold text-slate-800 truncate">{n.licitacion_nombre || 'Sin nombre'}</h3>
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
+            <span className="inline-flex items-center gap-1 min-w-0"><Building2 size={11} className="flex-shrink-0" /><span className="truncate max-w-[220px]">{n.licitacion_organismo || '—'}</span></span>
             {isAdmin && (n.usuario_nombre || n.usuario_email) && (
-              <span className="inline-flex items-center gap-1 text-[10px] text-slate-500 font-medium">
-                <span style={{ background: perfilCol }} className="inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold">
+              <span className="inline-flex items-center gap-1 flex-shrink-0" title={n.usuario_nombre || n.usuario_email}>
+                <span style={{ background: perfilCol }} className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-white text-[7px] font-bold">
                   {inicialesUsuario(n.usuario_nombre, n.usuario_email)}
                 </span>
-                {n.usuario_nombre || n.usuario_email}
               </span>
             )}
           </div>
-          <h3 className="text-[14px] font-semibold text-slate-800 truncate">{n.licitacion_nombre || 'Sin nombre'}</h3>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-[12px] text-slate-500">
-            <span className="inline-flex items-center gap-1 min-w-0"><Building2 size={12} className="flex-shrink-0" /><span className="truncate max-w-[240px]">{n.licitacion_organismo || '—'}</span></span>
-            {n.licitacion_cierre && <span className="inline-flex items-center gap-1"><Calendar size={12} />{dayjs(n.licitacion_cierre).format('DD/MM/YYYY')}</span>}
-          </div>
-          {n.empresa_nombre && (
-            <span className="inline-flex items-center gap-1 mt-1.5 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
-              <Building2 size={11} /> {n.empresa_nombre}
-            </span>
-          )}
         </div>
-        <div className="flex-shrink-0 flex items-center gap-1">
-          {isAdmin && !editando && (
+
+        {/* Estado + fecha de decisión (lo que se ordena) */}
+        <div className="hidden sm:flex flex-col items-end gap-1 flex-shrink-0">
+          {!cargandoAdj && <FechaAdjChip adj={adj} />}
+          <div className="flex items-center gap-1.5">
+            {n.aperturada ? <AperturaChip aperturada /> : null}
+            {!cargandoAdj && <ResultadoBadge r={r} pulso={r === 'ganada'} />}
+          </div>
+        </div>
+
+        {/* Monto ofertado (columna fija) */}
+        <div className="hidden md:block text-right flex-shrink-0 w-[104px]">
+          <p className="text-[9.5px] uppercase tracking-wide text-slate-400">Ofertamos</p>
+          <p className="text-[12.5px] font-bold text-slate-700 truncate">{fmtCLP(n.monto_ofertado)}</p>
+        </div>
+
+        {/* Acciones (no propagan el clic de expandir) */}
+        <div className="flex items-center gap-0.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
+          {isAdmin && (
             <>
-              <button onClick={() => setEditando(true)} title="Editar monto y estado"
-                className="inline-flex items-center text-slate-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition-colors">
+              <button onClick={() => { setEditando(true); setExpandido(true); }} title="Editar monto y estado"
+                className="inline-flex items-center text-slate-300 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition-colors opacity-0 group-hover:opacity-100">
                 <Pencil size={13} />
               </button>
               <button onClick={revertir} title="Quitar de Postuladas (vuelve a En proceso)"
-                className="inline-flex items-center text-slate-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors">
+                className="inline-flex items-center text-slate-300 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 transition-colors opacity-0 group-hover:opacity-100">
                 <Undo2 size={13} />
               </button>
             </>
           )}
           <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}`}
-            className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700">
+            className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 px-1.5 py-1 rounded-lg hover:bg-indigo-50">
             Ver <ExternalLink size={12} />
           </Link>
         </div>
       </div>
+
+      {/* En móvil, la fecha de decisión no cabe en la fila → se muestra bajo el título */}
+      <div className="sm:hidden flex items-center gap-2 flex-wrap px-4 pb-2 -mt-1">
+        {!cargandoAdj && <FechaAdjChip adj={adj} />}
+        {!cargandoAdj && <ResultadoBadge r={r} pulso={r === 'ganada'} />}
+      </div>
+
+      {/* ── DETALLE (acordeón) ──────────────────────────────────────────────── */}
+      {expandido && (
+      <div className="px-4 pb-4 pt-1 border-t border-slate-100">
+      {n.empresa_nombre && (
+        <span className="inline-flex items-center gap-1 mb-3 mt-2 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 rounded-full px-2 py-0.5">
+          <Building2 size={11} /> {n.empresa_nombre}
+        </span>
+      )}
 
       {editando && (
         <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50/40 p-3">
@@ -489,8 +554,8 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
         </div>
       )}
 
-      {/* Presupuesto real · Postulamos con · Métrica de resultado */}
-      <div className="grid grid-cols-3 gap-2 mt-3">
+      {/* Presupuesto real · Postulamos con · (resultado solo si ya se adjudicó) */}
+      <div className={`grid gap-2 mt-2 ${adj?.esAdjudicada ? 'grid-cols-3' : 'grid-cols-2'}`}>
         <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
           <p className="text-[10.5px] text-slate-500">Presupuesto real</p>
           <p className="text-[13.5px] font-bold text-slate-800">{fmtCLP(n.licitacion_monto)}</p>
@@ -499,10 +564,12 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
           <p className="text-[10.5px] text-slate-500">Postulamos con</p>
           <p className="text-[13.5px] font-bold text-slate-800">{fmtCLP(n.monto_ofertado)}</p>
         </div>
-        <div className={`rounded-lg border px-3 py-2 ${metricaResultado.cls}`}>
-          <p className={`text-[10.5px] ${metricaResultado.sub}`}>{metricaResultado.label}</p>
-          <p className="text-[13.5px] font-bold">{cargandoAdj ? '…' : metricaResultado.valor}</p>
-        </div>
+        {adj?.esAdjudicada && (
+          <div className={`rounded-lg border px-3 py-2 ${metricaResultado.cls}`}>
+            <p className={`text-[10.5px] ${metricaResultado.sub}`}>{metricaResultado.label}</p>
+            <p className="text-[13.5px] font-bold">{cargandoAdj ? '…' : metricaResultado.valor}</p>
+          </div>
+        )}
       </div>
 
       {/* Detalle de adjudicación (ganada o perdida) */}
@@ -534,6 +601,8 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
             ))}
           </div>
         </div>
+      )}
+      </div>
       )}
     </div>
   );
@@ -568,7 +637,7 @@ export default function PostuladasPage() {
   // Filtro por estado de MP (Publicada/Cerrada/Adjudicada/Revocada/Desierta…) + "Aperturadas".
   const [estadosMpSel, setEstadosMpSel] = useState<string[]>([]);
   // Ordenamiento de las tarjetas y carga incremental (las adjudicaciones hacen pesada cada tarjeta).
-  const [orden, setOrden] = useState<'resultado' | 'cierre' | 'monto'>('resultado');
+  const [orden, setOrden] = useState<'adjudicacion' | 'resultado' | 'cierre' | 'monto'>('adjudicacion');
   const [maxVisibles, setMaxVisibles] = useState(24);
 
   // Estado de cada postulada (adjudicación + apertura). Se resuelve TODO en el servidor en
@@ -747,19 +816,51 @@ export default function PostuladasPage() {
     return c;
   }, [base, resultadoDeNegocio]);
 
+  // Fecha en que se DECIDE una postulada (ms): si ya se adjudicó, la fecha real; si sigue en
+  // evaluación, la ESTIMADA de la ficha MP. null si no hay ninguna.
+  const fechaDecisionDe = useCallback((n: Negocio): number | null => {
+    const adj = adjMap[n.licitacion_codigo];
+    const iso = adj?.esAdjudicada ? adj?.fechaAdjudicacion : adj?.fechaEstimadaAdjudicacion;
+    const t = iso ? dayjs(iso).valueOf() : NaN;
+    return Number.isFinite(t) ? t : null;
+  }, [adjMap]);
+  // Peso de grupo para el orden "adjudicación", pensado para "las más cercanas / lo que viene":
+  //   0 = pendiente que se decide A FUTURO (lo próximo — arriba, de lo más pronto a lo más lejano)
+  //   1 = pendiente ATRASADA (fecha estimada ya pasó sin resultado — la más reciente primero)
+  //   2 = pendiente SIN fecha en la ficha
+  //   3 = ya resuelta (ganada/perdida) — al final, la más reciente primero
+  const pesoDecision = useCallback((n: Negocio, fecha: number | null): number => {
+    if (adjMap[n.licitacion_codigo]?.esAdjudicada) return 3;
+    if (fecha == null) return 2;
+    return fecha >= dayjs().startOf('day').valueOf() ? 0 : 1;
+  }, [adjMap]);
+
   const visibles = useMemo(() => {
     return base
       .filter(n => !resultadoSel || resultadoDeNegocio(n) === resultadoSel)
       .filter(n => estadosMpSel.length === 0
         || estadosMpSel.some(sel => sel === APERTURADAS ? !!n.aperturada : estadoMpDe(n) === sel))
       .sort((a, b) => {
+        if (orden === 'adjudicacion') {
+          // Fecha en que se DECIDE cada una (estimada de la ficha; si ya se adjudicó, la real).
+          // Orden: primero las que aún no se deciden, de la más CERCANA a la más lejana; las
+          // que ya se resolvieron o no traen fecha van al final.
+          const fa = fechaDecisionDe(a), fb = fechaDecisionDe(b);
+          const pa = pesoDecision(a, fa), pb = pesoDecision(b, fb);
+          if (pa !== pb) return pa - pb;
+          if (fa && fb && fa !== fb) {
+            // Futuro (0): lo más pronto primero. Atrasadas (1) y resueltas (3): lo más reciente primero.
+            return pa === 0 ? fa - fb : fb - fa;
+          }
+          return dayjs(b.licitacion_cierre || 0).valueOf() - dayjs(a.licitacion_cierre || 0).valueOf();
+        }
         if (orden === 'cierre') return dayjs(b.licitacion_cierre || 0).valueOf() - dayjs(a.licitacion_cierre || 0).valueOf();
         if (orden === 'monto') return (b.monto_ofertado || b.licitacion_monto || 0) - (a.monto_ofertado || a.licitacion_monto || 0);
         const da = ORDEN[resultadoDeNegocio(a)] - ORDEN[resultadoDeNegocio(b)];
         if (da !== 0) return da;
         return dayjs(b.licitacion_cierre || 0).valueOf() - dayjs(a.licitacion_cierre || 0).valueOf();
       });
-  }, [base, resultadoSel, resultadoDeNegocio, estadosMpSel, estadoMpDe, orden]);
+  }, [base, resultadoSel, resultadoDeNegocio, estadosMpSel, estadoMpDe, orden, adjMap]);
 
   // Al cambiar cualquier filtro se reinicia la carga incremental de tarjetas.
   useEffect(() => { setMaxVisibles(24); }, [busqueda, perfilesSel, empresasSel, estadosMpSel, resultadoSel, orden]);
@@ -903,6 +1004,7 @@ export default function PostuladasPage() {
                 </span>
                 <Select value={orden} onChange={v => setOrden(v as typeof orden)}
                   options={[
+                    { value: 'adjudicacion', label: 'Adjudicación más cercana' },
                     { value: 'resultado', label: 'Resultado' },
                     { value: 'cierre', label: 'Cierre reciente' },
                     { value: 'monto', label: 'Monto (mayor)' },
@@ -973,7 +1075,7 @@ export default function PostuladasPage() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 sm:gap-4">
+            <div className="flex flex-col gap-2">
               {visibles.slice(0, maxVisibles).map((n, i) => (
                 <PostuladaCard key={n.id} n={n}
                   adj={adjMap[n.licitacion_codigo] ?? null}

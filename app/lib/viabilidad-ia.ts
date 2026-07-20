@@ -20,7 +20,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 
@@ -559,11 +559,18 @@ function construirSenalModalidad(
   lenguajePorLinea: string | null = null,
   presupuestoPorLinea: string | null = null,
   ofertaSubconjunto: string | null = null,
+  cuadroPorLinea: string | null = null,
 ): string {
   // PRIORIDAD MÁXIMA — SE PUEDE OFERTAR A UN SUBCONJUNTO de ítems/líneas. Descarta suma alzada
   // por definición (todo-o-nada) aunque el formulario económico cierre con Subtotal/IVA/Total.
   if (ofertaSubconjunto) {
     return `SEÑAL DETERMINISTA DE MODALIDAD (lenguaje explícito de las bases): el texto dice literalmente "${ofertaSubconjunto}", o sea que un oferente PUEDE POSTULAR SOLO A ALGUNOS ítems/líneas y omitir el resto. Eso determina modalidad = por_linea: suma alzada significa todo-o-nada, así que poder ofertar a un subconjunto la descarta. OJO: si el formulario de oferta económica cierra con "Subtotal / IVA / Total", ese NO es un gran total consolidado de suma alzada — es la suma de LO QUE CADA OFERENTE ELIGIÓ ofertar. El costeo debe ir POR LÍNEA (una hoja por ítem/línea).`;
+  }
+  // PRIORIDAD 0.B — CUADRO ECONÓMICO POR LÍNEA: el formulario económico trae una tabla POR
+  // LÍNEA, cada una con su PROPIO cierre TOTAL/IVA/TOTAL y sin gran total consolidado. Por la
+  // regla maestra (el formato de la oferta económica manda), eso ES por_linea.
+  if (cuadroPorLinea) {
+    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada del FORMULARIO DE OFERTA ECONÓMICA): ${cuadroPorLinea}. Cada línea se cotiza y CIERRA por separado (su propio Total/IVA/Total) y NO hay un gran total que las sume: por la regla maestra ("el formato de la oferta económica manda") esto determina modalidad = por_linea, aunque otras cláusulas hablen de la oferta "global" o el correlativo de ítems sea continuo. El costeo debe ir POR LÍNEA (una hoja por línea).`;
   }
   // PRIORIDAD 0.A — PRESUPUESTO/MONTO MÁXIMO POR LÍNEA con ≥2 líneas presupuestadas: cada línea
   // tiene su propio monto máximo y su propio destino (lotes independientes). Es evidencia dura de
@@ -635,12 +642,22 @@ function veredictoModalidadDeterminista(
   lenguajePorLinea: string | null,
   presupuestoPorLinea: string | null = null,
   ofertaSubconjunto: string | null = null,
+  cuadroPorLinea: string | null = null,
 ): { tipo: 'suma_alzada' | 'por_linea'; motivo: string } | null {
   // 0. EXCEPCIÓN a la regla maestra: si el oferente puede postular solo a ALGUNOS ítems y omitir
   //    el resto, no es suma alzada (que es todo-o-nada) por más que el formulario cierre con
   //    "Subtotal/IVA/Total" — ese total es la suma de lo que CADA OFERENTE eligió, no un lote único.
   if (ofertaSubconjunto) {
     return { tipo: 'por_linea', motivo: `las bases permiten ofertar a un subconjunto de ítems/líneas: "${ofertaSubconjunto.slice(0, 80)}"` };
+  }
+  // 0.b. CUADRO ECONÓMICO POR LÍNEA: una tabla por línea, cada una con su PROPIO cierre
+  //      TOTAL/IVA/TOTAL y sin gran total consolidado. Es la MISMA regla maestra (el formato
+  //      de la oferta económica manda) aplicada al caso inverso: el formato ES por línea. Va
+  //      ANTES que el detector de total único porque este detector ya verificó que NO hay
+  //      gran total; si el trío Subtotal/IVA/Total dispara igual, es el cierre DE UNA línea
+  //      (caso 1057489-203-LP26: 4 tablas "Línea N", cada una con su Total/IVA/Total).
+  if (cuadroPorLinea) {
+    return { tipo: 'por_linea', motivo: cuadroPorLinea };
   }
   // 1. Regla maestra: el formato de la oferta económica manda sobre cómo se adjudica.
   if (ofertaTotalUnico) return { tipo: 'suma_alzada', motivo: 'total único consolidado al pie del formulario económico' };
@@ -1368,6 +1385,7 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   let lenguajePorLinea: string | null = null;
   let presupuestoPorLinea: string | null = null;
   let ofertaSubconjunto: string | null = null;
+  let cuadroPorLinea: string | null = null;
   try {
     lineasForm = detectarLineasFormulario(fuentes);
     // "LÍNEA DE PRODUCTO N°X" en bases técnicas = lotes independientes (mismo peso que las
@@ -1378,8 +1396,9 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     lenguajePorLinea = detectarLenguajePorLinea(fuentes);
     presupuestoPorLinea = detectarPresupuestoPorLinea(fuentes);
     ofertaSubconjunto = detectarOfertaSubconjuntoItems(fuentes);
+    cuadroPorLinea = detectarCuadroEconomicoPorLinea(fuentes);
   } catch { /* señal opcional */ }
-  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto);
+  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea);
 
   const userPrompt = construirUserPromptV3(codigo, ctx, docs, senal, planilla?.fuenteDoc);
   // REGLAS APRENDIDAS DEL EXPERTO — se INYECTAN al final del prompt para que el análisis mejore
@@ -1476,7 +1495,7 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   }
 
   const adj = p3.adjudicacion && typeof p3.adjudicacion === 'object' ? p3.adjudicacion : (p3.adjudicacion = {});
-  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto);
+  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea);
   if (det) {
     const comoDet = det.tipo === 'suma_alzada' ? 'GLOBAL' : 'POR_LINEAS';
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
@@ -1517,6 +1536,7 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     const hayEvidenciaPorLinea = !!lenguajePorLinea
       || !!presupuestoPorLinea
       || !!ofertaSubconjunto
+      || !!cuadroPorLinea
       || lineasForm.length >= 2
       || (!!planilla && planilla.estructura === 'por_linea' && planilla.numeracion === 'reinicia')
       || manifiestoPorLinea;
@@ -1541,6 +1561,34 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
         : `sin evidencia objetiva de oferta por línea (ni lenguaje explícito, ni fichas "Línea N°", ni numeración que reinicia) → default suma alzada; requiere confirmación humana`;
     }
   }
+
+  // ── GATILLO DETERMINISTA DE CADENA LARGA ──────────────────────────────────────
+  // Caso real 1057489-203-LP26: las bases exigen garantía de fiel cumplimiento "previo a la
+  // firma del Contrato" (Art. 27, 10 días hábiles) y el modelo igual informó cadena CORTA,
+  // colchón 0 y gatillos en false. Solo corrige con evidencia textual inequívoca; NO inventa
+  // números: marca los gatillos, fuerza cadena larga y deja una alerta para que el colchón
+  // se relea con ese dato a la vista.
+  try {
+    const plzObj = p3.plazos && typeof p3.plazos === 'object' ? p3.plazos : null;
+    if (plzObj) {
+      const reFiel = /garant[ií]a\s+(?:de\s+|por\s+)?fiel\s+cumplimiento[\s\S]{0,600}?(?:previo\s+a\s+la\s+(?:firma|suscripci[oó]n)\s+del?\s+contrato|deber[aá]\s+(?:entregar|presentar))/i;
+      const reFielInv = /previo\s+a\s+la\s+(?:firma|suscripci[oó]n)\s+del?\s+contrato[\s\S]{0,300}?fiel\s+cumplimiento/i;
+      const docGatillo = fuentes.find(d => d.texto && (reFiel.test(d.texto) || reFielInv.test(d.texto)));
+      if (docGatillo) {
+        const g = (plzObj.gatillo_cadena_larga && typeof plzObj.gatillo_cadena_larga === 'object') ? plzObj.gatillo_cadena_larga : (plzObj.gatillo_cadena_larga = {});
+        const yaLarga = String(plzObj.cadena || '').toLowerCase() === 'larga' && g.exige_fiel_cumplimiento;
+        if (!yaLarga) {
+          console.log(`[viabilidad-ia-v3] ${codigo}: cadena corregida a LARGA (las bases exigen garantía de fiel cumplimiento previo a la firma del contrato — ${docGatillo.nombre}).`);
+          g.exige_fiel_cumplimiento = true;
+          g.exige_contrato = true;
+          if (!g.fuente) g.fuente = docGatillo.nombre;
+          plzObj.cadena = 'larga';
+          if (!Array.isArray(plzObj.alertas)) plzObj.alertas = [];
+          plzObj.alertas.push('Corrección determinista: las bases exigen garantía de fiel cumplimiento previo a la firma del contrato (cadena LARGA). El colchón informado puede estar subestimado — verificar los plazos de contrato y garantía.');
+        }
+      }
+    }
+  } catch { /* corrección opcional */ }
 
   // PUENTE AL COSTEO (shape v2): autoGenerarCosteo/adaptarViabilidadACosteo consumen
   // manifiesto_productos + modalidad.tipo + estructura_costeo. El parser da el listado fiel con

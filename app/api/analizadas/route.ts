@@ -28,34 +28,74 @@ export async function GET(request: NextRequest) {
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
 
   try {
+    // Dueño = el negocio ACTIVO más reciente de esa licitación (una fila por código, sin
+    // duplicar la analizada aunque se haya asignado a varios perfiles con el tiempo).
     const [rows] = await pool.query(
-      `SELECT v.licitacion_codigo, v.score_total, v.semaforo, v.area_negocio, v.updated_at, v.informe_ejecutivo,
+      `SELECT v.licitacion_codigo, v.score_total, v.semaforo, v.area_negocio,
+              v.created_at, v.updated_at, v.confianza_analisis, v.informe_ejecutivo,
               (SELECT MAX(a.licitacion_nombre)    FROM alertas_licitaciones a WHERE a.licitacion_codigo = v.licitacion_codigo) AS nombre,
               (SELECT MAX(a.licitacion_organismo) FROM alertas_licitaciones a WHERE a.licitacion_codigo = v.licitacion_codigo) AS organismo,
-              (SELECT MAX(a.licitacion_cierre)    FROM alertas_licitaciones a WHERE a.licitacion_codigo = v.licitacion_codigo) AS cierre
+              (SELECT MAX(a.licitacion_cierre)    FROM alertas_licitaciones a WHERE a.licitacion_codigo = v.licitacion_codigo) AS cierre,
+              ng.estado_pipeline AS estado_pipeline,
+              u.nombre AS owner_nombre, u.email AS owner_email
        FROM viabilidad_licitacion v
+       LEFT JOIN (
+         SELECT n1.licitacion_codigo, n1.asignado_a, n1.estado_pipeline
+         FROM negocios n1
+         JOIN (SELECT licitacion_codigo, MAX(id) AS mid FROM negocios WHERE activo = TRUE GROUP BY licitacion_codigo) pick
+           ON pick.mid = n1.id
+       ) ng ON ng.licitacion_codigo = v.licitacion_codigo
+       LEFT JOIN usuarios u ON u.id = ng.asignado_a
        WHERE v.modelo LIKE 'ia+%'
        ORDER BY v.updated_at DESC
        LIMIT 500`,
     ) as any[];
 
+    // Normaliza el veredicto de negocio a un único vocabulario (GANABLE / PUEDE_SER / NO_VAMOS),
+    // venga el informe en esquema v3 (tarjeta_decision) o v2 (veredicto.gana_probable).
+    const normResultado = (inf: any, esV3: boolean): string | null => {
+      if (esV3) return inf.tarjeta_decision?.veredicto || null; // ya es GANABLE/PUEDE_SER/NO_VAMOS
+      const g = (inf.veredicto?.gana_probable || '').toLowerCase();
+      return g === 'si' ? 'GANABLE' : g === 'no' ? 'NO_VAMOS' : g ? 'PUEDE_SER' : null;
+    };
+
     const licitaciones = (rows as any[]).map(r => {
       const ie = parseJSON(r.informe_ejecutivo) || {};
-      const informe = ie._informe_ia || {};
+      // v3 (esquema actual) con respaldo a v2 (informes viejos) — así NINGUNA analizada queda
+      // sin sus datos (score/veredicto/presupuesto/modalidad), que era el bug con los v3.
+      const esV3 = !!ie._informe_ia_v3;
+      const inf = ie._informe_ia_v3 || ie._informe_ia || {};
+      const presupuesto = esV3
+        ? (inf.presupuesto?.bruto ?? inf.presupuesto?.neto ?? null)
+        : (inf.presupuesto?.neto ?? inf.presupuesto?.bruto ?? null);
+      const modalidad = esV3
+        ? (inf.adjudicacion?.como_se_adjudica || null)
+        : (inf.modalidad?.tipo || null);
+      const nLineas = (inf.productos?.items?.length
+        ?? inf.costeo?.items?.length
+        ?? inf.manifiesto_productos?.length
+        ?? null);
       return {
         codigo: r.licitacion_codigo,
-        nombre: r.nombre || informe.meta?.nombre || '(sin nombre)',
-        organismo: r.organismo || informe.meta?.organismo || '',
+        nombre: r.nombre || inf.meta?.nombre || '(sin nombre)',
+        organismo: r.organismo || inf.meta?.organismo || '',
         cierre: r.cierre,
-        analizado_at: r.updated_at,
+        analizado_at: r.updated_at,     // último análisis (re-análisis)
+        creado_at: r.created_at,        // primer análisis
+        reanalizada: r.created_at && r.updated_at && new Date(r.updated_at).getTime() - new Date(r.created_at).getTime() > 60_000,
         score: r.score_total,
         semaforo: r.semaforo,
         area: r.area_negocio,
-        gana: informe.veredicto?.gana_probable || null,
-        nivel: informe.veredicto?.nivel || null,
-        presupuesto_neto: informe.presupuesto?.neto ?? informe.presupuesto?.bruto ?? null,
-        modalidad: informe.modalidad?.tipo || null,
-        n_lineas: informe.manifiesto_productos?.length ?? null,
+        resultado: normResultado(inf, esV3),
+        titular: esV3 ? (inf.tarjeta_decision?.titular || null) : null,
+        presupuesto,
+        modalidad,
+        n_lineas: nLineas,
+        confianza: inf.confianza_global ?? (r.confianza_analisis != null ? Number(r.confianza_analisis) : null),
+        esquema: esV3 ? 'v3' : 'v2',
+        owner_nombre: r.owner_nombre || null,
+        owner_email: r.owner_email || null,
+        estado_pipeline: r.estado_pipeline || null,
       };
     });
 

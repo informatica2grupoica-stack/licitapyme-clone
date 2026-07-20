@@ -30,6 +30,7 @@ import { esUrlAnalizable } from '@/app/licitacion/[codigo]/utils';
 import { Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
+import { RecorridoNegocio } from './RecorridoNegocio';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
 import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
@@ -526,6 +527,23 @@ function SeccionResumen({
   const sSemColor = (viabIA?.semaforo === 'VERDE') ? 'bg-emerald-500' : (viabIA?.semaforo === 'AMARILLO') ? 'bg-yellow-500' : (viabIA?.semaforo === 'NARANJA') ? 'bg-orange-500' : (viabIA?.semaforo === 'ROJO' || viabIA?.semaforo === 'ROJO_DURO') ? 'bg-red-500' : 'bg-zinc-400';
   const sGana = (viabIA?.veredicto?.gana_probable || '').toLowerCase();
   const sGanaLabel = sGana === 'si' ? 'GANA' : sGana === 'no' ? 'NO GANA' : sGana ? 'CONDICIONAL' : '—';
+  // v3: esta tarjeta ESPEJA la tarjeta de decisión del análisis (mismo lenguaje en toda la
+  // app: GANABLE / PUEDE SER / NO VAMOS + titular + bloqueantes), en vez de la escala vieja.
+  const esV3 = viabIA?._schema === 'v3';
+  const tarjeta3 = viabIA?.tarjeta_decision;
+  const VER3: Record<string, { label: string; cls: string }> = {
+    GANABLE:   { label: 'GANABLE',   cls: 'bg-emerald-600' },
+    PUEDE_SER: { label: 'PUEDE SER', cls: 'bg-yellow-500' },
+    NO_VAMOS:  { label: 'NO VAMOS',  cls: 'bg-red-600' },
+  };
+  const ver3 = tarjeta3 ? VER3[tarjeta3.veredicto] : null;
+  // Monto oficial de MP (del negocio o de la ficha en vivo): si existe, manda sobre la IA.
+  const montoMP = Number(negocio.licitacion_monto) || Number(oportunidad?.monto_total || oportunidad?.monto_estimado) || 0;
+  const adm3 = viabIA?.requisitos_admisibilidad || {};
+  const nBloq3 = esV3
+    ? (Array.isArray(adm3.bloqueantes) ? adm3.bloqueantes.filter((b: any) => String(b?.item || '').trim()).length : 0)
+      + (adm3.cotizar_100?.aplica ? 1 : 0) + (adm3.presupuesto?.tipo === 'excluyente' ? 1 : 0)
+    : 0;
 
   return (
     <div className="space-y-4">
@@ -541,17 +559,41 @@ function SeccionResumen({
               <span className="text-[9px] opacity-80">/100</span>
             </div>
             <div className="min-w-0">
-              <p className="text-[14px] font-bold text-zinc-800">{sGanaLabel}{viabIA?.veredicto?.nivel ? ` · ${String(viabIA.veredicto.nivel).replace(/_/g, ' ')}` : ''}</p>
-              {viabIA?.veredicto?.por_que && <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mt-0.5">{viabIA.veredicto.por_que}</p>}
+              {esV3 && ver3 ? (
+                <>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`text-[11px] font-black text-white px-2 py-0.5 rounded ${ver3.cls}`}>{ver3.label}</span>
+                    {nBloq3 > 0
+                      ? <span className="text-[11px] font-bold text-red-600">⛔ {nBloq3} requisito{nBloq3 > 1 ? 's' : ''} puede{nBloq3 > 1 ? 'n' : ''} dejarte fuera</span>
+                      : <span className="text-[11px] text-emerald-600">sin bloqueantes detectados</span>}
+                  </div>
+                  {tarjeta3?.titular && <p className="text-[13px] font-semibold text-zinc-800 leading-snug line-clamp-2 mt-1">{tarjeta3.titular}</p>}
+                  {tarjeta3?.veredicto === 'NO_VAMOS' && tarjeta3?.porque_no && <p className="text-[12px] text-red-600 leading-snug line-clamp-2 mt-0.5">{tarjeta3.porque_no}</p>}
+                </>
+              ) : (
+                <>
+                  <p className="text-[14px] font-bold text-zinc-800">{sGanaLabel}{viabIA?.veredicto?.nivel ? ` · ${String(viabIA.veredicto.nivel).replace(/_/g, ' ')}` : ''}</p>
+                  {viabIA?.veredicto?.por_que && <p className="text-[12.5px] text-zinc-500 leading-snug line-clamp-2 mt-0.5">{viabIA.veredicto.por_que}</p>}
+                </>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-3">
-            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Presupuesto {viabIA?.presupuesto?.bruto && !viabIA?.presupuesto?.regimen_fora ? '(IVA incl.)' : ''}</p><p className="text-[13px] font-bold text-emerald-700">{fmtCLP(viabIA?.presupuesto?.bruto ?? viabIA?.presupuesto?.neto)}</p></div>
-            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Modalidad</p><p className="text-[13px] font-semibold text-zinc-700">{String(viabIA?.modalidad?.general || viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}</p></div>
-            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Líneas</p><p className="text-[13px] font-bold text-zinc-700">{viabIA?.manifiesto_productos?.length || '—'}</p></div>
+            {/* Presupuesto: cuando Mercado Público INFORMA el monto, ese manda; el estimado
+                por la IA desde las bases queda solo como respaldo cuando MP no lo trae. */}
+            <div className="bg-zinc-50 rounded-lg px-3 py-2" title={montoMP > 0 ? 'Monto informado por Mercado Público (manda sobre el estimado de la IA)' : 'Estimado por la IA desde las bases (MP no informó monto)'}>
+              <p className="text-[10px] text-zinc-400 uppercase font-bold">Presupuesto {montoMP > 0 ? '(MP)' : (viabIA?.presupuesto?.bruto && !viabIA?.presupuesto?.regimen_fora ? '(IVA incl.)' : '')}</p>
+              <p className="text-[13px] font-bold text-emerald-700">{fmtCLP(montoMP > 0 ? montoMP : (viabIA?.presupuesto?.bruto ?? viabIA?.presupuesto?.neto))}</p>
+            </div>
+            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Cómo se adjudica</p><p className="text-[13px] font-semibold text-zinc-700">{String(viabIA?.adjudicacion?.como_se_adjudica || viabIA?.modalidad?.general || viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}</p></div>
+            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Líneas</p><p className="text-[13px] font-bold text-zinc-700">{viabIA?.manifiesto_productos?.length || viabIA?.productos?.items?.length || viabIA?.costeo?.items?.length || '—'}</p></div>
           </div>
         </div>
       )}
+      {/* Recorrido del negocio: historia completa (radar → prefiltro → asignación →
+          viabilidad → etapas → postulación → resultado) con fechas y tiempos por tramo. */}
+      <RecorridoNegocio negocioId={negocio.id} />
+
       {descripcion ? (
         <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
           <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-2.5">Descripción</h3>

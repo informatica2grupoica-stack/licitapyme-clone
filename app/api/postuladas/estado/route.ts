@@ -78,6 +78,10 @@ export async function GET(request: NextRequest) {
         montoNuestro: adj?.montoNuestro ?? null,
         montoAdjudicadoTotal: adj?.montoAdjudicadoTotal ?? null,
         fechaAdjudicacion: adj?.fechaAdjudicacion ?? null,
+        // Fechas estimadas de la ficha (planificación del organismo) — para ordenar y mostrar
+        // "cuándo se decide cada una" en /postuladas, aunque aún no haya resultado.
+        fechaEstimadaAdjudicacion: adj?.fechaEstimadaAdjudicacion ?? null,
+        fechaAperturaTecnica: adj?.fechaAperturaTecnica ?? null,
         adjudicacion: adj?.adjudicacion ?? null,
         lineasAdjudicadas: adj?.lineasAdjudicadas ?? [],
         // Una ADJUDICADA ya pasó por apertura por definición.

@@ -92,11 +92,19 @@ const diasHasta = (s: string | null): number | null => {
   const d = new Date(s); if (isNaN(d.getTime())) return null;
   return Math.ceil((d.getTime() - Date.now()) / 86_400_000);
 };
+// Estados que ya salieron de la mesa de trabajo: o se resolvió (ganó/perdió/descartó) o la
+// oferta ya está presentada y no hay nada que gestionar.
+const FUERA_DE_TRABAJO = new Set(['DESCARTADA', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA']);
 const labelDe = (estado: string) => getEstadoPipeline(estado)?.label || estado || 'ASIGNADO';
 const idDe = (estado: string) => getEstadoPipeline(estado)?.id || estado || 'ASIGNADO';
 // Clave del perfil responsable. Una sola definición: antes el selector agrupaba con fallback
 // 'sin' pero el filtro comparaba sin él, así que "Sin asignar" nunca filtraba nada.
 const claveDe = (n: Negocio) => n.usuario_email || n.usuario_nombre || 'sin';
+// ÚNICA definición de "está en la mesa de trabajo": no salió del pipeline y el cierre no pasó.
+// La usan el KPI "Vigentes" Y la dona "En gestión activa" — antes cada uno tenía su propio
+// criterio y daban números distintos con el mismo rótulo.
+const esVigente = (n: Negocio) =>
+  !FUERA_DE_TRABAJO.has(idDe(n.estado_pipeline)) && !cierreVencido(n.licitacion_cierre);
 
 // ── Tooltip común de los gráficos ─────────────────────────────────────────────
 function ChartTooltip({ active, payload, label, sufijo }: any) {
@@ -218,42 +226,79 @@ export default function AnalisisLicitacionPage() {
     );
   }, [base, estadosSel, tiposSel, organismosSel, busqueda]);
 
-  // ── Gráficos-selector: se calculan sobre el universo, NO sobre la selección ──
+  // Universo de los gráficos-selector = base ∩ (organismo + búsqueda). CROSS-FILTER: cada
+  // gráfico deja fuera SOLO su propia dimensión (la dona no se filtra por estado, las barras no
+  // se filtran por tipo) para poder seguir eligiendo dentro de él; todo lo demás sí lo recorta.
+  // Antes se medían sobre `base` a secas: al buscar o filtrar por organismo la torta seguía
+  // mostrando el universo entero y la lista se veía "incompleta".
+  const baseSelectores = useMemo(() => {
+    const q = busqueda.trim().toLowerCase();
+    return base.filter(n =>
+      (organismosSel.length === 0 || (n.licitacion_organismo != null && organismosSel.includes(n.licitacion_organismo))) &&
+      (!q
+        || (n.licitacion_nombre || '').toLowerCase().includes(q)
+        || (n.licitacion_codigo || '').toLowerCase().includes(q)
+        || (n.licitacion_organismo || '').toLowerCase().includes(q)),
+    );
+  }, [base, organismosSel, busqueda]);
+
+  // ── Gráficos-selector: sobre baseSelectores, NO sobre la selección de su propia dimensión ──
   const selectores = useMemo(() => {
     const porEstadoMap = new Map<string, number>();
     const porTipoMap = new Map<string, number>();
-    for (const n of base) {
+    // La dona de estado ignora estadosSel (es su selector) pero SÍ respeta el filtro de tipo.
+    const paraEstado = baseSelectores.filter(n => tiposSel.length === 0 || tiposSel.includes(tipoDe(n)));
+    // Las barras de tipo ignoran tiposSel pero SÍ respetan el filtro de estado.
+    const paraTipo = baseSelectores.filter(n => estadosSel.length === 0 || estadosSel.includes(idDe(n.estado_pipeline)));
+    for (const n of paraEstado) {
       const id = idDe(n.estado_pipeline);
       porEstadoMap.set(id, (porEstadoMap.get(id) || 0) + 1);
+    }
+    for (const n of paraTipo) {
       const t = tipoDe(n);
       porTipoMap.set(t, (porTipoMap.get(t) || 0) + 1);
     }
-    const total = base.length;
+
+    // El centro y los % se miden sobre lo que REALMENTE está en los segmentos. Antes el centro
+    // usaba base.length mientras los segmentos solo recorrían ESTADOS_PIPELINE: cualquier estado
+    // legado fuera del catálogo desaparecía del gráfico pero seguía sumando en el centro, así que
+    // los porcentajes no llegaban a 100.
+    const enCatalogo = ESTADOS_PIPELINE.reduce((acc, e) => acc + (porEstadoMap.get(e.id) || 0), 0);
+    const fueraCatalogo = paraEstado.length - enCatalogo;
     const porEstado = ESTADOS_PIPELINE
       .filter(e => (porEstadoMap.get(e.id) || 0) > 0)
-      .map(e => ({ id: e.id, name: e.label, value: porEstadoMap.get(e.id)!, color: e.color, pct: total ? Math.round((porEstadoMap.get(e.id)! / total) * 100) : 0 }));
+      .map(e => ({ id: e.id, name: e.label, value: porEstadoMap.get(e.id)!, color: e.color, pct: enCatalogo ? Math.round((porEstadoMap.get(e.id)! / enCatalogo) * 100) : 0 }));
 
-    // Dona "en trabajo": EXCLUYE descartadas y postuladas (no son dato crudo de gestión activa).
-    // Muestra el dato real de lo que se está trabajando. Los % se recalculan sobre ese subtotal.
-    const EXCLUIDOS_TRABAJO = new Set(['DESCARTADA', 'POSTULADA']);
-    const totalTrabajo = ESTADOS_PIPELINE
-      .filter(e => !EXCLUIDOS_TRABAJO.has(e.id))
-      .reduce((acc, e) => acc + (porEstadoMap.get(e.id) || 0), 0);
+    // Dona "en gestión activa": MISMA definición que el KPI Vigentes (esVigente) — no resuelta,
+    // no postulada y con el cierre aún por delante. Antes solo excluía descartadas y postuladas,
+    // así que arrastraba adjudicadas/perdidas y las vencidas: dos números distintos en la misma
+    // pantalla bajo el rótulo "en trabajo".
+    const porTrabajoMap = new Map<string, number>();
+    for (const n of paraEstado) if (esVigente(n)) {
+      const id = idDe(n.estado_pipeline);
+      porTrabajoMap.set(id, (porTrabajoMap.get(id) || 0) + 1);
+    }
+    const totalTrabajo = [...porTrabajoMap.values()].reduce((a, b) => a + b, 0);
     const porEstadoTrabajo = ESTADOS_PIPELINE
-      .filter(e => !EXCLUIDOS_TRABAJO.has(e.id) && (porEstadoMap.get(e.id) || 0) > 0)
-      .map(e => ({ id: e.id, name: e.label, value: porEstadoMap.get(e.id)!, color: e.color, pct: totalTrabajo ? Math.round((porEstadoMap.get(e.id)! / totalTrabajo) * 100) : 0 }));
+      .filter(e => (porTrabajoMap.get(e.id) || 0) > 0)
+      .map(e => ({ id: e.id, name: e.label, value: porTrabajoMap.get(e.id)!, color: e.color, pct: totalTrabajo ? Math.round((porTrabajoMap.get(e.id)! / totalTrabajo) * 100) : 0 }));
 
     const porTipo = [...porTipoMap.entries()]
       .map(([tipo, value]) => ({ tipo, name: tipo, value, color: getTipoLicitacion(tipo)?.color || '#94a3b8' }))
       .sort((a, b) => b.value - a.value);
 
-    return { porEstado, porEstadoTrabajo, totalTrabajo, porTipo, totalBase: total };
-  }, [base]);
+    return {
+      porEstado, porEstadoTrabajo, totalTrabajo, porTipo,
+      totalBase: base.length, totalEstado: enCatalogo, fueraCatalogo,
+      totalTipo: paraTipo.length, universo: baseSelectores.length,
+    };
+  }, [base, baseSelectores, estadosSel, tiposSel]);
 
   // ── Métricas de la selección ────────────────────────────────────────────────
   const stats = useMemo(() => {
     let vigentes = 0, postuladas = 0, adjudicadas = 0, descartadas = 0, perdidas = 0,
-      enEvaluacion = 0, cierran7 = 0, montoOfertado = 0, montoAdjudicado = 0;
+      enEvaluacion = 0, cierran7 = 0, montoOfertado = 0, montoAdjudicado = 0,
+      montoCartera = 0, ganadasSinActa = 0;
     const porMesMap = new Map<string, number>();
     const porOrgMap = new Map<string, number>();
 
@@ -274,17 +319,26 @@ export default function AnalisisLicitacionPage() {
         const a = adjMap[n.licitacion_codigo];
         // Monto NETO: lo que MP nos adjudicó según el acta; si no está, lo ofertado.
         montoAdjudicado += a?.montoNuestro || n.monto_ofertado || n.licitacion_monto || 0;
+        // Ganada que NO viene del acta sino del estado puesto a mano: se cuenta aparte para
+        // poder decir en pantalla cuántas del total no están confirmadas por MP.
+        if (!a?.esAdjudicada) ganadasSinActa++;
       }
       if (res === 'perdida') perdidas++;
       if (res === 'evaluacion') enEvaluacion++;
 
       const resuelta = RESUELTOS.has(id);
-      if (!resuelta && !cierreVencido(n.licitacion_cierre)) vigentes++;
+      if (esVigente(n)) vigentes++;
 
       const d = diasHasta(n.licitacion_cierre);
       if (d != null && d >= 0 && d <= 7 && !resuelta) cierran7++;
 
-      montoOfertado += n.monto_ofertado || n.licitacion_monto || 0;
+      // Dos bolsas SEPARADAS, no una suma mezclada. Antes era `monto_ofertado || licitacion_monto`
+      // sobre TODO (incluidas descartadas): mezclaba oferta real con presupuesto de MP y no era
+      // comparable con el monto adjudicado, así que el par no significaba nada.
+      //   · Ofertado real  → solo lo que efectivamente se ofertó (universo postulada).
+      //   · Cartera        → presupuesto MP de lo que sigue vigente (lo que aún se puede ganar).
+      if (res != null) montoOfertado += n.monto_ofertado || 0;
+      if (esVigente(n)) montoCartera += n.licitacion_monto || 0;
 
       if (n.licitacion_cierre) {
         const dt = new Date(n.licitacion_cierre);
@@ -313,7 +367,8 @@ export default function AnalisisLicitacionPage() {
 
     return {
       total: seleccion.length, vigentes, postuladas, adjudicadas, descartadas, perdidas,
-      enEvaluacion, resueltas, cierran7, montoOfertado, montoAdjudicado, tasaAdj, porMes, topOrg,
+      enEvaluacion, resueltas, cierran7, montoOfertado, montoCartera, montoAdjudicado,
+      ganadasSinActa, tasaAdj, porMes, topOrg,
     };
   }, [seleccion, resultadoDe, adjMap]);
 
@@ -481,18 +536,34 @@ export default function AnalisisLicitacionPage() {
               <KPI icon={<Clock size={16} />} label="Cierran ≤ 7 días" value={String(stats.cierran7)} tint={stats.cierran7 > 0 ? '#dc2626' : '#64748b'} />
             </div>
 
-            {/* Montos */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Montos — TRES bolsas separadas y no comparables entre sí salvo ofertado→adjudicado,
+                que ahora sí es una tasa de conversión legítima (misma población: lo que se ofertó). */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="bg-gradient-to-br from-sky-50 to-white rounded-xl border border-sky-100 p-4 flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center flex-shrink-0"><Briefcase size={20} /></div>
+                <div>
+                  <p className="text-[11px] text-sky-700 font-semibold uppercase tracking-wide">Presupuesto en cartera</p>
+                  <p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoCartera)}</p>
+                  <p className="text-[10px] text-slate-400">suma de <span className="font-semibold">licitacion_monto</span> (presupuesto MP) de las {stats.vigentes} vigentes</p>
+                </div>
+              </div>
               <div className="bg-gradient-to-br from-teal-50 to-white rounded-xl border border-teal-100 p-4 flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-teal-100 text-teal-600 flex items-center justify-center flex-shrink-0"><DollarSign size={20} /></div>
-                <div><p className="text-[11px] text-teal-700 font-semibold uppercase tracking-wide">Monto ofertado / estimado</p><p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoOfertado)}</p></div>
+                <div>
+                  <p className="text-[11px] text-teal-700 font-semibold uppercase tracking-wide">Ofertado real</p>
+                  <p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoOfertado)}</p>
+                  <p className="text-[10px] text-slate-400">suma de <span className="font-semibold">monto_ofertado</span> de las {stats.postuladas} que se presentaron. No incluye descartadas ni presupuesto estimado.</p>
+                </div>
               </div>
               <div className="bg-gradient-to-br from-emerald-50 to-white rounded-xl border border-emerald-100 p-4 flex items-center gap-3">
                 <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center flex-shrink-0"><Trophy size={20} /></div>
                 <div>
                   <p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">Monto adjudicado</p>
                   <p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoAdjudicado)}</p>
-                  <p className="text-[10px] text-slate-400">neto según el acta de Mercado Público</p>
+                  <p className="text-[10px] text-slate-400">
+                    <span className="font-semibold">montoNuestro</span> del acta de Mercado Público en las {stats.adjudicadas} ganadas
+                    {stats.montoOfertado > 0 && <> · convierte el <span className="font-semibold">{Math.round((stats.montoAdjudicado / stats.montoOfertado) * 100)}%</span> de lo ofertado</>}
+                  </p>
                 </div>
               </div>
             </div>
@@ -501,28 +572,43 @@ export default function AnalisisLicitacionPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Dona por estado — TODAS (dato completo). Selectiva: toca un segmento y todo
                   el tablero se remide sobre ese estado. */}
-              <ChartCard title="Distribución por estado · todas" icon={<Layers size={13} />}>
+              <ChartCard title="Distribución por estado · todas" icon={<Layers size={13} />}
+                sub={`${selectores.totalEstado} licitaciones · campo estado_pipeline`}>
                 {selectores.porEstado.length === 0 ? <SinDatos /> : (
-                  <DonaEstados data={selectores.porEstado} total={selectores.totalBase} centroLabel="licitaciones"
-                    seleccion={estadosSel} onSelect={toggleEstado} />
+                  <>
+                    <DonaEstados data={selectores.porEstado} total={selectores.totalEstado} centroLabel="licitaciones"
+                      seleccion={estadosSel} onSelect={toggleEstado} />
+                    <Procedencia
+                      fuente="/api/negocios → estado_pipeline (la etapa que el equipo mueve a mano)"
+                      universo={`${selectores.universo} licitaciones del perfil, ya recortadas por organismo y búsqueda${tiposSel.length ? ' y por el tipo seleccionado' : ''}. NO se recorta por estado: es el selector de esta torta.`}
+                      calculo="Una licitación por segmento, según su etapa actual. El % es sobre el total del centro."
+                      ojo={selectores.fueraCatalogo > 0
+                        ? `${selectores.fueraCatalogo} con un estado antiguo fuera del catálogo quedan fuera de la torta y del centro.`
+                        : undefined}
+                    />
+                  </>
                 )}
               </ChartCard>
 
-              {/* Dona "en trabajo" — EXCLUYE descartadas y postuladas (dato real de gestión activa) */}
-              <ChartCard title="En trabajo · sin descartadas ni postuladas" icon={<Briefcase size={13} />}>
+              {/* Dona "en gestión activa" — MISMA definición que el KPI Vigentes (esVigente) */}
+              <ChartCard title="En gestión activa" icon={<Briefcase size={13} />}
+                sub={`${selectores.totalTrabajo} en la mesa · mismo criterio que el KPI “Vigentes”`}>
                 {selectores.porEstadoTrabajo.length === 0 ? <SinDatos /> : (
                   <>
-                    <DonaEstados data={selectores.porEstadoTrabajo} total={selectores.totalTrabajo} centroLabel="en trabajo"
+                    <DonaEstados data={selectores.porEstadoTrabajo} total={selectores.totalTrabajo} centroLabel="en gestión"
                       seleccion={estadosSel} onSelect={toggleEstado} />
-                    <p className="mt-2 text-[10.5px] text-slate-400 leading-snug">
-                      No incluye <span className="font-semibold text-red-600">descartadas</span> ni <span className="font-semibold text-amber-600">postuladas</span> — solo lo que sigue en gestión.
-                    </p>
+                    <Procedencia
+                      fuente="/api/negocios → estado_pipeline + fecha de cierre de la licitación"
+                      universo="El mismo de la torta de la izquierda, filtrado por esVigente()."
+                      calculo="Deja fuera lo que ya salió de la mesa (descartadas, postuladas, en posible adjudicación, adjudicadas y perdidas) Y todo lo que tiene el cierre vencido. Es exactamente el número del KPI “Vigentes”, por eso ahora coinciden."
+                    />
                   </>
                 )}
               </ChartCard>
 
               {/* Tasa de adjudicación (radial) */}
-              <ChartCard title="Tasa de adjudicación" icon={<Target size={13} />}>
+              <ChartCard title="Tasa de adjudicación" icon={<Target size={13} />}
+                sub={stats.resueltas ? `${stats.adjudicadas} ganadas de ${stats.resueltas} que MP ya resolvió` : 'MP aún no resuelve ninguna'}>
                 <div className="flex items-center gap-4">
                   <div style={{ width: 180, height: 200 }} className="relative">
                     <ResponsiveContainer width="100%" height="100%">
@@ -546,14 +632,21 @@ export default function AnalisisLicitacionPage() {
                     <MiniStat label="Descartadas (no se ofertó)" value={stats.descartadas} color="#dc2626" />
                   </div>
                 </div>
-                <p className="mt-2 text-[10.5px] text-slate-400 leading-snug">
-                  Ganadas sobre lo que MP ya resolvió (ganadas + perdidas). Las que siguen en evaluación no entran en el cálculo.
-                </p>
+                <Procedencia
+                  fuente="/api/postuladas/estado → acta de adjudicación de Mercado Público (cache que refresca el cron cada 2h). El acta manda; estado_pipeline solo se usa si esa licitación aún no está en el cache."
+                  universo="Las que pasaron por postulación (postuladas, en posible adjudicación, adjudicadas y perdidas). Las descartadas nunca se ofertaron, por eso van aparte."
+                  calculo="Tasa = ganadas ÷ (ganadas + perdidas). Las que siguen en evaluación NO entran: todavía no se sabe. Ganamos = el RUT del acta calza con una de nuestras empresas."
+                  ojo={stats.ganadasSinActa > 0
+                    ? `${stats.ganadasSinActa} de las ${stats.adjudicadas} ganadas vienen del estado puesto a mano, no del acta de MP.`
+                    : undefined}
+                />
               </ChartCard>
 
               {/* Barras por tipo — también selectivas (clic en una barra filtra el tablero) */}
-              <ChartCard title="Por tipo de licitación" icon={<Layers size={13} />}>
+              <ChartCard title="Por tipo de licitación" icon={<Layers size={13} />}
+                sub={`${selectores.totalTipo} licitaciones · tipo leído del código MP`}>
                 {selectores.porTipo.length === 0 ? <SinDatos /> : (
+                  <>
                   <ResponsiveContainer width="100%" height={210}>
                     <BarChart data={selectores.porTipo} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
                       <CartesianGrid horizontal={false} stroke="#f1f5f9" />
@@ -569,12 +662,20 @@ export default function AnalisisLicitacionPage() {
                       </Bar>
                     </BarChart>
                   </ResponsiveContainer>
+                  <Procedencia
+                    fuente="El segmento del código de MP (LE, LP, LR…), leído con extractTipoFromCodigo. No viene de la API: se deduce del código."
+                    universo={`Las ${selectores.universo} del perfil tras organismo y búsqueda${estadosSel.length ? ', recortadas por el estado seleccionado' : ''}. NO se recorta por tipo: es el selector de este gráfico.`}
+                    calculo="Una licitación por barra según su tipo. Las que tienen un código no reconocible caen en “—”."
+                  />
+                  </>
                 )}
               </ChartCard>
 
               {/* Evolución mensual */}
-              <ChartCard title="Cierres por mes" icon={<TrendingUp size={13} />}>
+              <ChartCard title="Cierres por mes" icon={<TrendingUp size={13} />}
+                sub="Últimos 8 meses con cierres · incluye pasados y futuros">
                 {stats.porMes.length === 0 ? <SinDatos /> : (
+                  <>
                   <ResponsiveContainer width="100%" height={210}>
                     <AreaChart data={stats.porMes} margin={{ left: -18, right: 12, top: 8, bottom: 4 }}>
                       <defs>
@@ -590,12 +691,20 @@ export default function AnalisisLicitacionPage() {
                       <Area type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} fill="url(#gradArea)" />
                     </AreaChart>
                   </ResponsiveContainer>
+                  <Procedencia
+                    fuente="Fecha de cierre de la licitación (licitacion_cierre) que trae la API de Mercado Público."
+                    universo={`Las ${stats.total} licitaciones que estás midiendo ahora mismo (todos los filtros aplicados, incluidos estado y tipo).`}
+                    calculo="Agrupa por año-mes de cierre y muestra los últimos 8 meses con datos. Mezcla meses ya pasados con los que vienen: es un calendario de cierres, no una tendencia de resultados."
+                  />
+                  </>
                 )}
               </ChartCard>
 
               {/* Top organismos */}
-              <ChartCard title="Top organismos" icon={<Building2 size={13} />} className="lg:col-span-2">
+              <ChartCard title="Top organismos" icon={<Building2 size={13} />} className="lg:col-span-2"
+                sub={`Los 6 con más licitaciones dentro de las ${stats.total} medidas`}>
                 {stats.topOrg.length === 0 ? <SinDatos /> : (
+                  <>
                   <ResponsiveContainer width="100%" height={Math.max(120, stats.topOrg.length * 34)}>
                     <BarChart data={stats.topOrg} layout="vertical" margin={{ left: 8, right: 16, top: 4, bottom: 4 }}>
                       <CartesianGrid horizontal={false} stroke="#f1f5f9" />
@@ -605,6 +714,12 @@ export default function AnalisisLicitacionPage() {
                       <Bar dataKey="value" fill="#0d9488" radius={[0, 6, 6, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
+                  <Procedencia
+                    fuente="Campo licitacion_organismo de la API de Mercado Público, tal cual lo publica el comprador."
+                    universo={`Las ${stats.total} licitaciones medidas ahora (todos los filtros aplicados).`}
+                    calculo="Cuenta cuántas licitaciones aporta cada organismo y muestra los 6 primeros. Es conteo, no monto."
+                  />
+                  </>
                 )}
               </ChartCard>
             </div>
@@ -710,6 +825,22 @@ function MiniStat({ label, value, color }: { label: string; value: number; color
       <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: color }} />
       <span className="text-[12px] text-slate-500 flex-1">{label}</span>
       <span className="text-[15px] font-bold text-slate-800 tabular-nums">{value}</span>
+    </div>
+  );
+}
+
+// Ficha de PROCEDENCIA al pie de cada gráfico: de qué campo/endpoint sale el número, sobre qué
+// conjunto se midió y cómo se calculó. Sin esto hay que leer el código para saber por qué dos
+// tarjetas que "deberían" dar lo mismo dan distinto.
+function Procedencia({ fuente, universo, calculo, ojo }: {
+  fuente: string; universo: string; calculo: string; ojo?: string;
+}) {
+  return (
+    <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1 text-[10.5px] leading-snug text-slate-500">
+      <p><span className="font-bold text-slate-600 uppercase tracking-wide">Fuente</span> · {fuente}</p>
+      <p><span className="font-bold text-slate-600 uppercase tracking-wide">Mide</span> · {universo}</p>
+      <p><span className="font-bold text-slate-600 uppercase tracking-wide">Cálculo</span> · {calculo}</p>
+      {ojo && <p className="text-amber-700 bg-amber-50 border border-amber-100 rounded px-1.5 py-1"><span className="font-bold">Ojo</span> · {ojo}</p>}
     </div>
   );
 }
