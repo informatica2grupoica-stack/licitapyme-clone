@@ -838,10 +838,13 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
 
 export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { codigo: string; onTambienAnalizar?: () => void; onComplete?: () => void }) {
   const { usuario } = useSession();
-  // Solo admin puede (re)analizar la viabilidad (operación cara y central; el servidor lo valida).
   const esAdmin = usuario?.rol === 'admin';
   // Solo admin o usuarios con permiso pueden comentar/corregir la viabilidad (el servidor también lo valida).
   const puedeComentar = usuario?.rol === 'admin' || !!usuario?.permisos?.comentar_viabilidad;
+  // RE-analizar: admin sin límite; usuario normal asignado a la licitación, SOLO UNA VEZ (el
+  // servidor es la fuente de verdad — estos dos campos vienen del GET y solo controlan el botón).
+  const [puedeReanalizar, setPuedeReanalizar] = useState(true);
+  const [motivoNoReanalizar, setMotivoNoReanalizar] = useState<string | null>(null);
   const [informe, setInforme] = useState<InformeIA | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -875,6 +878,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         if (!res.ok) throw new Error(String(res.status));
         const r = await res.json();
         if (r?.informeIA) setInforme(r.informeIA);
+        if (typeof r?.puedeReanalizar === 'boolean') setPuedeReanalizar(r.puedeReanalizar);
+        setMotivoNoReanalizar(r?.motivoNoPuedeReanalizar ?? null);
         setCargandoInforme(false);
         return;
       } catch {
@@ -967,6 +972,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       try {
         const rr = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`).then(x => x.json());
         const nuevo = rr?.informeIA || null;
+        if (typeof rr?.puedeReanalizar === 'boolean') setPuedeReanalizar(rr.puedeReanalizar);
+        setMotivoNoReanalizar(rr?.motivoNoPuedeReanalizar ?? null);
         // 1) Resultado nuevo listo → mostrarlo (y refrescar documentos: aparece el Excel de costeo).
         if (nuevo && fpInforme(nuevo) !== previo) {
           setInforme(nuevo); setError(null); setAvisoProceso(null);
@@ -1109,7 +1116,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
           <p className={`text-[11.5px] ${fbOk?.startsWith('Aprendido') ? 'text-emerald-600' : 'text-amber-600'}`}>{fbOk}</p>
           <div className="flex items-center gap-2">
-            {informe && fbOk?.startsWith('Aprendido') && esAdmin && (
+            {informe && fbOk?.startsWith('Aprendido') && (esAdmin || puedeReanalizar) && (
               <button onClick={analizar} disabled={cargando} className="text-[12px] font-semibold text-violet-600 hover:underline">Re-analizar con lo aprendido</button>
             )}
             <button onClick={enviarFeedback} disabled={fbEnviando || fbComentario.trim().length < 4}
@@ -1153,17 +1160,24 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             <p className="text-[11px] text-slate-400 truncate">El sistema lee todas las bases (incl. escaneadas) y emite el veredicto con su fuente</p>
           </div>
         </div>
-        {/* Primer análisis: lo puede correr cualquiera. RE-analizar (ya hay informe): solo admin. */}
-        {!(esAdmin || !informe) ? null : cargando ? (
+        {/* Primer análisis: lo puede correr cualquiera con acceso. RE-analizar (ya hay informe):
+            admin sin límite; usuario normal asignado, SOLO UNA VEZ (el servidor manda — esto solo
+            evita el clic inútil; si igual llega, el POST lo rechaza igual). */}
+        {cargando ? (
           <button onClick={detener}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white text-[13px] font-semibold rounded-lg transition-colors flex-shrink-0">
             <Square size={14} /> Detener
           </button>
-        ) : (
+        ) : !informe || esAdmin || puedeReanalizar ? (
           <button onClick={analizar}
             className="flex items-center gap-1.5 px-3.5 py-2 bg-violet-600 hover:bg-violet-700 text-white text-[13px] font-semibold rounded-lg transition-colors flex-shrink-0">
             <Sparkles size={14} /> {informe ? 'Re-analizar' : 'Analizar'}
           </button>
+        ) : (
+          <span title={motivoNoReanalizar || 'Ya usaste tu única re-análisis para esta licitación.'}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 text-slate-400 text-[13px] font-semibold rounded-lg flex-shrink-0 cursor-help">
+            <Ban size={14} /> Re-análisis usado
+          </span>
         )}
       </div>
 

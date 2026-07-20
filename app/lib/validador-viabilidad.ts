@@ -232,7 +232,27 @@ function v13_adjudicacionCitaMultipleNoGlobal(inf: any, push: (h: HallazgoValida
   }
 }
 
-// Set completo de reglas V-01..V-13. Se agrega una nueva simplemente empujando una función más
+// V-14 — tarjeta_decision.veredicto y veredicto.nivel deben ser EXACTAMENTE uno de los valores del
+// enum del esquema (GANABLE|PUEDE_SER|NO_VAMOS y MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE). Un valor
+// mal formado (ej. "PUEDE SER" con espacio en vez de guion bajo) pasa desapercibido en la pantalla
+// porque el front hace fallback silencioso (VER_TARJETA[veredicto] || VER_TARJETA.PUEDE_SER) — se ve
+// bien mostrando el default, pero el dato guardado quedó corrupto para cualquier otro consumidor
+// (filtros, reportes, el propio golden set). Caso real: 4116-13-LP26 / 3890-114-L126 con
+// "PUEDE SER"/"NO VAMOS" (espacio) en vez de "PUEDE_SER"/"NO_VAMOS" (guion bajo).
+const VEREDICTOS_VALIDOS = new Set(['GANABLE', 'PUEDE_SER', 'NO_VAMOS']);
+const NIVELES_VALIDOS = new Set(['MUY_VIABLE', 'VIABLE', 'POCO_VIABLE', 'DESCARTE']);
+function v14_enumsBienFormados(inf: any, push: (h: HallazgoValidador) => void): void {
+  const ver = inf?.tarjeta_decision?.veredicto;
+  if (ver != null && String(ver).trim() && !VEREDICTOS_VALIDOS.has(String(ver))) {
+    push({ regla: 'V-14', severidad: 'error', mensaje: `tarjeta_decision.veredicto="${ver}" no es un valor válido del enum (GANABLE|PUEDE_SER|NO_VAMOS) — probablemente mal formado (espacio en vez de guion bajo).` });
+  }
+  const nivel = inf?.veredicto?.nivel;
+  if (nivel != null && String(nivel).trim() && !NIVELES_VALIDOS.has(String(nivel))) {
+    push({ regla: 'V-14', severidad: 'error', mensaje: `veredicto.nivel="${nivel}" no es un valor válido del enum (MUY_VIABLE|VIABLE|POCO_VIABLE|DESCARTE) — probablemente mal formado.` });
+  }
+}
+
+// Set completo de reglas V-01..V-14. Se agrega una nueva simplemente empujando una función más
 // (misma firma) a este array — no requiere tocar el resto del pipeline.
 type ReglaFn = (inf: any, push: (h: HallazgoValidador) => void, score: number) => void;
 const REGLAS: ReglaFn[] = [
@@ -249,6 +269,7 @@ const REGLAS: ReglaFn[] = [
   v11_estrategiaCoherenteConAdjudicacion,
   v12_manifiestoNoColapsadoPorLinea,
   v13_adjudicacionCitaMultipleNoGlobal,
+  v14_enumsBienFormados,
 ];
 
 // Corre TODAS las reglas sobre un informe v3 ya ensamblado (post-overrides deterministas).

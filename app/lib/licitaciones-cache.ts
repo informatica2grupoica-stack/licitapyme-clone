@@ -7,6 +7,7 @@
 import pool from '@/app/lib/db';
 import type { Licitacion, LicitacionItem } from '@/app/types/mercado-publico.types';
 import type { MercadoPublicoClient } from '@/app/lib/mercado-publico';
+import { notificarCambioFechaCierre } from '@/app/lib/refrescar-estados';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -87,9 +88,31 @@ export async function leerCache(codigos: string[]): Promise<Map<string, CacheEnt
   return out;
 }
 
-/** Inserta/actualiza en el caché las licitaciones enriquecidas. */
+// Umbral para considerar un cambio de fecha REAL (no ruido de redondeo/formato al ida-y-vuelta
+// entre la API y MySQL). 5 minutos es generoso: los cambios que importan (extensión de plazo,
+// aclaración) son de horas o días, nunca segundos.
+const UMBRAL_CAMBIO_FECHA_MS = 5 * 60 * 1000;
+
+/** Inserta/actualiza en el caché las licitaciones enriquecidas. Detecta si la FECHA DE CIERRE
+ * cambió respecto a lo que ya teníamos y, si la licitación tiene un negocio asignado, dispara
+ * notificación (campana + correo) — ver notificarCambioFechaCierre en refrescar-estados.ts. */
 export async function guardarCache(lics: Licitacion[]): Promise<void> {
   if (lics.length === 0) return;
+  // Fechas ANTERIORES (antes de sobrescribir) para poder comparar tras el upsert.
+  const fechasAnteriores = new Map<string, Date>();
+  try {
+    const codigos = lics.map(l => l.Codigo);
+    for (let i = 0; i < codigos.length; i += 500) {
+      const chunk = codigos.slice(i, i + 500);
+      const placeholders = chunk.map(() => '?').join(',');
+      const [rows] = await pool.query(
+        `SELECT codigo, fecha_cierre FROM licitaciones_cache WHERE codigo IN (${placeholders}) AND fecha_cierre IS NOT NULL`,
+        chunk,
+      ) as any[];
+      for (const r of rows as any[]) fechasAnteriores.set(r.codigo, new Date(r.fecha_cierre));
+    }
+  } catch { /* si falla la lectura previa, seguimos sin detectar cambios (no bloquea el caché) */ }
+
   try {
     for (let i = 0; i < lics.length; i += 100) {
       const chunk = lics.slice(i, i + 100);
@@ -133,6 +156,23 @@ export async function guardarCache(lics: Licitacion[]): Promise<void> {
     }
   } catch {
     // Tabla inexistente → no rompe; simplemente no se cachea
+    return;
+  }
+
+  // Notificación de cambio de fecha — DESPUÉS de guardar (best-effort, nunca bloquea el caché).
+  // Compara lo que teníamos ANTES contra lo que trajo esta pasada; si difiere de verdad, avisa.
+  // notificarCambioFechaCierre ya filtra internamente: solo notifica si hay un negocio ACTIVO
+  // asignado (si nadie la trabaja, no hace nada) — así esto es seguro de llamar para TODOS los
+  // códigos enriquecidos (miles del radar general incluidos) sin generar ruido.
+  for (const lic of lics) {
+    if (!lic.FechaCierre) continue;
+    const anterior = fechasAnteriores.get(lic.Codigo);
+    if (!anterior) continue; // primera vez que se cachea esta licitación: no es un "cambio"
+    const nueva = new Date(lic.FechaCierre);
+    if (!Number.isFinite(nueva.getTime())) continue;
+    if (Math.abs(nueva.getTime() - anterior.getTime()) < UMBRAL_CAMBIO_FECHA_MS) continue;
+    notificarCambioFechaCierre(lic.Codigo, anterior, nueva).catch(e =>
+      console.error(`[licitaciones-cache] notificar cambio de fecha "${lic.Codigo}" falló:`, String(e)));
   }
 }
 
@@ -143,10 +183,30 @@ export interface PlanEnriquecimiento {
   aEnriquecer: string[];
 }
 
+// TTL ADAPTATIVO por cercanía al cierre. Caso real 1305525-31-LE26: se cacheó el 13-jul y el
+// organismo extendió el cierre en un día (aclaración de última hora); con el TTL fijo de 7 días
+// la licitación seguía "fresca" justo cuando estaba por cerrar —el momento en que MÁS cambian las
+// bases (aclaraciones, extensiones de plazo)— y el cambio nunca se detectó hasta que el usuario lo
+// vio directo en el portal. Mientras más cerca el cierre cacheado, más seguido hay que revisar:
+//  - cierra en ≤2 días (o ya venció según nuestro dato, que puede estar MÁS desactualizado que la
+//    realidad) → TTL de 6 horas.
+//  - cierra en ≤7 días → TTL de 1 día.
+//  - resto → el ttlDias que pida el llamador (por defecto 7, sin cambios de comportamiento).
+function ttlEfectivoMs(fechaCierreCache: string | undefined, ttlDiasBase: number): number {
+  const DIA_MS = 24 * 60 * 60 * 1000;
+  if (!fechaCierreCache) return ttlDiasBase * DIA_MS;
+  const cierre = new Date(fechaCierreCache).getTime();
+  if (!Number.isFinite(cierre)) return ttlDiasBase * DIA_MS;
+  const diasHastaCierre = (cierre - Date.now()) / DIA_MS;
+  if (diasHastaCierre <= 2) return 6 * 60 * 60 * 1000;   // 6 horas
+  if (diasHastaCierre <= 7) return 1 * DIA_MS;            // 1 día
+  return ttlDiasBase * DIA_MS;
+}
+
 /**
  * Decide qué enriquecer. Reglas:
  *  - Terminal (cerrada/adjudicada/…) y ya enriquecida → fresco (nunca re-enriquecer).
- *  - Activa enriquecida hace < ttlDias → fresca.
+ *  - Activa enriquecida hace < TTL EFECTIVO (adaptativo por cercanía al cierre, ver ttlEfectivoMs) → fresca.
  *  - Resto → a enriquecer. `prioritarios` (ej. los que pegaron por nombre) van primero;
  *    el resto se ordena por más antiguo/nunca enriquecido (rotación entre corridas).
  */
@@ -158,13 +218,13 @@ export function planificarEnriquecimiento(
 ): PlanEnriquecimiento {
   const frescos = new Set<string>();
   const candidatos: string[] = [];
-  const ttlMs = ttlDias * 24 * 60 * 60 * 1000;
   const ahora = Date.now();
 
   for (const cod of codigos) {
     const entry = cache.get(cod);
     if (entry) {
       const edad = entry.enrichedAt ? ahora - entry.enrichedAt.getTime() : Infinity;
+      const ttlMs = ttlEfectivoMs(entry.lic.FechaCierre, ttlDias);
       if (esTerminal(entry.estado) || edad < ttlMs) { frescos.add(cod); continue; }
     }
     candidatos.push(cod);

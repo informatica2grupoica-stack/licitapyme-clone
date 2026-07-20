@@ -23,6 +23,7 @@ export type AccionActividad =
   | 'documento'       // subió o borró un documento propio
   | 'ver_documento'   // abrió/descargó un documento
   | 'estado_mp'       // Mercado Público cambió el estado (Cerrada/Revocada/Desierta/…)
+  | 'fecha_cierre_mp' // Mercado Público cambió la fecha de cierre (extensión de plazo/aclaración)
   | 'descarte_radar'  // descartó/restauró una licitación del radar (nivel empresa)
   | 'feedback_viabilidad' // el experto corrigió/eliminó una corrección de viabilidad
   | 'chat_ia'         // consultó al chatbot IA de la licitación

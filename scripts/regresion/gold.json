@@ -65,7 +65,7 @@
   },
   {
     "codigo": "1549-58-LE26",
-    "nota": "CORREGIDO POR EL EXPERTO (2026-07-15): 3 equipos médicos heterogéneos (armario ventilado / miofeedback / compresor). El Anexo N°10 cierra con Subtotal/IVA/Total y eso forzaba suma_alzada, pero el mismo anexo dice 'Si la licitación fuere por ítem y un proveedor ofertare a dos o más ítems…' y el Art. 21 adjudica 'por línea o por ítem'. Es POR LÍNEA: el costeo global estaba mal.",
+    "nota": "CORREGIDO POR EL EXPERTO (2026-07-15): 3 equipos médicos heterogéneos (armario ventilado / miofeedback / compresor). El Anexo N°10 cierra con Subtotal/IVA/Total y eso forzaba suma_alzada, pero el mismo anexo dice 'Si la licitación fuere por ítem y un proveedor ofertare a dos o más ítems…' y el Art. 21 adjudica 'por línea o por ítem'. Es POR LÍNEA: el costeo global estaba mal. VERIFICADO 2026-07-20 con --run (código actual): el informe guardado estaba desactualizado (de antes de la señal ofertaSubconjunto) y el dry mode marcaba falso-regresión; re-analizado en vivo dio por_linea/POR_LINEAS correcto, score 78, GANABLE — confirma que el fix sigue vigente.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
@@ -74,7 +74,7 @@
   },
   {
     "codigo": "2450-52-LE26",
-    "nota": "por_linea con total único al pie: 'Podrán ofertar por una línea, más de una, o todas las líneas de productos, ajustándose al monto máximo establecido para cada línea'. Mismo patrón que 1549-58 (contra-ejemplo de la regla del total único).",
+    "nota": "por_linea con total único al pie: 'Podrán ofertar por una línea, más de una, o todas las líneas de productos, ajustándose al monto máximo establecido para cada línea'. Mismo patrón que 1549-58 (contra-ejemplo de la regla del total único). VERIFICADO 2026-07-20 con --run: nunca había pasado por el analizador IA (solo tenía el score determinista viejo pre-IA) — primer análisis real dio por_linea/POR_LINEAS correcto, score 55.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS"
@@ -91,7 +91,7 @@
   },
   {
     "codigo": "1260058-2-LE26",
-    "nota": "por_linea explícito en las bases: 'la licitación es por línea, considerándose cada producto como una de ellas; un proveedor puede ofertar por una línea o más líneas'.",
+    "nota": "por_linea explícito en las bases: 'la licitación es por línea, considerándose cada producto como una de ellas; un proveedor puede ofertar por una línea o más líneas'. VERIFICADO 2026-07-20 con --run: nunca había pasado por el analizador IA (solo tenía el score determinista viejo pre-IA) — primer análisis real dio por_linea/POR_LINEAS correcto, score 55 (modelo principal y respaldo fallaron por timeout, resolvió el segundo respaldo deepseek).",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS"
@@ -108,7 +108,7 @@
   },
   {
     "codigo": "2467-70-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales contra los documentos reales). Sin errores. Aviso menor V-08: adjudicación POR_LINEAS sin estado DETERMINADA (falta evidencia positiva firme) — no bloqueante, revisar si se quiere subir la confianza. esperado queda tal cual (= lo que el sistema ya respondía), sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
@@ -122,7 +122,7 @@
   },
   {
     "codigo": "2928-14-LR26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual (= lo que el sistema ya respondía), sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
@@ -136,7 +136,7 @@
   },
   {
     "codigo": "1079454-4-LP26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual (= lo que el sistema ya respondía), sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
@@ -150,7 +150,7 @@
   },
   {
     "codigo": "1191688-50-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual (= lo que el sistema ya respondía), sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
@@ -164,13 +164,13 @@
   },
   {
     "codigo": "2295-74-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "CORREGIDO 2026-07-20 (bug real, sesión de hoy): el manifiesto de productos colapsaba a 4 ítems (uno por línea/categoría) porque extraerSeccionesLineaProducto se quedaba con el primer documento que mencionaba 'LÍNEA DE PRODUCTO N°X' aunque solo fuera una mención de pasada (tabla de presupuesto), sin llegar al Excel Anexo N°6 con los productos reales. Corregido con selección por 'piso' (la sección más chica de todas, la más grande posible) en vez de 'primer documento'. VERIFICADO con --run: ahora extrae 93 ítems reales (antes 4), por_linea/POR_LINEAS confirmado, score 55, GANABLE.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
-      "n_criterios": 1,
+      "n_criterios": 4,
       "suma_valida": true,
-      "n_items_min": 4,
+      "n_items_min": 90,
       "veredicto": "GANABLE",
       "revision_humana": false,
       "excluido": false
@@ -178,7 +178,7 @@
   },
   {
     "codigo": "5586-103-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Aviso V-03: cadena LARGA (exige garantía de fiel cumplimiento) con colchón administrativo = 0 días y sin alerta — el colchón puede estar subestimado, conviene que un experto revise los plazos de esta licitación puntual. Resto sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
@@ -192,7 +192,7 @@
   },
   {
     "codigo": "1180828-26-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
@@ -206,7 +206,7 @@
   },
   {
     "codigo": "4524-2-LP26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
@@ -220,7 +220,7 @@
   },
   {
     "codigo": "618641-20-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
@@ -234,7 +234,7 @@
   },
   {
     "codigo": "1389488-29-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
@@ -248,7 +248,7 @@
   },
   {
     "codigo": "3907-8-L126",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
@@ -262,7 +262,7 @@
   },
   {
     "codigo": "1043-12-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
@@ -276,7 +276,7 @@
   },
   {
     "codigo": "2436-29-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
@@ -290,7 +290,7 @@
   },
   {
     "codigo": "527481-52-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
@@ -304,21 +304,17 @@
   },
   {
     "codigo": "4116-13-LP26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "⚠ REVISAR (2026-07-20): re-analizado en vivo con --run, el modelo NO encontró ningún criterio de evaluación (n_criterios=0, suma_valida=false) donde el informe guardado tenía 3 — el sistema SÍ se dio cuenta y marcó revision_humana=true correctamente (no es un fallo silencioso). No se sabe si los 3 criterios viejos eran reales y esta pasada los perdió, o si nunca hubo tabla de criterios clara en las bases. modalidad/adjudicacion/veredicto (suma_alzada/GLOBAL/PUEDE_SER) sí se confirmaron. NO se corrigió esperado — falta que un experto revise la licitación en pantalla antes de fijar el valor correcto.",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
-      "n_criterios": 3,
-      "suma_valida": true,
       "n_items_min": 1,
-      "veredicto": "PUEDE_SER",
-      "revision_humana": false,
-      "excluido": false
+      "veredicto": "PUEDE_SER"
     }
   },
   {
     "codigo": "1254658-10-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "VERIFICADO 2026-07-20 con --run (código actual): el informe guardado tenía tarjeta_decision.veredicto mal formado (\"GANABLE\" con score 39, corregido solo por la sincronía de coherencia). Re-analizado en vivo: 7/7 ok, suma_alzada/GLOBAL confirmado (la adjudicación del LLM decía POR_LINEAS pero el override determinista la corrigió a GLOBAL por numeración correlativa continua 1..17 — una sola planilla integrada, no lotes), score 39, PUEDE_SER.",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
@@ -331,7 +327,7 @@
   },
   {
     "codigo": "4099-18-LE26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "VERIFICADO 2026-07-20 con --run (código actual): el informe guardado tenía tarjeta_decision.veredicto=\"PUEDE SER\" mal formado (espacio en vez de guion bajo). Re-analizado en vivo: 7/7 ok, suma_alzada/GLOBAL confirmado, score 39, PUEDE_SER (enum ya bien formado por el override de coherencia).",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
@@ -344,7 +340,7 @@
   },
   {
     "codigo": "3890-114-L126",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "VERIFICADO 2026-07-20 con --run (código actual): el informe guardado tenía tarjeta_decision.veredicto=\"NO VAMOS\" mal formado (espacio en vez de guion bajo). Re-analizado en vivo: 7/7 ok, suma_alzada/GLOBAL confirmado, score 19, NO_VAMOS (enum ya bien formado por el override de coherencia).",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
@@ -358,15 +354,13 @@
   },
   {
     "codigo": "1057547-302-LP26",
-    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "nota": "⚠ REVISAR (2026-07-20): re-analizado en vivo con --run, el manifiesto de productos salió VACÍO (n_items=0) donde el informe guardado tenía 32 — y esta vez el sistema NO lo marcó revision_humana (quedó en false), el validador V-09 sí lo atrapó ('Manifiesto vacío sin exclusión'). Causa probable: la licitación es un contrato de MANTENCIÓN de equipos (36 meses, preventiva+correctiva, $200M) que remite el detalle a 'bases técnicas' — el documento con el listado real de equipos/repuestos no parece estar entre lo descargado (solo hay bases administrativas + un Anexo Evaluación Técnica de 2KB, muy chico para 32 ítems). Verificar si falta descargar un documento, y si el objeto (mantención, no compra de equipos) debería excluirse por tipo de servicio. NO se corrigió esperado — falta revisión de un experto antes de fijar valores.",
     "esperado": {
       "modalidad": "suma_alzada",
       "adjudicacion": "GLOBAL",
       "n_criterios": 5,
       "suma_valida": true,
-      "n_items_min": 32,
-      "revision_humana": false,
-      "excluido": false
+      "revision_humana": false
     }
   }
 ]

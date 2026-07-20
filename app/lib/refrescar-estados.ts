@@ -197,6 +197,72 @@ async function notificarCambioEstado(codigo: string, nombre: string): Promise<vo
   }
 }
 
+// Bitácora + campana + correo cuando cambia la FECHA DE CIERRE de una licitación asignada. Caso
+// real 1305525-31-LE26: el organismo extendió el plazo un día (20→21 jul) y nadie se enteró — el
+// TTL de refresco del caché era demasiado laxo para licitaciones a punto de cerrar (ver
+// planificarEnriquecimiento en licitaciones-cache.ts, que ahora refresca más seguido cerca del
+// cierre y llama a esta función cuando detecta que la fecha cambió de verdad).
+// MISMO patrón que notificarCambioEstado: solo avisa si hay un negocio ACTIVO con asignado VÁLIDO
+// (si nadie la trabaja, no hay a quién avisar — evita ruido de las miles de licitaciones del radar
+// general). A diferencia del estado (que solo notifica en los 3 terminales "graves"), un cambio de
+// fecha SIEMPRE dispara correo: afecta directamente cuándo hay que tener la oferta lista.
+export async function notificarCambioFechaCierre(codigo: string, fechaAnterior: Date, fechaNueva: Date): Promise<void> {
+  const [nrows] = await pool.query(
+    `SELECT n.licitacion_nombre, n.asignado_a, u.nombre AS usuario_nombre, u.email AS usuario_email
+     FROM negocios n JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
+     WHERE n.licitacion_codigo = ? AND n.activo = TRUE`,
+    [codigo],
+  ) as any[];
+  const negs = nrows as Array<{ licitacion_nombre: string | null; asignado_a: number; usuario_nombre: string | null; usuario_email: string | null }>;
+  if (negs.length === 0) return; // nadie la trabaja → sin destinatario, sin ruido
+
+  const licNombre = negs[0]?.licitacion_nombre || codigo;
+  const [arows] = await pool.query(
+    `SELECT id, nombre, email FROM usuarios WHERE rol = 'admin' AND activo = TRUE`,
+  ) as any[];
+  const admins = arows as Array<{ id: number; nombre: string | null; email: string | null }>;
+
+  const fmtFecha = (d: Date) => d.toLocaleString('es-CL', {
+    timeZone: 'America/Santiago', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  const detalle = `El cierre cambió de ${fmtFecha(fechaAnterior)} a ${fmtFecha(fechaNueva)} (hora Chile).`;
+
+  // 1) Historial de la licitación (actor = Mercado Público).
+  await registrarActividad({
+    usuarioId: null, accion: 'fecha_cierre_mp',
+    entidadTipo: 'licitacion', entidadId: codigo,
+    descripcion: `Mercado Público cambió la fecha de cierre — ${detalle}`,
+    metadata: { licitacion_codigo: codigo, fecha_anterior: fechaAnterior.toISOString(), fecha_nueva: fechaNueva.toISOString() },
+  }).catch(() => {});
+
+  // Destinatarios = asignado(s) + admins, deduplicados por id de usuario.
+  const dest = new Map<number, { nombre: string | null; email: string | null }>();
+  for (const n of negs) if (n.asignado_a) dest.set(Number(n.asignado_a), { nombre: n.usuario_nombre, email: n.usuario_email });
+  for (const a of admins) dest.set(Number(a.id), { nombre: a.nombre, email: a.email });
+
+  // 2) Campana + SSE.
+  const mensaje = `${licNombre}: el cierre cambió a ${fmtFecha(fechaNueva)}`;
+  for (const [uid, u] of dest) {
+    registrarEvento({
+      tipo: 'FECHA_CIERRE_CAMBIO', licitacionCodigo: codigo, licitacionNombre: licNombre,
+      usuarioId: uid, usuarioNombre: u.nombre,
+      actorId: null, actorNombre: 'Mercado Público',
+      mensaje, metadata: { licitacion_codigo: codigo, fecha_anterior: fechaAnterior.toISOString(), fecha_nueva: fechaNueva.toISOString() },
+    }).catch(() => {});
+  }
+
+  // 3) Correo — siempre (a diferencia del estado, un cambio de fecha importa en todos los casos).
+  for (const [, u] of dest) {
+    if (!u.email) continue;
+    enviarCorreoCambio({
+      to: u.email, nombre: u.nombre, codigo, licitacionNombre: licNombre,
+      cambios: [{ tipo: 'Fecha de cierre', detalle }],
+      cierre: fechaNueva.toISOString(),
+      actorNombre: 'Mercado Público',
+    }).catch(() => {});
+  }
+}
+
 export async function refrescarEstadosAsignadas(
   opts: { presupuestoMs?: number; timeoutMs?: number; notificar?: boolean } = {},
 ): Promise<{ codigos: number; actualizadas: number; errores: number }> {

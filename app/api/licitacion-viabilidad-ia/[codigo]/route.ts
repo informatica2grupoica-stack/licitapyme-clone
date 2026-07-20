@@ -66,9 +66,32 @@ async function leerInformeGuardado(codigo: string): Promise<any | null> {
   } catch { return null; }
 }
 
+// ── Re-análisis: admin sin límite; usuario normal SOLO UNA VEZ por licitación asignada ─────────
+// (antes era exclusivo de admin). Se cuenta en negocios.reanalisis_usado (migración 43): la fila
+// de negocios representa la asignación ACTIVA vigente, así que si se reasigna a otro perfil, la
+// fila nueva/fusionada arranca en 0 — el nuevo asignado tiene su propia oportunidad.
+async function estadoReanalisis(usuario: { id: number; rol: string }, codigo: string): Promise<
+  { puede: true; negocioId: number | null } | { puede: false; motivo: string }
+> {
+  if (usuario.rol === 'admin') return { puede: true, negocioId: null };
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, reanalisis_usado FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE LIMIT 1`,
+      [codigo, usuario.id],
+    ) as any[];
+    const neg = (rows as any[])[0];
+    if (!neg) return { puede: false, motivo: 'Solo el usuario asignado (o un administrador) puede re-analizar la viabilidad.' };
+    if (Number(neg.reanalisis_usado) === 1) return { puede: false, motivo: 'Ya usaste tu única re-análisis para esta licitación. Solo un administrador puede volver a analizarla.' };
+    return { puede: true, negocioId: neg.id };
+  } catch {
+    return { puede: false, motivo: 'No se pudo verificar el permiso de re-análisis.' };
+  }
+}
+
 // GET — informe IA cacheado (si existe)
 export async function GET(request: NextRequest, { params }: Params) {
-  if (!(await getAuthedUser(request))) {
+  const usuario = await getAuthedUser(request);
+  if (!usuario) {
     return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   }
   const { codigo } = await params;
@@ -90,11 +113,14 @@ export async function GET(request: NextRequest, { params }: Params) {
     }
     // Estado del análisis en segundo plano (para el polling del front).
     const job = jobs.get(codigoDecoded);
+    const reanalisis = await estadoReanalisis(usuario, codigoDecoded);
     return NextResponse.json({
       success: true,
       informeIA: conValidadorFresco(informeIA),
       enProceso: job?.estado === 'procesando',
       error: job?.estado === 'error' ? (job.error || 'No se pudo completar el análisis.') : null,
+      puedeReanalizar: reanalisis.puede,
+      motivoNoPuedeReanalizar: reanalisis.puede ? null : reanalisis.motivo,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -113,14 +139,18 @@ export async function POST(request: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
   const force = new URL(request.url).searchParams.get('force') === '1';
 
-  // RE-analizar es SOLO admin. El PRIMER análisis (aún no hay informe guardado) lo puede
-  // correr cualquier usuario autenticado (p.ej. el asignado). Re-análisis = force=1 o ya
-  // existe un informe guardado.
-  if (usuario.rol !== 'admin') {
-    const yaExiste = await leerInformeGuardado(codigoDecoded).catch(() => null);
-    if (force || yaExiste) {
-      return NextResponse.json({ error: 'Solo un administrador puede re-analizar la viabilidad.' }, { status: 403 });
+  // El PRIMER análisis (aún no hay informe guardado) lo puede correr cualquier usuario
+  // autenticado con acceso (p.ej. el asignado). Re-análisis = force=1 o ya existe un informe
+  // guardado: admin sin límite; usuario normal asignado, SOLO UNA VEZ (migración 43).
+  const yaExiste = await leerInformeGuardado(codigoDecoded).catch(() => null);
+  const esReanalisis = force || !!yaExiste;
+  let negocioIdReanalisis: number | null = null;
+  if (esReanalisis && usuario.rol !== 'admin') {
+    const chequeo = await estadoReanalisis(usuario, codigoDecoded);
+    if (!chequeo.puede) {
+      return NextResponse.json({ error: chequeo.motivo }, { status: 403 });
     }
+    negocioIdReanalisis = chequeo.negocioId;
   }
 
   // El análisis PROMPT 2 corre sobre el proveedor de texto activo (GLM de Z.AI).
@@ -174,6 +204,12 @@ export async function POST(request: NextRequest, { params }: Params) {
         jobs.set(codigoDecoded, { estado: 'error', error: 'No hay documentos legibles para analizar. Descárgalos primero.', desde: Date.now() });
       } else {
         jobs.delete(codigoDecoded); // OK: el informe quedó guardado en BD, el GET ya lo devuelve.
+        // Marca la única re-análisis del usuario normal como usada — SOLO si el análisis terminó
+        // bien de verdad (si falla, no le cobramos su oportunidad).
+        if (negocioIdReanalisis != null) {
+          pool.query(`UPDATE negocios SET reanalisis_usado = 1 WHERE id = ?`, [negocioIdReanalisis])
+            .catch(e => console.error('[licitacion-viabilidad-ia] marcar reanalisis_usado falló:', String(e)));
+        }
       }
     })
     .catch((error) => {
