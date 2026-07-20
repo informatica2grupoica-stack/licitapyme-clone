@@ -586,7 +586,7 @@ function SeccionResumen({
               <p className="text-[13px] font-bold text-emerald-700">{fmtCLP(montoMP > 0 ? montoMP : (viabIA?.presupuesto?.bruto ?? viabIA?.presupuesto?.neto))}</p>
             </div>
             <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Cómo se adjudica</p><p className="text-[13px] font-semibold text-zinc-700">{String(viabIA?.adjudicacion?.como_se_adjudica || viabIA?.modalidad?.general || viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}</p></div>
-            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Líneas</p><p className="text-[13px] font-bold text-zinc-700">{viabIA?.manifiesto_productos?.length || viabIA?.productos?.items?.length || viabIA?.costeo?.items?.length || '—'}</p></div>
+            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Productos</p><p className="text-[13px] font-bold text-zinc-700">{viabIA?.manifiesto_productos?.length || viabIA?.productos?.items?.length || viabIA?.costeo?.items?.length || '—'}</p></div>
           </div>
         </div>
       )}
@@ -857,7 +857,7 @@ function SeccionItems({ licitacion, analisisIA }: { licitacion: LicitacionRaw | 
       <div className="bg-white border border-zinc-200/60 rounded-xl overflow-hidden">
         <div className="px-5 py-3.5 border-b border-zinc-100 flex items-center justify-between">
           <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider">
-            Ítems y cantidades ({itemsMP.length})
+            Líneas y cantidades ({itemsMP.length})
           </h3>
           {hayMP && <span className="text-[10px] text-zinc-400 bg-zinc-50 border border-zinc-200 px-2 py-0.5 rounded-full">Fuente: Mercado Público</span>}
         </div>
@@ -1686,7 +1686,7 @@ function DetalleContent() {
     { key: 'documentos',   label: 'Documentos',         count: documentos.length || null },
     { key: 'viabilidad',   label: 'Viabilidad',         count: null },
     { key: 'criterios',    label: 'Criterios',          count: analisisIA?.criteriosEvaluacion?.length || null },
-    { key: 'items',        label: 'Ítems y Cantidades', count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
+    { key: 'items',        label: 'Líneas y Cantidades', count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
     { key: 'fechas',       label: 'Fechas',             count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
     { key: 'comentarios',  label: 'Comentarios',        count: null },
   ] as const;
