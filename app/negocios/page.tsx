@@ -217,9 +217,9 @@ function ModalAsignar({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 rounded-t-2xl">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <Plus size={20} className="text-indigo-600" /> Asignar licitación
           </h2>
