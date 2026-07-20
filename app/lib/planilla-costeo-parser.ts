@@ -155,6 +155,54 @@ export function detectarLineasFormulario(docs: { texto: string }[]): number[] {
   return [...set].sort((a, b) => a - b);
 }
 
+// FORMULARIOS ECONÓMICOS SEPARADOS POR LÍNEA — archivos DISTINTOS, uno por línea, en vez de un
+// único formulario consolidado (ej. "01_FORMULARIO_ECONÓMICO_LÍNEA_1.xlsx" … "_8.xlsx"). Es
+// evidencia dura y muy segura de por_linea: si cada línea se cotiza en su PROPIO archivo, no puede
+// existir un total único consolidado (eso exigiría un solo formulario con todo adentro). Mira los
+// NOMBRES de archivo, no el contenido — el organismo los nombra así para que el oferente sepa que
+// cada uno se llena y sube por separado.
+//
+// Caso real 2446-167-LP26 (equipos veterinarios, 8 líneas): 8 archivos
+// "0N_FORMULARIO_ECONÓMICO_LÍNEA_N.xlsx" — señal inequívoca que ningún detector existente miraba
+// (todos leen el TEXTO de los documentos, ninguno el nombre del archivo).
+export function detectarFormulariosEconomicosPorArchivo(docs: { nombre?: string }[]): number[] {
+  const set = new Set<number>();
+  const re = /formulario[_\s]*econ[oó]mic[oa][_\s]*l[ií]nea[_\s]*n?[°º]?[_\s]*(\d{1,3})/i;
+  for (const d of docs) {
+    const m = (d.nombre || '').match(re);
+    if (m) { const n = parseInt(m[1], 10); if (n >= 1 && n <= 200) set.add(n); }
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+// TIPO DE ADJUDICACIÓN declarado EXPLÍCITAMENTE en las bases como campo formal — no una mención
+// suelta en prosa, sino la respuesta directa a "cómo se adjudica" que las bases chilenas suelen
+// declarar en una tabla/ficha de resumen: "TIPO DE ADJUDICACIÓN: Múltiple (Por líneas)" o
+// "… (Por lotes)". A diferencia de "se podrá adjudicar por línea" mencionado al pasar (que la
+// doctrina del proyecto NO usa como señal — ver comentario en construirSenalModalidad: eso es "a
+// quién se adjudica", no "cómo se cotiza"), esta es una DECLARACIÓN FORMAL en un campo dedicado del
+// resumen de bases, tan concluyente como cualquier otro dato de portada (presupuesto, plazo, etc.).
+//
+// Caso real 2446-167-LP26: la IA citó textualmente "TIPO DE ADJUDICACIÓN Múltiple (Por lineas)"
+// (pág. 21 de las bases) como fuente de su propio veredicto POR_LINEAS, pero como NINGÚN detector
+// determinista reconocía esa frase, la "red de seguridad" (sin evidencia → default GLOBAL) revirtió
+// el veredicto correcto del modelo. Devuelve la frase-evidencia hallada, o null.
+//
+// NO exige que "TIPO DE ADJUDICACIÓN" esté pegado a "Múltiple": en PDFs con tablas mal extraídas
+// (mismo caso 2446-167-LP26) la etiqueta y el valor quedan en pedazos de texto separados por miles
+// de caracteres (la columna de etiquetas se extrae aparte de la columna de datos). Se busca
+// directamente la frase "múltiple … por líneas/lotes" con una ventana amplia, tolerando errores de
+// OCR de un carácter en "líneas" (p.ej. "lfneas" con í→f).
+export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): string | null {
+  const re = /m[uú]ltiple[\s\S]{0,30}?\bpor\s+(l.neas?|lotes?)\b/i;
+  for (const d of docs) {
+    if (!d.texto) continue;
+    const m = d.texto.match(re);
+    if (m) return m[0].replace(/\s+/g, ' ').trim();
+  }
+  return null;
+}
+
 // ¿El formulario de OFERTA ECONÓMICA exige un ÚNICO total consolidado? (regla del
 // experto: el formato de la oferta económica MANDA sobre cómo se adjudica — un solo
 // "Monto total neto/IVA incluido" al pie de la planilla = SUMA ALZADA, aunque las bases
@@ -379,22 +427,53 @@ export function detectarLineasProductoTecnicas(docs: { texto: string }[]): numbe
   return [...set].sort((a, b) => a - b);
 }
 
-// Extrae el TEXTO de cada sección "N.M. LÍNEA DE PRODUCTO N°X – Nombre" de las bases técnicas,
-// acotado hasta la siguiente sección de línea o el siguiente título numerado (p.ej. "3.5. FORMA
-// DE ENTREGA"). Es la MATERIA PRIMA para el extractor dedicado por IA: en este formato los ~100
-// productos vienen en tablas en prosa (PDF) que el parser tabular no puede desenredar, pero una
-// IA enfocada SOLO en estas secciones sí los lista. Devuelve [] si no hay ≥2 secciones.
+// Extrae el TEXTO de cada sección "LÍNEA DE PRODUCTO N°X" de los documentos, acotado hasta la
+// siguiente sección de línea o el siguiente título numerado (p.ej. "3.5. FORMA DE ENTREGA"). Es la
+// MATERIA PRIMA para el extractor dedicado por IA: en este formato los productos vienen en tablas
+// en prosa (PDF de bases técnicas) o en un Excel/anexo con una hoja por línea (sin numeral de
+// artículo delante del encabezado) que el parser tabular no puede desenredar solo, pero una IA
+// enfocada SOLO en estas secciones sí los lista. Devuelve [] si no hay ≥2 secciones.
+//
+// El prefijo "N.M." (p.ej. "9.1.") es OPCIONAL: las bases en PDF lo traen ("9.1 LÍNEA DE PRODUCTO
+// N°1 – Nombre"), pero un anexo económico en Excel exportado a texto suele traer el encabezado
+// PELADO, sin numeral de artículo ("LINEA DE PRODUCTO N°1: Nombre", una hoja por línea). Caso real
+// 2295-74-LE26: el regex exigía el prefijo → nunca matcheaba en el Excel → 0 secciones → la
+// extracción dedicada nunca corría → el manifiesto quedó con 1 "ítem" por línea (la categoría
+// completa) en vez de los productos reales de cada hoja.
+//
+// NO se queda con el PRIMER documento que matchea: prueba TODOS y elige el que tenga el MEJOR
+// PISO (la sección MÁS CHICA de todas, la más grande posible) — no el total ni el conteo de filas.
+// Razón (mismo caso 2295-74-LE26, segunda vuelta): un documento de referencia (BAE) menciona "Línea
+// de Producto N°1/2/3/4" varias veces SOLO como etiqueta (tabla de presupuesto, tabla de tiempos de
+// entrega) sin listar productos — heads dispersos y desparejos que, al recortar por secciones,
+// producen 3 secciones DIMINUTAS (70-370 caracteres, solo la etiqueta) y 1 GIGANTE (hasta el tope de
+// 16000, porque de pura casualidad barre por encima la lista real de productos que vive entre dos
+// de esas etiquetas). Total de caracteres y conteo de filas ambos premian a ese candidato desparejo
+// por su sección gigante accidental. El PISO (mínimo de las secciones) lo descarta: un documento
+// bien formado (una hoja/sección real por línea, como el Excel Anexo N°6) tiene TODAS sus secciones
+// con contenido — su peor sección sigue siendo mucho más grande que el peor caso de un candidato
+// con etiquetas sueltas.
 export function extraerSeccionesLineaProducto(docs: { nombre?: string; texto?: string | null }[]): { linea: number; nombre: string; texto: string }[] {
-  const re = /(\d{1,2})\.(\d{1,2})\.?\s*L[ÍI]NEA\s+DE\s+PRODUCTO\s+N[°º]\s*(\d{1,2})\s*[–\-]?\s*([^\n]{0,60})/gi;
+  const re = /(?:(\d{1,2})\.(\d{1,2})\.?\s*)?L[ÍI]NEA\s+DE\s+PRODUCTO\s+N[°º]\s*(\d{1,2})\s*[:–\-]?\s*([^\n]{0,60})/gi;
+  let mejor: { linea: number; nombre: string; texto: string }[] = [];
+  let mejorPiso = 0;
   for (const d of docs) {
     const t = d.texto || '';
     if (t.length < 200) continue;
     const heads: { idx: number; linea: number; nombre: string }[] = [];
     let m: RegExpExecArray | null;
-    while ((m = re.exec(t)) !== null) heads.push({ idx: m.index, linea: parseInt(m[3], 10), nombre: (m[4] || '').trim() });
+    // El nombre de sección puede venir seguido de comas CSV colgando (celdas vacías del Excel
+    // exportado a texto, ej. `Mobiliario Urbano",,,,,,,`) — se recortan por prolijidad (no afecta
+    // la extracción de ítems, que usa `texto`, solo la etiqueta que se muestra).
+    while ((m = re.exec(t)) !== null) heads.push({ idx: m.index, linea: parseInt(m[3], 10), nombre: (m[4] || '').replace(/["'\s,]+$/, '').trim() });
     re.lastIndex = 0;
     if (heads.length < 2) continue;
-    const out: { linea: number; nombre: string; texto: string }[] = [];
+    // Un mismo documento puede repetir el mismo número de línea varias veces (portada + tabla de
+    // presupuesto + tabla de tiempos = 3 apariciones de "Línea N°1"), cada aparición mucho más chica
+    // que la sección real. Nos quedamos SOLO con la aparición MÁS GRANDE de cada número de línea:
+    // así una mención suelta de una línea no arrastra al piso hacia abajo si esa MISMA línea tiene
+    // en otra parte del documento su sección real y grande.
+    const porLinea = new Map<number, { linea: number; nombre: string; texto: string }>();
     for (let i = 0; i < heads.length; i++) {
       const start = heads[i].idx;
       let end = i + 1 < heads.length ? heads[i + 1].idx : t.length;
@@ -403,11 +482,18 @@ export function extraerSeccionesLineaProducto(docs: { nombre?: string; texto?: s
         const mNext = t.slice(start + 1, end).match(/\n\s*\d{1,2}\.\d{1,2}\.?\s+[A-ZÁÉÍÓÚ]{4,}/);
         if (mNext && mNext.index != null) end = start + 1 + mNext.index;
       }
-      out.push({ linea: heads[i].linea, nombre: heads[i].nombre, texto: t.slice(start, Math.min(end, start + 16000)) });
+      const texto = t.slice(start, Math.min(end, start + 16000));
+      const prev = porLinea.get(heads[i].linea);
+      if (!prev || texto.length > prev.texto.length) {
+        porLinea.set(heads[i].linea, { linea: heads[i].linea, nombre: heads[i].nombre, texto });
+      }
     }
-    return out; // primer doc con ≥2 secciones (las bases técnicas)
+    const out = [...porLinea.values()].sort((a, b) => a.linea - b.linea);
+    if (out.length < 2) continue;
+    const piso = Math.min(...out.map(s => s.texto.length));
+    if (piso > mejorPiso) { mejorPiso = piso; mejor = out; }
   }
-  return [];
+  return mejor;
 }
 
 // ¿Fila de categoría? Ej: ["", "A", "FERRETERIA", ""] o ["F", "HERRAMIENTAS"].

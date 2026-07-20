@@ -105,5 +105,268 @@
       "adjudicacion": "POR_LINEAS",
       "n_items_min": 5
     }
+  },
+  {
+    "codigo": "2467-70-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 65,
+      "veredicto": "GANABLE",
+      "revision_humana": true,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "2928-14-LR26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "1079454-4-LP26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 30,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "1191688-50-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 26,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "2295-74-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "5586-103-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 4,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "1180828-26-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "4524-2-LP26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 119,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "618641-20-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false,
+      "excluido": true
+    }
+  },
+  {
+    "codigo": "1389488-29-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 34,
+      "veredicto": "PUEDE_SER",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "3907-8-L126",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 20,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "1043-12-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 9,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "2436-29-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 1,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "527481-52-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 41,
+      "veredicto": "PUEDE_SER",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "4116-13-LP26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "veredicto": "PUEDE_SER",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "1254658-10-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 17,
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "4099-18-LE26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 4,
+      "suma_valida": true,
+      "n_items_min": 1,
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "3890-114-L126",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 73,
+      "veredicto": "NO_VAMOS",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "1057547-302-LP26",
+    "nota": "seed-ampliacion-jul2026: esperado = _actual del seed (SIN corregir por CA) — placeholder de cobertura, revisar antes de confiar en la regresion",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 32,
+      "revision_humana": false,
+      "excluido": false
+    }
   }
 ]

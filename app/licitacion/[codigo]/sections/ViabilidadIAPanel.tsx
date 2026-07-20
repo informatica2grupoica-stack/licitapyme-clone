@@ -356,6 +356,44 @@ const CRIT_ICON: Record<string, { ic: string; txt: string }> = {
   COMPROMISO_EJECUCION:   { ic: '🟢', txt: 'Compromiso de ejecución' },
 };
 
+// PANEL DEL VALIDADOR (Frente A.2 del plan estratégico jul-2026) — muestra los hallazgos que el
+// revisor automático por código (validador-viabilidad.ts, sin IA) detectó en ESTE informe: sumas
+// de ponderaciones que no cuadran, contradicciones entre módulos (adjudicación vs estrategia), gate
+// duro conviviendo con GANABLE, etc. Antes quedaban solo en el JSON (_validador) y en la consola —
+// nadie los veía salvo revisando la base de datos a mano. Se muestra colapsado si no hay errores
+// (severidad 'error'), solo avisos; expandido si hay al menos un error.
+interface HallazgoValidador { regla: string; severidad: 'error' | 'aviso'; mensaje: string }
+function PanelValidador({ validador }: { validador?: { ok?: boolean; hallazgos?: HallazgoValidador[] } | null }) {
+  const hallazgos = validador?.hallazgos || [];
+  if (hallazgos.length === 0) return null;
+  const errores = hallazgos.filter(h => h.severidad === 'error');
+  const avisos = hallazgos.filter(h => h.severidad !== 'error');
+  const [abierto, setAbierto] = useState(errores.length > 0);
+  const hayErrores = errores.length > 0;
+  return (
+    <div className={`rounded-xl border ${hayErrores ? 'border-red-200 bg-red-50' : 'border-amber-200 bg-amber-50'}`}>
+      <button onClick={() => setAbierto(o => !o)} className="w-full flex items-center gap-2 px-3 py-2 text-left">
+        <AlertTriangle size={14} className={hayErrores ? 'text-red-600' : 'text-amber-600'} />
+        <p className={`flex-1 text-[12.5px] font-semibold ${hayErrores ? 'text-red-700' : 'text-amber-700'}`}>
+          El validador automático detectó {hallazgos.length} {hallazgos.length === 1 ? 'inconsistencia' : 'inconsistencias'}
+          {errores.length > 0 && ` (${errores.length} para revisar antes de confiar en el informe)`}
+        </p>
+        <ChevronDown size={14} className={`text-slate-400 transition-transform ${abierto ? 'rotate-180' : ''}`} />
+      </button>
+      {abierto && (
+        <div className="px-3 pb-3 space-y-1.5">
+          {[...errores, ...avisos].map((h, i) => (
+            <div key={i} className={`flex items-start gap-2 text-[12px] rounded-lg px-2.5 py-1.5 ${h.severidad === 'error' ? 'bg-red-100/60 text-red-800' : 'bg-amber-100/50 text-amber-800'}`}>
+              <span className="font-mono font-bold flex-shrink-0">{h.regla}</span>
+              <span className="flex-1 leading-snug">{h.mensaje}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Hint de primera vez: le explica a un usuario nuevo que el "ojo" de cada cita abre la
 // página exacta del documento. Se muestra una sola vez (persistido en localStorage).
 function HintOjo() {
@@ -495,6 +533,9 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
           </div>
         )}
       </div>
+
+      {/* Validador post-Fase 2: inconsistencias internas detectadas por código (sin IA) */}
+      <PanelValidador validador={informe._validador} />
 
       {/* Datos clave */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

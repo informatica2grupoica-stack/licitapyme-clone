@@ -20,9 +20,10 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
+import { validarInformeViabilidad } from '@/app/lib/validador-viabilidad';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
@@ -560,7 +561,15 @@ function construirSenalModalidad(
   presupuestoPorLinea: string | null = null,
   ofertaSubconjunto: string | null = null,
   cuadroPorLinea: string | null = null,
+  formulariosPorArchivo: number[] = [],
 ): string {
+  // PRIORIDAD MÁXIMA ABSOLUTA — cada línea trae su PROPIO archivo de formulario económico
+  // (ej. "01_FORMULARIO_ECONÓMICO_LÍNEA_1.xlsx" … "_8.xlsx"): estructuralmente NO puede existir
+  // un total único consolidado si cada línea se cotiza en un archivo aparte. Caso real
+  // 2446-167-LP26 (equipos veterinarios).
+  if (formulariosPorArchivo.length >= 2) {
+    return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de los NOMBRES de archivo): la licitación trae ${formulariosPorArchivo.length} FORMULARIOS ECONÓMICOS SEPARADOS, uno por línea (líneas ${formulariosPorArchivo.slice(0, 10).join(', ')}${formulariosPorArchivo.length > 10 ? '…' : ''}), cada uno un archivo distinto. Esto determina modalidad = por_linea de forma estructural: si cada línea se cotiza en su propio archivo, no puede existir un total único consolidado. El costeo debe ir POR LÍNEA (una hoja por línea, alineada con cada formulario).`;
+  }
   // PRIORIDAD MÁXIMA — SE PUEDE OFERTAR A UN SUBCONJUNTO de ítems/líneas. Descarta suma alzada
   // por definición (todo-o-nada) aunque el formulario económico cierre con Subtotal/IVA/Total.
   if (ofertaSubconjunto) {
@@ -643,7 +652,14 @@ function veredictoModalidadDeterminista(
   presupuestoPorLinea: string | null = null,
   ofertaSubconjunto: string | null = null,
   cuadroPorLinea: string | null = null,
+  formulariosPorArchivo: number[] = [],
 ): { tipo: 'suma_alzada' | 'por_linea'; motivo: string } | null {
+  // 0.a EVIDENCIA ESTRUCTURAL MÁS FUERTE QUE CUALQUIER OTRA: archivos de formulario económico
+  //     SEPARADOS por línea (uno por archivo). No hay forma de que exista un total único
+  //     consolidado si cada línea vive en su propio archivo. Va ANTES que todo lo demás.
+  if (formulariosPorArchivo.length >= 2) {
+    return { tipo: 'por_linea', motivo: `${formulariosPorArchivo.length} formularios económicos en archivos separados, uno por línea (líneas ${formulariosPorArchivo.slice(0, 10).join(', ')})` };
+  }
   // 0. EXCEPCIÓN a la regla maestra: si el oferente puede postular solo a ALGUNOS ítems y omitir
   //    el resto, no es suma alzada (que es todo-o-nada) por más que el formulario cierre con
   //    "Subtotal/IVA/Total" — ese total es la suma de lo que CADA OFERENTE eligió, no un lote único.
@@ -753,6 +769,12 @@ function gatePresupuestoDeterminista(bruto: number | null, neto: number | null, 
 // ficha técnica completa, dos entregables Word. En el esquema: criterios.tipo_aplicacion→clase (+
 // tramo_max_puntaje, rango_admisibilidad); costeo→productos (items scraping-ready). El PUENTE AL COSTEO
 // tolera ambos shapes (productos.items nuevo / costeo.items histórico) para no romper informes guardados.
+//
+// VERSIÓN DEL PROMPT (Frente A.1 — trazabilidad de cambios). Sube este número CADA VEZ que se edita
+// el texto de SYSTEM_PROMPT_V3 o esquemaV3 (no en cambios de código alrededor). Se guarda en cada
+// informe (_prompt_version) para que el golden set y el histórico puedan comparar "qué versión
+// produjo qué resultado" — sin esto, una regresión detectada no se puede atribuir a un cambio.
+const PROMPT_VERSION = '3.3';
 const SYSTEM_PROMPT_V3 = `ROL Y OBJETIVO
 Eres un analista experto en licitaciones públicas chilenas (MercadoPúblico) con 8 años de
 adjudicaciones. Tu trabajo NO es resumir partidas documentales: es DECIDIR SI CONVIENE PARTICIPAR en
@@ -1259,7 +1281,12 @@ function derivarV3(inf: any): { score: number; semaforo: string; area: string; c
   const areaNorm = area.startsWith('FERR') ? 'FERRETERIA' : area.startsWith('EQUIP') ? 'EQUIPAMIENTO' : 'MIXTO';
   const confs = [inf?.exclusion?.confianza, inf?.adjudicacion?.confianza].filter((n: any) => typeof n === 'number' && n > 0);
   let confianza = confs.length ? confs.reduce((a: number, b: number) => a + b, 0) / confs.length : 0.7;
-  if (inf?.veredicto?.estado_veredicto === 'REVISION_HUMANA') confianza = Math.min(confianza, 0.55);
+  // Caso real 1057499-37-LE26: adjudicacion.confianza venía en 1 (falso) mientras adjudicacion.evidencia
+  // decía textualmente "requiere confirmación humana" — el promedio con exclusion.confianza tapaba la
+  // incertidumbre. Si la ADJUDICACIÓN quedó incierta (aunque el veredicto de negocio no), la confianza
+  // global también debe bajar: el usuario no puede confiar 100% en un informe que no sabe si es GLOBAL
+  // o POR_LÍNEAS.
+  if (inf?.veredicto?.estado_veredicto === 'REVISION_HUMANA' || inf?.adjudicacion?.estado === 'REVISION_HUMANA') confianza = Math.min(confianza, 0.55);
   return { score, semaforo, area: areaNorm, confianza: Math.round(confianza * 100) / 100 };
 }
 
@@ -1386,6 +1413,8 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   let presupuestoPorLinea: string | null = null;
   let ofertaSubconjunto: string | null = null;
   let cuadroPorLinea: string | null = null;
+  let formulariosPorArchivo: number[] = [];
+  let tipoAdjudicacionMultiple: string | null = null;
   try {
     lineasForm = detectarLineasFormulario(fuentes);
     // "LÍNEA DE PRODUCTO N°X" en bases técnicas = lotes independientes (mismo peso que las
@@ -1397,8 +1426,13 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     presupuestoPorLinea = detectarPresupuestoPorLinea(fuentes);
     ofertaSubconjunto = detectarOfertaSubconjuntoItems(fuentes);
     cuadroPorLinea = detectarCuadroEconomicoPorLinea(fuentes);
+    // Caso real 2446-167-LP26: 8 archivos "FORMULARIO_ECONÓMICO_LÍNEA_N.xlsx" separados (evidencia
+    // dura de cómo se cotiza) + "TIPO DE ADJUDICACIÓN Múltiple (Por líneas)" declarado en las bases
+    // (evidencia formal de cómo se adjudica) — ninguna señal existente los reconocía.
+    formulariosPorArchivo = detectarFormulariosEconomicosPorArchivo(fuentes);
+    tipoAdjudicacionMultiple = detectarTipoAdjudicacionMultiple(fuentes);
   } catch { /* señal opcional */ }
-  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea);
+  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo);
 
   const userPrompt = construirUserPromptV3(codigo, ctx, docs, senal, planilla?.fuenteDoc);
   // REGLAS APRENDIDAS DEL EXPERTO — se INYECTAN al final del prompt para que el análisis mejore
@@ -1495,7 +1529,7 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   }
 
   const adj = p3.adjudicacion && typeof p3.adjudicacion === 'object' ? p3.adjudicacion : (p3.adjudicacion = {});
-  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea);
+  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo);
   if (det) {
     const comoDet = det.tipo === 'suma_alzada' ? 'GLOBAL' : 'POR_LINEAS';
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
@@ -1538,6 +1572,8 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
       || !!ofertaSubconjunto
       || !!cuadroPorLinea
       || lineasForm.length >= 2
+      || formulariosPorArchivo.length >= 2
+      || !!tipoAdjudicacionMultiple
       || (!!planilla && planilla.estructura === 'por_linea' && planilla.numeracion === 'reinicia')
       || manifiestoPorLinea;
     if (comoLLM.includes('LINEA') && manifiestoPorLinea && !presupuestoPorLinea && !lenguajePorLinea) {
@@ -1659,6 +1695,22 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     if (p3.costeo && typeof p3.costeo === 'object') p3.costeo.hojas_segun_adjudicacion = hojas;
   }
 
+  // COHERENCIA veredicto ↔ adjudicación: la UI muestra un único badge "DEFINITIVO / REVISIÓN
+  // HUMANA" leyendo veredicto.estado_veredicto — pero la adjudicación (GLOBAL/POR_LINEAS/POR_LOTES)
+  // tiene SU PROPIO estado de certeza (adjudicacion.estado) que puede quedar en REVISION_HUMANA
+  // mientras el veredicto de negocio queda DEFINITIVO. Caso real 1057499-37-LE26: adjudicación
+  // incierta ("sin evidencia objetiva... requiere confirmación humana") pero el badge mostraba
+  // DEFINITIVO y confianza 100%, ocultando justo la duda que el propio modelo detectó. Si la
+  // adjudicación quedó incierta, el veredicto GLOBAL del informe también debe mostrarse como
+  // REVISIÓN HUMANA (nunca al revés: no bajamos un REVISION_HUMANA de negocio a DEFINITIVO).
+  if (p3.adjudicacion?.estado === 'REVISION_HUMANA' && p3.veredicto && typeof p3.veredicto === 'object' && p3.veredicto.estado_veredicto !== 'REVISION_HUMANA') {
+    console.log(`[viabilidad-ia-v3] ${codigo}: veredicto.estado_veredicto DEFINITIVO → REVISION_HUMANA (la adjudicación quedó incierta).`);
+    p3.veredicto.estado_veredicto = 'REVISION_HUMANA';
+    if (Array.isArray(p3.veredicto.motivos_revision) && !p3.veredicto.motivos_revision.some((m: any) => /adjudicaci/i.test(String(m)))) {
+      p3.veredicto.motivos_revision.push('Cómo se adjudica (GLOBAL/POR_LÍNEAS/POR_LOTES) no quedó determinado con evidencia objetiva de las bases — confirmar antes de armar la estrategia.');
+    }
+  }
+
   const { score, semaforo, area, confianza } = derivarV3(parsed);
 
   // COHERENCIA score ↔ veredicto (regla del prompt: "el veredicto SE DERIVA del score"). Si el gate
@@ -1674,9 +1726,20 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     if (p3.atractivo?._interno) p3.atractivo._interno.nivel_tecnico = nivel;
   }
 
+  // VALIDADOR POST-FASE 2 (Frente A.2) — revisor automático por código, sin IA. Corre sobre el
+  // informe YA ensamblado con todos los overrides deterministas aplicados arriba. No bloquea el
+  // guardado: se registra en _validador para que la UI lo muestre y quede trazado qué revisar.
+  const _validador = validarInformeViabilidad(p3, score);
+  if (!_validador.ok) {
+    console.warn(`[viabilidad-ia-v3] ${codigo}: validador detectó ${_validador.hallazgos.filter(h => h.severidad === 'error').length} error(es) —`,
+      _validador.hallazgos.filter(h => h.severidad === 'error').map(h => `${h.regla}: ${h.mensaje}`).join(' | '));
+  }
+
   return {
     ...parsed,
     _schema: 'v3',
+    _prompt_version: PROMPT_VERSION,
+    _validador,
     score_0_100: score, semaforo, area_negocio: area, confianza_global: confianza,
     // Puente al costeo (shape v2) — no se muestra en la pantalla v3, alimenta el Excel de costeo.
     manifiesto_productos: manifiesto,

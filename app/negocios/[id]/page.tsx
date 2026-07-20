@@ -2037,8 +2037,8 @@ function DetalleContent() {
       {/* Modal: descartar con motivo obligatorio */}
       {descarteOpen && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4" onClick={() => setDescarteOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-red-50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-red-50 rounded-t-2xl">
               <Ban size={16} className="text-red-600" />
               <p className="text-[14px] font-bold text-red-800">Descartar licitación</p>
             </div>
@@ -2087,8 +2087,8 @@ function DetalleContent() {
       {/* Modal POSTULAR — pide el monto ofertado mostrando el presupuesto real */}
       {postularOpen && negocio && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/50 p-4" onClick={() => setPostularOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-amber-50">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100 bg-amber-50 rounded-t-2xl">
               <Send size={16} className="text-amber-600" />
               <p className="text-[14px] font-bold text-amber-800">Marcar como Postulada</p>
             </div>

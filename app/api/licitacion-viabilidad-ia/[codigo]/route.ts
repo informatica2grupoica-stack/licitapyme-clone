@@ -14,6 +14,19 @@ import { analizarYGuardarViabilidadIA, calcularDocsHash } from '@/app/lib/viabil
 import { getAuthedUser, tomarLock, liberarLock, permitido, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { iaTextoConfigurada } from '@/app/lib/gemini';
 import { registrarActividad } from '@/app/lib/actividad';
+import { validarInformeViabilidad } from '@/app/lib/validador-viabilidad';
+
+// Recalcula el validador (código puro, sin IA) sobre un informe YA guardado, para que las
+// correcciones de reglas se vean al instante en pantalla sin gastar un re-análisis con IA. El
+// _validador guardado en BD queda como snapshot del momento del análisis; este SIEMPRE pisa ese
+// snapshot con el resultado fresco al servir el informe (mismo criterio de "código barato,
+// recalcular siempre" del score determinista).
+function conValidadorFresco(informeIA: any): any {
+  if (!informeIA || informeIA._schema !== 'v3') return informeIA;
+  try {
+    return { ...informeIA, _validador: validarInformeViabilidad(informeIA, Number(informeIA.score_0_100) || 0) };
+  } catch { return informeIA; }
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -79,7 +92,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const job = jobs.get(codigoDecoded);
     return NextResponse.json({
       success: true,
-      informeIA,
+      informeIA: conValidadorFresco(informeIA),
       enProceso: job?.estado === 'procesando',
       error: job?.estado === 'error' ? (job.error || 'No se pudo completar el análisis.') : null,
     });
@@ -126,7 +139,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     try {
       const [guardado, hashActual] = await Promise.all([leerInformeGuardado(codigoDecoded), calcularDocsHash(codigoDecoded)]);
       if (guardado && hashActual && guardado.docs_hash === hashActual) {
-        return NextResponse.json({ success: true, informeIA: guardado, cacheado: true });
+        return NextResponse.json({ success: true, informeIA: conValidadorFresco(guardado), cacheado: true });
       }
     } catch { /* si falla la comprobación, seguimos al análisis normal */ }
   }

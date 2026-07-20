@@ -1,4 +1,10 @@
-# PROMPT 2 — ANALIZADOR DE VIABILIDAD (v2.1)
+> ⚠️ **OBSOLETO — NO ES EL PROMPT QUE CORRE EN PRODUCCIÓN.** Este archivo quedó en v2.1. El prompt
+> real (v3.3) vive como `SYSTEM_PROMPT_V3` en [`app/lib/viabilidad-ia.ts`](../viabilidad-ia.ts), junto
+> con el esquema `esquemaV3()`. Editar este `.md` NO tiene ningún efecto en el análisis. Se conserva
+> solo como referencia histórica del diseño original de los módulos A-D. Frente A del plan
+> estratégico (jul-2026): el prompt vivo se afina SIEMPRE en `viabilidad-ia.ts`, nunca aquí.
+
+# PROMPT 2 — ANALIZADOR DE VIABILIDAD (v2.1, OBSOLETO)
 
 > Módulo Fase 2 del sistema de automatización de licitaciones (MercadoPúblico, Chile).
 > Se ejecuta DESPUÉS de Fase 1 (Clasificación Documental) y ANTES de Fase 3 (Búsqueda de Productos).
