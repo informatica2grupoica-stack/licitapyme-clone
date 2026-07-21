@@ -17,7 +17,7 @@ import { extraerMetricas, comparar, type Esperado, type Chequeo } from './_metri
 
 cargarEnv();
 
-const REPORTE_DIR = 'C:/Users/droku/AppData/Local/Temp/claude/D--licitapyme-clone/9bd4f2d2-48e0-467e-9288-d7b1b8c0bd7d/scratchpad';
+const REPORTE_DIR = 'C:/Users/droku/AppData/Local/Temp/claude/D--licitapyme-clone/1238b9bc-e899-428d-9ba9-8b820e5af5a2/scratchpad';
 const GOLD = 'D:/licitapyme-clone/scripts/regresion/gold.json';
 
 const args = process.argv.slice(2);

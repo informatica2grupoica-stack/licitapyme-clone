@@ -6,7 +6,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerSeccionesLineaProducto,
+  detectarLenguajePorLinea, detectarParticipacionParcialPorLinea,
 } from '../planilla-costeo-parser';
+
+// Caso real 1250623-4-LE26 (21-jul-2026, detectado por CA leyendo las bases a mano): "se evaluará
+// por línea de producto" es sobre el PUNTAJE, no sobre quién gana — esta licitación se adjudica a
+// UN SOLO oferente (Art. 13º/15º de sus bases). detectarLenguajePorLinea() SÍ debe seguir
+// disparando (sirve para costeo/hints), pero detectarParticipacionParcialPorLinea() —la que decide
+// ADJUDICACIÓN— NO debe disparar con esta frase.
+test('evaluación por línea NO es evidencia de adjudicación repartida (regresión 1250623-4-LE26)', () => {
+  const docs = [{ texto: 'El presente ítem A Incluido y se evaluará por línea de producto, según la tabla siguiente.' }];
+  assert.ok(detectarLenguajePorLinea(docs), 'detectarLenguajePorLinea debe seguir disparando (sirve para costeo)');
+  assert.equal(detectarParticipacionParcialPorLinea(docs), null, 'participación parcial NO debe disparar solo por "se evaluará por línea"');
+});
+
+test('participación parcial SÍ dispara con lenguaje de oferta/omisión por línea', () => {
+  const docs = [{ texto: 'Los oferentes podrán ofertar en una o más líneas, según su conveniencia comercial.' }];
+  assert.ok(detectarParticipacionParcialPorLinea(docs), 'debe reconocer "podrán ofertar en una o más líneas" como participación parcial');
+});
 
 // Caso real 2446-167-LP26: 8 archivos separados, uno por línea.
 test('detectarFormulariosEconomicosPorArchivo: 8 archivos separados → 8 líneas', () => {

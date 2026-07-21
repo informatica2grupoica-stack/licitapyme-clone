@@ -193,12 +193,57 @@ export function detectarFormulariosEconomicosPorArchivo(docs: { nombre?: string 
 // de caracteres (la columna de etiquetas se extrae aparte de la columna de datos). Se busca
 // directamente la frase "múltiple … por líneas/lotes" con una ventana amplia, tolerando errores de
 // OCR de un carácter en "líneas" (p.ej. "lfneas" con í→f).
+//
+// Caso real 2920-30-LE26 (6 líneas): la declaración NO viene en formato tabular compacto sino en
+// prosa dentro de las Bases Administrativas: "la adjudicación será múltiple, lo que significa que
+// cada línea será evaluada y adjudicada de manera independiente... se puede adjudicar a un oferente
+// distinto por cada una de las 6 líneas". El regex original no la cazaba porque "múltiple" y "por
+// líneas" quedan a >30 caracteres de distancia con una oración completa en medio (la IA SÍ lo leyó
+// bien y citó esta frase como su propia evidencia, pero la red de seguridad la revirtió a GLOBAL por
+// falta de un detector determinista). Se agregan dos patrones de prosa: (a) "adjudicación... múltiple"
+// seguido, en una ventana amplia, de "adjudicada de manera independiente" o "oferente/proveedor
+// distinto por cada"; (b) "cada línea/lote será adjudicada de manera independiente" a secas.
+// NOTA DE ALCANCE (para quien lea este comentario buscando "por qué falló de nuevo"): esto es
+// reconocimiento de PATRONES DE TEXTO, no comprensión del lenguaje. Cada caso real que agrega un
+// patrón nuevo (2446-167-LP26, 2920-30-LE26...) es la redacción de UN organismo específico; hay
+// cientos de organismos en Chile y cada uno redacta las bases a su manera, así que NINGUNA lista de
+// regex agota todas las formas de decir "cada línea/lote se adjudica de forma independiente,
+// posiblemente a proveedores distintos". El golden set (scripts/regresion/) es el mecanismo real de
+// corrección: cada vez que un caso nuevo se cuela, se agrega aquí en minutos y ya no vuelve a fallar
+// PARA ESA REDACCIÓN. Lo que sí se puede hacer para bajar la tasa de recurrencia es ampliar la
+// familia de patrones a un CLUSTER de conceptos (distinto/diferente + oferente/proveedor/adjudicatario
+// + línea/lote, en cualquier orden dentro de una ventana) en vez de frases exactas — eso es lo que
+// hacen los últimos 3 patrones de abajo. Sigue siendo lenguaje natural: no hay "arréglalo una vez y
+// nunca más". Si esto necesita dejar de fallar en cualquier redacción posible, la solución de fondo
+// no es regex: es una segunda pregunta dirigida al modelo ("¿esta cita concreta dice que puede haber
+// un ganador distinto por línea/lote? cítala") en vez de un detector de texto — eso sí generaliza
+// como el resto de la lectura de bases, a costo de una llamada extra. Avísame si quieres ese camino.
 export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): string | null {
-  const re = /m[uú]ltiple[\s\S]{0,30}?\bpor\s+(l.neas?|lotes?)\b/i;
+  const patrones: RegExp[] = [
+    // Campo formal "TIPO DE ADJUDICACIÓN: Múltiple (Por líneas/lotes)".
+    /m[uú]ltiple[\s\S]{0,30}?\bpor\s+(l.neas?|lotes?)\b/i,
+    // Prosa: "la adjudicación será múltiple" + confirmación de independencia/distinto oferente.
+    /adjudicaci[oó]n\s+(?:ser[aá]|es)\s+m[uú]ltiple[\s\S]{0,400}?(?:adjudicad[ao]s?\s+de\s+manera\s+independiente|(?:oferente|proveedor)\s+distinto\s+(?:por|para)\s+cada)/i,
+    // "cada línea/lote será adjudicada de manera independiente" a secas.
+    /cada\s+(?:l[ií]nea|lote)\s+(?:ser[aá]|es)\s+(?:evaluad[ao]\s+y\s+)?adjudicad[ao]\s+de\s+manera\s+independiente/i,
+    // CLUSTER (no frase exacta): "adjudicación/adjudicar... independiente" cerca de línea/lote.
+    /adjudicaci[oó]n\s+independiente\s+(?:por|de\s+cada|entre)\s+(?:l[ií]neas?|lotes?)/i,
+    /adjudicar[aá]?\s+(?:de\s+forma|de\s+manera)\s+independiente\s+(?:cada\s+)?(?:l[ií]nea|lote)/i,
+    // CLUSTER: distinto/diferente/varios + oferente/proveedor/adjudicatario, cerca de línea/lote
+    // (en cualquier orden, ventana amplia) — cubre "distintos proveedores por línea", "puede
+    // resultar adjudicada a diferentes oferentes por lote", "no necesariamente al mismo proveedor".
+    /(?:distint[oa]s?|diferentes?|vari[oa]s)\s+(?:oferentes?|proveedores?|adjudicatarios?)[\s\S]{0,150}?\b(?:l[ií]neas?|lotes?)\b/i,
+    /\b(?:l[ií]neas?|lotes?)\b[\s\S]{0,150}?(?:no\s+necesariamente\s+(?:al?|el)\s+mismo\s+(?:oferente|proveedor)|distint[oa]s?\s+(?:oferentes?|proveedores?|adjudicatarios?)|m[aá]s\s+de\s+un\s+adjudicatario)/i,
+    // Mismo cluster, orden invertido (el calificativo de independencia puede venir ANTES de
+    // mencionar línea/lote, no siempre después): "no necesariamente al mismo oferente... cada línea".
+    /(?:no\s+necesariamente\s+(?:al?|el)\s+mismo\s+(?:oferente|proveedor)|distint[oa]s?\s+(?:oferentes?|proveedores?|adjudicatarios?)|m[aá]s\s+de\s+un\s+adjudicatario)[\s\S]{0,150}?\b(?:l[ií]neas?|lotes?)\b/i,
+  ];
   for (const d of docs) {
     if (!d.texto) continue;
-    const m = d.texto.match(re);
-    if (m) return m[0].replace(/\s+/g, ' ').trim();
+    for (const re of patrones) {
+      const m = d.texto.match(re);
+      if (m) return m[0].replace(/\s+/g, ' ').trim();
+    }
   }
   return null;
 }
@@ -265,6 +310,28 @@ export function detectarLenguajePorLinea(docs: { texto: string }[]): string | nu
   // Caso real 1250623-4-LE26: "se evaluará por línea de\nproducto" (OCR parte la frase con
   // saltos de línea; \s+ los cruza). No confundir con "adjudicación por línea" a secas.
   const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+)?(?:una\s+o\s+m[aá]s|por)\s+l[ií]neas?|se\s+evaluar[aá]n?\s+por\s+l[ií]neas?(?:\s+de\s+producto)?|se\s+evaluar[aá]\s+cada\s+l[ií]nea(?:\s+de\s+manera\s+individual)?|cada\s+l[ií]nea\s+(?:se\s+evaluar[aá]|ser[aá]\s+evaluada)\s+de\s+manera\s+individual|se\s+evaluar[aá]n?\s+(?:[uú]nicamente\s+)?las\s+l[ií]neas\s+que|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas/i;
+  for (const d of docs) {
+    if (!d.texto) continue;
+    const m = d.texto.match(re);
+    if (m) return m[0].replace(/\s+/g, ' ').trim();
+  }
+  return null;
+}
+
+// PARTICIPACIÓN PARCIAL POR LÍNEA — subconjunto ESTRICTO de detectarLenguajePorLinea, para usar
+// como evidencia de ADJUDICACIÓN ("¿a quién?"). Corrección 21-jul-2026 (caso real 1250623-4-LE26,
+// detectado por CA leyendo las bases a mano): esa licitación dice "se evaluará por línea de
+// producto" y SE ADJUDICA A UN SOLO OFERENTE (Art. 13º: "el Servicio aceptará LA propuesta más
+// ventajosa"; Art. 15º solo readjudica a un segundo oferente en casos excepcionales — sigue siendo
+// UN ganador). detectarLenguajePorLinea() disparaba por esa frase de EVALUACIÓN y
+// veredictoAdjudicacionDeterminista la usaba como si fuera evidencia de que "pueden ganar varios
+// oferentes distintos" — están confundiendo otra vez las dos preguntas del A.3, esta vez en el
+// código de detección, no en el prompt. Esta función SOLO matchea frases que describen PARTICIPAR
+// o GANAR solo una parte (omitir líneas, ofertar en una o más líneas, dejar en blanco las líneas
+// que no se ofertan) — nunca frases de "se evaluará por línea", que son sobre el PUNTAJE, no sobre
+// quién gana.
+export function detectarParticipacionParcialPorLinea(docs: { texto: string }[]): string | null {
+  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+)?(?:una\s+o\s+m[aá]s|por)\s+l[ií]neas?|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas/i;
   for (const d of docs) {
     if (!d.texto) continue;
     const m = d.texto.match(re);

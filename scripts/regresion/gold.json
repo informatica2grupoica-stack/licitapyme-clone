@@ -1,14 +1,14 @@
 [
   {
     "codigo": "2920-30-LE26",
-    "nota": "seed",
+    "nota": "corregido 21-jul: Bases Administrativas declaran adjudicación múltiple explícita ('cada línea será evaluada y adjudicada de manera independiente... se puede adjudicar a un oferente distinto por cada una de las 6 líneas') — el LLM decía POR_LINEAS y tenía razón; el detector determinista no la cazaba (fix en detectarTipoAdjudicacionMultiple). Verificado con re-análisis real guardado en BD (confianza 1, estado DETERMINADA). modalidad.tipo (puente al costeo) sigue a adjudicación → por_linea. n_items_min bajado: el conteo del manifiesto varía 117-155 según qué proveedor de IA respondió (glm-4.7 vs respaldo deepseek), no es determinista entre corridas.",
     "esperado": {
-      "modalidad": "suma_alzada",
-      "adjudicacion": "GLOBAL",
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
       "n_criterios": 5,
       "suma_valida": true,
-      "n_items_min": 155,
-      "revision_humana": true
+      "n_items_min": 100,
+      "revision_humana": false
     }
   },
   {
@@ -26,15 +26,15 @@
   },
   {
     "codigo": "1250623-4-LE26",
-    "nota": "corregido 2026-07-15: las bases dicen 'se evaluará por línea de producto' (considerando SEGUNDO) → por_linea; la IA la daba GLOBAL",
+    "nota": "CORREGIDO 2026-07-21 (CA leyó las bases a mano — la 'corrección' del 2026-07-15 estaba MAL): la frase 'se evaluará por línea de producto' es sobre el PUNTAJE (eje aparte), NO sobre quién gana. Esta licitación SE ADJUDICA A UN SOLO OFERENTE — Art. 13º de sus bases: 'El Servicio aceptará la propuesta más ventajosa...' (singular); Art. 15º solo readjudica a un segundo oferente en casos excepcionales (falsedad, rechazo de OC), lo que confirma un único ganador principal. Es GLOBAL, no por_linea. Causa raíz: detectarLenguajePorLinea() no distinguía 'se evaluará por línea' (evaluación) de 'podrán ofertar/omitir líneas' (participación parcial, la evidencia real de adjudicación repartida) — se separó en detectarParticipacionParcialPorLinea(), que no dispara con esta frase. VERIFICADO con --run tras el fix: como_se_adjudica=GLOBAL, score=65, GANABLE. estado=REVISION_HUMANA (el sistema no encontró evidencia POSITIVA de GLOBAL, solo ausencia de evidencia de reparto — cae al default seguro; podría mejorarse con una señal que reconozca 'aceptará LA propuesta' como evidencia directa de único ganador, pendiente).",
     "esperado": {
-      "modalidad": "por_linea",
-      "adjudicacion": "POR_LINEAS",
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
       "n_criterios": 5,
       "suma_valida": true,
       "n_items_min": 7,
       "veredicto": "GANABLE",
-      "revision_humana": false
+      "revision_humana": true
     }
   },
   {

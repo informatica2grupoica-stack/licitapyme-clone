@@ -204,6 +204,20 @@ function v12_manifiestoNoColapsadoPorLinea(inf: any, push: (h: HallazgoValidador
   if (!como.includes('LINEA') && !como.includes('LOTE')) return;
   const items: any[] = Array.isArray(inf?.productos?.items) ? inf.productos.items
     : Array.isArray(inf?.costeo?.items) ? inf.costeo.items : [];
+  if (items.length === 0) return;
+
+  // SEÑAL DIRECTA (no depende de ratio/cantidad): "unidad_medida" = "línea"/"lote" NUNCA es una
+  // unidad de medida real (las bases piden metros, unidades, cajas, kg…) — es la huella de que el
+  // modelo puso el NOMBRE DE LA LÍNEA como si fuera el producto, en vez de listar lo que hay debajo.
+  // Caso real 2920-30-LE26 (6 líneas, ferretería): el manifiesto colapsado traía exactamente 1 ítem
+  // por línea con unidad_medida="Línea" y cantidad=1 (no 0) — la ratio de abajo SÍ lo cazaba, pero
+  // el filtro de "cantidad en cero" no, porque cantidad=1 es un valor "normal" para este patrón.
+  const conUnidadLinea = items.filter(it => /^l[ií]neas?$|^lotes?$/i.test(String(it?.unidad_medida || '').trim()));
+  if (conUnidadLinea.length >= Math.max(2, items.length * 0.5)) {
+    push({ regla: 'V-12', severidad: 'error', mensaje: `${conUnidadLinea.length}/${items.length} ítems traen unidad_medida="${conUnidadLinea[0]?.unidad_medida}" — eso es el NOMBRE de la línea/lote usado como si fuera el producto (unidad de medida inválida). El manifiesto colapsó cada línea a una sola categoría en vez de listar los productos reales de debajo. El costeo saldrá con 1 fila por línea, inútil. Re-analizar (idealmente con el modelo principal, sin caer a respaldo) o revisar el documento fuente del anexo económico.` });
+    return; // ya diagnosticado por la señal directa; no hace falta la heurística de ratio abajo
+  }
+
   if (items.length < 3) return; // muy pocos ítems para que la ratio sea significativa
   const lineas = new Set(items.map(it => it?.linea)).size || 1;
   const ratio = items.length / lineas;

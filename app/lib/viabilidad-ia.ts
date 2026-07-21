@@ -20,7 +20,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad } from '@/app/lib/validador-viabilidad';
@@ -631,11 +631,50 @@ function construirSenalModalidad(
   return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de la estructura del listado): los ${planilla.items.length} ítems tienen numeración CORRELATIVA CONTINUA 1..N (de corrido, no se reinicia por línea), aunque el documento venga partido en hojas/secciones tituladas "Línea N". Esto es INDICIO de suma_alzada (las hojas separadas NO son lotes de adjudicación), PERO la numeración por sí sola NO decide: si el FORMATO DE OFERTA ECONÓMICA cotiza precio UNITARIO por ítem sin un gran total al pie, o las bases dicen "se oferta/evalúa por línea", es por_linea. Verifícalo con el formato de oferta económica y el lenguaje de las bases, y decide.`;
 }
 
-// VEREDICTO DETERMINISTA de modalidad (VINCULANTE, no solo pista). A diferencia de
-// construirSenalModalidad (que solo sugiere al LLM), esto DECIDE la modalidad a partir de la
-// estructura REAL del listado de ítems — la doctrina del experto: "fíjate en la lista de ítems
-// y saca la conclusión, no te guíes por que digan 'líneas'". Devuelve el tipo cuando la señal es
-// CONCLUYENTE; null cuando el listado es ambiguo (ahí se respeta el juicio del LLM / REVISION_HUMANA).
+// VEREDICTO DETERMINISTA DE ADJUDICACIÓN — "¿A QUIÉN se adjudica?" (GLOBAL = un solo oferente gana
+// TODO el paquete · POR_LINEAS = pueden ganar oferentes DISTINTOS por línea/lote/ítem). Corrección
+// del 21-jul-2026 (caso real detectado por CA): la función `veredictoModalidadDeterminista` de más
+// abajo decidía ESTO MISMO mirando señales que en realidad son sobre CÓMO SE COTIZA/organiza el
+// costeo (total único al pie, numeración del listado, tabla por línea) — dos preguntas que el
+// propio dueño del negocio identificó como NO relacionadas: "el costeo no tiene nada que ver con
+// quién se adjudica la licitación". Esta función SOLO usa evidencia que responde directamente "¿se
+// puede ofertar/ganar solo una parte, o es todo-o-nada para UN oferente?" — la ANCLA PRIMARIA de
+// A.3 del prompt. "Adjudicación por ítem" cuenta como POR_LINEAS (mismo concepto en jerga distinta:
+// puede haber un ganador distinto por cada ítem).
+function veredictoAdjudicacionDeterminista(
+  ofertaSubconjunto: string | null,
+  formulariosPorArchivo: number[],
+  lenguajePorLinea: string | null,
+  presupuestoPorLinea: string | null,
+  tipoAdjudicacionMultiple: string | null,
+): { tipo: 'GLOBAL' | 'POR_LINEAS'; motivo: string } | null {
+  // Prioridad: evidencia más directa e inequívoca primero.
+  if (formulariosPorArchivo.length >= 2) {
+    return { tipo: 'POR_LINEAS', motivo: `${formulariosPorArchivo.length} formularios económicos en archivos separados, uno por línea (líneas ${formulariosPorArchivo.slice(0, 10).join(', ')}) — cada línea se presenta y evalúa por separado` };
+  }
+  if (tipoAdjudicacionMultiple) {
+    return { tipo: 'POR_LINEAS', motivo: `declaración explícita de las bases: "${tipoAdjudicacionMultiple}"` };
+  }
+  if (ofertaSubconjunto) {
+    return { tipo: 'POR_LINEAS', motivo: `las bases permiten ofertar/ganar solo un subconjunto de ítems/líneas: "${ofertaSubconjunto.slice(0, 80)}"` };
+  }
+  if (lenguajePorLinea) {
+    return { tipo: 'POR_LINEAS', motivo: `lenguaje explícito de participación por línea: "${lenguajePorLinea.slice(0, 80)}"` };
+  }
+  if (presupuestoPorLinea) {
+    return { tipo: 'POR_LINEAS', motivo: `presupuesto independiente por línea (lotes separados): "${presupuestoPorLinea.slice(0, 80)}"` };
+  }
+  // Sin evidencia de participación/adjudicación repartida → sin veredicto vinculante; se respeta
+  // el juicio del LLM (guiado por el ancla del prompt) o la red de seguridad de más abajo.
+  return null;
+}
+
+// VEREDICTO DETERMINISTA de COSTEO/COTIZACIÓN (VINCULANTE, no solo pista) — "¿CÓMO se cotiza?", NO
+// "a quién se adjudica" (ver veredictoAdjudicacionDeterminista arriba, que es la única que decide
+// adjudicación desde el 21-jul-2026). Esta función queda para reconectarse al decidir la
+// ESTRUCTURA DEL COSTEO (cuántas hojas/líneas en el Excel) de forma independiente de la
+// adjudicación — pendiente, "después vemos el costeo" (fase siguiente). A la fecha, tipoCosteo
+// sigue derivándose de adj.como_se_adjudica más abajo; esta función no se llama todavía.
 //
 // Orden de reglas (de mayor a menor autoridad):
 //   0. Se puede ofertar a un SUBCONJUNTO de ítems/líneas → por_linea. Manda incluso sobre el
@@ -774,7 +813,13 @@ function gatePresupuestoDeterminista(bruto: number | null, neto: number | null, 
 // el texto de SYSTEM_PROMPT_V3 o esquemaV3 (no en cambios de código alrededor). Se guarda en cada
 // informe (_prompt_version) para que el golden set y el histórico puedan comparar "qué versión
 // produjo qué resultado" — sin esto, una regresión detectada no se puede atribuir a un cambio.
-const PROMPT_VERSION = '3.3';
+// v3.4 (2026-07-21): A.3 reescrita — separa explícitamente "a quién se adjudica" de "cómo se cotiza"
+// y "cómo se evalúa el puntaje" como TRES preguntas independientes con evidencia propia. Antes el
+// texto decía literalmente '"suma alzada" = global en jerga interna', instruyendo al modelo a tratar
+// las tres cosas como una sola pregunta — la raíz de varios bugs de modalidad encontrados hoy
+// (1057499-37-LE26, 2446-167-LP26 y otros), que hasta ahora solo se parchaban con señales
+// deterministas después del hecho, nunca corrigiendo la causa en el prompt.
+const PROMPT_VERSION = '3.4';
 const SYSTEM_PROMPT_V3 = `ROL Y OBJETIVO
 Eres un analista experto en licitaciones públicas chilenas (MercadoPúblico) con 8 años de
 adjudicaciones. Tu trabajo NO es resumir partidas documentales: es DECIDIR SI CONVIENE PARTICIPAR en
@@ -837,11 +882,34 @@ A.2 PRESUPUESTO + RÉGIMEN: TOTAL (no por línea). Normaliza a NETO (÷1,19 si c
 sigue si (productos <15) o (≤5 especializados); >$15M → normal; reservado/desconocido → sigue
 (presupuesto_incierto).
 
-A.3 CÓMO SE ADJUDICA: el asistente solo ve CÓMO SE ADJUDICA (el eje de pago es interno, "suma alzada" =
-global en jerga interna). GLOBAL · POR LÍNEAS (incl. multiproveedor y mixto) · POR LOTES. ANCLA PRIMARIA
-(conductual): ¿permiten ofertar solo una parte? Sí → repartido; No ("no se aceptan ofertas parciales",
-"por la totalidad") → GLOBAL. Confirma en el artículo. Si no es fehaciente → REVISION_HUMANA. GLOBAL/LOTE
-→ causal de cotizar 100%.
+A.3 A QUIÉN SE ADJUDICA vs CÓMO SE COTIZA — SON DOS PREGUNTAS DISTINTAS, NUNCA LA MISMA. Suelen coincidir
+(la mayoría de las veces si es GLOBAL también se cotiza con un total único), pero NO SIEMPRE. Determina
+cada una con SU PROPIA evidencia textual; JAMÁS infieras una a partir de la otra ("es GLOBAL, por lo
+tanto suma alzada" es un error — verifícalo aparte). Registra las dos, cada una con su fuente.
+
+① A QUIÉN SE ADJUDICA (como_se_adjudica) — ¿puede haber un GANADOR DISTINTO por línea/lote, o un solo
+proveedor se lleva TODO el paquete? GLOBAL · POR LÍNEAS (incl. multiproveedor y mixto) · POR LOTES.
+ANCLA PRIMARIA (conductual): ¿permiten ofertar solo una parte? Sí → repartido (POR_LINEAS/POR_LOTES); No
+("no se aceptan ofertas parciales", "por la totalidad") → GLOBAL. Confirma en el artículo de adjudicación.
+Si no es fehaciente → REVISION_HUMANA. GLOBAL/LOTE → causal de cotizar 100%.
+
+② CÓMO SE COTIZA (modalidad_pago_interna; uso interno, NO se muestra al usuario) — ¿el FORMULARIO DE
+OFERTA ECONÓMICA pide UN monto total consolidado, o un precio por cada línea/ítem? ANCLA: mira el
+FORMATO del formulario económico (dónde se escribe el precio), NO el artículo de adjudicación. Un total
+único al pie ("Monto total neto/IVA incluido") = suma_alzada. Precio unitario por línea sin gran total
+consolidado (o "Subtotal/IVA/Total" que se repite por cada línea) = precios_unitarios.
+
+③ CÓMO SE EVALÚA EL PUNTAJE (evaluacion_puntaje) — al_total (los criterios se aplican sobre la oferta
+completa) o por_linea (cada línea se evalúa y puntúa por separado, aunque después se sume/promedie a un
+resultado único). PUEDE SER por_linea AUNQUE LA ADJUDICACIÓN SEA GLOBAL: es real y frecuente que un solo
+proveedor se lleve todo el paquete (GLOBAL) pero que cada línea se punteé individualmente antes de sumar
+el puntaje total — eso NO cambia que sea un solo ganador. No lo confundas con "cómo se adjudica".
+
+Ejemplo de las tres coexistiendo SIN coincidir (caso real): las bases dicen "no se aceptan ofertas
+parciales" (→ GLOBAL) y también "estos criterios deberán ser aplicados por cada línea de productos"
+(→ evaluacion_puntaje=por_linea), y el formulario económico trae un total único al pie (→
+modalidad_pago_interna=suma_alzada). Las tres son correctas y coexisten: no "corrijas" una para que
+calce con las otras.
 
 A.4 LÍNEA DE NEGOCIO: Ferretería/Materiales o Equipamiento/Complejos; puede haber mezcla.
 
@@ -1173,9 +1241,21 @@ PASO 3 — FORMATOS (identifícalos y trátalos así):
    null (o 1 como base) y unidad_inferida=true. PROHIBIDO listar solo los primeros N como muestra: si el
    listado es muy largo, total_items debe reflejar el conteo REAL de filas y, si no alcanzas a emitir
    cada ficha, decláralo en alertas/hallazgos_formato — NUNCA presentes 3 ítems como si fueran todos.
+⑧ TABLA HTML (OCR) CON PRESUPUESTO COMPARTIDO VÍA rowspan: una tabla <table> por línea donde la
+   columna de "Monto/Presupuesto disponible" trae UNA celda con rowspan="N" que abarca TODAS las
+   filas de esa línea (ej. <td rowspan="27">$2.300.000.- Iva incluido</td> cubriendo 27 filas de
+   productos). Ese rowspan NO significa "esto es un solo producto": significa que el PRESUPUESTO es
+   compartido/tope de la línea completa, pero CADA FILA sigue siendo un producto individual con su
+   propia descripción y cantidad — cópialas todas y asígnales el MISMO presupuesto_linea (el del
+   rowspan). Una línea puede partirse en VARIAS tablas <table> consecutivas (el OCR corta por
+   página): trátalas como continuación de la MISMA línea, no como líneas nuevas. PROHIBIDO colapsar
+   la tabla completa en un ítem genérico con el texto del rowspan como "característica" — ese es
+   precisamente el error a evitar (caso real 2920-30-LE26, 6 líneas/117 productos con presupuesto
+   compartido por rowspan, colapsadas 2 veces seguidas a 6 ítems genéricos "Línea").
 PASO 4 — CIERRE: total_items = suma del mapa; cruza con la API MP (si trae MÁS líneas, revisa qué doc
 no barriste). Cada FILA con cantidad y unidad propia es UN producto; un SET/KIT jamás se emite como un
-solo ítem si el documento desglosa su contenido.
+solo ítem si el documento desglosa su contenido. Una celda con rowspan que cubre varias filas NUNCA
+reduce esas filas a un solo producto (ver ⑧): rowspan = dato compartido, no fusión de filas.
 
 SALIDA ADITIVA (claves nuevas dentro de "productos"; si no aplican, arrays vacíos):
   "mapa_items": [ { "documento":"", "rol":"principal|parcial|especificaciones|espejo|sin_items",
@@ -1389,8 +1469,53 @@ export function corregirPaginasCitas(inf: any, leidos: { nombre: string; texto: 
   return { corregidas, total };
 }
 
-// Orquestación v3: reusa la carga de documentos/contexto/señal del v2, cambia prompt+esquema.
+// ¿El informe trae el patrón de "manifiesto de productos colapsado" (regla V-12 del validador:
+// cada línea/lote quedó resumida a UN ítem genérico en vez de listar los productos reales)? Se usa
+// para decidir si vale la pena reintentar el análisis completo antes de guardar.
+function _tieneManifiestoColapsado(r: any): boolean {
+  return Array.isArray(r?._validador?.hallazgos)
+    && r._validador.hallazgos.some((h: any) => h?.regla === 'V-12' && h?.severidad === 'error');
+}
+
+// Orquestación v3 + REINTENTO AUTOMÁTICO SI EL MANIFIESTO COLAPSÓ (Frente A.2, 21-jul-2026). Caso
+// real 2920-30-LE26: el 1er intento cayó a un modelo de respaldo por timeout del principal y devolvió
+// 6 ítems genéricos (uno por línea, "unidad_medida: Línea") en vez de los 117 productos reales — el
+// validador (V-12) lo detecta, pero por sí solo NO arregla nada: hasta hoy se guardaba igual y el
+// Excel de costeo salía con una fila por línea, inútil. Antes de aceptar ese resultado, se intenta
+// UNA vez más completa (vuelve a leer documentos y a llamar al modelo desde cero — el mismo camino
+// normal probar-primario-antes-de-caer-a-respaldo de siempre, no hay un modo "forzar primario"
+// aparte: la única variable es si esta vez el modelo principal alcanza a responder a tiempo). Si el
+// reintento sale limpio, se usa. Si TAMBIÉN colapsa, se guarda el menos degradado de los dos (más
+// ítems) pero forzado a REVISION_HUMANA con un motivo explícito — nunca se guarda un colapso doble
+// en silencio. Costo: hasta 2x SOLO en los casos que colapsan (la mayoría no dispara V-12).
 export async function analizarViabilidadIAV3(codigo: string): Promise<any | null> {
+  const primero = await _analizarViabilidadIAV3Intento(codigo);
+  if (!primero || !_tieneManifiestoColapsado(primero)) return primero;
+
+  console.warn(`[viabilidad-ia-v3] ${codigo}: manifiesto de productos colapsado (V-12) en el 1er intento → reintentando análisis completo una vez más antes de guardar.`);
+  const segundo = await _analizarViabilidadIAV3Intento(codigo);
+  if (!segundo) return primero; // el reintento no produjo nada (docs/red) → nos quedamos con el primero
+
+  if (!_tieneManifiestoColapsado(segundo)) {
+    console.log(`[viabilidad-ia-v3] ${codigo}: el reintento resolvió el colapso del manifiesto (V-12 ya no aparece) — se usa el 2º intento.`);
+    return segundo;
+  }
+
+  const nPrimero = Array.isArray(primero?.productos?.items) ? primero.productos.items.length : 0;
+  const nSegundo = Array.isArray(segundo?.productos?.items) ? segundo.productos.items.length : 0;
+  const elegido = nSegundo >= nPrimero ? segundo : primero;
+  console.warn(`[viabilidad-ia-v3] ${codigo}: el reintento TAMBIÉN colapsó el manifiesto (V-12) — se guarda el menos degradado de los dos (${Math.max(nPrimero, nSegundo)} ítems) forzado a REVISION_HUMANA.`);
+  if (elegido.veredicto && typeof elegido.veredicto === 'object') {
+    elegido.veredicto.estado_veredicto = 'REVISION_HUMANA';
+    if (!Array.isArray(elegido.veredicto.motivos_revision)) elegido.veredicto.motivos_revision = [];
+    elegido.veredicto.motivos_revision.push('manifiesto de productos posiblemente colapsado por línea/lote (V-12) tras 2 intentos de análisis — confirmar contra el documento fuente antes de costear.');
+  }
+  return elegido;
+}
+
+// Un intento completo de análisis v3 (lectura de documentos + llamada al modelo + overrides +
+// validador). Reusa la carga de documentos/contexto/señal del v2, cambia prompt+esquema.
+async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | null> {
   const docs = await cargarDocumentos(codigo);
   const leidos = docs.filter(d => d.ok);
   if (leidos.length === 0) return null;
@@ -1410,6 +1535,7 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   let lineasForm: number[] = [];
   let totalUnico = false;
   let lenguajePorLinea: string | null = null;
+  let participacionParcialPorLinea: string | null = null;
   let presupuestoPorLinea: string | null = null;
   let ofertaSubconjunto: string | null = null;
   let cuadroPorLinea: string | null = null;
@@ -1423,6 +1549,12 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     if (lineasProducto.length) lineasForm = [...new Set([...lineasForm, ...lineasProducto])].sort((a, b) => a - b);
     totalUnico = detectarOfertaTotalUnico(fuentes);
     lenguajePorLinea = detectarLenguajePorLinea(fuentes);
+    // Caso real 1250623-4-LE26 (21-jul-2026, detectado por CA leyendo las bases a mano): esta
+    // licitación dispara lenguajePorLinea con "se evaluará por línea de producto" —eso es sobre el
+    // PUNTAJE, no sobre quién gana— pero SE ADJUDICA A UN SOLO OFERENTE (Art. 13º/15º de sus
+    // bases). lenguajePorLinea (arriba) sigue sirviendo para costeo/hints al LLM; para decidir
+    // ADJUDICACIÓN se usa esta versión angosta, que excluye las frases de "se evaluará por línea".
+    participacionParcialPorLinea = detectarParticipacionParcialPorLinea(fuentes);
     presupuestoPorLinea = detectarPresupuestoPorLinea(fuentes);
     ofertaSubconjunto = detectarOfertaSubconjuntoItems(fuentes);
     cuadroPorLinea = detectarCuadroEconomicoPorLinea(fuentes);
@@ -1529,30 +1661,32 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   }
 
   const adj = p3.adjudicacion && typeof p3.adjudicacion === 'object' ? p3.adjudicacion : (p3.adjudicacion = {});
-  const det = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo);
+  // ADJUDICACIÓN ("¿a quién?") — SOLO evidencia de participación/ganador repartido. Corrección
+  // 21-jul-2026: antes esto se decidía con señales de COSTEO (total único, numeración del listado,
+  // tabla por línea) — dos preguntas distintas que CA identificó como no relacionadas. Ver
+  // veredictoAdjudicacionDeterminista arriba.
+  const det = veredictoAdjudicacionDeterminista(ofertaSubconjunto, formulariosPorArchivo, participacionParcialPorLinea, presupuestoPorLinea, tipoAdjudicacionMultiple);
   if (det) {
-    const comoDet = det.tipo === 'suma_alzada' ? 'GLOBAL' : 'POR_LINEAS';
+    const comoDet = det.tipo; // 'GLOBAL' | 'POR_LINEAS' — ya viene en el vocabulario de adjudicación
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
-    // No pisar POR_LOTES del modelo (suma_alzada por bloque que el parser no distingue de global).
-    if (!(det.tipo === 'suma_alzada' && comoLLM.includes('LOTE'))) {
-      if (comoLLM !== comoDet) console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación corregida por estructura del listado: "${comoLLM || '—'}" → "${comoDet}" (${det.motivo}).`);
+    // No pisar POR_LOTES del modelo (el detector no distingue lotes de global, solo "repartido").
+    if (!(comoDet === 'GLOBAL' && comoLLM.includes('LOTE'))) {
+      if (comoLLM !== comoDet) console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación corregida por evidencia de participación: "${comoLLM || '—'}" → "${comoDet}" (${det.motivo}).`);
       adj.como_se_adjudica = comoDet;
       adj.estado = 'DETERMINADA';
-      adj.evidencia = adj.evidencia ? `${adj.evidencia} [ajuste por estructura del listado: ${det.motivo}]` : `derivado de la estructura del listado de ítems: ${det.motivo}`;
+      adj.evidencia = adj.evidencia ? `${adj.evidencia} [ajuste por evidencia de adjudicación: ${det.motivo}]` : `derivado de evidencia de adjudicación: ${det.motivo}`;
     }
   } else {
-    // RED DE SEGURIDAD (doctrina del proyecto: "por_linea exige EVIDENCIA POSITIVA"). Cuando el
-    // veredicto determinista es AMBIGUO (det=null: no hay planilla parseable ni total único
-    // detectado) y el LLM eligió POR_LINEAS SIN respaldo objetivo —ni lenguaje explícito de oferta
-    // por línea, ni ≥2 fichas "Línea N°", ni numeración que reinicia— NO le creemos: ese es el
-    // falso positivo más común (el modelo confunde "se adjudica por línea" —a quién— con "se
-    // cotiza por línea" —cómo—). Default SEGURO = GLOBAL (suma alzada, un único total) y se marca
-    // REVISION_HUMANA para que un humano confirme. Evita costeos por-línea equivocados.
+    // RED DE SEGURIDAD (doctrina del proyecto: "por_linea exige EVIDENCIA POSITIVA"). Cuando no hay
+    // evidencia de ADJUDICACIÓN concluyente y el LLM eligió POR_LINEAS SIN respaldo objetivo, NO le
+    // creemos: ese es el falso positivo más común (el modelo confunde "se adjudica por línea" —a
+    // quién— con "se cotiza/organiza por línea" —cómo—, que es un eje aparte). Default SEGURO =
+    // GLOBAL (un solo oferente gana todo) y se marca REVISION_HUMANA para que un humano confirme.
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
-    // CORROBORACIÓN POR EL MANIFIESTO DEL LLM (evidencia estructural): si el modelo agrupó los
-    // ítems en ≥2 LÍNEAS distintas y cada línea trae su PROPIO presupuesto (presupuesto_linea),
-    // eso refleja lotes presupuestados por separado en las bases (no un tag arbitrario). Es la
-    // señal que el experto lee "a ojo": los productos salen 1,1,1…2,2,2… con su monto por línea.
+    // CORROBORACIÓN POR EL MANIFIESTO DEL LLM (evidencia MEDIA, no 100% determinista): si el modelo
+    // agrupó los ítems en ≥2 LÍNEAS distintas y cada línea trae su PROPIO presupuesto, eso sugiere
+    // LOTES independientes que podrían adjudicarse por separado — no es prueba dura de adjudicación,
+    // por eso queda con REVISION_HUMANA, no DETERMINADA.
     const itemsLLM: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
       : Array.isArray(p3.costeo?.items) ? p3.costeo.items : []; // v3.3 productos / v3.2 costeo
     const lineasLLM = new Set(itemsLLM.map(it => _lineaNum(it?.linea)).filter(n => Number.isFinite(n) && n > 0));
@@ -1567,14 +1701,15 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
     // que el manifiesto cuente como evidencia de lotes. (Doctrina "correlativo 1..N = suma alzada".)
     const itemsPorLinea = lineasLLM.size > 0 ? itemsLLM.length / lineasLLM.size : 0;
     const manifiestoPorLinea = lineasLLM.size >= 2 && presupuestosLLM.size >= 2 && itemsLLM.length >= 8 && itemsPorLinea >= 3;
-    const hayEvidenciaPorLinea = !!lenguajePorLinea
+    // NO incluye cuadroPorLinea/lineasForm/planilla.estructura-numeracion (señales de CÓMO SE
+    // COTIZA/organiza el costeo, no de a quién se adjudica) NI lenguajePorLinea completo (incluye
+    // "se evaluará por línea", que es del PUNTAJE — caso real 1250623-4-LE26, ver comentario arriba).
+    // Solo participacionParcialPorLinea (la versión angosta: puede ofertar/omitir/ganar solo una parte).
+    const hayEvidenciaPorLinea = !!participacionParcialPorLinea
       || !!presupuestoPorLinea
       || !!ofertaSubconjunto
-      || !!cuadroPorLinea
-      || lineasForm.length >= 2
       || formulariosPorArchivo.length >= 2
       || !!tipoAdjudicacionMultiple
-      || (!!planilla && planilla.estructura === 'por_linea' && planilla.numeracion === 'reinicia')
       || manifiestoPorLinea;
     if (comoLLM.includes('LINEA') && manifiestoPorLinea && !presupuestoPorLinea && !lenguajePorLinea) {
       // Evidencia MEDIA (viene del manifiesto del LLM, no de una señal 100% determinista): se
@@ -1593,8 +1728,8 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
       adj.como_se_adjudica = 'GLOBAL';
       adj.estado = 'REVISION_HUMANA';
       adj.evidencia = adj.evidencia
-        ? `${adj.evidencia} [sin evidencia de oferta por línea → default suma alzada; requiere confirmación humana]`
-        : `sin evidencia objetiva de oferta por línea (ni lenguaje explícito, ni fichas "Línea N°", ni numeración que reinicia) → default suma alzada; requiere confirmación humana`;
+        ? `${adj.evidencia} [sin evidencia de participación repartida → default GLOBAL; requiere confirmación humana]`
+        : `sin evidencia objetiva de que se pueda ganar solo una parte (ni lenguaje explícito, ni presupuesto por línea, ni formularios separados, ni declaración de adjudicación múltiple) → default GLOBAL; requiere confirmación humana`;
     }
   }
 
