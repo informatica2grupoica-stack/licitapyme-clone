@@ -9,6 +9,15 @@
 // "Análisis de licitación" muestre datos REALES (cuenta por estado_pipeline, que ahora refleja
 // el resultado de MP, no el estado puesto a mano).
 //
+// SEGUNDA PASADA (agregada 2026-07-21, caso real 3253-67-LE26): una licitación puede quedar en
+// ADJUDICADA/PERDIDA puesta A MANO (alguien cambia el pipeline por un comentario) ANTES de que
+// MP publique el acta oficial. Como esa licitación ya NO está en POSTULADA, el barrido de arriba
+// nunca la vuelve a mirar y su cache queda pegado en el dato viejo para siempre. Esta segunda
+// pasada busca justo esas: ADJUDICADA/PERDIDA cuyo cache todavía no confirma `es_adjudicada=1`,
+// las reconsulta contra MP y corrige el cache (y el estado, si MP dice algo distinto a lo puesto
+// a mano). El conjunto es chico por diseño (se autoexcluye apenas el cache confirma), así que un
+// presupuesto de tiempo corto le alcanza.
+//
 // Usa la API oficial (api.mercadopublico.cl), que NO exige IP chilena → puede correr donde sea.
 // La detección de APERTURA es aparte (portal de MP, IP chilena): ver app/lib/detectar-aperturas.ts.
 //
@@ -21,7 +30,8 @@ import { registrarEvento } from '@/app/lib/historial';
 import { construirDesdeLicitacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
 
 const CODIGO_CONCURRENCIA = 4;      // detalles de MP consultados en paralelo
-const PRESUPUESTO_MS       = 25_000; // tope de tiempo del paso (margen bajo maxDuration del cron)
+const PRESUPUESTO_MS       = 25_000; // tope de tiempo del paso principal (margen bajo maxDuration del cron)
+const PRESUPUESTO_RECONFIRMAR_MS = 15_000; // tope de la 2ª pasada (conjunto chico, no compite por tiempo)
 const TIMEOUT_DETALLE_MS   = 8_000;  // timeout por llamada a MP
 
 interface FilaPostulada {
