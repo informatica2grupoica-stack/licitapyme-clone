@@ -278,14 +278,18 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
   throw ultimo;
 }
 
-export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRespaldo?: boolean } = {}) {
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRespaldo?: boolean; soloGlm?: boolean } = {}) {
   const activo = cfgTexto();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
   const reqOpts = opts.timeoutMs ? { timeout: opts.timeoutMs } : undefined;
   // IA_SIN_RESPALDO=1 → fuerza usar SOLO el proveedor activo (sin caer a la cadena). Útil para
   // medir/garantizar que TODO corra en un único modelo.
   const sinRespaldoGlobal = process.env.IA_SIN_RESPALDO === '1';
-  const respaldos = (opts.sinRespaldo || sinRespaldoGlobal) ? [] : cfgTextoRespaldos(activo);
+  let respaldos = (opts.sinRespaldo || sinRespaldoGlobal) ? [] : cfgTextoRespaldos(activo);
+  // opts.soloGlm: excluye DeepSeek/Gemini de la cadena — solo se cae a OTRO modelo GLM (zai_alt).
+  // Usado por la viabilidad (llamarGlmJSON): el usuario quiere DeepSeek reservado EXCLUSIVAMENTE
+  // para el chatbot de documentos, nunca para el análisis de viabilidad.
+  if (opts.soloGlm) respaldos = respaldos.filter((r) => r.keyEnv === 'ZAI_API_KEY');
 
   // Breaker: si el principal ya se declaró sin saldo y hay cadena, vamos directo al respaldo.
   if (textoPrincipalSinSaldo && respaldos.length) return intentarCadena(respaldos, params, reqOpts);

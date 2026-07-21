@@ -418,7 +418,7 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         stream: false,
         max_tokens: 32_000,
         response_format: { type: 'json_object' },
-      }, { timeoutMs: Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000) });
+      }, { timeoutMs: Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000), soloGlm: true });
       // ↑ timeout primario. Los análisis buenos tardan ~180-200s; con 240s no se cortan, pero si
       // glm-4.7-flashx se CUELGA (le pasa con inputs grandes) caemos al respaldo rápido (glm-4.5-air,
       // ~137s) 40s antes que con los 280s previos. Configurable con VIABILIDAD_LLM_TIMEOUT_MS.

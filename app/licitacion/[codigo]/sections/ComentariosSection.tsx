@@ -14,6 +14,7 @@ interface Comentario {
   usuario_id: number;
   usuario_nombre: string;
   usuario_email: string;
+  origen?: 'licitacion' | 'negocio';
 }
 
 function AvatarInicial({ nombre, email }: { nombre?: string; email?: string }) {
@@ -72,10 +73,10 @@ export function ComentariosSection({ codigoDecoded }: { codigoDecoded: string })
     }
   };
 
-  const handleEliminar = async (id: number) => {
+  const handleEliminar = async (id: number, origen?: 'licitacion' | 'negocio') => {
     if (!usuario) return;
     try {
-      const res = await fetch(`/api/licitacion-comentarios/${encodeURIComponent(codigoDecoded)}?comentarioId=${id}`, {
+      const res = await fetch(`/api/licitacion-comentarios/${encodeURIComponent(codigoDecoded)}?comentarioId=${id}&origen=${origen || 'licitacion'}`, {
         method: 'DELETE',
       });
       const data = await res.json();
@@ -158,7 +159,7 @@ export function ComentariosSection({ codigoDecoded }: { codigoDecoded: string })
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <span className="text-[11px] text-slate-400">{formatDateTime(c.created_at)}</span>
                           {usuario && (usuario.id === c.usuario_id || usuario.rol === 'admin') && (
-                            <button onClick={() => handleEliminar(c.id)} title="Eliminar"
+                            <button onClick={() => handleEliminar(c.id, c.origen)} title="Eliminar"
                               className="text-slate-300 hover:text-red-500 transition-colors p-0.5 rounded">
                               <Trash2 size={11} />
                             </button>

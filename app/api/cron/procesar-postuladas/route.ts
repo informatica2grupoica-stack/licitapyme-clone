@@ -33,9 +33,12 @@ export async function POST(req: NextRequest) {
   if (!autorizado(req)) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   const t0 = Date.now();
   try {
-    // promover:false → las adjudicadas SE QUEDAN en Postuladas (decisión del usuario).
+    // promover:true (2026-07-21, reversa la decisión anterior de "quédense en Postuladas"):
+    // el usuario confirmó con datos reales que sin promoción /analisis-licitacion (que lee el
+    // acta directo) y /postuladas·/adjudicadas (que dependen más de estado_pipeline) mostraban
+    // conteos distintos — 12 licitaciones YA ganadas por RUT seguían atascadas en POSTULADA.
     // soloCerradas:false → también refresca las Publicadas para el filtro por estado.
-    const r = await procesarPostuladas({ promover: false, soloCerradas: false });
+    const r = await procesarPostuladas({ promover: true, soloCerradas: false });
     // Refrescó el cache desde MP → avisar a los tableros abiertos para que repinten con el
     // resultado nuevo (Postuladas y Adjudicadas leen ese mismo cache).
     if (r.codigos > 0) publicarCambio('adjudicacion');

@@ -586,6 +586,18 @@ export default function AdjudicadasPage() {
   }, [adjMap]);
   const resueltas = useMemo(() => negocios.filter(esResuelta), [negocios, esResuelta]);
 
+  // Última licitación GANADA (independiente de filtros/paginación): se recalcula sola cada
+  // vez que llega un resultado nuevo — "fija hasta que salga otra" sin necesitar estado propio.
+  const ultimaGanada = useMemo(() => {
+    let mejor: { n: Negocio; ts: number } | null = null;
+    for (const n of resueltas) {
+      if (resultadoDe(n, adjMap[n.licitacion_codigo]) !== 'ganada') continue;
+      const ts = tsDe(adjMap[n.licitacion_codigo]?.fechaAdjudicacion || n.licitacion_cierre);
+      if (!mejor || ts > mejor.ts) mejor = { n, ts };
+    }
+    return mejor?.n ?? null;
+  }, [resueltas, adjMap]);
+
   // ── Opciones de filtros con conteo (solo lo presente en los datos) ──────────
   const opcionesPerfil = useMemo(() => {
     const m = new Map<string, { nombre: string; total: number }>();
@@ -699,6 +711,16 @@ export default function AdjudicadasPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <Trophy size={24} className="text-emerald-600" /> Adjudicadas
+              {ultimaGanada && (
+                <Link
+                  href={`/negocios/${ultimaGanada.id}`}
+                  title={`Última licitación ganada: ${ultimaGanada.licitacion_nombre || ultimaGanada.licitacion_codigo}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border shadow-sm hover:shadow transition-shadow"
+                  style={{ background: 'linear-gradient(135deg,#fef3c7,#fde68a)', borderColor: '#d97706', color: '#92400e' }}
+                >
+                  🏆 Última ganada: {(ultimaGanada.licitacion_nombre || ultimaGanada.licitacion_codigo).slice(0, 42)}
+                </Link>
+              )}
             </h1>
             <p className="text-sm text-gray-500 mt-0.5">
               {cargandoTodo ? 'Cargando…' : `${base.length} resuelta${base.length !== 1 ? 's' : ''} · resultado real de Mercado Público`}

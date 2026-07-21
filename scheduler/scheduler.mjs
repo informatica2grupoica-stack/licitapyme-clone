@@ -97,10 +97,10 @@ cron.schedule('0 */4 * * *',    jobIntake,     opts);   // 00,04,08,12,16,20
 cron.schedule('30 */4 * * *',   jobEnriquecer, opts);   // +30 min
 cron.schedule('0 1-23/4 * * *', jobPrefiltro,  opts);   // 01,05,09,13,17,21 (1h después del intake)
 cron.schedule('0 */2 * * *',    jobDocsNeg,    opts);   // cada 2h: reintenta descargas de asignadas
-cron.schedule('15 */2 * * *',   jobPostuladas, opts);   // cada 2h (+15min): resultado + aperturas de postuladas
+cron.schedule('15 * * * *',     jobPostuladas, opts);   // cada 1h (+15min): resultado + aperturas de postuladas
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · docs-negocios 0 */2 · postuladas 15 */2');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · docs-negocios 0 */2 · postuladas 15 * (cada hora)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.

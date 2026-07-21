@@ -6,6 +6,7 @@ import pool from '@/app/lib/db';
 import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
+import { ahoraChileSQL } from '@/app/lib/tz';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -91,21 +92,22 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
-    // Insertar comentario
+    // Insertar comentario. created_at EXPLÍCITO en hora de pared de Chile: el DEFAULT
+    // CURRENT_TIMESTAMP lo pone el servidor MySQL de Bluehost (UTC-6), 2h atrás de Chile.
     let insertId: number;
     try {
       const [result] = await pool.query(
-        `INSERT INTO comentarios_negocio (negocio_id, usuario_id, etiqueta_id, pipeline_estado, comentario)
-         VALUES (?, ?, ?, ?, ?)`,
-        [id, userId, etiqueta_id || null, pipeline_estado || null, comentario.trim()]
+        `INSERT INTO comentarios_negocio (negocio_id, usuario_id, etiqueta_id, pipeline_estado, comentario, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [id, userId, etiqueta_id || null, pipeline_estado || null, comentario.trim(), ahoraChileSQL()]
       );
       insertId = (result as any).insertId;
     } catch {
       // Fallback: sin columna pipeline_estado
       const [result] = await pool.query(
-        `INSERT INTO comentarios_negocio (negocio_id, usuario_id, etiqueta_id, comentario)
-         VALUES (?, ?, ?, ?)`,
-        [id, userId, etiqueta_id || null, comentario.trim()]
+        `INSERT INTO comentarios_negocio (negocio_id, usuario_id, etiqueta_id, comentario, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [id, userId, etiqueta_id || null, comentario.trim(), ahoraChileSQL()]
       );
       insertId = (result as any).insertId;
     }
