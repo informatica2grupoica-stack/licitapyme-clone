@@ -26,6 +26,7 @@ import { ViabilidadIAPanel } from '@/app/licitacion/[codigo]/sections/Viabilidad
 import { InteligenciaSection } from '@/app/licitacion/[codigo]/sections/InteligenciaSection';
 import { DocumentosSection } from '@/app/licitacion/[codigo]/sections/DocumentosSection';
 import { CriteriosSection } from '@/app/licitacion/[codigo]/sections/CriteriosSection';
+import { PreguntasSection } from '@/app/licitacion/[codigo]/sections/PreguntasSection';
 import { esUrlAnalizable } from '@/app/licitacion/[codigo]/utils';
 import { Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
@@ -189,7 +190,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'comentarios';
+type Seccion = 'resumen' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'comentarios';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -1680,7 +1681,7 @@ function DetalleContent() {
   const documentosAnalizables = documentos.filter(d => esUrlAnalizable(d.url_local || d.url));
 
   // Orden definido por el equipo (negocio, sin Postulación ni Asistente):
-  // Resumen · Documentos · Viabilidad · Criterios · Ítems · Fechas · Comentarios.
+  // Resumen · Documentos · Viabilidad · Criterios · Ítems · Fechas · Preguntas · Comentarios.
   const NAV_SECTIONS = [
     { key: 'resumen',      label: 'Resumen',            count: null },
     { key: 'documentos',   label: 'Documentos',         count: documentos.length || null },
@@ -1688,6 +1689,7 @@ function DetalleContent() {
     { key: 'criterios',    label: 'Criterios',          count: analisisIA?.criteriosEvaluacion?.length || null },
     { key: 'items',        label: 'Líneas y Cantidades', count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
     { key: 'fechas',       label: 'Fechas',             count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
+    { key: 'preguntas',    label: 'Preguntas',          count: null },
     { key: 'comentarios',  label: 'Comentarios',        count: null },
   ] as const;
 
@@ -1843,6 +1845,9 @@ function DetalleContent() {
             )}
             {seccion === 'analisis' && (
               <InteligenciaSection codigo={negocio.licitacion_codigo} documentosAnalizables={documentosAnalizables as any} nombreLicitacion={negocio.licitacion_nombre || negocio.licitacion_codigo} />
+            )}
+            {seccion === 'preguntas' && (
+              <PreguntasSection codigoDecoded={negocio.licitacion_codigo} mpUrl={mpUrl} />
             )}
             {seccion === 'comentarios' && (
               <SeccionComentarios

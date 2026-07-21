@@ -2,7 +2,7 @@
 
 import {
   LayoutDashboard, Calendar, Package, FileText,
-  BarChart3, MessageSquare, Send, Gauge, Trophy,
+  BarChart3, MessageSquare, Send, Gauge, Trophy, HelpCircle,
 } from 'lucide-react';
 
 export type SeccionLicitacion =
@@ -13,7 +13,7 @@ interface NavItem { key: SeccionLicitacion; label: string; icon: React.ReactNode
 interface NavGroup { label: string; items: NavItem[]; }
 
 // Lista única y ordenada (radar). Orden definido por el equipo:
-// Resumen · Documentos · Viabilidad · Criterios · Ítems · Fechas · Comentarios · Postulación.
+// Resumen · Documentos · Viabilidad · Criterios · Ítems · Fechas · Preguntas · Comentarios · Postulación.
 const GROUPS: NavGroup[] = [
   {
     label: '',
@@ -25,6 +25,7 @@ const GROUPS: NavGroup[] = [
       { key: 'criterios',   label: 'Criterios',    icon: <BarChart3       size={14} /> },
       { key: 'items',       label: 'Ítems',        icon: <Package         size={14} /> },
       { key: 'fechas',      label: 'Fechas',       icon: <Calendar        size={14} /> },
+      { key: 'preguntas',   label: 'Preguntas',    icon: <HelpCircle      size={14} /> },
       { key: 'comentarios', label: 'Comentarios',  icon: <MessageSquare   size={14} /> },
       { key: 'postulacion', label: 'Postulación',  icon: <Send            size={14} /> },
     ],

@@ -46,7 +46,7 @@ const CANDIDATOS_LINUX = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/us
  * el archivo exista de verdad y, si no, autodetecta Chrome/Edge/Chromium.
  * Último recurso: el binario de @sparticuz (serverless).
  */
-async function resolverChromium(): Promise<{ executablePath: string; args: string[] }> {
+export async function resolverChromium(): Promise<{ executablePath: string; args: string[] }> {
   const crudo = process.env.CHROME_EXECUTABLE_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || '';
   const limpio = crudo.trim().replace(/^["']|["']$/g, '');
 

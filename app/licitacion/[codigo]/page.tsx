@@ -630,7 +630,7 @@ export default function LicitacionDetallePage() {
               />
             )}
             {activeSection === 'preguntas' && (
-              <PreguntasSection mpUrl={mpUrl} />
+              <PreguntasSection codigoDecoded={codigoDecoded} mpUrl={mpUrl} />
             )}
             {activeSection === 'criterios' && (
               <CriteriosSection
