@@ -2,10 +2,12 @@
 // Dado un producto de "Productos a costear" (típicamente MAQUINARIA/EQUIPAMIENTO con ficha técnica
 // larga), usa la IA (GLM, cadena de respaldo incluida) para: (1) decidir si es maquinaria/equipo,
 // (2) SEPARAR las características técnicas REALES de la máquina de lo que NO es spec (logística,
-// garantía, plazos, requisitos de admisibilidad, condiciones comerciales), y (3) redactar un PROMPT
-// de búsqueda exhaustivo para pegar en Gemini/Google y encontrar VARIAS (3-5) opciones homólogas o
-// superiores priorizando PROVEEDORES CHILENOS, y solo si no alcanza, homólogos importables desde China
-// (Alibaba) u otros exportadores a Chile que cumplan o superen EXACTAMENTE las mismas specs.
+// garantía, plazos, requisitos de admisibilidad, condiciones comerciales). El PROMPT de búsqueda que
+// el usuario copia y pega en Gemini/Google (con búsqueda real) es un TEMPLATE FIJO y determinista
+// (construirPromptBusqueda, 2026-07-21) — NO se le pide a la IA que lo redacte: es un prompt largo,
+// metódico (ingeniería inversa → proveedor Chile → homólogos importables → tabla con colores de
+// cumplimiento → veredicto de factibilidad) que se degrada si se deja a criterio del LLM en cada
+// corrida. Solo se le inyectan las specs_tecnicas ya extraídas.
 import { crearChatIA, MODELO_TEXTO } from '@/app/lib/gemini';
 import { parseJsonIA } from '@/app/lib/json-ia';
 
@@ -15,7 +17,7 @@ export interface BusquedaEquipamiento {
   specs_tecnicas: string[];         // solo las specs REALES de la máquina
   requisitos_admisibilidad: string[]; // specs marcadas como excluyentes (deben cumplirse sí o sí)
   descartadas: string[];            // lo que NO es spec técnica (logística/garantía/comercial)
-  prompt_busqueda: string;          // el prompt listo para pegar en Gemini
+  prompt_busqueda: string;          // el prompt fijo (construirPromptBusqueda) listo para pegar en Gemini
 }
 
 const SYS = `Eres un experto en ABASTECIMIENTO INDUSTRIAL e importación para licitaciones públicas chilenas.
@@ -45,23 +47,8 @@ REGLA DE PARTICIÓN (crítica, respétala siempre):
      repetir. Si una línea mezcla spec + condición (p.ej. "motor 20 HP, entrega en 30 días"), pon la parte de
      spec en specs_tecnicas y la parte de condición en descartadas, pero SIN duplicar el texto completo.
 
-5. prompt_busqueda: un PROMPT en español, autocontenido y EXHAUSTIVO, listo para pegar en una IA de búsqueda
-   (Gemini/Google). Su objetivo es encontrar VARIAS opciones reales, priorizando Chile. Debe pedir explícitamente:
-   · PRIMERO, entre 3 y 5 PROVEEDORES CHILENOS (empresas que venden/distribuyen/importan el equipo EN CHILE, con
-     sitio .cl, RUT, sucursal o representación local). El objetivo es el PROVEEDOR CHILENO, no la fábrica. Cuantas
-     más alternativas chilenas, mejor.
-   · SOLO SI no hay oferta suficiente en Chile, homólogos importables desde China (Alibaba/Made-in-China) u otros
-     exportadores a Chile, como alternativa secundaria y diciéndolo explícitamente. Los homólogos de China deben
-     CUMPLIR O SUPERAR EXACTAMENTE las MISMAS specs_tecnicas (mismo piso técnico, sin rebajar ninguna spec ni
-     ningún requisito de admisibilidad).
-   Para CADA opción pide: marca/modelo, NOMBRE DEL PROVEEDOR (en Chile; o exportador si es de China), ciudad/país,
-   sitio web/contacto, precio estimado (CLP para Chile; USD FOB si viene importado), plazo de entrega, y una línea
-   de "cumple/supera" que confirme que satisface TODAS las specs. Ordena: primero Chile, luego China.
-   Incluye TODAS las specs_tecnicas dentro del prompt (no las resumas) y marca los requisitos_admisibilidad como
-   piso innegociable. Redáctalo como una orden clara al asistente.
-
 Devuelve SOLO JSON válido:
-{"es_maquinaria":true,"nombre":"","specs_tecnicas":[""],"requisitos_admisibilidad":[""],"descartadas":[""],"prompt_busqueda":""}`;
+{"es_maquinaria":true,"nombre":"","specs_tecnicas":[""],"requisitos_admisibilidad":[""],"descartadas":[""]}`;
 
 export async function generarBusquedaEquipamiento(producto: {
   nombre: string;
@@ -86,12 +73,12 @@ ${caracts.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
   const parsed = parseJsonIA(txt) || {};
   const arr = (x: any): string[] => (Array.isArray(x) ? x.map(String).filter(Boolean) : []);
 
-  let prompt = String(parsed.prompt_busqueda || '').trim();
-  // Respaldo: si la IA no armó el prompt, construimos uno determinista con las specs disponibles.
-  if (!prompt) {
-    const specs = arr(parsed.specs_tecnicas).length ? arr(parsed.specs_tecnicas) : caracts;
-    prompt = construirPromptFallback(producto.nombre, specs, producto.region);
-  }
+  // El prompt de búsqueda SIEMPRE se arma con el template fijo (construirPromptBusqueda) — la IA
+  // ya no lo redacta (ver comentario de cabecera). Specs: las que clasificó la IA; si vino vacío
+  // (falló el parseo), las características crudas de entrada como respaldo.
+  const specs = arr(parsed.specs_tecnicas).length ? arr(parsed.specs_tecnicas) : caracts;
+  const prompt = construirPromptBusqueda(specs);
+
   return {
     es_maquinaria: parsed.es_maquinaria !== false,
     nombre: String(parsed.nombre || producto.nombre || ''),
@@ -102,10 +89,73 @@ ${caracts.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
   };
 }
 
-// Prompt determinista de respaldo (por si la IA falla): SIEMPRE devuelve algo usable.
-function construirPromptFallback(nombre: string, specs: string[], region?: string): string {
-  return `Actúa como experto en abastecimiento en Chile. Necesito encontrar PROVEEDORES CHILENOS del siguiente equipo para una licitación pública${region ? ` (entrega en ${region})` : ''}: ${nombre}.
-Búscame PRIMERO entre 3 y 5 opciones REALES con PROVEEDOR EN CHILE (marca, modelo y empresa con sitio .cl / contacto) que CUMPLAN O SUPEREN estas especificaciones. SOLO si no hay oferta suficiente en Chile, agrega homólogos importables desde China (Alibaba/Made-in-China) u otros exportadores a Chile que cumplan o superen EXACTAMENTE las MISMAS especificaciones (mismo piso técnico, sin rebajar ninguna), y dilo explícitamente:
-${specs.map(s => `- ${s}`).join('\n')}
-Para cada opción indica: marca/modelo, nombre del proveedor (en Chile; o exportador si es de China), ciudad/país, sitio web/contacto, precio estimado (CLP en Chile; USD FOB si es importado), plazo de entrega, y por qué cumple o supera. Ordena: primero Chile, luego China. Prioriza los requisitos obligatorios como piso innegociable.`;
+// Template FIJO del prompt de búsqueda (2026-07-21, redactado por el usuario): ingeniería inversa
+// del producto real → proveedor en Chile (obligatorio, agota el recurso) → homólogos importables
+// (mínimo 3, Alibaba/Made-in-China) → tabla con colores de cumplimiento (🟢🟡🔴⚪) → veredicto de
+// factibilidad arriba de todo. Exige que el asistente (Gemini/Google con búsqueda real) use SOLO
+// datos verificados con URL exacta — nunca inventados. Las specs_tecnicas van, una por línea, en
+// el bloque final "CARACTERÍSTICAS BASALES" — texto EXACTO del usuario, sin nada agregado.
+function construirPromptBusqueda(specs: string[]): string {
+  const lista = specs.map(s => `- ${s}`).join('\n');
+  return `# ROL
+Especialista en abastecimiento e importación para licitaciones públicas de Chile. Haces ingeniería inversa de requerimientos técnicos: identificas el producto real que el comprador quería, decides rápido si es factible para nosotros, y buscas proveedores reales con precios y links verificables.
+
+# PRINCIPIO
+Descartar rápido lo imposible vale tanto como avanzar en lo factible. Si está amarrado a una marca y no podemos traer ese producto exacto a buen precio, dilo de inmediato y arriba. No adornes un descarte.
+
+# VERACIDAD (regla dura)
+Usas Google Search para CADA dato. Prohibido inventar, deducir o completar de memoria precios, links, specs o marcas.
+- Un dato vale solo si viene de una página que abriste en esta sesión.
+- Toda URL debe ser un link real y completo (https://...) a un producto específico. Nunca uses términos de búsqueda, "caché", "site:" ni punteros tipo [8.2.1]. Sin URL exacta → "No encontrado".
+- Si no hallaste algo, escribe "No encontrado". Es correcto. Inventar es error grave.
+
+# NO CALCULAS COSTOS
+No calcules importación, aranceles, IVA ni costo puesto en Chile. No conviertas divisas. Solo el precio tal como está en la fuente (FOB USD si importado; CLP si Chile), indicando moneda e IVA si la fuente lo dice.
+
+# ENTRADA
+Recibes las CARACTERÍSTICAS BASALES de un producto de licitación chilena. Todas son exigibles y deben cumplirse.
+
+# ETAPAS (en orden)
+
+## 1 — INGENIERÍA INVERSA
+Las bases suelen copiar las specs de un producto real hallado en internet. Descubre cuál buscando las specs más DISTINTIVAS y los datos "raros" que delatan copy-paste (exigencias absurdas, tecnología propietaria, características anticuadas). Prioriza la ficha del FABRICANTE oficial; si usas reventa (eBay/revendedor), adviértelo. Declara: "Parece basado en [MARCA MODELO] — [URL]" + el dato delator. Si no lo identificas con evidencia, dilo y sigue.
+
+## 2 — PROVEEDOR EN CHILE (obligatorio, agota el recurso)
+Busca el producto y equivalentes en sitios chilenos. Con fuente real: proveedor, modelo, precio CLP (con/sin IVA), URL exacta del producto. Si no hay, declara "No se encontró proveedor en Chile tras búsqueda exhaustiva" + qué buscaste.
+
+## 3 — HOMÓLOGOS IMPORTABLES (mínimo 3)
+Prioridad Alibaba y Made-in-China; Amazon/eBay solo si no completas 3. Objetivo: mejor precio. Busca el término técnico también EN INGLÉS y traduce. Por homólogo, con fuente real: proveedor, país de origen, specs leídas de la ficha, precio FOB USD, URL exacta. Ordena del mejor al peor.
+
+# COLORES (cada celda, significado estricto)
+Regla: IGUAL O MEJOR (mejor=mayor, salvo donde menor sea mejor como consumo/peso).
+- 🟢 = cumple igual o mejor, CONFIRMADO en la ficha. Nunca verde por deducción.
+- 🟡 = cumple por margen mínimo e inmedible (ej. 1,00 vs 0,99 m³). Solo para esto; yo apruebo.
+- 🔴 = claramente por debajo, o imposible de replicar (software propietario, diseño patentado). Muéstralo.
+- ⚪ s/i = el dato no está en la fuente. Obligatorio cuando no lo confirmaste. Prohibido color o valor supuesto.
+Clave: 🟡 = "lo verifiqué, un pelo abajo". ⚪ = "no lo verifiqué". No los confundas.
+
+# DETECCIÓN DE AMARRE (tras llenar la tabla)
+Cuenta los 🔴 sobre características ESTRUCTURALES (imposibles de agregar/replicar: software propietario, patente, arquitectura de hardware, capacidades que ningún homólogo alcanza), aparte de los 🔴 ajustables. Varios 🔴 estructurales sin homólogo que los cumpla = AMARRADA a una marca.
+
+# SALIDA
+
+## ⚠️ VEREDICTO DE FACTIBILIDAD (primero, arriba de todo)
+Una de tres, en lenguaje directo:
+- 🟢 FACTIBLE: hay homólogo que cumple lo estructural. Nombra el mejor + precio FOB.
+- 🟡 SOLO CON EL ORIGINAL: amarrado, pero podemos conseguir el producto exacto. Dónde y a qué precio.
+- 🔴 AMARRADO / DESCARTE: amarrado y sin vía conveniente. "Evalúa no participar y buscar otro proyecto" + la característica estructural que lo impide.
+
+## TABLA (Markdown)
+- Col 1: cada característica basal, punto por punto, sin omitir, en el orden entregado.
+- Col 2 "Requerido": el valor exacto.
+- Una columna por opción (Chile primero si existe; luego importables en orden), encabezada con proveedor + país + URL completa del producto visible en la celda.
+- Cada celda: valor real + color 🟢🟡🔴⚪ (si ⚪, "s/i").
+
+# CIERRE
+1. FUENTES: URLs reales completas, numeradas por etapa.
+2. QUÉ VERIFICAR: banderas 🟡 y celdas ⚪ que necesitan mi confirmación.
+3. AUTOCHEQUEO (responde): ¿toda URL abre un producto real y está en la tabla? ¿usé 🟢 sin confirmar (corrígelo a ⚪)? ¿calculé costos (no debo)? ¿omití alguna característica? ¿el veredicto de arriba es coherente con los 🔴 estructurales?
+
+# CARACTERÍSTICAS BASALES:
+${lista}`;
 }
