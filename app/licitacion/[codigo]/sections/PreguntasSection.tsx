@@ -1,10 +1,10 @@
 // app/licitacion/[codigo]/sections/PreguntasSection.tsx
 'use client';
 
-import { useState } from 'react';
-import { HelpCircle, ExternalLink, MessageCircle, Loader2, RefreshCw, Calendar } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { HelpCircle, ExternalLink, MessageCircle, Loader2, RefreshCw, Calendar, Clock } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
-import { formatDateTime, SectionHeader, AlertBanner, InfoRow } from '../utils';
+import { SectionHeader, AlertBanner, InfoRow } from '../utils';
 
 interface PreguntaRespuesta {
   numero: number | null;
@@ -19,18 +19,38 @@ interface ForoPreguntas {
   fechaFinPreguntas: string | null;
   fechaPublicacionRespuestas: string | null;
   preguntas: PreguntaRespuesta[];
+  respondido?: boolean;
+  consultadoEn?: string | null;
 }
 
 // Fechas del foro vienen en formato "DD-MM-YYYY HH:mm:ss" (texto del portal de MP, no ISO) —
-// formatDateTime espera un Date parseable, así que se muestran tal cual llegan.
+// se muestran tal cual llegan, sin reformatear.
 
 export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: string; mpUrl: string }) {
   const { error: toastError } = useToast();
-  const [estado, setEstado] = useState<'idle' | 'cargando' | 'ok' | 'error'>('idle');
+  // idle: aún sin consultar (GET inicial en curso). vacio: GET dijo que nunca se consultó.
+  // ok: hay datos (de cache o recién traídos). actualizando: POST forzado en curso. error.
+  const [estado, setEstado] = useState<'idle' | 'vacio' | 'ok' | 'actualizando' | 'error'>('idle');
   const [foro, setForo] = useState<ForoPreguntas | null>(null);
 
-  const cargar = async () => {
-    setEstado('cargando');
+  // Al entrar a la pestaña: trae lo que haya en caché (instantáneo, sin abrir navegador).
+  const cargarCache = useCallback(async () => {
+    setEstado('idle');
+    try {
+      const res = await fetch(`/api/licitacion-preguntas/${encodeURIComponent(codigoDecoded)}`);
+      const data = await res.json();
+      if (data.success && data.cache) { setForo(data); setEstado('ok'); }
+      else setEstado('vacio');
+    } catch {
+      setEstado('vacio'); // sin cache legible → ofrece consultar en vivo igual
+    }
+  }, [codigoDecoded]);
+
+  useEffect(() => { cargarCache(); }, [cargarCache]);
+
+  // Fuerza consulta en vivo (botón "Cargar"/"Actualizar") — abre navegador real, ~10-15s.
+  const actualizar = async () => {
+    setEstado('actualizando');
     try {
       const res = await fetch(`/api/licitacion-preguntas/${encodeURIComponent(codigoDecoded)}`, { method: 'POST' });
       const data = await res.json();
@@ -52,12 +72,12 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
       <SectionHeader
         icon={<HelpCircle size={18} />}
         title="Preguntas Licitación"
-        subtitle="Foro de preguntas y respuestas del proceso (traído en vivo desde Mercado Público)"
+        subtitle="Foro de preguntas y respuestas del proceso — se mantiene al día solo (cron cada hora)"
         badge={foro && foro.preguntas.length > 0
           ? <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-xs rounded-full font-semibold">{foro.preguntas.length}</span>
           : undefined}
         action={estado === 'ok'
-          ? <button onClick={cargar} disabled={(estado as string) === 'cargando'}
+          ? <button onClick={actualizar} title="Forzar consulta en vivo (no espera al cron)"
               className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-slate-500 hover:text-indigo-600 transition-colors">
               <RefreshCw size={13} /> Actualizar
             </button>
@@ -65,24 +85,31 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
       />
 
       {estado === 'idle' && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-6 py-10 text-center">
+          <Loader2 size={20} className="animate-spin text-indigo-400 mx-auto" />
+        </div>
+      )}
+
+      {estado === 'vacio' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="px-6 py-10 text-center">
             <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <MessageCircle size={24} className="text-indigo-400" />
+              <Clock size={22} className="text-indigo-400" />
             </div>
-            <h3 className="text-[15px] font-bold text-slate-800 mb-1.5">Preguntas y respuestas</h3>
+            <h3 className="text-[15px] font-bold text-slate-800 mb-1.5">Aún sin consultar</h3>
             <p className="text-[13px] text-slate-500 mb-5 max-w-sm mx-auto leading-relaxed">
-              Se trae en vivo desde el portal de Mercado Público (no es instantáneo, toma unos segundos).
+              El sistema revisa esta licitación automáticamente (cada hora). Si quieres verla ahora mismo,
+              se trae en vivo desde Mercado Público — toma unos segundos.
             </p>
-            <button onClick={cargar}
+            <button onClick={actualizar}
               className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-xl transition-colors shadow-sm">
-              <HelpCircle size={13} /> Cargar preguntas y respuestas
+              <HelpCircle size={13} /> Consultar ahora
             </button>
           </div>
         </div>
       )}
 
-      {estado === 'cargando' && (
+      {estado === 'actualizando' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm px-6 py-10 text-center">
           <Loader2 size={22} className="animate-spin text-indigo-500 mx-auto mb-3" />
           <p className="text-[13px] text-slate-500">Consultando Mercado Público en vivo…</p>
@@ -155,10 +182,11 @@ export function PreguntasSection({ codigoDecoded, mpUrl }: { codigoDecoded: stri
             </div>
           </div>
 
-          <div className="text-center">
+          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+            <span>{foro.respondido ? 'Foro cerrado (respuestas ya publicadas)' : 'Aún puede haber respuestas nuevas'}{foro.consultadoEn ? ` · consultado ${foro.consultadoEn}` : ''}</span>
             <a href={mpUrl} target="_blank" rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-[12px] text-slate-400 hover:text-indigo-600 transition-colors">
-              <ExternalLink size={11} /> Ver ficha completa en Mercado Público
+              className="inline-flex items-center gap-1.5 hover:text-indigo-600 transition-colors">
+              <ExternalLink size={11} /> Ver en Mercado Público
             </a>
           </div>
         </>

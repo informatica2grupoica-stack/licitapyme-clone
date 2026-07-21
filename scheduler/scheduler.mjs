@@ -83,11 +83,13 @@ async function jobEnriquecer() { await loop('enriquecer',       '/api/cron/enriq
 async function jobPrefiltro()  { await loop('prefiltro',        '/api/cron/prefiltro',  { lote: 45, maxPasadas: 40 }); }
 async function jobDocsNeg()    { await loop('descarga docs negocios', '/api/cron/descargar-docs-negocios', { lote: 6, maxPasadas: 60 }); }
 
-// Postuladas: refresca el RESULTADO (adjudicación → cache + promoción) y detecta APERTURAS.
-// Así el apartado Postuladas —que lee solo cache— queda al día sin cargar nada al entrar.
+// Postuladas: refresca el RESULTADO (adjudicación → cache + promoción), detecta APERTURAS y
+// trae el foro de PREGUNTAS Y RESPUESTAS. Así Postuladas y las fichas de licitación —que leen
+// solo cache— quedan al día sin cargar nada al entrar.
 async function jobPostuladas() {
   await loop('resultado postuladas', '/api/cron/procesar-postuladas', { maxPasadas: 1 });
   await loop('aperturas',            '/api/cron/aperturas', { lote: 40, maxPasadas: 20 });
+  await loop('preguntas y respuestas', '/api/cron/preguntas', { lote: 20, maxPasadas: 15 });
 }
 
 // ── Programación (hora Chile) ───────────────────────────────────────────────────
@@ -97,10 +99,10 @@ cron.schedule('0 */4 * * *',    jobIntake,     opts);   // 00,04,08,12,16,20
 cron.schedule('30 */4 * * *',   jobEnriquecer, opts);   // +30 min
 cron.schedule('0 1-23/4 * * *', jobPrefiltro,  opts);   // 01,05,09,13,17,21 (1h después del intake)
 cron.schedule('0 */2 * * *',    jobDocsNeg,    opts);   // cada 2h: reintenta descargas de asignadas
-cron.schedule('15 * * * *',     jobPostuladas, opts);   // cada 1h (+15min): resultado + aperturas de postuladas
+cron.schedule('15 * * * *',     jobPostuladas, opts);   // cada 1h (+15min): resultado + aperturas + preguntas
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · docs-negocios 0 */2 · postuladas 15 * (cada hora)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+preguntas 15 * (cada hora)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.
