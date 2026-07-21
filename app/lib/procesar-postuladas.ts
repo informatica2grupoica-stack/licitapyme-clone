@@ -151,5 +151,96 @@ export async function procesarPostuladas(
   await Promise.all(workers);
 
   stats.codigos = codigos.length;
+
+  // ── 2ª pasada: reconfirmar ADJUDICADA/PERDIDA cuyo cache aún no lo confirma ────────────
+  if (promover) await reconfirmarResueltasSinCache(client, stats);
+
   return stats;
+}
+
+// Busca negocios YA en ADJUDICADA/PERDIDA (puestos a mano o por una promoción vieja) cuyo
+// adjudicacion_cache todavía no tiene es_adjudicada=1 — o sea, nadie los volvió a chequear contra
+// MP desde que alguien cambió el pipeline. Los reconsulta, refresca el cache y, si MP confirma
+// algo DISTINTO de lo puesto a mano (ganamos vs perdimos), corrige el estado y avisa — la fuente
+// de verdad es siempre el acta de MP, no el estado interno.
+async function reconfirmarResueltasSinCache(
+  client: ReturnType<typeof getMercadoPublicoClient>,
+  stats: { adjudicadas: number; perdidas: number; errores: number },
+): Promise<void> {
+  const inicio = Date.now();
+  let filas: FilaPostulada[] = [];
+  try {
+    const [rows] = await pool.query(
+      `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.estado_pipeline,
+              u.nombre AS usuario_nombre
+       FROM negocios n
+       JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
+       LEFT JOIN adjudicacion_cache c
+         ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
+       WHERE n.activo = TRUE
+         AND n.estado_pipeline IN ('ADJUDICADA', 'PERDIDA')
+         AND (c.licitacion_codigo IS NULL OR c.es_adjudicada = 0)
+       ORDER BY n.licitacion_codigo`,
+    ) as any[];
+    filas = rows as (FilaPostulada & { estado_pipeline: string })[];
+  } catch (e) {
+    console.error('[procesar-postuladas] reconfirmar: carga falló:', String(e));
+    return;
+  }
+  if (filas.length === 0) return;
+
+  const porCodigo = new Map<string, (FilaPostulada & { estado_pipeline: string })[]>();
+  for (const f of filas as (FilaPostulada & { estado_pipeline: string })[]) {
+    const arr = porCodigo.get(f.licitacion_codigo) || [];
+    arr.push(f);
+    porCodigo.set(f.licitacion_codigo, arr);
+  }
+  const codigos = Array.from(porCodigo.keys());
+
+  const procesarUno = async (codigo: string) => {
+    if (Date.now() - inicio > PRESUPUESTO_RECONFIRMAR_MS) return;
+    const negocios = porCodigo.get(codigo) || [];
+    try {
+      const lic = await client.obtenerPorCodigoRapido(codigo, TIMEOUT_DETALLE_MS);
+      if (!lic) return;
+      const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
+      await guardarCache(codigo, adj);
+      if (!adj.esAdjudicada) return; // MP aún no publica el acta — nada que corregir todavía
+
+      const resultadoReal = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
+      for (const n of negocios) {
+        if (n.estado_pipeline === resultadoReal) continue; // coincide con lo puesto a mano: solo hacía falta el cache
+        // MP dice algo DISTINTO de lo que había a mano → corrige y avisa (la verdad es el acta).
+        await pool.query(`UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`, [resultadoReal, n.id]);
+        if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
+        const mensaje = adj.ganamos
+          ? `🏆 ¡Adjudicada! Ganaste ${n.licitacion_nombre || codigo}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
+          : `Resultado publicado: ${n.licitacion_nombre || codigo} se adjudicó a terceros`;
+        await registrarEvento({
+          tipo: 'RESULTADO_ADJUDICACION',
+          licitacionCodigo: codigo, licitacionNombre: n.licitacion_nombre,
+          usuarioId: n.asignado_a, usuarioNombre: n.usuario_nombre,
+          actorId: null, actorNombre: 'Mercado Público',
+          mensaje,
+          metadata: {
+            licitacion_codigo: codigo, resultado: adj.ganamos ? 'ganada' : 'perdida',
+            monto_nuestro: adj.montoNuestro, url_acta: adj.adjudicacion?.urlActa ?? null,
+            corregido_desde: n.estado_pipeline,
+          },
+        });
+      }
+    } catch (e) {
+      stats.errores++;
+      console.error(`[procesar-postuladas] reconfirmar "${codigo}" falló:`, String(e));
+    }
+  };
+
+  let i = 0;
+  const workers = Array.from({ length: Math.min(CODIGO_CONCURRENCIA, codigos.length) }, async () => {
+    while (i < codigos.length) {
+      const idx = i++;
+      await procesarUno(codigos[idx]);
+    }
+  });
+  await Promise.all(workers);
 }
