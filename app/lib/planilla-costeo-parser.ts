@@ -473,6 +473,31 @@ export function detectarPresupuestoPorLinea(docs: { texto: string }[]): string |
   return null;
 }
 
+// TABLA "DISTRIBUCIÓN PRESUPUESTARIA POR LÍNEA" — formato de resoluciones que aprueban bases
+// (tabla HTML de GLM-OCR): columnas SUBTITULO/CENTRO/N° LÍNEAS/CANTIDAD/DESCRIPCIÓN/PRESUPUESTO
+// (ASIGNADO|LICITACION) CON IVA, con SUBTITULO/CENTRO en rowspan (una celda cubre varias filas).
+// Se ancla en "LINEA N°X" + cantidad + descripción + monto, así el rowspan de las 2 primeras
+// columnas no estorba. Caso real 1426098-10-LE26: el manifiesto de la IA traía
+// `presupuesto_linea=0` en las 20 líneas aunque la Resolución SÍ trae el monto exacto de cada
+// una (el usuario lo verificó contra el chat, que sí lo leyó porque tiene el texto completo).
+// Devuelve {línea → presupuesto con IVA} o null si no hay ≥2 líneas con monto (evita falsos
+// positivos de una tabla suelta).
+export function extraerPresupuestoPorLineaTabla(docs: { texto: string }[]): Map<number, number> | null {
+  const mapa = new Map<number, number>();
+  const re = /l[ií]nea\s*n[°ºo]?\s*(\d{1,3})\s*<\/td>\s*<td[^>]*>\s*\d+\s*<\/td>\s*<td[^>]*>\s*[^<]*?<\/td>\s*<td[^>]*>\s*\$?\s*([\d][\d.,]*)\s*<\/td>/gi;
+  for (const d of docs) {
+    if (!d.texto || !/<tr[\s>]/i.test(d.texto)) continue;
+    re.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(d.texto)) !== null) {
+      const linea = parseInt(m[1], 10);
+      const monto = parseInt(m[2].replace(/[.,]/g, ''), 10);
+      if (linea > 0 && monto > 0 && !mapa.has(linea)) mapa.set(linea, monto);
+    }
+  }
+  return mapa.size >= 2 ? mapa : null;
+}
+
 // SECCIONES "LÍNEA DE PRODUCTO N°X" en las BASES TÉCNICAS: cada una es un lote independiente
 // (con su propio kit de productos y su propio presupuesto). Es una señal estructural de por_linea
 // aunque el listado de productos NO sea tabulable de forma limpia (nombres de producto que contienen

@@ -27,6 +27,32 @@ const PRESUPUESTO_MS       = 25_000; // tope de tiempo del paso (margen bajo max
 const TIMEOUT_DETALLE_MS   = 8_000;  // timeout por llamada a MP
 const MAX_CODIGOS          = 400;    // backstop de cuántos códigos se sondean por corrida
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+// Con CODIGO_CONCURRENCIA=4 en ráfaga (sin espera), la API de MP responde 429 (rate-limit) en
+// la mayoría de las llamadas — medido en vivo: 14/20 con 429. `obtenerPorCodigoRapido` no distingue
+// eso de "no existe" y devuelve null, así que la mitad del trabajo se perdía en silencio (estados Y
+// fecha_fin_preguntas). Mismo patrón de backoff que `enriquecerYCachear` (licitaciones-cache.ts),
+// pero por-código (no serializa todo el lote): hasta 3 reintentos con espera creciente ante 429.
+async function obtenerConReintento(
+  client: ReturnType<typeof getMercadoPublicoClient>,
+  codigo: string,
+  timeoutMs: number,
+  maxReintentos = 3,
+  baseDelayMs = 700,
+  maxDelayMs = 5_000,
+) {
+  let delay = baseDelayMs;
+  for (let intento = 0; intento <= maxReintentos; intento++) {
+    const { lic, status } = await client.obtenerDetalleConEstado(codigo, timeoutMs);
+    if (status !== 429) return lic;
+    if (intento === maxReintentos) return null;
+    await sleep(delay);
+    delay = Math.min(Math.round(delay * 1.7), maxDelayMs);
+  }
+  return null;
+}
+
 // Estados DEFINITIVOS que solo la API sabe (la fecha no los deriva). Si MP reporta uno de estos
 // y difiere del cacheado, se persiste. Publicada(5) no se persiste (no aporta sobre la fecha).
 const ESTADOS_DEFINITIVOS = new Set([6, 7, 8, 18, 19]);
@@ -93,6 +119,73 @@ export async function marcarCerradasPorFecha(): Promise<{ negocios: number; rada
   } catch (e) { console.error('[refrescar-estados] barrido radar falló:', String(e)); }
   if (negocios || radar) console.log(`[refrescar-estados] barrido Cerrada por fecha: ${negocios} negocios, ${radar} radar`);
   return { negocios, radar };
+}
+
+// Persiste la fecha de cierre de preguntas (campo OFICIAL `FechaFinPreguntas` de la API de MP —
+// no confundir con `preguntas_respuestas_cache`, que es el scraper del FORO de preguntas/respuestas,
+// más lento y pensado para otra cosa). Viene GRATIS en la misma respuesta que ya pedimos para el
+// estado, así que se guarda de paso en cada refresco (bulk cada 2h + on-demand al abrir/asignar):
+// alimenta el slider "Destacadas" de Negocios sin ninguna llamada extra a MP. Best-effort.
+async function persistirFechaFinPreguntas(codigo: string, lic: { FechaFinPreguntas?: string }): Promise<void> {
+  if (!lic.FechaFinPreguntas) return;
+  const fecha = new Date(lic.FechaFinPreguntas);
+  if (isNaN(fecha.getTime())) return;
+  try {
+    await pool.query(
+      `UPDATE negocios SET fecha_fin_preguntas = ?
+       WHERE licitacion_codigo = ? AND activo = TRUE
+         AND (fecha_fin_preguntas IS NULL OR fecha_fin_preguntas <> ?)`,
+      [fecha, codigo, fecha],
+    );
+  } catch { /* columna puede no existir aún (migración 46 pendiente) — no bloquear el refresco */ }
+}
+
+// Umbral para considerar un cambio de fecha REAL (no ruido de redondeo al ida-y-vuelta entre la
+// API y MySQL). Mismo criterio que licitaciones-cache.ts (5 min), redefinido acá para no crear un
+// import circular (licitaciones-cache.ts ya importa notificarCambioFechaCierre DESDE este archivo).
+const UMBRAL_CAMBIO_FECHA_MS = 5 * 60 * 1000;
+
+// Detecta y persiste un cambio REAL de fecha de cierre para un negocio asignado. Bug real
+// (caso 552975-50-LE26): el organismo movió el cierre de 23-jul a 27-jul y `negocios.licitacion_cierre`
+// se quedó con el valor viejo — nada lo refrescaba tras la asignación, así que el calendario/
+// lista/semana de Negocios seguía mostrando la fecha vencida. `notificarCambioFechaCierre` (abajo)
+// YA EXISTÍA (con su campana+correo a admin+asignado) pero nadie la llamaba con la fecha nueva
+// persistida: solo se disparaba desde el enriquecimiento del RADAR general (licitaciones-cache.ts),
+// que no prioriza las ya asignadas. Aquí sí: corre en el mismo refresco que ya consulta MP para el
+// estado (bulk cada ~4h vía /api/cron/alertas + cada 2h si alguien tiene Negocios abierto + al
+// asignar/abrir el detalle) — sin llamadas extra a MP ni cron nuevo.
+async function persistirCambioFechaCierre(codigo: string, fechaCierreRaw: string | undefined): Promise<void> {
+  if (!fechaCierreRaw) return;
+  const nueva = new Date(fechaCierreRaw);
+  if (isNaN(nueva.getTime())) return;
+  try {
+    const [rows] = await pool.query(
+      `SELECT licitacion_cierre FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE LIMIT 1`,
+      [codigo],
+    ) as any[];
+    const row = (rows as any[])[0];
+    if (!row) return; // sin negocio activo con este código
+    const anterior = row.licitacion_cierre ? new Date(row.licitacion_cierre) : null;
+    if (anterior && Math.abs(nueva.getTime() - anterior.getTime()) < UMBRAL_CAMBIO_FECHA_MS) return; // sin cambio real
+
+    await pool.query(
+      `UPDATE negocios SET licitacion_cierre = ? WHERE licitacion_codigo = ? AND activo = TRUE`,
+      [nueva, codigo],
+    );
+    // El radar (alertas_licitaciones) se alinea de paso — mismo patrón que el estado más abajo.
+    await pool.query(
+      `UPDATE alertas_licitaciones SET licitacion_cierre = ? WHERE licitacion_codigo = ?`,
+      [nueva, codigo],
+    ).catch(() => {});
+
+    if (anterior) {
+      console.log(`[refrescar-estados] ${codigo}: cierre ${anterior.toISOString()} → ${nueva.toISOString()}`);
+      await notificarCambioFechaCierre(codigo, anterior, nueva).catch(e =>
+        console.error(`[refrescar-estados] notificar cambio de fecha "${codigo}" falló:`, String(e)));
+    }
+  } catch (e) {
+    console.error(`[refrescar-estados] persistirCambioFechaCierre "${codigo}" falló:`, String(e));
+  }
 }
 
 // Persiste el estado en negocios + alertas y, SI hubo transición real, notifica una sola vez.
@@ -304,8 +397,13 @@ export async function refrescarEstadosAsignadas(
     if (Date.now() - inicio > presupuestoMs) return; // sin presupuesto → salta (se retoma la próxima corrida)
     const codigo = fila.codigo;
     try {
-      const lic = await client.obtenerPorCodigoRapido(codigo, timeoutMs);
+      const lic = await obtenerConReintento(client, codigo, timeoutMs);
       if (!lic) return;
+
+      // Fecha de cierre de preguntas: SIEMPRE se guarda, sin depender de si el estado es terminal
+      // (la mayoría de los negocios activos siguen "Publicada", que es justo cuando importa avisar).
+      await persistirFechaFinPreguntas(codigo, lic);
+      await persistirCambioFechaCierre(codigo, lic.FechaCierre);
 
       // Estado DEFINITIVO por nombre (robusto ante códigos MP variables). null = sigue publicada.
       const nombre = estadoDefinitivoCanonico(lic);
@@ -350,8 +448,10 @@ export async function refrescarEstadoCodigo(
 ): Promise<string | null> {
   try {
     const client = getMercadoPublicoClient();
-    const lic = await client.obtenerPorCodigoRapido(codigo, timeoutMs);
+    const lic = await obtenerConReintento(client, codigo, timeoutMs);
     if (!lic) return null;
+    await persistirFechaFinPreguntas(codigo, lic);
+    await persistirCambioFechaCierre(codigo, lic.FechaCierre);
     const nombre = estadoDefinitivoCanonico(lic);
     if (!nombre) return null;
     if (normNombre(estadoCache) === normNombre(nombre)) return null;
@@ -407,7 +507,7 @@ export async function refrescarEstadosRadar(
   const procesar = async (codigo: string) => {
     if (Date.now() - inicio > presupuestoMs) return;
     try {
-      const lic = await client.obtenerPorCodigoRapido(codigo, timeoutMs);
+      const lic = await obtenerConReintento(client, codigo, timeoutMs);
       if (!lic) return;
       const nombre = estadoDefinitivoCanonico(lic);
       if (!nombre) return;                          // sigue publicada → nada que persistir

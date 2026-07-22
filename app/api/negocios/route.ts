@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       pool.query(
         `SELECT
            n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
-           n.licitacion_monto, n.licitacion_cierre, n.licitacion_estado,
+           n.licitacion_monto, n.licitacion_cierre, n.fecha_fin_preguntas, n.licitacion_estado,
            n.licitacion_tipo, n.licitacion_region, n.monto_ofertado,
            COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline,
            n.empresa_id, emp.razon_social AS empresa_nombre,
@@ -253,6 +253,13 @@ export async function POST(request: NextRequest) {
     );
 
     const negocioId = (result as any).insertId || null;
+
+    // Fecha de cierre de preguntas: se pide a MP de inmediato (fire-and-forget) para que la
+    // alerta del slider "Destacadas" no tenga que esperar el refresco en background de 2h.
+    // Reusa refrescarEstadoCodigo (ya hace esta misma llamada y de paso persiste la fecha).
+    import('@/app/lib/refrescar-estados')
+      .then(({ refrescarEstadoCodigo }) => refrescarEstadoCodigo(licitacion_codigo, licitacion_estado || null))
+      .catch(() => { /* best-effort: el refresco periódico lo cubre igual */ });
 
     // Asignar cuenta como REVISAR: marcar la alerta como leída para TODOS los perfiles
     // (se puede asignar sin abrir la licitación; ya pasó a trabajo, nadie necesita

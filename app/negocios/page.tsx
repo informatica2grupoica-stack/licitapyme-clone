@@ -50,6 +50,10 @@ interface Negocio {
   adj_es_adjudicada?: number;   // MP ya adjudicó el proceso (a alguien)
   adj_ganamos?: number;         // una de NUESTRAS empresas ganó ≥1 línea (RUT)
   adj_monto_nuestro?: number | null;
+  // Cierre OFICIAL de preguntas de la API de Mercado Público (columna de migración 46 en
+  // `negocios`, rellenada por refrescar-estados.ts — NO el foro de preguntas/respuestas de
+  // preguntas_respuestas_cache, que es otra cosa y va más lento).
+  fecha_fin_preguntas?: string | null;
 }
 
 interface Usuario { id: number; nombre: string; email: string; }
@@ -632,6 +636,133 @@ function CargaCard({ c, nombre, email, activo, isAdmin, onClick }: {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ── Slider de "Destacadas" — cierre de preguntas, nuevas asignaciones y adjudicadas ──
+// Una sola tira horizontal con lo que más urge revisar. Usa SIEMPRE `negocios` (no la lista
+// filtrada por búsqueda): esto debe verse pase lo que pase con los filtros activos. El permiso
+// ya lo resuelve `/api/negocios` (admin = todos, perfil = solo los suyos), así que el mismo
+// componente sirve para ambos: cada quien ve su propio conjunto sin lógica extra acá.
+type TipoDestacada = 'preguntas' | 'nueva' | 'adjudicada';
+interface Destacada { tipo: TipoDestacada; neg: Negocio }
+
+// Mismo lenguaje visual que PipelineBadge/EstadoMpBadge (un color base + punto + texto,
+// no íconos sueltos): así la tarjeta se siente parte de la app, no un componente aparte.
+const DESTACADA_META: Record<TipoDestacada, { label: string; color: string }> = {
+  preguntas:  { label: 'Preguntas cierran', color: '#dc2626' },
+  nueva:      { label: 'Nueva asignación',  color: '#6366f1' },
+  adjudicada: { label: 'Resultado MP',      color: '#059669' },
+};
+
+function DestacadaCard({ d, isAdmin }: { d: Destacada; isAdmin: boolean }) {
+  const { neg, tipo } = d;
+  const tipoCodigo = extractTipoFromCodigo(neg.licitacion_codigo || '');
+  const tipoBg = TIPO_COLOR_CLASS[tipoCodigo] || 'bg-gray-400';
+  const col = colorUsuario(neg.usuario_email || neg.usuario_nombre);
+  const m = DESTACADA_META[tipo];
+  const diasPreguntas = tipo === 'preguntas' && neg.fecha_fin_preguntas
+    ? Math.max(0, Math.ceil((new Date(neg.fecha_fin_preguntas).getTime() - Date.now()) / 86400000))
+    : null;
+  const esAlerta = tipo === 'preguntas'; // cierre de preguntas: siempre dentro de 1-2 días → destaca
+
+  return (
+    <Link
+      href={`/negocios/${neg.id}`}
+      style={{ borderLeftColor: esAlerta ? m.color : col, borderLeftWidth: esAlerta ? 4 : 3 }}
+      className={`flex-shrink-0 w-[230px] snap-start rounded-xl border p-3 hover:shadow-sm transition-all group ${
+        esAlerta ? 'bg-red-50/40 border-red-200 hover:border-red-300' : 'bg-white border-slate-200 hover:border-indigo-300'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-1 mb-1.5">
+        <span
+          style={{ backgroundColor: m.color + '18', color: m.color, borderColor: m.color + '40' }}
+          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-bold border flex-shrink-0"
+        >
+          <span style={{ backgroundColor: m.color }} className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${esAlerta ? 'animate-pulse' : ''}`} />
+          {m.label}
+        </span>
+        {tipoCodigo && <span className={`${tipoBg} text-white text-[9px] font-black px-1.5 py-0.5 rounded flex-shrink-0`}>{tipoCodigo}</span>}
+      </div>
+      <p className="text-[12px] font-semibold text-slate-800 line-clamp-2 leading-snug group-hover:text-indigo-600 transition-colors" title={neg.licitacion_nombre}>
+        {neg.licitacion_nombre || neg.licitacion_codigo}
+      </p>
+      {neg.licitacion_organismo && (
+        <p className="text-[10px] text-slate-400 truncate mt-1">{neg.licitacion_organismo}</p>
+      )}
+      <div className="mt-2 pt-2 border-t border-slate-50 flex items-center justify-between gap-1.5 min-h-[18px]">
+        {tipo === 'preguntas' && neg.fecha_fin_preguntas && (
+          <span className={`text-[10px] font-semibold flex items-center gap-1 ${diasPreguntas !== null && diasPreguntas <= 1 ? 'text-red-600' : 'text-amber-600'}`}>
+            <Clock size={10} />
+            {dayjs(neg.fecha_fin_preguntas).format('DD/MM HH:mm')}
+            {diasPreguntas !== null && ` (${diasPreguntas === 0 ? 'hoy' : `${diasPreguntas}d`})`}
+          </span>
+        )}
+        {tipo === 'nueva' && neg.created_at && (
+          <span className="text-[10px] text-slate-400">Asignada {dayjs(neg.created_at).format('DD/MM')}</span>
+        )}
+        {tipo === 'adjudicada' && (
+          <EstadoMpBadge estado={neg.licitacion_estado} cierre={neg.licitacion_cierre} adjEsAdjudicada={neg.adj_es_adjudicada} adjGanamos={neg.adj_ganamos} />
+        )}
+        {isAdmin && (
+          <span style={{ background: col }} className="ml-auto inline-flex items-center justify-center w-4 h-4 rounded-full text-white text-[8px] font-bold flex-shrink-0" title={neg.usuario_nombre || neg.usuario_email}>
+            {inicialesUsuario(neg.usuario_nombre, neg.usuario_email)}
+          </span>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+function DestacadasSlider({ items, isAdmin }: { items: Destacada[]; isAdmin: boolean }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pausadoRef = useRef(false);
+  const scrollBy = (dx: number) => scrollRef.current?.scrollBy({ left: dx, behavior: 'smooth' });
+
+  // Avance automático: cada ~4s desliza una tarjeta a la derecha; al llegar al final vuelve
+  // suavemente al inicio (loop). Se pausa mientras el mouse está encima, para poder leer o
+  // hacer clic sin que la tarjeta se mueva bajo el cursor.
+  const ANCHO_TARJETA = 246; // 230px de tarjeta + 16px de gap
+  useEffect(() => {
+    if (items.length <= 1) return;
+    const id = setInterval(() => {
+      const el = scrollRef.current;
+      if (!el || pausadoRef.current) return;
+      const maxScroll = el.scrollWidth - el.clientWidth;
+      if (maxScroll <= 4) return; // caben todas: nada que desplazar
+      if (el.scrollLeft >= maxScroll - 4) el.scrollTo({ left: 0, behavior: 'smooth' });
+      else el.scrollBy({ left: ANCHO_TARJETA, behavior: 'smooth' });
+    }, 4000);
+    return () => clearInterval(id);
+  }, [items.length]);
+
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-5">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-gray-400 font-semibold uppercase tracking-wide">Destacadas</span>
+        <div className="hidden sm:flex items-center gap-1">
+          <button onClick={() => scrollBy(-ANCHO_TARJETA)} aria-label="Desplazar a la izquierda" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+            <ChevronLeft size={16} />
+          </button>
+          <button onClick={() => scrollBy(ANCHO_TARJETA)} aria-label="Desplazar a la derecha" className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+      <div
+        ref={scrollRef}
+        onMouseEnter={() => { pausadoRef.current = true; }}
+        onMouseLeave={() => { pausadoRef.current = false; }}
+        className="destacadas-scroll flex gap-3 overflow-x-auto snap-x snap-mandatory"
+      >
+        {items.map(d => <DestacadaCard key={`${d.tipo}-${d.neg.id}`} d={d} isAdmin={isAdmin} />)}
+      </div>
+      <style jsx>{`
+        .destacadas-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+        .destacadas-scroll::-webkit-scrollbar { display: none; }
+      `}</style>
     </div>
   );
 }
@@ -1401,6 +1532,45 @@ function NegociosContent() {
     return arr;
   }, [negociosFiltrados, ordenCierreDesc]);
 
+  // ── Destacadas (slider) — SIEMPRE sobre `negocios` completo (no `negociosFiltrados`): tiene
+  // que verse pase lo que pase con la búsqueda/filtros activos. Prioridad pedida por el usuario:
+  // 1) cierre de preguntas próximo (lo más urgente), 2) nuevas asignaciones (unas pocas),
+  // 3) adjudicadas (si hay alguna). Un negocio no se repite: si ya entró por preguntas, no
+  // vuelve a aparecer como "nueva" aunque también califique.
+  const destacadas = useMemo<Destacada[]>(() => {
+    const ahora = Date.now();
+    const usados = new Set<number>();
+    const out: Destacada[] = [];
+
+    // Alerta: SOLO cuando el cierre de preguntas está a 1-2 días (48h) — antes de eso no urge
+    // y después ya no sirve de nada avisar. Ventana angosta a propósito, pedida por el usuario.
+    const VENTANA_ALERTA_MS = 2 * 86400000;
+    const conPreguntas = negocios
+      .filter(n => {
+        if (n.estado_pipeline === 'DESCARTADA' || !n.fecha_fin_preguntas) return false;
+        const faltan = new Date(n.fecha_fin_preguntas).getTime() - ahora;
+        return faltan >= 0 && faltan <= VENTANA_ALERTA_MS;
+      })
+      .sort((a, b) => new Date(a.fecha_fin_preguntas!).getTime() - new Date(b.fecha_fin_preguntas!).getTime())
+      .slice(0, 8);
+    for (const n of conPreguntas) { out.push({ tipo: 'preguntas', neg: n }); usados.add(n.id); }
+
+    // Unas pocas (no todas): para que no le gane espacio a las alertas de preguntas.
+    const recienAsignadas = negocios
+      .filter(n => !usados.has(n.id) && n.created_at && dayjs().diff(dayjs(n.created_at), 'day') <= 7)
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, 3);
+    for (const n of recienAsignadas) { out.push({ tipo: 'nueva', neg: n }); usados.add(n.id); }
+
+    const adjudicadas = negocios
+      .filter(n => !usados.has(n.id) && n.adj_es_adjudicada === 1)
+      .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+      .slice(0, 5);
+    for (const n of adjudicadas) { out.push({ tipo: 'adjudicada', neg: n }); usados.add(n.id); }
+
+    return out;
+  }, [negocios]);
+
   // ── Exportar Excel ────────────────────────────────────────────────────────────
   // Exporta la VISTA ACTUAL (negociosLista: respeta búsqueda y TODOS los filtros activos
   // —etiqueta, tipo, estado, usuario, región, rango de cierre— y sale en el mismo orden por
@@ -1520,6 +1690,9 @@ function NegociosContent() {
             )}
           </div>
         </div>
+
+        {/* Destacadas: cierre de preguntas próximo + nuevas asignaciones + adjudicadas */}
+        <DestacadasSlider items={destacadas} isAdmin={isAdmin} />
 
         {/* Carga de trabajo por perfil (recuadros con mini-gráfico por tipo) */}
         {carga.length > 0 && (

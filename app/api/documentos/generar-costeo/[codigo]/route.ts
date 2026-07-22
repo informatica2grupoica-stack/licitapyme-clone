@@ -9,7 +9,7 @@ import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { generarCosteoExcel, adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
 import type { ViabilidadIAResult } from '@/app/lib/viabilidad-ia';
-import { parsearPlanillaCosteo } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, extraerPresupuestoPorLineaTabla } from '@/app/lib/planilla-costeo-parser';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,22 +58,39 @@ async function refrescarManifiestoDesdePlanilla(codigo: string, informe: Viabili
   const actuales = Array.isArray(informe.manifiesto_productos) ? informe.manifiesto_productos.length : 0;
   // Sin planilla mejor que lo guardado: NO forzamos por_categoria (las categorías que hubiera
   // puesto la IA no parten el costeo).
-  if (!planilla || planilla.items.length < Math.max(8, actuales)) { informe.estructura_costeo = null; return; }
+  if (!planilla || planilla.items.length < Math.max(8, actuales)) {
+    informe.estructura_costeo = null;
+  } else {
+    // Solo el parser (rubros A/B/C reales) habilita las pestañas por categoría.
+    informe.estructura_costeo = planilla.estructura === 'por_categoria' ? 'por_categoria' : null;
+    informe.manifiesto_productos = planilla.items.map(it => ({
+      linea: it.linea || 1,
+      categoria: it.categoria,
+      descripcion: it.descripcion,
+      modelo: '',
+      cantidad: it.cantidad,
+      unidad_medida: it.unidad,
+      unidad_inferida: !it.unidad,
+      presupuesto_linea: null,
+      tipo: 'generico',
+      ruta: '',
+    }));
+  }
 
-  // Solo el parser (rubros A/B/C reales) habilita las pestañas por categoría.
-  informe.estructura_costeo = planilla.estructura === 'por_categoria' ? 'por_categoria' : null;
-  informe.manifiesto_productos = planilla.items.map(it => ({
-    linea: it.linea || 1,
-    categoria: it.categoria,
-    descripcion: it.descripcion,
-    modelo: '',
-    cantidad: it.cantidad,
-    unidad_medida: it.unidad,
-    unidad_inferida: !it.unidad,
-    presupuesto_linea: null,
-    tipo: 'generico',
-    ruta: '',
-  }));
+  // BACKFILL de presupuesto_linea desde la tabla de distribución presupuestaria de la Resolución
+  // (si la trae) — independiente de si el parser reemplazó el manifiesto arriba. Caso real
+  // 1426098-10-LE26: el manifiesto guardado traía presupuesto_linea=0 en las 20 líneas aunque la
+  // Resolución sí trae el monto exacto de cada una. Solo rellena, nunca pisa un valor ya presente.
+  try {
+    const presupuestosTabla = extraerPresupuestoPorLineaTabla(fuentes);
+    if (presupuestosTabla && Array.isArray(informe.manifiesto_productos)) {
+      informe.manifiesto_productos = informe.manifiesto_productos.map((it: any) => {
+        if (it.presupuesto_linea) return it;
+        const monto = presupuestosTabla.get(it.linea);
+        return monto ? { ...it, presupuesto_linea: monto } : it;
+      });
+    }
+  } catch { /* best-effort: no bloquear la regeneración */ }
 }
 
 // GET — ¿ya existe un costeo generado para este código?

@@ -20,7 +20,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad } from '@/app/lib/validador-viabilidad';
@@ -1819,6 +1819,25 @@ async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | nul
       }
     } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: extracción dedicada falló:`, String(e).slice(0, 140)); }
   }
+
+  // BACKFILL de presupuesto_linea desde la tabla de distribución presupuestaria (si la Resolución
+  // trae una): rellena SOLO los ítems sin monto (0/null) — nunca pisa un valor que el LLM ya trajo.
+  // No reemplaza el manifiesto (descripciones/cantidades quedan como estén), solo completa esta
+  // columna. Ver [[project_costeo_plantilla_v3]]/generar-costeo.ts (F27 por línea).
+  try {
+    const presupuestosTabla = extraerPresupuestoPorLineaTabla(leidos.map(d => ({ texto: d.texto })));
+    if (presupuestosTabla) {
+      let rellenados = 0;
+      manifiesto = manifiesto.map(it => {
+        if (it.presupuesto_linea) return it;
+        const monto = presupuestosTabla.get(it.linea);
+        if (!monto) return it;
+        rellenados++;
+        return { ...it, presupuesto_linea: monto };
+      });
+      if (rellenados > 0) console.log(`[viabilidad-ia-v3] ${codigo}: presupuesto_linea rellenado desde tabla de distribución para ${rellenados} ítem(s).`);
+    }
+  } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: backfill presupuesto_linea falló:`, String(e).slice(0, 140)); }
 
   // Refleja la adjudicación corregida en el string de hojas del costeo (display v3). v3.3 lo guarda
   // en productos.hojas_costeo_segun_adjudicacion; v3.2 en costeo.hojas_segun_adjudicacion. Escribimos
