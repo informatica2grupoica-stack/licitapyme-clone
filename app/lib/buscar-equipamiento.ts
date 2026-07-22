@@ -77,11 +77,12 @@ ${caracts.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
   // ya no lo redacta (ver comentario de cabecera). Specs: las que clasificó la IA; si vino vacío
   // (falló el parseo), las características crudas de entrada como respaldo.
   const specs = arr(parsed.specs_tecnicas).length ? arr(parsed.specs_tecnicas) : caracts;
-  const prompt = construirPromptBusqueda(specs);
+  const nombreProducto = String(parsed.nombre || producto.nombre || '').trim();
+  const prompt = construirPromptBusqueda(nombreProducto, specs);
 
   return {
     es_maquinaria: parsed.es_maquinaria !== false,
-    nombre: String(parsed.nombre || producto.nombre || ''),
+    nombre: nombreProducto,
     specs_tecnicas: arr(parsed.specs_tecnicas),
     requisitos_admisibilidad: arr(parsed.requisitos_admisibilidad),
     descartadas: arr(parsed.descartadas),
@@ -95,7 +96,7 @@ ${caracts.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
 // factibilidad arriba de todo. Exige que el asistente (Gemini/Google con búsqueda real) use SOLO
 // datos verificados con URL exacta — nunca inventados. Las specs_tecnicas van, una por línea, en
 // el bloque final "CARACTERÍSTICAS BASALES" — texto EXACTO del usuario, sin nada agregado.
-function construirPromptBusqueda(specs: string[]): string {
+function construirPromptBusqueda(nombre: string, specs: string[]): string {
   const lista = specs.map(s => `- ${s}`).join('\n');
   return `# ROL
 Especialista en abastecimiento e importación para licitaciones públicas de Chile. Haces ingeniería inversa de requerimientos técnicos: identificas el producto real que el comprador quería, decides rápido si es factible para nosotros, y buscas proveedores reales con precios y links verificables.
@@ -113,7 +114,7 @@ Usas Google Search para CADA dato. Prohibido inventar, deducir o completar de me
 No calcules importación, aranceles, IVA ni costo puesto en Chile. No conviertas divisas. Solo el precio tal como está en la fuente (FOB USD si importado; CLP si Chile), indicando moneda e IVA si la fuente lo dice.
 
 # ENTRADA
-Recibes las CARACTERÍSTICAS BASALES de un producto de licitación chilena. Todas son exigibles y deben cumplirse.
+Recibes el NOMBRE del producto y sus CARACTERÍSTICAS BASALES de una licitación chilena. Todas son exigibles y deben cumplirse.
 
 # ETAPAS (en orden)
 
@@ -155,6 +156,9 @@ Una de tres, en lenguaje directo:
 1. FUENTES: URLs reales completas, numeradas por etapa.
 2. QUÉ VERIFICAR: banderas 🟡 y celdas ⚪ que necesitan mi confirmación.
 3. AUTOCHEQUEO (responde): ¿toda URL abre un producto real y está en la tabla? ¿usé 🟢 sin confirmar (corrígelo a ⚪)? ¿calculé costos (no debo)? ¿omití alguna característica? ¿el veredicto de arriba es coherente con los 🔴 estructurales?
+
+# PRODUCTO A BUSCAR:
+${nombre || '(sin nombre — infiérelo de las características)'}
 
 # CARACTERÍSTICAS BASALES:
 ${lista}`;

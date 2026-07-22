@@ -291,7 +291,7 @@ const estadoColor = (e?: string) => e === 'VENTAJA' ? 'text-emerald-700 bg-emera
 
 // Botón "Buscar en IA": para un producto de MAQUINARIA/EQUIPO, pide al backend que filtre las specs
 // reales y arme un prompt de búsqueda exhaustivo (3 homólogos/superiores en Chile o China), lo COPIA
-// al portapapeles y abre Gemini en otra pestaña (Gemini no admite prellenar por URL). Si el copiado
+// al portapapeles y abre AI Studio en otra pestaña (no admite prellenar por URL). Si el copiado
 // falla, deja el prompt visible para copiarlo a mano.
 function BotonBuscarEquipo({ codigo, producto, region }: { codigo: string; producto: { descripcion: string; caracteristicas: string[]; cantidad?: any }; region?: string }) {
   const [estado, setEstado] = useState<'idle' | 'cargando' | 'ok' | 'error'>('idle');
@@ -308,18 +308,18 @@ function BotonBuscarEquipo({ codigo, producto, region }: { codigo: string; produ
       setPrompt(j.prompt_busqueda);
       let copiado = false;
       try { await navigator.clipboard.writeText(j.prompt_busqueda); copiado = true; } catch { /* sin permiso de clipboard */ }
-      window.open('https://gemini.google.com/app', '_blank', 'noopener,noreferrer');
+      window.open('https://aistudio.google.com/prompts/new_chat', '_blank', 'noopener,noreferrer');
       setEstado(copiado ? 'ok' : 'error');
     } catch { setEstado('error'); }
   };
   return (
     <div className="mt-2">
       <button type="button" onClick={buscar} disabled={estado === 'cargando'}
-        title="Genera un prompt con las specs limpias, lo copia y abre Gemini para buscar 3 proveedores chilenos"
+        title="Genera un prompt con las specs limpias, lo copia y abre AI Studio para buscar 3 proveedores chilenos"
         className="inline-flex items-center gap-1.5 text-[12.5px] font-bold text-white bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60 px-3.5 py-2 rounded-lg shadow-sm shadow-violet-200 transition-all">
         {estado === 'cargando' ? <><Loader2 size={14} className="animate-spin" /> Generando prompt…</> : <><Search size={14} /> Buscar proveedor en IA</>}
       </button>
-      {estado === 'ok' && <span className="text-[10px] text-emerald-600 ml-2">✓ Prompt copiado — pégalo en Gemini (se abrió en otra pestaña)</span>}
+      {estado === 'ok' && <span className="text-[10px] text-emerald-600 ml-2">✓ Prompt copiado — pégalo en AI Studio (se abrió en otra pestaña)</span>}
       {estado === 'error' && !prompt && <span className="text-[10px] text-red-600 ml-2">No se pudo generar. Reintenta.</span>}
       {prompt && (
         <details className="mt-1" open={estado === 'error'}>
