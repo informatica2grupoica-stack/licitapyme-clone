@@ -27,7 +27,7 @@ import { InteligenciaSection } from '@/app/licitacion/[codigo]/sections/Intelige
 import { DocumentosSection } from '@/app/licitacion/[codigo]/sections/DocumentosSection';
 import { CriteriosSection } from '@/app/licitacion/[codigo]/sections/CriteriosSection';
 import { PreguntasSection } from '@/app/licitacion/[codigo]/sections/PreguntasSection';
-import { esUrlAnalizable } from '@/app/licitacion/[codigo]/utils';
+import { esUrlAnalizable, IABadge } from '@/app/licitacion/[codigo]/utils';
 import { Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
@@ -37,7 +37,7 @@ import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
   MessageSquare, Send, Trash2, Loader2, AlertCircle, ExternalLink,
   FileText, Check, X, ChevronDown, ChevronUp, Package, Hash,
-  Edit3, Clock, Globe, Users,
+  Edit3, Clock, Globe, Users, Mail, Phone, ThumbsUp,
   Download, Bot, Brain, RefreshCw, Eye, FolderOpen,
   Sparkles, BarChart3, BookOpen, AlertTriangle, ListChecks,
   TrendingUp, CheckCircle, Upload, ChevronRight, Files,
@@ -486,6 +486,7 @@ function SeccionResumen({
   etiquetas,
   viabIA,
   onIrViabilidad,
+  analisisIA,
 }: {
   negocio:       Negocio;
   licitacion:    LicitacionRaw | null;
@@ -494,6 +495,7 @@ function SeccionResumen({
   etiquetas:     Etiqueta[];
   viabIA?:       any;
   onIrViabilidad?: () => void;
+  analisisIA?:   AnalisisIA | null;
 }) {
   const car = oportunidad?.caracteristicas;
   const tipoLabel = oportunidad?.tipo_licitacion
@@ -503,6 +505,13 @@ function SeccionResumen({
     ? (MONEDA_LABEL_MAP[oportunidad.moneda] || oportunidad.moneda)
     : null;
   const tieneMontoMP = !!(oportunidad?.monto_total || oportunidad?.monto_estimado);
+  // Datos que Mercado Público NO informa y que la IA extrajo de las bases — información
+  // privilegiada que nunca debe perderse: espejo del mismo cálculo en ResumenSection.tsx
+  // (vista pública /licitacion/[codigo]) para que ambas vistas muestren siempre lo mismo.
+  const presupuestoIA = !tieneMontoMP ? analisisIA?.presupuesto : null;
+  const tienePlazoMP = !!car?.plazo_contrato_dias;
+  const plazoIA = !tienePlazoMP ? analisisIA?.plazoEjecucionDias : null;
+  const experto = analisisIA?.analisisExperto;
 
   // Fila compacta — se oculta sola si no hay valor.
   const Row = ({ label, value }: { label: string; value?: string | number | null }) =>
@@ -689,26 +698,57 @@ function SeccionResumen({
               </div>
             </div>
           )}
+          {oportunidad?.operador_compra && (
+            <div className="flex items-start gap-2.5">
+              <Users size={13} className="text-zinc-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <dt className="text-[11px] text-zinc-400">Operador de la compra</dt>
+                <dd className="text-[13px] font-semibold text-zinc-800">
+                  {oportunidad.operador_compra}{oportunidad.operador_cargo ? ` · ${oportunidad.operador_cargo}` : ''}
+                </dd>
+              </div>
+            </div>
+          )}
+          {oportunidad?.reclamos_12m != null && (
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle size={13} className="text-zinc-400 mt-0.5 flex-shrink-0" />
+              <div>
+                <dt className="text-[11px] text-zinc-400">Reclamos del organismo (12m)</dt>
+                <dd className="text-[13px] font-semibold text-zinc-800">{oportunidad.reclamos_12m}</dd>
+              </div>
+            </div>
+          )}
         </dl>
       </div>
 
       {/* Características de la licitación (datos API MP) — espejo del radar */}
-      {oportunidad && (tipoLabel || car?.tipo_convocatoria || monedaLabel || car?.etapas || car?.contrato_texto || car?.publicidad_ofertas_texto) && (
+      {oportunidad && (tipoLabel || car?.tipo_convocatoria || monedaLabel || car?.etapas || car?.contrato_texto || car?.publicidad_ofertas_texto
+        || oportunidad.estado || car?.toma_razon !== undefined || car?.es_obras || car?.codigo_bip || car?.extension_plazo) && (
         <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
           <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-3">Características de la licitación</h3>
           <div>
             <Row label="Tipo de licitación"  value={tipoLabel} />
+            <Row label="Estado"              value={oportunidad.estado} />
             <Row label="Tipo convocatoria"   value={car?.tipo_convocatoria || oportunidad?.tipo_convocatoria} />
             <Row label="Moneda"              value={monedaLabel} />
             <Row label="Etapas del proceso"  value={car?.etapas} />
+            <Row label="Toma de razón Contraloría"
+              value={car?.toma_razon === true ? 'Requiere Toma de Razón por Contraloría'
+                : car?.toma_razon === false ? 'No requiere Toma de Razón por Contraloría' : null} />
             <Row label="Contrato"            value={car?.contrato_texto} />
+            <Row label="Tipo de adquisición" value={car?.es_obras === true ? 'Licitación de obras' : null} />
+            <Row label="Código BIP"          value={car?.codigo_bip} />
+            <Row label="Ampliación automática del plazo"
+              value={car?.extension_plazo === true
+                ? 'Sí — si hay 2 o menos ofertas, el cierre se amplía 2 días hábiles' : null} />
             <Row label="Publicidad de ofertas técnicas" value={car?.publicidad_ofertas_texto} />
           </div>
         </div>
       )}
 
       {/* Montos y duración del contrato — espejo del radar */}
-      {oportunidad && (tieneMontoMP || car?.estimacion_monto || car?.fuente_financiamiento || car?.modalidad_pago || car?.duracion_contrato_texto || car?.renovable !== undefined) && (
+      {oportunidad && (tieneMontoMP || car?.estimacion_monto || car?.fuente_financiamiento || car?.modalidad_pago || car?.duracion_contrato_texto || car?.renovable !== undefined
+        || car?.observacion_contrato || car?.responsable_pago_nombre) && (
         <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
           <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-3">Montos y duración del contrato</h3>
           <div>
@@ -718,7 +758,166 @@ function SeccionResumen({
             <Row label="Contrato con renovación"
               value={car?.renovable === true ? 'Sí' : car?.renovable === false ? 'No' : null} />
             <Row label="Duración del contrato"    value={car?.duracion_contrato_texto} />
+            <Row label="Observaciones"            value={car?.observacion_contrato} />
             <Row label="Plazos de pago"           value={car?.modalidad_pago} />
+            <Row label="Responsable de pago"      value={car?.responsable_pago_nombre} />
+          </div>
+          {car?.responsable_pago_email && (
+            <div className="flex gap-3 py-2 border-t border-zinc-50 mt-1 pt-2.5">
+              <span className="text-[12px] text-zinc-400 flex-shrink-0">e-mail responsable de pago</span>
+              <a href={`mailto:${car.responsable_pago_email}`}
+                className="text-[12.5px] text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1">
+                <Mail size={12} /> {car.responsable_pago_email}
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Requerimientos y otras cláusulas — espejo del radar */}
+      {oportunidad && (car?.subcontratacion !== undefined || car?.prohibicion_contratacion || car?.direccion_visita || car?.direccion_entrega) && (
+        <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
+          <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-3">Requerimientos y otras cláusulas</h3>
+          <div>
+            <Row label="Prohibición de subcontratación"
+              value={car?.prohibicion_contratacion ? 'No permite subcontratación'
+                : car?.subcontratacion === true ? 'Permite subcontratación'
+                : car?.subcontratacion === false ? 'No permite subcontratación' : null} />
+            <Row label="Cláusula de subcontratación / cesión" value={car?.prohibicion_contratacion} />
+            <Row label="Dirección de visita a terreno" value={car?.direccion_visita} />
+            <Row label="Dirección de entrega"          value={car?.direccion_entrega} />
+          </div>
+        </div>
+      )}
+
+      {/* Responsable del contrato — espejo del radar */}
+      {(oportunidad?.contacto?.nombre || oportunidad?.contacto?.email || oportunidad?.contacto?.telefono) && (
+        <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
+          <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-3">Responsable del contrato</h3>
+          <div>
+            <Row label="Nombre" value={oportunidad?.contacto?.nombre} />
+            <Row label="Cargo"  value={oportunidad?.contacto?.cargo} />
+          </div>
+          {oportunidad?.contacto?.email && (
+            <div className="flex gap-3 py-2 border-t border-zinc-50 mt-1 pt-2.5">
+              <span className="text-[12px] text-zinc-400 flex-shrink-0">Email</span>
+              <a href={`mailto:${oportunidad.contacto.email}`}
+                className="text-[12.5px] text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1">
+                <Mail size={12} /> {oportunidad.contacto.email}
+              </a>
+            </div>
+          )}
+          {oportunidad?.contacto?.telefono && (
+            <div className="flex gap-3 py-2">
+              <span className="text-[12px] text-zinc-400 flex-shrink-0">Teléfono</span>
+              <a href={`tel:${oportunidad.contacto.telefono}`}
+                className="text-[12.5px] text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1">
+                <Phone size={12} /> {oportunidad.contacto.telefono}
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Presupuesto y plazos que Mercado Público NO informó, extraídos por la IA de las bases —
+          información privilegiada: nunca se pierde, se muestra en ambas vistas (aquí y en
+          /licitacion/[codigo]). */}
+      {(presupuestoIA?.monto || plazoIA) && (
+        <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <IABadge />
+            <span className="text-[11px] text-zinc-400">Mercado Público no informó este dato; se extrajo automáticamente de las bases.</span>
+          </div>
+          <div>
+            {presupuestoIA?.monto && (
+              <Row label="Presupuesto estimado" value={fmt(presupuestoIA.monto) || `${presupuestoIA.monto} ${presupuestoIA.moneda || ''}`} />
+            )}
+            {plazoIA && <Row label="Plazo de ejecución" value={`${plazoIA} días`} />}
+          </div>
+        </div>
+      )}
+
+      {/* Análisis experto para el proveedor (IA) — espejo del radar */}
+      {experto && (experto.puntosCriticos?.length || experto.oportunidades?.length || experto.riesgosDetectados?.length || experto.recomendaciones?.length) && (
+        <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <IABadge />
+            {experto.complejidad && (
+              <span className="px-2 py-0.5 bg-zinc-100 text-zinc-600 text-[11px] rounded-full font-medium">Complejidad: {experto.complejidad}</span>
+            )}
+            {experto.atractivo && (
+              <span className="px-2 py-0.5 bg-zinc-100 text-zinc-600 text-[11px] rounded-full font-medium">Atractivo: {experto.atractivo}</span>
+            )}
+          </div>
+          <div className="space-y-4">
+            {!!experto.puntosCriticos?.length && (
+              <div>
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-700 mb-2">
+                  <AlertTriangle size={12} className="text-amber-500" /> Puntos críticos
+                </p>
+                <ul className="space-y-1.5">
+                  {experto.puntosCriticos.map((p, i) => (
+                    <li key={i} className="text-[12.5px] text-zinc-700 pl-4 relative before:content-['•'] before:absolute before:left-0 before:text-amber-400">{p}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!!experto.riesgosDetectados?.length && (
+              <div>
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-700 mb-2">
+                  <AlertTriangle size={12} className="text-red-500" /> Riesgos detectados
+                </p>
+                <ul className="space-y-1.5">
+                  {experto.riesgosDetectados.map((p, i) => (
+                    <li key={i} className="text-[12.5px] text-zinc-700 pl-4 relative before:content-['•'] before:absolute before:left-0 before:text-red-400">{p}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!!experto.oportunidades?.length && (
+              <div>
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-700 mb-2">
+                  <ThumbsUp size={12} className="text-emerald-500" /> Oportunidades
+                </p>
+                <ul className="space-y-1.5">
+                  {experto.oportunidades.map((p, i) => (
+                    <li key={i} className="text-[12.5px] text-zinc-700 pl-4 relative before:content-['•'] before:absolute before:left-0 before:text-emerald-400">{p}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {!!experto.recomendaciones?.length && (
+              <div>
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-zinc-700 mb-2">
+                  <ListChecks size={12} className="text-indigo-500" /> Recomendaciones
+                </p>
+                <ul className="space-y-1.5">
+                  {experto.recomendaciones.map((p, i) => (
+                    <li key={i} className="text-[12.5px] text-zinc-700 pl-4 relative before:content-['•'] before:absolute before:left-0 before:text-indigo-400">{p}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Adjudicación — espejo del radar */}
+      {(oportunidad?.url_acta || oportunidad?.numero_oferentes) && (
+        <div className="bg-white border border-zinc-200/60 rounded-xl p-5">
+          <h3 className="text-[12px] font-bold text-zinc-400 uppercase tracking-wider mb-3">Adjudicación</h3>
+          <div className="space-y-2">
+            {oportunidad?.numero_oferentes !== undefined && oportunidad.numero_oferentes > 0 && (
+              <p className="text-[13px] text-zinc-700">
+                <strong className="text-zinc-900">{oportunidad.numero_oferentes}</strong> proveedor{oportunidad.numero_oferentes !== 1 ? 'es' : ''} participaron
+              </p>
+            )}
+            {oportunidad?.url_acta && (
+              <a href={oportunidad.url_acta} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-2 text-[13px] text-indigo-600 hover:text-indigo-800 hover:underline">
+                <ExternalLink size={13} /> Ver acta de adjudicación
+              </a>
+            )}
           </div>
         </div>
       )}
@@ -1817,6 +2016,7 @@ function DetalleContent() {
                 etiquetas={etiquetas}
                 viabIA={viabIA}
                 onIrViabilidad={() => setSeccion('viabilidad')}
+                analisisIA={analisisIA}
               />
             )}
             {seccion === 'criterios' && (

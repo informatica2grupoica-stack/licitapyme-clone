@@ -8,7 +8,7 @@
 export const MOTIVOS_NIVEL_1 = [
   'No cumplimos requisitos técnicos',
   'No cumplimos experiencia exigida',
-  'Garantías o fianzas inviables',
+  'Baja rentabilidad proyectada',
   'Fuera de nuestro rubro',
   'Mercado saturado',
   'Otro',
