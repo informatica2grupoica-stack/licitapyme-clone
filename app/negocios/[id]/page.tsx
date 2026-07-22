@@ -132,6 +132,7 @@ interface DocumentoLocal {
   ya_descargado?: boolean;
   fecha?: string;
   categoria?: string;
+  subcategoria?: string;
 }
 
 interface AnalisisIA {
@@ -1382,6 +1383,7 @@ function DetalleContent() {
           url_local: d.documento_url_local || d.url_local || d.url,
           size:      d.size_bytes || d.size,
           categoria: d.categoria ?? undefined,
+          subcategoria: d.subcategoria ?? undefined,
           ya_descargado: true,
         })));
       }
@@ -1687,7 +1689,7 @@ function DetalleContent() {
     { key: 'documentos',   label: 'Documentos',         count: documentos.length || null },
     { key: 'viabilidad',   label: 'Viabilidad',         count: null },
     { key: 'criterios',    label: 'Criterios',          count: analisisIA?.criteriosEvaluacion?.length || null },
-    { key: 'items',        label: 'Líneas y Cantidades', count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
+    { key: 'items',        label: 'Líneas',              count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
     { key: 'fechas',       label: 'Fechas',             count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
     { key: 'preguntas',    label: 'Preguntas',          count: null },
     { key: 'comentarios',  label: 'Comentarios',        count: null },
@@ -1739,7 +1741,7 @@ function DetalleContent() {
 
         {/* ── MAIN CONTENT ───────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto min-w-0">
-          <div className="p-5 sm:p-7 max-w-3xl">
+          <div className="p-5 sm:p-7 max-w-3xl mx-auto w-full">
             {/* Header */}
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-3 lg:hidden">

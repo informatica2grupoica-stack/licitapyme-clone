@@ -56,6 +56,8 @@ const FILA_ITEM_1 = 4;     // primera fila de ítems en la hoja de costeo
 const FILA_MODELO = 5;     // fila a duplicar al expandir (trae las fórmulas por ítem)
 const AUD_ITEM_1 = 3;      // primera fila de ítems en AUDITORIA
 const MAX_HOJAS = 50; // tope de hojas por grupo (los grupos sobrantes se acumulan en el último)
+const COL_PRESUPUESTO = 'F';   // celda amarilla "Presupuesto iva incluido" (junto a la etiqueta en D)
+const OFFSET_PRESUPUESTO = 3;  // filas debajo de la fila de totales (24→27 en la plantilla base)
 
 // Excel: nombre de hoja ≤31 chars, sin []:*?/\ y único en el libro. Sanitiza la
 // categoría (o el fallback) a un nombre válido evitando choques.
@@ -101,14 +103,16 @@ function desplazarReferencias(formula: string, pivot: number, delta: number): st
 }
 
 // Rellena una hoja de costeo (Costeo o LINEAn) con sus ítems, expandiendo el bloque si hace
-// falta y corrigiendo las referencias de los totales. Devuelve cuántos ítems escribió.
+// falta y corrigiendo las referencias de los totales. Devuelve cuántos ítems escribió y en qué
+// fila quedó la celda "Presupuesto iva incluido" (se mueve junto con el resto del resumen
+// cuando el bloque de ítems se expande más allá de las filas base de la plantilla).
 function rellenarCosteo(
   ws: ExcelJS.Worksheet,
   items: ManifiestoLinea[],
   precioDe?: (it: ManifiestoLinea) => PrecioMercadoItem | null,
-): number {
+): { n: number; filaPresupuesto: number } {
   const N = items.length;
-  if (N === 0) return 0;
+  if (N === 0) return { n: 0, filaPresupuesto: FILA_ITEM_1 + 20 + OFFSET_PRESUPUESTO };
 
   const { totalsRow, baseRows } = detectarEstructura(ws);
   let delta = 0;
@@ -162,7 +166,15 @@ function rellenarCosteo(
       }
     }
   }
-  return N;
+  const baseTotalsRow = totalsRow || (FILA_ITEM_1 + baseRows);
+  return { n: N, filaPresupuesto: baseTotalsRow + delta + OFFSET_PRESUPUESTO };
+}
+
+// Escribe el presupuesto (CON IVA) en la celda amarilla "Presupuesto iva incluido" de la hoja.
+// SIEMPRE se escribe explícitamente (aunque sea null → celda vacía): la plantilla trae un valor
+// de ejemplo ($5.000.000) que no debe quedar puesto por accidente en un costeo real.
+function escribirPresupuesto(ws: ExcelJS.Worksheet, fila: number, valorConIva: number | null) {
+  ws.getCell(`${COL_PRESUPUESTO}${fila}`).value = valorConIva ?? null;
 }
 
 // Reconstruye la hoja AUDITORIA para que referencie, en orden, TODOS los ítems escritos en
@@ -263,7 +275,14 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
         ws.model = m;
         ws.name = nombre;
       }
-      rellenarCosteo(ws, g.items, precioDe);
+      const { filaPresupuesto } = rellenarCosteo(ws, g.items, precioDe);
+      // por_linea: manda el presupuesto DE ESA línea si las bases lo especifican (mismo valor
+      // en todos los ítems del grupo, ver ManifiestoLinea.presupuesto_linea); si no está
+      // especificado, se usa el presupuesto global de la licitación como mejor aproximación.
+      const presupuestoLinea = d.modalidad === 'por_linea'
+        ? g.items.map(it => it.presupuesto_linea).find((v): v is number => v != null && v > 0) ?? null
+        : null;
+      escribirPresupuesto(ws, filaPresupuesto, presupuestoLinea ?? d.presupuesto_bruto ?? null);
       g.items.forEach((it, i) => { refs.push({ hoja: nombre, fila: FILA_ITEM_1 + i }); itemsOrden.push(it); });
     });
 
@@ -279,7 +298,8 @@ export async function generarCosteoExcel(d: DatosCosteo): Promise<Buffer> {
     // suma_alzada (o una sola categoría/línea): TODOS los ítems en la hoja "Costeo".
     const ws = wb.getWorksheet(HOJA_COSTEO) || wb.worksheets[0];
     const todos = grupos.flatMap(g => g.items);
-    rellenarCosteo(ws, todos, precioDe);
+    const { filaPresupuesto } = rellenarCosteo(ws, todos, precioDe);
+    escribirPresupuesto(ws, filaPresupuesto, d.presupuesto_bruto ?? null);
     todos.forEach((it, i) => { refs.push({ hoja: ws.name, fila: FILA_ITEM_1 + i }); itemsOrden.push(it); });
   }
 

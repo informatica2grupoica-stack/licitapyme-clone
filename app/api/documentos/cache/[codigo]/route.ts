@@ -15,21 +15,32 @@ export async function GET(
     let rows: unknown[];
     try {
       [rows] = await pool.query(
-        `SELECT documento_nombre, documento_url_local, size_bytes, categoria, created_at
+        `SELECT documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, created_at
          FROM documentos_cache
          WHERE licitacion_codigo = ?
          ORDER BY created_at ASC`,
         [codigo]
       ) as any[];
     } catch {
-      // columna 'categoria' no existe aún — fallback sin ella
-      [rows] = await pool.query(
-        `SELECT documento_nombre, documento_url_local, size_bytes, created_at
-         FROM documentos_cache
-         WHERE licitacion_codigo = ?
-         ORDER BY created_at ASC`,
-        [codigo]
-      ) as any[];
+      try {
+        // columna 'subcategoria' no existe aún (migración 45 pendiente) — fallback sin ella
+        [rows] = await pool.query(
+          `SELECT documento_nombre, documento_url_local, size_bytes, categoria, created_at
+           FROM documentos_cache
+           WHERE licitacion_codigo = ?
+           ORDER BY created_at ASC`,
+          [codigo]
+        ) as any[];
+      } catch {
+        // columna 'categoria' tampoco existe — fallback sin ella
+        [rows] = await pool.query(
+          `SELECT documento_nombre, documento_url_local, size_bytes, created_at
+           FROM documentos_cache
+           WHERE licitacion_codigo = ?
+           ORDER BY created_at ASC`,
+          [codigo]
+        ) as any[];
+      }
     }
 
     // El costeo (con precios de mercado incluido) es visible para cualquier perfil asignado.

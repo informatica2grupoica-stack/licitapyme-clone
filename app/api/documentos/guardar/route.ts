@@ -7,7 +7,7 @@ import { registrarActividad } from '@/app/lib/actividad';
 export async function POST(request: NextRequest) {
   try {
     const userId = request.headers.get('x-user-id');
-    const { licitacionCodigo, documentoNombre, url, size, categoria } = await request.json();
+    const { licitacionCodigo, documentoNombre, url, size, categoria, subcategoria } = await request.json();
 
     if (!licitacionCodigo || !documentoNombre || !url) {
       return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
@@ -17,28 +17,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
 
     try {
-      // Con categoría (documentos propios subidos a una caja específica).
+      // Con categoría + subcategoría (documentos propios organizados en una caja manual).
       await pool.query(
-        `INSERT INTO documentos_cache (usuario_id, licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO documentos_cache (usuario_id, licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            documento_url_local = VALUES(documento_url_local),
            size_bytes = VALUES(size_bytes),
            categoria = COALESCE(VALUES(categoria), categoria),
+           subcategoria = COALESCE(VALUES(subcategoria), subcategoria),
            usuario_id = COALESCE(usuario_id, VALUES(usuario_id))`,
-        [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0, categoria || null]
+        [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0, categoria || null, subcategoria || null]
       );
     } catch {
-      // Fallback: columna 'categoria' no existe aún.
-      await pool.query(
-        `INSERT INTO documentos_cache (usuario_id, licitacion_codigo, documento_nombre, documento_url_local, size_bytes)
-         VALUES (?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           documento_url_local = VALUES(documento_url_local),
-           size_bytes = VALUES(size_bytes),
-           usuario_id = COALESCE(usuario_id, VALUES(usuario_id))`,
-        [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0]
-      );
+      try {
+        // Fallback: columna 'subcategoria' no existe aún (migración 45 pendiente).
+        await pool.query(
+          `INSERT INTO documentos_cache (usuario_id, licitacion_codigo, documento_nombre, documento_url_local, size_bytes, categoria)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             documento_url_local = VALUES(documento_url_local),
+             size_bytes = VALUES(size_bytes),
+             categoria = COALESCE(VALUES(categoria), categoria),
+             usuario_id = COALESCE(usuario_id, VALUES(usuario_id))`,
+          [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0, categoria || null]
+        );
+      } catch {
+        // Fallback: columna 'categoria' tampoco existe.
+        await pool.query(
+          `INSERT INTO documentos_cache (usuario_id, licitacion_codigo, documento_nombre, documento_url_local, size_bytes)
+           VALUES (?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             documento_url_local = VALUES(documento_url_local),
+             size_bytes = VALUES(size_bytes),
+             usuario_id = COALESCE(usuario_id, VALUES(usuario_id))`,
+          [userId ? parseInt(userId) : null, licitacionCodigo, documentoNombre, url, size || 0]
+        );
+      }
     }
 
     // Bitácora: subió un documento propio a esta licitación (best-effort).

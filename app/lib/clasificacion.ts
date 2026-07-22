@@ -505,11 +505,14 @@ export async function persistirClasificacionFusionada(
     const { caja, criterios } = resolver(nombre);
     if (criterios) criteriosUbicados = true;
     try {
-      await pool.query(
-        `UPDATE documentos_cache SET categoria = ? WHERE licitacion_codigo = ? AND documento_nombre = ?`,
+      // Guard: nunca sobrescribe un Documento Propio (organizado a mano por el usuario) —
+      // la clasificación IA/heurística es solo para los documentos de la licitación.
+      const [r]: any = await pool.query(
+        `UPDATE documentos_cache SET categoria = ?
+         WHERE licitacion_codigo = ? AND documento_nombre = ? AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')`,
         [caja, codigo, nombre],
       );
-      asignadas++;
+      if (r?.affectedRows) asignadas++;
     } catch { /* columna categoria puede no existir aún */ }
   }
   return { criteriosUbicados, asignadas };
@@ -532,10 +535,14 @@ export async function clasificarLicitacion(codigo: string): Promise<ResultadoCla
     }
   } catch { /* tabla puede no existir */ }
 
-  // 2. Documentos del caché
+  // 2. Documentos del caché — EXCLUYE los Documentos Propios (subidos/generados por
+  //    nosotros y organizados a mano por el usuario): la clasificación IA es solo para
+  //    los documentos oficiales de la licitación, nunca para esos.
   const [rows] = await pool.query(
     `SELECT documento_nombre, documento_url_local, size_bytes
-     FROM documentos_cache WHERE licitacion_codigo = ? ORDER BY created_at ASC`,
+     FROM documentos_cache
+     WHERE licitacion_codigo = ? AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')
+     ORDER BY created_at ASC`,
     [codigo],
   );
   const dbDocs = rows as { documento_nombre: string; documento_url_local: string; size_bytes: number }[];
@@ -615,11 +622,13 @@ export async function clasificarLicitacion(codigo: string): Promise<ResultadoCla
     };
   });
 
-  // 6. Persistir categoría en documentos_cache
+  // 6. Persistir categoría en documentos_cache — el guard evita tocar un Documento Propio
+  //    aunque por error de nombre haya llegado hasta acá (defensa en profundidad).
   try {
     for (const doc of documentos) {
       await pool.query(
-        `UPDATE documentos_cache SET categoria = ? WHERE licitacion_codigo = ? AND documento_nombre = ?`,
+        `UPDATE documentos_cache SET categoria = ?
+         WHERE licitacion_codigo = ? AND documento_nombre = ? AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')`,
         [doc.caja, codigo, doc.archivo],
       );
     }

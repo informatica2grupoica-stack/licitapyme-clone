@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
-  Upload, Trash2, Pencil, Check, X,
+  Upload, Trash2, Pencil, Check, X, FolderPlus,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
@@ -581,25 +581,213 @@ function ProgresoBanner({ fase, totalDocs }: { fase: 'descargando' | 'clasifican
 
 // Lista de "Documentos Propios" (los que creamos/editamos: costeo, informe, subidas). Formato lista
 // con acciones por fila: Ver, Descargar, Renombrar (inline), Reemplazar (subir versión nueva) y Eliminar.
-function DocumentosPropiosList({ docs, codigoDecoded, onView, onRefrescar }: {
-  docs: (DocumentoAdjunto & { categoria?: string })[];
+type DocPropio = DocumentoAdjunto & { categoria?: string; subcategoria?: string };
+
+const CAJA_SIN_CLASIFICAR = 'SIN_CLASIFICAR';
+function claveCajaPropia(sub?: string | null) {
+  return sub && sub.trim() ? sub.trim() : CAJA_SIN_CLASIFICAR;
+}
+
+// ─── Item dentro de una caja de "Documentos Propios" — a diferencia del DocItem de la
+// licitación (documentos oficiales, protegidos), acá se puede renombrar/reemplazar/eliminar. ──
+function DocPropioItem({
+  doc, isDragging, isEditing, valorNombre, busy,
+  onDragStart, onView, onDownloadClick, onReemplazar, onRenombrarClick, onEliminar,
+  onGuardarNombre, onCancelarEdicion, onChangeValorNombre,
+}: {
+  doc: DocPropio;
+  isDragging: boolean;
+  isEditing: boolean;
+  valorNombre: string;
+  busy: boolean;
+  onDragStart: (e: React.DragEvent, doc: DocPropio) => void;
+  onView: () => void;
+  onDownloadClick: () => void;
+  onReemplazar: () => void;
+  onRenombrarClick: () => void;
+  onEliminar: () => void;
+  onGuardarNombre: () => void;
+  onCancelarEdicion: () => void;
+  onChangeValorNombre: (v: string) => void;
+}) {
+  const urlDe = (doc as any).url_local || (doc as any).url;
+  return (
+    <div
+      draggable={!isEditing}
+      onDragStart={(e) => onDragStart(e, doc)}
+      className={`
+        group flex items-center gap-2 px-2.5 py-2 rounded-lg border
+        cursor-grab active:cursor-grabbing select-none transition-all
+        ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
+        bg-white border-slate-100 hover:bg-slate-50
+      `}
+    >
+      <GripVertical size={12} className="text-slate-300 flex-shrink-0" />
+      <span className="text-base flex-shrink-0">{getFileIcon(doc.nombre)}</span>
+      <div className="flex-1 min-w-0">
+        {isEditing ? (
+          <input
+            autoFocus value={valorNombre} onChange={e => onChangeValorNombre(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') onGuardarNombre(); if (e.key === 'Escape') onCancelarEdicion(); }}
+            className="w-full text-[11px] px-1.5 py-0.5 border border-violet-300 rounded focus:outline-none focus:ring-1 focus:ring-violet-400"
+          />
+        ) : (
+          <>
+            <p className="text-[11px] font-semibold text-slate-700 truncate leading-tight" title={doc.nombre}>
+              {doc.nombre}
+            </p>
+            {doc.size && <p className="text-[10px] text-slate-400 leading-tight">{formatFileSize(doc.size)}</p>}
+          </>
+        )}
+      </div>
+      {busy && <Loader2 size={12} className="animate-spin text-violet-500 flex-shrink-0" />}
+      {isEditing ? (
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          <button type="button" onClick={onGuardarNombre} title="Guardar" className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><Check size={12} /></button>
+          <button type="button" onClick={onCancelarEdicion} title="Cancelar" className="p-1 text-slate-400 hover:bg-slate-100 rounded"><X size={12} /></button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <button type="button" onClick={(e) => { e.stopPropagation(); onView(); }} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors" title="Ver en el visor" draggable={false}><Eye size={11} /></button>
+          <a href={urlDe} download={doc.nombre} onClick={(e) => { e.stopPropagation(); onDownloadClick(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Descargar" draggable={false}><Download size={11} /></a>
+          <button type="button" onClick={(e) => { e.stopPropagation(); onReemplazar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors disabled:opacity-50" title="Reemplazar (subir versión nueva)" draggable={false}><Upload size={11} /></button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); onRenombrarClick(); }} disabled={busy} className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors disabled:opacity-50" title="Renombrar" draggable={false}><Pencil size={11} /></button>
+          <button type="button" onClick={(e) => { e.stopPropagation(); onEliminar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50" title="Eliminar" draggable={false}><Trash2 size={11} /></button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Caja droppable de "Documentos Propios" — la crea y arrastra el usuario, nunca la IA. ──
+function CajaPropiaDroppable({
+  cajaKey, label, docs, isDragOver, isDraggingActive, draggingDoc,
+  onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop,
+  onView, onDownloadClick, onReemplazar, onRenombrarClick, onEliminar,
+  editando, valorNombre, onGuardarNombre, onCancelarEdicion, onChangeValorNombre, ocupado,
+}: {
+  cajaKey: string;
+  label: string;
+  docs: DocPropio[];
+  isDragOver: boolean;
+  isDraggingActive: boolean;
+  draggingDoc: DocPropio | null;
+  onDragStart: (e: React.DragEvent, doc: DocPropio) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDragEnter: (e: React.DragEvent, key: string) => void;
+  onDragLeave: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent, key: string) => void;
+  onView: (doc: DocPropio) => void;
+  onDownloadClick: (doc: DocPropio) => void;
+  onReemplazar: (doc: DocPropio) => void;
+  onRenombrarClick: (doc: DocPropio) => void;
+  onEliminar: (doc: DocPropio) => void;
+  editando: string | null;
+  valorNombre: string;
+  onGuardarNombre: (doc: DocPropio) => void;
+  onCancelarEdicion: () => void;
+  onChangeValorNombre: (v: string) => void;
+  ocupado: string | null;
+}) {
+  const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
+  return (
+    <div
+      className={`
+        flex flex-col rounded-xl border transition-all duration-150
+        ${isDragOver ? ESTILO_CAJA.colorDrop : `${ESTILO_CAJA.colorBorder} ${ESTILO_CAJA.colorBg}`}
+        ${isDraggingActive && !isDraggingHere ? 'border-dashed' : ''}
+      `}
+      onDragOver={onDragOver}
+      onDragEnter={(e) => onDragEnter(e, cajaKey)}
+      onDragLeave={onDragLeave}
+      onDrop={(e) => onDrop(e, cajaKey)}
+    >
+      <div className={`flex items-center gap-2 px-3 py-2 rounded-t-xl ${ESTILO_CAJA.colorHeader}`}>
+        <FolderOpen size={13} className={ESTILO_CAJA.colorIcon} />
+        <span className="flex-1 text-[11.5px] font-bold text-slate-700 truncate">{label}</span>
+        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${ESTILO_CAJA.colorCount}`}>{docs.length}</span>
+      </div>
+      <div className="flex-1 p-1.5 space-y-1 min-h-[72px]">
+        {docs.map(doc => (
+          <DocPropioItem
+            key={doc.nombre}
+            doc={doc}
+            isDragging={draggingDoc?.nombre === doc.nombre}
+            isEditing={editando === doc.nombre}
+            valorNombre={valorNombre}
+            busy={ocupado === doc.nombre}
+            onDragStart={onDragStart}
+            onView={() => onView(doc)}
+            onDownloadClick={() => onDownloadClick(doc)}
+            onReemplazar={() => onReemplazar(doc)}
+            onRenombrarClick={() => onRenombrarClick(doc)}
+            onEliminar={() => onEliminar(doc)}
+            onGuardarNombre={() => onGuardarNombre(doc)}
+            onCancelarEdicion={onCancelarEdicion}
+            onChangeValorNombre={onChangeValorNombre}
+          />
+        ))}
+        {isDragOver && (
+          <div className="flex items-center justify-center h-10 border-2 border-dashed border-current/30 rounded-lg opacity-60">
+            <span className={`text-[10px] font-semibold ${ESTILO_CAJA.colorIcon}`}>Soltar aquí</span>
+          </div>
+        )}
+        {docs.length === 0 && !isDragOver && (
+          <div className="flex items-center justify-center h-10">
+            <span className="text-[10px] text-slate-300 font-medium">Sin documentos</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Documentos Propios: cajas MANUALES ────────────────────────────────────────────────────
+// A diferencia de DocumentosGrid (documentos de la licitación, clasificados por IA), acá NO
+// hay taxonomía fija: la caja es lo que el usuario escriba y los archivos se arrastran a mano.
+// Se persiste en `subcategoria` — una columna aparte de `categoria` (que sigue marcando el
+// documento como DOCUMENTOS_PROPIOS). La clasificación IA (/api/documentos/clasificar) nunca
+// corre sobre estos documentos ni toca esta columna — ver /api/documentos/organizar.
+function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar }: {
+  docs: DocPropio[];
   codigoDecoded: string;
   onView: (doc: VisorDoc) => void;
   onRefrescar: () => void;
 }) {
   const confirmar = useConfirm();
   const toast = useToast();
+
+  const buildGrupos = (lista: DocPropio[]) => {
+    const g: Record<string, DocPropio[]> = { [CAJA_SIN_CLASIFICAR]: [] };
+    for (const d of lista) {
+      const k = claveCajaPropia(d.subcategoria);
+      if (!g[k]) g[k] = [];
+      g[k].push(d);
+    }
+    return g;
+  };
+
+  const [grupos, setGrupos] = useState(() => buildGrupos(docs));
+  const [cajasVacias, setCajasVacias] = useState<string[]>([]); // creadas por el usuario, sin docs aún
+  const [creandoCaja, setCreandoCaja] = useState(false);
+  const [nuevaCaja, setNuevaCaja] = useState('');
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [draggingDoc, setDraggingDoc] = useState<DocPropio | null>(null);
+  const dragEnterCount = useRef<Record<string, number>>({});
+
   const [editando, setEditando] = useState<string | null>(null);
   const [valorNombre, setValorNombre] = useState('');
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const [subiendoNuevo, setSubiendoNuevo] = useState<string | null>(null);
+  const [subiendoNuevo, setSubiendoNuevo] = useState<{ actual: number; total: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const nuevoRef = useRef<HTMLInputElement>(null);
-  const docReemplazarRef = useRef<(DocumentoAdjunto & { categoria?: string }) | null>(null);
+  const docReemplazarRef = useRef<DocPropio | null>(null);
 
-  const urlDe = (d: DocumentoAdjunto & { categoria?: string }) => (d as any).url_local || (d as any).url;
+  useEffect(() => { setGrupos(buildGrupos(docs)); }, [docs]);
 
-  const eliminar = async (doc: DocumentoAdjunto & { categoria?: string }) => {
+  const urlDe = (d: DocPropio) => (d as any).url_local || (d as any).url;
+
+  const eliminar = async (doc: DocPropio) => {
     const ok = await confirmar({ titulo: '¿Eliminar documento?', mensaje: `"${doc.nombre}" se eliminará de forma permanente.`, confirmarLabel: 'Eliminar', peligro: true });
     if (!ok) return;
     setOcupado(doc.nombre);
@@ -613,7 +801,7 @@ function DocumentosPropiosList({ docs, codigoDecoded, onView, onRefrescar }: {
     } catch { toast.error('Error de red al eliminar'); } finally { setOcupado(null); }
   };
 
-  const guardarNombre = async (doc: DocumentoAdjunto & { categoria?: string }) => {
+  const guardarNombre = async (doc: DocPropio) => {
     const nuevo = valorNombre.trim();
     if (!nuevo || nuevo === doc.nombre) { setEditando(null); return; }
     setOcupado(doc.nombre);
@@ -640,7 +828,7 @@ function DocumentosPropiosList({ docs, codigoDecoded, onView, onRefrescar }: {
       if (!pres.ok || !p.uploadUrl) throw new Error(p.error || 'presign');
       const put = await fetch(p.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
       if (!put.ok) throw new Error('put');
-      // Guarda con el MISMO nombre y categoría → reemplaza la versión anterior.
+      // Guarda con el MISMO nombre y categoría → reemplaza la versión anterior (conserva su caja).
       const save = await fetch('/api/documentos/guardar', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ licitacionCodigo: codigoDecoded, documentoNombre: doc.nombre, url: p.publicUrl, size: file.size, categoria: 'DOCUMENTOS_PROPIOS' }),
@@ -650,89 +838,205 @@ function DocumentosPropiosList({ docs, codigoDecoded, onView, onRefrescar }: {
     } catch { toast.error('No se pudo reemplazar el documento'); } finally { setOcupado(null); }
   };
 
-  // Sube un documento NUEVO a "Documentos para MP" (categoría DOCUMENTOS_PROPIOS).
-  // Presign → PUT directo a R2 → guardar en documentos_cache. Este es el ÚNICO punto de
-  // subida de archivos propios (ya no se sube por caja en las bases de la licitación).
-  const subirNuevo = async (file: File) => {
-    if (file.size > 100 * 1024 * 1024) { toast.error('El archivo supera los 100 MB.'); return; }
-    setSubiendoNuevo(file.name);
-    try {
-      const pres = await fetch('/api/documentos/presign', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licitacionCodigo: codigoDecoded, filename: file.name, contentType: file.type || 'application/octet-stream', size: file.size }),
-      });
-      const p = await pres.json();
-      if (!pres.ok || !p.uploadUrl) throw new Error(p.error || 'presign');
-      const put = await fetch(p.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
-      if (!put.ok) throw new Error('put');
-      const save = await fetch('/api/documentos/guardar', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licitacionCodigo: codigoDecoded, documentoNombre: file.name, url: p.publicUrl, size: file.size, categoria: 'DOCUMENTOS_PROPIOS' }),
-      });
-      if (!save.ok) throw new Error('save');
-      toast.success('Documento subido a «Documentos para MP»'); onRefrescar();
-    } catch { toast.error('No se pudo subir el documento'); } finally { setSubiendoNuevo(null); }
+  // Sube un único archivo a "Documentos para MP" (categoría DOCUMENTOS_PROPIOS).
+  // Presign → PUT directo a R2 → guardar en documentos_cache.
+  const subirUnArchivo = async (file: File) => {
+    if (file.size > 100 * 1024 * 1024) throw new Error(`"${file.name}" supera los 100 MB.`);
+    const pres = await fetch('/api/documentos/presign', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ licitacionCodigo: codigoDecoded, filename: file.name, contentType: file.type || 'application/octet-stream', size: file.size }),
+    });
+    const p = await pres.json();
+    if (!pres.ok || !p.uploadUrl) throw new Error(p.error || `No se pudo preparar la subida de "${file.name}"`);
+    const put = await fetch(p.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+    if (!put.ok) throw new Error(`Error subiendo "${file.name}"`);
+    const save = await fetch('/api/documentos/guardar', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ licitacionCodigo: codigoDecoded, documentoNombre: file.name, url: p.publicUrl, size: file.size, categoria: 'DOCUMENTOS_PROPIOS' }),
+    });
+    if (!save.ok) throw new Error(`No se pudo registrar "${file.name}"`);
   };
 
-  return (
-    <>
-      <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onPickReemplazo(f); e.target.value = ''; }} />
-      <input ref={nuevoRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) subirNuevo(f); e.target.value = ''; }} />
+  // Sube uno o varios documentos NUEVOS a "Documentos para MP" (categoría DOCUMENTOS_PROPIOS).
+  // Se suben en secuencia (no en paralelo) para no saturar el endpoint de presign; el botón
+  // queda deshabilitado y muestra el progreso hasta terminar el lote completo. Aterrizan en
+  // "Sin clasificar" — el usuario los arrastra a su caja después.
+  const subirNuevo = async (files: File[]) => {
+    if (files.length === 0) return;
+    let exitosos = 0;
+    const errores: string[] = [];
+    for (let i = 0; i < files.length; i++) {
+      setSubiendoNuevo({ actual: i + 1, total: files.length });
+      try {
+        await subirUnArchivo(files[i]);
+        exitosos++;
+      } catch (e: any) {
+        errores.push(e?.message || files[i].name);
+      }
+    }
+    setSubiendoNuevo(null);
+    if (exitosos > 0) {
+      toast.success(
+        exitosos === 1 ? 'Documento subido a «Documentos para MP»' : `${exitosos} documentos subidos a «Documentos para MP»`,
+      );
+      onRefrescar();
+    }
+    if (errores.length > 0) {
+      toast.error(
+        errores.length === 1 ? 'No se pudo subir el documento' : `No se pudieron subir ${errores.length} documento(s)`,
+        errores.join(' · '),
+      );
+    }
+  };
 
-      {/* Botón único de subida: Documentos para MP */}
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <p className="text-[11.5px] text-slate-400">Archivos que <strong className="text-slate-500">presentarás a Mercado Público</strong> (se guardan aquí).</p>
-        <button
-          type="button"
-          onClick={() => nuevoRef.current?.click()}
-          disabled={!!subiendoNuevo}
-          className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
-        >
-          {subiendoNuevo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Documentos para MP
-        </button>
+  // ── Drag & drop entre cajas — 100% manual, el usuario decide, nunca la IA ──
+  const handleDragStart = (e: React.DragEvent, doc: DocPropio) => {
+    setDraggingDoc(doc);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', doc.nombre);
+  };
+  const handleDragEnd = () => { setDraggingDoc(null); setDragOver(null); dragEnterCount.current = {}; };
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; };
+  const handleDragEnter = (e: React.DragEvent, key: string) => {
+    e.preventDefault();
+    dragEnterCount.current[key] = (dragEnterCount.current[key] || 0) + 1;
+    setDragOver(key);
+  };
+  const handleDragLeave = () => {
+    const key = dragOver;
+    if (!key) return;
+    dragEnterCount.current[key] = (dragEnterCount.current[key] || 1) - 1;
+    if (dragEnterCount.current[key] <= 0) { dragEnterCount.current[key] = 0; setDragOver(null); }
+  };
+  const handleDrop = async (e: React.DragEvent, targetKey: string) => {
+    e.preventDefault();
+    setDragOver(null); dragEnterCount.current = {};
+    if (!draggingDoc) return;
+    const sourceKey = claveCajaPropia(draggingDoc.subcategoria);
+    if (sourceKey === targetKey) { setDraggingDoc(null); return; }
+
+    const nuevaSub = targetKey === CAJA_SIN_CLASIFICAR ? undefined : targetKey;
+    const docActualizado = { ...draggingDoc, subcategoria: nuevaSub };
+
+    setGrupos(prev => {
+      const next: typeof prev = {};
+      for (const k in prev) next[k] = [...prev[k]];
+      next[sourceKey] = (next[sourceKey] || []).filter(d => d.nombre !== draggingDoc.nombre);
+      next[targetKey] = [...(next[targetKey] || []), docActualizado];
+      return next;
+    });
+    setCajasVacias(prev => prev.filter(c => c !== targetKey)); // ya tiene un documento real
+    setDraggingDoc(null);
+
+    try {
+      const r = await fetch('/api/documentos/organizar', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: codigoDecoded, documento_nombre: draggingDoc.nombre, subcategoria: nuevaSub || null }),
+      });
+      if (!r.ok) throw new Error();
+    } catch {
+      toast.error('No se pudo mover el documento');
+      setGrupos(prev => {
+        const next: typeof prev = {};
+        for (const k in prev) next[k] = [...prev[k]];
+        next[targetKey] = (next[targetKey] || []).filter(d => d.nombre !== draggingDoc.nombre);
+        next[sourceKey] = [...(next[sourceKey] || []), draggingDoc];
+        return next;
+      });
+    }
+  };
+
+  const crearCaja = () => {
+    const nombre = nuevaCaja.trim();
+    setNuevaCaja(''); setCreandoCaja(false);
+    if (!nombre) return;
+    const yaExiste = Object.keys(grupos).some(k => k.toLowerCase() === nombre.toLowerCase())
+      || cajasVacias.some(k => k.toLowerCase() === nombre.toLowerCase());
+    if (!yaExiste) setCajasVacias(prev => [...prev, nombre]);
+  };
+
+  const clavesConDocs = Object.keys(grupos).filter(k => k !== CAJA_SIN_CLASIFICAR && (grupos[k]?.length || 0) > 0).sort();
+  const cajas = [CAJA_SIN_CLASIFICAR, ...clavesConDocs, ...cajasVacias.filter(c => !clavesConDocs.includes(c))];
+
+  return (
+    <div onDragEnd={handleDragEnd} className="space-y-3">
+      <input ref={fileRef} type="file" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) onPickReemplazo(f); e.target.value = ''; }} />
+      <input ref={nuevoRef} type="file" multiple className="hidden" onChange={e => { const files = Array.from(e.target.files || []); if (files.length) subirNuevo(files); e.target.value = ''; }} />
+
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-[11.5px] text-slate-400">
+          Archivos que <strong className="text-slate-500">presentarás a Mercado Público</strong>. Arrástralos entre cajas para organizarlos a tu gusto.
+        </p>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {docs.length > 0 && (
+            creandoCaja ? (
+              <div className="flex items-center gap-1">
+                <input
+                  autoFocus value={nuevaCaja} onChange={e => setNuevaCaja(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') crearCaja(); if (e.key === 'Escape') { setNuevaCaja(''); setCreandoCaja(false); } }}
+                  placeholder="Nombre de la caja"
+                  className="text-[12px] px-2 py-1.5 border border-violet-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-violet-400 w-36"
+                />
+                <button type="button" onClick={crearCaja} title="Crear" className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg"><Check size={14} /></button>
+                <button type="button" onClick={() => { setNuevaCaja(''); setCreandoCaja(false); }} title="Cancelar" className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg"><X size={14} /></button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCreandoCaja(true)}
+                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-200 px-2.5 py-1.5 rounded-lg transition-colors"
+              >
+                <FolderPlus size={13} /> Nueva caja
+              </button>
+            )
+          )}
+          <button
+            type="button"
+            onClick={() => nuevoRef.current?.click()}
+            disabled={!!subiendoNuevo}
+            className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 px-3 py-1.5 rounded-lg transition-colors flex-shrink-0"
+          >
+            {subiendoNuevo
+              ? <><Loader2 size={13} className="animate-spin" /> Subiendo {subiendoNuevo.actual}/{subiendoNuevo.total}…</>
+              : <><Upload size={13} /> Documentos para MP</>}
+          </button>
+        </div>
       </div>
 
-      {docs.length === 0 && (
+      {docs.length === 0 ? (
         <p className="text-[12px] text-slate-400 py-2">Aún no hay documentos. Sube los que presentarás a Mercado Público con el botón «Documentos para MP».</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {cajas.map(key => (
+            <CajaPropiaDroppable
+              key={key}
+              cajaKey={key}
+              label={key === CAJA_SIN_CLASIFICAR ? 'Sin clasificar' : key}
+              docs={grupos[key] || []}
+              isDragOver={dragOver === key}
+              isDraggingActive={!!draggingDoc}
+              draggingDoc={draggingDoc}
+              onDragStart={handleDragStart}
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onView={(doc) => onView({ nombre: doc.nombre, url: urlDe(doc) })}
+              onDownloadClick={(doc) => registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó')}
+              onReemplazar={(doc) => { docReemplazarRef.current = doc; fileRef.current?.click(); }}
+              onRenombrarClick={(doc) => { setEditando(doc.nombre); setValorNombre(doc.nombre); }}
+              onEliminar={eliminar}
+              editando={editando}
+              valorNombre={valorNombre}
+              onGuardarNombre={guardarNombre}
+              onCancelarEdicion={() => setEditando(null)}
+              onChangeValorNombre={setValorNombre}
+              ocupado={ocupado}
+            />
+          ))}
+        </div>
       )}
-      <ul className="divide-y divide-slate-100">
-        {docs.map(doc => {
-          const enEdicion = editando === doc.nombre;
-          const busy = ocupado === doc.nombre;
-          return (
-            <li key={doc.nombre} className="flex items-center gap-2 py-2">
-              <span className="text-lg flex-shrink-0">{getFileIcon(doc.nombre)}</span>
-              <div className="flex-1 min-w-0">
-                {enEdicion ? (
-                  <div className="flex items-center gap-1">
-                    <input autoFocus value={valorNombre} onChange={e => setValorNombre(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') guardarNombre(doc); if (e.key === 'Escape') setEditando(null); }}
-                      className="flex-1 text-[12px] px-2 py-1 border border-violet-300 rounded focus:outline-none focus:ring-1 focus:ring-violet-400" />
-                    <button onClick={() => guardarNombre(doc)} title="Guardar" className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><Check size={14} /></button>
-                    <button onClick={() => setEditando(null)} title="Cancelar" className="p-1 text-slate-400 hover:bg-slate-100 rounded"><X size={14} /></button>
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-[12.5px] font-semibold text-slate-700 truncate" title={doc.nombre}>{doc.nombre}</p>
-                    {doc.size && <p className="text-[10px] text-slate-400 leading-tight">{formatFileSize(doc.size)}</p>}
-                  </>
-                )}
-              </div>
-              {!enEdicion && (
-                <div className="flex items-center gap-0.5 flex-shrink-0">
-                  {busy && <Loader2 size={13} className="animate-spin text-violet-500 mr-1" />}
-                  <button onClick={() => onView({ nombre: doc.nombre, url: urlDe(doc) })} title="Ver" className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Eye size={13} /></button>
-                  <a href={urlDe(doc)} download={doc.nombre} onClick={() => registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó')} title="Descargar" className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded"><Download size={13} /></a>
-                  <button onClick={() => { docReemplazarRef.current = doc; fileRef.current?.click(); }} disabled={busy} title="Reemplazar (subir versión nueva)" className="p-1.5 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded disabled:opacity-50"><Upload size={13} /></button>
-                  <button onClick={() => { setEditando(doc.nombre); setValorNombre(doc.nombre); }} disabled={busy} title="Renombrar" className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-50"><Pencil size={13} /></button>
-                  <button onClick={() => eliminar(doc)} disabled={busy} title="Eliminar" className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"><Trash2 size={13} /></button>
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </>
+    </div>
   );
 }
 
@@ -1040,8 +1344,8 @@ export function DocumentosSection({
         ) : undefined}
       />
       <div className="card p-5">
-        <DocumentosPropiosList
-          docs={docsPropios as (DocumentoAdjunto & { categoria?: string })[]}
+        <DocumentosPropiosGrid
+          docs={docsPropios as DocPropio[]}
           codigoDecoded={codigoDecoded}
           onView={verYRegistrar}
           onRefrescar={fetchDocumentos}
