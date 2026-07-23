@@ -467,7 +467,7 @@ export function AnaliticaGestion() {
               <p className="text-[11px] text-indigo-600/80 mt-1">incluye {adj.n2} descartes N2</p>
             </motion.div>
             <motion.div whileHover={{ y: -3 }} className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
-              <p className="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1"><Trophy size={11} /> Adjudicadas</p>
+              <p className="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide flex items-center gap-1"><Trophy size={11} /> Ganadas</p>
               <p className="text-[28px] font-black text-slate-800 leading-none mt-1.5 tabular-nums">{adj.ganadas}</p>
               <p className="text-[11px] text-slate-400 mt-1">proyectos ganados</p>
             </motion.div>

@@ -30,10 +30,14 @@ export async function esExterno(req: NextRequest): Promise<boolean> {
 /**
  * GUARD CENTRAL: ¿este usuario puede ver/operar ESTA licitación?
  *  · admin o quien tenga ver_otros_negocios → sí (acceso amplio).
- *  · externo → SOLO si la licitación está asignada a él (negocios.asignado_a).
- *  · usuario normal → se conserva su comportamiento actual (no se restringe aquí).
- * Evita que un externo abra `/licitacion/CUALQUIER-CODIGO` escribiendo la URL a mano.
- * Fail-closed para externo: ante error de BD, DENIEGA (no filtra licitaciones ajenas).
+ *  · externo → SOLO si la licitación está asignada a él (negocios.asignado_a); ni siquiera ve
+ *    las sin asignar (su UI está acotada por completo a lo suyo).
+ *  · usuario normal → ve las SIN asignar (a cualquiera) y las asignadas A ÉL; si están
+ *    asignadas a OTRO perfil, se bloquea (no se puede "curiosear" el trabajo ajeno entrando
+ *    por URL directa — ver decisión 2026-07-23).
+ * Evita que cualquiera abra `/licitacion/CUALQUIER-CODIGO` escribiendo la URL a mano para ver
+ * la gestión interna (estado, historial, responsable) de un negocio ajeno.
+ * Fail-closed: ante error de BD, DENIEGA (no filtra licitaciones ajenas por accidente).
  */
 export async function puedeVerLicitacion(req: NextRequest, codigo: string): Promise<boolean> {
   const u = await getAuthedUser(req);
@@ -41,15 +45,30 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
   if (u.rol === 'admin') return true;
   const p = await permisosDeUsuario(u.id, u.rol);
   if (p.ver_otros_negocios) return true;
-  if (u.rol !== 'externo') return true; // usuario normal: comportamiento previo intacto
+
+  if (u.rol === 'externo') {
+    try {
+      const [rows] = await pool.query(
+        `SELECT 1 FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE LIMIT 1`,
+        [codigo, u.id],
+      );
+      return (rows as any[]).length > 0;
+    } catch {
+      return false; // fail-closed: sin certeza de asignación, no mostrar
+    }
+  }
+
+  // Usuario normal: sin dueño → cualquiera puede verla; con dueño → solo el dueño.
   try {
     const [rows] = await pool.query(
-      `SELECT 1 FROM negocios WHERE licitacion_codigo = ? AND asignado_a = ? AND activo = TRUE LIMIT 1`,
-      [codigo, u.id],
+      `SELECT asignado_a FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE LIMIT 1`,
+      [codigo],
     );
-    return (rows as any[]).length > 0;
+    const fila = (rows as any[])[0];
+    if (!fila) return true; // sin asignar: pública para cualquier perfil normal
+    return fila.asignado_a === u.id;
   } catch {
-    return false; // fail-closed: sin certeza de asignación, no mostrar
+    return false; // fail-closed
   }
 }
 

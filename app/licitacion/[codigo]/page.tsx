@@ -4,8 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Star, StarOff, ExternalLink, Copy, Check,
-  Building2, MapPin, Calendar, DollarSign, Hash,
-  Loader2, AlertCircle, Tag, RefreshCw, Briefcase, UserCheck,
+  Loader2, AlertCircle, Tag, RefreshCw, Briefcase, UserCheck, FolderOpen, History,
 } from 'lucide-react';
 import { DocumentoAdjunto, Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP } from '@/app/types/mercado-publico.types';
@@ -14,9 +13,11 @@ import { useFavorites } from '@/app/hooks/useFavorites';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { AppLayout } from '@/app/components/AppLayout';
-import { formatDate, formatCLP, getDiasRestantes, esUrlAnalizable, formatDateTime, estadoConfigFor, AnalisisIA } from './utils';
-import { SectionNav, SeccionLicitacion } from './SectionNav';
+import { getDiasRestantes, esUrlAnalizable, formatDateTime, estadoConfigFor, AnalisisIA } from './utils';
 import { AUTOMATIZACION_PAUSADA } from '@/app/lib/automatizacion';
+import { AsignarNegocioModal } from '@/app/components/AsignarNegocioModal';
+import { GestionAside, HistorialLicitacion, fmtFecha, type NegocioGestion, type EventoLic } from '@/app/negocios/[id]/GestionAside';
+import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
 import { ResumenSection } from './sections/ResumenSection';
 import { FechasSection } from './sections/FechasSection';
 import { ItemsSection } from './sections/ItemsSection';
@@ -27,10 +28,15 @@ import { ComentariosSection } from './sections/ComentariosSection';
 import { Viabilidad } from './sections/ViabilidadSection';
 import { ViabilidadIAPanel } from './sections/ViabilidadIAPanel';
 import { InteligenciaSection } from './sections/InteligenciaSection';
-import { PostulacionSection } from './sections/PostulacionSection';
-import { GestionSection } from './sections/GestionSection';
 import { ResultadoSection } from './sections/ResultadoSection';
 import { Resaltar } from '@/app/components/Resaltar';
+
+// Menú unificado con /negocios/[id] (mismo aside angosto, mismo orden de tabs).
+// 'inteligencia' NO aparece en NAV_SECTIONS (queda oculta, como en negocio): solo se
+// llega por el link "Ver análisis completo" dentro de CriteriosSection.
+type SeccionLicitacion =
+  | 'resumen' | 'resultado' | 'documentos' | 'viabilidad' | 'criterios'
+  | 'items' | 'fechas' | 'preguntas' | 'comentarios' | 'inteligencia';
 
 // ======================================================
 // PÁGINA PRINCIPAL
@@ -53,6 +59,12 @@ export default function LicitacionDetallePage() {
   const [activeSection,   setActiveSection]   = useState<SeccionLicitacion>('resumen');
   const [keywords,        setKeywords]        = useState<string[]>([]); // palabras clave activas del usuario, para resaltar
   const [asignadoNombre,  setAsignadoNombre]  = useState<string | null>(null); // ¿a qué perfil está asignada?
+  const [asignarOpen,     setAsignarOpen]     = useState(false); // modal Asignar/Reasignar a negocio
+  // Columna derecha de gestión: idéntica a /negocios/[id] (GestionAside) cuando la licitación
+  // YA está asignada a un negocio; si no, una versión ligera de solo lectura (ver más abajo).
+  const [negocioGestion, setNegocioGestion] = useState<NegocioGestion | null>(null);
+  const [negocioGestionCargado, setNegocioGestionCargado] = useState(false);
+  const [historialLigero, setHistorialLigero] = useState<EventoLic[]>([]);
 
   // --- ESTADO PARA DESCARGA AUTOMÁTICA ---
   const [descargandoAuto, setDescargandoAuto] = useState(false);
@@ -225,6 +237,36 @@ export default function LicitacionDetallePage() {
     } catch { /* silencioso */ }
   }, [codigoDecoded]);
 
+  // Columna de gestión (GestionAside): trae el negocio COMPLETO por código — la misma columna
+  // derecha que /negocios/[id], para que sea igual en ambas vistas cuando ya está asignada.
+  const fetchNegocioGestion = useCallback(async () => {
+    if (!codigoDecoded) return;
+    setNegocioGestionCargado(false);
+    try {
+      const res = await fetch(`/api/negocios/por-codigo/${encodeURIComponent(codigoDecoded)}`);
+      const data = await res.json();
+      setNegocioGestion(data?.success ? (data.negocio ?? null) : null);
+    } catch { setNegocioGestion(null); }
+    finally { setNegocioGestionCargado(true); }
+  }, [codigoDecoded]);
+
+  // Historial (solo lectura) para cuando la licitación AÚN NO está asignada — GestionAside trae
+  // el suyo propio una vez asignada, así que esto solo importa en el caso "sin negocio".
+  useEffect(() => {
+    if (!codigoDecoded) return;
+    fetch(`/api/historial?codigo=${encodeURIComponent(codigoDecoded)}&limit=100`)
+      .then(r => r.json())
+      .then(d => { if (d.success) setHistorialLigero(d.eventos || []); })
+      .catch(() => { /* silencioso */ });
+  }, [codigoDecoded]);
+
+  // Bitácora: qué sección revisó cada perfil (mismo mecanismo que /negocios/[id], deduplicado por
+  // día en el servidor). Deja constancia de quién miró una licitación aunque no esté asignada —
+  // parte del control de acceso: ver puedeVerLicitacion() en app/lib/api-auth.ts.
+  useEffect(() => {
+    if (codigoDecoded && licitacion) registrarVerSeccion(codigoDecoded, activeSection);
+  }, [codigoDecoded, activeSection, licitacion]);
+
   useEffect(() => {
     if (codigoDecoded) {
       fetchLicitacion();
@@ -232,8 +274,9 @@ export default function LicitacionDetallePage() {
       fetchAnalisisIA();
       fetchViabilidad();
       fetchAsignacion();
+      fetchNegocioGestion();
     }
-  }, [codigoDecoded, fetchLicitacion, fetchDocumentos, fetchAnalisisIA, fetchViabilidad, fetchAsignacion]);
+  }, [codigoDecoded, fetchLicitacion, fetchDocumentos, fetchAnalisisIA, fetchViabilidad, fetchAsignacion, fetchNegocioGestion]);
 
   // Cargar el informe de Viabilidad IA (para alimentar la pestaña Criterios con sus criterios + fuentes)
   useEffect(() => {
@@ -357,25 +400,36 @@ export default function LicitacionDetallePage() {
   }
 
   if (error || !licitacion) {
+    // "Sin acceso" (403 de puedeVerLicitacion) es un caso distinto de "no existe": está asignada
+    // a otro perfil, no un dato faltante. Se avisa claro y no se ofrece "Reintentar" (no ayuda).
+    const sinAcceso = /sin acceso/i.test(error || '');
     return (
       <AppLayout>
         <div className="flex-1 flex items-center justify-center py-24">
           <div className="text-center max-w-md">
-            <div className="w-16 h-16 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <AlertCircle size={28} className="text-red-400" />
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${sinAcceso ? 'bg-amber-50' : 'bg-red-50'}`}>
+              <AlertCircle size={28} className={sinAcceso ? 'text-amber-500' : 'text-red-400'} />
             </div>
-            <h2 className="text-xl font-semibold text-zinc-800 mb-2">Licitación no encontrada</h2>
-            <p className="text-zinc-500 text-sm mb-2">{error || 'No existe información para este código en la API'}</p>
+            <h2 className="text-xl font-semibold text-zinc-800 mb-2">
+              {sinAcceso ? 'Acceso restringido' : 'Licitación no encontrada'}
+            </h2>
+            <p className="text-zinc-500 text-sm mb-2">
+              {sinAcceso
+                ? 'Esta licitación ya está asignada a otro perfil como negocio. No puedes verla.'
+                : (error || 'No existe información para este código en la API')}
+            </p>
             <p className="font-mono text-xs text-zinc-400 mb-6">{codigoDecoded}</p>
             <div className="flex gap-3 justify-center">
               <button onClick={() => router.back()}
                 className="flex items-center gap-2 px-4 py-2 border border-zinc-200 text-zinc-700 rounded-xl hover:bg-zinc-50 text-sm transition-colors">
                 <ArrowLeft size={15} /> Volver
               </button>
-              <button onClick={fetchLicitacion}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm transition-colors">
-                <RefreshCw size={15} /> Reintentar
-              </button>
+              {!sinAcceso && (
+                <button onClick={fetchLicitacion}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 text-sm transition-colors">
+                  <RefreshCw size={15} /> Reintentar
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -388,17 +442,12 @@ export default function LicitacionDetallePage() {
 
   const diasRestantes  = getDiasRestantes(licitacion.fecha_cierre);
   const isFav          = isFavorite(licitacion.codigo);
-  const monto          = formatCLP(licitacion.monto_total || licitacion.monto_estimado);
   const tipoLabel      = licitacion.tipo_licitacion
     ? (TIPO_LICITACION_MAP[licitacion.tipo_licitacion] || TIPOS_LICITACION[licitacion.tipo_licitacion] || licitacion.tipo_licitacion)
     : null;
 
   const fechasProceso          = licitacion.fechas_proceso;
   const mpUrl                  = `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(codigoDecoded)}`;
-
-  // ¿Proceso finalizado? Habilita el tab "Resultado" (como MP habilita esos botones al cerrar).
-  const finalizada = !!licitacion.fecha_adjudicacion ||
-    /adjudic|cerrad|desiert|revocad/i.test(licitacion.estado || '');
 
   // Timeline: solo fechas presentes
   const fechasAdic = [
@@ -413,37 +462,18 @@ export default function LicitacionDetallePage() {
     { label: 'Adjudicación',             fecha: licitacion.fecha_adjudicacion },
   ].filter(f => f.fecha && formatDateTime(f.fecha));
 
-  // KPIs: solo los que tienen valor
-  const kpis = [
-    monto && {
-      icon:  <DollarSign size={15} className="text-green-600" />,
-      label: 'Monto estimado',
-      value: monto,
-      sub:   licitacion.moneda || 'CLP',
-    },
-    licitacion.fecha_cierre && {
-      icon:  <Calendar size={15} className="text-blue-600" />,
-      label: 'Fecha cierre',
-      value: formatDate(licitacion.fecha_cierre) || '—',
-      sub:   diasRestantes !== null
-        ? diasRestantes > 0  ? `${diasRestantes} días restantes`
-        : diasRestantes === 0 ? 'Cierra hoy'
-        : 'Proceso finalizado'
-        : undefined,
-    },
-    (licitacion.comprador || licitacion.organismo) && {
-      icon:  <Building2 size={15} className="text-purple-600" />,
-      label: 'Unidad compradora',
-      value: licitacion.comprador || licitacion.organismo,
-      sub:   licitacion.codigo_organismo || undefined,
-    },
-    licitacion.region && {
-      icon:  <MapPin size={15} className="text-orange-600" />,
-      label: 'Región',
-      value: licitacion.region,
-      sub:   licitacion.comuna_unidad || undefined,
-    },
-  ].filter(Boolean) as { icon: React.ReactNode; label: string; value: string; sub?: string }[];
+  // Menú unificado con /negocios/[id]: mismo orden y mismo criterio de badges de conteo.
+  const NAV_SECTIONS: { key: SeccionLicitacion; label: string; count: number | null }[] = [
+    { key: 'resumen',     label: 'Resumen',     count: null },
+    { key: 'resultado',   label: 'Resultado',   count: null },
+    { key: 'documentos',  label: 'Documentos',  count: documentosCache.length || null },
+    { key: 'viabilidad',  label: 'Viabilidad',  count: null },
+    { key: 'criterios',   label: 'Criterios',   count: licitacion.criterios_evaluacion?.length || analisisIA?.criteriosEvaluacion?.length || null },
+    { key: 'items',       label: 'Ítems',       count: licitacion.items?.length || null },
+    { key: 'fechas',      label: 'Fechas',      count: fechasAdic.length || null },
+    { key: 'preguntas',   label: 'Preguntas',   count: null },
+    { key: 'comentarios', label: 'Comentarios', count: null },
+  ];
 
   return (
     <AppLayout breadcrumb={[
@@ -451,233 +481,269 @@ export default function LicitacionDetallePage() {
       { label: 'Licitaciones' },
       { label: codigoDecoded },
     ]}>
-      <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-6 space-y-5">
+      <div className="flex h-full overflow-hidden">
 
-        {/* HEADER CARD ─────────────────────────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          {/* Banner indigo */}
-          <div className="bg-gradient-to-r from-[#1e1b4b] via-[#312e81] to-[#1e3a8a] px-6 py-5">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                {/* Code + badges */}
-                <div className="flex items-center gap-2 mb-3 flex-wrap">
-                  <button
-                    onClick={handleCopyCodigo}
-                    className="flex items-center gap-1.5 font-mono text-[12px] text-indigo-200 bg-white/10 border border-white/20 px-2.5 py-1 rounded-lg hover:bg-white/20 transition-colors"
-                    title="Copiar código"
-                  >
-                    <Hash size={10} />
-                    {codigoDecoded}
-                    {copiedCodigo
-                      ? <Check size={11} className="text-emerald-400 ml-1" />
-                      : <Copy size={10} className="text-indigo-300/50 ml-1" />}
-                  </button>
-                  {tipoLabel && (
-                    <span className="flex items-center gap-1 text-[11px] text-indigo-300 bg-white/10 border border-white/15 px-2 py-0.5 rounded-full font-medium">
-                      <Tag size={9} />
-                      {licitacion.tipo_licitacion} · {tipoLabel}
+        {/* ── LEFT NAV — mismo shell que /negocios/[id] ─────────────────── */}
+        <aside className="hidden lg:flex flex-col w-44 border-r border-zinc-200/80 bg-white flex-shrink-0 overflow-y-auto">
+          <div className="px-3 pt-4 pb-3">
+            <button onClick={() => router.back()} className="flex items-center gap-1.5 text-[12px] text-zinc-500 hover:text-zinc-900 transition-colors font-medium">
+              <ArrowLeft size={13} /> Volver
+            </button>
+          </div>
+
+          <div className="px-3 pb-2">
+            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest px-2 pb-1.5">
+              La licitación
+            </p>
+            <nav className="space-y-0.5">
+              {NAV_SECTIONS.map(s => (
+                <button
+                  key={s.key}
+                  onClick={() => setActiveSection(s.key)}
+                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] transition-all ${
+                    activeSection === s.key
+                      ? 'bg-indigo-50 text-indigo-700 font-bold'
+                      : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 font-medium'
+                  }`}
+                >
+                  <span>{s.label}</span>
+                  {s.count != null && s.count > 0 && (
+                    <span className={`text-[10px] px-1.5 py-px rounded-full font-bold ${
+                      activeSection === s.key ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-400'
+                    }`}>
+                      {s.count}
                     </span>
                   )}
-                  <span className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${estadoConfig.badge}`}>
-                    {estadoConfig.icon} {estadoConfig.label}
-                  </span>
-                </div>
+                </button>
+              ))}
+            </nav>
+          </div>
+        </aside>
 
-                {/* Title */}
-                <h1 className="text-xl sm:text-2xl font-bold text-white leading-snug mb-2.5 tracking-tight">
-                  <Resaltar texto={licitacion.nombre} keywords={keywords} className="bg-blue-400/30 text-white rounded-[3px] px-0.5 font-bold underline decoration-blue-300/60" />
-                </h1>
+        {/* ── MAIN CONTENT ─────────────────────────────────────────────── */}
+        <div className="flex-1 overflow-y-auto min-w-0">
+          <div className={`p-5 sm:p-7 mx-auto w-full ${activeSection === 'documentos' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+            {asignarOpen && (
+              <AsignarNegocioModal
+                licitacion={licitacion}
+                asignadoNombre={asignadoNombre}
+                onClose={() => setAsignarOpen(false)}
+                onAsignada={() => { fetchAsignacion(); fetchNegocioGestion(); }}
+              />
+            )}
 
-                {/* Organismo */}
-                <div className="flex items-center gap-2 text-indigo-300 text-sm flex-wrap">
-                  <Building2 size={13} />
-                  <span>{licitacion.organismo}</span>
-                  {licitacion.region && (
-                    <>
-                      <span className="text-indigo-500">·</span>
-                      <MapPin size={12} />
-                      <span>{licitacion.region}</span>
-                    </>
-                  )}
-                </div>
+            {/* Header */}
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-3 lg:hidden">
+                <button onClick={() => router.back()} className="flex items-center gap-1 text-[12px] text-zinc-500 hover:text-zinc-800">
+                  <ArrowLeft size={12} /> Volver
+                </button>
               </div>
 
-              {/* Action buttons */}
-              <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 flex-shrink-0">
-                {/* Favorito */}
+              <p className="text-[11px] text-zinc-400 font-semibold uppercase tracking-wider mb-1">
+                Detalle Licitación · <span className="text-zinc-600 font-mono">{codigoDecoded}</span>
+              </p>
+
+              <div className="flex items-start gap-2 flex-wrap mb-1.5">
+                {tipoLabel && (
+                  <span className="flex items-center gap-1 text-[11px] text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full font-bold">
+                    <Tag size={10} /> {licitacion.tipo_licitacion} · {tipoLabel}
+                  </span>
+                )}
+                <span className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${estadoConfig.badge}`}>
+                  {estadoConfig.icon} {estadoConfig.label}
+                </span>
+              </div>
+
+              <h1 className="text-[18px] font-bold text-zinc-900 leading-snug">
+                <Resaltar texto={licitacion.nombre} keywords={keywords} className="bg-yellow-200/70 rounded px-0.5 font-bold" />
+              </h1>
+              <p className="text-[12px] text-zinc-400 uppercase tracking-wide mt-0.5">
+                {licitacion.organismo}
+              </p>
+
+              {/* Fila de acciones — antes vivían en la tab "Gestión" (eliminada) */}
+              <div className="flex items-center gap-2 flex-wrap mt-3">
+                <button
+                  onClick={handleCopyCodigo}
+                  className="flex items-center gap-1.5 text-[12px] font-semibold text-zinc-500 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 px-2.5 py-1.5 rounded-lg transition-colors"
+                  title="Copiar código"
+                >
+                  {copiedCodigo ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                  Copiar código
+                </button>
+
                 <button
                   onClick={handleToggleFavorite}
                   disabled={toggling}
-                  title={isFav ? 'Quitar de favoritos' : 'Agregar a favoritos'}
-                  className="p-2.5 bg-white/10 hover:bg-white/20 rounded-xl transition-colors border border-white/20 disabled:opacity-50"
+                  className={`flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1.5 rounded-lg border transition-colors disabled:opacity-50 ${
+                    isFav ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' : 'bg-zinc-50 text-zinc-500 border-zinc-200 hover:bg-zinc-100'
+                  }`}
                 >
-                  {toggling
-                    ? <Loader2 size={16} className="text-indigo-300 animate-spin" />
-                    : isFav
-                      ? <Star size={16} className="text-amber-400 fill-amber-400" />
-                      : <StarOff size={16} className="text-indigo-300" />}
+                  {toggling ? <Loader2 size={12} className="animate-spin" /> : isFav ? <Star size={12} className="fill-amber-500 text-amber-500" /> : <StarOff size={12} />}
+                  {isFav ? 'En favoritos' : 'Favorito'}
                 </button>
 
-                {/* Estado de asignación — visible para todos (regla: se ve en toda la app). */}
                 {asignadoNombre && (
-                  <span
-                    className="flex items-center gap-1.5 px-3 py-2 bg-blue-500/20 rounded-xl border border-blue-300/30 text-blue-100 text-xs font-semibold"
-                    title={`Asignada a ${asignadoNombre}`}
-                  >
-                    <UserCheck size={13} /> {asignadoNombre}
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg" title={`Asignada a ${asignadoNombre}`}>
+                    <UserCheck size={11} /> {asignadoNombre}
                   </span>
                 )}
-
-                {/* Asignar / Reasignar negocio (admin) — salta a la sección Gestión. */}
                 {isAdmin && (
                   <button
-                    onClick={() => setActiveSection('gestion')}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-xl border border-white/20 text-indigo-200 hover:text-white text-xs font-semibold transition-colors"
+                    onClick={() => setAsignarOpen(true)}
+                    className={`flex items-center gap-1.5 text-white text-[12px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors ${
+                      asignadoNombre ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
+                    }`}
                   >
-                    <Briefcase size={13} /> {asignadoNombre ? 'Reasignar' : 'Asignar'}
+                    <Briefcase size={12} /> {asignadoNombre ? 'Reasignar' : 'Asignar'}
                   </button>
                 )}
 
-                {/* Descargar documentos */}
-                <button
-                  onClick={() => setActiveSection('documentos')}
-                  className="flex items-center gap-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 rounded-xl border border-white/20 text-indigo-200 hover:text-white text-xs font-semibold transition-colors"
-                  title="Ir a documentos"
-                >
-                  <RefreshCw size={13} /> Documentos
-                </button>
-
-                {/* Ver en MP */}
                 <a
                   href={mpUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-indigo-500 hover:bg-indigo-400 text-white text-xs font-bold rounded-xl transition-colors shadow-lg shadow-indigo-900/40"
+                  className="flex items-center gap-1.5 text-[12px] font-semibold text-zinc-500 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 px-2.5 py-1.5 rounded-lg transition-colors"
                 >
-                  <ExternalLink size={13} /> Mercado Público
+                  <ExternalLink size={12} /> Mercado Público
                 </a>
               </div>
             </div>
-          </div>
 
-          {/* KPIs */}
-          {kpis.length > 0 && (
-            <div className={`grid divide-x divide-y sm:divide-y-0 divide-slate-100 ${
-              kpis.length === 4 ? 'grid-cols-2 sm:grid-cols-4' :
-              kpis.length === 3 ? 'grid-cols-1 sm:grid-cols-3' :
-              kpis.length === 2 ? 'grid-cols-2' : 'grid-cols-1'
-            }`}>
-              {kpis.map((kpi, i) => (
-                <div key={i} className="px-5 py-4 hover:bg-slate-50 transition-colors">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    {kpi.icon}
-                    <span className="text-[11px] text-slate-500 font-medium">{kpi.label}</span>
-                  </div>
-                  <p className="text-[13.5px] font-bold text-slate-900 line-clamp-1">{kpi.value}</p>
-                  {kpi.sub && <p className="text-[11px] text-slate-400 mt-0.5 truncate">{kpi.sub}</p>}
-                </div>
+            {/* Mobile tabs */}
+            <div className="flex gap-1 mb-5 lg:hidden overflow-x-auto pb-1">
+              {NAV_SECTIONS.map(s => (
+                <button
+                  key={s.key}
+                  onClick={() => setActiveSection(s.key)}
+                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-colors ${
+                    activeSection === s.key ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-500 hover:text-zinc-700'
+                  }`}
+                >
+                  {s.label}
+                  {s.count != null && s.count > 0 && <span className="ml-1 opacity-60">{s.count}</span>}
+                </button>
               ))}
             </div>
-          )}
-        </div>
 
-        {/* ═══ NAV + CONTENIDO ═══════════════════════════════════════════════ */}
-        <div className="flex flex-col lg:flex-row gap-6">
-          <SectionNav
-            active={activeSection}
-            onChange={setActiveSection}
-            counts={{
-              documentos: documentosCache.length || undefined,
-              items: licitacion.items?.length || undefined,
-              fechas: fechasAdic.length || undefined,
-              ia: documentosAnalizables.length > 0,
-              viabilidad: viabilidad?.score_viabilidad?.semaforo ?? null,
-              resultado: finalizada,
-            }}
-          />
-
-          <div key={activeSection} className="flex-1 min-w-0 fade-in">
-            {activeSection === 'resumen' && (
-              <ResumenSection
-                licitacion={licitacion}
-                tipoLabel={tipoLabel}
-                diasRestantes={diasRestantes}
-                analisisIA={analisisIA}
-                analizandoIA={analizandoIA}
-                keywords={keywords}
-              />
-            )}
-            {activeSection === 'fechas' && (
-              <FechasSection fechas={fechasAdic} />
-            )}
-            {activeSection === 'items' && (
-              <ItemsSection items={licitacion.items} keywords={keywords} />
-            )}
-            {activeSection === 'resultado' && (
-              <ResultadoSection codigo={codigoDecoded} mpUrl={mpUrl} />
-            )}
-            {activeSection === 'documentos' && (
-              <DocumentosSection
-                codigoDecoded={codigoDecoded}
-                mpUrl={mpUrl}
-                documentosCache={documentosCache}
-                cargandoDocs={cargandoDocs}
-                descargandoAuto={descargandoAuto}
-                handleAutoDescargar={handleAutoDescargar}
-                fetchDocumentos={fetchDocumentos}
-                clasificando={clasificando}
-                onReClasificar={handleClasificar}
-                resumenClasificacion={resumenClasificacion}
-              />
-            )}
-            {activeSection === 'preguntas' && (
-              <PreguntasSection codigoDecoded={codigoDecoded} mpUrl={mpUrl} />
-            )}
-            {activeSection === 'criterios' && (
-              <CriteriosSection
-                criterios={licitacion.criterios_evaluacion}
-                analisisIA={analisisIA}
-                criteriosViabilidad={informeViabIA?.criterios_evaluacion?.criterios}
-                analizandoIA={analizandoIA}
-                onIrAInteligencia={() => setActiveSection('inteligencia')}
-              />
-            )}
-            {activeSection === 'comentarios' && (
-              <ComentariosSection codigoDecoded={codigoDecoded} />
-            )}
-            {activeSection === 'viabilidad' && (
-              // La IA es la fuente ÚNICA de la viabilidad: entrega el score, el veredicto
-              // y todo el análisis. Un solo panel, un solo botón.
-              <ViabilidadIAPanel codigo={codigoDecoded} onComplete={fetchDocumentos} />
-            )}
-            {activeSection === 'inteligencia' && (
-              <InteligenciaSection codigo={codigoDecoded} documentosAnalizables={documentosAnalizables} nombreLicitacion={licitacion.nombre} />
-            )}
-            {activeSection === 'postulacion' && (
-              <PostulacionSection />
-            )}
-            {activeSection === 'gestion' && (
-              <GestionSection
-                licitacion={licitacion}
-                isAdmin={isAdmin}
-                isFav={isFav}
-                toggling={toggling}
-                handleToggleFavorite={handleToggleFavorite}
-                mpUrl={mpUrl}
-                asignadoNombre={asignadoNombre}
-                onAsignacionCambiada={fetchAsignacion}
-              />
-            )}
+            {/* Sections */}
+            <div key={activeSection} className="fade-in">
+              {activeSection === 'resumen' && (
+                <ResumenSection
+                  licitacion={licitacion}
+                  tipoLabel={tipoLabel}
+                  diasRestantes={diasRestantes}
+                  analisisIA={analisisIA}
+                  analizandoIA={analizandoIA}
+                  keywords={keywords}
+                />
+              )}
+              {activeSection === 'resultado' && (
+                <ResultadoSection codigo={codigoDecoded} mpUrl={mpUrl} />
+              )}
+              {activeSection === 'fechas' && (
+                <FechasSection fechas={fechasAdic} />
+              )}
+              {activeSection === 'items' && (
+                <ItemsSection items={licitacion.items} keywords={keywords} />
+              )}
+              {activeSection === 'documentos' && (
+                <DocumentosSection
+                  codigoDecoded={codigoDecoded}
+                  mpUrl={mpUrl}
+                  documentosCache={documentosCache}
+                  cargandoDocs={cargandoDocs}
+                  descargandoAuto={descargandoAuto}
+                  handleAutoDescargar={handleAutoDescargar}
+                  fetchDocumentos={fetchDocumentos}
+                  clasificando={clasificando}
+                  onReClasificar={handleClasificar}
+                  resumenClasificacion={resumenClasificacion}
+                />
+              )}
+              {activeSection === 'preguntas' && (
+                <PreguntasSection codigoDecoded={codigoDecoded} mpUrl={mpUrl} />
+              )}
+              {activeSection === 'criterios' && (
+                <CriteriosSection
+                  criterios={licitacion.criterios_evaluacion}
+                  analisisIA={analisisIA}
+                  criteriosViabilidad={informeViabIA?.criterios_evaluacion?.criterios}
+                  analizandoIA={analizandoIA}
+                  onIrAInteligencia={() => setActiveSection('inteligencia')}
+                />
+              )}
+              {activeSection === 'comentarios' && (
+                <ComentariosSection codigoDecoded={codigoDecoded} />
+              )}
+              {activeSection === 'viabilidad' && (
+                // La IA es la fuente ÚNICA de la viabilidad: entrega el score, el veredicto
+                // y todo el análisis. Un solo panel, un solo botón.
+                <ViabilidadIAPanel codigo={codigoDecoded} onComplete={fetchDocumentos} />
+              )}
+              {activeSection === 'inteligencia' && (
+                <InteligenciaSection codigo={codigoDecoded} documentosAnalizables={documentosAnalizables} nombreLicitacion={licitacion.nombre} />
+              )}
+            </div>
           </div>
         </div>
 
-        {/* Volver */}
-        <button
-          onClick={() => router.back()}
-          className="flex items-center gap-2 py-2.5 text-zinc-500 hover:text-zinc-700 text-sm transition-colors"
-        >
-          <ArrowLeft size={14} /> Volver a resultados
-        </button>
+        {/* ── RIGHT SIDEBAR — igual que /negocios/[id] cuando ya está asignada; si no,
+            versión de solo lectura con un CTA para asignarla. ─────────────────── */}
+        {negocioGestionCargado && (
+          negocioGestion ? (
+            <GestionAside
+              negocio={negocioGestion}
+              onNegocioChange={patch => setNegocioGestion(prev => prev ? { ...prev, ...patch } : prev)}
+              viabIA={informeViabIA}
+              isAdmin={isAdmin}
+              fechaPublicacion={licitacion.fecha_publicacion}
+              documentosCount={documentosCache.length}
+              mpUrl={mpUrl}
+              onDocumentosRefrescar={fetchDocumentos}
+              onEliminado={() => { setNegocioGestion(null); fetchAsignacion(); }}
+              onIrAViabilidad={() => setActiveSection('viabilidad')}
+            />
+          ) : (
+            <aside className="hidden xl:flex flex-col w-56 border-l border-zinc-200/80 bg-white flex-shrink-0 overflow-y-auto p-4 gap-5">
+              <div>
+                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Publicación</p>
+                <p className="text-[12px] text-zinc-600 font-medium">{fmtFecha(licitacion.fecha_publicacion)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Cierre</p>
+                <p className="text-[12px] text-zinc-600 font-medium">{fmtFecha(licitacion.fecha_cierre)}</p>
+              </div>
+              {documentosCache.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Documentos</p>
+                  <span className="flex items-center gap-2 text-[12px] text-zinc-600 font-semibold">
+                    <FolderOpen size={12} /> {documentosCache.length} archivo{documentosCache.length > 1 ? 's' : ''}
+                  </span>
+                </div>
+              )}
+              <div>
+                <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  <History size={11} /> Historial
+                </p>
+                <HistorialLicitacion eventos={historialLigero} />
+              </div>
+              <div className="mt-auto pt-4 border-t border-zinc-100 space-y-2">
+                <button
+                  onClick={() => setAsignarOpen(true)}
+                  className="flex items-center justify-center gap-2 w-full px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[12.5px] font-semibold rounded-xl transition-colors"
+                >
+                  <Briefcase size={13} /> Asignar a negocio
+                </button>
+                <a href={mpUrl} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2 w-full px-3 py-2 border border-zinc-200 text-zinc-600 text-[12.5px] font-semibold rounded-xl hover:bg-zinc-50 transition-colors">
+                  <ExternalLink size={13} /> Ver en Mercado Público
+                </a>
+              </div>
+            </aside>
+          )
+        )}
       </div>
     </AppLayout>
   );

@@ -296,7 +296,7 @@ export default function AnalisisLicitacionPage() {
 
   // ── Métricas de la selección ────────────────────────────────────────────────
   const stats = useMemo(() => {
-    let vigentes = 0, postuladas = 0, adjudicadas = 0, descartadas = 0, perdidas = 0,
+    let vigentes = 0, postuladas = 0, ganadas = 0, descartadas = 0, perdidas = 0,
       enEvaluacion = 0, cierran7 = 0, montoOfertado = 0, montoAdjudicado = 0,
       montoCartera = 0, ganadasSinActa = 0;
     const porMesMap = new Map<string, number>();
@@ -312,10 +312,10 @@ export default function AnalisisLicitacionPage() {
       // "Postuladas" = OFERTAS PRESENTADAS = todo lo que pasó por postulación, igual que el
       // apartado /postuladas (64). Contar solo estado === 'POSTULADA' daba 57: al promover una
       // a ADJUDICADA/PERDIDA desaparecía del conteo, como si nunca se hubiera ofertado.
-      // Se cumple: postuladas = adjudicadas + perdidas + enEvaluacion.
+      // Se cumple: postuladas = ganadas + perdidas + enEvaluacion.
       if (res != null) postuladas++;
       if (res === 'ganada') {
-        adjudicadas++;
+        ganadas++;
         const a = adjMap[n.licitacion_codigo];
         // Monto NETO: lo que MP nos adjudicó según el acta; si no está, lo ofertado.
         montoAdjudicado += a?.montoNuestro || n.monto_ofertado || n.licitacion_monto || 0;
@@ -362,13 +362,13 @@ export default function AnalisisLicitacionPage() {
     // Tasa = ganadas sobre lo RESUELTO por MP (ganadas + perdidas). Las que siguen en
     // evaluación no entran: no se sabe todavía. Es el mismo cálculo del dashboard
     // ("Éxito competitivo"), así que ambos tableros dan el mismo número.
-    const resueltas = adjudicadas + perdidas;
-    const tasaAdj = resueltas > 0 ? Math.round((adjudicadas / resueltas) * 100) : 0;
+    const resueltas = ganadas + perdidas;
+    const tasaExito = resueltas > 0 ? Math.round((ganadas / resueltas) * 100) : 0;
 
     return {
-      total: seleccion.length, vigentes, postuladas, adjudicadas, descartadas, perdidas,
+      total: seleccion.length, vigentes, postuladas, ganadas, descartadas, perdidas,
       enEvaluacion, resueltas, cierran7, montoOfertado, montoCartera, montoAdjudicado,
-      ganadasSinActa, tasaAdj, porMes, topOrg,
+      ganadasSinActa, tasaExito, porMes, topOrg,
     };
   }, [seleccion, resultadoDe, adjMap]);
 
@@ -529,10 +529,10 @@ export default function AnalisisLicitacionPage() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 stagger-grid">
               <KPI icon={<Briefcase size={16} />} label="Vigentes" value={String(stats.vigentes)} tint="#4f46e5" sub="en trabajo" />
               <KPI icon={<Send size={16} />} label="Postuladas" value={String(stats.postuladas)} tint="#b45309" sub="ofertas presentadas" />
-              <KPI icon={<Trophy size={16} />} label="Adjudicadas" value={String(stats.adjudicadas)} tint="#16a34a" sub="ganadas según acta" />
+              <KPI icon={<Trophy size={16} />} label="Ganadas" value={String(stats.ganadas)} tint="#16a34a" sub="ganadas según acta" />
               <KPI icon={<Ban size={16} />} label="Descartadas" value={String(stats.descartadas)} tint="#dc2626" />
-              <KPI icon={<Target size={16} />} label="Tasa adjudicación" value={`${stats.tasaAdj}%`} tint="#7c3aed"
-                sub={stats.resueltas ? `${stats.adjudicadas} de ${stats.resueltas} resueltas` : 'sin resueltas aún'} />
+              <KPI icon={<Target size={16} />} label="Tasa de éxito" value={`${stats.tasaExito}%`} tint="#7c3aed"
+                sub={stats.resueltas ? `${stats.ganadas} de ${stats.resueltas} resueltas` : 'sin resueltas aún'} />
               <KPI icon={<Clock size={16} />} label="Cierran ≤ 7 días" value={String(stats.cierran7)} tint={stats.cierran7 > 0 ? '#dc2626' : '#64748b'} />
             </div>
 
@@ -561,7 +561,7 @@ export default function AnalisisLicitacionPage() {
                   <p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">Monto adjudicado</p>
                   <p className="text-[22px] font-black text-slate-900 tabular-nums leading-tight">{fmtMonto(stats.montoAdjudicado)}</p>
                   <p className="text-[10px] text-slate-400">
-                    <span className="font-semibold">montoNuestro</span> del acta de Mercado Público en las {stats.adjudicadas} ganadas
+                    <span className="font-semibold">montoNuestro</span> del acta de Mercado Público en las {stats.ganadas} ganadas
                     {stats.montoOfertado > 0 && <> · convierte el <span className="font-semibold">{Math.round((stats.montoAdjudicado / stats.montoOfertado) * 100)}%</span> de lo ofertado</>}
                   </p>
                 </div>
@@ -600,25 +600,25 @@ export default function AnalisisLicitacionPage() {
                     <Procedencia
                       fuente="/api/negocios → estado_pipeline + fecha de cierre de la licitación"
                       universo="El mismo de la torta de la izquierda, filtrado por esVigente()."
-                      calculo="Deja fuera lo que ya salió de la mesa (descartadas, postuladas, en posible adjudicación, adjudicadas y perdidas) Y todo lo que tiene el cierre vencido. Es exactamente el número del KPI “Vigentes”, por eso ahora coinciden."
+                      calculo="Deja fuera lo que ya salió de la mesa (descartadas, postuladas, en posible adjudicación, ganadas y perdidas) Y todo lo que tiene el cierre vencido. Es exactamente el número del KPI “Vigentes”, por eso ahora coinciden."
                     />
                   </>
                 )}
               </ChartCard>
 
-              {/* Tasa de adjudicación (radial) */}
-              <ChartCard title="Tasa de adjudicación" icon={<Target size={13} />}
-                sub={stats.resueltas ? `${stats.adjudicadas} ganadas de ${stats.resueltas} que MP ya resolvió` : 'MP aún no resuelve ninguna'}>
+              {/* Tasa de éxito (radial) */}
+              <ChartCard title="Tasa de éxito" icon={<Target size={13} />}
+                sub={stats.resueltas ? `${stats.ganadas} ganadas de ${stats.resueltas} que MP ya resolvió` : 'MP aún no resuelve ninguna'}>
                 <div className="flex items-center gap-4">
                   <div style={{ width: 180, height: 200 }} className="relative">
                     <ResponsiveContainer width="100%" height="100%">
-                      <RadialBarChart innerRadius="70%" outerRadius="100%" data={[{ name: 'tasa', value: stats.tasaAdj, fill: '#7c3aed' }]}
-                        startAngle={90} endAngle={90 - (stats.tasaAdj / 100) * 360}>
+                      <RadialBarChart innerRadius="70%" outerRadius="100%" data={[{ name: 'tasa', value: stats.tasaExito, fill: '#7c3aed' }]}
+                        startAngle={90} endAngle={90 - (stats.tasaExito / 100) * 360}>
                         <RadialBar background dataKey="value" cornerRadius={10} />
                       </RadialBarChart>
                     </ResponsiveContainer>
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                      <span className="text-[30px] font-black text-violet-700 leading-none tabular-nums">{stats.tasaAdj}%</span>
+                      <span className="text-[30px] font-black text-violet-700 leading-none tabular-nums">{stats.tasaExito}%</span>
                       <span className="text-[10px] text-slate-400 font-semibold">éxito</span>
                     </div>
                   </div>
@@ -626,7 +626,7 @@ export default function AnalisisLicitacionPage() {
                       ese total. Descartadas va aparte: nunca se llegó a ofertar. */}
                   <div className="flex-1 space-y-2.5">
                     <MiniStat label="Ofertas presentadas" value={stats.postuladas} color="#b45309" />
-                    <MiniStat label="· Adjudicadas" value={stats.adjudicadas} color="#16a34a" />
+                    <MiniStat label="· Ganadas" value={stats.ganadas} color="#16a34a" />
                     <MiniStat label="· Perdidas" value={stats.perdidas} color="#9f1239" />
                     <MiniStat label="· En evaluación" value={stats.enEvaluacion} color="#64748b" />
                     <MiniStat label="Descartadas (no se ofertó)" value={stats.descartadas} color="#dc2626" />
@@ -634,10 +634,10 @@ export default function AnalisisLicitacionPage() {
                 </div>
                 <Procedencia
                   fuente="/api/postuladas/estado → acta de adjudicación de Mercado Público (cache que refresca el cron cada 2h). El acta manda; estado_pipeline solo se usa si esa licitación aún no está en el cache."
-                  universo="Las que pasaron por postulación (postuladas, en posible adjudicación, adjudicadas y perdidas). Las descartadas nunca se ofertaron, por eso van aparte."
+                  universo="Las que pasaron por postulación (postuladas, en posible adjudicación, ganadas y perdidas). Las descartadas nunca se ofertaron, por eso van aparte."
                   calculo="Tasa = ganadas ÷ (ganadas + perdidas). Las que siguen en evaluación NO entran: todavía no se sabe. Ganamos = el RUT del acta calza con una de nuestras empresas."
                   ojo={stats.ganadasSinActa > 0
-                    ? `${stats.ganadasSinActa} de las ${stats.adjudicadas} ganadas vienen del estado puesto a mano, no del acta de MP.`
+                    ? `${stats.ganadasSinActa} de las ${stats.ganadas} ganadas vienen del estado puesto a mano, no del acta de MP.`
                     : undefined}
                 />
               </ChartCard>

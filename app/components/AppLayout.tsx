@@ -38,7 +38,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard size={17} />, exact: true },
       { label: 'Negocios',  href: '/negocios',  icon: <Briefcase size={17} /> },
       { label: 'Postuladas', href: '/postuladas', icon: <Send size={17} /> },
-      { label: 'Adjudicadas', href: '/adjudicadas', icon: <Trophy size={17} /> },
+      { label: 'Ganadas/Perdidas', href: '/adjudicadas', icon: <Trophy size={17} /> },
     ],
   },
   {
