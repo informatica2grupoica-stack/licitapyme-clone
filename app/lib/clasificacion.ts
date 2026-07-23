@@ -183,10 +183,13 @@ LAS 6 CAJAS
 
 5) DOCUMENTOS_PROPIOS  (subtipo: entregable | interno)
    - Documentos CREADOS POR NOSOTROS (Tecnomaq), en formato propio, NO emitidos por el organismo.
-   - Hoy llega vacía al descargar del portal (los documentos propios aún no existen en el
-     expediente). Su valor es existir como caja destino para la re-ingesta futura.
-   - Señales cuando aplique: membrete Tecnomaq, "cotización", "ficha técnica [nuestra]",
-     "tabla de costeo", "tabla de completud".
+   - REGLA DURA: los archivos que estás clasificando en ESTA tarea son SIEMPRE documentos
+     DESCARGADOS del portal de la licitación — NINGUNO es nuestro. Por lo tanto NUNCA elijas esta
+     caja, aunque el nombre o contenido tenga palabras como "cotización", "costeo" o "completud":
+     eso casi siempre es un ANEXO EN BLANCO del organismo (el formato donde EL OFERENTE cotiza o
+     completa), no un documento nuestro → en ese caso va en ANEXOS_OFERENTE, no acá.
+   - Esta caja existe solo como destino técnico para cuando NOSOTROS subamos nuestros propios
+     documentos en otro flujo, más adelante — nunca la asignes tú en esta clasificación.
 
 6) OTROS
    - Lo que no encaja con confianza en ninguna caja. Siempre con confianza baja y nota.
@@ -470,6 +473,18 @@ function normalizarCaja(raw: any): { caja: TipoDocumento; criterios: boolean } {
   let criterios = raw?.contiene_criterios_evaluacion ?? false;
   if ((caja as string) === 'CRITERIOS_EVALUACION') { caja = 'BASES_ADMINISTRATIVAS'; criterios = true; }
   if (!CAJAS_VALIDAS_SET.has(caja)) caja = 'OTROS';
+  // GUARDIA DURA (23-jul-2026, pedido explícito): esta función solo clasifica documentos
+  // DESCARGADOS de la licitación (nunca los que el usuario organiza a mano en sus cajas) —
+  // DOCUMENTOS_PROPIOS no puede ser una respuesta válida acá bajo NINGÚN motivo. La IA a veces
+  // la elige igual, confundida por nombres tipo "cotización"/"tabla de costeo" que en realidad
+  // son un ANEXO en blanco del organismo, no un documento nuestro. Se degrada a OTROS en vez de
+  // dejar pasar un documento oficial a la caja de "nuestros" documentos. El guard viejo (más
+  // abajo, en el UPDATE) solo protegía contra SOBRESCRIBIR un propio ya existente — no evitaba
+  // que se le ASIGNARA la categoría por primera vez a uno que no lo era.
+  if (caja === 'DOCUMENTOS_PROPIOS') {
+    console.warn(`[clasificacion] la IA clasificó "${raw?.archivo || '?'}" como DOCUMENTOS_PROPIOS — inválido para un documento descargado de la licitación, se degrada a OTROS.`);
+    caja = 'OTROS';
+  }
   return { caja, criterios };
 }
 
@@ -505,13 +520,28 @@ export async function persistirClasificacionFusionada(
     const { caja, criterios } = resolver(nombre);
     if (criterios) criteriosUbicados = true;
     try {
-      // Guard: nunca sobrescribe un Documento Propio (organizado a mano por el usuario) —
-      // la clasificación IA/heurística es solo para los documentos de la licitación.
-      const [r]: any = await pool.query(
-        `UPDATE documentos_cache SET categoria = ?
-         WHERE licitacion_codigo = ? AND documento_nombre = ? AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')`,
-        [caja, codigo, nombre],
-      );
+      // Guard: nunca sobrescribe un Documento Propio (organizado a mano por el usuario), NI un
+      // documento de la licitación que el usuario ya reclasificó a mano entre cajas oficiales
+      // (categoria_manual=1, ver PATCH /api/documentos/clasificar) — la clasificación IA/
+      // heurística nunca debe pisar una elección humana, sea cual sea la caja.
+      let r: any;
+      try {
+        [r] = await pool.query(
+          `UPDATE documentos_cache SET categoria = ?
+           WHERE licitacion_codigo = ? AND documento_nombre = ?
+             AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')
+             AND (categoria_manual IS NULL OR categoria_manual = 0)`,
+          [caja, codigo, nombre],
+        );
+      } catch (e: any) {
+        if (!String(e).toLowerCase().includes('unknown column')) throw e;
+        // Fallback tolerante si migration-47 aún no está aplicada.
+        [r] = await pool.query(
+          `UPDATE documentos_cache SET categoria = ?
+           WHERE licitacion_codigo = ? AND documento_nombre = ? AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')`,
+          [caja, codigo, nombre],
+        );
+      }
       if (r?.affectedRows) asignadas++;
     } catch { /* columna categoria puede no existir aún */ }
   }
@@ -536,15 +566,30 @@ export async function clasificarLicitacion(codigo: string): Promise<ResultadoCla
   } catch { /* tabla puede no existir */ }
 
   // 2. Documentos del caché — EXCLUYE los Documentos Propios (subidos/generados por
-  //    nosotros y organizados a mano por el usuario): la clasificación IA es solo para
-  //    los documentos oficiales de la licitación, nunca para esos.
-  const [rows] = await pool.query(
-    `SELECT documento_nombre, documento_url_local, size_bytes
-     FROM documentos_cache
-     WHERE licitacion_codigo = ? AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')
-     ORDER BY created_at ASC`,
-    [codigo],
-  );
+  //    nosotros y organizados a mano por el usuario) Y los que el usuario ya reclasificó a
+  //    mano entre cajas oficiales (categoria_manual=1): la clasificación IA es solo para
+  //    los documentos oficiales SIN decisión humana todavía.
+  let rows: any;
+  try {
+    [rows] = await pool.query(
+      `SELECT documento_nombre, documento_url_local, size_bytes
+       FROM documentos_cache
+       WHERE licitacion_codigo = ?
+         AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')
+         AND (categoria_manual IS NULL OR categoria_manual = 0)
+       ORDER BY created_at ASC`,
+      [codigo],
+    );
+  } catch (e: any) {
+    if (!String(e).toLowerCase().includes('unknown column')) throw e;
+    [rows] = await pool.query(
+      `SELECT documento_nombre, documento_url_local, size_bytes
+       FROM documentos_cache
+       WHERE licitacion_codigo = ? AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')
+       ORDER BY created_at ASC`,
+      [codigo],
+    );
+  }
   const dbDocs = rows as { documento_nombre: string; documento_url_local: string; size_bytes: number }[];
 
   const cajasVacias = (): Record<TipoDocumento, DocClasificado[]> => ({
@@ -606,6 +651,12 @@ export async function clasificarLicitacion(codigo: string): Promise<ResultadoCla
       criteriosFlag = true;
     }
     if (!CAJAS_VALIDAS.has(caja)) caja = 'OTROS';
+    // Misma guardia dura que normalizarCaja() (ver ese comentario): estos documentos vienen
+    // DESCARGADOS de la licitación, nunca deberían terminar en DOCUMENTOS_PROPIOS.
+    if (caja === 'DOCUMENTOS_PROPIOS') {
+      console.warn(`[clasificacion] la IA clasificó "${c.archivo ?? extracciones[i]?.nombre ?? '?'}" como DOCUMENTOS_PROPIOS — inválido para un documento descargado de la licitación, se degrada a OTROS.`);
+      caja = 'OTROS';
+    }
 
     return {
       archivo: c.archivo ?? extracciones[i]?.nombre ?? '',
@@ -622,17 +673,29 @@ export async function clasificarLicitacion(codigo: string): Promise<ResultadoCla
     };
   });
 
-  // 6. Persistir categoría en documentos_cache — el guard evita tocar un Documento Propio
-  //    aunque por error de nombre haya llegado hasta acá (defensa en profundidad).
-  try {
-    for (const doc of documentos) {
+  // 6. Persistir categoría en documentos_cache — el guard evita tocar un Documento Propio o
+  //    una reclasificación manual del usuario, aunque por error de nombre haya llegado hasta
+  //    acá (defensa en profundidad — el punto 2 ya los excluyó de la entrada).
+  for (const doc of documentos) {
+    try {
       await pool.query(
         `UPDATE documentos_cache SET categoria = ?
-         WHERE licitacion_codigo = ? AND documento_nombre = ? AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')`,
+         WHERE licitacion_codigo = ? AND documento_nombre = ?
+           AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')
+           AND (categoria_manual IS NULL OR categoria_manual = 0)`,
         [doc.caja, codigo, doc.archivo],
       );
+    } catch (e: any) {
+      if (!String(e).toLowerCase().includes('unknown column')) continue;
+      try {
+        await pool.query(
+          `UPDATE documentos_cache SET categoria = ?
+           WHERE licitacion_codigo = ? AND documento_nombre = ? AND (categoria IS NULL OR categoria != 'DOCUMENTOS_PROPIOS')`,
+          [doc.caja, codigo, doc.archivo],
+        );
+      } catch { /* columna categoria puede no existir aún */ }
     }
-  } catch { /* columna categoria puede no existir aún */ }
+  }
 
   // 7. Agrupar por caja
   const cajas = cajasVacias();

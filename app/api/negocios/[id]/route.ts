@@ -6,7 +6,7 @@ import { registrarActividad, registrarActividadDiaria } from '@/app/lib/activida
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } from '@/app/lib/email';
-import { getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
+import { getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { refrescarEstadoCodigo } from '@/app/lib/refrescar-estados';
 
@@ -239,6 +239,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // Descartar EXIGE un motivo. Se registra quién y cuándo; al salir de DESCARTADA se limpia.
       if (estado_pipeline === 'DESCARTADA' && !motivo) {
         return NextResponse.json({ error: 'Para descartar la licitación debes indicar un motivo.' }, { status: 400 });
+      }
+      // Los asistentes (no admin) solo pueden AVANZAR en el pipeline — no retroceder ni "corregir"
+      // una etapa ya puesta. Descartar sigue disponible siempre (chequeo arriba); salir de
+      // Descartada o retroceder de etapa requiere admin (ver puedeCambiarEstadoPipeline).
+      if (rol !== 'admin') {
+        const chequeo = puedeCambiarEstadoPipeline(neg.estado_pipeline, estado_pipeline, false);
+        if (!chequeo.permitido) {
+          return NextResponse.json({ error: chequeo.motivo }, { status: 403 });
+        }
       }
       // "En proceso" EXIGE viabilidad IA realizada (mismo guard que el front, pero aquí
       // es la protección real: cubre lista, selector y llamadas directas a la API).

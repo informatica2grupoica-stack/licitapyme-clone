@@ -4,7 +4,29 @@
 // Thinking desactivado para respuestas rápidas.
 
 import OpenAI from 'openai';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { parseJsonIA } from '@/app/lib/json-ia';
+
+// ─── Acumulador de costo por CORRIDA (23-jul-2026) ─────────────────────────────────
+// El pedido: ver el TOTAL gastado en una viabilidad (puede hacer varias llamadas: primaria +
+// respaldos + un 2º intento si el manifiesto colapsa), no solo el costo de la última llamada
+// suelta. AsyncLocalStorage propaga un acumulador por toda la cadena de awaits de una corrida
+// (analizarViabilidadIAV3 → llamarGeminiJSON → crearChatIA → intentarProveedor) sin tener que
+// pasar el acumulador como parámetro por cada función — y no se mezcla entre corridas
+// concurrentes (cada licitación que se analiza en paralelo tiene el suyo).
+export interface AcumuladorCostoIA { llamadas: number; inTok: number; outTok: number; costoUSD: number }
+const alsCostoIA = new AsyncLocalStorage<AcumuladorCostoIA>();
+
+/** Corre `fn` con un acumulador de costo nuevo; devuelve su resultado (el acumulador se lee con costoAcumuladoActual() en un finally). */
+export function conAcumuladorCostoIA<T>(fn: () => Promise<T>): Promise<T> {
+  const acumulado: AcumuladorCostoIA = { llamadas: 0, inTok: 0, outTok: 0, costoUSD: 0 };
+  return alsCostoIA.run(acumulado, fn);
+}
+
+/** El acumulador de la corrida actual (si `fn` está dentro de conAcumuladorCostoIA), o null. */
+export function costoAcumuladoActual(): AcumuladorCostoIA | null {
+  return alsCostoIA.getStore() ?? null;
+}
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
 export interface AnalisisIALicitacion {
@@ -120,11 +142,20 @@ function modeloGeminiSeguro(pedido: string | undefined, porDefecto: string): str
 
 type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean };
 const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
-  zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL || 'glm-4.6', sinThinking: true  },
-  // Respaldo GLM en la MISMA cuenta Z.AI, con un modelo más liviano/rápido: si el modelo
-  // principal se cuelga o da 429 en una llamada grande, este lo cubre sin salir de GLM.
-  // Configurable con GLM_TEXT_MODEL_FALLBACK (por defecto glm-4.5-air: rápido y barato).
-  zai_alt:  { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL_FALLBACK || 'glm-4.5-air', sinThinking: true },
+  zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL || 'glm-4.7-flashx', sinThinking: true  },
+  // CADENA de respaldo GLM en la MISMA cuenta Z.AI (23-jul-2026: se pasó de 1 a 3 rungs — un
+  // solo respaldo no bastaba, se vieron corridas donde primario Y respaldo colgaban por timeout
+  // en la misma licitación y la viabilidad no terminaba nunca). Cada rung es un modelo GLM más
+  // liviano/distinto/potente: si uno se cuelga o da 429/timeout en una llamada grande, el
+  // siguiente lo cubre sin salir de GLM. Configurables con GLM_TEXT_MODEL_FALLBACK / _FALLBACK2 /
+  // _FALLBACK3.
+  zai_alt:  { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL_FALLBACK || 'glm-4.7', sinThinking: true },
+  zai_alt2: { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL_FALLBACK2 || 'glm-4.5-air', sinThinking: true },
+  // 4º rung (23-jul-2026): GLM-5.2 como ÚLTIMO recurso, para el caso raro donde los 3 anteriores
+  // YA fallaron (se vio en vivo con 2467-70-LE26: flashx, 4.5-air Y 4.7 los tres dieron timeout
+  // seguidos). Más caro ($1.4/$4.4 por M vs $0.6/$2.2 de 4.7) pero contexto de 1M y soporte
+  // nativo de salida estructurada — vale la pena pagarlo solo en el caso extremo, no de entrada.
+  zai_alt3: { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL_FALLBACK3 || 'glm-5.2', sinThinking: true },
   deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat', sinThinking: false },
   gemini:   { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: modeloGeminiSeguro(process.env.GEMINI_MODEL, 'gemini-2.5-flash'), sinThinking: false },
 };
@@ -153,9 +184,9 @@ function cfgTextoRespaldos(activo: ProveedorTexto): ProveedorTexto[] {
     if (chain.some((c) => c.keyEnv === cfg.keyEnv && c.model === cfg.model)) return; // duplicado
     chain.push(cfg);
   };
-  if (activo.keyEnv === 'ZAI_API_KEY') add(PROVEEDORES_TEXTO.zai_alt); // 1) GLM liviano, misma cuenta
-  add(PROVEEDORES_TEXTO.deepseek);                                     // 2) DeepSeek (último recurso)
-  if (geminiHabilitado()) add(PROVEEDORES_TEXTO.gemini);              // 3) Gemini (solo si habilitado)
+  if (activo.keyEnv === 'ZAI_API_KEY') { add(PROVEEDORES_TEXTO.zai_alt); add(PROVEEDORES_TEXTO.zai_alt2); add(PROVEEDORES_TEXTO.zai_alt3); } // 1-3) GLM liviano/alterno/premium, misma cuenta
+  add(PROVEEDORES_TEXTO.deepseek);                                     // 4) DeepSeek (último recurso)
+  if (geminiHabilitado()) add(PROVEEDORES_TEXTO.gemini);              // 5) Gemini (solo si habilitado)
   return chain;
 }
 
@@ -218,6 +249,8 @@ function logTelemetriaIA(model: string, ms: number, usage: any, respaldo: boolea
   const totTok = Number(usage?.total_tokens ?? (inTok + outTok));
   const { precIn, precOut } = tarifaModelo(model);
   const costo = (inTok / 1e6) * precIn + (outTok / 1e6) * precOut;
+  const ac = alsCostoIA.getStore();
+  if (ac) { ac.llamadas++; ac.inTok += inTok; ac.outTok += outTok; ac.costoUSD += costo; }
   console.log(
     `[ia] 💰 ${model}${respaldo ? ' (RESPALDO)' : ''} · ${(ms / 1000).toFixed(1)}s · in=${inTok} out=${outTok} tot=${totTok} tok · ~$${costo.toFixed(4)} USD`,
   );
@@ -244,10 +277,22 @@ function esTransitorioIA(e: any): boolean {
   return /ECONNRESET|ETIMEDOUT|ECONNREFUSED|EPIPE|EAI_AGAIN|ENOTFOUND|socket hang up|network error|fetch failed|terminated|aborted|timeout/i.test(s);
 }
 
+// ¿Es específicamente un TIMEOUT (el modelo se colgó, sin respuesta HTTP)? A diferencia de un
+// 429/503 (responde rápido, vale la pena reintentar 3 veces con backoff corto), un timeout ya
+// significa que se esperó el timeoutMs COMPLETO (hasta 240s) sin respuesta — reintentar el MISMO
+// modelo con el MISMO input grande casi siempre vuelve a colgarse. Se le da como máximo 1
+// reintento (por si fue un pico puntual) en vez de las 3 vueltas completas de los transitorios
+// rápidos, para no sumar minutos muertos antes de pasar al siguiente modelo de la cadena.
+function esTimeoutIA(e: any): boolean {
+  if (Number(e?.status ?? 0)) return false; // tiene status HTTP (429/503/...) → no es timeout de cliente
+  const s = `${String(e?.code ?? '')} ${String(e?.cause?.code ?? '')} ${String(e?.message ?? '')}`;
+  return /ETIMEDOUT|timeout/i.test(s);
+}
+
 // Llama a UN proveedor con reintentos ante transitorios (backoff). Saldo agotado (1113) y
 // errores permanentes (400/401/403) NO se reintentan: se propagan para que el caller decida.
 async function intentarProveedor(cfg: ProveedorTexto, params: any, reqOpts: any, respaldo: boolean): Promise<any> {
-  const ESPERAS = [0, 2_000, 6_000]; // 3 intentos por proveedor
+  const ESPERAS = [0, 2_000, 6_000]; // hasta 3 intentos por proveedor (429/503/red — errores rápidos)
   let ultimo: any;
   for (let i = 0; i < ESPERAS.length; i++) {
     if (i > 0) await sleep(ESPERAS[i]);
@@ -259,6 +304,7 @@ async function intentarProveedor(cfg: ProveedorTexto, params: any, reqOpts: any,
     } catch (e: any) {
       ultimo = e;
       if (esSaldoAgotadoTexto(e) || !esTransitorioIA(e)) throw e; // permanente → arriba decide
+      if (esTimeoutIA(e) && i >= 1) throw e; // timeout: máx 1 reintento, no las 3 vueltas completas
       console.warn(`[ia] ${cfg.model} transitorio (${String(e?.status ?? e?.code ?? e?.message).slice(0, 60)}), reintento ${i + 1}/${ESPERAS.length}...`);
     }
   }

@@ -12,6 +12,11 @@ export interface EstadoPipeline {
   color: string;      // hex
 }
 
+// 23-jul-2026: el id 'ADJUDICADA' se mantiene (clave estable, ya usada en toda la BD y el código
+// — ver procesar-postuladas.ts), pero el LABEL pasa a 'GANADA'. Este estado SOLO lo pone el cron
+// cuando el acta de Mercado Público confirma que GANAMOS (adj.ganamos === true); si se adjudicó a
+// terceros el cron pone 'PERDIDA'. O sea el dato siempre significó "ganamos" — el texto "Adjudicada"
+// era ambiguo (¿adjudicada a nosotros o a un tercero?) y generaba confusión en Análisis de licitación.
 export const ESTADOS_PIPELINE: EstadoPipeline[] = [
   { id: 'ASIGNADO',     label: 'ASIGNADO',    color: '#4F63D2' },
   { id: 'EN_PROCESO',   label: 'EN PROCESO',  color: '#9333EA' },
@@ -20,7 +25,7 @@ export const ESTADOS_PIPELINE: EstadoPipeline[] = [
   { id: 'VISADO',       label: 'VISADO',      color: '#0369A1' },
   { id: 'POSTULADA',    label: 'POSTULADA',   color: '#B45309' },
   { id: 'DESCARTADA',   label: 'DESCARTADA',  color: '#DC2626' },
-  { id: 'ADJUDICADA',   label: 'ADJUDICADA',  color: '#16A34A' },
+  { id: 'ADJUDICADA',   label: 'GANADA',      color: '#16A34A' },
   { id: 'POSIBLE_ADJ',  label: 'POSIBLE ADJ', color: '#6366F1' },
   { id: 'PERDIDA',      label: 'PERDIDA',     color: '#9F1239' },
 ];
@@ -58,4 +63,47 @@ export function getEstadoPipeline(id: string | null | undefined): EstadoPipeline
   if (!id) return null;
   const key = ALIAS_LEGADO[id] ?? id;
   return ESTADOS_PIPELINE.find(e => e.id === key) ?? null;
+}
+
+// ─── Bloqueo de retroceso para NO-admin (23-jul-2026) ─────────────────────────────
+// Pedido del dueño: los asistentes solo pueden AVANZAR en el pipeline — no pueden retroceder
+// ni "corregir" una etapa que ya pusieron (evita que alguien tape un cambio de opinión o un
+// error sin que quede a la vista de un admin). El admin no tiene esta restricción.
+//
+// DESCARTADA queda FUERA del orden numérico y se trata aparte: descartar sigue disponible
+// SIEMPRE para cualquiera (es una acción distinta, con motivo obligatorio — no un retroceso),
+// pero SALIR de Descartada (reactivar) sí requiere admin, porque eso es deshacer una decisión.
+//
+// ADJUDICADA/PERDIDA quedan al mismo nivel (7): son los dos resultados posibles después de
+// Postulada/Posible adjudicación, no un paso uno-antes-del-otro.
+const ORDEN_PIPELINE: Record<string, number> = {
+  ASIGNADO: 0, EN_PROCESO: 1, ANEXOS: 2, ANEXO_LISTO: 3, VISADO: 4,
+  POSTULADA: 5, POSIBLE_ADJ: 6, ADJUDICADA: 7, PERDIDA: 7,
+};
+
+export interface ChequeoCambioEstado { permitido: boolean; motivo?: string }
+
+/** ¿Puede este usuario cambiar el negocio de `actual` a `nuevo`? Admin: siempre sí. */
+export function puedeCambiarEstadoPipeline(
+  actual: string | null | undefined,
+  nuevo: string | null | undefined,
+  esAdmin: boolean,
+): ChequeoCambioEstado {
+  if (esAdmin) return { permitido: true };
+
+  const actualN = normalizarEstado(actual);
+  const nuevoN = nuevo ? normalizarEstado(nuevo) : null;
+
+  if (nuevoN === 'DESCARTADA') return { permitido: true }; // descartar: siempre disponible
+
+  if (actualN === 'DESCARTADA') {
+    return { permitido: false, motivo: 'Solo un administrador puede sacar una licitación de "Descartada".' };
+  }
+
+  const ordenActual = ORDEN_PIPELINE[actualN] ?? 0;
+  const ordenNuevo = nuevoN ? (ORDEN_PIPELINE[nuevoN] ?? -1) : -1; // sin estado (quitar etiqueta) = retroceso
+  if (ordenNuevo < ordenActual) {
+    return { permitido: false, motivo: 'Solo un administrador puede retroceder o quitar una etapa ya puesta.' };
+  }
+  return { permitido: true };
 }

@@ -45,16 +45,32 @@ export async function POST(req: NextRequest) {
 }
 
 // ─── PATCH /api/documentos/clasificar — mover un documento a otra caja ────────
+// 23-jul-2026 (bug real reportado): mover un documento acá lo guardaba, pero sin dejar
+// ninguna marca de que fue un movimiento MANUAL — así que la próxima vez que se re-clasificaba
+// la licitación (re-análisis, re-clasificar), la IA se lo pisaba de vuelta a donde ella decidía,
+// como si el usuario nunca hubiera movido nada. `categoria_manual = 1` es esa marca: protege
+// el documento contra cualquier UPDATE futuro de clasificarLicitacion/persistirClasificacionFusionada
+// (mismo patrón que ya protegía a DOCUMENTOS_PROPIOS, extendido a cualquier caja oficial).
 export async function PATCH(req: NextRequest) {
   try {
     const { codigo, documento_nombre, nueva_categoria } = await req.json();
     if (!codigo || !documento_nombre || !nueva_categoria) {
       return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
     }
-    await pool.query(
-      `UPDATE documentos_cache SET categoria = ? WHERE licitacion_codigo = ? AND documento_nombre = ?`,
-      [nueva_categoria, codigo, documento_nombre],
-    );
+    try {
+      await pool.query(
+        `UPDATE documentos_cache SET categoria = ?, categoria_manual = 1 WHERE licitacion_codigo = ? AND documento_nombre = ?`,
+        [nueva_categoria, codigo, documento_nombre],
+      );
+    } catch (e: any) {
+      // Tolerante a que migration-47 aún no esté aplicada: guarda igual la categoría (sin la
+      // protección) en vez de romper el drag & drop del usuario.
+      if (!String(e).toLowerCase().includes('unknown column')) throw e;
+      await pool.query(
+        `UPDATE documentos_cache SET categoria = ? WHERE licitacion_codigo = ? AND documento_nombre = ?`,
+        [nueva_categoria, codigo, documento_nombre],
+      );
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

@@ -218,6 +218,15 @@ export function detectarFormulariosEconomicosPorArchivo(docs: { nombre?: string 
 // no es regex: es una segunda pregunta dirigida al modelo ("¿esta cita concreta dice que puede haber
 // un ganador distinto por línea/lote? cítala") en vez de un detector de texto — eso sí generaliza
 // como el resto de la lectura de bases, a costo de una llamada extra. Avísame si quieres ese camino.
+// 23-jul-2026 (auditoría manual de 19 casos, CA): dos casos reales sin ningún patrón que los
+// cazara — 3507-12-LE26 ("La presente licitación podrá adjudicarse por línea de oferta.") y
+// 1389488-29-LE26 ("La evaluación y adjudicación se realizará por línea, considerando los
+// criterios..."). Son DECLARACIONES DIRECTAS del artículo de adjudicación (la fuente que el propio
+// prompt pide confirmar en A.3①), pero ninguna trae "múltiple" ni "independiente" ni "distintos
+// oferentes" cerca — son la forma MÁS simple y común de decirlo, y por eso mismo faltaban. Se
+// agregan dos patrones "a secas" (sin calificativo de independencia): (a) verbo "adjudicar(se)
+// por línea/lote/ítem"; (b) "la adjudicación se realizará/hará por línea/lote/ítem". Con guardia
+// de negación (ver bucle) para no disparar en "NO podrá adjudicarse por línea".
 export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): string | null {
   const patrones: RegExp[] = [
     // Campo formal "TIPO DE ADJUDICACIÓN: Múltiple (Por líneas/lotes)".
@@ -237,12 +246,25 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
     // Mismo cluster, orden invertido (el calificativo de independencia puede venir ANTES de
     // mencionar línea/lote, no siempre después): "no necesariamente al mismo oferente... cada línea".
     /(?:no\s+necesariamente\s+(?:al?|el)\s+mismo\s+(?:oferente|proveedor)|distint[oa]s?\s+(?:oferentes?|proveedores?|adjudicatarios?)|m[aá]s\s+de\s+un\s+adjudicatario)[\s\S]{0,150}?\b(?:l[ií]neas?|lotes?)\b/i,
+    // DECLARACIÓN DIRECTA a secas (sin "múltiple"/"independiente"/"distintos oferentes" cerca):
+    // "podrá adjudicarse por línea de oferta", "se adjudicará por lote", "adjudicar por ítem".
+    /adjudicar(?:se|á|an|a)?\s+por\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    // Forma nominal: "la adjudicación se realizará/hará por línea/lote/ítem".
+    /adjudicaci[oó]n\s+se\s+(?:realizar[aá]|har[aá]|efectuar[aá])\s+por\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
   ];
   for (const d of docs) {
     if (!d.texto) continue;
     for (const re of patrones) {
       const m = d.texto.match(re);
-      if (m) return m[0].replace(/\s+/g, ' ').trim();
+      if (!m) continue;
+      // Guardia de negación: "NO podrá adjudicarse por línea…" dice lo contrario.
+      const i = d.texto.indexOf(m[0]);
+      const previo = d.texto.slice(Math.max(0, i - 60), i);
+      // OJO: sin \b final — "podrá" termina en vocal acentuada, que \b de JS no trata como
+      // carácter de palabra (solo ASCII), así que "podrá "+\b nunca matchea y la guardia queda
+      // muda en el caso más común ("no podrá..."). [^.]{0,40}$ ya acota el resto de la frase.
+      if (/\bno\s+(?:se\s+)?(?:podr[aá]n?|puede[n]?|permit\w+|acept\w+)[^.]{0,40}$/i.test(previo)) continue;
+      return m[0].replace(/\s+/g, ' ').trim();
     }
   }
   return null;
@@ -331,7 +353,9 @@ export function detectarLenguajePorLinea(docs: { texto: string }[]): string | nu
 // que no se ofertan) — nunca frases de "se evaluará por línea", que son sobre el PUNTAJE, no sobre
 // quién gana.
 export function detectarParticipacionParcialPorLinea(docs: { texto: string }[]): string | null {
-  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+)?(?:una\s+o\s+m[aá]s|por)\s+l[ií]neas?|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas/i;
+  // Incluye el orden invertido "en más de una línea" (caso real 1389488-29-LE26: "los oferentes
+  // podrán ofertar en más de una línea de servicio"), que "una o más" no cubre.
+  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+)?(?:una\s+o\s+m[aá]s|m[aá]s\s+de\s+(?:un|una)|por)\s+l[ií]neas?|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas/i;
   for (const d of docs) {
     if (!d.texto) continue;
     const m = d.texto.match(re);
@@ -366,6 +390,9 @@ export function detectarOfertaSubconjuntoItems(docs: { texto: string }[]): strin
     /(?:podr[aá]n?|puede[n]?|pudiendo)\s+(?:\w+\s+){0,4}ofertar\s+(?:a|por|en)\s+(?:uno|una|varios|varias)\s+(?:o\s+m[aá]s\s+)?(?:[ií]tems?|l[ií]neas?)/i,
     // "ofertar a|por {una|varias|algunas} [o más] {líneas|ítems}"
     /ofertar\s+(?:a|por)\s+(?:uno|una|varios|varias|algunos|algunas)\s+(?:o\s+m[aá]s\s+)?(?:[ií]tems?|l[ií]neas?)/i,
+    // Orden invertido "más de una/uno": "ofertar en más de una línea de servicio" (caso real
+    // 1389488-29-LE26). Los patrones de arriba esperan "una o más"; este cubre "más de una".
+    /(?:podr[aá]n?|puede[n]?|pudiendo)?\s*(?:\w+\s+){0,3}ofertar\s+(?:a|por|en)\s+m[aá]s\s+de\s+(?:un|uno|una)\s+(?:[ií]tems?|l[ií]neas?)/i,
   ];
   for (const d of docs) {
     if (!d.texto) continue;
@@ -376,7 +403,10 @@ export function detectarOfertaSubconjuntoItems(docs: { texto: string }[]): strin
       // vecindad previa; si niega, esta aparición no cuenta (se siguen probando las demás).
       const i = d.texto.indexOf(m[0]);
       const previo = d.texto.slice(Math.max(0, i - 60), i);
-      if (/\bno\s+(?:se\s+)?(?:podr[aá]n?|puede[n]?|permit\w+|acept\w+)\b[^.]{0,40}$/i.test(previo)) continue;
+      // OJO: sin \b final — "podrá" termina en vocal acentuada, que \b de JS no trata como
+      // carácter de palabra (solo ASCII), así que "podrá "+\b nunca matchea y la guardia queda
+      // muda en el caso más común ("no podrá..."). [^.]{0,40}$ ya acota el resto de la frase.
+      if (/\bno\s+(?:se\s+)?(?:podr[aá]n?|puede[n]?|permit\w+|acept\w+)[^.]{0,40}$/i.test(previo)) continue;
       return m[0].replace(/\s+/g, ' ').trim();
     }
   }

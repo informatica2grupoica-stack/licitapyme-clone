@@ -19,7 +19,7 @@ import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
-import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO } from '@/app/lib/gemini';
+import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
 import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
@@ -402,14 +402,25 @@ Devuelve SOLO JSON válido: {"lineas":[{"linea":1,"items":[{"descripcion":"...",
 
 // GLM (Z.AI) con JSON forzado y reparación de truncado. El manifiesto va al final del
 // esquema, así que si se corta por longitud solo se pierde su cola (score/veredicto intactos).
+//
+// 23-jul-2026 (caso real 2467-70-LE26, colgado ~1h sin terminar): antes este loop reintentaba
+// la corrida COMPLETA hasta 3 veces, y cada una de esas 3 vueltas ya reintentaba el proveedor
+// activo Y bajaba por TODA la cadena de respaldo dentro de crearChatIA — una explosión de hasta
+// 3×(reintentos por modelo)×(N modelos en cadena), cada intento con un timeout de hasta 240s.
+// Cuando GLM está realmente caído, eso significa colgarse por horas gastando cada vez más en
+// llamadas que nunca iban a responder. crearChatIA YA baja por la cadena completa (ahora 3
+// modelos: flashx → 4.7 → 4.5-air) con sus propios reintentos — si esa cadena entera se agota,
+// reintentarla de nuevo acá no cambia nada. Este loop ahora SOLO reintenta cuando la llamada
+// SÍ respondió pero el JSON vino inválido/truncado (ahí sí vale la pena una segunda pasada).
 async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<any> {
-  const ESPERAS = [0, 5_000, 12_000];
+  const MAX_INTENTOS_JSON = 2; // 1 reintento si el modelo respondió pero el JSON salió roto
   let ultimoErr = '';
-  for (let intento = 0; intento < ESPERAS.length; intento++) {
-    if (intento > 0) await sleep(ESPERAS[intento]);
+  for (let intento = 0; intento < MAX_INTENTOS_JSON; intento++) {
+    if (intento > 0) await sleep(5_000);
+    let completion: any;
+    const t0 = Date.now();
     try {
-      const t0 = Date.now();
-      const completion: any = await crearChatIA({
+      completion = await crearChatIA({
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -420,54 +431,53 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         response_format: { type: 'json_object' },
       }, { timeoutMs: Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000), soloGlm: true });
       // ↑ timeout primario. Los análisis buenos tardan ~180-200s; con 240s no se cortan, pero si
-      // glm-4.7-flashx se CUELGA (le pasa con inputs grandes) caemos al respaldo rápido (glm-4.5-air,
-      // ~137s) 40s antes que con los 280s previos. Configurable con VIABILIDAD_LLM_TIMEOUT_MS.
-      const finish = completion.choices?.[0]?.finish_reason;
-      // ── Telemetría SIEMPRE visible: tiempo + tokens + costo estimado ─────────────
-      // Es la señal clave para optimizar: cuánto tardó, cuántos tokens de entrada/salida
-      // y el costo. Tarifas GLM configurables por env (por defecto GLM-4.6 de Z.AI, USD/millón).
-      const segs = ((Date.now() - t0) / 1000).toFixed(1);
-      const u = completion.usage ?? {};
-      const inTok  = Number(u.prompt_tokens ?? 0);
-      const outTok = Number(u.completion_tokens ?? 0);
-      const totTok = Number(u.total_tokens ?? (inTok + outTok));
-      // CACHÉ DE INPUT (Z.AI cachea el prefijo idéntico AUTOMÁTICAMENTE): los tokens ya cacheados
-      // se cobran mucho más barato. Medido: el system prompt (idéntico entre llamadas) sale ~99,7%
-      // cacheado en la 2ª llamada y el prefill baja ~4×. Descontamos su costo para no sobreestimar.
-      const cachedTok = Number(u.prompt_tokens_details?.cached_tokens ?? 0);
-      const precIn  = Number(process.env.GLM_PRICE_IN_USD_PER_M  ?? 0.43); // GLM-4.6 Z.AI: $0.43/M in
-      const precOut = Number(process.env.GLM_PRICE_OUT_USD_PER_M ?? 1.74); // GLM-4.6 Z.AI: $1.74/M out
-      const precCached = Number(process.env.GLM_PRICE_CACHED_IN_USD_PER_M ?? precIn * 0.2); // input cacheado ~1/5
-      const inSinCache = Math.max(0, inTok - cachedTok);
-      const costo = (inSinCache / 1e6) * precIn + (cachedTok / 1e6) * precCached + (outTok / 1e6) * precOut;
-      const cacheStr = cachedTok > 0 ? ` (cache=${cachedTok}, ${Math.round((cachedTok / Math.max(1, inTok)) * 100)}%)` : '';
-      // MODELO REAL que respondió, no el primario configurado: cuando el primario se cuelga,
-      // crearChatIA cae a la cadena de respaldo y responde OTRO modelo. Loguear MODELO_TEXTO
-      // hacía que un análisis resuelto por DeepSeek apareciera como "GLM glm-4.7-flashx", con
-      // el costo calculado a tarifa GLM — engañoso justo cuando se está diagnosticando lentitud.
-      const modeloReal = String(completion.model || MODELO_TEXTO);
-      const esPrimario = modeloReal === MODELO_TEXTO;
-      console.log(
-        `[viabilidad-ia] 💰 ${modeloReal}${esPrimario ? '' : ' (RESPALDO)'} · ${segs}s · in=${inTok}${cacheStr} out=${outTok} tot=${totTok} tok · finish=${finish} · ~$${costo.toFixed(4)} USD${esPrimario ? '' : ' [costo a tarifa GLM, aprox.]'} (intento ${intento})`,
-      );
-      dbg(`llamarGlmJSON: respuesta finish=${finish} · usage=${JSON.stringify(completion.usage ?? {})}`);
-      const txt = String(completion.choices?.[0]?.message?.content ?? '');
-      // Parser tolerante compartido: sanea caracteres de control y repara truncado.
-      const parsed = parseJsonIA(txt);
-      if (parsed) return parsed;
-      // Sin esto, un JSON inválido es indiagnosticable: deja ver QUÉ devolvió el modelo.
-      console.warn(`[viabilidad-ia] JSON inválido (${txt.length} chars). Inicio: ${JSON.stringify(txt.slice(0, 250))} … Fin: ${JSON.stringify(txt.slice(-250))}`);
-      throw new Error(`GLM devolvió JSON inválido (finish=${finish})`);
+      // el modelo activo se CUELGA (le pasa con inputs grandes) caemos al respaldo rápido 40s
+      // antes que con los 280s previos. Configurable con VIABILIDAD_LLM_TIMEOUT_MS.
     } catch (e: any) {
-      const status = e?.status ?? 0;
-      ultimoErr = `${MODELO_TEXTO} ${status || ''}: ${String(e?.message ?? e).slice(0, 150)}`;
-      // Transitorios (429/503/timeout) → reintentar; permanentes → abortar.
-      const transitorio = status === 429 || status === 503 || status === 0 || /timeout|ETIMEDOUT/i.test(String(e?.message ?? ''));
-      if (!transitorio) break;
-      console.warn(`[viabilidad-ia] ${MODELO_TEXTO} transitorio, reintento ${intento + 1}/${ESPERAS.length}...`);
+      // La CADENA completa (primario + los 2 respaldos GLM) ya se agotó dentro de crearChatIA —
+      // reintentar el mismo bloque de nuevo no va a cambiar el resultado, solo suma minutos
+      // muertos y gasto. Se propaga de inmediato en vez de darle otra vuelta completa.
+      throw new Error(`GLM no respondió: ${String(e?.message ?? e).slice(0, 200)}`);
     }
+    const finish = completion.choices?.[0]?.finish_reason;
+    // ── Telemetría SIEMPRE visible: tiempo + tokens + costo estimado ─────────────
+    // Es la señal clave para optimizar: cuánto tardó, cuántos tokens de entrada/salida
+    // y el costo. Tarifas GLM configurables por env (por defecto GLM-4.6 de Z.AI, USD/millón).
+    const segs = ((Date.now() - t0) / 1000).toFixed(1);
+    const u = completion.usage ?? {};
+    const inTok  = Number(u.prompt_tokens ?? 0);
+    const outTok = Number(u.completion_tokens ?? 0);
+    const totTok = Number(u.total_tokens ?? (inTok + outTok));
+    // CACHÉ DE INPUT (Z.AI cachea el prefijo idéntico AUTOMÁTICAMENTE): los tokens ya cacheados
+    // se cobran mucho más barato. Medido: el system prompt (idéntico entre llamadas) sale ~99,7%
+    // cacheado en la 2ª llamada y el prefill baja ~4×. Descontamos su costo para no sobreestimar.
+    const cachedTok = Number(u.prompt_tokens_details?.cached_tokens ?? 0);
+    const precIn  = Number(process.env.GLM_PRICE_IN_USD_PER_M  ?? 0.43); // GLM-4.6 Z.AI: $0.43/M in
+    const precOut = Number(process.env.GLM_PRICE_OUT_USD_PER_M ?? 1.74); // GLM-4.6 Z.AI: $1.74/M out
+    const precCached = Number(process.env.GLM_PRICE_CACHED_IN_USD_PER_M ?? precIn * 0.2); // input cacheado ~1/5
+    const inSinCache = Math.max(0, inTok - cachedTok);
+    const costo = (inSinCache / 1e6) * precIn + (cachedTok / 1e6) * precCached + (outTok / 1e6) * precOut;
+    const cacheStr = cachedTok > 0 ? ` (cache=${cachedTok}, ${Math.round((cachedTok / Math.max(1, inTok)) * 100)}%)` : '';
+    // MODELO REAL que respondió, no el primario configurado: cuando el primario se cuelga,
+    // crearChatIA cae a la cadena de respaldo y responde OTRO modelo. Loguear MODELO_TEXTO
+    // hacía que un análisis resuelto por DeepSeek apareciera como "GLM glm-4.7-flashx", con
+    // el costo calculado a tarifa GLM — engañoso justo cuando se está diagnosticando lentitud.
+    const modeloReal = String(completion.model || MODELO_TEXTO);
+    const esPrimario = modeloReal === MODELO_TEXTO;
+    console.log(
+      `[viabilidad-ia] 💰 ${modeloReal}${esPrimario ? '' : ' (RESPALDO)'} · ${segs}s · in=${inTok}${cacheStr} out=${outTok} tot=${totTok} tok · finish=${finish} · ~$${costo.toFixed(4)} USD${esPrimario ? '' : ' [costo a tarifa GLM, aprox.]'} (intento ${intento})`,
+    );
+    dbg(`llamarGlmJSON: respuesta finish=${finish} · usage=${JSON.stringify(completion.usage ?? {})}`);
+    const txt = String(completion.choices?.[0]?.message?.content ?? '');
+    // Parser tolerante compartido: sanea caracteres de control y repara truncado.
+    const parsed = parseJsonIA(txt);
+    if (parsed) return parsed;
+    // Sin esto, un JSON inválido es indiagnosticable: deja ver QUÉ devolvió el modelo.
+    console.warn(`[viabilidad-ia] JSON inválido (${txt.length} chars). Inicio: ${JSON.stringify(txt.slice(0, 250))} … Fin: ${JSON.stringify(txt.slice(-250))}`);
+    ultimoErr = `${modeloReal}: JSON inválido (finish=${finish})`;
+    if (intento + 1 < MAX_INTENTOS_JSON) console.warn(`[viabilidad-ia] reintentando la llamada completa (${intento + 1}/${MAX_INTENTOS_JSON})...`);
   }
-  throw new Error(`GLM no respondió: ${ultimoErr}`);
+  throw new Error(`GLM devolvió JSON inválido tras ${MAX_INTENTOS_JSON} intentos: ${ultimoErr}`);
 }
 
 async function llamarGeminiNativoJSON(systemPrompt: string, userPrompt: string): Promise<any> {
@@ -881,6 +891,17 @@ A.2 PRESUPUESTO + RÉGIMEN: TOTAL (no por línea). Normaliza a NETO (÷1,19 si c
 (oferta exenta) y si es EXCLUYENTE o REFERENCIAL. Gate: <$8M → NO_CALIFICA (sin descartar); $8M–$15M →
 sigue si (productos <15) o (≤5 especializados); >$15M → normal; reservado/desconocido → sigue
 (presupuesto_incierto).
+CIFRAS QUE NO CALZAN ENTRE DOCUMENTOS: no asumas que el documento "más oficial" (Resolución que
+aprueba las bases) es automáticamente el correcto — puede haber un error de redacción ahí mismo.
+Prioriza la cifra que tenga RESPALDO ARITMÉTICO verificable (un desglose por línea/ítem que sume
+exactamente a ese total) sobre una cifra en prosa sin desglose, aunque la prosa esté en un documento
+de mayor jerarquía formal. Si ninguna cifra tiene desglose que la confirme, o dos documentos igual de
+jerárquicos se contradicen sin forma de arbitrar, dejar presupuesto_incierto y pedir REVISION_HUMANA
+en vez de elegir a ciegas. Caso real 4524-2-LP26: las Bases Técnicas (numeral 3.6) desglosan 4 líneas
+de producto que suman exactamente "$108.000.000" (y el CDP/SAC coinciden en esa cifra), pero las Bases
+Administrativas (numeral 10.4.1) dicen en prosa "$125.800.000... a repartir en cuatro líneas según el
+numeral 3.6" — una cifra que el propio numeral 3.6 que cita NO sostiene. Es una contradicción interna
+de las bases, no un documento "más correcto" que otro: manda el desglose que sí suma ($108.000.000).
 
 A.3 A QUIÉN SE ADJUDICA vs CÓMO SE COTIZA — SON DOS PREGUNTAS DISTINTAS, NUNCA LA MISMA. Suelen coincidir
 (la mayoría de las veces si es GLOBAL también se cotiza con un total único), pero NO SIEMPRE. Determina
@@ -1488,7 +1509,30 @@ function _tieneManifiestoColapsado(r: any): boolean {
 // reintento sale limpio, se usa. Si TAMBIÉN colapsa, se guarda el menos degradado de los dos (más
 // ítems) pero forzado a REVISION_HUMANA con un motivo explícito — nunca se guarda un colapso doble
 // en silencio. Costo: hasta 2x SOLO en los casos que colapsan (la mayoría no dispara V-12).
+//
+// 23-jul-2026: envuelto en conAcumuladorCostoIA para poder loguear el TOTAL gastado en la corrida
+// completa (puede ser 1 o 2 llamadas al modelo, más sus respaldos) — antes solo se veía el costo
+// de cada llamada suelta, sin un total a la vista. Se loguea SIEMPRE al salir, incluso si la
+// corrida termina en error (para ver cuánto se alcanzó a gastar antes de fallar).
 export async function analizarViabilidadIAV3(codigo: string): Promise<any | null> {
+  // El log TOTAL debe leerse DENTRO del callback de conAcumuladorCostoIA (que corre dentro de
+  // AsyncLocalStorage.run): fuera de ahí el contexto ya cerró y costoAcumuladoActual() da null.
+  return conAcumuladorCostoIA(async () => {
+    const t0 = Date.now();
+    try {
+      return await _orquestarAnalisisV3(codigo);
+    } finally {
+      const ac = costoAcumuladoActual();
+      if (ac) {
+        console.log(
+          `[viabilidad-ia] 💰 TOTAL ${codigo}: ${ac.llamadas} llamada(s) IA · in=${ac.inTok} out=${ac.outTok} tok · ~$${ac.costoUSD.toFixed(4)} USD · ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+        );
+      }
+    }
+  });
+}
+
+async function _orquestarAnalisisV3(codigo: string): Promise<any | null> {
   const primero = await _analizarViabilidadIAV3Intento(codigo);
   if (!primero || !_tieneManifiestoColapsado(primero)) return primero;
 
@@ -1665,6 +1709,20 @@ async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | nul
   // 21-jul-2026: antes esto se decidía con señales de COSTEO (total único, numeración del listado,
   // tabla por línea) — dos preguntas distintas que CA identificó como no relacionadas. Ver
   // veredictoAdjudicacionDeterminista arriba.
+  //
+  // GUARDIA DE UN SOLO ÍTEM (prioridad máxima, antes de cualquier señal): con 1 solo ítem/línea
+  // no existe "por línea" posible — no hay una segunda línea con la que repartir la adjudicación.
+  // Caso real 1180828-26-LE26: 1 ítem, pero "por línea" salió de un formulario genérico de
+  // plantilla ("se puede ingresar un cuadro por línea") que no implica adjudicación múltiple real.
+  const itemsParaConteo: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
+    : Array.isArray(p3.costeo?.items) ? p3.costeo.items : [];
+  if (itemsParaConteo.length === 1) {
+    const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
+    if (comoLLM !== 'GLOBAL') console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación forzada a GLOBAL — un solo ítem, "por línea" es imposible con 1 sola línea (LLM decía "${comoLLM || '—'}").`);
+    adj.como_se_adjudica = 'GLOBAL';
+    adj.estado = 'DETERMINADA';
+    adj.evidencia = 'un solo ítem/línea detectado en el manifiesto — no puede haber adjudicación por línea con una sola línea, es GLOBAL por definición';
+  } else {
   const det = veredictoAdjudicacionDeterminista(ofertaSubconjunto, formulariosPorArchivo, participacionParcialPorLinea, presupuestoPorLinea, tipoAdjudicacionMultiple);
   if (det) {
     const comoDet = det.tipo; // 'GLOBAL' | 'POR_LINEAS' — ya viene en el vocabulario de adjudicación
@@ -1731,6 +1789,7 @@ async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | nul
         ? `${adj.evidencia} [sin evidencia de participación repartida → default GLOBAL; requiere confirmación humana]`
         : `sin evidencia objetiva de que se pueda ganar solo una parte (ni lenguaje explícito, ni presupuesto por línea, ni formularios separados, ni declaración de adjudicación múltiple) → default GLOBAL; requiere confirmación humana`;
     }
+  }
   }
 
   // ── GATILLO DETERMINISTA DE CADENA LARGA ──────────────────────────────────────

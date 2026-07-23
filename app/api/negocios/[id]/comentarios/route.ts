@@ -7,6 +7,7 @@ import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -84,13 +85,22 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // Verificar acceso
     const [negRows] = await pool.query(
-      `SELECT asignado_a, licitacion_codigo, licitacion_nombre FROM negocios WHERE id = ? AND activo = TRUE`, [id]
+      `SELECT asignado_a, licitacion_codigo, licitacion_nombre, estado_pipeline FROM negocios WHERE id = ? AND activo = TRUE`, [id]
     ) as any;
     if (!(negRows as any[]).length)
       return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     const negocio = (negRows as any[])[0];
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
+
+    // Los asistentes (no admin) solo pueden AVANZAR en el pipeline al comentar — misma regla
+    // que el PATCH de /api/negocios/[id] (ver puedeCambiarEstadoPipeline).
+    if (pipeline_estado && rol !== 'admin') {
+      const chequeo = puedeCambiarEstadoPipeline(negocio.estado_pipeline, pipeline_estado, false);
+      if (!chequeo.permitido) {
+        return NextResponse.json({ error: chequeo.motivo }, { status: 403 });
+      }
+    }
 
     // Insertar comentario. created_at EXPLÍCITO en hora de pared de Chile: el DEFAULT
     // CURRENT_TIMESTAMP lo pone el servidor MySQL de Bluehost (UTC-6), 2h atrás de Chile.

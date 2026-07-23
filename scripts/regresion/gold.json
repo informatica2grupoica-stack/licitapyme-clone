@@ -13,10 +13,10 @@
   },
   {
     "codigo": "3507-12-LE26",
-    "nota": "seed",
+    "nota": "CORREGIDO 2026-07-23 (auditoría manual contra el texto OCR de las bases, CA): las bases dicen literalmente 'La presente licitación podrá adjudicarse por línea de oferta.' — declaración directa, no boilerplate de formulario (a diferencia de 1180828-26-LE26). No disparaba ningún detector determinista porque no trae 'múltiple'/'independiente'/'distintos oferentes' cerca. Fix en detectarTipoAdjudicacionMultiple (planilla-costeo-parser.ts): nuevo patrón para 'adjudicar(se) por línea/lote/ítem' a secas. modalidad.tipo sigue a adjudicación (tipoCosteo se deriva de comoFinal en viabilidad-ia.ts).",
     "esperado": {
-      "modalidad": "suma_alzada",
-      "adjudicacion": "GLOBAL",
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
       "n_criterios": 3,
       "suma_valida": true,
       "n_items_min": 10,
@@ -192,10 +192,10 @@
   },
   {
     "codigo": "1180828-26-LE26",
-    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
+    "nota": "CORREGIDO 2026-07-23: tenía 1 solo ítem — con una sola línea no puede existir adjudicación 'por línea' (no hay con qué repartir). La evidencia \"por línea\" venía de un formulario genérico de plantilla (\"se puede ingresar un cuadro por línea\"), no de una adjudicación múltiple real. Regla nueva agregada al código: n_items===1 fuerza GLOBAL antes de mirar cualquier otra señal (app/lib/viabilidad-ia.ts).",
     "esperado": {
-      "modalidad": "por_linea",
-      "adjudicacion": "POR_LINEAS",
+      "modalidad": "suma_alzada",
+      "adjudicacion": "GLOBAL",
       "n_criterios": 4,
       "suma_valida": true,
       "n_items_min": 1,
@@ -206,7 +206,7 @@
   },
   {
     "codigo": "4524-2-LP26",
-    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
+    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. VERIFICADO 2026-07-23 (CA): una auditoría manual previa había marcado el monto guardado ($108.000.000) como error, creyendo que las bases decían $125.800.000 — se revisó el texto OCR completo y es al revés: las Bases Técnicas (numeral 3.6) desglosan 4 líneas que suman exactamente $108.000.000 (confirmado también por CDP y SAC), mientras que las Bases Administrativas (10.4.1) dicen '$125.800.000... según el numeral 3.6' sin que ese numeral sostenga esa cifra — es una contradicción interna de las bases, y el monto con respaldo aritmético ($108.000.000, ya guardado) es el correcto. No se tocó el informe. Ver doctrina agregada en A.2 del prompt (viabilidad-ia.ts).",
     "esperado": {
       "modalidad": "por_linea",
       "adjudicacion": "POR_LINEAS",
@@ -234,10 +234,10 @@
   },
   {
     "codigo": "1389488-29-LE26",
-    "nota": "REVISADO 2026-07-20 (automático: validador V-01..V-14 + señales deterministas actuales). Sin hallazgos. esperado queda tal cual, sin verificación de negocio de un experto humano contra las bases.",
+    "nota": "CORREGIDO 2026-07-23 (auditoría manual contra el texto OCR de las bases, CA): las bases dicen 'La evaluación y adjudicación se realizará por línea, considerando los criterios establecidos en las Bases' y 'Los oferentes podrán ofertar en más de una línea de servicio' — ninguna disparaba: la primera por ser declaración a secas (sin 'múltiple'/'independiente'), la segunda por el orden de palabras 'más de una' (los patrones existentes solo cubrían 'una o más'). Fix en detectarTipoAdjudicacionMultiple y detectarOfertaSubconjuntoItems/detectarParticipacionParcialPorLinea (planilla-costeo-parser.ts). De paso se corrigió un bug de \\\\b con vocal acentuada ('podrá') que dejaba muda la guardia de negación en ambas funciones.",
     "esperado": {
-      "modalidad": "suma_alzada",
-      "adjudicacion": "GLOBAL",
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
       "n_criterios": 5,
       "suma_valida": true,
       "n_items_min": 34,

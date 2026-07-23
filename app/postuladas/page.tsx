@@ -20,7 +20,8 @@ import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useRealtime } from '@/app/lib/use-realtime';
-import { ESTADOS_PIPELINE } from '@/app/lib/pipeline';
+import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
+import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
@@ -31,7 +32,7 @@ import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
   Pencil, Trash2, Undo2, X, Save, Wallet, CheckCircle2,
-  XCircle, Hourglass, DoorOpen, DoorClosed, Search, Filter, ArrowUpDown,
+  XCircle, Hourglass, DoorOpen, DoorClosed, Search, Filter, ArrowUpDown, Download,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
@@ -47,6 +48,8 @@ interface Negocio {
   licitacion_monto: number | null;
   licitacion_cierre: string | null;
   licitacion_estado?: string | null;
+  licitacion_tipo?: string | null;
+  licitacion_region?: string | null;
   estado_pipeline: string | null;
   monto_ofertado?: number;
   empresa_id?: number | null;
@@ -623,6 +626,7 @@ function KpiCard({ icon, label, value, sub, color }: {
 export default function PostuladasPage() {
   const { usuario } = useSession();
   const isAdmin = usuario?.rol === 'admin';
+  const toast = useToast();
 
   const [negocios, setNegocios] = useState<Negocio[]>([]);
   const [empresasOpc, setEmpresasOpc] = useState<EmpresaOpc[]>([]);
@@ -639,6 +643,7 @@ export default function PostuladasPage() {
   // Ordenamiento de las tarjetas y carga incremental (las adjudicaciones hacen pesada cada tarjeta).
   const [orden, setOrden] = useState<'adjudicacion' | 'resultado' | 'cierre' | 'monto'>('adjudicacion');
   const [maxVisibles, setMaxVisibles] = useState(24);
+  const [exportando, setExportando] = useState(false);
 
   // Estado de cada postulada (adjudicación + apertura). Se resuelve TODO en el servidor en
   // una sola llamada (/api/postuladas/estado) → los totales aparecen juntos, sin animación
@@ -881,6 +886,94 @@ export default function PostuladasPage() {
     };
   }, [base, conteo, adjMap]);
 
+  // ── Exportar Excel ──────────────────────────────────────────────────────────
+  // Exporta `visibles`: la MISMA vista de la pantalla (búsqueda + perfil + empresa + estado MP +
+  // resultado, en el orden elegido), una fila por postulada. Trae todo lo que la página sabe de
+  // cada licitación, incluida la APERTURA (detectada por el poller del portal, no por la API) y
+  // el detalle del acta de adjudicación.
+  const exportarExcel = async () => {
+    if (exportando) return;
+    if (visibles.length === 0) {
+      toast.error('No hay postuladas para exportar', 'Ajusta o limpia los filtros e inténtalo de nuevo.');
+      return;
+    }
+    setExportando(true);
+    try {
+      const XLSX = await import('xlsx');
+      const fecha = (v: string | null | undefined) => (v ? dayjs(v).format('DD-MM-YYYY HH:mm') : '');
+      const dia   = (v: string | null | undefined) => (v ? dayjs(v).format('DD-MM-YYYY') : '');
+      const RESULTADO_LABEL: Record<Resultado, string> = {
+        ganada: 'Ganada', perdida: 'Perdida', evaluacion: 'En evaluación',
+      };
+
+      const filas = visibles.map(n => {
+        const a = adjMap[n.licitacion_codigo];
+        const lineas = a?.lineasAdjudicadas || [];
+        const nuestras = lineas.filter(l => l.esNuestra);
+        // Proveedores adjudicados, sin repetir (una licitación se adjudica por línea y el mismo
+        // proveedor puede llevarse varias).
+        const adjudicatarios = Array.from(new Set(lineas.map(l => l.proveedor).filter(Boolean))) as string[];
+        const decision = fechaDecisionDe(n);
+        return {
+          'Código':             n.licitacion_codigo,
+          'Nombre':             n.licitacion_nombre || '',
+          'Organismo':          n.licitacion_organismo || '',
+          'Tipo':               extractTipoFromCodigo(n.licitacion_codigo || '') || '',
+          'Región':             n.licitacion_region || '',
+          // Estado tal cual lo entrega MP (Publicada / Cerrada / Desierta / Adjudicada / Revocada…)
+          'Estado MP':          estadoMpDe(n),
+          'Resultado':          RESULTADO_LABEL[resultadoDeNegocio(n)],
+          'Aperturada':         n.aperturada ? 'Sí' : 'No',
+          'Apertura detectada': fecha(n.apertura_detectada_en),
+          'Apertura técnica (ficha)': fecha(a?.fechaAperturaTecnica),
+          'Estado gestión':     getEstadoPipeline(n.estado_pipeline || '')?.label || n.estado_pipeline || '',
+          'Cierre':             fecha(n.licitacion_cierre),
+          // Cuándo se decide: la fecha real del acta si ya se adjudicó, si no la estimada de la ficha.
+          'Se decide':          dia(a?.esAdjudicada ? a?.fechaAdjudicacion : a?.fechaEstimadaAdjudicacion),
+          'Fecha adjudicación': fecha(a?.fechaAdjudicacion),
+          'Días para decidir':  decision != null && !a?.esAdjudicada ? dayjs(decision).diff(dayjs().startOf('day'), 'day') : '',
+          'Presupuesto MP':     n.licitacion_monto ?? '',
+          'Monto ofertado':     n.monto_ofertado ?? '',
+          'Monto adjudicado a nosotros': a?.montoNuestro ?? '',
+          'Monto adjudicado total':      a?.montoAdjudicadoTotal ?? '',
+          'Líneas adjudicadas':          lineas.length || '',
+          'Líneas ganadas por nosotros': nuestras.length || '',
+          'Adjudicatarios':     adjudicatarios.join(', '),
+          'N° oferentes':       a?.adjudicacion?.numeroOferentes ?? '',
+          'N° resolución':      a?.adjudicacion?.numeroResolucion || '',
+          'Empresa':            n.empresa_nombre || '',
+          'Perfil':             n.usuario_nombre || n.usuario_email || '',
+          'Docs propios':       (docsPropiosMap[n.licitacion_codigo] || []).length || '',
+          'URL acta':           a?.adjudicacion?.urlActa || '',
+          'URL':                `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(n.licitacion_codigo)}`,
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(filas);
+      // Anchos en el MISMO orden que las claves de arriba.
+      ws['!cols'] = [
+        { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 },  { wch: 22 },  // código…región
+        { wch: 14 }, { wch: 14 }, { wch: 11 }, { wch: 18 }, { wch: 20 },  // estado MP…apertura técnica
+        { wch: 16 }, { wch: 18 }, { wch: 12 }, { wch: 18 }, { wch: 16 },  // gestión, cierre, fechas
+        { wch: 16 }, { wch: 16 }, { wch: 22 }, { wch: 22 },               // montos
+        { wch: 12 }, { wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 18 },  // líneas, adjudicatarios
+        { wch: 24 }, { wch: 22 }, { wch: 12 }, { wch: 60 }, { wch: 60 },  // empresa…URLs
+      ];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Postuladas');
+      XLSX.writeFile(wb, `postuladas-${dayjs().format('DD-MM-YYYY')}.xlsx`);
+      toast.success(
+        `Exportadas ${filas.length} postulada${filas.length !== 1 ? 's' : ''}`,
+        'Se descargó el Excel con los filtros actuales.',
+      );
+    } catch (e) {
+      console.error('[postuladas] exportar Excel falló:', e);
+      toast.error('No se pudo exportar el Excel', String((e as any)?.message || e));
+    } finally {
+      setExportando(false);
+    }
+  };
+
   const TABS: { id: Resultado | ''; label: string; count: number; color: string }[] = [
     { id: '', label: 'Todas', count: base.length, color: '#334155' },
     { id: 'ganada', label: 'Ganadas', count: conteo.ganada, color: META.ganada.color },
@@ -923,6 +1016,17 @@ export default function PostuladasPage() {
             </p>
           </div>
 
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <button
+              onClick={exportarExcel}
+              disabled={exportando || cargando || visibles.length === 0}
+              title="Exportar a Excel las postuladas con los filtros actuales (incluye apertura y adjudicación)"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+            >
+              {exportando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              Exportar
+            </button>
+
           {/* Buscador por nombre / ID de licitación (acota tabs, KPIs y lista). */}
           <div className="relative w-full sm:w-80">
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
@@ -939,6 +1043,7 @@ export default function PostuladasPage() {
                 <X size={14} />
               </button>
             )}
+            </div>
           </div>
         </div>
 

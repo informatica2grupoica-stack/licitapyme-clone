@@ -437,7 +437,7 @@ function DocumentosGrid({
 
     // Persistir en DB
     try {
-      await fetch('/api/documentos/clasificar', {
+      const r = await fetch('/api/documentos/clasificar', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -446,6 +446,11 @@ function DocumentosGrid({
           nueva_categoria: targetKey,
         }),
       });
+      if (!r.ok) throw new Error();
+      // Propaga el movimiento al padre (documentosCache): sin esto, el estado local optimista
+      // se pierde al cambiar de pestaña (el componente se re-monta con la categoría vieja y el
+      // documento "salta" de vuelta a su caja original hasta refrescar a mano).
+      onRefrescar();
     } catch {
       // Si falla, revertir
       setGrupos(prev => {
@@ -934,6 +939,9 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar }: {
         body: JSON.stringify({ codigo: codigoDecoded, documento_nombre: draggingDoc.nombre, subcategoria: nuevaSub || null }),
       });
       if (!r.ok) throw new Error();
+      // Propaga el movimiento al padre (documentosCache): sin esto, el estado local optimista
+      // se pierde al cambiar de pestaña (el componente se re-monta con la subcategoría vieja).
+      onRefrescar();
     } catch {
       toast.error('No se pudo mover el documento');
       setGrupos(prev => {

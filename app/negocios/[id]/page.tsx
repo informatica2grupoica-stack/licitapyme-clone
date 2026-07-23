@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useSession } from '@/app/lib/session-context';
-import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
+import { ESTADOS_PIPELINE, getEstadoPipeline, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
 // Colores del badge de estado de Mercado Público (por código efectivo).
@@ -1068,9 +1068,13 @@ function TablaItems({ items }: { items: ItemEspec[] }) {
 // ── Sección Comentarios ────────────────────────────────────────────────────────
 function SeccionComentarios({
   negocioId,
+  estadoActual,
+  isAdmin,
   onEstadoChanged,
 }: {
   negocioId:       number;
+  estadoActual:    string | null;
+  isAdmin:         boolean;
   onEstadoChanged: (estadoId: string) => void;
 }) {
   const { usuario } = useSession();
@@ -1213,11 +1217,14 @@ function SeccionComentarios({
               </button>
               {ESTADOS_PIPELINE.map(est => {
                 const sel = pipelineSel === est.id;
+                const chequeo = puedeCambiarEstadoPipeline(estadoActual, est.id, isAdmin);
                 return (
                   <button
                     key={est.id}
                     type="button"
-                    onClick={() => setPipelineSel(sel ? null : est.id)}
+                    disabled={!chequeo.permitido}
+                    title={chequeo.permitido ? undefined : chequeo.motivo}
+                    onClick={() => { if (!chequeo.permitido) return; setPipelineSel(sel ? null : est.id); }}
                     style={sel ? {
                       backgroundColor: est.color + '20',
                       color:           est.color,
@@ -1225,7 +1232,7 @@ function SeccionComentarios({
                     } : {}}
                     className={`text-[11px] px-2.5 py-1 rounded-full border font-bold transition-all ${
                       sel ? '' : 'border-zinc-200 text-zinc-500 hover:border-zinc-400'
-                    }`}
+                    } ${chequeo.permitido ? '' : 'opacity-40 cursor-not-allowed hover:border-zinc-200'}`}
                   >
                     {sel && <span className="mr-1">✓</span>}
                     {est.label}
@@ -1673,6 +1680,8 @@ function DetalleContent() {
             {seccion === 'comentarios' && (
               <SeccionComentarios
                 negocioId={negocio.id}
+                estadoActual={negocio.estado_pipeline}
+                isAdmin={isAdmin}
                 onEstadoChanged={sincronizarEstadoPipeline}
               />
             )}

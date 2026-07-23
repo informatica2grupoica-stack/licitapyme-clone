@@ -14,7 +14,7 @@ import {
 import { Select } from '@/app/components/ui/Select';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
-import { ESTADOS_PIPELINE, getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
+import { ESTADOS_PIPELINE, getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
 import { semaforoRevision } from '@/app/lib/asignacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { motivosParaEstado, nivelPorEstado, NIVEL_LABEL, componerMotivo } from '@/app/lib/motivos-descarte';
@@ -163,7 +163,7 @@ export function HistorialLicitacion({ eventos }: { eventos: EventoLic[] }) {
 }
 
 // ── Pipeline Selector ─────────────────────────────────────────────────────────
-function PipelineSelector({ current, onChange }: { current: string | null; onChange: (id: string) => void }) {
+function PipelineSelector({ current, onChange, isAdmin }: { current: string | null; onChange: (id: string) => void; isAdmin: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const estado = getEstadoPipeline(current);
@@ -173,6 +173,10 @@ function PipelineSelector({ current, onChange }: { current: string | null; onCha
     document.addEventListener('mousedown', fn);
     return () => document.removeEventListener('mousedown', fn);
   }, []);
+
+  // Los asistentes (no admin) solo pueden avanzar: las opciones que serían un retroceso quedan
+  // visibles pero deshabilitadas, con el motivo en el tooltip (ver puedeCambiarEstadoPipeline).
+  const chequeoQuitar = puedeCambiarEstadoPipeline(current, null, isAdmin);
 
   return (
     <div ref={ref} className="relative">
@@ -184,16 +188,23 @@ function PipelineSelector({ current, onChange }: { current: string | null; onCha
       </button>
       {open && (
         <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-zinc-200 rounded-xl shadow-xl z-50 overflow-hidden scale-in max-h-72 overflow-y-auto">
-          {ESTADOS_PIPELINE.map(est => (
-            <button key={est.id} onClick={() => { onChange(est.id); setOpen(false); }}
-              className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left hover:bg-zinc-50 transition-colors ${current === est.id ? 'bg-zinc-50' : ''}`}>
-              <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: est.color }} />
-              <span className="text-[13px] font-semibold" style={{ color: est.color }}>{est.label}</span>
-              {current === est.id && <Check size={12} className="ml-auto text-zinc-400" />}
-            </button>
-          ))}
-          <button onClick={() => { onChange(''); setOpen(false); }}
-            className="w-full flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-zinc-50 border-t border-zinc-100 text-[13px] text-zinc-400">
+          {ESTADOS_PIPELINE.map(est => {
+            const chequeo = puedeCambiarEstadoPipeline(current, est.id, isAdmin);
+            return (
+              <button key={est.id} disabled={!chequeo.permitido}
+                title={chequeo.permitido ? undefined : chequeo.motivo}
+                onClick={() => { if (!chequeo.permitido) return; onChange(est.id); setOpen(false); }}
+                className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left transition-colors ${current === est.id ? 'bg-zinc-50' : ''} ${chequeo.permitido ? 'hover:bg-zinc-50 cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: est.color }} />
+                <span className="text-[13px] font-semibold" style={{ color: est.color }}>{est.label}</span>
+                {current === est.id && <Check size={12} className="ml-auto text-zinc-400" />}
+                {!chequeo.permitido && <Ban size={11} className="ml-auto text-zinc-400 flex-shrink-0" />}
+              </button>
+            );
+          })}
+          <button disabled={!chequeoQuitar.permitido} title={chequeoQuitar.permitido ? undefined : chequeoQuitar.motivo}
+            onClick={() => { if (!chequeoQuitar.permitido) return; onChange(''); setOpen(false); }}
+            className={`w-full flex items-center gap-2.5 px-3.5 py-2.5 border-t border-zinc-100 text-[13px] text-zinc-400 ${chequeoQuitar.permitido ? 'hover:bg-zinc-50 cursor-pointer' : 'opacity-40 cursor-not-allowed'}`}>
             Sin etiqueta
           </button>
         </div>
@@ -390,7 +401,7 @@ export function GestionAside({
 
         <div>
           <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest mb-1.5">Estado</p>
-          <PipelineSelector current={negocio.estado_pipeline} onChange={cambiarEstado} />
+          <PipelineSelector current={negocio.estado_pipeline} onChange={cambiarEstado} isAdmin={isAdmin} />
           <div className="flex gap-1.5 mt-2">
             {negocio.estado_pipeline !== 'EN_PROCESO' && (
               <button onClick={() => cambiarEstado('EN_PROCESO')}

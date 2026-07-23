@@ -197,15 +197,20 @@ export default function AnalisisLicitacionPage() {
     return [...m.entries()].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count);
   }, [base]);
 
-  // Resultado REAL de una postulada, con el acta de MP por delante del estado interno:
-  // el cache dice si MP adjudicó y si ganó una de nuestras empresas (match por RUT). El
-  // estado_pipeline solo se usa de respaldo (si el cruce aún no cargó o la tabla no tiene
-  // esa licitación), que es como se contaba antes.
+  // Resultado REAL de una postulada: manda SIEMPRE el acta de MP. El cache dice si MP adjudicó
+  // y si ganó una de nuestras empresas (match por RUT).
+  //
+  // El estado_pipeline NO decide: es una etiqueta que un usuario puede poner a mano y no
+  // significa que MP haya resuelto. Ese fallback hacía que esta pantalla contara 15 perdidas
+  // mientras /postuladas y /adjudicadas contaban 14: una licitación marcada PERDIDA a mano cuyo
+  // acta dice "Desierta" (es_adjudicada = 0) — MP nunca la va a confirmar, así que el cron
+  // tampoco la corrige y el descuadre era permanente. Solo se usa de respaldo mientras el cruce
+  // no ha cargado (o si /api/postuladas/estado falla), igual que en /postuladas.
   const resultadoDe = useCallback((n: Negocio): 'ganada' | 'perdida' | 'evaluacion' | null => {
     const id = idDe(n.estado_pipeline);
     if (!UNIVERSO_POSTULADA.has(id)) return null;
     const a = adjMap[n.licitacion_codigo];
-    if (a?.esAdjudicada) return a.ganamos ? 'ganada' : 'perdida';
+    if (a) return a.esAdjudicada ? (a.ganamos ? 'ganada' : 'perdida') : 'evaluacion';
     if (id === 'ADJUDICADA') return 'ganada';
     if (id === 'PERDIDA') return 'perdida';
     return 'evaluacion';   // postulada, MP todavía no resuelve

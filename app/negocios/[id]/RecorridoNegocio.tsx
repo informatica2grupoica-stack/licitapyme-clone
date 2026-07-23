@@ -164,8 +164,10 @@ export function RecorridoNegocio({ negocioId }: { negocioId: number | string }) 
   let postuladaAnotada = false;
   for (const [i, e] of evEstado.entries()) {
     const desc = e.descripcion;
-    // Color del estado destino si se reconoce en el texto.
-    const destino = ESTADOS_PIPELINE.find(s => desc.toUpperCase().includes(s.label)) || null;
+    // Color del estado destino si se reconoce en el texto. La bitácora guarda el ID crudo (ej.
+    // "a ADJUDICADA"), no el label — comparar por s.id (no s.label) para que también reconozca
+    // los estados donde label≠id (EN_PROCESO/"EN PROCESO", ADJUDICADA/"GANADA", etc.).
+    const destino = ESTADOS_PIPELINE.find(s => desc.toUpperCase().includes(s.id)) || null;
     const esPostulada = destino?.id === 'POSTULADA';
     hitos.push({
       key: `est-${i}`, fecha: e.created_at, color: destino?.color || '#0891b2',

@@ -50,6 +50,10 @@ interface Negocio {
   adj_es_adjudicada?: number;   // MP ya adjudicó el proceso (a alguien)
   adj_ganamos?: number;         // una de NUESTRAS empresas ganó ≥1 línea (RUT)
   adj_monto_nuestro?: number | null;
+  // Apertura detectada por el poller del portal (tabla licitacion_apertura, migración 41).
+  // El endpoint la rellena para TODAS las asignadas, no solo las postuladas.
+  aperturada?: number;
+  apertura_detectada_en?: string | null;
   // Cierre OFICIAL de preguntas de la API de Mercado Público (columna de migración 46 en
   // `negocios`, rellenada por refrescar-estados.ts — NO el foro de preguntas/respuestas de
   // preguntas_respuestas_cache, que es otra cosa y va más lento).
@@ -1591,9 +1595,17 @@ function NegociosContent() {
         'Organismo':         n.licitacion_organismo || '',
         'Tipo':              extractTipoFromCodigo(n.licitacion_codigo || '') || '',
         'Estado MP':         estadoEfectivoNombre(n.licitacion_estado, n.licitacion_cierre) || '',
+        // Resultado del ACTA (adjudicacion_cache, por RUT). El "Estado MP" dice si el proceso se
+        // adjudicó/quedó desierto; esta columna dice si ganamos NOSOTROS. Vacía mientras MP no publica.
+        'Resultado MP':      n.adj_es_adjudicada ? (n.adj_ganamos ? 'Ganada' : 'Adjudicada a terceros') : '',
+        // Apertura del acto: la detecta el poller del portal, no la API. Es lo que se pidió poder
+        // filtrar en el Excel junto con el estado (Cerrada / Desierta / Adjudicada / …).
+        'Aperturada':        n.aperturada ? 'Sí' : 'No',
+        'Apertura detectada': n.apertura_detectada_en ? new Date(n.apertura_detectada_en).toLocaleString('es-CL') : '',
         'Estado gestión':    getEstadoPipeline(n.estado_pipeline || 'ASIGNADO')?.label || n.estado_pipeline || '',
         'Monto (CLP)':       n.licitacion_monto ?? '',
         'Monto ofertado':    n.monto_ofertado ?? '',
+        'Monto adjudicado a nosotros': n.adj_monto_nuestro ?? '',
         'Cierre':            n.licitacion_cierre ? new Date(n.licitacion_cierre).toLocaleString('es-CL') : '',
         'Región':            n.licitacion_region || '',
         'Líneas de negocio': (n.etiquetas || []).map(e => e.nombre).join(', '),
@@ -1601,10 +1613,12 @@ function NegociosContent() {
         'URL':               `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(n.licitacion_codigo)}`,
       }));
       const ws = XLSX.utils.json_to_sheet(filas);
+      // Anchos en el MISMO orden que las claves de `filas` (si se agrega una columna, va también aquí).
       ws['!cols'] = [
-        { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 }, { wch: 12 },
-        { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 20 }, { wch: 20 },
-        { wch: 28 }, { wch: 22 }, { wch: 60 },
+        { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 },  { wch: 12 },  // código…estado MP
+        { wch: 22 }, { wch: 11 }, { wch: 20 },                            // resultado, aperturada, apertura detectada
+        { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 22 },               // estado gestión, montos
+        { wch: 20 }, { wch: 20 }, { wch: 28 }, { wch: 22 }, { wch: 60 },  // cierre…URL
       ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Negocios');
