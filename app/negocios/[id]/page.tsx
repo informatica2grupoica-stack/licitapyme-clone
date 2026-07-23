@@ -1940,7 +1940,7 @@ function DetalleContent() {
 
         {/* ── MAIN CONTENT ───────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto min-w-0">
-          <div className="p-5 sm:p-7 max-w-3xl mx-auto w-full">
+          <div className={`p-5 sm:p-7 mx-auto w-full ${seccion === 'documentos' ? 'max-w-6xl' : 'max-w-3xl'}`}>
             {/* Header */}
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-3 lg:hidden">

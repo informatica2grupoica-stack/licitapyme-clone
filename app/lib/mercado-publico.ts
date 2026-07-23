@@ -334,18 +334,47 @@ export class MercadoPublicoClient {
     };
   }
 
-  private async fetch<T>(url: string): Promise<T> {
-    const res = await globalThis.fetch(url, {
-      headers: { Accept: 'application/json' },
-      next: { revalidate: 300 },
-    });
+  // Reintenta ante 429 (rate-limit) y 502/503/504 (el borde de la API se degrada de forma
+  // intermitente, mismo patrón verificado en fetchMPConReintentos para el portal HTML). Sin
+  // esto, un hipo transitorio de la API tumbaba en silencio TODA la tarjeta de datos de
+  // Mercado Público en el resumen (el front no distinguía "no existe" de "falló una vez").
+  private async fetch<T>(url: string, intentos = 3): Promise<T> {
+    let ultimoError: Error = new Error('Error desconocido consultando la API de Mercado Público');
+    for (let i = 0; i < intentos; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 1500 * i)); // espera 1.5s, luego 3s
 
-    if (!res.ok) throw new Error(`API error ${res.status}`);
-    const data = await res.json();
+      let res: Response;
+      try {
+        res = await globalThis.fetch(url, {
+          headers: { Accept: 'application/json' },
+          next: { revalidate: 300 },
+        });
+      } catch (e) {
+        ultimoError = e instanceof Error ? e : new Error(String(e));
+        console.warn(`[MP API] error de red (intento ${i + 1}/${intentos}) en ${url.slice(0, 90)}: ${ultimoError.message}`);
+        continue;
+      }
 
-    if (data.Codigo === 10000) throw new Error(`API: ${data.Mensaje}`);
+      if ([429, 502, 503, 504].includes(res.status)) {
+        ultimoError = new Error(`API error ${res.status}`);
+        console.warn(`[MP API] HTTP ${res.status} (intento ${i + 1}/${intentos}) en ${url.slice(0, 90)} — reintentando…`);
+        continue;
+      }
+      if (!res.ok) throw new Error(`API error ${res.status}`);
 
-    return data as T;
+      const data = await res.json();
+      // La API a veces responde 200 con un cuerpo de error: Código 10500 = rate-limit
+      // (reintentable); otros códigos (p.ej. 10000) son error real, no se reintentan.
+      if (data.Codigo === 10500) {
+        ultimoError = new Error(`API: ${data.Mensaje || 'rate-limit'}`);
+        console.warn(`[MP API] rate-limit (Código 10500, intento ${i + 1}/${intentos}) — reintentando…`);
+        continue;
+      }
+      if (data.Codigo === 10000) throw new Error(`API: ${data.Mensaje}`);
+
+      return data as T;
+    }
+    throw ultimoError;
   }
 
   private formatFecha(date: Date): string {
