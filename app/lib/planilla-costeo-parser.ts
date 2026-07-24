@@ -251,6 +251,14 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
     /adjudicar(?:se|á|an|a)?\s+por\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
     // Forma nominal: "la adjudicación se realizará/hará por línea/lote/ítem".
     /adjudicaci[oó]n\s+se\s+(?:realizar[aá]|har[aá]|efectuar[aá])\s+por\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    // 23-jul-2026 (caso real 5240-77-LP26, Carabineros): "La presente licitación se desarrollará
+    // bajo la MODALIDAD DE ADJUDICACIÓN EN LÍNEA". Dice "EN línea", no "POR línea", así que ningún
+    // patrón de arriba la cazaba y el veredicto cayó al default GLOBAL pese a que la propia IA
+    // había citado la frase. OJO con el falso amigo: "en línea" también significa "por internet"
+    // ("la adjudicación se publicará en línea"), por eso se exige el contexto "modalidad de" o
+    // "postular/ofertar en" — nunca la frase suelta.
+    /modalidad\s+de\s+adjudicaci[oó]n\s+en\s+l[ií]neas?\b/i,
+    /(?:postular|ofertar|participar)\s+en\s+adjudicaci[oó]n\s+en\s+l[ií]neas?\b/i,
   ];
   for (const d of docs) {
     if (!d.texto) continue;
@@ -393,6 +401,13 @@ export function detectarOfertaSubconjuntoItems(docs: { texto: string }[]): strin
     // Orden invertido "más de una/uno": "ofertar en más de una línea de servicio" (caso real
     // 1389488-29-LE26). Los patrones de arriba esperan "una o más"; este cubre "más de una".
     /(?:podr[aá]n?|puede[n]?|pudiendo)?\s*(?:\w+\s+){0,3}ofertar\s+(?:a|por|en)\s+m[aá]s\s+de\s+(?:un|uno|una)\s+(?:[ií]tems?|l[ií]neas?)/i,
+    // 23-jul-2026 (caso real 5240-77-LP26, Carabineros). Dos redacciones que ningún patrón de
+    // arriba cazaba porque TODOS exigen el verbo "ofertar", y estas usan "participar" y "postular":
+    //   · "el oferente podrá PARTICIPAR por el total o por alguna(s) de la(s) línea(s)"
+    //   · "los oferentes podrán POSTULAR en adjudicación en línea EN CONJUNTO O POR SEPARADO"
+    // La disyuntiva todo-o-parte es justamente la definición de oferta por subconjunto.
+    /(?:participar|postular|ofertar)\s+(?:por|en|a)\s+(?:el\s+|la\s+)?total(?:idad)?\s+o\s+(?:por|en|a)\s+(?:algun|un\b|una\b|s[oó]lo|solo|part)/i,
+    /(?:participar|postular|ofertar)\s+(?:\w+\s+){0,6}?en\s+conjunto\s+o\s+por\s+separado/i,
   ];
   for (const d of docs) {
     if (!d.texto) continue;

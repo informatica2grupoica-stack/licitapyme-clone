@@ -362,5 +362,19 @@
       "suma_valida": true,
       "revision_humana": false
     }
+  },
+  {
+    "codigo": "5240-77-LP26",
+    "nota": "Agregado 23-jul-2026 (reporte del usuario: \"me dio unos productos que no son\"). Carabineros/Labocar Coquimbo: 3 sistemas forenses heterogeneos, uno por linea, cada uno con su propio Anexo de Requerimientos Tecnicos (N2, N3, N4). (a) ADJUDICACION: las bases dicen \"bajo la modalidad de adjudicacion EN linea, por tanto, el oferente podra PARTICIPAR por el total o por alguna(s) de la(s) linea(s)\" y el Anexo N1 \"podran POSTULAR en adjudicacion en linea en conjunto o por separado, ya que su evaluacion sera de manera totalmente independiente\". La IA cito ambas frases correctamente, pero el override determinista la revirtio a GLOBAL + REVISION_HUMANA porque TODOS los patrones de detectarOfertaSubconjuntoItems exigian el verbo \"ofertar\" (aqui es \"participar\"/\"postular\") y detectarTipoAdjudicacionMultiple buscaba \"POR linea\", no \"EN linea\". Patrones agregados en planilla-costeo-parser.ts; verificado que no disparan falsos positivos en los otros 28 casos. (b) MANIFIESTO: n_items debe ser 3 (las 3 lineas de la tabla del Anexo N1). Hoy da 9 = las 3 lineas DUPLICADAS (se extraen dos veces, de BASES_ADMINISTRATIVAS y del Anexo N1) mas basura de otras tablas HTML del mismo PDF (plazos del cronograma como \"20 (veinte) dias... Cierre de recepcion de ofertas\" y un RUT \"72.225.700-6\"), y todas con linea=1 en vez de 1/2/3. Ese defecto sigue ABIERTO: el caso lo fija para que el harness lo cace.",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 5,
+      "suma_valida": true,
+      "n_items_min": 3,
+      "n_items_max": 3,
+      "revision_humana": false,
+      "excluido": false
+    }
   }
 ]

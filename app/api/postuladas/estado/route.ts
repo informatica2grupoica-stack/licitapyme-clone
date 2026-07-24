@@ -71,6 +71,15 @@ export async function GET(request: NextRequest) {
       const adj = row ? await enriquecer(respuestaDesdeCache(codigo, row)) : null;
       const esAdjudicada = !!adj?.esAdjudicada;
       estados[codigo] = {
+        // BUG real (24-jul-2026): esta entrada se creaba SIEMPRE, con esAdjudicada=false cuando
+        // no había fila en adjudicacion_cache. El frontend (resultadoDeNegocio) usa `if (a) …`
+        // para decidir si confía en MP o cae al estado_pipeline propio — como `a` nunca era
+        // null/undefined, el fallback interno JAMÁS se ejecutaba: toda postulada sin caché de
+        // adjudicación (p. ej. un backfill histórico desde Licitalab, o cualquier ADJUDICADA/
+        // PERDIDA a la que el cron aún no le tocó el turno) se mostraba como "En evaluación"
+        // aunque estado_pipeline ya dijera lo contrario. `tieneCacheReal` distingue ambos casos
+        // sin tocar `aperturada` (que sigue siendo válido aunque no haya adjudicación aún).
+        tieneCacheReal: !!row,
         esAdjudicada,
         estado: adj?.estado ?? null,
         codigoEstado: adj?.codigoEstado ?? null,

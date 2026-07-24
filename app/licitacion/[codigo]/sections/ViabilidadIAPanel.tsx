@@ -36,6 +36,9 @@ interface InformeIA {
   exclusion?: { excluido?: boolean; categoria?: string | null; motivo?: string; fuente?: string; destino?: string };
   presupuesto?: { bruto?: number | null; neto?: number | null; con_iva?: boolean; regimen_fora?: boolean; presupuesto_exento?: boolean; es_excluyente?: boolean; fuente?: string; gate?: string };
   modalidad?: { tipo?: string; estado?: string; evidencia?: string; fuente?: string; confianza?: number; libertad_de_pricing?: boolean; como_se_adjudica?: string; heterogeneidad?: string; cotizar_100_obligatorio?: boolean; evaluacion_puntaje?: string };
+  // v3: "a quién se adjudica" vive acá, NO en modalidad (que en v3 queda reducida a { tipo } como
+  // puente al costeo, sin fuente). Leer modalidad para esto dejaba la tarjeta sin cita.
+  adjudicacion?: { como_se_adjudica?: string; heterogeneidad?: string; modalidad_pago_interna?: string; estado?: string; cotizar_100_obligatorio?: boolean; libertad_de_pricing?: boolean; evaluacion_puntaje?: string; evidencia?: string; fuente?: string; confianza?: number };
   criterios_evaluacion?: { fuente_datos?: string; forma_aplicacion_completa?: boolean; suma_ponderaciones_real?: number; suma_valida?: boolean; criterios?: Criterio[]; alertas?: string[] };
   capa_a?: { presupuesto?: { pts?: number; fuente?: string; justificacion?: string }; cantidad_items?: { pts?: number; n_items?: number; fuente?: string; justificacion?: string }; complejidad?: { pts?: number; fuente?: string; justificacion?: string }; ejecucion?: { pts?: number; fuente?: string; justificacion?: string }; modificadores?: { bonus_cantidad_presupuesto?: number; bonus_importabilidad_provisional?: number; modificador_adjudicacion?: number }; score_total?: number; nivel?: string };
   capa_b_palancas?: Palanca[];
@@ -274,6 +277,105 @@ function Fuente({ children, destacar }: { children?: string; destacar?: string }
   return <span className="inline-flex items-center gap-1 text-[11px] text-indigo-500"><FileSearch size={10} />{children}</span>;
 }
 
+/**
+ * Tarjeta "Cómo se adjudica" CON su trazabilidad.
+ *
+ * POR QUÉ EXISTE: el veredicto GLOBAL / POR LÍNEAS es una de las conclusiones más delicadas del
+ * informe (decide el costeo y la oferta) y hasta ahora se mostraba sin decir de dónde salía. Peor:
+ * en v3 este dato vive en `informe.adjudicacion`, pero la tarjeta leía `informe.modalidad` — que en
+ * v3 queda reducida a `{ tipo }` como puente al costeo y NO trae fuente. Resultado: nunca aparecía
+ * la cita.
+ *
+ * Ahora se muestran las dos cosas que responden "¿de dónde sacó eso?":
+ *   · la CITA de las bases, con el ojo para abrir el documento en la página exacta;
+ *   · la EVIDENCIA, que es donde queda registrado si un chequeo determinista del código pisó lo que
+ *     dijo el modelo (ej. "un solo ítem → GLOBAL por definición", o "[ajuste por evidencia de
+ *     adjudicación: …]"). Eso explica los casos donde el veredicto no calza con las bases a simple
+ *     vista, y antes no se veía en ninguna pantalla.
+ */
+function TarjetaAdjudicacion({ informe }: { informe: InformeIA }) {
+  const [abierto, setAbierto] = useState(false);
+  const adj = informe.adjudicacion || {};
+  const mod = informe.modalidad || {};
+
+  // v3 manda; v2 (modalidad) queda de respaldo.
+  const como       = adj.como_se_adjudica ?? mod.como_se_adjudica ?? '';
+  const fuente     = adj.fuente ?? mod.fuente;
+  const evidencia  = adj.evidencia ?? mod.evidencia;
+  const estado     = adj.estado ?? mod.estado;
+  const confianza  = adj.confianza ?? mod.confianza;
+  const cotizar100 = adj.cotizar_100_obligatorio ?? mod.cotizar_100_obligatorio;
+  const heterog    = adj.heterogeneidad ?? mod.heterogeneidad;
+  // EJE DISTINTO, a propósito: "cómo se cotiza" (suma alzada / por línea) no es lo mismo que
+  // "a quién se adjudica". Confundirlos ya causó errores de costeo, así que se rotula aparte.
+  const cotizacion = mod.tipo ?? adj.modalidad_pago_interna;
+
+  const revision = estado === 'REVISION_HUMANA';
+  const hayPorQue = !!(evidencia || confianza != null || cotizacion);
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-3">
+      <p className="text-[10px] font-bold text-slate-400 uppercase">Cómo se adjudica</p>
+      <p className="text-[14px] font-semibold text-slate-800 leading-tight">
+        {cap(como) || cap(mod.tipo) || '—'}
+        {revision ? <span title="El análisis no lo determinó con certeza: confírmalo en las bases"> ⚠</span> : null}
+      </p>
+
+      <div className="flex items-center gap-1 flex-wrap mt-0.5">
+        {revision && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-amber-100 text-amber-700">REVISAR</span>}
+        {cotizar100 && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700" title="Hay que cotizar el 100% o la oferta queda fuera">COTIZAR 100%</span>}
+        {heterog === 'alta' && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-100 text-emerald-700">heterogénea</span>}
+      </div>
+
+      {/* La cita con el ojo — mismo componente que el resto del informe. */}
+      {fuente
+        ? <div className="mt-1"><Fuente destacar={anclaAdjudicacion(fuente, evidencia)}>{fuente}</Fuente></div>
+        : <p className="text-[10px] text-slate-400 mt-1">Sin cita: el veredicto salió de señales del propio documento, no de una cláusula. Mira el porqué.</p>}
+
+      {hayPorQue && (
+        <button
+          type="button"
+          onClick={() => setAbierto(v => !v)}
+          className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-semibold text-violet-600 hover:text-violet-800"
+        >
+          <Compass size={11} /> {abierto ? 'Ocultar' : '¿Cómo lo determinó?'}
+        </button>
+      )}
+
+      {abierto && (
+        <div className="mt-1.5 space-y-1.5 border-t border-slate-100 pt-1.5">
+          {evidencia && (
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase">Razonamiento</p>
+              <p className="text-[10.5px] text-slate-600 leading-snug">{evidencia}</p>
+            </div>
+          )}
+          {cotizacion && (
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase">Cómo se cotiza (eje aparte)</p>
+              <p className="text-[10.5px] text-slate-600">{cap(cotizacion)}</p>
+            </div>
+          )}
+          <p className="text-[10px] text-slate-400">
+            {confianza != null ? `Confianza ${Math.round(Number(confianza) * 100)}%` : ''}
+            {estado ? `${confianza != null ? ' · ' : ''}${String(estado).replace(/_/g, ' ').toLowerCase()}` : ''}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Qué resaltar al abrir el documento desde la cita de adjudicación. La cita suele ser una
+ * referencia ("Bases art. 9") y lo que el usuario quiere ver marcado es la frase que decidió el
+ * veredicto — que la IA copió en la evidencia entre comillas. Si la hay, esa manda.
+ */
+function anclaAdjudicacion(fuente?: string, evidencia?: string): string | undefined {
+  const entrecomillado = evidencia?.match(/["“]([^"”]{8,90})["”]/)?.[1];
+  return entrecomillado || anclaDeFuente(fuente || '');
+}
+
 function Seccion({ icon, titulo, badge, children, defaultOpen = false }: { icon: React.ReactNode; titulo: string; badge?: string; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
@@ -443,6 +545,20 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
   // clasificación genérico/específico; el manifiesto gana solo si es más largo (parser de planilla
   // o extracción dedicada "LÍNEA DE PRODUCTO" añadieron ítems que el LLM había resumido).
   const _fuenteItems: any[] = _manif.length > _prod.length ? _manif : (_prod.length ? _prod : _manif);
+  // FICHA TÉCNICA POR LÍNEA — respaldo cuando gana el manifiesto. El manifiesto NO trae
+  // `caracteristicas`, así que elegirlo (por ser más largo) borraba de pantalla las
+  // especificaciones que el módulo PRODUCTOS sí había leído de los anexos técnicos.
+  // Caso real 5240-77-LP26: 3 líneas, cada una con su anexo de requerimientos (37/32/N filas);
+  // el manifiesto traía 9 filas con basura, ganaba por largo, y la ficha técnica desaparecía —
+  // el usuario veía "productos que no son" y sin detalle. Se indexa por línea y se rellena.
+  const _fichaPorLinea = new Map<string, string[]>();
+  for (const it of _prod) {
+    const cs = Array.isArray(it?.caracteristicas) ? it.caracteristicas.filter(Boolean).map(String) : [];
+    if (!cs.length) continue;
+    // La línea viene como "L1" (productos.items) o 1 (manifiesto): se normaliza al número.
+    const k = String(it.linea ?? '').replace(/\D/g, '');
+    if (k) _fichaPorLinea.set(k, cs);
+  }
   const itemsCosteo = _fuenteItems.map((p: any, i: number) => ({
     linea: p.linea ?? i + 1,
     descripcion: p.descripcion ?? p.nombre ?? p.descripcion_exacta ?? '',
@@ -454,7 +570,9 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
     marca_exclusiva: p.marca_exclusiva,
     // v3.3: riqueza del módulo PRODUCTOS (si la fuente es productos.items; el manifiesto no la trae).
     clasificacion: p.clasificacion ?? p.tipo ?? '',
-    caracteristicas: Array.isArray(p.caracteristicas) ? p.caracteristicas : [],
+    caracteristicas: Array.isArray(p.caracteristicas) && p.caracteristicas.length
+      ? p.caracteristicas
+      : (_fichaPorLinea.get(String(p.linea ?? '').replace(/\D/g, '')) ?? []),
     libertad_de_oferta: p.libertad_de_oferta ?? false,
     admite_equivalente: p.admite_equivalente,
   }));
@@ -1281,17 +1399,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                 ? <a href={hrefCita(informe.presupuesto?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.bruto ? (informe.presupuesto?.regimen_fora ? 'exento · ' : 'IVA incl. · ') : ''}{informe.presupuesto?.fuente}</a>
                 : <p className="text-[10px] text-slate-400 truncate" title={informe.presupuesto?.fuente}>{informe.presupuesto?.bruto ? (informe.presupuesto?.regimen_fora ? 'exento · ' : 'IVA incl. · ') : ''}{informe.presupuesto?.fuente}</p>}
             </div>
-            <div className="bg-white border border-slate-200 rounded-xl p-3">
-              <p className="text-[10px] font-bold text-slate-400 uppercase">Cómo se adjudica</p>
-              <p className="text-[14px] font-semibold text-slate-800 leading-tight">{cap(informe.modalidad?.como_se_adjudica) || cap(informe.modalidad?.tipo) || '—'}{informe.modalidad?.estado === 'REVISION_HUMANA' ? ' ⚠' : ''}</p>
-              <div className="flex items-center gap-1 flex-wrap mt-0.5">
-                {informe.modalidad?.cotizar_100_obligatorio && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700" title="Hay que cotizar el 100% o la oferta queda fuera">COTIZAR 100%</span>}
-                {informe.modalidad?.heterogeneidad === 'alta' && <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-emerald-100 text-emerald-700">heterogénea</span>}
-              </div>
-              {hrefCita(informe.modalidad?.fuente)
-                ? <a href={hrefCita(informe.modalidad?.fuente)} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-indigo-600 hover:underline truncate" title={informe.modalidad?.fuente}>{informe.modalidad?.fuente}</a>
-                : <p className="text-[10px] text-slate-400 truncate" title={informe.modalidad?.fuente}>{informe.modalidad?.fuente}</p>}
-            </div>
+            <TarjetaAdjudicacion informe={informe} />
             <div className="bg-white border border-slate-200 rounded-xl p-3">
               <p className="text-[10px] font-bold text-slate-400 uppercase">Colchón administrativo</p>
               <p className="text-[15px] font-bold text-slate-800 leading-tight">{lt?.colchon_dias_corridos != null ? `${lt.colchon_dias_corridos} días corr.` : lt?.colchon_dias_habiles != null ? `${lt.colchon_dias_habiles} días háb.` : '—'}</p>

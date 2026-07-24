@@ -76,10 +76,13 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 // El admin es "super": tiene TODOS los permisos implícitamente. Un usuario normal solo
 // tiene los que el admin le haya otorgado (columna usuarios.permisos JSON). Catálogo:
 //   ver_otros_negocios · acceso_radar · comentar_viabilidad · exportar · alertas_anexos
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos';
+//   aprobar_comercial → visar los puntos de Información Comercial (rol "asesor"). El admin
+//                       lo tiene implícito; se otorga para que otro perfil pueda aprobar.
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
+  aprobar_comercial: true,
 };
 
 /** Lee los permisos efectivos de un usuario por id+rol. Admin → todos. Tolera columna ausente. */

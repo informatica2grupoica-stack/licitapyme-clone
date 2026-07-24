@@ -29,6 +29,8 @@ import { Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { RecorridoNegocio } from './RecorridoNegocio';
 import { GestionAside } from './GestionAside';
+import { InformacionComercialSection } from './InformacionComercialSection';
+import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
 import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
@@ -187,7 +189,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'comentarios';
+type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'comentarios' | 'comercial';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -386,7 +388,28 @@ function SeccionResumen({
               <p className="text-[10px] text-zinc-400 uppercase font-bold">Presupuesto {montoMP > 0 ? '(MP)' : (viabIA?.presupuesto?.bruto && !viabIA?.presupuesto?.regimen_fora ? '(IVA incl.)' : '')}</p>
               <p className="text-[13px] font-bold text-emerald-700">{fmtCLP(montoMP > 0 ? montoMP : (viabIA?.presupuesto?.bruto ?? viabIA?.presupuesto?.neto))}</p>
             </div>
-            <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Cómo se adjudica</p><p className="text-[13px] font-semibold text-zinc-700">{String(viabIA?.adjudicacion?.como_se_adjudica || viabIA?.modalidad?.general || viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}</p></div>
+            {/* Global vs por líneas decide el costeo y la oferta, así que el chip lleva a la
+                cita: el ojo del documento vive en Viabilidad, que es donde está el contexto de
+                los PDF. El title adelanta el razonamiento (incl. si un chequeo determinista
+                pisó lo que dijo el modelo). */}
+            <button
+              onClick={onIrViabilidad}
+              title={[
+                viabIA?.adjudicacion?.fuente && `Fuente: ${viabIA.adjudicacion.fuente}`,
+                viabIA?.adjudicacion?.evidencia,
+                'Clic para ver la cita en Viabilidad',
+              ].filter(Boolean).join('\n')}
+              className="bg-zinc-50 hover:bg-zinc-100 rounded-lg px-3 py-2 text-left transition-colors group"
+            >
+              <p className="text-[10px] text-zinc-400 uppercase font-bold flex items-center gap-1">
+                Cómo se adjudica
+                <Eye size={10} className="text-violet-400 group-hover:text-violet-600" />
+              </p>
+              <p className="text-[13px] font-semibold text-zinc-700">
+                {String(viabIA?.adjudicacion?.como_se_adjudica || viabIA?.modalidad?.general || viabIA?.modalidad?.tipo || '—').replace(/_/g, ' ')}
+                {viabIA?.adjudicacion?.estado === 'REVISION_HUMANA' ? <span className="text-amber-500" title="Sin certeza: confírmalo en las bases"> ⚠</span> : null}
+              </p>
+            </button>
             <div className="bg-zinc-50 rounded-lg px-3 py-2"><p className="text-[10px] text-zinc-400 uppercase font-bold">Productos</p><p className="text-[13px] font-bold text-zinc-700">{viabIA?.manifiesto_productos?.length || viabIA?.productos?.items?.length || viabIA?.costeo?.items?.length || '—'}</p></div>
           </div>
         </div>
@@ -1300,6 +1323,9 @@ function DetalleContent() {
   // Viabilidad IA (el corazón) — para enriquecer el resumen
   const [viabIA, setViabIA] = useState<any>(null);
 
+  // Información Comercial — solo el contador para el menú (la sección carga lo suyo).
+  const [comercialPorAprobar, setComercialPorAprobar] = useState<number>(0);
+
   // ── Carga ─────────────────────────────────────────────────────────────────────
   const cargar = useCallback(async () => {
     try {
@@ -1395,6 +1421,16 @@ function DetalleContent() {
       .then(d => { if (d?.informeIA) setViabIA(d.informeIA); })
       .catch(() => { /* silencioso */ });
   }, [negocio?.licitacion_codigo]);
+
+  // Contador del menú: cuántos puntos comerciales esperan visto bueno. Solo se pide cuando
+  // la etapa lo amerita, para no generar el checklist en licitaciones que aún están en análisis.
+  useEffect(() => {
+    if (!negocio?.id || !tieneInformacionComercial(negocio.estado_pipeline)) { setComercialPorAprobar(0); return; }
+    fetch(`/api/negocios/${negocio.id}/comercial`)
+      .then(r => r.json())
+      .then(d => setComercialPorAprobar(Number(d?.resumen?.porAprobar) || 0))
+      .catch(() => { /* silencioso */ });
+  }, [negocio?.id, negocio?.estado_pipeline]);
 
   // Clasificar documentos con Gemini
   const handleClasificar = useCallback(async () => {
@@ -1505,7 +1541,12 @@ function DetalleContent() {
 
   // Orden definido por el equipo (negocio, sin Postulación ni Asistente):
   // Resumen · Documentos · Viabilidad · Criterios · Ítems · Fechas · Preguntas · Comentarios.
-  const NAV_SECTIONS = [
+  //
+  // "Información Comercial" es la excepción: solo aparece de la etapa ANEXOS en adelante, que es
+  // cuando el asistente empieza a armar la oferta. Se queda visible en las etapas posteriores
+  // (postulada, adjudicada) a propósito: ahí es donde hay que poder mostrar quién aprobó qué.
+  const hayComercial = tieneInformacionComercial(negocio.estado_pipeline);
+  const NAV_SECTIONS: ReadonlyArray<{ key: Seccion; label: string; count: number | null; alerta?: boolean }> = [
     { key: 'resumen',      label: 'Resumen',            count: null },
     { key: 'resultado',    label: 'Resultado',          count: null },
     { key: 'documentos',   label: 'Documentos',         count: documentos.length || null },
@@ -1515,7 +1556,10 @@ function DetalleContent() {
     { key: 'fechas',       label: 'Fechas',             count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
     { key: 'preguntas',    label: 'Preguntas',          count: null },
     { key: 'comentarios',  label: 'Comentarios',        count: null },
-  ] as const;
+    ...(hayComercial
+      ? [{ key: 'comercial' as Seccion, label: 'Información Comercial', count: comercialPorAprobar || null, alerta: comercialPorAprobar > 0 }]
+      : []),
+  ];
 
   return (
     <AppLayout breadcrumb={[
@@ -1549,8 +1593,11 @@ function DetalleContent() {
                 >
                   <span>{s.label}</span>
                   {s.count != null && s.count > 0 && (
+                    // Rojo cuando hay algo esperando al asesor: el badge es el aviso de que
+                    // hay trabajo detenido esperando su visto bueno.
                     <span className={`text-[10px] px-1.5 py-px rounded-full font-bold ${
-                      seccion === s.key ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-400'
+                      s.alerta ? 'bg-rose-500 text-white'
+                        : seccion === s.key ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-400'
                     }`}>
                       {loadingLic ? '…' : s.count}
                     </span>
@@ -1683,6 +1730,14 @@ function DetalleContent() {
                 estadoActual={negocio.estado_pipeline}
                 isAdmin={isAdmin}
                 onEstadoChanged={sincronizarEstadoPipeline}
+              />
+            )}
+            {seccion === 'comercial' && hayComercial && (
+              <InformacionComercialSection
+                negocioId={negocio.id}
+                licitacionCodigo={negocio.licitacion_codigo}
+                empresaId={negocio.empresa_id}
+                onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)}
               />
             )}
           </div>

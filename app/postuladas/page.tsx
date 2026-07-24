@@ -2,15 +2,20 @@
 
 // Apartado "Postuladas" — rediseño orientado al RESULTADO.
 //
-// Cada licitación postulada se cruza EN VIVO con la API de Mercado Público
-// (/api/licitacion-adjudicacion) y se clasifica en tres estados de color:
-//   · GANADA (verde)      → MP adjudicó y una de NUESTRAS empresas ganó ≥1 línea.
-//                           OJO: una licitación se adjudica a VARIOS proveedores por
-//                           línea; podemos ser uno de ellos. Se muestran TODOS los
-//                           ganadores y se resaltan los nuestros.
-//   · PERDIDA (rojo)      → MP adjudicó pero no ganamos ninguna línea (se muestra a
-//                           quién se la adjudicaron, con toda la info de la API).
-//   · EN EVALUACIÓN (ámbar) → aún sin resultado publicado.
+// Cada licitación postulada se cruza con el caché de adjudicación (poblado desde la API de
+// Mercado Público) y se clasifica según el estado REAL de MP — no una etiqueta a mano:
+//   · GANADA (verde)      → MP adjudicó y una de NUESTRAS empresas ganó ≥1 línea (por RUT).
+//                           OJO: una licitación se adjudica a VARIOS proveedores por línea;
+//                           podemos ser uno de ellos. Se muestran TODOS los ganadores y se
+//                           resaltan los nuestros.
+//   · PERDIDA (rojo)      → MP adjudicó a un TERCERO — competencia real que perdimos. NO
+//                           incluye Desierta/Revocada/Suspendida: mezclarlas ensucia el % de
+//                           efectividad (ganadas / (ganadas+perdidas)) con procesos que nunca
+//                           tuvieron un ganador con el que competir.
+//   · DESIERTA (piedra)   → MP cerró el proceso SIN adjudicar a nadie (sin ofertas válidas).
+//   · REVOCADA (gris)     → el organismo dejó sin efecto el proceso.
+//   · SUSPENDIDA (ámbar)  → el organismo lo pausó; puede retomarse.
+//   · EN EVALUACIÓN (ámbar) → aún sin resultado publicado por MP.
 //
 // Roles: cada perfil ve SOLO sus postuladas; el admin ve TODAS y puede filtrarlas por
 // perfil, empresa y resultado. El filtrado por rol lo hace /api/negocios.
@@ -21,7 +26,7 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
-import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
+import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licitacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
@@ -32,13 +37,17 @@ import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
   Pencil, Trash2, Undo2, X, Save, Wallet, CheckCircle2,
-  XCircle, Hourglass, DoorOpen, DoorClosed, Search, Filter, ArrowUpDown, Download,
+  XCircle, Hourglass, DoorOpen, DoorClosed, Search, ArrowUpDown, Download,
+  Ban, CircleSlash, PauseCircle, Tag, SlidersHorizontal, DollarSign,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 
 const ESTADO_POSTULADA = 'POSTULADA';
 
-type Resultado = 'ganada' | 'perdida' | 'evaluacion';
+// Desierta/Revocada/Suspendida son estados TERMINALES-o-pausados de Mercado Público que NO
+// implican que perdimos frente a un competidor real — separarlos de 'perdida' es el punto
+// central de este archivo (ver comentario de cabecera).
+type Resultado = 'ganada' | 'perdida' | 'evaluacion' | 'desierta' | 'revocada' | 'suspendida';
 
 interface Negocio {
   id: number;
@@ -58,6 +67,7 @@ interface Negocio {
   usuario_email?: string;
   aperturada?: number;                 // 1 si el poller del portal ya detectó la apertura
   apertura_detectada_en?: string | null;
+  etiquetas?: { id: number; nombre: string; color: string }[];  // líneas de negocio (ya viene de /api/negocios)
 }
 interface EmpresaOpc { id: number; razon_social: string; }
 interface DocCache { documento_nombre: string; documento_url_local: string; categoria: string | null; }
@@ -74,6 +84,10 @@ interface LineaAdjudicada {
   esNuestra?: boolean;
 }
 interface Adjudicacion {
+  // false cuando NO hay fila real en adjudicacion_cache aún (la API igual manda una entrada
+  // "placeholder" por apertura/estado MP). resultadoDeNegocio() usa esto, NO la sola presencia
+  // del objeto, para decidir si confía en MP o cae al estado_pipeline propio.
+  tieneCacheReal?: boolean;
   esAdjudicada: boolean;
   estado?: string | null;
   codigoEstado?: number | null;
@@ -99,13 +113,32 @@ function fmtCLP(n: number | null | undefined) {
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 }
 
-// Orden de aparición: primero las ganadas (celebrar), luego en evaluación, luego perdidas.
-const ORDEN: Record<Resultado, number> = { ganada: 0, evaluacion: 1, perdida: 2 };
+// Orden de aparición: primero las ganadas (celebrar), luego en evaluación, luego perdidas;
+// los estados sin competencia real (desierta/revocada/suspendida) van al final, son ruido
+// para la gestión activa.
+const ORDEN: Record<Resultado, number> = {
+  ganada: 0, evaluacion: 1, perdida: 2, suspendida: 3, desierta: 4, revocada: 5,
+};
 
-// Clasifica una postulada según lo que dice la API de MP.
+// Mismo criterio por NOMBRE que refrescar-estados.ts/verificar-postuladas-mp.mts: MP usa
+// códigos inconsistentes para el mismo estado (Revocada llegó con CodigoEstado 15 en un caso
+// real, no 18), así que el texto (`estado`, ya expuesto por adjudicacion_cache) es la señal
+// confiable, no el código numérico.
+function normNombreResultado(s?: string | null): string {
+  return (s ?? '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+// Clasifica una postulada según lo que dice la API de MP — el estado REAL, no la etiqueta
+// interna. Desierta/Revocada/Suspendida son procesos sin un ganador con el que comparar: si
+// entraran a 'perdida' inflarían la derrota y ensuciarían el % de efectividad con casos que
+// nunca fueron una competencia perdida de verdad.
 function resultadoDe(adj: Adjudicacion | null | undefined): Resultado {
   if (adj?.esAdjudicada && adj.ganamos) return 'ganada';
   if (adj?.esAdjudicada) return 'perdida';
+  const t = normNombreResultado(adj?.estado);
+  if (/desiert/.test(t)) return 'desierta';
+  if (/revocad/.test(t)) return 'revocada';
+  if (/suspend/.test(t)) return 'suspendida';
   return 'evaluacion';
 }
 
@@ -125,6 +158,18 @@ const META: Record<Resultado, {
   evaluacion: {
     label: 'En evaluación', short: 'En evaluación', color: '#d97706', ring: 'rgba(217,119,6,.30)',
     soft: 'bg-amber-50', text: 'text-amber-700', border: 'border-amber-200', icon: Hourglass,
+  },
+  desierta: {
+    label: 'Desierta', short: 'Desiertas', color: '#78716c', ring: 'rgba(120,113,108,.30)',
+    soft: 'bg-stone-50', text: 'text-stone-600', border: 'border-stone-200', icon: CircleSlash,
+  },
+  revocada: {
+    label: 'Revocada', short: 'Revocadas', color: '#64748b', ring: 'rgba(100,116,139,.30)',
+    soft: 'bg-slate-50', text: 'text-slate-600', border: 'border-slate-200', icon: Ban,
+  },
+  suspendida: {
+    label: 'Suspendida', short: 'Suspendidas', color: '#b45309', ring: 'rgba(180,83,9,.30)',
+    soft: 'bg-orange-50', text: 'text-orange-700', border: 'border-orange-200', icon: PauseCircle,
   },
 };
 
@@ -640,6 +685,16 @@ export default function PostuladasPage() {
   const [resultadoSel, setResultadoSel] = useState<Resultado | ''>('');
   // Filtro por estado de MP (Publicada/Cerrada/Adjudicada/Revocada/Desierta…) + "Aperturadas".
   const [estadosMpSel, setEstadosMpSel] = useState<string[]>([]);
+  // Filtros adicionales (mismo patrón multi-select AND-entre-dimensiones que arriba).
+  const [tiposSel, setTiposSel] = useState<string[]>([]);
+  const [etiquetasSel, setEtiquetasSel] = useState<string[]>([]);
+  const [cierreDesde, setCierreDesde] = useState('');
+  const [cierreHasta, setCierreHasta] = useState('');
+  const [montoMin, setMontoMin] = useState('');
+  const [montoMax, setMontoMax] = useState('');
+  // Panel de filtros secundarios colapsable (mismo patrón que /negocios): los tabs de
+  // Resultado y el buscador quedan siempre visibles; el resto se guarda para no saturar.
+  const [filtrosOpen, setFiltrosOpen] = useState(false);
   // Ordenamiento de las tarjetas y carga incremental (las adjudicaciones hacen pesada cada tarjeta).
   const [orden, setOrden] = useState<'adjudicacion' | 'resultado' | 'cierre' | 'monto'>('adjudicacion');
   const [maxVisibles, setMaxVisibles] = useState(24);
@@ -764,23 +819,82 @@ export default function PostuladasPage() {
     return Array.from(m.values()).sort((a, b) => b.total - a.total);
   }, [negocios]);
 
-  // Filtro por búsqueda (nombre / código / organismo) + perfil + empresa. Base para tabs y KPIs,
-  // así el buscador acota TODO (conteos incluidos), no solo la lista visible.
+  // Tipo de licitación (LE/LP/LR/CO…) presente, derivado del código — mismo helper que /negocios.
+  const tiposFiltro = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of negocios) {
+      const t = n.licitacion_tipo || extractTipoFromCodigo(n.licitacion_codigo || '');
+      if (t) m.set(t, (m.get(t) || 0) + 1);
+    }
+    return Array.from(m.entries())
+      .map(([codigo, total]) => ({ codigo, total, label: getTipoLicitacion(codigo)?.label || codigo }))
+      .sort((a, b) => b.total - a.total);
+  }, [negocios]);
+
+  // Líneas de negocio (etiquetas) presentes — mismo dato que ya trae /api/negocios por fila.
+  const etiquetasFiltro = useMemo(() => {
+    const m = new Map<string, { id: string; nombre: string; color: string; total: number }>();
+    for (const n of negocios) {
+      for (const et of n.etiquetas || []) {
+        const id = String(et.id);
+        const e = m.get(id) || { id, nombre: et.nombre, color: et.color, total: 0 };
+        e.total++; m.set(id, e);
+      }
+    }
+    return Array.from(m.values()).sort((a, b) => b.total - a.total);
+  }, [negocios]);
+
+  // Filtro por búsqueda (nombre / código / organismo) + perfil + empresa + tipo + línea de
+  // negocio + rango de cierre + rango de monto. Base para tabs y KPIs, así el buscador y los
+  // filtros acotan TODO (conteos incluidos), no solo la lista visible.
   const base = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
+    const min = montoMin.trim() ? Number(montoMin) : null;
+    const max = montoMax.trim() ? Number(montoMax) : null;
+    const desde = cierreDesde ? dayjs(cierreDesde).startOf('day').valueOf() : null;
+    const hasta = cierreHasta ? dayjs(cierreHasta).endOf('day').valueOf() : null;
     return negocios
       .filter(n => !q
         || (n.licitacion_nombre || '').toLowerCase().includes(q)
         || (n.licitacion_codigo || '').toLowerCase().includes(q)
         || (n.licitacion_organismo || '').toLowerCase().includes(q))
       .filter(n => perfilesSel.length === 0 || perfilesSel.includes(n.usuario_email || n.usuario_nombre || '—'))
-      .filter(n => empresasSel.length === 0 || empresasSel.includes(String(n.empresa_id || '')));
-  }, [negocios, busqueda, perfilesSel, empresasSel]);
+      .filter(n => empresasSel.length === 0 || empresasSel.includes(String(n.empresa_id || '')))
+      .filter(n => tiposSel.length === 0 || tiposSel.includes(n.licitacion_tipo || extractTipoFromCodigo(n.licitacion_codigo || '')))
+      .filter(n => etiquetasSel.length === 0 || (n.etiquetas || []).some(e => etiquetasSel.includes(String(e.id))))
+      .filter(n => {
+        if (min == null && max == null) return true;
+        const monto = n.licitacion_monto;
+        if (monto == null) return false;
+        return (min == null || monto >= min) && (max == null || monto <= max);
+      })
+      .filter(n => {
+        if (desde == null && hasta == null) return true;
+        if (!n.licitacion_cierre) return false;
+        const t = dayjs(n.licitacion_cierre).valueOf();
+        return (desde == null || t >= desde) && (hasta == null || t <= hasta);
+      });
+  }, [negocios, busqueda, perfilesSel, empresasSel, tiposSel, etiquetasSel, montoMin, montoMax, cierreDesde, cierreHasta]);
+
+  // Cuenta cuántas DIMENSIONES de filtro están activas (para el badge del botón "Filtros" y
+  // para decidir si mostrar "Limpiar" y los chips) — no es "todas" de resultadoSel, ese vive
+  // en los tabs, no en el panel.
+  const filtrosActivosCount = [
+    busqueda, perfilesSel.length, empresasSel.length, tiposSel.length, etiquetasSel.length,
+    estadosMpSel.length, cierreDesde || cierreHasta, montoMin || montoMax,
+  ].filter(Boolean).length;
+
+  const limpiarFiltros = useCallback(() => {
+    setBusqueda(''); setPerfilesSel([]); setEmpresasSel([]); setTiposSel([]); setEtiquetasSel([]);
+    setEstadosMpSel([]); setCierreDesde(''); setCierreHasta(''); setMontoMin(''); setMontoMax('');
+  }, []);
 
   const resultadoDeNegocio = useCallback(
     (n: Negocio): Resultado => {
       const a = adjMap[n.licitacion_codigo];
-      if (a) return resultadoDe(a);
+      // Fix 24-jul-2026: antes era `if (a)`, y la API SIEMPRE manda una entrada por código
+      // (con esAdjudicada=false de placeholder) → el fallback de abajo nunca se alcanzaba.
+      if (a?.tieneCacheReal) return resultadoDe(a);
       // Sin cache aún: si ya quedó resuelta por estado, respétalo (coincide con /adjudicadas
       // durante la carga y si MP no respondiera).
       if (n.estado_pipeline === 'ADJUDICADA') return 'ganada';
@@ -816,7 +930,7 @@ export default function PostuladasPage() {
 
   // Conteo por resultado (sobre la base filtrada por perfil/empresa).
   const conteo = useMemo(() => {
-    const c = { ganada: 0, perdida: 0, evaluacion: 0 };
+    const c: Record<Resultado, number> = { ganada: 0, perdida: 0, evaluacion: 0, desierta: 0, revocada: 0, suspendida: 0 };
     for (const n of base) c[resultadoDeNegocio(n)]++;
     return c;
   }, [base, resultadoDeNegocio]);
@@ -835,10 +949,12 @@ export default function PostuladasPage() {
   //   2 = pendiente SIN fecha en la ficha
   //   3 = ya resuelta (ganada/perdida) — al final, la más reciente primero
   const pesoDecision = useCallback((n: Negocio, fecha: number | null): number => {
-    if (adjMap[n.licitacion_codigo]?.esAdjudicada) return 3;
+    // Resuelta = cualquier cosa que ya no está "en evaluación" (ganada/perdida, pero también
+    // desierta/revocada/suspendida: no van a moverse, no tiene sentido tratarlas como pendientes).
+    if (resultadoDeNegocio(n) !== 'evaluacion') return 3;
     if (fecha == null) return 2;
     return fecha >= dayjs().startOf('day').valueOf() ? 0 : 1;
-  }, [adjMap]);
+  }, [resultadoDeNegocio]);
 
   const visibles = useMemo(() => {
     return base
@@ -904,6 +1020,7 @@ export default function PostuladasPage() {
       const dia   = (v: string | null | undefined) => (v ? dayjs(v).format('DD-MM-YYYY') : '');
       const RESULTADO_LABEL: Record<Resultado, string> = {
         ganada: 'Ganada', perdida: 'Perdida', evaluacion: 'En evaluación',
+        desierta: 'Desierta', revocada: 'Revocada', suspendida: 'Suspendida',
       };
 
       const filas = visibles.map(n => {
@@ -974,11 +1091,16 @@ export default function PostuladasPage() {
     }
   };
 
+  // Desierta/Revocada/Suspendida solo aparecen como tab cuando hay al menos una — no tiene
+  // sentido mostrar un filtro vacío que nadie va a usar en un perfil/empresa donde nunca pasó.
   const TABS: { id: Resultado | ''; label: string; count: number; color: string }[] = [
     { id: '', label: 'Todas', count: base.length, color: '#334155' },
     { id: 'ganada', label: 'Ganadas', count: conteo.ganada, color: META.ganada.color },
     { id: 'evaluacion', label: 'En evaluación', count: conteo.evaluacion, color: META.evaluacion.color },
     { id: 'perdida', label: 'Perdidas', count: conteo.perdida, color: META.perdida.color },
+    ...(conteo.suspendida > 0 ? [{ id: 'suspendida' as Resultado, label: 'Suspendidas', count: conteo.suspendida, color: META.suspendida.color }] : []),
+    ...(conteo.desierta > 0 ? [{ id: 'desierta' as Resultado, label: 'Desiertas', count: conteo.desierta, color: META.desierta.color }] : []),
+    ...(conteo.revocada > 0 ? [{ id: 'revocada' as Resultado, label: 'Revocadas', count: conteo.revocada, color: META.revocada.color }] : []),
   ];
 
   return (
@@ -1049,12 +1171,32 @@ export default function PostuladasPage() {
 
         {/* KPIs */}
         {!cargando && estadoCargado && !error && base.length > 0 && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
-            <KpiCard icon={<Trophy size={22} />} label="Ganadas" value={stats.ganada}
-              sub={stats.exito != null ? `${stats.exito}% de efectividad` : 'Resultados en curso'} color={META.ganada.color} />
-            <KpiCard icon={<XCircle size={22} />} label="Perdidas" value={stats.perdida} sub="Adjudicadas a terceros" color={META.perdida.color} />
-            <KpiCard icon={<Hourglass size={22} />} label="En evaluación" value={stats.evaluacion} sub="Aún sin resultado" color={META.evaluacion.color} />
-            <KpiCard icon={<Wallet size={22} />} label="Monto ganado" value={fmtCLP(stats.montoGanado || null)} sub="Lo adjudicado a nosotros" color="#7c3aed" />
+          <div className="mb-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <KpiCard icon={<Trophy size={22} />} label="Ganadas" value={stats.ganada}
+                sub={stats.exito != null ? `${stats.exito}% de efectividad` : 'Resultados en curso'} color={META.ganada.color} />
+              {/* "Adjudicadas a terceros" a propósito: Desierta/Revocada/Suspendida NO cuentan
+                  aquí (van aparte abajo) — mezclarlas ensuciaba el % de efectividad de arriba
+                  con procesos que nunca tuvieron un ganador real con el que competir. */}
+              <KpiCard icon={<XCircle size={22} />} label="Perdidas" value={stats.perdida} sub="Adjudicadas a terceros" color={META.perdida.color} />
+              <KpiCard icon={<Hourglass size={22} />} label="En evaluación" value={stats.evaluacion} sub="Aún sin resultado" color={META.evaluacion.color} />
+              <KpiCard icon={<Wallet size={22} />} label="Monto ganado" value={fmtCLP(stats.montoGanado || null)} sub="Lo adjudicado a nosotros" color="#7c3aed" />
+            </div>
+            {/* Estados de MP sin competencia real: aparte de las 4 de arriba, y solo si hay al
+                menos una — no tiene sentido un tile en 0 para un perfil donde nunca pasó. */}
+            {(conteo.desierta + conteo.revocada + conteo.suspendida) > 0 && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-3">
+                {conteo.desierta > 0 && (
+                  <KpiCard icon={<CircleSlash size={22} />} label="Desiertas" value={conteo.desierta} sub="MP cerró sin adjudicar a nadie" color={META.desierta.color} />
+                )}
+                {conteo.revocada > 0 && (
+                  <KpiCard icon={<Ban size={22} />} label="Revocadas" value={conteo.revocada} sub="El organismo dejó sin efecto el proceso" color={META.revocada.color} />
+                )}
+                {conteo.suspendida > 0 && (
+                  <KpiCard icon={<PauseCircle size={22} />} label="Suspendidas" value={conteo.suspendida} sub="Pausadas por el organismo" color={META.suspendida.color} />
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1083,25 +1225,27 @@ export default function PostuladasPage() {
               </div>
             )}
 
-            {/* Filtros combinables + orden */}
+            {/* Barra: toggle de filtros + orden (siempre visible; el panel detallado se guarda) */}
             <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100">
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">
-                <Filter size={12} /> Filtros
-              </span>
-              {isAdmin && perfiles.length > 1 && (
-                <MultiSelect label="Perfil" icon={<Users size={13} />} selected={perfilesSel} onChange={setPerfilesSel}
-                  options={perfiles.map(p => ({ value: p.email, label: p.nombre, color: colorUsuario(p.email), count: p.total }))} />
-              )}
-              {empresasFiltro.length > 1 && (
-                <MultiSelect label="Empresa" icon={<Building2 size={13} />} selected={empresasSel} onChange={setEmpresasSel} minWidth={260}
-                  options={empresasFiltro.map(e => ({ value: e.id, label: e.nombre, count: e.total }))} />
-              )}
-              {estadosMp.length > 1 && (
-                <MultiSelect label="Estado MP" icon={<FileText size={13} />} selected={estadosMpSel} onChange={setEstadosMpSel} minWidth={230}
-                  options={estadosMp.map(e => ({
-                    value: e.id, label: e.label, count: e.total,
-                    color: e.id === APERTURADAS ? '#0284c7' : undefined,
-                  }))} />
+              <button
+                onClick={() => setFiltrosOpen(v => !v)}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-bold rounded-lg border transition-colors ${
+                  filtrosOpen ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                <SlidersHorizontal size={13} /> Filtros
+                {filtrosActivosCount > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-black bg-indigo-600 text-white">
+                    {filtrosActivosCount}
+                  </span>
+                )}
+                <ChevronDown size={12} className={`transition-transform ${filtrosOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {filtrosActivosCount > 0 && (
+                <button onClick={limpiarFiltros}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-slate-400 hover:text-red-600 transition-colors">
+                  <X size={12} /> Limpiar
+                </button>
               )}
               <div className="inline-flex items-center gap-1.5 ml-auto">
                 <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400">
@@ -1117,9 +1261,81 @@ export default function PostuladasPage() {
               </div>
             </div>
 
+            {/* Panel de filtros — colapsable, agrupado por QUIÉN / QUÉ / CUÁNDO-CUÁNTO */}
+            {filtrosOpen && (
+              <div className="mt-3 pt-3 border-t border-slate-100 space-y-3">
+                {(isAdmin && perfiles.length > 1) || empresasFiltro.length > 1 ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider w-full sm:w-auto">Quién</span>
+                    {isAdmin && perfiles.length > 1 && (
+                      <MultiSelect label="Perfil" icon={<Users size={13} />} selected={perfilesSel} onChange={setPerfilesSel}
+                        options={perfiles.map(p => ({ value: p.email, label: p.nombre, color: colorUsuario(p.email), count: p.total }))} />
+                    )}
+                    {empresasFiltro.length > 1 && (
+                      <MultiSelect label="Empresa" icon={<Building2 size={13} />} selected={empresasSel} onChange={setEmpresasSel} minWidth={260}
+                        options={empresasFiltro.map(e => ({ value: e.id, label: e.nombre, count: e.total }))} />
+                    )}
+                  </div>
+                ) : null}
+
+                {(tiposFiltro.length > 1 || etiquetasFiltro.length > 1 || estadosMp.length > 1) && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider w-full sm:w-auto">Qué</span>
+                    {tiposFiltro.length > 1 && (
+                      <MultiSelect label="Tipo" icon={<FileCheck2 size={13} />} selected={tiposSel} onChange={setTiposSel}
+                        options={tiposFiltro.map(t => ({ value: t.codigo, label: `${t.codigo} · ${t.label}`, count: t.total }))} />
+                    )}
+                    {etiquetasFiltro.length > 1 && (
+                      <MultiSelect label="Línea de negocio" icon={<Tag size={13} />} selected={etiquetasSel} onChange={setEtiquetasSel} minWidth={230}
+                        options={etiquetasFiltro.map(e => ({ value: e.id, label: e.nombre, color: e.color, count: e.total }))} />
+                    )}
+                    {estadosMp.length > 1 && (
+                      <MultiSelect label="Estado MP" icon={<FileText size={13} />} selected={estadosMpSel} onChange={setEstadosMpSel} minWidth={230}
+                        options={estadosMp.map(e => ({
+                          value: e.id, label: e.label, count: e.total,
+                          color: e.id === APERTURADAS ? '#0284c7' : undefined,
+                        }))} />
+                    )}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider w-full sm:w-auto">Cuándo / cuánto</span>
+                  <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                    <Calendar size={13} className="text-slate-400 flex-shrink-0" />
+                    <span className="text-[11px] font-semibold text-slate-500">Cierre</span>
+                    <input type="date" value={cierreDesde} onChange={e => setCierreDesde(e.target.value)}
+                      max={cierreHasta || undefined}
+                      className="text-[12px] text-slate-700 bg-transparent outline-none w-[118px]" title="Cierre desde" />
+                    <span className="text-slate-300">–</span>
+                    <input type="date" value={cierreHasta} onChange={e => setCierreHasta(e.target.value)}
+                      min={cierreDesde || undefined}
+                      className="text-[12px] text-slate-700 bg-transparent outline-none w-[118px]" title="Cierre hasta" />
+                    {(cierreDesde || cierreHasta) && (
+                      <button onClick={() => { setCierreDesde(''); setCierreHasta(''); }}
+                        title="Quitar rango de fecha" className="text-slate-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 border border-slate-200 rounded-lg px-2.5 py-1.5">
+                    <DollarSign size={13} className="text-slate-400 flex-shrink-0" />
+                    <span className="text-[11px] font-semibold text-slate-500">Monto</span>
+                    <input type="number" inputMode="numeric" value={montoMin} onChange={e => setMontoMin(e.target.value)}
+                      placeholder="mín" className="text-[12px] text-slate-700 bg-transparent outline-none w-[90px] placeholder:text-slate-300" title="Monto mínimo" />
+                    <span className="text-slate-300">–</span>
+                    <input type="number" inputMode="numeric" value={montoMax} onChange={e => setMontoMax(e.target.value)}
+                      placeholder="máx" className="text-[12px] text-slate-700 bg-transparent outline-none w-[90px] placeholder:text-slate-300" title="Monto máximo" />
+                    {(montoMin || montoMax) && (
+                      <button onClick={() => { setMontoMin(''); setMontoMax(''); }}
+                        title="Quitar rango de monto" className="text-slate-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Chips de filtros activos */}
-            {(perfilesSel.length > 0 || empresasSel.length > 0 || estadosMpSel.length > 0 || busqueda) && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+            {filtrosActivosCount > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2.5 border-t border-slate-100">
                 <span className="text-[11px] text-slate-400">Filtrando:</span>
                 {busqueda && (
                   <button onClick={() => setBusqueda('')}
@@ -1144,6 +1360,22 @@ export default function PostuladasPage() {
                     <span className="truncate">{empresasFiltro.find(e => e.id === id)?.nombre || `Empresa ${id}`}</span> <X size={11} className="flex-shrink-0" />
                   </button>
                 ))}
+                {tiposSel.map(t => (
+                  <button key={t} onClick={() => setTiposSel(a => a.filter(x => x !== t))}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-violet-50 text-violet-700 border-violet-200 hover:opacity-75">
+                    {t} <X size={11} />
+                  </button>
+                ))}
+                {etiquetasSel.map(id => {
+                  const et = etiquetasFiltro.find(x => x.id === id);
+                  return (
+                    <button key={id} onClick={() => setEtiquetasSel(a => a.filter(x => x !== id))}
+                      style={et ? { background: et.color + '18', color: et.color, borderColor: et.color + '40' } : undefined}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75 bg-teal-50 text-teal-700 border-teal-200">
+                      <Tag size={10} /> {et?.nombre || id} <X size={11} />
+                    </button>
+                  );
+                })}
                 {estadosMpSel.map(id => (
                   <button key={id} onClick={() => setEstadosMpSel(a => a.filter(x => x !== id))}
                     className={`inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border hover:opacity-75 ${
@@ -1153,7 +1385,19 @@ export default function PostuladasPage() {
                     {id === APERTURADAS ? 'Aperturadas' : id} <X size={11} />
                   </button>
                 ))}
-                <button onClick={() => { setBusqueda(''); setPerfilesSel([]); setEmpresasSel([]); setEstadosMpSel([]); }}
+                {(cierreDesde || cierreHasta) && (
+                  <button onClick={() => { setCierreDesde(''); setCierreHasta(''); }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                    <Calendar size={10} /> {cierreDesde || '…'} – {cierreHasta || '…'} <X size={11} />
+                  </button>
+                )}
+                {(montoMin || montoMax) && (
+                  <button onClick={() => { setMontoMin(''); setMontoMax(''); }}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border bg-slate-50 text-slate-600 border-slate-200 hover:opacity-75">
+                    <DollarSign size={10} /> {montoMin ? fmtCLP(Number(montoMin)) : '…'} – {montoMax ? fmtCLP(Number(montoMax)) : '…'} <X size={11} />
+                  </button>
+                )}
+                <button onClick={limpiarFiltros}
                   className="text-[11px] font-semibold text-slate-400 hover:text-red-600 underline ml-1">
                   Limpiar todo
                 </button>
