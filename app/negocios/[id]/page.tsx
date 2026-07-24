@@ -1424,13 +1424,14 @@ function DetalleContent() {
 
   // Contador del menú: cuántos puntos comerciales esperan visto bueno. Solo se pide cuando
   // la etapa lo amerita, para no generar el checklist en licitaciones que aún están en análisis.
+  // Módulo en desarrollo: oculto para perfiles normales, así que ni siquiera se consulta para ellos.
   useEffect(() => {
-    if (!negocio?.id || !tieneInformacionComercial(negocio.estado_pipeline)) { setComercialPorAprobar(0); return; }
+    if (!isAdmin || !negocio?.id || !tieneInformacionComercial(negocio.estado_pipeline)) { setComercialPorAprobar(0); return; }
     fetch(`/api/negocios/${negocio.id}/comercial`)
       .then(r => r.json())
       .then(d => setComercialPorAprobar(Number(d?.resumen?.porAprobar) || 0))
       .catch(() => { /* silencioso */ });
-  }, [negocio?.id, negocio?.estado_pipeline]);
+  }, [isAdmin, negocio?.id, negocio?.estado_pipeline]);
 
   // Clasificar documentos con Gemini
   const handleClasificar = useCallback(async () => {
@@ -1545,7 +1546,11 @@ function DetalleContent() {
   // "Información Comercial" es la excepción: solo aparece de la etapa ANEXOS en adelante, que es
   // cuando el asistente empieza a armar la oferta. Se queda visible en las etapas posteriores
   // (postulada, adjudicada) a propósito: ahí es donde hay que poder mostrar quién aprobó qué.
-  const hayComercial = tieneInformacionComercial(negocio.estado_pipeline);
+  //
+  // Módulo todavía en desarrollo (24-jul-2026): oculto para perfiles normales — solo lo ve el
+  // admin mientras se sigue trabajando. El resto del flujo (subir docs, avanzar de etapa,
+  // postular) no depende de esto en ningún punto, así que ocultarlo no bloquea nada.
+  const hayComercial = isAdmin && tieneInformacionComercial(negocio.estado_pipeline);
   const NAV_SECTIONS: ReadonlyArray<{ key: Seccion; label: string; count: number | null; alerta?: boolean }> = [
     { key: 'resumen',      label: 'Resumen',            count: null },
     { key: 'resultado',    label: 'Resultado',          count: null },

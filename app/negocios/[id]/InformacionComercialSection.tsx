@@ -10,15 +10,26 @@
 // Tiempo real: cualquier carga o visado se refleja al instante en la pantalla del otro (SSE).
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
+import { useConfirm } from '@/app/components/ui/confirm';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
 import { useRealtime } from '@/app/lib/use-realtime';
+import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import {
   ShieldCheck, Building2, Check, X, Upload, Loader2, AlertTriangle, Copy,
-  FileText, DollarSign, Wrench, ClipboardCheck, RefreshCw, Undo2, Sparkles, ExternalLink,
+  FileText, DollarSign, Wrench, ClipboardCheck, RefreshCw, Undo2, Sparkles,
+  Eye, Download, Trash2,
 } from 'lucide-react';
 
 // ── Tipos (espejo de lo que devuelve /api/negocios/[id]/comercial) ──────────────
+interface Documento {
+  id: number;
+  url: string;
+  nombre: string;
+  subidoPorNombre: string | null;
+  subidoAt: string | null;
+}
+
 interface Item {
   id: number;
   bloque: 'ADMINISTRATIVO' | 'TECNICO' | 'COMERCIAL';
@@ -34,8 +45,7 @@ interface Item {
   estado: 'PENDIENTE' | 'CARGADO' | 'APROBADO' | 'OBSERVADO';
   valor_texto: string | null;
   valor_numero: number | null;
-  documento_url: string | null;
-  documento_nombre: string | null;
+  documentos: Documento[];
   observacion: string | null;
   cargado_por_nombre: string | null;
   cargado_at: string | null;
@@ -106,6 +116,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   const [empresas, setEmpresas] = useState<Array<{ id: number; razon_social: string }>>([]);
   const [ocupado, setOcupado] = useState<number | null>(null);   // itemId con acción en curso
   const [resincronizando, setResincronizando] = useState(false);
+  const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -317,6 +328,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                   bloqueado={bloqueadoPorEmpresa}
                   ocupado={ocupado === item.id}
                   onAccion={accionar}
+                  onVer={setVisorDoc}
                   toast={toast}
                 />
               ))}
@@ -351,6 +363,8 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
           </button>
         </div>
       )}
+
+      <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
     </div>
   );
 }
@@ -433,21 +447,24 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast }: {
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Una fila del checklist: el punto, su evidencia, y las acciones según quién mira.
-function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, onAccion, toast }: {
+function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, onAccion, onVer, toast }: {
   item: Item;
   licitacionCodigo: string;
   puedeAprobar: boolean;
   bloqueado: boolean;
   ocupado: boolean;
   onAccion: (itemId: number, accion: string, extra?: Record<string, unknown>) => Promise<boolean>;
+  onVer: (doc: VisorDoc) => void;
   toast: ReturnType<typeof useToast>;
 }) {
+  const confirmar = useConfirm();
   const [editando, setEditando] = useState(false);
   const [valorTexto, setValorTexto] = useState(item.valor_texto || '');
   const [valorNumero, setValorNumero] = useState(item.valor_numero != null ? String(item.valor_numero) : '');
   const [observando, setObservando] = useState(false);
   const [observacion, setObservacion] = useState('');
   const [subiendo, setSubiendo] = useState(false);
+  const [eliminando, setEliminando] = useState<number | null>(null);   // documentoId en curso
   const fileRef = useRef<HTMLInputElement>(null);
 
   const crit = CRIT_STYLE[item.criticidad] || CRIT_STYLE.INFORMATIVO;
@@ -462,30 +479,50 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
       extra.valorNumero = n;
       extra.ofertamos = true;
     } else {
-      if (!valorTexto.trim() && !item.documento_url) { toast.error('Escribe el dato o adjunta el documento'); return; }
+      if (!valorTexto.trim() && item.documentos.length === 0) { toast.error('Escribe el dato o adjunta el documento'); return; }
       extra.valorTexto = valorTexto.trim();
     }
     if (await onAccion(item.id, 'CARGAR', extra)) setEditando(false);
   };
 
+  // Suben TODOS los archivos elegidos en una sola llamada; se AGREGAN a los que ya tenía el
+  // punto (nunca se reemplazan) — un punto puede necesitar más de una evidencia.
   const subirArchivo = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setSubiendo(true);
     try {
       const fd = new FormData();
       fd.append('licitacionCodigo', licitacionCodigo);
-      fd.append('files', files[0]);
+      for (const f of Array.from(files)) fd.append('files', f);
       const r = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
       const d = await r.json();
-      if (!r.ok || !d.documentos?.[0]) { toast.error(d.error || 'No se pudo subir el archivo'); return; }
-      const doc = d.documentos[0];
+      if (!r.ok || !d.documentos?.length) { toast.error(d.error || 'No se pudo subir el archivo'); return; }
       await onAccion(item.id, 'CARGAR', {
-        documentoUrl: doc.url, documentoNombre: doc.nombre, valorTexto: valorTexto.trim() || null,
+        documentos: (d.documentos as Array<{ url: string; nombre: string }>).map(doc => ({ url: doc.url, nombre: doc.nombre })),
+        valorTexto: valorTexto.trim() || null,
       });
       setEditando(false);
     } finally {
       setSubiendo(false);
       if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  // Corrige un error de carga: cualquiera que pueda cargar puede borrar un documento subido de
+  // más. Con confirmación porque no hay deshacer.
+  const eliminarDocumento = async (doc: Documento) => {
+    const ok = await confirmar({
+      titulo: '¿Eliminar este documento?',
+      mensaje: doc.nombre,
+      confirmarLabel: 'Eliminar',
+      peligro: true,
+    });
+    if (!ok) return;
+    setEliminando(doc.id);
+    try {
+      await onAccion(item.id, 'ELIMINAR_DOCUMENTO', { documentoId: doc.id });
+    } finally {
+      setEliminando(null);
     }
   };
 
@@ -524,18 +561,48 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
           {item.fuente_cita && <p className="text-[10px] text-zinc-400 truncate mt-0.5" title={item.fuente_cita}>Fuente: {item.fuente_cita}</p>}
 
           {/* Evidencia cargada */}
-          {(item.valor_numero != null || item.valor_texto || item.documento_nombre) && !editando && (
+          {(item.valor_numero != null || item.valor_texto) && !editando && (
             <div className="mt-1.5 flex items-center gap-2 flex-wrap">
               {item.valor_numero != null && (
                 <span className="text-[13px] font-bold text-emerald-700">{fmtCLP(item.valor_numero)}</span>
               )}
               {item.valor_texto && <span className="text-[12px] text-zinc-700">{item.valor_texto}</span>}
-              {item.documento_nombre && (
-                <a href={item.documento_url || '#'} target="_blank" rel="noopener noreferrer"
-                   className="inline-flex items-center gap-1 text-[11.5px] text-indigo-600 hover:underline">
-                  <FileText size={11} /> {item.documento_nombre} <ExternalLink size={9} />
-                </a>
-              )}
+            </div>
+          )}
+
+          {/* Documentos adjuntos — puede haber varios; cada uno con Ver (visor inline) y Descargar */}
+          {item.documentos.length > 0 && !editando && (
+            <div className="mt-1.5 space-y-1">
+              {item.documentos.map(doc => (
+                <div key={doc.id} className="flex items-center gap-1 max-w-full">
+                  <FileText size={11} className="text-zinc-400 flex-shrink-0" />
+                  <span className="text-[11.5px] text-zinc-700 truncate" title={doc.nombre}>{doc.nombre}</span>
+                  <button
+                    onClick={() => onVer({ nombre: doc.nombre, url: doc.url })}
+                    title="Ver documento"
+                    className="p-0.5 text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors flex-shrink-0"
+                  >
+                    <Eye size={12} />
+                  </button>
+                  <a
+                    href={doc.url} download={doc.nombre}
+                    title="Descargar"
+                    className="p-0.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors flex-shrink-0"
+                  >
+                    <Download size={12} />
+                  </a>
+                  {!bloqueado && (
+                    <button
+                      onClick={() => eliminarDocumento(doc)}
+                      disabled={eliminando === doc.id}
+                      title="Eliminar (subido por error)"
+                      className="p-0.5 text-zinc-300 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors flex-shrink-0 disabled:opacity-50"
+                    >
+                      {eliminando === doc.id ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 
@@ -581,10 +648,11 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
                 </button>
                 {item.tipo !== 'precio' && (
                   <>
-                    <input ref={fileRef} type="file" className="hidden" onChange={e => subirArchivo(e.target.files)} />
+                    <input ref={fileRef} type="file" multiple className="hidden" onChange={e => subirArchivo(e.target.files)} />
                     <button onClick={() => fileRef.current?.click()} disabled={subiendo}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 text-zinc-600 hover:bg-zinc-50 text-[11.5px] font-semibold rounded-lg disabled:opacity-50">
-                      {subiendo ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Adjuntar
+                      {subiendo ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                      {item.documentos.length > 0 ? 'Adjuntar más' : 'Adjuntar'}
                     </button>
                   </>
                 )}

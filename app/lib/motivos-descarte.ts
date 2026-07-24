@@ -5,12 +5,18 @@
 
 // Nivel 1 — descarte del analista recién asignada (ASIGNADO → DESCARTADA): razones verificables
 // sin cotizar ni costear.
+//
+// 'No gestionada' es DISTINTA al resto: las otras son un juicio real sobre la licitación (la
+// miraron y no conviene); esta es la admisión honesta de que nunca se alcanzó a revisar (se venció
+// el tiempo, quedó en la cola). Separarla de 'Otro' importa porque "Motivos más frecuentes" en el
+// dashboard cuenta texto tal cual — mezclada en 'Otro' quedaría invisible entre descartes reales.
 export const MOTIVOS_NIVEL_1 = [
   'No cumplimos requisitos técnicos',
   'No cumplimos experiencia exigida',
   'Baja rentabilidad proyectada',
   'Fuera de nuestro rubro',
   'Mercado saturado',
+  'No gestionada',
   'Otro',
 ] as const;
 

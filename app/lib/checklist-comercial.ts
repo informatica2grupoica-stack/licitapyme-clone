@@ -28,6 +28,15 @@ export interface ItemGenerado {
   orden:       number;
 }
 
+/** Un documento adjunto a un punto — un punto puede tener varios (migración 49). */
+export interface DocumentoChecklist {
+  id: number;
+  url: string;
+  nombre: string;
+  subidoPorNombre: string | null;
+  subidoAt: string | null;
+}
+
 export interface ItemChecklist extends Omit<ItemGenerado, 'fuenteCita' | 'claveOrigen' | 'lineaNumero'> {
   id: number;
   fuente_cita: string | null;
@@ -37,8 +46,7 @@ export interface ItemChecklist extends Omit<ItemGenerado, 'fuenteCita' | 'claveO
   estado: EstadoItem;
   valor_texto: string | null;
   valor_numero: number | null;
-  documento_url: string | null;
-  documento_nombre: string | null;
+  documentos: DocumentoChecklist[];
   observacion: string | null;
   cargado_por: number | null;
   cargado_por_nombre: string | null;

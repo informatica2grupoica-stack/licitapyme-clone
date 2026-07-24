@@ -33,7 +33,7 @@ function getUser(req: NextRequest) {
 
 const COLS = `id, negocio_id, bloque, tipo, titulo, descripcion, criticidad, ponderacion, fuente_cita,
   origen, clave_origen, generable, plantilla_id, linea_numero, ofertamos, estado, valor_texto,
-  valor_numero, documento_url, documento_nombre, observacion, orden,
+  valor_numero, observacion, orden,
   cargado_por, cargado_por_nombre, cargado_at, aprobado_por, aprobado_por_nombre, aprobado_at`;
 
 /** Negocio + datos de la empresa con la que se postula (los que alimentan los anexos). */
@@ -102,18 +102,53 @@ async function migracionAplicada(): Promise<boolean> {
   catch { return false; }
 }
 
+/** Documentos de TODOS los puntos de un negocio, en una sola consulta (agrupados por item_id). */
+async function leerDocumentosPorItem(negocioId: number): Promise<Map<number, any[]>> {
+  const porItem = new Map<number, any[]>();
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, item_id, url, nombre, subido_por_nombre, subido_at
+         FROM checklist_comercial_documentos WHERE negocio_id = ? ORDER BY subido_at, id`,
+      [negocioId],
+    ) as any;
+    for (const r of rows as any[]) {
+      const arr = porItem.get(r.item_id) || [];
+      arr.push({ id: r.id, url: r.url, nombre: r.nombre, subidoPorNombre: r.subido_por_nombre, subidoAt: r.subido_at });
+      porItem.set(r.item_id, arr);
+    }
+  } catch { /* migración 49 pendiente → cada punto queda sin documentos, no revienta */ }
+  return porItem;
+}
+
 async function leerItems(negocioId: number) {
   const [rows] = await pool.query(
     `SELECT ${COLS} FROM checklist_comercial WHERE negocio_id = ? ORDER BY bloque, orden, id`,
     [negocioId],
   ) as any;
+  const documentos = await leerDocumentosPorItem(negocioId);
   return (rows as any[]).map(r => ({
     ...r,
     generable: !!r.generable,
     ofertamos: r.ofertamos === null ? null : !!r.ofertamos,
     ponderacion: r.ponderacion === null ? null : Number(r.ponderacion),
     valor_numero: r.valor_numero === null ? null : Number(r.valor_numero),
+    documentos: documentos.get(r.id) || [],
   }));
+}
+
+/** Agrega documentos nuevos a un punto (nunca reemplaza los anteriores: se acumulan). */
+async function agregarDocumentos(
+  itemId: number, negocioId: number, docs: Array<{ url: string; nombre: string }>,
+  userId: number, userNombre: string,
+): Promise<void> {
+  if (!docs.length) return;
+  for (const d of docs) {
+    await pool.query(
+      `INSERT INTO checklist_comercial_documentos (item_id, negocio_id, url, nombre, subido_por, subido_por_nombre, subido_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [itemId, negocioId, d.url.slice(0, 600), d.nombre.slice(0, 300), userId, userNombre, ahoraChileSQL()],
+    );
+  }
 }
 
 /**
@@ -280,8 +315,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     const body = await request.json().catch(() => ({}));
     const itemId = Number(body.itemId);
-    const accion = String(body.accion || '') as 'CARGAR' | 'APROBAR' | 'OBSERVAR' | 'REABRIR';
-    if (!itemId || !['CARGAR', 'APROBAR', 'OBSERVAR', 'REABRIR'].includes(accion))
+    const accion = String(body.accion || '') as 'CARGAR' | 'APROBAR' | 'OBSERVAR' | 'REABRIR' | 'ELIMINAR_DOCUMENTO';
+    if (!itemId || !['CARGAR', 'APROBAR', 'OBSERVAR', 'REABRIR', 'ELIMINAR_DOCUMENTO'].includes(accion))
       return NextResponse.json({ error: 'Petición inválida' }, { status: 400 });
 
     const [rows] = await pool.query(
@@ -291,11 +326,41 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const item = (rows as any[])[0];
     if (!item) return NextResponse.json({ error: 'Punto no encontrado' }, { status: 404 });
 
+    const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
+
+    // ── Eliminar un documento (error de carga). Cualquiera que pueda cargar puede corregirlo,
+    // igual que "Corregir" ya permite reemplazar texto/precio. Si el punto ya estaba APROBADO,
+    // sacarle una evidencia lo devuelve a revisión: no puede quedar "aprobado" con menos respaldo
+    // del que el asesor vio.
+    if (accion === 'ELIMINAR_DOCUMENTO') {
+      const documentoId = Number(body.documentoId);
+      if (!documentoId) return NextResponse.json({ error: 'Falta el documento a eliminar' }, { status: 400 });
+      const [docRows] = await pool.query(
+        `SELECT id, nombre FROM checklist_comercial_documentos WHERE id = ? AND item_id = ?`,
+        [documentoId, itemId],
+      ) as any;
+      const doc = (docRows as any[])[0];
+      if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
+
+      await pool.query(`DELETE FROM checklist_comercial_documentos WHERE id = ?`, [documentoId]);
+
+      const nuevoEstado = item.estado === 'APROBADO' ? 'CARGADO' : item.estado;
+      if (nuevoEstado !== item.estado) {
+        await pool.query(
+          `UPDATE checklist_comercial SET estado = 'CARGADO', aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL WHERE id = ?`,
+          [itemId],
+        );
+      }
+      await bitacora(itemId, negocio.id, 'ELIMINAR_DOCUMENTO', item.estado, nuevoEstado, `Eliminó "${doc.nombre}"`, userId, nombreActor);
+      publicarCambio('checklist_comercial');
+      const items = await leerItems(negocio.id);
+      return NextResponse.json({ success: true, items, resumen: resumirChecklist(items) });
+    }
+
     const visa = await esAsesor(userId, rol);
     if ((accion === 'APROBAR' || accion === 'OBSERVAR' || accion === 'REABRIR') && !visa)
       return NextResponse.json({ error: 'Solo el asesor puede visar los puntos.' }, { status: 403 });
 
-    const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
     const anterior = item.estado as EstadoItem;
 
     // ── Marcar/desmarcar una línea que NO se oferta. No es una transición de estado: es
@@ -324,7 +389,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // valor aprobado que cambia sin que nadie lo vea es justo lo que esto viene a evitar.
       await pool.query(
         `UPDATE checklist_comercial
-            SET estado = 'CARGADO', valor_texto = ?, valor_numero = ?, documento_url = ?, documento_nombre = ?,
+            SET estado = 'CARGADO', valor_texto = ?, valor_numero = ?,
                 ofertamos = ?, observacion = NULL,
                 cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
                 aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL
@@ -332,12 +397,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         [
           body.valorTexto ?? item.valor_texto ?? null,
           body.valorNumero != null && body.valorNumero !== '' ? Number(body.valorNumero) : item.valor_numero,
-          body.documentoUrl ?? item.documento_url ?? null,
-          body.documentoNombre ?? item.documento_nombre ?? null,
           item.tipo === 'precio' ? 1 : item.ofertamos,
           userId, nombreActor, ahora, itemId,
         ],
       );
+      // Documentos: SE ACUMULAN, nunca se reemplazan — un punto puede necesitar varias evidencias.
+      const nuevosDocs = Array.isArray(body.documentos)
+        ? body.documentos.filter((d: any) => d?.url && d?.nombre).map((d: any) => ({ url: String(d.url), nombre: String(d.nombre) }))
+        : [];
+      await agregarDocumentos(itemId, negocio.id, nuevosDocs, userId, nombreActor);
     } else if (accion === 'APROBAR') {
       await pool.query(
         `UPDATE checklist_comercial
