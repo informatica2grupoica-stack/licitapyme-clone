@@ -598,6 +598,21 @@ export default function AdjudicadasPage() {
     return mejor?.n ?? null;
   }, [resueltas, adjMap]);
 
+  // Última licitación PERDIDA. Solo cuenta una pérdida REAL (adjudicada a un tercero, con acta
+  // de MP) — Desierta/Revocada también caen en "perdida" para las estadísticas, pero su
+  // fecha_adjudicacion en el caché es basura (MP no adjudicó a nadie, ese campo trae otra fecha
+  // sin relación), así que quedarían "ganando" el badge con una fecha que no significa nada.
+  const ultimaPerdida = useMemo(() => {
+    let mejor: { n: Negocio; ts: number } | null = null;
+    for (const n of resueltas) {
+      const adj = adjMap[n.licitacion_codigo];
+      if (resultadoDe(n, adj) !== 'perdida' || !adj?.esAdjudicada) continue;
+      const ts = tsDe(adj?.fechaAdjudicacion || n.licitacion_cierre);
+      if (!mejor || ts > mejor.ts) mejor = { n, ts };
+    }
+    return mejor?.n ?? null;
+  }, [resueltas, adjMap]);
+
   // ── Opciones de filtros con conteo (solo lo presente en los datos) ──────────
   const opcionesPerfil = useMemo(() => {
     const m = new Map<string, { nombre: string; total: number }>();
@@ -719,6 +734,16 @@ export default function AdjudicadasPage() {
                   style={{ background: 'linear-gradient(135deg,#fef3c7,#fde68a)', borderColor: '#d97706', color: '#92400e' }}
                 >
                   🏆 Última ganada: {(ultimaGanada.licitacion_nombre || ultimaGanada.licitacion_codigo).slice(0, 42)}
+                </Link>
+              )}
+              {ultimaPerdida && (
+                <Link
+                  href={`/negocios/${ultimaPerdida.id}`}
+                  title={`Última licitación perdida: ${ultimaPerdida.licitacion_nombre || ultimaPerdida.licitacion_codigo}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border shadow-sm hover:shadow transition-shadow"
+                  style={{ background: 'linear-gradient(135deg,#fee2e2,#fecaca)', borderColor: '#dc2626', color: '#991b1b' }}
+                >
+                  ⛔ Última perdida: {(ultimaPerdida.licitacion_nombre || ultimaPerdida.licitacion_codigo).slice(0, 42)}
                 </Link>
               )}
             </h1>
