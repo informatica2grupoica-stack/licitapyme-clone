@@ -259,6 +259,17 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
     // "postular/ofertar en" — nunca la frase suelta.
     /modalidad\s+de\s+adjudicaci[oó]n\s+en\s+l[ií]neas?\b/i,
     /(?:postular|ofertar|participar)\s+en\s+adjudicaci[oó]n\s+en\s+l[ií]neas?\b/i,
+    // Pasiva "será adjudicada/adjudicado por línea/lote": participio (termina en "-ada"/"-ado"),
+    // no cubierto por adjudicar(?:se|á|an|a)? de la línea de abajo (esa alternativa no incluye la
+    // terminación de participio). Caso real 2713-110-LE26 (Equipamiento Cementerio Municipal
+    // Puerto Aysén): "la cual será adjudicada por línea, pudiendo presentarse ofertas para una o
+    // varias líneas".
+    /adjudicad[ao]\s+por\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    // "El método/la forma de adjudicación... será por línea/lote" — sin "múltiple"/"independiente"
+    // cerca, así que ningún patrón de arriba la cazaba. Mismo caso 2713-110-LE26: "El método de
+    // adjudicación de la presente licitación será por línea las cuales tiene un presupuesto
+    // designado para cada una de ellas".
+    /(?:m[eé]todo|forma)\s+de\s+adjudicaci[oó]n[\s\S]{0,60}?\bser[aá]\s+por\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
   ];
   for (const d of docs) {
     if (!d.texto) continue;
@@ -511,7 +522,27 @@ export function detectarPresupuestoPorLinea(docs: { texto: string }[]): string |
     const lineasConMonto = new Set(
       [...d.texto.matchAll(/l[ií]nea\s*(?:n\s*[°º]\s*)?(\d{1,3})\s*[:.\-)]?\s*\$\s*[\d.]{4,}/gi)].map(m => parseInt(m[1], 10)),
     ).size;
-    if (totalesPorLinea >= 2 || etiquetasLinea >= 2 || lineasConMonto >= 2) {
+    // TABLA con columna "LINEAS"/"LÍNEAS" + presupuesto por FILA (formato bases administrativas
+    // municipales): <tr><td>N</td>...<td>$monto</td></tr>, donde el primer <td> es solo el número
+    // de línea y el último de la fila es el monto — la palabra "línea" NO se repite en cada fila
+    // (solo aparece una vez, en el encabezado de columna), así que ninguno de los 3 contadores de
+    // arriba la reconoce. Caso real 2713-110-LE26 (Equipamiento Cementerio Municipal Puerto
+    // Aysén): tabla "LINEAS | PARTIDA | UNIDAD | CANTIDAD | Presupuesto disponible por línea" con
+    // 13 filas numeradas 1..13 y su propio monto, agrupadas por categoría (OPERACIONAL /
+    // ADMINISTRATIVO) vía <td colspan> (esas filas de categoría tienen 1 sola celda y no matchean).
+    let filasTablaLineaMonto = 0;
+    if (/<tr[\s>]/i.test(d.texto)) {
+      const numerosVistos = new Set<number>();
+      for (const f of d.texto.matchAll(/<tr[^>]*>((?:(?!<\/tr>)[\s\S])*?)<\/tr>/gi)) {
+        const celdas = [...f[1].matchAll(/<td[^>]*>([^<]*)<\/td>/gi)].map(c => c[1].trim());
+        if (celdas.length < 2) continue;
+        const primera = celdas[0];
+        const ultima = celdas[celdas.length - 1];
+        if (/^\d{1,3}$/.test(primera) && /^\$?\s*[\d][\d.,]{3,}$/.test(ultima)) numerosVistos.add(parseInt(primera, 10));
+      }
+      filasTablaLineaMonto = numerosVistos.size;
+    }
+    if (totalesPorLinea >= 2 || etiquetasLinea >= 2 || lineasConMonto >= 2 || filasTablaLineaMonto >= 2) {
       return mFrase[0].replace(/\s+/g, ' ').trim();
     }
   }
@@ -578,6 +609,12 @@ export function detectarLineasProductoTecnicas(docs: { texto: string }[]): numbe
 // extracción dedicada nunca corría → el manifiesto quedó con 1 "ítem" por línea (la categoría
 // completa) en vez de los productos reales de cada hoja.
 //
+// "DE PRODUCTO" y el "N°/Nº" también son OPCIONALES: el Anexo N°2 Económico de proyectos PMU trae
+// el encabezado corto "LÍNEA 1: LETRERO DE OBRAS" (sin "DE PRODUCTO" ni "N°"). Caso real
+// 1738-18-LE26: el regex exigía ambos → 0 secciones → la extracción dedicada nunca corrió → el
+// manifiesto quedó con 1 ítem "Global" por línea (los nombres de los ~50 productos reales
+// aplastados en el campo "modelo" como texto) en vez de una fila por producto con su cantidad real.
+//
 // NO se queda con el PRIMER documento que matchea: prueba TODOS y elige el que tenga el MEJOR
 // PISO (la sección MÁS CHICA de todas, la más grande posible) — no el total ni el conteo de filas.
 // Razón (mismo caso 2295-74-LE26, segunda vuelta): un documento de referencia (BAE) menciona "Línea
@@ -592,18 +629,34 @@ export function detectarLineasProductoTecnicas(docs: { texto: string }[]): numbe
 // con etiquetas sueltas.
 export function extraerSeccionesLineaProducto(docs: { nombre?: string; texto?: string | null }[]): { linea: number; nombre: string; texto: string }[] {
   const re = /(?:(\d{1,2})\.(\d{1,2})\.?\s*)?L[ÍI]NEA\s+DE\s+PRODUCTO\s+N[°º]\s*(\d{1,2})\s*[:–\-]?\s*([^\n]{0,60})/gi;
+  // Encabezado CORTO "LÍNEA 1: Nombre" (sin "DE PRODUCTO" ni "N°") — el Anexo N°2 Económico de
+  // proyectos PMU lo usa así. Sin "DE PRODUCTO"/"N°" de por medio, el ÚNICO ancla estructural que
+  // separa un título real de una mención suelta en prosa ("la línea 1 del cuadro...") es el ":"/"–"
+  // pegado al número, así que aquí SÍ es obligatorio (a diferencia del regex de arriba, donde "DE
+  // PRODUCTO"/"N°" ya son ancla suficiente y el separador puede faltar).
+  const reCorta = /L[ÍI]NEA\s+(\d{1,2})\s*[:–\-]\s*([^\n]{0,60})/gi;
   let mejor: { linea: number; nombre: string; texto: string }[] = [];
   let mejorPiso = 0;
   for (const d of docs) {
     const t = d.texto || '';
     if (t.length < 200) continue;
-    const heads: { idx: number; linea: number; nombre: string }[] = [];
+    let heads: { idx: number; linea: number; nombre: string }[] = [];
     let m: RegExpExecArray | null;
     // El nombre de sección puede venir seguido de comas CSV colgando (celdas vacías del Excel
     // exportado a texto, ej. `Mobiliario Urbano",,,,,,,`) — se recortan por prolijidad (no afecta
     // la extracción de ítems, que usa `texto`, solo la etiqueta que se muestra).
     while ((m = re.exec(t)) !== null) heads.push({ idx: m.index, linea: parseInt(m[3], 10), nombre: (m[4] || '').replace(/["'\s,]+$/, '').trim() });
     re.lastIndex = 0;
+    // El patrón corto SOLO se prueba si el estricto no alcanzó a encontrar 2 secciones — así un
+    // documento que YA funciona con "DE PRODUCTO"/"N°" queda intacto, sin arriesgar que una mención
+    // suelta de "línea" en otra parte del mismo documento inserte un corte espurio entre secciones
+    // reales.
+    if (heads.length < 2) {
+      const headsCorta: { idx: number; linea: number; nombre: string }[] = [];
+      while ((m = reCorta.exec(t)) !== null) headsCorta.push({ idx: m.index, linea: parseInt(m[1], 10), nombre: (m[2] || '').replace(/["'\s,]+$/, '').trim() });
+      reCorta.lastIndex = 0;
+      if (headsCorta.length >= 2) heads = headsCorta;
+    }
     if (heads.length < 2) continue;
     // Un mismo documento puede repetir el mismo número de línea varias veces (portada + tabla de
     // presupuesto + tabla de tiempos = 3 apariciones de "Línea N°1"), cada aparición mucho más chica

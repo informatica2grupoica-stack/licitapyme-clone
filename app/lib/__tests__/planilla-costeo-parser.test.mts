@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerSeccionesLineaProducto,
-  detectarLenguajePorLinea, detectarParticipacionParcialPorLinea,
+  detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea,
 } from '../planilla-costeo-parser';
 
 // Caso real 1250623-4-LE26 (21-jul-2026, detectado por CA leyendo las bases a mano): "se evaluará
@@ -93,4 +93,73 @@ test('extraerSeccionesLineaProducto: prefiere el documento con contenido real so
 test('extraerSeccionesLineaProducto: con menos de 2 secciones devuelve vacío', () => {
   const docs = [{ nombre: 'a.pdf', texto: 'LINEA DE PRODUCTO N°1: Materiales\n' + 'x'.repeat(300) }];
   assert.deepEqual(extraerSeccionesLineaProducto(docs), []);
+});
+
+// Caso real 1738-18-LE26: el Anexo N°2 Económico de un proyecto PMU trae el encabezado CORTO
+// "LÍNEA 1: Nombre" (sin "DE PRODUCTO" ni "N°") — el regex estricto no lo reconocía → 0 secciones
+// → nunca corría la extracción dedicada → el manifiesto quedó con 1 ítem "Global" por línea (los
+// ~50 productos reales aplastados en el campo "modelo") en vez de una fila por producto.
+test('extraerSeccionesLineaProducto: reconoce encabezado corto "LÍNEA N: Nombre" (sin "DE PRODUCTO" ni "N°")', () => {
+  const docs = [{
+    nombre: 'ANEXOS_PMU.docx',
+    texto: `LÍNEA 1: LETRERO DE OBRAS\n${'Cuarton 4" x 4"\nUN\n6.0\n'.repeat(15)}\nLÍNEA 2: ARRIENDO BAÑOS QUÍMICO\n${'Arriendo Baño Químico\nMES\n6.0\n'.repeat(15)}`,
+  }];
+  const secciones = extraerSeccionesLineaProducto(docs);
+  assert.equal(secciones.length, 2);
+  assert.equal(secciones[0].linea, 1);
+  assert.equal(secciones[1].linea, 2);
+});
+
+// El patrón corto solo debe intentarse cuando el estricto no encontró ≥2 secciones — un documento
+// que YA matchea bien con "DE PRODUCTO" no debe verse afectado por menciones sueltas de "línea".
+test('extraerSeccionesLineaProducto: el patrón corto no interfiere si el estricto ya encontró ≥2 secciones', () => {
+  const docs = [{
+    nombre: 'bases.pdf',
+    texto: `Nota: revisar la línea 1: de la tabla de referencia más abajo.\nLINEA DE PRODUCTO N°1: Materiales\n${'1,Producto real,uni,10\n'.repeat(30)}\nLINEA DE PRODUCTO N°2: Arriendo\n${'1,Producto real,dia,5\n'.repeat(15)}`,
+  }];
+  const secciones = extraerSeccionesLineaProducto(docs);
+  assert.equal(secciones.length, 2, 'debe seguir dando 2 secciones (las de "DE PRODUCTO"), no una tercera espuria de la nota');
+});
+
+// Caso real 2713-110-LE26 (Equipamiento Cementerio Municipal Puerto Aysén): las bases dicen "la
+// cual será adjudicada por línea" (participio, NO "adjudicar/adjudicará/adjudicarse") — ningún
+// patrón anterior lo reconocía y el veredicto caía al default GLOBAL pese a ser inequívoco.
+test('detectarTipoAdjudicacionMultiple: reconoce pasiva "será adjudicada por línea"', () => {
+  const docs = [{ texto: 'la cual será adjudicada por línea, pudiendo presentarse ofertas para una o varias líneas por parte de los oferentes.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+// Mismo caso real: formulación alternativa "el método de adjudicación... será por línea", sin
+// "múltiple"/"independiente" cerca, tampoco cubierta por los patrones anteriores.
+test('detectarTipoAdjudicacionMultiple: reconoce "el método de adjudicación... será por línea"', () => {
+  const docs = [{ texto: 'El método de adjudicación de la presente licitación será por línea las cuales tiene un presupuesto designado para cada una de ellas.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+// Caso real 2713-110-LE26: tabla "LINEAS | PARTIDA | UNIDAD | CANTIDAD | Presupuesto disponible
+// por línea" con filas numeradas y su monto, agrupadas por categoría (OPERACIONAL/ADMINISTRATIVO)
+// vía <td colspan>. La palabra "línea" NO se repite por fila (solo una vez, en el encabezado de
+// columna), así que los 3 contadores previos (totalesPorLinea/etiquetasLinea/lineasConMonto) no
+// la veían — devolvía null pese a que la frase-ancla sí matcheaba.
+test('detectarPresupuestoPorLinea: reconoce tabla "LINEAS | ... | Presupuesto disponible por línea" sin la palabra repetida por fila', () => {
+  const docs = [{
+    texto: 'El valor de las ofertas presentadas por línea no podrá ser superior al presupuesto oficial disponible para cada una de ellas, ' +
+      'el presupuesto por línea se desglosa de la siguiente manera: ' +
+      '<table border="1"><tr><td>LINEAS</td><td>PARTIDA</td><td>UNIDAD</td><td>CANTIDAD</td><td>Presupuesto disponible por línea</td></tr>' +
+      '<tr><td colspan="5">OPERACIONAL</td></tr>' +
+      '<tr><td>1</td><td>Carpa 180m2</td><td>un</td><td>1</td><td>$2.877.420</td></tr>' +
+      '<tr><td>2</td><td>Carpa 80m2</td><td>un</td><td>1</td><td>$1.513.124</td></tr>' +
+      '<tr><td colspan="5">ADMINISTRATIVO</td></tr>' +
+      '<tr><td>3</td><td>Escritorio de oficina</td><td>un</td><td>2</td><td>$312.494</td></tr></table>',
+  }];
+  assert.ok(detectarPresupuestoPorLinea(docs), 'debe reconocer la tabla como ≥2 líneas presupuestadas');
+});
+
+test('detectarPresupuestoPorLinea: tabla genérica sin frase-ancla no dispara (evita falso positivo)', () => {
+  const docs = [{
+    texto: '<table border="1"><tr><td>N°</td><td>Producto</td><td>Cantidad</td><td>Precio</td></tr>' +
+      '<tr><td>1</td><td>Silla</td><td>2</td><td>$10.000</td></tr>' +
+      '<tr><td>2</td><td>Mesa</td><td>1</td><td>$20.000</td></tr></table>',
+  }];
+  assert.equal(detectarPresupuestoPorLinea(docs), null, 'sin la frase "presupuesto...por línea" en el documento, no debe disparar solo por tener una tabla numerada con montos');
 });
