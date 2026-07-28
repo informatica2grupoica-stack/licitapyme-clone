@@ -136,6 +136,76 @@ test('detectarTipoAdjudicacionMultiple: reconoce "el método de adjudicación...
   assert.ok(detectarTipoAdjudicacionMultiple(docs));
 });
 
+// Caso real 1057536-83-LE26 (CESFAM Frutillar, 28-jul-2026): "Se podrá adjudicar A UN SOLO
+// PROVEEDOR por línea" — "un solo proveedor" queda ENTRE "adjudicar" y "por línea", así que el
+// patrón "adjudicar(?:se|á|an|a)?\s+por\s+…" (sin nada en medio) no la reconocía y el veredicto
+// caía al default GLOBAL pese a ser evidencia inequívoca de por_linea (cada línea tiene su propio
+// ganador, pueden ser proveedores distintos entre líneas).
+test('detectarTipoAdjudicacionMultiple: reconoce "adjudicar a un solo proveedor por línea"', () => {
+  const docs = [{ texto: '24.2 Aceptación de la orden de compra Se podrá adjudicar a un solo proveedor por línea; el que tendrá un plazo de 48 horas para la aceptación de orden de compra.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+// Auditoría masiva 28-jul-2026 sobre 892 licitaciones con documentos cacheados: bajó de 280 a 192
+// fragmentos "adjudicación + línea/lote/ítem" sin reconocer. Los siguientes tests fijan los
+// patrones nuevos que salieron de esa auditoría, verificados sin conflicto contra los 31 casos
+// del Golden Set (los 9 que ahora disparan ya esperaban POR_LINEAS).
+
+test('detectarTipoAdjudicacionMultiple: "un oferente" SIN "solo/único" (1057500-53-LE26)', () => {
+  const docs = [{ texto: 'Artículo 19°: Adjudicación. - La presente licitación será adjudicada a un oferente por línea.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+test('detectarTipoAdjudicacionMultiple: pasiva "ser adjudicada a un solo oferente por línea" (1057049-210-LP26)', () => {
+  const docs = [{ texto: 'La presente licitación podrá ser adjudicada a un solo oferente por línea, atendiendo al mayor puntaje obtenido.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+test('detectarTipoAdjudicacionMultiple: "en cada una de las líneas" en vez de "por línea" (4956-52-LE26)', () => {
+  const docs = [{ texto: 'Se podrá adjudicar a un solo proveedor en cada una de las líneas de la presente licitación.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+test('detectarTipoAdjudicacionMultiple: orden invertido singular "un proveedor distinto" (1079576-27-LE26)', () => {
+  const docs = [{ texto: 'La adjudicación sólo dice relación con los anexos del N°1 al N°8, pudiendo cada anexo resultar adjudicado a un proveedor distinto, o bien adjudicarse todas las líneas en conjunto.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+test('detectarTipoAdjudicacionMultiple: orden invertido plural "oferentes distintos" (caso real 1260113-2-LE26)', () => {
+  const docs = [{ texto: 'Es decir, se evaluará por separado los seis ítems, pudiendo adjudicar hasta a seis oferentes distintos. Los ítems anteriores comprenden: ITEM 1, ITEM 2.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+test('detectarTipoAdjudicacionMultiple: caso real completo 1260113-2-LE26 (ya cubierto por el encabezado "adjudicación es por línea")', () => {
+  const docs = [{ texto: 'NOTA: La adjudicación es por línea; es decir, se evaluará por separado los seis ítems, pudiendo adjudicar hasta a seis oferentes distintos.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+test('detectarTipoAdjudicacionMultiple: encabezado nominal "ADJUDICACIÓN POR LÍNEAS" sin verbo (5053-27-LE26)', () => {
+  const docs = [{ texto: '10. ADJUDICACIÓN POR LÍNEAS\nSe procederá conforme a lo indicado en el anexo N°3.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+test('detectarTipoAdjudicacionMultiple: "adjudicación... será por línea" (verbo "ser", 3134-59-LP26)', () => {
+  const docs = [{ texto: 'b.- La adjudicación será por línea, según lo dispuesto en el punto anterior.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+test('detectarTipoAdjudicacionMultiple: NO dispara con el falso amigo "en línea" = por internet (guard preexistente, no regresión)', () => {
+  const docs = [{ texto: 'La resolución de adjudicación se publicará en línea en el portal www.mercadopublico.cl dentro de las 24 horas siguientes.' }];
+  assert.equal(detectarTipoAdjudicacionMultiple(docs), null);
+});
+
+test('detectarTipoAdjudicacionMultiple: "mejor oferta por cada línea" (confianza media, 3336-16-LP26)', () => {
+  const docs = [{ texto: 'La adjudicación se realizará considerando la mejor oferta por cada línea de producto licitada.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+test('detectarTipoAdjudicacionMultiple: "mayor puntaje en la evaluación... DE cada línea" (confianza media, 752-24-LP26)', () => {
+  const docs = [{ texto: 'La presente licitación se adjudicará al oferente que tuviere mayor puntaje en la evaluación final de cada línea ofertada.' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
 // Caso real 2713-110-LE26: tabla "LINEAS | PARTIDA | UNIDAD | CANTIDAD | Presupuesto disponible
 // por línea" con filas numeradas y su monto, agrupadas por categoría (OPERACIONAL/ADMINISTRATIVO)
 // vía <td colspan>. La palabra "línea" NO se repite por fila (solo una vez, en el encabezado de

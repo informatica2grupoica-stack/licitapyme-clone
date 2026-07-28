@@ -4,14 +4,14 @@
 // Crear / editar / eliminar. Los datos se usan al marcar una licitación como Postulada
 // (selector de empresa) y se muestran/filtran en el apartado Postuladas.
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import {
   Building2, Plus, Pencil, Trash2, Loader2, X, Save, Inbox,
-  User, Landmark, Mail, Phone, MapPin, ShieldCheck,
+  User, Landmark, Mail, Phone, MapPin, ShieldCheck, Upload, Eye, Award,
 } from 'lucide-react';
 
 interface Empresa {
@@ -34,6 +34,23 @@ interface Empresa {
   banco_numero?: string | null;
   banco_nombre?: string | null;
   banco_email?: string | null;
+  logo_url?: string | null;
+  logo_nombre?: string | null;
+  firma_url?: string | null;
+  firma_nombre?: string | null;
+  timbre_url?: string | null;
+  timbre_nombre?: string | null;
+}
+
+interface EmpresaDocumento {
+  id: number;
+  tipo: string;
+  titulo: string;
+  descripcion: string | null;
+  url: string | null;
+  nombre: string | null;
+  subido_por_nombre: string | null;
+  subido_at: string | null;
 }
 
 const VACIA: Partial<Empresa> = { razon_social: '', rut: '' };
@@ -55,6 +72,150 @@ function Campo({ label, value, onChange, placeholder, required }: {
   );
 }
 
+// Logo / firma / timbre: un archivo cada uno, se reemplaza al subir uno nuevo.
+function SubidaArchivoUnico({ empresaId, tipo, label, urlActual, nombreActual, onCambio }: {
+  empresaId: number; tipo: 'logo' | 'firma' | 'timbre'; label: string;
+  urlActual: string | null | undefined; nombreActual: string | null | undefined; onCambio: () => void;
+}) {
+  const [subiendo, setSubiendo] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
+
+  const subir = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setSubiendo(true);
+    try {
+      const fd = new FormData();
+      fd.append('tipo', tipo);
+      fd.append('file', files[0]);
+      const r = await fetch(`/api/empresas/${empresaId}/documentos`, { method: 'POST', body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) { toast.error(d.error || `No se pudo subir ${label.toLowerCase()}`); return; }
+      toast.success(`${label} actualizado`);
+      onCambio();
+    } finally {
+      setSubiendo(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const eliminar = async () => {
+    const r = await fetch(`/api/empresas/${empresaId}/documentos?tipo=${tipo}`, { method: 'DELETE' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo eliminar'); return; }
+    onCambio();
+  };
+
+  return (
+    <div className="flex items-center justify-between gap-2 px-3 py-2 border border-slate-200 rounded-lg">
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold text-slate-600">{label}</p>
+        <p className="text-[11.5px] text-slate-500 truncate">{nombreActual || 'Sin archivo'}</p>
+      </div>
+      <div className="flex items-center gap-1 flex-shrink-0">
+        {urlActual && (
+          <a href={urlActual} target="_blank" rel="noreferrer" title="Ver" className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"><Eye size={14} /></a>
+        )}
+        <input ref={fileRef} type="file" accept="image/*,.pdf" className="hidden" onChange={e => subir(e.target.files)} />
+        <button onClick={() => fileRef.current?.click()} disabled={subiendo} title="Subir"
+          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50">
+          {subiendo ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+        </button>
+        {urlActual && (
+          <button onClick={eliminar} title="Quitar" className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"><Trash2 size={14} /></button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Certificados / experiencia acreditable: acumulan, nunca se reemplazan.
+function SeccionDocumentosEmpresa({ empresaId, tipo, label, placeholder }: {
+  empresaId: number; tipo: 'certificado' | 'experiencia'; label: string; placeholder: string;
+}) {
+  const [docs, setDocs] = useState<EmpresaDocumento[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [titulo, setTitulo] = useState('');
+  const [subiendo, setSubiendo] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
+  const confirmar = useConfirm();
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const r = await fetch(`/api/empresas/${empresaId}/documentos`);
+      const d = await r.json();
+      setDocs((d.documentos || []).filter((doc: EmpresaDocumento) => doc.tipo === tipo));
+    } finally {
+      setCargando(false);
+    }
+  }, [empresaId, tipo]);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  const subir = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    if (!titulo.trim()) { toast.error('Escribe un título antes de subir'); return; }
+    setSubiendo(true);
+    try {
+      const fd = new FormData();
+      fd.append('tipo', tipo);
+      fd.append('titulo', titulo.trim());
+      fd.append('file', files[0]);
+      const r = await fetch(`/api/empresas/${empresaId}/documentos`, { method: 'POST', body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo subir'); return; }
+      setTitulo('');
+      cargar();
+    } finally {
+      setSubiendo(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const eliminar = async (doc: EmpresaDocumento) => {
+    const ok = await confirmar({
+      titulo: `¿Eliminar "${doc.titulo}"?`, mensaje: 'Esta acción no se puede deshacer.',
+      confirmarLabel: 'Eliminar', peligro: true,
+    });
+    if (!ok) return;
+    await fetch(`/api/empresas/${empresaId}/documentos?documentoId=${doc.id}`, { method: 'DELETE' });
+    cargar();
+  };
+
+  return (
+    <div>
+      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Award size={13} /> {label}</p>
+      {cargando ? (
+        <p className="text-[12px] text-slate-400 mb-2">Cargando…</p>
+      ) : (
+        <div className="space-y-1.5 mb-2">
+          {docs.map(doc => (
+            <div key={doc.id} className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-slate-50 rounded-lg">
+              <span className="text-[12px] text-slate-700 truncate">{doc.titulo}</span>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {doc.url && <a href={doc.url} target="_blank" rel="noreferrer" title="Ver" className="p-1 text-slate-400 hover:text-indigo-600"><Eye size={13} /></a>}
+                <button onClick={() => eliminar(doc)} title="Eliminar" className="p-1 text-slate-400 hover:text-rose-600"><Trash2 size={13} /></button>
+              </div>
+            </div>
+          ))}
+          {docs.length === 0 && <p className="text-[11.5px] text-slate-400">Nada cargado todavía.</p>}
+        </div>
+      )}
+      <div className="flex items-center gap-1.5">
+        <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder={placeholder}
+          className="flex-1 px-2.5 py-1.5 text-[12px] border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-400" />
+        <input ref={fileRef} type="file" className="hidden" onChange={e => subir(e.target.files)} />
+        <button onClick={() => fileRef.current?.click()} disabled={subiendo}
+          className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 text-[11.5px] font-semibold rounded-lg disabled:opacity-50 transition-colors">
+          {subiendo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Subir
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function EmpresaModal({ inicial, onCerrar, onGuardada }: {
   inicial: Partial<Empresa>; onCerrar: () => void; onGuardada: () => void;
 }) {
@@ -63,6 +224,15 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
   const toast = useToast();
   const esEdicion = !!inicial.id;
   const set = (k: keyof Empresa) => (v: string) => setF(prev => ({ ...prev, [k]: v }));
+
+  // Logo/firma/timbre se suben aparte (endpoint de archivos, no el PATCH de campos de texto) —
+  // tras subir/quitar uno, recargamos la ficha para reflejar la URL nueva en el modal abierto.
+  const recargarEmpresa = async () => {
+    if (!inicial.id) return;
+    const r = await fetch(`/api/empresas/${inicial.id}`);
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.empresa) setF(d.empresa);
+  };
 
   const guardar = async () => {
     if (!String(f.razon_social || '').trim() || !String(f.rut || '').trim()) {
@@ -146,6 +316,28 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
               <Campo label="Email de pagos" value={f.banco_email || ''} onChange={set('banco_email')} />
             </div>
           </section>
+
+          {/* Identidad + certificados/experiencia: solo con la empresa ya creada (necesitan su id) */}
+          {esEdicion && inicial.id && (
+            <>
+              <section>
+                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><ShieldCheck size={13} /> Identidad (Auditor Técnico)</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <SubidaArchivoUnico empresaId={inicial.id} tipo="logo" label="Logo" urlActual={f.logo_url} nombreActual={f.logo_nombre} onCambio={recargarEmpresa} />
+                  <SubidaArchivoUnico empresaId={inicial.id} tipo="firma" label="Firma escaneada" urlActual={f.firma_url} nombreActual={f.firma_nombre} onCambio={recargarEmpresa} />
+                  <SubidaArchivoUnico empresaId={inicial.id} tipo="timbre" label="Timbre digital" urlActual={f.timbre_url} nombreActual={f.timbre_nombre} onCambio={recargarEmpresa} />
+                </div>
+              </section>
+
+              <section>
+                <SeccionDocumentosEmpresa empresaId={inicial.id} tipo="certificado" label="Certificados" placeholder="Título del certificado…" />
+              </section>
+
+              <section>
+                <SeccionDocumentosEmpresa empresaId={inicial.id} tipo="experiencia" label="Experiencia acreditable" placeholder="Ej: OC N°123 - Municipalidad de..." />
+              </section>
+            </>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-slate-100 bg-slate-50 flex-shrink-0">

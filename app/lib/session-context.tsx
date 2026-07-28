@@ -18,6 +18,7 @@ export interface UsuarioSession {
     comentar_viabilidad?: boolean;
     exportar?: boolean;
     alertas_anexos?: boolean;
+    aprobar_comercial?: boolean;
   };
 }
 

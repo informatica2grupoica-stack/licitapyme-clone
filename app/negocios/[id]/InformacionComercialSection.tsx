@@ -9,16 +9,19 @@
 //
 // Tiempo real: cualquier carga o visado se refleja al instante en la pantalla del otro (SSE).
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { FilaLineaTecnica } from './FilaLineaTecnica';
+import { MotorComercialCard } from './MotorComercialCard';
 import {
   ShieldCheck, Building2, Check, X, Upload, Loader2, AlertTriangle, Copy,
   FileText, DollarSign, Wrench, ClipboardCheck, RefreshCw, Undo2, Sparkles,
-  Eye, Download, Trash2,
+  Eye, Download, Trash2, History,
 } from 'lucide-react';
 
 // ── Tipos (espejo de lo que devuelve /api/negocios/[id]/comercial) ──────────────
@@ -30,10 +33,15 @@ interface Documento {
   subidoAt: string | null;
 }
 
+interface ResumenTecnico { total: number; cumplen: number; noCumplen: number; conComplemento: number; sinEvaluar: number; pendientesProveedor: number }
+
+interface CausalBloqueo { codigo: string; descripcion: string; rutaDesbloqueo: string }
+type Semaforo = 'VERDE' | 'AMARILLO' | 'ROJO';
+
 interface Item {
   id: number;
   bloque: 'ADMINISTRATIVO' | 'TECNICO' | 'COMERCIAL';
-  tipo: 'documento' | 'dato' | 'precio';
+  tipo: 'documento' | 'dato' | 'precio' | 'linea_tecnica';
   titulo: string;
   descripcion: string | null;
   criticidad: string;
@@ -51,6 +59,7 @@ interface Item {
   cargado_at: string | null;
   aprobado_por_nombre: string | null;
   aprobado_at: string | null;
+  resumen_tecnico: ResumenTecnico | null;
 }
 
 interface Resumen {
@@ -79,6 +88,13 @@ const CRIT_STYLE: Record<string, { bg: string; text: string; label: string }> = 
   INFORMATIVO:           { bg: 'bg-zinc-100',    text: 'text-zinc-500',    label: 'Informativo' },
 };
 
+// Semáforo del Auditor Técnico (spec §9.4) — ver app/lib/semaforo-auditor.ts para las reglas.
+const SEMAFORO_BADGE: Record<'VERDE' | 'AMARILLO' | 'ROJO', { bg: string; text: string; label: string }> = {
+  VERDE:    { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Verde' },
+  AMARILLO: { bg: 'bg-amber-100',   text: 'text-amber-700',   label: 'Amarillo' },
+  ROJO:     { bg: 'bg-rose-100',    text: 'text-rose-700',    label: 'Rojo' },
+};
+
 const ESTADO_STYLE: Record<Item['estado'], { bg: string; text: string; label: string }> = {
   PENDIENTE: { bg: 'bg-zinc-100',    text: 'text-zinc-500',    label: 'Pendiente' },
   CARGADO:   { bg: 'bg-indigo-100',  text: 'text-indigo-700',  label: 'Por aprobar' },
@@ -96,6 +112,101 @@ const fmtFecha = (s: string | null) => {
   } catch { return ''; }
 };
 
+// Popup del semáforo en rojo (spec §9.4): "no deja avanzar hasta que se resuelva o se reconozca
+// expresamente el pendiente". No hay generación documental todavía que bloquear de verdad (Fase
+// 5), así que por ahora es este aviso: no se puede cerrar sin decisión, pero si el usuario
+// reconoce el riesgo puede seguir trabajando. Se re-muestra solo si cambia el set de causales
+// (sessionStorage con la clave incluye los códigos) — si aparece un bloqueante nuevo, avisa de
+// nuevo aunque ya se hubiera reconocido uno anterior.
+function PopupSemaforoRojo({ negocioId, causales }: { negocioId: number; causales: CausalBloqueo[] }) {
+  const clave = `auditor-rojo-reconocido-${negocioId}-${causales.map(c => c.codigo).sort().join(',')}`;
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    try { setVisible(sessionStorage.getItem(clave) !== '1'); } catch { setVisible(true); }
+  }, [clave]);
+
+  if (!visible) return null;
+
+  const reconocer = () => {
+    try { sessionStorage.setItem(clave, '1'); } catch { /* no bloquear por storage */ }
+    setVisible(false);
+  };
+
+  // Portal a document.body: si se montara como hijo normal, quedaría dentro del contenedor
+  // ".fade-in" de la sección (su animación deja un transform:translateY(0) persistente, que
+  // crea un containing block para position:fixed) y el overlay se recortaría al tamaño de la
+  // tarjeta en vez de cubrir la pantalla completa. Mismo patrón que DocumentoIAModal/DocumentViewerModal.
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+        <div className="px-6 py-5 flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center flex-shrink-0">
+            <AlertTriangle size={18} className="text-rose-600" />
+          </div>
+          <div>
+            <h2 className="text-[15px] font-bold text-zinc-900">Esta licitación está en rojo</h2>
+            <p className="text-[12px] text-zinc-500 mt-1">
+              Quedan menos de 24 horas para el cierre, o hay algo bloqueante sin resolver. Revisa los avisos antes de seguir trabajando.
+            </p>
+          </div>
+        </div>
+        <div className="px-6 pb-5">
+          <button onClick={reconocer} className="w-full px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-rose-600 hover:bg-rose-700 transition-colors">
+            Entiendo el riesgo, continuar
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// Banner de "las bases cambiaron desde el análisis de viabilidad" (spec §11.1). A diferencia
+// del popup del semáforo rojo, esto no es un riesgo de plazo sino informativo — se puede
+// cerrar, y solo vuelve a aparecer si `ultimoDeltaAt` cambia (un delta nuevo de verdad), no en
+// cada recarga de la página.
+function BannerCambioForo({ negocioId, snapshot }: {
+  negocioId: number;
+  snapshot: { ultimoDelta: Array<{ tipo: string; numero: number | null; detalle: string }>; ultimoDeltaAt: string | null; bloquesRevertidos: string[] };
+}) {
+  const clave = `foro-cambio-visto-${negocioId}-${snapshot.ultimoDeltaAt}`;
+  const [cerrado, setCerrado] = useState(false);
+
+  useEffect(() => {
+    try { setCerrado(sessionStorage.getItem(clave) === '1'); } catch { setCerrado(false); }
+  }, [clave]);
+
+  if (cerrado || snapshot.ultimoDelta.length === 0) return null;
+
+  const cerrar = () => {
+    try { sessionStorage.setItem(clave, '1'); } catch { /* no bloquear por storage */ }
+    setCerrado(true);
+  };
+
+  return (
+    <div className="bg-sky-50 border border-sky-200 rounded-xl px-4 py-3 flex items-start gap-2.5">
+      <History size={15} className="text-sky-600 flex-shrink-0 mt-0.5" />
+      <div className="flex-1 min-w-0">
+        <p className="text-[12.5px] font-bold text-sky-800">Las bases cambiaron desde el análisis de viabilidad</p>
+        <ul className="mt-1 space-y-0.5">
+          {snapshot.ultimoDelta.map((d, i) => (
+            <li key={i} className="text-[11.5px] text-sky-700">{d.detalle}</li>
+          ))}
+        </ul>
+        {snapshot.bloquesRevertidos.length > 0 && (
+          <p className="text-[11.5px] text-sky-800 font-semibold mt-1">
+            Se revirtió la aprobación de {snapshot.bloquesRevertidos.map(b => b === 'TECNICO' ? 'técnico' : 'comercial').join(' y ')} — vuelve a la bandeja del asesor.
+          </p>
+        )}
+      </div>
+      <button onClick={cerrar} className="p-1 rounded-lg text-sky-500 hover:text-sky-700 hover:bg-sky-100 transition-colors flex-shrink-0" aria-label="Cerrar">
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 export function InformacionComercialSection({ negocioId, licitacionCodigo, empresaId, onEmpresaChange }: {
   negocioId: number;
@@ -108,6 +219,10 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
   const [resumen, setResumen] = useState<Resumen | null>(null);
+  const [semaforo, setSemaforo] = useState<Semaforo>('VERDE');
+  const [causalesBloqueo, setCausalesBloqueo] = useState<CausalBloqueo[]>([]);
+  const [foroSnapshot, setForoSnapshot] = useState<{ ultimoDelta: Array<{ tipo: string; numero: number | null; detalle: string }>; ultimoDeltaAt: string | null; bloquesRevertidos: string[] } | null>(null);
+  const [congelado, setCongelado] = useState<{ congeladoAt: string; congeladoPorNombre: string | null } | null>(null);
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
   const [modalidad, setModalidad] = useState<{ porLinea: boolean; dudosa: boolean; tipo: string | null; comoSeAdjudica: string | null } | null>(null);
   const [puedeAprobar, setPuedeAprobar] = useState(false);
@@ -125,6 +240,10 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       if (!r.ok) { setError(d.error || 'No se pudo cargar'); return; }
       setItems(d.items || []);
       setResumen(d.resumen || null);
+      setSemaforo(d.semaforo || 'VERDE');
+      setCausalesBloqueo(d.causalesBloqueo || []);
+      setForoSnapshot(d.foroSnapshot || null);
+      setCongelado(d.congelado || null);
       setEmpresa(d.empresa || null);
       setModalidad(d.modalidad || null);
       setPuedeAprobar(!!d.puedeAprobar);
@@ -221,6 +340,25 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   return (
     <div className="space-y-5 fade-in">
 
+      {congelado ? (
+        <div className="bg-zinc-800 text-white rounded-xl px-4 py-3 flex items-center gap-2.5">
+          <ShieldCheck size={16} className="text-zinc-300 flex-shrink-0" />
+          <div>
+            <p className="text-[12.5px] font-bold">Congelado — registro histórico, de solo lectura</p>
+            <p className="text-[11px] text-zinc-400">
+              Se postuló el {fmtFecha(congelado.congeladoAt)}{congelado.congeladoPorNombre ? ` · ${congelado.congeladoPorNombre}` : ''}. Ya no se puede cargar, aprobar ni corregir nada acá.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
+          {semaforo === 'ROJO' && causalesBloqueo.length > 0 && (
+            <PopupSemaforoRojo negocioId={negocioId} causales={causalesBloqueo} />
+          )}
+          {foroSnapshot && <BannerCambioForo negocioId={negocioId} snapshot={foroSnapshot} />}
+        </>
+      )}
+
       {/* ── Cabecera + avance ────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-zinc-200 p-4">
         <div className="flex items-start justify-between gap-3 mb-3">
@@ -229,7 +367,12 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
               <ShieldCheck size={16} className="text-violet-600" />
             </div>
             <div>
-              <h2 className="text-[15px] font-bold text-zinc-900 leading-tight">Información Comercial</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-[15px] font-bold text-zinc-900 leading-tight">Auditor Técnico</h2>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${SEMAFORO_BADGE[semaforo].bg} ${SEMAFORO_BADGE[semaforo].text}`}>
+                  {SEMAFORO_BADGE[semaforo].label}
+                </span>
+              </div>
               <p className="text-[11.5px] text-zinc-400">
                 El asistente carga · el asesor aprueba
               </p>
@@ -245,6 +388,16 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
             Resincronizar
           </button>
         </div>
+
+        {causalesBloqueo.length > 0 && (
+          <div className={`mb-3 rounded-lg px-3 py-2 space-y-1 border ${semaforo === 'ROJO' ? 'bg-rose-50 border-rose-200' : 'bg-amber-50 border-amber-200'}`}>
+            {causalesBloqueo.map(c => (
+              <p key={c.codigo} className={`text-[11.5px] leading-snug ${semaforo === 'ROJO' ? 'text-rose-700' : 'text-amber-800'}`}>
+                <span className="font-semibold">{c.descripcion}.</span> {c.rutaDesbloqueo}
+              </p>
+            ))}
+          </div>
+        )}
 
         {resumen && resumen.total > 0 && (
           <>
@@ -292,6 +445,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         empresas={empresas}
         onElegir={elegirEmpresa}
         toast={toast}
+        bloqueado={!!congelado}
       />
 
       {/* ── Los tres bloques ─────────────────────────────────────────────────── */}
@@ -318,19 +472,34 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
               </div>
             )}
 
+            {b.key === 'COMERCIAL' && <MotorComercialCard negocioId={negocioId} licitacionCodigo={licitacionCodigo} />}
+
             <div className="divide-y divide-zinc-100">
               {delBloque.map(item => (
-                <FilaItem
-                  key={item.id}
-                  item={item}
-                  licitacionCodigo={licitacionCodigo}
-                  puedeAprobar={puedeAprobar}
-                  bloqueado={bloqueadoPorEmpresa}
-                  ocupado={ocupado === item.id}
-                  onAccion={accionar}
-                  onVer={setVisorDoc}
-                  toast={toast}
-                />
+                item.tipo === 'linea_tecnica' ? (
+                  <FilaLineaTecnica
+                    key={item.id}
+                    item={item}
+                    negocioId={negocioId}
+                    licitacionCodigo={licitacionCodigo}
+                    puedeAprobar={puedeAprobar}
+                    bloqueado={bloqueadoPorEmpresa}
+                    ocupado={ocupado === item.id}
+                    onAccion={accionar}
+                  />
+                ) : (
+                  <FilaItem
+                    key={item.id}
+                    item={item}
+                    licitacionCodigo={licitacionCodigo}
+                    puedeAprobar={puedeAprobar}
+                    bloqueado={bloqueadoPorEmpresa}
+                    ocupado={ocupado === item.id}
+                    onAccion={accionar}
+                    onVer={setVisorDoc}
+                    toast={toast}
+                  />
+                )
               ))}
             </div>
 
@@ -371,12 +540,15 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Bloque de empresa: sin esto no se pueden llenar los anexos, así que va arriba y bloquea.
-function BloqueEmpresa({ empresa, empresas, onElegir, toast }: {
+function BloqueEmpresa({ empresa, empresas, onElegir, toast, bloqueado }: {
   empresa: Empresa | null;
   empresas: Array<{ id: number; razon_social: string }>;
   onElegir: (id: string) => void;
   toast: ReturnType<typeof useToast>;
+  bloqueado?: boolean;
 }) {
+  const [cambiando, setCambiando] = useState(false);
+
   const copiar = (valor: string | null, etiqueta: string) => {
     if (!valor) return;
     navigator.clipboard.writeText(valor).then(
@@ -385,7 +557,12 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast }: {
     );
   };
 
-  if (!empresa) {
+  const elegirYCerrar = (id: string) => {
+    onElegir(id);
+    setCambiando(false);
+  };
+
+  if (!empresa || cambiando) {
     return (
       <div className="bg-amber-50 rounded-xl border border-amber-200 p-4">
         <div className="flex items-center gap-2 mb-2">
@@ -395,12 +572,24 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast }: {
         <p className="text-[12px] text-amber-800 mb-3">
           Los anexos administrativos se llenan con los datos de la empresa. Elige antes de empezar.
         </p>
-        <Select
-          value=""
-          onChange={onElegir}
-          placeholder="Elegir empresa…"
-          options={empresas.map(e => ({ value: String(e.id), label: e.razon_social }))}
-        />
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <Select
+              value={empresa ? String(empresa.id) : ''}
+              onChange={elegirYCerrar}
+              placeholder="Elegir empresa…"
+              options={empresas.map(e => ({ value: String(e.id), label: e.razon_social }))}
+            />
+          </div>
+          {empresa && (
+            <button
+              onClick={() => setCambiando(false)}
+              className="text-[12px] font-semibold text-amber-800 hover:text-amber-900 px-2 py-2"
+            >
+              Cancelar
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -424,6 +613,14 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast }: {
         <Building2 size={15} className="text-zinc-400" />
         <h3 className="text-[13px] font-bold text-zinc-800">Se postula con {empresa.razon_social}</h3>
         <span className="text-[10.5px] text-zinc-400">· datos para llenar los anexos</span>
+        {!bloqueado && (
+          <button
+            onClick={() => setCambiando(true)}
+            className="ml-auto text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700"
+          >
+            Cambiar empresa
+          </button>
+        )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
         {campos.filter(([, v]) => v).map(([label, valor]) => (

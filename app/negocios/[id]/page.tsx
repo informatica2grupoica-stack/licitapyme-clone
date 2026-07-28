@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
@@ -1294,6 +1294,7 @@ function SeccionComentarios({
 function DetalleContent() {
   const { id }   = useParams<{ id: string }>();
   const router   = useRouter();
+  const searchParams = useSearchParams();
   const { usuario } = useSession();
   const toast    = useToast();
   const isAdmin  = usuario?.rol === 'admin';
@@ -1305,7 +1306,12 @@ function DetalleContent() {
   const [loading, setLoading]       = useState(true);
   const [loadingLic, setLoadingLic] = useState(false);
   const [error, setError]           = useState<string | null>(null);
-  const [seccion, setSeccion]       = useState<Seccion>('resumen');
+  // La bandeja de aprobación transversal (/aprobaciones) deep-linkea acá con ?seccion=comercial
+  // para llevar directo a la pestaña Auditor Técnico. Cualquier valor fuera del catálogo cae al
+  // default en vez de dejar la pantalla en un estado inválido.
+  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'comentarios', 'comercial']);
+  const seccionInicial = searchParams.get('seccion') as Seccion | null;
+  const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
 
   // Documentos
   const [documentos, setDocumentos]           = useState<DocumentoLocal[]>([]);
@@ -1562,7 +1568,7 @@ function DetalleContent() {
     { key: 'preguntas',    label: 'Preguntas',          count: null },
     { key: 'comentarios',  label: 'Comentarios',        count: null },
     ...(hayComercial
-      ? [{ key: 'comercial' as Seccion, label: 'Información Comercial', count: comercialPorAprobar || null, alerta: comercialPorAprobar > 0 }]
+      ? [{ key: 'comercial' as Seccion, label: 'Auditor Técnico', count: comercialPorAprobar || null, alerta: comercialPorAprobar > 0 }]
       : []),
   ];
 

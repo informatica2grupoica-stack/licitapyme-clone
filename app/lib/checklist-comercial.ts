@@ -8,8 +8,10 @@
 // clave_origen es la huella ESTABLE de cada punto: al resincronizar tras un re-análisis se agregan
 // los puntos nuevos sin duplicar ni pisar lo que el asesor ya aprobó.
 
+import { lineasTecnicasDelInforme } from '@/app/lib/auditor-tecnico-core';
+
 export type BloqueChecklist = 'ADMINISTRATIVO' | 'TECNICO' | 'COMERCIAL';
-export type TipoItem = 'documento' | 'dato' | 'precio';
+export type TipoItem = 'documento' | 'dato' | 'precio' | 'linea_tecnica';
 export type EstadoItem = 'PENDIENTE' | 'CARGADO' | 'APROBADO' | 'OBSERVADO';
 export type Criticidad = 'ADMISIBILIDAD_DURA' | 'PUNTAJE_CONDICIONANTE' | 'COMPROMISO_EJECUCION' | 'INFORMATIVO';
 
@@ -246,6 +248,29 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     });
   }
 
+  // ── BLOQUE TÉCNICO: líneas con características a auditar (Auditor Técnico, Fase 1) ──────────
+  // Una cabecera 'linea_tecnica' por cada línea/producto que trae caracteristicas[] en el informe.
+  // A diferencia del bloque COMERCIAL (que solo genera filas por línea si esPorLinea(informe)),
+  // esto se genera SIEMPRE: la auditoría de especificaciones compara productos, no depende de
+  // cómo se factura — en suma alzada puede haber igual varios productos con fichas distintas
+  // dentro del mismo total. Las características HIJAS (comparación real) no se generan aquí:
+  // sincronizar() sigue siendo puro-DB y rápido (nada de IA en el GET); se disparan bajo demanda
+  // desde la UI ("Validar línea"), ver app/lib/auditor-tecnico.ts.
+  const lineasTecnicas = lineasTecnicasDelInforme(informe);
+  for (const l of lineasTecnicas) {
+    if (l.caracteristicas.length === 0) continue;
+    push({
+      bloque: 'TECNICO', tipo: 'linea_tecnica',
+      titulo: `Línea ${l.linea} — ${l.nombre}`,
+      descripcion: `${l.caracteristicas.length} característica(s) técnica(s) a verificar.`,
+      // Marca exclusiva sin equivalente admitido: un incumplimiento aquí puede inhabilitar la
+      // oferta, igual que otros puntos duros del checklist. El resto afecta puntaje, no admisibilidad.
+      criticidad: l.clasificacion === 'especifico' && l.admiteEquivalente === false ? 'ADMISIBILIDAD_DURA' : 'PUNTAJE_CONDICIONANTE',
+      ponderacion: null, fuenteCita: null, origen: 'viabilidad',
+      claveOrigen: `tecnico:linea:${l.linea}`, generable: false, lineaNumero: l.linea,
+    });
+  }
+
   // ── BLOQUES TÉCNICO Y COMERCIAL: los criterios de evaluación ──────────────────
   // Cada criterio con el que se nos evalúa es un punto que hay que respaldar. Se arrastra
   // la ponderación efectiva y la forma de aplicación para que el asesor vea, al lado del
@@ -363,6 +388,28 @@ export function resumirChecklist(items: Array<Pick<ItemChecklist, 'estado' | 'cr
     listoParaPostular: vivos.length > 0 && bloqueantesPendientes === 0,
     avance: vivos.length ? Math.round((aprobados / vivos.length) * 100) : 0,
   };
+}
+
+// ═══ ESTADO POR BLOQUE (Fase 2 — Bandeja de Aprobación Transversal) ══════════════
+// La spec pide aprobar el bloque TÉCNICO y el bloque COMERCIAL por separado, no ítem por ítem.
+// Deliberadamente NO se persiste un estado de bloque: se computa desde los ítems que ya existen,
+// así la regla "cualquier cambio posterior invalida la aprobación" queda resuelta gratis —
+// transicion() ya devuelve cualquier ítem a CARGADO al editarlo, así que un bloque "APROBADO"
+// vuelve solo a POR_APROBAR en cuanto algo se recarga, sin tocar esta función.
+export type EstadoBloque = 'SIN_ITEMS' | 'PENDIENTE' | 'POR_APROBAR' | 'OBSERVADO' | 'APROBADO';
+
+/** Bloques que requieren aprobación exclusiva de CA/asesor (spec §3) — ADMINISTRATIVO queda fuera. */
+export const BLOQUES_CON_APROBACION_CA = ['TECNICO', 'COMERCIAL'] as const;
+export type BloqueAprobable = typeof BLOQUES_CON_APROBACION_CA[number];
+
+/** Estado agregado de UN bloque de UN negocio, a partir de sus ítems vivos. */
+export function estadoDeBloque(items: Array<Pick<ItemChecklist, 'estado' | 'tipo' | 'ofertamos'>>): EstadoBloque {
+  const vivos = items.filter(i => !(i.tipo === 'precio' && i.ofertamos === false));
+  if (vivos.length === 0) return 'SIN_ITEMS';
+  if (vivos.some(i => i.estado === 'CARGADO')) return 'POR_APROBAR';   // prioridad: hay algo que revisar
+  if (vivos.some(i => i.estado === 'OBSERVADO')) return 'OBSERVADO';   // rebotado, esperando al asistente
+  if (vivos.every(i => i.estado === 'APROBADO')) return 'APROBADO';
+  return 'PENDIENTE';
 }
 
 /**

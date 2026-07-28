@@ -1,5 +1,17 @@
 [
   {
+    "codigo": "1057536-83-LE26",
+    "nota": "corregido 28-jul (CESFAM Frutillar, equipamiento médico heterogéneo): bases dicen 'Se podrá adjudicar a un solo proveedor por línea' (Art. 24.2) — el detector no la cazaba porque 'un solo proveedor' queda ENTRE 'adjudicar' y 'por línea' (fix en detectarTipoAdjudicacionMultiple). Además se separó definitivamente costeo de adjudicación en viabilidad-ia.ts: cuando no hay evidencia dura de bases pero el manifiesto trae líneas heterogéneas (heterogeneidad='alta') con presupuesto propio en TODAS las líneas, el costeo se promueve a por_linea de forma independiente a la adjudicación (nunca al revés). El LLM es no-determinista: la misma licitación salió POR_LINEAS en una corrida y GLOBAL con confianza 1 en otra citando la misma evidencia — por eso la adjudicación no debe decidirse solo por el manifiesto, sino por evidencia textual dura de las bases (este fix), y el costeo por separado. Verificado con re-análisis real guardado en BD (confianza 1, estado DETERMINADA, evidencia cita la frase exacta).",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_criterios": 9,
+      "suma_valida": true,
+      "n_items_min": 6,
+      "revision_humana": false
+    }
+  },
+  {
     "codigo": "2920-30-LE26",
     "nota": "corregido 21-jul: Bases Administrativas declaran adjudicación múltiple explícita ('cada línea será evaluada y adjudicada de manera independiente... se puede adjudicar a un oferente distinto por cada una de las 6 líneas') — el LLM decía POR_LINEAS y tenía razón; el detector determinista no la cazaba (fix en detectarTipoAdjudicacionMultiple). Verificado con re-análisis real guardado en BD (confianza 1, estado DETERMINADA). modalidad.tipo (puente al costeo) sigue a adjudicación → por_linea. n_items_min bajado: el conteo del manifiesto varía 117-155 según qué proveedor de IA respondió (glm-4.7 vs respaldo deepseek), no es determinista entre corridas.",
     "esperado": {

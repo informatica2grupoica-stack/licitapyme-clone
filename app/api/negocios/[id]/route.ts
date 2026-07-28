@@ -9,6 +9,7 @@ import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } f
 import { getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { refrescarEstadoCodigo } from '@/app/lib/refrescar-estados';
+import { congelarAuditorSiCorresponde } from '@/app/lib/congelamiento';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -317,6 +318,14 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             organismo: neg.licitacion_organismo, monto: neg.licitacion_monto,
             cierre: neg.licitacion_cierre,
           }).catch(() => {});
+        }
+
+        // Congelamiento del Auditor Técnico al postular (Fase 7, spec §12.1) — fire-and-forget,
+        // idempotente (INSERT IGNORE): nunca bloquea ni retrasa la respuesta de este PATCH.
+        if (normalizarEstado(estado_pipeline) === 'POSTULADA'
+            && normalizarEstado(neg.estado_pipeline) !== 'POSTULADA') {
+          const nombreActor = request.headers.get('x-user-nombre') || 'Usuario';
+          congelarAuditorSiCorresponde(Number(id), neg.licitacion_codigo, userId, nombreActor).catch(() => {});
         }
       } catch (colErr: any) {
         if (String(colErr).toLowerCase().includes('unknown column')) {

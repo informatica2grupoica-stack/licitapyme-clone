@@ -238,14 +238,27 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
     // CLUSTER (no frase exacta): "adjudicación/adjudicar... independiente" cerca de línea/lote.
     /adjudicaci[oó]n\s+independiente\s+(?:por|de\s+cada|entre)\s+(?:l[ií]neas?|lotes?)/i,
     /adjudicar[aá]?\s+(?:de\s+forma|de\s+manera)\s+independiente\s+(?:cada\s+)?(?:l[ií]nea|lote)/i,
-    // CLUSTER: distinto/diferente/varios + oferente/proveedor/adjudicatario, cerca de línea/lote
+    // CLUSTER: distinto/diferente/varios + oferente/proveedor/adjudicatario, cerca de línea/lote/ítem
     // (en cualquier orden, ventana amplia) — cubre "distintos proveedores por línea", "puede
     // resultar adjudicada a diferentes oferentes por lote", "no necesariamente al mismo proveedor".
-    /(?:distint[oa]s?|diferentes?|vari[oa]s)\s+(?:oferentes?|proveedores?|adjudicatarios?)[\s\S]{0,150}?\b(?:l[ií]neas?|lotes?)\b/i,
-    /\b(?:l[ií]neas?|lotes?)\b[\s\S]{0,150}?(?:no\s+necesariamente\s+(?:al?|el)\s+mismo\s+(?:oferente|proveedor)|distint[oa]s?\s+(?:oferentes?|proveedores?|adjudicatarios?)|m[aá]s\s+de\s+un\s+adjudicatario)/i,
+    // 28-jul-2026: se agregó "ítems" a los patrones (antes solo línea/lote).
+    /(?:distint[oa]s?|diferentes?|vari[oa]s)\s+(?:oferentes?|proveedores?|adjudicatarios?)[\s\S]{0,150}?\b(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    /\b(?:l[ií]neas?|lotes?|[ií]tems?)\b[\s\S]{0,150}?(?:no\s+necesariamente\s+(?:al?|el)\s+mismo\s+(?:oferente|proveedor)|distint[oa]s?\s+(?:oferentes?|proveedores?|adjudicatarios?)|m[aá]s\s+de\s+un\s+adjudicatario)/i,
     // Mismo cluster, orden invertido (el calificativo de independencia puede venir ANTES de
     // mencionar línea/lote, no siempre después): "no necesariamente al mismo oferente... cada línea".
-    /(?:no\s+necesariamente\s+(?:al?|el)\s+mismo\s+(?:oferente|proveedor)|distint[oa]s?\s+(?:oferentes?|proveedores?|adjudicatarios?)|m[aá]s\s+de\s+un\s+adjudicatario)[\s\S]{0,150}?\b(?:l[ií]neas?|lotes?)\b/i,
+    /(?:no\s+necesariamente\s+(?:al?|el)\s+mismo\s+(?:oferente|proveedor)|distint[oa]s?\s+(?:oferentes?|proveedores?|adjudicatarios?)|m[aá]s\s+de\s+un\s+adjudicatario)[\s\S]{0,150}?\b(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    // 28-jul-2026: orden invertido PLURAL — el sustantivo "oferentes/proveedores" ANTES del
+    // adjetivo "distintos" (los patrones de arriba solo cubren adjetivo-antes-de-sustantivo:
+    // "distintos oferentes"). Caso real 1260113-2-LE26: "pudiendo adjudicar hasta a seis oferentes
+    // distintos" — en este caso puntual ya queda cubierto igual por el patrón de encabezado nominal
+    // más abajo ("la adjudicación ES POR LÍNEA" aparece unas palabras antes en el mismo documento),
+    // pero esta variante es útil por sí sola para licitaciones que NO tengan esa frase adicional.
+    /(?:oferentes?|proveedores?|adjudicatarios?)\s+distint[oa]s?[\s\S]{0,150}?\b(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    // 28-jul-2026 (caso real 1079576-27-LE26): orden invertido y singular — "cada anexo/línea/ítem
+    // [puede] resultar adjudicado A UN PROVEEDOR/OFERENTE DISTINTO" — el cluster de arriba exige el
+    // adjetivo en plural ANTES del sustantivo ("distintos oferentes"); acá va en singular DESPUÉS
+    // ("un proveedor distinto"), variante que ningún patrón anterior reconocía.
+    /(?:l[ií]neas?|lotes?|[ií]tems?|anexos?)\b[\s\S]{0,100}?adjudicad[oa]\s+a\s+un\s+(?:proveedor|oferente)\s+distint[oa]/i,
     // DECLARACIÓN DIRECTA a secas (sin "múltiple"/"independiente"/"distintos oferentes" cerca):
     // "podrá adjudicarse por línea de oferta", "se adjudicará por lote", "adjudicar por ítem".
     /adjudicar(?:se|á|an|a)?\s+por\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
@@ -270,6 +283,40 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
     // adjudicación de la presente licitación será por línea las cuales tiene un presupuesto
     // designado para cada una de ellas".
     /(?:m[eé]todo|forma)\s+de\s+adjudicaci[oó]n[\s\S]{0,60}?\bser[aá]\s+por\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    // 28-jul-2026 (caso real 1057536-83-LE26, CESFAM Frutillar): "Se podrá adjudicar A UN SOLO
+    // PROVEEDOR por línea" — "un solo proveedor" queda ENTRE "adjudicar" y "por línea", así que el
+    // patrón de arriba (adjudicar(?:se|á|an|a)?\s+por\s+…, sin nada en medio) no la cazaba. Es
+    // evidencia fuerte de por_linea: "un solo proveedor POR LÍNEA" significa que cada línea tiene su
+    // propio ganador — pueden ser proveedores DISTINTOS entre líneas, aunque cada línea individual
+    // sea todo-o-nada para un único proveedor.
+    // AMPLIADO el mismo día (auditoría masiva sobre 892 licitaciones con documentos): el "solo/
+    // único" resultó opcional en la práctica ("será adjudicada A UN OFERENTE por línea", sin
+    // "solo" — 1057500-53-LE26; "se adjudicará a un oferente por cada línea" — 1057494-41-LP26), y
+    // la forma PASIVA ("ser adjudicada") con el mismo intermedio tampoco calzaba con el patrón
+    // participio de más arriba (que exige "adjudicad[ao]" pegado a "por línea"): "podrá SER
+    // ADJUDICADA a un solo oferente por línea" (1057049-210-LP26, 1671-21-CO26). También se agregó
+    // "en" como preposición alternativa a "por": "adjudicar a un solo proveedor EN cada una de las
+    // líneas" (4956-52-LE26).
+    /(?:(?:ser\s+)?adjudicad[ao]|adjudicar(?:se|á|an|a)?)\s+a\s+un\s+(?:solo\s+|[uú]nico\s+)?(?:proveedor|oferente)\s+(?:por|en)\s+(?:cada\s+(?:una\s+de\s+las?\s+)?)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    // 28-jul-2026 (mismo barrido): "ADJUDICACIÓN [simple/múltiple] POR LÍNEA" como encabezado de
+    // sección o etiqueta de tabla, SIN verbo conjugado — ningún patrón de arriba la reconoce porque
+    // todos exigen la forma verbal "adjudicar/adjudicad[ao]". Casos reales: "ADJUDICACIÓN POR
+    // LÍNEAS" (5053-27-LE26, 5054-12-LE26, encabezado de sección), "Adjudicación</td><td>Por línea"
+    // (2109-5-LP26, celda de tabla), "la adjudicación es por línea" (1113403-21-LE26), "La
+    // adjudicación será por línea" (3134-59-LP26, 3134-67-LP26), "adjudicación simple por línea"
+    // (1057474-24-LE26). Ventana corta (20 caract.) para no cruzar de oración y enganchar frases
+    // no relacionadas (ej. "evaluará...por línea", que es del eje de PUNTAJE, no de adjudicación).
+    // SOLO "por" (no "en"): "en línea" es el falso amigo ya documentado arriba ("adjudicación se
+    // publicará EN LÍNEA" = por internet, no por ítem) — agregar "en" aquí lo reabriría.
+    /adjudicaci[oó]n[\s\S]{0,20}?\bpor\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    // 28-jul-2026 (mismo barrido, confianza media): "la MEJOR OFERTA/MAYOR PUNTAJE POR CADA línea" —
+    // el ganador se determina línea por línea (no dice "distinto oferente" explícito, pero la
+    // mecánica per-línea es evidencia real de reparto: nada obliga a que el mismo oferente gane la
+    // mejor oferta en todas). Casos reales: "la adjudicación se realizará considerando la mejor
+    // oferta por cada línea" (3336-16-LP26); "se adjudicará al oferente que tuviere mayor puntaje EN
+    // LA EVALUACIÓN FINAL DE cada línea" (752-24-LP26, con "de", no "por" — ambas preposiciones
+    // aparecen en la práctica).
+    /(?:mejor\s+oferta|mayor\s+puntaje)(?:\s+final)?[\s\S]{0,40}?\b(?:por|de)\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
   ];
   for (const d of docs) {
     if (!d.texto) continue;

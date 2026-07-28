@@ -324,8 +324,14 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
   throw ultimo;
 }
 
-export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRespaldo?: boolean; soloGlm?: boolean } = {}) {
-  const activo = cfgTexto();
+// opts.modeloPreferido: fuerza un modelo GLM específico como PRINCIPAL de esta llamada (misma
+// cuenta Z.AI), en vez del proveedor activo global (cfgTexto()). Uso: el Agente Técnico del
+// Auditor Técnico quiere glm-5.2 (mejor salida estructurada) SOLO para sus propias llamadas, sin
+// convertirlo en el modelo de todo el sistema. La cadena de respaldo se arma igual a partir de
+// ese modelo (cfgTextoRespaldos ya excluye duplicados), así que no se pierde ni reintentos ni
+// telemetría ni circuit breaker. No afecta a ningún caller existente (todos omiten esta opción).
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string } = {}) {
+  const activo = opts.modeloPreferido ? { ...PROVEEDORES_TEXTO.zai, model: opts.modeloPreferido } : cfgTexto();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
   const reqOpts = opts.timeoutMs ? { timeout: opts.timeoutMs } : undefined;
   // IA_SIN_RESPALDO=1 → fuerza usar SOLO el proveedor activo (sin caer a la cadena). Útil para

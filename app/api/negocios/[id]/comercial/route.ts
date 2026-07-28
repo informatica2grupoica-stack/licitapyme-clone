@@ -17,8 +17,12 @@ import { puedeVerNegocioAsignado, permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import {
   generarItemsDesdeViabilidad, resumirChecklist, transicion, tieneInformacionComercial,
-  esPorLinea, modalidadDudosa, type EstadoItem,
+  esPorLinea, modalidadDudosa, estadoDeBloque, type EstadoItem,
 } from '@/app/lib/checklist-comercial';
+import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
+import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
+import { revisarDeltaForo } from '@/app/lib/control-foro';
+import { leerCongelamiento, yaCongelado } from '@/app/lib/congelamiento';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -31,16 +35,17 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-const COLS = `id, negocio_id, bloque, tipo, titulo, descripcion, criticidad, ponderacion, fuente_cita,
+// Exportado: reusado por la ruta hermana .../[itemId]/caracteristicas (Auditor Técnico, Fase 1).
+export const COLS = `id, negocio_id, bloque, tipo, titulo, descripcion, criticidad, ponderacion, fuente_cita,
   origen, clave_origen, generable, plantilla_id, linea_numero, ofertamos, estado, valor_texto,
   valor_numero, observacion, orden,
   cargado_por, cargado_por_nombre, cargado_at, aprobado_por, aprobado_por_nombre, aprobado_at`;
 
 /** Negocio + datos de la empresa con la que se postula (los que alimentan los anexos). */
-async function cargarNegocio(id: string) {
+export async function cargarNegocio(id: string) {
   const [rows] = await pool.query(
     `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.estado_pipeline, n.asignado_a,
-            n.empresa_id, u.nombre AS asignado_nombre,
+            n.empresa_id, n.licitacion_cierre, u.nombre AS asignado_nombre,
             e.razon_social, e.rut, e.direccion, e.region, e.giro, e.tipo_persona_juridica,
             e.representante_nombre, e.representante_rut, e.representante_cargo,
             e.email1, e.telefono1, e.banco_tipo_cuenta, e.banco_numero, e.banco_nombre
@@ -55,7 +60,7 @@ async function cargarNegocio(id: string) {
 }
 
 /** Informe de viabilidad guardado (v3 preferido, v2 de respaldo) — misma lectura que usa el panel. */
-async function leerInforme(codigo: string): Promise<any | null> {
+export async function leerInforme(codigo: string): Promise<any | null> {
   try {
     const [rows] = await pool.query(
       `SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
@@ -67,14 +72,14 @@ async function leerInforme(codigo: string): Promise<any | null> {
 }
 
 /** ¿Este usuario visa? Admin siempre; otro perfil solo con el permiso aprobar_comercial. */
-async function esAsesor(userId: number, rol: string | null): Promise<boolean> {
+export async function esAsesor(userId: number, rol: string | null): Promise<boolean> {
   if (rol === 'admin') return true;
   const p = await permisosDeUsuario(userId, rol);
   return !!p.aprobar_comercial;
 }
 
 /** A quién avisar cuando el asistente carga algo: todos los que pueden visar. */
-async function asesores(): Promise<Array<{ id: number; nombre: string }>> {
+export async function asesores(): Promise<Array<{ id: number; nombre: string }>> {
   try {
     const [rows] = await pool.query(
       // JSON_UNQUOTE(...)='true' y no `= TRUE`: comparar un valor JSON contra el booleano
@@ -120,12 +125,40 @@ async function leerDocumentosPorItem(negocioId: number): Promise<Map<number, any
   return porItem;
 }
 
-async function leerItems(negocioId: number) {
+export // Resumen agregado (1 query, no N+1) por línea técnica — alimenta el nivel 1 de FilaLineaTecnica
+// ("12 de 14 cumple") sin traer el detalle completo de características en cada carga de página.
+async function leerResumenesTecnicos(negocioId: number): Promise<Map<number, any>> {
+  const porItem = new Map<number, any>();
+  try {
+    const [rows] = await pool.query(
+      `SELECT item_id,
+              COUNT(*) AS total,
+              SUM(veredicto = 'CUMPLE') AS cumplen,
+              SUM(veredicto = 'NO_CUMPLE') AS no_cumplen,
+              SUM(veredicto = 'CUMPLE_CON_COMPLEMENTO') AS con_complemento,
+              SUM(veredicto IS NULL) AS sin_evaluar,
+              SUM(pendiente_confirmacion_proveedor = 1) AS pendientes_proveedor
+         FROM checklist_comercial_caracteristicas WHERE negocio_id = ? GROUP BY item_id`,
+      [negocioId],
+    ) as any;
+    for (const r of rows as any[]) {
+      porItem.set(r.item_id, {
+        total: Number(r.total), cumplen: Number(r.cumplen), noCumplen: Number(r.no_cumplen),
+        conComplemento: Number(r.con_complemento), sinEvaluar: Number(r.sin_evaluar),
+        pendientesProveedor: Number(r.pendientes_proveedor),
+      });
+    }
+  } catch { /* migración 50 pendiente → cada línea técnica queda sin resumen, no revienta */ }
+  return porItem;
+}
+
+export async function leerItems(negocioId: number) {
   const [rows] = await pool.query(
     `SELECT ${COLS} FROM checklist_comercial WHERE negocio_id = ? ORDER BY bloque, orden, id`,
     [negocioId],
   ) as any;
   const documentos = await leerDocumentosPorItem(negocioId);
+  const resumenesTecnicos = await leerResumenesTecnicos(negocioId);
   return (rows as any[]).map(r => ({
     ...r,
     generable: !!r.generable,
@@ -133,6 +166,7 @@ async function leerItems(negocioId: number) {
     ponderacion: r.ponderacion === null ? null : Number(r.ponderacion),
     valor_numero: r.valor_numero === null ? null : Number(r.valor_numero),
     documentos: documentos.get(r.id) || [],
+    resumen_tecnico: r.tipo === 'linea_tecnica' ? (resumenesTecnicos.get(r.id) || { total: 0, cumplen: 0, noCumplen: 0, conComplemento: 0, sinEvaluar: 0, pendientesProveedor: 0 }) : null,
   }));
 }
 
@@ -177,10 +211,10 @@ async function sincronizar(negocioId: number, codigo: string, informe: any): Pro
   return nuevos;
 }
 
-async function bitacora(
+export async function bitacora(
   itemId: number, negocioId: number, accion: string,
   anterior: string | null, nuevo: string, comentario: string | null,
-  userId: number, userNombre: string,
+  userId: number | null, userNombre: string,
 ) {
   try {
     await pool.query(
@@ -192,6 +226,42 @@ async function bitacora(
   } catch (e) {
     console.error('[comercial] bitácora falló:', String(e));  // nunca bloquear la acción principal
   }
+}
+
+/** Semáforo + causales de bloqueo del negocio (Fase 3, spec §9) — a partir de lo que ya se leyó
+ *  (items con su resumen_tecnico adjunto) más la fecha de cierre, sin queries nuevas. */
+function semaforoDelNegocio(negocio: any, items: any[]) {
+  const horasRestantes = negocio.licitacion_cierre
+    ? (new Date(negocio.licitacion_cierre).getTime() - Date.now()) / 3_600_000
+    : null;
+
+  let itemsNoCumpleSinResolver = 0, itemsPendientesProveedor = 0;
+  for (const it of items) {
+    if (it.tipo !== 'linea_tecnica' || !it.resumen_tecnico) continue;
+    itemsNoCumpleSinResolver += it.resumen_tecnico.noCumplen || 0;
+    itemsPendientesProveedor += it.resumen_tecnico.pendientesProveedor || 0;
+  }
+
+  const bloqueAprobado = (bloque: string) => {
+    const del = estadoDeBloque(items.filter(i => i.bloque === bloque));
+    return del === 'APROBADO' || del === 'SIN_ITEMS';
+  };
+  const bloqueTecnicoAprobado = bloqueAprobado('TECNICO');
+  const bloqueComercialAprobado = bloqueAprobado('COMERCIAL');
+
+  const resumen = resumirChecklist(items);
+  const semaforo = calcularSemaforo({
+    horasRestantes,
+    bloqueantesPendientes: resumen.bloqueantesPendientes,
+    faltaAprobacionVigente: !bloqueTecnicoAprobado || !bloqueComercialAprobado,
+  });
+  const causales = causalesDeBloqueo({
+    bloqueantesPendientes: resumen.bloqueantesPendientes,
+    itemsNoCumpleSinResolver, itemsPendientesProveedor,
+    bloqueTecnicoAprobado, bloqueComercialAprobado, horasRestantes,
+  });
+
+  return { semaforo, causales, horasRestantes };
 }
 
 // ═══ GET ════════════════════════════════════════════════════════════════════════
@@ -211,6 +281,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         success: true, migracionPendiente: true, activo: tieneInformacionComercial(negocio.estado_pipeline),
         items: [], resumen: resumirChecklist([]), puedeAprobar: false, sinViabilidad: false,
         modalidad: null, empresa: null,
+        semaforo: 'VERDE' as const, causalesBloqueo: [], horasRestantesCierre: null,
       });
     }
 
@@ -225,12 +296,53 @@ export async function GET(request: NextRequest, { params }: Params) {
       items = await leerItems(negocio.id);
     }
 
+    // ── Control de cambios del foro (Fase 6, spec §11) ──────────────────────────────
+    // Solo lee el CACHÉ ya scrapeado por el cron (preguntas_respuestas_cache) — nunca abre un
+    // navegador real en el camino de una petición GET normal. Si el foro cambió desde la última
+    // revisión, revierte a OBSERVADO cualquier bloque TECNICO/COMERCIAL que ya estuviera
+    // APROBADO y avisa — por eso `items` se vuelve a leer si hubo delta.
+    let cambiosForo: Awaited<ReturnType<typeof revisarDeltaForo>> = [];
+    if (activo) {
+      try {
+        const foroCache = await leerCachePreguntas(negocio.licitacion_codigo);
+        if (foroCache && foroCache.preguntas.length > 0) {
+          cambiosForo = await revisarDeltaForo({
+            negocioId: negocio.id, licitacionCodigo: negocio.licitacion_codigo, licitacionNombre: negocio.licitacion_nombre,
+            asignadoA: negocio.asignado_a, asignadoNombre: negocio.asignado_nombre,
+            preguntasActuales: foroCache.preguntas, bitacora, asesores,
+          });
+          if (cambiosForo.length > 0) items = await leerItems(negocio.id);
+        }
+      } catch (e) { console.error('[comercial][GET] control-foro falló:', String(e)); }
+    }
+    let foroSnapshotInfo: { ultimoDelta: any[]; ultimoDeltaAt: string | null; bloquesRevertidos: string[] } | null = null;
+    try {
+      const [rows] = await pool.query(
+        `SELECT ultimo_delta, ultimo_delta_at, bloques_revertidos FROM checklist_comercial_foro_snapshot WHERE negocio_id = ? LIMIT 1`,
+        [negocio.id],
+      ) as any;
+      const row = (rows as any[])[0];
+      if (row?.ultimo_delta) {
+        foroSnapshotInfo = {
+          ultimoDelta: JSON.parse(row.ultimo_delta),
+          ultimoDeltaAt: row.ultimo_delta_at,
+          bloquesRevertidos: row.bloques_revertidos ? row.bloques_revertidos.split(',') : [],
+        };
+      }
+    } catch { /* migración 54 pendiente */ }
+
+    const { semaforo, causales, horasRestantes } = semaforoDelNegocio(negocio, items);
+    const congelamiento = await leerCongelamiento(negocio.id);
+
     return NextResponse.json({
       success: true,
       activo,
       sinViabilidad: !informe,
       items,
+      congelado: congelamiento ? { congeladoAt: congelamiento.congeladoAt, congeladoPorNombre: congelamiento.congeladoPorNombre } : null,
+      foroSnapshot: foroSnapshotInfo,
       resumen: resumirChecklist(items),
+      semaforo, causalesBloqueo: causales, horasRestantesCierre: horasRestantes,
       puedeAprobar: await esAsesor(userId, rol),
       esAsignado: Number(negocio.asignado_a) === Number(userId),
       modalidad: {
@@ -265,6 +377,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
+    if (await yaCongelado(negocio.id))
+      return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));
     const accion = String(body.accion || 'resincronizar');
@@ -312,6 +426,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
+    // Congelado (spec §12.1): registro histórico inmutable, no reabrible — nada se escribe.
+    if (await yaCongelado(negocio.id))
+      return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado como registro histórico, de solo lectura.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));
     const itemId = Number(body.itemId);
@@ -471,7 +588,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 }
 
-async function nombreDe(userId: number): Promise<string | null> {
+export async function nombreDe(userId: number): Promise<string | null> {
   try {
     const [rows] = await pool.query('SELECT nombre FROM usuarios WHERE id = ? LIMIT 1', [userId]) as any;
     return (rows as any[])[0]?.nombre ?? null;

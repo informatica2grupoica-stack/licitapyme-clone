@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart,
 } from 'lucide-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
@@ -15,6 +15,7 @@ import { suscribirRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
+import { AprobacionPendienteModal } from '@/app/components/AprobacionPendienteModal';
 
 function tiempoRel(iso?: string) {
   if (!iso) return '';
@@ -63,6 +64,11 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Usuarios',       href: '/admin/usuarios',  icon: <Users size={17} />, adminOnly: true },
       { label: 'Empresas',       href: '/empresas',        icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Líneas negocio', href: '/admin/etiquetas', icon: <Tag size={17} />, adminOnly: true },
+      // Ruta real es /aprobaciones (sin prefijo /admin): proxy.ts bloquea /admin/* a quien no
+      // sea rol==='admin', y un asesor/CA típico es rol='usuario' con permiso aprobar_comercial
+      // — quedaría afuera de su propia bandeja. Se agrupa acá solo visualmente.
+      { label: 'Aprobaciones',  href: '/aprobaciones',     icon: <ClipboardCheck size={17} />, adminOnly: true },
+      { label: 'Compras',       href: '/compras',          icon: <ShoppingCart size={17} />, adminOnly: true },
     ],
   },
 ];
@@ -216,6 +222,21 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   const clsEtiqueta = `flex items-center gap-2 overflow-hidden flex-1 ${trans}
     ${angosto ? 'lg:flex-none lg:w-0 lg:opacity-0' : 'opacity-100'}`;
 
+  // Badge de "Aprobaciones": solo se consulta si el usuario puede ver la bandeja (admin o
+  // permiso aprobar_comercial) — para todos los demás ni siquiera se hace el fetch.
+  const puedeAprobar = usuario?.rol === 'admin' || !!usuario?.permisos?.aprobar_comercial;
+  const [totalAprobacionesPendientes, setTotalAprobacionesPendientes] = useState(0);
+  useEffect(() => {
+    if (!puedeAprobar) return;
+    const cargar = () => {
+      fetch('/api/aprobaciones/resumen').then(r => r.json()).then(d => {
+        if (d.success) setTotalAprobacionesPendientes(d.totalPendientes || 0);
+      }).catch(() => {});
+    };
+    cargar();
+    return suscribirRealtime(ev => { if (ev.tipo === 'cambio') cargar(); });
+  }, [puedeAprobar]);
+
   const esExterno = usuario?.rol === 'externo';
   const visibleGroups = NAV_GROUPS.map(group => ({
     ...group,
@@ -223,8 +244,14 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (esExterno) return i.href === '/negocios'; // externo: SOLO "Mis licitaciones"
       if (!i.adminOnly || usuario?.rol === 'admin') return true;
       if (i.href === '/radar' && usuario?.permisos?.acceso_radar) return true;
+      if (i.href === '/aprobaciones' && puedeAprobar) return true;
       return false;
     }),
+  })).map(group => ({
+    ...group,
+    items: group.items.map(i => i.href === '/aprobaciones'
+      ? { ...i, badge: totalAprobacionesPendientes > 0 ? totalAprobacionesPendientes : undefined }
+      : i),
   })).filter(g => g.items.length > 0);
 
   return (
@@ -543,6 +570,8 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
       </div>
       {/* Bloqueante: licitaciones vencidas sin resolver (postulada/descartadas) */}
       <CierreVencidoModal />
+      {/* No bloqueante: aviso de que hay algo esperando aprobación en /aprobaciones */}
+      <AprobacionPendienteModal />
     </div>
   );
 }

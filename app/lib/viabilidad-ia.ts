@@ -1757,6 +1757,15 @@ async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | nul
     // correlativo continuo de UNA planilla integrada = SUMA ALZADA (el LLM numeró cada ítem y le
     // puso su precio de referencia; NO son 177 lotes). Exigimos ≥3 ítems por línea en promedio para
     // que el manifiesto cuente como evidencia de lotes. (Doctrina "correlativo 1..N = suma alzada".)
+    //
+    // OJO 28-jul-2026 (pedido explícito de CA tras el caso 1057536-83-LE26): esta corroboración es
+    // SOLO para ADJUDICACIÓN (a quién) y debe salir SOLO de evidencia de reparto real (¿puede ganar
+    // más de un oferente?), NUNCA de cómo el LLM agrupó los productos en líneas — eso es evidencia de
+    // COSTEO, un eje aparte (ver el "PUENTE AL COSTEO" más abajo, que SÍ usa la heterogeneidad de
+    // líneas/presupuestos del manifiesto para decidir cuántas hojas lleva el Excel). Mezclar ambas
+    // aquí fue un error de esta misma sesión: se corrigió después de que CA aclarara "primero hay que
+    // ver si se adjudica a un solo oferente o a varios — eso sale de las bases; el costeo por línea es
+    // aparte y aplica igual sea global o repartida la adjudicación".
     const itemsPorLinea = lineasLLM.size > 0 ? itemsLLM.length / lineasLLM.size : 0;
     const manifiestoPorLinea = lineasLLM.size >= 2 && presupuestosLLM.size >= 2 && itemsLLM.length >= 8 && itemsPorLinea >= 3;
     // NO incluye cuadroPorLinea/lineasForm/planilla.estructura-numeracion (señales de CÓMO SE
@@ -1824,7 +1833,43 @@ async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | nul
   // manifiesto_productos + modalidad.tipo + estructura_costeo. El parser da el listado fiel con
   // línea/categoría reales (misma regla que el v2.1: si trae ≥ ítems que el modelo, su manifiesto manda).
   const comoFinal = String(adj.como_se_adjudica || '').toUpperCase();
-  const tipoCosteo: 'suma_alzada' | 'por_linea' = comoFinal.includes('LINEA') ? 'por_linea' : 'suma_alzada';
+  let tipoCosteo: 'suma_alzada' | 'por_linea' = comoFinal.includes('LINEA') ? 'por_linea' : 'suma_alzada';
+  // RECONEXIÓN 28-jul-2026 (caso real de CA): el costeo es un eje INDEPENDIENTE de la adjudicación
+  // (ver veredictoModalidadDeterminista arriba, "pendiente reconectar"). Un solo oferente puede
+  // ganar TODO (adjudicación GLOBAL) y aun así la licitación tener varias líneas reales — el costeo
+  // debe seguir yendo por línea. Solo PROMUEVE GLOBAL→por_linea con evidencia dura del FORMATO de
+  // la oferta económica (cuadro por línea, presupuesto por línea, formularios separados, etc.);
+  // nunca al revés — si la adjudicación ya es POR_LINEAS, el costeo se queda por_linea sin tocar.
+  if (tipoCosteo === 'suma_alzada') {
+    const detCosteo = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo);
+    if (detCosteo?.tipo === 'por_linea') {
+      console.log(`[viabilidad-ia-v3] ${codigo}: costeo promovido a por_linea aunque la adjudicación es GLOBAL (${detCosteo.motivo}).`);
+      tipoCosteo = 'por_linea';
+    } else {
+      // CASO NUEVO 28-jul-2026 (real: 1057536-83-LE26, CESFAM Frutillar; aclarado por CA — esto es
+      // SOLO costeo, no toca adjudicación, que se decide arriba únicamente con evidencia de las
+      // bases). El manifiesto del propio LLM puede mostrar líneas HETEROGÉNEAS (equipamiento médico
+      // distinto entre sí — báscula, camilla, carro de resucitación...) cada una con su PROPIO
+      // presupuesto, aunque el formulario económico cierre con un total consolidado (lo que hace
+      // ganar la regla maestra de arriba y deja tipoCosteo en suma_alzada). Para el COSTEO (nunca
+      // para a quién se adjudica) igual conviene una hoja por línea: cada producto tiene su propio
+      // precio de referencia y su propio margen que vigilar, sea la adjudicación global o repartida.
+      // Exige presupuesto en TODAS las líneas + tope de líneas razonable para no reabrir el catálogo
+      // de 177 ítems casi idénticos que NO se etiqueta heterogéneo (ver comentario de "catalogoConLotes"
+      // en la corroboración de adjudicación, arriba — ese caso es aparte y no usa heterogeneidad).
+      const itemsLLMCosteo: any[] = Array.isArray(p3.productos?.items) ? p3.productos.items
+        : Array.isArray(p3.costeo?.items) ? p3.costeo.items : [];
+      const lineasLLMCosteo = new Set(itemsLLMCosteo.map(it => _lineaNum(it?.linea)).filter(n => Number.isFinite(n) && n > 0));
+      const presupuestosLLMCosteo = new Set(
+        itemsLLMCosteo.map(it => _num(it?.presupuesto_linea)).filter((n): n is number => n != null && n > 0),
+      );
+      const heterogeneidadAlta = String(adj.heterogeneidad || '').toLowerCase() === 'alta';
+      if (heterogeneidadAlta && lineasLLMCosteo.size >= 2 && lineasLLMCosteo.size <= 20 && presupuestosLLMCosteo.size === lineasLLMCosteo.size) {
+        console.log(`[viabilidad-ia-v3] ${codigo}: costeo promovido a por_linea por líneas heterogéneas con presupuesto propio en el manifiesto (${lineasLLMCosteo.size} líneas), aunque el formato económico traiga un total consolidado.`);
+        tipoCosteo = 'por_linea';
+      }
+    }
+  }
   // v3.3: el bloque de ítems pasó de `costeo` a `productos` (scraping-ready). Tomamos productos.items
   // y, si no existe (informe legado/respaldo), caemos a costeo.items. El mapeo tolera AMBOS nombres de
   // campo (nombre/descripcion_exacta, marca_modelo_referencia/marca_modelo, clasificacion/tipo) para
