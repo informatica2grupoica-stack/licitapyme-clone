@@ -15,7 +15,7 @@ export async function GET(
     let rows: unknown[];
     try {
       [rows] = await pool.query(
-        `SELECT documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, created_at
+        `SELECT id, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, created_at
          FROM documentos_cache
          WHERE licitacion_codigo = ?
          ORDER BY created_at ASC`,
@@ -25,7 +25,7 @@ export async function GET(
       try {
         // columna 'subcategoria' no existe aún (migración 45 pendiente) — fallback sin ella
         [rows] = await pool.query(
-          `SELECT documento_nombre, documento_url_local, size_bytes, categoria, created_at
+          `SELECT id, documento_nombre, documento_url_local, size_bytes, categoria, created_at
            FROM documentos_cache
            WHERE licitacion_codigo = ?
            ORDER BY created_at ASC`,
@@ -34,7 +34,7 @@ export async function GET(
       } catch {
         // columna 'categoria' tampoco existe — fallback sin ella
         [rows] = await pool.query(
-          `SELECT documento_nombre, documento_url_local, size_bytes, created_at
+          `SELECT id, documento_nombre, documento_url_local, size_bytes, created_at
            FROM documentos_cache
            WHERE licitacion_codigo = ?
            ORDER BY created_at ASC`,

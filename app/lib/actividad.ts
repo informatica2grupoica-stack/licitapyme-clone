@@ -30,7 +30,8 @@ export type AccionActividad =
   | 'informe'         // generó el informe técnico PDF
   | 'busqueda_equipamiento' // generó el prompt de búsqueda de equipamiento
   | 'ver_preguntas_licitacion' // consultó el foro de preguntas y respuestas (portal MP en vivo)
-  | 'radar_manual';   // disparó manualmente la actualización del radar
+  | 'radar_manual'    // disparó manualmente la actualización del radar
+  | 'anexo_relleno';  // generó un anexo de oferente rellenado (automático + respuestas manuales)
 
 // Pestañas del detalle de la licitación que se registran como 'ver_seccion'.
 export const SECCIONES_ACTIVIDAD = [

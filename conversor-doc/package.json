@@ -1,0 +1,11 @@
+{
+  "name": "licitapyme-conversor-doc",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Microservicio del VPS: convierte .doc (Word 97-2003) a .docx con LibreOffice headless, para que app/lib/anexos-*.ts pueda rellenarlos.",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

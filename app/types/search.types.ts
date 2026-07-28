@@ -22,6 +22,7 @@ export interface SearchResponse {
 
 // Documento adjunto
 export interface DocumentoAdjunto {
+  id?: number;
   nombre: string;
   url: string;
   tipo?: string;

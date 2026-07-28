@@ -4,15 +4,25 @@ import { useState, useRef, useEffect } from 'react';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
-  Upload, Trash2, Pencil, Check, X, FolderPlus,
+  Upload, Trash2, Pencil, Check, X, FolderPlus, Wand2,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
+import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { registrarVerDocumento } from '@/app/lib/actividad-cliente';
+
+// Cualquier Word (.doc o .docx) descargado de la licitación es candidato a rellenar — SIN
+// filtrar por categoría: el clasificador de MP a veces mete un anexo real fuera de
+// ANEXOS_OFERENTE, y la idea es que esto funcione con cualquier licitación, no solo el caso
+// prolijo. Los documentos propios (generados/subidos) quedan afuera porque este botón solo se
+// conecta en la grilla de "Documentos y Bases" (docsLicitacion), nunca en la de Propios.
+function esAnexoRellenable(doc: DocumentoAdjunto & { categoria?: string }): boolean {
+  return /\.docx?$/i.test(doc.nombre || '') && doc.id != null;
+}
 
 // Categoría de documentos SUBIDOS por el equipo (los únicos que se pueden eliminar;
 // los oficiales descargados de Mercado Público quedan protegidos).
@@ -78,6 +88,7 @@ function DocItem({
   onView,
   onOpenIA,
   onDelete,
+  onRellenarAnexo,
 }: {
   doc: DocumentoAdjunto & { categoria?: string };
   codigoDecoded: string;
@@ -86,9 +97,11 @@ function DocItem({
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onDelete?: (doc: DocumentoAdjunto & { categoria?: string }) => void;
+  onRellenarAnexo?: (doc: AnexoDoc) => void;
 }) {
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
   const esPropio = (doc.categoria || '').toUpperCase() === CAT_PROPIOS;
+  const rellenable = onRellenarAnexo && esAnexoRellenable(doc);
   return (
     <div
       draggable
@@ -111,6 +124,17 @@ function DocItem({
         )}
       </div>
       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        {rellenable && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onRellenarAnexo!({ id: doc.id as number, nombre: doc.nombre }); }}
+            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+            title="Rellenar anexo con los datos de la empresa"
+            draggable={false}
+          >
+            <Wand2 size={11} />
+          </button>
+        )}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onOpenIA({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
@@ -171,6 +195,7 @@ function CajaDroppable({
   onOpenIA,
   onUpload,
   onDelete,
+  onRellenarAnexo,
   subiendo,
 }: {
   caja: CajaConfig;
@@ -188,6 +213,7 @@ function CajaDroppable({
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onUpload: (file: File, categoria: string) => void;
   onDelete: (doc: DocumentoAdjunto & { categoria?: string }) => void;
+  onRellenarAnexo?: (doc: AnexoDoc) => void;
   subiendo: string | null; // key de la caja que está subiendo un archivo
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
@@ -229,6 +255,7 @@ function CajaDroppable({
             onView={onView}
             onOpenIA={onOpenIA}
             onDelete={onDelete}
+            onRellenarAnexo={onRellenarAnexo}
           />
         ))}
 
@@ -255,6 +282,7 @@ function DocumentosGrid({
   onView,
   onOpenIA,
   onRefrescar,
+  onRellenarAnexo,
   modo,
 }: {
   documentos: (DocumentoAdjunto & { categoria?: string })[];
@@ -262,6 +290,7 @@ function DocumentosGrid({
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onRefrescar: () => void;
+  onRellenarAnexo?: (doc: AnexoDoc) => void;
   // 'licitacion' = todas las cajas MENOS Documentos Propios (docs de la licitación);
   // 'propios' = SOLO la caja Documentos Propios (lo que creamos/editamos);
   // undefined = todas (comportamiento previo).
@@ -509,6 +538,7 @@ function DocumentosGrid({
             onOpenIA={onOpenIA}
             onUpload={handleUpload}
             onDelete={handleDelete}
+            onRellenarAnexo={onRellenarAnexo}
             subiendo={subiendo}
           />
         ))}
@@ -1052,6 +1082,7 @@ export function DocumentosSection({
   codigoDecoded, mpUrl, documentosCache, cargandoDocs,
   descargandoAuto, handleAutoDescargar, fetchDocumentos,
   clasificando, onReClasificar, resumenClasificacion,
+  empresaId,
 }: {
   codigoDecoded: string;
   mpUrl: string;
@@ -1063,6 +1094,7 @@ export function DocumentosSection({
   clasificando?: boolean;
   onReClasificar?: () => void;
   resumenClasificacion?: { estado: 'completo' | 'incompleto'; falta: string[] } | null;
+  empresaId?: number | null;
 }) {
   const yaClasificados = documentosCache.some(d => (d as any).categoria);
   // Separación en dos apartados: "Documentos y Bases" (los de la licitación) vs "Documentos Propios"
@@ -1075,6 +1107,8 @@ export function DocumentosSection({
   const verYRegistrar = (doc: VisorDoc) => { registrarVerDocumento(codigoDecoded, doc.nombre, 'Vio'); setVisorDoc(doc); };
   // Documento abierto en el chat rápido de IA (modal). null = cerrado.
   const [iaDoc, setIaDoc] = useState<{ nombre: string; url: string } | null>(null);
+  // Anexo de oferente abierto en la pantalla de relleno (modal). null = cerrado.
+  const [anexoDoc, setAnexoDoc] = useState<AnexoDoc | null>(null);
 
   // Regeneración del Excel de costeo desde el informe IA ya guardado (sin re-analizar:
   // reusa el manifiesto y solo vuelve a armar el Excel con la plantilla actual).
@@ -1322,6 +1356,7 @@ export function DocumentosSection({
               onView={verYRegistrar}
               onOpenIA={setIaDoc}
               onRefrescar={fetchDocumentos}
+              onRellenarAnexo={setAnexoDoc}
               modo="licitacion"
             />
           </div>
@@ -1365,6 +1400,15 @@ export function DocumentosSection({
 
       {/* Chat rápido de IA sobre un documento puntual */}
       <DocumentoIAModal doc={iaDoc} codigo={codigoDecoded} onClose={() => setIaDoc(null)} />
+
+      {/* Pantalla de relleno de un anexo de oferente */}
+      <AnexoRellenoModal
+        doc={anexoDoc}
+        codigo={codigoDecoded}
+        empresaId={empresaId ?? null}
+        onClose={() => setAnexoDoc(null)}
+        onGenerado={fetchDocumentos}
+      />
     </div>
   );
 }

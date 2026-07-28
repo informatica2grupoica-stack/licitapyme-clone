@@ -46,6 +46,24 @@ services:
     depends_on:
       - app
 
+  # Convierte .doc (Word 97-2003) a .docx con LibreOffice headless, para los anexos de
+  # oferente que vienen en formato viejo (la app no puede instalar LibreOffice en su propia
+  # imagen sin inflarla — mejor un contenedor aparte). SIN "ports:" a propósito: "app" y
+  # "conversor-doc" viven en la misma red interna de este compose (igual que "app" y
+  # "scheduler"), así que se llegan por nombre de servicio — http://conversor-doc:8091 — sin
+  # exponer nada al público ni pasar por Caddy/Cloudflare.
+  conversor-doc:
+    build:
+      context: ./conversor-doc
+    image: licitapyme-conversor-doc
+    container_name: licitapyme-conversor-doc
+    restart: unless-stopped
+    environment:
+      CONVERSOR_SECRET: ${CONVERSOR_SECRET}
+      TZ: America/Santiago
+    depends_on:
+      - app
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: licitapyme-tunnel

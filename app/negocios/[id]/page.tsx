@@ -1377,6 +1377,7 @@ function DetalleContent() {
       const data = await res.json();
       if (data.documentos) {
         setDocumentos(data.documentos.map((d: any) => ({
+          id:        d.id,
           nombre:    d.documento_nombre || d.nombre,
           url:       d.documento_url_local || d.url_local || d.url || '',
           url_local: d.documento_url_local || d.url_local || d.url,
@@ -1727,6 +1728,7 @@ function DetalleContent() {
                 clasificando={clasificando}
                 onReClasificar={handleClasificar}
                 resumenClasificacion={resumenClasificacion}
+                empresaId={negocio.empresa_id}
               />
             )}
             {seccion === 'analisis' && (

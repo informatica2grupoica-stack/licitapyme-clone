@@ -1,0 +1,240 @@
+'use client';
+
+// Pantalla de relleno de un anexo de oferente (.docx): analiza el documento contra los datos
+// de la empresa, muestra qué se completó solo y pide los campos que le faltan a un humano
+// (celdas sin match en el diccionario + blancos subrayados dentro de una oración). Al generar,
+// el .docx final se sube a R2 y queda registrado como documento propio — aparece en
+// "Documentos para MP" (misma lista que el costeo/informe generados).
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText } from 'lucide-react';
+import { useToast } from '@/app/components/ui/toast';
+
+export interface AnexoDoc { id: number; nombre: string }
+
+interface CampoCompletado { etiqueta: string; campo: string; valor: string }
+interface PendienteCelda { id: string; etiqueta: string }
+interface PendienteInline { id: string; contexto: string }
+
+interface Analisis {
+  completadosAuto: CampoCompletado[];
+  pendientesCelda: PendienteCelda[];
+  pendientesInline: PendienteInline[];
+}
+
+export function AnexoRellenoModal({
+  doc, codigo, empresaId, onClose, onGenerado,
+}: {
+  doc: AnexoDoc | null;
+  codigo: string;
+  empresaId: number | null;
+  onClose: () => void;
+  onGenerado: () => void;
+}) {
+  const toast = useToast();
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [analisis, setAnalisis] = useState<Analisis | null>(null);
+  const [respuestas, setRespuestas] = useState<Record<string, string>>({});
+  const [generando, setGenerando] = useState(false);
+
+  useEffect(() => {
+    if (!doc) return;
+    setCargando(true);
+    setError(null);
+    setAnalisis(null);
+    setRespuestas({});
+
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    if (!empresaId) {
+      setCargando(false);
+      setError('Esta licitación no tiene una empresa asignada. Asígnala en «Información Comercial» antes de rellenar anexos.');
+      return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; };
+    }
+
+    const params = new URLSearchParams({ codigo, documentoId: String(doc.id), empresaId: String(empresaId) });
+    fetch(`/api/anexos/analizar?${params}`)
+      .then(async r => {
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo analizar el documento');
+        setAnalisis(data);
+      })
+      .catch(e => setError(e.message || 'Error al analizar el documento'))
+      .finally(() => setCargando(false));
+
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; };
+  }, [doc, codigo, empresaId, onClose]);
+
+  if (!doc) return null;
+
+  const totalPendientes = (analisis?.pendientesCelda.length || 0) + (analisis?.pendientesInline.length || 0);
+  const totalRespondidas = Object.values(respuestas).filter(v => v.trim()).length;
+
+  const handleGenerar = async () => {
+    setGenerando(true);
+    try {
+      const r = await fetch('/api/anexos/generar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo, documentoId: doc.id, empresaId, respuestas }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo generar el documento');
+      toast.success(
+        'Anexo generado',
+        `${data.completados} campo${data.completados !== 1 ? 's' : ''} automático${data.completados !== 1 ? 's' : ''} · ${data.respondidos} manual${data.respondidos !== 1 ? 'es' : ''} — disponible en Documentos para MP`,
+      );
+      onGenerado();
+      onClose();
+    } catch (e: any) {
+      toast.error('No se pudo generar el anexo', e.message);
+    } finally {
+      setGenerando(false);
+    }
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-3"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Rellenar anexo: ${doc.nombre}`}
+    >
+      <div
+        className="flex flex-col w-full max-w-xl max-h-[85vh] bg-white rounded-2xl overflow-hidden shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Cabecera */}
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 bg-slate-50 flex-shrink-0">
+          <Wand2 size={16} className="text-indigo-600 flex-shrink-0" />
+          <p className="flex-1 min-w-0 text-[13px] font-semibold text-slate-800 truncate" title={doc.nombre}>
+            {doc.nombre}
+          </p>
+          <button
+            type="button" onClick={onClose}
+            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Cuerpo */}
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          {cargando && (
+            <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
+              <Loader2 size={16} className="animate-spin text-indigo-500" /> Analizando documento…
+            </div>
+          )}
+
+          {!cargando && error && (
+            <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+              <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <p className="text-[12.5px] text-amber-800">{error}</p>
+            </div>
+          )}
+
+          {!cargando && !error && analisis && (
+            <>
+              {analisis.completadosAuto.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
+                    <CheckCircle2 size={12} /> Se completa solo ({analisis.completadosAuto.length})
+                  </p>
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 divide-y divide-emerald-100">
+                    {analisis.completadosAuto.map((c, i) => (
+                      <div key={i} className="flex items-center justify-between gap-3 px-3 py-1.5 text-[12px]">
+                        <span className="text-emerald-800 font-medium truncate">{c.etiqueta}</span>
+                        <span className="text-emerald-700 truncate">{c.valor}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (
+                <p className="text-[12px] text-slate-400">No quedan campos pendientes por completar a mano.</p>
+              )}
+
+              {analisis.pendientesCelda.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Necesita tu respuesta ({analisis.pendientesCelda.length})
+                  </p>
+                  <div className="space-y-2">
+                    {analisis.pendientesCelda.map(p => (
+                      <div key={p.id}>
+                        <label className="block text-[11.5px] font-medium text-slate-600 mb-1">{p.etiqueta}</label>
+                        <input
+                          type="text"
+                          value={respuestas[p.id] || ''}
+                          onChange={e => setRespuestas(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          placeholder="Escribe el valor…"
+                          className="w-full text-[12.5px] px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {analisis.pendientesInline.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                    Blancos dentro del texto ({analisis.pendientesInline.length})
+                  </p>
+                  <div className="space-y-2">
+                    {analisis.pendientesInline.map(p => (
+                      <div key={p.id}>
+                        <label className="block text-[11.5px] font-medium text-slate-600 mb-1 truncate" title={p.contexto}>
+                          …{p.contexto}____
+                        </label>
+                        <input
+                          type="text"
+                          value={respuestas[p.id] || ''}
+                          onChange={e => setRespuestas(prev => ({ ...prev, [p.id]: e.target.value }))}
+                          placeholder="Lo que va en el blanco…"
+                          className="w-full text-[12.5px] px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {analisis.completadosAuto.length === 0 && totalPendientes === 0 && (
+                <div className="flex items-center gap-2 text-[12.5px] text-slate-400 py-6 justify-center">
+                  <FileText size={14} /> No se detectaron campos para completar en este documento.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Pie */}
+        {!cargando && !error && analisis && (analisis.completadosAuto.length > 0 || totalPendientes > 0) && (
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 bg-slate-50 flex-shrink-0">
+            <p className="text-[11px] text-slate-400">
+              {totalPendientes > 0 ? `${totalRespondidas}/${totalPendientes} respondidos (opcional)` : 'Listo para generar'}
+            </p>
+            <button
+              type="button"
+              onClick={handleGenerar}
+              disabled={generando}
+              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
+            >
+              {generando
+                ? <><Loader2 size={13} className="animate-spin" /> Generando…</>
+                : <><Wand2 size={13} /> Generar documento</>}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
