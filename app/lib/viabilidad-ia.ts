@@ -23,7 +23,7 @@ import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, cost
 import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
-import { validarInformeViabilidad } from '@/app/lib/validador-viabilidad';
+import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
@@ -1490,12 +1490,18 @@ export function corregirPaginasCitas(inf: any, leidos: { nombre: string; texto: 
   return { corregidas, total };
 }
 
-// ¿El informe trae el patrón de "manifiesto de productos colapsado" (regla V-12 del validador:
-// cada línea/lote quedó resumida a UN ítem genérico en vez de listar los productos reales)? Se usa
-// para decidir si vale la pena reintentar el análisis completo antes de guardar.
-function _tieneManifiestoColapsado(r: any): boolean {
-  return Array.isArray(r?._validador?.hallazgos)
-    && r._validador.hallazgos.some((h: any) => h?.regla === 'V-12' && h?.severidad === 'error');
+// ¿El informe trae un problema de MANIFIESTO que amerita reintentar el análisis completo antes de
+// guardar? Dos reglas del validador comparten el mismo tratamiento porque las dos bloquean el
+// Frente D (costeo) por completo si se guardan tal cual:
+//   V-12 — manifiesto COLAPSADO (cada línea/lote resumida a un ítem genérico).
+//   V-09 — manifiesto VACÍO (0 ítems, sin exclusión) — agregado 28-jul-2026, mismo nivel de
+//   gravedad que V-12 (nada que costear), antes solo se guardaba en _validador sin reintentar nada.
+function _reglaManifiestoQueFalla(r: any): 'V-09' | 'V-12' | null {
+  const hallazgos = r?._validador?.hallazgos;
+  if (!Array.isArray(hallazgos)) return null;
+  if (hallazgos.some((h: any) => h?.regla === 'V-12' && h?.severidad === 'error')) return 'V-12';
+  if (hallazgos.some((h: any) => h?.regla === 'V-09' && h?.severidad === 'error')) return 'V-09';
+  return null;
 }
 
 // Orquestación v3 + REINTENTO AUTOMÁTICO SI EL MANIFIESTO COLAPSÓ (Frente A.2, 21-jul-2026). Caso
@@ -1534,25 +1540,31 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
 
 async function _orquestarAnalisisV3(codigo: string): Promise<any | null> {
   const primero = await _analizarViabilidadIAV3Intento(codigo);
-  if (!primero || !_tieneManifiestoColapsado(primero)) return primero;
+  const problemaPrimero = primero ? _reglaManifiestoQueFalla(primero) : null;
+  if (!primero || !problemaPrimero) return primero;
 
-  console.warn(`[viabilidad-ia-v3] ${codigo}: manifiesto de productos colapsado (V-12) en el 1er intento → reintentando análisis completo una vez más antes de guardar.`);
+  console.warn(`[viabilidad-ia-v3] ${codigo}: manifiesto de productos con problema (${problemaPrimero}) en el 1er intento → reintentando análisis completo una vez más antes de guardar.`);
   const segundo = await _analizarViabilidadIAV3Intento(codigo);
   if (!segundo) return primero; // el reintento no produjo nada (docs/red) → nos quedamos con el primero
 
-  if (!_tieneManifiestoColapsado(segundo)) {
-    console.log(`[viabilidad-ia-v3] ${codigo}: el reintento resolvió el colapso del manifiesto (V-12 ya no aparece) — se usa el 2º intento.`);
+  const problemaSegundo = _reglaManifiestoQueFalla(segundo);
+  if (!problemaSegundo) {
+    console.log(`[viabilidad-ia-v3] ${codigo}: el reintento resolvió el problema del manifiesto (${problemaPrimero} ya no aparece) — se usa el 2º intento.`);
     return segundo;
   }
 
   const nPrimero = Array.isArray(primero?.productos?.items) ? primero.productos.items.length : 0;
   const nSegundo = Array.isArray(segundo?.productos?.items) ? segundo.productos.items.length : 0;
   const elegido = nSegundo >= nPrimero ? segundo : primero;
-  console.warn(`[viabilidad-ia-v3] ${codigo}: el reintento TAMBIÉN colapsó el manifiesto (V-12) — se guarda el menos degradado de los dos (${Math.max(nPrimero, nSegundo)} ítems) forzado a REVISION_HUMANA.`);
+  const problemaElegido = elegido === segundo ? problemaSegundo : problemaPrimero;
+  console.warn(`[viabilidad-ia-v3] ${codigo}: el reintento TAMBIÉN falló (${problemaSegundo}) — se guarda el menos degradado de los dos (${Math.max(nPrimero, nSegundo)} ítems) forzado a REVISION_HUMANA.`);
   if (elegido.veredicto && typeof elegido.veredicto === 'object') {
     elegido.veredicto.estado_veredicto = 'REVISION_HUMANA';
     if (!Array.isArray(elegido.veredicto.motivos_revision)) elegido.veredicto.motivos_revision = [];
-    elegido.veredicto.motivos_revision.push('manifiesto de productos posiblemente colapsado por línea/lote (V-12) tras 2 intentos de análisis — confirmar contra el documento fuente antes de costear.');
+    const detalle = problemaElegido === 'V-09'
+      ? 'manifiesto de productos VACÍO (V-09) tras 2 intentos de análisis — no hay base para costear; revisar el documento fuente.'
+      : 'manifiesto de productos posiblemente colapsado por línea/lote (V-12) tras 2 intentos de análisis — confirmar contra el documento fuente antes de costear.';
+    elegido.veredicto.motivos_revision.push(detalle);
   }
   return elegido;
 }
@@ -1985,9 +1997,26 @@ async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | nul
   }
 
   // VALIDADOR POST-FASE 2 (Frente A.2) — revisor automático por código, sin IA. Corre sobre el
-  // informe YA ensamblado con todos los overrides deterministas aplicados arriba. No bloquea el
-  // guardado: se registra en _validador para que la UI lo muestre y quede trazado qué revisar.
-  const _validador = validarInformeViabilidad(p3, score);
+  // informe YA ensamblado con todos los overrides deterministas aplicados arriba.
+  //
+  // 28-jul-2026: hasta hoy un FAIL solo se guardaba en _validador para la pantalla (salvo V-12,
+  // que ya reintentaba desde el 21-jul). El plan (Frente A.2) exige que TODO FAIL termine en algo:
+  // auto-corrección (el dato correcto ya está en otra parte del informe), re-análisis (V-09/V-12,
+  // en _orquestarAnalisisV3 más abajo), o revisión humana citando la regla. Orden: se corrige lo
+  // auto-corregible, se vuelve a validar sobre el informe YA corregido (para que _validador refleje
+  // la realidad post-fix, no la de antes), y recién ahí se decide si algo sigue necesitando
+  // revisión humana.
+  let _validador = validarInformeViabilidad(p3, score);
+  const _correcciones = autocorregirHallazgos(p3, _validador.hallazgos, score);
+  if (_correcciones.length > 0) {
+    console.log(`[viabilidad-ia-v3] ${codigo}: validador auto-corrigió ${_correcciones.length} campo(s) —`,
+      _correcciones.map(c => `${c.regla}: ${c.detalle}`).join(' | '));
+    _validador = validarInformeViabilidad(p3, score); // re-valida sobre el informe ya corregido
+  }
+  const _reglasARevision = escalarARevisionHumana(p3, _validador.hallazgos);
+  if (_reglasARevision.length > 0) {
+    console.warn(`[viabilidad-ia-v3] ${codigo}: validador escaló a REVISION_HUMANA por: ${_reglasARevision.join(', ')}.`);
+  }
   if (!_validador.ok) {
     console.warn(`[viabilidad-ia-v3] ${codigo}: validador detectó ${_validador.hallazgos.filter(h => h.severidad === 'error').length} error(es) —`,
       _validador.hallazgos.filter(h => h.severidad === 'error').map(h => `${h.regla}: ${h.mensaje}`).join(' | '));

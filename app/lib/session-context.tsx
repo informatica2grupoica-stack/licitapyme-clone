@@ -20,6 +20,9 @@ export interface UsuarioSession {
     alertas_anexos?: boolean;
     aprobar_comercial?: boolean;
   };
+  // Frente C.1: ¿ve por defecto solo la Tarjeta de Decisión (resumen) en vez de los 4 módulos
+  // de detalle? El propio usuario puede graduarse desde el botón "Ver análisis completo".
+  modoPrincipiante?: boolean;
 }
 
 interface SessionContextType {

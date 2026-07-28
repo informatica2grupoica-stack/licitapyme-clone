@@ -27,6 +27,7 @@ interface UsuarioAdmin {
   empresa: string | null;
   rol: 'admin' | 'usuario' | 'externo';
   permisos?: Permisos | string | null;
+  modo_principiante?: boolean | number | null;
   activo: boolean;
   ultimo_login: string | null;
   created_at: string;
@@ -51,6 +52,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
   usuario: UsuarioAdmin; onGuardado: () => void; onCerrar: () => void;
 }) {
   const [permisos, setPermisos] = useState<Permisos>(parsePermisos(usuario.permisos));
+  const [modoPrincipiante, setModoPrincipiante] = useState(!!usuario.modo_principiante);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,7 +63,7 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
     try {
       const res = await fetch('/api/admin/usuarios', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: usuario.id, permisos }),
+        body: JSON.stringify({ id: usuario.id, permisos, modoPrincipiante }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || 'No se pudo guardar (¿falta la migración 28?)'); return; }
@@ -88,16 +90,30 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
               <AlertCircle size={15} /> {error}
             </div>
           )}
-          <p className="text-xs text-gray-500 mb-2">Marca lo que este usuario podrá hacer. Sin permisos, solo ve sus licitaciones asignadas.</p>
-          {CATALOGO_PERMISOS.map(p => (
-            <label key={p.key} className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer">
-              <input type="checkbox" checked={!!permisos[p.key]} onChange={() => toggle(p.key)} className="mt-0.5 w-4 h-4 accent-blue-600" />
-              <span className="min-w-0">
-                <span className="block text-sm font-medium text-gray-800">{p.label}</span>
-                <span className="block text-xs text-gray-400">{p.desc}</span>
-              </span>
-            </label>
-          ))}
+          {usuario.rol === 'admin' ? (
+            <p className="text-xs text-gray-500 mb-2">Los permisos granulares no aplican: un admin ya los tiene todos implícitos. Solo queda el modo de onboarding.</p>
+          ) : (
+            <>
+              <p className="text-xs text-gray-500 mb-2">Marca lo que este usuario podrá hacer. Sin permisos, solo ve sus licitaciones asignadas.</p>
+              {CATALOGO_PERMISOS.map(p => (
+                <label key={p.key} className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer">
+                  <input type="checkbox" checked={!!permisos[p.key]} onChange={() => toggle(p.key)} className="mt-0.5 w-4 h-4 accent-blue-600" />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-gray-800">{p.label}</span>
+                    <span className="block text-xs text-gray-400">{p.desc}</span>
+                  </span>
+                </label>
+              ))}
+            </>
+          )}
+          <p className="text-xs text-gray-500 pt-3 mt-1 border-t border-gray-100">Onboarding (Frente C.1)</p>
+          <label className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 hover:bg-gray-50 cursor-pointer">
+            <input type="checkbox" checked={modoPrincipiante} onChange={() => setModoPrincipiante(v => !v)} className="mt-0.5 w-4 h-4 accent-blue-600" />
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-gray-800">Modo principiante</span>
+              <span className="block text-xs text-gray-400">Al abrir un análisis, ve primero solo la Tarjeta de Decisión (resumen); el detalle completo queda a un clic. El propio usuario puede salir de este modo desde ahí.</span>
+            </span>
+          </label>
         </div>
         <div className="flex gap-3 px-6 py-4 border-t border-gray-100">
           <button onClick={onCerrar} className="flex-1 py-2 border border-gray-200 text-gray-700 rounded-lg text-sm hover:bg-gray-50">Cancelar</button>
@@ -495,16 +511,15 @@ export default function AdminUsuariosPage() {
                           >
                             <Edit3 size={14} />
                           </button>
-                          {/* Permisos: solo para usuarios normales (el admin ya tiene todo) */}
-                          {u.rol !== 'admin' && (
-                            <button
-                              onClick={() => setPermisosUser(u)}
-                              title="Editar permisos"
-                              className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            >
-                              <ShieldCheck size={14} />
-                            </button>
-                          )}
+                          {/* Editar permisos: para admin solo se ve el modo principiante (los
+                              permisos granulares son moot, el admin ya los tiene todos implícitos) */}
+                          <button
+                            onClick={() => setPermisosUser(u)}
+                            title={u.rol === 'admin' ? 'Modo principiante' : 'Editar permisos'}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          >
+                            <ShieldCheck size={14} />
+                          </button>
                           {/* No se puede desactivar a sí mismo */}
                           {u.id !== usuario?.id && (
                             <button

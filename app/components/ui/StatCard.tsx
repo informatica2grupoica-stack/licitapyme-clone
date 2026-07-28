@@ -10,6 +10,7 @@
 //   <StatCard label="Monto ganado" value={409010203} formato={fmtCLP} color="teal" />
 import Link from 'next/link';
 import { useContador } from '@/app/lib/use-contador';
+import { MetricInfo, type EspecificacionMetrica } from '@/app/components/ui/MetricInfo';
 
 // Paleta con nombre (compat con los dashboards que usaban color="indigo" etc.).
 const PALETA: Record<string, string> = {
@@ -35,14 +36,15 @@ function textoFinal(value: string | number, formato?: (n: number) => string): st
   return String(value);
 }
 
-export function StatCard({ icon, label, value, sub, color, href, hint, formato }: {
+export function StatCard({ icon, label, value, sub, color, href, hint, spec, formato }: {
   icon: React.ReactNode;
   label: string;
   value: string | number;
   sub?: string;
   color?: string;            // hex ('#059669') o nombre de la paleta ('teal')
   href?: string;             // opcional: la tarjeta entera navega
-  hint?: string;             // tooltip nativo
+  hint?: string;             // tooltip nativo (respaldo corto; usa `spec` para la ficha completa)
+  spec?: EspecificacionMetrica; // ficha "cómo se mide" — de dónde sale, cálculo exacto
   formato?: (n: number) => string; // formateador para valores numéricos (p.ej. CLP)
 }) {
   const hex = hexDe(color);
@@ -51,12 +53,15 @@ export function StatCard({ icon, label, value, sub, color, href, hint, formato }
   const largo = textoFinal(value, formato).length;
   const clsValor = largo > 12 ? 'text-[17px]' : largo > 9 ? 'text-[21px]' : 'text-[24px] sm:text-[26px]';
   const cuerpo = (
-    <div title={hint}
+    <div title={spec ? undefined : hint}
       className={`bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 transition-all duration-200 h-full
         ${href ? 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer' : 'hover:shadow-md'}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide mb-1 truncate">{label}</p>
+          <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-wide mb-1 truncate flex items-center gap-1">
+            {label}
+            {spec && <span onClick={(e) => e.preventDefault()}><MetricInfo spec={spec} /></span>}
+          </p>
           <p className={`${clsValor} font-black leading-none tabular-nums text-slate-900 break-words`}>
             <Valor value={value} formato={formato} />
           </p>

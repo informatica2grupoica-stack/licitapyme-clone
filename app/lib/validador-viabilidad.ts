@@ -302,3 +302,119 @@ export function validarInformeViabilidad(inf: any, score: number): ResultadoVali
     fecha: new Date().toISOString(),
   };
 }
+
+// ─── FRENTE A.2 (28-jul-2026): "un FAIL re-corre en el modelo grande o manda a revisión humana
+// citando la regla violada" — hasta hoy SOLO V-12 hacía algo (re-análisis, en viabilidad-ia.ts);
+// las otras 13 reglas solo se guardaban en _validador para la pantalla, sin ninguna acción. Se
+// clasificaron en 3 categorías, cada una con su propio mecanismo:
+//
+//   (a) AUTO-CORRECCIÓN (esta función) — el dato correcto YA EXISTE en otra parte del mismo
+//       informe (una fórmula fija, o evidencia que el propio informe ya citó). Se corrige el campo
+//       directo, sin re-analizar ni marcar para revisión — instantáneo, sin costo de tokens.
+//   (b) RE-ANÁLISIS (V-09, en viabilidad-ia.ts, mismo mecanismo que V-12 desde el 21-jul) — el dato
+//       falta por completo (manifiesto vacío) y bloquea el Frente D; vale la pena el costo de un
+//       segundo intento.
+//   (c) REVISIÓN HUMANA (escalarARevisionHumana, abajo) — no hay forma honesta de que el código
+//       adivine el dato correcto (falta una fuente, es juicio de negocio, o es genuinamente
+//       incierto); se marca el informe y se cita la regla violada.
+
+export interface CorreccionAplicada { regla: string; detalle: string }
+
+// (a) AUTO-CORRECCIÓN. Recibe los hallazgos de la corrida ANTERIOR de validarInformeViabilidad y
+// MUTA `inf` in-place para las reglas que tienen arreglo directo. El caller debe volver a correr
+// validarInformeViabilidad después de esto para obtener el `_validador` final y consistente.
+export function autocorregirHallazgos(inf: any, hallazgos: HallazgoValidador[], score: number): CorreccionAplicada[] {
+  const aplicadas: CorreccionAplicada[] = [];
+  const tiene = (regla: string) => hallazgos.some(h => h.regla === regla);
+
+  // V-02 — veredicto no coincide con el score: se recalcula con la MISMA fórmula que usa la regla
+  // para detectar el error (ya existe en derivarV3; esto es la red de seguridad final).
+  if (tiene('V-02') && inf?.tarjeta_decision && typeof inf.tarjeta_decision === 'object') {
+    const esperado = score >= 50 ? 'GANABLE' : score >= 35 ? 'PUEDE_SER' : 'NO_VAMOS';
+    if (inf.tarjeta_decision.veredicto !== esperado) {
+      inf.tarjeta_decision.veredicto = esperado;
+      aplicadas.push({ regla: 'V-02', detalle: `tarjeta_decision.veredicto corregido a ${esperado} (score=${score})` });
+    }
+  }
+
+  // V-05 — exige fiel cumplimiento pero plazos.cadena no es "larga": el dato correcto ya se sabe
+  // (la propia regla lo determina), solo faltó propagarlo.
+  if (tiene('V-05') && inf?.plazos && typeof inf.plazos === 'object') {
+    inf.plazos.cadena = 'larga';
+    aplicadas.push({ regla: 'V-05', detalle: 'plazos.cadena corregido a "larga" (exige fiel cumplimiento)' });
+  }
+
+  // V-06 — gate duro (excluido/NO_CALIFICA) con veredicto GANABLE: se fuerza a NO_VAMOS/DESCARTE.
+  // El score ya se capa a 19 en otra parte del pipeline (por eso NO_VAMOS/DESCARTE es coherente);
+  // esta regla es la red de seguridad final por si algo lo pisó después de esa captura.
+  if (tiene('V-06') && inf?.tarjeta_decision && typeof inf.tarjeta_decision === 'object') {
+    inf.tarjeta_decision.veredicto = 'NO_VAMOS';
+    if (inf.veredicto && typeof inf.veredicto === 'object') inf.veredicto.nivel = 'DESCARTE';
+    aplicadas.push({ regla: 'V-06', detalle: 'veredicto forzado a NO_VAMOS/DESCARTE (gate duro activo)' });
+  }
+
+  // V-07 — presupuesto.neto no coincide con bruto/1.19: se recalcula con la fórmula fija.
+  if (tiene('V-07') && inf?.presupuesto && typeof inf.presupuesto === 'object') {
+    const pres = inf.presupuesto;
+    const bruto = _num(pres.bruto);
+    if (bruto != null && bruto > 0) {
+      const exento = !!pres.presupuesto_exento || !!pres.regimen_fora || pres.con_iva === false;
+      const netoCorregido = Math.round(exento ? bruto : bruto / 1.19);
+      pres.neto = netoCorregido;
+      aplicadas.push({ regla: 'V-07', detalle: `presupuesto.neto corregido a ${netoCorregido} (bruto=${bruto}, exento=${exento})` });
+    }
+  }
+
+  // V-13 — el propio informe cita "Múltiple (Por líneas/lotes)" en su evidencia de adjudicación,
+  // pero como_se_adjudica quedó GLOBAL: se corrige usando la MISMA evidencia que el informe ya
+  // trae citada — no hace falta releer nada, la lectura del modelo ya estaba bien, solo la
+  // conclusión final se había revertido de más por el override determinista.
+  if (tiene('V-13') && inf?.adjudicacion && typeof inf.adjudicacion === 'object') {
+    inf.adjudicacion.como_se_adjudica = 'POR_LINEAS';
+    inf.adjudicacion.estado = 'DETERMINADA';
+    aplicadas.push({ regla: 'V-13', detalle: 'adjudicacion.como_se_adjudica corregido a POR_LINEAS (evidencia ya citada en el propio informe)' });
+  }
+
+  // V-14 — enum mal formado (espacio en vez de guion bajo, ej. "PUEDE SER"): se normaliza el
+  // texto. Si la normalización NO cae en un valor válido del enum, se deja tal cual (no es un
+  // simple typo, algo más raro pasó) — ese caso seguiría apareciendo como hallazgo sin corregir.
+  if (tiene('V-14')) {
+    const normalizar = (v: string) => v.trim().toUpperCase().replace(/\s+/g, '_');
+    if (inf?.tarjeta_decision && typeof inf.tarjeta_decision === 'object' && inf.tarjeta_decision.veredicto != null) {
+      const norm = normalizar(String(inf.tarjeta_decision.veredicto));
+      if (VEREDICTOS_VALIDOS.has(norm) && norm !== inf.tarjeta_decision.veredicto) {
+        inf.tarjeta_decision.veredicto = norm;
+        aplicadas.push({ regla: 'V-14', detalle: `tarjeta_decision.veredicto normalizado a "${norm}"` });
+      }
+    }
+    if (inf?.veredicto && typeof inf.veredicto === 'object' && inf.veredicto.nivel != null) {
+      const norm = normalizar(String(inf.veredicto.nivel));
+      if (NIVELES_VALIDOS.has(norm) && norm !== inf.veredicto.nivel) {
+        inf.veredicto.nivel = norm;
+        aplicadas.push({ regla: 'V-14', detalle: `veredicto.nivel normalizado a "${norm}"` });
+      }
+    }
+  }
+
+  return aplicadas;
+}
+
+// (c) REVISIÓN HUMANA. Estas 5 reglas no tienen arreglo honesto por código (falta una fuente, es
+// juicio de negocio, o la incertidumbre ES la respuesta correcta) — cuando disparan (cualquier
+// severidad: varias de estas son 'aviso' por diseño, nunca 'error', y aun así ameritan revisión),
+// se marca el informe y se cita la regla en veredicto.motivos_revision (mismo campo/convención que
+// ya usa el reintento de V-12/V-09 en viabilidad-ia.ts). Devuelve las reglas que dispararon.
+const REGLAS_A_REVISION_HUMANA = new Set(['V-01', 'V-03', 'V-08', 'V-10', 'V-11']);
+
+export function escalarARevisionHumana(inf: any, hallazgos: HallazgoValidador[]): string[] {
+  const disparadas = hallazgos.filter(h => REGLAS_A_REVISION_HUMANA.has(h.regla));
+  if (disparadas.length === 0) return [];
+  if (inf?.veredicto && typeof inf.veredicto === 'object') {
+    inf.veredicto.estado_veredicto = 'REVISION_HUMANA';
+    if (!Array.isArray(inf.veredicto.motivos_revision)) inf.veredicto.motivos_revision = [];
+    for (const h of disparadas) {
+      inf.veredicto.motivos_revision.push(`${h.regla}: ${h.mensaje}`);
+    }
+  }
+  return [...new Set(disparadas.map(h => h.regla))];
+}

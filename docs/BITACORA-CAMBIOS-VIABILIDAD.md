@@ -10,6 +10,111 @@ qué se cambió y dónde · si pasó el Golden Set. Las entradas más nuevas van
 
 ---
 
+## 2026-07-28 (quater) — Frente A.3: automatización de la regla de promoción del Golden Set
+
+**Caso real que lo originó:** auditoría contra los 5 requisitos de A.3 encontró 3 huecos: cero
+casos con adjudicación POR_LOTES (de las 3 modalidades declaradas, solo 2 representadas), líneas de
+negocio y nativo/escaneado no documentados en el gold set, y — el más importante — la "regla de
+promoción" (mejora sin empeorar ningún módulo) seguía siendo 100% manual, solo escrita en el
+README, sin nada que la hiciera cumplir.
+
+**Decisión:** de los 4 huecos posibles a cerrar, se priorizó automatizar la regla de promoción por
+ser la de mayor apalancamiento — protege TODOS los cambios futuros del proyecto, no solo cierra un
+ítem puntual del checklist.
+
+**Cambio:** nuevo script `scripts/regresion/comparar-corridas.mts`. Toma dos reportes de
+`run.ts --run` (uno de antes de un cambio, uno de después) y compara **caso por caso y métrica por
+métrica** (no un solo pass/fail global, tal como exige el plan: "métrica por módulo, no global").
+Da un veredicto automático:
+- **PROMUEVE** — al menos una mejora, cero regresiones.
+- **NO PROMUEVE** — al menos una regresión, aunque haya mejoras en paralelo (regla estricta, tal
+  como está escrita en el plan).
+- **SIN CAMBIO NETO** — nada medible cambió.
+
+**Validación:** probado con reportes sintéticos (una mejora real + una regresión real inyectadas a
+propósito) — detectó ambas correctamente y dio NO PROMUEVE, tal como debía. Documentado en
+`scripts/regresion/README.md`.
+
+**Pendiente (huecos NO cerrados esta ronda, quedan para la próxima):**
+- Línea de negocio y nativo/escaneado sin documentar como metadata en `gold.json` (en la práctica
+  ya hay balance de nativo/escaneado — 20/31 con OCR, 11/31 sin — pero no queda registrado). Se
+  investigó cerrarlo el 28-jul (quinquies) y se descartó por ahora: "línea de negocio" no es un
+  campo limpio en la base de datos (se deriva de qué `palabra_clave` hizo match, no queda guardado
+  por licitación) — documentarlo bien exige plumbing nuevo, no una anotación rápida.
+- Las "tres salidas" (participar/excluir/revisión) desbalanceadas: GANABLE=12 casos, pero excluido
+  solo 1 y revisión humana solo 3; 11 de 31 casos ni siquiera declaran un veredicto esperado. No se
+  cierra sin criterio de un experto (CA) porque el gold set es la fuente de verdad — inventar un
+  veredicto esperado sin que alguien lo haya resuelto a mano contaminaría el propio golden set.
+
+---
+
+## 2026-07-28 (quinquies) — Frente A.3: cierre del hueco POR_LOTES en el Golden Set
+
+**Caso real que lo originó:** de los 3 huecos detectados en la auditoría anterior (quater), este
+era el único 100% objetivo y cerrable sin criterio humano nuevo: `POR_LOTES` es un valor real y
+vivo de `adjudicacion.como_se_adjudica` (ver `app/lib/viabilidad-ia.ts`, tercer valor junto a
+GLOBAL/POR_LINEAS), pero el gold set tenía CERO casos con esa modalidad pese a que el plan exige
+explícitamente cobertura de "las tres modalidades".
+
+**Cambio:** se verificaron contra la BD los 2 candidatos ya identificados y se agregaron a
+`gold.json` (31 → 33 casos, supera levemente el rango 20-30 del plan; se prefirió no truncar una
+cobertura de modalidad real por respetar un techo blando):
+- `1037-7-LE26` — Anexo 3 de valorización estructurado en Lotes N°1/2/3, confianza 0.98,
+  DETERMINADA/DEFINITIVO.
+- `1271359-92-LE26` — mismo eje pero con `heterogeneidad=alta` y `cotizar_100_obligatorio=true`
+  (variante distinta del mismo eje), confianza 1.0, DETERMINADA/DEFINITIVO.
+
+Ambos con evidencia textual directa en bases (no ambigua) y verificados contra el informe v3
+real guardado en BD — no corrigen ningún error histórico, solo cierran cobertura.
+
+**Validación:** `npx tsx scripts/regresion/run.ts` (dry) — ambos casos nuevos 8/8 ok. Resumen
+global del set completo: 23/33 casos perfectos, ninguna métrica bajo 80%.
+
+**Pendiente:** los otros 2 huecos (línea de negocio/nativo-escaneado sin metadata, y balance de
+veredictos) quedan documentados arriba, en la entrada (quater).
+
+---
+
+## 2026-07-28 (ter) — Frente A.2: circuito FAIL → acción para las 13 reglas del validador
+
+**Caso real que lo originó:** auditoría del plan mostró que, desde el 21-jul, SOLO la regla V-12
+disparaba alguna acción (re-análisis); las otras 13 reglas (V-01 a V-11, V-13, V-14) solo se
+guardaban en `_validador` para la pantalla, sin bloquear ni escalar nada — incumpliendo el punto
+del plan "un FAIL re-corre en el modelo grande o manda a revisión humana citando la regla".
+
+**Decisión:** código puro, sin IA. Se clasificaron las 13 reglas en 3 mecanismos distintos según
+si el dato correcto se puede derivar solo, necesita releer, o necesita juicio humano:
+
+1. **Auto-corrección** (`autocorregirHallazgos`, `validador-viabilidad.ts`) — el dato correcto YA
+   existe en otra parte del mismo informe (una fórmula fija o evidencia ya citada por el modelo).
+   Corrige el campo directo, instantáneo, SIN volver a llamar a la IA: **V-02** (veredicto↔score),
+   **V-05** (cadena larga si exige fiel cumplimiento), **V-06** (gate duro sin GANABLE), **V-07**
+   (presupuesto neto = bruto/1.19), **V-13** (usa la evidencia "Múltiple (Por líneas)" ya citada
+   para corregir `como_se_adjudica`), **V-14** (normaliza enums mal formados, espacio→guion bajo).
+2. **Re-análisis** (generalización de la lógica de V-12 en `_orquestarAnalisisV3`,
+   `viabilidad-ia.ts`) — el dato falta por completo y bloquea el Frente D (costeo). Se agregó
+   **V-09** (manifiesto vacío) al mismo mecanismo de "reintentar una vez, quedarse con el menos
+   degradado, forzar REVISION_HUMANA si el 2º intento también falla" que ya usaba V-12.
+3. **Revisión humana** (`escalarARevisionHumana`) — no hay forma honesta de adivinar el dato:
+   **V-01** (ponderaciones mal, no se sabe cuál criterio corregir sin releer), **V-03** (colchón
+   posiblemente subestimado), **V-08** (por línea sin evidencia — la incertidumbre ES la
+   respuesta), **V-10** (criterio sin fuente citada), **V-11** (estrategia de negocio incoherente
+   con la adjudicación). Dispara sin importar severidad (`error` o `aviso` — V-08 y V-10 son
+   siempre `aviso` y aun así ameritan revisión). Marca `veredicto.estado_veredicto =
+   'REVISION_HUMANA'` y cita cada regla en `veredicto.motivos_revision`.
+
+**Orden de ejecución** (en `_analizarViabilidadIAV3Intento`, `viabilidad-ia.ts`): valida → auto-
+corrige → **re-valida sobre el informe ya corregido** (para que `_validador` refleje la realidad
+post-fix, no la de antes) → recién ahí decide si algo sigue necesitando revisión humana.
+
+**Validación:** `tsc` limpio · `npm run test:viabilidad`: **72/72** (9 tests nuevos: 6 de
+auto-corrección + 3 de escalada). Bug propio detectado y corregido en el camino: los tests nuevos
+mutan el informe (a diferencia de los anteriores, que solo lo leen) — reusar objetos anidados de
+`base` los contaminaba entre tests por referencia compartida; se armó `infFresco()` para dar
+objetos frescos a cada test. **Golden Set completo (`--run`): no se corrió para esta ronda.**
+
+---
+
 ## 2026-07-28 (bis) — Auditoría masiva de sinónimos de adjudicación (892 licitaciones)
 
 **Caso real que lo originó:** tras cerrar el caso 1057536-83-LE26 (ver entrada de abajo), CA pidió

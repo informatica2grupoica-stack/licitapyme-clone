@@ -57,3 +57,23 @@ Si empeora, el flag ya te deja revertir sin tocar código.
 modalidad · adjudicacion · n_criterios · suma_valida · n_items(≥/≤) · veredicto · score(≥/≤) ·
 revision_humana · excluido. Para agregar una, edita `_metricas.ts` (`Metricas`, `extraerMetricas`,
 `Esperado`, `comparar`).
+
+## Regla de promoción — AUTOMÁTICA (28-jul-2026)
+
+Antes esta decisión era 100% manual ("comparar a ojo dos JSON"). Ahora:
+
+```bash
+npx tsx scripts/regresion/run.ts --run          # ANTES de tocar nada — guarda el reporte
+# ...hacés el cambio de prompt/código...
+npx tsx scripts/regresion/run.ts --run          # DESPUÉS del cambio — guarda otro reporte
+npx tsx scripts/regresion/comparar-corridas.mts <reporte-antes.json> <reporte-despues.json>
+```
+
+Compara **caso por caso y métrica por métrica** (no un solo pass/fail global) y da un veredicto:
+- **✅ PROMUEVE** — hay al menos una mejora y CERO regresiones.
+- **❌ NO PROMUEVE** — hay al menos una regresión, aunque también haya mejoras (regla estricta:
+  "mejora sin empeorar ningún módulo, o no entra" — una sola métrica que empeoró basta para frenar).
+- **➖ SIN CAMBIO NETO** — ni mejoró ni empeoró nada medible.
+
+Los reportes de cada corrida ya se guardan solos en el scratchpad (`run.ts` los deja ahí con
+timestamp) — solo hay que pasarle las dos rutas al comparador.

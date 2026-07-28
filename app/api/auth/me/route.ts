@@ -4,8 +4,21 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { verificarToken } from '@/app/lib/auth-edge';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
+import pool from '@/app/lib/db';
 
 export const runtime = 'nodejs';
+
+// Frente C.1: ¿este perfil ve la vista resumida de viabilidad por defecto? Tolerante a que
+// la migración 56 aún no esté aplicada (columna ausente) — en ese caso, false (vista completa,
+// el comportamiento de siempre).
+async function leerModoPrincipiante(userId: number): Promise<boolean> {
+  try {
+    const [rows] = await pool.query('SELECT modo_principiante FROM usuarios WHERE id = ? LIMIT 1', [userId]);
+    return !!(rows as any[])[0]?.modo_principiante;
+  } catch {
+    return false;
+  }
+}
 
 export async function GET() {
   try {
@@ -19,7 +32,10 @@ export async function GET() {
       return NextResponse.json({ autenticado: false, usuario: null });
     }
     // Permisos efectivos: admin → todos; usuario → los que el admin le otorgó.
-    const permisos = await permisosDeUsuario(payload.userId as number, payload.rol as string);
+    const [permisos, modoPrincipiante] = await Promise.all([
+      permisosDeUsuario(payload.userId as number, payload.rol as string),
+      leerModoPrincipiante(payload.userId as number),
+    ]);
     return NextResponse.json({
       autenticado: true,
       usuario: {
@@ -29,6 +45,7 @@ export async function GET() {
         empresa: payload.empresa,
         rol:     payload.rol,
         permisos,
+        modoPrincipiante,
       },
     });
   } catch {

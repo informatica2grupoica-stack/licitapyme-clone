@@ -8,6 +8,11 @@
 // Datos DERIVADOS sin migración nueva:
 //   · triageDias   → desde negocios.created_at (momento de la asignación) hasta el 1er cambio
 //                    a EN_PROCESO o DESCARTADA, reconstruido de actividad_usuario.
+//   · triageResueltoEn → fecha de ESE 1er cambio (el evento, no la asignación). Es por lo que
+//                    la mediana móvil de Frente B filtra la ventana: un caso entra al período
+//                    por cuándo se RESOLVIÓ, no por cuándo llegó (si no, un caso viejo resuelto
+//                    hoy distorsionaría "lo de hoy", y uno de hoy resuelto en 3 meses más
+//                    contaminaría el período equivocado).
 //   · nivelDescarte→ nivel del descarte (N1 recién asignada / N2 tras análisis / Error de
 //                    Gestión en Anexos+) inferido del máximo estado alcanzado antes del descarte.
 //   · mpEstado     → estado EFECTIVO de Mercado Público (Publicada vencida → Cerrada).
@@ -158,8 +163,12 @@ export async function GET(request: NextRequest) {
         (e.estado === 'EN_PROCESO' || e.estado === 'DESCARTADA') && inicioTriage != null && e.t >= inicioTriage);
       const tDecision = primeraDecision?.t
         ?? (estado === 'DESCARTADA' && n.descarte_at ? new Date(n.descarte_at).getTime() : null);
+      let triageResueltoEn: string | null = null;
       if (inicioTriage && tDecision && tDecision >= inicioTriage) {
         triageDias = Math.round(((tDecision - inicioTriage) / MS_DIA) * 10) / 10;
+        // Fecha del EVENTO (cuándo se resolvió el triage), no de la asignación: así el caso
+        // entra a la ventana de la mediana móvil por cuándo se decidió, no por cuándo llegó.
+        triageResueltoEn = new Date(tDecision).toISOString();
       }
 
       // Postuladas (Módulo 3): ¿se marcó alguna vez POSIBLE_ADJ? y ¿cuándo? → precisión + SLA.
@@ -225,7 +234,7 @@ export async function GET(request: NextRequest) {
         tipo: n.licitacion_tipo ?? null,
         mpEstado, mpCerrada,
         aperturada: n.aperturada ? 1 : 0,
-        triageDias, nivelDescarte,
+        triageDias, triageResueltoEn, nivelDescarte,
         descarteMotivo: n.descarte_motivo ?? null,
         resultado,
         montoNeto,

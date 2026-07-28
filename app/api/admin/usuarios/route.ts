@@ -14,10 +14,11 @@ const NO_AUTORIZADO = () => NextResponse.json({ error: 'Sin permisos de administ
 export async function GET(request: NextRequest) {
   if (!(await esAdmin(request))) return NO_AUTORIZADO();
   try {
-    // Intentar con la columna permisos (migración 28); si no existe, sin ella.
+    // Intentar con las columnas permisos (migración 28) y modo_principiante (migración 56);
+    // si alguna no existe todavía, se degrada sin ella (mismo patrón tolerante de siempre).
     try {
       const [rows] = await pool.query(
-        `SELECT id, email, nombre, empresa, rol, permisos, activo, ultimo_login, created_at
+        `SELECT id, email, nombre, empresa, rol, permisos, modo_principiante, activo, ultimo_login, created_at
          FROM usuarios ORDER BY created_at DESC`
       );
       return NextResponse.json({ success: true, usuarios: rows });
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   if (!(await esAdmin(request))) return NO_AUTORIZADO();
   try {
-    const { id, activo, rol, nombre, empresa, permisos, email, password } = await request.json();
+    const { id, activo, rol, nombre, empresa, permisos, modoPrincipiante, email, password } = await request.json();
 
     if (!id) return NextResponse.json({ error: 'ID requerido' }, { status: 400 });
 
@@ -87,6 +88,8 @@ export async function PATCH(request: NextRequest) {
     if (empresa !== undefined){ updates.push('empresa = ?');values.push(empresa || null); }
     // Permisos granulares (JSON). Requiere migración 28.
     if (permisos !== undefined) { updates.push('permisos = ?'); values.push(permisos == null ? null : JSON.stringify(permisos)); }
+    // Frente C.1 — vista resumida de viabilidad por defecto. Requiere migración 56.
+    if (modoPrincipiante !== undefined) { updates.push('modo_principiante = ?'); values.push(!!modoPrincipiante); }
 
     // Editar email (validar formato + unicidad).
     if (email !== undefined) {
@@ -118,11 +121,17 @@ export async function PATCH(request: NextRequest) {
     try {
       await pool.query(`UPDATE usuarios SET ${updates.join(', ')} WHERE id = ?`, values);
     } catch (e: any) {
-      // La columna 'permisos' aún no existe (falta la migración 28): mensaje claro
-      // en vez del error crudo de MySQL, para que el admin sepa qué hacer.
+      // La columna aún no existe (falta la migración): mensaje claro en vez del error
+      // crudo de MySQL, para que el admin sepa qué hacer.
       if (e?.code === 'ER_BAD_FIELD_ERROR' && permisos !== undefined) {
         return NextResponse.json({
           error: 'Falta la migración 28: ejecuta en tu base de datos  ALTER TABLE usuarios ADD COLUMN permisos JSON NULL AFTER rol;',
+          migration_needed: true,
+        }, { status: 503 });
+      }
+      if (e?.code === 'ER_BAD_FIELD_ERROR' && modoPrincipiante !== undefined) {
+        return NextResponse.json({
+          error: 'Falta la migración 56: ejecuta  node scripts/aplicar-migration-56.mjs',
           migration_needed: true,
         }, { status: 503 });
       }

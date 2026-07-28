@@ -388,5 +388,33 @@
       "revision_humana": false,
       "excluido": false
     }
+  },
+  {
+    "codigo": "1037-7-LE26",
+    "nota": "agregado 28-jul (A.3, cierre de hueco POR_LOTES): único eje de adjudicación sin ningún caso en el golden set pese a ser un valor real del sistema (adjudicacion.como_se_adjudica). Bases: ANEXO N°3.xlsx nota literal \"Las ofertas podrán considerar 1, 2 o 3 lotes\" + Anexo 3 de valorización estructurado en Lotes N°1/2/3 — evidencia directa, no ambigua. Verificado contra el informe v3 guardado en BD (confianza 0.98, estado DETERMINADA, estado_veredicto DEFINITIVO). No corrige ningún error histórico: cierra cobertura de modalidad.",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "POR_LOTES",
+      "n_criterios": 3,
+      "suma_valida": true,
+      "n_items_min": 21,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    }
+  },
+  {
+    "codigo": "1271359-92-LE26",
+    "nota": "agregado 28-jul (A.3, cierre de hueco POR_LOTES): segundo caso de adjudicación por lotes, con heterogeneidad alta y cotizar_100_obligatorio=true (a diferencia de 1037-7-LE26) para cubrir variantes del mismo eje. Fuente: BAE_1271359-92-LE26.pdf pág. 11, confianza 1.0, estado DETERMINADA, estado_veredicto DEFINITIVO. No corrige ningún error histórico: cierra cobertura de modalidad.",
+    "esperado": {
+      "modalidad": "suma_alzada",
+      "adjudicacion": "POR_LOTES",
+      "n_criterios": 6,
+      "suma_valida": true,
+      "n_items_min": 6,
+      "veredicto": "GANABLE",
+      "revision_humana": false,
+      "excluido": false
+    }
   }
 ]

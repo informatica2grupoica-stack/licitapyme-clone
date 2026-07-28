@@ -515,6 +515,25 @@ function HintOjo() {
 }
 
 function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: React.ReactNode }) {
+  // Frente C.1: modo principiante — por defecto, un perfil nuevo ve SOLO la Tarjeta de
+  // Decisión (Capa 1); el detalle de 4 módulos (Capa 2) queda a un clic con "Ver análisis
+  // completo". La tarjeta nunca contradice el detalle (ya es un principio del sistema) — esto
+  // solo decide qué se muestra primero. El propio usuario puede graduarse desde el botón.
+  const { usuario, recargarSesion } = useSession();
+  const [detalleAbierto, setDetalleAbierto] = useState(!usuario?.modoPrincipiante);
+  const [graduando, setGraduando] = useState(false);
+  useEffect(() => { if (!usuario?.modoPrincipiante) setDetalleAbierto(true); }, [usuario?.modoPrincipiante]);
+  const graduarse = async () => {
+    setGraduando(true);
+    try {
+      await fetch('/api/perfil/modo-principiante', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modoPrincipiante: false }),
+      });
+      await recargarSesion();
+    } finally { setGraduando(false); }
+  };
+
   const t = informe.tarjeta_decision || {};
   const score = Math.round(Number(informe.score_0_100) || 0);
   const sem = SEM[informe.semaforo || ''] || SEM.NARANJA;
@@ -685,9 +704,26 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
         </div>
       </div>
 
-      {/* Barra de pestañas: agrupa el detalle por pregunta (¿cómo se gana? / ¿qué nos deja
-          fuera? / ¿qué se vende? / ¿qué hay que preparar?) en vez de apilar 11 acordeones. */}
-      <div className="flex items-end gap-0.5 border-b border-slate-200 overflow-x-auto">
+      {/* Frente C.1: Capa 2 (detalle completo) queda oculta por defecto en modo principiante.
+          "Ver análisis completo" la revela a un clic — nunca hay que navegar a otra pantalla. */}
+      {!detalleAbierto ? (
+        <button onClick={() => setDetalleAbierto(true)}
+          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-violet-300 bg-violet-50 text-violet-700 font-semibold text-[13.5px] hover:bg-violet-100 hover:border-violet-400 transition-colors">
+          <ChevronDown size={16} /> Ver análisis completo (los 4 módulos de detalle)
+        </button>
+      ) : (
+        <>
+          {usuario?.modoPrincipiante && (
+            <div className="flex items-center justify-between gap-3 text-[11.5px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+              <span className="text-slate-500 flex items-center gap-1.5"><GraduationCap size={13} className="text-slate-400" /> Estás viendo el detalle completo (modo principiante).</span>
+              <button onClick={graduarse} disabled={graduando} className="text-violet-600 hover:text-violet-800 font-semibold whitespace-nowrap disabled:opacity-50">
+                {graduando ? 'Guardando…' : 'Mostrar siempre el detalle por defecto'}
+              </button>
+            </div>
+          )}
+          {/* Barra de pestañas: agrupa el detalle por pregunta (¿cómo se gana? / ¿qué nos deja
+              fuera? / ¿qué se vende? / ¿qué hay que preparar?) en vez de apilar 11 acordeones. */}
+          <div className="flex items-end gap-0.5 border-b border-slate-200 overflow-x-auto">
         {tabs.map(tb => (
           <button key={tb.id} onClick={() => setTab(tb.id)}
             className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-semibold whitespace-nowrap border-b-2 -mb-px transition-colors ${tab === tb.id ? 'border-violet-600 text-violet-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
@@ -950,6 +986,8 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
         {(informe.pendientes_fase3?.length ?? 0) > 0 && <>Pendiente Fase 3: {informe.pendientes_fase3.join(', ')} · </>}
         Leídos {informe.documentos_leidos?.length ?? 0} doc(s) · confianza {Math.round((informe.confianza_global ?? 0) * 100)}% · <span className="text-violet-500 font-semibold">v3</span>
       </p>
+        </>
+      )}
     </div>
   );
 }

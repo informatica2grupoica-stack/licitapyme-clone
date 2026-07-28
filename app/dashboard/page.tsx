@@ -18,6 +18,7 @@ import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { AnaliticaGestion } from '@/app/components/AnaliticaGestion';
 import { StatCard } from '@/app/components/ui/StatCard';
+import { MetricInfo, type EspecificacionMetrica } from '@/app/components/ui/MetricInfo';
 
 interface DashData {
   success: boolean; rol: string;
@@ -68,13 +69,14 @@ const PREFILTRO: Record<string, { label: string; color: string }> = {
 const etapaLabel = (id: string) => getEstadoPipeline(id)?.label || id;
 const PIPE_COLORS = ['#4f46e5', '#7c3aed', '#0d9488', '#06b6d4', '#a855f7', '#3b82f6', '#16a34a', '#ef4444'];
 
-function PanelCard({ title, icon, right, children }: { title: string; icon?: React.ReactNode; right?: React.ReactNode; children: React.ReactNode }) {
+function PanelCard({ title, icon, right, spec, children }: { title: string; icon?: React.ReactNode; right?: React.ReactNode; spec?: EspecificacionMetrica; children: React.ReactNode }) {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
       <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
         <div className="flex items-center gap-2">
           {icon}
           <p className="text-sm font-bold text-slate-800">{title}</p>
+          {spec && <MetricInfo spec={spec} />}
         </div>
         {right}
       </div>
@@ -163,20 +165,39 @@ function VistaAdmin({ data }: { data: DashData }) {
           value={a.radar.totalLicitaciones.toLocaleString('es-CL')}
           sub="Activas ahora · igual que el radar"
           color="indigo" href="/radar"
-          hint={'Mismo número que la pestaña "Licitaciones" del radar: licitaciones detectadas por tus palabras clave cuyo cierre todavía no ha pasado (hora de Chile). Sube cuando el intake encuentra nuevas y baja sola a medida que van venciendo.'} />
+          spec={{
+            mide: 'Cuántas licitaciones detectó el radar y siguen activas (todavía no cierran).',
+            calculo: 'Cuenta licitaciones únicas de alertas_licitaciones (una fila por match de palabra clave) cuya fecha de cierre aún no pasó, comparada contra la hora de Chile — no contra la hora del servidor.',
+            fuente: 'alertas_licitaciones.licitacion_cierre',
+            nota: 'Sube cuando el intake automático encuentra nuevas; baja sola a medida que van venciendo — nadie la actualiza a mano.',
+          }} />
         <StatCard icon={<UserPlus size={22} />} label="Sin asignar"
           value={a.radar.sinAsignar.toLocaleString('es-CL')}
           sub={`De ${a.radar.totalLicitaciones.toLocaleString('es-CL')} activas · por repartir`}
           color="violet" href="/radar"
-          hint={'La cola pendiente: licitaciones activas del radar que nadie tomó todavía, sin contar las descartadas ni las revocadas. Equivale al filtro "Sin asignar" del radar.'} />
-        <StatCard icon={<Users size={22} />} label="Usuarios activos" value={a.usuarios.activos} sub={`${a.usuarios.total} en total · +${a.usuarios.nuevosSemana} esta semana`} color="teal" href="/admin/usuarios" />
+          spec={{
+            mide: 'La cola de trabajo pendiente: licitaciones activas del radar que nadie tomó todavía.',
+            calculo: 'Del total de "Licitaciones en radar", resta las que ya tienen un negocio asignado, las que ya se descartaron a mano, y las que Mercado Público marcó "Revocada" (ya no se pueden postular aunque sigan con fecha de cierre futura).',
+            fuente: 'alertas_licitaciones + negocios (activo) + licitaciones_descartadas',
+          }} />
+        <StatCard icon={<Users size={22} />} label="Usuarios activos" value={a.usuarios.activos} sub={`${a.usuarios.total} en total · +${a.usuarios.nuevosSemana} esta semana`} color="teal" href="/admin/usuarios"
+          spec={{
+            mide: 'Cuántas cuentas del equipo están activas hoy.',
+            calculo: 'Cuenta de usuarios con activo = TRUE. El subtítulo suma el total de cuentas (activas o no) y cuántas se crearon en los últimos 7 días.',
+            fuente: 'usuarios.activo',
+          }} />
         {/* El subtítulo nombra los TRES destinos del prefiltro. Antes solo decía PASA y
             EXCLUIDO, y las que quedan en revisión humana (un centenar) no aparecían por
             ningún lado: la tarjeta daba a entender que el prefiltro ya decidió todo. */}
         <StatCard icon={<ListChecks size={22} />} label="Pasan el prefiltro"
           value={(a.prefiltro.find(p => p.decision === 'PASA')?.n || 0).toLocaleString('es-CL')}
           sub={`${(a.prefiltro.find(p => p.decision === 'EXCLUIDO')?.n || 0).toLocaleString('es-CL')} excluidas · ${a.prefiltro.find(p => p.decision === 'REVISION_HUMANA')?.n || 0} por revisar`}
-          color="cyan" />
+          color="cyan"
+          spec={{
+            mide: 'De las licitaciones activas del radar, cuántas ya pasaron el filtro automático (previo a la IA) sin ser descartadas.',
+            calculo: 'Cruza el universo de "Licitaciones en radar" contra prefiltro_licitacion.decision. El filtro tiene 3 salidas posibles: PASA (sigue a viabilidad), EXCLUIDO (se descarta sola) y REVISION_HUMANA (no se anima a decidir, alguien la mira).',
+            fuente: 'prefiltro_licitacion.decision',
+          }} />
       </div>
 
       {/* Analítica de gestión INTERACTIVA (pipeline · descartes · postuladas) */}
@@ -184,7 +205,12 @@ function VistaAdmin({ data }: { data: DashData }) {
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <PanelCard title="Tendencia de detección (14 días)" icon={<CalendarClock size={15} className="text-indigo-500" />}>
+        <PanelCard title="Tendencia de detección (14 días)" icon={<CalendarClock size={15} className="text-indigo-500" />}
+          spec={{
+            mide: 'Cuántas licitaciones nuevas detectó el radar cada día, últimos 14 días.',
+            calculo: 'Cuenta de licitaciones únicas agrupadas por el día en que aparecieron por primera vez en alertas_licitaciones.',
+            fuente: 'alertas_licitaciones.created_at',
+          }}>
           {tendencia.length > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <AreaChart data={tendencia} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
@@ -204,7 +230,12 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Sin datos recientes</p>}
         </PanelCard>
 
-        <PanelCard title="Distribución de viabilidad" icon={<Gauge size={15} className="text-indigo-500" />}>
+        <PanelCard title="Distribución de viabilidad" icon={<Gauge size={15} className="text-indigo-500" />}
+          spec={{
+            mide: 'De las licitaciones del radar que ya tienen análisis de IA, cuántas salieron en cada semáforo.',
+            calculo: 'Cuenta agrupada por viabilidad_licitacion.semaforo, cruzada contra el universo activo del radar. Solo cuenta las que YA se analizaron — no todo el radar tiene análisis.',
+            fuente: 'viabilidad_licitacion.semaforo',
+          }}>
           {totalViab > 0 ? (
             <div className="flex items-center justify-center gap-8">
               <ResponsiveContainer width={170} height={170}>
@@ -228,7 +259,12 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Aún sin análisis de viabilidad</p>}
         </PanelCard>
 
-        <PanelCard title="Negocios en trabajo" icon={<Layers3 size={15} className="text-indigo-500" />}>
+        <PanelCard title="Negocios en trabajo" icon={<Layers3 size={15} className="text-indigo-500" />}
+          spec={{
+            mide: 'En qué etapa del pipeline está cada negocio activo de la empresa (todos los perfiles).',
+            calculo: 'Cuenta de negocios activos agrupada por estado_pipeline, sin contar las Descartada (esas ya no se "trabajan").',
+            fuente: 'negocios.estado_pipeline',
+          }}>
           {pipeData.length > 0 ? (
             <div className="flex items-center justify-center gap-8">
               <ResponsiveContainer width={170} height={170}>
@@ -252,7 +288,12 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Sin datos</p>}
         </PanelCard>
 
-        <PanelCard title="Prefiltro de perfil" icon={<ListChecks size={15} className="text-indigo-500" />}>
+        <PanelCard title="Prefiltro de perfil" icon={<ListChecks size={15} className="text-indigo-500" />}
+          spec={{
+            mide: 'Mismo dato que la tarjeta "Pasan el prefiltro" de arriba, pero mostrando los 3 destinos posibles en barras.',
+            calculo: 'prefiltro_licitacion.decision agrupado (PASA / EXCLUIDO / REVISION_HUMANA) sobre el universo activo del radar.',
+            fuente: 'prefiltro_licitacion.decision',
+          }}>
           {prefData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={prefData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
@@ -268,7 +309,12 @@ function VistaAdmin({ data }: { data: DashData }) {
           ) : <p className="text-sm text-slate-400 text-center py-10">Sin prefiltro</p>}
         </PanelCard>
 
-        <PanelCard title="Negocios por etapa" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver todo</Link>}>
+        <PanelCard title="Negocios por etapa" icon={<Layers3 size={15} className="text-indigo-500" />} right={<Link href="/negocios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver todo</Link>}
+          spec={{
+            mide: 'Lo mismo que "Negocios en trabajo", en barras horizontales para comparar etapas más fácil.',
+            calculo: 'Negocios activos agrupados por estado_pipeline, sin las Descartada.',
+            fuente: 'negocios.estado_pipeline',
+          }}>
           {pipeData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={pipeData} layout="vertical" margin={{ top: 4, right: 4, bottom: 0, left: 60 }}>
@@ -285,7 +331,12 @@ function VistaAdmin({ data }: { data: DashData }) {
         </PanelCard>
 
         {(a.porPerfil?.length ?? 0) > 0 && (
-          <PanelCard title="Asignadas por perfil" icon={<Users size={15} className="text-indigo-500" />}>
+          <PanelCard title="Asignadas por perfil" icon={<Users size={15} className="text-indigo-500" />}
+            spec={{
+              mide: 'Cuántos negocios tiene cada analista, EN TRABAJO — sin contar lo que ya descartó.',
+              calculo: 'Negocios activos agrupados por asignado_a. Las Descartada de cada persona se cuentan aparte (chip rojo en "Seguimiento por perfil" más abajo) y no suman acá.',
+              fuente: 'negocios.asignado_a',
+            }}>
             {a.porPerfil.length > 0 ? (
               <div className="flex items-center justify-center gap-8">
                 <ResponsiveContainer width={180} height={180}>
@@ -331,7 +382,12 @@ function VistaAdmin({ data }: { data: DashData }) {
       {/* Listas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ProximosCierres items={data.usuario.proximosCierres} titulo="Próximos cierres (empresa)" />
-        <PanelCard title="Últimos accesos" icon={<Clock4 size={15} className="text-indigo-500" />} right={<Link href="/admin/usuarios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Gestionar</Link>}>
+        <PanelCard title="Últimos accesos" icon={<Clock4 size={15} className="text-indigo-500" />} right={<Link href="/admin/usuarios" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Gestionar</Link>}
+          spec={{
+            mide: 'Quién entró más recientemente al sistema.',
+            calculo: 'Usuarios ordenados por último login (o por fecha de creación de la cuenta si nunca ha entrado), top 6.',
+            fuente: 'usuarios.ultimo_login',
+          }}>
           <div className="space-y-3">
             {a.usuarios.ultimosAccesos.map((u: any) => (
               <div key={u.id} className="flex items-center justify-between gap-2">
@@ -357,7 +413,12 @@ function VistaAdmin({ data }: { data: DashData }) {
       {/* Seguimiento por perfil: cada usuario, su carga, su flujo y sus descartadas */}
       {(a.porPerfil?.length ?? 0) > 0 && (
         <PanelCard title="Seguimiento por perfil" icon={<UsersRound size={15} className="text-indigo-500" />}
-          right={<Link href="/analisis-licitacion" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver análisis</Link>}>
+          right={<Link href="/analisis-licitacion" className="text-xs font-semibold text-indigo-600 hover:text-indigo-700">Ver análisis</Link>}
+          spec={{
+            mide: 'La carga de trabajo de cada analista: cuántos negocios tiene, en qué etapas están repartidos, cuánto monto, y cuántos descartó.',
+            calculo: 'Negocios activos agrupados por asignado_a. La barra de flujo muestra la proporción por etapa; el chip rojo cuenta las Descartada de esa persona (aparte, no suma al total).',
+            fuente: 'negocios.asignado_a + estado_pipeline',
+          }}>
           <div className="space-y-3">
             {a.porPerfil.map(p => {
               const col = colorUsuario(p.email || p.id);
@@ -416,9 +477,24 @@ function VistaUsuario({ data }: { data: DashData }) {
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4 stagger-grid">
-        <StatCard icon={<Building2 size={22} />} label="Mis negocios" value={u.asignadas} sub="Asignados · sin descartadas" color="indigo" href="/negocios" />
-        <StatCard icon={<Wallet size={22} />} label="Monto en gestión" value={fmtMonto(u.montoAsignadas)} sub="Suma de mis licitaciones" color="teal" />
-        <StatCard icon={<CalendarClock size={22} />} label="Próximos cierres" value={u.proximosCierres.length} sub="En adelante" color="orange" />
+        <StatCard icon={<Building2 size={22} />} label="Mis negocios" value={u.asignadas} sub="Asignados · sin descartadas" color="indigo" href="/negocios"
+          spec={{
+            mide: 'Cuántas licitaciones tienes asignadas ahora mismo.',
+            calculo: 'Cuenta de negocios donde asignado_a sos vos y activo = TRUE, sin contar las que descartaste.',
+            fuente: 'negocios.asignado_a',
+          }} />
+        <StatCard icon={<Wallet size={22} />} label="Monto en gestión" value={fmtMonto(u.montoAsignadas)} sub="Suma de mis licitaciones" color="teal"
+          spec={{
+            mide: 'El presupuesto que publica Mercado Público en tus licitaciones asignadas — no lo que vas a cotizar.',
+            calculo: 'Suma de licitacion_monto de tus negocios activos, sin descartadas.',
+            fuente: 'negocios.licitacion_monto',
+          }} />
+        <StatCard icon={<CalendarClock size={22} />} label="Próximos cierres" value={u.proximosCierres.length} sub="En adelante" color="orange"
+          spec={{
+            mide: 'Cuántas de tus licitaciones todavía no cierran.',
+            calculo: 'Cuenta de tus negocios activos con fecha de cierre futura (hora de Chile).',
+            fuente: 'negocios.licitacion_cierre',
+          }} />
       </div>
 
       {/* Mi flujo: en qué etapa del pipeline están mis licitaciones */}
@@ -481,7 +557,12 @@ function VistaUsuario({ data }: { data: DashData }) {
 
 function ProximosCierres({ items, titulo }: { items: DashData['usuario']['proximosCierres']; titulo: string }) {
   return (
-    <PanelCard title={titulo} icon={<CalendarClock size={15} className="text-indigo-500" />}>
+    <PanelCard title={titulo} icon={<CalendarClock size={15} className="text-indigo-500" />}
+      spec={{
+        mide: 'Las licitaciones que están por cerrar antes, para no dejar pasar el plazo.',
+        calculo: 'Negocios activos con fecha de cierre futura, ordenados de la más próxima a la más lejana, hasta 6. La cuenta regresiva usa la hora de Chile.',
+        fuente: 'negocios.licitacion_cierre',
+      }}>
       {items.length > 0 ? (
         <div className="space-y-1">
           {items.map((it, i) => {

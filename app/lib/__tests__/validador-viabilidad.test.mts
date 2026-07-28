@@ -4,7 +4,7 @@
 //   npx tsx --test app/lib/__tests__/validador-viabilidad.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { validarInformeViabilidad } from '../validador-viabilidad';
+import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '../validador-viabilidad';
 
 const base = { adjudicacion: {}, presupuesto: {}, plazos: {}, tarjeta_decision: {}, veredicto: {} };
 const halla = (regla: string, hallazgos: any[]) => hallazgos.some(h => h.regla === regla);
@@ -118,4 +118,92 @@ test('V-14: veredicto bien formado NO dispara', () => {
   const inf = { ...base, tarjeta_decision: { veredicto: 'PUEDE_SER' } };
   const r = validarInformeViabilidad(inf, 40);
   assert.ok(!halla('V-14', r.hallazgos));
+});
+
+// ─── Frente A.2 (28-jul-2026): circuito FAIL → auto-corrección / re-análisis / revisión humana ───
+// OJO: `base` tiene objetos anidados (veredicto, tarjeta_decision, etc.) que un spread {...base}
+// NO clona (siguen siendo la MISMA referencia). Como estos tests SÍ mutan `inf` (a diferencia de
+// los de arriba, que solo leen), cada uno arma sus propios objetos anidados frescos — si
+// reusaran los de `base` contaminarían los tests siguientes.
+const infFresco = (extra: Record<string, any>): any => ({
+  adjudicacion: {}, presupuesto: {}, plazos: {}, tarjeta_decision: {}, veredicto: {}, ...extra,
+});
+
+test('autocorregirHallazgos V-02: corrige el veredicto al valor que implica el score', () => {
+  const inf = infFresco({ tarjeta_decision: { veredicto: 'GANABLE' } });
+  const r = validarInformeViabilidad(inf, 20);
+  const aplicadas = autocorregirHallazgos(inf, r.hallazgos, 20);
+  assert.ok(aplicadas.some(a => a.regla === 'V-02'));
+  assert.equal(inf.tarjeta_decision.veredicto, 'NO_VAMOS');
+  assert.ok(!halla('V-02', validarInformeViabilidad(inf, 20).hallazgos), 'tras corregir, re-validar ya no debe disparar V-02');
+});
+
+test('autocorregirHallazgos V-05: fuerza cadena="larga" cuando exige fiel cumplimiento', () => {
+  const inf = infFresco({ requisitos_admisibilidad: { fiel_cumplimiento: { exige: true } }, plazos: { cadena: 'corta' } });
+  const r = validarInformeViabilidad(inf, 50);
+  const aplicadas = autocorregirHallazgos(inf, r.hallazgos, 50);
+  assert.ok(aplicadas.some(a => a.regla === 'V-05'));
+  assert.equal(inf.plazos.cadena, 'larga');
+});
+
+test('autocorregirHallazgos V-06: fuerza NO_VAMOS/DESCARTE con gate duro activo', () => {
+  const inf = infFresco({ exclusion: { excluido: true }, tarjeta_decision: { veredicto: 'GANABLE' }, veredicto: { nivel: 'MUY_VIABLE' } });
+  const r = validarInformeViabilidad(inf, 19);
+  const aplicadas = autocorregirHallazgos(inf, r.hallazgos, 19);
+  assert.ok(aplicadas.some(a => a.regla === 'V-06'));
+  assert.equal(inf.tarjeta_decision.veredicto, 'NO_VAMOS');
+  assert.equal(inf.veredicto.nivel, 'DESCARTE');
+});
+
+test('autocorregirHallazgos V-07: recalcula presupuesto.neto = bruto/1.19', () => {
+  const inf = infFresco({ presupuesto: { bruto: 27_000_000, neto: 2_270_000 } });
+  const r = validarInformeViabilidad(inf, 50);
+  const aplicadas = autocorregirHallazgos(inf, r.hallazgos, 50);
+  assert.ok(aplicadas.some(a => a.regla === 'V-07'));
+  assert.equal(inf.presupuesto.neto, Math.round(27_000_000 / 1.19));
+});
+
+test('autocorregirHallazgos V-13: corrige como_se_adjudica a POR_LINEAS usando la evidencia ya citada', () => {
+  const inf = infFresco({ adjudicacion: { como_se_adjudica: 'GLOBAL', fuente: 'pág. 21: "TIPO DE ADJUDICACIÓN Múltiple (Por lineas)"' } });
+  const r = validarInformeViabilidad(inf, 50);
+  const aplicadas = autocorregirHallazgos(inf, r.hallazgos, 50);
+  assert.ok(aplicadas.some(a => a.regla === 'V-13'));
+  assert.equal(inf.adjudicacion.como_se_adjudica, 'POR_LINEAS');
+  assert.equal(inf.adjudicacion.estado, 'DETERMINADA');
+});
+
+// Usa veredicto.nivel (no tarjeta_decision.veredicto): ese campo NO lo chequea V-02, así que se
+// aísla la corrección de V-14 sin que V-02 también dispare y se adjudique el fix primero.
+test('autocorregirHallazgos V-14: normaliza "MUY VIABLE" a "MUY_VIABLE"', () => {
+  const inf = infFresco({ veredicto: { nivel: 'MUY VIABLE' } });
+  const r = validarInformeViabilidad(inf, 40);
+  const aplicadas = autocorregirHallazgos(inf, r.hallazgos, 40);
+  assert.ok(aplicadas.some(a => a.regla === 'V-14'));
+  assert.equal(inf.veredicto.nivel, 'MUY_VIABLE');
+});
+
+test('escalarARevisionHumana: V-01 (suma ponderaciones mal) marca REVISION_HUMANA citando la regla', () => {
+  const inf = infFresco({ criterios_evaluacion: { suma_ponderaciones_real: 85, criterios: [{ nombre: 'a', ponderacion_efectiva: 85 }] } });
+  const r = validarInformeViabilidad(inf, 50);
+  const disparadas = escalarARevisionHumana(inf, r.hallazgos);
+  assert.ok(disparadas.includes('V-01'));
+  assert.equal(inf.veredicto.estado_veredicto, 'REVISION_HUMANA');
+  assert.ok(inf.veredicto.motivos_revision.some((m: string) => m.startsWith('V-01:')));
+});
+
+test('escalarARevisionHumana: V-08 (aviso, nunca error) igual dispara la escalada', () => {
+  const inf = infFresco({ adjudicacion: { como_se_adjudica: 'POR_LINEAS', estado: 'REVISION_HUMANA' } });
+  const r = validarInformeViabilidad(inf, 50);
+  assert.ok(halla('V-08', r.hallazgos));
+  const disparadas = escalarARevisionHumana(inf, r.hallazgos);
+  assert.ok(disparadas.includes('V-08'));
+  assert.equal(inf.veredicto.estado_veredicto, 'REVISION_HUMANA');
+});
+
+test('escalarARevisionHumana: sin hallazgos de las 5 reglas, no toca el informe', () => {
+  const inf = infFresco({ tarjeta_decision: { veredicto: 'GANABLE' } });
+  const r = validarInformeViabilidad(inf, 60);
+  const disparadas = escalarARevisionHumana(inf, r.hallazgos);
+  assert.deepEqual(disparadas, []);
+  assert.equal(inf.veredicto.estado_veredicto, undefined);
 });
