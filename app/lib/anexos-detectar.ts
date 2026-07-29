@@ -41,13 +41,28 @@ export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
 // usa con el nombre de columna, pero mirando hacia atrás en la lista en vez de a la fila. Las
 // etiquetas únicas (la inmensa mayoría) quedan intactas para no tocar el diccionario/IA que ya
 // funciona bien con ellas.
+// Compara por texto NORMALIZADO, no literal — caso real encontrado (1058086-43-LP26): "N° de
+// Teléfono" (bloque del Administrador de Contrato, sin dos puntos) y "N° de Teléfono:" (bloque
+// de la empresa, con dos puntos) son EL MISMO campo con puntuación distinta — comparar el string
+// crudo no los reconocía como duplicados, así que ninguno se prefijaba con su contexto, y ambos
+// terminaban rellenados con el teléfono de la empresa aunque el primero le pertenece a otra
+// persona (de la que no tenemos datos). Normalizar antes de comparar (sin tocar la etiqueta que
+// se muestra) hace que este caso SÍ dispare la desambiguación de abajo.
+function normalizarParaCompararDuplicados(etiqueta: string): string {
+  return etiqueta.trim().toLowerCase().replace(/[:.\s]+$/, '');
+}
+
 function desambiguarDuplicados(candidatos: CandidatoCelda[]): CandidatoCelda[] {
   const conteo = new Map<string, number>();
-  for (const c of candidatos) conteo.set(c.etiqueta, (conteo.get(c.etiqueta) ?? 0) + 1);
+  for (const c of candidatos) {
+    const clave = normalizarParaCompararDuplicados(c.etiqueta);
+    conteo.set(clave, (conteo.get(clave) ?? 0) + 1);
+  }
   return candidatos.map((c, i) => {
-    if ((conteo.get(c.etiqueta) ?? 0) < 2) return c;
+    const clave = normalizarParaCompararDuplicados(c.etiqueta);
+    if ((conteo.get(clave) ?? 0) < 2) return c;
     const anterior = candidatos[i - 1];
-    if (!anterior || anterior.etiqueta === c.etiqueta) return c;
+    if (!anterior || normalizarParaCompararDuplicados(anterior.etiqueta) === clave) return c;
     return { ...c, etiqueta: `${anterior.etiqueta} — ${c.etiqueta}`.slice(0, 160) };
   });
 }
@@ -86,6 +101,41 @@ interface CeldaCruda { texto: string; vacio: boolean; paraId: string | null; ind
 // columna mal calzada, ver comentario en detectarCandidatosTabla) — nunca son un dato real, son
 // puro relleno visual de layout.
 const ANCHO_PCT_MINIMO_COLUMNA_REAL = 400;
+
+// Ubica cada celda de una fila en la columna del encabezado que le corresponde por ANCHO REAL
+// (w:tcW, escala pct 0-5000 de OOXML), no por índice de posición simple. Necesario porque una
+// columna del encabezado puede venir partida en 2-3 celdas angostas sueltas en las filas de
+// datos (sin <w:vMerge>) — CUALQUIER cantidad, y no siempre al principio de la fila (caso real
+// visto en 1738-18-LE26: distintas filas de la MISMA tabla traen distinta cantidad de celdas de
+// relleno, a veces antes de la descripción, a veces en medio) — alinear por índice (incluso
+// "desde la derecha") descuadra la columna real en cuanto el patrón de relleno cambia de fila en
+// fila. Comparando la posición ACUMULADA de cada celda contra los límites del encabezado, cada
+// celda cae en la columna que geométricamente ocupa, sin importar cuántas haya antes o después.
+// Compartida entre detectarCandidatosTabla (qué celda es un candidato a rellenar y con qué
+// nombre de columna) y extraerTablasCrudo/alinearFilaConEncabezado (cómo se ve la fila completa
+// en la vista de tabla) — antes cada uno tenía su propia lógica de alineación y podían no
+// coincidir (un PRECIO real detectado como candidato, pero mostrado bajo la columna equivocada,
+// o directamente no detectado porque el índice desde la derecha caía mal).
+function columnasPorAncho(anchosHeader: (number | null)[], anchosFila: (number | null)[]): number[] {
+  const anchoTotal = anchosHeader.reduce((a: number, w) => a + (w ?? 0), 0) || 5000;
+  let acc = 0;
+  const inicios = anchosHeader.map(w => {
+    const inicio = acc;
+    acc += w ?? (anchoTotal / anchosHeader.length);
+    return inicio;
+  });
+
+  const resultado: number[] = [];
+  let pos = 0;
+  for (const w of anchosFila) {
+    const ancho = w ?? (anchoTotal / anchosFila.length);
+    let col = 0;
+    for (let k = 0; k < inicios.length; k++) if (pos >= inicios[k] - 1) col = k;
+    resultado.push(col);
+    pos += ancho;
+  }
+  return resultado;
+}
 
 function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices: Map<number, number>): CeldaCruda[] {
   const celdas: CeldaCruda[] = [];
@@ -127,7 +177,9 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
     if (filas.length < 2) continue; // hace falta al menos encabezado + 1 fila de datos
 
     const [primeraFila, ...restoFilas] = filas;
-    const nombresColumna = extraerCeldasDeFila(primeraFila[1], 0, new Map()).map(c => c.texto);
+    const celdasEncabezado = extraerCeldasDeFila(primeraFila[1], 0, new Map());
+    const nombresColumna = celdasEncabezado.map(c => c.texto);
+    const anchosHeader = celdasEncabezado.map(c => c.anchoPct);
     const hayEncabezado = nombresColumna.some(t => t.length > 0);
 
     for (const fila of restoFilas) {
@@ -141,22 +193,20 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
       for (const c of celdas) if (c.texto.length > filaContexto.length) filaContexto = c.texto;
       if (!filaContexto) continue; // fila sin ningún texto real — no hay de dónde sacar etiqueta
 
+      // Alineación por ANCHO REAL, no por índice de posición — ver columnasPorAncho arriba.
+      // Reemplaza la alineación "desde la derecha" anterior: esa asumía que el relleno decorativo
+      // siempre va al PRINCIPIO de la fila, pero un documento real (1738-18-LE26) trae filas con
+      // relleno en cantidad y posición distintas fila a fila — con índices, cualquier fila que no
+      // calzara con el patrón asumido perdía su candidato real de PRECIO (o lo etiquetaba con la
+      // columna equivocada).
+      const columnaDeCadaCelda = columnasPorAncho(anchosHeader, celdas.map(c => c.anchoPct));
+
       celdas.forEach((c, colIndex) => {
         if (!c.vacio || c.indiceGlobal == null || !c.paraId) return;
         // Celda angosta a propósito (relleno de layout, ver ANCHO_PCT_MINIMO_COLUMNA_REAL) —
         // nunca es un dato real que pedir, se ignora aunque esté "vacía".
         if (c.anchoPct != null && c.anchoPct < ANCHO_PCT_MINIMO_COLUMNA_REAL) return;
-        // Alineación de columna DESDE LA DERECHA, no desde la izquierda: caso real encontrado
-        // donde el encabezado trae MENOS celdas que las filas de datos (una columna de
-        // categoría fusionada en el encabezado se parte en varias celdas angostas en cada fila
-        // de datos, sin <w:vMerge>) — alinear por índice normal (izquierda) descuadraba TODAS
-        // las columnas reales (ej. el blanco de "PRECIO", la última columna, quedaba fuera de
-        // rango y salía sin etiqueta). Alineando desde el final, la ÚLTIMA celda de datos
-        // siempre calza con la ÚLTIMA columna del encabezado sin importar cuántas celdas de
-        // más haya al principio de la fila — y si los conteos coinciden (caso normal, la
-        // mayoría de las tablas) da exactamente el mismo resultado que antes.
-        const colIndexDesdeDerecha = nombresColumna.length - (celdas.length - colIndex);
-        const nombreColumna = hayEncabezado ? nombresColumna[colIndexDesdeDerecha] : '';
+        const nombreColumna = hayEncabezado ? nombresColumna[columnaDeCadaCelda[colIndex]] : '';
         const etiqueta = nombreColumna ? `${filaContexto} — ${nombreColumna}` : filaContexto;
         out.push({ etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal });
       });
@@ -383,23 +433,9 @@ export interface TablaCruda { indicePrimero: number | null; filas: FilaTablaCrud
 function alinearFilaConEncabezado(header: CeldaTablaCruda[], fila: CeldaTablaCruda[]): CeldaTablaCruda[] {
   if (fila.length === header.length) return fila; // caso normal (la inmensa mayoría) — nada que alinear
 
-  const anchoTotal = header.reduce((a, c) => a + (c.anchoPct ?? 0), 0) || 5000;
-  let acc = 0;
-  const inicios = header.map(c => {
-    const inicio = acc;
-    acc += c.anchoPct ?? (anchoTotal / header.length);
-    return inicio;
-  });
-
+  const columnaDeCadaCelda = columnasPorAncho(header.map(c => c.anchoPct), fila.map(c => c.anchoPct));
   const grupos: CeldaTablaCruda[][] = header.map(() => []);
-  let pos = 0;
-  for (const c of fila) {
-    const ancho = c.anchoPct ?? (anchoTotal / fila.length);
-    let col = 0;
-    for (let k = 0; k < inicios.length; k++) if (pos >= inicios[k] - 1) col = k;
-    grupos[col].push(c);
-    pos += ancho;
-  }
+  fila.forEach((c, i) => grupos[columnaDeCadaCelda[i]].push(c));
 
   return grupos.map(grupo => {
     if (grupo.length === 0) return { texto: '', indiceGlobal: null, anchoPct: null };

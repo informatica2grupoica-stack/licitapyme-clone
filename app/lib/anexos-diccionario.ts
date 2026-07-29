@@ -120,6 +120,31 @@ function conValor(campo: keyof EmpresaCampos, empresa: EmpresaCampos): Coinciden
 // pendiente para siempre, aunque si tengamos el dato).
 const CONTEXTO_REPRESENTANTE = /(representante\s+legal|rep\.?\s*legal)/i;
 
+// Mismo principio para el bloque de datos bancarios (Tipo de Cuenta / Entidad Bancaria / Nombre
+// del Titular / Cédula del Titular / Correo electrónico / Teléfono) — el "Correo electrónico" de
+// ESE bloque es el de pagos (banco_email), no el correo general de la empresa (email1).
+const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|entidad\s+bancaria|titular)/i;
+
+// Caso real encontrado (1058086-43-LP26): "Correo Electrónico" se repite en el documento en TRES
+// bloques distintos — identificación de la empresa, datos del REPRESENTANTE LEGAL, y datos del
+// ADMINISTRADOR DE CONTRATO (una tercera persona de la que no tenemos ningún dato) — el mismo
+// patrón se repite con "Nombre"/"Cédula de Identidad"/"Cargo"/"Teléfono". Sin un contexto
+// reconocido (representante legal o cuenta bancaria, ambos manejados arriba), rellenar estos
+// términos con el dato general de la empresa es EXACTAMENTE el error que este diccionario evita
+// a propósito (ver comentario del encabezado del archivo: "Nombre" y "Correo electrónico" a
+// secas NO están acá porque describen a quien sea según el bloque) — mejor dejarlo pendiente
+// (o que lo intente el respaldo IA, que sí tiene instrucciones explícitas contra esto) que
+// escribir el dato de una persona en el campo de otra.
+// El sufijo "del Titular" (bloque bancario: Nombre del Titular / Cédula de Identidad del
+// Titular) es OTRA forma de decir "sin calificador reconocido" — no tenemos un campo separado
+// para el titular de la cuenta (no siempre es la misma persona que el representante legal), así
+// que igual debe quedar pendiente en vez de adivinar con representante_nombre/representante_rut.
+const SUFIJO_AMBIGUO_SIN_CALIFICAR = '(\\s+del\\s+titular)?';
+const TERMINOS_AMBIGUOS_SIN_CONTEXTO = new RegExp(
+  `^(correo(\\s+electr[óo]nico)?|e-?mail|n[°º]?\\.?\\s*de\\s+tel[ée]fono(s)?|tel[ée]fono(s)?|fono|nombre(\\s+completo)?|c[ée]dula\\s+de\\s+identidad|cargo)${SUFIJO_AMBIGUO_SIN_CALIFICAR}$`,
+  'i',
+);
+
 // Devuelve el campo+valor si la etiqueta cruza con el diccionario Y la empresa tiene ese dato
 // cargado; null si no hay match confiable (queda para el respaldo IA o la pantalla de "completar
 // a mano").
@@ -127,13 +152,17 @@ export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coinciden
   const compuesta = etiqueta.match(/^(.+?)\s+—\s+(.+)$/);
   if (compuesta) {
     const [, contexto, campoTexto] = compuesta;
+    const limpio = normalizarParaMatch(campoTexto);
     if (CONTEXTO_REPRESENTANTE.test(contexto)) {
-      const limpio = normalizarParaMatch(campoTexto);
       if (/^r\.?u\.?t\.?$/i.test(limpio)) return conValor('representante_rut', empresa);
       if (/^nombre$/i.test(limpio)) return conValor('representante_nombre', empresa);
       if (/^cargo$/i.test(limpio)) return conValor('representante_cargo', empresa);
     }
-    return buscarCampo(campoTexto, empresa); // sin contexto reconocido — sigue con el campo tal cual
+    if (CONTEXTO_BANCARIO.test(contexto) && /^(correo(\s+electr[óo]nico)?|e-?mail)$/i.test(limpio)) {
+      return conValor('banco_email', empresa);
+    }
+    if (TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(limpio)) return null; // contexto no reconocido — no se adivina
+    return buscarCampo(campoTexto, empresa); // el resto del campo (ej. "Dirección") sigue tal cual
   }
 
   const limpia = normalizarParaMatch(etiqueta);
@@ -141,4 +170,26 @@ export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coinciden
     if (entrada.patrones.some(re => re.test(limpia))) return conValor(entrada.campo, empresa);
   }
   return null;
+}
+
+// Misma regla de "sin contexto reconocido, no se adivina" pero para el respaldo IA (ver
+// matchearConIA en anexos-ia-matching.ts) — sin esto, el diccionario se abstiene correctamente
+// pero la IA todavía podría intentar (y a veces acertar por casualidad, a veces no) asignarle
+// email1/representante_nombre a un tercero (administrador de contrato, titular bancario, etc.)
+// solo porque el CAMPOS_DISPONIBLES de la IA no distingue esos casos tampoco.
+export function esTerminoAmbiguoSinContextoReconocido(etiqueta: string): boolean {
+  const compuesta = etiqueta.match(/^(.+?)\s+—\s+(.+)$/);
+  if (!compuesta) {
+    // Etiqueta SIMPLE (sin desambiguar): igual es ambigua si es uno de estos términos pelados —
+    // el diccionario ya exige el calificador ("... del representante legal") para matchear a
+    // representante_*, así que si llegó hasta acá es porque NO lo trae. Caso real encontrado:
+    // "Cédula de Identidad" y "Cargo" del ADMINISTRADOR DE CONTRATO (una tercera persona, sin
+    // relación con el representante legal) se estaban asignando igual a representante_rut /
+    // representante_cargo — la IA no respetó su propia instrucción de exigir la mención
+    // explícita porque el label, sin más contexto que su propio texto, no dice de quién es.
+    return TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(normalizarParaMatch(etiqueta));
+  }
+  const [, contexto, campoTexto] = compuesta;
+  if (CONTEXTO_REPRESENTANTE.test(contexto) || CONTEXTO_BANCARIO.test(contexto)) return false;
+  return TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(normalizarParaMatch(campoTexto));
 }

@@ -112,8 +112,23 @@ export async function resolverCandidatosCelda(candidatos: CandidatoCelda[], empr
     }
   }
 
-  const titulos = await clasificarTitulos(sinResolver.map(c => c.etiqueta));
-  const pendientes = titulos.size > 0 ? sinResolver.filter(c => !titulos.has(c.etiqueta)) : sinResolver;
+  // Los candidatos con etiqueta COMPUESTA ("<fila> — <columna>", ver patrón 1b y
+  // desambiguarDuplicados en anexos-detectar.ts) NUNCA pueden ser un título de sección: por
+  // construcción describen una celda puntual dentro de una tabla de 3+ columnas o un campo de
+  // identificación duplicado — ya vienen con su columna real identificada. Mandarlos igual al
+  // clasificador de IA solo agrega riesgo de que un modelo menos cuidadoso (flashx) los descarte
+  // por error — caso real encontrado: "ESCOBILLONES INDUSTRIALES — PRECIO" (un precio real de
+  // ítem, no un título) desaparecía de los pendientes en algunas corridas porque el clasificador
+  // lo marcaba como título. Solo las etiquetas SIMPLES (patrón 1 sin desambiguar) pasan por el
+  // clasificador — esas sí pueden ser un título de página colado, como el caso original que
+  // motivó este filtro.
+  const [compuestos, simples] = [
+    sinResolver.filter(c => c.etiqueta.includes(' — ')),
+    sinResolver.filter(c => !c.etiqueta.includes(' — ')),
+  ];
+  const titulos = await clasificarTitulos(simples.map(c => c.etiqueta));
+  const pendientesSimples = titulos.size > 0 ? simples.filter(c => !titulos.has(c.etiqueta)) : simples;
+  const pendientes = [...compuestos, ...pendientesSimples];
   return { matcheados, pendientes };
 }
 

@@ -15,7 +15,7 @@
 // Client Component, solo desde anexos-rellenar.ts (que a su vez solo corren las rutas /api/anexos).
 import { crearChatIA } from '@/app/lib/gemini';
 import { parseJsonIA } from '@/app/lib/json-ia';
-import type { EmpresaCampos } from '@/app/lib/anexos-diccionario';
+import { esTerminoAmbiguoSinContextoReconocido, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
 
 // Documentos reales grandes (anexos combinados de varios formularios) pueden traer 100+
 // etiquetas sin match — mandarlas TODAS en una sola llamada hace que la salida crezca sin techo
@@ -135,7 +135,7 @@ function esCandidatoDeTablaDeItems(etiqueta: string): boolean {
 // las demás simplemente no aparecen en el resultado (quedan pendientes como hoy). Nunca lanza:
 // si un lote falla, se degrada a "sin matches" PARA ESE LOTE, sin tumbar los demás.
 export async function matchearConIA(etiquetas: string[], empresa: EmpresaCampos): Promise<MatchIA[]> {
-  const elegibles = etiquetas.filter(e => !esCandidatoDeTablaDeItems(e));
+  const elegibles = etiquetas.filter(e => !esCandidatoDeTablaDeItems(e) && !esTerminoAmbiguoSinContextoReconocido(e));
   if (elegibles.length === 0) return [];
   const camposConDato = CAMPOS_DISPONIBLES.filter(c => empresa[c.campo] != null && String(empresa[c.campo]).trim());
   if (camposConDato.length === 0) return [];

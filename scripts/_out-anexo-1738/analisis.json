@@ -93,8 +93,33 @@
   ],
   "pendientesCelda": [
     {
-      "id": "celda:77",
-      "etiqueta": "CANTIDAD",
+      "id": "celda:510",
+      "etiqueta": "RESUMEN: — LÍNEA 1: LETRERO DE OBRAS",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:514",
+      "etiqueta": "$ — LÍNEA 2: ARRIENDO BAÑOS QUIMICO",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:518",
+      "etiqueta": "$ — LÍNEA 3: MATERIALES",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:522",
+      "etiqueta": "$ — LINEA 4: IMPLEMENTOS DE SEGURIDAD",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:526",
+      "etiqueta": "$ — LÍNEA 5: IMPLEMENTOS Y HERRAMIENTAS",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:530",
+      "etiqueta": "$ — LÍNEA 6: ARRIENDO MAQUINARIAS",
       "formulario": "ANEXO N°2 ECONOMICO"
     }
   ],
@@ -174,7 +199,10 @@
             "texto": "1.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:99"
+            }
           }
         ],
         [
@@ -191,7 +219,52 @@
             "texto": "2.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:106"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "PARTIDA"
+          },
+          {
+            "texto": "DESCRIPCIÓN"
+          },
+          {
+            "texto": "UNIDAD"
+          },
+          {
+            "texto": "CANTIDAD"
+          },
+          {
+            "texto": "PRECIO"
+          }
+        ],
+        [
+          {
+            "texto": "ARRIENDO"
+          },
+          {
+            "texto": "ARRIENDO BAÑO QUÍMICO 2 UNIDADES"
+          },
+          {
+            "texto": "MES"
+          },
+          {
+            "texto": "6.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:119"
+            }
           }
         ]
       ]
@@ -235,7 +308,10 @@
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:140"
+            }
           },
           {
             "texto": "TRAZADO Y NIVELES"
@@ -247,7 +323,10 @@
             "texto": ""
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:144"
+            }
           }
         ],
         [
@@ -275,7 +354,10 @@
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:150"
+            }
           },
           {
             "texto": "MADERA DE PINO 1\" x  4\""
@@ -287,12 +369,18 @@
             "texto": "150.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:154"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:155"
+            }
           },
           {
             "texto": "MADERA DE PINO  2x2\""
@@ -304,12 +392,18 @@
             "texto": "120.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:161"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:162"
+            }
           },
           {
             "texto": "CLAVOS  2,5\""
@@ -321,12 +415,18 @@
             "texto": "25.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:169"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:170"
+            }
           },
           {
             "texto": "OBRA GRUESA"
@@ -343,7 +443,10 @@
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:175"
+            }
           },
           {
             "texto": "VEREDAS PEATONALES e:0,07 METROS"
@@ -360,7 +463,10 @@
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:180"
+            }
           },
           {
             "texto": "BASE ESTABILIZADA e:0,10 METROS"
@@ -372,12 +478,18 @@
             "texto": "115.6"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:184"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:185"
+            }
           },
           {
             "texto": "HORMIGÓN G-25 e:0,07 METROS"
@@ -389,12 +501,18 @@
             "texto": "82.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:189"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:190"
+            }
           },
           {
             "texto": "VEREDAS REFORZADAS (ACCESOS VEHICULARES) e: 0,10 METROS"
@@ -411,7 +529,10 @@
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:195"
+            }
           },
           {
             "texto": "BASE ESTABILIZADA e:0,10 METROS"
@@ -423,12 +544,18 @@
             "texto": "21.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:199"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:200"
+            }
           },
           {
             "texto": "HORMIGÓN G-25 e:0,1 METROS"
@@ -440,12 +567,18 @@
             "texto": "22.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:204"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:205"
+            }
           },
           {
             "texto": "MALLA ACMA C-139"
@@ -457,12 +590,18 @@
             "texto": "10.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:209"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:210"
+            }
           },
           {
             "texto": "CALUGAS SEPARADORAS BOLSA 100 UNIDADES"
@@ -474,12 +613,18 @@
             "texto": "3.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:214"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:215"
+            }
           },
           {
             "texto": "MOLDAJE"
@@ -491,12 +636,18 @@
             "texto": ""
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:219"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:220"
+            }
           },
           {
             "texto": "MADERA TAPA"
@@ -508,12 +659,18 @@
             "texto": "190.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:224"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:225"
+            }
           },
           {
             "texto": "TERCIADO 12MM"
@@ -525,7 +682,10 @@
             "texto": "10.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:229"
+            }
           }
         ],
         [
@@ -545,7 +705,10 @@
             "texto": "5.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:234"
+            }
           }
         ],
         [
@@ -565,7 +728,10 @@
             "texto": "9.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:239"
+            }
           }
         ],
         [
@@ -605,7 +771,10 @@
             "texto": "100.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:249"
+            }
           }
         ],
         [
@@ -625,7 +794,10 @@
             "texto": "125.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:254"
+            }
           }
         ],
         [
@@ -645,7 +817,10 @@
             "texto": "95.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:259"
+            }
           }
         ],
         [
@@ -665,7 +840,10 @@
             "texto": "7.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:264"
+            }
           }
         ],
         [
@@ -685,7 +863,10 @@
             "texto": "11.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:269"
+            }
           }
         ],
         [
@@ -748,7 +929,10 @@
             "texto": "15.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:284"
+            }
           }
         ],
         [
@@ -768,7 +952,10 @@
             "texto": "3.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:289"
+            }
           }
         ],
         [
@@ -802,7 +989,10 @@
             "texto": "1.0"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:303"
+            }
           }
         ]
       ]
@@ -844,7 +1034,10 @@
             "texto": "5"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:318"
+            }
           }
         ],
         [
@@ -864,7 +1057,10 @@
             "texto": "18"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:323"
+            }
           }
         ],
         [
@@ -884,7 +1080,10 @@
             "texto": "18"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:328"
+            }
           }
         ],
         [
@@ -904,7 +1103,10 @@
             "texto": "18"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:333"
+            }
           }
         ],
         [
@@ -924,7 +1126,10 @@
             "texto": "18"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:338"
+            }
           }
         ],
         [
@@ -944,7 +1149,10 @@
             "texto": "36"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:343"
+            }
           }
         ],
         [
@@ -964,7 +1172,10 @@
             "texto": "18"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:348"
+            }
           }
         ],
         [
@@ -984,7 +1195,10 @@
             "texto": "33"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:353"
+            }
           }
         ],
         [
@@ -1004,7 +1218,10 @@
             "texto": "216"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:358"
+            }
           }
         ],
         [
@@ -1024,7 +1241,10 @@
             "texto": "216"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:363"
+            }
           }
         ],
         [
@@ -1044,7 +1264,10 @@
             "texto": "108"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:368"
+            }
           }
         ],
         [
@@ -1064,7 +1287,10 @@
             "texto": "18"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:373"
+            }
           }
         ],
         [
@@ -1084,7 +1310,10 @@
             "texto": "7"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:378"
+            }
           }
         ],
         [
@@ -1104,7 +1333,10 @@
             "texto": "6"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:383"
+            }
           }
         ],
         [
@@ -1124,7 +1356,10 @@
             "texto": "12"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:388"
+            }
           }
         ],
         [
@@ -1144,7 +1379,10 @@
             "texto": "2"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:393"
+            }
           }
         ]
       ]
@@ -1186,7 +1424,10 @@
             "texto": "5"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:406"
+            }
           }
         ],
         [
@@ -1206,7 +1447,10 @@
             "texto": "3"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:411"
+            }
           }
         ],
         [
@@ -1226,7 +1470,10 @@
             "texto": "2"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:416"
+            }
           }
         ],
         [
@@ -1246,7 +1493,10 @@
             "texto": "10"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:421"
+            }
           }
         ],
         [
@@ -1266,7 +1516,10 @@
             "texto": "30"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:426"
+            }
           }
         ],
         [
@@ -1286,7 +1539,10 @@
             "texto": "4"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:431"
+            }
           }
         ],
         [
@@ -1306,12 +1562,18 @@
             "texto": "3"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:436"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:437"
+            }
           },
           {
             "texto": "ESCOBILLONES INDUSTRIALES"
@@ -1323,12 +1585,18 @@
             "texto": "10"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:441"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:442"
+            }
           },
           {
             "texto": "MARTILLO MICROFIBRA 16 OZ 428-16 BAHCO"
@@ -1340,12 +1608,18 @@
             "texto": "8"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:446"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:447"
+            }
           },
           {
             "texto": "INGLETE SERRUCHO BASE 12 PULG 300 MM"
@@ -1357,12 +1631,18 @@
             "texto": "4"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:451"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:452"
+            }
           },
           {
             "texto": "LIENZA CARPINTERA"
@@ -1374,12 +1654,18 @@
             "texto": "5"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:456"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:457"
+            }
           },
           {
             "texto": "PINTACAL"
@@ -1391,12 +1677,18 @@
             "texto": "8"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:461"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:462"
+            }
           },
           {
             "texto": "LAPIZ CARPINTERO"
@@ -1408,12 +1700,18 @@
             "texto": "10"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:466"
+            }
           }
         ],
         [
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:467"
+            }
           },
           {
             "texto": "LAPIZ MARCA METAL"
@@ -1425,7 +1723,172 @@
             "texto": "6"
           },
           {
+            "texto": "",
+            "input": {
+              "id": "celda:471"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "ARRIENDO DE MAQUINARIAS"
+          },
+          {
+            "texto": "DESCRIPCIÓN"
+          },
+          {
+            "texto": "UNIDAD"
+          },
+          {
+            "texto": "CANTIDAD"
+          },
+          {
+            "texto": "PRECIO"
+          }
+        ],
+        [
+          {
             "texto": ""
+          },
+          {
+            "texto": "ARRIENDO RETROEXCAVADORA"
+          },
+          {
+            "texto": "H/M"
+          },
+          {
+            "texto": "45"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:491"
+            }
+          }
+        ],
+        [
+          {
+            "texto": ""
+          },
+          {
+            "texto": "ARRIENDO CAMIÓN TOLVA"
+          },
+          {
+            "texto": "H/M"
+          },
+          {
+            "texto": "45"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:498"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "LÍNEA"
+          },
+          {
+            "texto": "MONTO TOTAL OFERTADO"
+          },
+          {
+            "texto": "PLAZO DE ENTREGA (DIAS HABILES)"
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 1: LETRERO DE OBRAS"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:512"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 2: ARRIENDO BAÑOS QUIMICO"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:516"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 3: MATERIALES"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:520"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LINEA 4: IMPLEMENTOS DE SEGURIDAD"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:524"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 5: IMPLEMENTOS Y HERRAMIENTAS"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:528"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 6: ARRIENDO MAQUINARIAS"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:532"
+            }
           }
         ]
       ]
