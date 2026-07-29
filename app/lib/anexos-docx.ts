@@ -175,6 +175,32 @@ export function verificarParrafos(xmlAntes: string, xmlDespues: string): Reporte
   return { parrafosIguales: parrafosAntes === parrafosDespues, parrafosAntes, parrafosDespues };
 }
 
+// Chequeo liviano de buen-formado XML — sin parser real (mismo criterio que el resto del módulo:
+// ver comentario de patrón 1b en anexos-detectar.ts sobre por qué se prefiere regex a un parser
+// completo). Pensado para atrapar EXACTAMENTE el tipo de corrupción que ya rompió un documento
+// real: un regex de extracción (el <w:sectPr> final en anexos-dividir.ts) que se comía un rango
+// de tags de más, dejando una etiqueta de cierre sin su apertura — Word literalmente se negaba a
+// abrir el archivo. verificarParrafos (arriba) solo compara CANTIDAD de párrafos del documento
+// COMBINADO antes de dividir — no alcanza a detectar que un FRAGMENTO ya dividido quedó mal
+// formado, que es justo donde pasó el bug real. Recorre TODAS las aperturas/cierres de tag con
+// una pila; si algo no calza, el documento no es XML válido y no debe subirse.
+export function verificarXmlBienFormado(xml: string): { valido: boolean; error?: string } {
+  const pila: string[] = [];
+  const reTag = /<(\/?)([a-zA-Z0-9_:.-]+)(?:\s+[^<>]*?)?(\/?)>/g;
+  let m: RegExpExecArray | null;
+  while ((m = reTag.exec(xml))) {
+    const [, cierre, nombre, autocierre] = m;
+    if (autocierre) continue; // <tag .../> no abre nada que cerrar
+    if (!cierre) { pila.push(nombre); continue; }
+    const esperado = pila.pop();
+    if (esperado !== nombre) {
+      return { valido: false, error: `se esperaba cerrar "${esperado}" pero se encontró "</${nombre}>" en la posición ${m.index}` };
+    }
+  }
+  if (pila.length > 0) return { valido: false, error: `quedaron ${pila.length} tag(s) sin cerrar: ${pila.slice(-3).join(', ')}` };
+  return { valido: true };
+}
+
 // ── Firma escaneada: inserta una IMAGEN real (no texto) en la línea de firma ─────────────
 // Distinto a todo lo de arriba: ahí se edita texto dentro de un run que ya existía; acá se
 // agrega un archivo nuevo al zip (word/media/), se registra su relación

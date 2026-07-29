@@ -96,31 +96,6 @@
       "id": "celda:77",
       "etiqueta": "CANTIDAD",
       "formulario": "ANEXO N°2 ECONOMICO"
-    },
-    {
-      "id": "celda:514",
-      "etiqueta": "$ — LÍNEA 2: ARRIENDO BAÑOS QUIMICO",
-      "formulario": "ANEXO N°2 ECONOMICO"
-    },
-    {
-      "id": "celda:518",
-      "etiqueta": "$ — LÍNEA 3: MATERIALES",
-      "formulario": "ANEXO N°2 ECONOMICO"
-    },
-    {
-      "id": "celda:522",
-      "etiqueta": "$ — LINEA 4: IMPLEMENTOS DE SEGURIDAD",
-      "formulario": "ANEXO N°2 ECONOMICO"
-    },
-    {
-      "id": "celda:526",
-      "etiqueta": "$ — LÍNEA 5: IMPLEMENTOS Y HERRAMIENTAS",
-      "formulario": "ANEXO N°2 ECONOMICO"
-    },
-    {
-      "id": "celda:530",
-      "etiqueta": "$ — LÍNEA 6: ARRIENDO MAQUINARIAS",
-      "formulario": "ANEXO N°2 ECONOMICO"
     }
   ],
   "pendientesInline": [],
@@ -150,12 +125,6 @@
             "texto": ""
           },
           {
-            "texto": ""
-          },
-          {
-            "texto": ""
-          },
-          {
             "texto": "CUARTON 4\"x 4\""
           },
           {
@@ -172,12 +141,6 @@
           }
         ],
         [
-          {
-            "texto": ""
-          },
-          {
-            "texto": ""
-          },
           {
             "texto": ""
           },
@@ -202,12 +165,6 @@
             "texto": ""
           },
           {
-            "texto": ""
-          },
-          {
-            "texto": ""
-          },
-          {
             "texto": "LIENZO DE 3,6 x 1,5 METROS"
           },
           {
@@ -221,12 +178,6 @@
           }
         ],
         [
-          {
-            "texto": ""
-          },
-          {
-            "texto": ""
-          },
           {
             "texto": ""
           },
@@ -284,10 +235,7 @@
         ],
         [
           {
-            "texto": "",
-            "input": {
-              "id": "celda:140"
-            }
+            "texto": ""
           },
           {
             "texto": "TRAZADO Y NIVELES"
@@ -299,10 +247,7 @@
             "texto": ""
           },
           {
-            "texto": "",
-            "input": {
-              "id": "celda:144"
-            }
+            "texto": ""
           }
         ],
         [
@@ -330,10 +275,7 @@
         ],
         [
           {
-            "texto": "",
-            "input": {
-              "id": "celda:150"
-            }
+            "texto": ""
           },
           {
             "texto": "MADERA DE PINO 1\" x  4\""
@@ -356,12 +298,6 @@
             "texto": "MADERA DE PINO  2x2\""
           },
           {
-            "texto": ""
-          },
-          {
-            "texto": ""
-          },
-          {
             "texto": "UN"
           },
           {
@@ -377,15 +313,6 @@
           },
           {
             "texto": "CLAVOS  2,5\""
-          },
-          {
-            "texto": ""
-          },
-          {
-            "texto": ""
-          },
-          {
-            "texto": ""
           },
           {
             "texto": "KG"
@@ -798,7 +725,10 @@
             "texto": "25.00"
           },
           {
-            "texto": ""
+            "texto": "",
+            "input": {
+              "id": "celda:279"
+            }
           }
         ],
         [
@@ -846,12 +776,6 @@
             "texto": ""
           },
           {
-            "texto": ""
-          },
-          {
-            "texto": ""
-          },
-          {
             "texto": "OTROS"
           },
           {
@@ -869,12 +793,6 @@
             "texto": ""
           },
           {
-            "texto": ""
-          },
-          {
-            "texto": ""
-          },
-          {
             "texto": "HERBICIDA"
           },
           {
@@ -884,10 +802,7 @@
             "texto": "1.0"
           },
           {
-            "texto": "",
-            "input": {
-              "id": "celda:303"
-            }
+            "texto": ""
           }
         ]
       ]

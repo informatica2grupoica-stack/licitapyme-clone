@@ -103,8 +103,24 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
 
   // El <w:sectPr> final (margen/tamaño/orientación de página) es hijo directo de <w:body>,
   // justo antes de </w:body> — se repite igual en cada fragmento para que abran igual de bien.
-  const sectPrMatch = xml.match(/<w:sectPr[^>]*>[\s\S]*?<\/w:sectPr>(?=\s*<\/w:body>)/);
-  const sectPr = sectPrMatch ? sectPrMatch[0] : '';
+  //
+  // BUG REAL encontrado y corregido acá: un documento con salto de sección a mitad (caso real:
+  // 1738-18-LE26, "ANEXO Nº1" en una orientación/margen y "ANEXO N°2 ECONOMICO" en otra) trae
+  // OTRO <w:sectPr> ANTES del final — ese va INCRUSTADO dentro del <w:pPr> del último párrafo de
+  // su sección, no como hijo directo de <w:body>. Buscar con match() (single, no global) empieza
+  // desde el PRIMER "<w:sectPr" del documento — que es ese sectPr incrustado de mitad de camino,
+  // no el final — y como el lookahead solo calza en el sectPr VERDADERO (el que sí precede a
+  // </w:body>), el "[\s\S]*?" no-greedy se ve obligado a extenderse por TODO el resto del
+  // documento para satisfacerlo. Resultado: `sectPr` terminaba siendo ~367 KB — básicamente todo
+  // el ANEXO N°2 completo metido adentro — y ese bloque gigante se pegaba DUPLICADO en cada
+  // fragmento (incluido el propio ANEXO Nº1), corrompiendo el XML (Word no podía ni abrirlo) y
+  // dejando campos sin completar porque el documento real quedaba hecho pedazos. La cantidad de
+  // <w:sectPr> reales en el documento no importa: buscando TODOS con matchAll (cada uno no-greedy
+  // hasta SU PROPIO cierre más cercano, nunca el de otro) y tomando el ÚLTIMO de la lista se
+  // obtiene siempre el que de verdad es hijo directo de <w:body> — el orden del documento lo
+  // garantiza.
+  const sectPrMatches = [...xml.matchAll(/<w:sectPr[^>]*>[\s\S]*?<\/w:sectPr>/g)];
+  const sectPr = sectPrMatches.length ? sectPrMatches[sectPrMatches.length - 1][0] : '';
 
   const resultados: FormularioDividido[] = [];
   for (const f of formularios) {

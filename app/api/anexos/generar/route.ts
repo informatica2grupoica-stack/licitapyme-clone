@@ -11,7 +11,7 @@ import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoYEmpresa } from '@/app/lib/anexos-datos';
 import { generarAnexoFinal } from '@/app/lib/anexos-rellenar';
-import { abrirDocx } from '@/app/lib/anexos-docx';
+import { abrirDocx, verificarXmlBienFormado } from '@/app/lib/anexos-docx';
 import { dividirPorFormularios } from '@/app/lib/anexos-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
 
@@ -67,18 +67,31 @@ export async function POST(request: NextRequest) {
     const { xml: xmlFinal } = await abrirDocx(resultado.buffer);
     const formularios = await dividirPorFormularios(resultado.buffer, xmlFinal);
 
-    let archivos: { nombre: string; url: string }[];
-    if (formularios.length >= 2) {
-      archivos = [];
-      for (const f of formularios) {
-        const nombre = `ANEXO_${f.nombreSufijo}_${nombreOriginal}`;
-        const url = await subirYRegistrar(codigo, nombre, f.buffer, usuario.id);
-        archivos.push({ nombre, url });
+    const candidatos = formularios.length >= 2
+      ? formularios.map(f => ({ nombre: `ANEXO_${f.nombreSufijo}_${nombreOriginal}`, buffer: f.buffer }))
+      : [{ nombre: `ANEXO_${nombreOriginal}`, buffer: resultado.buffer }];
+
+    // Antes de subir NADA: cada .docx candidato debe tener un XML bien formado — ver
+    // verificarXmlBienFormado (anexos-docx.ts). verificarParrafos (arriba) solo compara la
+    // cantidad de párrafos del documento COMBINADO antes de dividir; no alcanza a detectar que
+    // un FRAGMENTO ya dividido quedó corrupto, que es justo donde se encontró un bug real (Word
+    // se negaba a abrir el archivo). Se valida TODO antes de subir el primero para no dejar una
+    // subida a medias si un formulario sale mal y otro no.
+    for (const c of candidatos) {
+      const { xml } = await abrirDocx(c.buffer);
+      const chequeo = verificarXmlBienFormado(xml);
+      if (!chequeo.valido) {
+        return NextResponse.json(
+          { error: `El documento "${c.nombre}" quedó mal formado (${chequeo.error}). No se subió nada.` },
+          { status: 500 },
+        );
       }
-    } else {
-      const nombre = `ANEXO_${nombreOriginal}`;
-      const url = await subirYRegistrar(codigo, nombre, resultado.buffer, usuario.id);
-      archivos = [{ nombre, url }];
+    }
+
+    const archivos: { nombre: string; url: string }[] = [];
+    for (const c of candidatos) {
+      const url = await subirYRegistrar(codigo, c.nombre, c.buffer, usuario.id);
+      archivos.push({ nombre: c.nombre, url });
     }
 
     registrarActividad({
