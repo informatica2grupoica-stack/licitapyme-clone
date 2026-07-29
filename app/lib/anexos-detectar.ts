@@ -23,6 +23,95 @@ export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
   return out;
 }
 
+// ── Patrón 1b: celdas dentro de TABLAS de 3+ columnas (specs, evaluación técnica…) ────────
+// El patrón 1 asume una tabla de 2 columnas "Etiqueta | Valor" — el párrafo justo antes de la
+// celda vacía ES la etiqueta. En una tabla de más columnas (N° | Especificación | Criterio |
+// SI/NO | Observaciones), el párrafo "justo antes" de una celda vacía es apenas OTRA columna de
+// la MISMA fila (ej. "CO", el valor de Criterio) — no describe qué hay que escribir ahí. Acá se
+// arma la etiqueta con la celda MÁS LARGA de la fila (heurística: la columna de descripción
+// siempre es la más larga en una tabla de requisitos) + el nombre de columna, sacado de la
+// primera fila de la tabla (encabezado). Caso real: hallado en un Anexo de Evaluación Técnica
+// donde el patrón 1 mostraba "CO" como etiqueta cuatro veces sin poder distinguirlas.
+//
+// Límite conocido y aceptado: usa regex, no un parser XML real — una tabla ANIDADA dentro de
+// una celda puede confundir el emparejamiento de <w:tr>/<w:tc>. Bajo riesgo aquí porque solo
+// afecta la ETIQUETA mostrada al humano (nunca escribe el valor solo) — el peor caso es una
+// etiqueta rara, no un dato incorrecto en el documento.
+function offsetsAIndices(xml: string): Map<number, number> {
+  const mapa = new Map<number, number>();
+  let indice = 0;
+  for (const m of xml.matchAll(/<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>[\s\S]*?<\/w:p>/g)) {
+    mapa.set(m.index!, indice);
+    indice++;
+  }
+  return mapa;
+}
+
+interface CeldaCruda { texto: string; vacio: boolean; paraId: string | null; indiceGlobal: number | null }
+
+function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices: Map<number, number>): CeldaCruda[] {
+  const celdas: CeldaCruda[] = [];
+  for (const tc of filaXml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)) {
+    const cuerpoCelda = tc[1];
+    const parrafosCelda = [...cuerpoCelda.matchAll(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"[^>]*>([\s\S]*?)<\/w:p>/g)];
+    const textoCelda = parrafosCelda
+      .map(p => [...p[2].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join(''))
+      .join(' ').trim();
+    // Toma el ÚLTIMO párrafo sin <w:r> de la celda como candidato a rellenar — casi siempre
+    // las celdas de una tabla de specs traen un solo párrafo, así que en la práctica es el único.
+    const parrafoVacio = [...parrafosCelda].reverse().find(p => !/<w:r[ >]/.test(p[2]));
+    let paraId: string | null = null;
+    let indiceGlobal: number | null = null;
+    if (parrafoVacio && textoCelda === '') {
+      paraId = parrafoVacio[1];
+      // tc.index es la posición del <w:tc>...</w:tc> completo; cuerpoCelda (tc[1]) arranca
+      // DESPUÉS de la apertura "<w:tc...>" — hay que sumar esa diferencia para llegar a la
+      // posición real del párrafo dentro del XML completo (mismo ajuste para parrafoVacio.index,
+      // que es relativo a cuerpoCelda).
+      const offsetCelda = offsetFila + tc.index! + tc[0].indexOf(cuerpoCelda);
+      indiceGlobal = offsetsIndices.get(offsetCelda + (parrafoVacio.index ?? 0)) ?? null;
+    }
+    celdas.push({ texto: textoCelda, vacio: textoCelda === '' && paraId != null, paraId, indiceGlobal });
+  }
+  return celdas;
+}
+
+export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
+  const out: CandidatoCelda[] = [];
+  const offsetsIndices = offsetsAIndices(xml);
+
+  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
+    const cuerpoTabla = tabla[1];
+    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+    const filas = [...cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
+    if (filas.length < 2) continue; // hace falta al menos encabezado + 1 fila de datos
+
+    const [primeraFila, ...restoFilas] = filas;
+    const nombresColumna = extraerCeldasDeFila(primeraFila[1], 0, new Map()).map(c => c.texto);
+    const hayEncabezado = nombresColumna.some(t => t.length > 0);
+
+    for (const fila of restoFilas) {
+      // Mismo ajuste que arriba: fila.index es la posición del <w:tr>...</w:tr> completo, pero
+      // fila[1] (lo que se le pasa a extraerCeldasDeFila) arranca después de la apertura "<w:tr...>".
+      const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
+      const celdas = extraerCeldasDeFila(fila[1], offsetFila, offsetsIndices);
+      if (celdas.length < 3) continue; // 2 columnas ya las cubre el patrón 1 (etiqueta | valor)
+
+      let filaContexto = '';
+      for (const c of celdas) if (c.texto.length > filaContexto.length) filaContexto = c.texto;
+      if (!filaContexto) continue; // fila sin ningún texto real — no hay de dónde sacar etiqueta
+
+      celdas.forEach((c, colIndex) => {
+        if (!c.vacio || c.indiceGlobal == null || !c.paraId) return;
+        const nombreColumna = hayEncabezado ? nombresColumna[colIndex] : '';
+        const etiqueta = nombreColumna ? `${filaContexto} — ${nombreColumna}` : filaContexto;
+        out.push({ etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal });
+      });
+    }
+  }
+  return out;
+}
+
 // ── Patrón 2: subrayados dentro de una misma oración ──────────────────────────────────────
 // indiceRun es GLOBAL (posición entre TODOS los <w:t> del documento — lo que espera
 // rellenarRunPorIndice para editar). indiceParrafo ubica en qué párrafo cae (para agrupar por
@@ -126,8 +215,15 @@ export function acotarASeccionesHabilitadas(candidatos: CandidatoCelda[], seccio
 export function analizarAnexo(xml: string) {
   const parrafos = listarParrafos(xml);
   const secciones = detectarSecciones(parrafos);
-  const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos);
-  const candidatosCelda = acotarASeccionesHabilitadas(candidatosCeldaCrudos, secciones);
+
+  // El patrón de tabla (1b) va PRIMERO — tiene mejor etiqueta — y el patrón plano (1) solo
+  // aporta los índices que la tabla no reclamó, para no mostrar el mismo blanco dos veces con
+  // una etiqueta buena y otra mala ("CO").
+  const candidatosTabla = detectarCandidatosTabla(xml);
+  const indicesTabla = new Set(candidatosTabla.map(c => c.indice));
+  const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos).filter(c => !indicesTabla.has(c.indice));
+
+  const candidatosCelda = acotarASeccionesHabilitadas([...candidatosTabla, ...candidatosCeldaCrudos], secciones);
   const blancosInline = detectarBlancosInline(xml);
   return { parrafos, secciones, candidatosCelda, blancosInline };
 }
