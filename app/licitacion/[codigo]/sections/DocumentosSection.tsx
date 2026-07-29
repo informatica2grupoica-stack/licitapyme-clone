@@ -127,7 +127,7 @@ function DocItem({
         {rellenable && (
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onRellenarAnexo!({ id: doc.id as number, nombre: doc.nombre }); }}
+            onClick={(e) => { e.stopPropagation(); onRellenarAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
             className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
             title="Rellenar anexo con los datos de la empresa"
             draggable={false}

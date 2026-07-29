@@ -1,16 +1,17 @@
 'use client';
 
-// Pantalla de relleno de un anexo de oferente (.docx): analiza el documento contra los datos
-// de la empresa, muestra qué se completó solo y pide los campos que le faltan a un humano
-// (celdas sin match en el diccionario + blancos subrayados dentro de una oración). Al generar,
-// el .docx final se sube a R2 y queda registrado como documento propio — aparece en
+// Pantalla de relleno de un anexo de oferente: a la izquierda el documento REAL (visor de
+// Office Online, el mismo que usa el ojo "Ver" en Documentos), a la derecha el formulario con
+// lo que se completó solo y los campos que le faltan a un humano — para que se pueda mirar el
+// Word mientras se llena, en vez de adivinar a ciegas desde un fragmento de texto corto. Al
+// generar, el .docx final se sube a R2 y queda registrado como documento propio — aparece en
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText } from 'lucide-react';
+import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText, ExternalLink } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 
-export interface AnexoDoc { id: number; nombre: string }
+export interface AnexoDoc { id: number; nombre: string; url: string }
 
 interface CampoCompletado { etiqueta: string; campo: string; valor: string }
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
@@ -62,6 +63,7 @@ export function AnexoRellenoModal({
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
   const [generando, setGenerando] = useState(false);
+  const [cargandoVisor, setCargandoVisor] = useState(true);
 
   useEffect(() => {
     if (!doc) return;
@@ -69,6 +71,7 @@ export function AnexoRellenoModal({
     setError(null);
     setAnalisis(null);
     setRespuestas({});
+    setCargandoVisor(true);
 
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -151,7 +154,7 @@ export function AnexoRellenoModal({
       aria-label={`Rellenar anexo: ${doc.nombre}`}
     >
       <div
-        className="flex flex-col w-full max-w-xl max-h-[85vh] bg-white rounded-2xl overflow-hidden shadow-2xl"
+        className="flex flex-col w-full max-w-[1400px] h-[92vh] bg-white rounded-2xl overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Cabecera */}
@@ -160,6 +163,13 @@ export function AnexoRellenoModal({
           <p className="flex-1 min-w-0 text-[13px] font-semibold text-slate-800 truncate" title={doc.nombre}>
             {doc.nombre}
           </p>
+          <a
+            href={doc.url} target="_blank" rel="noopener noreferrer"
+            className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+            title="Abrir en pestaña nueva"
+          >
+            <ExternalLink size={15} />
+          </a>
           <button
             type="button" onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors"
@@ -168,7 +178,25 @@ export function AnexoRellenoModal({
           </button>
         </div>
 
-        {/* Cuerpo */}
+        {/* Cuerpo: visor del documento a la izquierda, formulario a la derecha */}
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+          {/* Visor — mismo mecanismo que el ojo "Ver" en Documentos (Office Online embed) */}
+          <div className="relative w-full lg:w-1/2 h-64 lg:h-full bg-slate-100 border-b lg:border-b-0 lg:border-r border-slate-200 flex-shrink-0">
+            {cargandoVisor && (
+              <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
+                <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
+              </div>
+            )}
+            <iframe
+              src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.url)}`}
+              title={doc.nombre}
+              className="w-full h-full border-0"
+              onLoad={() => setCargandoVisor(false)}
+            />
+          </div>
+
+          {/* Formulario */}
+          <div className="flex-1 min-h-0 flex flex-col">
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {cargando && (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
@@ -289,6 +317,8 @@ export function AnexoRellenoModal({
             </button>
           </div>
         )}
+          </div>
+        </div>
       </div>
     </div>,
     document.body,
