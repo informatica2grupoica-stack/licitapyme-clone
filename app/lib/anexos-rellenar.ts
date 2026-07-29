@@ -1,11 +1,11 @@
 // app/lib/anexos-rellenar.ts
-// Frente E.1 — orquestador de alto nivel: junta detección + diccionario + relleno. Expone dos
-// funciones puras (buffer → resultado, sin DB ni R2 — eso vive en anexos-datos.ts):
+// Frente E.1 — orquestador de alto nivel: junta detección + diccionario + respaldo IA + relleno.
+// Expone dos funciones puras (buffer → resultado, sin DB ni R2 — eso vive en anexos-datos.ts):
 //
 //   analizarAnexoParaUI()  — SOLO LECTURA. Para la pantalla: qué se completaría solo y qué le
 //                            falta a un humano, con un id ESTABLE por cada pendiente para que
 //                            el formulario pueda mandarlo de vuelta en generarAnexoFinal().
-//   generarAnexoFinal()    — aplica el auto-relleno del diccionario MÁS las respuestas del
+//   generarAnexoFinal()    — aplica el auto-relleno (diccionario + IA) MÁS las respuestas del
 //                            humano, y devuelve el .docx final.
 //
 // Como no hay estado entre una llamada HTTP y la otra (analizar y generar son requests
@@ -18,11 +18,12 @@ import {
   normalizarParaIds, rellenarCeldaVacia, rellenarRunPorIndice,
   verificarParrafos, abrirDocx, guardarDocx,
 } from '@/app/lib/anexos-docx';
-import { analizarAnexo } from '@/app/lib/anexos-detectar';
+import { analizarAnexo, type CandidatoCelda } from '@/app/lib/anexos-detectar';
 import { buscarCampo, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
+import { matchearConIA } from '@/app/lib/anexos-ia-matching';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 
-export interface CampoCompletado { etiqueta: string; campo: string; valor: string }
+export interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' }
 export interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
 export interface PendienteInline { id: string; contexto: string; formulario?: string }
 export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: string }
@@ -34,6 +35,24 @@ export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: 
 // cuál. Si el documento no tiene ese patrón, todos quedan sin grupo (undefined) — no cambia nada.
 function formularioDe(indiceParrafo: number, formularios: FormularioDetectado[]): string | undefined {
   return formularios.find(f => indiceParrafo >= f.indiceInicio && indiceParrafo <= f.indiceFin)?.titulo;
+}
+
+// Separa los candidatos de celda en "se completan con el diccionario" y "les falta match" —
+// compartido entre analizarAnexoParaUI y generarAnexoFinal para no duplicar la lógica.
+function aplicarDiccionario(candidatos: CandidatoCelda[], empresa: EmpresaCampos) {
+  const matcheados: { c: CandidatoCelda; campo: string; valor: string }[] = [];
+  const sinMatch: CandidatoCelda[] = [];
+  const camposYaUsados = new Set<string>();
+  for (const c of candidatos) {
+    const match = buscarCampo(c.etiqueta, empresa);
+    if (match && !camposYaUsados.has(match.campo)) {
+      matcheados.push({ c, campo: match.campo, valor: match.valor });
+      camposYaUsados.add(match.campo);
+    } else {
+      sinMatch.push(c);
+    }
+  }
+  return { matcheados, sinMatch, camposYaUsados };
 }
 
 export interface AnalisisAnexo {
@@ -50,15 +69,21 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
   const formularios = detectarFormularios(xmlNormalizado);
 
   const completadosAuto: CampoCompletado[] = [];
-  const pendientesCelda: PendienteCelda[] = [];
-  const camposYaUsados = new Set<string>();
+  const { matcheados, sinMatch, camposYaUsados } = aplicarDiccionario(analisis.candidatosCelda, empresa);
+  for (const m of matcheados) completadosAuto.push({ etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: 'diccionario' });
 
-  for (const c of analisis.candidatosCelda) {
-    const match = buscarCampo(c.etiqueta, empresa);
-    if (match && !camposYaUsados.has(match.campo)) {
-      completadosAuto.push({ etiqueta: c.etiqueta, campo: match.campo, valor: match.valor });
-      camposYaUsados.add(match.campo);
-    } else if (!match) {
+  // Respaldo IA: solo para lo que el diccionario no pudo matchear.
+  const matchesIA = await matchearConIA(sinMatch.map(c => c.etiqueta), empresa);
+  const mapaIA = new Map(matchesIA.map(m => [m.etiqueta, m.campo]));
+
+  const pendientesCelda: PendienteCelda[] = [];
+  for (const c of sinMatch) {
+    const campoIA = mapaIA.get(c.etiqueta);
+    const valorIA = campoIA ? empresa[campoIA] : null;
+    if (campoIA && valorIA && !camposYaUsados.has(campoIA)) {
+      completadosAuto.push({ etiqueta: c.etiqueta, campo: campoIA, valor: String(valorIA), via: 'ia' });
+      camposYaUsados.add(campoIA);
+    } else {
       pendientesCelda.push({ id: `celda:${c.indice}`, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios) });
     }
   }
@@ -114,15 +139,23 @@ export async function generarAnexoFinal(
     xml = rellenarRunPorIndice(xml, indiceRun, ediciones);
   }
 
-  // 2) Celdas de tabla: automáticas (diccionario) + manuales (lo que el humano escribió para
-  //    las que no matchearon). Van después — ver comentario arriba.
+  // 2) Celdas de tabla: diccionario → respaldo IA → lo que escribió el humano. Van después —
+  //    ver comentario arriba.
   let completados = 0;
-  const camposYaUsados = new Set<string>();
-  for (const c of analisis.candidatosCelda) {
-    const match = buscarCampo(c.etiqueta, empresa);
-    if (match && !camposYaUsados.has(match.campo)) {
-      xml = rellenarCeldaVacia(xml, c.paraId, match.valor);
-      camposYaUsados.add(match.campo);
+  const { matcheados, sinMatch, camposYaUsados } = aplicarDiccionario(analisis.candidatosCelda, empresa);
+  for (const m of matcheados) {
+    xml = rellenarCeldaVacia(xml, m.c.paraId, m.valor);
+    completados++;
+  }
+
+  const matchesIA = await matchearConIA(sinMatch.map(c => c.etiqueta), empresa);
+  const mapaIA = new Map(matchesIA.map(m => [m.etiqueta, m.campo]));
+  for (const c of sinMatch) {
+    const campoIA = mapaIA.get(c.etiqueta);
+    const valorIA = campoIA ? empresa[campoIA] : null;
+    if (campoIA && valorIA && !camposYaUsados.has(campoIA)) {
+      xml = rellenarCeldaVacia(xml, c.paraId, String(valorIA));
+      camposYaUsados.add(campoIA);
       completados++;
     } else {
       const respuesta = respuestas[`celda:${c.indice}`];

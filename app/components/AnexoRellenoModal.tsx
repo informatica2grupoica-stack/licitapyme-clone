@@ -13,7 +13,7 @@ import { useToast } from '@/app/components/ui/toast';
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
-interface CampoCompletado { etiqueta: string; campo: string; valor: string }
+interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' }
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
 interface PendienteInline { id: string; contexto: string; formulario?: string }
 
@@ -221,7 +221,14 @@ export function AnexoRellenoModal({
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 divide-y divide-emerald-100">
                     {analisis.completadosAuto.map((c, i) => (
                       <div key={i} className="flex items-center justify-between gap-3 px-3 py-1.5 text-[12px]">
-                        <span className="text-emerald-800 font-medium truncate">{c.etiqueta}</span>
+                        <span className="text-emerald-800 font-medium truncate flex items-center gap-1.5">
+                          {c.etiqueta}
+                          {c.via === 'ia' && (
+                            <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700" title="Completado por IA (no por match exacto del diccionario)">
+                              IA
+                            </span>
+                          )}
+                        </span>
                         <span className="text-emerald-700 truncate">{c.valor}</span>
                       </div>
                     ))}
