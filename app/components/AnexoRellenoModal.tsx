@@ -21,6 +21,7 @@ interface Analisis {
   completadosAuto: CampoCompletado[];
   pendientesCelda: PendienteCelda[];
   pendientesInline: PendienteInline[];
+  firma: { detectada: boolean; disponible: boolean };
 }
 
 // Un pendiente unificado (celda o blanco inline) con la etiqueta ya lista para mostrar — usado
@@ -213,6 +214,16 @@ export function AnexoRellenoModal({
 
           {!cargando && !error && analisis && (
             <>
+              {analisis.firma.detectada && !analisis.firma.disponible && (
+                <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-[12.5px] text-amber-800">
+                    Este documento tiene línea de firma, pero la empresa no tiene una firma escaneada cargada — la línea queda en blanco.
+                    Súbela en <strong>/empresas</strong> (sección "Firma escaneada") para que se inserte sola la próxima vez.
+                  </p>
+                </div>
+              )}
+
               {analisis.completadosAuto.length > 0 && (
                 <div className="space-y-1.5">
                   <p className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider flex items-center gap-1">

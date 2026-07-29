@@ -211,7 +211,45 @@ export function acotarASeccionesHabilitadas(candidatos: CandidatoCelda[], seccio
   return candidatos.filter(c => !rangosOmitidos.some(r => c.indice >= r.indiceInicio && c.indice <= r.indiceFin));
 }
 
-// ── Punto de entrada: analiza un XML completo y devuelve los 3 patrones + secciones ───────
+// ── Patrón 4: línea de firma ("____________" + "Firma del Oferente...") ──────────────────
+// Patrón real visto en TODOS los anexos con firma: un párrafo que es SOLO una raya larga,
+// seguido (1-2 párrafos después, a veces con una línea en blanco entre medio) por una leyenda
+// que menciona "firma". Es DISTINTO al blanco inline (patrón 2): no se le pide texto al humano,
+// se le ofrece insertar la IMAGEN de la firma guardada en la ficha de la empresa (si existe) —
+// ver insertarImagenEnParrafo() en anexos-docx.ts.
+export interface LineaFirma { paraId: string; indice: number; contexto: string }
+
+const RE_RAYA_LARGA = /^_{10,}$/;
+// La leyenda bajo la raya no siempre dice "firma" — un caso real dice "Nombre Persona Natural o
+// Representante legal..." sin esa palabra. "representante legal" / "persona natural" al pie de
+// una raya de 10+ guiones es, en la práctica, siempre un bloque de firma en estos documentos.
+const RE_LEYENDA_FIRMA = /firma|representante\s+legal|persona\s+natural/i;
+
+export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
+  const out: LineaFirma[] = [];
+  for (let i = 0; i < parrafos.length; i++) {
+    const p = parrafos[i];
+
+    // Caso A: la raya ES todo el párrafo — la leyenda viene en el/los párrafo(s) siguiente(s)
+    // ("____________\nFirma del Oferente...", en párrafos separados).
+    if (RE_RAYA_LARGA.test(p.texto)) {
+      const siguiente1 = parrafos[i + 1]?.texto || '';
+      const siguiente2 = parrafos[i + 2]?.texto || '';
+      const contexto = RE_LEYENDA_FIRMA.test(siguiente1) ? siguiente1 : (RE_LEYENDA_FIRMA.test(siguiente2) ? siguiente2 : '');
+      if (contexto) { out.push({ paraId: p.paraId, indice: p.indice, contexto }); continue; }
+    }
+
+    // Caso B: la raya y la leyenda comparten el MISMO párrafo — otro patrón real visto
+    // ("____________________ Nombre Persona Natural o Representante legal...", todo junto).
+    const compuesto = p.texto.match(/^_{10,}\s*(.+)$/);
+    if (compuesto && RE_LEYENDA_FIRMA.test(compuesto[1])) {
+      out.push({ paraId: p.paraId, indice: p.indice, contexto: compuesto[1].trim() });
+    }
+  }
+  return out;
+}
+
+// ── Punto de entrada: analiza un XML completo y devuelve los patrones + secciones ─────────
 export function analizarAnexo(xml: string) {
   const parrafos = listarParrafos(xml);
   const secciones = detectarSecciones(parrafos);
@@ -224,6 +262,12 @@ export function analizarAnexo(xml: string) {
   const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos).filter(c => !indicesTabla.has(c.indice));
 
   const candidatosCelda = acotarASeccionesHabilitadas([...candidatosTabla, ...candidatosCeldaCrudos], secciones);
-  const blancosInline = detectarBlancosInline(xml);
-  return { parrafos, secciones, candidatosCelda, blancosInline };
+
+  const lineasFirma = detectarLineasFirma(parrafos);
+  const indicesFirma = new Set(lineasFirma.map(f => f.indice));
+  // La raya de una línea de firma también matchea el patrón 2 (blanco inline, "_{4,}") — se
+  // excluye de ahí para no ofrecer un input de texto Y la firma para el mismo párrafo.
+  const blancosInline = detectarBlancosInline(xml).filter(b => !indicesFirma.has(b.indiceParrafo));
+
+  return { parrafos, secciones, candidatosCelda, blancosInline, lineasFirma };
 }

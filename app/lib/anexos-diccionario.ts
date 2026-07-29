@@ -26,6 +26,7 @@ export interface EmpresaCampos {
   banco_numero: string | null;
   banco_nombre: string | null;
   banco_email: string | null;
+  firma_url: string | null;
 }
 
 interface EntradaDiccionario {

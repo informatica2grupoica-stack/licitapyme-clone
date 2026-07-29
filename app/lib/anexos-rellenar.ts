@@ -15,7 +15,7 @@
 // simple orden de un regex.matchAll) es determinístico para el mismo documento sin importar
 // qué string de paraId le haya tocado esta vez — por eso los ids usan índice, nunca paraId.
 import {
-  normalizarParaIds, rellenarCeldaVacia, rellenarRunPorIndice,
+  normalizarParaIds, rellenarCeldaVacia, rellenarRunPorIndice, insertarImagenEnParrafo,
   verificarParrafos, abrirDocx, guardarDocx,
 } from '@/app/lib/anexos-docx';
 import { analizarAnexo, type CandidatoCelda } from '@/app/lib/anexos-detectar';
@@ -55,11 +55,32 @@ function aplicarDiccionario(candidatos: CandidatoCelda[], empresa: EmpresaCampos
   return { matcheados, sinMatch, camposYaUsados };
 }
 
+// Descarga la firma escaneada desde su URL pública (R2) y detecta su extensión real por
+// Content-Type (más confiable que confiar en el nombre del archivo). null si falla o no hay
+// firma cargada — nunca rompe el análisis/generación completa por esto.
+async function descargarFirma(firmaUrl: string): Promise<{ buffer: Buffer; extension: string } | null> {
+  try {
+    const res = await fetch(firmaUrl);
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const contentType = res.headers.get('content-type') || '';
+    const extension = /png/i.test(contentType) ? 'png'
+      : /jpe?g/i.test(contentType) ? 'jpg'
+      : (firmaUrl.split('.').pop() || 'png').split('?')[0].toLowerCase();
+    return { buffer, extension };
+  } catch {
+    return null;
+  }
+}
+
+export interface FirmaInfo { detectada: boolean; disponible: boolean }
+
 export interface AnalisisAnexo {
   completadosAuto: CampoCompletado[];
   pendientesCelda: PendienteCelda[];
   pendientesInline: PendienteInline[];
   secciones: SeccionInfo[];
+  firma: FirmaInfo;
 }
 
 export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: EmpresaCampos): Promise<AnalisisAnexo> {
@@ -94,11 +115,17 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
     formulario: formularioDe(b.indiceParrafo, formularios),
   }));
 
+  const firma: FirmaInfo = { detectada: analisis.lineasFirma.length > 0, disponible: !!empresa.firma_url };
+  if (firma.detectada && firma.disponible) {
+    completadosAuto.push({ etiqueta: 'Firma', campo: 'firma_url', valor: '(imagen de la firma guardada)', via: 'diccionario' });
+  }
+
   return {
     completadosAuto,
     pendientesCelda,
     pendientesInline,
     secciones: analisis.secciones.map(s => ({ tipo: s.tipo, decision: s.decision, textoEncabezado: s.textoEncabezado })),
+    firma,
   };
 }
 
@@ -162,6 +189,21 @@ export async function generarAnexoFinal(
       if (respuesta && respuesta.trim()) {
         xml = rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
         respondidos++;
+      }
+    }
+  }
+
+  // 3) Línea de firma: inserta la IMAGEN real (no texto) si la empresa tiene una firma
+  //    escaneada cargada. Va AL FINAL a propósito: insertarImagenEnParrafo() quita el <w:t> de
+  //    la raya de subrayado y lo reemplaza por un <w:drawing> — eso cambia la cuenta global de
+  //    <w:t> del documento, así que tiene que correr DESPUÉS del paso 1 (que todavía depende de
+  //    esa cuenta para ubicar runs por índice). El paso 2 no le importa el orden porque ubica
+  //    todo por paraId, nunca por índice.
+  if (analisis.lineasFirma.length > 0 && empresa.firma_url) {
+    const firma = await descargarFirma(empresa.firma_url);
+    if (firma) {
+      for (const linea of analisis.lineasFirma) {
+        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension);
       }
     }
   }

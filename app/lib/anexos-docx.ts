@@ -173,6 +173,148 @@ export function verificarParrafos(xmlAntes: string, xmlDespues: string): Reporte
   return { parrafosIguales: parrafosAntes === parrafosDespues, parrafosAntes, parrafosDespues };
 }
 
+// ── Firma escaneada: inserta una IMAGEN real (no texto) en la línea de firma ─────────────
+// Distinto a todo lo de arriba: ahí se edita texto dentro de un run que ya existía; acá se
+// agrega un archivo nuevo al zip (word/media/), se registra su relación
+// (word/_rels/document.xml.rels) y su tipo MIME ([Content_Types].xml), y se referencia desde
+// un <w:drawing> — el mecanismo real de OOXML para incrustar una imagen, no un atajo.
+function leerDimensionesImagen(buf: Buffer): { anchoPx: number; altoPx: number } | null {
+  // PNG: firma de 8 bytes + chunk IHDR con ancho/alto en los bytes 16-23 (big-endian).
+  if (buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return { anchoPx: buf.readUInt32BE(16), altoPx: buf.readUInt32BE(20) };
+  }
+  // JPEG: recorre marcadores hasta el primer SOFn (0xC0-0xC3), que trae alto/ancho.
+  if (buf.length > 4 && buf[0] === 0xff && buf[1] === 0xd8) {
+    let i = 2;
+    while (i < buf.length - 9) {
+      if (buf[i] !== 0xff) { i++; continue; }
+      const marcador = buf[i + 1];
+      if (marcador >= 0xc0 && marcador <= 0xc3) {
+        return { altoPx: buf.readUInt16BE(i + 5), anchoPx: buf.readUInt16BE(i + 7) };
+      }
+      i += 2 + buf.readUInt16BE(i + 2);
+    }
+  }
+  return null;
+}
+
+const EMU_POR_CM = 360000;
+
+// Inserta la imagen DENTRO del párrafo identificado por paraId — mismo principio que
+// rellenarCeldaVacia: nunca se agrega/quita un <w:p>, solo se reemplaza lo que hay adentro (acá,
+// la raya de subrayado por el dibujo). anchoCm fijo con alto proporcional a la imagen real (o
+// 0.4:1 si no se pudo leer sus dimensiones — proporción típica de una firma escaneada).
+export async function insertarImagenEnParrafo(
+  zip: JSZip,
+  xml: string,
+  paraId: string,
+  imagen: Buffer,
+  extension: string,
+  anchoCm = 3.5,
+): Promise<string> {
+  const dim = leerDimensionesImagen(imagen);
+  const relacionAltoAncho = dim && dim.anchoPx > 0 ? dim.altoPx / dim.anchoPx : 0.4;
+  const anchoEmu = Math.round(anchoCm * EMU_POR_CM);
+  const altoEmu = Math.round(anchoEmu * relacionAltoAncho);
+
+  const nombreImagen = `imagen_firma_${paraId}.${extension}`;
+  zip.file(`word/media/${nombreImagen}`, imagen);
+
+  const relsPath = 'word/_rels/document.xml.rels';
+  const relsFile = zip.file(relsPath);
+  let relsXml = relsFile
+    ? await relsFile.async('string')
+    : '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>';
+  const idsExistentes = [...relsXml.matchAll(/Id="rId(\d+)"/g)].map(m => Number(m[1]));
+  const nuevoId = `rId${(idsExistentes.length ? Math.max(...idsExistentes) : 0) + 1}`;
+  const nuevaRelacion = `<Relationship Id="${nuevoId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${nombreImagen}"/>`;
+  // Un documento SIN relaciones previas trae <Relationships .../> autocerrado (no siempre hay
+  // un </Relationships> literal que buscar) — hay que abrirlo antes de poder insertar adentro.
+  relsXml = /<Relationships[^>]*\/>/.test(relsXml)
+    ? relsXml.replace(/<Relationships([^>]*)\/>/, `<Relationships$1>${nuevaRelacion}</Relationships>`)
+    : relsXml.replace('</Relationships>', `${nuevaRelacion}</Relationships>`);
+  zip.file(relsPath, relsXml);
+
+  const ctPath = '[Content_Types].xml';
+  const ctFile = zip.file(ctPath);
+  if (ctFile) {
+    let ctXml = await ctFile.async('string');
+    const extLower = extension.toLowerCase();
+    if (!new RegExp(`Extension="${extLower}"`, 'i').test(ctXml)) {
+      const mime = extLower === 'png' ? 'image/png' : /^jpe?g$/.test(extLower) ? 'image/jpeg' : `image/${extLower}`;
+      ctXml = ctXml.replace('</Types>', `<Default Extension="${extLower}" ContentType="${mime}"/></Types>`);
+      zip.file(ctPath, ctXml);
+    }
+  }
+
+  // Namespaces del dibujo (wp/a/pic/r) — no todos los documentos los declaran de entrada
+  // (solo hace falta si el documento ya trae imágenes propias); se agregan al <w:document> si
+  // faltan, mismo mecanismo que normalizarParaIds() usa para w14.
+  let xmlConNamespaces = xml;
+  const NS: Record<string, string> = {
+    wp: 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
+    a: 'http://schemas.openxmlformats.org/drawingml/2006/main',
+    pic: 'http://schemas.openxmlformats.org/drawingml/2006/picture',
+    r: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+  };
+  for (const [prefijo, uri] of Object.entries(NS)) {
+    if (!new RegExp(`xmlns:${prefijo}=`).test(xmlConNamespaces)) {
+      xmlConNamespaces = xmlConNamespaces.replace(/<w:document /, `<w:document xmlns:${prefijo}="${uri}" `);
+    }
+  }
+
+  const idDocPr = Math.floor(Math.random() * 1_000_000) + 100;
+  const drawing = `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">`
+    + `<wp:extent cx="${anchoEmu}" cy="${altoEmu}"/>`
+    + `<wp:effectExtent l="0" t="0" r="0" b="0"/>`
+    + `<wp:docPr id="${idDocPr}" name="Firma"/>`
+    + `<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`
+    + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">`
+    + `<pic:pic><pic:nvPicPr><pic:cNvPr id="${idDocPr}" name="Firma"/><pic:cNvPicPr/></pic:nvPicPr>`
+    + `<pic:blipFill><a:blip r:embed="${nuevoId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`
+    + `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${anchoEmu}" cy="${altoEmu}"/></a:xfrm>`
+    + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>`
+    + `</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+
+  const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);
+  const m = xmlConNamespaces.match(re);
+  if (!m) throw new Error(`No se encontró el párrafo w14:paraId="${paraId}" para insertar la firma`);
+  const [entero, apertura, cuerpo, cierre] = m;
+
+  // Si el párrafo trae SOLO la raya (patrón A), no hay nada más que preservar: se limpian
+  // todos sus <w:r> y se deja el dibujo. Si la raya y la leyenda comparten párrafo (patrón B),
+  // hay dos sub-casos reales encontrados:
+  //   B1) raya y leyenda en RUNS separados → se ubica el run puntual de la raya y se reemplaza
+  //       solo ese, la leyenda (en su propio run) queda intacta sin tocarla.
+  //   B2) raya y leyenda van JUNTAS en el mismo <w:t> del mismo run (caso real: "____________
+  //       Nombre Persona Natural...") → reemplazar el run entero se comería la leyenda también.
+  //       Acá se separa en dos: el dibujo + un run de texto NUEVO (mismo rPr, para heredar el
+  //       formato) que conserva solo la parte de leyenda.
+  const runs = [...cuerpo.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)];
+  const runRaya = runs.find(r => {
+    const textoRun = [...r[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('');
+    return /^_{10,}/.test(textoRun.trim());
+  });
+
+  let nuevoCuerpo: string;
+  if (runRaya) {
+    const textoRunCompleto = [...runRaya[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('');
+    const restoTexto = textoRunCompleto.replace(/^_+\s*/, '');
+    if (restoTexto.trim()) {
+      const rPrMatch = runRaya[0].match(/<w:rPr>[\s\S]*?<\/w:rPr>/);
+      const runLeyenda = `<w:r>${rPrMatch ? rPrMatch[0] : ''}<w:t xml:space="preserve">${xmlEscape(restoTexto)}</w:t></w:r>`;
+      nuevoCuerpo = cuerpo.replace(runRaya[0], drawing + runLeyenda);
+    } else {
+      nuevoCuerpo = cuerpo.replace(runRaya[0], drawing);
+    }
+  } else {
+    nuevoCuerpo = cuerpo.replace(/<w:r\b[\s\S]*?<\/w:r>/g, '') + drawing; // fallback: no se identificó un run puntual
+  }
+
+  return xmlConNamespaces.slice(0, m.index) + apertura + nuevoCuerpo + cierre
+    + xmlConNamespaces.slice((m.index ?? 0) + entero.length);
+}
+
 // ── Abrir / guardar el .docx completo (ZIP) ───────────────────────────────────────────────
 export async function abrirDocx(buffer: Buffer): Promise<{ zip: JSZip; xml: string }> {
   const zip = await JSZip.loadAsync(buffer);
