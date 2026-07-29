@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Scripts sueltos (npx tsx scripts/...) — nunca se importan desde la app ni se empaquetan,
+    // son diagnósticos/migraciones de una sola vez donde `any` en filas de DB es aceptable.
+    "scripts/**",
   ]),
 ]);
 

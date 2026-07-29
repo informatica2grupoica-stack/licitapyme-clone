@@ -8,8 +8,14 @@
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText, ExternalLink } from 'lucide-react';
+import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText, ExternalLink, Download } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
+
+// Mismo problema que el visor del ojo "Ver" en Documentos (ver DocumentViewerModal): el visor
+// de Office de Microsoft no avisa si el documento real nunca termina de cargar adentro suyo —
+// a veces se queda pegado sin mostrar nada ni error. Pasado este tiempo sin confirmación, se
+// muestra un aviso con la salida real (abrir/descargar) en vez de un spinner para siempre.
+const TIMEOUT_VISOR_OFFICE_MS = 14_000;
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
@@ -110,6 +116,8 @@ export function AnexoRellenoModal({
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
   const [generando, setGenerando] = useState(false);
   const [cargandoVisor, setCargandoVisor] = useState(true);
+  const [visorLento, setVisorLento] = useState(false);
+  const [avisoLentoCerrado, setAvisoLentoCerrado] = useState(false);
 
   useEffect(() => {
     if (!doc) return;
@@ -118,16 +126,19 @@ export function AnexoRellenoModal({
     setAnalisis(null);
     setRespuestas({});
     setCargandoVisor(true);
+    setVisorLento(false);
+    setAvisoLentoCerrado(false);
 
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    const timerVisor = window.setTimeout(() => setVisorLento(true), TIMEOUT_VISOR_OFFICE_MS);
 
     if (!empresaId) {
       setCargando(false);
       setError('Esta licitación no tiene una empresa asignada. Asígnala en «Información Comercial» antes de rellenar anexos.');
-      return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; };
+      return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; window.clearTimeout(timerVisor); };
     }
 
     const params = new URLSearchParams({ codigo, documentoId: String(doc.id), empresaId: String(empresaId) });
@@ -140,7 +151,7 @@ export function AnexoRellenoModal({
       .catch(e => setError(e.message || 'Error al analizar el documento'))
       .finally(() => setCargando(false));
 
-    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; };
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; window.clearTimeout(timerVisor); };
   }, [doc, codigo, empresaId, onClose]);
 
   if (!doc) return null;
@@ -240,7 +251,7 @@ export function AnexoRellenoModal({
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
           {/* Visor — mismo mecanismo que el ojo "Ver" en Documentos (Office Online embed) */}
           <div className="relative w-full lg:w-1/2 h-64 lg:h-full bg-slate-100 border-b lg:border-b-0 lg:border-r border-slate-200 flex-shrink-0">
-            {cargandoVisor && (
+            {cargandoVisor && !visorLento && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
                 <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
               </div>
@@ -251,6 +262,37 @@ export function AnexoRellenoModal({
               className="w-full h-full border-0"
               onLoad={() => setCargandoVisor(false)}
             />
+            {visorLento && !avisoLentoCerrado && (
+              <div className="absolute top-3 left-3 right-3 z-10 flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl shadow-lg">
+                <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12.5px] text-amber-800">
+                    El visor de Microsoft está tardando más de lo normal (servicio externo sin garantía) — si no ves el documento, abrilo directo:
+                  </p>
+                  <div className="flex items-center gap-2 mt-2">
+                    <a
+                      href={doc.url} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-[12px] font-semibold rounded-lg transition-colors"
+                    >
+                      <ExternalLink size={12} /> Abrir en pestaña nueva
+                    </a>
+                    <a
+                      href={doc.url} download={doc.nombre}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-[12px] font-semibold rounded-lg transition-colors"
+                    >
+                      <Download size={12} /> Descargar
+                    </a>
+                  </div>
+                </div>
+                <button
+                  type="button" onClick={() => setAvisoLentoCerrado(true)}
+                  className="p-1 text-amber-400 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-colors flex-shrink-0"
+                  aria-label="Cerrar aviso"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Formulario */}

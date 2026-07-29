@@ -11,7 +11,15 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, ExternalLink, FileText, FileQuestion, Loader2 } from 'lucide-react';
+import { X, Download, ExternalLink, FileText, FileQuestion, Loader2, AlertTriangle } from 'lucide-react';
+
+// El visor de Office (view.officeapps.live.com) es un servicio gratuito de Microsoft sin
+// garantía de servicio: a veces se queda pegado en "buscando el archivo" indefinidamente sin
+// avisar nada — probado en vivo con un documento que un rato antes había cargado bien y de
+// golpe dejó de responder. Si a los N segundos sigue "cargando", se asume que no va a
+// responder y se muestra la salida real (abrir en pestaña nueva / descargar) en vez de dejar
+// a la persona mirando un spinner para siempre o el error feo de Word/Excel sin ninguna acción.
+const TIMEOUT_VISOR_OFFICE_MS = 14_000;
 
 export interface VisorDoc { nombre: string; url: string }
 
@@ -32,17 +40,23 @@ export function tipoDe(nombre: string, url: string): Tipo {
 
 export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; onClose: () => void }) {
   const [cargando, setCargando] = useState(true);
+  const [visorLento, setVisorLento] = useState(false);
+  const [avisoLentoCerrado, setAvisoLentoCerrado] = useState(false);
 
   useEffect(() => {
     if (!doc) return;
     setCargando(true);
+    setVisorLento(false);
+    setAvisoLentoCerrado(false);
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    const timer = window.setTimeout(() => setVisorLento(true), TIMEOUT_VISOR_OFFICE_MS);
     return () => {
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
+      window.clearTimeout(timer);
     };
   }, [doc, onClose]);
 
@@ -101,7 +115,19 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
 
         {/* Cuerpo */}
         <div className="flex-1 min-h-0 bg-slate-100 relative">
-          {(tipo === 'pdf' || tipo === 'office') && cargando && (
+          {tipo === 'pdf' && cargando && (
+            <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
+              <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
+            </div>
+          )}
+
+          {/* El visor de Office (Microsoft) NO expone cuándo el documento ya renderizó de verdad
+              adentro suyo — el iframe apunta a la página shell de Microsoft, que carga rápido
+              (dispara onLoad) mucho antes de que el documento real termine de buscarse/mostrarse
+              (o falle en silencio). Por eso, para 'office', el spinner de carga se muestra un
+              tiempo fijo corto y luego el aviso de abajo (visorLento) queda como red de
+              seguridad — nunca podemos saber con certeza si terminó, solo ofrecer la salida real. */}
+          {tipo === 'office' && cargando && !visorLento && (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
               <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
             </div>
@@ -130,6 +156,38 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
               className="w-full h-full border-0"
               onLoad={() => setCargando(false)}
             />
+          )}
+
+          {tipo === 'office' && visorLento && !avisoLentoCerrado && (
+            <div className="absolute top-3 left-3 right-3 z-10 flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl shadow-lg">
+              <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[12.5px] text-amber-800">
+                  El visor de Microsoft está tardando más de lo normal (es un servicio externo sin garantía) — si no ves el documento, abrilo directo:
+                </p>
+                <div className="flex items-center gap-2 mt-2">
+                  <a
+                    href={doc.url} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-[12px] font-semibold rounded-lg transition-colors"
+                  >
+                    <ExternalLink size={12} /> Abrir en pestaña nueva
+                  </a>
+                  <a
+                    href={doc.url} download={doc.nombre}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-[12px] font-semibold rounded-lg transition-colors"
+                  >
+                    <Download size={12} /> Descargar
+                  </a>
+                </div>
+              </div>
+              <button
+                type="button" onClick={() => setAvisoLentoCerrado(true)}
+                className="p-1 text-amber-400 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-colors flex-shrink-0"
+                aria-label="Cerrar aviso"
+              >
+                <X size={14} />
+              </button>
+            </div>
           )}
 
           {tipo === 'otro' && (
