@@ -34,20 +34,20 @@ function TablaReal({
   tabla, respuestas, onChange,
 }: { tabla: TablaUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full text-[11.5px] border-collapse">
+    <div className="overflow-x-auto rounded-lg border border-slate-200 max-w-full">
+      <table className="w-full text-[11.5px] border-collapse table-fixed">
         <tbody>
           {tabla.filas.map((fila, i) => (
             <tr key={i} className={i === 0 ? 'bg-slate-100' : 'odd:bg-white even:bg-slate-50/60'}>
               {fila.map((c, j) => (
-                <td key={j} className={`border border-slate-200 px-2 py-1 align-middle whitespace-nowrap ${i === 0 ? 'font-semibold text-slate-700' : ''}`}>
+                <td key={j} className={`border border-slate-200 px-2 py-1 align-middle break-words ${i === 0 ? 'font-semibold text-slate-700' : ''}`}>
                   {c.input ? (
                     <input
                       type="text"
                       value={respuestas[c.input.id] || ''}
                       onChange={e => onChange(c.input!.id, e.target.value)}
                       placeholder="…"
-                      className="w-full min-w-[80px] text-[11.5px] px-1.5 py-1 border border-indigo-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                      className="w-full min-w-0 text-[11.5px] px-1.5 py-1 border border-indigo-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
                     />
                   ) : c.auto ? (
                     <span

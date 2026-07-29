@@ -47,6 +47,7 @@ const DICCIONARIO: EntradaDiccionario[] = [
     new RegExp(`^nombre\\s+o\\s+raz[óo]n\\s+social${SUFIJO_OFERENTE}$`, 'i'),
     new RegExp(`^nombre\\s+(completo\\s+)?del\\s+(proponente|oferente)\\s+o\\s+raz[óo]n\\s+social$`, 'i'),
     /^empresa$/i,
+    /^identificaci[óo]n\s+del\s+oferente$/i,
   ] },
   { campo: 'rut', patrones: [
     /^rol\s+[úu]nico\s+tributario$/i,
@@ -63,6 +64,7 @@ const DICCIONARIO: EntradaDiccionario[] = [
   { campo: 'representante_nombre', patrones: [
     /^nombre\s+(completo\s+)?(del\s+|de\s+)?rep(\.|resentante)?\s*legal$/i,
     /^representante\s+legal$/i,
+    /^identificaci[óo]n\s+del\s+rep(\.|resentante)?\s*legal$/i,
   ] },
   { campo: 'representante_rut', patrones: [
     /^r\.?u\.?t\.?\s+(del\s+|de\s+)?rep(\.|resentante)?\s*legal$/i,
@@ -104,17 +106,39 @@ function normalizarParaMatch(etiqueta: string): string {
 
 export interface Coincidencia { campo: keyof EmpresaCampos; valor: string }
 
+function conValor(campo: keyof EmpresaCampos, empresa: EmpresaCampos): Coincidencia | null {
+  const valor = empresa[campo];
+  return valor != null && String(valor).trim() ? { campo, valor: String(valor) } : null;
+}
+
+// Cuando una etiqueta viene compuesta como "<contexto de fila> — <campo>" (ver
+// desambiguarDuplicados en anexos-detectar.ts — pasa cuando el mismo texto corto, ej. "RUT", se
+// repite en el documento en bloques distintos), el contexto dice A QUIÉN describe. Si el
+// contexto menciona al representante legal, "RUT"/"Nombre"/"Cargo" pelados se redirigen a sus
+// campos de representante en vez de los de la empresa — sin este ruteo, "RUT" duplicado nunca
+// se resuelve (el diccionario ya usó el campo `rut` con la primera ocurrencia y la segunda queda
+// pendiente para siempre, aunque si tengamos el dato).
+const CONTEXTO_REPRESENTANTE = /(representante\s+legal|rep\.?\s*legal)/i;
+
 // Devuelve el campo+valor si la etiqueta cruza con el diccionario Y la empresa tiene ese dato
 // cargado; null si no hay match confiable (queda para el respaldo IA o la pantalla de "completar
 // a mano").
 export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coincidencia | null {
+  const compuesta = etiqueta.match(/^(.+?)\s+—\s+(.+)$/);
+  if (compuesta) {
+    const [, contexto, campoTexto] = compuesta;
+    if (CONTEXTO_REPRESENTANTE.test(contexto)) {
+      const limpio = normalizarParaMatch(campoTexto);
+      if (/^r\.?u\.?t\.?$/i.test(limpio)) return conValor('representante_rut', empresa);
+      if (/^nombre$/i.test(limpio)) return conValor('representante_nombre', empresa);
+      if (/^cargo$/i.test(limpio)) return conValor('representante_cargo', empresa);
+    }
+    return buscarCampo(campoTexto, empresa); // sin contexto reconocido — sigue con el campo tal cual
+  }
+
   const limpia = normalizarParaMatch(etiqueta);
   for (const entrada of DICCIONARIO) {
-    if (entrada.patrones.some(re => re.test(limpia))) {
-      const valor = empresa[entrada.campo];
-      if (valor != null && String(valor).trim()) return { campo: entrada.campo, valor: String(valor) };
-      return null; // etiqueta reconocida pero la empresa no tiene ese dato cargado
-    }
+    if (entrada.patrones.some(re => re.test(limpia))) return conValor(entrada.campo, empresa);
   }
   return null;
 }

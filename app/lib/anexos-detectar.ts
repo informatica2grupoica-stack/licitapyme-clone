@@ -16,11 +16,40 @@ export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
   for (let i = 0; i < parrafos.length - 1; i++) {
     const actual = parrafos[i];
     const siguiente = parrafos[i + 1];
-    if (actual.texto && actual.texto.length <= 60 && siguiente.vacio) {
+    // Un párrafo CENTRADO seguido de blanco es un encabezado/título de sección (Word centra
+    // títulos, nunca etiquetas de campo — esas siempre van alineadas a la izquierda para calzar
+    // con su blanco al lado o abajo). Caso real: "IDENTIFICACION DEL OFERENTE" como título de
+    // página, centrado y en negrita, antes de la tabla real de identificación — textualmente casi
+    // idéntico a la etiqueta real de una fila de esa misma tabla ("IDENTIFICACIÓN DEL OFERENTE"),
+    // así que ni el diccionario ni un clasificador de IA por texto puro pueden distinguirlos de
+    // forma confiable — pero la alineación SÍ los distingue, sin ambigüedad y sin costo de IA.
+    if (actual.texto && actual.texto.length <= 60 && !actual.centrado && siguiente.vacio) {
       out.push({ etiqueta: actual.texto, paraId: siguiente.paraId, indice: siguiente.indice });
     }
   }
-  return out;
+  return desambiguarDuplicados(out);
+}
+
+// Caso real (1738-18-LE26): una tabla de identificación trae "RUT" DOS veces — una fila para el
+// RUT del oferente, otra para el RUT del representante legal. El texto es LITERALMENTE idéntico
+// ("RUT") en ambas, así que ni el diccionario ni la IA tienen cómo distinguir cuál es cuál — el
+// diccionario asigna el campo `rut` a la primera que ve y la segunda queda sin poder resolverse
+// (el campo ya fue "usado"), y la IA recibe dos líneas idénticas sin nada que las diferencie.
+// Cuando una etiqueta se repite en el documento, se prefija con la etiqueta INMEDIATAMENTE
+// anterior en la lista de candidatos — normalmente el encabezado de SU bloque ("IDENTIFICACIÓN
+// DEL REP. LEGAL — RUT" vs "IDENTIFICACIÓN DEL OFERENTE — RUT") — mismo principio que patrón 1b
+// usa con el nombre de columna, pero mirando hacia atrás en la lista en vez de a la fila. Las
+// etiquetas únicas (la inmensa mayoría) quedan intactas para no tocar el diccionario/IA que ya
+// funciona bien con ellas.
+function desambiguarDuplicados(candidatos: CandidatoCelda[]): CandidatoCelda[] {
+  const conteo = new Map<string, number>();
+  for (const c of candidatos) conteo.set(c.etiqueta, (conteo.get(c.etiqueta) ?? 0) + 1);
+  return candidatos.map((c, i) => {
+    if ((conteo.get(c.etiqueta) ?? 0) < 2) return c;
+    const anterior = candidatos[i - 1];
+    if (!anterior || anterior.etiqueta === c.etiqueta) return c;
+    return { ...c, etiqueta: `${anterior.etiqueta} — ${c.etiqueta}`.slice(0, 160) };
+  });
 }
 
 // ── Patrón 1b: celdas dentro de TABLAS de 3+ columnas (specs, evaluación técnica…) ────────
@@ -273,6 +302,24 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
   return out;
 }
 
+// Un título/sección seguido de un párrafo vacío que es puro espaciado ANTES de su propia tabla
+// ("RESUMEN:" + línea en blanco + <w:tbl>) no es un campo a llenar — es una leyenda. Caso real
+// encontrado: el patrón 1 los tomaba como candidato porque no mira qué viene DESPUÉS del blanco,
+// solo que esté vacío. Se salta cualquier cantidad de párrafos vacíos consecutivos (a veces hay
+// más de uno de puro espaciado) antes de decidir si lo que sigue es una tabla.
+function blancoPrecedeTabla(xml: string, paraId: string): boolean {
+  const m = xml.match(new RegExp(`<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>[\\s\\S]*?<\\/w:p>`));
+  if (!m) return false;
+  let pos = (m.index ?? 0) + m[0].length;
+  while (true) {
+    const resto = xml.slice(pos, pos + 4000);
+    const mp = resto.match(/^\s*<w:p\b[^>]*>([\s\S]*?)<\/w:p>/);
+    if (mp && !/<w:r[ >]/.test(mp[1])) { pos += mp[0].length; continue; }
+    break;
+  }
+  return /^\s*<w:tbl\b/.test(xml.slice(pos, pos + 200));
+}
+
 // ── Punto de entrada: analiza un XML completo y devuelve los patrones + secciones ─────────
 export function analizarAnexo(xml: string) {
   const parrafos = listarParrafos(xml);
@@ -283,7 +330,9 @@ export function analizarAnexo(xml: string) {
   // una etiqueta buena y otra mala ("CO").
   const candidatosTabla = detectarCandidatosTabla(xml);
   const indicesTabla = new Set(candidatosTabla.map(c => c.indice));
-  const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos).filter(c => !indicesTabla.has(c.indice));
+  const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos)
+    .filter(c => !indicesTabla.has(c.indice))
+    .filter(c => !blancoPrecedeTabla(xml, c.paraId));
 
   const candidatosCeldaTodos = acotarASeccionesHabilitadas([...candidatosTabla, ...candidatosCeldaCrudos], secciones);
 
@@ -319,6 +368,52 @@ export interface CeldaTablaCruda { texto: string; indiceGlobal: number | null; a
 export interface FilaTablaCruda { celdas: CeldaTablaCruda[] }
 export interface TablaCruda { indicePrimero: number | null; filas: FilaTablaCruda[] }
 
+// Mismo problema que resuelve patrón 1b para la ETIQUETA de un blanco (ver detectarCandidatosTabla
+// más arriba), pero acá aplicado a la fila COMPLETA para la vista de tabla real: una columna del
+// encabezado puede venir partida en 2-3 celdas angostas sueltas en las filas de datos (sin
+// <w:vMerge>) — si esas celdas de más se renderizan por POSICIÓN simple (un <td> por celda, en
+// orden), la fila entera se corre respecto al encabezado: "UN" (unidad) termina bajo la columna
+// "CANTIDAD" y el precio real queda literalmente fuera de la tabla, invisible. Caso real que
+// expuso esto: 1738-18-LE26, tabla de materiales con 33 filas donde varias traen 6-7 celdas
+// contra las 5 del encabezado. Se ubica cada celda por su posición ACUMULADA real dentro del
+// ancho total de la fila (w:tcW, escala pct 0-5000 de OOXML) contra los límites de cada columna
+// del encabezado — así una celda angosta decorativa cae en la MISMA columna que su vecina real,
+// en vez de correr todo lo que viene después. Probado contra el documento real: reconstruye
+// exactamente las columnas correctas para las 33 filas, incluidas las que traen celdas de más.
+function alinearFilaConEncabezado(header: CeldaTablaCruda[], fila: CeldaTablaCruda[]): CeldaTablaCruda[] {
+  if (fila.length === header.length) return fila; // caso normal (la inmensa mayoría) — nada que alinear
+
+  const anchoTotal = header.reduce((a, c) => a + (c.anchoPct ?? 0), 0) || 5000;
+  let acc = 0;
+  const inicios = header.map(c => {
+    const inicio = acc;
+    acc += c.anchoPct ?? (anchoTotal / header.length);
+    return inicio;
+  });
+
+  const grupos: CeldaTablaCruda[][] = header.map(() => []);
+  let pos = 0;
+  for (const c of fila) {
+    const ancho = c.anchoPct ?? (anchoTotal / fila.length);
+    let col = 0;
+    for (let k = 0; k < inicios.length; k++) if (pos >= inicios[k] - 1) col = k;
+    grupos[col].push(c);
+    pos += ancho;
+  }
+
+  return grupos.map(grupo => {
+    if (grupo.length === 0) return { texto: '', indiceGlobal: null, anchoPct: null };
+    if (grupo.length === 1) return grupo[0];
+    // Varias celdas cayeron en la misma columna (típico: 2-3 celdas angostas decorativas, a
+    // veces junto con la real) — concatena el texto real si lo hay, y usa como referencia (para
+    // saber si es un candidato a rellenar) la única celda que NO es decorativa por ancho; si
+    // todas son angostas, ninguna era un dato real de todos modos, cualquiera sirve.
+    const texto = grupo.map(c => c.texto).filter(Boolean).join(' ').trim();
+    const real = grupo.find(c => c.anchoPct == null || c.anchoPct >= ANCHO_PCT_MINIMO_COLUMNA_REAL) ?? grupo[grupo.length - 1];
+    return { texto, indiceGlobal: real.indiceGlobal, anchoPct: real.anchoPct };
+  });
+}
+
 export function extraerTablasCrudo(xml: string): TablaCruda[] {
   const offsetsIndices = offsetsAIndices(xml);
   const tablas: TablaCruda[] = [];
@@ -334,11 +429,14 @@ export function extraerTablasCrudo(xml: string): TablaCruda[] {
     const indicePrimero = primerParrafo ? (offsetsIndices.get(offsetTabla + primerParrafo.index!) ?? null) : null;
 
     const filasXml = [...cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
-    const filas: FilaTablaCruda[] = filasXml.map(filaM => {
+    const filasCrudo: FilaTablaCruda[] = filasXml.map(filaM => {
       const offsetFila = offsetTabla + filaM.index! + filaM[0].indexOf(filaM[1]);
       const celdas = extraerCeldasDeFila(filaM[1], offsetFila, offsetsIndices);
       return { celdas: celdas.map(c => ({ texto: c.texto, indiceGlobal: c.indiceGlobal, anchoPct: c.anchoPct })) };
     });
+
+    const header = filasCrudo[0]?.celdas ?? [];
+    const filas = filasCrudo.map((f, i) => (i === 0 ? f : { celdas: alinearFilaConEncabezado(header, f.celdas) }));
 
     tablas.push({ indicePrimero, filas });
   }

@@ -25,6 +25,7 @@ export interface Parrafo {
   texto: string;
   vacio: boolean;   // sin ningún <w:r> adentro (candidato a "celda para rellenar")
   indice: number;   // posición en el documento, en orden de aparición
+  centrado: boolean; // <w:jc w:val="center"> — señal de encabezado/título, no de etiqueta de campo
 }
 
 function xmlEscape(s: string): string {
@@ -64,6 +65,7 @@ export function listarParrafos(xml: string): Parrafo[] {
     texto: [...cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join('').trim(),
     vacio: !/<w:r[ >]/.test(cuerpo),
     indice,
+    centrado: /<w:jc\s+w:val="center"/.test(cuerpo),
   }));
 }
 

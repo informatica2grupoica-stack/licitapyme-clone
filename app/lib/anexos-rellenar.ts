@@ -20,7 +20,7 @@ import {
 } from '@/app/lib/anexos-docx';
 import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda } from '@/app/lib/anexos-detectar';
 import { buscarCampo, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
-import { matchearConIA } from '@/app/lib/anexos-ia-matching';
+import { matchearConIA, clasificarTitulos } from '@/app/lib/anexos-ia-matching';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 
 export interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' }
@@ -51,22 +51,70 @@ function formularioDe(indiceParrafo: number, formularios: FormularioDetectado[])
   return formularios.find(f => indiceParrafo >= f.indiceInicio && indiceParrafo <= f.indiceFin)?.titulo;
 }
 
-// Separa los candidatos de celda en "se completan con el diccionario" y "les falta match" —
-// compartido entre analizarAnexoParaUI y generarAnexoFinal para no duplicar la lógica.
-function aplicarDiccionario(candidatos: CandidatoCelda[], empresa: EmpresaCampos) {
-  const matcheados: { c: CandidatoCelda; campo: string; valor: string }[] = [];
+export interface CampoResuelto { c: CandidatoCelda; campo: string; valor: string; via: 'diccionario' | 'ia' }
+
+// Resuelve TODOS los candidatos de celda de un documento — diccionario primero, respaldo IA
+// después, clasificación de títulos AL FINAL (solo sobre lo que sigue sin resolver). El orden
+// importa: clasificar títulos ANTES del diccionario se probó y expuso matches deterministas ya
+// sólidos (ej. "2.- RUT:", que nunca depende de IA) al riesgo de que un batch de clasificación
+// confuso los tumbara por error — un modelo rápido/menos cuidadoso (flashx) alcanzó a marcar como
+// "título" etiquetas que llevaban sesiones funcionando perfecto. El caso real que motivó tocar
+// esto — "IDENTIFICACION DEL OFERENTE" como ENCABEZADO DE PÁGINA (centrado, negrita, antes de la
+// tabla real) robándole el campo razon_social a la fila homónima de la tabla de más abajo — ya
+// se resuelve de forma determinista y sin IA en detectarCandidatosCelda (filtro de "centrado",
+// ver anexos-detectar.ts): un título de página nunca es un párrafo alineado a la izquierda como
+// las etiquetas de campo real. Clasificar títulos al final, solo sobre los pendientes, es una
+// red de seguridad adicional para lo que ese filtro determinista no alcanza a cubrir — sin poner
+// en riesgo lo que el diccionario/IA ya resolvieron bien.
+// Compartida entre analizarAnexoParaUI y generarAnexoFinal para que ambas apliquen EXACTAMENTE
+// el mismo filtro — antes cada una tenía su propia copia de esta lógica y solo una filtraba
+// títulos, así que el .docx final podía quedar distinto de lo que mostraba la pantalla de revisión.
+export async function resolverCandidatosCelda(candidatos: CandidatoCelda[], empresa: EmpresaCampos) {
+  // El diccionario NO deduplica por campo: sus patrones son precisos por construcción (regex
+  // ancladas a texto exacto), y es NORMAL que un documento combine varios formularios que piden
+  // el MISMO dato de identificación cada uno por separado (ej. ANEXO N°1 y ANEXO N°2 de la misma
+  // licitación, cada uno con su propio bloque "razón social / RUT / dirección"). Caso real que
+  // expuso el bug de deduplicar acá: la primera vez que el diccionario resolvía razon_social
+  // (en el ANEXO N°1) dejaba el campo "usado" y el bloque de identificación del ANEXO N°2 —que
+  // pide el mismo dato de nuevo, correctamente— se quedaba sin completar aunque el dato SÍ estaba
+  // disponible. Distinto del caso "RUT" repetido DENTRO de una misma tabla (oferente vs.
+  // representante legal, dos personas distintas) — ese ya se resuelve ANTES de llegar acá, dándole
+  // a cada ocurrencia una etiqueta distinta según su contexto de fila (ver desambiguarDuplicados
+  // en anexos-detectar.ts), así que cada una matchea su propio campo sin competir por el mismo.
+  const matcheados: CampoResuelto[] = [];
   const sinMatch: CandidatoCelda[] = [];
-  const camposYaUsados = new Set<string>();
+  const camposDiccionario = new Set<string>();
   for (const c of candidatos) {
     const match = buscarCampo(c.etiqueta, empresa);
-    if (match && !camposYaUsados.has(match.campo)) {
-      matcheados.push({ c, campo: match.campo, valor: match.valor });
-      camposYaUsados.add(match.campo);
+    if (match) {
+      matcheados.push({ c, campo: match.campo, valor: match.valor, via: 'diccionario' });
+      camposDiccionario.add(match.campo);
     } else {
       sinMatch.push(c);
     }
   }
-  return { matcheados, sinMatch, camposYaUsados };
+
+  // El respaldo IA SÍ deduplica (no repite el mismo campo dos veces, y nunca pisa uno que el
+  // diccionario ya resolvió) — es un canal menos confiable que el diccionario, así que un posible
+  // acierto real no vale el riesgo de que un mismo error se repita en varios lugares del documento.
+  const matchesIA = await matchearConIA(sinMatch.map(c => c.etiqueta), empresa);
+  const mapaIA = new Map(matchesIA.map(m => [m.etiqueta, m.campo]));
+  const camposUsadosPorIA = new Set(camposDiccionario);
+  const sinResolver: CandidatoCelda[] = [];
+  for (const c of sinMatch) {
+    const campoIA = mapaIA.get(c.etiqueta);
+    const valorIA = campoIA ? empresa[campoIA] : null;
+    if (campoIA && valorIA && !camposUsadosPorIA.has(campoIA)) {
+      matcheados.push({ c, campo: campoIA, valor: String(valorIA), via: 'ia' });
+      camposUsadosPorIA.add(campoIA);
+    } else {
+      sinResolver.push(c);
+    }
+  }
+
+  const titulos = await clasificarTitulos(sinResolver.map(c => c.etiqueta));
+  const pendientes = titulos.size > 0 ? sinResolver.filter(c => !titulos.has(c.etiqueta)) : sinResolver;
+  return { matcheados, pendientes };
 }
 
 // Descarga la firma escaneada desde su URL pública (R2) y detecta su extensión real por
@@ -113,30 +161,17 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
 
   const completadosAuto: CampoCompletado[] = [];
   const resolucionPorIndice = new Map<number, Resolucion>();
-  const { matcheados, sinMatch, camposYaUsados } = aplicarDiccionario(analisis.candidatosCelda, empresa);
+  const { matcheados, pendientes } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa);
   for (const m of matcheados) {
-    completadosAuto.push({ etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: 'diccionario' });
-    resolucionPorIndice.set(m.c.indice, { tipo: 'auto', etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: 'diccionario' });
+    completadosAuto.push({ etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
+    resolucionPorIndice.set(m.c.indice, { tipo: 'auto', etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
   }
 
-  // Respaldo IA: solo para lo que el diccionario no pudo matchear.
-  const matchesIA = await matchearConIA(sinMatch.map(c => c.etiqueta), empresa);
-  const mapaIA = new Map(matchesIA.map(m => [m.etiqueta, m.campo]));
-
-  const pendientesCeldaTodos: PendienteCelda[] = [];
-  for (const c of sinMatch) {
-    const campoIA = mapaIA.get(c.etiqueta);
-    const valorIA = campoIA ? empresa[campoIA] : null;
-    if (campoIA && valorIA && !camposYaUsados.has(campoIA)) {
-      completadosAuto.push({ etiqueta: c.etiqueta, campo: campoIA, valor: String(valorIA), via: 'ia' });
-      camposYaUsados.add(campoIA);
-      resolucionPorIndice.set(c.indice, { tipo: 'auto', etiqueta: c.etiqueta, campo: campoIA, valor: String(valorIA), via: 'ia' });
-    } else {
-      const id = `celda:${c.indice}`;
-      pendientesCeldaTodos.push({ id, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios) });
-      resolucionPorIndice.set(c.indice, { tipo: 'pendiente', etiqueta: c.etiqueta, id });
-    }
-  }
+  const pendientesCeldaTodos: PendienteCelda[] = pendientes.map(c => {
+    const id = `celda:${c.indice}`;
+    resolucionPorIndice.set(c.indice, { tipo: 'pendiente', etiqueta: c.etiqueta, id });
+    return { id, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios) };
+  });
 
   // Reconstruye cada tabla del Word COMPLETA (todas las celdas, no solo las vacías) para que el
   // panel de pendientes se vea como el documento real — fila por fila, columna por columna — en
@@ -229,27 +264,16 @@ export async function generarAnexoFinal(
   // 2) Celdas de tabla: diccionario → respaldo IA → lo que escribió el humano. Van después —
   //    ver comentario arriba.
   let completados = 0;
-  const { matcheados, sinMatch, camposYaUsados } = aplicarDiccionario(analisis.candidatosCelda, empresa);
+  const { matcheados, pendientes } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa);
   for (const m of matcheados) {
     xml = rellenarCeldaVacia(xml, m.c.paraId, m.valor);
     completados++;
   }
-
-  const matchesIA = await matchearConIA(sinMatch.map(c => c.etiqueta), empresa);
-  const mapaIA = new Map(matchesIA.map(m => [m.etiqueta, m.campo]));
-  for (const c of sinMatch) {
-    const campoIA = mapaIA.get(c.etiqueta);
-    const valorIA = campoIA ? empresa[campoIA] : null;
-    if (campoIA && valorIA && !camposYaUsados.has(campoIA)) {
-      xml = rellenarCeldaVacia(xml, c.paraId, String(valorIA));
-      camposYaUsados.add(campoIA);
-      completados++;
-    } else {
-      const respuesta = respuestas[`celda:${c.indice}`];
-      if (respuesta && respuesta.trim()) {
-        xml = rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
-        respondidos++;
-      }
+  for (const c of pendientes) {
+    const respuesta = respuestas[`celda:${c.indice}`];
+    if (respuesta && respuesta.trim()) {
+      xml = rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
+      respondidos++;
     }
   }
 
