@@ -13,13 +13,38 @@ import { useToast } from '@/app/components/ui/toast';
 export interface AnexoDoc { id: number; nombre: string }
 
 interface CampoCompletado { etiqueta: string; campo: string; valor: string }
-interface PendienteCelda { id: string; etiqueta: string }
-interface PendienteInline { id: string; contexto: string }
+interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
+interface PendienteInline { id: string; contexto: string; formulario?: string }
 
 interface Analisis {
   completadosAuto: CampoCompletado[];
   pendientesCelda: PendienteCelda[];
   pendientesInline: PendienteInline[];
+}
+
+// Un pendiente unificado (celda o blanco inline) con la etiqueta ya lista para mostrar — usado
+// para agrupar por formulario cuando el documento trae varios pegados (ver anexos-dividir.ts).
+interface PendienteUnificado { id: string; etiqueta: string; formulario?: string }
+
+function limpiarTituloFormulario(t: string): string {
+  return t.replace(/[.:]+$/, '').trim();
+}
+
+function CampoInput({ etiqueta, valor, onChange }: { etiqueta: string; valor: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label className="block text-[11.5px] font-medium text-slate-600 mb-1 truncate" title={etiqueta}>
+        {etiqueta}
+      </label>
+      <input
+        type="text"
+        value={valor}
+        onChange={e => onChange(e.target.value)}
+        placeholder="Escribe el valor…"
+        className="w-full text-[12.5px] px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+      />
+    </div>
+  );
 }
 
 export function AnexoRellenoModal({
@@ -74,6 +99,23 @@ export function AnexoRellenoModal({
   const totalPendientes = (analisis?.pendientesCelda.length || 0) + (analisis?.pendientesInline.length || 0);
   const totalRespondidas = Object.values(respuestas).filter(v => v.trim()).length;
 
+  // Unifica celdas + blancos inline en una sola lista, y agrupa por formulario cuando el
+  // documento trae varios pegados. Si NINGÚN pendiente tiene formulario (caso común: un solo
+  // formulario), queda todo en "sinFormulario" y se muestra como antes, sin encabezados extra.
+  const pendientesTodos: PendienteUnificado[] = analisis ? [
+    ...analisis.pendientesCelda.map(p => ({ id: p.id, etiqueta: p.etiqueta, formulario: p.formulario })),
+    ...analisis.pendientesInline.map(p => ({ id: p.id, etiqueta: `…${p.contexto}____`, formulario: p.formulario })),
+  ] : [];
+  const gruposFormulario: { titulo: string; items: PendienteUnificado[] }[] = [];
+  const sinFormulario: PendienteUnificado[] = [];
+  for (const p of pendientesTodos) {
+    if (!p.formulario) { sinFormulario.push(p); continue; }
+    let grupo = gruposFormulario.find(g => g.titulo === p.formulario);
+    if (!grupo) { grupo = { titulo: p.formulario, items: [] }; gruposFormulario.push(grupo); }
+    grupo.items.push(p);
+  }
+  const hayFormularios = gruposFormulario.length > 0;
+
   const handleGenerar = async () => {
     setGenerando(true);
     try {
@@ -84,9 +126,10 @@ export function AnexoRellenoModal({
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo generar el documento');
+      const resumenCampos = `${data.completados} campo${data.completados !== 1 ? 's' : ''} automático${data.completados !== 1 ? 's' : ''} · ${data.respondidos} manual${data.respondidos !== 1 ? 'es' : ''}`;
       toast.success(
-        'Anexo generado',
-        `${data.completados} campo${data.completados !== 1 ? 's' : ''} automático${data.completados !== 1 ? 's' : ''} · ${data.respondidos} manual${data.respondidos !== 1 ? 'es' : ''} — disponible en Documentos para MP`,
+        data.dividido ? `${data.archivos?.length || 0} formularios generados` : 'Anexo generado',
+        `${resumenCampos} — disponible${data.dividido ? 's' : ''} en Documentos para MP`,
       );
       onGenerado();
       onClose();
@@ -96,6 +139,8 @@ export function AnexoRellenoModal({
       setGenerando(false);
     }
   };
+
+  const setRespuesta = (id: string, v: string) => setRespuestas(prev => ({ ...prev, [id]: v }));
 
   return createPortal(
     <div
@@ -160,50 +205,61 @@ export function AnexoRellenoModal({
                 <p className="text-[12px] text-slate-400">No quedan campos pendientes por completar a mano.</p>
               )}
 
-              {analisis.pendientesCelda.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                    Necesita tu respuesta ({analisis.pendientesCelda.length})
-                  </p>
-                  <div className="space-y-2">
-                    {analisis.pendientesCelda.map(p => (
-                      <div key={p.id}>
-                        <label className="block text-[11.5px] font-medium text-slate-600 mb-1">{p.etiqueta}</label>
-                        <input
-                          type="text"
-                          value={respuestas[p.id] || ''}
-                          onChange={e => setRespuestas(prev => ({ ...prev, [p.id]: e.target.value }))}
-                          placeholder="Escribe el valor…"
-                          className="w-full text-[12.5px] px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
-                        />
+              {hayFormularios ? (
+                <>
+                  {gruposFormulario.map(g => (
+                    <div key={g.titulo} className="space-y-1.5">
+                      <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider border-b border-indigo-100 pb-1">
+                        {limpiarTituloFormulario(g.titulo)} ({g.items.length})
+                      </p>
+                      <div className="space-y-2">
+                        {g.items.map(p => (
+                          <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    </div>
+                  ))}
+                  {sinFormulario.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                        Otros campos ({sinFormulario.length})
+                      </p>
+                      <div className="space-y-2">
+                        {sinFormulario.map(p => (
+                          <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  {analisis.pendientesCelda.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                        Necesita tu respuesta ({analisis.pendientesCelda.length})
+                      </p>
+                      <div className="space-y-2">
+                        {analisis.pendientesCelda.map(p => (
+                          <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-              {analisis.pendientesInline.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                    Blancos dentro del texto ({analisis.pendientesInline.length})
-                  </p>
-                  <div className="space-y-2">
-                    {analisis.pendientesInline.map(p => (
-                      <div key={p.id}>
-                        <label className="block text-[11.5px] font-medium text-slate-600 mb-1 truncate" title={p.contexto}>
-                          …{p.contexto}____
-                        </label>
-                        <input
-                          type="text"
-                          value={respuestas[p.id] || ''}
-                          onChange={e => setRespuestas(prev => ({ ...prev, [p.id]: e.target.value }))}
-                          placeholder="Lo que va en el blanco…"
-                          className="w-full text-[12.5px] px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
-                        />
+                  {analisis.pendientesInline.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                        Blancos dentro del texto ({analisis.pendientesInline.length})
+                      </p>
+                      <div className="space-y-2">
+                        {analisis.pendientesInline.map(p => (
+                          <CampoInput key={p.id} etiqueta={`…${p.contexto}____`} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                  )}
+                </>
               )}
 
               {analisis.completadosAuto.length === 0 && totalPendientes === 0 && (

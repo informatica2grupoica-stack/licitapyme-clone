@@ -20,11 +20,21 @@ import {
 } from '@/app/lib/anexos-docx';
 import { analizarAnexo } from '@/app/lib/anexos-detectar';
 import { buscarCampo, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
+import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 
 export interface CampoCompletado { etiqueta: string; campo: string; valor: string }
-export interface PendienteCelda { id: string; etiqueta: string }
-export interface PendienteInline { id: string; contexto: string }
+export interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
+export interface PendienteInline { id: string; contexto: string; formulario?: string }
 export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: string }
+
+// A qué formulario ("FORMULARIO N°X") pertenece un párrafo, si el documento tiene varios
+// pegados — mismo detector que usa anexos-dividir.ts para separarlos en archivos. Sirve para
+// agrupar los pendientes en el modal: sin esto, un texto repetido en cada formulario (ej. "Firma
+// del Oferente" o la fecha de la ciudad) sale 5 veces idéntico y no hay forma de saber cuál es
+// cuál. Si el documento no tiene ese patrón, todos quedan sin grupo (undefined) — no cambia nada.
+function formularioDe(indiceParrafo: number, formularios: FormularioDetectado[]): string | undefined {
+  return formularios.find(f => indiceParrafo >= f.indiceInicio && indiceParrafo <= f.indiceFin)?.titulo;
+}
 
 export interface AnalisisAnexo {
   completadosAuto: CampoCompletado[];
@@ -37,6 +47,7 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
   const { xml: xmlCrudo } = await abrirDocx(bufferOriginal);
   const { xml: xmlNormalizado } = normalizarParaIds(xmlCrudo);
   const analisis = analizarAnexo(xmlNormalizado);
+  const formularios = detectarFormularios(xmlNormalizado);
 
   const completadosAuto: CampoCompletado[] = [];
   const pendientesCelda: PendienteCelda[] = [];
@@ -48,13 +59,14 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
       completadosAuto.push({ etiqueta: c.etiqueta, campo: match.campo, valor: match.valor });
       camposYaUsados.add(match.campo);
     } else if (!match) {
-      pendientesCelda.push({ id: `celda:${c.indice}`, etiqueta: c.etiqueta });
+      pendientesCelda.push({ id: `celda:${c.indice}`, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios) });
     }
   }
 
   const pendientesInline: PendienteInline[] = analisis.blancosInline.map(b => ({
     id: `inline:${b.indiceRun}:${b.posEnTexto}`,
     contexto: b.contexto || '(sin contexto)',
+    formulario: formularioDe(b.indiceParrafo, formularios),
   }));
 
   return {

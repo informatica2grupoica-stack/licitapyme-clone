@@ -24,14 +24,40 @@ export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
 }
 
 // ── Patrón 2: subrayados dentro de una misma oración ──────────────────────────────────────
-export interface CandidatoInline { indiceRun: number; textoRunOriginal: string; posEnTexto: number; largo: number; contexto: string }
+// indiceRun es GLOBAL (posición entre TODOS los <w:t> del documento — lo que espera
+// rellenarRunPorIndice para editar). indiceParrafo ubica en qué párrafo cae (para agrupar por
+// formulario después). El CONTEXTO se arma con el texto de TODO el párrafo, no solo del run
+// donde cae el blanco — en Word real, la etiqueta ("Proveedor:") y la raya de subrayado
+// (`____`) casi siempre son runs SEPARADOS (distinto formato), así que mirar solo el run del
+// blanco perdía la etiqueta y mostraba "(sin contexto)" aunque el párrafo sí la tuviera.
+export interface CandidatoInline {
+  indiceRun: number; indiceParrafo: number;
+  textoRunOriginal: string; posEnTexto: number; largo: number; contexto: string;
+}
 
 export function detectarBlancosInline(xml: string): CandidatoInline[] {
   const out: CandidatoInline[] = [];
-  const runs = [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]);
-  runs.forEach((texto, indiceRun) => {
-    for (const b of listarBlancosInline(texto)) {
-      out.push({ indiceRun, textoRunOriginal: texto, posEnTexto: b.posEnTexto, largo: b.largo, contexto: b.contexto });
+  let indiceRunGlobal = 0;
+  const parrafos = [...xml.matchAll(/<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g)];
+
+  parrafos.forEach((parMatch, indiceParrafo) => {
+    const runsDelParrafo = [...parMatch[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]);
+    const textoParrafoCompleto = runsDelParrafo.join('');
+    let offsetAcumulado = 0;
+
+    for (const texto of runsDelParrafo) {
+      for (const b of listarBlancosInline(texto)) {
+        const posGlobalEnParrafo = offsetAcumulado + b.posEnTexto;
+        const previo = textoParrafoCompleto.slice(0, posGlobalEnParrafo);
+        const contexto = (previo.split(/[,.;]|\(\*+\)/).pop() || previo).trim().slice(-60);
+        out.push({
+          indiceRun: indiceRunGlobal, indiceParrafo,
+          textoRunOriginal: texto, posEnTexto: b.posEnTexto, largo: b.largo,
+          contexto: contexto || '(sin contexto)',
+        });
+      }
+      offsetAcumulado += texto.length;
+      indiceRunGlobal++;
     }
   });
   return out;

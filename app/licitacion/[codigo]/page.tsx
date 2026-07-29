@@ -171,6 +171,7 @@ export default function LicitacionDetallePage() {
         const data = await res.json();
         if (data.documentos?.length > 0) {
           setDocumentosCache(data.documentos.map((d: any) => ({
+            id:        d.id,
             nombre:    d.documento_nombre || d.nombre,
             url:       d.documento_url_local || d.url_local || d.url,
             url_local: d.documento_url_local || d.url_local || d.url,
@@ -660,6 +661,7 @@ export default function LicitacionDetallePage() {
                   clasificando={clasificando}
                   onReClasificar={handleClasificar}
                   resumenClasificacion={resumenClasificacion}
+                  empresaId={negocioGestion?.empresa_id ?? null}
                 />
               )}
               {activeSection === 'preguntas' && (
