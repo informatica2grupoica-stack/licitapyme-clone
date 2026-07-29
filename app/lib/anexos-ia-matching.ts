@@ -27,8 +27,10 @@ Para cada etiqueta, decide si pide EXACTAMENTE el mismo dato que uno de los camp
 
 Ante cualquier duda, NO asignes — es mucho peor escribir un dato incorrecto en el documento que dejarlo pendiente para que un humano lo complete.
 
+Puede que te dé muchas etiquetas (a veces cientos, ej. ítems de una tabla de precios) y la gran mayoría NO va a corresponder a ningún campo — eso es normal, no es un error tuyo. Para esas, NO las incluyas en la respuesta (ni con campo:null): la lista "matches" debe tener SOLO las etiquetas para las que sí encontraste un campo. Esto es importante porque tu respuesta tiene un límite de tamaño y si intentas listar las cientos que no matchean, la respuesta se corta a la mitad y se pierden justo los matches reales que venían después.
+
 Devuelve SOLO JSON, sin markdown ni texto adicional:
-{"matches":[{"etiqueta":"<tal cual te la di, exacta>","campo":"<uno de los campos dados, o null>"}]}`;
+{"matches":[{"etiqueta":"<tal cual te la di, exacta>","campo":"<uno de los campos dados>"}]}`;
 
 export interface MatchIA { etiqueta: string; campo: keyof EmpresaCampos | null }
 
@@ -70,9 +72,9 @@ ${camposConDato.map(c => `- ${c.campo}: ${c.descripcion}`).join('\n')}`;
   try {
     const completion: any = await crearChatIA({
       messages: [{ role: 'system', content: SYS }, { role: 'user', content: user }],
-      temperature: 0, stream: false, max_tokens: 2_000,
+      temperature: 0, stream: false, max_tokens: 3_000,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 30_000 });
+    }, { timeoutMs: 45_000 });
 
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};

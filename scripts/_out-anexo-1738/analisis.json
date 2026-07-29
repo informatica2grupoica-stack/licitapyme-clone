@@ -1,0 +1,2065 @@
+{
+  "completadosAuto": [
+    {
+      "etiqueta": "1.- NOMBRE COMPLETO DEL PROPONENTE O RAZON SOCIAL:",
+      "campo": "razon_social",
+      "valor": "Comercial MP SpA",
+      "via": "diccionario"
+    },
+    {
+      "etiqueta": "2.- RUT:",
+      "campo": "rut",
+      "valor": "78.388.175-6",
+      "via": "diccionario"
+    },
+    {
+      "etiqueta": "3.- NOMBRE DEL REPRESENTANTE LEGAL:",
+      "campo": "representante_nombre",
+      "valor": "Lidia Valenzuela",
+      "via": "diccionario"
+    },
+    {
+      "etiqueta": "4.- RUT DEL REPRESENTANTE LEGAL:",
+      "campo": "representante_rut",
+      "valor": "6.736.698-0",
+      "via": "diccionario"
+    },
+    {
+      "etiqueta": "5.- DIRECCION (Calle, N°, Comuna):",
+      "campo": "direccion",
+      "valor": "Camino El Oliveto N° 575 N° 6, Talagante",
+      "via": "diccionario"
+    },
+    {
+      "etiqueta": "6.- N° DE TELEFONO:",
+      "campo": "telefono1",
+      "valor": "+569 7549 1833",
+      "via": "diccionario"
+    },
+    {
+      "etiqueta": "7.- CORREO ELECTRÓNICO:",
+      "campo": "email1",
+      "valor": "ventas@sociedadcomercialmp.cl",
+      "via": "diccionario"
+    },
+    {
+      "etiqueta": "Firma",
+      "campo": "firma_url",
+      "valor": "(imagen de la firma guardada)",
+      "via": "diccionario"
+    }
+  ],
+  "pendientesCelda": [
+    {
+      "id": "celda:4",
+      "etiqueta": "IDENTIFICACION DEL OFERENTE",
+      "formulario": "ANEXO Nº1"
+    },
+    {
+      "id": "celda:32",
+      "etiqueta": "8.- NOMBRE Y TELEFONO DE CONTACTO:",
+      "formulario": "ANEXO Nº1"
+    },
+    {
+      "id": "celda:43",
+      "etiqueta": "ANEXO N°2 ECONOMICO",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:71",
+      "etiqueta": "LÍNEA 1: LETRERO DE OBRAS",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:73",
+      "etiqueta": "LETRERO INDICADOR DE OBRAS",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:77",
+      "etiqueta": "CANTIDAD",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:109",
+      "etiqueta": "LÍNEA 2: ARRIENDO BAÑOS QUIMICO",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:129",
+      "etiqueta": "LÍNEA 3: MATERIALES",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:308",
+      "etiqueta": "LINEA 4: IMPLEMENTOS DE SEGURIDAD",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:396",
+      "etiqueta": "LÍNEA 5: IMPLEMENTOS Y HERRAMIENTAS",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:479",
+      "etiqueta": "LÍNEA 6: ARRIENDO MAQUINARIAS",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:504",
+      "etiqueta": "RESUMEN:",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:510",
+      "etiqueta": "LÍNEA 1: LETRERO DE OBRAS",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:514",
+      "etiqueta": "LÍNEA 2: ARRIENDO BAÑOS QUIMICO",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:518",
+      "etiqueta": "LÍNEA 3: MATERIALES",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:522",
+      "etiqueta": "LINEA 4: IMPLEMENTOS DE SEGURIDAD",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:526",
+      "etiqueta": "LÍNEA 5: IMPLEMENTOS Y HERRAMIENTAS",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    },
+    {
+      "id": "celda:530",
+      "etiqueta": "LÍNEA 6: ARRIENDO MAQUINARIAS",
+      "formulario": "ANEXO N°2 ECONOMICO"
+    }
+  ],
+  "pendientesInline": [],
+  "tablas": [
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "IDENTIFICACIÓN DEL OFERENTE"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:50"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "RUT"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:52"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "IDENTIFICACIÓN DEL REP. LEGAL"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:55"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "RUT"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:58"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "DOMICILIO COMERCIAL"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:61"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "TELÉFONO"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:64"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "E-MAIL"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:67"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "LETRERO INDICADOR DE OBRAS"
+          },
+          {
+            "texto": "DESCRIPCIÓN"
+          },
+          {
+            "texto": "UNIDAD"
+          },
+          {
+            "texto": "CANTIDAD"
+          },
+          {
+            "texto": "PRECIO"
+          }
+        ],
+        [
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "CUARTON 4\"x 4\""
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "6.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:85"
+            }
+          }
+        ],
+        [
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "LISTÓN 2\"x 3\""
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "6.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:92"
+            }
+          }
+        ],
+        [
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "LIENZO DE 3,6 x 1,5 METROS"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "1.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:99"
+            }
+          }
+        ],
+        [
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "CLAVOS 6\""
+          },
+          {
+            "texto": "KG"
+          },
+          {
+            "texto": "2.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:106"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "PARTIDA"
+          },
+          {
+            "texto": "DESCRIPCIÓN"
+          },
+          {
+            "texto": "UNIDAD"
+          },
+          {
+            "texto": "CANTIDAD"
+          },
+          {
+            "texto": "PRECIO"
+          }
+        ],
+        [
+          {
+            "texto": "ARRIENDO"
+          },
+          {
+            "texto": "ARRIENDO BAÑO QUÍMICO 2 UNIDADES"
+          },
+          {
+            "texto": "MES"
+          },
+          {
+            "texto": "6.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:119"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "PARTIDA"
+          },
+          {
+            "texto": "DESCRIPCIÓN"
+          },
+          {
+            "texto": "UNIDAD"
+          },
+          {
+            "texto": "CANTIDAD"
+          },
+          {
+            "texto": "PRECIO"
+          }
+        ],
+        [
+          {
+            "texto": "MATERIAL"
+          },
+          {
+            "texto": "OBRAS DE CONSTRUCCIÓN"
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "-"
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:140"
+            }
+          },
+          {
+            "texto": "TRAZADO Y NIVELES"
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:144"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:145"
+            }
+          },
+          {
+            "texto": "FIERRO Ø 12 ESTRIADO"
+          },
+          {
+            "texto": "BARRA"
+          },
+          {
+            "texto": "25.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:149"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:150"
+            }
+          },
+          {
+            "texto": "MADERA DE PINO 1\" x  4\""
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "150.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:154"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:155"
+            }
+          },
+          {
+            "texto": "MADERA DE PINO  2x2\""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "120.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:161"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:162"
+            }
+          },
+          {
+            "texto": "CLAVOS  2,5\""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "KG"
+          },
+          {
+            "texto": "25.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:169"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:170"
+            }
+          },
+          {
+            "texto": "OBRA GRUESA"
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "-"
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:175"
+            }
+          },
+          {
+            "texto": "VEREDAS PEATONALES e:0,07 METROS"
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "-"
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:180"
+            }
+          },
+          {
+            "texto": "BASE ESTABILIZADA e:0,10 METROS"
+          },
+          {
+            "texto": "M3"
+          },
+          {
+            "texto": "115.6"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:184"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:185"
+            }
+          },
+          {
+            "texto": "HORMIGÓN G-25 e:0,07 METROS"
+          },
+          {
+            "texto": "M3"
+          },
+          {
+            "texto": "82.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:189"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:190"
+            }
+          },
+          {
+            "texto": "VEREDAS REFORZADAS (ACCESOS VEHICULARES) e: 0,10 METROS"
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "-"
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:195"
+            }
+          },
+          {
+            "texto": "BASE ESTABILIZADA e:0,10 METROS"
+          },
+          {
+            "texto": "M3"
+          },
+          {
+            "texto": "21.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:199"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:200"
+            }
+          },
+          {
+            "texto": "HORMIGÓN G-25 e:0,1 METROS"
+          },
+          {
+            "texto": "M3"
+          },
+          {
+            "texto": "22.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:204"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:205"
+            }
+          },
+          {
+            "texto": "MALLA ACMA C-139"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "10.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:209"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:210"
+            }
+          },
+          {
+            "texto": "CALUGAS SEPARADORAS BOLSA 100 UNIDADES"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "3.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:214"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:215"
+            }
+          },
+          {
+            "texto": "MOLDAJE"
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:219"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:220"
+            }
+          },
+          {
+            "texto": "MADERA TAPA"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "190.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:224"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:225"
+            }
+          },
+          {
+            "texto": "TERCIADO 12MM"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "10.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:229"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:230"
+            }
+          },
+          {
+            "texto": "DESMOLDANTE"
+          },
+          {
+            "texto": "GALÓN"
+          },
+          {
+            "texto": "5.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:234"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:235"
+            }
+          },
+          {
+            "texto": "MEMBRANA DE CURADO ANTISOL SIKA"
+          },
+          {
+            "texto": "GALÓN"
+          },
+          {
+            "texto": "9.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:239"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:240"
+            }
+          },
+          {
+            "texto": "SUMINISTRO Y COLOCACIÓN DE SOLERAS"
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "-"
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:245"
+            }
+          },
+          {
+            "texto": "SOLERAS TIPO A"
+          },
+          {
+            "texto": "ML"
+          },
+          {
+            "texto": "100.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:249"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:250"
+            }
+          },
+          {
+            "texto": "SOLERILLAS"
+          },
+          {
+            "texto": "ML"
+          },
+          {
+            "texto": "125.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:254"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:255"
+            }
+          },
+          {
+            "texto": "SACOS DE CEMENTO DE 25 KG"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "95.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:259"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:260"
+            }
+          },
+          {
+            "texto": "ARENA"
+          },
+          {
+            "texto": "M3"
+          },
+          {
+            "texto": "7.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:264"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:265"
+            }
+          },
+          {
+            "texto": "RIPIO"
+          },
+          {
+            "texto": "M3"
+          },
+          {
+            "texto": "11.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:269"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:270"
+            }
+          },
+          {
+            "texto": "ACCESIBILIDAD UNIVERSAL"
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "-"
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:275"
+            }
+          },
+          {
+            "texto": "BALDOSA TÁCTIL MINVU 0 (0,40 x 0,40 METROS)"
+          },
+          {
+            "texto": "M2"
+          },
+          {
+            "texto": "25.00"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:279"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:280"
+            }
+          },
+          {
+            "texto": "SACOS DE CEMENTO DE 25 KG"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "15.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:284"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:285"
+            }
+          },
+          {
+            "texto": "ARENA"
+          },
+          {
+            "texto": "M3"
+          },
+          {
+            "texto": "3.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:289"
+            }
+          }
+        ],
+        [
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "OTROS"
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "-"
+          }
+        ],
+        [
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "HERBICIDA"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "1.0"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:303"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "IMPLEMENTOS DE SEGURIDAD"
+          },
+          {
+            "texto": "DESCRIPCIÓN"
+          },
+          {
+            "texto": "UNIDAD"
+          },
+          {
+            "texto": "CANTIDAD"
+          },
+          {
+            "texto": "PRECIO"
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:314"
+            }
+          },
+          {
+            "texto": "PROTECTOR SOLAR 1 KG FACTOR 50+"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "5"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:318"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:319"
+            }
+          },
+          {
+            "texto": "ZAPATOS DE SEGURIDAD"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "18"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:323"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:324"
+            }
+          },
+          {
+            "texto": "OVEROL POLIÉSTER"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "18"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:328"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:329"
+            }
+          },
+          {
+            "texto": "CASCO DE SEGURIDAD"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "18"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:333"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:334"
+            }
+          },
+          {
+            "texto": "CAPUCHA LEGINARIA"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "18"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:338"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:339"
+            }
+          },
+          {
+            "texto": "ANTIPARRAS"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "36"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:343"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:344"
+            }
+          },
+          {
+            "texto": "TAPÓN AUDITIVO"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "18"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:348"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:349"
+            }
+          },
+          {
+            "texto": "RESPIRADOR PARA PARTICULAS (MASCARILLAS)"
+          },
+          {
+            "texto": "CAJA"
+          },
+          {
+            "texto": "33"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:353"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:354"
+            }
+          },
+          {
+            "texto": "GUANTE CABRITILLA PAR"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "216"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:358"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:359"
+            }
+          },
+          {
+            "texto": "GUANTE MULTIFLEX"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "216"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:363"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:364"
+            }
+          },
+          {
+            "texto": "GUANTE ANTICORTE"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "108"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:368"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:369"
+            }
+          },
+          {
+            "texto": "CHALECO REFLECTANTE"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "18"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:373"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:374"
+            }
+          },
+          {
+            "texto": "ROLLO CINTA PELIGRO RFX 350 METROS"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "7"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:378"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:379"
+            }
+          },
+          {
+            "texto": "CONO DE SEÑALIZACIÓN 70 CM NARANJO"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "6"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:383"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:384"
+            }
+          },
+          {
+            "texto": "MALLA DE FAENA VICSA 1 M DE ALTURA POR 45 M"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "12"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:388"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:389"
+            }
+          },
+          {
+            "texto": "EXTINTOR"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "2"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:393"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "IMPLEMENTOS Y HERRAMIENTAS"
+          },
+          {
+            "texto": "DESCRIPCIÓN"
+          },
+          {
+            "texto": "UNIDAD"
+          },
+          {
+            "texto": "CANTIDAD"
+          },
+          {
+            "texto": "PRECIO"
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:402"
+            }
+          },
+          {
+            "texto": "PALA"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "5"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:406"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:407"
+            }
+          },
+          {
+            "texto": "PICOTA"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "3"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:411"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:412"
+            }
+          },
+          {
+            "texto": "CHUZO"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "2"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:416"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:417"
+            }
+          },
+          {
+            "texto": "DISCO DE DIAMANTE 7\" ACERO BAUKER"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "10"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:421"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:422"
+            }
+          },
+          {
+            "texto": "DISCO CORTE METAL 4 1/2\""
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "30"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:426"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:427"
+            }
+          },
+          {
+            "texto": "DIABLO ACERO INOXIDABLE 24\" REDLINE"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "4"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:431"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:432"
+            }
+          },
+          {
+            "texto": "NIVEL DE ALUMINIO 48\" GRIS STANLEY"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "3"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:436"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:437"
+            }
+          },
+          {
+            "texto": "ESCOBILLONES INDUSTRIALES"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "10"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:441"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:442"
+            }
+          },
+          {
+            "texto": "MARTILLO MICROFIBRA 16 OZ 428-16 BAHCO"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "8"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:446"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:447"
+            }
+          },
+          {
+            "texto": "INGLETE SERRUCHO BASE 12 PULG 300 MM"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "4"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:451"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:452"
+            }
+          },
+          {
+            "texto": "LIENZA CARPINTERA"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "5"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:456"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:457"
+            }
+          },
+          {
+            "texto": "PINTACAL"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "8"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:461"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:462"
+            }
+          },
+          {
+            "texto": "LAPIZ CARPINTERO"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "10"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:466"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:467"
+            }
+          },
+          {
+            "texto": "LAPIZ MARCA METAL"
+          },
+          {
+            "texto": "UN"
+          },
+          {
+            "texto": "6"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:471"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "ARRIENDO DE MAQUINARIAS"
+          },
+          {
+            "texto": "DESCRIPCIÓN"
+          },
+          {
+            "texto": "UNIDAD"
+          },
+          {
+            "texto": "CANTIDAD"
+          },
+          {
+            "texto": "PRECIO"
+          }
+        ],
+        [
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "ARRIENDO RETROEXCAVADORA"
+          },
+          {
+            "texto": "H/M"
+          },
+          {
+            "texto": "45"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:491"
+            }
+          }
+        ],
+        [
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": ""
+          },
+          {
+            "texto": "ARRIENDO CAMIÓN TOLVA"
+          },
+          {
+            "texto": "H/M"
+          },
+          {
+            "texto": "45"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:498"
+            }
+          }
+        ]
+      ]
+    },
+    {
+      "formulario": "ANEXO N°2 ECONOMICO",
+      "filas": [
+        [
+          {
+            "texto": "LÍNEA"
+          },
+          {
+            "texto": "MONTO TOTAL OFERTADO"
+          },
+          {
+            "texto": "PLAZO DE ENTREGA (DIAS HABILES)"
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 1: LETRERO DE OBRAS"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:512"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 2: ARRIENDO BAÑOS QUIMICO"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:516"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 3: MATERIALES"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:520"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LINEA 4: IMPLEMENTOS DE SEGURIDAD"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:524"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 5: IMPLEMENTOS Y HERRAMIENTAS"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:528"
+            }
+          }
+        ],
+        [
+          {
+            "texto": "LÍNEA 6: ARRIENDO MAQUINARIAS"
+          },
+          {
+            "texto": "$"
+          },
+          {
+            "texto": "",
+            "input": {
+              "id": "celda:532"
+            }
+          }
+        ]
+      ]
+    }
+  ],
+  "secciones": [],
+  "firma": {
+    "detectada": true,
+    "disponible": true
+  }
+}

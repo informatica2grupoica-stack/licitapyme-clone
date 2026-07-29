@@ -45,7 +45,7 @@ const DICCIONARIO: EntradaDiccionario[] = [
   { campo: 'razon_social', patrones: [
     new RegExp(`^raz[óo]n\\s+social${SUFIJO_OFERENTE}$`, 'i'),
     new RegExp(`^nombre\\s+o\\s+raz[óo]n\\s+social${SUFIJO_OFERENTE}$`, 'i'),
-    new RegExp(`^nombre\\s+del\\s+(proponente|oferente)\\s+o\\s+raz[óo]n\\s+social$`, 'i'),
+    new RegExp(`^nombre\\s+(completo\\s+)?del\\s+(proponente|oferente)\\s+o\\s+raz[óo]n\\s+social$`, 'i'),
     /^empresa$/i,
   ] },
   { campo: 'rut', patrones: [
@@ -76,6 +76,7 @@ const DICCIONARIO: EntradaDiccionario[] = [
   { campo: 'telefono1', patrones: [
     new RegExp(`^tel[ée]fono(s)?(\\s+fijo)?${SUFIJO_OFERENTE}$`, 'i'),
     /^fono$/i,
+    new RegExp(`^n[°º]?\\.?\\s*de\\s+tel[ée]fono(s)?${SUFIJO_OFERENTE}$`, 'i'),
   ] },
   { campo: 'banco_tipo_cuenta', patrones: [/^tipo\s+de\s+cuenta(\s+bancaria)?$/i] },
   { campo: 'banco_numero', patrones: [/^n[úu]mero\s+de\s+cuenta$/i, /^cuenta\s+(bancaria|corriente)$/i] },
@@ -83,16 +84,20 @@ const DICCIONARIO: EntradaDiccionario[] = [
   { campo: 'banco_email', patrones: [/^correo\s+(para\s+)?pagos$/i, /^e-?mail\s+de\s+pagos$/i] },
 ];
 
-// Quita numeración/viñetas al INICIO ("1.1. Nombre o Razón Social" → "Nombre o Razón Social") y
-// puntuación colgante al FINAL ("RUT del oferente:" → "RUT del oferente") antes de comparar — el
-// diccionario exige match de principio a fin, y los anexos reales casi siempre numeran sus
-// campos y cierran con dos puntos. Exige un ESPACIO después del separador de numeración para no
-// confundir una abreviatura real ("E-mail") con una viñeta ("a) ").
+// Quita numeración/viñetas al INICIO ("1.1. Nombre o Razón Social" → "Nombre o Razón Social",
+// "1.- RUT" → "RUT"), aclaraciones entre paréntesis pegadas al final ("Dirección (Calle, N°,
+// Comuna):" → "Dirección") y puntuación colgante al FINAL ("RUT del oferente:" → "RUT del
+// oferente") antes de comparar — el diccionario exige match de principio a fin, y los anexos
+// reales casi siempre numeran sus campos y cierran con dos puntos. Exige un ESPACIO después del
+// separador de numeración para no confundir una abreviatura real ("E-mail") con una viñeta ("a) ").
+// El separador de numeración admite HASTA 2 símbolos seguidos (".", "-", ")") porque en anexos
+// reales chilenos es común numerar como "1.- " (punto + guion), no solo "1." o "1)" sueltos.
 function normalizarParaMatch(etiqueta: string): string {
   return etiqueta
     .trim()
-    .replace(/^\(?\d+(?:\.\d+)*[.\-)]?\s+/, '')
+    .replace(/^\(?\d+(?:\.\d+)*[.\-)]{0,2}\s+/, '')
     .replace(/^\(?[a-hA-H]\)\s+/, '')
+    .replace(/\s*\([^()]*\)\s*(?=[:.\s]*$)/, '')
     .replace(/[:.\s]+$/, '')
     .trim();
 }

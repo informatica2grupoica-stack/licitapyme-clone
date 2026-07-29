@@ -16,12 +16,57 @@ export interface AnexoDoc { id: number; nombre: string; url: string }
 interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' }
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
 interface PendienteInline { id: string; contexto: string; formulario?: string }
+interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'diccionario' | 'ia' }; input?: { id: string } }
+interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string }
 
 interface Analisis {
   completadosAuto: CampoCompletado[];
   pendientesCelda: PendienteCelda[];
   pendientesInline: PendienteInline[];
+  tablas: TablaUI[];
   firma: { detectada: boolean; disponible: boolean };
+}
+
+// Vista de tabla REAL: mismas filas/columnas que el Word, para que quede claro a qué celda
+// corresponde cada input (pedido explícito del usuario tras probar la lista plana con un anexo
+// económico real de 160 blancos sueltos — imposible saber cuál era cuál sin esto).
+function TablaReal({
+  tabla, respuestas, onChange,
+}: { tabla: TablaUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full text-[11.5px] border-collapse">
+        <tbody>
+          {tabla.filas.map((fila, i) => (
+            <tr key={i} className={i === 0 ? 'bg-slate-100' : 'odd:bg-white even:bg-slate-50/60'}>
+              {fila.map((c, j) => (
+                <td key={j} className={`border border-slate-200 px-2 py-1 align-middle whitespace-nowrap ${i === 0 ? 'font-semibold text-slate-700' : ''}`}>
+                  {c.input ? (
+                    <input
+                      type="text"
+                      value={respuestas[c.input.id] || ''}
+                      onChange={e => onChange(c.input!.id, e.target.value)}
+                      placeholder="…"
+                      className="w-full min-w-[80px] text-[11.5px] px-1.5 py-1 border border-indigo-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                    />
+                  ) : c.auto ? (
+                    <span
+                      className="inline-flex items-center gap-1 text-emerald-700 font-medium"
+                      title={c.auto.via === 'ia' ? 'Completado por IA' : 'Completado automático'}
+                    >
+                      {c.auto.valor}
+                    </span>
+                  ) : (
+                    <span className="text-slate-700">{c.texto}</span>
+                  )}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 // Un pendiente unificado (celda o blanco inline) con la etiqueta ya lista para mostrar — usado
@@ -100,23 +145,35 @@ export function AnexoRellenoModal({
 
   if (!doc) return null;
 
-  const totalPendientes = (analisis?.pendientesCelda.length || 0) + (analisis?.pendientesInline.length || 0);
+  const totalInputsTabla = (analisis?.tablas || []).reduce(
+    (acc, t) => acc + t.filas.reduce((a2, f) => a2 + f.filter(c => c.input).length, 0), 0,
+  );
+  const totalPendientes = (analisis?.pendientesCelda.length || 0) + (analisis?.pendientesInline.length || 0) + totalInputsTabla;
   const totalRespondidas = Object.values(respuestas).filter(v => v.trim()).length;
 
-  // Unifica celdas + blancos inline en una sola lista, y agrupa por formulario cuando el
-  // documento trae varios pegados. Si NINGÚN pendiente tiene formulario (caso común: un solo
-  // formulario), queda todo en "sinFormulario" y se muestra como antes, sin encabezados extra.
+  // Unifica celdas + blancos inline en una sola lista, y agrupa por formulario (igual que las
+  // tablas reales) cuando el documento trae varios pegados. Si NINGÚN pendiente tiene
+  // formulario (caso común: un solo formulario), queda todo en "sinFormulario"/"tablasSinFormulario"
+  // y se muestra como antes, sin encabezados extra.
   const pendientesTodos: PendienteUnificado[] = analisis ? [
     ...analisis.pendientesCelda.map(p => ({ id: p.id, etiqueta: p.etiqueta, formulario: p.formulario })),
     ...analisis.pendientesInline.map(p => ({ id: p.id, etiqueta: `…${p.contexto}____`, formulario: p.formulario })),
   ] : [];
-  const gruposFormulario: { titulo: string; items: PendienteUnificado[] }[] = [];
+  const gruposFormulario: { titulo: string; items: PendienteUnificado[]; tablas: TablaUI[] }[] = [];
   const sinFormulario: PendienteUnificado[] = [];
+  const tablasSinFormulario: TablaUI[] = [];
+  const grupoDe = (titulo: string) => {
+    let grupo = gruposFormulario.find(g => g.titulo === titulo);
+    if (!grupo) { grupo = { titulo, items: [], tablas: [] }; gruposFormulario.push(grupo); }
+    return grupo;
+  };
   for (const p of pendientesTodos) {
     if (!p.formulario) { sinFormulario.push(p); continue; }
-    let grupo = gruposFormulario.find(g => g.titulo === p.formulario);
-    if (!grupo) { grupo = { titulo: p.formulario, items: [] }; gruposFormulario.push(grupo); }
-    grupo.items.push(p);
+    grupoDe(p.formulario).items.push(p);
+  }
+  for (const t of analisis?.tablas || []) {
+    if (!t.formulario) { tablasSinFormulario.push(t); continue; }
+    grupoDe(t.formulario).tablas.push(t);
   }
   const hayFormularios = gruposFormulario.length > 0;
 
@@ -254,32 +311,55 @@ export function AnexoRellenoModal({
               {hayFormularios ? (
                 <>
                   {gruposFormulario.map(g => (
-                    <div key={g.titulo} className="space-y-1.5">
+                    <div key={g.titulo} className="space-y-2">
                       <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider border-b border-indigo-100 pb-1">
-                        {limpiarTituloFormulario(g.titulo)} ({g.items.length})
+                        {limpiarTituloFormulario(g.titulo)} ({g.items.length + g.tablas.reduce((a, t) => a + t.filas.reduce((a2, f) => a2 + f.filter(c => c.input).length, 0), 0)})
                       </p>
-                      <div className="space-y-2">
-                        {g.items.map(p => (
-                          <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
-                        ))}
-                      </div>
+                      {g.tablas.map((t, i) => (
+                        <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
+                      ))}
+                      {g.items.length > 0 && (
+                        <div className="space-y-2">
+                          {g.items.map(p => (
+                            <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
-                  {sinFormulario.length > 0 && (
-                    <div className="space-y-1.5">
+                  {(sinFormulario.length > 0 || tablasSinFormulario.length > 0) && (
+                    <div className="space-y-2">
                       <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        Otros campos ({sinFormulario.length})
+                        Otros campos ({sinFormulario.length + tablasSinFormulario.reduce((a, t) => a + t.filas.reduce((a2, f) => a2 + f.filter(c => c.input).length, 0), 0)})
                       </p>
-                      <div className="space-y-2">
-                        {sinFormulario.map(p => (
-                          <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
-                        ))}
-                      </div>
+                      {tablasSinFormulario.map((t, i) => (
+                        <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
+                      ))}
+                      {sinFormulario.length > 0 && (
+                        <div className="space-y-2">
+                          {sinFormulario.map(p => (
+                            <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
               ) : (
                 <>
+                  {tablasSinFormulario.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+                        Tablas con datos pendientes
+                      </p>
+                      <div className="space-y-2">
+                        {tablasSinFormulario.map((t, i) => (
+                          <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {analisis.pendientesCelda.length > 0 && (
                     <div className="space-y-1.5">
                       <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">

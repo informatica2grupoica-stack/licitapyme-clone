@@ -18,7 +18,7 @@ import {
   normalizarParaIds, rellenarCeldaVacia, rellenarRunPorIndice, insertarImagenEnParrafo,
   verificarParrafos, abrirDocx, guardarDocx,
 } from '@/app/lib/anexos-docx';
-import { analizarAnexo, type CandidatoCelda } from '@/app/lib/anexos-detectar';
+import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda } from '@/app/lib/anexos-detectar';
 import { buscarCampo, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
 import { matchearConIA } from '@/app/lib/anexos-ia-matching';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
@@ -27,6 +27,20 @@ export interface CampoCompletado { etiqueta: string; campo: string; valor: strin
 export interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
 export interface PendienteInline { id: string; contexto: string; formulario?: string }
 export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: string }
+
+// Vista de "tabla real" (ver TablaUI abajo): a diferencia de PendienteCelda (una lista plana de
+// "etiqueta: input"), esto reconstruye la tabla del Word tal cual es — todas las columnas, todas
+// las filas — para que en pantalla se vea igual que el documento y quede claro a qué celda
+// corresponde cada input. Pedido explícito del usuario tras probar la lista plana con un anexo
+// económico real: con 160 blancos sueltos sin contexto de fila/columna, era imposible saber cuál
+// era cuál. Solo se generan para tablas que tienen AL MENOS un blanco pendiente — una tabla ya
+// 100% completada sola no necesita vista propia, ya aparece resumida en "completadosAuto".
+export interface CeldaTablaUI {
+  texto: string;                                   // texto ya existente en el Word (columna, dato fijo)
+  auto?: { valor: string; via: 'diccionario' | 'ia' }; // se completó sola — se muestra el valor, sin input
+  input?: { id: string };                          // blanco real pendiente — el mismo id que usa generarAnexoFinal
+}
+export interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string }
 
 // A qué formulario ("FORMULARIO N°X") pertenece un párrafo, si el documento tiene varios
 // pegados — mismo detector que usa anexos-dividir.ts para separarlos en archivos. Sirve para
@@ -79,9 +93,17 @@ export interface AnalisisAnexo {
   completadosAuto: CampoCompletado[];
   pendientesCelda: PendienteCelda[];
   pendientesInline: PendienteInline[];
+  tablas: TablaUI[];
   secciones: SeccionInfo[];
   firma: FirmaInfo;
 }
+
+// Resolución de cada candidato de celda, para poder mapearla después sobre la tabla completa
+// (extraerTablasCrudo) — evita tener DOS lugares que decidan "esto se completó solo" / "esto
+// quedó pendiente", que podrían divergir.
+type Resolucion =
+  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' }
+  | { tipo: 'pendiente'; etiqueta: string; id: string };
 
 export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: EmpresaCampos): Promise<AnalisisAnexo> {
   const { xml: xmlCrudo } = await abrirDocx(bufferOriginal);
@@ -90,24 +112,61 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
   const formularios = detectarFormularios(xmlNormalizado);
 
   const completadosAuto: CampoCompletado[] = [];
+  const resolucionPorIndice = new Map<number, Resolucion>();
   const { matcheados, sinMatch, camposYaUsados } = aplicarDiccionario(analisis.candidatosCelda, empresa);
-  for (const m of matcheados) completadosAuto.push({ etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: 'diccionario' });
+  for (const m of matcheados) {
+    completadosAuto.push({ etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: 'diccionario' });
+    resolucionPorIndice.set(m.c.indice, { tipo: 'auto', etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: 'diccionario' });
+  }
 
   // Respaldo IA: solo para lo que el diccionario no pudo matchear.
   const matchesIA = await matchearConIA(sinMatch.map(c => c.etiqueta), empresa);
   const mapaIA = new Map(matchesIA.map(m => [m.etiqueta, m.campo]));
 
-  const pendientesCelda: PendienteCelda[] = [];
+  const pendientesCeldaTodos: PendienteCelda[] = [];
   for (const c of sinMatch) {
     const campoIA = mapaIA.get(c.etiqueta);
     const valorIA = campoIA ? empresa[campoIA] : null;
     if (campoIA && valorIA && !camposYaUsados.has(campoIA)) {
       completadosAuto.push({ etiqueta: c.etiqueta, campo: campoIA, valor: String(valorIA), via: 'ia' });
       camposYaUsados.add(campoIA);
+      resolucionPorIndice.set(c.indice, { tipo: 'auto', etiqueta: c.etiqueta, campo: campoIA, valor: String(valorIA), via: 'ia' });
     } else {
-      pendientesCelda.push({ id: `celda:${c.indice}`, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios) });
+      const id = `celda:${c.indice}`;
+      pendientesCeldaTodos.push({ id, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios) });
+      resolucionPorIndice.set(c.indice, { tipo: 'pendiente', etiqueta: c.etiqueta, id });
     }
   }
+
+  // Reconstruye cada tabla del Word COMPLETA (todas las celdas, no solo las vacías) para que el
+  // panel de pendientes se vea como el documento real — fila por fila, columna por columna — en
+  // vez de una lista plana donde no se sabe a qué celda corresponde cada blanco. Solo se
+  // devuelven las tablas que tienen al menos un pendiente real; una tabla ya 100% resuelta por
+  // diccionario/IA no necesita vista propia.
+  const tablasCrudo = extraerTablasCrudo(xmlNormalizado);
+  const indicesEnTablas = new Set(
+    tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
+  );
+  const tablas: TablaUI[] = tablasCrudo
+    .map(t => ({
+      formulario: t.indicePrimero != null ? formularioDe(t.indicePrimero, formularios) : undefined,
+      filas: t.filas.map(f => f.celdas.map((c): CeldaTablaUI => {
+        if (c.indiceGlobal == null) return { texto: c.texto };
+        const res = resolucionPorIndice.get(c.indiceGlobal);
+        if (!res) return { texto: c.texto }; // celda vacía pero no es candidato real (decorativa, sección omitida, etc.)
+        if (res.tipo === 'auto') return { texto: '', auto: { valor: res.valor, via: res.via } };
+        return { texto: '', input: { id: res.id } };
+      })),
+    }))
+    .filter(t => t.filas.some(f => f.some(c => c.input)));
+
+  // Los pendientes de celda que YA se muestran dentro de una tabla no se repiten en la lista
+  // plana — solo quedan ahí los que no pertenecen a ninguna tabla detectada (ej. una etiqueta
+  // suelta en medio del texto, sin estructura tabular real que mostrar).
+  const pendientesCelda = pendientesCeldaTodos.filter(p => {
+    const indice = Number(p.id.split(':')[1]);
+    return !indicesEnTablas.has(indice);
+  });
 
   const pendientesInline: PendienteInline[] = analisis.blancosInline.map(b => ({
     id: `inline:${b.indiceRun}:${b.posEnTexto}`,
@@ -124,6 +183,7 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
     completadosAuto,
     pendientesCelda,
     pendientesInline,
+    tablas,
     secciones: analisis.secciones.map(s => ({ tipo: s.tipo, decision: s.decision, textoEncabezado: s.textoEncabezado })),
     firma,
   };

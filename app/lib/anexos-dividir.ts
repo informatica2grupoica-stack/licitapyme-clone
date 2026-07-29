@@ -18,39 +18,73 @@ import JSZip from 'jszip';
 
 export interface FormularioDetectado { titulo: string; indiceInicio: number; indiceFin: number }
 
-const RE_ENCABEZADO_FORMULARIO = /^FORMULARIO\s*N[°ºO]?\.?\s*\d+/i;
+// Los organismos usan indistintamente "FORMULARIO N°X" o "ANEXO N°X" como separador de
+// secciones pegadas en un mismo .docx (caso real encontrado: "ANEXO Nº1" / "ANEXO N°2
+// ECONOMICO" — antes solo se reconocía "FORMULARIO", así que un documento así no se dividía
+// nunca, quedaba como un solo bloque de cientos de párrafos sin segmentar).
+const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
-interface ParrafoCrudo { textoPlano: string; xmlCompleto: string }
+// Un BLOQUE es un elemento de NIVEL SUPERIOR del body: un párrafo suelto o una tabla completa
+// (con todos sus <w:tr>/<w:tc> intactos). Bug real encontrado y corregido acá: la versión
+// anterior aplanaba el documento a solo <w:p>, así que una tabla dentro del rango de un
+// formulario perdía sus tags <w:tbl>/<w:tr>/<w:tc> al reconstruir el fragmento — quedaban los
+// párrafos de sus celdas sueltos, sin filas ni columnas. Los anexos económicos (la mayoría de
+// las veces la razón para dividir) son casi puras tablas, así que este caso no es raro.
+//
+// `ordinalInicio`/`ordinalFin` son la posición del bloque en la MISMA numeración de "índice de
+// párrafo" que usa el resto del módulo (anexos-docx.ts listarParrafos, anexos-detectar.ts
+// detectarBlancosInline): cada <w:p> del documento cuenta 1, sin importar si está dentro de una
+// tabla o no. Una tabla con 6 párrafos en sus celdas ocupa 6 posiciones consecutivas de esa
+// numeración — necesario para que detectarFormularios() (que trabaja con esos mismos índices,
+// compartidos con anexos-rellenar.ts para agrupar pendientes por formulario) siga calzando.
+interface BloqueCrudo {
+  tipo: 'parrafo' | 'tabla';
+  textoPlano: string;       // solo relevante para párrafos (búsqueda de encabezado)
+  xmlCompleto: string;
+  ordinalInicio: number;
+  ordinalFin: number;
+}
 
-function listarParrafosCrudos(xml: string): ParrafoCrudo[] {
-  const out: ParrafoCrudo[] = [];
-  for (const m of xml.matchAll(/<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>([\s\S]*?)<\/w:p>/g)) {
-    const cuerpo = m[1];
-    const texto = [...cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(x => x[1]).join('').trim();
-    out.push({ textoPlano: texto, xmlCompleto: m[0] });
+const RE_BLOQUE = /<w:tbl\b[^>]*>[\s\S]*?<\/w:tbl>|<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>[\s\S]*?<\/w:p>/g;
+const RE_PARRAFO_CON_ID = /<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>/g;
+
+function listarBloquesCrudos(xml: string): BloqueCrudo[] {
+  const out: BloqueCrudo[] = [];
+  let ordinal = 0;
+  for (const m of xml.matchAll(RE_BLOQUE)) {
+    if (m[0].startsWith('<w:tbl')) {
+      const numParrafos = (m[0].match(RE_PARRAFO_CON_ID) || []).length || 1;
+      out.push({ tipo: 'tabla', textoPlano: '', xmlCompleto: m[0], ordinalInicio: ordinal, ordinalFin: ordinal + numParrafos - 1 });
+      ordinal += numParrafos;
+    } else {
+      const texto = [...m[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(x => x[1]).join('').trim();
+      out.push({ tipo: 'parrafo', textoPlano: texto, xmlCompleto: m[0], ordinalInicio: ordinal, ordinalFin: ordinal });
+      ordinal += 1;
+    }
   }
   return out;
 }
 
 export function detectarFormularios(xml: string): FormularioDetectado[] {
-  const parrafos = listarParrafosCrudos(xml);
+  const bloques = listarBloquesCrudos(xml);
   const encabezados: { indice: number; titulo: string }[] = [];
-  parrafos.forEach((p, i) => {
-    if (p.textoPlano.length <= LARGO_MAX_ENCABEZADO && RE_ENCABEZADO_FORMULARIO.test(p.textoPlano)) {
-      encabezados.push({ indice: i, titulo: p.textoPlano });
+  for (const b of bloques) {
+    if (b.tipo === 'parrafo' && b.textoPlano.length <= LARGO_MAX_ENCABEZADO && RE_ENCABEZADO_FORMULARIO.test(b.textoPlano)) {
+      encabezados.push({ indice: b.ordinalInicio, titulo: b.textoPlano });
     }
-  });
+  }
+  const totalOrdinales = bloques.length ? bloques[bloques.length - 1].ordinalFin + 1 : 0;
   return encabezados.map((h, i) => ({
     titulo: h.titulo,
     indiceInicio: h.indice,
-    indiceFin: (encabezados[i + 1]?.indice ?? parrafos.length) - 1,
+    indiceFin: (encabezados[i + 1]?.indice ?? totalOrdinales) - 1,
   }));
 }
 
-// "FORMULARIO N°1-A: IDENTIFICACIÓN..." → "N1-A" (para el nombre de archivo)
+// "FORMULARIO N°1-A: IDENTIFICACIÓN..." / "ANEXO N°2 ECONOMICO" → "N1-A" / "N2" (nombre de archivo)
 function sufijoDeArchivo(titulo: string): string {
-  const m = titulo.match(/FORMULARIO\s*N[°ºO]?\.?\s*(\d+(?:-[A-Z])?)/i);
+  const m = titulo.match(/(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*(\d+(?:-[A-Z])?)/i);
   const base = m ? `N${m[1]}` : titulo.slice(0, 20);
   return base.replace(/[^\w-]/g, '_');
 }
@@ -58,7 +92,7 @@ function sufijoDeArchivo(titulo: string): string {
 export interface FormularioDividido { nombreSufijo: string; titulo: string; buffer: Buffer }
 
 export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Promise<FormularioDividido[]> {
-  const parrafos = listarParrafosCrudos(xml);
+  const bloques = listarBloquesCrudos(xml);
   const formularios = detectarFormularios(xml);
   if (formularios.length < 2) return []; // 0 o 1 no amerita dividir — se mantiene un solo archivo
 
@@ -74,7 +108,13 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
 
   const resultados: FormularioDividido[] = [];
   for (const f of formularios) {
-    const cuerpo = parrafos.slice(f.indiceInicio, f.indiceFin + 1).map(p => p.xmlCompleto).join('');
+    // Un bloque entra en el fragmento si CUALQUIER parte de su rango de ordinales cae dentro
+    // del rango del formulario — así una tabla se incluye COMPLETA (nunca cortada a la mitad)
+    // aunque su primer o último párrafo interno coincida justo con el borde.
+    const cuerpo = bloques
+      .filter(b => b.ordinalInicio <= f.indiceFin && b.ordinalFin >= f.indiceInicio)
+      .map(b => b.xmlCompleto)
+      .join('');
     const xmlFragmento = `${preBody}${aperturaBody}${cuerpo}${sectPr}</w:body></w:document>`;
 
     const zip = await JSZip.loadAsync(bufferBase);

@@ -47,12 +47,23 @@ function offsetsAIndices(xml: string): Map<number, number> {
   return mapa;
 }
 
-interface CeldaCruda { texto: string; vacio: boolean; paraId: string | null; indiceGlobal: number | null }
+interface CeldaCruda { texto: string; vacio: boolean; paraId: string | null; indiceGlobal: number | null; anchoPct: number | null }
+
+// Umbral de "celda decorativa": encontrado en un anexo real donde una columna de categoría del
+// encabezado ("LETRERO INDICADOR DE OBRAS") venía MERGEADA en el encabezado pero partida en 3
+// celdas angostas sueltas en cada fila de datos (sin <w:vMerge>, boradesr) — cada una de ~245
+// (4.9% del ancho, escala pct de OOXML es 0-5000) contra columnas reales de 550+ (11%+). Sin
+// filtrar esto, esas 3 celdas angostas se ofrecían como blancos a rellenar (con la etiqueta de
+// columna mal calzada, ver comentario en detectarCandidatosTabla) — nunca son un dato real, son
+// puro relleno visual de layout.
+const ANCHO_PCT_MINIMO_COLUMNA_REAL = 400;
 
 function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices: Map<number, number>): CeldaCruda[] {
   const celdas: CeldaCruda[] = [];
   for (const tc of filaXml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)) {
     const cuerpoCelda = tc[1];
+    const anchoMatch = tc[0].match(/<w:tcW\s+w:w="(\d+)"\s+w:type="pct"/);
+    const anchoPct = anchoMatch ? Number(anchoMatch[1]) : null;
     const parrafosCelda = [...cuerpoCelda.matchAll(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"[^>]*>([\s\S]*?)<\/w:p>/g)];
     const textoCelda = parrafosCelda
       .map(p => [...p[2].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join(''))
@@ -71,7 +82,7 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
       const offsetCelda = offsetFila + tc.index! + tc[0].indexOf(cuerpoCelda);
       indiceGlobal = offsetsIndices.get(offsetCelda + (parrafoVacio.index ?? 0)) ?? null;
     }
-    celdas.push({ texto: textoCelda, vacio: textoCelda === '' && paraId != null, paraId, indiceGlobal });
+    celdas.push({ texto: textoCelda, vacio: textoCelda === '' && paraId != null, paraId, indiceGlobal, anchoPct });
   }
   return celdas;
 }
@@ -103,7 +114,20 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
 
       celdas.forEach((c, colIndex) => {
         if (!c.vacio || c.indiceGlobal == null || !c.paraId) return;
-        const nombreColumna = hayEncabezado ? nombresColumna[colIndex] : '';
+        // Celda angosta a propósito (relleno de layout, ver ANCHO_PCT_MINIMO_COLUMNA_REAL) —
+        // nunca es un dato real que pedir, se ignora aunque esté "vacía".
+        if (c.anchoPct != null && c.anchoPct < ANCHO_PCT_MINIMO_COLUMNA_REAL) return;
+        // Alineación de columna DESDE LA DERECHA, no desde la izquierda: caso real encontrado
+        // donde el encabezado trae MENOS celdas que las filas de datos (una columna de
+        // categoría fusionada en el encabezado se parte en varias celdas angostas en cada fila
+        // de datos, sin <w:vMerge>) — alinear por índice normal (izquierda) descuadraba TODAS
+        // las columnas reales (ej. el blanco de "PRECIO", la última columna, quedaba fuera de
+        // rango y salía sin etiqueta). Alineando desde el final, la ÚLTIMA celda de datos
+        // siempre calza con la ÚLTIMA columna del encabezado sin importar cuántas celdas de
+        // más haya al principio de la fila — y si los conteos coinciden (caso normal, la
+        // mayoría de las tablas) da exactamente el mismo resultado que antes.
+        const colIndexDesdeDerecha = nombresColumna.length - (celdas.length - colIndex);
+        const nombreColumna = hayEncabezado ? nombresColumna[colIndexDesdeDerecha] : '';
         const etiqueta = nombreColumna ? `${filaContexto} — ${nombreColumna}` : filaContexto;
         out.push({ etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal });
       });
@@ -261,13 +285,62 @@ export function analizarAnexo(xml: string) {
   const indicesTabla = new Set(candidatosTabla.map(c => c.indice));
   const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos).filter(c => !indicesTabla.has(c.indice));
 
-  const candidatosCelda = acotarASeccionesHabilitadas([...candidatosTabla, ...candidatosCeldaCrudos], secciones);
+  const candidatosCeldaTodos = acotarASeccionesHabilitadas([...candidatosTabla, ...candidatosCeldaCrudos], secciones);
 
-  const lineasFirma = detectarLineasFirma(parrafos);
+  // Cualquier etiqueta que mencione "firma" (ej. "Firma y Timbre del Oferente o Representante
+  // Legal:" seguida de una celda vacía — patrón real visto en anexos reales, DISTINTO de la
+  // raya de guiones que cubre detectarLineasFirma) no es un dato de texto: es el lugar donde va
+  // la IMAGEN de la firma escaneada. Bug real encontrado en pruebas contra un anexo real: sin
+  // esto, caía al flujo normal diccionario→IA y la IA a veces la matcheaba mal contra
+  // representante_cargo, escribiendo un cargo inventado ahí en vez de insertar la firma.
+  const esEtiquetaFirma = (etiqueta: string) => /firma/i.test(etiqueta);
+  const candidatosFirmaCelda = candidatosCeldaTodos.filter(c => esEtiquetaFirma(c.etiqueta));
+  const candidatosCelda = candidatosCeldaTodos.filter(c => !esEtiquetaFirma(c.etiqueta));
+
+  const lineasFirma = [
+    ...detectarLineasFirma(parrafos),
+    ...candidatosFirmaCelda.map(c => ({ paraId: c.paraId, indice: c.indice, contexto: c.etiqueta })),
+  ];
   const indicesFirma = new Set(lineasFirma.map(f => f.indice));
   // La raya de una línea de firma también matchea el patrón 2 (blanco inline, "_{4,}") — se
   // excluye de ahí para no ofrecer un input de texto Y la firma para el mismo párrafo.
   const blancosInline = detectarBlancosInline(xml).filter(b => !indicesFirma.has(b.indiceParrafo));
 
   return { parrafos, secciones, candidatosCelda, blancosInline, lineasFirma };
+}
+
+// ── Extracción de tablas COMPLETAS (todas las celdas, no solo las vacías) ─────────────────
+// Para la vista de "tabla real" en la pantalla de relleno: el usuario pidió ver el documento
+// tal cual es (filas y columnas reales), no una lista plana de "etiqueta: input" donde no se
+// entiende a qué celda corresponde cada blanco. Reutiliza extraerCeldasDeFila (la misma función
+// que ya usa detectarCandidatosTabla) para que "qué celda es un blanco real" sea EXACTAMENTE la
+// misma lógica en los dos lugares — nunca dos criterios de "vacío" que puedan divergir.
+export interface CeldaTablaCruda { texto: string; indiceGlobal: number | null; anchoPct: number | null }
+export interface FilaTablaCruda { celdas: CeldaTablaCruda[] }
+export interface TablaCruda { indicePrimero: number | null; filas: FilaTablaCruda[] }
+
+export function extraerTablasCrudo(xml: string): TablaCruda[] {
+  const offsetsIndices = offsetsAIndices(xml);
+  const tablas: TablaCruda[] = [];
+
+  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
+    const cuerpoTabla = tabla[1];
+    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+
+    // Posición de la tabla en la numeración de "índice de párrafo" (para poder agruparla por
+    // formulario/anexo igual que el resto de los pendientes) — la del primer párrafo que
+    // aparece adentro, sea o no el que se vaya a rellenar.
+    const primerParrafo = cuerpoTabla.match(/<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>/);
+    const indicePrimero = primerParrafo ? (offsetsIndices.get(offsetTabla + primerParrafo.index!) ?? null) : null;
+
+    const filasXml = [...cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
+    const filas: FilaTablaCruda[] = filasXml.map(filaM => {
+      const offsetFila = offsetTabla + filaM.index! + filaM[0].indexOf(filaM[1]);
+      const celdas = extraerCeldasDeFila(filaM[1], offsetFila, offsetsIndices);
+      return { celdas: celdas.map(c => ({ texto: c.texto, indiceGlobal: c.indiceGlobal, anchoPct: c.anchoPct })) };
+    });
+
+    tablas.push({ indicePrimero, filas });
+  }
+  return tablas;
 }
