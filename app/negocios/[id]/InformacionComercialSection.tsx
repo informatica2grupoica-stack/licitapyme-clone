@@ -333,14 +333,30 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
     const elegibles = items.filter(i => i.bloque === 'ADMINISTRATIVO' && i.tipo === 'documento' && i.generable);
     const reparto = repartirArchivosGenerados(archivos, elegibles, itemOrigen.id);
 
+    // accionar() ya muestra su propio toast.error por cada PATCH que falle (congelamiento, red,
+    // etc.) — antes este bucle ignoraba el resultado y SIEMPRE mostraba "listo, quedó en
+    // CARGADO" abajo, aunque uno de los puntos hubiera fallado en silencio. Ahora se cuentan los
+    // fallos y el toast final dice la verdad: éxito solo si los N puntos quedaron cargados.
+    let fallidos = 0;
     for (const [itemId, docs] of reparto) {
-      await accionar(itemId, 'CARGAR', { documentos: docs });
+      const ok = await accionar(itemId, 'CARGAR', { documentos: docs });
+      if (!ok) fallidos++;
     }
     const puntos = reparto.size;
-    toast.success(
-      archivos.length > 1 ? `${archivos.length} anexos generados` : 'Anexo generado',
-      puntos > 1 ? `Se repartieron en ${puntos} puntos del checklist — quedaron en CARGADO` : 'Quedó en CARGADO, listo para que el asesor lo apruebe',
-    );
+    if (fallidos === 0) {
+      toast.success(
+        archivos.length > 1 ? `${archivos.length} anexos generados` : 'Anexo generado',
+        puntos > 1 ? `Se repartieron en ${puntos} puntos del checklist — quedaron en CARGADO` : 'Quedó en CARGADO, listo para que el asesor lo apruebe',
+      );
+    } else {
+      // El/los archivos igual quedaron subidos a Documentos Propios (eso ya lo confirmó el modal
+      // antes de llegar acá) — lo que falló es solo adjuntarlos al checklist, así que no se
+      // pierde nada: se pueden adjuntar a mano desde "Adjuntar" en el punto correspondiente.
+      toast.error(
+        fallidos === puntos ? 'No se pudo adjuntar al checklist' : `${puntos - fallidos}/${puntos} puntos quedaron cargados`,
+        'El archivo ya está en Documentos Propios — puedes adjuntarlo a mano en el punto que falló.',
+      );
+    }
   };
 
   const elegirEmpresa = async (id: string) => {

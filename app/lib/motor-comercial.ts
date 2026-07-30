@@ -21,6 +21,22 @@ export interface FilaCosteo {
   cantidadOriginal: number | null;
   costoUnitarioNeto: number | null; costoTotalNeto: number | null;
   precioUnitarioSinDecimales: number | null; precioTotalNeto: number | null;
+  // Línea REAL de la licitación a la que pertenece esta fila — NUNCA es lo mismo que `item`.
+  // `item` es la posición del producto DENTRO de su hoja (una línea puede traer varios
+  // sub-productos, cada uno con su propio ITEM 1, 2, 3…); `lineaPublicada` sale del NOMBRE de
+  // la hoja ("LINEA4" → 4), que es como generar-costeo.ts arma el archivo en por_linea (ver
+  // lineaDeHoja). null en suma_alzada/por_categoria, donde la hoja no se llama "LINEAn".
+  lineaPublicada: number | null;
+}
+
+// generar-costeo.ts nombra cada hoja "LINEA${k+1}" cuando la modalidad es por_linea (ver
+// app/lib/generar-costeo.ts:265). Antes de este fix, calcularAlertasMotorComercial comparaba
+// `item` (1, 2, 3… reiniciado en CADA hoja) contra el número de línea publicada — dos cosas
+// completamente distintas — y disparaba "Error de origen" en casi cualquier costeo real de más
+// de una línea. Sacar el número de línea del NOMBRE de la hoja es la fuente correcta.
+export function lineaDeHoja(hoja: string): number | null {
+  const m = /^LINEA\s*(\d+)$/i.exec(hoja.trim());
+  return m ? Number(m[1]) : null;
 }
 
 // Una celda de fórmula ya calculada trae { formula, result }; una celda de valor trae el
@@ -47,12 +63,13 @@ export async function parsearCosteo(buffer: Buffer): Promise<FilaCosteo[]> {
 
   wb.eachSheet(ws => {
     if (ws.name.trim().toUpperCase() === 'AUDITORIA') return;
+    const lineaPublicada = lineaDeHoja(ws.name);
     for (let r = FILA_ITEM_1; r <= 5000; r++) {
       const item = num(ws.getCell(r, COL.item).value);
       const detalle = texto(ws.getCell(r, COL.detalle).value);
       if (item == null && !detalle) break;   // fin del bloque de ítems de esta hoja
       filas.push({
-        hoja: ws.name, fila: r, item, detalle,
+        hoja: ws.name, fila: r, item, detalle, lineaPublicada,
         unidad: texto(ws.getCell(r, COL.unidad).value),
         cantidadOriginal: num(ws.getCell(r, COL.cantidad).value),
         costoUnitarioNeto: num(ws.getCell(r, COL.costoUnitario).value),
@@ -85,11 +102,27 @@ export function calcularAlertasMotorComercial(args: {
   filas: FilaCosteo[];
   totalAnexoEconomico: number | null;
   presupuestoPublicado: number | null;
-  lineasPublicadas: Array<{ linea: number; cantidad: number | null; unidad: string | null }>;
+  lineasPublicadas: Array<{ linea: number; cantidad: number | null; unidad: string | null; presupuestoLinea: number | null }>;
+  // Líneas que el asistente marcó "no ofertamos" en el checklist (algunas licitaciones por
+  // línea se postulan solo parcialmente) — se sacan de TODO lo de acá abajo: total, sobre
+  // presupuesto, discordancia con el anexo. Cotizarlas en el costeo no significa comprometerse
+  // a ofertarlas.
+  lineasExcluidas?: Set<number>;
 }): AlertaMotorComercial[] {
   const alertas: AlertaMotorComercial[] = [];
-  const totalCosteo = args.filas.reduce((s, f) => s + (f.precioTotalNeto ?? 0), 0);
-  const totalCosto = args.filas.reduce((s, f) => s + (f.costoTotalNeto ?? 0), 0);
+  const excluidas = args.lineasExcluidas ?? new Set<number>();
+  // La línea real de cada fila: si la hoja se llama "LINEAn" (por_linea, generar-costeo.ts) se
+  // usa esa; si no (suma_alzada/por_categoria: una sola hoja plana, una fila = una línea), cae a
+  // `item`, que en ESE caso sí coincide con el número de línea — es el comportamiento original,
+  // que era correcto para suma_alzada y solo estaba mal para por_linea multi-hoja.
+  const lineaDe = (f: FilaCosteo) => f.lineaPublicada ?? f.item;
+  const filasOfertadas = args.filas.filter(f => {
+    const l = lineaDe(f);
+    return l == null || !excluidas.has(l);
+  });
+
+  const totalCosteo = filasOfertadas.reduce((s, f) => s + (f.precioTotalNeto ?? 0), 0);
+  const totalCosto = filasOfertadas.reduce((s, f) => s + (f.costoTotalNeto ?? 0), 0);
 
   if (args.totalAnexoEconomico != null && Math.round((args.totalAnexoEconomico - totalCosteo) * 100) !== 0) {
     alertas.push({
@@ -99,12 +132,12 @@ export function calcularAlertasMotorComercial(args: {
     });
   }
 
-  const bajoCosto = args.filas.filter(f => f.precioTotalNeto != null && f.costoTotalNeto != null && f.precioTotalNeto < f.costoTotalNeto);
+  const bajoCosto = filasOfertadas.filter(f => f.precioTotalNeto != null && f.costoTotalNeto != null && f.precioTotalNeto < f.costoTotalNeto);
   if (bajoCosto.length > 0) {
     alertas.push({
       codigo: 'VENTA_BAJO_COSTO',
       descripcion: 'Venta bajo costo',
-      detalle: `Ítem(s) ${bajoCosto.map(f => f.item ?? '?').join(', ')} del costeo tienen precio de venta por debajo del costo.`,
+      detalle: `Ítem(s) ${bajoCosto.map(f => lineaDe(f) != null ? `línea ${lineaDe(f)} ítem ${f.item ?? '?'}` : (f.item ?? '?')).join(', ')} del costeo tienen precio de venta por debajo del costo.`,
     });
   }
 
@@ -116,22 +149,54 @@ export function calcularAlertasMotorComercial(args: {
     });
   }
 
+  // Presupuesto POR LÍNEA — algunas bases fijan un monto máximo INDEPENDIENTE por línea (lote),
+  // no solo un total global (viabilidad-ia.ts ya detecta esa señal y la guarda como
+  // presupuesto_linea en el manifiesto). Un costeo puede estar bajo el total global y aun así
+  // pasarse en una línea puntual — el chequeo de arriba no lo vería. Solo se evalúa donde las
+  // bases de VERDAD fijan ese monto (presupuestoLinea no nulo); si no lo fijan, esa línea queda
+  // cubierta únicamente por el chequeo global.
+  const sobrePresupuestoLinea: number[] = [];
+  for (const pub of args.lineasPublicadas) {
+    if (pub.presupuestoLinea == null || excluidas.has(pub.linea)) continue;
+    const totalLinea = filasOfertadas.filter(f => lineaDe(f) === pub.linea).reduce((s, f) => s + (f.precioTotalNeto ?? 0), 0);
+    if (totalLinea > 0 && Math.round((totalLinea - pub.presupuestoLinea) * 100) > 0) sobrePresupuestoLinea.push(pub.linea);
+  }
+  if (sobrePresupuestoLinea.length > 0) {
+    alertas.push({
+      codigo: 'SOBRE_PRESUPUESTO_LINEA',
+      descripcion: 'Sobre presupuesto por línea',
+      detalle: `Línea(s) ${sobrePresupuestoLinea.join(', ')}: el costeo de esa línea supera el máximo que las bases fijan para ELLA (no el total global).`,
+    });
+  }
+
   if (args.lineasPublicadas.length > 0) {
     const porLinea = new Map(args.lineasPublicadas.map(l => [l.linea, l]));
+    // Agrupadas por línea real, no por fila: una línea con varios sub-productos no tiene una
+    // única "cantidad"/"unidad" propia que comparar contra cada sub-ítem por separado — antes
+    // esto disparaba en casi cualquier costeo real con más de un producto por línea. Solo se
+    // compara cuando la línea trae exactamente UN sub-ítem: ahí sí es una comparación 1:1 válida.
+    const filasPorLinea = new Map<number, FilaCosteo[]>();
+    for (const f of filasOfertadas) {
+      const l = lineaDe(f);
+      if (l == null) continue;
+      if (!filasPorLinea.has(l)) filasPorLinea.set(l, []);
+      filasPorLinea.get(l)!.push(f);
+    }
     const descuadres: number[] = [];
-    for (const f of args.filas) {
-      if (f.item == null) continue;
-      const pub = porLinea.get(f.item);
+    for (const [linea, filasDeLinea] of filasPorLinea) {
+      if (filasDeLinea.length !== 1) continue;
+      const pub = porLinea.get(linea);
       if (!pub) continue;
+      const f = filasDeLinea[0];
       const cantidadDistinta = pub.cantidad != null && f.cantidadOriginal != null && Number(pub.cantidad) !== Number(f.cantidadOriginal);
       const unidadDistinta = !!pub.unidad && !!f.unidad && normUnidad(pub.unidad) !== normUnidad(f.unidad);
-      if (cantidadDistinta || unidadDistinta) descuadres.push(f.item);
+      if (cantidadDistinta || unidadDistinta) descuadres.push(linea);
     }
     if (descuadres.length > 0) {
       alertas.push({
         codigo: 'ERROR_DE_ORIGEN',
         descripcion: 'Error de origen',
-        detalle: `Línea(s) ${descuadres.join(', ')}: la cantidad o unidad del costeo no coincide con la línea publicada. Se levanta antes de generar cualquier documento.`,
+        detalle: `Línea(s) ${descuadres.sort((a, b) => a - b).join(', ')}: la cantidad o unidad del costeo no coincide con la línea publicada. Se levanta antes de generar cualquier documento.`,
       });
     }
   }
@@ -144,4 +209,20 @@ export function totalesDeCosteo(filas: FilaCosteo[]): { totalCostoNeto: number; 
     totalCostoNeto: filas.reduce((s, f) => s + (f.costoTotalNeto ?? 0), 0),
     totalPrecioNeto: filas.reduce((s, f) => s + (f.precioTotalNeto ?? 0), 0),
   };
+}
+
+/** Línea real de una fila — misma regla que usa calcularAlertasMotorComercial (ver lineaDe ahí):
+ *  el nombre de hoja manda si es "LINEAn"; si no, cae a `item` (suma_alzada de una sola hoja). */
+export function lineaDeFila(f: FilaCosteo): number | null {
+  return f.lineaPublicada ?? f.item;
+}
+
+/** Total del costeo para UNA línea — suma TODOS sus sub-ítems (una línea puede traer varios
+ *  productos, cada uno su propia fila). Antes la auto-precarga tomaba una sola fila por línea
+ *  con una clave equivocada (`item`, que se repite 1,2,3… en cada hoja) — ver costeo/route.ts. */
+export function totalPrecioDeLinea(filas: FilaCosteo[], linea: number): number | null {
+  const deLaLinea = filas.filter(f => lineaDeFila(f) === linea);
+  if (!deLaLinea.length) return null;
+  const total = deLaLinea.reduce((s, f) => s + (f.precioTotalNeto ?? 0), 0);
+  return total > 0 ? total : null;
 }

@@ -114,14 +114,14 @@ export function modalidadDudosa(informe: any): boolean {
 }
 
 /** Líneas ofertables, desde el manifiesto de productos del informe (con respaldos). */
-export function lineasDelInforme(informe: any): Array<{ linea: number; descripcion: string; cantidad: number | null; unidad: string | null }> {
+export function lineasDelInforme(informe: any): Array<{ linea: number; descripcion: string; cantidad: number | null; unidad: string | null; presupuestoLinea: number | null }> {
   const crudo: any[] =
     (Array.isArray(informe?.manifiesto_productos) && informe.manifiesto_productos) ||
     (Array.isArray(informe?.productos?.items) && informe.productos.items) ||
     (Array.isArray(informe?.costeo?.items) && informe.costeo.items) || [];
 
   const vistas = new Set<number>();
-  const out: Array<{ linea: number; descripcion: string; cantidad: number | null; unidad: string | null }> = [];
+  const out: Array<{ linea: number; descripcion: string; cantidad: number | null; unidad: string | null; presupuestoLinea: number | null }> = [];
   crudo.forEach((it, i) => {
     const linea = Number(it?.linea ?? it?.numero ?? i + 1) || i + 1;
     if (vistas.has(linea)) return;   // el manifiesto a veces repite la línea por sub-ítem
@@ -131,6 +131,11 @@ export function lineasDelInforme(informe: any): Array<{ linea: number; descripci
       descripcion: String(it?.descripcion || it?.nombre || it?.producto || `Línea ${linea}`).slice(0, 280),
       cantidad: num(it?.cantidad),
       unidad: it?.unidad_medida || it?.unidad || null,
+      // Cuando las bases fijan un monto máximo INDEPENDIENTE por línea (viabilidad-ia.ts ya lo
+      // detecta como señal de modalidad), cada sub-ítem del manifiesto trae el MISMO
+      // presupuesto_linea — tomar el del primero (el mismo dedupe de arriba) es exacto, no una
+      // aproximación. null si las bases no fijan presupuesto por línea (queda solo el global).
+      presupuestoLinea: num(it?.presupuesto_linea),
     });
   });
   return out.sort((a, b) => a.linea - b.linea);

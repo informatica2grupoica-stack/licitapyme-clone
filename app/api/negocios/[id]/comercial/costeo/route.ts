@@ -4,8 +4,12 @@
 // ficha técnica" en el Agente Técnico); acá solo se recibe la URL, se descarga, se parsea y se
 // calculan las 4 alertas obligatorias (§7.4).
 //
-//   GET  → versión vigente + últimas versiones (historial, spec §7.6)
-//   POST { url, nombre } → parsea, calcula alertas, guarda nueva versión (baja la anterior)
+//   GET    → versión vigente + últimas versiones (historial, spec §7.6)
+//   POST   { url, nombre } → parsea, calcula alertas, guarda nueva versión (baja la anterior)
+//   DELETE { id } → borra una versión puntual (ej. la subió por error). Si era la vigente, la
+//            siguiente más reciente que quede pasa a vigente sola — nunca deja "sin costeo" si
+//            todavía hay versiones. No toca los precios ya cargados en el checklist: esos
+//            quedan como están, el borrado es solo del registro/evidencia del costeo.
 //
 // Auto-precarga (spec §7.5, alcance acotado): si un ítem 'precio' del bloque COMERCIAL sigue en
 // PENDIENTE (el asistente no cargó nada todavía), se rellena con el total del costeo. Si ya
@@ -19,7 +23,7 @@ import { publicarCambio } from '@/app/lib/sse-bus';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { esPorLinea, lineasDelInforme } from '@/app/lib/checklist-comercial';
-import { parsearCosteo, calcularAlertasMotorComercial, totalesDeCosteo, type AlertaMotorComercial } from '@/app/lib/motor-comercial';
+import { parsearCosteo, calcularAlertasMotorComercial, totalesDeCosteo, totalPrecioDeLinea, type AlertaMotorComercial } from '@/app/lib/motor-comercial';
 import { cargarNegocio, leerInforme, leerItems, nombreDe, asesores } from '../route';
 import { yaCongelado } from '@/app/lib/congelamiento';
 
@@ -110,8 +114,18 @@ export async function POST(request: NextRequest, { params }: Params) {
     const totalAnexo = await totalAnexoEconomico(negocio.id);
     const { totalCostoNeto, totalPrecioNeto } = totalesDeCosteo(filas);
 
+    // Se necesita ANTES de calcular alertas (no solo para la auto-precarga de más abajo): una
+    // línea que el asistente ya marcó "no ofertamos" no debe contar ni para el total ni para
+    // "sobre presupuesto", aunque el costeo la traiga cotizada.
+    const items = await leerItems(negocio.id);
+    const lineasExcluidas = new Set(
+      items
+        .filter((i: any) => i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.ofertamos === false && i.linea_numero != null)
+        .map((i: any) => i.linea_numero as number),
+    );
+
     const alertas: AlertaMotorComercial[] = calcularAlertasMotorComercial({
-      filas, totalAnexoEconomico: totalAnexo, presupuestoPublicado, lineasPublicadas,
+      filas, totalAnexoEconomico: totalAnexo, presupuestoPublicado, lineasPublicadas, lineasExcluidas,
     });
 
     const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
@@ -138,17 +152,17 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // Auto-precarga SOLO de ítems 'precio' todavía en PENDIENTE (spec §7.5) — ver cabecera del
     // archivo para por qué no se toca nada que ya tenga un valor cargado.
-    const items = await leerItems(negocio.id);
     const itemsPrecio = items.filter((i: any) => i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.estado === 'PENDIENTE');
     if (esPorLinea(informe)) {
-      const porLinea = new Map(filas.filter(f => f.item != null).map(f => [f.item as number, f]));
+      // Suma TODOS los sub-ítems de la línea (totalPrecioDeLinea), no una fila suelta con la
+      // clave equivocada — una línea real puede traer varios productos en su misma hoja.
       for (const it of itemsPrecio) {
-        const f = it.linea_numero != null ? porLinea.get(it.linea_numero) : null;
-        if (f?.precioTotalNeto == null) continue;
+        const total = it.linea_numero != null ? totalPrecioDeLinea(filas, it.linea_numero) : null;
+        if (total == null) continue;
         await pool.query(
           `UPDATE checklist_comercial SET estado = 'CARGADO', valor_numero = ?, ofertamos = 1,
                   cargado_por = ?, cargado_por_nombre = ?, cargado_at = ? WHERE id = ?`,
-          [f.precioTotalNeto, userId, nombreActor, ahora, it.id],
+          [total, userId, nombreActor, ahora, it.id],
         );
       }
     } else {
@@ -183,6 +197,52 @@ export async function POST(request: NextRequest, { params }: Params) {
     });
   } catch (error) {
     console.error('[comercial/costeo][POST]', String(error));
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+// ═══ DELETE — borra una versión puntual del costeo ═══════════════════════════════
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const { id: userId, rol } = getUser(request);
+  if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const { id } = await params;
+
+  try {
+    const negocio = await cargarNegocio(id);
+    if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+    if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
+      return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
+    if (await yaCongelado(negocio.id))
+      return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
+
+    const body = await request.json().catch(() => ({}));
+    const versionId = Number(body.id);
+    if (!versionId) return NextResponse.json({ error: 'Falta el id de la versión a eliminar' }, { status: 400 });
+
+    const [rows] = await pool.query(
+      `SELECT id, vigente FROM checklist_comercial_costeo WHERE id = ? AND negocio_id = ? LIMIT 1`,
+      [versionId, negocio.id],
+    ) as any;
+    const fila = (rows as any[])[0];
+    if (!fila) return NextResponse.json({ error: 'Versión no encontrada' }, { status: 404 });
+
+    await pool.query(`DELETE FROM checklist_comercial_costeo WHERE id = ?`, [versionId]);
+
+    // Si la que se borró era la vigente, la más reciente que quede pasa a vigente sola — así el
+    // Motor Comercial nunca queda "sin costeo" mientras todavía haya alguna versión subida.
+    if (fila.vigente) {
+      const [siguientes] = await pool.query(
+        `SELECT id FROM checklist_comercial_costeo WHERE negocio_id = ? ORDER BY version DESC LIMIT 1`,
+        [negocio.id],
+      ) as any;
+      const siguiente = (siguientes as any[])[0];
+      if (siguiente) await pool.query(`UPDATE checklist_comercial_costeo SET vigente = 1 WHERE id = ?`, [siguiente.id]);
+    }
+
+    publicarCambio('checklist_comercial');
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('[comercial/costeo][DELETE]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }

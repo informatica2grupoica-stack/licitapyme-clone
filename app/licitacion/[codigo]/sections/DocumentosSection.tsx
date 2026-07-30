@@ -1171,6 +1171,38 @@ export function DocumentosSection({
     }
   };
 
+  // El costeo NO es un punto más del checklist tipo "documento" — es su propia entidad (Motor
+  // Comercial: parsea el Excel, calcula las 4 alertas obligatorias y precarga los precios de las
+  // líneas COMERCIAL que sigan en PENDIENTE). Mandarlo por el selector genérico lo dejaría pegado
+  // a un punto cualquiera sin correr nada de eso. El archivo ya está subido (lo generó la propia
+  // app) — /api/negocios/[id]/comercial/costeo solo necesita la URL, no un re-upload.
+  const [enviandoCosteo, setEnviandoCosteo] = useState(false);
+  // `includes`, no `startsWith`: un costeo regenerado (handleRegenerarCosteo) puede volver a
+  // subirse con un timestamp de R2 pegado ADELANTE del nombre real ("173..._COSTEO_...xlsx") —
+  // visto en vivo probando este mismo flujo. El nombre real de un costeo generado por
+  // generar-costeo.ts SIEMPRE contiene "COSTEO_" en algún punto del string.
+  const esCosteo = (doc: { nombre: string }) => doc.nombre.includes('COSTEO_');
+  const enviarCosteoAlMotorComercial = async (doc: { nombre: string; url: string }) => {
+    if (!negocioId) return;
+    setEnviandoCosteo(true);
+    try {
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: doc.url, nombre: doc.nombre }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d.error || 'No se pudo enviar el costeo al Motor Comercial'); return; }
+      const alertas: Array<{ descripcion: string }> = d.alertas || [];
+      if (alertas.length > 0) toast.warning(`Costeo enviado — ${alertas.length} alerta(s)`, alertas.map(a => a.descripcion).join(' · '));
+      else toast.success('Costeo enviado al Motor Comercial', 'Sin alertas — revísalo en la pestaña Auditor Técnico');
+    } catch (e: any) {
+      toast.error('Error de red', e?.message);
+    } finally {
+      setEnviandoCosteo(false);
+    }
+  };
+
   // Regeneración del Excel de costeo desde el informe IA ya guardado (sin re-analizar:
   // reusa el manifiesto y solo vuelve a armar el Excel con la plantilla actual).
   const [regenerandoCosteo, setRegenerandoCosteo] = useState(false);
@@ -1272,7 +1304,7 @@ export function DocumentosSection({
         {/* Banner costeo generado — aparece cuando hay un COSTEO_ en DOCUMENTOS_PROPIOS */}
         {!clasificando && (() => {
           const costeo = documentosCache.find(d =>
-            d.nombre?.startsWith('COSTEO_') && (d as any).categoria === 'DOCUMENTOS_PROPIOS',
+            d.nombre?.includes('COSTEO_') && (d as any).categoria === 'DOCUMENTOS_PROPIOS',
           );
           if (!costeo) return null;
           return (
@@ -1316,7 +1348,7 @@ export function DocumentosSection({
         {!clasificando && (() => {
           const informe = documentosCache.find(d =>
             d.nombre?.startsWith('INFORME_') && (d as any).categoria === 'DOCUMENTOS_PROPIOS');
-          const hayAnalisis = documentosCache.some(d => d.nombre?.startsWith('COSTEO_'));
+          const hayAnalisis = documentosCache.some(d => d.nombre?.includes('COSTEO_'));
           if (informe) {
             return (
               <div className="flex items-start gap-2.5 px-4 py-3 bg-violet-50 border border-violet-200 rounded-xl">
@@ -1454,7 +1486,7 @@ export function DocumentosSection({
           codigoDecoded={codigoDecoded}
           onView={verYRegistrar}
           onRefrescar={fetchDocumentos}
-          onEnviarAuditor={isAdmin && negocioId ? setEnviandoDoc : undefined}
+          onEnviarAuditor={isAdmin && negocioId ? (doc => esCosteo(doc) ? enviarCosteoAlMotorComercial(doc) : setEnviandoDoc(doc)) : undefined}
         />
       </div>
 
