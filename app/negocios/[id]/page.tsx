@@ -1729,6 +1729,7 @@ function DetalleContent() {
                 onReClasificar={handleClasificar}
                 resumenClasificacion={resumenClasificacion}
                 empresaId={negocio.empresa_id}
+                negocioId={negocio.id}
               />
             )}
             {seccion === 'analisis' && (

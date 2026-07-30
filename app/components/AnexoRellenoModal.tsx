@@ -172,7 +172,10 @@ export function AnexoRellenoModal({
   codigo: string;
   empresaId: number | null;
   onClose: () => void;
-  onGenerado: () => void;
+  // Recibe los archivos subidos (uno, o varios si el Word traía formularios pegados y se
+  // dividió) — quien abre el modal decide qué hacer con ellos (ej. adjuntarlos a un punto del
+  // Auditor Técnico), no solo refrescar la lista de Documentos.
+  onGenerado: (archivos: { nombre: string; url: string }[]) => void;
 }) {
   const toast = useToast();
   const [cargando, setCargando] = useState(true);
@@ -284,7 +287,7 @@ export function AnexoRellenoModal({
         data.dividido ? `${data.archivos?.length || 0} formularios generados` : 'Anexo generado',
         `${resumenCampos} — disponible${data.dividido ? 's' : ''} en Documentos para MP`,
       );
-      onGenerado();
+      onGenerado(data.archivos || []);
       onClose();
     } catch (e: any) {
       toast.error('No se pudo generar el anexo', e.message);

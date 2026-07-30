@@ -16,6 +16,9 @@ import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
+import { SelectorDocumentoAnexo } from '@/app/components/SelectorDocumentoAnexo';
+import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
 import { FilaLineaTecnica } from './FilaLineaTecnica';
 import { MotorComercialCard } from './MotorComercialCard';
 import {
@@ -232,6 +235,11 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   const [ocupado, setOcupado] = useState<number | null>(null);   // itemId con acción en curso
   const [resincronizando, setResincronizando] = useState(false);
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
+  // Flujo "Generar" (E.1 ↔ Auditor Técnico): el ítem que abrió el flujo se mantiene mientras se
+  // elige el documento fuente Y mientras se rellena — se necesita al final para saber dónde
+  // caen los archivos que ningún punto matcheó con confianza (ver repartirArchivosGenerados).
+  const [generandoItem, setGenerandoItem] = useState<Item | null>(null);
+  const [anexoDocSeleccionado, setAnexoDocSeleccionado] = useState<AnexoDoc | null>(null);
 
   const cargar = useCallback(async () => {
     try {
@@ -303,6 +311,31 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
     } finally {
       setResincronizando(false);
     }
+  };
+
+  // ── Cierre del flujo "Generar" (E.1 ↔ Auditor Técnico) ──────────────────────────
+  // El .docx que se generó ya quedó subido a R2 + Documentos Propios (lo hizo /api/anexos/generar
+  // dentro del modal) — acá solo falta ADJUNTARLO al punto correcto del checklist, con la misma
+  // acción CARGAR que usa la carga manual. Si el documento fuente traía varios formularios
+  // pegados, cada archivo dividido va a SU propio punto (repartirArchivosGenerados), no todos al
+  // que abrió el modal.
+  const handleAnexoGenerado = async (archivos: { nombre: string; url: string }[]) => {
+    const itemOrigen = generandoItem;
+    setAnexoDocSeleccionado(null);
+    setGenerandoItem(null);
+    if (!itemOrigen || archivos.length === 0) return;
+
+    const elegibles = items.filter(i => i.bloque === 'ADMINISTRATIVO' && i.tipo === 'documento' && i.generable);
+    const reparto = repartirArchivosGenerados(archivos, elegibles, itemOrigen.id);
+
+    for (const [itemId, docs] of reparto) {
+      await accionar(itemId, 'CARGAR', { documentos: docs });
+    }
+    const puntos = reparto.size;
+    toast.success(
+      archivos.length > 1 ? `${archivos.length} anexos generados` : 'Anexo generado',
+      puntos > 1 ? `Se repartieron en ${puntos} puntos del checklist — quedaron en CARGADO` : 'Quedó en CARGADO, listo para que el asesor lo apruebe',
+    );
   };
 
   const elegirEmpresa = async (id: string) => {
@@ -497,6 +530,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                     ocupado={ocupado === item.id}
                     onAccion={accionar}
                     onVer={setVisorDoc}
+                    onGenerar={setGenerandoItem}
                     toast={toast}
                   />
                 )
@@ -534,6 +568,25 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       )}
 
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
+
+      {/* Flujo "Generar" — paso 1: elegir a cuál Word real de la licitación corresponde este
+          anexo. Se oculta en cuanto se elige uno (paso 2, el modal de relleno, toma el relevo). */}
+      <SelectorDocumentoAnexo
+        codigo={generandoItem && !anexoDocSeleccionado ? licitacionCodigo : null}
+        tituloItem={generandoItem && !anexoDocSeleccionado ? generandoItem.titulo : null}
+        onSeleccionar={setAnexoDocSeleccionado}
+        onClose={() => setGenerandoItem(null)}
+      />
+
+      {/* Flujo "Generar" — paso 2: mismo modal que usa Documentos, pero al terminar el archivo
+          se adjunta directo al punto del checklist en vez de solo refrescar una lista. */}
+      <AnexoRellenoModal
+        doc={anexoDocSeleccionado}
+        codigo={licitacionCodigo}
+        empresaId={empresaId}
+        onClose={() => { setAnexoDocSeleccionado(null); setGenerandoItem(null); }}
+        onGenerado={handleAnexoGenerado}
+      />
     </div>
   );
 }
@@ -644,7 +697,7 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast, bloqueado }: {
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Una fila del checklist: el punto, su evidencia, y las acciones según quién mira.
-function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, onAccion, onVer, toast }: {
+function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, onAccion, onVer, onGenerar, toast }: {
   item: Item;
   licitacionCodigo: string;
   puedeAprobar: boolean;
@@ -652,6 +705,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
   ocupado: boolean;
   onAccion: (itemId: number, accion: string, extra?: Record<string, unknown>) => Promise<boolean>;
   onVer: (doc: VisorDoc) => void;
+  onGenerar: (item: Item) => void;
   toast: ReturnType<typeof useToast>;
 }) {
   const confirmar = useConfirm();
@@ -663,6 +717,19 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
   const [subiendo, setSubiendo] = useState(false);
   const [eliminando, setEliminando] = useState<number | null>(null);   // documentoId en curso
   const fileRef = useRef<HTMLInputElement>(null);
+  const cargadoAtRef = useRef(item.cargado_at);
+
+  // El flujo "Generar" adjunta el archivo desde AFUERA de esta fila (el modal vive en el
+  // componente padre, para poder repartir varios archivos entre varios ítems) — sin esto, tras
+  // generar el panel de edición se quedaba abierto con el textarea vacío y el documento nuevo
+  // no se veía (la lista de adjuntos solo se muestra con editando=false). cargado_at cambia en
+  // CUALQUIER CARGAR exitoso (manual o generado), así que cerrar acá cubre los dos caminos.
+  useEffect(() => {
+    if (item.cargado_at !== cargadoAtRef.current) {
+      cargadoAtRef.current = item.cargado_at;
+      setEditando(false);
+    }
+  }, [item.cargado_at]);
 
   const crit = CRIT_STYLE[item.criticidad] || CRIT_STYLE.INFORMATIVO;
   const est = ESTADO_STYLE[item.estado];
@@ -854,8 +921,12 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
                   </>
                 )}
                 {item.generable && (
-                  <button disabled title="Generar el documento desde la app — próximamente"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 text-zinc-300 text-[11.5px] font-semibold rounded-lg cursor-not-allowed">
+                  <button
+                    type="button"
+                    onClick={() => onGenerar(item)}
+                    title="Rellenar este anexo con los datos de la empresa"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-indigo-200 text-indigo-600 hover:bg-indigo-50 text-[11.5px] font-semibold rounded-lg transition-colors"
+                  >
                     <Sparkles size={12} /> Generar
                   </button>
                 )}

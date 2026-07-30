@@ -4,13 +4,14 @@ import { useState, useRef, useEffect } from 'react';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
-  Upload, Trash2, Pencil, Check, X, FolderPlus, Wand2,
+  Upload, Trash2, Pencil, Check, X, FolderPlus, Wand2, Send,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
+import { SelectorPuntoAuditor } from '@/app/components/SelectorPuntoAuditor';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { registrarVerDocumento } from '@/app/lib/actividad-cliente';
@@ -89,6 +90,7 @@ function DocItem({
   onOpenIA,
   onDelete,
   onRellenarAnexo,
+  onEnviarAuditor,
 }: {
   doc: DocumentoAdjunto & { categoria?: string };
   codigoDecoded: string;
@@ -98,6 +100,11 @@ function DocItem({
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onDelete?: (doc: DocumentoAdjunto & { categoria?: string }) => void;
   onRellenarAnexo?: (doc: AnexoDoc) => void;
+  // Presente solo cuando esta pantalla vive dentro de un negocio (nunca al mirar una licitación
+  // suelta, todavía sin asignar) — manda el documento tal cual está al checklist del Auditor
+  // Técnico, sin pasar por el relleno. Para lo que YA quedó listo (una garantía escaneada, un
+  // anexo llenado a mano fuera de la app), no para los que todavía tienen campos vacíos.
+  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
 }) {
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
   const esPropio = (doc.categoria || '').toUpperCase() === CAT_PROPIOS;
@@ -133,6 +140,17 @@ function DocItem({
             draggable={false}
           >
             <Wand2 size={11} />
+          </button>
+        )}
+        {onEnviarAuditor && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onEnviarAuditor({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+            className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+            title="Enviar al Auditor Técnico"
+            draggable={false}
+          >
+            <Send size={11} />
           </button>
         )}
         <button
@@ -196,6 +214,7 @@ function CajaDroppable({
   onUpload,
   onDelete,
   onRellenarAnexo,
+  onEnviarAuditor,
   subiendo,
 }: {
   caja: CajaConfig;
@@ -214,6 +233,7 @@ function CajaDroppable({
   onUpload: (file: File, categoria: string) => void;
   onDelete: (doc: DocumentoAdjunto & { categoria?: string }) => void;
   onRellenarAnexo?: (doc: AnexoDoc) => void;
+  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
   subiendo: string | null; // key de la caja que está subiendo un archivo
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
@@ -256,6 +276,7 @@ function CajaDroppable({
             onOpenIA={onOpenIA}
             onDelete={onDelete}
             onRellenarAnexo={onRellenarAnexo}
+            onEnviarAuditor={onEnviarAuditor}
           />
         ))}
 
@@ -283,6 +304,7 @@ function DocumentosGrid({
   onOpenIA,
   onRefrescar,
   onRellenarAnexo,
+  onEnviarAuditor,
   modo,
 }: {
   documentos: (DocumentoAdjunto & { categoria?: string })[];
@@ -291,6 +313,7 @@ function DocumentosGrid({
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onRefrescar: () => void;
   onRellenarAnexo?: (doc: AnexoDoc) => void;
+  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
   // 'licitacion' = todas las cajas MENOS Documentos Propios (docs de la licitación);
   // 'propios' = SOLO la caja Documentos Propios (lo que creamos/editamos);
   // undefined = todas (comportamiento previo).
@@ -539,6 +562,7 @@ function DocumentosGrid({
             onUpload={handleUpload}
             onDelete={handleDelete}
             onRellenarAnexo={onRellenarAnexo}
+            onEnviarAuditor={onEnviarAuditor}
             subiendo={subiendo}
           />
         ))}
@@ -628,7 +652,7 @@ function claveCajaPropia(sub?: string | null) {
 function DocPropioItem({
   doc, isDragging, isEditing, valorNombre, busy,
   onDragStart, onView, onDownloadClick, onReemplazar, onRenombrarClick, onEliminar,
-  onGuardarNombre, onCancelarEdicion, onChangeValorNombre,
+  onGuardarNombre, onCancelarEdicion, onChangeValorNombre, onEnviarAuditor,
 }: {
   doc: DocPropio;
   isDragging: boolean;
@@ -644,6 +668,7 @@ function DocPropioItem({
   onGuardarNombre: () => void;
   onCancelarEdicion: () => void;
   onChangeValorNombre: (v: string) => void;
+  onEnviarAuditor?: () => void;
 }) {
   const urlDe = (doc as any).url_local || (doc as any).url;
   return (
@@ -685,6 +710,9 @@ function DocPropioItem({
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
           <button type="button" onClick={(e) => { e.stopPropagation(); onView(); }} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors" title="Ver en el visor" draggable={false}><Eye size={11} /></button>
           <a href={urlDe} download={doc.nombre} onClick={(e) => { e.stopPropagation(); onDownloadClick(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Descargar" draggable={false}><Download size={11} /></a>
+          {onEnviarAuditor && (
+            <button type="button" onClick={(e) => { e.stopPropagation(); onEnviarAuditor(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Enviar al Auditor Técnico" draggable={false}><Send size={11} /></button>
+          )}
           <button type="button" onClick={(e) => { e.stopPropagation(); onReemplazar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors disabled:opacity-50" title="Reemplazar (subir versión nueva)" draggable={false}><Upload size={11} /></button>
           <button type="button" onClick={(e) => { e.stopPropagation(); onRenombrarClick(); }} disabled={busy} className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors disabled:opacity-50" title="Renombrar" draggable={false}><Pencil size={11} /></button>
           <button type="button" onClick={(e) => { e.stopPropagation(); onEliminar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50" title="Eliminar" draggable={false}><Trash2 size={11} /></button>
@@ -700,6 +728,7 @@ function CajaPropiaDroppable({
   onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop,
   onView, onDownloadClick, onReemplazar, onRenombrarClick, onEliminar,
   editando, valorNombre, onGuardarNombre, onCancelarEdicion, onChangeValorNombre, ocupado,
+  onEnviarAuditor,
 }: {
   cajaKey: string;
   label: string;
@@ -723,6 +752,7 @@ function CajaPropiaDroppable({
   onCancelarEdicion: () => void;
   onChangeValorNombre: (v: string) => void;
   ocupado: string | null;
+  onEnviarAuditor?: (doc: DocPropio) => void;
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
   return (
@@ -760,6 +790,7 @@ function CajaPropiaDroppable({
             onGuardarNombre={() => onGuardarNombre(doc)}
             onCancelarEdicion={onCancelarEdicion}
             onChangeValorNombre={onChangeValorNombre}
+            onEnviarAuditor={onEnviarAuditor ? () => onEnviarAuditor(doc) : undefined}
           />
         ))}
         {isDragOver && (
@@ -783,11 +814,12 @@ function CajaPropiaDroppable({
 // Se persiste en `subcategoria` — una columna aparte de `categoria` (que sigue marcando el
 // documento como DOCUMENTOS_PROPIOS). La clasificación IA (/api/documentos/clasificar) nunca
 // corre sobre estos documentos ni toca esta columna — ver /api/documentos/organizar.
-function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar }: {
+function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnviarAuditor }: {
   docs: DocPropio[];
   codigoDecoded: string;
   onView: (doc: VisorDoc) => void;
   onRefrescar: () => void;
+  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
 }) {
   const confirmar = useConfirm();
   const toast = useToast();
@@ -1070,6 +1102,7 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar }: {
               onCancelarEdicion={() => setEditando(null)}
               onChangeValorNombre={setValorNombre}
               ocupado={ocupado}
+              onEnviarAuditor={onEnviarAuditor ? (doc) => onEnviarAuditor({ nombre: doc.nombre, url: urlDe(doc) }) : undefined}
             />
           ))}
         </div>
@@ -1082,7 +1115,7 @@ export function DocumentosSection({
   codigoDecoded, mpUrl, documentosCache, cargandoDocs,
   descargandoAuto, handleAutoDescargar, fetchDocumentos,
   clasificando, onReClasificar, resumenClasificacion,
-  empresaId,
+  empresaId, negocioId,
 }: {
   codigoDecoded: string;
   mpUrl: string;
@@ -1095,7 +1128,11 @@ export function DocumentosSection({
   onReClasificar?: () => void;
   resumenClasificacion?: { estado: 'completo' | 'incompleto'; falta: string[] } | null;
   empresaId?: number | null;
+  // Presente solo dentro de un negocio (nunca al mirar una licitación suelta) — habilita el
+  // botón "Enviar al Auditor Técnico" en cada documento, propio o de la licitación.
+  negocioId?: number | null;
 }) {
+  const toast = useToast();
   const yaClasificados = documentosCache.some(d => (d as any).categoria);
   // Separación en dos apartados: "Documentos y Bases" (los de la licitación) vs "Documentos Propios"
   // (los que NOSOTROS creamos o editamos: costeo, informe, y lo que subamos).
@@ -1109,6 +1146,25 @@ export function DocumentosSection({
   const [iaDoc, setIaDoc] = useState<{ nombre: string; url: string } | null>(null);
   // Anexo de oferente abierto en la pantalla de relleno (modal). null = cerrado.
   const [anexoDoc, setAnexoDoc] = useState<AnexoDoc | null>(null);
+  // Documento elegido para mandar al Auditor Técnico — abre el selector de punto (SelectorPuntoAuditor).
+  const [enviandoDoc, setEnviandoDoc] = useState<{ nombre: string; url: string } | null>(null);
+  const enviarAAuditor = async (itemId: number) => {
+    if (!enviandoDoc || !negocioId) return;
+    try {
+      const r = await fetch(`/api/negocios/${negocioId}/comercial`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemId, accion: 'CARGAR', documentos: [enviandoDoc] }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo enviar al Auditor Técnico'); return; }
+      toast.success('Enviado al Auditor Técnico', `"${enviandoDoc.nombre}" quedó en CARGADO`);
+    } catch (e: any) {
+      toast.error('Error de red', e?.message);
+    } finally {
+      setEnviandoDoc(null);
+    }
+  };
 
   // Regeneración del Excel de costeo desde el informe IA ya guardado (sin re-analizar:
   // reusa el manifiesto y solo vuelve a armar el Excel con la plantilla actual).
@@ -1357,6 +1413,7 @@ export function DocumentosSection({
               onOpenIA={setIaDoc}
               onRefrescar={fetchDocumentos}
               onRellenarAnexo={setAnexoDoc}
+              onEnviarAuditor={negocioId ? setEnviandoDoc : undefined}
               modo="licitacion"
             />
           </div>
@@ -1392,6 +1449,7 @@ export function DocumentosSection({
           codigoDecoded={codigoDecoded}
           onView={verYRegistrar}
           onRefrescar={fetchDocumentos}
+          onEnviarAuditor={negocioId ? setEnviandoDoc : undefined}
         />
       </div>
 
@@ -1401,13 +1459,22 @@ export function DocumentosSection({
       {/* Chat rápido de IA sobre un documento puntual */}
       <DocumentoIAModal doc={iaDoc} codigo={codigoDecoded} onClose={() => setIaDoc(null)} />
 
+      {/* Enviar un documento ya existente (propio o de la licitación) a un punto del Auditor
+          Técnico — camino inverso al de "Generar": acá el archivo ya está listo. */}
+      <SelectorPuntoAuditor
+        negocioId={negocioId ?? null}
+        nombreArchivo={enviandoDoc?.nombre ?? null}
+        onSeleccionar={enviarAAuditor}
+        onClose={() => setEnviandoDoc(null)}
+      />
+
       {/* Pantalla de relleno de un anexo de oferente */}
       <AnexoRellenoModal
         doc={anexoDoc}
         codigo={codigoDecoded}
         empresaId={empresaId ?? null}
         onClose={() => setAnexoDoc(null)}
-        onGenerado={fetchDocumentos}
+        onGenerado={() => fetchDocumentos()}
       />
     </div>
   );
