@@ -21,20 +21,34 @@ import mysql from 'mysql2/promise';
 const enVercel = !!process.env.VERCEL;
 const connectionLimit = enVercel ? 3 : Number(process.env.DB_POOL_LIMIT || 8);
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: parseInt(process.env.DB_PORT || '3306'),
-  timezone: 'local',
-  waitForConnections: true, // bajo ráfaga, ENCOLA (espera) en vez de fallar → mejor UX que un error duro
-  connectionLimit,
-  queueLimit: 24,           // cola generosa: preferimos que una ráfaga espere a que se rechace
-  connectTimeout: 10000,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
-});
+function crearPool() {
+  return mysql.createPool({
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+    port: parseInt(process.env.DB_PORT || '3306'),
+    timezone: 'local',
+    waitForConnections: true, // bajo ráfaga, ENCOLA (espera) en vez de fallar → mejor UX que un error duro
+    connectionLimit,
+    queueLimit: 24,           // cola generosa: preferimos que una ráfaga espere a que se rechace
+    connectTimeout: 10000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0,
+  });
+}
+
+// SINGLETON EN globalThis — NO es una optimización, es lo que evita agotar la BD en desarrollo.
+// `next dev` con HMR vuelve a evaluar este módulo cada vez que se edita un archivo que lo importa.
+// Con `const pool = createPool()` suelto, cada recarga creaba un pool NUEVO y el anterior quedaba
+// vivo: con `enableKeepAlive: true` sus conexiones no se cierran solas, así que se acumulaban
+// hasta copar el `max_user_connections` de Bluehost (25 para TODO el usuario: dev local + VPS +
+// Vercel). Síntoma real observado el 2026-07-30: tras una sesión larga de edición, cualquier
+// script externo fallaba con ER_TOO_MANY_USER_CONNECTIONS y no se liberaba ninguna conexión.
+// En producción no ocurría porque el proceso no recarga módulos — por eso pasaba desapercibido.
+const globalConPool = globalThis as unknown as { __mysqlPool?: mysql.Pool };
+const pool = globalConPool.__mysqlPool ?? crearPool();
+if (process.env.NODE_ENV !== 'production') globalConPool.__mysqlPool = pool;
 
 // Probar conexión
 export async function testConnection() {

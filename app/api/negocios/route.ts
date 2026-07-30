@@ -7,6 +7,7 @@ import { tienePermiso } from '@/app/lib/api-auth';
 import { respuestaDesdeCache, enriquecer } from '@/app/lib/adjudicacion';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
+import { textoLimpioDeLicitacion } from '@/app/lib/texto-limpio';
 import { enviarCorreoAsignacion } from '@/app/lib/email';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 
@@ -208,6 +209,16 @@ export async function POST(request: NextRequest) {
     if (!licitacion_codigo || !asignado_a)
       return NextResponse.json({ error: 'licitacion_codigo y asignado_a son requeridos' }, { status: 400 });
 
+    // TEXTO LIMPIO: el nombre/organismo llegan desde el CLIENTE, y hay rutas del front que los
+    // traen con el acento ya destruido (U+FFFD: "Adquisici<?>n"). Medido el 2026-07-30: 88 de 731
+    // filas de negocios.licitacion_nombre y 27 de licitacion_organismo estaban así, mientras que
+    // alertas_licitaciones (0 de 12.312) y licitaciones_cache (0 de 21.227) estaban impecables.
+    // En vez de parchar las 7 páginas que hacen este POST, se prefiere SIEMPRE el texto de la BD
+    // cuando el que llega viene roto: la base es la fuente limpia y esto cubre cualquier ruta,
+    // incluidas las que se agreguen después.
+    const { nombre: nombreLimpio, organismo: organismoLimpio } =
+      await textoLimpioDeLicitacion(licitacion_codigo, licitacion_nombre, licitacion_organismo);
+
     // ¿Ya estaba asignada a alguien distinto? → es una REASIGNACIÓN.
     let prevAsignado: number | null = null;
     try {
@@ -243,7 +254,7 @@ export async function POST(request: NextRequest) {
          activo = TRUE`,
       [
         licitacion_codigo,
-        licitacion_nombre || null, licitacion_organismo || null,
+        nombreLimpio, organismoLimpio,
         licitacion_monto || null,
         licitacion_cierre ? new Date(licitacion_cierre) : null,
         licitacion_estado || null, licitacion_tipo || null,
