@@ -93,20 +93,101 @@ async function construirPaquete(negocioId: number, licitacionCodigo: string): Pr
     if (r) costeo = { totalCostoNeto: r.total_costo_neto, totalPrecioNeto: r.total_precio_neto, archivoNombre: r.archivo_nombre, version: r.version };
   } catch { /* migración 53 pendiente */ }
 
-  let contactosCliente: PaqueteTraspaso['contactosCliente'] = null;
-  try {
-    const lic = await getMercadoPublicoClient().obtenerPorCodigoRapido(licitacionCodigo, 8_000);
-    const c = (lic as any)?.Comprador;
-    if (c) {
-      contactosCliente = {
-        organismo: c.NombreOrganismo || null, unidad: c.NombreUnidad || null,
-        direccion: c.DireccionUnidad || null, comuna: c.ComunaUnidad || null, region: c.RegionUnidad || null,
-        usuarioNombre: c.NombreUsuario || null, usuarioCargo: c.CargoUsuario || null,
-      };
-    }
-  } catch { /* la API de MP puede estar caída — no bloquea el congelamiento */ }
+  const contactosCliente = await obtenerContactosCliente(licitacionCodigo);
 
   return { productoValidado, costeo, plazosComprometidos, matrizTecnicaAprobada, compromisosPostventa, contactosCliente };
+}
+
+/**
+ * Contactos del comprador desde la API de MP, con REINTENTOS.
+ * Antes era una sola llamada: si MP estaba caído en ese instante, el paquete quedaba sin
+ * organismo/unidad/dirección/contacto… y como el congelamiento es inmutable, ese hueco era
+ * PERMANENTE (Compras recibía el traspaso mutilado y no había forma de recuperarlo).
+ * Ahora se reintenta con backoff y, si aun así no se logra, `repararContactosFaltantes()`
+ * lo completa después (ver abajo).
+ */
+async function obtenerContactosCliente(
+  licitacionCodigo: string,
+): Promise<PaqueteTraspaso['contactosCliente']> {
+  const client = getMercadoPublicoClient();
+  for (let intento = 1; intento <= 3; intento++) {
+    try {
+      const lic = await client.obtenerPorCodigoRapido(licitacionCodigo, 8_000);
+      const c = (lic as any)?.Comprador;
+      if (c) {
+        return {
+          organismo: c.NombreOrganismo || null, unidad: c.NombreUnidad || null,
+          direccion: c.DireccionUnidad || null, comuna: c.ComunaUnidad || null, region: c.RegionUnidad || null,
+          usuarioNombre: c.NombreUsuario || null, usuarioCargo: c.CargoUsuario || null,
+        };
+      }
+      return null; // MP respondió pero la licitación no trae Comprador → no hay nada que reintentar
+    } catch {
+      if (intento < 3) await new Promise(r => setTimeout(r, intento * 1_500));
+    }
+  }
+  console.warn(`[congelamiento] contactos de cliente no disponibles para ${licitacionCodigo} (MP no respondió); se repararán después`);
+  return null;
+}
+
+/**
+ * REPARACIÓN de paquetes congelados sin contactos de cliente.
+ *
+ * El congelamiento es inmutable POR DISEÑO (spec §12.1) y eso no cambia: esta función NO
+ * reescribe nada de lo que el equipo decidió —producto, costeo, plazos, matriz técnica—.
+ * Solo RELLENA un dato externo que no se pudo leer en su momento y que no depende de nadie
+ * del equipo: la ficha del comprador publicada por MP. Un hueco por caída de MP no es una
+ * decisión histórica que preservar, es un dato faltante.
+ *
+ * Idempotente y acotada: solo toca filas cuyo `contactosCliente` sigue en null.
+ * Best-effort: nunca lanza (se engancha a un cron).
+ */
+export async function repararContactosFaltantes(limite = 20): Promise<{ revisados: number; reparados: number }> {
+  const res = { revisados: 0, reparados: 0 };
+  let filas: Array<{ negocio_id: number; licitacion_codigo: string; paquete_traspaso: string }> = [];
+  try {
+    const [rows] = await pool.query(
+      `SELECT c.negocio_id, n.licitacion_codigo, c.paquete_traspaso
+         FROM checklist_comercial_congelamiento c
+         JOIN negocios n ON n.id = c.negocio_id
+        WHERE JSON_EXTRACT(c.paquete_traspaso, '$.contactosCliente') IS NULL
+           OR JSON_TYPE(JSON_EXTRACT(c.paquete_traspaso, '$.contactosCliente')) = 'NULL'
+        ORDER BY c.congelado_at DESC
+        LIMIT ?`,
+      [limite],
+    ) as any;
+    filas = rows as any[];
+  } catch (e) {
+    // Migración 55 pendiente, o MySQL sin funciones JSON → no hay nada que reparar acá.
+    console.error('[congelamiento] reparar contactos: carga falló:', String(e).slice(0, 200));
+    return res;
+  }
+
+  for (const f of filas) {
+    res.revisados++;
+    const contactos = await obtenerContactosCliente(f.licitacion_codigo);
+    if (!contactos) continue; // MP sigue sin dar el dato → se reintenta en la próxima corrida
+    try {
+      const paquete = typeof f.paquete_traspaso === 'string' ? JSON.parse(f.paquete_traspaso) : f.paquete_traspaso;
+      paquete.contactosCliente = contactos;
+      // Guarda SOLO si sigue faltando (evita pisar una reparación concurrente).
+      const [r] = await pool.query(
+        `UPDATE checklist_comercial_congelamiento
+            SET paquete_traspaso = ?
+          WHERE negocio_id = ?
+            AND (JSON_EXTRACT(paquete_traspaso, '$.contactosCliente') IS NULL
+                 OR JSON_TYPE(JSON_EXTRACT(paquete_traspaso, '$.contactosCliente')) = 'NULL')`,
+        [JSON.stringify(paquete), f.negocio_id],
+      ) as any;
+      if (r?.affectedRows > 0) {
+        res.reparados++;
+        console.log(`[congelamiento] contactos reparados para negocio ${f.negocio_id} (${f.licitacion_codigo})`);
+      }
+    } catch (e) {
+      console.error(`[congelamiento] reparar contactos negocio ${f.negocio_id} falló:`, String(e).slice(0, 200));
+    }
+  }
+  return res;
 }
 
 /**

@@ -9,6 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
+import { repararContactosFaltantes } from '@/app/lib/congelamiento';
 import { publicarCambio } from '@/app/lib/sse-bus';
 
 export const runtime = 'nodejs';
@@ -42,8 +43,21 @@ export async function POST(req: NextRequest) {
     // Refrescó el cache desde MP → avisar a los tableros abiertos para que repinten con el
     // resultado nuevo (Postuladas y Adjudicadas leen ese mismo cache).
     if (r.codigos > 0) publicarCambio('adjudicacion');
-    // Es una pasada acotada por presupuesto interno; no expone cola → completado siempre true.
-    return NextResponse.json({ success: true, ...r, completado: true, pendientes: 0, duracionMs: Date.now() - t0 });
+
+    // Repara paquetes de traspaso congelados sin contactos de cliente (MP caído al postular).
+    // Best-effort y acotado: nunca rompe el cron.
+    let contactos = { revisados: 0, reparados: 0 };
+    try { contactos = await repararContactosFaltantes(20); }
+    catch (e) { console.error('[cron postuladas] reparar contactos falló:', String(e).slice(0, 200)); }
+
+    // Ahora SÍ expone cola: `sinPresupuesto` son los códigos que no alcanzaron a consultarse por
+    // tiempo. El scheduler loopea hasta vaciarla (y el orden por `consultado_en` garantiza que
+    // cada pasada tome los que faltan, no los mismos de siempre).
+    return NextResponse.json({
+      success: true, ...r, contactosReparados: contactos.reparados,
+      completado: r.sinPresupuesto === 0, pendientes: r.sinPresupuesto,
+      duracionMs: Date.now() - t0,
+    });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }

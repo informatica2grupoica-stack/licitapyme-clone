@@ -28,6 +28,7 @@ import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { registrarEvento } from '@/app/lib/historial';
 import { construirDesdeLicitacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
+import { abrirEntregaSiCorresponde } from '@/app/lib/entrega-proyecto';
 
 const CODIGO_CONCURRENCIA = 4;      // detalles de MP consultados en paralelo
 const PRESUPUESTO_MS       = 25_000; // tope de tiempo del paso principal (margen bajo maxDuration del cron)
@@ -50,7 +51,8 @@ function fmtCLP(n: number | null | undefined): string {
 export async function procesarPostuladas(
   opts: { promover?: boolean; soloCerradas?: boolean } = {},
 ): Promise<{
-  codigos: number; adjudicadas: number; perdidas: number; errores: number;
+  codigos: number; procesados: number; sinPresupuesto: number;
+  adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number;
 }> {
   // promover: si mueve la postulada a ADJUDICADA/PERDIDA (saca de Postuladas). El usuario pidió
   //   que las adjudicadas SE QUEDEN en Postuladas → el cron de 2h llama con promover:false y solo
@@ -59,21 +61,33 @@ export async function procesarPostuladas(
   //   (abiertas), para que el filtro por estado en Postuladas tenga el estado real al día.
   const promover     = opts.promover     ?? true;
   const soloCerradas = opts.soloCerradas ?? true;
-  const stats = { codigos: 0, adjudicadas: 0, perdidas: 0, errores: 0 };
+  // `codigos` = candidatos totales · `procesados` = los que alcanzaron a consultarse ·
+  // `sinPresupuesto` = los que quedaron fuera por tiempo (van primeros en la próxima corrida).
+  const stats = { codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0 };
   const inicio = Date.now();
 
   let filas: FilaPostulada[] = [];
   try {
     // Postuladas activas (opcionalmente solo las que ya cerraron: la adjudicación solo ocurre tras el cierre).
+    //
+    // ORDEN = ROTACIÓN (no alfabético). Con `ORDER BY licitacion_codigo` el orden era ESTABLE entre
+    // corridas: si había más códigos de los que caben en PRESUPUESTO_MS, cada corrida procesaba
+    // exactamente los mismos primeros N y la cola larga NO se revisaba nunca (inanición permanente,
+    // no "se retoma la próxima corrida"). Ordenar por `consultado_en` del cache —las nunca
+    // consultadas primero (NULL), después las más antiguas— hace que el presupuesto ROTE: lo que
+    // no alcanzó hoy queda de primero mañana. Con eso la cobertura es completa aunque cada corrida
+    // solo alcance a mirar una parte.
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a,
               u.nombre AS usuario_nombre
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
+       LEFT JOIN adjudicacion_cache c
+         ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
          AND n.estado_pipeline = 'POSTULADA'
          ${soloCerradas ? 'AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < NOW()' : ''}
-       ORDER BY n.licitacion_codigo`,
+       ORDER BY (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
     ) as any[];
     filas = rows as FilaPostulada[];
   } catch (e) {
@@ -96,8 +110,11 @@ export async function procesarPostuladas(
 
   // Procesa UN código: 1 llamada a MP → resultado (promoción) y/o apertura.
   const procesarCodigo = async (codigo: string) => {
-    if (Date.now() - inicio > PRESUPUESTO_MS) return; // sin presupuesto → salta (se retoma la próxima corrida)
+    // Sin presupuesto → salta. Gracias al ORDER BY por `consultado_en`, estas quedan de PRIMERAS
+    // en la próxima corrida (antes se saltaban siempre las mismas y no se revisaban nunca).
+    if (Date.now() - inicio > PRESUPUESTO_MS) { stats.sinPresupuesto++; return; }
     const negocios = porCodigo.get(codigo) || [];
+    stats.procesados++;
     try {
       const lic = await client.obtenerPorCodigoRapido(codigo, TIMEOUT_DETALLE_MS);
       if (!lic) return;
@@ -111,11 +128,25 @@ export async function procesarPostuladas(
         // ── RESULTADO: promover cada negocio del código ──
         const nuevoEstado = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
         for (const n of negocios) {
-          await pool.query(
+          const [upd] = await pool.query(
             `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW()
              WHERE id = ? AND estado_pipeline = 'POSTULADA'`,
             [nuevoEstado, n.id],
-          );
+          ) as any;
+          // Solo cuenta como resultado NUEVO si el UPDATE movió la fila de verdad. Si otra
+          // corrida (o alguien a mano) ya la había sacado de POSTULADA, no se vuelve a avisar.
+          if (!upd?.affectedRows) continue;
+
+          // ── ENTREGA DE PROYECTOS (Frente F.1) ──
+          // Ganamos → se abre la entrega y arranca el circuito de acuse de recibo. Va atado a la
+          // TRANSICIÓN (affectedRows), no al estado: por eso las adjudicadas que ya estaban en la
+          // base antes de este módulo no disparan una avalancha de avisos retroactivos.
+          if (adj.ganamos) {
+            await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
+              .then(abierta => { if (abierta) stats.entregasAbiertas++; })
+              .catch(e => console.error('[procesar-postuladas] abrir entrega falló:', String(e).slice(0, 200)));
+          }
+
           if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
 
           const mensaje = adj.ganamos
@@ -165,7 +196,7 @@ export async function procesarPostuladas(
 // de verdad es siempre el acta de MP, no el estado interno.
 async function reconfirmarResueltasSinCache(
   client: ReturnType<typeof getMercadoPublicoClient>,
-  stats: { adjudicadas: number; perdidas: number; errores: number },
+  stats: { adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number },
 ): Promise<void> {
   const inicio = Date.now();
   let filas: FilaPostulada[] = [];
@@ -180,7 +211,7 @@ async function reconfirmarResueltasSinCache(
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN ('ADJUDICADA', 'PERDIDA')
          AND (c.licitacion_codigo IS NULL OR c.es_adjudicada = 0)
-       ORDER BY n.licitacion_codigo`,
+       ORDER BY (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
     ) as any[];
     filas = rows as (FilaPostulada & { estado_pipeline: string })[];
   } catch (e) {
@@ -212,6 +243,13 @@ async function reconfirmarResueltasSinCache(
         if (n.estado_pipeline === resultadoReal) continue; // coincide con lo puesto a mano: solo hacía falta el cache
         // MP dice algo DISTINTO de lo que había a mano → corrige y avisa (la verdad es el acta).
         await pool.query(`UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`, [resultadoReal, n.id]);
+        // Caso real: alguien la había marcado PERDIDA a mano y el acta dice que ganamos. Es una
+        // victoria que nadie sabía que existía → también abre la entrega.
+        if (adj.ganamos) {
+          await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
+            .then(abierta => { if (abierta) stats.entregasAbiertas++; })
+            .catch(e => console.error('[procesar-postuladas] abrir entrega (reconfirmar) falló:', String(e).slice(0, 200)));
+        }
         if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
         const mensaje = adj.ganamos
           ? `🏆 ¡Adjudicada! Ganaste ${n.licitacion_nombre || codigo}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`

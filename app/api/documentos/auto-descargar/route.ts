@@ -29,11 +29,17 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Pipeline completo en background (Fase 1 clasificar → análisis → viabilidad)
+    // Pipeline completo en background (Fase 1 clasificar → análisis → viabilidad).
+    // OJO: procesarLicitacionCompleta NO lanza — devuelve { ok:false, error }. El `.catch()`
+    // que había acá jamás se disparaba y el valor de retorno se descartaba, así que un
+    // análisis fallido era invisible. Hay que mirar el RESULTADO, no solo la excepción.
+    // (El fallo además queda marcado en `pipeline_fallos` dentro del propio pipeline.)
     if (triggerIA && iaTextoConfigurada()) {
-      procesarLicitacionCompleta(licitacionCodigo).catch(e =>
-        console.error('[auto-descargar] Error en pipeline IA automático:', e)
-      );
+      procesarLicitacionCompleta(licitacionCodigo)
+        .then(r => {
+          if (!r.ok) console.error(`[auto-descargar] pipeline IA sin éxito para ${licitacionCodigo}: ${r.error || 'sin detalle'}`);
+        })
+        .catch(e => console.error('[auto-descargar] Error en pipeline IA automático:', e));
     }
 
     return NextResponse.json({

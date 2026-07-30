@@ -7,13 +7,14 @@ import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
-  PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart,
+  PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart, PackageCheck,
 } from 'lucide-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
+import { EntregaPendienteModal } from '@/app/components/EntregaPendienteModal';
 import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
 import { AprobacionPendienteModal } from '@/app/components/AprobacionPendienteModal';
 
@@ -40,6 +41,11 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Negocios',  href: '/negocios',  icon: <Briefcase size={17} /> },
       { label: 'Postuladas', href: '/postuladas', icon: <Send size={17} /> },
       { label: 'Ganadas/Perdidas', href: '/adjudicadas', icon: <Trophy size={17} /> },
+      // Entregas cierra el ciclo (Negocios → Postuladas → Ganadas → Entregas). NO va en ADMIN:
+      // no es una consola, es algo que cada involucrado tiene que hacer. Visible para admin,
+      // para quien tenga el permiso `entrega_proyectos`, y para cualquiera que tenga una entrega
+      // asignada (el responsable del negocio ganado, aunque no tenga permisos especiales).
+      { label: 'Entregas', href: '/entregas', icon: <PackageCheck size={17} />, adminOnly: true },
     ],
   },
   {
@@ -237,6 +243,24 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     return suscribirRealtime(ev => { if (ev.tipo === 'cambio') cargar(); });
   }, [puedeAprobar]);
 
+  // Contadores de "Entregas": pendientes (badge) y total (para saber si mostrar el ítem a alguien
+  // sin permiso que igual tiene una entrega por ser el responsable del negocio ganado).
+  const [entregas, setEntregas] = useState<{ total: number; pendientes: number }>({ total: 0, pendientes: 0 });
+  const esExternoNav = usuario?.rol === 'externo';
+  useEffect(() => {
+    if (!usuario || esExternoNav) return;
+    const cargar = () => {
+      fetch('/api/entregas?resumen=1').then(r => r.json()).then(d => {
+        if (d.success) setEntregas({ total: d.total || 0, pendientes: d.pendientes || 0 });
+      }).catch(() => {});
+    };
+    cargar();
+    return suscribirRealtime(ev => { if (ev.tipo === 'cambio') cargar(); });
+  }, [usuario, esExternoNav]);
+
+  const puedeVerEntregas =
+    usuario?.rol === 'admin' || !!usuario?.permisos?.entrega_proyectos || entregas.total > 0;
+
   const esExterno = usuario?.rol === 'externo';
   const visibleGroups = NAV_GROUPS.map(group => ({
     ...group,
@@ -245,13 +269,18 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (!i.adminOnly || usuario?.rol === 'admin') return true;
       if (i.href === '/radar' && usuario?.permisos?.acceso_radar) return true;
       if (i.href === '/aprobaciones' && puedeAprobar) return true;
+      if (i.href === '/entregas' && puedeVerEntregas) return true;
       return false;
     }),
   })).map(group => ({
     ...group,
-    items: group.items.map(i => i.href === '/aprobaciones'
-      ? { ...i, badge: totalAprobacionesPendientes > 0 ? totalAprobacionesPendientes : undefined }
-      : i),
+    items: group.items.map(i => {
+      if (i.href === '/aprobaciones')
+        return { ...i, badge: totalAprobacionesPendientes > 0 ? totalAprobacionesPendientes : undefined };
+      if (i.href === '/entregas')
+        return { ...i, badge: entregas.pendientes > 0 ? entregas.pendientes : undefined };
+      return i;
+    }),
   })).filter(g => g.items.length > 0);
 
   return (
@@ -572,6 +601,7 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
       <CierreVencidoModal />
       {/* No bloqueante: aviso de que hay algo esperando aprobación en /aprobaciones */}
       <AprobacionPendienteModal />
+      <EntregaPendienteModal />
     </div>
   );
 }

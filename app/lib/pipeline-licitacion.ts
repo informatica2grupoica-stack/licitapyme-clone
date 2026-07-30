@@ -49,6 +49,34 @@ export interface ResultadoPipeline {
   viabilidad?: ViabilidadResult | null;
 }
 
+// ─── Rastro de fallos (migración 57) ─────────────────────────────────────────────
+// Esta función NUNCA lanza: devuelve { ok:false, error }. El llamador automático
+// (auto-descargar) descartaba ese valor, así que un análisis fallido era 100% invisible:
+// sin log, sin marca en BD, sin señal en la UI — la licitación simplemente se quedaba sin
+// viabilidad. Ahora cada salida deja rastro en `pipeline_fallos`, y un éxito posterior lo
+// borra: lo que quede en esa tabla es exactamente lo que está roto AHORA.
+// Best-effort en ambos sentidos: si la tabla no existe (migración pendiente), no molesta.
+
+async function marcarFallo(codigo: string, etapa: string, error: string): Promise<void> {
+  console.error(`[pipeline] ✗ ${codigo} — ${etapa}: ${error.slice(0, 200)}`);
+  try {
+    await pool.query(
+      `INSERT INTO pipeline_fallos (licitacion_codigo, etapa, error, intentos, primer_fallo_at, ultimo_fallo_at)
+       VALUES (?, ?, ?, 1, NOW(), NOW())
+       ON DUPLICATE KEY UPDATE
+         etapa = VALUES(etapa), error = VALUES(error),
+         intentos = intentos + 1, ultimo_fallo_at = NOW()`,
+      [codigo, etapa, error.slice(0, 500)],
+    );
+  } catch { /* migración 57 pendiente → el console.error de arriba ya deja el rastro */ }
+}
+
+async function limpiarFallo(codigo: string): Promise<void> {
+  try {
+    await pool.query('DELETE FROM pipeline_fallos WHERE licitacion_codigo = ?', [codigo]);
+  } catch { /* migración 57 pendiente */ }
+}
+
 // Procesa una licitación de punta a punta. `forzar` re-genera el análisis aunque exista.
 export async function procesarLicitacionCompleta(
   codigo: string,
@@ -68,11 +96,15 @@ export async function procesarLicitacionCompleta(
     if (opts.forzar || !(await tieneAnalisisExhaustivo(codigo))) {
       try {
         const r = await generarAnalisisExhaustivoFusionado(codigo);
-        if (!r.ok) return { ok: false, error: r.error };
+        if (!r.ok) {
+          await marcarFallo(codigo, 'ANALISIS', r.error || 'análisis fusionado sin ok');
+          return { ok: false, error: r.error };
+        }
         juicioFusionado = r.juicio;
       } catch (e: any) {
-        console.error(`[pipeline] Análisis fusionado falló para ${codigo}:`, String(e?.message ?? e).slice(0, 200));
-        return { ok: false, error: `Análisis falló: ${String(e?.message ?? e).slice(0, 150)}` };
+        const msg = String(e?.message ?? e).slice(0, 200);
+        await marcarFallo(codigo, 'ANALISIS', `fusionado: ${msg}`);
+        return { ok: false, error: `Análisis falló: ${msg.slice(0, 150)}` };
       }
     } else if (await faltaClasificar(codigo)) {
       // Análisis ya existe (de una corrida previa) pero faltan categorías → clasificar aparte.
@@ -95,10 +127,14 @@ export async function procesarLicitacionCompleta(
     if (opts.forzar || !(await tieneAnalisisExhaustivo(codigo))) {
       try {
         const r = await generarAnalisisExhaustivo(codigo);
-        if (!r.ok) return { ok: false, error: r.error };
+        if (!r.ok) {
+          await marcarFallo(codigo, 'ANALISIS', r.error || 'análisis exhaustivo sin ok');
+          return { ok: false, error: r.error };
+        }
       } catch (e: any) {
-        console.error(`[pipeline] Análisis exhaustivo falló para ${codigo}:`, String(e?.message ?? e).slice(0, 200));
-        return { ok: false, error: `Análisis falló: ${String(e?.message ?? e).slice(0, 150)}` };
+        const msg = String(e?.message ?? e).slice(0, 200);
+        await marcarFallo(codigo, 'ANALISIS', msg);
+        return { ok: false, error: `Análisis falló: ${msg.slice(0, 150)}` };
       }
     }
   }
@@ -106,9 +142,15 @@ export async function procesarLicitacionCompleta(
   // 3. Fase 2 — viabilidad. Igualmente blindada. En modo fusionado reusa el juicio ya obtenido.
   try {
     const viabilidad = await calcularYGuardarViabilidad(codigo, { juicioPrecomputado: juicioFusionado });
-    return { ok: !!viabilidad, viabilidad };
+    if (!viabilidad) {
+      await marcarFallo(codigo, 'VIABILIDAD', 'calcularYGuardarViabilidad devolvió null');
+      return { ok: false, viabilidad: null, error: 'No se pudo calcular la viabilidad.' };
+    }
+    await limpiarFallo(codigo); // corrió completo → si estaba marcada como rota, ya no lo está
+    return { ok: true, viabilidad };
   } catch (e: any) {
-    console.error(`[pipeline] Viabilidad falló para ${codigo}:`, String(e?.message ?? e).slice(0, 200));
-    return { ok: false, error: `Viabilidad falló: ${String(e?.message ?? e).slice(0, 150)}` };
+    const msg = String(e?.message ?? e).slice(0, 200);
+    await marcarFallo(codigo, 'VIABILIDAD', msg);
+    return { ok: false, error: `Viabilidad falló: ${msg.slice(0, 150)}` };
   }
 }

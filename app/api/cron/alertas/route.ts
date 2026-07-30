@@ -568,7 +568,12 @@ export async function GET(request: NextRequest) {
       stats.postAdjudicadas = pp.adjudicadas;
       stats.postPerdidas    = pp.perdidas;
       if (pp.adjudicadas || pp.perdidas)
-        console.log(`[Cron] 🎯 Postuladas: +${pp.adjudicadas} ganadas, +${pp.perdidas} perdidas (${pp.codigos} códigos)`);
+        console.log(`[Cron] 🎯 Postuladas: +${pp.adjudicadas} ganadas, +${pp.perdidas} perdidas (${pp.procesados}/${pp.codigos} códigos consultados)`);
+      // Si quedaron fuera por tiempo, decirlo: van primeras en la próxima corrida (rotación).
+      if (pp.sinPresupuesto > 0)
+        console.log(`[Cron] ⏳ Postuladas: ${pp.sinPresupuesto} sin presupuesto de tiempo → quedan de primeras en la próxima corrida`);
+      if (pp.entregasAbiertas > 0)
+        console.log(`[Cron] 📦 Entrega de Proyectos: ${pp.entregasAbiertas} entrega(s) abierta(s), pendientes de acuse de recibo`);
     } catch (e) {
       console.error('[Cron] procesar postuladas falló (no crítico):', String(e));
     }

@@ -78,11 +78,14 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //   ver_otros_negocios · acceso_radar · comentar_viabilidad · exportar · alertas_anexos
 //   aprobar_comercial → visar los puntos de Información Comercial (rol "asesor"). El admin
 //                       lo tiene implícito; se otorga para que otro perfil pueda aprobar.
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial';
+//   entrega_proyectos → entrar al circuito de Entrega de Proyectos (Frente F.1): recibe el aviso
+//                       de proyecto ganado y debe acusar recibo. El responsable del negocio y los
+//                       admin están dentro siempre; este permiso suma a los demás.
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
-  aprobar_comercial: true,
+  aprobar_comercial: true, entrega_proyectos: true,
 };
 
 /** Lee los permisos efectivos de un usuario por id+rol. Admin → todos. Tolera columna ausente. */

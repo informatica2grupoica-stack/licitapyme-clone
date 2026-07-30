@@ -8,6 +8,7 @@
 //   Intake  (alertas)      cada 4h   → 00,04,08,12,16,20
 //   Enriquecer             +30 min   → 00:30,04:30,...
 //   Prefiltro              +1h       → 01,05,09,13,17,21  (1 hora DESPUÉS del intake)
+//   Viabilidad             +1h30     → 01:30,05:30,...    (30 min DESPUÉS del prefiltro)
 //   Descarga docs Negocios cada 2h   → reintenta las asignadas que quedaron sin docs
 //
 // Robustez:
@@ -82,6 +83,10 @@ async function jobIntake()     { await loop('intake (alertas)', '/api/cron/alert
 async function jobEnriquecer() { await loop('enriquecer',       '/api/cron/enriquecer', { maxPasadas: 1 }); }
 async function jobPrefiltro()  { await loop('prefiltro',        '/api/cron/prefiltro',  { lote: 45, maxPasadas: 40 }); }
 async function jobDocsNeg()    { await loop('descarga docs negocios', '/api/cron/descargar-docs-negocios', { lote: 6, maxPasadas: 60 }); }
+// Viabilidad: analiza las que tienen documentos y pasaron el prefiltro pero siguen sin informe.
+// Cada una es una llamada a la IA → lote chico y pocas pasadas (tope de costo por corrida).
+// El conjunto se autovacía, así que entre corridas la cobertura llega a 0 sola.
+async function jobViabilidad() { await loop('viabilidad',       '/api/cron/viabilidad', { lote: 3, maxPasadas: 4 }); }
 
 // Postuladas: refresca el RESULTADO (adjudicación → cache + promoción), detecta APERTURAS y
 // trae el foro de PREGUNTAS Y RESPUESTAS. Así Postuladas y las fichas de licitación —que leen
@@ -100,9 +105,10 @@ cron.schedule('30 */4 * * *',   jobEnriquecer, opts);   // +30 min
 cron.schedule('0 1-23/4 * * *', jobPrefiltro,  opts);   // 01,05,09,13,17,21 (1h después del intake)
 cron.schedule('0 */2 * * *',    jobDocsNeg,    opts);   // cada 2h: reintenta descargas de asignadas
 cron.schedule('15 * * * *',     jobPostuladas, opts);   // cada 1h (+15min): resultado + aperturas + preguntas
+cron.schedule('30 1-23/4 * * *', jobViabilidad, opts);  // 01:30,05:30,... (30 min DESPUÉS del prefiltro)
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+preguntas 15 * (cada hora)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+preguntas 15 * (cada hora)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.
