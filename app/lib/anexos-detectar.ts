@@ -10,7 +10,13 @@ import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
 // distingue un título corto ("ANEXO N°1") de un campo real ("RUT") — esa distinción la hace
 // después el diccionario (anexos-diccionario.ts): si la etiqueta no cruza con ningún campo
 // conocido, no se autocompleta nada, como mucho queda disponible para que un humano la vea.
-export interface CandidatoCelda { etiqueta: string; paraId: string; indice: number }
+export interface CandidatoCelda {
+  etiqueta: string; paraId: string; indice: number;
+  // La celda se muestra para que la llene un humano, pero NUNCA se autocompleta sola. Se usa para
+  // las filas en blanco de una tabla que se llena entera (ver detectarCandidatosTabla) y para las
+  // secciones de oferente que no nos corresponden (ver analizarAnexo).
+  soloManual?: boolean;
+}
 
 export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
@@ -152,6 +158,44 @@ function columnasPorAncho(anchosHeader: (number | null)[], anchosFila: (number |
   return resultado;
 }
 
+// ¿Cuál es la fila de ENCABEZADO de esta tabla, si es que tiene una?
+//
+// Recibe, por fila y en orden, si TODAS sus celdas traen texto. Devuelve el índice de la última
+// fila del bloque inicial que cumple eso, o -1 si ni la primera lo cumple (entonces la tabla no
+// tiene encabezado: es una tabla de FORMULARIO, [etiqueta][valor][etiqueta][valor], que maneja el
+// patrón 1). Un encabezado real siempre tiene todas sus columnas nombradas; en cuanto aparece una
+// celda en blanco, ya empezaron los datos.
+//
+// Las dos cosas que esto resuelve, ambas casos reales del mismo documento (4291-38-LP26):
+//  · "INTEGRANTES DE LA UTP", "DATOS DEL REPRESENTANTE O APODERADO", "DATOS DEL EJECUTIVO
+//    COORDINADOR" y la tabla de participantes del acta abren con una fila-TÍTULO de una sola celda
+//    mergeada; el encabezado real es la fila siguiente. Tomando el título por encabezado, la tabla
+//    quedaba de una columna y alinearFilaConEncabezado colapsaba ahí las 3-5 celdas de cada fila de
+//    datos: esas cajas salían en pantalla sin una sola casilla donde escribir.
+//  · La tabla de cierre del acta ("Para uso exclusivo Proveedor Adjudicado" | "Para uso exclusivo
+//    Universidad de Antofagasta") es al revés: ESA primera fila SÍ es el encabezado, y la siguiente
+//    ya trae blancos. Quedarse con la de más columnas rompía la distinción entre los dos bloques y
+//    el RUT de la empresa terminaba ofrecido también para el lado de la universidad.
+export function indiceFilaEncabezado(filasConTodasSusCeldasConTexto: boolean[]): number {
+  let ultimo = -1;
+  for (const completa of filasConTodasSusCeldasConTexto) {
+    if (!completa) break;
+    ultimo++;
+  }
+  return ultimo;
+}
+
+function textosDeFila(filaXml: string): string[] {
+  return [...filaXml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)].map(
+    tc => [...tc[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim(),
+  );
+}
+
+function filaTieneTodasSusCeldasConTexto(filaXml: string): boolean {
+  const textos = textosDeFila(filaXml);
+  return textos.length > 0 && textos.every(t => t !== '');
+}
+
 function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices: Map<number, number>): CeldaCruda[] {
   const celdas: CeldaCruda[] = [];
   for (const tc of filaXml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)) {
@@ -193,7 +237,14 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
     const filas = [...cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
     if (filas.length < 2) continue; // hace falta al menos encabezado + 1 fila de datos
 
-    const [primeraFila, ...restoFilas] = filas;
+    // El encabezado no es necesariamente la fila 0 — ver indiceFilaEncabezado. Las filas anteriores
+    // son títulos de la tabla y no llevan datos. Si no hay encabezado (-1), la tabla es de
+    // formulario y la cubre el patrón 1.
+    const iEncabezado = indiceFilaEncabezado(filas.map(f => filaTieneTodasSusCeldasConTexto(f[1])));
+    if (iEncabezado < 0) continue;
+    const primeraFila = filas[iEncabezado];
+    const restoFilas = filas.slice(iEncabezado + 1);
+    if (!restoFilas.length) continue;
     const celdasEncabezado = extraerCeldasDeFila(primeraFila[1], 0, new Map());
     const nombresColumna = celdasEncabezado.map(c => c.texto);
     const anchosHeader = celdasEncabezado.map(c => c.anchoPct);
@@ -217,11 +268,9 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
     // candidatos y quedaban vacíos sin avisar.
     //
     // La señal es simple y determinista: un encabezado REAL tiene todas sus columnas nombradas. Si
-    // la primera fila trae celdas vacías, no es un encabezado — es la primera fila del formulario.
-    // Esas tablas las cubre el patrón 1, que empareja cada etiqueta con la celda vacía que le sigue
-    // en orden de lectura, que es exactamente lo correcto acá.
-    const esTablaDeDatos = celdasEncabezado.length > 0 && celdasEncabezado.every(c => c.texto.trim() !== '');
-    if (!esTablaDeDatos) continue;
+    // ninguna fila inicial cumple eso, la tabla no tiene encabezado y es de formulario — la cubre el
+    // patrón 1, que empareja cada etiqueta con la celda vacía que le sigue en orden de lectura. Ese
+    // caso ya salió por el `iEncabezado < 0` de arriba.
     const hayEncabezado = nombresColumna.some(t => t.length > 0);
 
     for (const fila of restoFilas) {
@@ -233,7 +282,11 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
 
       let filaContexto = '';
       for (const c of celdas) if (c.texto.length > filaContexto.length) filaContexto = c.texto;
-      if (!filaContexto) continue; // fila sin ningún texto real — no hay de dónde sacar etiqueta
+      // Una fila SIN NINGÚN texto propio sigue siendo válida: en una tabla que se llena entera
+      // (especificaciones técnicas, participantes de una capacitación) TODAS las filas están en
+      // blanco y la etiqueta sale del nombre de la columna. Antes se descartaba la fila completa —
+      // caso real 4291-38-LP26: el FORMULARIO N°3 tiene 20 celdas para llenar y no aparecía
+      // ninguna, la caja salía en pantalla sin una sola casilla.
 
       // Alineación por ANCHO REAL, no por índice de posición — ver columnasPorAncho arriba.
       // Reemplaza la alineación "desde la derecha" anterior: esa asumía que el relleno decorativo
@@ -249,8 +302,19 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
         // nunca es un dato real que pedir, se ignora aunque esté "vacía".
         if (c.anchoPct != null && c.anchoPct < ANCHO_PCT_MINIMO_COLUMNA_REAL) return;
         const nombreColumna = hayEncabezado ? nombresColumna[columnaDeCadaCelda[colIndex]] : '';
-        const etiqueta = nombreColumna ? `${filaContexto} — ${nombreColumna}` : filaContexto;
-        out.push({ etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal });
+        const etiqueta = filaContexto && nombreColumna
+          ? `${filaContexto} — ${nombreColumna}`
+          : (filaContexto || nombreColumna);
+        if (!etiqueta) return; // ni fila ni columna dan un nombre: no hay cómo describir la celda
+        // Si la fila no aporta NINGÚN texto, la etiqueta es solo el nombre de la columna y la celda
+        // pertenece a una tabla que se llena entera (especificaciones, participantes de una
+        // capacitación): son datos de la oferta, nunca de identificación de la empresa. Se muestran
+        // para llenarlos a mano pero no se autocompletan — sin esto, la columna "RUT" de la tabla de
+        // asistentes del acta de capacitación se rellenaba con el RUT de la empresa en las 8 filas.
+        out.push({
+          etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal,
+          ...(filaContexto ? {} : { soloManual: true }),
+        });
       });
     }
   }
@@ -470,7 +534,18 @@ export function analizarAnexo(xml: string) {
     .filter(c => !indicesTabla.has(c.indice))
     .filter(c => !blancoPrecedeTabla(xml, c.paraId));
 
-  const candidatosCeldaTodos = acotarASeccionesHabilitadas([...candidatosTabla, ...candidatosCeldaCrudos], secciones);
+  // Los campos de una sección OMITIDA (Persona Natural / UTP, cuando postulamos como jurídica) ya
+  // no se descartan: se muestran igual para que un humano pueda llenarlos, pero se marcan para que
+  // NUNCA se autocompleten solos. Antes desaparecían por completo y las cajas "INTEGRANTES DE LA
+  // UTP", "DATOS DEL REPRESENTANTE O APODERADO" y "DATOS DEL EJECUTIVO COORDINADOR" salían en
+  // pantalla sin una sola casilla — y si la empresa sí postula en UTP alguna vez, no había forma de
+  // completarlas. La regla original ("no rellenar solo lo que no nos corresponde") se mantiene
+  // intacta; lo que cambia es que ahora se ven.
+  const candidatosCeldaTodos = [...candidatosTabla, ...candidatosCeldaCrudos];
+  const habilitados = new Set(acotarASeccionesHabilitadas(candidatosCeldaTodos, secciones).map(c => c.indice));
+  const indicesSoloManual = new Set(
+    candidatosCeldaTodos.filter(c => c.soloManual || !habilitados.has(c.indice)).map(c => c.indice),
+  );
 
   // Cualquier etiqueta que mencione "firma" (ej. "Firma y Timbre del Oferente o Representante
   // Legal:" seguida de una celda vacía — patrón real visto en anexos reales, DISTINTO de la
@@ -526,7 +601,7 @@ export function analizarAnexo(xml: string) {
   const camposConDosPuntos = acotarASeccionesHabilitadas(detectarCamposConDosPuntos(parrafos), secciones)
     .filter(c => !yaCubiertos.has(c.indice) && !yaCubiertos.has(c.indice + 1));
 
-  return { parrafos, secciones, candidatosCelda, blancosInline, lineasFirma, camposConDosPuntos };
+  return { parrafos, secciones, candidatosCelda, blancosInline, lineasFirma, camposConDosPuntos, indicesSoloManual };
 }
 
 // ── Extracción de tablas COMPLETAS (todas las celdas, no solo las vacías) ─────────────────
@@ -592,8 +667,15 @@ export function extraerTablasCrudo(xml: string): TablaCruda[] {
       return { celdas: celdas.map(c => ({ texto: c.texto, indiceGlobal: c.indiceGlobal, anchoPct: c.anchoPct })) };
     });
 
-    const header = filasCrudo[0]?.celdas ?? [];
-    const filas = filasCrudo.map((f, i) => (i === 0 ? f : { celdas: alinearFilaConEncabezado(header, f.celdas) }));
+    // Se alinea contra el encabezado REAL (que puede no ser la fila 0 si la tabla abre con un
+    // título mergeado — ver indiceFilaEncabezado): alinear contra el título dejaba la tabla de una
+    // sola columna y se perdían todas las casillas de las filas de datos.
+    const iEncabezado = indiceFilaEncabezado(
+      filasCrudo.map(f => f.celdas.length > 0 && f.celdas.every(c => c.texto.trim() !== '')),
+    );
+    const header = iEncabezado >= 0 ? filasCrudo[iEncabezado].celdas : [];
+    const filas = filasCrudo.map((f, i) =>
+      (iEncabezado < 0 || i <= iEncabezado ? f : { celdas: alinearFilaConEncabezado(header, f.celdas) }));
 
     tablas.push({ indicePrimero, filas });
   }

@@ -72,7 +72,9 @@ export interface CampoResuelto { c: CandidatoCelda; campo: string; valor: string
 // Compartida entre analizarAnexoParaUI y generarAnexoFinal para que ambas apliquen EXACTAMENTE
 // el mismo filtro — antes cada una tenía su propia copia de esta lógica y solo una filtraba
 // títulos, así que el .docx final podía quedar distinto de lo que mostraba la pantalla de revisión.
-export async function resolverCandidatosCelda(candidatos: CandidatoCelda[], empresa: EmpresaCampos) {
+export async function resolverCandidatosCelda(
+  candidatos: CandidatoCelda[], empresa: EmpresaCampos, soloManual?: Set<number>,
+) {
   // El diccionario NO deduplica por campo: sus patrones son precisos por construcción (regex
   // ancladas a texto exacto), y es NORMAL que un documento combine varios formularios que piden
   // el MISMO dato de identificación cada uno por separado (ej. ANEXO N°1 y ANEXO N°2 de la misma
@@ -88,6 +90,9 @@ export async function resolverCandidatosCelda(candidatos: CandidatoCelda[], empr
   const sinMatch: CandidatoCelda[] = [];
   const camposDiccionario = new Set<string>();
   for (const c of candidatos) {
+    // Campo de una sección que no nos corresponde (Persona Natural / UTP): se muestra para que un
+    // humano lo llene si hace falta, pero no se autocompleta ni se manda a la IA.
+    if (soloManual?.has(c.indice)) { sinMatch.push(c); continue; }
     const match = buscarCampo(c.etiqueta, empresa);
     if (match) {
       matcheados.push({ c, campo: match.campo, valor: match.valor, via: 'diccionario' });
@@ -100,12 +105,15 @@ export async function resolverCandidatosCelda(candidatos: CandidatoCelda[], empr
   // El respaldo IA SÍ deduplica (no repite el mismo campo dos veces, y nunca pisa uno que el
   // diccionario ya resolvió) — es un canal menos confiable que el diccionario, así que un posible
   // acierto real no vale el riesgo de que un mismo error se repita en varios lugares del documento.
-  const matchesIA = await matchearConIA(sinMatch.map(c => c.etiqueta), empresa);
+  // Los de sección omitida quedan fuera también de la IA: no se les manda ni la etiqueta, así no
+  // hay forma de que se autocompleten por ese camino (ni se gastan tokens en ellos).
+  const elegiblesIA = sinMatch.filter(c => !soloManual?.has(c.indice));
+  const matchesIA = await matchearConIA(elegiblesIA.map(c => c.etiqueta), empresa);
   const mapaIA = new Map(matchesIA.map(m => [m.etiqueta, m.campo]));
   const camposUsadosPorIA = new Set(camposDiccionario);
   const sinResolver: CandidatoCelda[] = [];
   for (const c of sinMatch) {
-    const campoIA = mapaIA.get(c.etiqueta);
+    const campoIA = soloManual?.has(c.indice) ? undefined : mapaIA.get(c.etiqueta);
     const valorIA = campoIA ? empresa[campoIA] : null;
     // esMatchCoherente descarta los imposibles (un correo en "CIUDAD", un RUT en "FONO"…) — ver
     // COHERENCIA_CAMPO en anexos-diccionario.ts.
@@ -240,7 +248,7 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
 
   const completadosAuto: CampoCompletado[] = [];
   const resolucionPorIndice = new Map<number, Resolucion>();
-  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa);
+  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual);
   for (const m of matcheados) {
     completadosAuto.push({
       etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via,
@@ -378,7 +386,7 @@ export async function generarAnexoFinal(
   // 2) Celdas de tabla: diccionario → respaldo IA → lo que escribió el humano. Van después —
   //    ver comentario arriba.
   let completados = completadosInline;
-  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa);
+  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual);
   for (const m of matcheados) {
     xml = rellenarCeldaVacia(xml, m.c.paraId, m.valor);
     completados++;

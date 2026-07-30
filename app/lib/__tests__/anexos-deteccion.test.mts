@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio } from '../anexos-docx';
-import { analizarAnexo, detectarSecciones, detectarCandidatosCelda } from '../anexos-detectar';
+import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado } from '../anexos-detectar';
 import { esMatchCoherente } from '../anexos-diccionario';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
@@ -81,6 +81,52 @@ test('tabla de formulario: cada etiqueta se queda con SU celda (regresión 4291-
   // La primera fila NO es un encabezado, así que no puede inventar una columna "RUT" para el resto.
   assert.equal(etiquetas.filter(e => /DIRECCIÓN COMERCIAL — RUT|CIUDAD — RUT/.test(e)).length, 0,
     `no debe inventar columnas desde la primera fila: ${JSON.stringify(etiquetas)}`);
+});
+
+// La fila de encabezado no es siempre la 0: hay tablas que abren con un TÍTULO mergeado, y otras
+// donde la fila 0 SÍ es el encabezado y la 1 ya trae blancos. Las dos formas conviven en el mismo
+// documento (4291-38-LP26) y elegir mal rompe cosas distintas en cada una.
+test('indiceFilaEncabezado: última fila inicial con todas sus celdas con texto', () => {
+  // "INTEGRANTES DE LA UTP" (título) → [N°|Nombre|RUT] (encabezado) → filas con blancos
+  assert.equal(indiceFilaEncabezado([true, true, false, false]), 1);
+  // "Para uso exclusivo Proveedor | Universidad" (encabezado) → filas con blancos
+  assert.equal(indiceFilaEncabezado([true, false, false, false]), 0);
+  // Tabla de formulario: la fila 0 ya trae celdas vacías → no hay encabezado
+  assert.equal(indiceFilaEncabezado([false, false, false]), -1);
+});
+
+test('tabla que abre con una fila-título mergeada: el encabezado es la siguiente (regresión cajas sin casillas)', () => {
+  const xml = NS + tabla(
+    fila('INTEGRANTES DE LA UTP'),
+    fila('N°', 'Nombre Integrante/Razón Social', 'RUT'),
+    fila('1', '', ''),
+    fila('2', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
+  assert.ok(etiquetas.some(e => e.includes('Nombre Integrante')), `debe usar el encabezado real: ${JSON.stringify(etiquetas)}`);
+  assert.equal(etiquetas.filter(e => e.includes('INTEGRANTES DE LA UTP')).length, 0,
+    `el título mergeado no es un nombre de columna: ${JSON.stringify(etiquetas)}`);
+});
+
+// Una tabla que se llena ENTERA (especificaciones técnicas, participantes de una capacitación)
+// tiene todas sus filas en blanco: la etiqueta sale del nombre de columna. Antes se descartaba la
+// fila completa y esas cajas salían sin una sola casilla. Pero como la etiqueta es solo la columna,
+// esas celdas NO pueden autocompletarse: la columna "RUT" de una tabla de asistentes no es el RUT
+// de la empresa — sin esta marca, el RUT se escribía en las 8 filas de participantes.
+test('filas en blanco: dan casilla con el nombre de columna, pero nunca se autocompletan', () => {
+  const xml = NS + tabla(
+    fila('Nombre', 'RUT', 'Cargo/Profesión'),
+    fila('', '', ''),
+    fila('', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(norm);
+  const rut = a.candidatosCelda.filter(c => c.etiqueta === 'RUT');
+  assert.equal(rut.length, 2, `una casilla de RUT por fila de datos: ${JSON.stringify(a.candidatosCelda.map(c => c.etiqueta))}`);
+  for (const c of rut) {
+    assert.ok(a.indicesSoloManual.has(c.indice), 'la columna RUT de una tabla de asistentes no puede autocompletarse');
+  }
 });
 
 // Una tabla de datos REAL (encabezado con todas las columnas nombradas) tiene que seguir usando el
