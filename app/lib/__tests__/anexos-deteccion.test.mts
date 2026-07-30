@@ -6,7 +6,7 @@
 // mirarlo — ninguno se veía en el XML ni en los conteos, solo al ver la hoja terminada.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizarParaIds, listarParrafos, rellenarFinDeParrafo } from '../anexos-docx';
+import { normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio } from '../anexos-docx';
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda } from '../anexos-detectar';
 import { esMatchCoherente } from '../anexos-diccionario';
 
@@ -18,6 +18,45 @@ const p = (texto: string) => texto === ''
 const celda = (texto: string) => `<w:tc><w:tcPr><w:tcW w:w="1250" w:type="pct"/></w:tcPr>${p(texto)}</w:tc>`;
 const fila = (...textos: string[]) => `<w:tr>${textos.map(celda).join('')}</w:tr>`;
 const tabla = (...filas: string[]) => `<w:tbl><w:tblPr/>${filas.join('')}</w:tbl>`;
+
+// El conversor de .doc de producción es LibreOffice, que escribe las celdas vacías con un <w:r>
+// que carga el formato pero sin <w:t>; Word las deja sin ningún run. Con la regla vieja ("vacío =
+// sin runs") el documento real de producción no mostraba ni una celda libre: cero candidatos, sin
+// vista de tabla y sin autocompletar nada. Los dos estilos tienen que dar lo mismo.
+test('celda vacía: da igual si la generó Word o LibreOffice (regresión conversor VPS)', () => {
+  const celdaWord = '<w:p/>';
+  const celdaLibreOffice = '<w:p><w:pPr><w:rPr><w:sz w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="20"/></w:rPr></w:r></w:p>';
+  const celdaConTVacio = '<w:p><w:r><w:t></w:t></w:r></w:p>';
+
+  for (const [estilo, vacia] of [['Word', celdaWord], ['LibreOffice', celdaLibreOffice], ['<w:t> vacío', celdaConTVacio]] as [string, string][]) {
+    const xml = NS + tabla(fila('NOMBRE O RAZÓN SOCIAL', '', 'RUT', '')).replace(/<w:tc><w:tcPr><w:tcW w:w="1250" w:type="pct"\/><\/w:tcPr><w:p\/><\/w:tc>/g,
+      `<w:tc><w:tcPr><w:tcW w:w="1250" w:type="pct"/></w:tcPr>${vacia}</w:tc>`) + FIN;
+    const { xml: norm } = normalizarParaIds(xml);
+    const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
+    assert.deepEqual(etiquetas, ['NOMBRE O RAZÓN SOCIAL', 'RUT'], `estilo ${estilo}: ${JSON.stringify(etiquetas)}`);
+  }
+
+  // Un párrafo con una IMAGEN no tiene texto pero NO es un blanco: ahí ya se estampó una firma.
+  assert.equal(parrafoEstaVacio('<w:r><w:drawing><wp:inline/></w:drawing></w:r>'), false);
+  assert.equal(parrafoEstaVacio('<w:r><w:rPr><w:b/></w:rPr></w:r>'), true);
+  assert.equal(parrafoEstaVacio('<w:r><w:t>algo</w:t></w:r>'), false);
+});
+
+test('rellenarCeldaVacia escribe en los dos estilos y no pisa un dato existente', () => {
+  const conParaId = (cuerpo: string) => `<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body><w:p w14:paraId="AAAA0001">${cuerpo}</w:p></w:body></w:document>`;
+
+  // Estilo LibreOffice: el <w:t> entra DENTRO del run que ya existe, sin agregar párrafos.
+  const lo = rellenarCeldaVacia(conParaId('<w:pPr><w:rPr><w:sz w:val="20"/></w:rPr></w:pPr><w:r><w:rPr><w:sz w:val="20"/></w:rPr></w:r>'), 'AAAA0001', 'Comercial MP SpA');
+  assert.match(lo, /<w:r><w:rPr><w:sz w:val="20"\/><\/w:rPr><w:t xml:space="preserve">Comercial MP SpA<\/w:t><\/w:r>/);
+  assert.equal((lo.match(/<w:p\b/g) || []).length, 1, 'no agrega párrafos');
+
+  // Estilo Word: se crea el run.
+  const word = rellenarCeldaVacia(conParaId(''), 'AAAA0001', 'Comercial MP SpA');
+  assert.match(word, /<w:t xml:space="preserve">Comercial MP SpA<\/w:t>/);
+
+  // Y sigue negándose a pisar un dato real.
+  assert.throws(() => rellenarCeldaVacia(conParaId('<w:r><w:t>ya escrito</w:t></w:r>'), 'AAAA0001', 'x'), /ya tiene contenido/);
+});
 
 // La tabla de identificación del oferente: [etiqueta][valor][etiqueta][valor], SIN fila de
 // encabezado. Tratada como tabla de datos, la etiqueta más larga de cada fila se le asignaba a las

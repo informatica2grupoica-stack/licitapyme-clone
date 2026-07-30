@@ -88,13 +88,34 @@ export function normalizarParaIds(xml: string): { xml: string; agregados: number
   return { xml, agregados };
 }
 
+// ── ¿Está vacío este párrafo (es un blanco a rellenar)? ──────────────────────────────────
+// "Vacío" = SIN TEXTO, no "sin runs".
+//
+// BUG REAL encontrado el 30-jul-2026, y la razón por la que el relleno andaba en las pruebas
+// locales pero no en producción: la regla anterior era `!/<w:r[ >]/` —no tiene ningún <w:r>—, que
+// vale para el XML que genera Word, donde una celda vacía no trae runs. LibreOffice (el conversor
+// de .doc del VPS, o sea TODOS los .doc reales) escribe esas mismas celdas con un `<w:r>` que
+// carga el formato pero ningún `<w:t>`. Con ese XML no se veía ni una celda vacía en todo el
+// documento: cero candidatos, la vista de tabla desaparecía y no se autocompletaba nada — solo
+// sobrevivían los patrones que no dependen de celdas (blanco inline y "Etiqueta:"), que es
+// exactamente lo que se veía en pantalla. Medido con los dos XML lado a lado: 2 candidatos contra 0.
+//
+// Un párrafo que contiene una IMAGEN u objeto tampoco tiene texto, pero no es un blanco: es, entre
+// otras cosas, donde ya se estampó una firma. Se excluye explícitamente para no escribir encima.
+const RE_CONTENIDO_NO_TEXTUAL = /<w:(drawing|pict|object)\b/;
+
+export function parrafoEstaVacio(cuerpo: string): boolean {
+  if (RE_CONTENIDO_NO_TEXTUAL.test(cuerpo)) return false;
+  return [...cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join('').trim() === '';
+}
+
 // ── Lectura: lista todos los párrafos del documento, en orden ────────────────────────────
 export function listarParrafos(xml: string): Parrafo[] {
   const matches = [...xml.matchAll(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"[^>]*>([\s\S]*?)<\/w:p>/g)];
   return matches.map(([, paraId, cuerpo], indice) => ({
     paraId,
     texto: [...cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join('').trim(),
-    vacio: !/<w:r[ >]/.test(cuerpo),
+    vacio: parrafoEstaVacio(cuerpo),
     indice,
     centrado: /<w:jc\s+w:val="center"/.test(cuerpo),
   }));
@@ -104,20 +125,46 @@ export function contarParrafos(xml: string): number {
   return (xml.match(/<w:p\b/g) || []).length;
 }
 
-// ── Patrón 1: celda de tabla vacía (párrafo sin ningún <w:r>) ────────────────────────────
+// ── Patrón 1: celda de tabla vacía ───────────────────────────────────────────────────────
 // Inserta el valor DENTRO del <w:p> vacío identificado por su paraId — nunca agrega/quita
-// párrafo. Reutiliza el rPr del párrafo vacío (si trae uno) para heredar la misma fuente que
-// el resto del formulario.
+// párrafo. Reutiliza el rPr existente para heredar la misma fuente que el resto del formulario.
+//
+// Un párrafo "vacío" puede venir de dos formas según quién generó el .docx (ver parrafoEstaVacio):
+// sin ningún run (Word) o con un run que carga el formato pero sin <w:t> (LibreOffice). Los dos
+// casos se rellenan; en el segundo el <w:t> se mete DENTRO del run que ya está, que es lo que
+// preserva el formato original de esa celda.
 export function rellenarCeldaVacia(xml: string, paraId: string, valor: string): string {
   const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);
   const m = xml.match(re);
   if (!m) throw new Error(`No se encontró el párrafo w14:paraId="${paraId}"`);
   const [entero, apertura, cuerpo, cierre] = m;
-  if (/<w:r[ >]/.test(cuerpo)) throw new Error(`El párrafo ${paraId} ya tiene contenido — no se pisa un dato existente`);
-  const rPrMatch = cuerpo.match(/<w:pPr>[\s\S]*?(<w:rPr>[\s\S]*?<\/w:rPr>)[\s\S]*?<\/w:pPr>/);
-  const rPr = rPrMatch ? rPrMatch[1] : '';
-  const run = `<w:r>${rPr}<w:t xml:space="preserve">${xmlEscape(valor)}</w:t></w:r>`;
-  return xml.slice(0, m.index) + apertura + cuerpo + run + cierre + xml.slice((m.index ?? 0) + entero.length);
+  // El guard mira el TEXTO, no los runs: con la regla vieja, un párrafo de LibreOffice con un run
+  // vacío se tomaba por "ya tiene contenido" y el relleno moría con una excepción.
+  if (!parrafoEstaVacio(cuerpo)) throw new Error(`El párrafo ${paraId} ya tiene contenido — no se pisa un dato existente`);
+
+  const texto = `<w:t xml:space="preserve">${xmlEscape(valor)}</w:t>`;
+  let cuerpoNuevo: string;
+  const conTVacio = cuerpo.match(/<w:t[^>]*\/>|<w:t[^>]*><\/w:t>/);
+  const runs = [...cuerpo.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)];
+  if (conTVacio) {
+    cuerpoNuevo = cuerpo.replace(conTVacio[0], texto);            // ya hay un <w:t> vacío: se llena
+  } else if (runs.length) {
+    // Run sin <w:t> (LibreOffice). El texto va DENTRO de ese run para heredar su formato; si el
+    // run no trae rPr propio se le presta el de la marca de párrafo (<w:pPr><w:rPr>), que es el
+    // formato de la celda — sin esto el valor puede salir con la fuente por defecto del documento
+    // en vez de la del formulario.
+    const ultimo = runs[runs.length - 1][0];
+    const rPrPropio = /<w:rPr>/.test(ultimo);
+    const rPrParrafo = cuerpo.match(/<w:pPr>[\s\S]*?(<w:rPr>[\s\S]*?<\/w:rPr>)[\s\S]*?<\/w:pPr>/);
+    const conFormato = rPrPropio || !rPrParrafo
+      ? ultimo.replace(/<\/w:r>$/, `${texto}</w:r>`)
+      : ultimo.replace(/^<w:r\b([^>]*)>/, `<w:r$1>${rPrParrafo[1]}`).replace(/<\/w:r>$/, `${texto}</w:r>`);
+    cuerpoNuevo = cuerpo.replace(ultimo, conFormato);
+  } else {
+    const rPrMatch = cuerpo.match(/<w:pPr>[\s\S]*?(<w:rPr>[\s\S]*?<\/w:rPr>)[\s\S]*?<\/w:pPr>/);
+    cuerpoNuevo = `${cuerpo}<w:r>${rPrMatch ? rPrMatch[1] : ''}${texto}</w:r>`; // sin runs (Word)
+  }
+  return xml.slice(0, m.index) + apertura + cuerpoNuevo + cierre + xml.slice((m.index ?? 0) + entero.length);
 }
 
 // ── Patrón 5: etiqueta que termina en ":" y el valor va A CONTINUACIÓN, en la misma línea ──

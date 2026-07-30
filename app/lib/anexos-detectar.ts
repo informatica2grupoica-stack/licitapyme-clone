@@ -2,7 +2,7 @@
 // Frente E.1 — detección de campos a rellenar en un anexo real, sin conocimiento previo del
 // documento. Probado contra 4 anexos reales de 4 organismos (Chile Chico, Lo Barnechea, y 2
 // más) — ver docs/BITACORA-CAMBIOS-VIABILIDAD.md para el detalle de cada hallazgo.
-import { listarParrafos, listarBlancosInline, type Parrafo } from '@/app/lib/anexos-docx';
+import { listarParrafos, listarBlancosInline, parrafoEstaVacio, type Parrafo } from '@/app/lib/anexos-docx';
 import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
 
 // ── Patrón 1: etiqueta corta + párrafo vacío inmediatamente después ───────────────────────
@@ -162,9 +162,11 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
     const textoCelda = parrafosCelda
       .map(p => [...p[2].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join(''))
       .join(' ').trim();
-    // Toma el ÚLTIMO párrafo sin <w:r> de la celda como candidato a rellenar — casi siempre
-    // las celdas de una tabla de specs traen un solo párrafo, así que en la práctica es el único.
-    const parrafoVacio = [...parrafosCelda].reverse().find(p => !/<w:r[ >]/.test(p[2]));
+    // Toma el ÚLTIMO párrafo vacío de la celda como candidato a rellenar — casi siempre las celdas
+    // de una tabla de specs traen un solo párrafo, así que en la práctica es el único. Se usa
+    // parrafoEstaVacio (sin TEXTO) y no "sin runs": con el XML de LibreOffice, que deja un run
+    // vacío en cada celda, la regla vieja no encontraba ni una celda libre en todo el documento.
+    const parrafoVacio = [...parrafosCelda].reverse().find(p => parrafoEstaVacio(p[2]));
     let paraId: string | null = null;
     let indiceGlobal: number | null = null;
     if (parrafoVacio && textoCelda === '') {
