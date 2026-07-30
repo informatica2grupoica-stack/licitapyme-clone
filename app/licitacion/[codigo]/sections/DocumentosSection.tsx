@@ -12,6 +12,7 @@ import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentVie
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
 import { SelectorPuntoAuditor } from '@/app/components/SelectorPuntoAuditor';
+import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { registrarVerDocumento } from '@/app/lib/actividad-cliente';
@@ -1133,6 +1134,10 @@ export function DocumentosSection({
   negocioId?: number | null;
 }) {
   const toast = useToast();
+  // Rellenar anexos (creador) y "Enviar al Auditor" — por pedido explícito del usuario, solo
+  // admin por ahora, mientras se decide quiénes más lo van a usar.
+  const { usuario } = useSession();
+  const isAdmin = usuario?.rol === 'admin';
   const yaClasificados = documentosCache.some(d => (d as any).categoria);
   // Separación en dos apartados: "Documentos y Bases" (los de la licitación) vs "Documentos Propios"
   // (los que NOSOTROS creamos o editamos: costeo, informe, y lo que subamos).
@@ -1412,8 +1417,8 @@ export function DocumentosSection({
               onView={verYRegistrar}
               onOpenIA={setIaDoc}
               onRefrescar={fetchDocumentos}
-              onRellenarAnexo={setAnexoDoc}
-              onEnviarAuditor={negocioId ? setEnviandoDoc : undefined}
+              onRellenarAnexo={isAdmin ? setAnexoDoc : undefined}
+              onEnviarAuditor={isAdmin && negocioId ? setEnviandoDoc : undefined}
               modo="licitacion"
             />
           </div>
@@ -1449,7 +1454,7 @@ export function DocumentosSection({
           codigoDecoded={codigoDecoded}
           onView={verYRegistrar}
           onRefrescar={fetchDocumentos}
-          onEnviarAuditor={negocioId ? setEnviandoDoc : undefined}
+          onEnviarAuditor={isAdmin && negocioId ? setEnviandoDoc : undefined}
         />
       </div>
 

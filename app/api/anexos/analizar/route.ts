@@ -4,7 +4,7 @@
 // humano. No modifica ni sube nada — se puede llamar tantas veces como haga falta (se llama
 // al abrir la pantalla de relleno).
 import { NextRequest, NextResponse } from 'next/server';
-import { puedeVerLicitacion } from '@/app/lib/api-auth';
+import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { cargarDocumentoYEmpresa } from '@/app/lib/anexos-datos';
 import { analizarAnexoParaUI } from '@/app/lib/anexos-rellenar';
 
@@ -22,6 +22,11 @@ export async function GET(request: NextRequest) {
   }
   if (!(await puedeVerLicitacion(request, codigo))) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+  }
+  // El creador de anexos queda restringido a admin por ahora (pedido explícito, jul-2026)
+  // mientras se decide quiénes más lo van a usar — reforzado acá, no solo ocultando el botón.
+  if (!(await esAdmin(request))) {
+    return NextResponse.json({ error: 'El creador de anexos está disponible solo para administradores por ahora' }, { status: 403 });
   }
 
   try {

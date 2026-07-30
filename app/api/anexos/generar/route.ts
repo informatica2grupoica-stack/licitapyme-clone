@@ -7,7 +7,7 @@
 // con el mismo Ver/Descargar que cualquier otro documento propio.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { getAuthedUser, puedeVerLicitacion } from '@/app/lib/api-auth';
+import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoYEmpresa } from '@/app/lib/anexos-datos';
 import { generarAnexoFinal } from '@/app/lib/anexos-rellenar';
@@ -51,6 +51,11 @@ export async function POST(request: NextRequest) {
   }
   if (!(await puedeVerLicitacion(request, codigo))) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
+  }
+  // El creador de anexos queda restringido a admin por ahora (pedido explícito, jul-2026)
+  // mientras se decide quiénes más lo van a usar — reforzado acá, no solo ocultando el botón.
+  if (!(await esAdmin(request))) {
+    return NextResponse.json({ error: 'El creador de anexos está disponible solo para administradores por ahora' }, { status: 403 });
   }
 
   try {

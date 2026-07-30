@@ -15,6 +15,7 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
 import { useRealtime } from '@/app/lib/use-realtime';
+import { useSession } from '@/app/lib/session-context';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
 import { SelectorDocumentoAnexo } from '@/app/components/SelectorDocumentoAnexo';
@@ -218,6 +219,10 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   onEmpresaChange: (id: number) => void;
 }) {
   const toast = useToast();
+  // El "Generar" (creador de anexos) queda solo para admin por ahora, mismo pedido que en
+  // Documentos — mientras se decide quiénes más lo van a usar.
+  const { usuario } = useSession();
+  const isAdmin = usuario?.rol === 'admin';
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [items, setItems] = useState<Item[]>([]);
@@ -530,7 +535,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                     ocupado={ocupado === item.id}
                     onAccion={accionar}
                     onVer={setVisorDoc}
-                    onGenerar={setGenerandoItem}
+                    onGenerar={isAdmin ? setGenerandoItem : undefined}
                     toast={toast}
                   />
                 )
@@ -705,7 +710,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
   ocupado: boolean;
   onAccion: (itemId: number, accion: string, extra?: Record<string, unknown>) => Promise<boolean>;
   onVer: (doc: VisorDoc) => void;
-  onGenerar: (item: Item) => void;
+  onGenerar?: (item: Item) => void;
   toast: ReturnType<typeof useToast>;
 }) {
   const confirmar = useConfirm();
@@ -920,7 +925,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
                     </button>
                   </>
                 )}
-                {item.generable && (
+                {item.generable && onGenerar && (
                   <button
                     type="button"
                     onClick={() => onGenerar(item)}
