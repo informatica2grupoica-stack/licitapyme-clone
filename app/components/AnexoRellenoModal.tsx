@@ -8,7 +8,7 @@
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText, ExternalLink, Download } from 'lucide-react';
+import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText, ExternalLink, Download, ChevronDown } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 
 // Mismo problema que el visor del ojo "Ver" en Documentos (ver DocumentViewerModal): el visor
@@ -19,7 +19,7 @@ const TIMEOUT_VISOR_OFFICE_MS = 14_000;
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
-interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' }
+interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia'; formulario?: string }
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
 interface PendienteInline { id: string; contexto: string; formulario?: string }
 interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'diccionario' | 'ia' }; input?: { id: string } }
@@ -31,6 +31,7 @@ interface Analisis {
   pendientesInline: PendienteInline[];
   tablas: TablaUI[];
   firma: { detectada: boolean; disponible: boolean };
+  ordenFormularios?: string[]; // títulos en el orden del documento
 }
 
 // Vista de tabla REAL: mismas filas/columnas que el Word, para que quede claro a qué celda
@@ -83,11 +84,36 @@ function limpiarTituloFormulario(t: string): string {
   return t.replace(/[.:]+$/, '').trim();
 }
 
+// Las etiquetas compuestas vienen del backend como dos partes separadas por " — " (ver
+// desambiguarDuplicados y detectarCandidatosTabla): mostrarlas crudas era ilegible ("Nombre: —
+// Para uso exclusivo Proveedor Adjudicado"). Se parten para mostrar la primera destacada y la
+// segunda chica al lado, que es lo que ubica al usuario en el documento.
+//
+// Se respeta el ORDEN original a propósito: cuál de las dos partes es "el campo" depende de quién
+// armó la etiqueta —en una tabla es la primera (fila — columna), en un duplicado desambiguado es
+// la segunda (contexto — campo)— así que elegir una como principal daría vuelta la mitad de los
+// casos. Mostrando las dos en su orden, la etiqueta siempre se lee igual que en el Word.
+function partirEtiqueta(etiqueta: string): { campo: string; contexto?: string } {
+  const m = etiqueta.match(/^(.+?)\s+—\s+(.+)$/);
+  if (!m) return { campo: etiqueta.replace(/\s*:\s*$/, '') };
+  return { campo: m[1].replace(/\s*:\s*$/, ''), contexto: m[2].replace(/\s*:\s*$/, '') };
+}
+
+function EtiquetaCampo({ etiqueta }: { etiqueta: string }) {
+  const { campo, contexto } = partirEtiqueta(etiqueta);
+  return (
+    <span className="min-w-0 truncate" title={etiqueta}>
+      {campo}
+      {contexto && <span className="ml-1.5 text-[10.5px] text-slate-400 font-normal">· {contexto}</span>}
+    </span>
+  );
+}
+
 function CampoInput({ etiqueta, valor, onChange }: { etiqueta: string; valor: string; onChange: (v: string) => void }) {
   return (
     <div>
-      <label className="block text-[11.5px] font-medium text-slate-600 mb-1 truncate" title={etiqueta}>
-        {etiqueta}
+      <label className="flex items-baseline text-[11.5px] font-medium text-slate-600 mb-1" title={etiqueta}>
+        <EtiquetaCampo etiqueta={etiqueta} />
       </label>
       <input
         type="text"
@@ -96,6 +122,45 @@ function CampoInput({ etiqueta, valor, onChange }: { etiqueta: string; valor: st
         placeholder="Escribe el valor…"
         className="w-full text-[12.5px] px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
       />
+    </div>
+  );
+}
+
+// Lo que se completa solo, dentro de su formulario: compacto y plegado por defecto. Es información
+// de confirmación ("esto ya está"), no algo que el usuario deba leer campo por campo — antes iba
+// todo junto arriba, sin decir a qué formulario correspondía cada uno, y con la misma etiqueta
+// repetida cuatro veces ("CORREO ELECTRÓNICO") era imposible saber cuál era cuál.
+function ResumenAuto({ campos }: { campos: CampoCompletado[] }) {
+  const [abierto, setAbierto] = useState(false);
+  if (!campos.length) return null;
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50/70">
+      <button
+        type="button"
+        onClick={() => setAbierto(v => !v)}
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-emerald-800 hover:bg-emerald-100/60 rounded-lg transition-colors"
+      >
+        <CheckCircle2 size={12} className="flex-shrink-0" />
+        <span className="flex-1 text-left">Se completan solos ({campos.length})</span>
+        <ChevronDown size={13} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} />
+      </button>
+      {abierto && (
+        <div className="px-2.5 pb-2 divide-y divide-emerald-100">
+          {campos.map((c, i) => (
+            <div key={i} className="flex items-baseline justify-between gap-3 py-1 text-[11.5px]">
+              <span className="flex items-baseline gap-1.5 min-w-0 text-emerald-800 font-medium">
+                <EtiquetaCampo etiqueta={c.etiqueta} />
+                {c.via === 'ia' && (
+                  <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-violet-100 text-violet-700" title="Completado por IA, no por match exacto">
+                    IA
+                  </span>
+                )}
+              </span>
+              <span className="text-emerald-700 truncate max-w-[45%] text-right">{c.valor}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -168,14 +233,15 @@ export function AnexoRellenoModal({
   // y se muestra como antes, sin encabezados extra.
   const pendientesTodos: PendienteUnificado[] = analisis ? [
     ...analisis.pendientesCelda.map(p => ({ id: p.id, etiqueta: p.etiqueta, formulario: p.formulario })),
-    ...analisis.pendientesInline.map(p => ({ id: p.id, etiqueta: `…${p.contexto}____`, formulario: p.formulario })),
+    ...analisis.pendientesInline.map(p => ({ id: p.id, etiqueta: p.contexto.replace(/\s*:\s*$/, ''), formulario: p.formulario })),
   ] : [];
-  const gruposFormulario: { titulo: string; items: PendienteUnificado[]; tablas: TablaUI[] }[] = [];
+  const gruposFormulario: { titulo: string; items: PendienteUnificado[]; tablas: TablaUI[]; autos: CampoCompletado[] }[] = [];
   const sinFormulario: PendienteUnificado[] = [];
   const tablasSinFormulario: TablaUI[] = [];
+  const autosSinFormulario: CampoCompletado[] = [];
   const grupoDe = (titulo: string) => {
     let grupo = gruposFormulario.find(g => g.titulo === titulo);
-    if (!grupo) { grupo = { titulo, items: [], tablas: [] }; gruposFormulario.push(grupo); }
+    if (!grupo) { grupo = { titulo, items: [], tablas: [], autos: [] }; gruposFormulario.push(grupo); }
     return grupo;
   };
   for (const p of pendientesTodos) {
@@ -186,7 +252,22 @@ export function AnexoRellenoModal({
     if (!t.formulario) { tablasSinFormulario.push(t); continue; }
     grupoDe(t.formulario).tablas.push(t);
   }
+  // Lo que se completa solo va DENTRO de su formulario, igual que los pendientes: verlo junto a la
+  // tabla de ese formulario es lo que hace entendible un documento con 5 formularios pegados que
+  // piden los mismos datos una y otra vez.
+  for (const c of analisis?.completadosAuto || []) {
+    if (!c.formulario) { autosSinFormulario.push(c); continue; }
+    grupoDe(c.formulario).autos.push(c);
+  }
+  // En el orden del documento, no en el orden en que los fue encontrando cada lista.
+  const orden = analisis?.ordenFormularios || [];
+  gruposFormulario.sort((a, b) => {
+    const ia = orden.indexOf(a.titulo), ib = orden.indexOf(b.titulo);
+    return (ia === -1 ? Number.MAX_SAFE_INTEGER : ia) - (ib === -1 ? Number.MAX_SAFE_INTEGER : ib);
+  });
   const hayFormularios = gruposFormulario.length > 0;
+  const contarInputs = (tablas: TablaUI[]) =>
+    tablas.reduce((a, t) => a + t.filas.reduce((a2, f) => a2 + f.filter(c => c.input).length, 0), 0);
 
   const handleGenerar = async () => {
     setGenerando(true);
@@ -323,57 +404,47 @@ export function AnexoRellenoModal({
                 </div>
               )}
 
-              {analisis.completadosAuto.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-[11px] font-semibold text-emerald-700 uppercase tracking-wider flex items-center gap-1">
-                    <CheckCircle2 size={12} /> Se completa solo ({analisis.completadosAuto.length})
-                  </p>
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 divide-y divide-emerald-100">
-                    {analisis.completadosAuto.map((c, i) => (
-                      <div key={i} className="flex items-center justify-between gap-3 px-3 py-1.5 text-[12px]">
-                        <span className="text-emerald-800 font-medium truncate flex items-center gap-1.5">
-                          {c.etiqueta}
-                          {c.via === 'ia' && (
-                            <span className="shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700" title="Completado por IA (no por match exacto del diccionario)">
-                              IA
-                            </span>
-                          )}
-                        </span>
-                        <span className="text-emerald-700 truncate">{c.valor}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (
-                <p className="text-[12px] text-slate-400">No quedan campos pendientes por completar a mano.</p>
-              )}
-
               {hayFormularios ? (
                 <>
-                  {gruposFormulario.map(g => (
-                    <div key={g.titulo} className="space-y-2">
-                      <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider border-b border-indigo-100 pb-1">
-                        {limpiarTituloFormulario(g.titulo)} ({g.items.length + g.tablas.reduce((a, t) => a + t.filas.reduce((a2, f) => a2 + f.filter(c => c.input).length, 0), 0)})
-                      </p>
-                      {g.tablas.map((t, i) => (
-                        <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
-                      ))}
-                      {g.items.length > 0 && (
-                        <div className="space-y-2">
-                          {g.items.map(p => (
-                            <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
-                          ))}
+                  {/* Un bloque por formulario, con TODO lo suyo adentro: lo que se completa solo,
+                      la tabla tal cual está en el Word, y lo que hay que escribir. Antes los
+                      completados iban en una sola lista arriba, sin decir a qué formulario
+                      pertenecía cada uno — en un documento con 5 formularios que piden los mismos
+                      datos, esa lista era ilegible. */}
+                  {gruposFormulario.map(g => {
+                    const porLlenar = g.items.length + contarInputs(g.tablas);
+                    return (
+                      <div key={g.titulo} className="space-y-2">
+                        <div className="flex items-baseline justify-between gap-2 border-b border-indigo-100 pb-1">
+                          <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider truncate" title={g.titulo}>
+                            {limpiarTituloFormulario(g.titulo)}
+                          </p>
+                          <p className="text-[10.5px] text-slate-400 flex-shrink-0">
+                            {porLlenar > 0 ? `${porLlenar} por llenar` : 'nada por llenar'}
+                          </p>
                         </div>
-                      )}
-                    </div>
-                  ))}
-                  {(sinFormulario.length > 0 || tablasSinFormulario.length > 0) && (
+                        <ResumenAuto campos={g.autos} />
+                        {g.tablas.map((t, i) => (
+                          <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
+                        ))}
+                        {g.items.length > 0 && (
+                          <div className="space-y-2">
+                            {g.items.map(p => (
+                              <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {(sinFormulario.length > 0 || tablasSinFormulario.length > 0 || autosSinFormulario.length > 0) && (
                     <div className="space-y-2">
-                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        Otros campos ({sinFormulario.length + tablasSinFormulario.reduce((a, t) => a + t.filas.reduce((a2, f) => a2 + f.filter(c => c.input).length, 0), 0)})
+                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-1">
+                        Otros campos
+                        {sinFormulario.length + contarInputs(tablasSinFormulario) > 0
+                          && ` (${sinFormulario.length + contarInputs(tablasSinFormulario)})`}
                       </p>
+                      <ResumenAuto campos={autosSinFormulario} />
                       {tablasSinFormulario.map((t, i) => (
                         <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
                       ))}
@@ -389,6 +460,10 @@ export function AnexoRellenoModal({
                 </>
               ) : (
                 <>
+                <ResumenAuto campos={analisis.completadosAuto} />
+                {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (
+                  <p className="text-[12px] text-slate-400">No quedan campos pendientes por completar a mano.</p>
+                )}
                   {tablasSinFormulario.length > 0 && (
                     <div className="space-y-1.5">
                       <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
@@ -422,7 +497,7 @@ export function AnexoRellenoModal({
                       </p>
                       <div className="space-y-2">
                         {analisis.pendientesInline.map(p => (
-                          <CampoInput key={p.id} etiqueta={`…${p.contexto}____`} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                          <CampoInput key={p.id} etiqueta={p.contexto.replace(/\s*:\s*$/, '')} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
                         ))}
                       </div>
                     </div>

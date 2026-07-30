@@ -48,6 +48,9 @@ const DICCIONARIO: EntradaDiccionario[] = [
     new RegExp(`^nombre\\s+(completo\\s+)?del\\s+(proponente|oferente)\\s+o\\s+raz[óo]n\\s+social$`, 'i'),
     /^empresa$/i,
     /^identificaci[óo]n\s+del\s+oferente$/i,
+    // "Proveedor:" es como piden la razón social las actas y órdenes de compra (caso real
+    // 4291-38-LP26, FORMULARIO N°4 "ACTA DE CAPACITACIÓN": "Proveedor: _____________").
+    /^(nombre\s+del\s+)?proveedor$/i,
   ] },
   { campo: 'rut', patrones: [
     /^rol\s+[úu]nico\s+tributario$/i,
@@ -140,8 +143,12 @@ const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|entidad\s+
 // para el titular de la cuenta (no siempre es la misma persona que el representante legal), así
 // que igual debe quedar pendiente en vez de adivinar con representante_nombre/representante_rut.
 const SUFIJO_AMBIGUO_SIN_CALIFICAR = '(\\s+del\\s+titular)?';
+// "CONTACTO OFERENTE 1 / 2" (caso real 4291-38-LP26) es la PERSONA de contacto que designa el
+// oferente — un dato que la ficha de empresa no tiene. Aunque diga "oferente", no equivale a la
+// razón social ni al representante legal: sin este término en la lista, la IA lo resolvía igual y
+// escribía "Representante" (el valor de representante_cargo) como si fuera el nombre de alguien.
 const TERMINOS_AMBIGUOS_SIN_CONTEXTO = new RegExp(
-  `^(correo(\\s+electr[óo]nico)?|e-?mail|n[°º]?\\.?\\s*de\\s+tel[ée]fono(s)?|tel[ée]fono(s)?|fono|nombre(\\s+completo)?|c[ée]dula\\s+de\\s+identidad|cargo)${SUFIJO_AMBIGUO_SIN_CALIFICAR}$`,
+  `^(correo(\\s+electr[óo]nico)?|e-?mail|n[°º]?\\.?\\s*de\\s+tel[ée]fono(s)?|tel[ée]fono(s)?|fono|nombre(\\s+completo)?|c[ée]dula\\s+de\\s+identidad|cargo|contacto(\\s+(del\\s+)?(oferente|proponente|empresa))?(\\s*\\d+)?)${SUFIJO_AMBIGUO_SIN_CALIFICAR}$`,
   'i',
 );
 
@@ -170,6 +177,48 @@ export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coinciden
     if (entrada.patrones.some(re => re.test(limpia))) return conValor(entrada.campo, empresa);
   }
   return null;
+}
+
+// ── Guard de coherencia para el respaldo IA ───────────────────────────────────────────────
+// El diccionario decide por patrón exacto, así que nunca escribe un dato en un campo que no le
+// corresponde. La IA sí puede: elige entre TODOS los campos con dato de la empresa y, si ninguno
+// calza, igual devuelve el que "más se parece".
+//
+// BUG REAL encontrado (4291-38-LP26): a la etiqueta "CIUDAD" —un dato que la ficha de empresa
+// simplemente no tiene— la IA le asignó `banco_email`, y el anexo salía con
+// "sociedadcomercialmp@gmail.com" escrito en la casilla de la ciudad. Ya había un precedente igual
+// con `region` (ver CAMPOS_DISPONIBLES en anexos-ia-matching.ts), que se resolvió sacando ese
+// campo de la lista; sacar campos de a uno no escala, porque el error puede aparecer con cualquier
+// par etiqueta/campo.
+//
+// Esto lo ataja de raíz: cada campo declara qué tiene que mencionar la etiqueta para que ese valor
+// sea plausible ahí. Es una condición NECESARIA, no suficiente — no valida que el match sea bueno,
+// solo descarta los que son imposibles. Si la etiqueta no menciona nada de eso, el match se
+// descarta y el campo queda pendiente para que lo llene un humano, que es el comportamiento seguro.
+const COHERENCIA_CAMPO: Record<keyof EmpresaCampos, RegExp | null> = {
+  razon_social: /(nombre|raz[óo]n|empresa|oferente|proponente|proveedor|contratista|entidad)/i,
+  rut: /(r\.?u\.?t|rol\s+[úu]nico|c[ée]dula|identificaci[óo]n)/i,
+  direccion: /(direcci[óo]n|domicilio|calle|ubicaci[óo]n)/i,
+  region: /(regi[óo]n)/i,
+  giro: /(giro|actividad|rubro)/i,
+  tipo_persona_juridica: /(tipo|naturaleza|persona|constituci[óo]n|sociedad)/i,
+  fecha_sociedad: /(fecha|escritura|constituci[óo]n|inicio|vigencia|notar[íi]a)/i,
+  representante_nombre: /(nombre|representante|apoderado|firmante)/i,
+  representante_rut: /(r\.?u\.?t|c[ée]dula|r\.?u\.?n|identidad)/i,
+  representante_cargo: /(cargo|calidad|funci[óo]n)/i,
+  email1: /(correo|e-?mail|electr[óo]nico)/i,
+  telefono1: /(tel[ée]fono|fono|celular|m[óo]vil|contacto|anexo)/i,
+  banco_tipo_cuenta: /(tipo|cuenta)/i,
+  banco_numero: /(n[úu]mero|cuenta|n[°º])/i,
+  banco_nombre: /(banco|entidad|instituci[óo]n)/i,
+  banco_email: /(correo|e-?mail|electr[óo]nico)/i,
+  firma_url: null, // la firma no se resuelve por texto (ver detectarLineasFirma)
+};
+
+export function esMatchCoherente(etiqueta: string, campo: keyof EmpresaCampos): boolean {
+  const exigido = COHERENCIA_CAMPO[campo];
+  if (!exigido) return false;
+  return exigido.test(etiqueta);
 }
 
 // Misma regla de "sin contexto reconocido, no se adivina" pero para el respaldo IA (ver

@@ -3,6 +3,7 @@
 // documento. Probado contra 4 anexos reales de 4 organismos (Chile Chico, Lo Barnechea, y 2
 // más) — ver docs/BITACORA-CAMBIOS-VIABILIDAD.md para el detalle de cada hallazgo.
 import { listarParrafos, listarBlancosInline, type Parrafo } from '@/app/lib/anexos-docx';
+import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
 
 // ── Patrón 1: etiqueta corta + párrafo vacío inmediatamente después ───────────────────────
 // (celda de tabla de 2 columnas: "Razón social" | <celda vacía>). Es RUIDOSO a propósito: no
@@ -23,9 +24,23 @@ export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
     // idéntico a la etiqueta real de una fila de esa misma tabla ("IDENTIFICACIÓN DEL OFERENTE"),
     // así que ni el diccionario ni un clasificador de IA por texto puro pueden distinguirlos de
     // forma confiable — pero la alineación SÍ los distingue, sin ambigüedad y sin costo de IA.
-    if (actual.texto && actual.texto.length <= 60 && !actual.centrado && siguiente.vacio) {
-      out.push({ etiqueta: actual.texto, paraId: siguiente.paraId, indice: siguiente.indice });
-    }
+    if (!actual.texto || actual.texto.length > 60 || actual.centrado || !siguiente.vacio) continue;
+
+    // La LEYENDA de una línea de firma ("Firma del Oferente o Represente Legal.", el párrafo justo
+    // debajo de la raya) no es la etiqueta de un campo — el párrafo vacío que le sigue es puro
+    // espaciado hasta el siguiente bloque. BUG REAL (4291-38-LP26, visto al exportar el .docx
+    // generado a PDF): como la etiqueta menciona "firma", analizarAnexo la mandaba a lineasFirma y
+    // estampaba la imagen de la firma en ese espaciado — quedaban DOS firmas seguidas, una sobre la
+    // leyenda y otra debajo.
+    if (i > 0 && RE_RAYA_LARGA.test(parrafos[i - 1].texto) && RE_LEYENDA_FIRMA.test(actual.texto)) continue;
+
+    // Un párrafo que YA trae su propio blanco ("Antofagasta,________________") tampoco es la
+    // etiqueta de otro campo: ese blanco lo cubre el patrón 2 (inline), y el párrafo vacío
+    // siguiente es de nuevo espaciado. Sin esto se pedía el mismo dato dos veces —y, por la
+    // desambiguación de duplicados, con el prefijo "Firma del Oferente…" pegado adelante.
+    if (/_{4,}/.test(actual.texto)) continue;
+
+    out.push({ etiqueta: actual.texto, paraId: siguiente.paraId, indice: siguiente.indice });
   }
   return desambiguarDuplicados(out);
 }
@@ -180,6 +195,31 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
     const celdasEncabezado = extraerCeldasDeFila(primeraFila[1], 0, new Map());
     const nombresColumna = celdasEncabezado.map(c => c.texto);
     const anchosHeader = celdasEncabezado.map(c => c.anchoPct);
+
+    // ¿Es una tabla de DATOS (primera fila = nombres de columna, resto = filas de datos) o una
+    // tabla de FORMULARIO ([etiqueta][valor][etiqueta][valor], sin encabezado)? Todo lo que sigue
+    // asume la primera; aplicado a la segunda produce datos en la celda equivocada.
+    //
+    // BUG REAL que esto corrige (4291-38-LP26, verificado exportando el .docx generado a PDF): la
+    // tabla de identificación del oferente es
+    //     [NOMBRE O RAZÓN SOCIAL][  ][RUT          ][  ]
+    //     [DIRECCIÓN COMERCIAL  ][  ][INICIO ACTIV.][  ]
+    //     [CIUDAD               ][  ][FONO         ][  ]
+    // Al tratarla como tabla de datos: (a) `filaContexto` —la celda más larga de la fila— se le
+    // asignaba a TODAS las celdas vacías de esa fila, así que la celda de INICIO ACTIV. recibía la
+    // etiqueta "DIRECCIÓN COMERCIAL" y terminaba con la dirección escrita adentro, y la del RUT del
+    // representante recibía "NOMBRE COMPLETO REP. LEGAL" y terminaba con el nombre; (b) la primera
+    // fila se tomaba como encabezado, inventando una columna llamada "RUT" que producía etiquetas
+    // fantasma ("CORREO ELECTRÓNICO — RUT") rellenadas con el RUT de la empresa; y (c) al quedar
+    // dos celdas bajo una sola etiqueta, CIUDAD, FONO y CONTACTO OFERENTE 2 nunca llegaban a ser
+    // candidatos y quedaban vacíos sin avisar.
+    //
+    // La señal es simple y determinista: un encabezado REAL tiene todas sus columnas nombradas. Si
+    // la primera fila trae celdas vacías, no es un encabezado — es la primera fila del formulario.
+    // Esas tablas las cubre el patrón 1, que empareja cada etiqueta con la celda vacía que le sigue
+    // en orden de lectura, que es exactamente lo correcto acá.
+    const esTablaDeDatos = celdasEncabezado.length > 0 && celdasEncabezado.every(c => c.texto.trim() !== '');
+    if (!esTablaDeDatos) continue;
     const hayEncabezado = nombresColumna.some(t => t.length > 0);
 
     for (const fila of restoFilas) {
@@ -255,6 +295,26 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
   return out;
 }
 
+// ── Patrón 5: "Etiqueta:" sin nada después, el valor va en la misma línea ─────────────────
+// Ver rellenarFinDeParrafo() en anexos-docx.ts para el caso real que lo motiva (FORMULARIO N°2 de
+// 4291-38-LP26: "Nombre o Razón Social       :" y "RUT:", párrafos sueltos sin celda ni subrayado).
+//
+// A propósito NO alimenta la lista de pendientes del modal: cualquier título que termine en dos
+// puntos ("OFERTA ECONÓMICA:", "INTEGRANTES DE LA UTP:") calza con esta forma, y ofrecerlos todos
+// llenaría la pantalla de campos que no existen. Solo se usa para AUTO-completar cuando el
+// diccionario reconoce la etiqueta con certeza — si no la reconoce, el párrafo queda intacto.
+export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[] {
+  const out: CandidatoCelda[] = [];
+  for (let i = 0; i < parrafos.length; i++) {
+    const p = parrafos[i];
+    const texto = p.texto.trim();
+    if (!texto.endsWith(':') || texto.length > 80 || p.centrado) continue;
+    if (/_{4,}/.test(texto)) continue;              // tiene su propio blanco → lo cubre el patrón 2
+    out.push({ etiqueta: texto.replace(/\s*:\s*$/, ''), paraId: p.paraId, indice: p.indice });
+  }
+  return out;
+}
+
 // ── Patrón 3: secciones por tipo de oferente (Natural / Jurídica / UTP) ───────────────────
 // Regla del plan (categoría C): "omitir sin preguntar" Natural y UTP — nuestra empresa
 // siempre postula como persona jurídica. Solo se habilita para rellenar la sección jurídica.
@@ -279,6 +339,11 @@ const SOLO_PUNTUACION_FINAL = /^[\s_:"'”)]*$/;
 function esEncabezadoDeSeccion(texto: string): { tipo: TipoSeccion } | null {
   if (texto.length > LARGO_MAX_ENCABEZADO) return null;
   if (/^firma\b/i.test(texto.trim())) return null; // pie de firma, no divisor
+  // Un párrafo con su propio blanco ("Nombre de la Unión Temporal de Proveedores: __________") es
+  // un CAMPO del formulario, no el título de una sección nueva. Caso real 4291-38-LP26: como
+  // SOLO_PUNTUACION_FINAL acepta "_", este campo se tomaba por encabezado y abría una sección UTP
+  // que —sin el corte por formulario de abajo— se extendía hasta el final del documento.
+  if (/_{4,}/.test(texto)) return null;
   for (const pat of PATRONES) {
     const m = texto.match(pat.re);
     if (!m) continue;
@@ -295,13 +360,32 @@ export function detectarSecciones(parrafos: Parrafo[]): SeccionOferente[] {
     if (h) encabezados.push({ indice: p.indice, tipo: h.tipo, texto: p.texto });
   });
 
-  return encabezados.map((h, i) => ({
-    indiceInicio: h.indice,
-    indiceFin: (encabezados[i + 1]?.indice ?? parrafos.length + 1) - 1,
-    tipo: h.tipo,
-    decision: h.tipo === 'PERSONA_JURIDICA' ? 'RELLENAR' : 'OMITIR',
-    textoEncabezado: h.texto,
-  }));
+  // Una sección de tipo de oferente vale hasta el siguiente encabezado de sección O hasta que
+  // empieza otro FORMULARIO/ANEXO — lo que venga primero. Sin el corte por formulario, una
+  // sección se extiende hasta el final del documento.
+  //
+  // BUG REAL (4291-38-LP26, el que hacía que "lo automático no llegara a los anexos 2, 3 y 4"): el
+  // FORMULARIO N°1-A es el de Unión Temporal de Proveedores, así que abre una sección UTP. Como
+  // nuestra empresa postula siempre como persona jurídica, esa sección se OMITE — y al no tener
+  // corte, "omitir la sección UTP" terminaba omitiendo TODO el resto del documento: los
+  // formularios 2, 3 y 4 completos. De los 44 campos detectados en el documento sobrevivían 17,
+  // los del formulario 1; los otros 27 se descartaban en silencio y quedaban en blanco.
+  const iniciosDeFormulario = parrafos
+    .filter(p => p.texto.length <= LARGO_MAX_ENCABEZADO && RE_ENCABEZADO_FORMULARIO.test(p.texto))
+    .map(p => p.indice);
+
+  return encabezados.map((h, i) => {
+    const finPorSeccion = (encabezados[i + 1]?.indice ?? parrafos.length + 1) - 1;
+    const proximoFormulario = iniciosDeFormulario.find(indice => indice > h.indice);
+    const finPorFormulario = proximoFormulario != null ? proximoFormulario - 1 : finPorSeccion;
+    return {
+      indiceInicio: h.indice,
+      indiceFin: Math.min(finPorSeccion, finPorFormulario),
+      tipo: h.tipo,
+      decision: h.tipo === 'PERSONA_JURIDICA' ? 'RELLENAR' : 'OMITIR',
+      textoEncabezado: h.texto,
+    } as SeccionOferente;
+  });
 }
 
 // Filtra candidatos de celda para quedarse SOLO con los que caen dentro de secciones
@@ -392,8 +476,26 @@ export function analizarAnexo(xml: string) {
   // la IMAGEN de la firma escaneada. Bug real encontrado en pruebas contra un anexo real: sin
   // esto, caía al flujo normal diccionario→IA y la IA a veces la matcheaba mal contra
   // representante_cargo, escribiendo un cargo inventado ahí en vez de insertar la firma.
+  // Se mira la etiqueta COMPLETA a propósito: en una etiqueta compuesta el "firma" puede estar de
+  // los dos lados según de dónde venga — "Firma: — Para uso exclusivo Proveedor Adjudicado"
+  // (contexto de fila — nombre de columna, de detectarCandidatosTabla) o "… — Firma y Timbre"
+  // (contexto — campo, de desambiguarDuplicados).
   const esEtiquetaFirma = (etiqueta: string) => /firma/i.test(etiqueta);
-  const candidatosFirmaCelda = candidatosCeldaTodos.filter(c => esEtiquetaFirma(c.etiqueta));
+
+  // …pero que un campo pida UNA firma no significa que pida LA NUESTRA. Mismo principio
+  // conservador que el diccionario (ver anexos-diccionario.ts): si la etiqueta no dice de quién es
+  // la firma, no se adivina. Caso real 4291-38-LP26, FORMULARIO N°4 (acta de capacitación): trae
+  // una columna "Firma" para los asistentes a la capacitación y DOS bloques de cierre, "Para uso
+  // exclusivo Proveedor Adjudicado" y "Para uso exclusivo Universidad de Antofagasta" — estampar
+  // nuestra firma escaneada en los tres es sencillamente falso. Solo se firma donde la etiqueta
+  // dice oferente / proponente / proveedor / contratista / representante legal.
+  const esFirmaPropia = (etiqueta: string) =>
+    esEtiquetaFirma(etiqueta)
+    && /(oferente|proponente|proveedor|contratista|representante\s+legal|rep\.?\s*legal)/i.test(etiqueta);
+  // Las celdas de firma AJENA (ni nuestra firma ni un dato que tengamos) quedan fuera de los dos
+  // grupos: no reciben la imagen, y tampoco vuelven al flujo diccionario→IA, que es donde antes
+  // terminaban rellenadas con un cargo inventado. Las llena a mano quien corresponda.
+  const candidatosFirmaCelda = candidatosCeldaTodos.filter(c => esFirmaPropia(c.etiqueta));
   const candidatosCelda = candidatosCeldaTodos.filter(c => !esEtiquetaFirma(c.etiqueta));
 
   const lineasFirma = [
@@ -405,7 +507,24 @@ export function analizarAnexo(xml: string) {
   // excluye de ahí para no ofrecer un input de texto Y la firma para el mismo párrafo.
   const blancosInline = detectarBlancosInline(xml).filter(b => !indicesFirma.has(b.indiceParrafo));
 
-  return { parrafos, secciones, candidatosCelda, blancosInline, lineasFirma };
+  // Patrón 5: solo los que caen en una sección habilitada y no pisan un blanco ya detectado por
+  // otro patrón (nunca se rellena dos veces el mismo párrafo).
+  const yaCubiertos = new Set([
+    ...candidatosCeldaTodos.map(c => c.indice),
+    ...lineasFirma.map(f => f.indice),
+    ...blancosInline.map(b => b.indiceParrafo),
+  ]);
+  // Se descarta también si el párrafo SIGUIENTE ya es un blanco de otro patrón: ahí el valor va en
+  // esa celda/párrafo, no al final de la etiqueta, y escribir en los dos lo pondría duplicado. Se
+  // mira el resultado real de los otros patrones y no "¿el siguiente está vacío?": un párrafo vacío
+  // puede haber sido descartado como candidato (ej. blancoPrecedeTabla lo filtró por ser el
+  // espaciado antes de una tabla), y en ese caso el campo SÍ queda para este patrón — es
+  // exactamente el caso del "RUT:" del FORMULARIO N°2 de 4291-38-LP26, que si no queda sin llenar
+  // por caer en el hueco entre los dos patrones.
+  const camposConDosPuntos = acotarASeccionesHabilitadas(detectarCamposConDosPuntos(parrafos), secciones)
+    .filter(c => !yaCubiertos.has(c.indice) && !yaCubiertos.has(c.indice + 1));
+
+  return { parrafos, secciones, candidatosCelda, blancosInline, lineasFirma, camposConDosPuntos };
 }
 
 // ── Extracción de tablas COMPLETAS (todas las celdas, no solo las vacías) ─────────────────

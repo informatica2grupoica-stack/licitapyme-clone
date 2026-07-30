@@ -16,14 +16,17 @@
 // qué string de paraId le haya tocado esta vez — por eso los ids usan índice, nunca paraId.
 import {
   normalizarParaIds, rellenarCeldaVacia, rellenarRunPorIndice, insertarImagenEnParrafo,
-  verificarParrafos, abrirDocx, guardarDocx,
+  rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
 } from '@/app/lib/anexos-docx';
-import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda } from '@/app/lib/anexos-detectar';
-import { buscarCampo, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
+import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda, type CandidatoInline } from '@/app/lib/anexos-detectar';
+import { buscarCampo, esMatchCoherente, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
 import { matchearConIA, clasificarTitulos } from '@/app/lib/anexos-ia-matching';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 
-export interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' }
+export interface CampoCompletado {
+  etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia';
+  formulario?: string; // a qué "FORMULARIO N°X" pertenece, para agruparlo igual que los pendientes
+}
 export interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
 export interface PendienteInline { id: string; contexto: string; formulario?: string }
 export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: string }
@@ -104,7 +107,9 @@ export async function resolverCandidatosCelda(candidatos: CandidatoCelda[], empr
   for (const c of sinMatch) {
     const campoIA = mapaIA.get(c.etiqueta);
     const valorIA = campoIA ? empresa[campoIA] : null;
-    if (campoIA && valorIA && !camposUsadosPorIA.has(campoIA)) {
+    // esMatchCoherente descarta los imposibles (un correo en "CIUDAD", un RUT en "FONO"…) — ver
+    // COHERENCIA_CAMPO en anexos-diccionario.ts.
+    if (campoIA && valorIA && !camposUsadosPorIA.has(campoIA) && esMatchCoherente(c.etiqueta, campoIA)) {
       matcheados.push({ c, campo: campoIA, valor: String(valorIA), via: 'ia' });
       camposUsadosPorIA.add(campoIA);
     } else {
@@ -129,7 +134,16 @@ export async function resolverCandidatosCelda(candidatos: CandidatoCelda[], empr
   const titulos = await clasificarTitulos(simples.map(c => c.etiqueta));
   const pendientesSimples = titulos.size > 0 ? simples.filter(c => !titulos.has(c.etiqueta)) : simples;
   const pendientes = [...compuestos, ...pendientesSimples];
-  return { matcheados, pendientes };
+
+  // Los que el clasificador dio por títulos NO se tiran: se devuelven aparte. Antes desaparecían
+  // del análisis y quedaban en blanco en el documento sin que nadie se enterara de que existían —
+  // caso real 4291-38-LP26: "INICIO ACTIV." (una fecha de inicio de actividades, campo perfectamente
+  // real) se clasificaba como título y el anexo se entregaba con esa celda vacía. Siguen fuera de
+  // la lista plana de pendientes (para no llenar la pantalla de títulos), pero se muestran como
+  // input dentro de la vista de tabla, donde la fila y la columna dejan claro qué son — y si el
+  // humano escribe algo ahí, generarAnexoFinal lo escribe igual que cualquier otro pendiente.
+  const descartadosComoTitulo = titulos.size > 0 ? simples.filter(c => titulos.has(c.etiqueta)) : [];
+  return { matcheados, pendientes, descartadosComoTitulo };
 }
 
 // Descarga la firma escaneada desde su URL pública (R2) y detecta su extensión real por
@@ -150,6 +164,51 @@ async function descargarFirma(firmaUrl: string): Promise<{ buffer: Buffer; exten
   }
 }
 
+// ── Auto-relleno de blancos INLINE ("Proveedor: ______") ──────────────────────────────────
+// Hasta jul-2026 los blancos inline solo se llenaban con lo que escribía el humano: nunca pasaban
+// por el diccionario, aunque su etiqueta fuera tan explícita como la de una celda. Por eso, en un
+// documento con varios formularios pegados, los datos de la empresa se completaban solos en la
+// tabla del FORMULARIO N°1 pero quedaban en blanco en el N°2 y el N°4, que piden LOS MISMOS datos
+// escritos como texto corrido ("Nombre o Razón Social:____", "RUT:____", "Proveedor:____") —
+// justo lo que el usuario pedía: que lo automático quede en cada formulario que lo pida.
+//
+// Guarda deliberada: solo se autocompleta si el contexto TERMINA EN DOS PUNTOS. Esa es la marca de
+// un campo etiquetado ("RUT: ____") y distingue el caso seguro de una declaración jurada corrida
+// ("Yo, Juan Pérez, RUT ____, en representación de…"), donde el contexto que queda antes del blanco
+// también sería "RUT" pero el dato pedido es el de una PERSONA, no el de la empresa — escribir ahí
+// el RUT de la empresa sería exactamente el tipo de error que el diccionario evita a propósito.
+const RE_CONTEXTO_ETIQUETADO = /:\s*$/;
+
+// Patrón 5 ("Etiqueta:" y el valor va a continuación, misma línea): SOLO diccionario, nunca IA —
+// ver detectarCamposConDosPuntos. Un título que termina en dos puntos tiene exactamente la misma
+// forma que un campo, así que solo se escribe cuando el match es determinista y seguro.
+export function resolverCamposConDosPuntos(
+  campos: CandidatoCelda[], empresa: EmpresaCampos,
+): { c: CandidatoCelda; campo: string; valor: string }[] {
+  const out: { c: CandidatoCelda; campo: string; valor: string }[] = [];
+  for (const c of campos) {
+    const match = buscarCampo(c.etiqueta, empresa);
+    if (match) out.push({ c, campo: match.campo, valor: match.valor });
+  }
+  return out;
+}
+
+export interface InlineAuto { b: CandidatoInline; campo: string; valor: string; etiqueta: string }
+
+export function resolverBlancosInline(
+  blancos: CandidatoInline[], empresa: EmpresaCampos,
+): { auto: InlineAuto[]; pendientes: CandidatoInline[] } {
+  const auto: InlineAuto[] = [];
+  const pendientes: CandidatoInline[] = [];
+  for (const b of blancos) {
+    const etiqueta = b.contexto.trim();
+    const match = RE_CONTEXTO_ETIQUETADO.test(etiqueta) ? buscarCampo(etiqueta, empresa) : null;
+    if (match) auto.push({ b, campo: match.campo, valor: match.valor, etiqueta: etiqueta.replace(/\s*:\s*$/, '') });
+    else pendientes.push(b);
+  }
+  return { auto, pendientes };
+}
+
 export interface FirmaInfo { detectada: boolean; disponible: boolean }
 
 export interface AnalisisAnexo {
@@ -159,6 +218,11 @@ export interface AnalisisAnexo {
   tablas: TablaUI[];
   secciones: SeccionInfo[];
   firma: FirmaInfo;
+  // Títulos de los formularios EN EL ORDEN DEL DOCUMENTO. La pantalla arma sus grupos a partir de
+  // varias listas (pendientes, tablas, completados) y sin esto los mostraba en el orden en que
+  // aparecían en la primera lista — el anexo de 4291 salía como N°2, N°4, N°1, que no se parece a
+  // nada de lo que el usuario tiene delante en el Word.
+  ordenFormularios: string[];
 }
 
 // Resolución de cada candidato de celda, para poder mapearla después sobre la tabla completa
@@ -176,9 +240,12 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
 
   const completadosAuto: CampoCompletado[] = [];
   const resolucionPorIndice = new Map<number, Resolucion>();
-  const { matcheados, pendientes } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa);
+  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa);
   for (const m of matcheados) {
-    completadosAuto.push({ etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
+    completadosAuto.push({
+      etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via,
+      formulario: formularioDe(m.c.indice, formularios),
+    });
     resolucionPorIndice.set(m.c.indice, { tipo: 'auto', etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
   }
 
@@ -187,6 +254,11 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
     resolucionPorIndice.set(c.indice, { tipo: 'pendiente', etiqueta: c.etiqueta, id });
     return { id, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios) };
   });
+  // Los descartados como título entran a la vista de tabla (con su input) pero no a la lista plana
+  // — ver el comentario en resolverCandidatosCelda.
+  for (const c of descartadosComoTitulo) {
+    resolucionPorIndice.set(c.indice, { tipo: 'pendiente', etiqueta: c.etiqueta, id: `celda:${c.indice}` });
+  }
 
   // Reconstruye cada tabla del Word COMPLETA (todas las celdas, no solo las vacías) para que el
   // panel de pendientes se vea como el documento real — fila por fila, columna por columna — en
@@ -218,7 +290,22 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
     return !indicesEnTablas.has(indice);
   });
 
-  const pendientesInline: PendienteInline[] = analisis.blancosInline.map(b => ({
+  // Mismos dos grupos que usa generarAnexoFinal — la misma función decide en los dos lados qué se
+  // completa solo, para que la pantalla no prometa algo distinto de lo que el documento hará.
+  const inline = resolverBlancosInline(analisis.blancosInline, empresa);
+  for (const a of inline.auto) {
+    completadosAuto.push({
+      etiqueta: a.etiqueta, campo: a.campo, valor: a.valor, via: 'diccionario',
+      formulario: formularioDe(a.b.indiceParrafo, formularios),
+    });
+  }
+  for (const r of resolverCamposConDosPuntos(analisis.camposConDosPuntos, empresa)) {
+    completadosAuto.push({
+      etiqueta: r.c.etiqueta, campo: r.campo, valor: r.valor, via: 'diccionario',
+      formulario: formularioDe(r.c.indice, formularios),
+    });
+  }
+  const pendientesInline: PendienteInline[] = inline.pendientes.map(b => ({
     id: `inline:${b.indiceRun}:${b.posEnTexto}`,
     contexto: b.contexto || '(sin contexto)',
     formulario: formularioDe(b.indiceParrafo, formularios),
@@ -236,6 +323,7 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
     tablas,
     secciones: analisis.secciones.map(s => ({ tipo: s.tipo, decision: s.decision, textoEncabezado: s.textoEncabezado })),
     firma,
+    ordenFormularios: formularios.map(f => f.titulo),
   };
 }
 
@@ -264,12 +352,23 @@ export async function generarAnexoFinal(
   //    correría el índice de todos los runs que aparecen después. Mientras este paso solo EDITE
   //    texto de runs que ya existían (nunca agrega/quita un <w:t>), el orden de aparición no
   //    cambia y los índices siguen siendo válidos.
+  //    Los que tienen etiqueta reconocible se completan solos con el diccionario (ver
+  //    resolverBlancosInline); el resto queda para lo que haya escrito el humano.
+  let completadosInline = 0;
   const porRun = new Map<number, { pos: number; largo: number; valor: string }[]>();
-  for (const b of analisis.blancosInline) {
+  const anotar = (b: CandidatoInline, valor: string) => {
+    if (!porRun.has(b.indiceRun)) porRun.set(b.indiceRun, []);
+    porRun.get(b.indiceRun)!.push({ pos: b.posEnTexto, largo: b.largo, valor });
+  };
+  const inline = resolverBlancosInline(analisis.blancosInline, empresa);
+  for (const a of inline.auto) {
+    anotar(a.b, a.valor);
+    completadosInline++;
+  }
+  for (const b of inline.pendientes) {
     const respuesta = respuestas[`inline:${b.indiceRun}:${b.posEnTexto}`];
     if (!respuesta || !respuesta.trim()) continue;
-    if (!porRun.has(b.indiceRun)) porRun.set(b.indiceRun, []);
-    porRun.get(b.indiceRun)!.push({ pos: b.posEnTexto, largo: b.largo, valor: respuesta.trim() });
+    anotar(b, respuesta.trim());
     respondidos++;
   }
   for (const [indiceRun, ediciones] of porRun) {
@@ -278,18 +377,26 @@ export async function generarAnexoFinal(
 
   // 2) Celdas de tabla: diccionario → respaldo IA → lo que escribió el humano. Van después —
   //    ver comentario arriba.
-  let completados = 0;
-  const { matcheados, pendientes } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa);
+  let completados = completadosInline;
+  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa);
   for (const m of matcheados) {
     xml = rellenarCeldaVacia(xml, m.c.paraId, m.valor);
     completados++;
   }
-  for (const c of pendientes) {
+  // Los descartados como título se escriben igual SI el humano les puso algo desde la vista de
+  // tabla — no se ofrecen solos, pero tampoco se ignora lo que el usuario escribió.
+  for (const c of [...pendientes, ...descartadosComoTitulo]) {
     const respuesta = respuestas[`celda:${c.indice}`];
     if (respuesta && respuesta.trim()) {
       xml = rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
       respondidos++;
     }
+  }
+
+  // 2b) "Etiqueta:" con el valor en la misma línea (patrón 5).
+  for (const r of resolverCamposConDosPuntos(analisis.camposConDosPuntos, empresa)) {
+    xml = rellenarFinDeParrafo(xml, r.c.paraId, r.valor);
+    completados++;
   }
 
   // 3) Línea de firma: inserta la IMAGEN real (no texto) si la empresa tiene una firma

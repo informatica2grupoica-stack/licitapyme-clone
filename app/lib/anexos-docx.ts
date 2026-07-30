@@ -32,6 +32,28 @@ function xmlEscape(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ── Namespaces: declararlos EN LA RAÍZ, que es el único alcance que cubre todo el documento ──
+// BUG REAL encontrado y corregido acá: antes se preguntaba `/xmlns:a=/.test(xml)` sobre TODO el
+// XML. Los documentos con dibujos propios declaran el prefijo LOCALMENTE en el elemento que lo usa
+// (`<a:graphic xmlns:a="…">`) y NADA en la raíz — lo hace LibreOffice al convertir un .doc y también
+// Word en sus .docx (verificado en los dos casos reales: 4291-38-LP26 venía de .doc convertido,
+// 1738-18-LE26 era un .docx hecho con Word; ambos con xmlns:a solo local). El chequeo
+// global veía esa declaración local, concluía "ya está" y dejaba la raíz intacta — así que nuestro
+// <a:graphicFrameLocks>, insertado en OTRO párrafo, quedaba fuera del alcance de esa declaración:
+// prefijo sin definir y Word rechazaba el archivo completo ("Namespace prefix a on
+// graphicFrameLocks is not defined"). Verificar que las etiquetas calcen NO detecta esto — hay que
+// validar los namespaces. Regresión fijada en __tests__/anexos-docx-namespaces.test.mts.
+function declararNamespacesEnRaiz(xml: string, ns: Record<string, string>): string {
+  const raiz = xml.match(/<w:document\b[^>]*>/);
+  if (!raiz || raiz.index === undefined) return xml;
+  // `xmlns:a\s*=` no calza con `xmlns:a16=` — el \s*= exige que el prefijo termine ahí.
+  const faltantes = Object.entries(ns).filter(([p]) => !new RegExp(`xmlns:${p}\\s*=`).test(raiz[0]));
+  if (!faltantes.length) return xml;
+  const decls = faltantes.map(([p, uri]) => ` xmlns:${p}="${uri}"`).join('');
+  const raizNueva = raiz[0].replace(/^<w:document\b/, `<w:document${decls}`);
+  return xml.slice(0, raiz.index) + raizNueva + xml.slice(raiz.index + raiz[0].length);
+}
+
 // ── Normalización: agrega w14:paraId a los párrafos que no lo traigan ────────────────────
 export function normalizarParaIds(xml: string): { xml: string; agregados: number } {
   const usados = new Set(
@@ -46,9 +68,18 @@ export function normalizarParaIds(xml: string): { xml: string; agregados: number
     return id;
   };
 
-  if (!/xmlns:w14=/.test(xml)) {
-    xml = xml.replace(/<w:document /, '<w:document xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" ');
-  }
+  xml = declararNamespacesEnRaiz(xml, { w14: 'http://schemas.microsoft.com/office/word/2010/wordml' });
+
+  // Un párrafo VACÍO puede venir AUTOCERRADO (<w:p w:rsidR="0034565C" w:rsidRDefault="0034565C"/>)
+  // — caso real en 2 de 40 documentos de la base. Se expande a <w:p …></w:p> antes de tocar nada.
+  // BUG REAL que esto corrige: el replace de abajo lo tomaba como apertura y dejaba el "/" en medio
+  // (`<w:p …/ w14:paraId="…">`), XML que Word rechaza igual que el de los namespaces; y además el
+  // resto del módulo (listarParrafos, listarBloquesCrudos en anexos-dividir) asume que todo <w:p>
+  // tiene su </w:p>, así que un autocerrado desalineaba los índices de párrafo hacia adelante. No
+  // altera la verificación de integridad: contarParrafos() cuenta aperturas <w:p, y sigue habiendo
+  // una sola. Para Word un párrafo vacío autocerrado y uno con cierre vacío son idénticos.
+  xml = xml.replace(/<w:p\b([^>]*)\/>/g, '<w:p$1></w:p>');
+
   xml = xml.replace(/<w:p\b([^>]*)>/g, (m, attrs) => {
     if (/w14:paraId=/.test(attrs)) return m;
     agregados++;
@@ -86,6 +117,30 @@ export function rellenarCeldaVacia(xml: string, paraId: string, valor: string): 
   const rPrMatch = cuerpo.match(/<w:pPr>[\s\S]*?(<w:rPr>[\s\S]*?<\/w:rPr>)[\s\S]*?<\/w:pPr>/);
   const rPr = rPrMatch ? rPrMatch[1] : '';
   const run = `<w:r>${rPr}<w:t xml:space="preserve">${xmlEscape(valor)}</w:t></w:r>`;
+  return xml.slice(0, m.index) + apertura + cuerpo + run + cierre + xml.slice((m.index ?? 0) + entero.length);
+}
+
+// ── Patrón 5: etiqueta que termina en ":" y el valor va A CONTINUACIÓN, en la misma línea ──
+// Distinto de rellenarCeldaVacia (párrafo vacío al lado de la etiqueta) y del blanco inline (una
+// raya de guiones que se sobrescribe): acá el párrafo TIENE texto —la etiqueta— y no hay ni celda
+// ni raya, solo el espacio después de los dos puntos.
+//
+// Caso real 4291-38-LP26, FORMULARIO N°2 (oferta económica): "Nombre o Razón Social       :" y
+// "RUT:" son párrafos sueltos, uno detrás del otro, sin celda vacía ni subrayado. Ninguno de los
+// patrones anteriores los veía, así que el formulario 2 se entregaba sin identificar al oferente
+// aunque el sistema tuviera el dato — el reclamo de "lo automático no llega a todos los anexos".
+//
+// Agrega un run al final del párrafo (nunca un <w:p>: el conteo de párrafos debe quedar idéntico,
+// regla intocable del módulo) heredando el formato del último run existente, para que el valor se
+// vea con la misma letra que la etiqueta.
+export function rellenarFinDeParrafo(xml: string, paraId: string, valor: string): string {
+  const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);
+  const m = xml.match(re);
+  if (!m) throw new Error(`No se encontró el párrafo w14:paraId="${paraId}"`);
+  const [entero, apertura, cuerpo, cierre] = m;
+  const runs = [...cuerpo.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)];
+  const rPrMatch = runs.length ? runs[runs.length - 1][0].match(/<w:rPr>[\s\S]*?<\/w:rPr>/) : null;
+  const run = `<w:r>${rPrMatch ? rPrMatch[0] : ''}<w:t xml:space="preserve"> ${xmlEscape(valor)}</w:t></w:r>`;
   return xml.slice(0, m.index) + apertura + cuerpo + run + cierre + xml.slice((m.index ?? 0) + entero.length);
 }
 
@@ -184,18 +239,58 @@ export function verificarParrafos(xmlAntes: string, xmlDespues: string): Reporte
 // COMBINADO antes de dividir — no alcanza a detectar que un FRAGMENTO ya dividido quedó mal
 // formado, que es justo donde pasó el bug real. Recorre TODAS las aperturas/cierres de tag con
 // una pila; si algo no calza, el documento no es XML válido y no debe subirse.
+//
+// SEGUNDO BUG REAL, y la razón de que este chequeo ahora valide NAMESPACES además de las
+// etiquetas: un .docx puede tener todas las etiquetas perfectamente calzadas y aun así ser XML
+// inválido si usa un prefijo que no está declarado en ningún ancestro. Pasó con la firma
+// (<a:graphicFrameLocks> sin xmlns:a en la raíz — ver declararNamespacesEnRaiz arriba): este gate
+// daba el visto bueno, el archivo se subía, y Word lo rechazaba entero ("Namespace prefix a on
+// graphicFrameLocks is not defined"). Cualquier validador con namespaces (python-docx/lxml) lo veía
+// de inmediato; el chequeo de etiquetas por definición no puede. Se lleva la pila de declaraciones
+// xmlns en paralelo a la de etiquetas — mismo recorrido, sin dependencias nuevas.
 export function verificarXmlBienFormado(xml: string): { valido: boolean; error?: string } {
   const pila: string[] = [];
-  const reTag = /<(\/?)([a-zA-Z0-9_:.-]+)(?:\s+[^<>]*?)?(\/?)>/g;
+  const scopes: Record<string, string>[] = []; // una capa de declaraciones xmlns: por elemento abierto
+  // `xml:` (xml:space="preserve") es predefinido por la norma y nunca se declara; `xmlns:` no es
+  // un prefijo. Una declaración con URI vacío (xmlns:a="") NO cuenta como declarar el prefijo.
+  const declarado = (p: string) => p === 'xml' || p === 'xmlns' || scopes.some(s => !!s[p]);
+  const reTag = /<(\/?)([a-zA-Z0-9_:.-]+)((?:\s+[^<>]*?)?)(\/?)>/g;
+  // Comilla doble o simple: ambas son válidas en XML y no todos los generadores usan la misma
+  // (Word usa dobles; conviene no depender de eso para no rechazar un documento legítimo).
+  const reDecl = /xmlns:([a-zA-Z0-9_.-]+)\s*=\s*("([^"]*)"|'([^']*)')/g;
+  const reAttr = /([a-zA-Z0-9_:.-]+)\s*=\s*["']/g;
   let m: RegExpExecArray | null;
   while ((m = reTag.exec(xml))) {
-    const [, cierre, nombre, autocierre] = m;
-    if (autocierre) continue; // <tag .../> no abre nada que cerrar
-    if (!cierre) { pila.push(nombre); continue; }
-    const esperado = pila.pop();
-    if (esperado !== nombre) {
-      return { valido: false, error: `se esperaba cerrar "${esperado}" pero se encontró "</${nombre}>" en la posición ${m.index}` };
+    const [, cierre, nombre, attrs, autocierre] = m;
+
+    if (cierre) {
+      const esperado = pila.pop();
+      scopes.pop();
+      if (esperado !== nombre) {
+        return { valido: false, error: `se esperaba cerrar "${esperado}" pero se encontró "</${nombre}>" en la posición ${m.index}` };
+      }
+      continue;
     }
+
+    // El scope del propio elemento incluye lo que él mismo declara (un elemento puede declarar el
+    // namespace de su propio prefijo: <wp:inline xmlns:wp="…"> es válido y es lo que usa Word).
+    const propio: Record<string, string> = {};
+    for (const d of attrs.matchAll(reDecl)) propio[d[1]] = d[3] ?? d[4] ?? '';
+    scopes.push(propio);
+
+    const usados = [nombre, ...[...attrs.matchAll(reAttr)].map(a => a[1])];
+    for (const usado of usados) {
+      const prefijo = usado.includes(':') ? usado.slice(0, usado.indexOf(':')) : '';
+      if (prefijo && !declarado(prefijo)) {
+        return {
+          valido: false,
+          error: `el prefijo de namespace "${prefijo}" (en "${usado}", posición ${m.index}) no está declarado en ningún ancestro — Word rechaza el archivo`,
+        };
+      }
+    }
+
+    if (autocierre) scopes.pop(); // <tag .../> no abre nada que cerrar
+    else pila.push(nombre);
   }
   if (pila.length > 0) return { valido: false, error: `quedaron ${pila.length} tag(s) sin cerrar: ${pila.slice(-3).join(', ')}` };
   return { valido: true };
@@ -275,24 +370,25 @@ export async function insertarImagenEnParrafo(
     }
   }
 
-  // Namespaces del dibujo (wp/a/pic/r) — no todos los documentos los declaran de entrada
-  // (solo hace falta si el documento ya trae imágenes propias); se agregan al <w:document> si
-  // faltan, mismo mecanismo que normalizarParaIds() usa para w14.
-  let xmlConNamespaces = xml;
+  // Namespaces del dibujo (wp/a/pic/r) — no todos los documentos los declaran de entrada (solo
+  // hace falta si el documento ya trae imágenes propias); se agregan al <w:document> si faltan,
+  // mismo mecanismo que normalizarParaIds() usa para w14.
   const NS: Record<string, string> = {
     wp: 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
     a: 'http://schemas.openxmlformats.org/drawingml/2006/main',
     pic: 'http://schemas.openxmlformats.org/drawingml/2006/picture',
     r: 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
   };
-  for (const [prefijo, uri] of Object.entries(NS)) {
-    if (!new RegExp(`xmlns:${prefijo}=`).test(xmlConNamespaces)) {
-      xmlConNamespaces = xmlConNamespaces.replace(/<w:document /, `<w:document xmlns:${prefijo}="${uri}" `);
-    }
-  }
+  const xmlConNamespaces = declararNamespacesEnRaiz(xml, NS);
 
   const idDocPr = Math.floor(Math.random() * 1_000_000) + 100;
-  const drawing = `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0">`
+  // Además de la raíz, el dibujo RE-DECLARA sus 4 prefijos en su propio <wp:inline> (misma URI,
+  // re-declaración válida y lo que hacen Word y LibreOffice). Así el bloque es autosuficiente y no
+  // depende de qué raíz le toque: dividirPorFormularios() reconstruye cada fragmento pegando este
+  // XML bajo otro <w:document>, y un fragmento cuya firma dependiera solo de la raíz volvería a
+  // romperse si esa raíz cambiara.
+  const declsDibujo = Object.entries(NS).map(([p, uri]) => ` xmlns:${p}="${uri}"`).join('');
+  const drawing = `<w:r><w:drawing><wp:inline${declsDibujo} distT="0" distB="0" distL="0" distR="0">`
     + `<wp:extent cx="${anchoEmu}" cy="${altoEmu}"/>`
     + `<wp:effectExtent l="0" t="0" r="0" b="0"/>`
     + `<wp:docPr id="${idDocPr}" name="Firma"/>`

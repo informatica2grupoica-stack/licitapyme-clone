@@ -55,6 +55,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const { bufferOriginal, nombreOriginal, empresa } = await cargarDocumentoYEmpresa(codigo, documentoId, empresaId);
+
+    // Se guarda el veredicto del documento DE ENTRADA (ya convertido a .docx si venía .doc) para no
+    // atribuirle al relleno un XML que ya venía inválido de origen: el chequeo de abajo detecta
+    // ahora también prefijos de namespace sin declarar, y hay anexos —incluidos los que generó este
+    // mismo endpoint antes del fix del 29-jul-2026— que ya llegan así. Sin esta distinción el
+    // mensaje mandaría a buscar un bug nuestro donde no lo hay.
+    const entradaValida = verificarXmlBienFormado((await abrirDocx(bufferOriginal)).xml).valido;
+
     const resultado = await generarAnexoFinal(bufferOriginal, empresa, respuestas);
 
     if (!resultado.integridad.parrafosIguales) {
@@ -82,7 +90,12 @@ export async function POST(request: NextRequest) {
       const chequeo = verificarXmlBienFormado(xml);
       if (!chequeo.valido) {
         return NextResponse.json(
-          { error: `El documento "${c.nombre}" quedó mal formado (${chequeo.error}). No se subió nada.` },
+          {
+            error: entradaValida
+              ? `El documento "${c.nombre}" quedó mal formado (${chequeo.error}). No se subió nada.`
+              : `El anexo original "${nombreOriginal}" ya venía con un XML inválido (${chequeo.error}), `
+                + 'así que el resultado tampoco es válido. No se subió nada — hay que conseguir una copia sana del anexo.',
+          },
           { status: 500 },
         );
       }

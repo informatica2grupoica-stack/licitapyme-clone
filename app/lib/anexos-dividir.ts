@@ -22,7 +22,7 @@ export interface FormularioDetectado { titulo: string; indiceInicio: number; ind
 // secciones pegadas en un mismo .docx (caso real encontrado: "ANEXO Nº1" / "ANEXO N°2
 // ECONOMICO" — antes solo se reconocía "FORMULARIO", así que un documento así no se dividía
 // nunca, quedaba como un solo bloque de cientos de párrafos sin segmentar).
-const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+/i;
+export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
 // Un BLOQUE es un elemento de NIVEL SUPERIOR del body: un párrafo suelto o una tabla completa
@@ -46,22 +46,72 @@ interface BloqueCrudo {
   ordinalFin: number;
 }
 
-const RE_BLOQUE = /<w:tbl\b[^>]*>[\s\S]*?<\/w:tbl>|<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>[\s\S]*?<\/w:p>/g;
 const RE_PARRAFO_CON_ID = /<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>/g;
+const RE_INICIO_BLOQUE = /<w:tbl\b[^>]*?(\/?)>|<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>/g;
+
+// Devuelve la posición (exclusiva) donde CIERRA la TABLA que abre en `desde`, contando anidamiento.
+// Reemplaza al no-greedy `<w:tbl…>[\s\S]*?</w:tbl>` que se usaba antes.
+//
+// BUG REAL que esto corrige (caso "Formularios.docx", detectado al validar anexos reales de la
+// base): una TABLA DENTRO DE UNA CELDA de otra tabla. El no-greedy cerraba la tabla EXTERNA en el
+// </w:tbl> de la INTERNA, así que el bloque quedaba cortado por la mitad: el fragmento salía con
+// <w:tc> sin cerrar (Word se niega a abrirlo) y, peor, los ordinales de párrafo se contaban solo
+// sobre el trozo truncado, desalineando el rango de todos los formularios siguientes.
+//
+// Se empareja con pila SOLO las tablas, a propósito. Los <w:p> se siguen cerrando en su primer
+// </w:p>, porque hay documentos con párrafos ANIDADOS dentro de un cuadro de texto
+// (<w:txbxContent> bajo <mc:AlternateContent> — caso real "ANEXO TÉCNICO.docx", profundidad 2) y
+// listarParrafos(), que define la numeración de índices que este módulo comparte con
+// anexos-rellenar.ts para ubicar los campos, los cuenta de esa misma forma plana. Emparejarlos con
+// pila acá contaría el externo como uno solo y correría los índices de todo lo que viene después:
+// los campos se rellenarían en el párrafo equivocado. Mientras listarParrafos cuente plano, esto
+// también.
+function finDeTabla(xml: string, desde: number): number {
+  const re = /<w:tbl\b[^>]*?(\/?)>|<\/w:tbl>/g;
+  re.lastIndex = desde;
+  let profundidad = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml))) {
+    if (m[0].startsWith('</')) {
+      if (--profundidad === 0) return m.index + m[0].length;
+    } else if (m[1] !== '/') {
+      profundidad++; // apertura real; un autocierre <w:tbl …/> no abre nada
+    }
+  }
+  return -1; // sin cierre: XML mal formado — lo rechaza verificarXmlBienFormado en el endpoint
+}
 
 function listarBloquesCrudos(xml: string): BloqueCrudo[] {
   const out: BloqueCrudo[] = [];
   let ordinal = 0;
-  for (const m of xml.matchAll(RE_BLOQUE)) {
-    if (m[0].startsWith('<w:tbl')) {
-      const numParrafos = (m[0].match(RE_PARRAFO_CON_ID) || []).length || 1;
-      out.push({ tipo: 'tabla', textoPlano: '', xmlCompleto: m[0], ordinalInicio: ordinal, ordinalFin: ordinal + numParrafos - 1 });
+  let pos = 0;
+  // Tras una TABLA se salta a su cierre real, así los <w:p> de sus celdas quedan dentro del salto y
+  // nunca se toman como bloque propio (el ordinal de la tabla ya los cuenta, más abajo).
+  for (;;) {
+    RE_INICIO_BLOQUE.lastIndex = pos;
+    const m = RE_INICIO_BLOQUE.exec(xml);
+    if (!m) break;
+    const esTabla = m[0].startsWith('<w:tbl');
+    let fin: number;
+    if (esTabla) {
+      fin = m[1] === '/' ? m.index + m[0].length : finDeTabla(xml, m.index);
+    } else {
+      const cierre = xml.indexOf('</w:p>', m.index);
+      fin = cierre < 0 ? -1 : cierre + '</w:p>'.length;
+    }
+    if (fin < 0) break;
+    const xmlCompleto = xml.slice(m.index, fin);
+
+    if (esTabla) {
+      const numParrafos = (xmlCompleto.match(RE_PARRAFO_CON_ID) || []).length || 1;
+      out.push({ tipo: 'tabla', textoPlano: '', xmlCompleto, ordinalInicio: ordinal, ordinalFin: ordinal + numParrafos - 1 });
       ordinal += numParrafos;
     } else {
-      const texto = [...m[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(x => x[1]).join('').trim();
-      out.push({ tipo: 'parrafo', textoPlano: texto, xmlCompleto: m[0], ordinalInicio: ordinal, ordinalFin: ordinal });
+      const texto = [...xmlCompleto.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(x => x[1]).join('').trim();
+      out.push({ tipo: 'parrafo', textoPlano: texto, xmlCompleto, ordinalInicio: ordinal, ordinalFin: ordinal });
       ordinal += 1;
     }
+    pos = fin;
   }
   return out;
 }
