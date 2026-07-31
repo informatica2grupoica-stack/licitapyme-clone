@@ -188,20 +188,32 @@ export async function resolverCandidatosCelda(
 // Con los precios unitarios ya resueltos (paso de arriba), cruza cantidad × precio por fila de
 // cada tabla de ítems, agrupa por su título de sección, y llena la tabla resumen que pide ESE
 // total (patrón real 1738-18-LE26: "LÍNEA | MONTO TOTAL OFERTADO | PLAZO..."). Compartido entre
-// analizarAnexoParaUI y generarAnexoFinal para que la vista previa y el documento final calculen
-// EXACTAMENTE lo mismo — mismo principio que resolverCandidatosCelda ya usa arriba.
+// analizarAnexoParaUI y generarAnexoFinal — con una diferencia a propósito: en generarAnexoFinal
+// también cuentan los precios que el HUMANO escribió a mano para las celdas que el costeo no
+// pudo cruzar solo (`respuestas`, ver más abajo). Sin esto, si a la IA se le escapaba UN ítem de
+// una línea con 30, esa línea quedaba sin total PARA SIEMPRE aunque el usuario llenara el precio
+// que faltaba — el total nunca se recalculaba. La vista previa (analizarAnexoParaUI) sigue
+// mostrando solo lo automático porque ahí todavía no existe ninguna respuesta del humano.
 function aplicarTotalesPorSeccion(
   tablasCrudo: TablaCruda[], parrafos: Parrafo[], indicesEnTablas: Set<number>,
-  matcheados: CampoResuelto[], pendientes: CandidatoCelda[],
+  matcheados: CampoResuelto[], pendientes: CandidatoCelda[], respuestas?: Record<string, string>,
 ): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; anexarDirecto: { paraId: string; valor: string }[]; titulos: TituloCercano[] } {
   const titulos: TituloCercano[] = encabezadosLibres(parrafos, indicesEnTablas);
-  // Solo los precios que salieron del costeo son números confiables para sumar — un valor de
-  // diccionario/IA de empresa (RUT, teléfono...) nunca cae en una columna de precio unitario, pero
-  // filtrar por `via` igual es la garantía explícita de que nunca se suma algo que no es plata.
+  // Los precios que salieron del costeo son números confiables por construcción; los que escribió
+  // el humano se toman tal cual SI son un número válido — filtrar por `via` en el primer caso, y
+  // parsear+validar en el segundo, es la garantía de que nunca se suma algo que no es plata.
   const valoresPrecio = new Map(
     matcheados.filter(m => m.via === 'costeo').map(m => [m.c.indice, Number(m.valor.replace(/\./g, '').replace(',', '.'))]),
   );
-  const totalesSeccion = calcularTotalesPorSeccion(tablasCrudo, titulos, i => valoresPrecio.get(i) ?? null);
+  const valorResuelto = (i: number): number | null => {
+    const deCosteo = valoresPrecio.get(i);
+    if (deCosteo != null) return deCosteo;
+    const escrito = respuestas?.[`celda:${i}`];
+    if (!escrito || !escrito.trim()) return null;
+    const n = Number(escrito.replace(/\./g, '').replace(',', '.').trim());
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const totalesSeccion = calcularTotalesPorSeccion(tablasCrudo, titulos, valorResuelto);
   const rellenos = resolverTablaResumen(tablasCrudo, totalesSeccion);
 
   const matcheadosExtra: CampoResuelto[] = [];
@@ -477,7 +489,7 @@ export async function generarAnexoFinal(
   const indicesEnTablasGen = new Set(
     tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
   );
-  const { matcheadosExtra, pendientesFiltrados, anexarDirecto } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes);
+  const { matcheadosExtra, pendientesFiltrados, anexarDirecto } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, respuestas);
   for (const m of [...matcheados, ...matcheadosExtra]) {
     xml = rellenarCeldaVacia(xml, m.c.paraId, m.valor);
     completados++;
