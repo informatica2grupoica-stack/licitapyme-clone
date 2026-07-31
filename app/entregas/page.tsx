@@ -19,7 +19,7 @@ import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentVie
 import {
   Trophy, Loader2, Inbox, CheckCircle2, Clock, Building2, User, FileText,
   Users, AlertTriangle, ExternalLink, ChevronDown, ChevronRight,
-  Search, Filter, X, Calendar, Briefcase, ArrowUpDown, ShieldAlert, Eye, Paperclip,
+  Search, Filter, X, Calendar, Briefcase, ArrowUpDown, ShieldAlert, Eye, Paperclip, Download,
 } from 'lucide-react';
 
 interface Entrega {
@@ -510,6 +510,14 @@ export default function EntregasPage() {
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-zinc-600 border border-zinc-200 bg-white hover:bg-zinc-50 transition-colors"
                         >
                           Abrir el negocio
+                        </a>
+                        {/* El área de entrega trabaja con un documento: se imprime, se adjunta,
+                            se archiva con el proyecto. El PDF sale del resumen CONGELADO. */}
+                        <a
+                          href={`/api/entregas/pdf?negocioId=${e.negocioId}`}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold text-zinc-600 border border-zinc-200 bg-white hover:bg-zinc-50 transition-colors"
+                        >
+                          <Download size={12} /> Descargar resumen (PDF)
                         </a>
                         {!e.miAcuse && (
                           <button

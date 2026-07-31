@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
-  PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart, PackageCheck,
+  PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart, PackageCheck, Library,
 } from 'lucide-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
@@ -73,6 +73,9 @@ const NAV_GROUPS: NavGroup[] = [
     label: 'GESTIÓN',
     items: [
       { label: 'Análisis de licitación', href: '/analisis-licitacion', icon: <Activity size={17} />, adminOnly: true },
+      // Memoria (F.3): visible para todo perfil interno — orienta el trabajo de cualquiera que
+      // cotice o postule, no solo del admin. Cargar experiencia sí es admin (lo bloquea la API).
+      { label: 'Memoria', href: '/memoria', icon: <Library size={17} /> },
       { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
       { label: 'Historial', href: '/alertas', icon: <History size={17} />, adminOnly: true },
     ],

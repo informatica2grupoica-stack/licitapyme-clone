@@ -33,6 +33,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
+import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
@@ -629,6 +630,10 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
           <Hourglass size={12} /> Sin resultado aún{adj?.estado ? ` · MP: ${adj.estado}` : ''}
         </div>
       )}
+
+      {/* F.2 — contra quién competimos (solo si ya hubo apertura; el componente se autoanula si no) */}
+      <OfertasCompetencia codigo={n.licitacion_codigo} aperturada={!!n.aperturada} isAdmin={isAdmin} />
+
 
       {docs.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-100">
