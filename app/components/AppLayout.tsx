@@ -33,18 +33,31 @@ interface AppLayoutProps { children: React.ReactNode; breadcrumb?: BreadcrumbIte
 interface NavItem { label: string; href: string; icon: React.ReactNode; adminOnly?: boolean; badge?: number | string; exact?: boolean; }
 interface NavGroup { label: string; items: NavItem[]; }
 
+// PRINCIPAL sigue el ciclo REAL del negocio, en el orden en que ocurre (31-jul-2026, pedido
+// explícito: "la idea es que el sidebar tenga una correlación óptima de flujo de trabajo" —
+// antes Aprobaciones y Compras vivían en ADMIN, lejos de Postuladas/Entregas con las que forman
+// una sola cadena, y el orden se sentía desparramado):
+//   Negocios (se trabaja) → Aprobaciones (visado comercial en etapa ANEXOS, ANTES de postular)
+//   → Postuladas (POSTULADA — acá se congela el Auditor Técnico) → Compras (lo que quedó
+//   congelado) → Ganadas/Perdidas (resultado del acta) → Entregas (post-adjudicación).
+// Ni Aprobaciones ni Compras son "solo administración": son un paso del mismo flujo que
+// Postuladas/Entregas, con su propia bandeja de trabajo — por eso ahora viven acá, no en ADMIN.
 const NAV_GROUPS: NavGroup[] = [
   {
     label: 'PRINCIPAL',
     items: [
       { label: 'Dashboard', href: '/dashboard', icon: <LayoutDashboard size={17} />, exact: true },
       { label: 'Negocios',  href: '/negocios',  icon: <Briefcase size={17} /> },
+      // Ruta real es /aprobaciones (sin prefijo /admin): proxy.ts bloquea /admin/* a quien no
+      // sea rol==='admin', y un asesor/CA típico es rol='usuario' con permiso aprobar_comercial
+      // — quedaría afuera de su propia bandeja si la ruta llevara ese prefijo.
+      { label: 'Aprobaciones', href: '/aprobaciones', icon: <ClipboardCheck size={17} />, adminOnly: true },
       { label: 'Postuladas', href: '/postuladas', icon: <Send size={17} /> },
+      { label: 'Compras',    href: '/compras',    icon: <ShoppingCart size={17} />, adminOnly: true },
       { label: 'Ganadas/Perdidas', href: '/adjudicadas', icon: <Trophy size={17} /> },
-      // Entregas cierra el ciclo (Negocios → Postuladas → Ganadas → Entregas). NO va en ADMIN:
-      // no es una consola, es algo que cada involucrado tiene que hacer. Visible para admin,
-      // para quien tenga el permiso `entrega_proyectos`, y para cualquiera que tenga una entrega
-      // asignada (el responsable del negocio ganado, aunque no tenga permisos especiales).
+      // Entregas: no es una consola, es algo que cada involucrado tiene que hacer. Visible para
+      // admin, para quien tenga el permiso `entrega_proyectos`, y para cualquiera que tenga una
+      // entrega asignada (el responsable del negocio ganado, aunque no tenga permisos especiales).
       { label: 'Entregas', href: '/entregas', icon: <PackageCheck size={17} />, adminOnly: true },
     ],
   },
@@ -70,11 +83,6 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Usuarios',       href: '/admin/usuarios',  icon: <Users size={17} />, adminOnly: true },
       { label: 'Empresas',       href: '/empresas',        icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Líneas negocio', href: '/admin/etiquetas', icon: <Tag size={17} />, adminOnly: true },
-      // Ruta real es /aprobaciones (sin prefijo /admin): proxy.ts bloquea /admin/* a quien no
-      // sea rol==='admin', y un asesor/CA típico es rol='usuario' con permiso aprobar_comercial
-      // — quedaría afuera de su propia bandeja. Se agrupa acá solo visualmente.
-      { label: 'Aprobaciones',  href: '/aprobaciones',     icon: <ClipboardCheck size={17} />, adminOnly: true },
-      { label: 'Compras',       href: '/compras',          icon: <ShoppingCart size={17} />, adminOnly: true },
     ],
   },
 ];
