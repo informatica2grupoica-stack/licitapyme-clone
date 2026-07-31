@@ -39,6 +39,33 @@ export function esCandidatoDePrecioUnitario(etiqueta: string): boolean {
   return RE_COLUMNA_PRECIO_UNITARIO.test(partes[partes.length - 1].trim());
 }
 
+// ── Guard de coherencia (determinista, no depende de que la IA se abstenga) ──────────────────
+// Caso real encontrado (1738-18-LE26): la IA cruzó "TRAZADO Y NIVELES" con "NIVEL DE ALUMINIO
+// 48" GRIS STANLEY" — un ítem de nivelación de terreno con una herramienta de carpintería que no
+// tiene nada que ver, solo porque comparten la palabra "nivel"/"niveles". "TRAZADO Y NIVELES" ni
+// siquiera está en el costeo (es una partida de mano de obra, no un material) — la IA debió
+// abstenerse por instrucción del prompt, pero con decenas de ítems que comparten el MISMO precio
+// exacto (datos de prueba muy repetitivos, ver memoria del proyecto) el modelo a veces "elige"
+// el más parecido en vez de admitir que ninguno calza. Esto ataja el caso de raíz: exige que la
+// fila del Word y la descripción del ítem del costeo compartan AL MENOS una palabra real (≥3
+// letras, sin conectores) — condición NECESARIA, no suficiente, igual que esMatchCoherente en
+// anexos-diccionario.ts. Si no comparten ninguna, el match se descarta aunque la IA lo haya dado
+// por bueno: mejor un precio pendiente que uno inventado.
+const CONECTORES = new Set(['de', 'la', 'el', 'los', 'las', 'del', 'y', 'a', 'en', 'un', 'una', 'con', 'por', 'para', 'sin']);
+
+function palabrasSignificativas(texto: string): Set<string> {
+  const normalizado = texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const palabras = normalizado.replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean);
+  return new Set(palabras.filter(p => p.length >= 3 && !CONECTORES.has(p)));
+}
+
+function compartenPalabra(a: string, b: string): boolean {
+  const pa = palabrasSignificativas(a);
+  const pb = palabrasSignificativas(b);
+  for (const p of pa) if (pb.has(p)) return true;
+  return false;
+}
+
 const SYS = `Eres un asistente que ayuda a llenar la tabla de precios de una oferta a una licitación pública chilena.
 
 Te doy una lista NUMERADA de FILAS detectadas en una tabla de un formulario Word (cada una describe un ítem —material, EPP, servicio, arriendo de maquinaria— y pide su PRECIO UNITARIO) y una lista NUMERADA de ÍTEMS DEL COSTEO real que la empresa ya calculó para esta misma licitación (con su precio unitario de venta).
@@ -86,6 +113,7 @@ ${items.map((it, i) => `${i + 1}: ${it.descripcion}${it.unidad ? `, unidad ${it.
       const fila = filas[iFila - 1];
       const item = items[iItem - 1];
       if (!fila || !item) continue; // número fuera de rango — se descarta, nunca se adivina
+      if (!compartenPalabra(fila, item.descripcion)) continue; // sin ninguna palabra en común: no es el mismo ítem
       out.push({ etiqueta: fila, precioUnitario: item.precioUnitario, itemDescripcion: item.descripcion });
     }
     return out;
