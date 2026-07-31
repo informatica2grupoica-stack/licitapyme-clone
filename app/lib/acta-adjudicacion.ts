@@ -189,9 +189,29 @@ export async function leerActa(codigo: string): Promise<LecturaActa | null> {
 
 // ── Persistencia ─────────────────────────────────────────────────────────────
 
-export async function guardarActaDocumentos(codigo: string, lectura: LecturaActa): Promise<number> {
+/**
+ * Guarda SOLO el acta de evaluación.
+ *
+ * El acta publica además la resolución que adjudica y una declaración jurada por cada evaluador
+ * (5 archivos de trámite en un caso real). Nada de eso se trae: lo que se lee para entender por
+ * qué ganamos o perdimos es el acta de evaluación, y el resto solo llena R2 y la pantalla.
+ *
+ * Los demás SÍ se detectan y se devuelven en `otros` — así el usuario sabe qué más hay en el
+ * acta sin que el sistema decida por él que no existe. Con `soloActa: false` se traen todos.
+ */
+export async function guardarActaDocumentos(
+  codigo: string, lectura: LecturaActa, opts: { soloActa?: boolean } = {},
+): Promise<{ guardados: number; otros: { nombre: string; tipo: string }[] }> {
+  const soloActa = opts.soloActa !== false;
+  const objetivo = soloActa
+    ? lectura.documentos.filter(d => esActaEvaluacion(d.tipoMp, d.nombre))
+    : lectura.documentos;
+  const otros = lectura.documentos
+    .filter(d => !objetivo.includes(d))
+    .map(d => ({ nombre: d.nombre, tipo: rotuloTipo(d.tipoMp) }));
+
   let n = 0;
-  for (const d of lectura.documentos) {
+  for (const d of objetivo) {
     try {
       await pool.query(
         `INSERT INTO acta_documento
