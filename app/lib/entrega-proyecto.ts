@@ -46,16 +46,33 @@ export interface ResumenEjecutivo {
   // ── Con qué nos comprometimos (paquete congelado al postular) ──
   plazosComprometidos: PaqueteTraspaso['plazosComprometidos'];
   compromisosPostventa: PaqueteTraspaso['compromisosPostventa'];
+  garantias: PaqueteTraspaso['compromisosPostventa'];  // subconjunto de arriba: solo lo que es GARANTÍA
   productoValidado: PaqueteTraspaso['productoValidado'];
   matrizTecnica: PaqueteTraspaso['matrizTecnicaAprobada'] | null;
   costeo: PaqueteTraspaso['costeo'];
   contactosCliente: PaqueteTraspaso['contactosCliente'];
+
+  // ── Riesgos, para que quien ejecuta esté al tanto sin releer las bases (2026-07-31, pedido
+  // explícito: "entre mas informacion mejor asi estan consientes de las multas") ──
+  multas: { fuente: string | null; estructura: string | null; costoPorDia: string | null; costoMaximo: string | null; umbralTermino: string | null } | null;
+  riesgosViabilidad: string[];    // informe_ejecutivo.riesgos del análisis IA
+  alertasViabilidad: string[];    // informe_ejecutivo.alertas del análisis IA
+
+  // ── Documentos propios subidos durante la postulación (bases firmadas, anexos, cotizaciones…)
+  // "la idea es que viajen juntos" — no un link a que alguien vaya a buscarlos aparte. ──
+  documentosPropios: Array<{ nombre: string; url: string; subidoPorNombre: string | null }>;
 
   // ── Trazabilidad de la propia construcción ──
   // Si algo faltaba al momento de ganar, queda dicho EN el resumen en vez de aparecer como un
   // hueco silencioso que el área de entrega descubre cuando ya es tarde.
   faltantes: string[];
 }
+
+// Distingue GARANTÍA (fiel cumplimiento, boleta, póliza) del resto de compromisos de postventa
+// (capacitación, mantenimiento, despacho). Antes de esto ambos vivían mezclados bajo un solo
+// título "Compromisos de postventa" — confuso, porque una garantía de fiel cumplimiento (plata en
+// juego, con vigencia y multa si se olvida) no es lo mismo que una capacitación pendiente.
+const RE_GARANTIA = /garant[ií]a|p[oó]liza|boleta/i;
 
 /** Construye el resumen ejecutivo juntando el paquete congelado + el acta de MP. */
 export async function construirResumenEjecutivo(
@@ -142,6 +159,61 @@ export async function construirResumenEjecutivo(
     else porProveedor.set(clave, { proveedor: l?.proveedor ?? null, rut: l?.rutProveedor ?? null, lineas: 1 });
   }
 
+  // Garantías (fiel cumplimiento, boleta, póliza) separadas del resto de compromisos de
+  // postventa (capacitación, mantenimiento, despacho) — misma fuente (el paquete congelado),
+  // solo partida en dos para no esconder plata comprometida entre trámites de servicio.
+  const compromisosPostventaTodos = paquete?.compromisosPostventa ?? [];
+  const garantias = compromisosPostventaTodos.filter(c => RE_GARANTIA.test(c.titulo));
+  const compromisosPostventa = compromisosPostventaTodos.filter(c => !RE_GARANTIA.test(c.titulo));
+
+  // ── Multas + riesgos/alertas del análisis de viabilidad IA (informe_ejecutivo) ─────────────
+  // Pedido explícito del dueño (2026-07-31): "entre mas informacion mejor asi estan consientes de
+  // las multas". El Módulo Plazos del prompt v3 YA extrae las multas estructuradas de las bases
+  // (fuente, estructura, costo por día, tope, umbral de término anticipado) — no hay que volver a
+  // leer el PDF, solo tomar lo que la IA ya sacó. Cobertura parcial: solo licitaciones analizadas
+  // con el prompt que incluye `_informe_ia.multas` la tienen; si no está, se omite sin bloquear.
+  let multas: ResumenEjecutivo['multas'] = null;
+  let riesgosViabilidad: string[] = [];
+  let alertasViabilidad: string[] = [];
+  try {
+    const [rows] = await pool.query(
+      `SELECT informe_ejecutivo FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1`,
+      [licitacionCodigo],
+    ) as any;
+    const raw = (rows as any[])[0]?.informe_ejecutivo;
+    const informe = raw ? (typeof raw === 'string' ? JSON.parse(raw) : raw) : null;
+    if (informe) {
+      const m = informe._informe_ia?.multas;
+      if (m) {
+        multas = {
+          fuente: m.fuente ?? null, estructura: m.estructura ?? null,
+          costoPorDia: m.costo_por_dia ?? null, costoMaximo: m.costo_maximo ?? null,
+          umbralTermino: m.umbral_termino ?? null,
+        };
+      }
+      if (Array.isArray(informe.riesgos)) riesgosViabilidad = informe.riesgos.filter((r: unknown) => typeof r === 'string');
+      if (Array.isArray(informe.alertas)) alertasViabilidad = informe.alertas.filter((a: unknown) => typeof a === 'string');
+    }
+  } catch (e) {
+    console.error('[entrega] informe de viabilidad no legible:', String(e).slice(0, 200));
+  }
+
+  // ── Documentos propios subidos durante la postulación ──────────────────────────────────────
+  // "la idea es que viajen juntos" (2026-07-31): que el área de entrega los tenga a mano, no que
+  // tenga que ir a buscarlos al negocio original.
+  let documentosPropios: ResumenEjecutivo['documentosPropios'] = [];
+  try {
+    const [rows] = await pool.query(
+      `SELECT nombre, url, subido_por_nombre FROM checklist_comercial_documentos WHERE negocio_id = ? ORDER BY subido_at`,
+      [negocioId],
+    ) as any;
+    documentosPropios = (rows as any[]).map(r => ({
+      nombre: r.nombre, url: r.url, subidoPorNombre: r.subido_por_nombre ?? null,
+    }));
+  } catch (e) {
+    console.error('[entrega] documentos propios no legibles:', String(e).slice(0, 200));
+  }
+
   return {
     licitacionCodigo,
     licitacionNombre: base.licitacion_nombre ?? null,
@@ -162,10 +234,16 @@ export async function construirResumenEjecutivo(
     fechaAdjudicacion: acta.fecha_adjudicacion ? String(acta.fecha_adjudicacion) : null,
 
     plazosComprometidos: paquete?.plazosComprometidos ?? [],
-    compromisosPostventa: paquete?.compromisosPostventa ?? [],
+    compromisosPostventa,
+    garantias,
     productoValidado: paquete?.productoValidado ?? [],
     matrizTecnica: paquete?.matrizTecnicaAprobada ?? null,
     costeo: paquete?.costeo ?? null,
+
+    multas,
+    riesgosViabilidad,
+    alertasViabilidad,
+    documentosPropios,
     contactosCliente: paquete?.contactosCliente ?? null,
 
     faltantes,

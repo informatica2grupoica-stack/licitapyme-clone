@@ -22,9 +22,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const [rows] = await pool.query(
-      `SELECT c.negocio_id, c.congelado_at, c.congelado_por_nombre, c.paquete_traspaso,
+      // DATE_FORMAT en SQL (no String(Date) en JS): mismo criterio que entrega-proyecto.ts —
+      // el toString() de JS arrastra locale/zona; formatear en SQL entrega el instante exacto.
+      `SELECT c.negocio_id, DATE_FORMAT(c.congelado_at, '%Y-%m-%d %H:%i:%s') AS congelado_at,
+              c.congelado_por, c.congelado_por_nombre, c.paquete_traspaso,
               n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo, n.asignado_a,
-              u.nombre AS asignado_nombre
+              u.nombre AS asignado_nombre, u.email AS asignado_email
          FROM checklist_comercial_congelamiento c
          JOIN negocios n ON n.id = c.negocio_id
          LEFT JOIN usuarios u ON u.id = n.asignado_a
@@ -36,8 +39,11 @@ export async function GET(request: NextRequest) {
       licitacionCodigo: r.licitacion_codigo,
       licitacionNombre: r.licitacion_nombre,
       licitacionOrganismo: r.licitacion_organismo,
+      asignadoId: r.asignado_a,
       asignadoNombre: r.asignado_nombre,
+      asignadoEmail: r.asignado_email,
       congeladoAt: r.congelado_at,
+      congeladoPorId: r.congelado_por,
       congeladoPorNombre: r.congelado_por_nombre,
       paquete: typeof r.paquete_traspaso === 'string' ? JSON.parse(r.paquete_traspaso) : r.paquete_traspaso,
     }));

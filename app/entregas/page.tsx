@@ -6,15 +6,20 @@
 // Es una vista de TRABAJO, no un panel de administración: cada persona del circuito entra, lee el
 // resumen del proyecto y acusa recibo. Por eso vive en el grupo PRINCIPAL del menú (sigue el ciclo
 // Negocios → Postuladas → Ganadas/Perdidas → Entregas) y no en ADMIN.
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { useRealtime } from '@/app/lib/use-realtime';
+import { MultiSelect } from '@/app/components/ui/MultiSelect';
+import { Select } from '@/app/components/ui/Select';
+import { colorUsuario } from '@/app/lib/user-color';
+import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import {
   Trophy, Loader2, Inbox, CheckCircle2, Clock, Building2, User, FileText,
   Users, AlertTriangle, ExternalLink, ChevronDown, ChevronRight,
+  Search, Filter, X, Calendar, Briefcase, ArrowUpDown, ShieldAlert, Eye, Paperclip,
 } from 'lucide-react';
 
 interface Entrega {
@@ -50,6 +55,21 @@ const fechaHora = (f: string | null) => {
   });
 };
 
+// Fecha REAL de "cuándo ganamos" para filtrar/ordenar/mostrar: el acta de MP
+// (resumen.fechaAdjudicacion) manda; abiertaAt (cuándo ESTE sistema abrió la entrega) es solo el
+// respaldo cuando el acta aún no trae fecha. Mismo criterio que la cabecera de la tarjeta.
+const ganadoAt = (e: Entrega): string | null => e.resumen?.fechaAdjudicacion || e.abiertaAt || null;
+// Ambos formatos ('YYYY-MM-DDTHH:mm:ssZ' ISO y 'YYYY-MM-DD HH:mm:ss' plano) empiezan igual →
+// slice(0,10) sirve para comparar por día sin convertir, para el rango de fecha.
+const soloDia = (f: string | null) => f ? f.slice(0, 10) : '';
+const msDe = (f: string | null) => {
+  if (!f) return 0;
+  const d = new Date(f.includes('T') || f.endsWith('Z') ? f : f.replace(' ', 'T'));
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+};
+
+type Orden = 'reciente' | 'antiguo' | 'monto_desc' | 'monto_asc';
+
 export default function EntregasPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
   const toast = useToast();
@@ -59,6 +79,18 @@ export default function EntregasPage() {
   const [error, setError] = useState<string | null>(null);
   const [abierta, setAbierta] = useState<number | null>(null);
   const [enviando, setEnviando] = useState<number | null>(null);
+  const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
+
+  const [q, setQ] = useState('');
+  const [fResponsable, setFResponsable] = useState<string[]>([]);
+  const [fEmpresa, setFEmpresa] = useState<string[]>([]);
+  const [fEstado, setFEstado] = useState<string[]>([]);
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [orden, setOrden] = useState<Orden>('reciente');
+
+  const hayFiltro = fResponsable.length > 0 || fEmpresa.length > 0 || fEstado.length > 0 || !!fechaDesde || !!fechaHasta;
+  const limpiarFiltros = () => { setFResponsable([]); setFEmpresa([]); setFEstado([]); setFechaDesde(''); setFechaHasta(''); };
 
   const cargar = useCallback(async () => {
     try {
@@ -99,19 +131,84 @@ export default function EntregasPage() {
 
   const pendientes = entregas.filter(e => !e.miAcuse);
 
+  // Opciones (con conteo) de cada MultiSelect, derivadas de lo que hay realmente cargado.
+  const opciones = useMemo(() => {
+    const resp = new Map<string, number>();
+    const emp = new Map<string, number>();
+    for (const e of entregas) {
+      const r = e.resumen || {};
+      if (r.responsableNombre) resp.set(r.responsableNombre, (resp.get(r.responsableNombre) || 0) + 1);
+      if (r.empresaNombre) emp.set(r.empresaNombre, (emp.get(r.empresaNombre) || 0) + 1);
+    }
+    return {
+      responsable: [...resp.entries()].sort((a, b) => b[1] - a[1])
+        .map(([v, n]) => ({ value: v, label: v, color: colorUsuario(v), count: n })),
+      empresa: [...emp.entries()].sort((a, b) => b[1] - a[1])
+        .map(([v, n]) => ({ value: v, label: v, count: n })),
+      estado: [
+        { value: 'recibido', label: 'Recibido (mío)', count: entregas.filter(e => e.miAcuse).length },
+        { value: 'pendiente', label: 'Falta mi acuse', count: pendientes.length },
+        { value: 'completa', label: 'Todos acusaron', count: entregas.filter(e => e.acusados === e.totalAcuses).length },
+      ],
+    };
+  }, [entregas, pendientes.length]);
+
+  const filtradas = useMemo(() => {
+    const qn = q.trim().toLowerCase();
+    const arr = entregas.filter(e => {
+      const r = e.resumen || {};
+      if (qn) {
+        const hay = [e.licitacionNombre, e.licitacionCodigo, e.organismo, r.responsableNombre, r.empresaNombre]
+          .filter(Boolean).some(v => String(v).toLowerCase().includes(qn));
+        if (!hay) return false;
+      }
+      if (fResponsable.length > 0 && !fResponsable.includes(r.responsableNombre)) return false;
+      if (fEmpresa.length > 0 && !fEmpresa.includes(r.empresaNombre)) return false;
+      if (fEstado.length > 0) {
+        const cumple = fEstado.some(f =>
+          f === 'recibido'  ? !!e.miAcuse :
+          f === 'pendiente' ? !e.miAcuse :
+          f === 'completa'  ? e.acusados === e.totalAcuses : false);
+        if (!cumple) return false;
+      }
+      const dia = soloDia(ganadoAt(e));
+      if (fechaDesde && dia && dia < fechaDesde) return false;
+      if (fechaHasta && dia && dia > fechaHasta) return false;
+      return true;
+    });
+    arr.sort((a, b) => {
+      switch (orden) {
+        case 'antiguo':    return msDe(ganadoAt(a)) - msDe(ganadoAt(b));
+        case 'monto_desc': return (b.resumen?.montoNuestro ?? -1) - (a.resumen?.montoNuestro ?? -1);
+        case 'monto_asc':  return (a.resumen?.montoNuestro ?? -1) - (b.resumen?.montoNuestro ?? -1);
+        default:           return msDe(ganadoAt(b)) - msDe(ganadoAt(a));
+      }
+    });
+    return arr;
+  }, [entregas, q, fResponsable, fEmpresa, fEstado, fechaDesde, fechaHasta, orden]);
+
   return (
     <AppLayout title="Entregas" breadcrumb={[{ label: 'Entregas' }]}>
       <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="flex items-start gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
-            <Trophy size={19} className="text-amber-500" />
+        <div className="flex items-start justify-between gap-3 mb-6 flex-wrap">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center flex-shrink-0">
+              <Trophy size={19} className="text-amber-500" />
+            </div>
+            <div>
+              <h1 className="text-[19px] font-bold text-zinc-900">Entrega de proyectos</h1>
+              <p className="text-[13px] text-zinc-500 mt-0.5">
+                {hayFiltro || q ? `${filtradas.length} de ${entregas.length}` : 'Proyectos ganados'} según el acta de Mercado Público, con lo que se comprometió al postular.
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-[19px] font-bold text-zinc-900">Entrega de proyectos</h1>
-            <p className="text-[13px] text-zinc-500 mt-0.5">
-              Proyectos ganados según el acta de Mercado Público, con lo que se comprometió al postular.
-            </p>
-          </div>
+          {entregas.length > 0 && (
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, código, organismo, responsable o empresa…"
+                className="pl-8 pr-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:ring-1 focus:ring-amber-500 outline-none w-80" />
+            </div>
+          )}
         </div>
 
         {pendientes.length > 0 && (
@@ -123,6 +220,50 @@ export default function EntregasPage() {
         )}
 
         {error && <Banner variante="error" className="mb-5">{error}</Banner>}
+
+        {!loading && entregas.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <span className="text-[12px] text-zinc-400 font-medium flex items-center gap-1"><Filter size={13} /> Filtrar:</span>
+            {opciones.responsable.length > 0 && (
+              <MultiSelect label="Responsable" icon={<Users size={13} />} options={opciones.responsable} selected={fResponsable} onChange={setFResponsable} minWidth={220} />
+            )}
+            {opciones.empresa.length > 0 && (
+              <MultiSelect label="Empresa" icon={<Briefcase size={13} />} options={opciones.empresa} selected={fEmpresa} onChange={setFEmpresa} minWidth={220} />
+            )}
+            <MultiSelect label="Estado" icon={<CheckCircle2 size={13} />} options={opciones.estado} selected={fEstado} onChange={setFEstado} minWidth={190} />
+            <div className="flex items-center gap-1.5 border border-zinc-200 rounded-lg px-2.5 py-1">
+              <Calendar size={13} className="text-zinc-400 flex-shrink-0" />
+              <span className="text-[11px] font-semibold text-zinc-500">Ganado</span>
+              <input type="date" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)}
+                max={fechaHasta || undefined}
+                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[118px]" title="Ganado desde" />
+              <span className="text-zinc-300">–</span>
+              <input type="date" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)}
+                min={fechaDesde || undefined}
+                className="text-[12px] text-zinc-700 bg-transparent outline-none w-[118px]" title="Ganado hasta" />
+              {(fechaDesde || fechaHasta) && (
+                <button onClick={() => { setFechaDesde(''); setFechaHasta(''); }}
+                  title="Quitar rango de fecha" className="text-zinc-400 hover:text-red-600 flex-shrink-0"><X size={12} /></button>
+              )}
+            </div>
+            {hayFiltro && (
+              <button onClick={limpiarFiltros}
+                className="inline-flex items-center gap-1 text-[12px] font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 px-2.5 py-2 rounded-lg transition-colors">
+                <X size={12} /> Limpiar
+              </button>
+            )}
+            <div className="inline-flex items-center gap-1.5 ml-auto">
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-400"><ArrowUpDown size={12} /> Ordenar</span>
+              <Select value={orden} onChange={v => setOrden(v as Orden)}
+                options={[
+                  { value: 'reciente', label: 'Ganado reciente' },
+                  { value: 'antiguo', label: 'Ganado más antiguo' },
+                  { value: 'monto_desc', label: 'Monto adjudicado (mayor)' },
+                  { value: 'monto_asc', label: 'Monto adjudicado (menor)' },
+                ]} />
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="flex items-center justify-center py-20 text-zinc-400">
@@ -137,9 +278,17 @@ export default function EntregasPage() {
               automáticamente con su resumen ejecutivo.
             </p>
           </div>
+        ) : filtradas.length === 0 ? (
+          <div className="text-center py-20">
+            <Search size={34} className="mx-auto text-zinc-300" />
+            <p className="text-[14px] font-semibold text-zinc-600 mt-3">Sin resultados</p>
+            <p className="text-[12.5px] text-zinc-400 mt-1 max-w-md mx-auto">
+              Ningún proyecto coincide con la búsqueda o los filtros.
+            </p>
+          </div>
         ) : (
           <div className="space-y-3">
-            {entregas.map(e => {
+            {filtradas.map(e => {
               const expandida = abierta === e.negocioId;
               const r = e.resumen || {};
               return (
@@ -211,6 +360,53 @@ export default function EntregasPage() {
                         <Dato etiqueta="Total adjudicado" valor={clp(r.montoAdjudicadoTotal)} />
                       </div>
 
+                      {/* Multas por atraso — plata en juego si el proyecto se retrasa. Sacadas por
+                          la IA de viabilidad al postular (Módulo Plazos); rojo a propósito, no es
+                          un dato informativo más. */}
+                      {r.multas && (r.multas.costoPorDia || r.multas.estructura) && (
+                        <div className="flex items-start gap-2.5 text-[12.5px] text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5">
+                          <ShieldAlert size={15} className="mt-0.5 flex-shrink-0 text-red-500" />
+                          <div className="space-y-0.5">
+                            <p className="font-bold">Multas por atraso</p>
+                            {r.multas.estructura && <p>{r.multas.estructura}</p>}
+                            <p className="flex flex-wrap gap-x-3 text-[11.5px]">
+                              {r.multas.costoPorDia && <span><span className="text-red-500">Por día:</span> {r.multas.costoPorDia}</span>}
+                              {r.multas.costoMaximo && <span><span className="text-red-500">Tope:</span> {r.multas.costoMaximo}</span>}
+                            </p>
+                            {r.multas.umbralTermino && (
+                              <p className="text-[11.5px]"><span className="text-red-500">Término anticipado:</span> {r.multas.umbralTermino}</p>
+                            )}
+                            {r.multas.fuente && <p className="text-[10.5px] text-red-400">Fuente: {r.multas.fuente}</p>}
+                          </div>
+                        </div>
+                      )}
+
+                      {Array.isArray(r.garantias) && r.garantias.length > 0 && (
+                        <Seccion titulo="Garantías comprometidas">
+                          <ul className="space-y-1">
+                            {r.garantias.map((g: any, i: number) => (
+                              <li key={i} className="text-[12.5px] text-zinc-700">
+                                <span className="text-zinc-500">{g.titulo}:</span> {g.descripcion || '—'}
+                              </li>
+                            ))}
+                          </ul>
+                        </Seccion>
+                      )}
+
+                      {(Array.isArray(r.riesgosViabilidad) && r.riesgosViabilidad.length > 0) ||
+                       (Array.isArray(r.alertasViabilidad) && r.alertasViabilidad.length > 0) ? (
+                        <Seccion titulo="Riesgos detectados por la viabilidad IA">
+                          <ul className="space-y-1">
+                            {[...(r.riesgosViabilidad || []), ...(r.alertasViabilidad || [])].map((txt: string, i: number) => (
+                              <li key={i} className="flex items-start gap-1.5 text-[12.5px] text-zinc-700">
+                                <AlertTriangle size={11} className="mt-0.5 flex-shrink-0 text-amber-500" />
+                                {txt}
+                              </li>
+                            ))}
+                          </ul>
+                        </Seccion>
+                      ) : null}
+
                       {Array.isArray(r.competidoresAdjudicados) && r.competidoresAdjudicados.length > 0 && (
                         <Seccion titulo="Otros adjudicados en esta licitación">
                           <ul className="space-y-1">
@@ -278,6 +474,28 @@ export default function EntregasPage() {
                         </Seccion>
                       )}
 
+                      {/* Documentos propios subidos durante la postulación — viajan CON la
+                          entrega, no como un link a que alguien vaya a buscarlos aparte. */}
+                      {Array.isArray(r.documentosPropios) && r.documentosPropios.length > 0 && (
+                        <Seccion titulo="Documentos">
+                          <ul className="space-y-1">
+                            {r.documentosPropios.map((d: any, i: number) => (
+                              <li key={i} className="flex items-center gap-2 text-[12.5px] text-zinc-700">
+                                <Paperclip size={11} className="text-zinc-400 flex-shrink-0" />
+                                <span className="truncate flex-1">{d.nombre}</span>
+                                {d.subidoPorNombre && <span className="text-[10.5px] text-zinc-400 flex-shrink-0">subió {d.subidoPorNombre}</span>}
+                                <button
+                                  onClick={() => setVisorDoc({ nombre: d.nombre, url: d.url })}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 hover:text-indigo-700 flex-shrink-0"
+                                >
+                                  <Eye size={11} /> Ver
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        </Seccion>
+                      )}
+
                       <div className="flex flex-wrap items-center gap-2 pt-1">
                         {r.urlActa && (
                           <a
@@ -313,6 +531,8 @@ export default function EntregasPage() {
           </div>
         )}
       </div>
+
+      <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
     </AppLayout>
   );
 }
