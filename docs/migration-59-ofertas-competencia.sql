@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS oferta_competencia (
   licitacion_codigo  VARCHAR(64)   NOT NULL,
   proveedor_rut      VARCHAR(20)   NOT NULL,   -- normalizado: 76902659-2
   proveedor_nombre   VARCHAR(255)  NOT NULL,
+  nombre_oferta      VARCHAR(400)  DEFAULT NULL,         -- "Nombre Oferta" del Resumen de ofertas
+  -- Estado que MP le puso a la oferta: Aceptada / Inadmisible / Rechazada / Desestimada.
+  -- Se guarda porque un oferente declarado inadmisible NO es competencia real: contarlo infla
+  -- el número de rivales y ensucia la comparación de precios.
+  estado             VARCHAR(40)   DEFAULT NULL,
   linea_numero       INT           NOT NULL DEFAULT 0,   -- 0 = oferta global (sin desglose)
   linea_descripcion  VARCHAR(400)  DEFAULT NULL,
   monto              DECIMAL(18,2) DEFAULT NULL,         -- NULL = la apertura no publicó montos
@@ -54,9 +59,21 @@ CREATE TABLE IF NOT EXISTS oferta_competencia (
 CREATE TABLE IF NOT EXISTS oferta_competencia_documento (
   id                 INT AUTO_INCREMENT PRIMARY KEY,
   licitacion_codigo  VARCHAR(64)   NOT NULL,
-  proveedor_rut      VARCHAR(20)   DEFAULT NULL,   -- NULL: el portal no lo ata a un proveedor
+  -- NOT NULL con '' en vez de NULL a propósito: forma parte de la clave única, y en MySQL
+  -- NULL != NULL, así que un proveedor sin RUT resuelto duplicaría el archivo en cada pasada.
+  proveedor_rut      VARCHAR(20)   NOT NULL DEFAULT '',
+  -- Categoría del anexo en la ficha de apertura. Son las 5 pestañas que MP muestra por oferente:
+  -- DECLARACION_JURADA · INFORMACION_PROVEEDOR · ADMINISTRATIVOS · TECNICOS · ECONOMICOS (+ OTRO).
+  -- Es lo que se pidió ver agrupado: "de cada oferente, sus anexos por tipo".
+  categoria          VARCHAR(30)   NOT NULL DEFAULT 'OTRO',
+  tipo_mp            VARCHAR(120)  DEFAULT NULL,   -- columna "Tipo" de la tabla de adjuntos
+  descripcion        VARCHAR(400)  DEFAULT NULL,   -- columna "Descripción"
+  tamano_kb          INT           DEFAULT NULL,   -- columna "Tamaño" (KB), tal como la publica MP
   nombre             VARCHAR(400)  NOT NULL,
-  url_mp             VARCHAR(1000) NOT NULL,       -- link ViewAttachment del portal (efímero)
+  -- Página-categoría que contiene este archivo (ViewBidAttachment.aspx?enc=...). Se guarda para
+  -- poder volver a entrar y re-resolver el link real del archivo cuando el `enc` expire.
+  url_contenedor     VARCHAR(1000) DEFAULT NULL,
+  url_mp             VARCHAR(1000) NOT NULL,       -- link al archivo en el portal (efímero)
   url_r2             VARCHAR(600)  DEFAULT NULL,   -- copia propia (NULL = aún no descargado)
   bytes              INT           DEFAULT NULL,
   content_type       VARCHAR(120)  DEFAULT NULL,
@@ -64,8 +81,12 @@ CREATE TABLE IF NOT EXISTS oferta_competencia_documento (
   error              VARCHAR(300)  DEFAULT NULL,   -- último fallo de descarga (no enmudecer)
   detectado_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   -- url_mp indexada por prefijo: los enc= son largos y MySQL no indexa 1000 chars en utf8mb4.
-  UNIQUE KEY uq_ofdoc (licitacion_codigo, url_mp(180)),
-  KEY idx_ofdoc_pendiente (descargado_at)
+  -- Clave por (licitación, proveedor, categoría, nombre) y NO por url_mp: el `enc` de MP cambia
+  -- entre lecturas del mismo archivo, así que indexar por URL crearía una fila nueva en cada
+  -- pasada del cron para el mismo PDF.
+  UNIQUE KEY uq_ofdoc (licitacion_codigo, proveedor_rut, categoria, nombre(120)),
+  KEY idx_ofdoc_pendiente (descargado_at),
+  KEY idx_ofdoc_proveedor (licitacion_codigo, proveedor_rut, categoria)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- Estado de la LECTURA de la apertura (distinto de la DETECCIÓN, que ya vive en la tabla).

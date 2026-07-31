@@ -33,7 +33,6 @@ import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
-import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import {
   Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
   Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
@@ -631,8 +630,15 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
         </div>
       )}
 
-      {/* F.2 — contra quién competimos (solo si ya hubo apertura; el componente se autoanula si no) */}
-      <OfertasCompetencia codigo={n.licitacion_codigo} aperturada={!!n.aperturada} isAdmin={isAdmin} />
+      {/* F.2 — la competencia se revisa en la ficha de la licitación, no acá: esta fila es un
+          resumen del negocio y meterle la tabla de oferentes con sus anexos la volvía ilegible.
+          Acá solo queda el acceso, cuando ya hubo apertura. */}
+      {!!n.aperturada && (
+        <Link href={`/licitacion/${encodeURIComponent(n.licitacion_codigo)}?seccion=competencia`}
+          className="mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 px-3 py-1.5 rounded-lg transition-colors">
+          <Users size={12} /> Ver ofertas de la competencia
+        </Link>
+      )}
 
 
       {docs.length > 0 && (

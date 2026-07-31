@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Star, StarOff, ExternalLink, Copy, Check,
   Loader2, AlertCircle, Tag, RefreshCw, Briefcase, UserCheck, FolderOpen, History,
@@ -28,6 +28,7 @@ import { ComentariosSection } from './sections/ComentariosSection';
 import { Viabilidad } from './sections/ViabilidadSection';
 import { ViabilidadIAPanel } from './sections/ViabilidadIAPanel';
 import { InteligenciaSection } from './sections/InteligenciaSection';
+import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { ResultadoSection } from './sections/ResultadoSection';
 import { Resaltar } from '@/app/components/Resaltar';
 
@@ -36,7 +37,7 @@ import { Resaltar } from '@/app/components/Resaltar';
 // llega por el link "Ver análisis completo" dentro de CriteriosSection.
 type SeccionLicitacion =
   | 'resumen' | 'resultado' | 'documentos' | 'viabilidad' | 'criterios'
-  | 'items' | 'fechas' | 'preguntas' | 'comentarios' | 'inteligencia';
+  | 'items' | 'fechas' | 'preguntas' | 'comentarios' | 'inteligencia' | 'competencia';
 
 // ======================================================
 // PÁGINA PRINCIPAL
@@ -57,6 +58,14 @@ export default function LicitacionDetallePage() {
   const [documentosCache, setDocumentosCache] = useState<DocumentoAdjunto[]>([]);
   const [cargandoDocs,    setCargandoDocs]    = useState(false);
   const [activeSection,   setActiveSection]   = useState<SeccionLicitacion>('resumen');
+
+  // ?seccion=competencia abre directo esa pestaña. Lo usa el acceso desde Postuladas: el usuario
+  // viene específicamente a mirar a la competencia, no a la ficha desde el principio.
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const s = searchParams.get('seccion');
+    if (s) setActiveSection(s as SeccionLicitacion);
+  }, [searchParams]);
   const [keywords,        setKeywords]        = useState<string[]>([]); // palabras clave activas del usuario, para resaltar
   const [asignadoNombre,  setAsignadoNombre]  = useState<string | null>(null); // ¿a qué perfil está asignada?
   const [asignarOpen,     setAsignarOpen]     = useState(false); // modal Asignar/Reasignar a negocio
@@ -473,6 +482,10 @@ export default function LicitacionDetallePage() {
     { key: 'items',       label: 'Ítems',       count: licitacion.items?.length || null },
     { key: 'fechas',      label: 'Fechas',      count: fechasAdic.length || null },
     { key: 'preguntas',   label: 'Preguntas',   count: null },
+    // Competencia (F.2): las ofertas de los demás oferentes y sus anexos, leídas de la apertura.
+    // Va siempre visible —no solo cuando hay apertura— para que se pueda entrar a ver POR QUÉ
+    // todavía no hay datos, en vez de que el tab desaparezca sin explicación.
+    { key: 'competencia', label: 'Competencia', count: null },
     { key: 'comentarios', label: 'Comentarios', count: null },
   ];
 
@@ -675,6 +688,9 @@ export default function LicitacionDetallePage() {
                   analizandoIA={analizandoIA}
                   onIrAInteligencia={() => setActiveSection('inteligencia')}
                 />
+              )}
+              {activeSection === 'competencia' && (
+                <OfertasCompetencia codigo={codigoDecoded} isAdmin={usuario?.rol === 'admin'} />
               )}
               {activeSection === 'comentarios' && (
                 <ComentariosSection codigoDecoded={codigoDecoded} />

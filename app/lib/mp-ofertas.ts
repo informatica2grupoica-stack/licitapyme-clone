@@ -1,51 +1,70 @@
 // app/lib/mp-ofertas.ts
-// Frente F.2 — LECTURA de la apertura: quién ofertó y a qué precio.
+// Frente F.2 — LECTURA de la apertura: quién ofertó, a qué precio y con qué anexos.
 //
-// mp-apertura.ts responde "¿ya se aperturó?" mirando si la ficha trae el acceso real a los
-// resultados (Opening*.aspx?enc=<token>). Este módulo ENTRA por ese mismo link y extrae la
-// tabla de ofertas. Reusa las primitivas de la descarga de documentos (obtenerFichaHTML →
-// cookies de sesión + fetchMPConReintentos), así que hereda su tolerancia a los 503
-// intermitentes de MP y su requisito: IP CHILENA (WAF) → corre en el VPS, nunca en Vercel.
+// Requiere IP CHILENA (WAF de MP) → corre en el VPS, nunca en Vercel. Reusa las primitivas de la
+// descarga de documentos (obtenerFichaHTML → cookies + fetchMPConReintentos), así que hereda su
+// tolerancia a los 503 intermitentes del portal.
 //
-// ── CÓMO SE LLEGA A LA TABLA ─────────────────────────────────────────────────
-// 1. Ficha DetailsAcquisition → cookies + los links Opening*.aspx?enc=
-// 2. OpeningFrame.aspx es un CONTENEDOR (frameset/iframe): la tabla está en el documento hijo,
-//    por eso se sigue un nivel de <iframe>/<frame> src. Sin ese salto se lee un HTML de 2 KB
-//    sin una sola fila y parece "no hay ofertas".
-// 3. En el HTML final, las filas de proveedor se reconocen por el RUT (no por el encabezado):
-//    los encabezados del portal cambian de nombre entre apertura técnica y económica, el
-//    formato de RUT no. Ancla estable > ancla bonita.
+// ════════ CADENA REAL DEL PORTAL (recorrida en vivo el 31-jul-2026) ══════════
+// Nada de esto es adivinado: se verificó contra la licitación 1173418-1-LE26.
 //
-// ── LÍMITE HONESTO DE ESTE PARSER ────────────────────────────────────────────
-// El HTML real de la apertura solo es accesible desde IP chilena, así que las heurísticas de
-// abajo NO están calibradas contra una página real todavía. Por eso cada lectura devuelve un
-// `diagnostico` (páginas visitadas, bytes, filas vistas, por qué se descartaron) que se guarda
-// en licitacion_apertura.ofertas_diagnostico: cuando esto corra en el VPS, ese campo dice
-// exactamente qué ajustar en vez de obligar a adivinar. `guardarHtmlCrudo` permite volcar el
-// HTML a disco en el VPS para afinar sin re-pegarle al portal.
+//   1. Ficha DetailsAcquisition          → link OpeningFrame.aspx?enc=<token>
+//   2. OpeningFrame.aspx  (1,7 KB)       → <title>Cuadro Comparativo</title>. Es un FRAMESET de
+//      dos frames: "Encabezado" (con src) y "Cuerpo" (SIN src).
+//   3. OpeningHeader.aspx (17 KB)        → la barra de pasos. Dentro, en JavaScript:
+//          parent.Cuerpo.location='SupplySummary.aspx?enc=<token>'
+//      ← AQUÍ estaba la trampa: el frame del contenido NO tiene src en el HTML, lo setea el JS.
+//        Un crawler que solo siga <frame src> se detiene en el marco y concluye "no hay ofertas".
+//   4. SupplySummary.aspx (143 KB)       → el "Resumen de ofertas" de verdad.
+//
+// ════════ POR QUÉ SE PARSEA POR ID DE CONTROL Y NO POR FILAS ═════════════════
+// La celda "Anexos" contiene una TABLA ANIDADA. Un regex de <tr> parte ese anidamiento y hace
+// que un mismo oferente aparezca como varias filas incoherentes (verificado: el RUT quedaba en
+// una fila y "Declaración Jurada / Información Proveedor" en otra).
+// SupplySummary es un GridView de ASP.NET y cada oferente es un grupo `grdSupplies_ctlNN_*`:
+//     _GvLblRutProvider · _GvLblProvider · _GvLblSuppliesName · TotalOferta · EstadoOferta
+//     _GvImgbAdministrativeAttachment · _GvImgbTechnicalAttachment · _GvImgbEconomicAttachment
+// Agrupar por ctlNN es inmune al anidamiento y al orden de columnas. Ancla estable > ancla obvia.
+//
+// De los CINCO iconos de la columna Anexos, solo TRES son páginas de adjuntos:
+//     Administrativos · Técnicos · Económico   → openPopUp('/BID/Modules/POPUPS/ViewBidAttachment.aspx?enc=…')
+// Los otros dos NO lo son: "Firma declaración Jurada" llama a ver_declaracion(rut, codigo) y
+// "Información Proveedor" a verFicha(rut) — son la ficha de ChileProveedores, no archivos de la
+// oferta. Tratarlos como adjuntos generaba dos descargas fantasma por oferente.
 
 import { MP_BASE, MP_UA, obtenerFichaHTML, fetchMPConReintentos, combinarCookies, extraerCookies } from '@/app/lib/mp-adjuntos';
 
+export type CategoriaAnexo =
+  | 'DECLARACION_JURADA' | 'INFORMACION_PROVEEDOR' | 'ADMINISTRATIVOS'
+  | 'TECNICOS' | 'ECONOMICOS' | 'OTRO';
+
 export interface OfertaLeida {
-  proveedorRut: string;        // normalizado 76902659-2
+  proveedorRut: string;
   proveedorNombre: string;
-  lineaNumero: number;         // 0 = oferta global
+  nombreOferta: string | null;
+  estado: string | null;       // Aceptada / Rechazada / …
+  lineaNumero: number;         // 0 = oferta global (SupplySummary siempre es global)
   lineaDescripcion: string | null;
-  monto: number | null;        // null = la apertura no publicó montos (apertura técnica)
+  monto: number | null;
   moneda: string | null;
-  fuente: string;              // página del portal que la entregó
+  fuente: string;
 }
 
 export interface DocumentoOferta {
-  proveedorRut: string | null;
+  proveedorRut: string;
+  categoria: CategoriaAnexo;
   nombre: string;
-  url: string;
+  tipoMp: string | null;
+  descripcion: string | null;
+  tamanoKb: number | null;
+  urlContenedor: string;
+  url: string;                 // '' si MP no expone link directo (postback)
 }
 
 export interface LecturaApertura {
   ofertas: OfertaLeida[];
   documentos: DocumentoOferta[];
-  diagnostico: string;         // legible por humanos, se persiste para afinar el parser
+  diagnostico: string;
   paginas: number;
   cookies: string;
   referer: string;
@@ -55,24 +74,40 @@ export interface LecturaApertura {
 
 const RE_RUT = /\b(\d{1,2}\.?\d{3}\.?\d{3})\s*[-–—]\s*([\dkK])\b/;
 
-/** RUT del portal (72.345.678-9 / 72345678-K / 72.345.678–k) → 72345678-K. */
+/**
+ * Dígito verificador de un RUT chileno (módulo 11).
+ *
+ * NO es un lujo: sin esto, el CÓDIGO DE LICITACIÓN se cuela como RUT. "1173418-1-LE26" calza
+ * perfecto con el patrón de RUT (7 dígitos + guión + dígito) y en la primera corrida real se
+ * guardó como si fuera un competidor, con el nombre de la licitación como razón social. El DV
+ * de 1173418 es 9, no 1 → validarlo lo mata. Un patrón que "parece" no basta.
+ */
+export function dvValido(cuerpo: string, dv: string): boolean {
+  let suma = 0, mult = 2;
+  for (let i = cuerpo.length - 1; i >= 0; i--) {
+    suma += Number(cuerpo[i]) * mult;
+    mult = mult === 7 ? 2 : mult + 1;
+  }
+  const resto = 11 - (suma % 11);
+  const esperado = resto === 11 ? '0' : resto === 10 ? 'K' : String(resto);
+  return esperado === dv.toUpperCase();
+}
+
+/** RUT del portal (76.681.561-8) → 76681561-8. null si el DV no cuadra. */
 export function normalizarRut(texto: string): string | null {
   const m = texto.match(RE_RUT);
   if (!m) return null;
   const cuerpo = m[1].replace(/\./g, '');
-  if (cuerpo.length < 7) return null;      // 7 dígitos es el piso real de un RUT chileno
-  return `${cuerpo}-${m[2].toUpperCase()}`;
+  if (cuerpo.length < 7) return null;
+  const dv = m[2].toUpperCase();
+  if (!dvValido(cuerpo, dv)) return null;
+  return `${cuerpo}-${dv}`;
 }
 
-/**
- * Monto chileno → number. "$ 1.234.567" → 1234567 · "1.234.567,89" → 1234567.89
- * El portal escribe miles con punto y decimales con coma (es-CL). Un parseFloat directo sobre
- * "1.234.567" devuelve 1.234 — de ahí que esto exista en vez de confiar en Number().
- */
+/** "$ 42.000.000" → 42000000 · "1.234.567,89" → 1234567.89 (es-CL: miles con punto). */
 export function montoChileno(texto: string): number | null {
   const limpio = texto.replace(/[^\d.,-]/g, '').trim();
   if (!limpio || !/\d/.test(limpio)) return null;
-  // Con coma decimal: los puntos son separadores de miles.
   const normal = limpio.includes(',')
     ? limpio.replace(/\./g, '').replace(',', '.')
     : limpio.replace(/\./g, '');
@@ -83,8 +118,7 @@ export function montoChileno(texto: string): number | null {
 function moneda(texto: string): string | null {
   if (/UTM/i.test(texto)) return 'UTM';
   if (/\bUF\b/i.test(texto)) return 'UF';
-  if (/USD|US\$|d[óo]lar/i.test(texto)) return 'USD';
-  if (/EUR|€/i.test(texto)) return 'EUR';
+  if (/USD|US\$/i.test(texto)) return 'USD';
   if (/\$|CLP|peso/i.test(texto)) return 'CLP';
   return null;
 }
@@ -99,30 +133,45 @@ function limpiar(html: string): string {
     .trim();
 }
 
-// ── Extracción de filas de tabla (conservando los links de cada fila) ────────
-
-interface Fila { celdas: string[]; enlaces: { texto: string; href: string }[] }
-
-function extraerFilas(html: string, base: string): Fila[] {
-  const filas: Fila[] = [];
-  for (const tr of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
-    const bruto = tr[1];
-    const celdas = [...bruto.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => limpiar(c[1]));
-    if (celdas.length < 2) continue;
-    const enlaces: { texto: string; href: string }[] = [];
-    for (const a of bruto.matchAll(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
-      try { enlaces.push({ texto: limpiar(a[2]), href: new URL(a[1], base).href }); } catch { /* href basura */ }
-    }
-    filas.push({ celdas, enlaces });
-  }
-  return filas;
+/** Decodifica las entidades que ASP.NET mete dentro de los atributos onclick. */
+function desescapar(s: string): string {
+  return s.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
 }
 
-// ── Navegación del portal ────────────────────────────────────────────────────
+/** "4827 KB" → 4827 · "1,2 MB" → 1229 */
+function tamanoEnKb(texto: string): number | null {
+  const m = texto.match(/([\d.,]+)\s*(KB|MB|GB)/i);
+  if (!m) return null;
+  const n = montoChileno(m[1]);
+  if (n == null) return null;
+  const f = m[2].toUpperCase() === 'MB' ? 1024 : m[2].toUpperCase() === 'GB' ? 1024 * 1024 : 1;
+  return Math.round(n * f);
+}
 
-const RE_LINK_APERTURA = /(?:href|src)=["']([^"']*Opening[A-Za-z]*\.aspx\?[^"']*enc=[^"']+)["']/gi;
-const RE_FRAME         = /<(?:iframe|frame)[^>]+src=["']([^"']+)["']/gi;
-const RE_ADJUNTO       = /ViewAttachment/i;
+export const ROTULO_CATEGORIA: Record<CategoriaAnexo, string> = {
+  DECLARACION_JURADA: 'Declaración jurada',
+  INFORMACION_PROVEEDOR: 'Información del proveedor',
+  ADMINISTRATIVOS: 'Anexos administrativos',
+  TECNICOS: 'Anexos técnicos',
+  ECONOMICOS: 'Anexos económicos',
+  OTRO: 'Otros',
+};
+
+/** Sufijo del control de ASP.NET → categoría. Es el nombre interno, no el rótulo visible. */
+function categoriaDeControl(sufijo: string, title: string): CategoriaAnexo {
+  const s = `${sufijo} ${title}`.toLowerCase();
+  if (/administrative|administrativ/.test(s)) return 'ADMINISTRATIVOS';
+  if (/technical|t[ée]cnic/.test(s))          return 'TECNICOS';
+  if (/economic|econ[óo]mic/.test(s))         return 'ECONOMICOS';
+  if (/firma|jurada/.test(s))                 return 'DECLARACION_JURADA';
+  if (/other|proveedor/.test(s))              return 'INFORMACION_PROVEEDOR';
+  return 'OTRO';
+}
+
+// ── Navegación ───────────────────────────────────────────────────────────────
+
+const MAX_PAGINAS_ANEXO = 60;
+const PRESUPUESTO_MS    = 150_000;
 
 async function traer(url: string, cookies: string, referer: string): Promise<{ html: string; cookies: string }> {
   const res = await fetchMPConReintentos(url, {
@@ -143,13 +192,47 @@ async function traer(url: string, cookies: string, referer: string): Promise<{ h
 }
 
 /**
- * Lee la apertura de una licitación y devuelve las ofertas visibles.
- * Devuelve null SOLO si no se pudo entrar al portal (WAF/timeout/MP caído) → el caller debe
- * reintentar después. Una lectura exitosa con 0 ofertas NO es null: significa "entré y no
- * había tabla", que es un dato distinto y hay que poder distinguirlo.
+ * Valor de un control del GridView dentro del segmento de UN oferente.
+ *
+ * NO se ancla en `id="…"`: el segmento empieza justo EN el token `grdSupplies_ctlNN_`, de modo
+ * que el `id="` que lo precedía quedó en el segmento anterior. Exigirlo devolvía vacío para
+ * todos los oferentes y el lector reportaba "0 ofertas" con la tabla completa delante.
+ */
+function valorControl(segmento: string, sufijo: string): string {
+  const re = new RegExp(`grdSupplies_ctl\\d+_${sufijo}"[^>]*>([\\s\\S]*?)</(?:a|span|td)>`, 'i');
+  return limpiar(segmento.match(re)?.[1] ?? '');
+}
+
+/**
+ * Parte SupplySummary en un segmento por oferente, usando los índices `ctlNN` del GridView.
+ * Cada segmento va desde la primera aparición de su ctl hasta la del siguiente.
+ */
+function segmentosPorOferente(html: string): { ctl: string; segmento: string }[] {
+  const marcas: { ctl: string; pos: number }[] = [];
+  const vistos = new Set<string>();
+  for (const m of html.matchAll(/grdSupplies[_$]ctl(\d+)[_$]/g)) {
+    const ctl = m[1];
+    if (vistos.has(ctl)) continue;
+    vistos.add(ctl);
+    marcas.push({ ctl, pos: m.index! });
+  }
+  marcas.sort((a, b) => a.pos - b.pos);
+  return marcas.map((m, i) => ({
+    ctl: m.ctl,
+    segmento: html.slice(m.pos, i + 1 < marcas.length ? marcas[i + 1].pos : html.length),
+  }));
+}
+
+/**
+ * Lee la apertura: ofertas + anexos de cada oferente.
+ * Devuelve null SOLO si no se pudo entrar al portal → reintentar. Una lectura con 0 ofertas NO
+ * es null: "entré y no había tabla" es un dato distinto de "no pude entrar".
  */
 export async function leerOfertasApertura(codigo: string): Promise<LecturaApertura | null> {
+  const inicio = Date.now();
   const notas: string[] = [];
+  let paginas = 0;
+
   let ficha: { html: string; cookies: string; referer: string };
   try {
     ficha = await obtenerFichaHTML(codigo);
@@ -158,165 +241,216 @@ export async function leerOfertasApertura(codigo: string): Promise<LecturaApertu
     return null;
   }
   if (!ficha.html) return null;
-
   let cookies = ficha.cookies;
   const referer = ficha.referer;
 
-  // 1) Links de apertura desde la ficha (los mismos que delatan que está aperturada).
-  const porVisitar = new Set<string>();
-  for (const m of ficha.html.matchAll(RE_LINK_APERTURA)) {
-    try { porVisitar.add(new URL(m[1], MP_BASE).href); } catch { /* href basura */ }
-  }
-  if (porVisitar.size === 0) {
-    return { ofertas: [], documentos: [], paginas: 0, cookies, referer,
-      diagnostico: 'la ficha no trae ningún link Opening*.aspx?enc= (¿todavía sin apertura?)' };
-  }
+  const vacio = (diag: string): LecturaApertura =>
+    ({ ofertas: [], documentos: [], paginas, cookies, referer, diagnostico: diag });
 
-  // 2) Visitar cada link y, un nivel adentro, sus frames (OpeningFrame es un contenedor).
-  const visitadas = new Set<string>();
-  const paginas: { url: string; html: string }[] = [];
-  const cola = [...porVisitar];
-  let saltosFrame = 0;
+  // ── 1) Ficha → OpeningFrame ────────────────────────────────────────────────
+  const frameUrl = [...ficha.html.matchAll(/(?:href|src)=["']([^"']*OpeningFrame\.aspx\?[^"']*enc=[^"']+)["']/gi)]
+    .map(m => { try { return new URL(desescapar(m[1]), MP_BASE).href; } catch { return ''; } })
+    .find(Boolean);
+  if (!frameUrl) return vacio('la ficha no trae OpeningFrame.aspx?enc= (¿todavía sin apertura?)');
 
-  while (cola.length > 0 && paginas.length < 8) {
-    const url = cola.shift()!;
-    if (visitadas.has(url)) continue;
-    visitadas.add(url);
+  // ── 2) OpeningFrame → OpeningHeader ────────────────────────────────────────
+  const marco = await traer(frameUrl, cookies, referer); cookies = marco.cookies; paginas++;
+  if (!marco.html) return null;
+  const headerSrc = marco.html.match(/<frame[^>]+src=["']([^"']*OpeningHeader[^"']+)["']/i)?.[1];
+  if (!headerSrc) return vacio('OpeningFrame no declara el frame OpeningHeader');
 
-    let html = '';
-    try {
-      const r = await traer(url, cookies, referer);
-      html = r.html; cookies = r.cookies;
-    } catch (e) {
-      notas.push(`fallo al traer ${url.slice(0, 60)}: ${String(e).slice(0, 60)}`);
-      continue;
-    }
-    if (!html) { notas.push(`vacío/HTTP-error: ${url.slice(0, 60)}`); continue; }
-    paginas.push({ url, html });
+  const header = await traer(new URL(desescapar(headerSrc), frameUrl).href, cookies, frameUrl);
+  cookies = header.cookies; paginas++;
+  if (!header.html) return null;
 
-    // Seguir frames hijos (un solo nivel: más que eso es navegar el portal entero).
-    if (saltosFrame < 4) {
-      for (const f of html.matchAll(RE_FRAME)) {
-        try {
-          const hijo = new URL(f[1], url).href;
-          if (!visitadas.has(hijo) && /mercadopublico\.cl/i.test(hijo)) { cola.push(hijo); saltosFrame++; }
-        } catch { /* src basura */ }
-      }
-    }
+  // ── 3) OpeningHeader → SupplySummary (lo carga el JS, no un <frame src>) ───
+  const destino = desescapar(header.html).match(/parent\.Cuerpo\.location\s*=\s*'(SupplySummary[^']+)'/i)?.[1];
+  if (!destino) return vacio('OpeningHeader no apunta a SupplySummary (¿cambió el portal?)');
+
+  const resumenUrl = new URL(destino, frameUrl).href;
+  const resumen = await traer(resumenUrl, cookies, frameUrl); cookies = resumen.cookies; paginas++;
+  if (!resumen.html) return null;
+  if (!/rut\s*proveedor/i.test(resumen.html)) {
+    return vacio(`SupplySummary sin tabla de ofertas (${Math.round(resumen.html.length / 1024)} KB)`);
   }
 
-  if (paginas.length === 0) {
-    console.error(`[mp-ofertas] ${codigo}: ${porVisitar.size} link(s) de apertura y ninguna página legible`);
-    return null; // no se pudo entrar → reintentar, no es "no hay ofertas"
-  }
+  // ── 4) Parsear el Resumen de ofertas por grupos ctlNN ──────────────────────
+  const ofertas: OfertaLeida[] = [];
+  const pendientesAnexo: { rut: string; categoria: CategoriaAnexo; url: string }[] = [];
+  let sinRut = 0;
 
-  // 3) Parsear ofertas y documentos.
-  const ofertas = new Map<string, OfertaLeida>();   // clave rut|linea
-  const documentos = new Map<string, DocumentoOferta>();
-  let filasTotales = 0;
-  let filasSinRut = 0;
+  for (const { segmento } of segmentosPorOferente(resumen.html)) {
+    const rut = normalizarRut(valorControl(segmento, '_GvLblRutProvider'));
+    if (!rut) { sinRut++; continue; }
 
-  for (const { url, html } of paginas) {
-    const fuente = (url.match(/\/([A-Za-z]+)\.aspx/)?.[1] || 'apertura').slice(0, 40);
-    const filas = extraerFilas(html, url);
-    filasTotales += filas.length;
+    const nombre = valorControl(segmento, '_GvLblProvider') || rut;
+    const total  = valorControl(segmento, 'TotalOferta');
+    const monto  = montoChileno(total);
 
-    for (const fila of filas) {
-      const textoFila = fila.celdas.join(' | ');
-      const rut = normalizarRut(textoFila);
-      if (!rut) { filasSinRut++; continue; }
+    ofertas.push({
+      proveedorRut: rut,
+      proveedorNombre: nombre.slice(0, 255),
+      nombreOferta: valorControl(segmento, '_GvLblSuppliesName').slice(0, 400) || null,
+      estado: valorControl(segmento, 'EstadoOferta').slice(0, 40) || null,
+      lineaNumero: 0,               // SupplySummary es el total por oferente, no por línea
+      lineaDescripcion: null,
+      monto,
+      moneda: monto == null ? null : (moneda(total) || 'CLP'),
+      fuente: 'SupplySummary',
+    });
 
-      // Nombre: la celda más larga que NO sea el propio RUT ni un número suelto.
-      const nombre = fila.celdas
-        .filter(c => c.length >= 3 && !normalizarRut(c) && !/^[\d.,$\s%-]+$/.test(c))
-        .sort((a, b) => b.length - a.length)[0] || rut;
-
-      // Monto: la última celda numérica "grande". Se ignoran celdas que son cantidades o
-      // porcentajes (un "1" o un "95,5 %" no es una oferta económica).
-      let monto: number | null = null;
-      let mon: string | null = null;
-      for (const c of fila.celdas) {
-        if (/%/.test(c)) continue;
-        const n = montoChileno(c);
-        if (n != null && n >= 1000) { monto = n; mon = moneda(c) || mon; }
-      }
-      if (mon == null && monto != null) mon = moneda(textoFila) || 'CLP';
-
-      // Línea: si la fila trae "Línea N" / "Ítem N", la oferta es por línea; si no, global.
-      const mLinea = textoFila.match(/(?:l[íi]nea|[íi]tem)\s*(?:n[°º]?\s*)?(\d{1,3})\b/i);
-      const lineaNumero = mLinea ? Number(mLinea[1]) : 0;
-
-      const clave = `${rut}|${lineaNumero}`;
-      const previa = ofertas.get(clave);
-      // Si ya la teníamos sin monto y ahora viene con monto, la enriquecemos (la apertura
-      // técnica y la económica son páginas distintas del mismo acto).
-      if (!previa || (previa.monto == null && monto != null)) {
-        ofertas.set(clave, {
-          proveedorRut: rut,
-          proveedorNombre: previa?.proveedorNombre || nombre.slice(0, 255),
-          lineaNumero,
-          lineaDescripcion: mLinea ? textoFila.slice(0, 400) : null,
-          monto: monto ?? previa?.monto ?? null,
-          moneda: mon ?? previa?.moneda ?? null,
-          fuente,
-        });
-      }
-
-      for (const a of fila.enlaces) {
-        if (!RE_ADJUNTO.test(a.href)) continue;
-        documentos.set(a.href, {
-          proveedorRut: rut,
-          nombre: (a.texto || 'documento').slice(0, 400),
-          url: a.href,
-        });
-      }
-    }
-
-    // Adjuntos sueltos (fuera de una fila con RUT): se registran sin proveedor en vez de
-    // perderlos — en varias aperturas el listado de anexos va en un bloque aparte.
-    for (const a of html.matchAll(/<a[^>]+href=["']([^"']*ViewAttachment[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi)) {
+    // Iconos de anexo: solo los que abren ViewBidAttachment son archivos de la oferta.
+    for (const im of segmento.matchAll(/<input[^>]*grdSupplies_ctl\d+__GvImgb?([A-Za-z]+)"[^>]*>/gi)) {
+      const tag = im[0];
+      if (!/ViewBidAttachment/i.test(tag)) continue;
+      const url = desescapar(tag).match(/openPopUp\('([^']+)'/i)?.[1];
+      if (!url) continue;
+      const title = tag.match(/title="([^"]*)"/i)?.[1] || '';
       try {
-        const href = new URL(a[1], url).href;
-        if (!documentos.has(href)) documentos.set(href, { proveedorRut: null, nombre: (limpiar(a[2]) || 'documento').slice(0, 400), url: href });
-      } catch { /* href basura */ }
+        pendientesAnexo.push({ rut, categoria: categoriaDeControl(im[1], title), url: new URL(desescapar(url), MP_BASE).href });
+      } catch { /* url basura */ }
     }
   }
 
-  const bytes = paginas.reduce((s, p) => s + p.html.length, 0);
+  // ── 5) Entrar a cada página de anexos y listar sus archivos ────────────────
+  const documentos: DocumentoOferta[] = [];
+  const visto = new Set<string>();
+  let pagsAnexo = 0, sinLink = 0;
+
+  for (const ax of pendientesAnexo) {
+    if (pagsAnexo >= MAX_PAGINAS_ANEXO) { notas.push(`tope ${MAX_PAGINAS_ANEXO} pág anexos`); break; }
+    if (Date.now() - inicio > PRESUPUESTO_MS) { notas.push('presupuesto agotado en anexos'); break; }
+    if (visto.has(ax.url)) continue;
+    visto.add(ax.url);
+
+    const r = await traer(ax.url, cookies, resumenUrl); cookies = r.cookies;
+    if (!r.html) { notas.push(`anexo ilegible (${ROTULO_CATEGORIA[ax.categoria]})`); continue; }
+    pagsAnexo++; paginas++;
+
+    for (const tr of r.html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const bruto = tr[1];
+      const celdas = [...bruto.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => limpiar(c[1]));
+      // Una fila de archivo se reconoce por traer un nombre CON EXTENSIÓN: encabezados,
+      // "Seleccionar Todos" y pies de tabla no la tienen.
+      const nombre = celdas.find(c => /\.[a-z0-9]{2,5}$/i.test(c) && c.length > 4);
+      if (!nombre) continue;
+
+      const idx = celdas.indexOf(nombre);
+      // El botón "Ver" NO es un enlace: es un ImageButton de ASP.NET
+      //     <input type="image" name="DWNL$grdId$ctl02$search" title="Ver Anexo">
+      // que baja el archivo por POSTBACK (POST del formulario con __VIEWSTATE). Por eso se
+      // guarda el NOMBRE DEL CONTROL con el prefijo `postback:` en vez de una URL: la descarga
+      // se resuelve después con descargarAnexoPorPostback() contra la página contenedora.
+      // (Buscar un href acá devolvía "0 links" para todos los archivos y parecía un bloqueo.)
+      const control = bruto.match(/name="(DWNL\$grdId\$ctl\d+\$\w+)"[^>]*type="image"/i)?.[1]
+        || bruto.match(/type="image"[^>]*name="(DWNL\$grdId\$ctl\d+\$\w+)"/i)?.[1];
+      const href = control ? `postback:${control}`
+        : (bruto.match(/<a[^>]+href=["'](?!javascript:)([^"']+)["']/i)?.[1]
+          || desescapar(bruto).match(/openPopUp\('([^']+)'/i)?.[1]
+          || '');
+      if (!href) sinLink++;
+
+      documentos.push({
+        proveedorRut: ax.rut,
+        categoria: ax.categoria,
+        nombre: nombre.slice(0, 400),
+        tipoMp: (celdas[idx + 1] || '').slice(0, 120) || null,
+        descripcion: (celdas[idx + 2] || '').slice(0, 400) || null,
+        tamanoKb: tamanoEnKb(celdas.join(' ')),
+        urlContenedor: ax.url,
+        url: href.startsWith('postback:') ? href
+          : href ? (() => { try { return new URL(desescapar(href), ax.url).href; } catch { return ''; } })() : '',
+      });
+    }
+  }
+
   const diagnostico = [
-    `${paginas.length} pág (${Math.round(bytes / 1024)} KB)`,
-    `${filasTotales} filas`,
-    `${filasSinRut} sin RUT`,
-    `${ofertas.size} ofertas`,
-    `${documentos.size} docs`,
+    `${paginas} pág`,
+    `${ofertas.length} ofertas`,
+    `${sinRut} grupos sin RUT válido`,
+    `${pendientesAnexo.length} anexos`,
+    `${pagsAnexo} pág anexos`,
+    `${documentos.length} docs`,
+    ...(sinLink ? [`${sinLink} sin link`] : []),
     ...notas,
   ].join(' · ').slice(0, 400);
 
-  return { ofertas: [...ofertas.values()], documentos: [...documentos.values()], diagnostico, paginas: paginas.length, cookies, referer };
+  return { ofertas, documentos, diagnostico, paginas, cookies, referer };
 }
 
 /**
- * Descarga un documento de oferta ya detectado. Devuelve el binario o null si el link expiró
- * (los `enc=` son efímeros: si falla, se vuelve a leer la apertura y se re-detecta).
+ * Descarga un anexo cuyo botón "Ver" es un ImageButton de ASP.NET (postback).
+ *
+ * Se re-pide la página contenedora para tener un __VIEWSTATE FRESCO —reutilizar uno viejo hace
+ * que el servidor responda la página de error de validación en vez del archivo— y se hace POST
+ * del formulario agregando las coordenadas del click (`control.x` / `control.y`), que es lo que
+ * ASP.NET usa para saber qué ImageButton se apretó.
  */
+export async function descargarAnexoPorPostback(
+  paginaUrl: string, control: string, cookies: string, referer: string,
+): Promise<{ buffer: Buffer; contentType: string; nombre: string | null } | null> {
+  try {
+    const pagina = await traer(paginaUrl, cookies, referer);
+    if (!pagina.html) return null;
+    const html = pagina.html;
+
+    const accion = html.match(/<form[^>]+action=["']([^"']+)["']/i)?.[1] || paginaUrl;
+    const cuerpo = new URLSearchParams();
+    // Todos los hidden del formulario (__VIEWSTATE, __VIEWSTATEGENERATOR, __EVENTVALIDATION…).
+    for (const m of html.matchAll(/<input[^>]*type="hidden"[^>]*>/gi)) {
+      const name = m[0].match(/name="([^"]+)"/i)?.[1];
+      if (!name) continue;
+      cuerpo.set(name, desescapar(m[0].match(/value="([^"]*)"/i)?.[1] ?? ''));
+    }
+    cuerpo.set(`${control}.x`, '8');
+    cuerpo.set(`${control}.y`, '8');
+
+    const res = await fetchMPConReintentos(new URL(desescapar(accion), paginaUrl).href, {
+      method: 'POST',
+      headers: {
+        'User-Agent': MP_UA,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Referer': paginaUrl,
+        ...(pagina.cookies ? { Cookie: pagina.cookies } : {}),
+      },
+      body: cuerpo.toString(),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(90_000),
+    });
+    if (!res.ok) return null;
+
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (buffer.length === 0) return null;
+    // Si vuelve HTML es que el postback falló (viewstate vencido / sesión perdida), no el archivo.
+    const cabecera = buffer.subarray(0, 200).toString('utf8').toLowerCase();
+    if (cabecera.includes('<!doctype html') || cabecera.includes('<html')) return null;
+
+    const disp = res.headers.get('content-disposition') || '';
+    return {
+      buffer,
+      contentType: res.headers.get('content-type') || 'application/octet-stream',
+      nombre: disp.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i)?.[1] ?? null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Descarga un archivo de oferta por link directo. null si expiró o si vino una pantalla HTML. */
 export async function descargarDocumentoOferta(
   url: string, cookies: string, referer: string,
 ): Promise<{ buffer: Buffer; contentType: string } | null> {
+  if (!url) return null;
   try {
     const res = await fetchMPConReintentos(url, {
       method: 'GET',
-      headers: {
-        'User-Agent': MP_UA,
-        'Referer': referer,
-        ...(cookies ? { Cookie: cookies } : {}),
-      },
+      headers: { 'User-Agent': MP_UA, 'Referer': referer, ...(cookies ? { Cookie: cookies } : {}) },
       redirect: 'follow',
       signal: AbortSignal.timeout(60_000),
     });
     if (!res.ok) return null;
     const buffer = Buffer.from(await res.arrayBuffer());
     if (buffer.length === 0) return null;
-    // Un HTML donde debería venir un PDF = el portal devolvió una pantalla de sesión/WAF.
     if (buffer.subarray(0, 200).toString('utf8').toLowerCase().includes('<!doctype html')) return null;
     return { buffer, contentType: res.headers.get('content-type') || 'application/octet-stream' };
   } catch {
