@@ -5,7 +5,7 @@
 // al abrir la pantalla de relleno).
 import { NextRequest, NextResponse } from 'next/server';
 import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
-import { cargarDocumentoYEmpresa } from '@/app/lib/anexos-datos';
+import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo } from '@/app/lib/anexos-datos';
 import { analizarAnexoParaUI } from '@/app/lib/anexos-rellenar';
 
 export const runtime = 'nodejs';
@@ -30,8 +30,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { bufferOriginal, nombreOriginal, empresa } = await cargarDocumentoYEmpresa(codigo, documentoId, empresaId);
-    const analisis = await analizarAnexoParaUI(bufferOriginal, empresa);
+    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo] = await Promise.all([
+      cargarDocumentoYEmpresa(codigo, documentoId, empresaId),
+      obtenerItemsCosteoParaAnexo(codigo),
+    ]);
+    const analisis = await analizarAnexoParaUI(bufferOriginal, empresa, itemsCosteo);
     return NextResponse.json({ success: true, nombre: nombreOriginal, ...analisis });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 400 });

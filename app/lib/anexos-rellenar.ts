@@ -21,10 +21,14 @@ import {
 import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda, type CandidatoInline } from '@/app/lib/anexos-detectar';
 import { buscarCampo, esMatchCoherente, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
 import { matchearConIA, clasificarTitulos } from '@/app/lib/anexos-ia-matching';
+import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
+import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
+
+const fmtNumeroCL = (n: number) => new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n);
 
 export interface CampoCompletado {
-  etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia';
+  etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' | 'costeo';
   formulario?: string; // a qué "FORMULARIO N°X" pertenece, para agruparlo igual que los pendientes
 }
 export interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
@@ -40,7 +44,7 @@ export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: 
 // 100% completada sola no necesita vista propia, ya aparece resumida en "completadosAuto".
 export interface CeldaTablaUI {
   texto: string;                                   // texto ya existente en el Word (columna, dato fijo)
-  auto?: { valor: string; via: 'diccionario' | 'ia' }; // se completó sola — se muestra el valor, sin input
+  auto?: { valor: string; via: 'diccionario' | 'ia' | 'costeo' }; // se completó sola — se muestra el valor, sin input
   input?: { id: string };                          // blanco real pendiente — el mismo id que usa generarAnexoFinal
 }
 export interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string }
@@ -54,7 +58,7 @@ function formularioDe(indiceParrafo: number, formularios: FormularioDetectado[])
   return formularios.find(f => indiceParrafo >= f.indiceInicio && indiceParrafo <= f.indiceFin)?.titulo;
 }
 
-export interface CampoResuelto { c: CandidatoCelda; campo: string; valor: string; via: 'diccionario' | 'ia' }
+export interface CampoResuelto { c: CandidatoCelda; campo: string; valor: string; via: 'diccionario' | 'ia' | 'costeo' }
 
 // Resuelve TODOS los candidatos de celda de un documento — diccionario primero, respaldo IA
 // después, clasificación de títulos AL FINAL (solo sobre lo que sigue sin resolver). El orden
@@ -73,7 +77,7 @@ export interface CampoResuelto { c: CandidatoCelda; campo: string; valor: string
 // el mismo filtro — antes cada una tenía su propia copia de esta lógica y solo una filtraba
 // títulos, así que el .docx final podía quedar distinto de lo que mostraba la pantalla de revisión.
 export async function resolverCandidatosCelda(
-  candidatos: CandidatoCelda[], empresa: EmpresaCampos, soloManual?: Set<number>,
+  candidatos: CandidatoCelda[], empresa: EmpresaCampos, soloManual?: Set<number>, itemsCosteo?: ItemCosteoPrecio[],
 ) {
   // El diccionario NO deduplica por campo: sus patrones son precisos por construcción (regex
   // ancladas a texto exacto), y es NORMAL que un documento combine varios formularios que piden
@@ -125,6 +129,24 @@ export async function resolverCandidatosCelda(
     }
   }
 
+  // Respaldo de PRECIOS (Motor Comercial, ver anexos-precios-ia.ts): si la licitación tiene un
+  // costeo real subido, las filas de "precio unitario" que ni el diccionario ni la IA de empresa
+  // pudieron resolver (nunca iban a poder — no describen un dato de la empresa) se cruzan contra
+  // la descripción de cada ítem del costeo. Va ANTES del split compuestos/simples: una fila de
+  // precio SIEMPRE es compuesta ("<ítem> — Precio unitario"), así que se resuelve aquí o pasa de
+  // largo intacta a `compuestos` como pendiente, igual que hoy.
+  let sinResolverTrasPrecio = sinResolver;
+  if (itemsCosteo && itemsCosteo.length > 0) {
+    const matchesPrecio = await matchearPreciosConIA(sinResolver.map(c => c.etiqueta), itemsCosteo);
+    const mapaPrecio = new Map(matchesPrecio.map(m => [m.etiqueta, m]));
+    sinResolverTrasPrecio = [];
+    for (const c of sinResolver) {
+      const m = mapaPrecio.get(c.etiqueta);
+      if (m) matcheados.push({ c, campo: 'precio_unitario_costeo', valor: fmtNumeroCL(m.precioUnitario), via: 'costeo' });
+      else sinResolverTrasPrecio.push(c);
+    }
+  }
+
   // Los candidatos con etiqueta COMPUESTA ("<fila> — <columna>", ver patrón 1b y
   // desambiguarDuplicados en anexos-detectar.ts) NUNCA pueden ser un título de sección: por
   // construcción describen una celda puntual dentro de una tabla de 3+ columnas o un campo de
@@ -136,8 +158,8 @@ export async function resolverCandidatosCelda(
   // clasificador — esas sí pueden ser un título de página colado, como el caso original que
   // motivó este filtro.
   const [compuestos, simples] = [
-    sinResolver.filter(c => c.etiqueta.includes(' — ')),
-    sinResolver.filter(c => !c.etiqueta.includes(' — ')),
+    sinResolverTrasPrecio.filter(c => c.etiqueta.includes(' — ')),
+    sinResolverTrasPrecio.filter(c => !c.etiqueta.includes(' — ')),
   ];
   const titulos = await clasificarTitulos(simples.map(c => c.etiqueta));
   const pendientesSimples = titulos.size > 0 ? simples.filter(c => !titulos.has(c.etiqueta)) : simples;
@@ -237,10 +259,12 @@ export interface AnalisisAnexo {
 // (extraerTablasCrudo) — evita tener DOS lugares que decidan "esto se completó solo" / "esto
 // quedó pendiente", que podrían divergir.
 type Resolucion =
-  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' }
+  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' | 'costeo' }
   | { tipo: 'pendiente'; etiqueta: string; id: string };
 
-export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: EmpresaCampos): Promise<AnalisisAnexo> {
+export async function analizarAnexoParaUI(
+  bufferOriginal: Buffer, empresa: EmpresaCampos, itemsCosteo?: ItemCosteoPrecio[],
+): Promise<AnalisisAnexo> {
   const { xml: xmlCrudo } = await abrirDocx(bufferOriginal);
   const { xml: xmlNormalizado } = normalizarParaIds(xmlCrudo);
   const analisis = analizarAnexo(xmlNormalizado);
@@ -248,7 +272,7 @@ export async function analizarAnexoParaUI(bufferOriginal: Buffer, empresa: Empre
 
   const completadosAuto: CampoCompletado[] = [];
   const resolucionPorIndice = new Map<number, Resolucion>();
-  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual);
+  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, itemsCosteo);
   for (const m of matcheados) {
     completadosAuto.push({
       etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via,
@@ -346,6 +370,7 @@ export async function generarAnexoFinal(
   bufferOriginal: Buffer,
   empresa: EmpresaCampos,
   respuestas: Record<string, string>,
+  itemsCosteo?: ItemCosteoPrecio[],
 ): Promise<ResultadoGeneracion> {
   const { zip, xml: xmlCrudo } = await abrirDocx(bufferOriginal);
   const { xml: xmlNormalizado } = normalizarParaIds(xmlCrudo);
@@ -386,7 +411,7 @@ export async function generarAnexoFinal(
   // 2) Celdas de tabla: diccionario → respaldo IA → lo que escribió el humano. Van después —
   //    ver comentario arriba.
   let completados = completadosInline;
-  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual);
+  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, itemsCosteo);
   for (const m of matcheados) {
     xml = rellenarCeldaVacia(xml, m.c.paraId, m.valor);
     completados++;

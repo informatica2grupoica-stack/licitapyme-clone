@@ -5,6 +5,7 @@
 import pool from '@/app/lib/db';
 import type { EmpresaCampos } from '@/app/lib/anexos-diccionario';
 import { convertirDocADocx } from '@/app/lib/anexos-doc-legacy';
+import { parsearCosteo, itemsPrecioDeCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 
 export interface DocumentoYEmpresa {
   bufferOriginal: Buffer;
@@ -55,4 +56,34 @@ export async function cargarDocumentoYEmpresa(
   const nombreOriginal = esDocLegado ? nombre.replace(/\.doc$/i, '.docx') : nombre;
 
   return { bufferOriginal, nombreOriginal, empresa };
+}
+
+// ── Puente con el Motor Comercial (Fase 4) — precios reales para el anexo económico ──────────
+// Mismo patrón que ya usa /api/negocios/[id]/comercial/costeo: el detalle por ítem no se persiste
+// aparte, se re-parsea del .xlsx vigente en R2 cada vez que se necesita (ver cabecera de
+// motor-comercial.ts). Nunca lanza: sin negocio asignado, sin costeo subido, o si el archivo no
+// se pudo leer, se degrada a "sin precios" — el Anexo Creator sigue funcionando igual que hoy,
+// solo sin el auto-relleno de precios.
+export async function obtenerItemsCosteoParaAnexo(codigo: string): Promise<ItemCosteoPrecio[]> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT ccc.archivo_url
+         FROM checklist_comercial_costeo ccc
+         JOIN negocios n ON n.id = ccc.negocio_id
+        WHERE n.licitacion_codigo = ? AND n.activo = TRUE AND ccc.vigente = 1
+        LIMIT 1`,
+      [codigo],
+    ) as any;
+    const url = (rows as any[])[0]?.archivo_url;
+    if (!url) return [];
+
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const buffer = Buffer.from(await res.arrayBuffer());
+    const filas = await parsearCosteo(buffer);
+    return itemsPrecioDeCosteo(filas);
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudo leer el costeo de ${codigo} para el Anexo Creator:`, String(e).slice(0, 200));
+    return [];
+  }
 }

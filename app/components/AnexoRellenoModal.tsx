@@ -19,10 +19,10 @@ const TIMEOUT_VISOR_OFFICE_MS = 14_000;
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
-interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia'; formulario?: string }
+interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' | 'costeo'; formulario?: string }
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
 interface PendienteInline { id: string; contexto: string; formulario?: string }
-interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'diccionario' | 'ia' }; input?: { id: string } }
+interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'diccionario' | 'ia' | 'costeo' }; input?: { id: string } }
 interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string }
 
 interface Analisis {
@@ -58,10 +58,16 @@ function TablaReal({
                     />
                   ) : c.auto ? (
                     <span
-                      className="inline-flex items-center gap-1 text-emerald-700 font-medium"
-                      title={c.auto.via === 'ia' ? 'Completado por IA' : 'Completado automático'}
+                      className={`inline-flex items-center gap-1 font-medium ${c.auto.via === 'costeo' ? 'text-cyan-700' : 'text-emerald-700'}`}
+                      title={
+                        c.auto.via === 'costeo' ? 'Precio cruzado con el costeo subido — revisa antes de generar'
+                          : c.auto.via === 'ia' ? 'Completado por IA' : 'Completado automático'
+                      }
                     >
                       {c.auto.valor}
+                      {c.auto.via === 'costeo' && (
+                        <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-cyan-100 text-cyan-700">$</span>
+                      )}
                     </span>
                   ) : (
                     <span className="text-slate-700">{c.texto}</span>
@@ -153,6 +159,11 @@ function ResumenAuto({ campos }: { campos: CampoCompletado[] }) {
                 {c.via === 'ia' && (
                   <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-violet-100 text-violet-700" title="Completado por IA, no por match exacto">
                     IA
+                  </span>
+                )}
+                {c.via === 'costeo' && (
+                  <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-cyan-100 text-cyan-700" title="Precio cruzado con el costeo subido — revisa antes de generar">
+                    COSTEO
                   </span>
                 )}
               </span>

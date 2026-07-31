@@ -82,6 +82,19 @@ export async function parsearCosteo(buffer: Buffer): Promise<FilaCosteo[]> {
   return filas;
 }
 
+// ── Puente hacia el Anexo Creator (app/lib/anexos-precios-ia.ts) ────────────────────────────
+// El costeo ya trae, por ítem, EXACTAMENTE lo que le falta al motor de anexos para autocompletar
+// una tabla de precios unitarios: descripción + precio de venta. Mismo patrón que ya usa esta
+// ruta para todo lo demás (parsearCosteo se corre en caliente desde el .xlsx en R2, nunca se
+// persiste el detalle por fila en una tabla propia — ver cabecera del archivo).
+export interface ItemCosteoPrecio { descripcion: string; precioUnitario: number; unidad: string | null }
+
+export function itemsPrecioDeCosteo(filas: FilaCosteo[]): ItemCosteoPrecio[] {
+  return filas
+    .filter(f => f.detalle && f.precioUnitarioSinDecimales != null && f.precioUnitarioSinDecimales > 0)
+    .map(f => ({ descripcion: f.detalle!.trim(), precioUnitario: f.precioUnitarioSinDecimales!, unidad: f.unidad }));
+}
+
 export interface AlertaMotorComercial { codigo: string; descripcion: string; detalle: string }
 
 // Mismo criterio de normalización de unidad que auditor-tecnico-core.ts (alias es/plural/tildes),

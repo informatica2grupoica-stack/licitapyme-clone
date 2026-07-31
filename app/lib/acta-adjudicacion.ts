@@ -234,7 +234,7 @@ export async function guardarActaDocumentos(
       console.error(`[acta] doc de ${codigo} no se registró:`, String(e).slice(0, 200));
     }
   }
-  return n;
+  return { guardados: n, otros };
 }
 
 export async function leerYGuardarActa(codigo: string): Promise<{
@@ -242,8 +242,13 @@ export async function leerYGuardarActa(codigo: string): Promise<{
 }> {
   const lectura = await leerActa(codigo);
   if (!lectura) return { ok: false, documentos: 0, diagnostico: 'no se pudo abrir el acta' };
-  const n = await guardarActaDocumentos(codigo, lectura);
-  return { ok: true, documentos: n, diagnostico: lectura.diagnostico };
+  const { guardados, otros } = await guardarActaDocumentos(codigo, lectura);
+  // El resto (resolución, declaraciones juradas) no se guarda, pero se dice que existe: el
+  // usuario no debe creer que el acta solo tenía un documento si en verdad tenía seis.
+  const diagnostico = otros.length
+    ? `${lectura.diagnostico} · ${otros.length} más sin traer (${otros.map(o => o.tipo).join(', ')})`
+    : lectura.diagnostico;
+  return { ok: true, documentos: guardados, diagnostico };
 }
 
 // ── Descarga ─────────────────────────────────────────────────────────────────
