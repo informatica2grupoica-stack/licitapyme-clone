@@ -112,6 +112,58 @@ function offsetsAIndices(xml: string): Map<number, number> {
   return mapa;
 }
 
+// Párrafos de tabla que Patrón 1 (detectarCandidatosCelda, ciego a filas/columnas) NUNCA debería
+// ofrecer como campo — dos motivos distintos, ambos reales (1738-18-LE26):
+//
+//  1. Relleno decorativo DENTRO de una celda que YA tiene texto (hábito de Word: Enter después de
+//     escribir, dejando un párrafo vacío de más en la misma celda) — ej. la celda de encabezado
+//     "CANTIDAD" o la celda de etiqueta "LÍNEA 1: LETRERO DE OBRAS". A nivel de CELDA no están
+//     vacías, así que Patrón 1b (detectarCandidatosTabla) las ignora correctamente, pero Patrón 1
+//     sí ve "texto corto + párrafo vacío después" y ofrece ESE relleno como si fuera un campo real.
+//     El párrafo vacío "de más" puede ir ANTES del texto o DESPUÉS (ej. la celda de encabezado
+//     "PRECIO" empieza con un párrafo vacío y el texto viene en el segundo) — cualquier párrafo
+//     vacío dentro de una celda que en conjunto SÍ tiene texto es relleno, sea cual sea su posición.
+//
+//  2. Celdas angostas de puro relleno de layout — MISMO umbral que ya usa Patrón 1b
+//     (ANCHO_PCT_MINIMO_COLUMNA_REAL, ver detectarCandidatosTabla): una columna partida en 2-3
+//     celdas sueltas en las filas de datos, donde la real mide 400+ de 5000 y las decorativas unas
+//     pocas decenas. Patrón 1b ya las descarta aunque estén VACÍAS; Patrón 1, que no conoce el
+//     ancho de ninguna celda, las ofrecía igual como campo suelto.
+//
+// A propósito NO se excluye toda celda vacía normal (esa sigue cubierta por Patrón 1, ver "2
+// columnas ya las cubre el patrón 1" en detectarCandidatosTabla) — solo estas dos formas de
+// relleno, que nunca son un campo real a llenar en ningún caso.
+function parrafosQueNuncaSonCampoEnTabla(xml: string): Set<number> {
+  const offsetsIndices = offsetsAIndices(xml);
+  const excluidos = new Set<number>();
+  for (const tc of xml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)) {
+    const cuerpoCelda = tc[1];
+    const anchoMatch = tc[0].match(/<w:tcW\s+w:w="(\d+)"\s+w:type="pct"/);
+    const anchoPct = anchoMatch ? Number(anchoMatch[1]) : null;
+    const angosta = anchoPct != null && anchoPct < ANCHO_PCT_MINIMO_COLUMNA_REAL;
+
+    const parrafosCelda = [...cuerpoCelda.matchAll(/<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>([\s\S]*?)<\/w:p>/g)];
+    const offsetCelda = tc.index! + tc[0].indexOf(cuerpoCelda);
+    const textoCelda = parrafosCelda.map(p => [...p[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('')).join('').trim();
+
+    if (angosta) {
+      // Celda decorativa por ancho: NINGUNO de sus párrafos es un campo real, tenga texto o no.
+      for (const p of parrafosCelda) {
+        const indice = offsetsIndices.get(offsetCelda + (p.index ?? 0));
+        if (indice != null) excluidos.add(indice);
+      }
+      continue;
+    }
+    if (parrafosCelda.length < 2 || !textoCelda) continue; // sin relleno "de más" que excluir
+    for (const p of parrafosCelda) {
+      if (!parrafoEstaVacio(p[1])) continue;
+      const indice = offsetsIndices.get(offsetCelda + (p.index ?? 0));
+      if (indice != null) excluidos.add(indice);
+    }
+  }
+  return excluidos;
+}
+
 interface CeldaCruda {
   texto: string; vacio: boolean; paraId: string | null; indiceGlobal: number | null; anchoPct: number | null;
   // El paraId del ÚLTIMO párrafo de la celda, SIEMPRE presente (a diferencia de `paraId`, que
@@ -538,8 +590,12 @@ export function analizarAnexo(xml: string) {
   // una etiqueta buena y otra mala ("CO").
   const candidatosTabla = detectarCandidatosTabla(xml);
   const indicesTabla = new Set(candidatosTabla.map(c => c.indice));
+  // Relleno de tabla que nunca es un campo real (ver parrafosQueNuncaSonCampoEnTabla): ni como
+  // valor apuntado por el candidato (el caso real encontrado), ni celdas angostas de puro layout.
+  const parrafosSinCampo = parrafosQueNuncaSonCampoEnTabla(xml);
   const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos)
     .filter(c => !indicesTabla.has(c.indice))
+    .filter(c => !parrafosSinCampo.has(c.indice))
     .filter(c => !blancoPrecedeTabla(xml, c.paraId));
 
   // Los campos de una sección OMITIDA (Persona Natural / UTP, cuando postulamos como jurídica) ya
