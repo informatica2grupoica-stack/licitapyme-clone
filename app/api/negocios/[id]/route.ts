@@ -493,7 +493,20 @@ export async function DELETE(request: NextRequest, { params }: Params) {
   const { id } = await params;
 
   try {
+    const [rows] = await pool.query(
+      `SELECT licitacion_codigo, licitacion_nombre FROM negocios WHERE id = ?`, [id],
+    ) as any;
+    const neg = (rows as any[])[0];
+
     await pool.query(`UPDATE negocios SET activo = FALSE WHERE id = ?`, [id]);
+
+    registrarActividad({
+      usuarioId: userId, accion: 'eliminacion',
+      entidadTipo: 'negocio', entidadId: String(id),
+      descripcion: `Eliminó "${neg?.licitacion_nombre || neg?.licitacion_codigo || `negocio ${id}`}"`,
+      metadata: { licitacion_codigo: neg?.licitacion_codigo },
+    });
+
     publicarCambio('negocio');
     return NextResponse.json({ success: true });
   } catch (error) {

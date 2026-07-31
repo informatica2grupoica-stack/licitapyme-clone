@@ -111,8 +111,13 @@ export async function construirResumenEjecutivo(
   let lineas: any[] = [];
   try {
     const [rows] = await pool.query(
+      // fecha_adjudicacion se formatea EN SQL a 'YYYY-MM-DD HH:mm:ss'. Antes se leía como Date y
+      // se guardaba con String(), que produce el toString() de JS ("Tue Jul 14 2026 13:53:37
+      // GMT-0400 (hora estándar de Chile)"): depende del locale del proceso y arrastra una
+      // conversión de zona sobre un dato que ya viene en hora de Chile. Formatear en SQL entrega
+      // el instante EXACTO que está almacenado, sin reinterpretarlo.
       `SELECT es_adjudicada, numero_oferentes, monto_adjudicado_total, url_acta,
-              fecha_adjudicacion, lineas
+              DATE_FORMAT(fecha_adjudicacion, '%Y-%m-%d %H:%i:%s') AS fecha_adjudicacion, lineas
          FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1`,
       [licitacionCodigo],
     ) as any;

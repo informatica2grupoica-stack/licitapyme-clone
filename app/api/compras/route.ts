@@ -43,9 +43,13 @@ export async function GET(request: NextRequest) {
     }));
 
     return NextResponse.json({ success: true, paquetes });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[compras][GET]', String(error));
-    // Migración 55 pendiente → lista vacía, no 500 opaco.
-    return NextResponse.json({ success: true, paquetes: [], migracionPendiente: true });
+    // Solo la migración 55 pendiente (tabla inexistente) degrada a lista vacía.
+    // Cualquier otro error de BD (timeout, conexión, etc.) debe verse como error real.
+    if (error?.code === 'ER_NO_SUCH_TABLE') {
+      return NextResponse.json({ success: true, paquetes: [], migracionPendiente: true });
+    }
+    return NextResponse.json({ error: 'No se pudo cargar Compras.' }, { status: 500 });
   }
 }

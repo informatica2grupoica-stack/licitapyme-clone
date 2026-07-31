@@ -43,6 +43,14 @@ const ENRICH_MAX_MS       = 20_000; // tiempo máximo de enrichment de fondo por
 const ENRICH_BASE_DELAY_MS = 1_500; // espera base entre llamadas a ?codigo=
 const ENRICH_TTL_DIAS     = 7;      // re-enriquecer activas si el caché es más viejo
 
+// maxDuration configurado en vercel.json para esta ruta. Los pasos 8/9b/9c llaman a la API de MP
+// con SU PROPIO presupuesto interno por defecto (25s cada uno) sin mirar cuánto ya gastaron los
+// pasos anteriores — sumados pueden pasar largamente el maxDuration real y Vercel mata la función
+// a mitad de un paso. Con esto cada uno recibe el tiempo que REALMENTE queda, y se salta entero
+// (en vez de arrancar y cortarse a medias) si no queda margen.
+const MAX_DURATION_MS  = 58_000; // margen de 2s bajo el límite de 60s del plan
+const PRESUPUESTO_MIN_MS = 3_000; // bajo esto, ni vale la pena arrancar el paso
+
 // ── Helper: concurrencia limitada ─────────────────────────────────────────────
 async function withConcurrency<T>(
   items: T[],
@@ -563,19 +571,26 @@ export async function GET(request: NextRequest) {
     // (API oficial, cualquier IP). NO promueve: por decisión del usuario las adjudicadas SE
     // QUEDAN en Postuladas (con filtros por estado). La APERTURA es aparte (portal, IP chilena)
     // en /api/cron/aperturas. Best-effort: nunca rompe el cron.
-    try {
-      const pp = await procesarPostuladas({ promover: false });
-      stats.postAdjudicadas = pp.adjudicadas;
-      stats.postPerdidas    = pp.perdidas;
-      if (pp.adjudicadas || pp.perdidas)
-        console.log(`[Cron] 🎯 Postuladas: +${pp.adjudicadas} ganadas, +${pp.perdidas} perdidas (${pp.procesados}/${pp.codigos} códigos consultados)`);
-      // Si quedaron fuera por tiempo, decirlo: van primeras en la próxima corrida (rotación).
-      if (pp.sinPresupuesto > 0)
-        console.log(`[Cron] ⏳ Postuladas: ${pp.sinPresupuesto} sin presupuesto de tiempo → quedan de primeras en la próxima corrida`);
-      if (pp.entregasAbiertas > 0)
-        console.log(`[Cron] 📦 Entrega de Proyectos: ${pp.entregasAbiertas} entrega(s) abierta(s), pendientes de acuse de recibo`);
-    } catch (e) {
-      console.error('[Cron] procesar postuladas falló (no crítico):', String(e));
+    {
+      const restante = MAX_DURATION_MS - elapsed();
+      if (restante < PRESUPUESTO_MIN_MS) {
+        console.warn(`[Cron] ⏭ Postuladas omitido — sin presupuesto (${restante}ms)`);
+      } else {
+        try {
+          const pp = await procesarPostuladas({ promover: false, presupuestoMs: restante });
+          stats.postAdjudicadas = pp.adjudicadas;
+          stats.postPerdidas    = pp.perdidas;
+          if (pp.adjudicadas || pp.perdidas)
+            console.log(`[Cron] 🎯 Postuladas: +${pp.adjudicadas} ganadas, +${pp.perdidas} perdidas (${pp.procesados}/${pp.codigos} códigos consultados)`);
+          // Si quedaron fuera por tiempo, decirlo: van primeras en la próxima corrida (rotación).
+          if (pp.sinPresupuesto > 0)
+            console.log(`[Cron] ⏳ Postuladas: ${pp.sinPresupuesto} sin presupuesto de tiempo → quedan de primeras en la próxima corrida`);
+          if (pp.entregasAbiertas > 0)
+            console.log(`[Cron] 📦 Entrega de Proyectos: ${pp.entregasAbiertas} entrega(s) abierta(s), pendientes de acuse de recibo`);
+        } catch (e) {
+          console.error('[Cron] procesar postuladas falló (no crítico):', String(e));
+        }
+      }
     }
 
     // ── Paso 9a: Barrido Cerrada por FECHA (sin API) en TODA la base ──────────────────
@@ -594,25 +609,39 @@ export async function GET(request: NextRequest) {
     // Por cada asignada viva, 1 llamada a MP; si el estado real es DEFINITIVO (Cerrada/Desierta/
     // Adjudicada/Revocada/Suspendida) y difiere del cacheado, actualiza licitacion_estado en
     // negocios Y alertas → el badge se ve real en detalle, lista, radar y buscador. Best-effort.
-    try {
-      const re = await refrescarEstadosAsignadas();
-      stats.estadosActualizados = re.actualizadas;
-      if (re.actualizadas > 0)
-        console.log(`[Cron] 🔄 Estados MP asignadas: ${re.actualizadas} actualizadas (${re.codigos} códigos)`);
-    } catch (e) {
-      console.error('[Cron] refrescar estados asignadas falló (no crítico):', String(e));
+    {
+      const restante = MAX_DURATION_MS - elapsed();
+      if (restante < PRESUPUESTO_MIN_MS) {
+        console.warn(`[Cron] ⏭ Estados MP asignadas omitido — sin presupuesto (${restante}ms)`);
+      } else {
+        try {
+          const re = await refrescarEstadosAsignadas({ presupuestoMs: restante });
+          stats.estadosActualizados = re.actualizadas;
+          if (re.actualizadas > 0)
+            console.log(`[Cron] 🔄 Estados MP asignadas: ${re.actualizadas} actualizadas (${re.codigos} códigos)`);
+        } catch (e) {
+          console.error('[Cron] refrescar estados asignadas falló (no crítico):', String(e));
+        }
+      }
     }
 
     // ── Paso 9c: Estado desde la API para el RADAR completo (rodante, acotado) ────────
     // Lote por corrida (recientes primero) para capturar Revocada/Desierta/Adjudicada en TODO el
     // radar sin saturar la API. Silencioso. Best-effort.
-    try {
-      const rr = await refrescarEstadosRadar();
-      stats.estadosRadar = rr.actualizadas;
-      if (rr.actualizadas > 0)
-        console.log(`[Cron] 📡 Estados MP radar: ${rr.actualizadas} actualizadas (${rr.codigos} consultadas)`);
-    } catch (e) {
-      console.error('[Cron] refrescar estados radar falló (no crítico):', String(e));
+    {
+      const restante = MAX_DURATION_MS - elapsed();
+      if (restante < PRESUPUESTO_MIN_MS) {
+        console.warn(`[Cron] ⏭ Estados MP radar omitido — sin presupuesto (${restante}ms)`);
+      } else {
+        try {
+          const rr = await refrescarEstadosRadar({ presupuestoMs: restante });
+          stats.estadosRadar = rr.actualizadas;
+          if (rr.actualizadas > 0)
+            console.log(`[Cron] 📡 Estados MP radar: ${rr.actualizadas} actualizadas (${rr.codigos} consultadas)`);
+        } catch (e) {
+          console.error('[Cron] refrescar estados radar falló (no crítico):', String(e));
+        }
+      }
     }
 
     stats.duracionMs = elapsed();

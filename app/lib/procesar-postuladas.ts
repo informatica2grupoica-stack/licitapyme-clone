@@ -49,7 +49,7 @@ function fmtCLP(n: number | null | undefined): string {
 }
 
 export async function procesarPostuladas(
-  opts: { promover?: boolean; soloCerradas?: boolean } = {},
+  opts: { promover?: boolean; soloCerradas?: boolean; presupuestoMs?: number } = {},
 ): Promise<{
   codigos: number; procesados: number; sinPresupuesto: number;
   adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number;
@@ -59,8 +59,12 @@ export async function procesarPostuladas(
   //   refresca el cache (estado + adjudicación) para KPIs/filtros instantáneos.
   // soloCerradas: si limita a las que ya cerraron. false = también refresca las Publicadas
   //   (abiertas), para que el filtro por estado en Postuladas tenga el estado real al día.
+  // presupuestoMs: tope de ESTE paso, pasado por el llamador según lo que ya gastó del maxDuration
+  //   del cron. Sin esto, este paso siempre asumía un presupuesto fresco de PRESUPUESTO_MS aunque
+  //   los pasos anteriores ya hubieran consumido casi todo el tiempo disponible.
   const promover     = opts.promover     ?? true;
   const soloCerradas = opts.soloCerradas ?? true;
+  const presupuestoMs = opts.presupuestoMs ?? PRESUPUESTO_MS;
   // `codigos` = candidatos totales · `procesados` = los que alcanzaron a consultarse ·
   // `sinPresupuesto` = los que quedaron fuera por tiempo (van primeros en la próxima corrida).
   const stats = { codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0 };
@@ -112,7 +116,7 @@ export async function procesarPostuladas(
   const procesarCodigo = async (codigo: string) => {
     // Sin presupuesto → salta. Gracias al ORDER BY por `consultado_en`, estas quedan de PRIMERAS
     // en la próxima corrida (antes se saltaban siempre las mismas y no se revisaban nunca).
-    if (Date.now() - inicio > PRESUPUESTO_MS) { stats.sinPresupuesto++; return; }
+    if (Date.now() - inicio > presupuestoMs) { stats.sinPresupuesto++; return; }
     const negocios = porCodigo.get(codigo) || [];
     stats.procesados++;
     try {

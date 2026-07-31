@@ -191,6 +191,58 @@ export async function repararContactosFaltantes(limite = 20): Promise<{ revisado
 }
 
 /**
+ * RECONCILIACIÓN: negocios que llegaron a POSTULADA (o más allá) pero se quedaron sin fila en
+ * `checklist_comercial_congelamiento`. El disparo en app/api/negocios/[id]/route.ts es
+ * fire-and-forget (`.catch(() => {})`) para no bloquear el PATCH — si `construirPaquete()` falla
+ * (MP caído, checklist incompleto, lo que sea) el error se traga y nadie se entera. Sin esto, esa
+ * postulada nunca aparece en Compras y no hay forma de saberlo salvo comparando a mano.
+ *
+ * Best-effort y acotada, mismo patrón que `repararContactosFaltantes`: nunca lanza, nunca reescribe
+ * un congelamiento existente (ver `congelarAuditorSiCorresponde`, que ya es idempotente).
+ *
+ * EXIGE que el negocio TENGA checklist del Auditor. Sin ese filtro esto congelaría también las
+ * postuladas anteriores a la Fase 7, que nunca pasaron por el Auditor: medido el 2026-07-31 sobre
+ * la base real, 217 de 232 candidatos están en ese caso. Congelarlas produciría 217 paquetes
+ * vacíos —ruido que además esconde los 15 casos que sí importan—. Un negocio sin checklist no
+ * tiene un congelamiento "faltante": no hay nada que congelar.
+ */
+export async function congelarPendientes(limite = 20): Promise<{ revisados: number; congelados: number }> {
+  const res = { revisados: 0, congelados: 0 };
+  let filas: Array<{ id: number; licitacion_codigo: string }> = [];
+  try {
+    const [rows] = await pool.query(
+      `SELECT n.id, n.licitacion_codigo
+         FROM negocios n
+         LEFT JOIN checklist_comercial_congelamiento c ON c.negocio_id = n.id
+        WHERE c.negocio_id IS NULL
+          AND n.estado_pipeline IN ('POSTULADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA',
+                                     '7POSTULADO_JV', '7POSTULADO_CG', 'ADJ_JV', 'ADJ_CG',
+                                     '8POSIBLE_ADJ', '9PERDIDA')
+          AND EXISTS (SELECT 1 FROM checklist_comercial cc WHERE cc.negocio_id = n.id)
+        ORDER BY n.id DESC
+        LIMIT ?`,
+      [limite],
+    ) as any;
+    filas = rows as any[];
+  } catch (e) {
+    console.error('[congelamiento] reconciliación: carga falló:', String(e).slice(0, 200));
+    return res;
+  }
+
+  for (const f of filas) {
+    res.revisados++;
+    const antes = await yaCongelado(f.id);
+    if (antes) continue; // se congeló entre la consulta y ahora (carrera con el flujo normal)
+    await congelarAuditorSiCorresponde(f.id, f.licitacion_codigo, null, 'Reconciliación automática');
+    if (await yaCongelado(f.id)) {
+      res.congelados++;
+      console.log(`[congelamiento] reconciliado negocio ${f.id} (${f.licitacion_codigo})`);
+    }
+  }
+  return res;
+}
+
+/**
  * Congela el Auditor al postular. Idempotente (INSERT IGNORE sobre PK negocio_id): si ya está
  * congelado, no hace nada — nunca se reescribe, es el registro histórico (spec §12.1).
  * Nunca lanza: un fallo acá no debe bloquear la postulación en sí.

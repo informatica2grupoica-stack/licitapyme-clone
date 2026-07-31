@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     host === 'mercadopublico.cl' || host.endsWith('.mercadopublico.cl') ||
     host.endsWith('.r2.dev') ||
     host.endsWith('.r2.cloudflarestorage.com') ||
-    (!!r2AccountId && host.includes(r2AccountId));
+    (!!r2AccountId && host === `${r2AccountId}.r2.cloudflarestorage.com`);
 
   if (!esUrlPermitida) {
     return NextResponse.json({ error: 'URL no permitida' }, { status: 403 });

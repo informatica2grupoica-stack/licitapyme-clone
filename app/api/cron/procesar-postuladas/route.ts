@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
-import { repararContactosFaltantes } from '@/app/lib/congelamiento';
+import { repararContactosFaltantes, congelarPendientes } from '@/app/lib/congelamiento';
 import { publicarCambio } from '@/app/lib/sse-bus';
 
 export const runtime = 'nodejs';
@@ -50,11 +50,18 @@ export async function POST(req: NextRequest) {
     try { contactos = await repararContactosFaltantes(20); }
     catch (e) { console.error('[cron postuladas] reparar contactos falló:', String(e).slice(0, 200)); }
 
+    // Reconcilia POSTULADAs (o más allá) que se quedaron sin paquete congelado en Compras
+    // porque el disparo original es fire-and-forget y traga errores. Best-effort.
+    let congelamiento = { revisados: 0, congelados: 0 };
+    try { congelamiento = await congelarPendientes(20); }
+    catch (e) { console.error('[cron postuladas] reconciliar congelamiento falló:', String(e).slice(0, 200)); }
+
     // Ahora SÍ expone cola: `sinPresupuesto` son los códigos que no alcanzaron a consultarse por
     // tiempo. El scheduler loopea hasta vaciarla (y el orden por `consultado_en` garantiza que
     // cada pasada tome los que faltan, no los mismos de siempre).
     return NextResponse.json({
       success: true, ...r, contactosReparados: contactos.reparados,
+      congelamientoReconciliado: congelamiento.congelados,
       completado: r.sinPresupuesto === 0, pendientes: r.sinPresupuesto,
       duracionMs: Date.now() - t0,
     });

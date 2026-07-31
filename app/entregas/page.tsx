@@ -39,6 +39,17 @@ const fecha = (f: string | null) => {
   return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
+// Fecha CON hora, para el instante de adjudicación: es el dato que publica el acta de MP y el
+// equipo lo usa para ubicar el hito exacto. 'YYYY-MM-DD HH:mm:ss' se parsea con la T para que el
+// navegador NO lo tome como UTC (Safari/Chrome difieren con el espacio) y corra la hora.
+const fechaHora = (f: string | null) => {
+  if (!f) return '—';
+  const d = new Date(typeof f === 'string' ? f.replace(' ', 'T') : f);
+  return isNaN(d.getTime()) ? '—' : d.toLocaleString('es-CL', {
+    day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+};
+
 export default function EntregasPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
   const toast = useToast();
@@ -148,7 +159,12 @@ export default function EntregasPage() {
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-[11.5px] text-zinc-500">
                         <span className="font-mono">{e.licitacionCodigo}</span>
                         {e.organismo && <span className="inline-flex items-center gap-1"><Building2 size={11} />{e.organismo}</span>}
-                        <span>Ganado el {fecha(e.abiertaAt)}</span>
+                        {/* "Ganado el" = la fecha del ACTA de MP (cuándo se adjudicó de verdad),
+                            NO `abiertaAt`, que es cuándo ESTE sistema abrió la entrega. En las
+                            entregas cargadas retroactivamente esas dos fechas no tienen nada que
+                            ver: `abiertaAt` sería el día del backfill. Solo se cae a `abiertaAt`
+                            si el acta todavía no trae fecha. */}
+                        <span>Ganado el {r.fechaAdjudicacion ? fechaHora(r.fechaAdjudicacion) : fecha(e.abiertaAt)}</span>
                         <span className="inline-flex items-center gap-1 font-semibold text-emerald-700">
                           {clp(r.montoNuestro)}
                         </span>
