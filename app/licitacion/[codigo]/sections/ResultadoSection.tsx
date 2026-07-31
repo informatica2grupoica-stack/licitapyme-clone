@@ -9,6 +9,8 @@
 // (UrlActa), por eso lo ofrecemos como botón destacado.
 
 import { useEffect, useState } from 'react';
+import { useSession } from '@/app/lib/session-context';
+import DocumentosActa from '@/app/components/DocumentosActa';
 import {
   Trophy, Award, Calendar, Users, FileCheck2, ExternalLink,
   CheckCircle2, Loader2, Hourglass, ChevronDown, ChevronUp, Table2,
@@ -45,6 +47,7 @@ function fmtCLP(n: number | null | undefined) {
 }
 
 export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: string }) {
+  const { usuario } = useSession();
   const [adj, setAdj] = useState<Adjudicacion | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -146,6 +149,10 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
             <FileCheck2 size={16} className="ml-auto flex-shrink-0" style={{ color: acc }} />
           </a>
         )}
+
+        {/* Los documentos del acta ADENTRO: el acta de evaluación explica por qué ganamos o
+            perdimos, y hasta ahora había que salir a Mercado Público a buscarla a mano. */}
+        <DocumentosActa codigo={codigo} isAdmin={usuario?.rol === 'admin'} acento={acc} />
       </div>
 
       {/* Ganadores por línea */}
