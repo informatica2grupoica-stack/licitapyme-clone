@@ -29,11 +29,13 @@ interface OferenteVista {
   monto: number | null; moneda: string | null; esNuestra: boolean;
   lineas: { lineaNumero: number; lineaDescripcion: string | null; monto: number | null }[];
   categorias: CategoriaVista[]; totalDocumentos: number; documentosDescargados: number;
+  montoAnomalo: boolean;
 }
 interface Vista {
   codigo: string; aperturada: boolean; leidaEn: string | null; diagnostico: string | null;
   oferentes: OferenteVista[]; competidores: number;
   nuestraPosicion: number | null; totalOferentesConMonto: number;
+  notaComparacion: string | null;
 }
 
 const fmt = (n: number | null, moneda: string | null) => {
@@ -66,6 +68,7 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
   const [abierto, setAbierto] = useState<string | null>(null);
   const [catAbierta, setCatAbierta] = useState<string | null>(null);
   const [visor, setVisor] = useState<VisorDoc | null>(null);
+  const [bajando, setBajando] = useState<string | null>(null);   // rut en descarga
 
   const cargar = useCallback(async () => {
     try {
@@ -101,6 +104,27 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
       setError('No se pudo leer la apertura');
     } finally {
       setReleyendo(false);
+    }
+  };
+
+  // Baja los anexos pendientes de UN oferente al momento, sin esperar la pasada del cron.
+  const bajarAnexos = async (rut: string) => {
+    setBajando(rut); setError(null);
+    try {
+      const r = await fetch('/api/postuladas/ofertas', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo, rut, descargar: true }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setError(d?.error || 'No se pudieron descargar los anexos'); return; }
+      if (d.vista) setVista(d.vista);
+      if (d.fallidos > 0 && d.descargados === 0) {
+        setError('Mercado Público no entregó los archivos (enlace vencido o portal caído). Vuelve a intentarlo.');
+      }
+    } catch {
+      setError('No se pudieron descargar los anexos');
+    } finally {
+      setBajando(null);
     }
   };
 
@@ -149,13 +173,20 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
       )}
 
       {vista?.nuestraPosicion != null && (
-        <div className={`inline-flex items-center gap-1.5 text-[12.5px] font-semibold rounded-lg px-3 py-1.5 mb-3 border ${
+        // El número NUNCA va solo: sin la nota se lee como "vamos 9º" y no es eso — solo ordena
+        // el Total Oferta publicado por MP, que no siempre es comparable entre oferentes.
+        <div className={`rounded-lg px-3 py-2 mb-3 border ${
           vista.nuestraPosicion === 1
-            ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-            : 'text-zinc-700 bg-zinc-100 border-zinc-200'}`}>
-          <Trophy size={13} />
-          Nuestra oferta es la {vista.nuestraPosicion}ª más baja de {vista.totalOferentesConMonto}
-          <span className="font-normal text-zinc-500">· {vista.competidores} competidor{vista.competidores === 1 ? '' : 'es'}</span>
+            ? 'text-emerald-800 bg-emerald-50 border-emerald-200'
+            : 'text-zinc-700 bg-zinc-50 border-zinc-200'}`}>
+          <p className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold">
+            <Trophy size={13} />
+            Nuestro total es el {vista.nuestraPosicion}º más bajo de {vista.totalOferentesConMonto}
+            <span className="font-normal text-zinc-500">· {vista.competidores} competidor{vista.competidores === 1 ? '' : 'es'}</span>
+          </p>
+          {vista.notaComparacion && (
+            <p className="text-[11px] text-zinc-500 mt-1 leading-snug">{vista.notaComparacion}</p>
+          )}
         </div>
       )}
 
@@ -204,8 +235,9 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
                         ? `${o.documentosDescargados}/${o.totalDocumentos} docs`
                         : 'sin anexos'}
                     </span>
-                    <span className="text-[13.5px] font-bold text-zinc-800 tabular-nums w-[110px] text-right">
-                      {fmt(o.monto, o.moneda)}
+                    <span className={`text-[13.5px] font-bold tabular-nums w-[110px] text-right ${o.montoAnomalo ? 'text-amber-600' : 'text-zinc-800'}`}
+                      title={o.montoAnomalo ? 'Total fuera de escala respecto del resto. Es lo que publica Mercado Público: no se corrige ni se descarta, pero no compite realmente.' : undefined}>
+                      {fmt(o.monto, o.moneda)}{o.montoAnomalo && <span className="ml-1 text-[10px]">⚠</span>}
                     </span>
                   </div>
                 </button>
@@ -221,6 +253,17 @@ export default function OfertasCompetencia({ codigo, isAdmin }: { codigo: string
                           </p>
                         ))}
                       </div>
+                    )}
+
+                    {/* Descarga a pedido: sin esto hay que esperar la pasada horaria del cron
+                        para poder ABRIR un documento, que es justo lo que se viene a hacer. */}
+                    {isAdmin && o.totalDocumentos > o.documentosDescargados && (
+                      <button onClick={() => bajarAnexos(o.proveedorRut)} disabled={bajando === o.proveedorRut}
+                        className="mb-2.5 inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:text-zinc-300 disabled:border-zinc-200 px-2.5 py-1 rounded-lg transition-colors">
+                        {bajando === o.proveedorRut
+                          ? <><Loader2 size={11} className="animate-spin" /> Descargando desde Mercado Público…</>
+                          : <><Download size={11} /> Descargar {o.totalDocumentos - o.documentosDescargados} anexo(s) pendiente(s)</>}
+                      </button>
                     )}
 
                     {o.categorias.length === 0 ? (

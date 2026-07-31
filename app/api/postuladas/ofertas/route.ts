@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
-import { obtenerAperturaVista, leerYGuardarOfertas } from '@/app/lib/ofertas-competencia';
+import { obtenerAperturaVista, leerYGuardarOfertas, descargarDocumentosOferta } from '@/app/lib/ofertas-competencia';
 import { publicarCambio } from '@/app/lib/sse-bus';
 
 export const runtime = 'nodejs';
@@ -37,6 +37,19 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({} as any));
   const codigo = String(body.codigo || '').trim();
   if (!codigo) return NextResponse.json({ error: 'Falta el código de licitación' }, { status: 400 });
+
+  // { descargar: true } → baja AHORA los anexos pendientes (de un oferente si viene `rut`).
+  // Es una acción distinta de releer: quien está mirando la competencia quiere abrir los
+  // documentos en ese momento, no en la próxima pasada horaria del cron.
+  if (body.descargar) {
+    try {
+      const rut = body.rut ? String(body.rut).trim() : undefined;
+      const r = await descargarDocumentosOferta(rut ? 25 : 40, { codigo, rut });
+      return NextResponse.json({ ok: true, ...r, vista: await obtenerAperturaVista(codigo) });
+    } catch (e: any) {
+      return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+    }
+  }
 
   try {
     const r = await leerYGuardarOfertas(codigo);

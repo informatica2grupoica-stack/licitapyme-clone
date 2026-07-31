@@ -270,18 +270,27 @@ export async function procesarOfertasPendientes(lote = 10): Promise<{
  * bajar sus archivos, y el link se resuelve por (proveedor, categoría, nombre) contra la lectura
  * fresca. Reusar la URL guardada funciona solo si la fila es reciente.
  */
-export async function descargarDocumentosOferta(max = MAX_DOCS_CORRIDA): Promise<{
-  descargados: number; fallidos: number;
-}> {
+export async function descargarDocumentosOferta(
+  max = MAX_DOCS_CORRIDA,
+  filtro: { codigo?: string; rut?: string } = {},
+): Promise<{ descargados: number; fallidos: number }> {
   const stats = { descargados: 0, fallidos: 0 };
   let filas: any[] = [];
   try {
+    // El filtro permite que la UI baje AHORA los anexos del oferente que se está mirando, sin
+    // esperar la pasada horaria del cron: quien abre la competencia quiere leerla ya.
+    const where: string[] = [`descargado_at IS NULL`, `(error IS NULL OR error NOT LIKE 'definitivo:%')`];
+    const params: any[] = [];
+    if (filtro.codigo) { where.push('licitacion_codigo = ?'); params.push(filtro.codigo); }
+    if (filtro.rut)    { where.push('proveedor_rut = ?');     params.push(filtro.rut); }
+
     const [rows] = await pool.query(
       `SELECT id, licitacion_codigo, proveedor_rut, categoria, nombre, url_mp, url_contenedor
          FROM oferta_competencia_documento
-        WHERE descargado_at IS NULL AND (error IS NULL OR error NOT LIKE 'definitivo:%')
+        WHERE ${where.join(' AND ')}
         ORDER BY detectado_at ASC
         LIMIT ${Math.max(1, Math.min(max, 100))}`,
+      params,
     ) as any;
     filas = rows as any[];
   } catch (e) {
@@ -380,6 +389,8 @@ export interface OferenteVista {
   categorias: CategoriaVista[];
   totalDocumentos: number;
   documentosDescargados: number;
+  /** El monto está fuera de escala respecto del resto (ver `montoAnomalo` más abajo). */
+  montoAnomalo: boolean;
 }
 
 export interface AperturaVista {
@@ -389,8 +400,17 @@ export interface AperturaVista {
   diagnostico: string | null;
   oferentes: OferenteVista[];
   competidores: number;
-  nuestraPosicion: number | null;   // 1 = la oferta más barata
+  /**
+   * Posición de nuestra oferta ordenando por el "Total Oferta" que publica MP. 1 = el total
+   * más bajo. NO significa "la mejor oferta": ver `notaComparacion`.
+   */
+  nuestraPosicion: number | null;
   totalOferentesConMonto: number;
+  /**
+   * Por qué el ranking puede NO ser una comparación válida, o null si no hay reparos.
+   * Se calcula, no se asume, y viaja con el número para que nunca se lea solo.
+   */
+  notaComparacion: string | null;
 }
 
 const ORDEN_CATEGORIAS: CategoriaAnexo[] = [
@@ -401,6 +421,7 @@ export async function obtenerAperturaVista(codigo: string): Promise<AperturaVist
   const base: AperturaVista = {
     codigo, aperturada: false, leidaEn: null, diagnostico: null,
     oferentes: [], competidores: 0, nuestraPosicion: null, totalOferentesConMonto: 0,
+    notaComparacion: null,
   };
 
   try {
@@ -479,6 +500,7 @@ export async function obtenerAperturaVista(codigo: string): Promise<AperturaVist
           categorias,
           totalDocumentos: todos.length,
           documentosDescargados: todos.filter(d => d.url).length,
+          montoAnomalo: false,   // se resuelve abajo, cuando están todos los montos
         });
       }
       const of = porRut.get(rut)!;
@@ -503,6 +525,44 @@ export async function obtenerAperturaVista(codigo: string): Promise<AperturaVist
     base.totalOferentesConMonto = conMonto.length;
     const idx = conMonto.findIndex(o => o.esNuestra);
     base.nuestraPosicion = idx >= 0 ? idx + 1 : null;
+
+    // ── ¿Es comparable este ranking? ─────────────────────────────────────────
+    // "La 9ª más baja de 10" suena a veredicto, y NO lo es: solo ordena el campo "Total Oferta"
+    // que publica MP. Dos cosas lo invalidan seguido y hay que decirlas junto al número:
+    //
+    //  · MONTOS FUERA DE ESCALA. MP publica lo que el proveedor escribió, sin validar: en la
+    //    apertura 1173418-1-LE26 un oferente aparece con "$ 4". No se filtra (sería inventar
+    //    datos), pero un total así no compite con nadie y corre el puesto de todos los demás.
+    //  · TOTALES NO EQUIVALENTES. Si se adjudica por líneas, quien ofertó 1 de 4 líneas tiene
+    //    un total más bajo sin ser más barato. Se detecta por dispersión: cuando el menor total
+    //    real es menos de un tercio de la mediana, lo más probable es que no todos cotizaron lo
+    //    mismo.
+    const montos = conMonto.map(o => o.monto!).filter(m => m > 0);
+    if (montos.length >= 3) {
+      const mediana = montos.length % 2
+        ? montos[(montos.length - 1) / 2]
+        : (montos[montos.length / 2 - 1] + montos[montos.length / 2]) / 2;
+
+      const UMBRAL_ANOMALO = mediana * 0.05;   // 5% de la mediana: eso ya no es una oferta
+      for (const o of base.oferentes) {
+        if (o.monto != null && o.monto > 0 && o.monto < UMBRAL_ANOMALO) o.montoAnomalo = true;
+      }
+
+      const anomalos = base.oferentes.filter(o => o.montoAnomalo).length;
+      const sanos = montos.filter(m => m >= UMBRAL_ANOMALO);
+      const dispersos = sanos.length >= 2 && sanos[0] < mediana / 3;
+
+      const razones: string[] = [];
+      if (anomalos > 0) {
+        razones.push(`${anomalos} oferta${anomalos === 1 ? '' : 's'} con un total fuera de escala (lo publica así Mercado Público)`);
+      }
+      if (dispersos) {
+        razones.push('los totales difieren tanto entre sí que probablemente no todos cotizaron las mismas líneas');
+      }
+      base.notaComparacion = razones.length
+        ? `Compara el "Total Oferta" publicado por Mercado Público, no la calidad ni el alcance de cada oferta. Tómalo con cuidado: ${razones.join(' y ')}.`
+        : 'Compara el "Total Oferta" publicado por Mercado Público, no la calidad ni el alcance de cada oferta.';
+    }
   } catch (e) {
     console.error(`[ofertas] lectura de ofertas de ${codigo}:`, String(e).slice(0, 200));
   }
