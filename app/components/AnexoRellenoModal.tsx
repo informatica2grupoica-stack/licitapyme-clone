@@ -23,7 +23,7 @@ interface CampoCompletado { etiqueta: string; campo: string; valor: string; via:
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
 interface PendienteInline { id: string; contexto: string; formulario?: string }
 interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'diccionario' | 'ia' | 'costeo' }; input?: { id: string } }
-interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string }
+interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string; titulo?: string }
 
 interface Analisis {
   completadosAuto: CampoCompletado[];
@@ -41,7 +41,11 @@ function TablaReal({
   tabla, respuestas, onChange,
 }: { tabla: TablaUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void }) {
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-200 max-w-full">
+    <div className="space-y-1">
+      {tabla.titulo && (
+        <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wide">{tabla.titulo}</p>
+      )}
+      <div className="overflow-x-auto rounded-lg border border-slate-200 max-w-full">
       <table className="w-full text-[11.5px] border-collapse table-fixed">
         <tbody>
           {tabla.filas.map((fila, i) => (
@@ -78,6 +82,7 @@ function TablaReal({
           ))}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }

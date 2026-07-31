@@ -16,12 +16,13 @@
 // qué string de paraId le haya tocado esta vez — por eso los ids usan índice, nunca paraId.
 import {
   normalizarParaIds, rellenarCeldaVacia, rellenarRunPorIndice, insertarImagenEnParrafo,
-  rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
+  rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx, type Parrafo,
 } from '@/app/lib/anexos-docx';
-import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda, type CandidatoInline } from '@/app/lib/anexos-detectar';
+import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda, type CandidatoInline, type TablaCruda } from '@/app/lib/anexos-detectar';
 import { buscarCampo, esMatchCoherente, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
 import { matchearConIA, clasificarTitulos } from '@/app/lib/anexos-ia-matching';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
+import { calcularTotalesPorSeccion, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 
@@ -47,7 +48,14 @@ export interface CeldaTablaUI {
   auto?: { valor: string; via: 'diccionario' | 'ia' | 'costeo' }; // se completó sola — se muestra el valor, sin input
   input?: { id: string };                          // blanco real pendiente — el mismo id que usa generarAnexoFinal
 }
-export interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string }
+export interface TablaUI {
+  filas: CeldaTablaUI[][]; formulario?: string;
+  // El párrafo-encabezado suelto que precede a esta tabla en el Word (ej. "LÍNEA 1: LETRERO DE
+  // OBRAS") — se muestra tal cual arriba de la tabla en vez de perderse: antes se clasificaba
+  // como "título" y desaparecía del panel por completo, dejando una tabla de ítems sin decir a
+  // qué sección pertenece (pedido explícito: "no debe de omitir nada").
+  titulo?: string;
+}
 
 // A qué formulario ("FORMULARIO N°X") pertenece un párrafo, si el documento tiene varios
 // pegados — mismo detector que usa anexos-dividir.ts para separarlos en archivos. Sirve para
@@ -176,6 +184,44 @@ export async function resolverCandidatosCelda(
   return { matcheados, pendientes, descartadosComoTitulo };
 }
 
+// ── Totales por sección (LÍNEA/LOTE/ÍTEM...) — ver anexos-totales-seccion.ts ─────────────────
+// Con los precios unitarios ya resueltos (paso de arriba), cruza cantidad × precio por fila de
+// cada tabla de ítems, agrupa por su título de sección, y llena la tabla resumen que pide ESE
+// total (patrón real 1738-18-LE26: "LÍNEA | MONTO TOTAL OFERTADO | PLAZO..."). Compartido entre
+// analizarAnexoParaUI y generarAnexoFinal para que la vista previa y el documento final calculen
+// EXACTAMENTE lo mismo — mismo principio que resolverCandidatosCelda ya usa arriba.
+function aplicarTotalesPorSeccion(
+  tablasCrudo: TablaCruda[], parrafos: Parrafo[], indicesEnTablas: Set<number>,
+  matcheados: CampoResuelto[], pendientes: CandidatoCelda[],
+): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; anexarDirecto: { paraId: string; valor: string }[]; titulos: TituloCercano[] } {
+  const titulos: TituloCercano[] = encabezadosLibres(parrafos, indicesEnTablas);
+  // Solo los precios que salieron del costeo son números confiables para sumar — un valor de
+  // diccionario/IA de empresa (RUT, teléfono...) nunca cae en una columna de precio unitario, pero
+  // filtrar por `via` igual es la garantía explícita de que nunca se suma algo que no es plata.
+  const valoresPrecio = new Map(
+    matcheados.filter(m => m.via === 'costeo').map(m => [m.c.indice, Number(m.valor.replace(/\./g, '').replace(',', '.'))]),
+  );
+  const totalesSeccion = calcularTotalesPorSeccion(tablasCrudo, titulos, i => valoresPrecio.get(i) ?? null);
+  const rellenos = resolverTablaResumen(tablasCrudo, totalesSeccion);
+
+  const matcheadosExtra: CampoResuelto[] = [];
+  const anexarDirecto: { paraId: string; valor: string }[] = [];
+  const paraIdsResueltos = new Set<string>();
+  for (const r of rellenos) {
+    if (r.anexar) {
+      anexarDirecto.push({ paraId: r.paraId, valor: r.valor });
+    } else if (r.indiceGlobal != null) {
+      paraIdsResueltos.add(r.paraId);
+      matcheadosExtra.push({
+        c: { etiqueta: 'Monto total de la sección', paraId: r.paraId, indice: r.indiceGlobal },
+        campo: 'monto_total_seccion', valor: r.valor, via: 'costeo',
+      });
+    }
+  }
+  const pendientesFiltrados = pendientes.filter(c => !paraIdsResueltos.has(c.paraId));
+  return { matcheadosExtra, pendientesFiltrados, anexarDirecto, titulos };
+}
+
 // Descarga la firma escaneada desde su URL pública (R2) y detecta su extensión real por
 // Content-Type (más confiable que confiar en el nombre del archivo). null si falla o no hay
 // firma cargada — nunca rompe el análisis/generación completa por esto.
@@ -270,10 +316,17 @@ export async function analizarAnexoParaUI(
   const analisis = analizarAnexo(xmlNormalizado);
   const formularios = detectarFormularios(xmlNormalizado);
 
+  const tablasCrudo = extraerTablasCrudo(xmlNormalizado);
+  const indicesEnTablas = new Set(
+    tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
+  );
   const completadosAuto: CampoCompletado[] = [];
   const resolucionPorIndice = new Map<number, Resolucion>();
   const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, itemsCosteo);
-  for (const m of matcheados) {
+  const { matcheadosExtra, pendientesFiltrados, anexarDirecto, titulos }
+    = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes);
+  const matcheadosTodos = [...matcheados, ...matcheadosExtra];
+  for (const m of matcheadosTodos) {
     completadosAuto.push({
       etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via,
       formulario: formularioDe(m.c.indice, formularios),
@@ -281,7 +334,7 @@ export async function analizarAnexoParaUI(
     resolucionPorIndice.set(m.c.indice, { tipo: 'auto', etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
   }
 
-  const pendientesCeldaTodos: PendienteCelda[] = pendientes.map(c => {
+  const pendientesCeldaTodos: PendienteCelda[] = pendientesFiltrados.map(c => {
     const id = `celda:${c.indice}`;
     resolucionPorIndice.set(c.indice, { tipo: 'pendiente', etiqueta: c.etiqueta, id });
     return { id, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios) };
@@ -294,17 +347,22 @@ export async function analizarAnexoParaUI(
 
   // Reconstruye cada tabla del Word COMPLETA (todas las celdas, no solo las vacías) para que el
   // panel de pendientes se vea como el documento real — fila por fila, columna por columna — en
-  // vez de una lista plana donde no se sabe a qué celda corresponde cada blanco. Solo se
-  // devuelven las tablas que tienen al menos un pendiente real; una tabla ya 100% resuelta por
-  // diccionario/IA no necesita vista propia.
-  const tablasCrudo = extraerTablasCrudo(xmlNormalizado);
-  const indicesEnTablas = new Set(
-    tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
-  );
+  // vez de una lista plana donde no se sabe a qué celda corresponde cada blanco. Se devuelven
+  // TODAS las tablas con al menos un candidato real (pendiente O ya resuelto) — antes solo se
+  // mostraban las que tenían algo pendiente, así que una tabla 100% completada sola (ej. la
+  // identificación del oferente repetida en cada anexo) desaparecía del panel sin dejar rastro:
+  // pedido explícito, "quiero que me muestre esos datos tal cual, así sé a qué pertenecen".
+  const rellenosPorParaId = new Map(anexarDirecto.map(r => [r.paraId, r]));
   const tablas: TablaUI[] = tablasCrudo
     .map(t => ({
       formulario: t.indicePrimero != null ? formularioDe(t.indicePrimero, formularios) : undefined,
+      titulo: tituloDeTabla(t.indicePrimero, titulos)?.texto,
       filas: t.filas.map(f => f.celdas.map((c): CeldaTablaUI => {
+        // Total de sección ya calculado (ver aplicarTotalesPorSeccion): la celda puede no estar
+        // "vacía" en sentido estricto (ej. trae un "$" fijo) — el valor se agrega al texto que
+        // ya existe, nunca se pisa.
+        const relleno = c.ultimoParaId ? rellenosPorParaId.get(c.ultimoParaId) : undefined;
+        if (relleno) return { texto: c.texto, auto: { valor: `${c.texto ? c.texto + ' ' : ''}${relleno.valor}`, via: 'costeo' } };
         if (c.indiceGlobal == null) return { texto: c.texto };
         const res = resolucionPorIndice.get(c.indiceGlobal);
         if (!res) return { texto: c.texto }; // celda vacía pero no es candidato real (decorativa, sección omitida, etc.)
@@ -312,7 +370,7 @@ export async function analizarAnexoParaUI(
         return { texto: '', input: { id: res.id } };
       })),
     }))
-    .filter(t => t.filas.some(f => f.some(c => c.input)));
+    .filter(t => t.filas.some(f => f.some(c => c.input || c.auto)));
 
   // Los pendientes de celda que YA se muestran dentro de una tabla no se repiten en la lista
   // plana — solo quedan ahí los que no pertenecen a ninguna tabla detectada (ej. una etiqueta
@@ -412,18 +470,32 @@ export async function generarAnexoFinal(
   //    ver comentario arriba.
   let completados = completadosInline;
   const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, itemsCosteo);
-  for (const m of matcheados) {
+  // Totales por sección (LÍNEA/LOTE/ÍTEM...) — MISMO cálculo que ve el admin en la vista previa
+  // (aplicarTotalesPorSeccion), sobre las tablas del documento SIN mutar (tablasCrudo se saca de
+  // xmlNormalizado, antes de que el paso 1 y este mismo paso empiecen a escribir encima).
+  const tablasCrudo = extraerTablasCrudo(xmlNormalizado);
+  const indicesEnTablasGen = new Set(
+    tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
+  );
+  const { matcheadosExtra, pendientesFiltrados, anexarDirecto } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes);
+  for (const m of [...matcheados, ...matcheadosExtra]) {
     xml = rellenarCeldaVacia(xml, m.c.paraId, m.valor);
     completados++;
   }
   // Los descartados como título se escriben igual SI el humano les puso algo desde la vista de
   // tabla — no se ofrecen solos, pero tampoco se ignora lo que el usuario escribió.
-  for (const c of [...pendientes, ...descartadosComoTitulo]) {
+  for (const c of [...pendientesFiltrados, ...descartadosComoTitulo]) {
     const respuesta = respuestas[`celda:${c.indice}`];
     if (respuesta && respuesta.trim()) {
       xml = rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
       respondidos++;
     }
+  }
+  // Celdas que YA traían un prefijo fijo (ej. "$") y no una celda vacía: el total se agrega al
+  // final del mismo párrafo, nunca se pisa lo que ya estaba impreso.
+  for (const a of anexarDirecto) {
+    xml = rellenarFinDeParrafo(xml, a.paraId, a.valor);
+    completados++;
   }
 
   // 2b) "Etiqueta:" con el valor en la misma línea (patrón 5).

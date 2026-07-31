@@ -112,7 +112,14 @@ function offsetsAIndices(xml: string): Map<number, number> {
   return mapa;
 }
 
-interface CeldaCruda { texto: string; vacio: boolean; paraId: string | null; indiceGlobal: number | null; anchoPct: number | null }
+interface CeldaCruda {
+  texto: string; vacio: boolean; paraId: string | null; indiceGlobal: number | null; anchoPct: number | null;
+  // El paraId del ÚLTIMO párrafo de la celda, SIEMPRE presente (a diferencia de `paraId`, que
+  // solo se llena si la celda está vacía) — lo necesita anexos-totales-seccion.ts para poder
+  // escribir en celdas que no son técnicamente "vacías" pero traen un prefijo fijo sin blanco
+  // propio (ej. una celda cuyo único contenido es "$", el número va pegado después).
+  ultimoParaId: string | null;
+}
 
 // Umbral de "celda decorativa": encontrado en un anexo real donde una columna de categoría del
 // encabezado ("LETRERO INDICADOR DE OBRAS") venía MERGEADA en el encabezado pero partida en 3
@@ -222,7 +229,8 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
       const offsetCelda = offsetFila + tc.index! + tc[0].indexOf(cuerpoCelda);
       indiceGlobal = offsetsIndices.get(offsetCelda + (parrafoVacio.index ?? 0)) ?? null;
     }
-    celdas.push({ texto: textoCelda, vacio: textoCelda === '' && paraId != null, paraId, indiceGlobal, anchoPct });
+    const ultimoParaId = parrafosCelda.length ? parrafosCelda[parrafosCelda.length - 1][1] : null;
+    celdas.push({ texto: textoCelda, vacio: textoCelda === '' && paraId != null, paraId, indiceGlobal, anchoPct, ultimoParaId });
   }
   return celdas;
 }
@@ -610,7 +618,7 @@ export function analizarAnexo(xml: string) {
 // entiende a qué celda corresponde cada blanco. Reutiliza extraerCeldasDeFila (la misma función
 // que ya usa detectarCandidatosTabla) para que "qué celda es un blanco real" sea EXACTAMENTE la
 // misma lógica en los dos lugares — nunca dos criterios de "vacío" que puedan divergir.
-export interface CeldaTablaCruda { texto: string; indiceGlobal: number | null; anchoPct: number | null }
+export interface CeldaTablaCruda { texto: string; indiceGlobal: number | null; anchoPct: number | null; ultimoParaId: string | null }
 export interface FilaTablaCruda { celdas: CeldaTablaCruda[] }
 export interface TablaCruda { indicePrimero: number | null; filas: FilaTablaCruda[] }
 
@@ -634,7 +642,7 @@ function alinearFilaConEncabezado(header: CeldaTablaCruda[], fila: CeldaTablaCru
   fila.forEach((c, i) => grupos[columnaDeCadaCelda[i]].push(c));
 
   return grupos.map(grupo => {
-    if (grupo.length === 0) return { texto: '', indiceGlobal: null, anchoPct: null };
+    if (grupo.length === 0) return { texto: '', indiceGlobal: null, anchoPct: null, ultimoParaId: null };
     if (grupo.length === 1) return grupo[0];
     // Varias celdas cayeron en la misma columna (típico: 2-3 celdas angostas decorativas, a
     // veces junto con la real) — concatena el texto real si lo hay, y usa como referencia (para
@@ -642,7 +650,7 @@ function alinearFilaConEncabezado(header: CeldaTablaCruda[], fila: CeldaTablaCru
     // todas son angostas, ninguna era un dato real de todos modos, cualquiera sirve.
     const texto = grupo.map(c => c.texto).filter(Boolean).join(' ').trim();
     const real = grupo.find(c => c.anchoPct == null || c.anchoPct >= ANCHO_PCT_MINIMO_COLUMNA_REAL) ?? grupo[grupo.length - 1];
-    return { texto, indiceGlobal: real.indiceGlobal, anchoPct: real.anchoPct };
+    return { texto, indiceGlobal: real.indiceGlobal, anchoPct: real.anchoPct, ultimoParaId: real.ultimoParaId };
   });
 }
 
@@ -664,7 +672,7 @@ export function extraerTablasCrudo(xml: string): TablaCruda[] {
     const filasCrudo: FilaTablaCruda[] = filasXml.map(filaM => {
       const offsetFila = offsetTabla + filaM.index! + filaM[0].indexOf(filaM[1]);
       const celdas = extraerCeldasDeFila(filaM[1], offsetFila, offsetsIndices);
-      return { celdas: celdas.map(c => ({ texto: c.texto, indiceGlobal: c.indiceGlobal, anchoPct: c.anchoPct })) };
+      return { celdas: celdas.map(c => ({ texto: c.texto, indiceGlobal: c.indiceGlobal, anchoPct: c.anchoPct, ultimoParaId: c.ultimoParaId })) };
     });
 
     // Se alinea contra el encabezado REAL (que puede no ser la fila 0 si la tabla abre con un
