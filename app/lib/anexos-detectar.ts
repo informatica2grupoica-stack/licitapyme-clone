@@ -4,6 +4,7 @@
 // más) — ver docs/BITACORA-CAMBIOS-VIABILIDAD.md para el detalle de cada hallazgo.
 import { listarParrafos, listarBlancosInline, parrafoEstaVacio, type Parrafo } from '@/app/lib/anexos-docx';
 import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
+import { CONTEXTO_REPRESENTANTE, CONTEXTO_BANCARIO, CONTEXTO_TERCERO_DESCONOCIDO } from '@/app/lib/anexos-diccionario';
 
 // ── Patrón 1: etiqueta corta + párrafo vacío inmediatamente después ───────────────────────
 // (celda de tabla de 2 columnas: "Razón social" | <celda vacía>). Es RUIDOSO a propósito: no
@@ -57,7 +58,7 @@ export function detectarCandidatosCeldaCrudos(parrafos: Parrafo[]): CandidatoCel
 }
 
 export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
-  return desambiguarDuplicados(detectarCandidatosCeldaCrudos(parrafos));
+  return desambiguarDuplicados(detectarCandidatosCeldaCrudos(parrafos), parrafos);
 }
 
 // Caso real (1738-18-LE26): una tabla de identificación trae "RUT" DOS veces — una fila para el
@@ -65,12 +66,21 @@ export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
 // ("RUT") en ambas, así que ni el diccionario ni la IA tienen cómo distinguir cuál es cuál — el
 // diccionario asigna el campo `rut` a la primera que ve y la segunda queda sin poder resolverse
 // (el campo ya fue "usado"), y la IA recibe dos líneas idénticas sin nada que las diferencie.
-// Cuando una etiqueta se repite en el documento, se prefija con la etiqueta INMEDIATAMENTE
-// anterior en la lista de candidatos — normalmente el encabezado de SU bloque ("IDENTIFICACIÓN
-// DEL REP. LEGAL — RUT" vs "IDENTIFICACIÓN DEL OFERENTE — RUT") — mismo principio que patrón 1b
-// usa con el nombre de columna, pero mirando hacia atrás en la lista en vez de a la fila. Las
-// etiquetas únicas (la inmensa mayoría) quedan intactas para no tocar el diccionario/IA que ya
-// funciona bien con ellas.
+//
+// Cuando una etiqueta se repite en el documento, se prefija con el ROL más cercano encontrado
+// escaneando HACIA ATRÁS en los PÁRRAFOS REALES del documento (representante legal / cuenta
+// bancaria / un tercero del que no tenemos datos — mismo vocabulario que usa buscarCampo en
+// anexos-diccionario.ts). Reemplaza un heurístico anterior ("prefijar con el candidato
+// INMEDIATAMENTE anterior en la lista de candidatos") que fallaba en dos casos reales:
+//   1. El "anterior" podía ser ruido de una celda vecina sin relación real (1057472-89-LE26:
+//      "Fax —" bloqueaba el correo de la empresa, porque "Fax" no es un rol reconocido y
+//      buscarCampo trataba cualquier contexto no reconocido como "tercero desconocido").
+//   2. La PRIMERA aparición de una etiqueta duplicada en TODO el documento no tenía ningún
+//      "anterior" del cual heredar contexto — el bloque REPRESENTANTE LEGAL completo (Nombre,
+//      RUT, Cargo) quedaba vacío por esto, aunque la ficha de empresa SÍ tiene esos datos.
+// Escaneando los párrafos reales en vez de la lista de candidatos, "REPRESENTANTE LEGAL:" se
+// encuentra sin importar si es la primera vez que aparece "Nombre completo" en el documento.
+//
 // Compara por texto NORMALIZADO, no literal — caso real encontrado (1058086-43-LP26): "N° de
 // Teléfono" (bloque del Administrador de Contrato, sin dos puntos) y "N° de Teléfono:" (bloque
 // de la empresa, con dos puntos) son EL MISMO campo con puntuación distinta — comparar el string
@@ -82,18 +92,56 @@ function normalizarParaCompararDuplicados(etiqueta: string): string {
   return etiqueta.trim().toLowerCase().replace(/[:.\s]+$/, '');
 }
 
-function desambiguarDuplicados(candidatos: CandidatoCelda[]): CandidatoCelda[] {
+const RE_CONTEXTO_ROL = new RegExp(
+  `(${CONTEXTO_REPRESENTANTE.source})|(${CONTEXTO_BANCARIO.source})|(${CONTEXTO_TERCERO_DESCONOCIDO.source})`, 'i',
+);
+
+// Ventana corta a propósito: un rol mencionado muy lejos (ej. en OTRO formulario, muchos párrafos
+// atrás) no describe el bloque actual — solo cuenta el más cercano dentro de una distancia corta,
+// que es donde realmente viven los encabezados de sección ("REPRESENTANTE LEGAL:",
+// "CONTACTO DEL PROPONENTE:") en los documentos reales vistos.
+const VENTANA_CONTEXTO_ROL = 15;
+
+// BUG REAL encontrado (1738-18-LE26): la leyenda de firma del ANEXO N°1 ("FIRMA Y TIMBRE
+// OFERENTE O REPRESENTANTE LEGAL") menciona "representante legal" — no porque describa de quién
+// es un dato, sino porque dice QUIÉN DEBE FIRMAR. Sin excluirla, se tomaba como si fuera el
+// encabezado de un bloque de datos: el RUT del OFERENTE (en el ANEXO N°2, bastante más adelante)
+// terminaba prefijado con esa leyenda, resolviendo al RUT DEL REPRESENTANTE (dato de otra
+// persona) — y de paso, como la etiqueta resultante contenía la palabra "firma", el candidato se
+// reclasificaba entero como "acá va la imagen de la firma" (ver esEtiquetaFirma en analizarAnexo),
+// así que la firma escaneada habría terminado estampada en la celda del RUT. Una leyenda de firma
+// NUNCA describe de quién es un dato de texto — se descarta como fuente de contexto, se sigue
+// buscando más atrás.
+function esLeyendaDeFirma(texto: string): boolean {
+  return /firma/i.test(texto);
+}
+
+function contextoDeRolCercano(parrafos: Parrafo[], antesDeIndice: number): string | null {
+  let vistos = 0;
+  for (let i = antesDeIndice - 1; i >= 0 && vistos < VENTANA_CONTEXTO_ROL; i--) {
+    const p = parrafos[i];
+    if (!p?.texto) continue;
+    vistos++;
+    if (esLeyendaDeFirma(p.texto)) continue;
+    if (RE_CONTEXTO_ROL.test(p.texto)) return p.texto;
+  }
+  return null;
+}
+
+function desambiguarDuplicados(candidatos: CandidatoCelda[], parrafos: Parrafo[]): CandidatoCelda[] {
   const conteo = new Map<string, number>();
   for (const c of candidatos) {
     const clave = normalizarParaCompararDuplicados(c.etiqueta);
     conteo.set(clave, (conteo.get(clave) ?? 0) + 1);
   }
-  return candidatos.map((c, i) => {
+  return candidatos.map(c => {
     const clave = normalizarParaCompararDuplicados(c.etiqueta);
     if ((conteo.get(clave) ?? 0) < 2) return c;
-    const anterior = candidatos[i - 1];
-    if (!anterior || normalizarParaCompararDuplicados(anterior.etiqueta) === clave) return c;
-    return { ...c, etiqueta: `${anterior.etiqueta} — ${c.etiqueta}`.slice(0, 160) };
+    // Sin rol reconocido cerca: se deja tal cual — es el caso NORMAL de un dato de empresa
+    // pedido de nuevo en otro formulario del mismo documento, no una ambigüedad real.
+    const contexto = contextoDeRolCercano(parrafos, c.indice - 1);
+    if (!contexto) return c;
+    return { ...c, etiqueta: `${contexto} — ${c.etiqueta}`.slice(0, 160) };
   });
 }
 

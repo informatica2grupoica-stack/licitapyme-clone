@@ -127,12 +127,15 @@ function conValor(campo: keyof EmpresaCampos, empresa: EmpresaCampos): Coinciden
 // campos de representante en vez de los de la empresa — sin este ruteo, "RUT" duplicado nunca
 // se resuelve (el diccionario ya usó el campo `rut` con la primera ocurrencia y la segunda queda
 // pendiente para siempre, aunque si tengamos el dato).
-const CONTEXTO_REPRESENTANTE = /(representante\s+legal|rep\.?\s*legal)/i;
+// Exportados: anexos-detectar.ts los reusa para buscar el rol más cercano en los párrafos REALES
+// del documento (ver contextoDeRolCercano) en vez de heredar el candidato vecino en una lista
+// plana — mismo vocabulario de roles, una sola fuente de verdad.
+export const CONTEXTO_REPRESENTANTE = /(representante\s+legal|rep\.?\s*legal)/i;
 
 // Mismo principio para el bloque de datos bancarios (Tipo de Cuenta / Entidad Bancaria / Nombre
 // del Titular / Cédula del Titular / Correo electrónico / Teléfono) — el "Correo electrónico" de
 // ESE bloque es el de pagos (banco_email), no el correo general de la empresa (email1).
-const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|entidad\s+bancaria|titular)/i;
+export const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|entidad\s+bancaria|titular)/i;
 
 // Caso real encontrado (1058086-43-LP26): "Correo Electrónico" se repite en el documento en TRES
 // bloques distintos — identificación de la empresa, datos del REPRESENTANTE LEGAL, y datos del
@@ -166,7 +169,7 @@ const TERMINOS_AMBIGUOS_SIN_CONTEXTO = new RegExp(
 // es puro ruido: el candidato inmediatamente anterior en una lista plana (ver desambiguarDuplicados
 // en anexos-detectar.ts), sin ninguna relación real con el dato pedido. Bloquear ahí no evita un
 // error, solo esconde un dato que sí teníamos.
-const CONTEXTO_TERCERO_DESCONOCIDO = /(administrador|encargado|contacto|coordinador|apoderado|ejecutivo)/i;
+export const CONTEXTO_TERCERO_DESCONOCIDO = /(administrador|encargado|contacto|coordinador|apoderado|ejecutivo)/i;
 
 // Devuelve el campo+valor si la etiqueta cruza con el diccionario Y la empresa tiene ese dato
 // cargado; null si no hay match confiable (queda para el respaldo IA o la pantalla de "completar
@@ -177,9 +180,12 @@ export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coinciden
     const [, contexto, campoTexto] = compuesta;
     const limpio = normalizarParaMatch(campoTexto);
     if (CONTEXTO_REPRESENTANTE.test(contexto)) {
-      if (/^r\.?u\.?t\.?$/i.test(limpio)) return conValor('representante_rut', empresa);
-      if (/^nombre$/i.test(limpio)) return conValor('representante_nombre', empresa);
-      if (/^cargo$/i.test(limpio)) return conValor('representante_cargo', empresa);
+      // "(?:\s+completo)?" — caso real (1057472-89-LE26): bajo "REPRESENTANTE LEGAL:" el campo se
+      // pide como "Nombre completo" (2 palabras), no "Nombre" pelado — el match exacto original
+      // solo cubría la forma corta y el bloque entero quedaba sin resolver pese a tener el dato.
+      if (/^r\.?u\.?t\.?$/i.test(limpio) || /^c[ée]dula\s+de\s+identidad$/i.test(limpio)) return conValor('representante_rut', empresa);
+      if (/^nombre(\s+completo)?$/i.test(limpio)) return conValor('representante_nombre', empresa);
+      if (/^cargo(\s+o\s+funci[óo]n)?$/i.test(limpio)) return conValor('representante_cargo', empresa);
     }
     if (CONTEXTO_BANCARIO.test(contexto) && /^(correo(\s+electr[óo]nico)?|e-?mail)$/i.test(limpio)) {
       return conValor('banco_email', empresa);
