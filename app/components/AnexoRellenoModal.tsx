@@ -142,7 +142,11 @@ function CampoInput({ etiqueta, valor, onChange }: { etiqueta: string; valor: st
 // todo junto arriba, sin decir a qué formulario correspondía cada uno, y con la misma etiqueta
 // repetida cuatro veces ("CORREO ELECTRÓNICO") era imposible saber cuál era cuál.
 function ResumenAuto({ campos }: { campos: CampoCompletado[] }) {
-  const [abierto, setAbierto] = useState(false);
+  // ABIERTO por defecto (pedido explícito, 3-ago-2026): plegado, lo único que se veía era el
+  // contador "Se completan solos (13)" — que no dice QUÉ se llenó ni con qué valor, así que no
+  // había forma de saber si el dato quedó bien sin bajar el .docx y abrirlo en Word. Sigue siendo
+  // plegable para quien ya confía en el resultado y quiere ver solo lo que falta escribir.
+  const [abierto, setAbierto] = useState(true);
   if (!campos.length) return null;
   return (
     <div className="rounded-lg border border-emerald-200 bg-emerald-50/70">
@@ -395,8 +399,11 @@ export function AnexoRellenoModal({
             )}
           </div>
 
-          {/* Formulario */}
-          <div className="flex-1 min-h-0 flex flex-col">
+          {/* Formulario — `min-w-0` es OBLIGATORIO acá: en una fila flex un item vale por defecto
+              `min-width: auto`, o sea NO puede encogerse por debajo de su contenido. Con el visor
+              de al lado en `flex-shrink-0 w-1/2`, esta columna se desbordaba fuera del modal y los
+              inputs quedaban cortados por el borde derecho de la pantalla. */}
+          <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {cargando && (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">

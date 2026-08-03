@@ -153,6 +153,14 @@ function conValor(campo: keyof EmpresaCampos, empresa: EmpresaCampos): Coinciden
 // plana — mismo vocabulario de roles, una sola fuente de verdad.
 export const CONTEXTO_REPRESENTANTE = /(representante\s+legal|rep\.?\s*legal)/i;
 
+// Cómo pide el documento el RUT de una PERSONA cuando el bloque ya dice de quién es (bajo
+// "REPRESENTANTE LEGAL:", "DATOS DEL ENCARGADO...", etc.). El prefijo "N°" es opcional y salió de
+// un caso real visto en pantalla (1057472-89-LE26, ANEXO N°1): bajo "REPRESENTANTE LEGAL:" la
+// fila se llama "N° Cédula de Identidad" — normalizarParaMatch no quita ese prefijo, así que el
+// patrón anclado "^cédula de identidad$" no matcheaba y la casilla quedaba pendiente teniendo el
+// dato. Cubre "Nº"/"N°" (los dos caracteres) y el "Cédula NACIONAL de Identidad" de otros anexos.
+const RE_CEDULA_O_RUT = /^(n[°º]?\.?\s*)?(r\.?u\.?t\.?|c[ée]dula(\s+nacional)?(\s+de\s+identidad)?)$/i;
+
 // Mismo principio para el bloque de datos bancarios (Tipo de Cuenta / Entidad Bancaria / Nombre
 // del Titular / Cédula del Titular / Correo electrónico / Teléfono) — el "Correo electrónico" de
 // ESE bloque es el de pagos (banco_email), no el correo general de la empresa (email1).
@@ -228,7 +236,7 @@ export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coinciden
       // "(?:\s+completo)?" — caso real (1057472-89-LE26): bajo "REPRESENTANTE LEGAL:" el campo se
       // pide como "Nombre completo" (2 palabras), no "Nombre" pelado — el match exacto original
       // solo cubría la forma corta y el bloque entero quedaba sin resolver pese a tener el dato.
-      if (/^r\.?u\.?t\.?$/i.test(limpio) || /^c[ée]dula\s+de\s+identidad$/i.test(limpio)) return conValor('representante_rut', empresa);
+      if (RE_CEDULA_O_RUT.test(limpio)) return conValor('representante_rut', empresa);
       if (/^nombre(\s+completo)?$/i.test(limpio)) return conValor('representante_nombre', empresa);
       if (/^cargo(\s+o\s+funci[óo]n)?$/i.test(limpio)) return conValor('representante_cargo', empresa);
     }
@@ -252,7 +260,7 @@ export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coinciden
     // ("Nombre completo", "Cargo o función", "Cédula de identidad") NO están en el diccionario
     // general a propósito — sin esto seguirían quedando pendientes para siempre.
     if (CONTEXTO_MISMA_PERSONA.test(contexto)) {
-      if (/^(r\.?u\.?t\.?|c[ée]dula(\s+(nacional\s+)?de\s+identidad)?)$/i.test(limpio)) return conValor('representante_rut', empresa);
+      if (RE_CEDULA_O_RUT.test(limpio)) return conValor('representante_rut', empresa);
       if (/^nombre(\s+completo)?$/i.test(limpio)) return conValor('representante_nombre', empresa);
       if (/^cargo(\s+o\s+funci[óo]n)?$/i.test(limpio)) return conValor('representante_cargo', empresa);
       if (/^(tel[ée]fono(s)?|fono|celular(\s*\(opcional\))?|m[óo]vil)$/i.test(limpio)) return conValor('telefono1', empresa);
