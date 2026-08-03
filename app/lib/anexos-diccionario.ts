@@ -27,6 +27,10 @@ export interface EmpresaCampos {
   banco_nombre: string | null;
   banco_email: string | null;
   firma_url: string | null;
+  // Campos DERIVADOS (no son columnas de la tabla `empresas`) — los resuelve conCamposDerivados()
+  // en anexos-derivados.ts justo antes de que este diccionario vea el registro. Opcionales para
+  // que un SELECT crudo de la tabla siga tipando, pero en las rutas reales siempre vienen.
+  fecha_hoy?: string | null;
 }
 
 interface EntradaDiccionario {
@@ -66,20 +70,37 @@ const DICCIONARIO: EntradaDiccionario[] = [
     new RegExp(`^direcci[óo]n(\\s+comercial)?${SUFIJO_OFERENTE}$`, 'i'),
     new RegExp(`^domicilio(\\s+comercial)?${SUFIJO_OFERENTE}$`, 'i'),
   ] },
-  { campo: 'region', patrones: [/^regi[óo]n$/i] },
+  { campo: 'region', patrones: [
+    new RegExp(`^regi[óo]n${SUFIJO_OFERENTE}$`, 'i'),
+    // Una sola casilla que pide las dos cosas ("Ciudad, Región" — caso real 1058086-43-LP26): se
+    // escribe SOLO la región. Ver el comentario de anexos-derivados.ts: la ciudad no se infiere.
+    /^(ciudad|comuna)\s*[,/y]\s*regi[óo]n$/i,
+  ] },
+  // La fecha de un anexo es SIEMPRE la de hoy (el día en que se presenta la oferta) — nunca un
+  // dato de la empresa. Ojo con el orden: "Fecha de constitución"/"Fecha de la sociedad" ya
+  // matchean antes contra fecha_sociedad, así que solo cae acá la fecha pelada.
+  { campo: 'fecha_hoy', patrones: [
+    /^fecha$/i,
+    /^fecha\s+(de\s+)?(la\s+)?(oferta|propuesta|presentaci[óo]n|declaraci[óo]n)$/i,
+    /^(lugar|ciudad)\s+y\s+fecha$/i,
+  ] },
   { campo: 'giro', patrones: [/^giro(\s+comercial)?(\s*\/\s*c[óo]digo\s+sii)?$/i] },
   { campo: 'tipo_persona_juridica', patrones: [/^tipo\s+de\s+persona\s+jur[íi]dica$/i, /^naturaleza\s+jur[íi]dica$/i] },
   { campo: 'fecha_sociedad', patrones: [/^escritura\s+p[úu]blica.*$/i, /^fecha\s+(de\s+)?(la\s+)?sociedad$/i, /^fecha\s+(de\s+)?constituci[óo]n$/i] },
+  // "legal" es OPCIONAL después de "representante": caso real medido (1058086-43-LP26, 3
+  // ocurrencias) "RUT DEL REPRESENTANTE :" — sin la palabra "legal" no matcheaba nada y el RUT del
+  // representante quedaba en blanco en los tres bloques. La abreviatura "rep." sí sigue exigiendo
+  // "legal" ("rep." a secas es demasiado corto para asumir de quién habla).
   { campo: 'representante_nombre', patrones: [
-    /^nombre\s+(completo\s+)?(del\s+|de\s+)?rep(\.|resentante)?\s*legal$/i,
+    /^nombre\s+(completo\s+)?(del\s+|de\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i,
     /^representante\s+legal$/i,
-    /^identificaci[óo]n\s+del\s+rep(\.|resentante)?\s*legal$/i,
+    /^identificaci[óo]n\s+del\s+(representante(\s+legal)?|rep\.?\s*legal)$/i,
   ] },
   { campo: 'representante_rut', patrones: [
-    /^r\.?u\.?t\.?\s+(del\s+|de\s+)?rep(\.|resentante)?\s*legal$/i,
-    /^c[ée]dula\s+de\s+identidad\s+(del\s+)?rep(\.|resentante)?\s*legal$/i,
+    /^r\.?u\.?t\.?\s+(del\s+|de\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i,
+    /^c[ée]dula\s+de\s+identidad\s+(del\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i,
   ] },
-  { campo: 'representante_cargo', patrones: [/^cargo\s+(del\s+)?rep(\.|resentante)?\s*legal$/i] },
+  { campo: 'representante_cargo', patrones: [/^cargo\s+(del\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i] },
   { campo: 'email1', patrones: [
     new RegExp(`^correo\\s+electr[óo]nico${SUFIJO_OFERENTE}$`, 'i'),
     new RegExp(`^e-?mail${SUFIJO_OFERENTE}$`, 'i'),
@@ -169,7 +190,28 @@ const TERMINOS_AMBIGUOS_SIN_CONTEXTO = new RegExp(
 // es puro ruido: el candidato inmediatamente anterior en una lista plana (ver desambiguarDuplicados
 // en anexos-detectar.ts), sin ninguna relación real con el dato pedido. Bloquear ahí no evita un
 // error, solo esconde un dato que sí teníamos.
-export const CONTEXTO_TERCERO_DESCONOCIDO = /(administrador|encargado|contacto|coordinador|apoderado|ejecutivo)/i;
+// ── Regla "una sola persona" (decisión del usuario, jul-2026) ────────────────────────────────
+// En esta empresa el OFERENTE, el REPRESENTANTE LEGAL, el ENCARGADO DE LA PROPUESTA y el CONTACTO
+// para efectos de la licitación son SIEMPRE la misma persona: la que está cargada en la ficha.
+// Hasta ahora el diccionario trataba esos bloques como "un tercero del que no tenemos ficha" y los
+// dejaba pendientes a propósito — con esa regla vigente, ese cuidado ya no protege de nada y solo
+// deja en blanco campos que sí sabemos (bloques reales medidos en el banco de pruebas: "DATOS
+// ENCARGADO DEL SERVICIO" en 707423-56-LE26, "DATOS DEL CONTACTO DEL OFERENTE PARA EFECTOS DE LA
+// LICITACIÓN" en 4284-118-LE26 — 15 campos entre los dos, todos conocidos, todos vacíos).
+//
+// Si algún día el encargado deja de ser el representante, esto es lo único que hay que revertir:
+// mover el rol de esta lista a CONTEXTO_TERCERO_AJENO y volver a quedar pendiente.
+export const CONTEXTO_MISMA_PERSONA = /(encargado|contacto|administrador(\s+de\s+contrato)?|coordinador|responsable|ejecutivo|apoderado|coordinaci[óo]n|coordinador[ao])/i;
+
+// Terceros que de verdad NO somos nosotros: la contraparte del contrato, otro integrante de una
+// UTP, el titular de una cuenta ajena, un asistente a una capacitación. Acá el cuidado SÍ aplica
+// — escribir el RUT de nuestra empresa en la fila de "Integrante UTP" es un error real, no un
+// dato que faltaba. Se evalúa ANTES que CONTEXTO_MISMA_PERSONA para que "Apoderado UTP" quede
+// bloqueado pese a decir "apoderado".
+// "titular" NO va acá aunque suene a tercero: el titular de la cuenta bancaria del bloque de pagos
+// somos nosotros, y CONTEXTO_BANCARIO ya lo rutea. Meterlo acá tumbaba dos campos que el banco de
+// pruebas tenía bien resueltos (1058086-43-LP26: el correo y el teléfono del bloque bancario).
+export const CONTEXTO_TERCERO_AJENO = /(u\.?t\.?p\.?|uni[óo]n\s+temporal|integrante|socio|accionista|mandante|contraparte|inspector|i\.?t\.?o\.?|participante|capacitaci[óo]n|asistente|testigo|notario|proveedor\s+asociado|subcontrat)/i;
 
 // Devuelve el campo+valor si la etiqueta cruza con el diccionario Y la empresa tiene ese dato
 // cargado; null si no hay match confiable (queda para el respaldo IA o la pantalla de "completar
@@ -179,6 +221,9 @@ export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coinciden
   if (compuesta) {
     const [, contexto, campoTexto] = compuesta;
     const limpio = normalizarParaMatch(campoTexto);
+    // Un tercero real (UTP, titular ajeno, mandante...) manda sobre todo lo demás: ni se prueba
+    // el resto de los ruteos, ni el fallback sin prefijo de más abajo.
+    if (CONTEXTO_TERCERO_AJENO.test(contexto) && TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(limpio)) return null;
     if (CONTEXTO_REPRESENTANTE.test(contexto)) {
       // "(?:\s+completo)?" — caso real (1057472-89-LE26): bajo "REPRESENTANTE LEGAL:" el campo se
       // pide como "Nombre completo" (2 palabras), no "Nombre" pelado — el match exacto original
@@ -190,10 +235,31 @@ export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coinciden
     if (CONTEXTO_BANCARIO.test(contexto) && /^(correo(\s+electr[óo]nico)?|e-?mail)$/i.test(limpio)) {
       return conValor('banco_email', empresa);
     }
-    // Solo bloquea si el contexto es un tercero real y desconocido — si es puro ruido (ver
-    // CONTEXTO_TERCERO_DESCONOCIDO), se prueba igual como si no tuviera prefijo.
-    if (TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(limpio) && CONTEXTO_TERCERO_DESCONOCIDO.test(contexto)) return null;
-    return buscarCampo(campoTexto, empresa); // el resto del campo (ej. "Dirección") sigue tal cual
+    // El campo tal cual está escrito manda sobre el contexto: si "RUT" ya resuelve solo, es el RUT
+    // del oferente y punto. Solo si NO resuelve solo entra el ruteo por rol de abajo.
+    //
+    // Este orden importa y salió de una regresión medida en el banco: con el ruteo de
+    // CONTEXTO_MISMA_PERSONA por delante, "8.- NOMBRE Y TELEFONO DE CONTACTO: — RUT"
+    // (1738-18-LE26) pasaba de escribir el RUT de la EMPRESA a escribir el del representante,
+    // solo porque la fila vecina que le dio contexto decía "contacto". El contexto de un
+    // duplicado es una pista débil (a veces es puro ruido de la celda de al lado); la etiqueta
+    // del campo es el dato duro.
+    const plano = buscarCampo(campoTexto, empresa); // el resto del campo (ej. "Dirección") sigue tal cual
+    if (plano) return plano;
+
+    // Encargado / contacto / administrador de contrato = la MISMA persona de la ficha (ver
+    // CONTEXTO_MISMA_PERSONA). Hace falta rutearlos explícito porque los términos pelados
+    // ("Nombre completo", "Cargo o función", "Cédula de identidad") NO están en el diccionario
+    // general a propósito — sin esto seguirían quedando pendientes para siempre.
+    if (CONTEXTO_MISMA_PERSONA.test(contexto)) {
+      if (/^(r\.?u\.?t\.?|c[ée]dula(\s+(nacional\s+)?de\s+identidad)?)$/i.test(limpio)) return conValor('representante_rut', empresa);
+      if (/^nombre(\s+completo)?$/i.test(limpio)) return conValor('representante_nombre', empresa);
+      if (/^cargo(\s+o\s+funci[óo]n)?$/i.test(limpio)) return conValor('representante_cargo', empresa);
+      if (/^(tel[ée]fono(s)?|fono|celular(\s*\(opcional\))?|m[óo]vil)$/i.test(limpio)) return conValor('telefono1', empresa);
+      if (/^(correo(\s+electr[óo]nico)?|e-?mail)$/i.test(limpio)) return conValor('email1', empresa);
+      if (/^(direcci[óo]n|domicilio)$/i.test(limpio)) return conValor('direccion', empresa);
+    }
+    return null;
   }
 
   const limpia = normalizarParaMatch(etiqueta);
@@ -237,6 +303,7 @@ const COHERENCIA_CAMPO: Record<keyof EmpresaCampos, RegExp | null> = {
   banco_nombre: /(banco|entidad|instituci[óo]n)/i,
   banco_email: /(correo|e-?mail|electr[óo]nico)/i,
   firma_url: null, // la firma no se resuelve por texto (ver detectarLineasFirma)
+  fecha_hoy: /(fecha|d[íi]a|lugar)/i,
 };
 
 export function esMatchCoherente(etiqueta: string, campo: keyof EmpresaCampos): boolean {
@@ -263,7 +330,9 @@ export function esTerminoAmbiguoSinContextoReconocido(etiqueta: string): boolean
     return TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(normalizarParaMatch(etiqueta));
   }
   const [, contexto, campoTexto] = compuesta;
-  if (CONTEXTO_REPRESENTANTE.test(contexto) || CONTEXTO_BANCARIO.test(contexto)) return false;
-  if (!CONTEXTO_TERCERO_DESCONOCIDO.test(contexto)) return false; // ruido de vecino, no una persona real — no bloquea
+  // Todos estos contextos ya los rutea buscarCampo a un campo concreto (representante, banco, o
+  // la misma persona de la ficha) — no hay nada ambiguo que bloquearle a la IA.
+  if (CONTEXTO_REPRESENTANTE.test(contexto) || CONTEXTO_BANCARIO.test(contexto) || CONTEXTO_MISMA_PERSONA.test(contexto)) return false;
+  if (!CONTEXTO_TERCERO_AJENO.test(contexto)) return false; // ruido de vecino, no una persona real — no bloquea
   return TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(normalizarParaMatch(campoTexto));
 }

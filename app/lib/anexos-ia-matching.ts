@@ -70,6 +70,9 @@ export const CAMPOS_DISPONIBLES: { campo: keyof EmpresaCampos; descripcion: stri
   { campo: 'banco_numero', descripcion: 'Número de cuenta bancaria' },
   { campo: 'banco_nombre', descripcion: 'Nombre del banco' },
   { campo: 'banco_email', descripcion: 'Correo electrónico para pagos' },
+  // Derivado (ver anexos-derivados.ts) — no es columna de `empresas`, pero para la IA es un campo
+  // más. Ciudad/comuna NO están: se decidió no inferirlas de la dirección.
+  { campo: 'fecha_hoy', descripcion: 'Fecha de hoy, con la que se firma y presenta esta oferta' },
 ];
 
 async function matchearLoteIA(etiquetas: string[], camposConDato: { campo: keyof EmpresaCampos; descripcion: string }[]): Promise<MatchIA[]> {

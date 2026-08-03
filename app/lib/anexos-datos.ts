@@ -4,6 +4,7 @@
 // (analizar/generar) de tener que duplicar la misma consulta y el mismo fetch.
 import pool from '@/app/lib/db';
 import type { EmpresaCampos } from '@/app/lib/anexos-diccionario';
+import { conCamposDerivados } from '@/app/lib/anexos-derivados';
 import { convertirDocADocx } from '@/app/lib/anexos-doc-legacy';
 import { parsearCosteo, itemsPrecioDeCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 
@@ -43,8 +44,12 @@ export async function cargarDocumentoYEmpresa(
        FROM empresas WHERE id = ? AND activo = TRUE LIMIT 1`,
     [empresaId],
   );
-  const empresa = (empRows as any[])[0] as EmpresaCampos | undefined;
-  if (!empresa) throw new Error('Empresa no encontrada');
+  const empresaCruda = (empRows as any[])[0] as EmpresaCampos | undefined;
+  if (!empresaCruda) throw new Error('Empresa no encontrada');
+  // Ciudad/comuna (extraídas de la dirección), región completa y fecha de hoy — ver
+  // anexos-derivados.ts. Se agregan ACÁ, en el único puente que usan las dos rutas
+  // (analizar/generar), para que ninguna pueda quedarse con el registro crudo por olvido.
+  const empresa = conCamposDerivados(empresaCruda);
 
   const resDoc = await fetch(doc.documento_url_local);
   if (!resDoc.ok) throw new Error(`No se pudo bajar el anexo original (HTTP ${resDoc.status})`);

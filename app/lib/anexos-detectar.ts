@@ -4,7 +4,7 @@
 // más) — ver docs/BITACORA-CAMBIOS-VIABILIDAD.md para el detalle de cada hallazgo.
 import { listarParrafos, listarBlancosInline, parrafoEstaVacio, type Parrafo } from '@/app/lib/anexos-docx';
 import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
-import { CONTEXTO_REPRESENTANTE, CONTEXTO_BANCARIO, CONTEXTO_TERCERO_DESCONOCIDO } from '@/app/lib/anexos-diccionario';
+import { CONTEXTO_REPRESENTANTE, CONTEXTO_BANCARIO, CONTEXTO_MISMA_PERSONA, CONTEXTO_TERCERO_AJENO } from '@/app/lib/anexos-diccionario';
 
 // ── Patrón 1: etiqueta corta + párrafo vacío inmediatamente después ───────────────────────
 // (celda de tabla de 2 columnas: "Razón social" | <celda vacía>). Es RUIDOSO a propósito: no
@@ -93,7 +93,7 @@ function normalizarParaCompararDuplicados(etiqueta: string): string {
 }
 
 const RE_CONTEXTO_ROL = new RegExp(
-  `(${CONTEXTO_REPRESENTANTE.source})|(${CONTEXTO_BANCARIO.source})|(${CONTEXTO_TERCERO_DESCONOCIDO.source})`, 'i',
+  `(${CONTEXTO_REPRESENTANTE.source})|(${CONTEXTO_BANCARIO.source})|(${CONTEXTO_MISMA_PERSONA.source})|(${CONTEXTO_TERCERO_AJENO.source})`, 'i',
 );
 
 // Ventana corta a propósito: un rol mencionado muy lejos (ej. en OTRO formulario, muchos párrafos
