@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio } from '../anexos-docx';
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado } from '../anexos-detectar';
-import { esMatchCoherente } from '../anexos-diccionario';
+import { valorExisteEnFicha, type EmpresaCampos } from '../anexos-ia-motor';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
 const FIN = '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
@@ -212,17 +212,30 @@ test('solo se firma donde la etiqueta dice que la firma es nuestra', () => {
   assert.equal(analisis.candidatosCelda.filter(c => /firma/i.test(c.etiqueta)).length, 0);
 });
 
-// La IA elige entre todos los campos con dato y, si ninguno calza, devuelve el más parecido: a
-// "CIUDAD" le asignó banco_email y el anexo salía con un correo escrito en la casilla de la ciudad.
-test('esMatchCoherente descarta los matches imposibles de la IA (regresión CIUDAD → banco_email)', () => {
-  assert.equal(esMatchCoherente('CIUDAD', 'banco_email'), false);
-  assert.equal(esMatchCoherente('FONO', 'rut'), false);
-  assert.equal(esMatchCoherente('DIRECCIÓN COMERCIAL', 'email1'), false);
-  // …sin bloquear los que sí tienen sentido.
-  assert.equal(esMatchCoherente('CORREO ELECTRÓNICO', 'email1'), true);
-  assert.equal(esMatchCoherente('Correo para pagos', 'banco_email'), true);
-  assert.equal(esMatchCoherente('R.U.T. del oferente', 'rut'), true);
-  assert.equal(esMatchCoherente('Teléfono de contacto', 'telefono1'), true);
+// El motor 100% IA (anexos-ia-motor.ts) reemplazó el diccionario, pero el guardarraíl
+// anti-invención sigue siendo obligatorio: la IA elige el valor y, ante la duda, puede
+// "mejorarlo" o inventar uno parecido — regresión real (diseño anterior): a "CIUDAD" le asignó
+// el correo de pagos y el anexo salía con un email escrito en la casilla de la ciudad. Ahora la
+// condición es más simple y más dura: el valor propuesto tiene que existir LITERAL en la ficha
+// (normalizado), sea cual sea el campo — si no existe, se descarta sin importar qué tan
+// plausible suene la etiqueta.
+test('valorExisteEnFicha descarta valores inventados por la IA (regresión CIUDAD → banco_email)', () => {
+  const empresa: EmpresaCampos = {
+    razon_social: 'Inversiones Claro ARZ SPA', rut: '76.902.659-2', direccion: 'Barros Arana N°492',
+    region: 'Región del Bío Bío', giro: 'Venta de Maquinaria', tipo_persona_juridica: 'SpA',
+    fecha_sociedad: null, fecha_escritura: null, notaria: null, numero_repertorio: null, fojas_numero_anio: null,
+    representante_nombre: 'Santiago López', representante_rut: '15.875.453-3', representante_cargo: 'Ingeniero',
+    email1: 'ventas@grupoica.cl', telefono1: '+569 3146 2445',
+    banco_tipo_cuenta: 'Cuenta corriente', banco_numero: '921197332', banco_nombre: 'Banco Security',
+    banco_email: 'pagos@grupoica.cl', firma_url: null,
+  };
+  // Inventado / de otro dominio por completo: no existe en ningún campo de la ficha.
+  assert.equal(valorExisteEnFicha('Concepción', empresa), false);
+  assert.equal(valorExisteEnFicha('Chile', empresa), false);
+  // …sin bloquear los valores que SÍ son reales, aunque vengan con distinta puntuación/mayúsculas.
+  assert.equal(valorExisteEnFicha('ventas@grupoica.cl', empresa), true);
+  assert.equal(valorExisteEnFicha('76902659-2', empresa), true);
+  assert.equal(valorExisteEnFicha('SANTIAGO LOPEZ', empresa), true);
 });
 
 // "Nombre o Razón Social       :" y "RUT:" del FORMULARIO N°2 son párrafos sueltos sin celda ni

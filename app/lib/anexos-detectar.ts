@@ -4,7 +4,17 @@
 // más) — ver docs/BITACORA-CAMBIOS-VIABILIDAD.md para el detalle de cada hallazgo.
 import { listarParrafos, listarBlancosInline, parrafoEstaVacio, type Parrafo } from '@/app/lib/anexos-docx';
 import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
-import { CONTEXTO_REPRESENTANTE, CONTEXTO_BANCARIO, CONTEXTO_MISMA_PERSONA, CONTEXTO_TERCERO_AJENO } from '@/app/lib/anexos-diccionario';
+
+// Vocabulario de ROL cercano a una etiqueta duplicada ("<contexto> — <campo>", ver
+// desambiguarDuplicados más abajo) — dice A QUIÉN describe un duplicado (representante legal,
+// bloque bancario, la misma persona de la ficha bajo otro título, o un tercero ajeno). Vivía en
+// el diccionario (anexos-diccionario.ts, borrado — el motor 100% IA ya no lo necesita para
+// decidir VALORES), pero esto es detección ESTRUCTURAL: sigue haciendo falta para saber qué
+// CONTEXTO mostrarle al motor de IA cuando el mismo texto corto se repite en bloques distintos.
+const CONTEXTO_REPRESENTANTE = /(representante\s+legal|rep\.?\s*legal)/i;
+const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|entidad\s+bancaria|titular)/i;
+const CONTEXTO_MISMA_PERSONA = /(encargado|contacto|administrador(\s+de\s+contrato)?|coordinador|responsable|ejecutivo|apoderado|coordinaci[óo]n|coordinador[ao])/i;
+const CONTEXTO_TERCERO_AJENO = /(u\.?t\.?p\.?|uni[óo]n\s+temporal|integrante|socio|accionista|mandante|contraparte|inspector|i\.?t\.?o\.?|participante|capacitaci[óo]n|asistente|testigo|notario|proveedor\s+asociado|subcontrat)/i;
 
 // ── Patrón 1: etiqueta corta + párrafo vacío inmediatamente después ───────────────────────
 // (celda de tabla de 2 columnas: "Razón social" | <celda vacía>). Es RUIDOSO a propósito: no

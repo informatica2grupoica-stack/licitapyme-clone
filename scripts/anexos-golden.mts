@@ -27,7 +27,7 @@ for (const l of readFileSync('.env.local', 'utf8').split(/\r?\n/)) {
 const mysql = (await import('mysql2/promise')).default;
 const { analizarAnexo } = await import('@/app/lib/anexos-detectar');
 const { normalizarParaIds, abrirDocx, listarParrafos } = await import('@/app/lib/anexos-docx');
-const { resolverCandidatosCelda } = await import('@/app/lib/anexos-rellenar');
+const { analizarAnexoParaUI } = await import('@/app/lib/anexos-rellenar');
 const { convertirDocADocx } = await import('@/app/lib/anexos-doc-legacy');
 const { conCamposDerivados } = await import('@/app/lib/anexos-derivados');
 
@@ -74,6 +74,7 @@ async function empresaDe(id: number) {
   if (empresasCache.has(id)) return empresasCache.get(id);
   const [rows]: any = await pool.query(
     `SELECT razon_social, rut, direccion, region, giro, tipo_persona_juridica, fecha_sociedad,
+            fecha_escritura, notaria, numero_repertorio, fojas_numero_anio,
             representante_nombre, representante_rut, representante_cargo,
             email1, telefono1, banco_tipo_cuenta, banco_numero, banco_nombre, banco_email, firma_url
        FROM empresas WHERE id = ?`, [id]);
@@ -150,10 +151,9 @@ for (const g of golden) {
       continue;
     }
 
-    const { matcheados } = await resolverCandidatosCelda(
-      analisis.candidatosCelda, empresa, analisis.indicesSoloManual, undefined, analisis.parrafos);
+    const analizado = await analizarAnexoParaUI(bufOriginal, empresa);
     const nuestro = new Map<number, { campo: string; valor: string }>(
-      matcheados.map((m: any) => [m.c.indice, { campo: m.campo, valor: m.valor }]));
+      analizado.completadosAuto.filter(m => m.indice != null).map(m => [m.indice!, { campo: m.campo, valor: m.valor }]));
 
     const local = { ok: 0, distinto: 0, falta: 0, faltaFicha: 0, faltaOferta: 0, demas: 0, vacias: 0 };
     const detalle: string[] = [];

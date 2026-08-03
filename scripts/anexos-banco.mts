@@ -14,8 +14,10 @@
 // vacías) para abrirlo en Word y MIRARLO. Un contador de "71 automáticos" no dice si el dato
 // quedó en la casilla correcta ni si el formato sobrevivió.
 //
-// Va contra resolverCandidatosCelda (no analizarAnexoParaUI) a propósito: necesita la ETIQUETA de
-// cada pendiente, y la vista de UI las esconde dentro de la reconstrucción de tablas.
+// Va contra analizarAnexoParaUI — el motor 100% IA (anexos-ia-motor.ts, 3-ago-2026) reemplazó el
+// diccionario, así que ya no tiene sentido reimplementar la resolución acá: se mide EXACTAMENTE
+// lo mismo que ve /api/anexos/analizar, incluidas las casillas dentro de tablas (antes esta
+// medición las dejaba fuera porque iba contra resolverCandidatosCelda directo).
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 for (const l of readFileSync('.env.local', 'utf8').split(/\r?\n/)) {
@@ -23,9 +25,8 @@ for (const l of readFileSync('.env.local', 'utf8').split(/\r?\n/)) {
   if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
 }
 const mysql = (await import('mysql2/promise')).default;
-const { analizarAnexo } = await import('@/app/lib/anexos-detectar');
-const { normalizarParaIds, abrirDocx } = await import('@/app/lib/anexos-docx');
-const { resolverCandidatosCelda, resolverBlancosInline, resolverCamposConDosPuntos, generarAnexoFinal } = await import('@/app/lib/anexos-rellenar');
+const { abrirDocx } = await import('@/app/lib/anexos-docx');
+const { analizarAnexoParaUI, generarAnexoFinal } = await import('@/app/lib/anexos-rellenar');
 const { dividirPorFormularios } = await import('@/app/lib/anexos-dividir');
 const { convertirDocADocx } = await import('@/app/lib/anexos-doc-legacy');
 const { conCamposDerivados } = await import('@/app/lib/anexos-derivados');
@@ -74,6 +75,8 @@ interface ResultadoDoc {
   id: number; licitacion: string; nombre: string;
   auto: { etiqueta: string; campo: string; valor: string; via: string }[];
   pendientes: string[];
+  alertas: string[];
+  checklist: string[];
   error?: string;
 }
 
@@ -86,7 +89,7 @@ for (const id of ids) {
   const d = docs[0];
   if (!d) { console.log(`[${id}] no encontrado en documentos_cache`); continue; }
 
-  const base: ResultadoDoc = { id, licitacion: d.licitacion_codigo, nombre: d.documento_nombre, auto: [], pendientes: [] };
+  const base: ResultadoDoc = { id, licitacion: d.licitacion_codigo, nombre: d.documento_nombre, auto: [], pendientes: [], alertas: [], checklist: [] };
   const asignada = await empresaDeLicitacion(d.licitacion_codigo);
   if (!asignada) { console.log(`[${id}] ${d.licitacion_codigo} no tiene empresa asignada — se omite`); continue; }
   const empresa = asignada.empresa;
@@ -99,25 +102,19 @@ for (const id of ids) {
     let buffer: Buffer = Buffer.from(await res.arrayBuffer());
     if (/\.doc$/i.test(d.documento_nombre)) buffer = Buffer.from(await convertirDocADocx(buffer));
 
-    const { xml: xmlCrudo } = await abrirDocx(buffer);
-    const { xml } = normalizarParaIds(xmlCrudo);
-    const analisis = analizarAnexo(xml);
+    const analisis = await analizarAnexoParaUI(buffer, empresa);
 
-    const { matcheados, pendientes, descartadosComoTitulo }
-      = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, undefined, analisis.parrafos);
-
-    for (const m of matcheados) base.auto.push({ etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
-    for (const r of resolverCamposConDosPuntos(analisis.camposConDosPuntos, empresa)) {
-      base.auto.push({ etiqueta: r.c.etiqueta, campo: r.campo, valor: r.valor, via: 'dos-puntos' });
-    }
-    const inline = resolverBlancosInline(analisis.blancosInline, empresa);
-    for (const a of inline.auto) base.auto.push({ etiqueta: a.etiqueta, campo: a.campo, valor: a.valor, via: 'inline' });
-
+    for (const m of analisis.completadosAuto) base.auto.push({ etiqueta: m.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
     base.pendientes = [
-      ...pendientes.map(c => c.etiqueta),
-      ...descartadosComoTitulo.map(c => `${c.etiqueta}  [visto como título]`),
-      ...inline.pendientes.map(b => `${(b.contexto || '(sin contexto)').trim()}  [inline]`),
+      ...analisis.pendientesCelda.map(p => `${p.etiqueta}${p.categoria ? `  [${p.categoria}]` : ''}`),
+      ...analisis.pendientesInline.map(p => `${(p.contexto || '(sin contexto)').trim()}  [inline${p.categoria ? `/${p.categoria}` : ''}]`),
+      // Las casillas de tabla (celda vacía dentro de una tabla real) NO están en pendientesCelda —
+      // el panel las muestra dentro de `tablas[].filas[].input` (ver AnexoRellenoModal.tsx). Se
+      // cuentan igual acá para que el total refleje lo mismo que ve el usuario en el modal.
+      ...analisis.tablas.flatMap(t => t.filas.flatMap(f => f.filter(c => c.input).map(() => '(celda de tabla)'))),
     ];
+    base.alertas = (analisis.alertasInadmisibilidad || []).filter(a => !a.disponible).map(a => a.riesgo);
+    base.checklist = analisis.checklistPendientes || [];
 
     // Mismo camino EXACTO que /api/anexos/generar (relleno + verificación de integridad +
     // división por formulario), con las respuestas humanas vacías — lo que se sube si el usuario
@@ -143,7 +140,9 @@ for (const id of ids) {
   resultados.push(base);
 
   if (base.error) { console.log(`  ERROR: ${base.error}`); continue; }
-  console.log(`  auto=${base.auto.length}  pendientes=${base.pendientes.length}`);
+  console.log(`  auto=${base.auto.length}  pendientes=${base.pendientes.length}  alertas=${base.alertas.length}  checklist=${base.checklist.length}`);
+  for (const a of base.alertas) console.log(`   ⚠ ALERTA: ${a}`);
+  for (const c of base.checklist) console.log(`   ☐ checklist: ${c}`);
   for (const a of base.auto) console.log(`   ✓ "${a.etiqueta}" → ${a.campo} = "${a.valor}"  (${a.via})`);
   for (const p of base.pendientes) console.log(`   · ${p}`);
 }

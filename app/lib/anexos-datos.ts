@@ -3,10 +3,11 @@
 // (anexos-rellenar.ts, que solo trabaja con buffers en memoria). Aísla las dos rutas
 // (analizar/generar) de tener que duplicar la misma consulta y el mismo fetch.
 import pool from '@/app/lib/db';
-import type { EmpresaCampos } from '@/app/lib/anexos-diccionario';
+import type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 import { conCamposDerivados } from '@/app/lib/anexos-derivados';
 import { convertirDocADocx } from '@/app/lib/anexos-doc-legacy';
 import { parsearCosteo, itemsPrecioDeCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
+import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 
 export interface DocumentoYEmpresa {
   bufferOriginal: Buffer;
@@ -91,5 +92,37 @@ export async function obtenerItemsCosteoParaAnexo(codigo: string): Promise<ItemC
   } catch (e) {
     console.error(`[anexos-datos] no se pudo leer el costeo de ${codigo} para el Anexo Creator:`, String(e).slice(0, 200));
     return [];
+  }
+}
+
+// ── Texto de las bases — para el Paso 1 del motor de IA (alertas de inadmisibilidad) ─────────
+// Best-effort y NUNCA lanza: usa el texto que YA esté cacheado (migración 22, mismo campo que
+// llena el análisis de viabilidad al asignar la licitación) sin volver a pedir OCR — el Anexo
+// Creator no es quien debe pagar ese costo/latencia; si el texto no está o quedó con huecos/
+// basura, simplemente se omite el Paso 1 (el motor lo maneja sin bloquear el resto).
+const LARGO_MAX_BASES = 14_000;
+
+export async function obtenerTextoBasesParaAnexo(codigo: string): Promise<string> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT documento_nombre, categoria, texto_extraido
+         FROM documentos_cache
+        WHERE licitacion_codigo = ? AND categoria IN ('BASES_ADMINISTRATIVAS', 'BASES_TECNICAS')
+        ORDER BY created_at ASC`,
+      [codigo],
+    ) as any;
+    const docs = (rows as any[]).filter(d => {
+      const txt = (d.texto_extraido || '').trim();
+      return txt.length >= 50 && !ocrTieneHuecos(txt) && !esTextoBasuraOCR(txt);
+    });
+    if (!docs.length) return '';
+    const texto = docs
+      .map(d => `--- ${d.documento_nombre} ---\n${d.texto_extraido.trim()}`)
+      .join('\n\n')
+      .slice(0, LARGO_MAX_BASES);
+    return texto;
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudo leer el texto de bases de ${codigo}:`, String(e).slice(0, 200));
+    return '';
   }
 }

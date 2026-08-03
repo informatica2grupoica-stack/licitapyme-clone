@@ -59,11 +59,14 @@ export interface ItemChecklist extends Omit<ItemGenerado, 'fuenteCita' | 'claveO
 }
 
 // ─── Etapas donde el módulo está vivo ────────────────────────────────────────────
-// A partir de ANEXOS y hacia adelante. NO solo ANEXOS: si la pestaña desapareciera al
-// avanzar, se perdería la evidencia de auditoría justo cuando más se necesita (una
-// licitación postulada o adjudicada tiene que poder mostrar quién aprobó qué).
+// Desde ASIGNADO en adelante (pedido explícito del usuario, 3-ago-2026): el precio/comercial es
+// LO PRIMERO que arma el asistente, apenas se asigna la licitación y corre la viabilidad — no
+// tenía sentido que la pestaña recién apareciera en ANEXOS, cuando el precio ya debería estar
+// listo. NO se saca ninguna etapa posterior: si la pestaña desapareciera al avanzar, se perdería
+// la evidencia de auditoría justo cuando más se necesita (una licitación postulada o adjudicada
+// tiene que poder mostrar quién aprobó qué).
 const ETAPAS_CON_COMERCIAL = new Set([
-  'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA',
+  'ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA',
 ]);
 
 export function tieneInformacionComercial(estadoPipeline?: string | null): boolean {

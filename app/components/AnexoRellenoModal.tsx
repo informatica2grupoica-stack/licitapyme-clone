@@ -8,7 +8,7 @@
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText, ExternalLink, Download, ChevronDown } from 'lucide-react';
+import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText, ExternalLink, Download, ChevronDown, ShieldAlert, ListChecks } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 
 // Mismo problema que el visor del ojo "Ver" en Documentos (ver DocumentViewerModal): el visor
@@ -19,14 +19,16 @@ const TIMEOUT_VISOR_OFFICE_MS = 14_000;
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
-interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' | 'costeo'; formulario?: string }
-interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
+interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo'; formulario?: string }
+interface PendienteCelda { id: string; etiqueta: string; formulario?: string; categoria?: string; motivo?: string }
 interface PendienteInline {
   id: string; contexto: string; formulario?: string;
   parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
+  categoria?: string; motivo?: string;
 }
-interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'diccionario' | 'ia' | 'costeo' }; input?: { id: string } }
+interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'ia' | 'costeo' }; input?: { id: string } }
 interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string; titulo?: string }
+interface AlertaInadmisibilidad { riesgo: string; datoQueLoResuelve: string; disponible: boolean }
 
 interface Analisis {
   completadosAuto: CampoCompletado[];
@@ -35,6 +37,8 @@ interface Analisis {
   tablas: TablaUI[];
   firma: { detectada: boolean; disponible: boolean };
   ordenFormularios?: string[]; // títulos en el orden del documento
+  alertasInadmisibilidad?: AlertaInadmisibilidad[];
+  checklistPendientes?: string[];
 }
 
 // Vista de tabla REAL: mismas filas/columnas que el Word, para que quede claro a qué celda
@@ -97,6 +101,7 @@ function TablaReal({
 interface PendienteUnificado {
   id: string; etiqueta: string; formulario?: string;
   parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
+  motivo?: string;
 }
 
 // Muestra el párrafo completo con el blanco resaltado — pedido explícito del usuario (caso real
@@ -144,9 +149,21 @@ function EtiquetaCampo({ etiqueta }: { etiqueta: string }) {
   );
 }
 
-function CampoInput({ etiqueta, valor, onChange, parrafoCompleto, posEnParrafo, largoBlanco }: {
+// Por qué el motor de IA (anexos-ia-motor.ts) no autocompletó esta casilla — se muestra bajo la
+// etiqueta en vez de dejar el input mudo. Pedido explícito del usuario: "que me pregunte... si
+// tiene alguna duda", no solo un blanco sin explicación.
+function MotivoPendiente({ motivo }: { motivo: string }) {
+  return (
+    <p className="text-[11px] text-amber-700 leading-snug mb-1 flex items-start gap-1">
+      <ShieldAlert size={11} className="flex-shrink-0 mt-0.5" />
+      <span>{motivo}</span>
+    </p>
+  );
+}
+
+function CampoInput({ etiqueta, valor, onChange, parrafoCompleto, posEnParrafo, largoBlanco, motivo }: {
   etiqueta: string; valor: string; onChange: (v: string) => void;
-  parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
+  parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number; motivo?: string;
 }) {
   return (
     <div>
@@ -158,6 +175,7 @@ function CampoInput({ etiqueta, valor, onChange, parrafoCompleto, posEnParrafo, 
           <ParrafoConBlanco texto={parrafoCompleto} pos={posEnParrafo} largo={largoBlanco} />
         </p>
       )}
+      {motivo && <MotivoPendiente motivo={motivo} />}
       <input
         type="text"
         value={valor}
@@ -165,6 +183,58 @@ function CampoInput({ etiqueta, valor, onChange, parrafoCompleto, posEnParrafo, 
         placeholder="Escribe el valor…"
         className="w-full text-[12.5px] px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
       />
+    </div>
+  );
+}
+
+// Paso 1 del motor de IA (ver anexos-ia-motor.ts): riesgos de inadmisibilidad detectados en las
+// BASES antes de tocar cualquier campo — lo primero que se ve, antes que cualquier casilla, tal
+// como lo pidió el usuario ("que me lea las bases... y me alerte"). Solo se muestran las que NO
+// están resueltas (disponible:false) — si el dato ya está disponible, no es una alerta real.
+function AlertasInadmisibilidad({ alertas }: { alertas: AlertaInadmisibilidad[] }) {
+  const pendientes = alertas.filter(a => !a.disponible);
+  if (!pendientes.length) return null;
+  return (
+    <div className="rounded-lg border border-red-200 bg-red-50/80 px-3 py-2.5">
+      <p className="flex items-center gap-1.5 text-[12px] font-bold text-red-700 mb-1.5">
+        <ShieldAlert size={13} className="flex-shrink-0" /> Riesgo de inadmisibilidad — revisa antes de postular
+      </p>
+      <ul className="space-y-1 pl-1">
+        {pendientes.map((a, i) => (
+          <li key={i} className="text-[11.5px] text-red-800 leading-snug">
+            <span className="font-semibold">{a.riesgo}</span>
+            {a.datoQueLoResuelve && <span className="text-red-600"> — {a.datoQueLoResuelve}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// checklist_pendientes del motor: lo que el usuario debe confirmar/escribir antes de generar,
+// aparte de las casillas individuales (plazo de entrega, certificaciones, decisiones que la IA
+// no puede tomar). Plegable — es un recordatorio, no algo que bloquee.
+function ChecklistPendientes({ items }: { items: string[] }) {
+  const [abierto, setAbierto] = useState(true);
+  if (!items.length) return null;
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50/70">
+      <button
+        type="button"
+        onClick={() => setAbierto(v => !v)}
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-amber-800 hover:bg-amber-100/60 rounded-lg transition-colors"
+      >
+        <ListChecks size={12} className="flex-shrink-0" />
+        <span className="flex-1 text-left">Antes de generar ({items.length})</span>
+        <ChevronDown size={13} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} />
+      </button>
+      {abierto && (
+        <ul className="px-2.5 pb-2 space-y-1">
+          {items.map((it, i) => (
+            <li key={i} className="text-[11.5px] text-amber-800 leading-snug pl-1">· {it}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -197,11 +267,6 @@ function ResumenAuto({ campos }: { campos: CampoCompletado[] }) {
             <div key={i} className="flex items-baseline justify-between gap-3 py-1 text-[11.5px]">
               <span className="flex items-baseline gap-1.5 min-w-0 text-emerald-800 font-medium">
                 <EtiquetaCampo etiqueta={c.etiqueta} />
-                {c.via === 'ia' && (
-                  <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-violet-100 text-violet-700" title="Completado por IA, no por match exacto">
-                    IA
-                  </span>
-                )}
                 {c.via === 'costeo' && (
                   <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-cyan-100 text-cyan-700" title="Precio cruzado con el costeo subido — revisa antes de generar">
                     COSTEO
@@ -287,10 +352,11 @@ export function AnexoRellenoModal({
   // formulario (caso común: un solo formulario), queda todo en "sinFormulario"/"tablasSinFormulario"
   // y se muestra como antes, sin encabezados extra.
   const pendientesTodos: PendienteUnificado[] = analisis ? [
-    ...analisis.pendientesCelda.map(p => ({ id: p.id, etiqueta: p.etiqueta, formulario: p.formulario })),
+    ...analisis.pendientesCelda.map(p => ({ id: p.id, etiqueta: p.etiqueta, formulario: p.formulario, motivo: p.motivo })),
     ...analisis.pendientesInline.map(p => ({
       id: p.id, etiqueta: p.contexto.replace(/\s*:\s*$/, ''), formulario: p.formulario,
       parrafoCompleto: p.parrafoCompleto, posEnParrafo: p.posEnParrafo, largoBlanco: p.largoBlanco,
+      motivo: p.motivo,
     })),
   ] : [];
   const gruposFormulario: { titulo: string; items: PendienteUnificado[]; tablas: TablaUI[]; autos: CampoCompletado[] }[] = [];
@@ -455,6 +521,12 @@ export function AnexoRellenoModal({
 
           {!cargando && !error && analisis && (
             <>
+              {analisis.alertasInadmisibilidad && analisis.alertasInadmisibilidad.length > 0 && (
+                <AlertasInadmisibilidad alertas={analisis.alertasInadmisibilidad} />
+              )}
+              {analisis.checklistPendientes && analisis.checklistPendientes.length > 0 && (
+                <ChecklistPendientes items={analisis.checklistPendientes} />
+              )}
               {analisis.firma.detectada && !analisis.firma.disponible && (
                 <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
                   <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
@@ -493,7 +565,7 @@ export function AnexoRellenoModal({
                             {g.items.map(p => (
                               <CampoInput
                                 key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)}
-                                parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco}
+                                parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco} motivo={p.motivo}
                               />
                             ))}
                           </div>
@@ -517,7 +589,7 @@ export function AnexoRellenoModal({
                           {sinFormulario.map(p => (
                             <CampoInput
                               key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)}
-                              parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco}
+                              parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco} motivo={p.motivo}
                             />
                           ))}
                         </div>
@@ -551,7 +623,7 @@ export function AnexoRellenoModal({
                       </p>
                       <div className="space-y-2">
                         {analisis.pendientesCelda.map(p => (
-                          <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                          <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} motivo={p.motivo} />
                         ))}
                       </div>
                     </div>
@@ -566,7 +638,7 @@ export function AnexoRellenoModal({
                         {analisis.pendientesInline.map(p => (
                           <CampoInput
                             key={p.id} etiqueta={p.contexto.replace(/\s*:\s*$/, '')} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)}
-                            parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco}
+                            parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco} motivo={p.motivo}
                           />
                         ))}
                       </div>

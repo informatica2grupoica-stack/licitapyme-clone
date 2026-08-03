@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
-import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo } from '@/app/lib/anexos-datos';
+import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo } from '@/app/lib/anexos-datos';
 import { generarAnexoFinal } from '@/app/lib/anexos-rellenar';
 import { abrirDocx, verificarXmlBienFormado } from '@/app/lib/anexos-docx';
 import { dividirPorFormularios } from '@/app/lib/anexos-dividir';
@@ -59,9 +59,10 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo] = await Promise.all([
+    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo, basesTexto] = await Promise.all([
       cargarDocumentoYEmpresa(codigo, documentoId, empresaId),
       obtenerItemsCosteoParaAnexo(codigo),
+      obtenerTextoBasesParaAnexo(codigo),
     ]);
 
     // Se guarda el veredicto del documento DE ENTRADA (ya convertido a .docx si venía .doc) para no
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest) {
     // mensaje mandaría a buscar un bug nuestro donde no lo hay.
     const entradaValida = verificarXmlBienFormado((await abrirDocx(bufferOriginal)).xml).valido;
 
-    const resultado = await generarAnexoFinal(bufferOriginal, empresa, respuestas, itemsCosteo);
+    const resultado = await generarAnexoFinal(bufferOriginal, empresa, respuestas, itemsCosteo, basesTexto);
 
     if (!resultado.integridad.parrafosIguales) {
       return NextResponse.json(

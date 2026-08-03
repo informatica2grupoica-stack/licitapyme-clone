@@ -13,7 +13,7 @@
 // que acordarse de actualizar cada vez. Si más adelante se quiere una comuna explícita (ej. la
 // dirección no la trae, o la comuna tributaria difiere de la comercial), esto es el único lugar
 // que hay que tocar.
-import type { EmpresaCampos } from '@/app/lib/anexos-diccionario';
+import type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 
 // Los anexos se presentan y se fechan en hora de Chile — un cron o un servidor en UTC no debe
 // escribir la fecha de "mañana" en una declaración jurada. Mismo criterio que el resto del
@@ -39,28 +39,33 @@ export function fechaLargaChile(ahora = new Date()): string {
   return `${dia} de ${MESES[Number(mes) - 1]} de ${anio}`;
 }
 
-// La ficha de empresa guarda la región como la escribió el usuario ("Metropolitana", "Región del
-// Bío Bío"). En un anexo se escribe siempre con la palabra "Región" adelante — si ya la trae, se
-// deja tal cual.
-export function regionCompleta(region: string | null | undefined): string | null {
-  const limpia = (region || '').trim();
-  if (!limpia) return null;
-  if (/^regi[óo]n\b/i.test(limpia)) return limpia;
-  return `Región ${limpia}`;
+// La comuna no es una columna propia de `empresas` — vive enterrada al final de `direccion`
+// ("Barros Arana N°492 Of.78, Concepción" → "Concepción", el último segmento separado por coma).
+// REVERTIDO (3-ago-2026, pedido explícito del usuario): antes se dejaba fuera a propósito porque
+// era una inferencia sobre texto libre; ahora el usuario pide explícitamente que "Región" salga
+// con región Y comuna juntas (ej. "Región del Bío Bío, Concepción"), así que se deriva de nuevo.
+function comunaDeDireccion(direccion: string | null | undefined): string | null {
+  const partes = (direccion || '').split(',').map(s => s.trim()).filter(Boolean);
+  return partes.length > 1 ? partes[partes.length - 1] : null;
 }
 
-// CIUDAD/COMUNA a propósito NO se derivan (decisión del usuario, 3-ago-2026): se probó sacarlas
-// del último segmento de la dirección ("Barros Arana N°492 Of.78, Concepción" → "Concepción") y
-// funciona, pero es una inferencia sobre un campo de texto libre y el usuario prefiere que en los
-// anexos vaya SOLO la región, que sí es un dato explícito de la ficha. Las casillas "Ciudad" y
-// "Comuna" quedan pendientes para que las escriba un humano.
+// La ficha de empresa guarda la región como la escribió el usuario ("Metropolitana", "Región del
+// Bío Bío"). En un anexo se escribe siempre con la palabra "Región" adelante — si ya la trae, se
+// deja tal cual — y se le agrega la comuna (ver comunaDeDireccion) cuando la dirección la trae.
+export function regionCompleta(region: string | null | undefined, direccion?: string | null): string | null {
+  const limpia = (region || '').trim();
+  if (!limpia) return null;
+  const base = /^regi[óo]n\b/i.test(limpia) ? limpia : `Región ${limpia}`;
+  const comuna = comunaDeDireccion(direccion);
+  return comuna ? `${base}, ${comuna}` : base;
+}
 
 // Toma el registro tal cual sale de la tabla `empresas` y devuelve el mismo registro CON los
 // campos derivados resueltos. No pisa nada que ya venga con dato propio.
 export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): EmpresaCampos {
   return {
     ...empresa,
-    region: regionCompleta(empresa.region),
+    region: regionCompleta(empresa.region, empresa.direccion),
     fecha_hoy: fechaLargaChile(ahora),
   };
 }

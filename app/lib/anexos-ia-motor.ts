@@ -1,0 +1,374 @@
+// app/lib/anexos-ia-motor.ts
+// Motor ÚNICO de decisión del Anexo Creator (reemplaza anexos-diccionario.ts +
+// anexos-ia-matching.ts + anexos-clasificar-ia.ts + anexos-ia-total.ts — decisión del usuario,
+// 3-ago-2026: "solo IA, nada de diccionario"). Decide, para CADA casilla detectada del Word, una
+// de 9 categorías (perfil de empresa/representante/contacto/banco, dato específico de esta
+// licitación, declaración de tercero, firma/fecha, no aplica, o decisión del usuario) y el valor
+// final formateado — o explica POR QUÉ queda pendiente en vez de dejarla en blanco sin más.
+//
+// LO QUE NO CAMBIA: la DETECCIÓN estructural (dónde está cada blanco: anexos-detectar.ts,
+// anexos-dividir.ts) y la ESCRITURA (anexos-docx.ts edita el <w:t> del run existente). Este
+// archivo solo decide QUÉ VALOR va en cada casilla ya detectada — nunca toca el .docx.
+//
+// GUARDA ANTI-INVENCIÓN (se mantiene del diseño anterior, adaptada): para categorías de "perfil"
+// el valor debe existir de verdad en la ficha de la empresa (comparado normalizado); si no calza,
+// la casilla queda pendiente. Para "especifico_licitacion" (precio/cantidad) este motor NUNCA
+// inventa el número — lo deja pendiente y el pipeline de costeo YA EXISTENTE (anexos-precios-ia.ts,
+// sin tocar) lo resuelve cruzando contra el Motor Comercial, igual que hoy.
+import { crearChatIA } from '@/app/lib/gemini';
+import { parseJsonIA } from '@/app/lib/json-ia';
+import type { Parrafo } from '@/app/lib/anexos-docx';
+import type { CandidatoCelda, CandidatoInline } from '@/app/lib/anexos-detectar';
+
+export interface EmpresaCampos {
+  razon_social: string | null;
+  rut: string | null;
+  direccion: string | null;
+  region: string | null;
+  giro: string | null;
+  tipo_persona_juridica: string | null;
+  fecha_sociedad: string | null;
+  fecha_escritura: string | null;
+  notaria: string | null;
+  numero_repertorio: string | null;
+  fojas_numero_anio: string | null;
+  representante_nombre: string | null;
+  representante_rut: string | null;
+  representante_cargo: string | null;
+  email1: string | null;
+  telefono1: string | null;
+  banco_tipo_cuenta: string | null;
+  banco_numero: string | null;
+  banco_nombre: string | null;
+  banco_email: string | null;
+  firma_url: string | null;
+  // Campos DERIVADOS (no son columnas de `empresas`) — los resuelve conCamposDerivados() en
+  // anexos-derivados.ts justo antes de que este motor vea el registro.
+  fecha_hoy?: string | null;
+}
+
+export type CategoriaCampo =
+  | 'perfil_empresa' | 'perfil_representante_legal' | 'perfil_contacto' | 'perfil_bancario'
+  | 'especifico_licitacion' | 'declaracion_tercero' | 'firma_fecha' | 'no_aplica_al_oferente'
+  | 'decision_del_usuario';
+
+const CATEGORIAS_PERFIL: CategoriaCampo[] = [
+  'perfil_empresa', 'perfil_representante_legal', 'perfil_contacto', 'perfil_bancario',
+];
+
+// Qué campos de la ficha puede nombrar la IA para cada categoría — la condición NECESARIA (no
+// suficiente) que impide que, dentro de un mismo bloque de representante legal, "cédula de
+// identidad" termine con el NOMBRE porque las dos casillas comparten categoría
+// perfil_representante_legal (bug real encontrado en pruebas: ambas devolvían
+// representante_nombre). Acotar por categoría, no solo por "existe en la ficha", es lo que evita
+// que un valor real pero del campo equivocado pase el guardarraíl.
+const CAMPOS_PERMITIDOS_POR_CATEGORIA: Record<string, (keyof EmpresaCampos)[]> = {
+  perfil_empresa: [
+    'razon_social', 'rut', 'direccion', 'region', 'giro', 'tipo_persona_juridica',
+    'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio', 'fecha_hoy',
+  ],
+  perfil_representante_legal: ['representante_nombre', 'representante_rut', 'representante_cargo'],
+  perfil_contacto: ['email1', 'telefono1'],
+  perfil_bancario: ['banco_tipo_cuenta', 'banco_numero', 'banco_nombre', 'banco_email'],
+};
+
+// Motivo legible en español para cada categoría que NUNCA se autocompleta — se muestra en el
+// modal como ayuda bajo el campo, en vez de una casilla vacía sin explicación.
+const MOTIVO_POR_DEFECTO: Partial<Record<CategoriaCampo, string>> = {
+  especifico_licitacion: 'Dato específico de esta oferta (precio, cantidad o plazo) — se completa cruzando el costeo, no la ficha de empresa.',
+  declaracion_tercero: 'Debe completarlo y firmarlo un tercero (ej. un cliente anterior), no el oferente.',
+  firma_fecha: 'Línea de firma o "ciudad y fecha" — se firma en papel o electrónicamente, no se completa aquí.',
+  no_aplica_al_oferente: 'Es de uso interno del organismo comprador (o de un bloque que no corresponde a esta empresa) — no aplica.',
+  decision_del_usuario: 'Hay que decidirlo — no se puede inferir de forma segura de la ficha ni del costeo.',
+};
+
+export interface ResolucionAuto { tipo: 'auto'; valor: string; categoria: CategoriaCampo; evidencia: string | null }
+export interface ResolucionPendiente { tipo: 'pendiente'; categoria: CategoriaCampo; motivo: string }
+export type Resolucion = ResolucionAuto | ResolucionPendiente;
+
+export interface AlertaInadmisibilidad { riesgo: string; datoQueLoResuelve: string; disponible: boolean }
+
+export interface EntradaMotor {
+  candidatos: CandidatoCelda[];
+  blancosInline: CandidatoInline[];
+  parrafos: Parrafo[];
+  empresa: EmpresaCampos;
+  basesTexto?: string;
+  tituloAnexos?: string[]; // ordenFormularios — nombres de los anexos detectados, para el Paso 1
+}
+
+export interface ResultadoMotor {
+  celda: Map<number, Resolucion>;         // key = CandidatoCelda.indice
+  inline: Map<string, Resolucion>;        // key = `${indiceRun}:${posEnTexto}`
+  alertasInadmisibilidad: AlertaInadmisibilidad[];
+  checklistPendientes: string[];
+}
+
+// ── Normalización para el guardarraíl anti-invención (igual que el diseño anterior) ──────────
+function normalizarValor(v: string): string {
+  return v.normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^\w@]+/g, '').trim();
+}
+
+export function valorExisteEnFicha(valor: string, empresa: EmpresaCampos): boolean {
+  const n = normalizarValor(valor);
+  if (!n) return false;
+  return Object.values(empresa).some(v => v != null && normalizarValor(String(v)) === n);
+}
+
+const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
+  razon_social: 'Razón social / nombre de la empresa',
+  rut: 'RUT de la empresa',
+  direccion: 'Dirección comercial',
+  region: 'Región (incluye la comuna al final, ej. "Región del Bío Bío, Concepción") — úsalo también si la casilla pide "Región y comuna"/"Ciudad, Región"',
+  giro: 'Giro comercial',
+  tipo_persona_juridica: 'Tipo de persona jurídica',
+  fecha_sociedad: 'Fecha/tipo/notaría de constitución (texto libre, todo junto)',
+  fecha_escritura: 'Fecha de la escritura de constitución (solo la fecha)',
+  notaria: 'Notaría donde se firmó la escritura',
+  numero_repertorio: 'Número de repertorio de la escritura',
+  fojas_numero_anio: 'Fojas/Número/Año de inscripción de la escritura',
+  representante_nombre: 'Nombre completo del representante legal',
+  representante_rut: 'RUT/cédula de identidad del representante legal',
+  representante_cargo: 'Cargo del representante legal',
+  email1: 'Correo electrónico de la empresa',
+  telefono1: 'Teléfono de la empresa',
+  banco_tipo_cuenta: 'Tipo de cuenta bancaria',
+  banco_numero: 'Número de cuenta bancaria',
+  banco_nombre: 'Nombre del banco',
+  banco_email: 'Correo electrónico para pagos',
+  fecha_hoy: 'Fecha de hoy — con la que se firma y presenta esta oferta',
+};
+
+const TAMANO_LOTE = 8;
+const CANTIDAD_PARRAFOS_PREVIOS = 6;
+
+function enLotes<T>(items: T[], tamano: number): T[][] {
+  const lotes: T[][] = [];
+  for (let i = 0; i < items.length; i += tamano) lotes.push(items.slice(i, i + tamano));
+  return lotes;
+}
+
+function contextoPrevio(parrafos: Parrafo[], antesDeIndice: number): string[] {
+  const out: string[] = [];
+  for (let i = antesDeIndice - 1; i >= 0 && out.length < CANTIDAD_PARRAFOS_PREVIOS; i--) {
+    const p = parrafos[i];
+    if (p?.texto && !p.vacio) out.push(p.texto);
+  }
+  return out.reverse();
+}
+
+// ── Prompt (adaptado del prompt del usuario — mismo conocimiento de dominio, reglas de formato
+// chilenas y regla de oro anti-alucinación; la SALIDA se simplifica al esquema real de este
+// pipeline: cada lote resuelve una lista plana de casillas, las alertas de inadmisibilidad se
+// calculan aparte en una sola pasada sobre las bases — ver resolverAlertasInadmisibilidad) ──────
+const SYS_CAMPOS = `Eres un experto en licitaciones públicas chilenas (Mercado Público) que completa los ANEXOS que el organismo comprador entrega en Word para que los llene el oferente. Conoces la Ley N°19.886 de Bases sobre Contratos Administrativos de Suministro y Prestación de Servicios y la operatoria del portal: apertura de ofertas, evaluación por criterios ponderados, causales de inadmisibilidad, garantías, y las figuras de oferente persona natural, persona jurídica y Unión Temporal de Proveedores (UTP).
+
+Te doy la FICHA de la empresa que postula y una lista NUMERADA de CASILLAS EN BLANCO detectadas en el documento, cada una con su etiqueta y el CONTEXTO real que la rodea (fila/columna de tabla, o el párrafo completo con la casilla marcada como 【CASILLA A LLENAR】).
+
+Para cada casilla, decide su CATEGORÍA y su VALOR:
+
+a) "perfil_empresa" | "perfil_representante_legal" | "perfil_contacto" | "perfil_bancario": el dato sale de la ficha — indica el NOMBRE EXACTO del campo de la ficha (ej. "representante_rut", "razon_social"), NUNCA reescribas el valor tú mismo. Ojo: dentro de una misma oración pueden pedirse VARIOS campos distintos de la MISMA persona (nombre en una casilla, cédula en otra, domicilio en otra) — cada casilla es un campo distinto, nunca repitas el mismo campo en dos casillas que piden cosas distintas.
+b) "especifico_licitacion": precio, cantidad, plazo, certificación, cumplimiento técnico de un producto — NO SALE de la ficha de empresa. Nunca le pongas valor: usa null.
+c) "declaracion_tercero": lo debe completar y firmar alguien externo al oferente (ej. un cliente anterior en un certificado de experiencia, otro integrante de una UTP, el organismo/mandante). Valor null.
+d) "firma_fecha": SOLO una raya de firma manuscrita, o "Ciudad y fecha ___" pegado a ESA raya. Una declaración jurada que TERMINA en "declara bajo juramento que:" o similar NO es firma_fecha por sí sola — sus datos (nombre, cédula, domicilio) son perfil_* si los pide, igual que cualquier otro bloque. Valor null.
+e) "no_aplica_al_oferente": encabezado/columna sin dato propio que pedir, bloque de Persona Natural o UTP (esta empresa postula como persona jurídica individual), o anexo de uso interno del organismo licitante ("USO DE LA ENTIDAD LICITANTE", pautas de evaluación internas). Valor null.
+f) "decision_del_usuario": exige elegir entre opciones que no se infieren de datos objetivos (ej. qué nivel de programa de integridad declarar, si pertenece a un grupo empresarial) y no viene resuelto en la ficha. Valor null.
+
+REGLA CLAVE — UNA SOLA PERSONA: el oferente, el representante legal, el encargado de la propuesta, el contacto para la licitación y el administrador de contrato son SIEMPRE la misma persona de la ficha. Si un bloque pide "Nombre completo", "Cargo", "Cédula de identidad", "Teléfono" o "Correo" bajo cualquiera de esos títulos (incluida una declaración jurada corrida: "Yo, don ___, cédula de identidad N° ___, en representación de ___"), se llena con los datos del representante legal / de la empresa según el dato pedido — no lo dejes pendiente por dudar de quién es.
+
+DOS EJEMPLOS CONCRETOS DE DECLARACIÓN JURADA CORRIDA (el caso que MÁS se falla — analízalos con calma, casilla por casilla, NUNCA los trates como un solo bloque de firma):
+1. "El proponente, por medio de su representante legal, don 【CASILLA A LLENAR】 declara bajo juramento lo siguiente:" → la casilla pide el NOMBRE del representante legal → categoria="perfil_representante_legal", valor=representante_nombre. Que la oración diga "declara bajo juramento" NO la vuelve firma_fecha: es el estilo legal del texto, no una raya de firma.
+2. "Yo, 【CASILLA-1】 cédula de identidad N°【CASILLA-2】, con domicilio en 【CASILLA-3】, en representación de 【CASILLA-4】, RUT N° 【CASILLA-5】, declaro bajo juramento que:" — son 5 casillas en la MISMA oración, CADA UNA pide un campo DISTINTO, nunca repitas el campo de una en otra:
+   CASILLA-1 (justo tras "Yo,") → categoria=perfil_representante_legal, campo=representante_nombre (el nombre de la persona que declara).
+   CASILLA-2 (tras "cédula de identidad N°") → categoria=perfil_representante_legal, campo=representante_rut (el RUT de esa MISMA persona — NUNCA el nombre de nuevo).
+   CASILLA-3 (tras "con domicilio en") → categoria=perfil_empresa, campo=direccion.
+   CASILLA-4 (tras "en representación de") → categoria=perfil_empresa, campo=razon_social (a QUIÉN representa: la empresa).
+   CASILLA-5 (tras "RUT N°", la segunda vez que aparece "RUT" en la oración) → categoria=perfil_empresa, campo=rut (el RUT de la EMPRESA, distinto del RUT de la persona en CASILLA-2).
+   Ninguna de las cinco es firma_fecha. Lee la palabra INMEDIATAMENTE ANTES de cada casilla para no confundir cuál pide qué — no asumas que todas piden lo mismo solo porque están en la misma oración.
+
+REGLAS DE FORMATO CHILENAS:
+- RUT: cópialo TAL CUAL viene en la ficha (no lo reformatees ni "corrijas").
+- Fechas que el oferente completa (no una firma física): formato largo en español ("21 de agosto de 2026") — usa el campo fecha_hoy si la casilla pide "Fecha" pelada.
+- Nunca inventes nacionalidad, estado civil, profesión, ciudad, capital social, número de empleados — si no está en la ficha, no lo pongas.
+
+REGLA DE ORO ANTI-ALUCINACIÓN (no negociable): si no tienes un valor confirmado en la ficha para una casilla de categoría a) o b), el valor es null — NUNCA lo inventes ni lo deduzcas. Es peor un dato equivocado en una declaración jurada que uno pendiente.
+
+LA PRUEBA QUE APLICAS A CADA CASILLA: ¿la etiqueta MISMA nombra el dato? Si describe otra cosa (característica de un producto, "Cumple Sí/No", "Observaciones", "Marca", "Modelo", "Página/Catálogo") es especifico_licitacion o no_aplica_al_oferente con valor null, SIEMPRE. La mayoría de las casillas de un anexo técnico NO llevan datos de la empresa — devolver muchos null es la respuesta correcta, no un error tuyo.
+
+Devuelve SOLO JSON, sin markdown ni texto adicional, respondiendo TODAS las casillas que te di, en orden:
+{"campos":[{"id":<número>,"categoria":"<una de las 9>","campo":"<nombre exacto del campo de la ficha>"|null}]}`;
+
+function formatearCandidatoCelda(c: CandidatoCelda, parrafos: Parrafo[], n: number): string {
+  const partes: string[] = [];
+  const compuesta = c.etiqueta.match(/^(.+?)\s+—\s+(.+)$/);
+  if (compuesta) partes.push(`etiqueta: "${compuesta[2]}"`, `fila/bloque: "${compuesta[1]}"`);
+  else partes.push(`etiqueta: "${c.etiqueta}"`);
+  const previos = contextoPrevio(parrafos, c.indice - 1);
+  if (previos.length) partes.push(`texto anterior: ${previos.map(p => `"${p.slice(0, 160)}"`).join(' / ')}`);
+  return `${n}. ${partes.join(' — ')}`;
+}
+
+function formatearCandidatoInline(b: CandidatoInline, n: number): string {
+  if (b.parrafoCompleto != null && b.posEnParrafo != null) {
+    const marcado = b.parrafoCompleto.slice(0, b.posEnParrafo)
+      + '【CASILLA A LLENAR】'
+      + b.parrafoCompleto.slice(b.posEnParrafo + b.largo);
+    return `${n}. blanco dentro de una oración — oración completa: "${marcado.slice(0, 300)}"`;
+  }
+  return `${n}. blanco dentro de una oración — contexto: "${(b.contexto || '(sin contexto)').slice(0, 160)}"`;
+}
+
+interface ItemLote {
+  n: number;
+  ref: { tipo: 'celda'; c: CandidatoCelda } | { tipo: 'inline'; b: CandidatoInline };
+  texto: string;
+}
+
+async function resolverLoteCampos(
+  items: ItemLote[], empresa: EmpresaCampos, camposConDato: (keyof EmpresaCampos)[],
+): Promise<Map<number, Resolucion>> {
+  const out = new Map<number, Resolucion>();
+  const ficha = camposConDato
+    .map(c => `- ${c}: "${String(empresa[c])}"   (${DESCRIPCION_CAMPO[c] ?? c})`)
+    .join('\n');
+  const user = `FICHA DE LA EMPRESA QUE POSTULA:\n${ficha}\n\nCASILLAS (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
+
+  try {
+    // modeloPreferido: 'glm-4.7' (salta el default 'flashx') — medido en pruebas reales: en
+    // oraciones con varios blancos seguidos (declaración jurada corrida: nombre/cédula/domicilio/
+    // representada/RUT, los 5 en la misma frase) flashx confundía qué campo iba en cuál, incluso
+    // repitiendo el mismo campo en dos casillas distintas. Esto se escribe en declaraciones
+    // juradas reales — vale la pena el modelo más cuidadoso (sigue siendo GLM, costo marginal).
+    const completion: any = await crearChatIA({
+      messages: [{ role: 'system', content: SYS_CAMPOS }, { role: 'user', content: user }],
+      temperature: 0, stream: false, max_tokens: 4_000,
+      response_format: { type: 'json_object' },
+    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7' });
+
+    const txt = String(completion.choices?.[0]?.message?.content ?? '');
+    const parsed: any = parseJsonIA(txt) || {};
+    const arr = Array.isArray(parsed.campos) ? parsed.campos : [];
+    const CATEGORIAS_VALIDAS = new Set<string>([
+      'perfil_empresa', 'perfil_representante_legal', 'perfil_contacto', 'perfil_bancario',
+      'especifico_licitacion', 'declaracion_tercero', 'firma_fecha', 'no_aplica_al_oferente',
+      'decision_del_usuario',
+    ]);
+
+    for (const r of arr) {
+      if (!r) continue;
+      const item = items.find(i => i.n === Number(r.id));
+      if (!item) continue;
+      const categoria: CategoriaCampo = CATEGORIAS_VALIDAS.has(r.categoria) ? r.categoria : 'decision_del_usuario';
+      const etiqueta = item.ref.tipo === 'celda' ? item.ref.c.etiqueta : (item.ref.b.contexto || '');
+      const campo: string = typeof r.campo === 'string' ? r.campo : '';
+
+      // GUARDARRAÍL: no basta con que la CATEGORÍA sea plausible — el CAMPO que nombró la IA
+      // tiene que (1) pertenecer al grupo permitido para esa categoría (ver
+      // CAMPOS_PERMITIDOS_POR_CATEGORIA — evita que "cédula de identidad" reciba el NOMBRE del
+      // representante porque ambos son "perfil_representante_legal") y (2) tener dato real en la
+      // ficha. El VALOR sale SIEMPRE de `empresa[campo]` directo — la IA nunca reescribe texto,
+      // así que no puede "mejorarlo" ni inventarlo.
+      if (CATEGORIAS_PERFIL.includes(categoria) && campo) {
+        const permitidos = CAMPOS_PERMITIDOS_POR_CATEGORIA[categoria] || [];
+        const valorFicha = permitidos.includes(campo as keyof EmpresaCampos) ? empresa[campo as keyof EmpresaCampos] : null;
+        if (valorFicha != null && String(valorFicha).trim()) {
+          out.set(item.n, { tipo: 'auto', valor: String(valorFicha), categoria, evidencia: etiqueta || null });
+          continue;
+        }
+      }
+      out.set(item.n, { tipo: 'pendiente', categoria, motivo: MOTIVO_POR_DEFECTO[categoria] || 'No se pudo confirmar el dato con la ficha actual.' });
+    }
+    // Cualquier item que el modelo no haya respondido (recorte de respuesta, formato raro) queda
+    // pendiente con un motivo genérico — nunca se pierde en silencio.
+    for (const item of items) {
+      if (!out.has(item.n)) out.set(item.n, { tipo: 'pendiente', categoria: 'decision_del_usuario', motivo: 'No se pudo clasificar automáticamente esta casilla.' });
+    }
+  } catch (error) {
+    console.error('[anexos-ia-motor] Falló un lote, esas casillas quedan pendientes:', String(error).slice(0, 200));
+    for (const item of items) out.set(item.n, { tipo: 'pendiente', categoria: 'decision_del_usuario', motivo: 'No se pudo consultar la IA para esta casilla (reintenta el análisis).' });
+  }
+  return out;
+}
+
+// ── Paso 1: barrido de riesgos de inadmisibilidad sobre el texto de las bases ────────────────
+const SYS_BASES = `Eres un experto en licitaciones públicas chilenas. Te doy el texto de las BASES administrativas/técnicas de una licitación y la lista de ANEXOS que el oferente debe completar. Busca cláusulas de causal de inadmisibilidad, rechazo, o declaración de oferta desierta ligadas a: certificaciones obligatorias de producto, garantías exigidas, topes máximos (ej. plazo de entrega), u otro requisito documental duro.
+
+Para cada riesgo real que encuentres, indica: el riesgo en una frase, qué dato lo resuelve, y si ese dato típicamente ya está disponible en la ficha de la empresa o el costeo (certificaciones de producto y plazos NUNCA lo están — pon disponible:false para esos).
+
+Si no encuentras ningún riesgo real, devuelve una lista vacía — no inventes riesgos genéricos.
+
+Devuelve SOLO JSON: {"alertas":[{"riesgo":"...","datoQueLoResuelve":"...","disponible":true|false}]}`;
+
+export async function resolverAlertasInadmisibilidad(basesTexto: string, tituloAnexos: string[]): Promise<AlertaInadmisibilidad[]> {
+  if (!basesTexto || !basesTexto.trim()) return [];
+  const user = `ANEXOS DE ESTA LICITACIÓN: ${tituloAnexos.join(', ') || '(no identificados)'}\n\nBASES (extracto):\n${basesTexto.slice(0, 14_000)}`;
+  try {
+    const completion: any = await crearChatIA({
+      messages: [{ role: 'system', content: SYS_BASES }, { role: 'user', content: user }],
+      temperature: 0.1, stream: false, max_tokens: 2_000,
+      response_format: { type: 'json_object' },
+    }, { timeoutMs: 90_000 });
+    const txt = String(completion.choices?.[0]?.message?.content ?? '');
+    const parsed: any = parseJsonIA(txt) || {};
+    const arr = Array.isArray(parsed.alertas) ? parsed.alertas : [];
+    return arr
+      .filter((a: any) => a && typeof a.riesgo === 'string' && a.riesgo.trim())
+      .map((a: any) => ({
+        riesgo: String(a.riesgo).trim(),
+        datoQueLoResuelve: String(a.datoQueLoResuelve || '').trim(),
+        disponible: a.disponible !== false,
+      }));
+  } catch (error) {
+    console.error('[anexos-ia-motor] Falló el barrido de bases (Paso 1), se omite sin bloquear el resto:', String(error).slice(0, 200));
+    return [];
+  }
+}
+
+// ── Orquestador ────────────────────────────────────────────────────────────────────────────
+export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<ResultadoMotor> {
+  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos } = entrada;
+
+  const camposConDato = (Object.keys(empresa) as (keyof EmpresaCampos)[])
+    .filter(c => c !== 'firma_url' && empresa[c] != null && String(empresa[c]).trim());
+
+  const celda = new Map<number, Resolucion>();
+  const inline = new Map<string, Resolucion>();
+
+  const [alertasInadmisibilidad] = await Promise.all([
+    resolverAlertasInadmisibilidad(basesTexto || '', tituloAnexos || []),
+  ]);
+
+  if (!camposConDato.length || (!candidatos.length && !blancosInline.length)) {
+    return { celda, inline, alertasInadmisibilidad, checklistPendientes: alertasInadmisibilidad.filter(a => !a.disponible).map(a => a.riesgo) };
+  }
+
+  let n = 0;
+  const items: ItemLote[] = [
+    ...candidatos.map((c): ItemLote => ({ n: ++n, ref: { tipo: 'celda', c }, texto: '' })),
+    ...blancosInline.map((b): ItemLote => ({ n: ++n, ref: { tipo: 'inline', b }, texto: '' })),
+  ];
+  for (const item of items) {
+    item.texto = item.ref.tipo === 'celda'
+      ? formatearCandidatoCelda(item.ref.c, parrafos, item.n)
+      : formatearCandidatoInline(item.ref.b, item.n);
+  }
+
+  const resultados = await Promise.all(
+    enLotes(items, TAMANO_LOTE).map(lote => resolverLoteCampos(lote, empresa, camposConDato)),
+  );
+
+  const checklistSet = new Set<string>();
+  for (const a of alertasInadmisibilidad) if (!a.disponible) checklistSet.add(a.riesgo);
+
+  for (const mapa of resultados) {
+    for (const [n2, res] of mapa) {
+      const item = items.find(i => i.n === n2)!;
+      if (item.ref.tipo === 'celda') celda.set(item.ref.c.indice, res);
+      else inline.set(`${item.ref.b.indiceRun}:${item.ref.b.posEnTexto}`, res);
+      if (res.tipo === 'pendiente' && res.categoria === 'decision_del_usuario') checklistSet.add(res.motivo);
+    }
+  }
+
+  return { celda, inline, alertasInadmisibilidad, checklistPendientes: [...checklistSet] };
+}
