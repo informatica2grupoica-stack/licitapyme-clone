@@ -44,3 +44,7 @@ next-env.d.ts
 # Tesseract OCR local (paquete de idioma cacheado)
 .tesseract-cache/
 *.traineddata
+
+# Salidas del banco de pruebas de anexos (regenerables)
+scripts/_anexos-salida/
+scripts/_anexos-actual.json

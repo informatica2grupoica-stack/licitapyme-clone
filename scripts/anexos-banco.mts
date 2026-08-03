@@ -16,7 +16,8 @@
 //
 // Va contra resolverCandidatosCelda (no analizarAnexoParaUI) a propósito: necesita la ETIQUETA de
 // cada pendiente, y la vista de UI las esconde dentro de la reconstrucción de tablas.
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 for (const l of readFileSync('.env.local', 'utf8').split(/\r?\n/)) {
   const m = l.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
   if (m && !(m[1] in process.env)) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
@@ -24,7 +25,8 @@ for (const l of readFileSync('.env.local', 'utf8').split(/\r?\n/)) {
 const mysql = (await import('mysql2/promise')).default;
 const { analizarAnexo } = await import('@/app/lib/anexos-detectar');
 const { normalizarParaIds, abrirDocx } = await import('@/app/lib/anexos-docx');
-const { resolverCandidatosCelda, resolverBlancosInline, resolverCamposConDosPuntos } = await import('@/app/lib/anexos-rellenar');
+const { resolverCandidatosCelda, resolverBlancosInline, resolverCamposConDosPuntos, generarAnexoFinal } = await import('@/app/lib/anexos-rellenar');
+const { dividirPorFormularios } = await import('@/app/lib/anexos-dividir');
 const { convertirDocADocx } = await import('@/app/lib/anexos-doc-legacy');
 const { conCamposDerivados } = await import('@/app/lib/anexos-derivados');
 
@@ -41,6 +43,8 @@ const ids = (arg('ids')?.split(',').map(Number).filter(Boolean)) || IDS_POR_DEFE
 const empresaId = arg('empresa') ? Number(arg('empresa')) : undefined;
 const salida = arg('out');
 const comparar = arg('comparar');
+const carpetaDocx = arg('generar');
+if (carpetaDocx) mkdirSync(carpetaDocx, { recursive: true });
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST, user: process.env.DB_USER, password: process.env.DB_PASSWORD,
@@ -85,6 +89,9 @@ for (const id of ids) {
   const asignada = await empresaDeLicitacion(d.licitacion_codigo);
   if (!asignada) { console.log(`[${id}] ${d.licitacion_codigo} no tiene empresa asignada — se omite`); continue; }
   const empresa = asignada.empresa;
+  // El encabezado va ANTES del trabajo: la generación de .docx imprime sus propias líneas y sin
+  // esto aparecían bajo el encabezado del documento anterior.
+  console.log(`\n${'='.repeat(78)}\n[${base.licitacion}] ${base.nombre} (id ${id}) — empresa: ${empresa.razon_social}\n${'='.repeat(78)}`);
   try {
     const res = await fetch(d.documento_url_local);
     if (!res.ok) throw new Error(`descarga HTTP ${res.status}`);
@@ -110,13 +117,30 @@ for (const id of ids) {
       ...descartadosComoTitulo.map(c => `${c.etiqueta}  [visto como título]`),
       ...inline.pendientes.map(b => `${(b.contexto || '(sin contexto)').trim()}  [inline]`),
     ];
+
+    // Mismo camino EXACTO que /api/anexos/generar (relleno + verificación de integridad +
+    // división por formulario), con las respuestas humanas vacías — lo que se sube si el usuario
+    // no escribe nada a mano.
+    if (carpetaDocx) {
+      const gen = await generarAnexoFinal(buffer, empresa, {});
+      if (!gen.integridad.parrafosIguales) {
+        console.log(`  ⚠ integridad FALLÓ (${gen.integridad.parrafosAntes} → ${gen.integridad.parrafosDespues} párrafos) — no se escribe`);
+      } else {
+        const formularios = await dividirPorFormularios(gen.buffer, (await abrirDocx(gen.buffer)).xml);
+        const piezas = formularios.length >= 2
+          ? formularios.map(f => ({ nombre: `${base.licitacion}_ANEXO_${f.nombreSufijo}_${d.documento_nombre}`, buffer: f.buffer }))
+          : [{ nombre: `${base.licitacion}_ANEXO_${d.documento_nombre}`, buffer: gen.buffer }];
+        for (const p of piezas) {
+          writeFileSync(join(carpetaDocx, p.nombre), p.buffer);
+          console.log(`  → ${join(carpetaDocx, p.nombre)}`);
+        }
+      }
+    }
   } catch (e: any) {
     base.error = e?.message || String(e);
   }
   resultados.push(base);
 
-  const cab = `[${base.licitacion}] ${base.nombre} (id ${id}) — empresa: ${empresa.razon_social}`;
-  console.log(`\n${'='.repeat(78)}\n${cab}\n${'='.repeat(78)}`);
   if (base.error) { console.log(`  ERROR: ${base.error}`); continue; }
   console.log(`  auto=${base.auto.length}  pendientes=${base.pendientes.length}`);
   for (const a of base.auto) console.log(`   ✓ "${a.etiqueta}" → ${a.campo} = "${a.valor}"  (${a.via})`);
