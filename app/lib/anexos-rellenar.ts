@@ -22,6 +22,7 @@ import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda, type CandidatoI
 import { buscarCampo, esMatchCoherente, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
 import { matchearConIA, clasificarTitulos } from '@/app/lib/anexos-ia-matching';
 import { clasificarConIA } from '@/app/lib/anexos-clasificar-ia';
+import { resolverTodoConIA } from '@/app/lib/anexos-ia-total';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { calcularTotalesPorSeccion, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
@@ -85,9 +86,58 @@ export interface CampoResuelto { c: CandidatoCelda; campo: string; valor: string
 // Compartida entre analizarAnexoParaUI y generarAnexoFinal para que ambas apliquen EXACTAMENTE
 // el mismo filtro — antes cada una tenía su propia copia de esta lógica y solo una filtraba
 // títulos, así que el .docx final podía quedar distinto de lo que mostraba la pantalla de revisión.
+// ── Camino 100% IA (ANEXOS_IA_TOTAL=1) ────────────────────────────────────────────────────
+// Decisión del usuario (3-ago-2026): que la creación del anexo la decida la IA, no un diccionario
+// de regex. Ver la cabecera de anexos-ia-total.ts para el porqué (el diccionario topó su techo:
+// 22 casillas resueltas y CERO aporte de la IA en 1057472-89-LE26, por el veto de campos usados).
+//
+// Diferencias deliberadas con el camino determinista, las dos a propósito:
+//   · NO se aplica `soloManual` como filtro duro. Ese filtro sale de detectarSecciones, que tiene
+//     un bug medido (un encabezado "PERSONA NATURAL" se come bloques que vienen después, y una
+//     ETIQUETA de campo se confunde con un encabezado de sección y apaga la tabla entera). La IA
+//     recibe los párrafos previos —incluidos esos encabezados— y decide ella si la casilla es de
+//     un bloque que no nos corresponde. Es el mismo criterio, pero leyendo el documento en vez de
+//     de un rango de índices calculado mal.
+//   · NO se corre clasificarTitulos: la misma llamada ya decide "sin dato que pedir" para un
+//     título, así que no hace falta una segunda pasada de IA que —medido— borraba campos reales.
+const IA_TOTAL = process.env.ANEXOS_IA_TOTAL === '1';
+
+async function resolverCandidatosCeldaIATotal(
+  candidatos: CandidatoCelda[], parrafos: Parrafo[], empresa: EmpresaCampos, itemsCosteo?: ItemCosteoPrecio[],
+) {
+  const mapa = await resolverTodoConIA(candidatos, parrafos, empresa);
+
+  const matcheados: CampoResuelto[] = [];
+  const sinResolver: CandidatoCelda[] = [];
+  for (const c of candidatos) {
+    const r = mapa.get(c.indice);
+    if (r) matcheados.push({ c, campo: r.campo, valor: r.valor, via: 'ia' });
+    else sinResolver.push(c);
+  }
+
+  // El cruce de PRECIOS con el costeo se mantiene igual: no es un dato de la ficha de empresa,
+  // sale del .xlsx del Motor Comercial (ver anexos-precios-ia.ts).
+  let pendientes = sinResolver;
+  if (itemsCosteo && itemsCosteo.length > 0) {
+    const matchesPrecio = await matchearPreciosConIA(sinResolver.map(c => c.etiqueta), itemsCosteo);
+    const mapaPrecio = new Map(matchesPrecio.map(m => [m.etiqueta, m]));
+    pendientes = [];
+    for (const c of sinResolver) {
+      const m = mapaPrecio.get(c.etiqueta);
+      if (m) matcheados.push({ c, campo: 'precio_unitario_costeo', valor: fmtNumeroCL(m.precioUnitario), via: 'costeo' });
+      else pendientes.push(c);
+    }
+  }
+
+  return { matcheados, pendientes, descartadosComoTitulo: [] as CandidatoCelda[] };
+}
+
 export async function resolverCandidatosCelda(
   candidatos: CandidatoCelda[], empresa: EmpresaCampos, soloManual?: Set<number>, itemsCosteo?: ItemCosteoPrecio[],
+  parrafos?: Parrafo[],
 ) {
+  if (IA_TOTAL && parrafos) return resolverCandidatosCeldaIATotal(candidatos, parrafos, empresa, itemsCosteo);
+
   // El diccionario NO deduplica por campo: sus patrones son precisos por construcción (regex
   // ancladas a texto exacto), y es NORMAL que un documento combine varios formularios que piden
   // el MISMO dato de identificación cada uno por separado (ej. ANEXO N°1 y ANEXO N°2 de la misma
@@ -115,24 +165,28 @@ export async function resolverCandidatosCelda(
     }
   }
 
-  // El respaldo IA SÍ deduplica (no repite el mismo campo dos veces, y nunca pisa uno que el
-  // diccionario ya resolvió) — es un canal menos confiable que el diccionario, así que un posible
-  // acierto real no vale el riesgo de que un mismo error se repita en varios lugares del documento.
-  // Los de sección omitida quedan fuera también de la IA: no se les manda ni la etiqueta, así no
-  // hay forma de que se autocompleten por ese camino (ni se gastan tokens en ellos).
+  // Respaldo IA sobre lo que el diccionario NO resolvió, con el CONTEXTO REAL de cada casilla
+  // (fila/columna de tabla, párrafos previos — ver anexos-clasificar-ia.ts) en vez de la etiqueta
+  // pelada. Es lo que permite resolver "Nombre Completo", "Cédula de Identidad" y "Cargo" a secas,
+  // que el diccionario deja pendientes a propósito porque el texto solo no dice de quién son.
+  //
+  // SIN VETO POR CAMPO YA USADO (quitado el 3-ago-2026). Antes se sembraba
+  // `new Set(camposDiccionario)`, así que cualquier campo que el diccionario hubiera gastado en
+  // CUALQUIER parte del documento quedaba prohibido para la IA. Medido en 1057472-89-LE26: el
+  // ANEXO N°1 consumía razón social, RUT, dirección, correo, teléfono y los del representante, y
+  // para los anexos 2 al 6 la IA se quedaba sin NADA que ofrecer — aportaba exactamente 0 campos
+  // pese a correr y gastar tokens. Que un Word con 6 anexos pegados pida el mismo dato en cada uno
+  // es lo NORMAL, no una señal de error.
   const elegiblesIA = sinMatch.filter(c => !soloManual?.has(c.indice));
-  const matchesIA = await matchearConIA(elegiblesIA.map(c => c.etiqueta), empresa);
-  const mapaIA = new Map(matchesIA.map(m => [m.etiqueta, m.campo]));
-  const camposUsadosPorIA = new Set(camposDiccionario);
+  const mapaIA = await clasificarConIA(elegiblesIA, parrafos ?? [], empresa);
   const sinResolver: CandidatoCelda[] = [];
   for (const c of sinMatch) {
-    const campoIA = soloManual?.has(c.indice) ? undefined : mapaIA.get(c.etiqueta);
+    const campoIA = soloManual?.has(c.indice) ? undefined : mapaIA.get(c.indice);
     const valorIA = campoIA ? empresa[campoIA] : null;
     // esMatchCoherente descarta los imposibles (un correo en "CIUDAD", un RUT en "FONO"…) — ver
     // COHERENCIA_CAMPO en anexos-diccionario.ts.
-    if (campoIA && valorIA && !camposUsadosPorIA.has(campoIA) && esMatchCoherente(c.etiqueta, campoIA)) {
+    if (campoIA && valorIA && esMatchCoherente(c.etiqueta, campoIA)) {
       matcheados.push({ c, campo: campoIA, valor: String(valorIA), via: 'ia' });
-      camposUsadosPorIA.add(campoIA);
     } else {
       sinResolver.push(c);
     }
@@ -424,7 +478,7 @@ export async function analizarAnexoParaUI(
   );
   const completadosAuto: CampoCompletado[] = [];
   const resolucionPorIndice = new Map<number, Resolucion>();
-  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, itemsCosteo);
+  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, itemsCosteo, analisis.parrafos);
   const { matcheadosExtra, pendientesFiltrados, anexarDirecto, titulos }
     = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes);
   const matcheadosTodos = [...matcheados, ...matcheadosExtra];
@@ -571,7 +625,7 @@ export async function generarAnexoFinal(
   // 2) Celdas de tabla: diccionario → respaldo IA → lo que escribió el humano. Van después —
   //    ver comentario arriba.
   let completados = completadosInline;
-  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, itemsCosteo);
+  const { matcheados, pendientes, descartadosComoTitulo } = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, itemsCosteo, analisis.parrafos);
   // Totales por sección (LÍNEA/LOTE/ÍTEM...) — MISMO cálculo que ve el admin en la vista previa
   // (aplicarTotalesPorSeccion), sobre las tablas del documento SIN mutar (tablasCrudo se saca de
   // xmlNormalizado, antes de que el paso 1 y este mismo paso empiecen a escribir encima).

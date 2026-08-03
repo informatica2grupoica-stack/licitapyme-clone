@@ -103,7 +103,7 @@ for (const id of ids) {
     const analisis = analizarAnexo(xml);
 
     const { matcheados, pendientes, descartadosComoTitulo }
-      = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual);
+      = await resolverCandidatosCelda(analisis.candidatosCelda, empresa, analisis.indicesSoloManual, undefined, analisis.parrafos);
 
     for (const m of matcheados) base.auto.push({ etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
     for (const r of resolverCamposConDosPuntos(analisis.camposConDosPuntos, empresa)) {

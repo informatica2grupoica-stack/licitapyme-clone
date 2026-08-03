@@ -155,12 +155,10 @@ export async function clasificarConIA(
   const conContexto = armarContexto(candidatos, parrafos);
   const resultados = await Promise.all(enLotes(conContexto, TAMANO_LOTE).map(lote => clasificarLote(lote, camposConDato)));
 
-  const usados = new Set<string>();
+  // Sin deduplicar por campo (quitado el 3-ago-2026, misma razón que el veto de
+  // resolverCandidatosCelda): un Word con varios anexos pegados pide el MISMO dato en cada uno, y
+  // limitar cada campo a un solo uso dejaba vacíos todos los formularios menos el primero.
   const mapa = new Map<number, keyof EmpresaCampos>();
-  for (const r of resultados.flat()) {
-    if (usados.has(r.campo)) continue;
-    usados.add(r.campo);
-    mapa.set(r.indice, r.campo);
-  }
+  for (const r of resultados.flat()) mapa.set(r.indice, r.campo);
   return mapa;
 }
