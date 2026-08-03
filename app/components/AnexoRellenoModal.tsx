@@ -21,7 +21,10 @@ export interface AnexoDoc { id: number; nombre: string; url: string }
 
 interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'diccionario' | 'ia' | 'costeo'; formulario?: string }
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
-interface PendienteInline { id: string; contexto: string; formulario?: string }
+interface PendienteInline {
+  id: string; contexto: string; formulario?: string;
+  parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
+}
 interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'diccionario' | 'ia' | 'costeo' }; input?: { id: string } }
 interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string; titulo?: string }
 
@@ -89,7 +92,28 @@ function TablaReal({
 
 // Un pendiente unificado (celda o blanco inline) con la etiqueta ya lista para mostrar — usado
 // para agrupar por formulario cuando el documento trae varios pegados (ver anexos-dividir.ts).
-interface PendienteUnificado { id: string; etiqueta: string; formulario?: string }
+// parrafoCompleto/posEnParrafo/largoBlanco solo existen para blancos inline (una celda vacía ya
+// tiene su propia etiqueta clara, no vive dentro de una oración que haya que mostrar entera).
+interface PendienteUnificado {
+  id: string; etiqueta: string; formulario?: string;
+  parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
+}
+
+// Muestra el párrafo completo con el blanco resaltado — pedido explícito del usuario (caso real
+// 1058086-43-LP26): con solo la etiqueta recortada ("de ___ de ___", "RUT N°") no se entendía qué
+// pedía cada blanco de una declaración jurada corrida sin abrir el Word al lado.
+function ParrafoConBlanco({ texto, pos, largo }: { texto: string; pos?: number; largo?: number }) {
+  if (pos == null || largo == null || pos < 0 || pos + largo > texto.length) return <>{texto}</>;
+  return (
+    <>
+      {texto.slice(0, pos)}
+      <mark className="bg-indigo-100 text-indigo-700 rounded px-0.5 not-italic">
+        {texto.slice(pos, pos + largo) || '____'}
+      </mark>
+      {texto.slice(pos + largo)}
+    </>
+  );
+}
 
 function limpiarTituloFormulario(t: string): string {
   return t.replace(/[.:]+$/, '').trim();
@@ -120,12 +144,20 @@ function EtiquetaCampo({ etiqueta }: { etiqueta: string }) {
   );
 }
 
-function CampoInput({ etiqueta, valor, onChange }: { etiqueta: string; valor: string; onChange: (v: string) => void }) {
+function CampoInput({ etiqueta, valor, onChange, parrafoCompleto, posEnParrafo, largoBlanco }: {
+  etiqueta: string; valor: string; onChange: (v: string) => void;
+  parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
+}) {
   return (
     <div>
       <label className="flex items-baseline text-[11.5px] font-medium text-slate-600 mb-1" title={etiqueta}>
         <EtiquetaCampo etiqueta={etiqueta} />
       </label>
+      {parrafoCompleto && (
+        <p className="text-[11px] text-slate-400 italic leading-snug mb-1">
+          <ParrafoConBlanco texto={parrafoCompleto} pos={posEnParrafo} largo={largoBlanco} />
+        </p>
+      )}
       <input
         type="text"
         value={valor}
@@ -256,7 +288,10 @@ export function AnexoRellenoModal({
   // y se muestra como antes, sin encabezados extra.
   const pendientesTodos: PendienteUnificado[] = analisis ? [
     ...analisis.pendientesCelda.map(p => ({ id: p.id, etiqueta: p.etiqueta, formulario: p.formulario })),
-    ...analisis.pendientesInline.map(p => ({ id: p.id, etiqueta: p.contexto.replace(/\s*:\s*$/, ''), formulario: p.formulario })),
+    ...analisis.pendientesInline.map(p => ({
+      id: p.id, etiqueta: p.contexto.replace(/\s*:\s*$/, ''), formulario: p.formulario,
+      parrafoCompleto: p.parrafoCompleto, posEnParrafo: p.posEnParrafo, largoBlanco: p.largoBlanco,
+    })),
   ] : [];
   const gruposFormulario: { titulo: string; items: PendienteUnificado[]; tablas: TablaUI[]; autos: CampoCompletado[] }[] = [];
   const sinFormulario: PendienteUnificado[] = [];
@@ -456,7 +491,10 @@ export function AnexoRellenoModal({
                         {g.items.length > 0 && (
                           <div className="space-y-2">
                             {g.items.map(p => (
-                              <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                              <CampoInput
+                                key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)}
+                                parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco}
+                              />
                             ))}
                           </div>
                         )}
@@ -477,7 +515,10 @@ export function AnexoRellenoModal({
                       {sinFormulario.length > 0 && (
                         <div className="space-y-2">
                           {sinFormulario.map(p => (
-                            <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                            <CampoInput
+                              key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)}
+                              parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco}
+                            />
                           ))}
                         </div>
                       )}
@@ -523,7 +564,10 @@ export function AnexoRellenoModal({
                       </p>
                       <div className="space-y-2">
                         {analisis.pendientesInline.map(p => (
-                          <CampoInput key={p.id} etiqueta={p.contexto.replace(/\s*:\s*$/, '')} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} />
+                          <CampoInput
+                            key={p.id} etiqueta={p.contexto.replace(/\s*:\s*$/, '')} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)}
+                            parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco}
+                          />
                         ))}
                       </div>
                     </div>

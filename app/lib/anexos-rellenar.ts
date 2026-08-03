@@ -35,7 +35,10 @@ export interface CampoCompletado {
   formulario?: string; // a qué "FORMULARIO N°X" pertenece, para agruparlo igual que los pendientes
 }
 export interface PendienteCelda { id: string; etiqueta: string; formulario?: string }
-export interface PendienteInline { id: string; contexto: string; formulario?: string }
+export interface PendienteInline {
+  id: string; contexto: string; formulario?: string;
+  parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
+}
 export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: string }
 
 // Vista de "tabla real" (ver TablaUI abajo): a diferencia de PendienteCelda (una lista plana de
@@ -555,6 +558,9 @@ export async function analizarAnexoParaUI(
     id: `inline:${b.indiceRun}:${b.posEnTexto}`,
     contexto: b.contexto || '(sin contexto)',
     formulario: formularioDe(b.indiceParrafo, formularios),
+    parrafoCompleto: b.parrafoCompleto,
+    posEnParrafo: b.posEnParrafo,
+    largoBlanco: b.largo,
   }));
 
   const firma: FirmaInfo = { detectada: analisis.lineasFirma.length > 0, disponible: !!empresa.firma_url };

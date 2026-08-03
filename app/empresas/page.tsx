@@ -23,6 +23,10 @@ interface Empresa {
   giro?: string | null;
   tipo_persona_juridica?: string | null;
   fecha_sociedad?: string | null;
+  fecha_escritura?: string | null;
+  notaria?: string | null;
+  numero_repertorio?: string | null;
+  fojas_numero_anio?: string | null;
   representante_nombre?: string | null;
   representante_rut?: string | null;
   representante_cargo?: string | null;
@@ -280,8 +284,21 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
               <Campo label="Giro" value={f.giro || ''} onChange={set('giro')} />
               <Campo label="Tipo persona jurídica" value={f.tipo_persona_juridica || ''} onChange={set('tipo_persona_juridica')} />
               <div className="sm:col-span-2">
-                <Campo label="Fecha / constitución de sociedad" value={f.fecha_sociedad || ''} onChange={set('fecha_sociedad')} placeholder="Fecha y notaría" />
+                <Campo label="Fecha / constitución de sociedad" value={f.fecha_sociedad || ''} onChange={set('fecha_sociedad')} placeholder="Reseña libre (opcional, uso interno)" />
               </div>
+            </div>
+          </section>
+
+          {/* Escritura de constitución: campos separados porque los anexos de Mercado Público
+              piden Fecha de la Escritura / Notaría / N° de Repertorio / Fojas cada uno en su
+              propia casilla — un solo texto libre no se puede partir de forma confiable. */}
+          <section>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><Building2 size={13} /> Escritura de constitución</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Campo label="Fecha de la escritura" value={f.fecha_escritura || ''} onChange={set('fecha_escritura')} placeholder="20 de agosto de 2018" />
+              <Campo label="Notaría" value={f.notaria || ''} onChange={set('notaria')} placeholder="Segunda Notaría de La Serena" />
+              <Campo label="Número de repertorio" value={f.numero_repertorio || ''} onChange={set('numero_repertorio')} />
+              <Campo label="Fojas / Número / Año" value={f.fojas_numero_anio || ''} onChange={set('fojas_numero_anio')} placeholder="Fs. 123 N° 45 2018" />
             </div>
           </section>
 

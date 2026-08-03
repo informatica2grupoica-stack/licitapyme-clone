@@ -107,7 +107,14 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
       out.push({ tipo: 'tabla', textoPlano: '', xmlCompleto, ordinalInicio: ordinal, ordinalFin: ordinal + numParrafos - 1 });
       ordinal += numParrafos;
     } else {
-      const texto = [...xmlCompleto.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(x => x[1]).join('').trim();
+      // <w:br/> (salto de línea MANUAL, sin párrafo nuevo) se conserva como "\n" — caso real
+      // (1058086-43-LP26): el cierre de firma de un anexo ("Santiago, __ de __ de __") y el
+      // título del siguiente ("ANEXO N° 5") comparten el mismo <w:p>, separados solo por un
+      // <w:br/>. Sin este marcador, textoPlano quedaba como una sola línea pegada y el título
+      // nunca calzaba con el encabezado anclado al INICIO del texto (ver detectarFormularios) —
+      // el anexo entero desaparecía, absorbido dentro del anterior.
+      const texto = [...xmlCompleto.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>|<w:(?:br|cr)\b[^>]*\/?>/g)]
+        .map(m => (m[1] !== undefined ? m[1] : '\n')).join('').trim();
       out.push({ tipo: 'parrafo', textoPlano: texto, xmlCompleto, ordinalInicio: ordinal, ordinalFin: ordinal });
       ordinal += 1;
     }
@@ -120,8 +127,16 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
   const bloques = listarBloquesCrudos(xml);
   const encabezados: { indice: number; titulo: string }[] = [];
   for (const b of bloques) {
-    if (b.tipo === 'parrafo' && b.textoPlano.length <= LARGO_MAX_ENCABEZADO && RE_ENCABEZADO_FORMULARIO.test(b.textoPlano)) {
-      encabezados.push({ indice: b.ordinalInicio, titulo: b.textoPlano });
+    if (b.tipo !== 'parrafo') continue;
+    // El título casi siempre ES el párrafo entero, pero cuando comparte <w:p> con el cierre del
+    // anexo anterior (ver el comentario de "\n" en listarBloquesCrudos) queda en una línea
+    // interna — se prueba cada línea, no solo el texto completo, para no perder ese caso.
+    for (const linea of b.textoPlano.split('\n')) {
+      const l = linea.trim();
+      if (l.length <= LARGO_MAX_ENCABEZADO && RE_ENCABEZADO_FORMULARIO.test(l)) {
+        encabezados.push({ indice: b.ordinalInicio, titulo: l });
+        break; // un párrafo no trae dos encabezados propios
+      }
     }
   }
   const totalOrdinales = bloques.length ? bloques[bloques.length - 1].ordinalFin + 1 : 0;

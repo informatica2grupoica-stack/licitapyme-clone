@@ -39,6 +39,7 @@ export async function cargarDocumentoYEmpresa(
 
   const [empRows] = await pool.query(
     `SELECT razon_social, rut, direccion, region, giro, tipo_persona_juridica, fecha_sociedad,
+            fecha_escritura, notaria, numero_repertorio, fojas_numero_anio,
             representante_nombre, representante_rut, representante_cargo,
             email1, telefono1, banco_tipo_cuenta, banco_numero, banco_nombre, banco_email, firma_url
        FROM empresas WHERE id = ? AND activo = TRUE LIMIT 1`,

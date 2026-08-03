@@ -17,6 +17,10 @@ export interface EmpresaCampos {
   giro: string | null;
   tipo_persona_juridica: string | null;
   fecha_sociedad: string | null;
+  fecha_escritura: string | null;
+  notaria: string | null;
+  numero_repertorio: string | null;
+  fojas_numero_anio: string | null;
   representante_nombre: string | null;
   representante_rut: string | null;
   representante_cargo: string | null;
@@ -99,7 +103,16 @@ const DICCIONARIO: EntradaDiccionario[] = [
     /^rubro(\s+comercial)?$/i,
   ] },
   { campo: 'tipo_persona_juridica', patrones: [/^tipo\s+de\s+persona\s+jur[íi]dica$/i, /^naturaleza\s+jur[íi]dica$/i] },
+  // Fallback genérico: anexos que piden la escritura como UNA sola casilla ("Escritura Pública
+  // de fecha... ante notario...", "Fecha de la sociedad") — sigue usando el texto libre viejo.
   { campo: 'fecha_sociedad', patrones: [/^escritura\s+p[úu]blica.*$/i, /^fecha\s+(de\s+)?(la\s+)?sociedad$/i, /^fecha\s+(de\s+)?constituci[óo]n$/i] },
+  // Campos separados (migración 62, caso real 1058086-43-LP26): cuando el anexo pide cada dato
+  // de la escritura en su PROPIA casilla, no hay forma de partir fecha_sociedad de forma
+  // confiable — se usan los campos nuevos, que sí vienen ya separados.
+  { campo: 'fecha_escritura', patrones: [/^fecha\s+(de\s+)?(la\s+)?escritura(\s+p[úu]blica)?$/i] },
+  { campo: 'notaria', patrones: [/^notar[íi]a(\s+de\s+origen)?$/i] },
+  { campo: 'numero_repertorio', patrones: [/^n[°º]?\.?\s*(de\s+)?repertorio$/i] },
+  { campo: 'fojas_numero_anio', patrones: [/^fojas\s*[\/,]?\s*n[úu]mero\s*[\/,]?\s*(y\s+)?a[ñn]o$/i] },
   // "legal" es OPCIONAL después de "representante": caso real medido (1058086-43-LP26, 3
   // ocurrencias) "RUT DEL REPRESENTANTE :" — sin la palabra "legal" no matcheaba nada y el RUT del
   // representante quedaba en blanco en los tres bloques. La abreviatura "rep." sí sigue exigiendo
@@ -115,6 +128,11 @@ const DICCIONARIO: EntradaDiccionario[] = [
     // nombre del representante en estas casillas).
     /^nombre\s+(de\s+la\s+)?persona\s+de\s+contacto.*$/i,
     /^nombre\s+(del\s+)?contacto(\s+(para|durante)\s+(la\s+|el\s+)?(licitaci[óo]n|proceso))?:?$/i,
+    // El titular de la cuenta bancaria del bloque de pagos también es el representante legal
+    // (decisión del usuario, ago-2026, misma lógica que CONTEXTO_MISMA_PERSONA): antes se dejaba
+    // pendiente a propósito porque el titular no siempre es la misma persona, pero en esta
+    // empresa la cuenta SIEMPRE está a nombre del representante.
+    /^nombre\s+del\s+titular$/i,
   ] },
   { campo: 'representante_rut', patrones: [
     /^r\.?u\.?t\.?\s+(del\s+|de\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i,
@@ -124,6 +142,9 @@ const DICCIONARIO: EntradaDiccionario[] = [
     // "CÉDULA DE IDENTIDAD" y "N° DE CÉDULA NACIONAL DE IDENTIDAD" (4295-42-LE26) las llenó el
     // humano con el RUT del representante.
     /^n[°º]?\.?\s*(de\s+)?c[ée]dula\s+(nacional\s+)?de\s+identidad$/i,
+    // Mismo caso que representante_nombre arriba: cédula/RUT DEL TITULAR de la cuenta = el
+    // representante legal.
+    /^(c[ée]dula\s+de\s+identidad|r\.?u\.?t\.?)\s+del\s+titular$/i,
   ] },
   { campo: 'representante_cargo', patrones: [/^cargo\s+(del\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i] },
   { campo: 'email1', patrones: [
@@ -145,7 +166,11 @@ const DICCIONARIO: EntradaDiccionario[] = [
   ] },
   { campo: 'banco_tipo_cuenta', patrones: [/^tipo\s+de\s+cuenta(\s+bancaria)?$/i] },
   { campo: 'banco_numero', patrones: [/^n[úu]mero\s+de\s+cuenta$/i, /^cuenta\s+(bancaria|corriente)$/i] },
-  { campo: 'banco_nombre', patrones: [/^banco$/i] },
+  // "Entidad Bancaria" es como algunos anexos piden el banco (caso real 1058086-43-LP26, bloque
+  // "DATOS PARA PAGO") — con solo "Banco" pelado, esta forma quedaba pendiente pese a tener el
+  // dato (razón_social/rut de la empresa nunca compiten por este patrón, así que ampliarlo es
+  // seguro).
+  { campo: 'banco_nombre', patrones: [/^banco$/i, /^(entidad|instituci[óo]n)\s+bancaria$/i] },
   { campo: 'banco_email', patrones: [/^correo\s+(para\s+)?pagos$/i, /^e-?mail\s+de\s+pagos$/i] },
 ];
 
@@ -217,9 +242,12 @@ export const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|ent
 // (o que lo intente el respaldo IA, que sí tiene instrucciones explícitas contra esto) que
 // escribir el dato de una persona en el campo de otra.
 // El sufijo "del Titular" (bloque bancario: Nombre del Titular / Cédula de Identidad del
-// Titular) es OTRA forma de decir "sin calificador reconocido" — no tenemos un campo separado
-// para el titular de la cuenta (no siempre es la misma persona que el representante legal), así
-// que igual debe quedar pendiente en vez de adivinar con representante_nombre/representante_rut.
+// Titular) sigue contando como "sin calificador reconocido" para este guard de la IA — el
+// diccionario YA resuelve la forma exacta "Nombre del Titular"/"Cédula de Identidad del
+// Titular"/"RUT del Titular" (representante_nombre/representante_rut, decisión del usuario
+// ago-2026: la cuenta siempre está a nombre del representante legal), así que esos casos nunca
+// llegan hasta acá. Este bloqueo solo protege combinaciones que el diccionario NO declaró
+// (ej. "Cargo del Titular", si algún anexo real lo llegara a pedir).
 const SUFIJO_AMBIGUO_SIN_CALIFICAR = '(\\s+del\\s+titular)?';
 // "CONTACTO OFERENTE 1 / 2" (caso real 4291-38-LP26) es la PERSONA de contacto que designa el
 // oferente — un dato que la ficha de empresa no tiene. Aunque diga "oferente", no equivale a la
@@ -340,7 +368,18 @@ const COHERENCIA_CAMPO: Record<keyof EmpresaCampos, RegExp | null> = {
   region: /(regi[óo]n)/i,
   giro: /(giro|actividad|rubro)/i,
   tipo_persona_juridica: /(tipo|naturaleza|persona|constituci[óo]n|sociedad)/i,
-  fecha_sociedad: /(fecha|escritura|constituci[óo]n|inicio|vigencia|notar[íi]a)/i,
+  // OJO: "notar[íi]a" NO entra acá a propósito. `fecha_sociedad` en la ficha es UN solo texto
+  // libre que junta fecha + tipo de sociedad + notaría ("20 de Agosto de 2018 — sociedad por
+  // acciones, Segunda Notaría La Serena") — cuando un anexo pide "Notaría" en su PROPIA casilla
+  // separada de "Fecha de la Escritura" (caso real 1058086-43-LP26), escribir el mismo bloque
+  // completo en las dos deja la notaría con la fecha metida adentro, duplicada y rara. Sin poder
+  // separar fecha/notaría de forma confiable, mejor dejar "Notaría" pendiente (que sí es lo
+  // conservador que este archivo persigue) que dar un dato mal cortado.
+  fecha_sociedad: /(fecha|escritura|constituci[óo]n|inicio|vigencia)/i,
+  fecha_escritura: /(fecha|escritura)/i,
+  notaria: /(notar[íi]a)/i,
+  numero_repertorio: /(repertorio)/i,
+  fojas_numero_anio: /(fojas)/i,
   representante_nombre: /(nombre|representante|apoderado|firmante)/i,
   representante_rut: /(r\.?u\.?t|c[ée]dula|r\.?u\.?n|identidad)/i,
   representante_cargo: /(cargo|calidad|funci[óo]n)/i,

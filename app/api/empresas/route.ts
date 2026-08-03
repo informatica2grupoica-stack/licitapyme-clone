@@ -15,7 +15,8 @@ function getUser(req: NextRequest) {
 // Campos editables de una empresa (los mismos en POST y PATCH).
 const CAMPOS = [
   'razon_social', 'rut', 'direccion', 'region', 'giro', 'tipo_persona_juridica',
-  'fecha_sociedad', 'representante_nombre', 'representante_rut', 'representante_cargo',
+  'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
+  'representante_nombre', 'representante_rut', 'representante_cargo',
   'email1', 'telefono1', 'email2', 'telefono2',
   'banco_tipo_cuenta', 'banco_numero', 'banco_nombre', 'banco_email',
 ] as const;

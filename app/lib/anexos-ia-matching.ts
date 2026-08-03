@@ -60,7 +60,11 @@ export const CAMPOS_DISPONIBLES: { campo: keyof EmpresaCampos; descripcion: stri
   // (anexos-diccionario.ts) sigue matcheando "Región" exacto, solo se le quita el respaldo IA.
   { campo: 'giro', descripcion: 'Giro comercial de la empresa' },
   { campo: 'tipo_persona_juridica', descripcion: 'Tipo de persona jurídica (ej. SpA, sociedad comercial)' },
-  { campo: 'fecha_sociedad', descripcion: 'Fecha, notaría y datos de constitución de la sociedad' },
+  { campo: 'fecha_sociedad', descripcion: 'Fecha, notaría y datos de constitución de la sociedad (texto libre, todo junto)' },
+  { campo: 'fecha_escritura', descripcion: 'Fecha de la escritura de constitución (solo la fecha)' },
+  { campo: 'notaria', descripcion: 'Notaría donde se firmó la escritura de constitución' },
+  { campo: 'numero_repertorio', descripcion: 'Número de repertorio de la escritura de constitución' },
+  { campo: 'fojas_numero_anio', descripcion: 'Fojas / número / año de inscripción de la escritura' },
   { campo: 'representante_nombre', descripcion: 'Nombre completo del representante legal' },
   { campo: 'representante_rut', descripcion: 'RUT / cédula de identidad del representante legal' },
   { campo: 'representante_cargo', descripcion: 'Cargo del representante legal' },

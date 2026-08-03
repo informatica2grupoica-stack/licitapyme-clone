@@ -395,7 +395,15 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
       // fila[1] (lo que se le pasa a extraerCeldasDeFila) arranca después de la apertura "<w:tr...>".
       const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
       const celdas = extraerCeldasDeFila(fila[1], offsetFila, offsetsIndices);
-      if (celdas.length < 3) continue; // 2 columnas ya las cubre el patrón 1 (etiqueta | valor)
+      // Antes exigía 3+ columnas ("2 ya las cubre el patrón 1, etiqueta | valor") — pero esa
+      // suposición solo vale cuando la tabla NO tiene encabezado (ahí sí la cubre el patrón 1, y
+      // ni siquiera se llega hasta acá por el `if (iEncabezado < 0) continue` de arriba). Con
+      // encabezado SÍ detectado (como acá) y solo 2 columnas, el patrón 1 nunca la toca — caso
+      // real 1058086-43-LP26, ANEXO N°6 "(MARCAR CON UNA X)": una tabla de 2 columnas [casilla
+      // vacía | descripción de la opción] donde la primera fila trae AMBAS celdas con texto (la
+      // instrucción "(MARCAR CON UNA X)" comparte fila con la primera opción) — quedaba fuera de
+      // los dos patrones a la vez y ninguna casilla de "marcar con X" aparecía nunca en el modal.
+      if (celdas.length < 2) continue;
 
       let filaContexto = '';
       for (const c of celdas) if (c.texto.length > filaContexto.length) filaContexto = c.texto;
@@ -448,6 +456,11 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
 export interface CandidatoInline {
   indiceRun: number; indiceParrafo: number;
   textoRunOriginal: string; posEnTexto: number; largo: number; contexto: string;
+  // El párrafo ENTERO donde vive el blanco, más dónde cae dentro de él — para que el modal pueda
+  // mostrar la oración completa (pedido del usuario, caso real 1058086-43-LP26: con solo
+  // "contexto" recortado a 60 caracteres, blancos de una declaración jurada corrida como "de ___
+  // de ___" no se entendían sin abrir el Word).
+  parrafoCompleto: string; posEnParrafo: number;
 }
 
 export function detectarBlancosInline(xml: string): CandidatoInline[] {
@@ -464,11 +477,21 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
       for (const b of listarBlancosInline(texto)) {
         const posGlobalEnParrafo = offsetAcumulado + b.posEnTexto;
         const previo = textoParrafoCompleto.slice(0, posGlobalEnParrafo);
-        const contexto = (previo.split(/[,.;]|\(\*+\)/).pop() || previo).trim().slice(-60);
+        // "_{4,}" (el mismo umbral de listarBlancosInline) también corta el contexto — sin esto,
+        // dos campos "Etiqueta: ____" seguidos en el mismo párrafo ("Nombre: ____Cargo: ____")
+        // dejaban la corrida de guiones del campo ANTERIOR pegada al contexto del siguiente, y el
+        // slice(-60) a ciegas cortaba la etiqueta a la mitad ("Cargo:" salía como "rgo:", caso
+        // real 1058086-43-LP26, ANEXO N°8).
+        const contexto = (previo.split(/[,.;]|\(\*+\)|_{4,}/).pop() || previo).trim().slice(-60);
+        // Cuánto espacio se recorta por la izquierda al hacer trim() — para correr posEnParrafo
+        // en la misma medida y que siga apuntando al blanco real dentro del texto YA recortado.
+        const recorteIzquierdo = textoParrafoCompleto.length - textoParrafoCompleto.trimStart().length;
         out.push({
           indiceRun: indiceRunGlobal, indiceParrafo,
           textoRunOriginal: texto, posEnTexto: b.posEnTexto, largo: b.largo,
           contexto: contexto || '(sin contexto)',
+          parrafoCompleto: textoParrafoCompleto.trim(),
+          posEnParrafo: Math.max(0, posGlobalEnParrafo - recorteIzquierdo),
         });
       }
       offsetAcumulado += texto.length;
