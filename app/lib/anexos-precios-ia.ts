@@ -39,6 +39,40 @@ export function esCandidatoDePrecioUnitario(etiqueta: string): boolean {
   return RE_COLUMNA_PRECIO_UNITARIO.test(partes[partes.length - 1].trim());
 }
 
+// ── Match EXACTO por texto normalizado — antes de gastar ni un token de IA ───────────────────
+// El costeo casi siempre copia la descripción del ítem TAL CUAL viene en el anexo (es de donde
+// salió) — la única diferencia real suele ser mayúsculas, espacios dobles o comillas de pulgada
+// escritas distinto, nunca la redacción. Para ESE caso (la inmensa mayoría en la práctica) no
+// hace falta preguntarle nada a un modelo: es el mismo texto. Sin esto, CADA apertura del modal y
+// CADA click en "Generar" volvían a gastarle tokens a la IA para "adivinar" algo que ya se sabía
+// con certeza — y de paso, al no depender de un timeout de red, este paso NUNCA falla ni varía de
+// una corrida a otra (a diferencia del respaldo IA, ver el caso real más abajo).
+function normalizarParaMatchExacto(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/['´`]/g, '"')
+    .replace(/\s+/g, ' ')
+    // Caso real (1738-18-LE26): "e:0,1 METROS" (anexo) vs "e:0,10 METROS" (costeo) — el MISMO
+    // espesor (0,1 = 0,10), pero como texto no calzan. A diferencia de una palabra, un cero final
+    // en un número decimal nunca cambia su valor — quitarlo es matemáticamente seguro, no una
+    // adivinanza.
+    .replace(/(\d+,\d*[1-9])0+(?!\d)/g, '$1')
+    .trim();
+}
+
+function matchExacto(etiquetas: string[], items: ItemCosteoPrecio[]): { matches: MatchPrecio[]; sinResolver: string[] } {
+  const porTexto = new Map(items.map(it => [normalizarParaMatchExacto(it.descripcion), it]));
+  const matches: MatchPrecio[] = [];
+  const sinResolver: string[] = [];
+  for (const etiqueta of etiquetas) {
+    const filaTexto = etiqueta.split(' — ')[0].trim(); // la parte del ítem, sin "— Precio unitario"
+    const item = porTexto.get(normalizarParaMatchExacto(filaTexto));
+    if (item) matches.push({ etiqueta, precioUnitario: item.precioUnitario, itemDescripcion: item.descripcion });
+    else sinResolver.push(etiqueta);
+  }
+  return { matches, sinResolver };
+}
+
 // ── Guard de coherencia (determinista, no depende de que la IA se abstenga) ──────────────────
 // Caso real encontrado (1738-18-LE26): la IA cruzó "TRAZADO Y NIVELES" con "NIVEL DE ALUMINIO
 // 48" GRIS STANLEY" — un ítem de nivelación de terreno con una herramienta de carpintería que no
@@ -123,19 +157,43 @@ ${items.map((it, i) => `${i + 1}: ${it.descripcion}${it.unidad ? `, unidad ${it.
   }
 }
 
+async function matchearVarios(etiquetas: string[], items: ItemCosteoPrecio[], tamanoLote: number): Promise<MatchPrecio[]> {
+  const resultados = await Promise.all(enLotes(etiquetas, tamanoLote).map(lote => matchearLotePrecios(lote, items)));
+  return resultados.flat();
+}
+
 // Devuelve SOLO las filas que la IA logró cruzar con un ítem del costeo — cada ítem se usa a lo
 // más UNA vez (mismo principio que el respaldo de datos de empresa: si dos filas del Word
 // calzaran con el mismo ítem, la primera se queda con el match y la segunda queda pendiente, en
 // vez de duplicar el mismo precio por un posible error de matching). Nunca lanza: si un lote
 // falla, ese lote se degrada a "sin matches", sin tumbar el resto del análisis.
+//
+// Segundo intento SOLO para lo que no calzó en la primera pasada — caso real: un timeout del
+// modelo principal (glm-4.7-flashx) degrada 3 lotes al respaldo (glm-4.5-air, menos cuidadoso),
+// que se saltó 3 ítems que SÍ estaban en el costeo ("FIERRO Ø 12 ESTRIADO", "HORMIGÓN G-25
+// e:0,1 METROS", "MOLDAJE") — con 30+ ítems en una sola línea, basta que a UNO se le escape para
+// que la línea entera se quede sin total (ver calcularTotalesPorSeccion: nunca escribe un total
+// parcial). El segundo intento usa lotes más chicos (menos ítems compitiendo por la atención del
+// modelo) para lo que quedó pendiente — no repite lo que ya calzó bien.
 export async function matchearPreciosConIA(etiquetas: string[], items: ItemCosteoPrecio[]): Promise<MatchPrecio[]> {
   const elegibles = etiquetas.filter(esCandidatoDePrecioUnitario);
   if (elegibles.length === 0 || items.length === 0) return [];
 
-  const resultados = await Promise.all(enLotes(elegibles, TAMANO_LOTE).map(lote => matchearLotePrecios(lote, items)));
-  const usados = new Set<string>();
-  const out: MatchPrecio[] = [];
-  for (const m of resultados.flat()) {
+  // Paso 0: match exacto por texto (ver matchExacto) — sin esto, se le pagaba a la IA por
+  // resolver algo que ya se sabía con certeza en el 90%+ de los casos reales.
+  const { matches: exactos, sinResolver: sinResolverExacto } = matchExacto(elegibles, items);
+  if (sinResolverExacto.length === 0) return exactos;
+
+  const primeraPasada = await matchearVarios(sinResolverExacto, items, TAMANO_LOTE);
+  const resueltosEnPrimera = new Set(primeraPasada.map(m => m.etiqueta));
+  const sinResolver = sinResolverExacto.filter(e => !resueltosEnPrimera.has(e));
+  const segundaPasada = sinResolver.length > 0
+    ? await matchearVarios(sinResolver, items, Math.max(5, Math.floor(TAMANO_LOTE / 2)))
+    : [];
+
+  const usados = new Set(exactos.map(m => m.itemDescripcion));
+  const out: MatchPrecio[] = [...exactos];
+  for (const m of [...primeraPasada, ...segundaPasada]) {
     if (usados.has(m.itemDescripcion)) continue;
     usados.add(m.itemDescripcion);
     out.push(m);

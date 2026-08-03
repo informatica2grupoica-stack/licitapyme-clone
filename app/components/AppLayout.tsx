@@ -15,7 +15,7 @@ import { suscribirRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { EntregaPendienteModal } from '@/app/components/EntregaPendienteModal';
-import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
+import { CierreVencidoModal } from '|@/app/components/CierreVencidoModal';
 import { AprobacionPendienteModal } from '@/app/components/AprobacionPendienteModal';
 
 function tiempoRel(iso?: string) {
