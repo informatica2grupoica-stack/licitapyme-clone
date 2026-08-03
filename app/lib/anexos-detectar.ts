@@ -18,7 +18,12 @@ export interface CandidatoCelda {
   soloManual?: boolean;
 }
 
-export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
+// Versión CRUDA (sin desambiguarDuplicados) — la necesita el clasificador por IA
+// (anexos-clasificar-ia.ts): ese módulo reemplaza el heurístico "prefijo con el candidato
+// anterior en la lista" por contexto real (fila/columna de tabla, párrafos previos), así que
+// necesita la etiqueta TAL CUAL la vio el patrón 1, no ya mezclada con un vecino. El camino
+// viejo (determinista) sigue usando `detectarCandidatosCelda` (con desambiguación) sin cambios.
+export function detectarCandidatosCeldaCrudos(parrafos: Parrafo[]): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   for (let i = 0; i < parrafos.length - 1; i++) {
     const actual = parrafos[i];
@@ -48,7 +53,11 @@ export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
 
     out.push({ etiqueta: actual.texto, paraId: siguiente.paraId, indice: siguiente.indice });
   }
-  return desambiguarDuplicados(out);
+  return out;
+}
+
+export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
+  return desambiguarDuplicados(detectarCandidatosCeldaCrudos(parrafos));
 }
 
 // Caso real (1738-18-LE26): una tabla de identificación trae "RUT" DOS veces — una fila para el
@@ -593,6 +602,17 @@ export function analizarAnexo(xml: string) {
   // Relleno de tabla que nunca es un campo real (ver parrafosQueNuncaSonCampoEnTabla): ni como
   // valor apuntado por el candidato (el caso real encontrado), ni celdas angostas de puro layout.
   const parrafosSinCampo = parrafosQueNuncaSonCampoEnTabla(xml);
+  // Camino paralelo SIN desambiguar (mismos filtros geométricos, sin el prefijo "candidato
+  // anterior") — lo necesita anexos-clasificar-ia.ts. `.indice`/`.paraId` son idénticos al camino
+  // desambiguado (desambiguarDuplicados solo toca `.etiqueta`), así que indicesSoloManual y el
+  // resto del post-procesado de abajo siguen valiendo igual para ambos.
+  const candidatosCeldaSinDesambiguar = [
+    ...candidatosTabla,
+    ...detectarCandidatosCeldaCrudos(parrafos)
+      .filter(c => !indicesTabla.has(c.indice))
+      .filter(c => !parrafosSinCampo.has(c.indice))
+      .filter(c => !blancoPrecedeTabla(xml, c.paraId)),
+  ];
   const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos)
     .filter(c => !indicesTabla.has(c.indice))
     .filter(c => !parrafosSinCampo.has(c.indice))
@@ -665,7 +685,10 @@ export function analizarAnexo(xml: string) {
   const camposConDosPuntos = acotarASeccionesHabilitadas(detectarCamposConDosPuntos(parrafos), secciones)
     .filter(c => !yaCubiertos.has(c.indice) && !yaCubiertos.has(c.indice + 1));
 
-  return { parrafos, secciones, candidatosCelda, blancosInline, lineasFirma, camposConDosPuntos, indicesSoloManual };
+  return {
+    parrafos, secciones, candidatosCelda, blancosInline, lineasFirma, camposConDosPuntos, indicesSoloManual,
+    candidatosCeldaSinDesambiguar,
+  };
 }
 
 // ── Extracción de tablas COMPLETAS (todas las celdas, no solo las vacías) ─────────────────

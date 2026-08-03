@@ -21,6 +21,7 @@ import {
 import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda, type CandidatoInline, type TablaCruda } from '@/app/lib/anexos-detectar';
 import { buscarCampo, esMatchCoherente, type EmpresaCampos } from '@/app/lib/anexos-diccionario';
 import { matchearConIA, clasificarTitulos } from '@/app/lib/anexos-ia-matching';
+import { clasificarConIA } from '@/app/lib/anexos-clasificar-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { calcularTotalesPorSeccion, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
@@ -182,6 +183,95 @@ export async function resolverCandidatosCelda(
   // humano escribe algo ahí, generarAnexoFinal lo escribe igual que cualquier otro pendiente.
   const descartadosComoTitulo = titulos.size > 0 ? simples.filter(c => titulos.has(c.etiqueta)) : [];
   return { matcheados, pendientes, descartadosComoTitulo };
+}
+
+// ── Variante EXPERIMENTAL: detección con contexto real + IA en vez de desambiguarDuplicados ──
+// Camino PARALELO a resolverCandidatosCelda — NO lo reemplaza todavía (ver plan "Detección de
+// campos con IA en el Anexo Creator"). Recibe `candidatosCeldaSinDesambiguar` (analizarAnexo) en
+// vez de `candidatosCelda`: los mismos blancos geométricos, pero con la etiqueta CRUDA (sin el
+// prefijo "candidato anterior" de desambiguarDuplicados), para que anexos-clasificar-ia.ts arme
+// contexto real (fila/columna de tabla, párrafos previos) en vez de heredar ruido de un vecino.
+//
+// Diferencia deliberada con resolverCandidatosCelda: no corre clasificarTitulos por separado —
+// la misma llamada a la IA ya decide "sin campo que pedirle" para un título/encabezado (ver
+// prompt en anexos-clasificar-ia.ts), así que no hay una lista `descartadosComoTitulo` aparte;
+// todo lo no resuelto queda en `pendientes`. Es una diferencia cosmética (dónde aparece en la
+// pantalla), no de qué campo se autocompleta — que es lo que valida la comparación cabeza a cabeza.
+// Sin desambiguarDuplicados, "RUT" puede aparecer 2+ veces con el MISMO texto crudo describiendo
+// a PERSONAS DISTINTAS (caso real 1738-18-LE26: RUT del oferente y RUT del representante legal,
+// a 6 párrafos de distancia, en la misma tabla de 2 columnas) — buscarCampo por sí solo no tiene
+// cómo distinguirlas y resolvería la segunda con el dato de la empresa, pisando lo que le
+// corresponde al representante. Se detecta por CONTEO **y CERCANÍA** (no por prefijo, ver
+// desambiguarDuplicados en anexos-detectar.ts): una repetición LOCAL (dentro del mismo bloque/
+// tabla) es la que de verdad puede referirse a alguien distinto y va directo a la IA con contexto
+// real. Una repetición LEJANA (ej. razón social pedida de nuevo en el ANEXO N°2, muchos párrafos
+// después) es el caso NORMAL de "varios formularios piden el mismo dato de la empresa" — obligarla
+// a pasar por la IA solo la hace más lenta y menos confiable sin ganar nada (probado: forzar TODO
+// duplicado a IA en 1057472-89-LE26 hizo caer los resueltos de 13 a 4, porque casi todo el
+// documento repite razón social/RUT/correo en cada uno de sus 6 formularios).
+const DISTANCIA_MAX_DUPLICADO_LOCAL = 20;
+
+function normalizarParaContarDuplicados(etiqueta: string): string {
+  return etiqueta.trim().toLowerCase().replace(/[:.\s]+$/, '');
+}
+
+function indicesDeDuplicadosLocales(candidatos: CandidatoCelda[]): Set<number> {
+  const porClave = new Map<string, CandidatoCelda[]>();
+  for (const c of candidatos) {
+    const clave = normalizarParaContarDuplicados(c.etiqueta);
+    if (!porClave.has(clave)) porClave.set(clave, []);
+    porClave.get(clave)!.push(c);
+  }
+  const locales = new Set<number>();
+  for (const grupo of porClave.values()) {
+    if (grupo.length < 2) continue;
+    const ordenado = [...grupo].sort((a, b) => a.indice - b.indice);
+    for (let i = 0; i < ordenado.length; i++) {
+      const cercaAnterior = i > 0 && ordenado[i].indice - ordenado[i - 1].indice <= DISTANCIA_MAX_DUPLICADO_LOCAL;
+      const cercaSiguiente = i < ordenado.length - 1 && ordenado[i + 1].indice - ordenado[i].indice <= DISTANCIA_MAX_DUPLICADO_LOCAL;
+      if (cercaAnterior || cercaSiguiente) locales.add(ordenado[i].indice);
+    }
+  }
+  return locales;
+}
+
+export async function resolverCandidatosCeldaConIA(
+  candidatos: CandidatoCelda[], parrafos: Parrafo[], empresa: EmpresaCampos, soloManual?: Set<number>,
+) {
+  const duplicadosLocales = indicesDeDuplicadosLocales(candidatos);
+  const esDuplicadoLocal = (c: CandidatoCelda) => duplicadosLocales.has(c.indice);
+
+  const matcheados: CampoResuelto[] = [];
+  const sinMatch: CandidatoCelda[] = [];
+  const camposDiccionario = new Set<string>();
+  for (const c of candidatos) {
+    if (soloManual?.has(c.indice)) { sinMatch.push(c); continue; }
+    if (esDuplicadoLocal(c)) { sinMatch.push(c); continue; }
+    const match = buscarCampo(c.etiqueta, empresa);
+    if (match) {
+      matcheados.push({ c, campo: match.campo, valor: match.valor, via: 'diccionario' });
+      camposDiccionario.add(match.campo);
+    } else {
+      sinMatch.push(c);
+    }
+  }
+
+  const elegiblesIA = sinMatch.filter(c => !soloManual?.has(c.indice));
+  const mapaIA = await clasificarConIA(elegiblesIA, parrafos, empresa);
+  const camposUsadosPorIA = new Set(camposDiccionario);
+  const pendientes: CandidatoCelda[] = [];
+  for (const c of sinMatch) {
+    const campoIA = soloManual?.has(c.indice) ? undefined : mapaIA.get(c.indice);
+    const valorIA = campoIA ? empresa[campoIA] : null;
+    if (campoIA && valorIA && !camposUsadosPorIA.has(campoIA) && esMatchCoherente(c.etiqueta, campoIA)) {
+      matcheados.push({ c, campo: campoIA, valor: String(valorIA), via: 'ia' });
+      camposUsadosPorIA.add(campoIA);
+    } else {
+      pendientes.push(c);
+    }
+  }
+
+  return { matcheados, pendientes, descartadosComoTitulo: [] as CandidatoCelda[] };
 }
 
 // ── Totales por sección (LÍNEA/LOTE/ÍTEM...) — ver anexos-totales-seccion.ts ─────────────────

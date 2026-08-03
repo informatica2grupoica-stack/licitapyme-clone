@@ -44,7 +44,9 @@ const SUFIJO_OFERENTE = '(\\s+(del\\s+|de\\s+la\\s+)?(empresa|oferente|proponent
 const DICCIONARIO: EntradaDiccionario[] = [
   { campo: 'razon_social', patrones: [
     new RegExp(`^raz[óo]n\\s+social${SUFIJO_OFERENTE}$`, 'i'),
-    new RegExp(`^nombre\\s+o\\s+raz[óo]n\\s+social${SUFIJO_OFERENTE}$`, 'i'),
+    // "Nombre COMPLETO o Razón Social" (1057472-89-LE26) — la palabra "completo" de más rompía
+    // el patrón de arriba, que exige "nombre" seguido DIRECTO de "o razón social".
+    new RegExp(`^nombre\\s+(completo\\s+)?o\\s+raz[óo]n\\s+social${SUFIJO_OFERENTE}$`, 'i'),
     new RegExp(`^nombre\\s+(completo\\s+)?del\\s+(proponente|oferente)\\s+o\\s+raz[óo]n\\s+social$`, 'i'),
     /^empresa$/i,
     /^identificaci[óo]n\s+del\s+oferente$/i,
@@ -55,6 +57,10 @@ const DICCIONARIO: EntradaDiccionario[] = [
   { campo: 'rut', patrones: [
     /^rol\s+[úu]nico\s+tributario$/i,
     new RegExp(`^r\\.?u\\.?t\\.?${SUFIJO_OFERENTE}$`, 'i'),
+    // "N° Cédula de Identidad o RUT" (1057472-89-LE26) — así piden el RUT de la empresa las
+    // bases tipo Mercado Público genérico (formularios que no distinguen persona natural/jurídica
+    // en la etiqueta). "N°"/"Nº" con cualquiera de los dos caracteres de grado/ordinal.
+    new RegExp(`^n[°º]?\\.?\\s*c[ée]dula\\s+de\\s+identidad\\s+o\\s+r\\.?u\\.?t\\.?${SUFIJO_OFERENTE}$`, 'i'),
   ] },
   { campo: 'direccion', patrones: [
     new RegExp(`^direcci[óo]n(\\s+comercial)?${SUFIJO_OFERENTE}$`, 'i'),
@@ -152,6 +158,16 @@ const TERMINOS_AMBIGUOS_SIN_CONTEXTO = new RegExp(
   'i',
 );
 
+// El contexto de una etiqueta compuesta ("<contexto> — <campo>") solo debe BLOQUEAR el campo
+// cuando de verdad señala a una PERSONA/ROL distinto del oferente, de la que no tenemos ficha
+// (administrador de contrato, encargado, contacto, coordinador...) — casos reales documentados
+// arriba. Caso real encontrado (1057472-89-LE26): "Fax — Correo electrónico" bloqueaba el correo
+// de la EMPRESA porque "Fax" no calzaba con representante/bancario — pero "Fax" no es una persona,
+// es puro ruido: el candidato inmediatamente anterior en una lista plana (ver desambiguarDuplicados
+// en anexos-detectar.ts), sin ninguna relación real con el dato pedido. Bloquear ahí no evita un
+// error, solo esconde un dato que sí teníamos.
+const CONTEXTO_TERCERO_DESCONOCIDO = /(administrador|encargado|contacto|coordinador|apoderado|ejecutivo)/i;
+
 // Devuelve el campo+valor si la etiqueta cruza con el diccionario Y la empresa tiene ese dato
 // cargado; null si no hay match confiable (queda para el respaldo IA o la pantalla de "completar
 // a mano").
@@ -168,7 +184,9 @@ export function buscarCampo(etiqueta: string, empresa: EmpresaCampos): Coinciden
     if (CONTEXTO_BANCARIO.test(contexto) && /^(correo(\s+electr[óo]nico)?|e-?mail)$/i.test(limpio)) {
       return conValor('banco_email', empresa);
     }
-    if (TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(limpio)) return null; // contexto no reconocido — no se adivina
+    // Solo bloquea si el contexto es un tercero real y desconocido — si es puro ruido (ver
+    // CONTEXTO_TERCERO_DESCONOCIDO), se prueba igual como si no tuviera prefijo.
+    if (TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(limpio) && CONTEXTO_TERCERO_DESCONOCIDO.test(contexto)) return null;
     return buscarCampo(campoTexto, empresa); // el resto del campo (ej. "Dirección") sigue tal cual
   }
 
@@ -240,5 +258,6 @@ export function esTerminoAmbiguoSinContextoReconocido(etiqueta: string): boolean
   }
   const [, contexto, campoTexto] = compuesta;
   if (CONTEXTO_REPRESENTANTE.test(contexto) || CONTEXTO_BANCARIO.test(contexto)) return false;
+  if (!CONTEXTO_TERCERO_DESCONOCIDO.test(contexto)) return false; // ruido de vecino, no una persona real — no bloquea
   return TERMINOS_AMBIGUOS_SIN_CONTEXTO.test(normalizarParaMatch(campoTexto));
 }

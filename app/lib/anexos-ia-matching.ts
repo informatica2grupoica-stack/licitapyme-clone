@@ -49,7 +49,9 @@ Devuelve SOLO JSON, sin markdown ni texto adicional:
 
 export interface MatchIA { etiqueta: string; campo: keyof EmpresaCampos | null }
 
-const CAMPOS_DISPONIBLES: { campo: keyof EmpresaCampos; descripcion: string }[] = [
+// Exportado: lo reusa anexos-clasificar-ia.ts (mismo catálogo de campos "que podríamos tener",
+// para no mantener dos listas que puedan divergir).
+export const CAMPOS_DISPONIBLES: { campo: keyof EmpresaCampos; descripcion: string }[] = [
   { campo: 'razon_social', descripcion: 'Razón social / nombre de la empresa' },
   { campo: 'rut', descripcion: 'RUT de la empresa' },
   { campo: 'direccion', descripcion: 'Dirección comercial de la empresa' },
