@@ -57,6 +57,11 @@ const DICCIONARIO: EntradaDiccionario[] = [
     // "Proveedor:" es como piden la razón social las actas y órdenes de compra (caso real
     // 4291-38-LP26, FORMULARIO N°4 "ACTA DE CAPACITACIÓN": "Proveedor: _____________").
     /^(nombre\s+del\s+)?proveedor$/i,
+    // Variantes medidas contra anexos YA PRESENTADOS (golden set, 3-ago-2026): el oferente se pide
+    // así, sin el remate "o razón social" que exigían los patrones de arriba. Casos reales:
+    // "NOMBRE OFERENTE" (1493-28-LE26), "Nombre del Oferente" (1057474-24-LE26),
+    // "A.NOMBRE COMPLETO DEL OFERENTE:" (4295-42-LE26).
+    /^nombre\s+(completo\s+)?(del\s+|de\s+la\s+)?(oferente|proponente|contratista)$/i,
   ] },
   { campo: 'rut', patrones: [
     /^rol\s+[úu]nico\s+tributario$/i,
@@ -69,6 +74,9 @@ const DICCIONARIO: EntradaDiccionario[] = [
   { campo: 'direccion', patrones: [
     new RegExp(`^direcci[óo]n(\\s+comercial)?${SUFIJO_OFERENTE}$`, 'i'),
     new RegExp(`^domicilio(\\s+comercial)?${SUFIJO_OFERENTE}$`, 'i'),
+    // "DOMICILIO Y COMUNA" (golden set, 4295-42-LE26): una sola casilla para las dos cosas — la
+    // dirección de la ficha ya trae la comuna al final, así que la cubre entera.
+    /^(direcci[óo]n|domicilio)\s+y\s+comuna$/i,
   ] },
   { campo: 'region', patrones: [
     new RegExp(`^regi[óo]n${SUFIJO_OFERENTE}$`, 'i'),
@@ -84,7 +92,12 @@ const DICCIONARIO: EntradaDiccionario[] = [
     /^fecha\s+(de\s+)?(la\s+)?(oferta|propuesta|presentaci[óo]n|declaraci[óo]n)$/i,
     /^(lugar|ciudad)\s+y\s+fecha$/i,
   ] },
-  { campo: 'giro', patrones: [/^giro(\s+comercial)?(\s*\/\s*c[óo]digo\s+sii)?$/i] },
+  { campo: 'giro', patrones: [
+    /^giro(\s+comercial)?(\s*\/\s*c[óo]digo\s+sii)?$/i,
+    // Golden set: "PROFESIÓN, OFICIO O GIRO" (4295-42-LE26) y "RUBRO COMERCIAL" (1057474-24-LE26).
+    /^(profesi[óo]n\s*,?\s*)?(oficio\s*,?\s*)?(o\s+)?giro$/i,
+    /^rubro(\s+comercial)?$/i,
+  ] },
   { campo: 'tipo_persona_juridica', patrones: [/^tipo\s+de\s+persona\s+jur[íi]dica$/i, /^naturaleza\s+jur[íi]dica$/i] },
   { campo: 'fecha_sociedad', patrones: [/^escritura\s+p[úu]blica.*$/i, /^fecha\s+(de\s+)?(la\s+)?sociedad$/i, /^fecha\s+(de\s+)?constituci[óo]n$/i] },
   // "legal" es OPCIONAL después de "representante": caso real medido (1058086-43-LP26, 3
@@ -93,22 +106,42 @@ const DICCIONARIO: EntradaDiccionario[] = [
   // "legal" ("rep." a secas es demasiado corto para asumir de quién habla).
   { campo: 'representante_nombre', patrones: [
     /^nombre\s+(completo\s+)?(del\s+|de\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i,
-    /^representante\s+legal$/i,
+    // Con paréntesis: la etiqueta es ENTERA "(Representante Legal)" — es el pie que rotula la
+    // línea de nombre bajo la firma (golden set, 1057474-24-LE26).
+    /^\(?representante\s+legal\)?$/i,
     /^identificaci[óo]n\s+del\s+(representante(\s+legal)?|rep\.?\s*legal)$/i,
+    // Persona de contacto = el representante (regla de una sola persona, CONFIRMADA contra los
+    // anexos ya presentados: en 1191688-51-LE26 y 1057474-24-LE26 el humano escribió justo el
+    // nombre del representante en estas casillas).
+    /^nombre\s+(de\s+la\s+)?persona\s+de\s+contacto.*$/i,
+    /^nombre\s+(del\s+)?contacto(\s+(para|durante)\s+(la\s+|el\s+)?(licitaci[óo]n|proceso))?:?$/i,
   ] },
   { campo: 'representante_rut', patrones: [
     /^r\.?u\.?t\.?\s+(del\s+|de\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i,
     /^c[ée]dula\s+de\s+identidad\s+(del\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i,
+    // Cédula PELADA. Antes quedaba fuera a propósito por ambigua ("¿de quién?"), pero con la regla
+    // de una sola persona la respuesta es siempre el representante — y el golden set lo confirma:
+    // "CÉDULA DE IDENTIDAD" y "N° DE CÉDULA NACIONAL DE IDENTIDAD" (4295-42-LE26) las llenó el
+    // humano con el RUT del representante.
+    /^n[°º]?\.?\s*(de\s+)?c[ée]dula\s+(nacional\s+)?de\s+identidad$/i,
   ] },
   { campo: 'representante_cargo', patrones: [/^cargo\s+(del\s+)?(representante(\s+legal)?|rep\.?\s*legal)$/i] },
   { campo: 'email1', patrones: [
     new RegExp(`^correo\\s+electr[óo]nico${SUFIJO_OFERENTE}$`, 'i'),
-    new RegExp(`^e-?mail${SUFIJO_OFERENTE}$`, 'i'),
+    // "(e-)?" en vez de "e-?": la etiqueta "Mail" a secas (golden set, 1057474-24-LE26) no
+    // matcheaba porque el patrón anterior exigía la "e" inicial.
+    new RegExp(`^(e-?)?mail${SUFIJO_OFERENTE}$`, 'i'),
+    // Bloque de contacto = la misma persona de la ficha (ver CONTEXTO_MISMA_PERSONA).
+    /^(correo|e-?mail|mail)\s+(de\s+)?contacto$/i,
   ] },
   { campo: 'telefono1', patrones: [
     new RegExp(`^tel[ée]fono(s)?(\\s+fijo)?${SUFIJO_OFERENTE}$`, 'i'),
     /^fono$/i,
     new RegExp(`^n[°º]?\\.?\\s*de\\s+tel[ée]fono(s)?${SUFIJO_OFERENTE}$`, 'i'),
+    // Golden set: "Celular" (1057474-24-LE26) y "Fono contacto:" (1191688-51-LE26). Con la regla
+    // de una sola persona, el celular y el teléfono de contacto son el de la ficha.
+    /^(tel[ée]fono\s+)?celular$/i,
+    /^(fono|tel[ée]fono)\s+(de\s+)?contacto$/i,
   ] },
   { campo: 'banco_tipo_cuenta', patrones: [/^tipo\s+de\s+cuenta(\s+bancaria)?$/i] },
   { campo: 'banco_numero', patrones: [/^n[úu]mero\s+de\s+cuenta$/i, /^cuenta\s+(bancaria|corriente)$/i] },
@@ -129,7 +162,14 @@ function normalizarParaMatch(etiqueta: string): string {
     .trim()
     .replace(/^\(?\d+(?:\.\d+)*[.\-)]{0,2}\s+/, '')
     .replace(/^\(?[a-hA-H]\)\s+/, '')
-    .replace(/\s*\([^()]*\)\s*(?=[:.\s]*$)/, '')
+    // Viñeta de letra PEGADA al texto, sin espacio ("A.NOMBRE COMPLETO DEL OFERENTE:") — caso real
+    // del golden set (4295-42-LE26). Las dos reglas de arriba exigen un espacio después del
+    // separador, así que esta forma no se limpiaba y el match anclado nunca ocurría.
+    .replace(/^[A-Za-zÁÉÍÓÚÑ]\.(?=[A-Za-zÁÉÍÓÚÑ])/, '')
+    // La aclaración entre paréntesis solo se quita si hay TEXTO REAL antes: sin el lookbehind, una
+    // etiqueta que es ENTERA un paréntesis —"(Representante Legal)", caso real de 1057474-24-LE26—
+    // se normalizaba a string vacío y no podía matchear con nada.
+    .replace(/(?<=\S)\s*\([^()]*\)\s*(?=[:.\s]*$)/, '')
     .replace(/[:.\s]+$/, '')
     .trim();
 }
