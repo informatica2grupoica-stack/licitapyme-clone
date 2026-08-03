@@ -34,8 +34,9 @@ const { xml } = normalizarParaIds(crudo);
 const analisis = analizarAnexo(xml);
 const parrafos = analisis.parrafos;
 
-const camposConDato = (Object.keys(empresa) as any[]).filter(c => c !== 'firma_url' && empresa[c] != null && String(empresa[c]).trim());
-const ficha = camposConDato.map((c: any) => `- ${c}: "${String(empresa[c])}"`).join('\n');
+const empresaAny = empresa as any;
+const camposConDato = (Object.keys(empresa) as any[]).filter(c => c !== 'firma_url' && empresaAny[c] != null && String(empresaAny[c]).trim());
+const ficha = camposConDato.map((c: any) => `- ${c}: "${String(empresaAny[c])}"`).join('\n');
 
 const CANTIDAD_PARRAFOS_PREVIOS = 6;
 function contextoPrevio(antesDeIndice: number): string[] {
