@@ -26,6 +26,9 @@ import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { publicar } from '@/app/lib/sse-bus';
 import { enviarAvisoOrdenesCompra } from '@/app/lib/email';
+import { subirDocumentoR2 } from '@/app/lib/r2';
+import { ahoraChileSQL } from '@/app/lib/tz';
+import { MP_UA, fetchMPConReintentos } from '@/app/lib/mp-adjuntos';
 import type { OrdenCompraAPI } from '@/app/types/mercado-publico.types';
 
 // Códigos de estado de la API (documentación de ChileCompra). Se guardan los dos: el código es
@@ -141,7 +144,7 @@ export interface ResumenSync {
  * Pensado para el cron diario. Es idempotente: correrlo dos veces no duplica avisos.
  */
 export async function sincronizarOrdenesCompra(
-  { dias = DIAS_BARRIDO_POR_DEFECTO }: { dias?: number } = {},
+  { dias = DIAS_BARRIDO_POR_DEFECTO, avisar = true }: { dias?: number; avisar?: boolean } = {},
 ): Promise<ResumenSync> {
   const resumen: ResumenSync = {
     diasBarridos: 0, candidatas: 0, nuevas: 0, cambiosEstado: 0, deTerceros: 0,
@@ -274,9 +277,23 @@ export async function sincronizarOrdenesCompra(
   }
 
   // ── 4. Avisos ────────────────────────────────────────────────────────────────────────────
-  const { eventos, correos } = await avisarOrdenes(avisos);
-  resumen.eventos = eventos;
-  resumen.correos = correos;
+  // `avisar: false` es para el backfill histórico: sin esto, cargar meses de OC ya conocidas hace
+  // rato dispararía una campana y un correo por cada una, como si fueran noticia.
+  if (avisar) {
+    const { eventos, correos } = await avisarOrdenes(avisos);
+    resumen.eventos = eventos;
+    resumen.correos = correos;
+  }
+
+  // ── 5. PDF ───────────────────────────────────────────────────────────────────────────────
+  // Best-effort: si falla (WAF, portal caído) no revienta la sincronización — se reintenta el
+  // día siguiente, igual que el resto de lo que toca el portal público de MP.
+  try {
+    await descargarPdfsPendientes(10);
+  } catch (e) {
+    console.warn('[ordenes-compra] descarga de PDFs pendientes falló:', String(e).slice(0, 150));
+  }
+
   return resumen;
 }
 
@@ -324,6 +341,67 @@ async function guardarOrdenCompra(
       JSON.stringify(oc), esNuestra ? 1 : 0,
     ],
   );
+}
+
+// ── PDF de la orden ──────────────────────────────────────────────────────────────────────
+// Verificado en vivo (4-ago-2026): la ficha DetailsPurchaseOrder.aspx trae el botón "Descargar
+// PDF" como <input type=image onclick="open('PDFReport.aspx?qs=TOKEN', ...)">. Tanto la ficha
+// como PDFReport.aspx?qs=TOKEN responden 200 con un fetch plano, sin cookies ni sesión previa —
+// a diferencia de los anexos de oferta / acta, que exigen postback + __VIEWSTATE + IP chilena.
+// Por eso NO se reusa mp-descarga-orquestador.ts: esto es dos fetch directos.
+const RE_TOKEN_PDF = /imgPDF[\s\S]{0,400}?PDFReport\.aspx\?qs=([^'"&]+)/;
+
+/** Descarga el PDF de UNA orden de compra desde Mercado Público y lo sube a R2. */
+export async function descargarPdfOrdenCompra(
+  codigoOC: string, licitacionCodigo: string | null,
+): Promise<{ ok: boolean; url?: string; error?: string }> {
+  try {
+    const urlFicha = `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(codigoOC)}`;
+    const resFicha = await fetchMPConReintentos(urlFicha, {
+      headers: { 'User-Agent': MP_UA, 'Accept': 'text/html,*/*;q=0.8' },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!resFicha.ok) return { ok: false, error: `ficha HTTP ${resFicha.status}` };
+    const html = await resFicha.text();
+    const token = html.match(RE_TOKEN_PDF)?.[1];
+    if (!token) return { ok: false, error: 'sin botón de PDF en la ficha' };
+
+    const urlPdf = `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/PDFReport.aspx?qs=${token}`;
+    const resPdf = await fetchMPConReintentos(urlPdf, {
+      headers: { 'User-Agent': MP_UA, 'Referer': urlFicha },
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!resPdf.ok) return { ok: false, error: `PDFReport HTTP ${resPdf.status}` };
+    const buffer = Buffer.from(await resPdf.arrayBuffer());
+    if (buffer.length < 500) return { ok: false, error: 'respuesta demasiado chica para ser un PDF' };
+
+    const url = await subirDocumentoR2(licitacionCodigo || codigoOC, `OC_${codigoOC}.pdf`, buffer, 'application/pdf');
+    await pool.query(
+      `UPDATE ordenes_compra SET pdf_url = ?, pdf_descargado_at = ?, pdf_error = NULL WHERE codigo = ?`,
+      [url, ahoraChileSQL(), codigoOC],
+    );
+    return { ok: true, url };
+  } catch (e: any) {
+    const error = String(e?.message || e).slice(0, 300);
+    await pool.query(`UPDATE ordenes_compra SET pdf_error = ? WHERE codigo = ?`, [error, codigoOC]).catch(() => {});
+    return { ok: false, error };
+  }
+}
+
+/** PDF de todas las OC nuestras que todavía no lo tienen. Pensado para el cron diario. */
+export async function descargarPdfsPendientes(max = 20): Promise<{ ok: number; fallidos: number }> {
+  const stats = { ok: 0, fallidos: 0 };
+  const [rows] = await pool.query(
+    `SELECT codigo, licitacion_codigo FROM ordenes_compra
+      WHERE es_nuestra = 1 AND pdf_url IS NULL
+      ORDER BY created_at DESC LIMIT ${Math.max(1, Math.min(max, 50))}`,
+  ) as any[];
+  for (const r of rows as any[]) {
+    const res = await descargarPdfOrdenCompra(String(r.codigo), r.licitacion_codigo ? String(r.licitacion_codigo) : null);
+    if (res.ok) stats.ok++; else stats.fallidos++;
+    await dormir(600);
+  }
+  return stats;
 }
 
 // ── Campana + correo ───────────────────────────────────────────────────────────────────────
@@ -460,6 +538,7 @@ export interface OrdenCompraFila {
   compradorMail: string | null;
   items: Array<{ descripcion: string; cantidad: number | null; precioNeto: number | null; total: number | null }>;
   url: string;
+  pdfUrl: string | null;
 }
 
 /** Las órdenes de compra de UNA licitación, listas para la sección "Resultado". */
@@ -467,7 +546,7 @@ export async function ordenesDeLicitacion(codigo: string): Promise<OrdenCompraFi
   const [rows] = await pool.query(
     `SELECT codigo, nombre, estado, codigo_estado, tipo, fecha_creacion, fecha_envio, fecha_aceptacion,
             moneda, total_neto, total, comprador_organismo, comprador_unidad, comprador_contacto,
-            comprador_mail, items_json, es_nuestra, proveedor_nombre
+            comprador_mail, items_json, es_nuestra, proveedor_nombre, pdf_url
        FROM ordenes_compra
       WHERE licitacion_codigo = ?
       ORDER BY es_nuestra DESC, COALESCE(fecha_envio, fecha_creacion) DESC, codigo DESC`,
@@ -503,6 +582,7 @@ export async function ordenesDeLicitacion(codigo: string): Promise<OrdenCompraFi
       })),
       // Ficha pública de la orden en Mercado Público (la misma que abre el portal).
       url: `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(r.codigo)}`,
+      pdfUrl: r.pdf_url || null,
     };
   });
 }

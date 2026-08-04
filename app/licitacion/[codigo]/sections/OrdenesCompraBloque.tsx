@@ -8,8 +8,9 @@
 // Los ítems y el organismo comprador se muestran completos a propósito: son exactamente lo que
 // después alimenta los certificados de experiencia de la memoria comercial.
 import { useEffect, useState } from 'react';
-import { Receipt, ExternalLink, ChevronDown, ChevronUp, Building2, Package, Loader2 } from 'lucide-react';
+import { Receipt, ExternalLink, ChevronDown, ChevronUp, Building2, Package, Loader2, Eye, Download } from 'lucide-react';
 import { useRealtime } from '@/app/lib/use-realtime';
+import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 
 interface ItemOC { descripcion: string; cantidad: number | null; precioNeto: number | null; total: number | null }
 interface OrdenCompra {
@@ -32,6 +33,7 @@ interface OrdenCompra {
   compradorMail: string | null;
   items: ItemOC[];
   url: string;
+  pdfUrl: string | null;
 }
 
 // Color por estado, con el mismo criterio de siempre: verde = cerrado a favor, ámbar = en curso,
@@ -52,7 +54,70 @@ const fmtFecha = (f: string | null) => {
   try { return new Date(f).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }); } catch { return null; }
 };
 
-function FilaOrden({ oc }: { oc: OrdenCompra }) {
+// Ojo (ver en el visor) + descargar, mismo gesto que el resto de los documentos de la
+// licitación (DocumentosSection). El PDF puede no estar en R2 todavía (el cron lo baja una vez
+// al día): en ese caso el primer clic lo pide al toque en vez de obligar a esperar al barrido.
+function AccionesDocumentoOC({
+  codigo, nombre, pdfUrlInicial, onVer,
+}: {
+  codigo: string; nombre: string; pdfUrlInicial: string | null; onVer: (doc: VisorDoc) => void;
+}) {
+  const [url, setUrl] = useState(pdfUrlInicial);
+  const [cargando, setCargando] = useState<'ver' | 'descargar' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const asegurarUrl = async (): Promise<string | null> => {
+    if (url) return url;
+    try {
+      const r = await fetch('/api/ordenes-compra/pdf', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigoOC: codigo }),
+      });
+      const d = await r.json().catch(() => null);
+      if (d?.success && d.url) { setUrl(d.url); setError(null); return d.url; }
+      setError(d?.error || 'No se pudo descargar el PDF');
+      return null;
+    } catch {
+      setError('No se pudo descargar el PDF');
+      return null;
+    }
+  };
+
+  const ver = async () => {
+    setCargando('ver');
+    const u = await asegurarUrl();
+    setCargando(null);
+    if (u) onVer({ nombre, url: u });
+  };
+
+  const descargar = async () => {
+    setCargando('descargar');
+    const u = await asegurarUrl();
+    setCargando(null);
+    if (!u) return;
+    const a = document.createElement('a');
+    a.href = u; a.download = nombre;
+    document.body.appendChild(a); a.click(); a.remove();
+  };
+
+  return (
+    <div className="inline-flex items-center gap-1">
+      <button type="button" onClick={ver} disabled={cargando !== null}
+        title="Ver en el visor"
+        className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors disabled:opacity-50">
+        {cargando === 'ver' ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
+      </button>
+      <button type="button" onClick={descargar} disabled={cargando !== null}
+        title="Descargar"
+        className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors disabled:opacity-50">
+        {cargando === 'descargar' ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+      </button>
+      {error && <span className="text-[10.5px] text-rose-500" title={error}>PDF no disponible</span>}
+    </div>
+  );
+}
+
+function FilaOrden({ oc, onVer }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => void }) {
   const [abierto, setAbierto] = useState(false);
   const c = colorEstado(oc.codigoEstado);
   const fecha = fmtFecha(oc.fechaEnvio) || fmtFecha(oc.fechaCreacion);
@@ -99,10 +164,13 @@ function FilaOrden({ oc }: { oc: OrdenCompra }) {
             {abierto ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
         )}
-        <a href={oc.url} target="_blank" rel="noopener noreferrer"
-          className="ml-auto text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
-          <ExternalLink size={12} /> Ver en Mercado Público
-        </a>
+        <div className="ml-auto flex items-center gap-3">
+          <AccionesDocumentoOC codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} onVer={onVer} />
+          <a href={oc.url} target="_blank" rel="noopener noreferrer"
+            className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
+            <ExternalLink size={12} /> Ver en Mercado Público
+          </a>
+        </div>
       </div>
 
       {abierto && oc.items.length > 0 && (
@@ -125,6 +193,7 @@ function FilaOrden({ oc }: { oc: OrdenCompra }) {
 export function OrdenesCompraBloque({ codigo }: { codigo: string }) {
   const [ordenes, setOrdenes] = useState<OrdenCompra[] | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
 
   const cargar = () => {
     fetch(`/api/ordenes-compra?codigo=${encodeURIComponent(codigo)}`)
@@ -176,7 +245,7 @@ export function OrdenesCompraBloque({ codigo }: { codigo: string }) {
         </p>
       ) : (
         <div className="p-3 space-y-2">
-          {nuestras.map(oc => <FilaOrden key={oc.codigo} oc={oc} />)}
+          {nuestras.map(oc => <FilaOrden key={oc.codigo} oc={oc} onVer={setVisorDoc} />)}
         </div>
       )}
 
@@ -202,6 +271,8 @@ export function OrdenesCompraBloque({ codigo }: { codigo: string }) {
           </div>
         </div>
       )}
+
+      <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
     </div>
   );
 }
