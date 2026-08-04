@@ -67,5 +67,9 @@ export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): 
     ...empresa,
     region: regionCompleta(empresa.region, empresa.direccion),
     fecha_hoy: fechaLargaChile(ahora),
+    // Las tres partes por separado, para los pies de firma "Fecha: ____ /____ /____" (tres casillas
+    // independientes, el formato más común de los anexos chilenos). Misma hora de Chile que
+    // fechaLargaChile — nunca se derivan del string ya formateado.
+    ...(({ dia, mes, anio }) => ({ fecha_hoy_dia: dia, fecha_hoy_mes: mes, fecha_hoy_anio: anio }))(partesFechaChile(ahora)),
   };
 }

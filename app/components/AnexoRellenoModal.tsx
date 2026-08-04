@@ -52,7 +52,7 @@ interface Analisis {
   pendientesInline: PendienteInline[];
   tablas: TablaUI[];
   documento: BloqueUI[];
-  firma: { detectada: boolean; disponible: boolean };
+  firma: { detectada: boolean; disponible: boolean; timbreDetectado: boolean; timbreDisponible: boolean };
   ordenFormularios?: string[]; // títulos en el orden del documento
   alertasInadmisibilidad?: AlertaInadmisibilidad[];
   checklistPendientes?: string[];
@@ -487,6 +487,15 @@ export function AnexoRellenoModal({
                   <p className="text-[12.5px] text-amber-800">
                     Este documento tiene línea de firma, pero la empresa no tiene una firma escaneada cargada — la línea queda en blanco.
                     Súbela en <strong>/empresas</strong> (sección "Firma escaneada") para que se inserte sola la próxima vez.
+                  </p>
+                </div>
+              )}
+              {analisis.firma.timbreDetectado && !analisis.firma.timbreDisponible && (
+                <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-[12.5px] text-amber-800">
+                    Este documento pide <strong>firma y timbre</strong>, pero esta empresa no tiene un timbre cargado — solo se estampa la firma.
+                    Súbelo en <strong>/empresas</strong> (sección "Timbre digital") para que se inserte solo la próxima vez.
                   </p>
                 </div>
               )}

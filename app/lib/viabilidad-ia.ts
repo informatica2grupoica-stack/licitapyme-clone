@@ -1996,6 +1996,8 @@ async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | nul
     if (p3.atractivo?._interno) p3.atractivo._interno.nivel_tecnico = nivel;
   }
 
+  completarOrdenAnexosConLosPublicados(p3, docs, codigo);
+
   // VALIDADOR POST-FASE 2 (Frente A.2) — revisor automático por código, sin IA. Corre sobre el
   // informe YA ensamblado con todos los overrides deterministas aplicados arriba.
   //
@@ -2036,6 +2038,74 @@ async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | nul
     documentos_no_leidos: docs.filter(d => !d.ok).map(d => `${d.nombre} (${d.metodo})`),
     docs_hash: await calcularDocsHash(codigo),
   };
+}
+
+// ── El checklist de anexos se cruza contra los anexos REALMENTE PUBLICADOS ────────────────────
+// El "orden de trabajo — documentos propios a crear" lo redacta el modelo leyendo las bases, y ahí
+// se le escapan anexos: caso real 1057480-41-LP26 (Hospital San José de Melipilla), donde listó 7
+// de los 11 publicados. Los 4 que faltaban (N°1 Identificación del Oferente, N°2 y N°3
+// declaraciones juradas, N°4 UTP) no son un descuido menor: las bases dicen textualmente "Haber
+// llenado y presentado los Anexos Administrativos N°1, N°2, N°3 y N°4 […] habilita al proveedor a
+// participar". Lo que pasó es que el modelo enumeró los anexos ligados a un CRITERIO DE EVALUACIÓN
+// (los que tienen % de puntaje) y dejó fuera los administrativos, que no puntúan pero sin los
+// cuales la oferta no entra.
+//
+// La corrección no es afinar el prompt —cuántos anexos publicó el organismo no es una lectura ni
+// un juicio, es un dato duro que ya tenemos en documentos_cache— sino cruzar: cualquier anexo con
+// archivo publicado que el informe no nombre se agrega acá, marcado como agregado por el sistema y
+// SIN inventarle criticidad ni fundamento (queda como PUNTAJE_CONDICIONANTE, el nivel medio, con
+// el texto diciendo que hay que verificarlo en las bases). Nunca al revés: no se borra ni se
+// reescribe nada de lo que el modelo sí encontró.
+const RE_NUMERO_ANEXO = /anexo[\s_]*n?[°ºo]?\s*[.]?\s*(\d{1,2})\b/gi;
+
+function numerosDeAnexoEn(texto: string): number[] {
+  return [...String(texto || '').matchAll(RE_NUMERO_ANEXO)].map(m => Number(m[1])).filter(n => n > 0);
+}
+
+// Título real del anexo, sacado de su propio texto: estos documentos abren con "ANEXO N°1" y en la
+// línea siguiente su nombre ("IDENTIFICACIÓN DEL OFERENTE"). Es un dato del archivo, no una
+// suposición — si no se puede leer, se deja sin título en vez de inventarlo.
+function tituloDeAnexo(texto: string): string {
+  const lineas = String(texto || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const iCabecera = lineas.findIndex(l => /^#*\s*anexo\b/i.test(l));
+  const siguiente = iCabecera >= 0 ? lineas[iCabecera + 1] : '';
+  return siguiente && siguiente.length <= 120 && !/^#*\s*anexo\b/i.test(siguiente) ? siguiente : '';
+}
+
+export function completarOrdenAnexosConLosPublicados(informe: any, docs: DocLeido[], codigo: string): void {
+  const adm = informe?.requisitos_admisibilidad;
+  if (!adm || typeof adm !== 'object') return;
+  if (!Array.isArray(adm.orden_anexos_propios)) adm.orden_anexos_propios = [];
+
+  const yaListados = new Set<number>(
+    adm.orden_anexos_propios.flatMap((d: any) => numerosDeAnexoEn(`${d?.que_crear || ''} ${d?.que_cubre || ''} ${d?.por_que || ''}`)),
+  );
+
+  const publicados = new Map<number, DocLeido>();
+  for (const d of docs) {
+    const categoria = String(d.categoria || '').toUpperCase();
+    if (categoria === 'DOCUMENTOS_PROPIOS') continue;   // el costeo/informe que genera este sistema
+    const n = numerosDeAnexoEn(d.nombre)[0];
+    if (n && !publicados.has(n)) publicados.set(n, d);
+  }
+
+  const faltantes = [...publicados.entries()].filter(([n]) => !yaListados.has(n)).sort((a, b) => a[0] - b[0]);
+  if (!faltantes.length) return;
+
+  for (const [n, doc] of faltantes) {
+    const titulo = tituloDeAnexo(doc.texto);
+    adm.orden_anexos_propios.push({
+      que_crear: `Anexo N°${n}${titulo ? `: ${titulo}` : ''}`,
+      por_que: 'El organismo lo publicó entre los documentos de la licitación y el análisis de las bases no lo listó — confirmar en las bases si es obligatorio y con qué contenido.',
+      fuente: `Archivo publicado en Mercado Público: ${doc.nombre}`,
+      que_debe_contener: 'Ver el propio anexo: se completa sobre el formato que entrega el organismo (el Anexo Creator lo detecta y rellena lo que sale de la ficha).',
+      que_cubre: 'Presentación de la oferta',
+      criticidad: 'PUNTAJE_CONDICIONANTE',
+      responsable: 'fase4',
+      _agregado_por_cruce: true,
+    });
+  }
+  console.log(`[viabilidad-ia-v3] ${codigo}: checklist de anexos completado con ${faltantes.length} anexo(s) publicado(s) que el informe no listaba: ${faltantes.map(([n]) => `N°${n}`).join(', ')}.`);
 }
 
 // Guarda el informe v3 bajo _informe_ia_v3 (NO pisa _informe_ia del v2). Actualiza también

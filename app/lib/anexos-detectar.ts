@@ -2,7 +2,7 @@
 // Frente E.1 — detección de campos a rellenar en un anexo real, sin conocimiento previo del
 // documento. Probado contra 4 anexos reales de 4 organismos (Chile Chico, Lo Barnechea, y 2
 // más) — ver docs/BITACORA-CAMBIOS-VIABILIDAD.md para el detalle de cada hallazgo.
-import { listarParrafos, listarBlancosInline, parrafoEstaVacio, type Parrafo } from '@/app/lib/anexos-docx';
+import { listarParrafos, listarBlancosInline, parrafoEstaVacio, decodificarXml, textoDeRuns, type Parrafo } from '@/app/lib/anexos-docx';
 import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
 
 // Vocabulario de ROL cercano a una etiqueta duplicada ("<contexto> — <campo>", ver
@@ -211,7 +211,7 @@ function parrafosQueNuncaSonCampoEnTabla(xml: string): Set<number> {
 
     const parrafosCelda = [...cuerpoCelda.matchAll(/<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>([\s\S]*?)<\/w:p>/g)];
     const offsetCelda = tc.index! + tc[0].indexOf(cuerpoCelda);
-    const textoCelda = parrafosCelda.map(p => [...p[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('')).join('').trim();
+    const textoCelda = parrafosCelda.map(p => textoDeRuns(p[1])).join('').trim();
 
     if (angosta) {
       // Celda decorativa por ancho: NINGUNO de sus párrafos es un campo real, tenga texto o no.
@@ -385,9 +385,7 @@ function siguienteEncabezadoTablaExtenso(
 }
 
 function textosDeFila(filaXml: string): string[] {
-  return [...filaXml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)].map(
-    tc => [...tc[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim(),
-  );
+  return [...filaXml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)].map(tc => textoDeRuns(tc[1]).trim());
 }
 
 function filaTieneCeldaCombinada(filaXml: string): boolean {
@@ -406,9 +404,7 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
     const anchoMatch = tc[0].match(/<w:tcW\s+w:w="(\d+)"\s+w:type="pct"/);
     const anchoPct = anchoMatch ? Number(anchoMatch[1]) : null;
     const parrafosCelda = [...cuerpoCelda.matchAll(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"[^>]*>([\s\S]*?)<\/w:p>/g)];
-    const textoCelda = parrafosCelda
-      .map(p => [...p[2].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join(''))
-      .join(' ').trim();
+    const textoCelda = parrafosCelda.map(p => textoDeRuns(p[2])).join(' ').trim();
     // Toma el ÚLTIMO párrafo vacío de la celda como candidato a rellenar — casi siempre las celdas
     // de una tabla de specs traen un solo párrafo, así que en la práctica es el único. Se usa
     // parrafoEstaVacio (sin TEXTO) y no "sin runs": con el XML de LibreOffice, que deja un run
@@ -573,6 +569,11 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
 export interface CandidatoInline {
   indiceRun: number; indiceParrafo: number;
   textoRunOriginal: string; posEnTexto: number; largo: number; contexto: string;
+  // Instrucción literal que el organismo dejó dentro del marcador ("Insertar RUT", "fecha",
+  // "indicar en esta casilla el número del documento…") — ver listarBlancosInline / patrón 2b en
+  // anexos-docx.ts. Cuando existe, es MEJOR pista que el contexto inferido: dice textualmente qué
+  // va en esa casilla, así que se le pasa al motor de IA y se le muestra al humano tal cual.
+  textoMarcador?: string;
   // El párrafo ENTERO donde vive el blanco, más dónde cae dentro de él — para que el modal pueda
   // mostrar la oración completa (pedido del usuario, caso real 1058086-43-LP26: con solo
   // "contexto" recortado a 60 caracteres, blancos de una declaración jurada corrida como "de ___
@@ -586,7 +587,9 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
   const parrafos = [...xml.matchAll(/<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g)];
 
   parrafos.forEach((parMatch, indiceParrafo) => {
-    const runsDelParrafo = [...parMatch[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]);
+    // DECODIFICADO (ver decodificarXml): las posiciones que se calculan acá son las mismas que
+    // usa rellenarRunPorIndice para escribir, y ese también decodifica antes de editar.
+    const runsDelParrafo = [...parMatch[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => decodificarXml(m[1]));
     const textoParrafoCompleto = runsDelParrafo.join('');
     let offsetAcumulado = 0;
 
@@ -599,7 +602,9 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
         // dejaban la corrida de guiones del campo ANTERIOR pegada al contexto del siguiente, y el
         // slice(-60) a ciegas cortaba la etiqueta a la mitad ("Cargo:" salía como "rgo:", caso
         // real 1058086-43-LP26, ANEXO N°8).
-        const contexto = (previo.split(/[,.;]|\(\*+\)|_{4,}/).pop() || previo).trim().slice(-60);
+        // También corta en un MARCADOR anterior (patrón 2b) y en una línea de puntos, por la misma
+        // razón que corta en "_{4,}": el marcador de la casilla previa no es contexto de esta.
+        const contexto = (previo.split(/[,.;]|\(\*+\)|_{4,}|>>|\]/).pop() || previo).trim().slice(-60);
         // Cuánto espacio se recorta por la izquierda al hacer trim() — para correr posEnParrafo
         // en la misma medida y que siga apuntando al blanco real dentro del texto YA recortado.
         const recorteIzquierdo = textoParrafoCompleto.length - textoParrafoCompleto.trimStart().length;
@@ -609,6 +614,7 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
           contexto: contexto || '(sin contexto)',
           parrafoCompleto: textoParrafoCompleto.trim(),
           posEnParrafo: Math.max(0, posGlobalEnParrafo - recorteIzquierdo),
+          ...(b.textoMarcador ? { textoMarcador: b.textoMarcador } : {}),
         });
       }
       offsetAcumulado += texto.length;
@@ -727,7 +733,14 @@ export function acotarASeccionesHabilitadas(candidatos: CandidatoCelda[], seccio
 // que menciona "firma". Es DISTINTO al blanco inline (patrón 2): no se le pide texto al humano,
 // se le ofrece insertar la IMAGEN de la firma guardada en la ficha de la empresa (si existe) —
 // ver insertarImagenEnParrafo() en anexos-docx.ts.
-export interface LineaFirma { paraId: string; indice: number; contexto: string }
+export interface LineaFirma {
+  paraId: string; indice: number; contexto: string;
+  // La leyenda pide firma Y TIMBRE ("FIRMA Y TIMBRE REPRESENTANTE LEGAL" — la forma habitual en
+  // los anexos de hospitales/servicios públicos). Cuando la empresa tiene un timbre cargado en su
+  // ficha, se estampa al lado de la firma; si la leyenda solo dice "firma", no se estampa timbre
+  // aunque exista, porque no lo están pidiendo.
+  pideTimbre?: boolean;
+}
 
 const RE_RAYA_LARGA = /^_{10,}$/;
 // La leyenda bajo la raya no siempre dice "firma" — un caso real dice "Nombre Persona Natural o
@@ -735,8 +748,26 @@ const RE_RAYA_LARGA = /^_{10,}$/;
 // una raya de 10+ guiones es, en la práctica, siempre un bloque de firma en estos documentos.
 const RE_LEYENDA_FIRMA = /firma|representante\s+legal|persona\s+natural/i;
 
+// Caso C (ver abajo): leyenda de firma SIN raya. Es un regex mucho más estrecho que
+// RE_LEYENDA_FIRMA a propósito — ahí basta con que el texto MENCIONE "representante legal" porque
+// ya se sabe que arriba hay una raya de 10+ guiones, que es la señal fuerte. Sin raya no hay tal
+// señal, y "representante legal" aparece en media docena de párrafos de cualquier declaración
+// jurada: usarlo estamparía la firma escaneada en mitad del texto legal. Acá se exige que el
+// párrafo SEA la leyenda ("FIRMA Y TIMBRE REPRESENTANTE LEGAL", "Firma del oferente") — que empiece
+// con la palabra firma y sea corto, como toda leyenda de pie de firma real.
+const RE_LEYENDA_FIRMA_SOLA = /^[\s(]*firma\b/i;
+const LARGO_MAX_LEYENDA_FIRMA = 90;
+const RE_PIDE_TIMBRE = /timbre/i;
+
 export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
   const out: LineaFirma[] = [];
+  const usados = new Set<number>();
+  const agregar = (p: Parrafo, contexto: string) => {
+    if (usados.has(p.indice)) return;
+    usados.add(p.indice);
+    out.push({ paraId: p.paraId, indice: p.indice, contexto, pideTimbre: RE_PIDE_TIMBRE.test(contexto) });
+  };
+
   for (let i = 0; i < parrafos.length; i++) {
     const p = parrafos[i];
 
@@ -746,14 +777,32 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
       const siguiente1 = parrafos[i + 1]?.texto || '';
       const siguiente2 = parrafos[i + 2]?.texto || '';
       const contexto = RE_LEYENDA_FIRMA.test(siguiente1) ? siguiente1 : (RE_LEYENDA_FIRMA.test(siguiente2) ? siguiente2 : '');
-      if (contexto) { out.push({ paraId: p.paraId, indice: p.indice, contexto }); continue; }
+      if (contexto) { agregar(p, contexto); continue; }
     }
 
     // Caso B: la raya y la leyenda comparten el MISMO párrafo — otro patrón real visto
     // ("____________________ Nombre Persona Natural o Representante legal...", todo junto).
     const compuesto = p.texto.match(/^_{10,}\s*(.+)$/);
     if (compuesto && RE_LEYENDA_FIRMA.test(compuesto[1])) {
-      out.push({ paraId: p.paraId, indice: p.indice, contexto: compuesto[1].trim() });
+      agregar(p, compuesto[1].trim());
+      continue;
+    }
+
+    // Caso C: leyenda de firma SIN NINGUNA RAYA — el espacio para firmar son párrafos VACÍOS.
+    // BUG REAL (1057480-41-LP26, Hospital San José de Melipilla): 6 de sus 11 anexos cierran con
+    // varios párrafos en blanco y después "FIRMA Y TIMBRE REPRESENTANTE LEGAL / (OFERENTE)", sin un
+    // solo guión bajo. Los casos A y B, que arrancan buscando "_{10,}", no veían nada: el documento
+    // salía sin firma y el usuario tenía que estamparla a mano en todos ellos.
+    //
+    // Se exige que el párrafo INMEDIATAMENTE anterior esté vacío, y se sube hasta el primero de la
+    // corrida de vacíos (es donde queda el espacio de la firma, arriba de la leyenda, no pegado a
+    // ella). Si el anterior TIENE texto no se hace nada: ahí no hay hueco donde estampar sin pisar
+    // algo — es justo lo que pasa en los anexos 7 y 8 de esta misma licitación, donde arriba de la
+    // leyenda va un párrafo con DOS rayas (la del oferente y la del evaluador) y estampar sería
+    // adivinar cuál es cuál.
+    if (p.texto.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(p.texto)) {
+      if (!parrafos[i - 1]?.vacio) continue;
+      agregar(parrafos[i - 1], p.texto.trim());   // el hueco pegado a la leyenda, que es donde se firma
     }
   }
   return out;
@@ -875,18 +924,38 @@ export function analizarAnexo(xml: string) {
   // exclusivo Proveedor Adjudicado" y "Para uso exclusivo Universidad de Antofagasta" — estampar
   // nuestra firma escaneada en los tres es sencillamente falso. Solo se firma donde la etiqueta
   // dice oferente / proponente / proveedor / contratista / representante legal.
+  //
+  // El lado NEGATIVO (RE_FIRMA_CONTRAPARTE) es tan necesario como el positivo: hay leyendas que
+  // nombran a los dos a la vez ("FIRMA Y TIMBRE REPRESENTANTE LEGAL      FIRMA Y TIMBRE EVALUADOR",
+  // los dos bloques en el MISMO párrafo — anexos 7 y 8 de 1057480-41-LP26). Ahí la mención al
+  // oferente es real pero no alcanza para saber DÓNDE va nuestra firma dentro del párrafo, así que
+  // no se estampa nada y lo firma un humano.
+  const RE_FIRMA_NUESTRA = /(oferente|proponente|proveedor|contratista|representante\s+legal|rep\.?\s*legal|persona\s+natural)/i;
+  // Ojo: NO se puede meter acá "uso exclusivo" — "Para uso exclusivo Proveedor Adjudicado" es
+  // NUESTRO bloque (caso real 4291-38-LP26, cubierto por un test). El bloque ajeno de ese mismo
+  // documento ("…Universidad de Antofagasta") ya queda fuera por el lado positivo, que no lo nombra.
+  const RE_FIRMA_CONTRAPARTE = /(evaluador|entidad\s+licitante|comisi[óo]n\s+evaluadora|ministro\s+de\s+fe|mandante|inspector)/i;
   const esFirmaPropia = (etiqueta: string) =>
-    esEtiquetaFirma(etiqueta)
-    && /(oferente|proponente|proveedor|contratista|representante\s+legal|rep\.?\s*legal)/i.test(etiqueta);
+    esEtiquetaFirma(etiqueta) && RE_FIRMA_NUESTRA.test(etiqueta) && !RE_FIRMA_CONTRAPARTE.test(etiqueta);
+  // Para una RAYA de firma no se exige la palabra "firma" en la leyenda: la raya de 10+ guiones ya
+  // es la señal de que ahí se firma, y hay leyendas reales que no la dicen ("Nombre Persona Natural
+  // o Representante legal…", ver RE_LEYENDA_FIRMA). Solo se decide DE QUIÉN es.
+  const esRayaFirmaPropia = (contexto: string) =>
+    RE_FIRMA_NUESTRA.test(contexto) && !RE_FIRMA_CONTRAPARTE.test(contexto);
   // Las celdas de firma AJENA (ni nuestra firma ni un dato que tengamos) quedan fuera de los dos
   // grupos: no reciben la imagen, y tampoco vuelven al flujo diccionario→IA, que es donde antes
   // terminaban rellenadas con un cargo inventado. Las llena a mano quien corresponda.
   const candidatosFirmaCelda = candidatosCeldaTodos.filter(c => esFirmaPropia(c.etiqueta));
   const candidatosCelda = candidatosCeldaTodos.filter(c => !esEtiquetaFirma(c.etiqueta));
 
+  // El mismo filtro esFirmaPropia que ya se aplicaba a las CELDAS de firma vale igual para las
+  // RAYAS y leyendas — antes no se aplicaba y era un bug real: en 1057480-41-LP26 los anexos 6 y 9
+  // cierran con "________ / FIRMA Y TIMBRE EVALUADOR", el bloque que llena el HOSPITAL al evaluar
+  // la oferta, y ahí se estampaba nuestra firma escaneada. Firmar por el evaluador de la licitación
+  // es bastante peor que dejar el documento sin firmar.
   const lineasFirma = [
-    ...detectarLineasFirma(parrafos),
-    ...candidatosFirmaCelda.map(c => ({ paraId: c.paraId, indice: c.indice, contexto: c.etiqueta })),
+    ...detectarLineasFirma(parrafos).filter(f => esRayaFirmaPropia(f.contexto)),
+    ...candidatosFirmaCelda.map(c => ({ paraId: c.paraId, indice: c.indice, contexto: c.etiqueta, pideTimbre: /timbre/i.test(c.etiqueta) })),
   ];
   const indicesFirma = new Set(lineasFirma.map(f => f.indice));
   // La raya de una línea de firma también matchea el patrón 2 (blanco inline, "_{4,}") — se

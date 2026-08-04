@@ -6,7 +6,10 @@
 // mirarlo — ninguno se veía en el XML ni en los conteos, solo al ver la hoja terminada.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio } from '../anexos-docx';
+import {
+  normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio,
+  unificarRunsDeMarcadores, rellenarRunPorIndice, verificarParrafos, verificarXmlBienFormado,
+} from '../anexos-docx';
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla } from '../anexos-detectar';
 import { valorExisteEnFicha, type EmpresaCampos } from '../anexos-ia-motor';
 
@@ -283,7 +286,7 @@ test('valorExisteEnFicha descarta valores inventados por la IA (regresión CIUDA
     representante_nombre: 'Santiago López', representante_rut: '15.875.453-3', representante_cargo: 'Ingeniero',
     email1: 'ventas@grupoica.cl', telefono1: '+569 3146 2445',
     banco_tipo_cuenta: 'Cuenta corriente', banco_numero: '921197332', banco_nombre: 'Banco Security',
-    banco_email: 'pagos@grupoica.cl', banco_titular_nombre: null, banco_titular_rut: null, firma_url: null,
+    banco_email: 'pagos@grupoica.cl', banco_titular_nombre: null, banco_titular_rut: null, firma_url: null, timbre_url: null,
   };
   // Inventado / de otro dominio por completo: no existe en ningún campo de la ficha.
   assert.equal(valorExisteEnFicha('Concepción', empresa), false);
@@ -379,4 +382,59 @@ test('fila de ítem con celda combinada (gridSpan) no es el encabezado (regresi�
   for (const esperada of ['Cumple (Sí/No)', 'Catálogo', 'Observaciones']) {
     assert.ok(etiquetas.some(e => e.includes(esperada)), `falta candidato para "${esperada}": ${JSON.stringify(etiquetas)}`);
   }
+});
+
+// ── Patrón 2b: marcadores de relleno (1057480-41-LP26, Hospital San José de Melipilla) ────────
+// Sus 11 anexos casi no usan "____": usan "<<NOMBRE …>>", "[Insertar RUT]" y líneas de puntos. Sin
+// esto, 5 de los 11 entraban al motor con CERO casillas y salían idénticos al original.
+test('marcadores <<…>> / […] / línea de puntos se detectan como blancos', () => {
+  const xml = NS
+    // El marcador PARTIDO entre runs, tal cual lo dejó Word en el anexo 3 real: sin
+    // unificarRunsDeMarcadores ningún patrón lo ve (vive a caballo entre dos <w:t>).
+    + '<w:p><w:r><w:t xml:space="preserve">Por la presente, el Oferente, </w:t></w:r>'
+    + '<w:r><w:t xml:space="preserve">&lt;&lt;NOMBRE PERSONA NATURAL O PERSONA JURIDICA</w:t></w:r>'
+    + '<w:r><w:t xml:space="preserve">&gt;&gt;, declara bajo juramento:</w:t></w:r></w:p>'
+    + p('NOMBRE DEL OFERENTE: [Insertar Nombre o Razón Social]')
+    + p('Yo, ...........................RUT N°..........................., declaro:')
+    + p('Nota al pie [1] y una referencia [2-4] no son casillas.')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(unificarRunsDeMarcadores(norm));
+  const marcadores = a.blancosInline.filter(b => b.textoMarcador).map(b => b.textoMarcador);
+  assert.deepEqual(marcadores, ['NOMBRE PERSONA NATURAL O PERSONA JURIDICA', 'Insertar Nombre o Razón Social'],
+    `marcadores detectados: ${JSON.stringify(marcadores)}`);
+  assert.equal(a.blancosInline.filter(b => !b.textoMarcador).length, 2, 'las dos líneas de puntos del "Yo, …"');
+});
+
+// Escritura: el marcador se reemplaza ENTERO (no queda medio ">>" suelto), el texto no se
+// doble-escapa y el conteo de párrafos no se mueve.
+test('rellenar un marcador lo reemplaza entero y deja el XML sano', () => {
+  const xml = NS
+    + '<w:p><w:r><w:t xml:space="preserve">El Oferente, </w:t></w:r>'
+    + '<w:r><w:t xml:space="preserve">&lt;&lt;NOMBRE PERSONA JURIDICA</w:t></w:r>'
+    + '<w:r><w:t xml:space="preserve">&gt;&gt;, con giro &amp; comercio, declara.</w:t></w:r></w:p>'
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  let final = unificarRunsDeMarcadores(norm);
+  const b = analizarAnexo(final).blancosInline[0];
+  final = rellenarRunPorIndice(final, b.indiceRun, [{ pos: b.posEnTexto, largo: b.largo, valor: 'Inversiones Claro ARZ SPA' }]);
+  assert.equal(listarParrafos(final)[0].texto, 'El Oferente, Inversiones Claro ARZ SPA, con giro & comercio, declara.');
+  assert.equal(verificarParrafos(norm, final).parrafosIguales, true);
+  assert.equal(verificarXmlBienFormado(final).valido, true);
+});
+
+// Firma sin raya de guiones: el espacio para firmar son párrafos vacíos y abajo la leyenda. Y la
+// leyenda del EVALUADOR (que llena el organismo al evaluar) nunca recibe nuestra firma.
+test('firma: leyenda sin raya sí se firma, la del evaluador no', () => {
+  const conLeyenda = (leyenda: string) => p('texto previo') + p('') + p('') + p(leyenda) + p('(OFERENTE)');
+  const nuestra = analizarAnexo(normalizarParaIds(NS + conLeyenda('FIRMA Y TIMBRE REPRESENTANTE LEGAL') + FIN).xml);
+  assert.equal(nuestra.lineasFirma.length, 1, 'la leyenda del oferente se firma aunque no haya raya');
+  assert.equal(nuestra.lineasFirma[0].pideTimbre, true, 'la leyenda dice "Y TIMBRE"');
+
+  const ajena = analizarAnexo(normalizarParaIds(NS + conLeyenda('FIRMA Y TIMBRE EVALUADOR') + FIN).xml);
+  assert.equal(ajena.lineasFirma.length, 0, 'la firma del evaluador es del organismo, no nuestra');
+
+  // Misma regla para el patrón viejo (raya + leyenda debajo), que antes NO filtraba por dueño.
+  const conRaya = analizarAnexo(normalizarParaIds(NS + p('_'.repeat(40)) + p('FIRMA Y TIMBRE EVALUADOR') + FIN).xml);
+  assert.equal(conRaya.lineasFirma.length, 0, 'una raya bajo la leyenda del evaluador tampoco se firma');
 });

@@ -23,8 +23,9 @@
 // precios del Motor Comercial (anexos-precios-ia.ts) y totales por sección
 // (anexos-totales-seccion.ts) — eso nunca fue "el diccionario", sigue igual.
 import {
-  normalizarParaIds, rellenarCeldaVacia, rellenarRunPorIndice, insertarImagenEnParrafo,
-  rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx, type Parrafo,
+  normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
+  insertarImagenEnParrafo, rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
+  type Parrafo,
 } from '@/app/lib/anexos-docx';
 import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda, type CandidatoInline, type TablaCruda } from '@/app/lib/anexos-detectar';
 import {
@@ -245,8 +246,8 @@ function aplicarTotalesPorSeccion(
   return { matcheadosExtra, pendientesFiltrados, anexarDirecto, titulos };
 }
 
-// Descarga la firma escaneada desde su URL pública (R2) y detecta su extensión real por
-// Content-Type. null si falla o no hay firma cargada.
+// Descarga una imagen de identidad de la empresa (firma escaneada o timbre) desde su URL pública
+// (R2) y detecta su extensión real por Content-Type. null si falla o no hay nada cargado.
 async function descargarFirma(firmaUrl: string): Promise<{ buffer: Buffer; extension: string } | null> {
   try {
     const res = await fetch(firmaUrl);
@@ -262,7 +263,14 @@ async function descargarFirma(firmaUrl: string): Promise<{ buffer: Buffer; exten
   }
 }
 
-export interface FirmaInfo { detectada: boolean; disponible: boolean }
+export interface FirmaInfo {
+  detectada: boolean; disponible: boolean;
+  // Igual que los dos de arriba pero para el TIMBRE: `timbreDetectado` = alguna leyenda del
+  // documento dice "FIRMA Y TIMBRE"; `timbreDisponible` = la ficha de la empresa tiene un timbre
+  // cargado. La combinación detectado && !disponible es la que el modal avisa — era exactamente la
+  // duda del usuario ("no sé si el timbre lo tengo cargado a la empresa").
+  timbreDetectado: boolean; timbreDisponible: boolean;
+}
 
 // Arma la vista de UNA tabla (todas sus filas/columnas, no solo las vacías) — la usan tanto
 // `tablas` (lista plana filtrada, para las herramientas de medición) como `tablasPorIndice` (sin
@@ -310,7 +318,13 @@ export async function analizarAnexoParaUI(
   bufferOriginal: Buffer, empresa: EmpresaCampos, itemsCosteo?: ItemCosteoPrecio[], basesTexto?: string,
 ): Promise<AnalisisAnexo> {
   const { zip, xml: xmlCrudo } = await abrirDocx(bufferOriginal);
-  const { xml: xmlNormalizado } = normalizarParaIds(xmlCrudo);
+  // unificarRunsDeMarcadores va SIEMPRE junto a normalizarParaIds y en las DOS rutas (analizar y
+  // generar): junta en un solo <w:t> los marcadores "<<NOMBRE …>>" que Word dejó partidos entre
+  // runs, sin cambiar el conteo de párrafos ni de runs — ver su comentario en anexos-docx.ts. Si
+  // una de las dos rutas se lo saltara, los ids de los pendientes (que son índices de aparición) no
+  // calzarían entre el análisis y la generación.
+  const { xml: xmlConIds } = normalizarParaIds(xmlCrudo);
+  const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
   const analisis = analizarAnexo(xmlNormalizado);
   const formularios = detectarFormularios(xmlNormalizado);
   const numeracion = await leerNumeracion(zip);
@@ -382,9 +396,17 @@ export async function analizarAnexoParaUI(
     categoria, motivo,
   }));
 
-  const firma: FirmaInfo = { detectada: analisis.lineasFirma.length > 0, disponible: !!empresa.firma_url };
+  const firma: FirmaInfo = {
+    detectada: analisis.lineasFirma.length > 0,
+    disponible: !!empresa.firma_url,
+    timbreDetectado: analisis.lineasFirma.some(l => l.pideTimbre),
+    timbreDisponible: !!empresa.timbre_url,
+  };
   if (firma.detectada && firma.disponible) {
     completadosAuto.push({ etiqueta: 'Firma', campo: 'firma_url', valor: '(imagen de la firma guardada)', via: 'ia' });
+  }
+  if (firma.timbreDetectado && firma.timbreDisponible) {
+    completadosAuto.push({ etiqueta: 'Timbre', campo: 'timbre_url', valor: '(imagen del timbre guardado)', via: 'ia' });
   }
 
   // Mismo criterio que pendientesCelda unas líneas arriba: lo que ya se muestra DENTRO de una
@@ -447,7 +469,13 @@ export async function generarAnexoFinal(
   basesTexto?: string,
 ): Promise<ResultadoGeneracion> {
   const { zip, xml: xmlCrudo } = await abrirDocx(bufferOriginal);
-  const { xml: xmlNormalizado } = normalizarParaIds(xmlCrudo);
+  // unificarRunsDeMarcadores va SIEMPRE junto a normalizarParaIds y en las DOS rutas (analizar y
+  // generar): junta en un solo <w:t> los marcadores "<<NOMBRE …>>" que Word dejó partidos entre
+  // runs, sin cambiar el conteo de párrafos ni de runs — ver su comentario en anexos-docx.ts. Si
+  // una de las dos rutas se lo saltara, los ids de los pendientes (que son índices de aparición) no
+  // calzarían entre el análisis y la generación.
+  const { xml: xmlConIds } = normalizarParaIds(xmlCrudo);
+  const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
   const analisis = analizarAnexo(xmlNormalizado);
   const formularios = detectarFormularios(xmlNormalizado);
 
@@ -511,12 +539,23 @@ export async function generarAnexoFinal(
     completados++;
   }
 
-  // 3) Línea de firma: inserta la IMAGEN real si la empresa tiene una firma escaneada cargada.
-  if (analisis.lineasFirma.length > 0 && empresa.firma_url) {
-    const firma = await descargarFirma(empresa.firma_url);
-    if (firma) {
-      for (const linea of analisis.lineasFirma) {
-        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension);
+  // 3) Línea de firma: inserta la IMAGEN real si la empresa tiene una firma escaneada cargada, y
+  //    el TIMBRE al lado cuando la leyenda lo pide ("FIRMA Y TIMBRE REPRESENTANTE LEGAL", que es
+  //    como viene redactado en la mayoría de los anexos de servicios de salud) y la ficha lo tiene.
+  //    El timbre va con `conservar: true` para que se sume a la firma en vez de reemplazarla.
+  if (analisis.lineasFirma.length > 0) {
+    const firma = empresa.firma_url ? await descargarFirma(empresa.firma_url) : null;
+    const pidenTimbre = analisis.lineasFirma.some(l => l.pideTimbre);
+    const timbre = pidenTimbre && empresa.timbre_url ? await descargarFirma(empresa.timbre_url) : null;
+    for (const linea of analisis.lineasFirma) {
+      if (firma) {
+        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma' });
+      }
+      if (timbre && linea.pideTimbre) {
+        xml = await insertarImagenEnParrafo(
+          zip, xml, linea.paraId, timbre.buffer, timbre.extension,
+          { etiqueta: 'timbre', anchoCm: 2.8, conservar: true },
+        );
       }
     }
   }

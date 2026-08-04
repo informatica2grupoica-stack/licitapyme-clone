@@ -11,7 +11,7 @@ const empresaVacia: EmpresaCampos = {
   fecha_sociedad: null, fecha_escritura: null, notaria: null, numero_repertorio: null, fojas_numero_anio: null,
   representante_nombre: null, representante_rut: null, representante_cargo: null,
   email1: null, telefono1: null, banco_tipo_cuenta: null, banco_numero: null, banco_nombre: null,
-  banco_email: null, banco_titular_nombre: null, banco_titular_rut: null, firma_url: null,
+  banco_email: null, banco_titular_nombre: null, banco_titular_rut: null, firma_url: null, timbre_url: null,
 };
 
 test('valorExisteEnFicha: un valor vacío o solo puntuación nunca "existe"', () => {

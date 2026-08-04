@@ -45,9 +45,17 @@ export interface EmpresaCampos {
   banco_titular_nombre: string | null;
   banco_titular_rut: string | null;
   firma_url: string | null;
+  timbre_url: string | null;
   // Campos DERIVADOS (no son columnas de `empresas`) — los resuelve conCamposDerivados() en
   // anexos-derivados.ts justo antes de que este motor vea el registro.
   fecha_hoy?: string | null;
+  // La fecha de hoy PARTIDA en tres. No es un capricho: el pie de firma más común de los anexos
+  // chilenos es "Fecha: _______ /_______ /_______" — tres casillas separadas, una por parte. Con
+  // solo `fecha_hoy` ("4 de agosto de 2026") el motor no tiene ningún campo que calce con "el día"
+  // y las tres quedaban pendientes en todos los anexos.
+  fecha_hoy_dia?: string | null;
+  fecha_hoy_mes?: string | null;
+  fecha_hoy_anio?: string | null;
   // Datos de ESTA LICITACIÓN (tampoco son columnas de `empresas` — se resuelven en
   // anexos-datos.ts llamando a Mercado Público por el código de la licitación que se está
   // rellenando, ver obtenerLicitacionParaAnexo). Van en el MISMO objeto que la ficha de empresa
@@ -89,7 +97,8 @@ const CATEGORIAS_PERFIL: CategoriaCampo[] = [
 const CAMPOS_PERMITIDOS_POR_CATEGORIA: Record<string, (keyof EmpresaCampos)[]> = {
   perfil_empresa: [
     'razon_social', 'rut', 'direccion', 'region', 'giro', 'tipo_persona_juridica',
-    'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio', 'fecha_hoy',
+    'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
+    'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio',
   ],
   perfil_representante_legal: ['representante_nombre', 'representante_rut', 'representante_cargo'],
   perfil_contacto: ['email1', 'telefono1'],
@@ -172,7 +181,10 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   banco_email: 'Correo electrónico para pagos',
   banco_titular_nombre: 'Nombre del titular de la cuenta bancaria (puede ser distinto de la razón social)',
   banco_titular_rut: 'RUT/cédula de identidad del titular de la cuenta bancaria',
-  fecha_hoy: 'Fecha de hoy — con la que se firma y presenta esta oferta',
+  fecha_hoy: 'Fecha de hoy en formato largo ("4 de agosto de 2026") — con la que se firma y presenta esta oferta',
+  fecha_hoy_dia: 'Solo el DÍA de hoy (número) — para pies de firma partidos: "Fecha: __ /__ /__"',
+  fecha_hoy_mes: 'Solo el MES de hoy (número) — la casilla del medio de "Fecha: __ /__ /__"',
+  fecha_hoy_anio: 'Solo el AÑO de hoy (4 dígitos) — la última casilla de "Fecha: __ /__ /__"',
   licitacion_codigo: 'Código/ID de ESTA licitación en Mercado Público',
   licitacion_nombre: 'Nombre/título de ESTA licitación',
   licitacion_organismo: 'Nombre del organismo comprador (la institución que licita, no el oferente)',
@@ -235,6 +247,13 @@ DOS EJEMPLOS CONCRETOS DE DECLARACIÓN JURADA CORRIDA (el caso que MÁS se falla
    CASILLA-5 (tras "RUT N°", la segunda vez que aparece "RUT" en la oración) → categoria=perfil_empresa, campo=rut (el RUT de la EMPRESA, distinto del RUT de la persona en CASILLA-2).
    Ninguna de las cinco es firma_fecha. Lee la palabra INMEDIATAMENTE ANTES de cada casilla para no confundir cuál pide qué — no asumas que todas piden lo mismo solo porque están en la misma oración.
 
+MARCADORES DEL ORGANISMO (léelos, son la instrucción literal): muchas casillas no son una raya de guiones sino un marcador con texto adentro, que te llega como 【CASILLA A LLENAR — el documento dice: "…"】. Ese texto dice EXACTAMENTE qué va ahí y manda sobre cualquier inferencia del contexto:
+- "<<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>" tras "el Oferente," → es el OFERENTE, o sea la EMPRESA que postula → perfil_empresa / razon_social (no el representante: al representante lo nombran aparte, con "don" o "representante legal de").
+- "[Insertar Nombre o Razón Social]" → perfil_empresa/razon_social · "[Insertar RUT]" → perfil_empresa/rut · "[Insertar ID de Mercado Público]" → datos_licitacion/licitacion_codigo · "[Nombre Completo del Representante Legal]" → perfil_representante_legal/representante_nombre · "[Número de RUN]" → perfil_representante_legal/representante_rut · "[fecha]" → perfil_empresa/fecha_hoy · "[ciudad/país]" → perfil_empresa/region.
+- Un marcador que es una INSTRUCCIÓN al oferente ("[indicar en esta casilla el número o nombre del documento que respalda…]", "[marcar con una X]") NO es un dato de la ficha: categoria="especifico_licitacion" o "decision_del_usuario" con valor null — lo llena el humano sabiendo qué documentos va a adjuntar. Nunca lo autocompletes ni lo dejes fuera: tiene que quedar visible como pendiente.
+
+PIE DE FIRMA CON FECHA PARTIDA: "Fecha: 【CASILLA-1】 / 【CASILLA-2】 / 【CASILLA-3】" son día, mes y año de la fecha en que se presenta la oferta — categoria=perfil_empresa y campo fecha_hoy_dia, fecha_hoy_mes y fecha_hoy_anio respectivamente (en ese orden). No es firma_fecha: la firma es la raya, la fecha se escribe.
+
 REGLAS DE FORMATO CHILENAS:
 - RUT: cópialo TAL CUAL viene en la ficha (no lo reformatees ni "corrijas").
 - Fechas que el oferente completa (no una firma física): formato largo en español ("21 de agosto de 2026") — usa el campo fecha_hoy si la casilla pide "Fecha" pelada.
@@ -258,13 +277,17 @@ function formatearCandidatoCelda(c: CandidatoCelda, parrafos: Parrafo[], n: numb
 }
 
 function formatearCandidatoInline(b: CandidatoInline, n: number): string {
+  // Si el blanco venía como MARCADOR ("<<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>", "[Insertar
+  // RUT]"), su texto se conserva DENTRO del marcador de casilla en vez de borrarlo: es la
+  // instrucción literal del organismo sobre qué va ahí, la mejor pista posible. Sin esto, el
+  // marcador se reemplazaba por 【CASILLA A LLENAR】 a secas y el modelo perdía justo el dato que
+  // desambigua (ej. "[Número de RUN]" vs "[Insertar RUT]" en la misma oración del anexo 11).
+  const marca = b.textoMarcador ? `【CASILLA A LLENAR — el documento dice: "${b.textoMarcador.slice(0, 120)}"】` : '【CASILLA A LLENAR】';
   if (b.parrafoCompleto != null && b.posEnParrafo != null) {
-    const marcado = b.parrafoCompleto.slice(0, b.posEnParrafo)
-      + '【CASILLA A LLENAR】'
-      + b.parrafoCompleto.slice(b.posEnParrafo + b.largo);
-    return `${n}. blanco dentro de una oración — oración completa: "${marcado.slice(0, 300)}"`;
+    const marcado = b.parrafoCompleto.slice(0, b.posEnParrafo) + marca + b.parrafoCompleto.slice(b.posEnParrafo + b.largo);
+    return `${n}. blanco dentro de una oración — oración completa: "${marcado.slice(0, 360)}"`;
   }
-  return `${n}. blanco dentro de una oración — contexto: "${(b.contexto || '(sin contexto)').slice(0, 160)}"`;
+  return `${n}. blanco dentro de una oración — contexto: "${(b.contexto || '(sin contexto)').slice(0, 160)}"${b.textoMarcador ? ` — el documento dice: "${b.textoMarcador.slice(0, 120)}"` : ''}`;
 }
 
 interface ItemLote {
@@ -473,7 +496,9 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
   const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos } = entrada;
 
   const camposConDato = (Object.keys(empresa) as (keyof EmpresaCampos)[])
-    .filter(c => c !== 'firma_url' && empresa[c] != null && String(empresa[c]).trim());
+    // firma_url/timbre_url son URLs de imágenes, no texto que se escriba en una casilla — si se le
+    // muestran al modelo termina proponiéndolas como "valor" de algún campo.
+    .filter(c => c !== 'firma_url' && c !== 'timbre_url' && empresa[c] != null && String(empresa[c]).trim());
 
   const celda = new Map<number, Resolucion>();
   const inline = new Map<string, Resolucion>();

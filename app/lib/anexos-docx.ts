@@ -32,6 +32,32 @@ function xmlEscape(s: string): string {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// El inverso de xmlEscape: lo que hay DENTRO de un <w:t> viene escapado, así que el texto crudo
+// del regex no es el texto que ve el usuario en Word.
+//
+// BUG REAL (1057480-41-LP26, anexos 2/3/4): el marcador que el organismo dejó para que el oferente
+// escriba su nombre es literalmente "<<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>" — en el XML,
+// "&lt;&lt;NOMBRE …&gt;&gt;". Sin decodificar, ningún patrón que busque "<<" lo encuentra nunca.
+// Y hay un segundo daño, más silencioso: las POSICIONES. detectarBlancosInline calcula el offset
+// del blanco sobre el texto crudo (donde "&amp;" ocupa 5 caracteres) y rellenarRunPorIndice
+// escribía sobre ese mismo texto crudo para después RE-escaparlo entero — o sea que cualquier
+// párrafo con una entidad terminaba con "&amp;lt;" (doble escape) visible en el Word entregado.
+// Decodificar al leer y escapar UNA sola vez al escribir cierra los dos problemas de una.
+export function decodificarXml(s: string): string {
+  return String(s)
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&#x([0-9A-Fa-f]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&amp;/g, '&');   // SIEMPRE al final: "&amp;lt;" es el texto literal "&lt;", no "<"
+}
+
+// Texto plano de una lista de <w:t> ya extraídos del XML — el mismo criterio en todos los lugares
+// que leen texto (párrafos, celdas, runs) para que ninguno vea entidades sin decodificar.
+export function textoDeRuns(cuerpo: string): string {
+  return decodificarXml([...cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join(''));
+}
+
 // ── Namespaces: declararlos EN LA RAÍZ, que es el único alcance que cubre todo el documento ──
 // BUG REAL encontrado y corregido acá: antes se preguntaba `/xmlns:a=/.test(xml)` sobre TODO el
 // XML. Los documentos con dibujos propios declaran el prefijo LOCALMENTE en el elemento que lo usa
@@ -114,7 +140,7 @@ export function listarParrafos(xml: string): Parrafo[] {
   const matches = [...xml.matchAll(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"[^>]*>([\s\S]*?)<\/w:p>/g)];
   return matches.map(([, paraId, cuerpo], indice) => ({
     paraId,
-    texto: [...cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join('').trim(),
+    texto: textoDeRuns(cuerpo).trim(),
     vacio: parrafoEstaVacio(cuerpo),
     indice,
     centrado: /<w:jc\s+w:val="center"/.test(cuerpo),
@@ -193,22 +219,138 @@ export function rellenarFinDeParrafo(xml: string, paraId: string, valor: string)
 
 // ── Patrones 2 y 3: blancos DENTRO de un mismo <w:t> (subrayado inline / opción a marcar) ─
 export interface BlancoInline {
-  posEnTexto: number;   // posición del inicio de la corrida de guiones, dentro del <w:t>
-  largo: number;        // cuántos guiones bajos tiene la corrida
+  posEnTexto: number;   // posición del inicio del blanco, dentro del <w:t> YA DECODIFICADO
+  largo: number;        // cuántos caracteres ocupa el blanco (guiones, puntos, o el marcador entero)
   contexto: string;     // texto inmediatamente anterior (para mostrarle al humano de qué campo se trata)
+  // Solo para los blancos con MARCADOR (patrón 2b, ver abajo): lo que el organismo escribió
+  // adentro, sin los delimitadores — "Insertar Nombre o Razón Social", "fecha", "indicar en esta
+  // casilla el número del documento…". Es la instrucción literal de qué va ahí, así que vale más
+  // que cualquier contexto inferido: se le pasa tal cual al motor de IA y se le muestra al humano.
+  textoMarcador?: string;
 }
 
-// Encuentra, en un <w:t> puntual, cada corrida de 4+ guiones bajos con su contexto previo.
+// ── Patrón 2b: MARCADORES de relleno (no todo blanco es una raya de guiones) ──────────────
+// Caso real 1057480-41-LP26 (Hospital San José de Melipilla): sus 11 anexos no usan "____" casi en
+// ninguna parte. Usan cuatro formas distintas de decir "acá escribe tú", y NINGUNA la veía el
+// patrón 2, que solo conocía "_{4,}" — así que los anexos 2, 3, 4, 10 y 11 completos entraban al
+// motor con CERO casillas detectadas y salían idénticos al original:
+//   · "<<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>"   (anexos 2, 3 y 4)
+//   · "[Insertar RUT]", "[Nombre Completo del Representante Legal]", "[fecha]"   (anexos 4 y 11)
+//   · "[indicar “en esta casilla” número o nombre del documento…]"   (anexo 6 — instrucción, la
+//     llena el humano; lo importante es que APAREZCA como pendiente, no que se autocomplete)
+//   · "Yo, ..............RUT N°.............."   (anexo 10, línea de puntos en vez de guiones)
+//
+// Condiciones para no barrer texto legal normal: el marcador debe traer al menos una LETRA adentro
+// (descarta notas al pie "[1]", referencias "[2-4]") y no puede anidar otro delimitador del mismo
+// tipo. Un falso positivo acá no escribe nada malo en el documento: la casilla queda como pendiente
+// para que la vea un humano, que es exactamente el peor caso aceptable.
+const RE_MARCADORES = [
+  /<<([^<>]{2,200}?)>>/g,        // <<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>
+  /«([^«»]{2,200}?)»/g,          // variante tipográfica de lo mismo
+  /\{\{([^{}]{2,200}?)\}\}/g,    // {{razon_social}} — plantillas
+  /\[([^[\]]{2,200}?)\]/g,       // [Insertar RUT] / [fecha] / [indicar “en esta casilla”…]
+];
+const RE_LETRA = /[A-Za-zÀ-ÿ]/;
+
+// Blancos "de raya": guiones bajos (lo de siempre) y líneas de PUNTOS. El umbral de los puntos es
+// más alto (6) que el de los guiones (4) a propósito: tres puntos son puntos suspensivos y cuatro
+// pueden ser un "etc...." mal escrito, mientras que nadie escribe seis puntos seguidos salvo para
+// dejar una línea para llenar.
+const RE_RAYAS = /_{4,}|\.{6,}/g;
+
+// Encuentra, en un <w:t> YA DECODIFICADO (ver decodificarXml), cada blanco con su contexto previo.
 export function listarBlancosInline(textoRun: string): BlancoInline[] {
+  const crudos: { pos: number; largo: number; textoMarcador?: string }[] = [];
+  for (const m of textoRun.matchAll(RE_RAYAS)) crudos.push({ pos: m.index!, largo: m[0].length });
+  for (const re of RE_MARCADORES) {
+    for (const m of textoRun.matchAll(re)) {
+      const dentro = m[1].trim();
+      if (!RE_LETRA.test(dentro)) continue;
+      crudos.push({ pos: m.index!, largo: m[0].length, textoMarcador: dentro });
+    }
+  }
+  // Un marcador puede contener una raya adentro ("[fecha: ____]") y dos marcadores nunca se
+  // solapan entre sí — se ordena por posición y se descarta cualquier blanco que caiga DENTRO de
+  // otro ya aceptado, para no ofrecer la misma casilla dos veces ni pisar una edición con otra.
+  crudos.sort((a, b) => a.pos - b.pos || b.largo - a.largo);
   const out: BlancoInline[] = [];
+  let finAceptado = -1;
   let ultimo = 0;
-  for (const m of textoRun.matchAll(/_{4,}/g)) {
-    const previo = textoRun.slice(ultimo, m.index);
+  for (const c of crudos) {
+    if (c.pos < finAceptado) continue;
+    const previo = textoRun.slice(ultimo, c.pos);
     const contexto = (previo.split(/[,.;]|\(\*+\)/).pop() || previo).trim().slice(-40);
-    out.push({ posEnTexto: m.index!, largo: m[0].length, contexto });
-    ultimo = m.index! + m[0].length;
+    out.push({ posEnTexto: c.pos, largo: c.largo, contexto, ...(c.textoMarcador ? { textoMarcador: c.textoMarcador } : {}) });
+    finAceptado = c.pos + c.largo;
+    ultimo = finAceptado;
   }
   return out;
+}
+
+// ── Pre-paso obligatorio del patrón 2b: juntar en UN solo <w:t> los marcadores partidos ──
+// Word parte un párrafo en varios <w:r> por cualquier motivo cosmético (revisión ortográfica,
+// un cambio de idioma, un rsid distinto). En el documento real 1057480-41-LP26 eso deja el MISMO
+// marcador repartido entre runs:
+//     anexo 3 → run1="<<NOMBRE PERSONA NATURAL O PERSONA JURIDICA"  run2=">>, declara…"
+//     anexo 4 → run4=" <<"  run5="NOMBRE PERSONA NATURAL O PERSONA JURIDICA"  run6=">>, integrante…"
+// El resto del módulo (detectarBlancosInline → rellenarRunPorIndice) trabaja SIEMPRE dentro de un
+// run: es lo que garantiza que se edita texto existente y nunca se agrega ni se quita un <w:p>. Un
+// marcador partido, por lo tanto, es invisible para la detección y no habría forma de reemplazarlo
+// con una sola edición.
+//
+// Esto lo resuelve ANTES de detectar, moviendo caracteres entre <w:t> hermanos: el marcador entero
+// queda en el PRIMER run que lo tocaba y se borra de los siguientes. NO se agregan ni se quitan
+// runs (el conteo de <w:t> queda idéntico, así que los índices globales siguen valiendo) y el texto
+// total del párrafo tampoco cambia — solo cambia en qué run vive cada carácter. El formato que
+// pierde la cola del marcador da igual: ese texto se reemplaza entero por el dato real.
+export function unificarRunsDeMarcadores(xml: string): string {
+  return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, parrafo => {
+    const runs = [...parrafo.matchAll(/<w:t([^>]*)>([^<]*)<\/w:t>/g)];
+    if (runs.length < 2) return parrafo;
+
+    const textos = runs.map(r => decodificarXml(r[2]));
+    const completo = textos.join('');
+    const inicios: number[] = [];
+    let acc = 0;
+    for (const t of textos) { inicios.push(acc); acc += t.length; }
+    const runDe = (pos: number) => {
+      let k = 0;
+      for (let i = 0; i < inicios.length; i++) if (pos >= inicios[i]) k = i;
+      return k;
+    };
+
+    // Tramos de marcador que cruzan runs. Se juntan TODOS primero y recién después se reparte el
+    // texto: reescribir run por run sobre la marcha dejaría los offsets del siguiente marcador
+    // corridos respecto del texto original.
+    const tramos: { desde: number; hasta: number; run: number }[] = [];
+    for (const re of RE_MARCADORES) {
+      for (const m of completo.matchAll(re)) {
+        if (!RE_LETRA.test(m[1])) continue;
+        const primerRun = runDe(m.index!);
+        if (primerRun === runDe(m.index! + m[0].length - 1)) continue; // ya vive entero en un run
+        tramos.push({ desde: m.index!, hasta: m.index! + m[0].length, run: primerRun });
+      }
+    }
+    if (!tramos.length) return parrafo;
+
+    // Cada carácter va al run que le toca por posición, salvo los que caen dentro de un tramo:
+    // esos se acumulan todos en el primer run del tramo. El texto total no cambia nunca.
+    const nuevos: string[] = textos.map(() => '');
+    for (let pos = 0; pos < completo.length; pos++) {
+      const tramo = tramos.find(t => pos >= t.desde && pos < t.hasta);
+      nuevos[tramo ? tramo.run : runDe(pos)] += completo[pos];
+    }
+
+    // Se reescribe de atrás hacia adelante para que los offsets de los runs anteriores no se corran.
+    let salida = parrafo;
+    for (let k = runs.length - 1; k >= 0; k--) {
+      if (nuevos[k] === textos[k]) continue;
+      const r = runs[k];
+      const attrs = /xml:space=/.test(r[1]) ? r[1] : `${r[1]} xml:space="preserve"`;
+      salida = salida.slice(0, r.index) + `<w:t${attrs}>${xmlEscape(nuevos[k])}</w:t>` + salida.slice(r.index! + r[0].length);
+    }
+    return salida;
+  });
 }
 
 // Reemplaza, DENTRO de un <w:t> concreto (identificado por su texto original exacto, que
@@ -251,12 +393,24 @@ export function rellenarRunPorIndice(
   const matches = [...xml.matchAll(/<w:t([^>]*)>([^<]*)<\/w:t>/g)];
   const m = matches[indiceRun];
   if (!m) throw new Error(`No se encontró el run de índice ${indiceRun}`);
-  const [entero, attrs, textoOriginal] = m;
+  const [entero, attrs, textoCrudo] = m;
+  // Se edita sobre el texto DECODIFICADO — las posiciones de las ediciones vienen de
+  // detectarBlancosInline, que también lee decodificado. Sin esto, un párrafo con entidades tenía
+  // los offsets corridos y el resultado quedaba doble-escapado (ver decodificarXml).
+  const textoOriginal = decodificarXml(textoCrudo);
 
   let textoNuevo = textoOriginal;
   for (const { pos, largo, valor } of [...ediciones].sort((a, b) => b.pos - a.pos)) {
     const charPrevio = textoNuevo[pos - 1] || '';
-    const valorFinal = /[A-Za-zÀ-ÿ0-9]/.test(charPrevio) ? ' ' + valor : valor;
+    const charSiguiente = textoNuevo[pos + largo] || '';
+    // Separación por los DOS lados. La de la izquierda ya estaba; la de la derecha se agregó al ver
+    // el resultado real del anexo 10 de 1057480-41-LP26, cuyos blancos son líneas de puntos pegadas
+    // a la palabra que sigue ("Yo, ............RUT N°............"): sin ella el documento salía con
+    // "Inversiones Claro ARZ SPARUT N°76.902.659-2" todo junto.
+    // "°"/"º" cuentan como letra para esto: "RUT N°76.902.659-2" es el mismo defecto visual.
+    const valorFinal = (/[A-Za-zÀ-ÿ0-9°º]/.test(charPrevio) ? ' ' : '')
+      + valor
+      + (/[A-Za-zÀ-ÿ0-9]/.test(charSiguiente) ? ' ' : '');
     textoNuevo = textoNuevo.slice(0, pos) + valorFinal + textoNuevo.slice(pos + largo);
   }
 
@@ -380,14 +534,19 @@ export async function insertarImagenEnParrafo(
   paraId: string,
   imagen: Buffer,
   extension: string,
-  anchoCm = 3.5,
+  // `etiqueta` distingue firma de timbre: da el nombre del archivo dentro del .docx (dos imágenes
+  // en el MISMO párrafo colisionaban en un único media/imagen_firma_<paraId>.png, y la segunda
+  // pisaba a la primera). `conservar` deja intacto lo que ya hay en el párrafo en vez de limpiarlo
+  // — es lo que permite estampar el TIMBRE al lado de la firma sin borrarla: la leyenda real de
+  // estos anexos es "FIRMA Y TIMBRE REPRESENTANTE LEGAL", las dos imágenes van juntas.
+  { anchoCm = 3.5, etiqueta = 'firma', conservar = false }: { anchoCm?: number; etiqueta?: string; conservar?: boolean } = {},
 ): Promise<string> {
   const dim = leerDimensionesImagen(imagen);
   const relacionAltoAncho = dim && dim.anchoPx > 0 ? dim.altoPx / dim.anchoPx : 0.4;
   const anchoEmu = Math.round(anchoCm * EMU_POR_CM);
   const altoEmu = Math.round(anchoEmu * relacionAltoAncho);
 
-  const nombreImagen = `imagen_firma_${paraId}.${extension}`;
+  const nombreImagen = `imagen_${etiqueta}_${paraId}.${extension}`;
   zip.file(`word/media/${nombreImagen}`, imagen);
 
   const relsPath = 'word/_rels/document.xml.rels';
@@ -438,10 +597,10 @@ export async function insertarImagenEnParrafo(
   const drawing = `<w:r><w:drawing><wp:inline${declsDibujo} distT="0" distB="0" distL="0" distR="0">`
     + `<wp:extent cx="${anchoEmu}" cy="${altoEmu}"/>`
     + `<wp:effectExtent l="0" t="0" r="0" b="0"/>`
-    + `<wp:docPr id="${idDocPr}" name="Firma"/>`
+    + `<wp:docPr id="${idDocPr}" name="${etiqueta}_${idDocPr}"/>`
     + `<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`
     + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">`
-    + `<pic:pic><pic:nvPicPr><pic:cNvPr id="${idDocPr}" name="Firma"/><pic:cNvPicPr/></pic:nvPicPr>`
+    + `<pic:pic><pic:nvPicPr><pic:cNvPr id="${idDocPr}" name="${etiqueta}_${idDocPr}"/><pic:cNvPicPr/></pic:nvPicPr>`
     + `<pic:blipFill><a:blip r:embed="${nuevoId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`
     + `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${anchoEmu}" cy="${altoEmu}"/></a:xfrm>`
     + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>`
@@ -468,7 +627,9 @@ export async function insertarImagenEnParrafo(
   });
 
   let nuevoCuerpo: string;
-  if (runRaya) {
+  if (conservar) {
+    nuevoCuerpo = cuerpo + drawing;   // timbre al lado de la firma ya estampada — no se borra nada
+  } else if (runRaya) {
     const textoRunCompleto = [...runRaya[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('');
     const restoTexto = textoRunCompleto.replace(/^_+\s*/, '');
     if (restoTexto.trim()) {

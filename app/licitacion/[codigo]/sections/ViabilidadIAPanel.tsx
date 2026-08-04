@@ -838,6 +838,11 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
                   <div className="flex items-start gap-1.5">
                     <span className="flex-shrink-0" title={cr.txt}>{cr.ic}</span>
                     <p className="text-slate-800 font-semibold flex-1">{d.que_crear}</p>
+                    {/* Anexo que el organismo publicó pero que el análisis de las bases no había
+                        listado — lo agrega el cruce determinista (ver completarOrdenAnexosConLosPublicados
+                        en viabilidad-ia.ts). Se marca para que quede claro que su criticidad no
+                        viene leída de las bases y hay que confirmarla. */}
+                    {d._agregado_por_cruce && <span title="El organismo publicó este anexo pero el análisis de las bases no lo había listado — se agregó cruzando contra los archivos de la licitación. Confirma su obligatoriedad en las bases." className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 flex-shrink-0 cursor-help">por cruce</span>}
                     {d.responsable && <span title="Quién (o en qué fase del flujo) se prepara este documento" className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0 cursor-help">{cap(d.responsable)}</span>}
                   </div>
                   {d.por_que && <p className="text-slate-500 mt-0.5 pl-5 leading-snug">POR QUÉ: {d.por_que}</p>}
