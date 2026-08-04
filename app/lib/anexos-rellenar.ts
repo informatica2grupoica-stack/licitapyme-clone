@@ -316,7 +316,7 @@ export async function analizarAnexoParaUI(
   for (const a of inlineAuto) {
     completadosAuto.push({
       etiqueta: a.etiqueta, campo: 'perfil', valor: a.valor, via: 'ia',
-      formulario: formularioDe(a.b.indiceParrafo, formularios),
+      formulario: formularioDe(a.b.indiceParrafo, formularios), indice: a.b.indiceParrafo,
     });
   }
   const pendientesInline: PendienteInline[] = inlinePendientes.map(({ b, categoria, motivo }) => ({
@@ -334,8 +334,16 @@ export async function analizarAnexoParaUI(
     completadosAuto.push({ etiqueta: 'Firma', campo: 'firma_url', valor: '(imagen de la firma guardada)', via: 'ia' });
   }
 
+  // Mismo criterio que pendientesCelda unas líneas arriba: lo que ya se muestra DENTRO de una
+  // celda de tabla (ver `tablas`, vista réplica) no se repite además en la lista/grilla de "se
+  // completó solo" — antes de que las tablas de formulario (DATOS DEL PROPONENTE...) se mostraran
+  // como tabla, este filtro no hacía falta porque esos campos NUNCA aparecían en `tablas` (bug
+  // corregido en indiceFilaEncabezado); ahora que sí aparecen, sin este filtro cada campo salía
+  // duplicado: una vez adentro de la tabla, otra vez como tarjeta suelta más abajo.
+  const completadosAutoFinal = completadosAuto.filter(c => c.indice == null || !indicesEnTablas.has(c.indice));
+
   return {
-    completadosAuto,
+    completadosAuto: completadosAutoFinal,
     pendientesCelda,
     pendientesInline,
     tablas,

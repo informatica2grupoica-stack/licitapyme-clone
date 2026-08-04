@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio } from '../anexos-docx';
-import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado } from '../anexos-detectar';
+import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo } from '../anexos-detectar';
 import { valorExisteEnFicha, type EmpresaCampos } from '../anexos-ia-motor';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
@@ -87,12 +87,26 @@ test('tabla de formulario: cada etiqueta se queda con SU celda (regresión 4291-
 // donde la fila 0 SÍ es el encabezado y la 1 ya trae blancos. Las dos formas conviven en el mismo
 // documento (4291-38-LP26) y elegir mal rompe cosas distintas en cada una.
 test('indiceFilaEncabezado: última fila inicial con todas sus celdas con texto', () => {
-  // "INTEGRANTES DE LA UTP" (título) → [N°|Nombre|RUT] (encabezado) → filas con blancos
-  assert.equal(indiceFilaEncabezado([true, true, false, false]), 1);
-  // "Para uso exclusivo Proveedor | Universidad" (encabezado) → filas con blancos
-  assert.equal(indiceFilaEncabezado([true, false, false, false]), 0);
+  // "INTEGRANTES DE LA UTP" (título, 1 celda) → [N°|Nombre|RUT] (encabezado, 3 celdas) → blancos
+  assert.equal(indiceFilaEncabezado([
+    { completa: true, numCeldas: 1 }, { completa: true, numCeldas: 3 },
+    { completa: false, numCeldas: 2 }, { completa: false, numCeldas: 2 },
+  ]), 1);
+  // "Para uso exclusivo Proveedor | Universidad" (encabezado, 2 celdas) → filas con blancos
+  assert.equal(indiceFilaEncabezado([
+    { completa: true, numCeldas: 2 }, { completa: false, numCeldas: 2 },
+    { completa: false, numCeldas: 2 }, { completa: false, numCeldas: 2 },
+  ]), 0);
   // Tabla de formulario: la fila 0 ya trae celdas vacías → no hay encabezado
-  assert.equal(indiceFilaEncabezado([false, false, false]), -1);
+  assert.equal(indiceFilaEncabezado([
+    { completa: false, numCeldas: 2 }, { completa: false, numCeldas: 2 }, { completa: false, numCeldas: 2 },
+  ]), -1);
+  // BUG REAL (1057472-89-LE26): tabla de FORMULARIO que abre con un título de 1 celda
+  // ("DATOS DEL PROPONENTE:") pero SIN encabezado real después — solo filas [etiqueta][valor].
+  // La fila-título de 1 celda no puede contarse como el encabezado (no hay nada que alinear).
+  assert.equal(indiceFilaEncabezado([
+    { completa: true, numCeldas: 1 }, { completa: false, numCeldas: 2 }, { completa: false, numCeldas: 2 },
+  ]), -1);
 });
 
 test('tabla que abre con una fila-título mergeada: el encabezado es la siguiente (regresión cajas sin casillas)', () => {
@@ -107,6 +121,39 @@ test('tabla que abre con una fila-título mergeada: el encabezado es la siguient
   assert.ok(etiquetas.some(e => e.includes('Nombre Integrante')), `debe usar el encabezado real: ${JSON.stringify(etiquetas)}`);
   assert.equal(etiquetas.filter(e => e.includes('INTEGRANTES DE LA UTP')).length, 0,
     `el título mergeado no es un nombre de columna: ${JSON.stringify(etiquetas)}`);
+});
+
+// BUG REAL (1057472-89-LE26, "ANEXO N°1"): tabla de FORMULARIO (2 columnas [etiqueta][valor], sin
+// encabezado de columnas) que abre con un título de 1 celda mergeada ("DATOS DEL PROPONENTE:").
+// Antes, esa fila-título se tomaba por el encabezado de la tabla entera (1 columna) y
+// alinearFilaConEncabezado colapsaba cada fila de datos (2 celdas) en una sola, perdiendo el
+// indiceGlobal de la celda vacía — la tabla entera desaparecía de la vista "réplica visual" del
+// documento (ver TablaReal en AnexoRellenoModal.tsx) y esos campos caían a la lista plana.
+test('tabla de formulario con título mergeado de 1 celda: sigue viéndose como tabla (regresión 1057472-89-LE26)', () => {
+  const xml = NS + tabla(
+    fila('DATOS DEL PROPONENTE:'),
+    fila('Nombre completo o Razón Social', ''),
+    fila('N° Cédula de Identidad o RUT', ''),
+    fila('Teléfono', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+
+  // Patrón 1 (celdas planas) sigue encontrando cada campo con SU propia etiqueta, no una
+  // etiqueta fantasma tipo "Nombre completo o Razón Social — DATOS DEL PROPONENTE:".
+  const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
+  assert.ok(etiquetas.includes('Nombre completo o Razón Social'), `falta el candidato: ${JSON.stringify(etiquetas)}`);
+  assert.ok(etiquetas.includes('Teléfono'), `falta el candidato: ${JSON.stringify(etiquetas)}`);
+  assert.equal(etiquetas.filter(e => e.includes('DATOS DEL PROPONENTE')).length, 0,
+    `el título mergeado no debe fusionarse con la etiqueta de cada fila: ${JSON.stringify(etiquetas)}`);
+
+  // Y la vista de tabla real (extraerTablasCrudo, la que arma la réplica visual) mantiene cada
+  // fila con SUS 2 celdas propias — no las colapsa en 1 sola con el indiceGlobal perdido.
+  const tablas = extraerTablasCrudo(norm);
+  assert.equal(tablas.length, 1);
+  const filaTelefono = tablas[0].filas.find(f => f.celdas[0]?.texto === 'Teléfono');
+  assert.ok(filaTelefono, `no se encontró la fila de Teléfono: ${JSON.stringify(tablas[0].filas)}`);
+  assert.equal(filaTelefono!.celdas.length, 2, `la fila debe conservar sus 2 celdas: ${JSON.stringify(filaTelefono)}`);
+  assert.ok(filaTelefono!.celdas[1].indiceGlobal != null, 'la celda vacía debe conservar su indiceGlobal para poder rellenarse');
 });
 
 // Una tabla que se llena ENTERA (especificaciones técnicas, participantes de una capacitación)
@@ -252,4 +299,38 @@ test('campo "Etiqueta:" con el valor en la misma línea (regresión FORMULARIO N
     'el valor se agrega al final del MISMO párrafo');
   assert.equal((relleno.match(/<w:p\b/g) || []).length, (norm.match(/<w:p\b/g) || []).length,
     'nunca cambia el conteo de párrafos');
+});
+
+// BUG REAL (1057472-89-LE26, ANEXO N°1): "CONTACTO DEL PROPONENTE:" es el título de la fila que
+// abre ese bloque dentro de la tabla de identificación (1 sola celda mergeada, igual que "DATOS
+// DEL PROPONENTE:" y "REPRESENTANTE LEGAL:" que comparten la misma tabla) — terminaba tomado como
+// candidato del patrón 5 ("Etiqueta:" con el valor en la misma línea) y la IA le pegaba el nombre
+// del contacto al final del TÍTULO de la sección, en vez de dejarlo intacto.
+test('el título de una fila de tabla mergeada nunca es candidato del patrón "Etiqueta:" (regresión 1057472-89-LE26)', () => {
+  const xml = NS + tabla(
+    fila('CONTACTO DEL PROPONENTE:'),
+    fila('Nombre completo', ''),
+    fila('Cargo o función', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).camposConDosPuntos.map(c => c.etiqueta);
+  assert.equal(etiquetas.includes('CONTACTO DEL PROPONENTE'), false,
+    `el título de la fila no debe ofrecerse como campo suelto: ${JSON.stringify(etiquetas)}`);
+});
+
+// BUG REAL (1057472-89-LE26, ANEXO N°2): "El proponente que suscribe, declara lo siguiente:" va
+// seguido de un párrafo vacío de espaciado y luego la lista de declaraciones (a, b, c...) con
+// numeración AUTOMÁTICA de Word (<w:numPr> — el "a)" nunca es texto literal en el XML). El patrón 1
+// tomaba el espaciado por un blanco a llenar y la casilla quedaba pendiente con un motivo inventado
+// por la IA, cuando en realidad no hay ningún dato que pedir ahí.
+test('"Etiqueta:" antes de una lista numerada de Word no es un campo (regresión 1057472-89-LE26 ANEXO N°2)', () => {
+  const xml = NS
+    + p('El proponente que suscribe, declara lo siguiente:')
+    + '<w:p/>'
+    + '<w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Haber estudiado las bases.</w:t></w:r></w:p>'
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
+  assert.equal(etiquetas.some(e => e.includes('declara lo siguiente')), false,
+    `el enunciado antes de una lista numerada no debe ofrecerse como campo: ${JSON.stringify(etiquetas)}`);
 });

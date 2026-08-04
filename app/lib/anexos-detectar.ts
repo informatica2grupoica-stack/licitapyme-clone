@@ -292,21 +292,34 @@ function columnasPorAncho(anchosHeader: (number | null)[], anchosFila: (number |
 // patrón 1). Un encabezado real siempre tiene todas sus columnas nombradas; en cuanto aparece una
 // celda en blanco, ya empezaron los datos.
 //
-// Las dos cosas que esto resuelve, ambas casos reales del mismo documento (4291-38-LP26):
+// Las tres cosas que esto resuelve, todas casos reales:
 //  · "INTEGRANTES DE LA UTP", "DATOS DEL REPRESENTANTE O APODERADO", "DATOS DEL EJECUTIVO
-//    COORDINADOR" y la tabla de participantes del acta abren con una fila-TÍTULO de una sola celda
-//    mergeada; el encabezado real es la fila siguiente. Tomando el título por encabezado, la tabla
-//    quedaba de una columna y alinearFilaConEncabezado colapsaba ahí las 3-5 celdas de cada fila de
-//    datos: esas cajas salían en pantalla sin una sola casilla donde escribir.
+//    COORDINADOR" y la tabla de participantes del acta (4291-38-LP26) abren con una fila-TÍTULO de
+//    una sola celda mergeada; el encabezado real es la fila siguiente. Tomando el título por
+//    encabezado, la tabla quedaba de una columna y alinearFilaConEncabezado colapsaba ahí las 3-5
+//    celdas de cada fila de datos: esas cajas salían en pantalla sin una sola casilla donde escribir.
 //  · La tabla de cierre del acta ("Para uso exclusivo Proveedor Adjudicado" | "Para uso exclusivo
 //    Universidad de Antofagasta") es al revés: ESA primera fila SÍ es el encabezado, y la siguiente
 //    ya trae blancos. Quedarse con la de más columnas rompía la distinción entre los dos bloques y
 //    el RUT de la empresa terminaba ofrecido también para el lado de la universidad.
-export function indiceFilaEncabezado(filasConTodasSusCeldasConTexto: boolean[]): number {
+//  · BUG REAL (1057472-89-LE26, "DATOS DEL PROPONENTE"): una tabla de FORMULARIO (2 columnas
+//    [etiqueta][valor], SIN encabezado real) que abre con una fila-TÍTULO de una sola celda
+//    mergeada ("DATOS DEL PROPONENTE:") — sin encabezado real después, solo filas de datos. Antes,
+//    esa fila-título de 1 celda (con texto → "completa") se tomaba directo por encabezado de la
+//    tabla entera: alinearFilaConEncabezado, con un encabezado de 1 columna, colapsaba cada fila de
+//    2 celdas en una sola, perdiendo el indiceGlobal de la celda vacía (queda en la celda de
+//    ETIQUETA, que nunca está vacía) — la fila entera desaparecía de la vista de tabla real, y el
+//    bloque completo (Nombre, RUT, Domicilio, Teléfono...) cayó a la lista plana de "pendientes/se
+//    completa solo" en vez de mostrarse como la tabla que es. Una fila de 1 sola celda NUNCA es un
+//    encabezado de columnas real (no hay nada que alinear contra ella) — se salta sin cortar el
+//    rastreo, exactamente igual que el caso UTP de arriba, para que el encabezado real (si existe)
+//    se seguya buscando en la fila siguiente.
+export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: number }[]): number {
   let ultimo = -1;
-  for (const completa of filasConTodasSusCeldasConTexto) {
-    if (!completa) break;
-    ultimo++;
+  for (let i = 0; i < filas.length; i++) {
+    if (!filas[i].completa) break;
+    if (filas[i].numCeldas < 2) continue; // fila-título de 1 celda: nunca es el encabezado real
+    ultimo = i;
   }
   return ultimo;
 }
@@ -367,7 +380,10 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
     // El encabezado no es necesariamente la fila 0 — ver indiceFilaEncabezado. Las filas anteriores
     // son títulos de la tabla y no llevan datos. Si no hay encabezado (-1), la tabla es de
     // formulario y la cubre el patrón 1.
-    const iEncabezado = indiceFilaEncabezado(filas.map(f => filaTieneTodasSusCeldasConTexto(f[1])));
+    const iEncabezado = indiceFilaEncabezado(filas.map(f => {
+      const textos = textosDeFila(f[1]);
+      return { completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length };
+    }));
     if (iEncabezado < 0) continue;
     const primeraFila = filas[iEncabezado];
     const restoFilas = filas.slice(iEncabezado + 1);
@@ -653,11 +669,16 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
 }
 
 // Un título/sección seguido de un párrafo vacío que es puro espaciado ANTES de su propia tabla
-// ("RESUMEN:" + línea en blanco + <w:tbl>) no es un campo a llenar — es una leyenda. Caso real
-// encontrado: el patrón 1 los tomaba como candidato porque no mira qué viene DESPUÉS del blanco,
-// solo que esté vacío. Se salta cualquier cantidad de párrafos vacíos consecutivos (a veces hay
-// más de uno de puro espaciado) antes de decidir si lo que sigue es una tabla.
-function blancoPrecedeTabla(xml: string, paraId: string): boolean {
+// ("RESUMEN:" + línea en blanco + <w:tbl>) o de una LISTA NUMERADA por Word ("...declara lo
+// siguiente:" + línea en blanco + "a) Haber estudiado...", numeración automática vía <w:numPr>,
+// nunca texto literal "a)") no es un campo a llenar — es una leyenda. Caso real encontrado: el
+// patrón 1 los tomaba como candidato porque no mira qué viene DESPUÉS del blanco, solo que esté
+// vacío. BUG REAL (1057472-89-LE26, ANEXO N°2): "El proponente que suscribe, declara lo
+// siguiente:" quedaba como pendiente con un motivo inventado por la IA — no había nada que
+// rellenar ahí, lo que sigue es la lista de declaraciones (a, b, c...). Se salta cualquier
+// cantidad de párrafos vacíos consecutivos (a veces hay más de uno de puro espaciado) antes de
+// decidir qué viene después.
+function blancoPrecedeBloqueNoRellenable(xml: string, paraId: string): boolean {
   const m = xml.match(new RegExp(`<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>[\\s\\S]*?<\\/w:p>`));
   if (!m) return false;
   let pos = (m.index ?? 0) + m[0].length;
@@ -667,7 +688,39 @@ function blancoPrecedeTabla(xml: string, paraId: string): boolean {
     if (mp && !/<w:r[ >]/.test(mp[1])) { pos += mp[0].length; continue; }
     break;
   }
-  return /^\s*<w:tbl\b/.test(xml.slice(pos, pos + 200));
+  const siguiente = xml.slice(pos, pos + 4000);
+  if (/^\s*<w:tbl\b/.test(siguiente)) return true;
+  const siguienteParrafo = siguiente.match(/^\s*<w:p\b[^>]*>([\s\S]*?)<\/w:p>/);
+  return !!siguienteParrafo && /<w:numPr\b/.test(siguienteParrafo[1]);
+}
+
+// Los párrafos que son el ÚNICO contenido de una fila de tabla con 1 sola celda (fila-título
+// mergeada, ver indiceFilaEncabezado) NUNCA son un campo pese a terminar en ":" — completar el
+// patrón 5 ahí ("Etiqueta:" + valor al final del MISMO párrafo, ver detectarCamposConDosPuntos)
+// pegaría el valor al final del TÍTULO de la sección en vez de llenar ningún dato real. BUG REAL
+// (1057472-89-LE26): "CONTACTO DEL PROPONENTE:" —título de la fila que abre ese bloque dentro de
+// la tabla de identificación, exactamente igual que "DATOS DEL PROPONENTE:" o "REPRESENTANTE
+// LEGAL:" que la comparten— fue tomado como candidato del patrón 5 y la IA lo resolvió con el
+// nombre del contacto, aunque nunca se iba a estampar ahí (el dato real vive en las celdas de la
+// fila siguiente, ya cubiertas por el patrón de tabla).
+function indicesFilaTituloMergeada(xml: string): Set<number> {
+  const offsetsIndices = offsetsAIndices(xml);
+  const out = new Set<number>();
+  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
+    const cuerpoTabla = tabla[1];
+    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+    for (const fila of cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)) {
+      const celdas = [...fila[1].matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)];
+      if (celdas.length !== 1) continue; // solo filas de 1 celda: título mergeado
+      const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
+      const offsetCelda = offsetFila + celdas[0].index! + celdas[0][0].indexOf(celdas[0][1]);
+      for (const p of celdas[0][1].matchAll(/<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>[\s\S]*?<\/w:p>/g)) {
+        const indice = offsetsIndices.get(offsetCelda + p.index!);
+        if (indice != null) out.add(indice);
+      }
+    }
+  }
+  return out;
 }
 
 // ── Punto de entrada: analiza un XML completo y devuelve los patrones + secciones ─────────
@@ -692,12 +745,12 @@ export function analizarAnexo(xml: string) {
     ...detectarCandidatosCeldaCrudos(parrafos)
       .filter(c => !indicesTabla.has(c.indice))
       .filter(c => !parrafosSinCampo.has(c.indice))
-      .filter(c => !blancoPrecedeTabla(xml, c.paraId)),
+      .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId)),
   ];
   const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos)
     .filter(c => !indicesTabla.has(c.indice))
     .filter(c => !parrafosSinCampo.has(c.indice))
-    .filter(c => !blancoPrecedeTabla(xml, c.paraId));
+    .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId));
 
   // Los campos de una sección OMITIDA (Persona Natural / UTP, cuando postulamos como jurídica) ya
   // no se descartan: se muestran igual para que un humano pueda llenarlos, pero se marcan para que
@@ -763,8 +816,11 @@ export function analizarAnexo(xml: string) {
   // espaciado antes de una tabla), y en ese caso el campo SÍ queda para este patrón — es
   // exactamente el caso del "RUT:" del FORMULARIO N°2 de 4291-38-LP26, que si no queda sin llenar
   // por caer en el hueco entre los dos patrones.
+  // Ni siquiera un título de sección real (nunca un campo, ver indicesFilaTituloMergeada arriba).
+  const indicesTituloMergeado = indicesFilaTituloMergeada(xml);
   const camposConDosPuntos = acotarASeccionesHabilitadas(detectarCamposConDosPuntos(parrafos), secciones)
-    .filter(c => !yaCubiertos.has(c.indice) && !yaCubiertos.has(c.indice + 1));
+    .filter(c => !yaCubiertos.has(c.indice) && !yaCubiertos.has(c.indice + 1))
+    .filter(c => !indicesTituloMergeado.has(c.indice));
 
   return {
     parrafos, secciones, candidatosCelda, blancosInline, lineasFirma, camposConDosPuntos, indicesSoloManual,
@@ -839,7 +895,10 @@ export function extraerTablasCrudo(xml: string): TablaCruda[] {
     // título mergeado — ver indiceFilaEncabezado): alinear contra el título dejaba la tabla de una
     // sola columna y se perdían todas las casillas de las filas de datos.
     const iEncabezado = indiceFilaEncabezado(
-      filasCrudo.map(f => f.celdas.length > 0 && f.celdas.every(c => c.texto.trim() !== '')),
+      filasCrudo.map(f => ({
+        completa: f.celdas.length > 0 && f.celdas.every(c => c.texto.trim() !== ''),
+        numCeldas: f.celdas.length,
+      })),
     );
     const header = iEncabezado >= 0 ? filasCrudo[iEncabezado].celdas : [];
     const filas = filasCrudo.map((f, i) =>

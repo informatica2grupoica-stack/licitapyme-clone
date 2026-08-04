@@ -6,9 +6,9 @@
 // Word mientras se llena, en vez de adivinar a ciegas desde un fragmento de texto corto. Al
 // generar, el .docx final se sube a R2 y queda registrado como documento propio — aparece en
 // "Documentos para MP" (misma lista que el costeo/informe generados).
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, CheckCircle2, AlertTriangle, Wand2, FileText, ExternalLink, Download, ChevronDown, ShieldAlert, ListChecks } from 'lucide-react';
+import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, Download, ChevronDown, ShieldAlert, ListChecks } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 
 // Mismo problema que el visor del ojo "Ver" en Documentos (ver DocumentViewerModal): el visor
@@ -19,7 +19,7 @@ const TIMEOUT_VISOR_OFFICE_MS = 14_000;
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
-interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo'; formulario?: string }
+interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo'; formulario?: string; indice?: number }
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string; categoria?: string; motivo?: string }
 interface PendienteInline {
   id: string; contexto: string; formulario?: string;
@@ -47,6 +47,11 @@ interface Analisis {
 function TablaReal({
   tabla, respuestas, onChange,
 }: { tabla: TablaUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void }) {
+  // Una fila con MENOS celdas que el resto es un título mergeado (ver indiceFilaEncabezado en
+  // anexos-detectar.ts — "DATOS DEL PROPONENTE:", "INTEGRANTES DE LA UTP"...): se le da colSpan a
+  // su última celda para que ocupe todo el ancho, igual que en el Word, en vez de verse como una
+  // celda angosta suelta pegada al borde izquierdo.
+  const maxCols = Math.max(1, ...tabla.filas.map(f => f.length));
   return (
     <div className="space-y-1">
       {tabla.titulo && (
@@ -58,7 +63,11 @@ function TablaReal({
           {tabla.filas.map((fila, i) => (
             <tr key={i} className={i === 0 ? 'bg-slate-100' : 'odd:bg-white even:bg-slate-50/60'}>
               {fila.map((c, j) => (
-                <td key={j} className={`border border-slate-200 px-2 py-1 align-middle break-words ${i === 0 ? 'font-semibold text-slate-700' : ''}`}>
+                <td
+                  key={j}
+                  colSpan={j === fila.length - 1 && fila.length < maxCols ? maxCols - fila.length + 1 : undefined}
+                  className={`border border-slate-200 px-2 py-1 align-middle break-words ${i === 0 ? 'font-semibold text-slate-700' : ''}`}
+                >
                   {c.input ? (
                     <input
                       type="text"
@@ -161,13 +170,17 @@ function MotivoPendiente({ motivo }: { motivo: string }) {
   );
 }
 
+// Una CASILLA del documento — la unidad visual mínima de la réplica: una cajita con borde, la
+// etiqueta chica arriba (como en el Word) y el valor/input adentro. Antes cada campo pendiente era
+// una fila suelta en una lista vertical larga; agrupadas en una grilla (ver GrillaCampos) esto es
+// lo que hace que el panel se vea como el formulario real y no como una lista de "etiqueta: valor".
 function CampoInput({ etiqueta, valor, onChange, parrafoCompleto, posEnParrafo, largoBlanco, motivo }: {
   etiqueta: string; valor: string; onChange: (v: string) => void;
   parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number; motivo?: string;
 }) {
   return (
-    <div>
-      <label className="flex items-baseline text-[11.5px] font-medium text-slate-600 mb-1" title={etiqueta}>
+    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 min-w-0">
+      <label className="flex items-baseline text-[10.5px] font-medium text-slate-500 mb-1" title={etiqueta}>
         <EtiquetaCampo etiqueta={etiqueta} />
       </label>
       {parrafoCompleto && (
@@ -181,8 +194,66 @@ function CampoInput({ etiqueta, valor, onChange, parrafoCompleto, posEnParrafo, 
         value={valor}
         onChange={e => onChange(e.target.value)}
         placeholder="Escribe el valor…"
-        className="w-full text-[12.5px] px-2.5 py-1.5 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+        className="w-full text-[12.5px] px-2 py-1 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
       />
+    </div>
+  );
+}
+
+// Misma cajita, pero para lo que ya se completó solo — mismo tamaño y forma que CampoInput para
+// que en la grilla se lean como parte de UN mismo formulario, no como dos secciones distintas.
+function CampoAuto({ etiqueta, valor, via }: { etiqueta: string; valor: string; via: 'ia' | 'costeo' }) {
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-2.5 py-2 min-w-0">
+      <p className="flex items-center gap-1 text-[10.5px] font-medium text-emerald-700/80 mb-0.5" title={etiqueta}>
+        <EtiquetaCampo etiqueta={etiqueta} />
+        {via === 'costeo' && (
+          <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-cyan-100 text-cyan-700" title="Precio cruzado con el costeo subido — revisa antes de generar">
+            $
+          </span>
+        )}
+      </p>
+      <p className="text-[12.5px] font-semibold text-emerald-800 truncate" title={valor}>{valor}</p>
+    </div>
+  );
+}
+
+// Arma una única grilla de casillas EN EL ORDEN DEL DOCUMENTO — auto-completadas y pendientes
+// mezcladas, tal como se leen una tras otra en el Word (no dos bloques separados, "lo que se llenó
+// solo" arriba y "lo que falta" abajo, como era antes). El orden sale del índice de párrafo/celda
+// que cada una trae desde el backend (celda:N, inline:N:pos) — ninguno se muestra realmente, solo
+// ordena. Las que traen frase de contexto u motivo ocupan las 2 columnas (no entran cómodas en media).
+function GrillaCampos({ autos, items, respuestas, onChange }: {
+  autos: CampoCompletado[]; items: PendienteUnificado[];
+  respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
+}) {
+  if (!autos.length && !items.length) return null;
+  const indiceDeId = (id: string) => Number(id.split(':')[1]) || 0;
+  type Tarjeta = { orden: number; anchoCompleto: boolean; key: string; el: ReactNode };
+  const tarjetas: Tarjeta[] = [
+    ...autos.map((c, i): Tarjeta => ({
+      orden: c.indice ?? Number.MAX_SAFE_INTEGER,
+      anchoCompleto: false,
+      key: `auto:${i}:${c.etiqueta}`,
+      el: <CampoAuto etiqueta={c.etiqueta} valor={c.valor} via={c.via} />,
+    })),
+    ...items.map((p): Tarjeta => ({
+      orden: indiceDeId(p.id),
+      anchoCompleto: !!(p.parrafoCompleto || p.motivo),
+      key: p.id,
+      el: (
+        <CampoInput
+          etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => onChange(p.id, v)}
+          parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco} motivo={p.motivo}
+        />
+      ),
+    })),
+  ].sort((a, b) => a.orden - b.orden);
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      {tarjetas.map(t => (
+        <div key={t.key} className={t.anchoCompleto ? 'sm:col-span-2' : undefined}>{t.el}</div>
+      ))}
     </div>
   );
 }
@@ -234,49 +305,6 @@ function ChecklistPendientes({ items }: { items: string[] }) {
             <li key={i} className="text-[11.5px] text-amber-800 leading-snug pl-1">· {it}</li>
           ))}
         </ul>
-      )}
-    </div>
-  );
-}
-
-// Lo que se completa solo, dentro de su formulario: compacto y plegado por defecto. Es información
-// de confirmación ("esto ya está"), no algo que el usuario deba leer campo por campo — antes iba
-// todo junto arriba, sin decir a qué formulario correspondía cada uno, y con la misma etiqueta
-// repetida cuatro veces ("CORREO ELECTRÓNICO") era imposible saber cuál era cuál.
-function ResumenAuto({ campos }: { campos: CampoCompletado[] }) {
-  // ABIERTO por defecto (pedido explícito, 3-ago-2026): plegado, lo único que se veía era el
-  // contador "Se completan solos (13)" — que no dice QUÉ se llenó ni con qué valor, así que no
-  // había forma de saber si el dato quedó bien sin bajar el .docx y abrirlo en Word. Sigue siendo
-  // plegable para quien ya confía en el resultado y quiere ver solo lo que falta escribir.
-  const [abierto, setAbierto] = useState(true);
-  if (!campos.length) return null;
-  return (
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50/70">
-      <button
-        type="button"
-        onClick={() => setAbierto(v => !v)}
-        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-semibold text-emerald-800 hover:bg-emerald-100/60 rounded-lg transition-colors"
-      >
-        <CheckCircle2 size={12} className="flex-shrink-0" />
-        <span className="flex-1 text-left">Se completan solos ({campos.length})</span>
-        <ChevronDown size={13} className={`transition-transform ${abierto ? 'rotate-180' : ''}`} />
-      </button>
-      {abierto && (
-        <div className="px-2.5 pb-2 divide-y divide-emerald-100">
-          {campos.map((c, i) => (
-            <div key={i} className="flex items-baseline justify-between gap-3 py-1 text-[11.5px]">
-              <span className="flex items-baseline gap-1.5 min-w-0 text-emerald-800 font-medium">
-                <EtiquetaCampo etiqueta={c.etiqueta} />
-                {c.via === 'costeo' && (
-                  <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-cyan-100 text-cyan-700" title="Precio cruzado con el costeo subido — revisa antes de generar">
-                    COSTEO
-                  </span>
-                )}
-              </span>
-              <span className="text-emerald-700 truncate max-w-[45%] text-right">{c.valor}</span>
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );
@@ -556,20 +584,10 @@ export function AnexoRellenoModal({
                             {porLlenar > 0 ? `${porLlenar} por llenar` : 'nada por llenar'}
                           </p>
                         </div>
-                        <ResumenAuto campos={g.autos} />
                         {g.tablas.map((t, i) => (
                           <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
                         ))}
-                        {g.items.length > 0 && (
-                          <div className="space-y-2">
-                            {g.items.map(p => (
-                              <CampoInput
-                                key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)}
-                                parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco} motivo={p.motivo}
-                              />
-                            ))}
-                          </div>
-                        )}
+                        <GrillaCampos autos={g.autos} items={g.items} respuestas={respuestas} onChange={setRespuesta} />
                       </div>
                     );
                   })}
@@ -580,70 +598,22 @@ export function AnexoRellenoModal({
                         {sinFormulario.length + contarInputs(tablasSinFormulario) > 0
                           && ` (${sinFormulario.length + contarInputs(tablasSinFormulario)})`}
                       </p>
-                      <ResumenAuto campos={autosSinFormulario} />
                       {tablasSinFormulario.map((t, i) => (
                         <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
                       ))}
-                      {sinFormulario.length > 0 && (
-                        <div className="space-y-2">
-                          {sinFormulario.map(p => (
-                            <CampoInput
-                              key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)}
-                              parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco} motivo={p.motivo}
-                            />
-                          ))}
-                        </div>
-                      )}
+                      <GrillaCampos autos={autosSinFormulario} items={sinFormulario} respuestas={respuestas} onChange={setRespuesta} />
                     </div>
                   )}
                 </>
               ) : (
                 <>
-                <ResumenAuto campos={analisis.completadosAuto} />
-                {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (
-                  <p className="text-[12px] text-slate-400">No quedan campos pendientes por completar a mano.</p>
-                )}
-                  {tablasSinFormulario.length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        Tablas con datos pendientes
-                      </p>
-                      <div className="space-y-2">
-                        {tablasSinFormulario.map((t, i) => (
-                          <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
-                        ))}
-                      </div>
-                    </div>
+                  {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (
+                    <p className="text-[12px] text-slate-400">No quedan campos pendientes por completar a mano.</p>
                   )}
-
-                  {analisis.pendientesCelda.length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        Necesita tu respuesta ({analisis.pendientesCelda.length})
-                      </p>
-                      <div className="space-y-2">
-                        {analisis.pendientesCelda.map(p => (
-                          <CampoInput key={p.id} etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)} motivo={p.motivo} />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {analisis.pendientesInline.length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
-                        Blancos dentro del texto ({analisis.pendientesInline.length})
-                      </p>
-                      <div className="space-y-2">
-                        {analisis.pendientesInline.map(p => (
-                          <CampoInput
-                            key={p.id} etiqueta={p.contexto.replace(/\s*:\s*$/, '')} valor={respuestas[p.id] || ''} onChange={v => setRespuesta(p.id, v)}
-                            parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco} motivo={p.motivo}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {tablasSinFormulario.map((t, i) => (
+                    <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
+                  ))}
+                  <GrillaCampos autos={autosSinFormulario} items={sinFormulario} respuestas={respuestas} onChange={setRespuesta} />
                 </>
               )}
 
