@@ -27,7 +27,10 @@ import {
   insertarImagenEnParrafo, rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
   type Parrafo,
 } from '@/app/lib/anexos-docx';
-import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda, type CandidatoInline, type TablaCruda } from '@/app/lib/anexos-detectar';
+import {
+  analizarAnexo, extraerTablasCrudo,
+  type CandidatoCelda, type CandidatoInline, type TablaCruda, type AvisoNoAplica,
+} from '@/app/lib/anexos-detectar';
 import {
   resolverAnexoConIA, resolverEspecificacionesDesdeBasesConIA,
   type EmpresaCampos, type Resolucion, type AlertaInadmisibilidad,
@@ -105,6 +108,24 @@ interface ResultadoResolucion {
   checklistPendientes: string[];
 }
 
+// Anexo que el documento declara que NO nos corresponde presentar (ver detectarAvisoNoAplica):
+// no se llama a la IA y NADA se autocompleta. Todo queda como pendiente editable con el motivo a
+// la vista, para que igual se pueda llenar a mano si la situación cambia (ej. sí se postula en UTP,
+// que es lo que habilita el interruptor de la pantalla).
+function todoPendientePorNoAplicar(
+  candidatosCelda: CandidatoCelda[], blancosInline: CandidatoInline[], motivo: string,
+): ResultadoResolucion {
+  return {
+    matcheados: [],
+    pendientes: candidatosCelda,
+    pendientesConMotivo: new Map(candidatosCelda.map(c => [c.indice, { categoria: 'no_aplica_al_oferente', motivo }])),
+    inlineAuto: [],
+    inlinePendientes: blancosInline.map(b => ({ b, categoria: 'no_aplica_al_oferente', motivo })),
+    alertasInadmisibilidad: [],
+    checklistPendientes: [],
+  };
+}
+
 async function resolverTodo(
   candidatosCelda: CandidatoCelda[],
   camposConDosPuntos: CandidatoCelda[],
@@ -115,6 +136,7 @@ async function resolverTodo(
   itemsCosteo: ItemCosteoPrecio[] | undefined,
   basesTexto: string | undefined,
   tituloAnexos: string[] | undefined,
+  postulaComoUTP: boolean,
 ): Promise<ResultadoResolucion> {
   const elegibles = candidatosCelda.filter(c => !soloManual?.has(c.indice));
   const soloManualCandidatos = candidatosCelda.filter(c => soloManual?.has(c.indice));
@@ -127,6 +149,7 @@ async function resolverTodo(
     empresa,
     basesTexto,
     tituloAnexos,
+    postulaComoUTP,
   });
 
   const matcheados: CampoResuelto[] = [];
@@ -281,7 +304,10 @@ export interface FirmaInfo {
 
 // `id` es el índice de párrafo, igual que el resto de los ids del modal (ver el comentario de
 // arriba del archivo sobre por qué NUNCA se usa el paraId, que es aleatorio en cada llamada).
-export interface LugarFirmaUI { id: string; contexto: string; pideTimbre: boolean }
+// `porDefecto` lo calcula el BACKEND y la pantalla solo lo muestra — así lo que se ve marcado es
+// exactamente lo que va a pasar si el usuario no toca nada, sin que la UI tenga que reimplementar
+// la regla (que es justo como se desincronizó la vista previa de los marcadores).
+export interface LugarFirmaUI { id: string; contexto: string; pideTimbre: boolean; porDefecto: QueEstampar }
 
 export type QueEstampar = 'ambas' | 'firma' | 'timbre' | 'ninguna';
 export type PosicionFirma = 'izquierda' | 'centro' | 'derecha';
@@ -289,7 +315,11 @@ export type PosicionFirma = 'izquierda' | 'centro' | 'derecha';
 // Qué se estampa por defecto en un lugar: lo que la leyenda pide y la empresa tiene. Es la misma
 // decisión que tomaba el generador antes de que esto fuera configurable, así que no cambia el
 // resultado de nadie que no toque los controles.
-function porDefectoEnLugar(pideTimbre: boolean, hayFirma: boolean, hayTimbre: boolean): QueEstampar {
+function porDefectoEnLugar(pideTimbre: boolean, hayFirma: boolean, hayTimbre: boolean, aplica = true): QueEstampar {
+  // Un anexo que el propio documento dice que no debemos presentar no se firma solo. Antes se
+  // firmaba y se timbraba igual, y ese era el detalle que hacía parecer un error de relleno lo que
+  // en realidad era "este anexo no va" — ver detectarAvisoNoAplica en anexos-detectar.ts.
+  if (!aplica) return 'ninguna';
   const timbre = pideTimbre && hayTimbre;
   if (hayFirma && timbre) return 'ambas';
   if (hayFirma) return 'firma';
@@ -333,6 +363,9 @@ export interface AnalisisAnexo {
   ordenFormularios: string[];
   alertasInadmisibilidad: AlertaInadmisibilidad[];
   checklistPendientes: string[];
+  // El propio documento dice que este anexo no nos corresponde (ver detectarAvisoNoAplica). Cuando
+  // viene, NADA se autocompletó: la pantalla lo avisa y ofrece el interruptor "sí nos corresponde".
+  avisoNoAplica: AvisoNoAplica | null;
 }
 
 type ResolucionMostrada =
@@ -341,6 +374,9 @@ type ResolucionMostrada =
 
 export async function analizarAnexoParaUI(
   bufferOriginal: Buffer, empresa: EmpresaCampos, itemsCosteo?: ItemCosteoPrecio[], basesTexto?: string,
+  // El usuario dijo explícitamente "sí, este anexo nos corresponde" (ej. esta vez SÍ postulamos en
+  // UTP) — se ignora el aviso del documento y se autocompleta normal.
+  forzarAplica = false,
 ): Promise<AnalisisAnexo> {
   const { zip, xml: xmlCrudo } = await abrirDocx(bufferOriginal);
   // unificarRunsDeMarcadores va SIEMPRE junto a normalizarParaIds y en las DOS rutas (analizar y
@@ -350,7 +386,7 @@ export async function analizarAnexoParaUI(
   // calzarían entre el análisis y la generación.
   const { xml: xmlConIds } = normalizarParaIds(xmlCrudo);
   const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
-  const analisis = analizarAnexo(xmlNormalizado);
+  const analisis = analizarAnexo(xmlNormalizado, { postulaComoUTP: forzarAplica });
   const formularios = detectarFormularios(xmlNormalizado);
   const numeracion = await leerNumeracion(zip);
 
@@ -361,14 +397,17 @@ export async function analizarAnexoParaUI(
   const completadosAuto: CampoCompletado[] = [];
   const resolucionPorIndice = new Map<number, ResolucionMostrada>();
 
+  const avisoNoAplica = forzarAplica ? null : analisis.avisoNoAplica;
   const {
     matcheados, pendientes, pendientesConMotivo, inlineAuto, inlinePendientes,
     alertasInadmisibilidad, checklistPendientes,
-  } = await resolverTodo(
-    analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
-    empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
-    formularios.map(f => f.titulo),
-  );
+  } = avisoNoAplica
+    ? todoPendientePorNoAplicar(analisis.candidatosCelda, analisis.blancosInline, avisoNoAplica.motivo)
+    : await resolverTodo(
+      analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
+      empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
+      formularios.map(f => f.titulo), forzarAplica,
+    );
   const { matcheadosExtra, pendientesFiltrados, anexarDirecto, titulos }
     = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes);
   const matcheadosTodos = [...matcheados, ...matcheadosExtra];
@@ -432,12 +471,13 @@ export async function analizarAnexoParaUI(
       id: `firma:${l.indice}`,
       contexto: l.contexto,
       pideTimbre: !!l.pideTimbre,
+      porDefecto: porDefectoEnLugar(!!l.pideTimbre, !!empresa.firma_url, !!empresa.timbre_url, !avisoNoAplica),
     })),
   };
-  if (firma.detectada && firma.disponible) {
+  if (!avisoNoAplica && firma.detectada && firma.disponible) {
     completadosAuto.push({ etiqueta: 'Firma', campo: 'firma_url', valor: '(imagen de la firma guardada)', via: 'ia' });
   }
-  if (firma.timbreDetectado && firma.timbreDisponible) {
+  if (!avisoNoAplica && firma.timbreDetectado && firma.timbreDisponible) {
     completadosAuto.push({ etiqueta: 'Timbre', campo: 'timbre_url', valor: '(imagen del timbre guardado)', via: 'ia' });
   }
 
@@ -483,6 +523,7 @@ export async function analizarAnexoParaUI(
     ordenFormularios: formularios.map(f => f.titulo),
     alertasInadmisibilidad,
     checklistPendientes,
+    avisoNoAplica,
   };
 }
 
@@ -508,16 +549,22 @@ export async function generarAnexoFinal(
   // calzarían entre el análisis y la generación.
   const { xml: xmlConIds } = normalizarParaIds(xmlCrudo);
   const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
-  const analisis = analizarAnexo(xmlNormalizado);
+  const analisis = analizarAnexo(xmlNormalizado, { postulaComoUTP: respuestas.anexoAplica === '1' });
   const formularios = detectarFormularios(xmlNormalizado);
 
+  // Misma decisión que en el análisis, y por el mismo canal `respuestas`: si el documento avisa
+  // que este anexo no nos corresponde, no se autocompleta nada — salvo que el usuario haya marcado
+  // en la pantalla que esta vez SÍ corresponde (interruptor "anexoAplica").
+  const avisoNoAplica = respuestas.anexoAplica === '1' ? null : analisis.avisoNoAplica;
   const {
     matcheados, pendientes, inlineAuto, inlinePendientes,
-  } = await resolverTodo(
-    analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
-    empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
-    formularios.map(f => f.titulo),
-  );
+  } = avisoNoAplica
+    ? todoPendientePorNoAplicar(analisis.candidatosCelda, analisis.blancosInline, avisoNoAplica.motivo)
+    : await resolverTodo(
+      analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
+      empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
+      formularios.map(f => f.titulo), respuestas.anexoAplica === '1',
+    );
 
   let xml = xmlNormalizado;
   let respondidos = 0;
@@ -583,7 +630,7 @@ export async function generarAnexoFinal(
       const elegido = respuestas[`firma:${linea.indice}`] as QueEstampar | undefined;
       const que: QueEstampar = elegido && ['ambas', 'firma', 'timbre', 'ninguna'].includes(elegido)
         ? elegido
-        : porDefectoEnLugar(!!linea.pideTimbre, !!empresa.firma_url, !!empresa.timbre_url);
+        : porDefectoEnLugar(!!linea.pideTimbre, !!empresa.firma_url, !!empresa.timbre_url, !avisoNoAplica);
       const pos = respuestas[`firmaPos:${linea.indice}`] as PosicionFirma | undefined;
       return {
         linea, que,

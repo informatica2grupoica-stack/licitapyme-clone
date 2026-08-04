@@ -682,7 +682,10 @@ function esEncabezadoDeSeccion(texto: string): { tipo: TipoSeccion } | null {
   return null;
 }
 
-export function detectarSecciones(parrafos: Parrafo[]): SeccionOferente[] {
+// `postulaComoUTP` invierte la decisión SOLO para los bloques de Unión Temporal: es el caso en que
+// esta licitación sí se presenta en UTP y el usuario lo confirmó en la pantalla. Persona natural
+// nunca se habilita — la empresa es una persona jurídica, eso no depende de la licitación.
+export function detectarSecciones(parrafos: Parrafo[], postulaComoUTP = false): SeccionOferente[] {
   const encabezados: { indice: number; tipo: TipoSeccion; texto: string }[] = [];
   parrafos.forEach(p => {
     const h = esEncabezadoDeSeccion(p.texto);
@@ -711,7 +714,7 @@ export function detectarSecciones(parrafos: Parrafo[]): SeccionOferente[] {
       indiceInicio: h.indice,
       indiceFin: Math.min(finPorSeccion, finPorFormulario),
       tipo: h.tipo,
-      decision: h.tipo === 'PERSONA_JURIDICA' ? 'RELLENAR' : 'OMITIR',
+      decision: h.tipo === 'PERSONA_JURIDICA' || (postulaComoUTP && h.tipo === 'UTP') ? 'RELLENAR' : 'OMITIR',
       textoEncabezado: h.texto,
     } as SeccionOferente;
   });
@@ -863,10 +866,53 @@ function indicesFilaTituloMergeada(xml: string): Set<number> {
   return out;
 }
 
+// ── ¿Este anexo lo tenemos que presentar, o no nos corresponde? ───────────────────────────
+// Muchos anexos traen al pie una nota que dice explícitamente quién debe presentarlos. La más
+// común, y el caso que motivó esto (ANEXO N°4 de 1057480-41-LP26):
+//
+//   "Nota: Todos los representantes de la Unión Temporal de Proveedores deben presentar este
+//    anexo, en caso de que el oferente no sea una Unión Temporal de Proveedores NO DEBE PRESENTAR
+//    ESTE ANEXO."
+//
+// Sin leer esa nota, el sistema hacía lo peor de los dos mundos: la IA (con razón) dejaba los
+// datos de la UTP sin llenar por no corresponder, pero la fecha, la firma y el timbre SÍ se
+// estampaban — el usuario descargaba un documento a medio llenar y parecía una falla del relleno,
+// cuando en realidad ese anexo no había que presentarlo. Detectarlo acá permite decirlo de frente
+// en la pantalla en vez de entregar un documento ambiguo.
+//
+// Es deliberadamente ESTRECHO (una frase casi literal, no una inferencia): un falso positivo
+// dejaría un anexo obligatorio sin autocompletar, que es peor que no avisar nada. Por eso exige la
+// frase completa "no debe/corresponde presentar … anexo" — no alcanza con que el documento
+// mencione una UTP.
+export interface AvisoNoAplica { motivo: string; evidencia: string }
+
+const RE_NO_PRESENTAR = /no\s+(?:debe|deben|corresponde|correspondera|corresponder[áa])\s+(?:presentar|adjuntar|completar)\s+(?:el\s+|este\s+|dicho\s+|el\s+presente\s+)?anexo/i;
+const RE_CONDICION_UTP = /(uni[óo]n\s+temporal|u\.?t\.?p\.?)/i;
+const RE_CONDICION_NATURAL = /persona\s+natural/i;
+
+export function detectarAvisoNoAplica(parrafos: Parrafo[]): AvisoNoAplica | null {
+  for (const p of parrafos) {
+    if (!RE_NO_PRESENTAR.test(p.texto)) continue;
+    // Solo interesa la condición que NO cumplimos: la empresa postula como persona jurídica
+    // individual. Una nota tipo "las personas jurídicas no deben presentar este anexo" es
+    // justamente la que aplica; una que hable de otra cosa se ignora.
+    const esUTP = RE_CONDICION_UTP.test(p.texto);
+    const esNatural = RE_CONDICION_NATURAL.test(p.texto);
+    if (!esUTP && !esNatural) continue;
+    return {
+      motivo: esUTP
+        ? 'Este anexo solo lo presentan las Uniones Temporales de Proveedores (UTP). Esta empresa postula como persona jurídica individual, así que no corresponde presentarlo.'
+        : 'Este anexo es para oferentes persona natural. Esta empresa postula como persona jurídica, así que no corresponde presentarlo.',
+      evidencia: p.texto.slice(0, 400),
+    };
+  }
+  return null;
+}
+
 // ── Punto de entrada: analiza un XML completo y devuelve los patrones + secciones ─────────
-export function analizarAnexo(xml: string) {
+export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postulaComoUTP?: boolean } = {}) {
   const parrafos = listarParrafos(xml);
-  const secciones = detectarSecciones(parrafos);
+  const secciones = detectarSecciones(parrafos, postulaComoUTP);
 
   // El patrón de tabla (1b) va PRIMERO — tiene mejor etiqueta — y el patrón plano (1) solo
   // aporta los índices que la tabla no reclamó, para no mostrar el mismo blanco dos veces con
@@ -985,6 +1031,7 @@ export function analizarAnexo(xml: string) {
   return {
     parrafos, secciones, candidatosCelda, blancosInline, lineasFirma, camposConDosPuntos, indicesSoloManual,
     candidatosCeldaSinDesambiguar,
+    avisoNoAplica: detectarAvisoNoAplica(parrafos),
   };
 }
 

@@ -35,7 +35,10 @@ export async function GET(request: NextRequest) {
       obtenerItemsCosteoParaAnexo(codigo),
       obtenerTextoBasesParaAnexo(codigo),
     ]);
-    const analisis = await analizarAnexoParaUI(bufferOriginal, empresa, itemsCosteo, basesTexto);
+    // El usuario respondió que sí nos corresponde presentar este anexo pese al aviso del propio
+    // documento (ej. esta licitación SÍ se postula en UTP) — ver detectarAvisoNoAplica.
+    const forzarAplica = searchParams.get('aplica') === '1';
+    const analisis = await analizarAnexoParaUI(bufferOriginal, empresa, itemsCosteo, basesTexto, forzarAplica);
     return NextResponse.json({ success: true, nombre: nombreOriginal, ...analisis });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 400 });

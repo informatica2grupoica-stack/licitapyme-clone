@@ -55,8 +55,11 @@ interface Analisis {
   firma: {
     detectada: boolean; disponible: boolean; timbreDetectado: boolean; timbreDisponible: boolean;
     firmaUrl: string | null; timbreUrl: string | null;
-    lugares: { id: string; contexto: string; pideTimbre: boolean }[];
+    lugares: { id: string; contexto: string; pideTimbre: boolean; porDefecto: string }[];
   };
+  // El propio anexo dice que no nos corresponde presentarlo (ej. "si el oferente no es una UTP no
+  // debe presentar este anexo"). Cuando viene, NADA se autocompletó — ver detectarAvisoNoAplica.
+  avisoNoAplica?: { motivo: string; evidencia: string } | null;
   ordenFormularios?: string[]; // títulos en el orden del documento
   alertasInadmisibilidad?: AlertaInadmisibilidad[];
   checklistPendientes?: string[];
@@ -296,15 +299,6 @@ function BloqueFirmaTimbre({ firma, respuestas, onChange }: {
 }) {
   const hayFirma = firma.disponible;
   const hayTimbre = firma.timbreDisponible;
-  // Mismo criterio que el backend (porDefectoEnLugar en anexos-rellenar.ts): la pantalla tiene que
-  // mostrar seleccionado lo que de verdad va a pasar si el usuario no toca nada.
-  const porDefecto = (pideTimbre: boolean) => {
-    const timbre = pideTimbre && hayTimbre;
-    if (hayFirma && timbre) return 'ambas';
-    if (hayFirma) return 'firma';
-    if (timbre) return 'timbre';
-    return 'ninguna';
-  };
   const disponible = (v: string) =>
     v === 'ninguna' || (v === 'firma' && hayFirma) || (v === 'timbre' && hayTimbre) || (v === 'ambas' && hayFirma && hayTimbre);
 
@@ -330,7 +324,9 @@ function BloqueFirmaTimbre({ firma, respuestas, onChange }: {
 
       {firma.lugares.map(lugar => {
         const indice = lugar.id.split(':')[1];
-        const valor = respuestas[lugar.id] || porDefecto(lugar.pideTimbre);
+        // `porDefecto` viene calculado del backend (ver LugarFirmaUI): lo que se ve marcado es
+        // exactamente lo que va a pasar si no se toca nada, sin reimplementar la regla acá.
+        const valor = respuestas[lugar.id] || lugar.porDefecto;
         const pos = respuestas[`firmaPos:${indice}`] || '';
         return (
           <div key={lugar.id} className="bg-slate-50 rounded-lg p-2 space-y-1.5">
@@ -402,13 +398,19 @@ export function AnexoRellenoModal({
   const [cargandoVisor, setCargandoVisor] = useState(true);
   const [visorLento, setVisorLento] = useState(false);
   const [avisoLentoCerrado, setAvisoLentoCerrado] = useState(false);
+  // "Sí, este anexo nos corresponde": ignora el aviso del propio documento (ej. es de UTP y esta
+  // vez sí postulamos en UTP). Re-dispara el análisis, y viaja también en `respuestas` para que la
+  // generación tome la misma decisión que la pantalla mostró.
+  const [forzarAplica, setForzarAplica] = useState(false);
+
+  useEffect(() => { setForzarAplica(false); }, [doc]);
 
   useEffect(() => {
     if (!doc) return;
     setCargando(true);
     setError(null);
     setAnalisis(null);
-    setRespuestas({});
+    setRespuestas(forzarAplica ? { anexoAplica: '1' } : {});
     setCargandoVisor(true);
     setVisorLento(false);
     setAvisoLentoCerrado(false);
@@ -426,6 +428,7 @@ export function AnexoRellenoModal({
     }
 
     const params = new URLSearchParams({ codigo, documentoId: String(doc.id), empresaId: String(empresaId) });
+    if (forzarAplica) params.set('aplica', '1');
     fetch(`/api/anexos/analizar?${params}`)
       .then(async r => {
         const data = await r.json().catch(() => ({}));
@@ -436,7 +439,7 @@ export function AnexoRellenoModal({
       .finally(() => setCargando(false));
 
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; window.clearTimeout(timerVisor); };
-  }, [doc, codigo, empresaId, onClose]);
+  }, [doc, codigo, empresaId, onClose, forzarAplica]);
 
   if (!doc) return null;
 
@@ -613,6 +616,29 @@ export function AnexoRellenoModal({
                     Este documento pide <strong>firma y timbre</strong>, pero esta empresa no tiene un timbre cargado — solo se estampa la firma.
                     Súbelo en <strong>/empresas</strong> (sección "Timbre digital") para que se inserte solo la próxima vez.
                   </p>
+                </div>
+              )}
+
+              {analisis.avisoNoAplica && (
+                <div className="flex items-start gap-2.5 px-4 py-3 bg-rose-50 border border-rose-200 rounded-xl">
+                  <ShieldAlert size={15} className="text-rose-500 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 space-y-1.5">
+                    <p className="text-[12.5px] text-rose-900 font-semibold">Este anexo no corresponde presentarlo</p>
+                    <p className="text-[12.5px] text-rose-800">{analisis.avisoNoAplica.motivo}</p>
+                    <p className="text-[11.5px] text-rose-700 italic border-l-2 border-rose-300 pl-2">
+                      El documento dice: “{analisis.avisoNoAplica.evidencia}”
+                    </p>
+                    <p className="text-[11.5px] text-rose-700">
+                      Por eso no se completó ningún dato ni se estampó la firma: entregar este anexo a medio llenar es peor que no entregarlo.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setForzarAplica(true)}
+                      className="text-[11.5px] font-medium px-2.5 py-1 rounded-md border border-rose-300 bg-white text-rose-700 hover:bg-rose-100 transition"
+                    >
+                      Sí nos corresponde — completar igual
+                    </button>
+                  </div>
                 </div>
               )}
 

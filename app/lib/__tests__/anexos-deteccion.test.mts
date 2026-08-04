@@ -438,3 +438,35 @@ test('firma: leyenda sin raya sí se firma, la del evaluador no', () => {
   const conRaya = analizarAnexo(normalizarParaIds(NS + p('_'.repeat(40)) + p('FIRMA Y TIMBRE EVALUADOR') + FIN).xml);
   assert.equal(conRaya.lineasFirma.length, 0, 'una raya bajo la leyenda del evaluador tampoco se firma');
 });
+
+// ── Anexo que el propio documento dice que NO nos corresponde presentar ───────────────────────
+// ANEXO N°4 de 1057480-41-LP26: es de Unión Temporal de Proveedores y cierra con la nota. Antes se
+// entregaba a medio llenar (los datos de la UTP en blanco, pero la fecha, la firma y el timbre
+// estampados), que parece una falla del relleno cuando en realidad ese anexo no va.
+test('la nota "no debe presentar este anexo" se detecta y frena el auto-relleno', () => {
+  const conNota = (nota: string) => analizarAnexo(normalizarParaIds(
+    NS + p('ANEXO N°4') + p('En [ciudad], a [fecha] <<NOMBRE PERSONA JURIDICA>>, declaro:') + p(nota) + FIN,
+  ).xml).avisoNoAplica;
+
+  const utp = conNota('Nota: Todos los representantes de la Unión Temporal de Proveedores deben presentar este anexo, en caso de que el oferente no sea una Unión Temporal de Proveedores no debe presentar este anexo.');
+  assert.ok(utp, 'la nota de UTP tiene que detectarse');
+  assert.match(utp!.motivo, /Uniones Temporales de Proveedores/i);
+
+  // Estrecho a propósito: mencionar una UTP NO basta, ni tampoco una nota genérica sin condición.
+  assert.equal(conNota('Este anexo lo puede presentar una Unión Temporal de Proveedores.'), null);
+  assert.equal(conNota('Nota: este formulario no debe presentar tachaduras ni enmendaduras.'), null);
+  assert.equal(conNota('NOTA: ESTE FORMULARIO DEBERÁ ADJUNTARLO OBLIGATORIAMENTE.'), null);
+});
+
+// El escape: cuando la licitación SÍ se presenta en UTP, los bloques de UTP dejan de omitirse.
+test('postulaComoUTP habilita las secciones de Unión Temporal', () => {
+  const xml = NS + p('UNIÓN TEMPORAL DE PROVEEDORES') + p('Nombre del integrante') + p('')
+    + p('PERSONA JURÍDICA') + p('Razón social') + p('') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const decision = (utp: boolean) => Object.fromEntries(
+    detectarSecciones(listarParrafos(norm), utp).map(s => [s.tipo, s.decision]),
+  );
+  assert.equal(decision(false).UTP, 'OMITIR');
+  assert.equal(decision(true).UTP, 'RELLENAR');
+  assert.equal(decision(true).PERSONA_JURIDICA, 'RELLENAR');   // la jurídica nunca cambia
+});

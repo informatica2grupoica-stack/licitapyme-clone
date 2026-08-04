@@ -137,6 +137,7 @@ export interface EntradaMotor {
   empresa: EmpresaCampos;
   basesTexto?: string;
   tituloAnexos?: string[]; // ordenFormularios — nombres de los anexos detectados, para el Paso 1
+  postulaComoUTP?: boolean;   // ver contextoUTP en resolverLoteCampos
 }
 
 export interface ResultadoMotor {
@@ -298,12 +299,19 @@ interface ItemLote {
 
 async function resolverLoteCampos(
   items: ItemLote[], empresa: EmpresaCampos, camposConDato: (keyof EmpresaCampos)[],
+  postulaComoUTP = false,
 ): Promise<Map<number, Resolucion>> {
   const out = new Map<number, Resolucion>();
   const ficha = camposConDato
     .map(c => `- ${c}: "${String(empresa[c])}"   (${DESCRIPCION_CAMPO[c] ?? c})`)
     .join('\n');
-  const user = `FICHA DE LA EMPRESA QUE POSTULA:\n${ficha}\n\nCASILLAS (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
+  // Sin este contexto, la regla f) del prompt manda a null TODO bloque de UTP — que es lo correcto
+  // por defecto (la empresa postula sola), pero deja el anexo de UTP vacío justo cuando el usuario
+  // acaba de confirmar en la pantalla que esta vez sí se presenta en unión temporal.
+  const contextoUTP = postulaComoUTP
+    ? '\n\nCONTEXTO DE ESTA OFERTA: en ESTA licitación la empresa se presenta en UNIÓN TEMPORAL DE PROVEEDORES (UTP), como uno de sus integrantes. Por lo tanto la excepción "bloque de UTP → no_aplica_al_oferente" de la regla f) NO corre acá: un anexo o bloque de UTP que pida el nombre / RUT / domicilio del integrante que declara SÍ se llena con los datos de la ficha, igual que cualquier otro.'
+    : '';
+  const user = `FICHA DE LA EMPRESA QUE POSTULA:\n${ficha}${contextoUTP}\n\nCASILLAS (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
 
   try {
     // modeloPreferido: 'glm-4.7' (salta el default 'flashx') — medido en pruebas reales: en
@@ -493,7 +501,7 @@ export async function resolverAlertasInadmisibilidad(basesTexto: string, tituloA
 
 // ── Orquestador ────────────────────────────────────────────────────────────────────────────
 export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<ResultadoMotor> {
-  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos } = entrada;
+  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP } = entrada;
 
   const camposConDato = (Object.keys(empresa) as (keyof EmpresaCampos)[])
     // firma_url/timbre_url son URLs de imágenes, no texto que se escriba en una casilla — si se le
@@ -523,7 +531,7 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
   }
 
   const resultados = await Promise.all(
-    enLotes(items, TAMANO_LOTE).map(lote => resolverLoteCampos(lote, empresa, camposConDato)),
+    enLotes(items, TAMANO_LOTE).map(lote => resolverLoteCampos(lote, empresa, camposConDato, postulaComoUTP)),
   );
 
   const checklistSet = new Set<string>();
