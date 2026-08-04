@@ -57,8 +57,14 @@ function TablaReal({
       {tabla.titulo && (
         <p className="text-[11px] font-bold text-slate-600 uppercase tracking-wide">{tabla.titulo}</p>
       )}
+      {/* Ancho mínimo por columna (en vez de `w-full` a secas): con muchas columnas (tablas de
+          especificaciones técnicas, 6+), forzar el 100% del contenedor angosto aplastaba cada
+          celda a unos pocos caracteres de ancho — nunca desbordaba, así que `overflow-x-auto`
+          nunca entraba a tallar y el texto quedaba amontonado en filas altísimas. Con un mínimo
+          por columna, una tabla ancha SÍ desborda y se puede desplazar horizontalmente para leerla
+          cómoda, en vez de comprimirse hasta ser ilegible. */}
       <div className="overflow-x-auto rounded-lg border border-slate-200 max-w-full">
-      <table className="w-full text-[11.5px] border-collapse table-fixed">
+      <table className="w-full text-[11.5px] border-collapse table-fixed" style={{ minWidth: maxCols * 130 }}>
         <tbody>
           {tabla.filas.map((fila, i) => (
             <tr key={i} className={i === 0 ? 'bg-slate-100' : 'odd:bg-white even:bg-slate-50/60'}>
@@ -449,14 +455,17 @@ export function AnexoRellenoModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-3"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`Rellenar anexo: ${doc.nombre}`}
     >
+      {/* Casi toda la pantalla (no un ancho fijo tipo max-w-[1400px]): pedido explícito del
+          usuario — con tablas de varias columnas (especificaciones técnicas), cuanto más angosto
+          el panel del formulario, más se aprietan las celdas. */}
       <div
-        className="flex flex-col w-full max-w-[1400px] h-[92vh] bg-white rounded-2xl overflow-hidden shadow-2xl"
+        className="flex flex-col w-[98vw] h-[97vh] bg-white rounded-2xl overflow-hidden shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Cabecera */}
@@ -482,8 +491,10 @@ export function AnexoRellenoModal({
 
         {/* Cuerpo: visor del documento a la izquierda, formulario a la derecha */}
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
-          {/* Visor — mismo mecanismo que el ojo "Ver" en Documentos (Office Online embed) */}
-          <div className="relative w-full lg:w-1/2 h-64 lg:h-full bg-slate-100 border-b lg:border-b-0 lg:border-r border-slate-200 flex-shrink-0">
+          {/* Visor — mismo mecanismo que el ojo "Ver" en Documentos (Office Online embed). 40% en
+              vez de 50/50: el formulario es el que necesita el espacio (tablas de varias columnas),
+              el visor del Word se lee bien más angosto. */}
+          <div className="relative w-full lg:w-[40%] h-64 lg:h-full bg-slate-100 border-b lg:border-b-0 lg:border-r border-slate-200 flex-shrink-0">
             {cargandoVisor && !visorLento && (
               <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
                 <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…

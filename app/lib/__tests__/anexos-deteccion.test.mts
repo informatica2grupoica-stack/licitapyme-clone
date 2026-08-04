@@ -7,7 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio } from '../anexos-docx';
-import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo } from '../anexos-detectar';
+import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla } from '../anexos-detectar';
 import { valorExisteEnFicha, type EmpresaCampos } from '../anexos-ia-motor';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
@@ -107,6 +107,15 @@ test('indiceFilaEncabezado: última fila inicial con todas sus celdas con texto'
   assert.equal(indiceFilaEncabezado([
     { completa: true, numCeldas: 1 }, { completa: false, numCeldas: 2 }, { completa: false, numCeldas: 2 },
   ]), -1);
+  // BUG REAL (1057472-89-LE26, ANEXO N°4): la fila que abre cada ítem (N° + descripción + UNA
+  // celda combinada de 4 columnas "Requisitos excluyentes:") tiene TODAS sus celdas con texto —
+  // pero al traer una celda combinada (gridSpan) nunca es el encabezado real; el de verdad es la
+  // fila 0, con los 6 nombres de columna sueltos.
+  assert.equal(indiceFilaEncabezado([
+    { completa: true, numCeldas: 6 },
+    { completa: true, numCeldas: 3, tieneCeldaCombinada: true },
+    { completa: false, numCeldas: 6 },
+  ]), 0);
 });
 
 test('tabla que abre con una fila-título mergeada: el encabezado es la siguiente (regresión cajas sin casillas)', () => {
@@ -333,4 +342,41 @@ test('"Etiqueta:" antes de una lista numerada de Word no es un campo (regresión
   const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
   assert.equal(etiquetas.some(e => e.includes('declara lo siguiente')), false,
     `el enunciado antes de una lista numerada no debe ofrecerse como campo: ${JSON.stringify(etiquetas)}`);
+});
+
+// BUG REAL (1057472-89-LE26, ANEXO N°4, "ESPECIFICACIONES TÉCNICAS"): la fila que abre cada ítem
+// trae Nº + descripción en celdas normales MÁS una celda combinada (gridSpan) con el rótulo
+// "Requisitos excluyentes:" — sus celdas SÍ tienen texto, así que se tomaba por el encabezado real
+// (en vez de la fila 0, con los 6 nombres de columna). Con ese encabezado falso de 3 columnas, cada
+// fila de requisito (con sus 6 celdas reales, 3 vacías: Cumple/Catálogo/Observaciones) se colapsaba
+// contra solo 3 columnas y esas 3 casillas quedaban sin input — exactamente lo que no dejaba
+// rellenar al usuario.
+test('fila de ítem con celda combinada (gridSpan) no es el encabezado (regresión 1057472-89-LE26 ANEXO N°4)', () => {
+  const celdaCombinada = (texto: string, span: number) =>
+    `<w:tc><w:tcPr><w:gridSpan w:val="${span}"/></w:tcPr>${p(texto)}</w:tc>`;
+  const xml = NS + tabla(
+    fila('ÍTEM', 'DESCRIPCIÓN PRODUCTO', 'ESPECIFICACIONES TÉCNICAS', 'Cumple (Sí/No)', 'Catálogo', 'Observaciones'),
+    `<w:tr>${celda('1')}${celda('Butacas clínicas')}${celdaCombinada('Requisitos excluyentes:', 4)}</w:tr>`,
+    fila('', '', '1.Ofrece butacas con ruedas', '', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+
+  const tablas = extraerTablasCrudo(norm);
+  const tablaSpecs = tablas.find(t => t.filas[0]?.celdas[0]?.texto === 'ÍTEM');
+  assert.ok(tablaSpecs, 'no se encontró la tabla de especificaciones');
+  const filaRequisito = tablaSpecs!.filas.find(f => f.celdas.some(c => c.texto.includes('Ofrece butacas')));
+  assert.ok(filaRequisito, `no se encontró la fila del requisito: ${JSON.stringify(tablaSpecs!.filas)}`);
+  assert.equal(filaRequisito!.celdas.length, 6,
+    `la fila debe conservar sus 6 columnas, no colapsarse: ${JSON.stringify(filaRequisito)}`);
+  // Cumple / Catálogo / Observaciones (columnas 3, 4 y 5) deben seguir siendo celdas vacías con su
+  // propio indiceGlobal — es decir, casillas que el usuario SÍ puede rellenar.
+  for (const col of [3, 4, 5]) {
+    assert.ok(filaRequisito!.celdas[col].indiceGlobal != null,
+      `columna ${col} (Cumple/Catálogo/Observaciones) debe quedar como casilla vacía rellenable: ${JSON.stringify(filaRequisito!.celdas[col])}`);
+  }
+
+  const etiquetas = detectarCandidatosTabla(norm).map(c => c.etiqueta);
+  for (const esperada of ['Cumple (Sí/No)', 'Catálogo', 'Observaciones']) {
+    assert.ok(etiquetas.some(e => e.includes(esperada)), `falta candidato para "${esperada}": ${JSON.stringify(etiquetas)}`);
+  }
 });

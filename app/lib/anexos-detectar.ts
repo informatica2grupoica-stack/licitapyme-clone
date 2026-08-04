@@ -314,11 +314,24 @@ function columnasPorAncho(anchosHeader: (number | null)[], anchosFila: (number |
 //    encabezado de columnas real (no hay nada que alinear contra ella) — se salta sin cortar el
 //    rastreo, exactamente igual que el caso UTP de arriba, para que el encabezado real (si existe)
 //    se seguya buscando en la fila siguiente.
-export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: number }[]): number {
+//  · BUG REAL (1057472-89-LE26, "ESPECIFICACIONES TÉCNICAS", ANEXO N°4): la fila que abre cada
+//    ítem trae Nº + descripción del producto en 2 celdas normales, MÁS una celda con
+//    `<w:gridSpan w:val="4">` que combina las 4 columnas restantes en una sola ("Requisitos
+//    excluyentes:") — sus 3 celdas TIENEN texto, así que "todas sus celdas con texto" la marcaba
+//    como el encabezado real de la tabla (en vez del la fila 0, la de verdad, con los 6 nombres de
+//    columna). Con ese encabezado fantasma de 3 columnas, alinearFilaConEncabezado colapsaba las 6
+//    celdas de CADA fila de requisito (Cumple/Catálogo/Observaciones incluidas) contra solo 3
+//    columnas — "Cumple (Sí/No)", "Catálogo" y "Observaciones del Proveedor" quedaban fusionadas
+//    sin casilla en la mitad de las filas, exactamente lo que no dejaba rellenar el usuario. Una
+//    celda combinada (gridSpan) fusiona VARIAS columnas en una — lo opuesto de lo que hace un
+//    encabezado real (nombrar cada columna por separado) — así que tampoco cuenta como encabezado.
+export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: number; tieneCeldaCombinada?: boolean }[]): number {
   let ultimo = -1;
   for (let i = 0; i < filas.length; i++) {
     if (!filas[i].completa) break;
-    if (filas[i].numCeldas < 2) continue; // fila-título de 1 celda: nunca es el encabezado real
+    // fila-título de 1 celda, o fila con alguna celda combinada (gridSpan): ninguna de las dos es
+    // el encabezado real — se salta sin cortar el rastreo.
+    if (filas[i].numCeldas < 2 || filas[i].tieneCeldaCombinada) continue;
     ultimo = i;
   }
   return ultimo;
@@ -328,6 +341,10 @@ function textosDeFila(filaXml: string): string[] {
   return [...filaXml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)].map(
     tc => [...tc[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim(),
   );
+}
+
+function filaTieneCeldaCombinada(filaXml: string): boolean {
+  return /<w:gridSpan\b/.test(filaXml);
 }
 
 function filaTieneTodasSusCeldasConTexto(filaXml: string): boolean {
@@ -382,7 +399,10 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
     // formulario y la cubre el patrón 1.
     const iEncabezado = indiceFilaEncabezado(filas.map(f => {
       const textos = textosDeFila(f[1]);
-      return { completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length };
+      return {
+        completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length,
+        tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
+      };
     }));
     if (iEncabezado < 0) continue;
     const primeraFila = filas[iEncabezado];
@@ -895,9 +915,10 @@ export function extraerTablasCrudo(xml: string): TablaCruda[] {
     // título mergeado — ver indiceFilaEncabezado): alinear contra el título dejaba la tabla de una
     // sola columna y se perdían todas las casillas de las filas de datos.
     const iEncabezado = indiceFilaEncabezado(
-      filasCrudo.map(f => ({
+      filasCrudo.map((f, i) => ({
         completa: f.celdas.length > 0 && f.celdas.every(c => c.texto.trim() !== ''),
         numCeldas: f.celdas.length,
+        tieneCeldaCombinada: filaTieneCeldaCombinada(filasXml[i][1]),
       })),
     );
     const header = iEncabezado >= 0 ? filasCrudo[iEncabezado].celdas : [];
