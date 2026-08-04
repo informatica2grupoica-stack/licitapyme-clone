@@ -10,6 +10,7 @@
 //   Prefiltro              +1h       → 01,05,09,13,17,21  (1 hora DESPUÉS del intake)
 //   Viabilidad             +1h30     → 01:30,05:30,...    (30 min DESPUÉS del prefiltro)
 //   Descarga docs Negocios cada 2h   → reintenta las asignadas que quedaron sin docs
+//   Órdenes de compra      1×/día 07:40 → busca la OC de las licitaciones que ya ofertamos
 //
 // Robustez:
 //   • restart: unless-stopped en compose → sobrevive apagones/reinicios del notebook.
@@ -101,6 +102,14 @@ async function jobPostuladas() {
   await loop('preguntas y respuestas', '/api/cron/preguntas', { lote: 20, maxPasadas: 15 });
 }
 
+// Órdenes de compra: busca en Mercado Público la OC de las licitaciones que ya ofertamos, la
+// guarda y avisa (campana + correo). UNA VEZ AL DÍA a propósito: la API no permite consultar por
+// licitación, así que hay que descargar el listado completo del día (~16.000 órdenes de todo
+// Chile) y cruzarlo. Una orden de compra no aparece "en minutos" —el organismo la emite días o
+// semanas después de adjudicar—, así que consultarla cada hora sería puro gasto. La ventana de 3
+// días cubre el fin de semana y cualquier corrida caída.
+async function jobOrdenesCompra() { await loop('órdenes de compra', '/api/cron/ordenes-compra', { maxPasadas: 1, body: { dias: 3 } }); }
+
 // ── Programación (hora Chile) ───────────────────────────────────────────────────
 const opts = { timezone: TZ };
 
@@ -110,9 +119,12 @@ cron.schedule('0 1-23/4 * * *', jobPrefiltro,  opts);   // 01,05,09,13,17,21 (1h
 cron.schedule('0 */2 * * *',    jobDocsNeg,    opts);   // cada 2h: reintenta descargas de asignadas
 cron.schedule('15 * * * *',     jobPostuladas, opts);   // cada 1h (+15min): resultado + aperturas + preguntas
 cron.schedule('30 1-23/4 * * *', jobViabilidad, opts);  // 01:30,05:30,... (30 min DESPUÉS del prefiltro)
+// 07:40: temprano, para que el aviso de "salió la orden de compra" esté cuando se abre la app, y
+// fuera de las horas en punto donde ya corren el intake y las postuladas.
+cron.schedule('40 7 * * *',     jobOrdenesCompra, opts);
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+ofertas+preguntas 15 * (cada hora)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 (1×/día)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.

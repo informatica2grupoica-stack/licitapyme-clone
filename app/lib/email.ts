@@ -456,3 +456,85 @@ export function previewEmailsHTML(appUrl = process.env.NEXT_PUBLIC_APP_URL || 'h
     ] }, appUrl),
   };
 }
+
+// ── Órdenes de compra (Mercado Público) ────────────────────────────────────────────────────
+// Aviso cuando aparece la OC de una licitación que ofertamos, o cuando cambia de estado. Es el
+// hito que cierra el ciclo comercial: hasta que no hay orden emitida y aceptada, la adjudicación
+// todavía no se convirtió en venta. Ver app/lib/ordenes-compra.ts.
+interface OrdenCompraEmail {
+  to: string;
+  nombre?: string | null;
+  esAdmin?: boolean;
+  ordenes: Array<{
+    codigo: string;
+    licitacionCodigo: string;
+    licitacionNombre: string | null;
+    organismo: string | null;
+    estado: string | null;
+    total: number | null;
+    esNueva: boolean;
+  }>;
+}
+
+function plantillaOrdenesCompra(p: OrdenCompraEmail, appUrl: string): string {
+  const base = appUrl ? appUrl.replace(/\/$/, '') : '';
+  const nuevas = p.ordenes.filter(o => o.esNueva).length;
+  const tarjetas = p.ordenes.map(o => {
+    const url = base ? `${base}/licitacion/${encodeURIComponent(o.licitacionCodigo)}` : '';
+    const acento = o.esNueva ? '#059669' : C_INDIGO;
+    const fila = (label: string, valor: string | null) => valor
+      ? `<tr><td style="padding:3px 0;color:#6b7280;font-size:13px;width:118px;">${label}</td><td style="padding:3px 0;color:#111827;font-size:13px;font-weight:500;">${esc(valor)}</td></tr>`
+      : '';
+    return `
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${acento};border-radius:8px;margin-bottom:10px;">
+      <tr><td style="padding:15px 18px;">
+        <div style="color:${acento};font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;">
+          ${o.esNueva ? 'Orden de compra emitida' : 'Cambió de estado'}
+        </div>
+        <div style="margin-top:4px;color:#0f172a;font-size:15px;font-weight:700;line-height:1.4;">${esc(o.licitacionNombre || o.licitacionCodigo)}</div>
+        <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(o.codigo)}</div>
+        <table style="width:100%;border-collapse:collapse;margin-top:11px;">
+          ${fila('Estado', o.estado)}
+          ${fila('Organismo', o.organismo)}
+          ${fila('Monto', fmtMonto(o.total))}
+          ${fila('Licitación', o.licitacionCodigo)}
+        </table>
+        ${url ? `<div style="margin-top:12px;"><a href="${url}" style="color:${C_INDIGO};font-size:13px;font-weight:600;text-decoration:none;">Ver la licitación &rsaquo;</a></div>` : ''}
+      </td></tr>
+    </table>`;
+  }).join('');
+
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">
+      ${nuevas > 0
+        ? `Mercado Público emitió ${nuevas === 1 ? 'una orden de compra' : `${nuevas} órdenes de compra`} ${p.esAdmin ? 'del equipo' : 'de una licitación tuya'}.`
+        : 'Hay novedades en las órdenes de compra que estamos siguiendo.'}
+    </p>
+    ${tarjetas}`;
+  return layoutEmail({
+    titulo: nuevas > 0 ? '🧾 Orden de compra emitida' : '🧾 Orden de compra actualizada',
+    cuerpo,
+  });
+}
+
+export async function enviarAvisoOrdenesCompra(p: OrdenCompraEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — aviso de órdenes de compra omitido'); return false; }
+  if (!p.to || p.ordenes.length === 0) return false;
+  const nuevas = p.ordenes.filter(o => o.esNueva).length;
+  try {
+    await t.sendMail({
+      from: FROM(),
+      to: p.to,
+      subject: nuevas > 0
+        ? `🧾 ${nuevas} orden${nuevas !== 1 ? 'es' : ''} de compra emitida${nuevas !== 1 ? 's' : ''}`
+        : `🧾 ${p.ordenes.length} orden${p.ordenes.length !== 1 ? 'es' : ''} de compra cambió de estado`,
+      html: plantillaOrdenesCompra(p, process.env.NEXT_PUBLIC_APP_URL || ''),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío de aviso de órdenes de compra falló:', String(e));
+    return false;
+  }
+}

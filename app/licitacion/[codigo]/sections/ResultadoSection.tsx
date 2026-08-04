@@ -11,6 +11,7 @@
 import { useEffect, useState } from 'react';
 import { useSession } from '@/app/lib/session-context';
 import DocumentosActa from '@/app/components/DocumentosActa';
+import { OrdenesCompraBloque } from './OrdenesCompraBloque';
 import {
   Trophy, Award, Calendar, Users, FileCheck2, ExternalLink,
   CheckCircle2, Loader2, Hourglass, ChevronDown, ChevronUp, Table2,
@@ -83,7 +84,8 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
   // Aún sin adjudicar → estado informativo.
   if (!adj?.esAdjudicada) {
     return (
-      <div className="bg-white rounded-2xl border border-slate-200 p-6">
+      <div className="space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm font-medium">
           <Hourglass size={16} /> Aún sin resultado publicado{adj?.estado ? ` · Estado en MP: ${adj.estado}` : ''}
         </div>
@@ -95,6 +97,11 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
           className="mt-4 inline-flex items-center gap-1.5 text-[13px] font-semibold text-indigo-600 hover:text-indigo-700">
           <ExternalLink size={14} /> Ver ficha en Mercado Público
         </a>
+        </div>
+        {/* La orden de compra puede llegar antes de que la ficha de MP diga "Adjudicada" (pasa con
+            los organismos que emiten la OC y publican la resolución después), así que el bloque se
+            muestra igual — si no hay nada, él mismo lo explica. */}
+        <OrdenesCompraBloque codigo={codigo} />
       </div>
     );
   }
@@ -154,6 +161,10 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
             perdimos, y hasta ahora había que salir a Mercado Público a buscarla a mano. */}
         <DocumentosActa codigo={codigo} isAdmin={usuario?.rol === 'admin'} acento={acc} />
       </div>
+
+      {/* Órdenes de compra: el cierre real del ciclo. La adjudicación dice que ganamos; la orden
+          de compra es la venta, y es de donde salen después los certificados de experiencia. */}
+      <OrdenesCompraBloque codigo={codigo} />
 
       {/* Ganadores por línea */}
       {lineas.length > 0 && (

@@ -185,14 +185,42 @@ export class MercadoPublicoClient {
   // ÓRDENES DE COMPRA
   // =============================================
 
+  // Detalle COMPLETO de una orden: código de la licitación de origen, montos, comprador,
+  // proveedor e ítems. Es la única llamada que entrega algo más que el código y el estado.
+  //
+  // El endpoint es `ordenesdecompra.json`, el mismo del listado. Antes acá decía `OrdenCompra.json`
+  // —que responde 404, verificado contra la API real— y por eso este método nunca funcionó; como
+  // tampoco lo llamaba nadie, el error nunca se notó.
   async obtenerOrdenCompra(codigo: string): Promise<OrdenCompraAPI | null> {
     try {
-      const url = `${API_BASE}/OrdenCompra.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
+      const url = `${API_BASE}/ordenesdecompra.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
       const data: OrdenCompraAPIResponse = await this.fetch(url);
       return data.Listado?.[0] || null;
     } catch {
       return null;
     }
+  }
+
+  // Todas las órdenes con movimiento en UN día, de todo Chile (~16.000 en día hábil, ~800 el fin
+  // de semana). Cada item trae SOLO { Codigo, Nombre, CodigoEstado } — ni proveedor ni licitación.
+  //
+  // Es un listado de MOVIMIENTOS, no de creaciones: una misma orden reaparece el día que cambia de
+  // estado. Eso es lo que permite detectar "pasó a Aceptada" además de "se emitió".
+  async listarOrdenesCompraDelDia(fecha: Date, estado = 'todos'): Promise<OrdenCompraAPI[]> {
+    const url = `${API_BASE}/ordenesdecompra.json?fecha=${this.formatFecha(fecha)}&estado=${encodeURIComponent(estado)}&ticket=${this.ticket}`;
+    const data: OrdenCompraAPIResponse = await this.fetch(url);
+    return data.Listado || [];
+  }
+
+  // Órdenes de UN proveedor (código interno de Mercado Público, NO el RUT — verificado: con el RUT
+  // en cualquier formato la API devuelve 0 resultados). Sin fecha devuelve las del día actual.
+  // Mucho más barato que el listado completo, pero exige conocer ese código: se descubre solo desde
+  // la primera orden nuestra que aparezca (ver descubrirCodigoProveedor en ordenes-compra.ts).
+  async listarOrdenesCompraPorProveedor(codigoProveedor: string, fecha?: Date): Promise<OrdenCompraAPI[]> {
+    const fechaParam = fecha ? `fecha=${this.formatFecha(fecha)}&` : '';
+    const url = `${API_BASE}/ordenesdecompra.json?${fechaParam}CodigoProveedor=${encodeURIComponent(codigoProveedor)}&ticket=${this.ticket}`;
+    const data: OrdenCompraAPIResponse = await this.fetch(url);
+    return data.Listado || [];
   }
 
   // =============================================
