@@ -2,9 +2,10 @@
 // Motor ÚNICO de decisión del Anexo Creator (reemplaza anexos-diccionario.ts +
 // anexos-ia-matching.ts + anexos-clasificar-ia.ts + anexos-ia-total.ts — decisión del usuario,
 // 3-ago-2026: "solo IA, nada de diccionario"). Decide, para CADA casilla detectada del Word, una
-// de 9 categorías (perfil de empresa/representante/contacto/banco, dato específico de esta
-// licitación, declaración de tercero, firma/fecha, no aplica, o decisión del usuario) y el valor
-// final formateado — o explica POR QUÉ queda pendiente en vez de dejarla en blanco sin más.
+// de 10 categorías (perfil de empresa/representante/contacto/banco, dato objetivo de ESTA
+// licitación, dato específico de esta oferta, declaración de tercero, firma/fecha, no aplica, o
+// decisión del usuario) y el valor final formateado — o explica POR QUÉ queda pendiente en vez de
+// dejarla en blanco sin más.
 //
 // LO QUE NO CAMBIA: la DETECCIÓN estructural (dónde está cada blanco: anexos-detectar.ts,
 // anexos-dividir.ts) y la ESCRITURA (anexos-docx.ts edita el <w:t> del run existente). Este
@@ -41,19 +42,42 @@ export interface EmpresaCampos {
   banco_numero: string | null;
   banco_nombre: string | null;
   banco_email: string | null;
+  banco_titular_nombre: string | null;
+  banco_titular_rut: string | null;
   firma_url: string | null;
   // Campos DERIVADOS (no son columnas de `empresas`) — los resuelve conCamposDerivados() en
   // anexos-derivados.ts justo antes de que este motor vea el registro.
   fecha_hoy?: string | null;
+  // Datos de ESTA LICITACIÓN (tampoco son columnas de `empresas` — se resuelven en
+  // anexos-datos.ts llamando a Mercado Público por el código de la licitación que se está
+  // rellenando, ver obtenerLicitacionParaAnexo). Van en el MISMO objeto que la ficha de empresa
+  // — no porque sean "de la empresa", sino porque el guardarraíl de categoría por categoría
+  // (CAMPOS_PERMITIDOS_POR_CATEGORIA, categoría datos_licitacion) ya evita que se crucen con los
+  // campos de la empresa; meterlos aparte hubiera significado duplicar toda esa maquinaria para
+  // un objeto paralelo. 100% determinista, igual que fecha_hoy — la IA nunca los inventa, solo
+  // elige NOMBRARLOS cuando una casilla los pide.
+  licitacion_codigo?: string | null;
+  licitacion_nombre?: string | null;
+  licitacion_organismo?: string | null;
+  licitacion_organismo_rut?: string | null;
+  licitacion_direccion?: string | null;
+  licitacion_comuna?: string | null;
+  licitacion_region?: string | null;
+  licitacion_unidad_compradora?: string | null;
+  licitacion_monto_estimado?: string | null;
+  licitacion_moneda?: string | null;
+  licitacion_fecha_publicacion?: string | null;
+  licitacion_fecha_cierre?: string | null;
 }
 
 export type CategoriaCampo =
   | 'perfil_empresa' | 'perfil_representante_legal' | 'perfil_contacto' | 'perfil_bancario'
+  | 'datos_licitacion'
   | 'especifico_licitacion' | 'declaracion_tercero' | 'firma_fecha' | 'no_aplica_al_oferente'
   | 'decision_del_usuario';
 
 const CATEGORIAS_PERFIL: CategoriaCampo[] = [
-  'perfil_empresa', 'perfil_representante_legal', 'perfil_contacto', 'perfil_bancario',
+  'perfil_empresa', 'perfil_representante_legal', 'perfil_contacto', 'perfil_bancario', 'datos_licitacion',
 ];
 
 // Qué campos de la ficha puede nombrar la IA para cada categoría — la condición NECESARIA (no
@@ -69,17 +93,26 @@ const CAMPOS_PERMITIDOS_POR_CATEGORIA: Record<string, (keyof EmpresaCampos)[]> =
   ],
   perfil_representante_legal: ['representante_nombre', 'representante_rut', 'representante_cargo'],
   perfil_contacto: ['email1', 'telefono1'],
-  perfil_bancario: ['banco_tipo_cuenta', 'banco_numero', 'banco_nombre', 'banco_email'],
+  perfil_bancario: [
+    'banco_tipo_cuenta', 'banco_numero', 'banco_nombre', 'banco_email',
+    'banco_titular_nombre', 'banco_titular_rut',
+  ],
+  datos_licitacion: [
+    'licitacion_codigo', 'licitacion_nombre', 'licitacion_organismo', 'licitacion_organismo_rut',
+    'licitacion_direccion', 'licitacion_comuna', 'licitacion_region', 'licitacion_unidad_compradora',
+    'licitacion_monto_estimado', 'licitacion_moneda', 'licitacion_fecha_publicacion', 'licitacion_fecha_cierre',
+  ],
 };
 
 // Motivo legible en español para cada categoría que NUNCA se autocompleta — se muestra en el
 // modal como ayuda bajo el campo, en vez de una casilla vacía sin explicación.
 const MOTIVO_POR_DEFECTO: Partial<Record<CategoriaCampo, string>> = {
-  especifico_licitacion: 'Dato específico de esta oferta (precio, cantidad o plazo) — se completa cruzando el costeo, no la ficha de empresa.',
+  especifico_licitacion: 'Dato específico de esta oferta (precio, cantidad, plazo o especificación técnica) — se intenta cruzar contra el costeo y las bases; si tampoco aparece ahí, hay que escribirlo a mano.',
   declaracion_tercero: 'Debe completarlo y firmarlo un tercero (ej. un cliente anterior), no el oferente.',
   firma_fecha: 'Línea de firma o "ciudad y fecha" — se firma en papel o electrónicamente, no se completa aquí.',
   no_aplica_al_oferente: 'Es de uso interno del organismo comprador (o de un bloque que no corresponde a esta empresa) — no aplica.',
   decision_del_usuario: 'Hay que decidirlo — no se puede inferir de forma segura de la ficha ni del costeo.',
+  datos_licitacion: 'Dato de esta licitación (organismo, código, monto, fechas) — no se pudo obtener de Mercado Público en este momento.',
 };
 
 export interface ResolucionAuto { tipo: 'auto'; valor: string; categoria: CategoriaCampo; evidencia: string | null }
@@ -137,7 +170,21 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   banco_numero: 'Número de cuenta bancaria',
   banco_nombre: 'Nombre del banco',
   banco_email: 'Correo electrónico para pagos',
+  banco_titular_nombre: 'Nombre del titular de la cuenta bancaria (puede ser distinto de la razón social)',
+  banco_titular_rut: 'RUT/cédula de identidad del titular de la cuenta bancaria',
   fecha_hoy: 'Fecha de hoy — con la que se firma y presenta esta oferta',
+  licitacion_codigo: 'Código/ID de ESTA licitación en Mercado Público',
+  licitacion_nombre: 'Nombre/título de ESTA licitación',
+  licitacion_organismo: 'Nombre del organismo comprador (la institución que licita, no el oferente)',
+  licitacion_organismo_rut: 'RUT del organismo comprador',
+  licitacion_direccion: 'Dirección de la unidad compradora del organismo',
+  licitacion_comuna: 'Comuna de la unidad compradora del organismo',
+  licitacion_region: 'Región de la unidad compradora del organismo',
+  licitacion_unidad_compradora: 'Nombre de la unidad/departamento que compra dentro del organismo',
+  licitacion_monto_estimado: 'Presupuesto o monto estimado de ESTA licitación',
+  licitacion_moneda: 'Moneda de ESTA licitación',
+  licitacion_fecha_publicacion: 'Fecha de publicación de ESTA licitación',
+  licitacion_fecha_cierre: 'Fecha de cierre de ESTA licitación',
 };
 
 const TAMANO_LOTE = 8;
@@ -168,12 +215,13 @@ Te doy la FICHA de la empresa que postula y una lista NUMERADA de CASILLAS EN BL
 
 Para cada casilla, decide su CATEGORÍA y su VALOR:
 
-a) "perfil_empresa" | "perfil_representante_legal" | "perfil_contacto" | "perfil_bancario": el dato sale de la ficha — indica el NOMBRE EXACTO del campo de la ficha (ej. "representante_rut", "razon_social"), NUNCA reescribas el valor tú mismo. Ojo: dentro de una misma oración pueden pedirse VARIOS campos distintos de la MISMA persona (nombre en una casilla, cédula en otra, domicilio en otra) — cada casilla es un campo distinto, nunca repitas el mismo campo en dos casillas que piden cosas distintas.
-b) "especifico_licitacion": precio, cantidad, plazo, certificación, cumplimiento técnico de un producto — NO SALE de la ficha de empresa. Nunca le pongas valor: usa null.
-c) "declaracion_tercero": lo debe completar y firmar alguien externo al oferente (ej. un cliente anterior en un certificado de experiencia, otro integrante de una UTP, el organismo/mandante). Valor null.
-d) "firma_fecha": SOLO una raya de firma manuscrita, o "Ciudad y fecha ___" pegado a ESA raya. Una declaración jurada que TERMINA en "declara bajo juramento que:" o similar NO es firma_fecha por sí sola — sus datos (nombre, cédula, domicilio) son perfil_* si los pide, igual que cualquier otro bloque. Valor null.
-e) "no_aplica_al_oferente": encabezado/columna sin dato propio que pedir, bloque de Persona Natural o UTP (esta empresa postula como persona jurídica individual), o anexo de uso interno del organismo licitante ("USO DE LA ENTIDAD LICITANTE", pautas de evaluación internas). Valor null.
-f) "decision_del_usuario": exige elegir entre opciones que no se infieren de datos objetivos (ej. qué nivel de programa de integridad declarar, si pertenece a un grupo empresarial) y no viene resuelto en la ficha. Valor null.
+a) "perfil_empresa" | "perfil_representante_legal" | "perfil_contacto" | "perfil_bancario": el dato sale de la ficha DE LA EMPRESA — indica el NOMBRE EXACTO del campo de la ficha (ej. "representante_rut", "razon_social"), NUNCA reescribas el valor tú mismo. Ojo: dentro de una misma oración pueden pedirse VARIOS campos distintos de la MISMA persona (nombre en una casilla, cédula en otra, domicilio en otra) — cada casilla es un campo distinto, nunca repitas el mismo campo en dos casillas que piden cosas distintas.
+b) "datos_licitacion": dato OBJETIVO de ESTA LICITACIÓN tal cual está publicada — código/ID, nombre del organismo comprador, RUT del organismo, dirección/comuna/región de la unidad compradora, presupuesto/monto estimado, moneda, fecha de publicación, fecha de cierre. Mismo criterio que a): indica el NOMBRE EXACTO del campo (ej. "licitacion_organismo", "licitacion_codigo"), nunca reescribas el valor. Distinto de c): acá el dato YA está fijado por el organismo que licita, no depende de lo que el oferente cotice o declare.
+c) "especifico_licitacion": precio, cantidad, plazo, especificación técnica exigida, certificación, o cumplimiento técnico de un producto — NO SALE de la ficha de empresa ni de los datos objetivos de la licitación. Nunca le pongas valor: usa null (un paso aparte, sobre las Bases, intenta resolver estas después).
+d) "declaracion_tercero": lo debe completar y firmar alguien externo al oferente (ej. un cliente anterior en un certificado de experiencia, otro integrante de una UTP, el organismo/mandante). Valor null.
+e) "firma_fecha": SOLO una raya de firma manuscrita, o "Ciudad y fecha ___" pegado a ESA raya. Una declaración jurada que TERMINA en "declara bajo juramento que:" o similar NO es firma_fecha por sí sola — sus datos (nombre, cédula, domicilio) son perfil_* si los pide, igual que cualquier otro bloque. Valor null.
+f) "no_aplica_al_oferente": encabezado/columna sin dato propio que pedir, bloque de Persona Natural o UTP (esta empresa postula como persona jurídica individual), o anexo de uso interno del organismo licitante ("USO DE LA ENTIDAD LICITANTE", pautas de evaluación internas). Valor null.
+g) "decision_del_usuario": exige elegir entre opciones que no se infieren de datos objetivos (ej. qué nivel de programa de integridad declarar, si pertenece a un grupo empresarial) y no viene resuelto en ninguna ficha. Valor null.
 
 REGLA CLAVE — UNA SOLA PERSONA: el oferente, el representante legal, el encargado de la propuesta, el contacto para la licitación y el administrador de contrato son SIEMPRE la misma persona de la ficha. Si un bloque pide "Nombre completo", "Cargo", "Cédula de identidad", "Teléfono" o "Correo" bajo cualquiera de esos títulos (incluida una declaración jurada corrida: "Yo, don ___, cédula de identidad N° ___, en representación de ___"), se llena con los datos del representante legal / de la empresa según el dato pedido — no lo dejes pendiente por dudar de quién es.
 
@@ -192,12 +240,12 @@ REGLAS DE FORMATO CHILENAS:
 - Fechas que el oferente completa (no una firma física): formato largo en español ("21 de agosto de 2026") — usa el campo fecha_hoy si la casilla pide "Fecha" pelada.
 - Nunca inventes nacionalidad, estado civil, profesión, ciudad, capital social, número de empleados — si no está en la ficha, no lo pongas.
 
-REGLA DE ORO ANTI-ALUCINACIÓN (no negociable): si no tienes un valor confirmado en la ficha para una casilla de categoría a) o b), el valor es null — NUNCA lo inventes ni lo deduzcas. Es peor un dato equivocado en una declaración jurada que uno pendiente.
+REGLA DE ORO ANTI-ALUCINACIÓN (no negociable): si no tienes un valor confirmado en alguna ficha (empresa o licitación) para una casilla de categoría a) o b), el valor es null — NUNCA lo inventes ni lo deduzcas. Es peor un dato equivocado en una declaración jurada que uno pendiente.
 
-LA PRUEBA QUE APLICAS A CADA CASILLA: ¿la etiqueta MISMA nombra el dato? Si describe otra cosa (característica de un producto, "Cumple Sí/No", "Observaciones", "Marca", "Modelo", "Página/Catálogo") es especifico_licitacion o no_aplica_al_oferente con valor null, SIEMPRE. La mayoría de las casillas de un anexo técnico NO llevan datos de la empresa — devolver muchos null es la respuesta correcta, no un error tuyo.
+LA PRUEBA QUE APLICAS A CADA CASILLA: ¿la etiqueta MISMA nombra un dato de la empresa o de la licitación tal cual está publicada? Si describe otra cosa (característica de un producto, "Cumple Sí/No", "Observaciones", "Marca", "Modelo", "Página/Catálogo") es especifico_licitacion o no_aplica_al_oferente con valor null, SIEMPRE. La mayoría de las casillas de un anexo técnico NO llevan datos de la empresa ni de la licitación — devolver muchos null es la respuesta correcta, no un error tuyo.
 
 Devuelve SOLO JSON, sin markdown ni texto adicional, respondiendo TODAS las casillas que te di, en orden:
-{"campos":[{"id":<número>,"categoria":"<una de las 9>","campo":"<nombre exacto del campo de la ficha>"|null}]}`;
+{"campos":[{"id":<número>,"categoria":"<una de las 10>","campo":"<nombre exacto del campo de la ficha>"|null}]}`;
 
 function formatearCandidatoCelda(c: CandidatoCelda, parrafos: Parrafo[], n: number): string {
   const partes: string[] = [];
@@ -250,7 +298,7 @@ async function resolverLoteCampos(
     const parsed: any = parseJsonIA(txt) || {};
     const arr = Array.isArray(parsed.campos) ? parsed.campos : [];
     const CATEGORIAS_VALIDAS = new Set<string>([
-      'perfil_empresa', 'perfil_representante_legal', 'perfil_contacto', 'perfil_bancario',
+      'perfil_empresa', 'perfil_representante_legal', 'perfil_contacto', 'perfil_bancario', 'datos_licitacion',
       'especifico_licitacion', 'declaracion_tercero', 'firma_fecha', 'no_aplica_al_oferente',
       'decision_del_usuario',
     ]);
@@ -289,6 +337,101 @@ async function resolverLoteCampos(
     for (const item of items) out.set(item.n, { tipo: 'pendiente', categoria: 'decision_del_usuario', motivo: 'No se pudo consultar la IA para esta casilla (reintenta el análisis).' });
   }
   return out;
+}
+
+// ── Paso 1b: casillas "especifico_licitacion" que las BASES sí responden ─────────────────────
+// Pedido explícito del usuario (4-ago-2026): "cuando pida especificaciones técnicas las puede
+// sacar desde las bases". Hasta ahora TODA casilla categoría especifico_licitacion (cantidad,
+// plazo, especificación exigida) quedaba SIEMPRE en null en el paso anterior — a propósito,
+// porque no sale de la ficha de empresa. Este paso se corre DESPUÉS, solo sobre las que quedaron
+// pendientes con esa categoría, y busca si el texto de las BASES declara un valor objetivo para
+// ellas (ej. "el plazo de entrega es de 15 días corridos") — un origen de datos totalmente
+// distinto (texto libre de un PDF, no una ficha estructurada), así que usa su propio prompt, más
+// estricto, y NUNCA toca perfil_*/datos_licitacion (esos ya se resolvieron o quedaron pendientes
+// arriba con su propio motivo — cruzarlos también contra las bases solo agregaría riesgo de
+// error sin necesidad, ya tienen de dónde salir).
+//
+// Lo que SIGUE sin resolver acá, a propósito: una casilla "Cumple Sí/No" o "Marca"/"Modelo" pide
+// que EL OFERENTE declare algo sobre SU PROPIO producto — las bases describen el REQUISITO, no la
+// respuesta del oferente. El prompt de abajo lo deja explícito para que el modelo no confunda
+// "las bases piden tal característica" con "el oferente confirma que la tiene".
+const SYS_BASES_CAMPOS = `Eres un experto en licitaciones públicas chilenas. Te doy el texto de las BASES (administrativas y/o técnicas) de una licitación y una lista NUMERADA de CASILLAS de un anexo que NO se pudieron resolver antes (piden un dato propio de esta oferta/licitación: cantidad, plazo, presupuesto, especificación técnica exigida — no un dato de la empresa).
+
+Para cada casilla, busca si las BASES declaran LITERALMENTE un valor objetivo que la responda (ej. "el plazo de entrega es de 15 días corridos", "la cantidad requerida es de 500 unidades", "el presupuesto disponible es de $30.000.000"). Si lo encuentras, complétala con ESE valor tal cual aparece en las bases — no lo reformatees, no lo completes con supuestos, no hagas cálculos.
+
+NUNCA completes:
+- Una casilla que pide que EL OFERENTE declare algo sobre SU PROPIO producto o servicio (ej. "¿Cumple? Sí/No", "Marca", "Modelo", "Cumple con la funcionalidad", "Observaciones del proveedor") — las bases describen lo EXIGIDO, no si el oferente lo cumple; eso lo decide el oferente, nunca tú.
+- Una casilla donde las bases no dicen el dato de forma explícita — no lo infieras, no lo estimes, no lo calcules a partir de otros datos.
+
+REGLA DE ORO ANTI-ALUCINACIÓN (no negociable): si tienes cualquier duda, o el dato no está LITERAL en las bases, el valor es null. Es peor un dato equivocado en una oferta que uno pendiente.
+
+Devuelve SOLO JSON, sin markdown ni texto adicional, respondiendo TODAS las casillas que te di, en orden:
+{"campos":[{"id":<número>,"valor":"<texto tal cual aparece en las bases>"|null,"evidencia":"<frase corta de las bases que lo confirma>"|null}]}`;
+
+async function resolverLoteDesdeBases(items: ItemLote[], basesTexto: string): Promise<Map<number, Resolucion>> {
+  const out = new Map<number, Resolucion>();
+  const user = `BASES (extracto):\n${basesTexto.slice(0, 14_000)}\n\nCASILLAS (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
+  try {
+    const completion: any = await crearChatIA({
+      messages: [{ role: 'system', content: SYS_BASES_CAMPOS }, { role: 'user', content: user }],
+      temperature: 0, stream: false, max_tokens: 4_000,
+      response_format: { type: 'json_object' },
+    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7' });
+
+    const txt = String(completion.choices?.[0]?.message?.content ?? '');
+    const parsed: any = parseJsonIA(txt) || {};
+    const arr = Array.isArray(parsed.campos) ? parsed.campos : [];
+    for (const r of arr) {
+      if (!r) continue;
+      const item = items.find(i => i.n === Number(r.id));
+      if (!item) continue;
+      const valor = typeof r.valor === 'string' ? r.valor.trim() : '';
+      if (!valor) continue; // sigue pendiente con el motivo que ya traía — no se pisa con nada
+      const evidencia = typeof r.evidencia === 'string' && r.evidencia.trim() ? r.evidencia.trim() : null;
+      out.set(item.n, { tipo: 'auto', valor, categoria: 'especifico_licitacion', evidencia });
+    }
+  } catch (error) {
+    console.error('[anexos-ia-motor] Falló un lote de bases, esas casillas siguen pendientes:', String(error).slice(0, 200));
+  }
+  return out;
+}
+
+// Recibe SOLO lo que quedó pendiente con categoría especifico_licitacion del paso anterior —
+// nunca vuelve a mandar lo ya resuelto ni lo que quedó pendiente por otro motivo (firma, tercero,
+// no aplica, decisión del usuario: nada de eso lo responden las bases).
+export async function resolverEspecificacionesDesdeBasesConIA(
+  pendientesCelda: CandidatoCelda[],
+  pendientesInline: CandidatoInline[],
+  parrafos: Parrafo[],
+  basesTexto: string,
+): Promise<{ celda: Map<number, Resolucion>; inline: Map<string, Resolucion> }> {
+  const celda = new Map<number, Resolucion>();
+  const inline = new Map<string, Resolucion>();
+  if (!basesTexto || !basesTexto.trim()) return { celda, inline };
+  if (!pendientesCelda.length && !pendientesInline.length) return { celda, inline };
+
+  let contador = 0;
+  const items: ItemLote[] = [];
+  for (const c of pendientesCelda) {
+    const n = ++contador;
+    items.push({ n, ref: { tipo: 'celda', c }, texto: formatearCandidatoCelda(c, parrafos, n) });
+  }
+  for (const b of pendientesInline) {
+    const n = ++contador;
+    items.push({ n, ref: { tipo: 'inline', b }, texto: formatearCandidatoInline(b, n) });
+  }
+
+  const lotes = enLotes(items, TAMANO_LOTE);
+  const resueltosPorLote = await Promise.all(lotes.map(lote => resolverLoteDesdeBases(lote, basesTexto)));
+  for (const mapa of resueltosPorLote) {
+    for (const [n, resolucion] of mapa) {
+      const item = items.find(i => i.n === n);
+      if (!item) continue;
+      if (item.ref.tipo === 'celda') celda.set(item.ref.c.indice, resolucion);
+      else inline.set(`${item.ref.b.indiceRun}:${item.ref.b.posEnTexto}`, resolucion);
+    }
+  }
+  return { celda, inline };
 }
 
 // ── Paso 1: barrido de riesgos de inadmisibilidad sobre el texto de las bases ────────────────

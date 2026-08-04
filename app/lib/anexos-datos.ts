@@ -4,10 +4,12 @@
 // (analizar/generar) de tener que duplicar la misma consulta y el mismo fetch.
 import pool from '@/app/lib/db';
 import type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
-import { conCamposDerivados } from '@/app/lib/anexos-derivados';
+import { conCamposDerivados, fechaLargaChile } from '@/app/lib/anexos-derivados';
 import { convertirDocADocx } from '@/app/lib/anexos-doc-legacy';
 import { parsearCosteo, itemsPrecioDeCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
+import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
+import { MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 
 export interface DocumentoYEmpresa {
   bufferOriginal: Buffer;
@@ -42,7 +44,8 @@ export async function cargarDocumentoYEmpresa(
     `SELECT razon_social, rut, direccion, region, giro, tipo_persona_juridica, fecha_sociedad,
             fecha_escritura, notaria, numero_repertorio, fojas_numero_anio,
             representante_nombre, representante_rut, representante_cargo,
-            email1, telefono1, banco_tipo_cuenta, banco_numero, banco_nombre, banco_email, firma_url
+            email1, telefono1, banco_tipo_cuenta, banco_numero, banco_nombre, banco_email,
+            banco_titular_nombre, banco_titular_rut, firma_url
        FROM empresas WHERE id = ? AND activo = TRUE LIMIT 1`,
     [empresaId],
   );
@@ -51,7 +54,9 @@ export async function cargarDocumentoYEmpresa(
   // Ciudad/comuna (extraídas de la dirección), región completa y fecha de hoy — ver
   // anexos-derivados.ts. Se agregan ACÁ, en el único puente que usan las dos rutas
   // (analizar/generar), para que ninguna pueda quedarse con el registro crudo por olvido.
-  const empresa = conCamposDerivados(empresaCruda);
+  // Los datos de LA LICITACIÓN (código, organismo, monto, fechas — ver obtenerLicitacionParaAnexo)
+  // se fusionan en el mismo punto, por la misma razón.
+  const empresa = { ...conCamposDerivados(empresaCruda), ...(await obtenerLicitacionParaAnexo(codigo)) };
 
   const resDoc = await fetch(doc.documento_url_local);
   if (!resDoc.ok) throw new Error(`No se pudo bajar el anexo original (HTTP ${resDoc.status})`);
@@ -63,6 +68,59 @@ export async function cargarDocumentoYEmpresa(
   const nombreOriginal = esDocLegado ? nombre.replace(/\.doc$/i, '.docx') : nombre;
 
   return { bufferOriginal, nombreOriginal, empresa };
+}
+
+// ── Datos de LA LICITACIÓN (código, organismo, monto, fechas…) para el motor de IA ───────────
+// Pedido explícito del usuario (4-ago-2026): varios anexos piden "ID Licitación", "Nombre del
+// organismo", "Dirección"/"Unidad compradora", "Presupuesto" — datos que YA conoce Mercado
+// Público, no algo que haya que adivinar de las Bases ni pedirle a la empresa. Se resuelven acá
+// 100% determinista (nunca por la IA — mismo criterio que fecha_hoy en anexos-derivados.ts) y se
+// fusionan a la ficha en cargarDocumentoYEmpresa, arriba.
+//
+// Llamada LIVE a la API de Mercado Público (mismo patrón que obtenerContactosCliente en
+// congelamiento.ts): best-effort, timeout corto, NUNCA lanza — si el organismo de MP está lento o
+// caído, el Anexo Creator sigue funcionando igual que hoy, solo sin estos campos (quedan
+// pendientes con su propio motivo, no rompen nada).
+function formatearMontoCLP(monto: number | null | undefined): string | null {
+  if (monto == null || !Number.isFinite(monto) || monto <= 0) return null;
+  return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(monto);
+}
+
+function formatearFechaLicitacion(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return null;
+  return fechaLargaChile(fecha);
+}
+
+type CamposLicitacion = Pick<EmpresaCampos,
+  | 'licitacion_codigo' | 'licitacion_nombre' | 'licitacion_organismo' | 'licitacion_organismo_rut'
+  | 'licitacion_direccion' | 'licitacion_comuna' | 'licitacion_region' | 'licitacion_unidad_compradora'
+  | 'licitacion_monto_estimado' | 'licitacion_moneda' | 'licitacion_fecha_publicacion' | 'licitacion_fecha_cierre'
+>;
+
+async function obtenerLicitacionParaAnexo(codigo: string): Promise<CamposLicitacion> {
+  try {
+    const lic = await getMercadoPublicoClient().obtenerPorCodigoRapido(codigo, 8_000);
+    if (!lic) return {};
+    return {
+      licitacion_codigo: lic.Codigo || codigo,
+      licitacion_nombre: lic.Nombre || null,
+      licitacion_organismo: lic.Organismo || null,
+      licitacion_organismo_rut: lic.RutOrganismo || null,
+      licitacion_direccion: lic.DireccionUnidad || null,
+      licitacion_comuna: lic.ComunaUnidad || null,
+      licitacion_region: lic.Region || null,
+      licitacion_unidad_compradora: lic.NombreUnidad || null,
+      licitacion_monto_estimado: formatearMontoCLP(lic.MontoEstimado ?? lic.MontoTotal),
+      licitacion_moneda: MONEDA_LABEL_MAP[lic.Moneda || 'CLP'] || lic.Moneda || null,
+      licitacion_fecha_publicacion: formatearFechaLicitacion(lic.FechaPublicacion),
+      licitacion_fecha_cierre: formatearFechaLicitacion(lic.FechaCierre),
+    };
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudo obtener la licitación ${codigo} para el Anexo Creator:`, String(e).slice(0, 200));
+    return {};
+  }
 }
 
 // ── Puente con el Motor Comercial (Fase 4) — precios reales para el anexo económico ──────────

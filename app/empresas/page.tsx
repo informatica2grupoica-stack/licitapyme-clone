@@ -38,6 +38,8 @@ interface Empresa {
   banco_numero?: string | null;
   banco_nombre?: string | null;
   banco_email?: string | null;
+  banco_titular_nombre?: string | null;
+  banco_titular_rut?: string | null;
   logo_url?: string | null;
   logo_nombre?: string | null;
   firma_url?: string | null;
@@ -331,6 +333,12 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
               <Campo label="N° de cuenta" value={f.banco_numero || ''} onChange={set('banco_numero')} />
               <Campo label="Banco" value={f.banco_nombre || ''} onChange={set('banco_nombre')} />
               <Campo label="Email de pagos" value={f.banco_email || ''} onChange={set('banco_email')} />
+              {/* Titular: quién es el dueño de la cuenta — no siempre es la empresa misma (puede
+                  estar a nombre del representante legal). Sin estos 2 campos, "Nombre del
+                  Titular"/"Cédula de Identidad del Titular" (casillas reales en anexos de pago,
+                  caso 1058086-43-LP26) quedaban pendientes SIEMPRE, sin dato de dónde sacarlas. */}
+              <Campo label="Titular de la cuenta" value={f.banco_titular_nombre || ''} onChange={set('banco_titular_nombre')} placeholder="Puede ser distinto de la razón social" />
+              <Campo label="RUT del titular" value={f.banco_titular_rut || ''} onChange={set('banco_titular_rut')} />
             </div>
           </section>
 

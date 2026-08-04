@@ -19,14 +19,14 @@ const TIMEOUT_VISOR_OFFICE_MS = 14_000;
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
-interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo'; formulario?: string; indice?: number }
+interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases'; formulario?: string; indice?: number }
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string; categoria?: string; motivo?: string }
 interface PendienteInline {
   id: string; contexto: string; formulario?: string;
   parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
   categoria?: string; motivo?: string;
 }
-interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'ia' | 'costeo' }; input?: { id: string } }
+interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' }; input?: { id: string } }
 interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string; titulo?: string }
 interface AlertaInadmisibilidad { riesgo: string; datoQueLoResuelve: string; disponible: boolean }
 
@@ -37,7 +37,7 @@ interface AlertaInadmisibilidad { riesgo: string; datoQueLoResuelve: string; dis
 type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
 type SegmentoUI =
   | { t: 'texto'; v: string; negrita?: boolean; subrayado?: boolean }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' }
   | { t: 'input'; id: string; largo?: number }
   | { t: 'salto' };
 interface BloqueParrafoUI {
@@ -101,15 +101,21 @@ function TablaReal({
                     />
                   ) : c.auto ? (
                     <span
-                      className={`inline-flex items-center gap-1 font-medium ${c.auto.via === 'costeo' ? 'text-cyan-700' : 'text-emerald-700'}`}
+                      className={`inline-flex items-center gap-1 font-medium ${
+                        c.auto.via === 'costeo' ? 'text-cyan-700' : c.auto.via === 'bases' ? 'text-amber-700' : 'text-emerald-700'
+                      }`}
                       title={
                         c.auto.via === 'costeo' ? 'Precio cruzado con el costeo subido — revisa antes de generar'
-                          : c.auto.via === 'ia' ? 'Completado por IA' : 'Completado automático'
+                          : c.auto.via === 'bases' ? 'Sacado del texto de las Bases — revisa antes de generar'
+                          : 'Completado por IA'
                       }
                     >
                       {c.auto.valor}
                       {c.auto.via === 'costeo' && (
                         <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-cyan-100 text-cyan-700">$</span>
+                      )}
+                      {c.auto.via === 'bases' && (
+                        <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-amber-100 text-amber-700">bases</span>
                       )}
                     </span>
                   ) : (
@@ -158,11 +164,18 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId }: {
           return (
             <span
               key={i}
-              className={`font-semibold ${s.via === 'costeo' ? 'text-cyan-700' : 'text-emerald-700'}`}
-              title={s.via === 'costeo' ? 'Precio cruzado con el costeo subido — revisa antes de generar' : 'Completado por IA'}
+              className={`font-semibold ${
+                s.via === 'costeo' ? 'text-cyan-700' : s.via === 'bases' ? 'text-amber-700' : 'text-emerald-700'
+              }`}
+              title={
+                s.via === 'costeo' ? 'Precio cruzado con el costeo subido — revisa antes de generar'
+                  : s.via === 'bases' ? 'Sacado del texto de las Bases — revisa antes de generar'
+                  : 'Completado por IA'
+              }
             >
               {s.v}
               {s.via === 'costeo' && <span className="ml-0.5 text-[9px] font-bold align-super">$</span>}
+              {s.via === 'bases' && <span className="ml-0.5 text-[9px] font-bold align-super">bases</span>}
             </span>
           );
         }

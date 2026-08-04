@@ -28,7 +28,8 @@ import {
 } from '@/app/lib/anexos-docx';
 import { analizarAnexo, extraerTablasCrudo, type CandidatoCelda, type CandidatoInline, type TablaCruda } from '@/app/lib/anexos-detectar';
 import {
-  resolverAnexoConIA, type EmpresaCampos, type Resolucion, type AlertaInadmisibilidad,
+  resolverAnexoConIA, resolverEspecificacionesDesdeBasesConIA,
+  type EmpresaCampos, type Resolucion, type AlertaInadmisibilidad,
 } from '@/app/lib/anexos-ia-motor';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { calcularTotalesPorSeccion, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
@@ -41,7 +42,7 @@ export type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 const fmtNumeroCL = (n: number) => new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n);
 
 export interface CampoCompletado {
-  etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo';
+  etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases';
   formulario?: string; // a qué "FORMULARIO N°X" pertenece, para agruparlo igual que los pendientes
   // Índice de párrafo de la celda de origen (candidatosCelda) — no lo usa el modal, solo las
   // herramientas de medición (scripts/anexos-golden.mts) para alinear contra el humano por celda.
@@ -64,7 +65,7 @@ export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: 
 // corresponde cada input.
 export interface CeldaTablaUI {
   texto: string;                                   // texto ya existente en el Word (columna, dato fijo)
-  auto?: { valor: string; via: 'ia' | 'costeo' };   // se completó sola — se muestra el valor, sin input
+  auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' };   // se completó sola — se muestra el valor, sin input
   input?: { id: string };                          // blanco real pendiente — el mismo id que usa generarAnexoFinal
 }
 export interface TablaUI {
@@ -79,7 +80,7 @@ function formularioDe(indiceParrafo: number, formularios: FormularioDetectado[])
 }
 
 export interface CampoResuelto {
-  c: CandidatoCelda; campo: string; valor: string; via: 'ia' | 'costeo';
+  c: CandidatoCelda; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases';
   // true si viene de camposConDosPuntos ("Etiqueta:" con el valor en la misma línea) — ese
   // párrafo YA tiene texto (la etiqueta misma), así que se escribe con rellenarFinDeParrafo
   // (agrega al final), nunca con rellenarCeldaVacia (que exige la celda vacía y revienta si no).
@@ -97,7 +98,7 @@ interface ResultadoResolucion {
   matcheados: CampoResuelto[];
   pendientes: CandidatoCelda[];
   pendientesConMotivo: Map<number, { categoria: string; motivo: string }>;
-  inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string }[];
+  inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' }[];
   inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[];
   alertasInadmisibilidad: AlertaInadmisibilidad[];
   checklistPendientes: string[];
@@ -164,16 +165,46 @@ async function resolverTodo(
     }
   }
 
-  const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string }[] = [];
+  const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' }[] = [];
   const inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[] = [];
   for (const b of blancosInline) {
     const res = inline.get(`${b.indiceRun}:${b.posEnTexto}`);
-    if (res?.tipo === 'auto') inlineAuto.push({ b, valor: res.valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, '') });
+    if (res?.tipo === 'auto') inlineAuto.push({ b, valor: res.valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia' });
     else if (res?.tipo === 'pendiente') inlinePendientes.push({ b, categoria: res.categoria, motivo: res.motivo });
     else inlinePendientes.push({ b, categoria: 'decision_del_usuario', motivo: 'No se pudo clasificar automáticamente esta casilla.' });
   }
 
-  return { matcheados, pendientes: pendientesTrasPrecio, pendientesConMotivo, inlineAuto, inlinePendientes, alertasInadmisibilidad, checklistPendientes };
+  // Segunda oportunidad para lo que quedó pendiente con categoría "especifico_licitacion"
+  // (cantidad, plazo, especificación exigida): puede que las BASES lo digan literal, aunque la
+  // ficha de empresa no lo tenga (ver resolverEspecificacionesDesdeBasesConIA). Ninguna otra
+  // categoría entra acá — firma/tercero/no_aplica/decisión del usuario nunca los responde un
+  // texto de bases, así que ni se intenta (ahorra la llamada).
+  let pendientesFinal = pendientesTrasPrecio;
+  let inlinePendientesFinal = inlinePendientes;
+  if (basesTexto && basesTexto.trim()) {
+    const celdaEspecifico = pendientesTrasPrecio.filter(c => pendientesConMotivo.get(c.indice)?.categoria === 'especifico_licitacion');
+    const inlineEspecifico = inlinePendientes.filter(p => p.categoria === 'especifico_licitacion').map(p => p.b);
+    if (celdaEspecifico.length || inlineEspecifico.length) {
+      const desdeBases = await resolverEspecificacionesDesdeBasesConIA(celdaEspecifico, inlineEspecifico, parrafos, basesTexto);
+      pendientesFinal = [];
+      for (const c of pendientesTrasPrecio) {
+        const res = desdeBases.celda.get(c.indice);
+        if (res?.tipo === 'auto') { matcheados.push({ c, campo: res.categoria, valor: res.valor, via: 'bases' }); pendientesConMotivo.delete(c.indice); }
+        else pendientesFinal.push(c);
+      }
+      inlinePendientesFinal = [];
+      for (const p of inlinePendientes) {
+        const res = desdeBases.inline.get(`${p.b.indiceRun}:${p.b.posEnTexto}`);
+        if (res?.tipo === 'auto') inlineAuto.push({ b: p.b, valor: res.valor, etiqueta: (p.b.contexto || '').replace(/\s*:\s*$/, ''), via: 'bases' });
+        else inlinePendientesFinal.push(p);
+      }
+    }
+  }
+
+  return {
+    matcheados, pendientes: pendientesFinal, pendientesConMotivo, inlineAuto,
+    inlinePendientes: inlinePendientesFinal, alertasInadmisibilidad, checklistPendientes,
+  };
 }
 
 // ── Totales por sección (LÍNEA/LOTE/ÍTEM...) — ver anexos-totales-seccion.ts ─────────────────
@@ -272,7 +303,7 @@ export interface AnalisisAnexo {
 }
 
 type ResolucionMostrada =
-  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' }
+  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' }
   | { tipo: 'pendiente'; etiqueta: string; id: string };
 
 export async function analizarAnexoParaUI(
@@ -337,7 +368,7 @@ export async function analizarAnexoParaUI(
 
   for (const a of inlineAuto) {
     completadosAuto.push({
-      etiqueta: a.etiqueta, campo: 'perfil', valor: a.valor, via: 'ia',
+      etiqueta: a.etiqueta, campo: 'perfil', valor: a.valor, via: a.via,
       formulario: formularioDe(a.b.indiceParrafo, formularios), indice: a.b.indiceParrafo,
     });
   }
@@ -378,7 +409,7 @@ export async function analizarAnexoParaUI(
   }
   const porBlancoInline = new Map<string, Resuelto>();
   for (const a of inlineAuto) {
-    porBlancoInline.set(`${a.b.indiceRun}:${a.b.posEnTexto}`, { tipo: 'auto', valor: a.valor, via: 'ia' });
+    porBlancoInline.set(`${a.b.indiceRun}:${a.b.posEnTexto}`, { tipo: 'auto', valor: a.valor, via: a.via });
   }
   for (const { b } of inlinePendientes) {
     porBlancoInline.set(`${b.indiceRun}:${b.posEnTexto}`, { tipo: 'pendiente', id: `inline:${b.indiceRun}:${b.posEnTexto}` });

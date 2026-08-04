@@ -283,7 +283,7 @@ test('valorExisteEnFicha descarta valores inventados por la IA (regresión CIUDA
     representante_nombre: 'Santiago López', representante_rut: '15.875.453-3', representante_cargo: 'Ingeniero',
     email1: 'ventas@grupoica.cl', telefono1: '+569 3146 2445',
     banco_tipo_cuenta: 'Cuenta corriente', banco_numero: '921197332', banco_nombre: 'Banco Security',
-    banco_email: 'pagos@grupoica.cl', firma_url: null,
+    banco_email: 'pagos@grupoica.cl', banco_titular_nombre: null, banco_titular_rut: null, firma_url: null,
   };
   // Inventado / de otro dominio por completo: no existe en ningún campo de la ficha.
   assert.equal(valorExisteEnFicha('Concepción', empresa), false);

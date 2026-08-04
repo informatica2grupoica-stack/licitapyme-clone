@@ -24,7 +24,7 @@ export type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
 
 export type SegmentoUI =
   | { t: 'texto'; v: string; negrita?: boolean; subrayado?: boolean }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' }
   | { t: 'input'; id: string; largo?: number }
   | { t: 'salto' };
 
@@ -44,7 +44,7 @@ export type BloqueUI<T> = BloqueParrafoUI | BloqueTablaUI<T>;
 // por BLANCO INLINE (una corrida de ____ dentro de una oración, que puede haber varias en el
 // mismo párrafo). Las claves son exactamente las que ya usan los ids de los pendientes, para
 // que lo que se escriba en pantalla vuelva al backend apuntando al mismo lugar.
-export interface ResueltoAuto { tipo: 'auto'; valor: string; via: 'ia' | 'costeo' }
+export interface ResueltoAuto { tipo: 'auto'; valor: string; via: 'ia' | 'costeo' | 'bases' }
 export interface ResueltoInput { tipo: 'pendiente'; id: string }
 export type Resuelto = ResueltoAuto | ResueltoInput;
 

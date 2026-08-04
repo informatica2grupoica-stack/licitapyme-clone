@@ -19,6 +19,7 @@ const CAMPOS = [
   'representante_nombre', 'representante_rut', 'representante_cargo',
   'email1', 'telefono1', 'email2', 'telefono2',
   'banco_tipo_cuenta', 'banco_numero', 'banco_nombre', 'banco_email',
+  'banco_titular_nombre', 'banco_titular_rut',
 ] as const;
 
 export async function GET(request: NextRequest) {
