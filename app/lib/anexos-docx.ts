@@ -539,7 +539,12 @@ export async function insertarImagenEnParrafo(
   // pisaba a la primera). `conservar` deja intacto lo que ya hay en el párrafo en vez de limpiarlo
   // — es lo que permite estampar el TIMBRE al lado de la firma sin borrarla: la leyenda real de
   // estos anexos es "FIRMA Y TIMBRE REPRESENTANTE LEGAL", las dos imágenes van juntas.
-  { anchoCm = 3.5, etiqueta = 'firma', conservar = false }: { anchoCm?: number; etiqueta?: string; conservar?: boolean } = {},
+  // `alineacion` mueve la imagen a la izquierda / al centro / a la derecha del renglón. Es lo que
+  // reemplaza al "arrastrarla con el mouse": un dibujo INLINE de Word no tiene coordenadas propias,
+  // vive dentro del párrafo y se ubica como se ubica el texto de ese párrafo.
+  {
+    anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion,
+  }: { anchoCm?: number; etiqueta?: string; conservar?: boolean; alineacion?: 'izquierda' | 'centro' | 'derecha' } = {},
 ): Promise<string> {
   const dim = leerDimensionesImagen(imagen);
   const relacionAltoAncho = dim && dim.anchoPx > 0 ? dim.altoPx / dim.anchoPx : 0.4;
@@ -643,8 +648,25 @@ export async function insertarImagenEnParrafo(
     nuevoCuerpo = cuerpo.replace(/<w:r\b[\s\S]*?<\/w:r>/g, '') + drawing; // fallback: no se identificó un run puntual
   }
 
+  if (alineacion) nuevoCuerpo = conAlineacion(nuevoCuerpo, alineacion);
+
   return xmlConNamespaces.slice(0, m.index) + apertura + nuevoCuerpo + cierre
     + xmlConNamespaces.slice((m.index ?? 0) + entero.length);
+}
+
+// Fija el <w:jc> del párrafo (izquierda/centro/derecha). Respeta el ORDEN que exige el esquema de
+// OOXML dentro de <w:pPr>: `jc` va después de `ind`/`spacing` y ANTES de `rPr`/`sectPr` — un
+// <w:jc> puesto al final, después del <w:rPr>, es XML que Word puede rechazar.
+function conAlineacion(cuerpo: string, alineacion: 'izquierda' | 'centro' | 'derecha'): string {
+  const val = alineacion === 'centro' ? 'center' : alineacion === 'derecha' ? 'right' : 'left';
+  const jc = `<w:jc w:val="${val}"/>`;
+  const pPr = cuerpo.match(/<w:pPr>([\s\S]*?)<\/w:pPr>/);
+  if (!pPr) return `<w:pPr>${jc}</w:pPr>${cuerpo}`;   // sin pPr: se crea, siempre al principio del párrafo
+  const dentro = pPr[1];
+  const nuevoDentro = /<w:jc\b[^>]*\/>/.test(dentro)
+    ? dentro.replace(/<w:jc\b[^>]*\/>/, jc)
+    : (/<w:rPr>/.test(dentro) ? dentro.replace('<w:rPr>', `${jc}<w:rPr>`) : dentro + jc);
+  return cuerpo.replace(pPr[0], `<w:pPr>${nuevoDentro}</w:pPr>`);
 }
 
 // ── Abrir / guardar el .docx completo (ZIP) ───────────────────────────────────────────────

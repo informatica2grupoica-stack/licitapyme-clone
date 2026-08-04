@@ -270,6 +270,31 @@ export interface FirmaInfo {
   // cargado. La combinación detectado && !disponible es la que el modal avisa — era exactamente la
   // duda del usuario ("no sé si el timbre lo tengo cargado a la empresa").
   timbreDetectado: boolean; timbreDisponible: boolean;
+  // URLs de las imágenes, para que el modal muestre la miniatura de CADA una: el usuario pidió
+  // "poder ver cuál de las dos" antes de generar.
+  firmaUrl: string | null; timbreUrl: string | null;
+  // Un lugar por cada bloque de firma detectado en el documento, con la leyenda real ("FIRMA Y
+  // TIMBRE REPRESENTANTE LEGAL") para que se sepa cuál es cuál. El modal manda de vuelta, por cada
+  // uno, qué estampar y con qué alineación — ver LugarFirma y las claves `firma:N` / `firmaPos:N`.
+  lugares: LugarFirmaUI[];
+}
+
+// `id` es el índice de párrafo, igual que el resto de los ids del modal (ver el comentario de
+// arriba del archivo sobre por qué NUNCA se usa el paraId, que es aleatorio en cada llamada).
+export interface LugarFirmaUI { id: string; contexto: string; pideTimbre: boolean }
+
+export type QueEstampar = 'ambas' | 'firma' | 'timbre' | 'ninguna';
+export type PosicionFirma = 'izquierda' | 'centro' | 'derecha';
+
+// Qué se estampa por defecto en un lugar: lo que la leyenda pide y la empresa tiene. Es la misma
+// decisión que tomaba el generador antes de que esto fuera configurable, así que no cambia el
+// resultado de nadie que no toque los controles.
+function porDefectoEnLugar(pideTimbre: boolean, hayFirma: boolean, hayTimbre: boolean): QueEstampar {
+  const timbre = pideTimbre && hayTimbre;
+  if (hayFirma && timbre) return 'ambas';
+  if (hayFirma) return 'firma';
+  if (timbre) return 'timbre';
+  return 'ninguna';
 }
 
 // Arma la vista de UNA tabla (todas sus filas/columnas, no solo las vacías) — la usan tanto
@@ -401,6 +426,13 @@ export async function analizarAnexoParaUI(
     disponible: !!empresa.firma_url,
     timbreDetectado: analisis.lineasFirma.some(l => l.pideTimbre),
     timbreDisponible: !!empresa.timbre_url,
+    firmaUrl: empresa.firma_url || null,
+    timbreUrl: empresa.timbre_url || null,
+    lugares: analisis.lineasFirma.map(l => ({
+      id: `firma:${l.indice}`,
+      contexto: l.contexto,
+      pideTimbre: !!l.pideTimbre,
+    })),
   };
   if (firma.detectada && firma.disponible) {
     completadosAuto.push({ etiqueta: 'Firma', campo: 'firma_url', valor: '(imagen de la firma guardada)', via: 'ia' });
@@ -543,18 +575,41 @@ export async function generarAnexoFinal(
   //    el TIMBRE al lado cuando la leyenda lo pide ("FIRMA Y TIMBRE REPRESENTANTE LEGAL", que es
   //    como viene redactado en la mayoría de los anexos de servicios de salud) y la ficha lo tiene.
   //    El timbre va con `conservar: true` para que se sume a la firma en vez de reemplazarla.
+  //    Qué va en CADA lugar lo decide el usuario desde el modal (claves `firma:N` y `firmaPos:N`
+  //    dentro de `respuestas`, el mismo canal que las casillas de texto). Sin elección explícita se
+  //    aplica el mismo criterio automático de siempre — ver porDefectoEnLugar.
   if (analisis.lineasFirma.length > 0) {
-    const firma = empresa.firma_url ? await descargarFirma(empresa.firma_url) : null;
-    const pidenTimbre = analisis.lineasFirma.some(l => l.pideTimbre);
-    const timbre = pidenTimbre && empresa.timbre_url ? await descargarFirma(empresa.timbre_url) : null;
-    for (const linea of analisis.lineasFirma) {
-      if (firma) {
-        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma' });
+    const decisiones = analisis.lineasFirma.map(linea => {
+      const elegido = respuestas[`firma:${linea.indice}`] as QueEstampar | undefined;
+      const que: QueEstampar = elegido && ['ambas', 'firma', 'timbre', 'ninguna'].includes(elegido)
+        ? elegido
+        : porDefectoEnLugar(!!linea.pideTimbre, !!empresa.firma_url, !!empresa.timbre_url);
+      const pos = respuestas[`firmaPos:${linea.indice}`] as PosicionFirma | undefined;
+      return {
+        linea, que,
+        alineacion: pos && ['izquierda', 'centro', 'derecha'].includes(pos) ? pos : undefined,
+      };
+    });
+
+    // Las imágenes se bajan UNA vez, y solo si alguna decisión las va a usar.
+    const usaFirma = decisiones.some(d => d.que === 'ambas' || d.que === 'firma');
+    const usaTimbre = decisiones.some(d => d.que === 'ambas' || d.que === 'timbre');
+    const firma = usaFirma && empresa.firma_url ? await descargarFirma(empresa.firma_url) : null;
+    const timbre = usaTimbre && empresa.timbre_url ? await descargarFirma(empresa.timbre_url) : null;
+
+    for (const { linea, que, alineacion } of decisiones) {
+      if (que === 'ninguna') continue;
+      // La PRIMERA imagen que entra al párrafo es la que limpia la raya; la segunda se suma con
+      // `conservar` para no borrarla. Si solo va el timbre, entonces es él el que entra primero.
+      let primera = true;
+      if (firma && (que === 'ambas' || que === 'firma')) {
+        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma', alineacion });
+        primera = false;
       }
-      if (timbre && linea.pideTimbre) {
+      if (timbre && (que === 'ambas' || que === 'timbre')) {
         xml = await insertarImagenEnParrafo(
           zip, xml, linea.paraId, timbre.buffer, timbre.extension,
-          { etiqueta: 'timbre', anchoCm: 2.8, conservar: true },
+          { etiqueta: 'timbre', anchoCm: 2.8, conservar: !primera, alineacion },
         );
       }
     }

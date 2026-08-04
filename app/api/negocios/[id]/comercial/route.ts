@@ -211,6 +211,23 @@ async function sincronizar(negocioId: number, codigo: string, informe: any): Pro
   return nuevos;
 }
 
+/** ¿El informe de viabilidad se guardó DESPUÉS de la última vez que se materializó el checklist?
+ *  Dos lecturas de una fila cada una — mucho más barato que correr sincronizar() a ciegas. */
+async function viabilidadMasNuevaQueChecklist(negocioId: number, codigo: string): Promise<boolean> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT (SELECT updated_at FROM viabilidad_licitacion WHERE licitacion_codigo = ? LIMIT 1) AS viabilidad,
+              (SELECT MAX(created_at) FROM checklist_comercial WHERE negocio_id = ?)            AS checklist`,
+      [codigo, negocioId],
+    );
+    const f = (rows as any[])[0];
+    if (!f?.viabilidad || !f?.checklist) return false;
+    return new Date(f.viabilidad).getTime() > new Date(f.checklist).getTime();
+  } catch {
+    return false;   // nunca romper la pantalla por esto: en el peor caso queda el botón manual
+  }
+}
+
 export async function bitacora(
   itemId: number, negocioId: number, accion: string,
   anterior: string | null, nuevo: string, comentario: string | null,
@@ -291,7 +308,16 @@ export async function GET(request: NextRequest, { params }: Params) {
     let items = await leerItems(negocio.id);
     // Primera entrada a ANEXOS: se materializa el checklist. Solo si la etapa está activa,
     // para no generar trabajo en licitaciones que aún están en análisis.
-    if (activo && items.length === 0 && informe) {
+    //
+    // …y si el checklist YA existe pero la viabilidad se re-analizó después, se vuelve a
+    // sincronizar sola. Antes la condición era solo `items.length === 0`, así que un re-análisis
+    // que descubría anexos nuevos NO se reflejaba acá hasta que alguien apretara "Resincronizar"
+    // a mano — el informe mostraba 11 anexos y el auditor seguía con los 7 del primer análisis,
+    // que es justo el punto donde no se puede confiar en el checklist. sincronizar() es
+    // INSERT IGNORE contra la unique (negocio_id, clave_origen): agrega lo nuevo y jamás pisa lo
+    // que el asesor ya cargó o aprobó. Se compara contra la fecha del informe para no correr los
+    // ~20 INSERT en cada carga de pantalla, solo cuando de verdad hay algo más nuevo.
+    if (activo && informe && (items.length === 0 || await viabilidadMasNuevaQueChecklist(negocio.id, negocio.licitacion_codigo))) {
       await sincronizar(negocio.id, negocio.licitacion_codigo, informe);
       items = await leerItems(negocio.id);
     }

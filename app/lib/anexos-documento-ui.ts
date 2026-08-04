@@ -19,6 +19,7 @@
 // el motor de IA (anexos-ia-motor.ts) y los patrones de detección (anexos-detectar.ts); acá solo
 // se recibe el resultado ya resuelto y se ubica en el lugar del documento donde corresponde.
 import type JSZip from 'jszip';
+import { listarBlancosInline, decodificarXml } from '@/app/lib/anexos-docx';
 
 export type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
 
@@ -246,19 +247,31 @@ export function construirDocumentoUI<T>({
       const subrayado = /<w:u\b/.test(rPr) && !/<w:u\s+w:val="none"/.test(rPr);
 
       for (const t of run.matchAll(RE_TEXTO)) {
-        const texto = t[1];
+        // DECODIFICADO, igual que detectarBlancosInline (que es de donde salen las claves de
+        // porBlancoInline). Dos motivos, los dos vistos en pantalla con 1057480-41-LP26:
+        //  · sin decodificar, la réplica mostraba literalmente "&lt;&lt;NOMBRE PERSONA NATURAL…&gt;&gt;"
+        //    en vez de "<<NOMBRE PERSONA NATURAL…>>";
+        //  · las POSICIONES no calzaban con las del detector, así que el valor ya resuelto no se
+        //    podía ubicar y el marcador quedaba a la vista aunque el .docx generado saliera bien.
+        const texto = decodificarXml(t[1]);
         const iRun = indiceRunGlobal++;
         // Los blancos de ESTE run, en orden — el texto entre uno y otro se emite tal cual, así
         // la oración se lee igual que en el Word con la casilla intercalada donde va.
+        //
+        // Se usa listarBlancosInline, LA MISMA función del detector, en vez de un regex propio.
+        // Antes acá vivía un `/_{4,}/g` duplicado, y cuando el detector aprendió los marcadores
+        // (<<…>>, [Insertar RUT], líneas de puntos) esta copia se quedó atrás: el documento salía
+        // correcto pero la vista previa mostraba el marcador crudo, que es justo lo que confunde —
+        // se ve mal lo que en realidad está bien. Compartiendo la función no pueden divergir.
         let cursor = 0;
-        for (const b of texto.matchAll(/_{4,}/g)) {
-          const res = porBlancoInline.get(`${iRun}:${b.index}`);
+        for (const b of listarBlancosInline(texto)) {
+          const res = porBlancoInline.get(`${iRun}:${b.posEnTexto}`);
           if (!res) continue;
-          if (b.index! > cursor) segmentos.push({ t: 'texto', v: texto.slice(cursor, b.index), negrita, subrayado });
+          if (b.posEnTexto > cursor) segmentos.push({ t: 'texto', v: texto.slice(cursor, b.posEnTexto), negrita, subrayado });
           segmentos.push(res.tipo === 'auto'
             ? { t: 'auto', v: res.valor, via: res.via }
-            : { t: 'input', id: res.id, largo: b[0].length });
-          cursor = b.index! + b[0].length;
+            : { t: 'input', id: res.id, largo: b.largo });
+          cursor = b.posEnTexto + b.largo;
         }
         if (cursor < texto.length) segmentos.push({ t: 'texto', v: texto.slice(cursor), negrita, subrayado });
       }

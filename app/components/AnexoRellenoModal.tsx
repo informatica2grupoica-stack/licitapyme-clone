@@ -52,7 +52,11 @@ interface Analisis {
   pendientesInline: PendienteInline[];
   tablas: TablaUI[];
   documento: BloqueUI[];
-  firma: { detectada: boolean; disponible: boolean; timbreDetectado: boolean; timbreDisponible: boolean };
+  firma: {
+    detectada: boolean; disponible: boolean; timbreDetectado: boolean; timbreDisponible: boolean;
+    firmaUrl: string | null; timbreUrl: string | null;
+    lugares: { id: string; contexto: string; pideTimbre: boolean }[];
+  };
   ordenFormularios?: string[]; // títulos en el orden del documento
   alertasInadmisibilidad?: AlertaInadmisibilidad[];
   checklistPendientes?: string[];
@@ -268,6 +272,115 @@ function ChecklistPendientes({ items }: { items: string[] }) {
   );
 }
 
+// ── Firma y timbre: qué se estampa en cada bloque y dónde ────────────────────────────────────
+// Pedido del usuario (4-ago-2026): poder VER cuál imagen es cuál antes de generar, y elegir por
+// bloque si van las dos, solo una o ninguna. Lo de "moverla con el mouse" no se puede hacer tal
+// cual: en un .docx la firma es un dibujo INLINE, vive dentro de un párrafo y no tiene coordenadas
+// propias — arrastrarla a un punto arbitrario de la hoja obligaría a convertirla en un objeto
+// flotante anclado, que es exactamente lo que descoloca el documento al abrirlo en otro Word. Lo
+// que sí manda su posición es la alineación del párrafo, y eso es lo que se expone acá.
+const OPCIONES_ESTAMPA = [
+  { v: 'ambas', label: 'Firma + timbre' },
+  { v: 'firma', label: 'Solo firma' },
+  { v: 'timbre', label: 'Solo timbre' },
+  { v: 'ninguna', label: 'Ninguna' },
+] as const;
+const OPCIONES_POSICION = [
+  { v: 'izquierda', label: 'Izq.' },
+  { v: 'centro', label: 'Centro' },
+  { v: 'derecha', label: 'Der.' },
+] as const;
+
+function BloqueFirmaTimbre({ firma, respuestas, onChange }: {
+  firma: Analisis['firma']; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
+}) {
+  const hayFirma = firma.disponible;
+  const hayTimbre = firma.timbreDisponible;
+  // Mismo criterio que el backend (porDefectoEnLugar en anexos-rellenar.ts): la pantalla tiene que
+  // mostrar seleccionado lo que de verdad va a pasar si el usuario no toca nada.
+  const porDefecto = (pideTimbre: boolean) => {
+    const timbre = pideTimbre && hayTimbre;
+    if (hayFirma && timbre) return 'ambas';
+    if (hayFirma) return 'firma';
+    if (timbre) return 'timbre';
+    return 'ninguna';
+  };
+  const disponible = (v: string) =>
+    v === 'ninguna' || (v === 'firma' && hayFirma) || (v === 'timbre' && hayTimbre) || (v === 'ambas' && hayFirma && hayTimbre);
+
+  return (
+    <div className="border border-slate-200 rounded-xl p-3 space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[12.5px] font-semibold text-slate-700">Firma y timbre</p>
+        <div className="flex items-center gap-3">
+          {firma.firmaUrl && (
+            <figure className="text-center">
+              <img src={firma.firmaUrl} alt="Firma escaneada" className="h-9 max-w-[120px] object-contain" />
+              <figcaption className="text-[10px] text-slate-400">firma</figcaption>
+            </figure>
+          )}
+          {firma.timbreUrl && (
+            <figure className="text-center">
+              <img src={firma.timbreUrl} alt="Timbre de la empresa" className="h-9 max-w-[120px] object-contain" />
+              <figcaption className="text-[10px] text-slate-400">timbre</figcaption>
+            </figure>
+          )}
+        </div>
+      </div>
+
+      {firma.lugares.map(lugar => {
+        const indice = lugar.id.split(':')[1];
+        const valor = respuestas[lugar.id] || porDefecto(lugar.pideTimbre);
+        const pos = respuestas[`firmaPos:${indice}`] || '';
+        return (
+          <div key={lugar.id} className="bg-slate-50 rounded-lg p-2 space-y-1.5">
+            <p className="text-[11.5px] text-slate-600 truncate" title={lugar.contexto}>{lugar.contexto}</p>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {OPCIONES_ESTAMPA.map(o => (
+                <button
+                  key={o.v}
+                  type="button"
+                  disabled={!disponible(o.v)}
+                  title={disponible(o.v) ? undefined : `No hay ${o.v === 'ambas' ? 'firma y timbre' : o.v} cargado en la ficha de la empresa`}
+                  onClick={() => onChange(lugar.id, o.v)}
+                  className={`text-[11px] px-2 py-1 rounded-md border transition ${
+                    valor === o.v
+                      ? 'bg-indigo-600 border-indigo-600 text-white font-medium'
+                      : disponible(o.v)
+                        ? 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
+                        : 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed'
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+              {valor !== 'ninguna' && (
+                <span className="flex items-center gap-1.5 ml-auto">
+                  <span className="text-[10.5px] text-slate-400">posición</span>
+                  {OPCIONES_POSICION.map(o => (
+                    <button
+                      key={o.v}
+                      type="button"
+                      onClick={() => onChange(`firmaPos:${indice}`, pos === o.v ? '' : o.v)}
+                      className={`text-[11px] px-1.5 py-1 rounded-md border transition ${
+                        pos === o.v
+                          ? 'bg-slate-700 border-slate-700 text-white'
+                          : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </span>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AnexoRellenoModal({
   doc, codigo, empresaId, onClose, onGenerado,
 }: {
@@ -331,7 +444,10 @@ export function AnexoRellenoModal({
     (acc, t) => acc + t.filas.reduce((a2, f) => a2 + f.filter(c => c.input).length, 0), 0,
   );
   const totalPendientes = (analisis?.pendientesCelda.length || 0) + (analisis?.pendientesInline.length || 0) + totalInputsTabla;
-  const totalRespondidas = Object.values(respuestas).filter(v => v.trim()).length;
+  // Solo las CASILLAS del documento — las claves de firma/timbre (`firma:N`, `firmaPos:N`) viajan
+  // por el mismo objeto pero no son campos por responder, y contarlas inflaba el "N/M respondidos".
+  const totalRespondidas = Object.entries(respuestas)
+    .filter(([k, v]) => !k.startsWith('firma:') && !k.startsWith('firmaPos:') && v.trim()).length;
 
   // Por qué el motor de IA (anexos-ia-motor.ts) no autocompletó cada blanco pendiente — se
   // muestra como tooltip del input en la réplica (ver BloqueParrafo), no como texto aparte:
@@ -498,6 +614,10 @@ export function AnexoRellenoModal({
                     Súbelo en <strong>/empresas</strong> (sección "Timbre digital") para que se inserte solo la próxima vez.
                   </p>
                 </div>
+              )}
+
+              {analisis.firma.lugares?.length > 0 && (
+                <BloqueFirmaTimbre firma={analisis.firma} respuestas={respuestas} onChange={setRespuesta} />
               )}
 
               {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (
