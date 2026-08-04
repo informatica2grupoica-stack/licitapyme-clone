@@ -1751,6 +1751,7 @@ function DetalleContent() {
                 negocioId={negocio.id}
                 licitacionCodigo={negocio.licitacion_codigo}
                 empresaId={negocio.empresa_id}
+                estadoPipeline={negocio.estado_pipeline}
                 onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)}
               />
             )}

@@ -1,11 +1,17 @@
 'use client';
 
-// SECCIÓN "INFORMACIÓN COMERCIAL" — el auditor de la etapa ANEXOS.
+// SECCIÓN "INFORMACIÓN COMERCIAL" — el Auditor Técnico.
 //
-// El asistente arma la oferta (anexos con los datos de la empresa, respaldo técnico, precio) y
+// El asistente arma la oferta (precio, respaldo técnico, anexos con los datos de la empresa) y
 // el asesor VISA punto por punto. El checklist no se escribe a mano: sale del informe de
 // viabilidad, así que cada fila trae su ponderación, su criticidad y la cita a las bases —
 // el asesor ve, al lado del check, cuántos puntos se juega ahí.
+//
+// Los 3 bloques NO se trabajan al mismo tiempo (ver tieneAnexosAuditor en checklist-comercial.ts):
+// COMERCIAL (precio/plazo) es lo PRIMERO, apenas se asigna la licitación y corre la viabilidad —
+// ahí el asesor fija el precio. ADMINISTRATIVO/TECNICO (los anexos) recién se muestran cuando la
+// licitación entra a la etapa ANEXOS — ya están generados desde antes, solo colapsados hasta
+// entonces.
 //
 // Tiempo real: cualquier carga o visado se refleja al instante en la pantalla del otro (SSE).
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -22,6 +28,7 @@ import { SelectorDocumentoAnexo } from '@/app/components/SelectorDocumentoAnexo'
 import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
 import { FilaLineaTecnica } from './FilaLineaTecnica';
 import { MotorComercialCard } from './MotorComercialCard';
+import { tieneAnexosAuditor } from '@/app/lib/checklist-comercial';
 import {
   ShieldCheck, Building2, Check, X, Upload, Loader2, AlertTriangle, Copy,
   FileText, DollarSign, Wrench, ClipboardCheck, RefreshCw, Undo2, Sparkles,
@@ -212,10 +219,11 @@ function BannerCambioForo({ negocioId, snapshot }: {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-export function InformacionComercialSection({ negocioId, licitacionCodigo, empresaId, onEmpresaChange }: {
+export function InformacionComercialSection({ negocioId, licitacionCodigo, empresaId, estadoPipeline, onEmpresaChange }: {
   negocioId: number;
   licitacionCodigo: string;
   empresaId: number | null;
+  estadoPipeline: string | null;
   onEmpresaChange: (id: number) => void;
 }) {
   const toast = useToast();
@@ -508,6 +516,25 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         if (delBloque.length === 0) return null;
         const Icono = b.icon;
         const bloqueadoPorEmpresa = b.key === 'ADMINISTRATIVO' && sinEmpresa;
+
+        // Administrativo/Técnico (los anexos) recién se trabajan cuando la licitación entra a
+        // ANEXOS — antes de eso lo único que importa es fijar el precio con el asesor (bloque
+        // Comercial, ver tieneAnexosAuditor). Los ítems YA están generados desde la viabilidad,
+        // solo se ocultan — así no hay que volver a sincronizar ni arriesgar perderlos al llegar
+        // a ANEXOS. Se deja el encabezado colapsado (no null) para que quede claro que ya están
+        // listos y no parezca que faltan.
+        const esAnexo = b.key === 'ADMINISTRATIVO' || b.key === 'TECNICO';
+        if (esAnexo && !tieneAnexosAuditor(estadoPipeline)) {
+          return (
+            <div key={b.key} className="bg-white rounded-xl border border-zinc-200 overflow-hidden opacity-60">
+              <div className="px-4 py-3 flex items-center gap-2">
+                <Icono size={14} className="text-zinc-400" />
+                <h3 className="text-[13px] font-bold text-zinc-800">{b.label}</h3>
+                <span className="text-[10.5px] text-zinc-400">{delBloque.length} punto{delBloque.length !== 1 ? 's' : ''} listo{delBloque.length !== 1 ? 's' : ''} para cuando pase a Anexos</span>
+              </div>
+            </div>
+          );
+        }
 
         return (
           <div key={b.key} className="bg-white rounded-xl border border-zinc-200 overflow-hidden">

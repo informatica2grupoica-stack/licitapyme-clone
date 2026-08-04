@@ -65,13 +65,35 @@ export interface ItemChecklist extends Omit<ItemGenerado, 'fuenteCita' | 'claveO
 // listo. NO se saca ninguna etapa posterior: si la pestaña desapareciera al avanzar, se perdería
 // la evidencia de auditoría justo cuando más se necesita (una licitación postulada o adjudicada
 // tiene que poder mostrar quién aprobó qué).
+//
+// Corrección del mismo pedido (4-ago-2026): "lo primero" no significa "todo junto". El flujo real
+// del asistente es (1) fijar el precio con el asesor apenas hay costeo — eso es SOLO el bloque
+// COMERCIAL — y (2) recién cuando la licitación entra a ANEXOS, ocuparse de los anexos
+// administrativos y técnicos. Mostrar los 3 bloques desde ASIGNADO (como quedó ayer) hacía
+// aparecer ADMINISTRATIVO/TECNICO sin que hubiera nada que hacer ahí todavía, antes de que el
+// asesor siquiera hubiera revisado el precio. Por eso se separa en dos etapas: COMERCIAL sigue
+// viva desde ASIGNADO (sin cambios); ADMINISTRATIVO/TECNICO recién desde ANEXOS. La GENERACIÓN de
+// ítems no cambia — el informe de viabilidad ya arma los 3 bloques de una vez cuando se
+// sincroniza — esto es solo qué se MUESTRA en cada etapa, para no tener que reabrir sincronizar()
+// otra vez al llegar a ANEXOS ni arriesgar perder ítems ya generados.
 const ETAPAS_CON_COMERCIAL = new Set([
   'ASIGNADO', 'EN_PROCESO', 'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA',
+]);
+const ETAPAS_CON_ANEXOS = new Set([
+  'ANEXOS', 'ANEXO_LISTO', 'VISADO', 'POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA',
 ]);
 
 export function tieneInformacionComercial(estadoPipeline?: string | null): boolean {
   if (!estadoPipeline) return false;
   return ETAPAS_CON_COMERCIAL.has(String(estadoPipeline).toUpperCase());
+}
+
+// El bloque COMERCIAL (precio, plazo, presupuesto) se trabaja apenas se asigna — ver el
+// comentario de arriba. ADMINISTRATIVO/TECNICO (los anexos) recién se muestran cuando la
+// licitación entra a la etapa ANEXOS, aunque ya estén generados desde antes.
+export function tieneAnexosAuditor(estadoPipeline?: string | null): boolean {
+  if (!estadoPipeline) return false;
+  return ETAPAS_CON_ANEXOS.has(String(estadoPipeline).toUpperCase());
 }
 
 // ─── Clasificación de criterios ──────────────────────────────────────────────────
