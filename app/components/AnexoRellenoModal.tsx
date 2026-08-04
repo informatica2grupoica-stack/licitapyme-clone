@@ -6,7 +6,7 @@
 // Word mientras se llena, en vez de adivinar a ciegas desde un fragmento de texto corto. Al
 // generar, el .docx final se sube a R2 y queda registrado como documento propio — aparece en
 // "Documentos para MP" (misma lista que el costeo/informe generados).
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, Download, ChevronDown, ShieldAlert, ListChecks } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
@@ -30,11 +30,28 @@ interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'ia' | 'cos
 interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string; titulo?: string }
 interface AlertaInadmisibilidad { riesgo: string; datoQueLoResuelve: string; disponible: boolean }
 
+// Réplica del documento en orden (ver anexos-documento-ui.ts en el backend, que arma esto
+// recorriendo el .docx real): un bloque por cada párrafo o tabla, con su alineación/sangría/
+// numeración reales y sus trozos de texto — para que el panel se lea EXACTAMENTE como el Word,
+// con los blancos intercalados donde van, en vez de una lista de campos aparte.
+type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
+type SegmentoUI =
+  | { t: 'texto'; v: string; negrita?: boolean; subrayado?: boolean }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' }
+  | { t: 'input'; id: string; largo?: number }
+  | { t: 'salto' };
+interface BloqueParrafoUI {
+  tipo: 'parrafo'; indice: number; alineacion: Alineacion; sangriaPx: number; marcador?: string; segmentos: SegmentoUI[];
+}
+interface BloqueTablaUI { tipo: 'tabla'; tabla: TablaUI }
+type BloqueUI = BloqueParrafoUI | BloqueTablaUI;
+
 interface Analisis {
   completadosAuto: CampoCompletado[];
   pendientesCelda: PendienteCelda[];
   pendientesInline: PendienteInline[];
   tablas: TablaUI[];
+  documento: BloqueUI[];
   firma: { detectada: boolean; disponible: boolean };
   ordenFormularios?: string[]; // títulos en el orden del documento
   alertasInadmisibilidad?: AlertaInadmisibilidad[];
@@ -109,157 +126,79 @@ function TablaReal({
   );
 }
 
-// Un pendiente unificado (celda o blanco inline) con la etiqueta ya lista para mostrar — usado
-// para agrupar por formulario cuando el documento trae varios pegados (ver anexos-dividir.ts).
-// parrafoCompleto/posEnParrafo/largoBlanco solo existen para blancos inline (una celda vacía ya
-// tiene su propia etiqueta clara, no vive dentro de una oración que haya que mostrar entera).
-interface PendienteUnificado {
-  id: string; etiqueta: string; formulario?: string;
-  parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
-  motivo?: string;
-}
-
-// Muestra el párrafo completo con el blanco resaltado — pedido explícito del usuario (caso real
-// 1058086-43-LP26): con solo la etiqueta recortada ("de ___ de ___", "RUT N°") no se entendía qué
-// pedía cada blanco de una declaración jurada corrida sin abrir el Word al lado.
-function ParrafoConBlanco({ texto, pos, largo }: { texto: string; pos?: number; largo?: number }) {
-  if (pos == null || largo == null || pos < 0 || pos + largo > texto.length) return <>{texto}</>;
+// Un párrafo de la réplica — se lee igual que la línea correspondiente en el Word: misma
+// alineación, misma sangría, mismo marcador de lista, y los trozos de texto con su negrita o
+// subrayado. Los blancos van INTERCALADOS en el texto: un valor ya resuelto se ve destacado en
+// su lugar, y uno pendiente es un input angosto (tamaño según el largo real del "____" en el
+// Word) justo donde va — no una tarjeta aparte más abajo.
+function BloqueParrafo({ b, respuestas, onChange, motivoPorId }: {
+  b: BloqueParrafoUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
+  motivoPorId: Map<string, string>;
+}) {
+  const alineacionClase: Record<Alineacion, string> = {
+    izquierda: 'text-left', centro: 'text-center', derecha: 'text-right', justificado: 'text-justify',
+  };
+  if (b.segmentos.length === 0 && !b.marcador) return <div className="h-2.5" aria-hidden="true" />;
   return (
-    <>
-      {texto.slice(0, pos)}
-      <mark className="bg-indigo-100 text-indigo-700 rounded px-0.5 not-italic">
-        {texto.slice(pos, pos + largo) || '____'}
-      </mark>
-      {texto.slice(pos + largo)}
-    </>
-  );
-}
-
-function limpiarTituloFormulario(t: string): string {
-  return t.replace(/[.:]+$/, '').trim();
-}
-
-// Las etiquetas compuestas vienen del backend como dos partes separadas por " — " (ver
-// desambiguarDuplicados y detectarCandidatosTabla): mostrarlas crudas era ilegible ("Nombre: —
-// Para uso exclusivo Proveedor Adjudicado"). Se parten para mostrar la primera destacada y la
-// segunda chica al lado, que es lo que ubica al usuario en el documento.
-//
-// Se respeta el ORDEN original a propósito: cuál de las dos partes es "el campo" depende de quién
-// armó la etiqueta —en una tabla es la primera (fila — columna), en un duplicado desambiguado es
-// la segunda (contexto — campo)— así que elegir una como principal daría vuelta la mitad de los
-// casos. Mostrando las dos en su orden, la etiqueta siempre se lee igual que en el Word.
-function partirEtiqueta(etiqueta: string): { campo: string; contexto?: string } {
-  const m = etiqueta.match(/^(.+?)\s+—\s+(.+)$/);
-  if (!m) return { campo: etiqueta.replace(/\s*:\s*$/, '') };
-  return { campo: m[1].replace(/\s*:\s*$/, ''), contexto: m[2].replace(/\s*:\s*$/, '') };
-}
-
-function EtiquetaCampo({ etiqueta }: { etiqueta: string }) {
-  const { campo, contexto } = partirEtiqueta(etiqueta);
-  return (
-    <span className="min-w-0 truncate" title={etiqueta}>
-      {campo}
-      {contexto && <span className="ml-1.5 text-[10.5px] text-slate-400 font-normal">· {contexto}</span>}
-    </span>
-  );
-}
-
-// Por qué el motor de IA (anexos-ia-motor.ts) no autocompletó esta casilla — se muestra bajo la
-// etiqueta en vez de dejar el input mudo. Pedido explícito del usuario: "que me pregunte... si
-// tiene alguna duda", no solo un blanco sin explicación.
-function MotivoPendiente({ motivo }: { motivo: string }) {
-  return (
-    <p className="text-[11px] text-amber-700 leading-snug mb-1 flex items-start gap-1">
-      <ShieldAlert size={11} className="flex-shrink-0 mt-0.5" />
-      <span>{motivo}</span>
+    <p
+      className={`text-[12.5px] leading-relaxed text-slate-800 ${alineacionClase[b.alineacion]}`}
+      style={b.sangriaPx ? { paddingLeft: b.sangriaPx } : undefined}
+    >
+      {b.marcador && <span className="mr-1.5">{b.marcador}</span>}
+      {b.segmentos.map((s, i) => {
+        if (s.t === 'salto') return <br key={i} />;
+        if (s.t === 'texto') {
+          return (
+            <span key={i} className={`${s.negrita ? 'font-bold' : ''} ${s.subrayado ? 'underline' : ''}`}>
+              {s.v}
+            </span>
+          );
+        }
+        if (s.t === 'auto') {
+          return (
+            <span
+              key={i}
+              className={`font-semibold ${s.via === 'costeo' ? 'text-cyan-700' : 'text-emerald-700'}`}
+              title={s.via === 'costeo' ? 'Precio cruzado con el costeo subido — revisa antes de generar' : 'Completado por IA'}
+            >
+              {s.v}
+              {s.via === 'costeo' && <span className="ml-0.5 text-[9px] font-bold align-super">$</span>}
+            </span>
+          );
+        }
+        const motivo = motivoPorId.get(s.id);
+        return (
+          <input
+            key={i}
+            type="text"
+            value={respuestas[s.id] || ''}
+            onChange={e => onChange(s.id, e.target.value)}
+            title={motivo}
+            placeholder="…"
+            style={{ width: Math.min(320, Math.max(70, (s.largo ?? 12) * 8)) }}
+            className={`inline-block align-baseline mx-0.5 px-1 py-0.5 text-[12.5px] bg-indigo-50/50 border-0 border-b-2 rounded-sm focus:outline-none focus:bg-indigo-50 ${
+              motivo ? 'border-amber-400' : 'border-indigo-300 focus:border-indigo-500'
+            }`}
+          />
+        );
+      })}
     </p>
   );
 }
 
-// Una CASILLA del documento — la unidad visual mínima de la réplica: una cajita con borde, la
-// etiqueta chica arriba (como en el Word) y el valor/input adentro. Antes cada campo pendiente era
-// una fila suelta en una lista vertical larga; agrupadas en una grilla (ver GrillaCampos) esto es
-// lo que hace que el panel se vea como el formulario real y no como una lista de "etiqueta: valor".
-function CampoInput({ etiqueta, valor, onChange, parrafoCompleto, posEnParrafo, largoBlanco, motivo }: {
-  etiqueta: string; valor: string; onChange: (v: string) => void;
-  parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number; motivo?: string;
+// El documento completo, en orden — un párrafo/tabla tras otro tal como está en el Word, con los
+// blancos ya resueltos o por llenar en su lugar. Reemplaza la vieja grilla de tarjetas: pedido
+// explícito del usuario (4-ago-2026) — "tiene que ser tal cual el mismo texto, la misma
+// estructura", no una lista de campos.
+function DocumentoReplica({ documento, respuestas, onChange, motivoPorId }: {
+  documento: BloqueUI[]; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
+  motivoPorId: Map<string, string>;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 min-w-0">
-      <label className="flex items-baseline text-[10.5px] font-medium text-slate-500 mb-1" title={etiqueta}>
-        <EtiquetaCampo etiqueta={etiqueta} />
-      </label>
-      {parrafoCompleto && (
-        <p className="text-[11px] text-slate-400 italic leading-snug mb-1">
-          <ParrafoConBlanco texto={parrafoCompleto} pos={posEnParrafo} largo={largoBlanco} />
-        </p>
-      )}
-      {motivo && <MotivoPendiente motivo={motivo} />}
-      <input
-        type="text"
-        value={valor}
-        onChange={e => onChange(e.target.value)}
-        placeholder="Escribe el valor…"
-        className="w-full text-[12.5px] px-2 py-1 border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
-      />
-    </div>
-  );
-}
-
-// Misma cajita, pero para lo que ya se completó solo — mismo tamaño y forma que CampoInput para
-// que en la grilla se lean como parte de UN mismo formulario, no como dos secciones distintas.
-function CampoAuto({ etiqueta, valor, via }: { etiqueta: string; valor: string; via: 'ia' | 'costeo' }) {
-  return (
-    <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 px-2.5 py-2 min-w-0">
-      <p className="flex items-center gap-1 text-[10.5px] font-medium text-emerald-700/80 mb-0.5" title={etiqueta}>
-        <EtiquetaCampo etiqueta={etiqueta} />
-        {via === 'costeo' && (
-          <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-cyan-100 text-cyan-700" title="Precio cruzado con el costeo subido — revisa antes de generar">
-            $
-          </span>
-        )}
-      </p>
-      <p className="text-[12.5px] font-semibold text-emerald-800 truncate" title={valor}>{valor}</p>
-    </div>
-  );
-}
-
-// Arma una única grilla de casillas EN EL ORDEN DEL DOCUMENTO — auto-completadas y pendientes
-// mezcladas, tal como se leen una tras otra en el Word (no dos bloques separados, "lo que se llenó
-// solo" arriba y "lo que falta" abajo, como era antes). El orden sale del índice de párrafo/celda
-// que cada una trae desde el backend (celda:N, inline:N:pos) — ninguno se muestra realmente, solo
-// ordena. Las que traen frase de contexto u motivo ocupan las 2 columnas (no entran cómodas en media).
-function GrillaCampos({ autos, items, respuestas, onChange }: {
-  autos: CampoCompletado[]; items: PendienteUnificado[];
-  respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
-}) {
-  if (!autos.length && !items.length) return null;
-  const indiceDeId = (id: string) => Number(id.split(':')[1]) || 0;
-  type Tarjeta = { orden: number; anchoCompleto: boolean; key: string; el: ReactNode };
-  const tarjetas: Tarjeta[] = [
-    ...autos.map((c, i): Tarjeta => ({
-      orden: c.indice ?? Number.MAX_SAFE_INTEGER,
-      anchoCompleto: false,
-      key: `auto:${i}:${c.etiqueta}`,
-      el: <CampoAuto etiqueta={c.etiqueta} valor={c.valor} via={c.via} />,
-    })),
-    ...items.map((p): Tarjeta => ({
-      orden: indiceDeId(p.id),
-      anchoCompleto: !!(p.parrafoCompleto || p.motivo),
-      key: p.id,
-      el: (
-        <CampoInput
-          etiqueta={p.etiqueta} valor={respuestas[p.id] || ''} onChange={v => onChange(p.id, v)}
-          parrafoCompleto={p.parrafoCompleto} posEnParrafo={p.posEnParrafo} largoBlanco={p.largoBlanco} motivo={p.motivo}
-        />
-      ),
-    })),
-  ].sort((a, b) => a.orden - b.orden);
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      {tarjetas.map(t => (
-        <div key={t.key} className={t.anchoCompleto ? 'sm:col-span-2' : undefined}>{t.el}</div>
-      ))}
+    <div className="bg-white border border-slate-200 rounded-xl px-5 py-4">
+      {documento.map((bloque, i) => bloque.tipo === 'tabla'
+        ? <div key={i} className="my-2.5"><TablaReal tabla={bloque.tabla} respuestas={respuestas} onChange={onChange} /></div>
+        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} />)}
     </div>
   );
 }
@@ -381,51 +320,14 @@ export function AnexoRellenoModal({
   const totalPendientes = (analisis?.pendientesCelda.length || 0) + (analisis?.pendientesInline.length || 0) + totalInputsTabla;
   const totalRespondidas = Object.values(respuestas).filter(v => v.trim()).length;
 
-  // Unifica celdas + blancos inline en una sola lista, y agrupa por formulario (igual que las
-  // tablas reales) cuando el documento trae varios pegados. Si NINGÚN pendiente tiene
-  // formulario (caso común: un solo formulario), queda todo en "sinFormulario"/"tablasSinFormulario"
-  // y se muestra como antes, sin encabezados extra.
-  const pendientesTodos: PendienteUnificado[] = analisis ? [
-    ...analisis.pendientesCelda.map(p => ({ id: p.id, etiqueta: p.etiqueta, formulario: p.formulario, motivo: p.motivo })),
-    ...analisis.pendientesInline.map(p => ({
-      id: p.id, etiqueta: p.contexto.replace(/\s*:\s*$/, ''), formulario: p.formulario,
-      parrafoCompleto: p.parrafoCompleto, posEnParrafo: p.posEnParrafo, largoBlanco: p.largoBlanco,
-      motivo: p.motivo,
-    })),
-  ] : [];
-  const gruposFormulario: { titulo: string; items: PendienteUnificado[]; tablas: TablaUI[]; autos: CampoCompletado[] }[] = [];
-  const sinFormulario: PendienteUnificado[] = [];
-  const tablasSinFormulario: TablaUI[] = [];
-  const autosSinFormulario: CampoCompletado[] = [];
-  const grupoDe = (titulo: string) => {
-    let grupo = gruposFormulario.find(g => g.titulo === titulo);
-    if (!grupo) { grupo = { titulo, items: [], tablas: [], autos: [] }; gruposFormulario.push(grupo); }
-    return grupo;
-  };
-  for (const p of pendientesTodos) {
-    if (!p.formulario) { sinFormulario.push(p); continue; }
-    grupoDe(p.formulario).items.push(p);
-  }
-  for (const t of analisis?.tablas || []) {
-    if (!t.formulario) { tablasSinFormulario.push(t); continue; }
-    grupoDe(t.formulario).tablas.push(t);
-  }
-  // Lo que se completa solo va DENTRO de su formulario, igual que los pendientes: verlo junto a la
-  // tabla de ese formulario es lo que hace entendible un documento con 5 formularios pegados que
-  // piden los mismos datos una y otra vez.
-  for (const c of analisis?.completadosAuto || []) {
-    if (!c.formulario) { autosSinFormulario.push(c); continue; }
-    grupoDe(c.formulario).autos.push(c);
-  }
-  // En el orden del documento, no en el orden en que los fue encontrando cada lista.
-  const orden = analisis?.ordenFormularios || [];
-  gruposFormulario.sort((a, b) => {
-    const ia = orden.indexOf(a.titulo), ib = orden.indexOf(b.titulo);
-    return (ia === -1 ? Number.MAX_SAFE_INTEGER : ia) - (ib === -1 ? Number.MAX_SAFE_INTEGER : ib);
-  });
-  const hayFormularios = gruposFormulario.length > 0;
-  const contarInputs = (tablas: TablaUI[]) =>
-    tablas.reduce((a, t) => a + t.filas.reduce((a2, f) => a2 + f.filter(c => c.input).length, 0), 0);
+  // Por qué el motor de IA (anexos-ia-motor.ts) no autocompletó cada blanco pendiente — se
+  // muestra como tooltip del input en la réplica (ver BloqueParrafo), no como texto aparte:
+  // dentro de un párrafo corrido no hay lugar para una frase de motivo sin romper la lectura
+  // exacta del documento. Pedido explícito del usuario: "que me pregunte... si tiene alguna
+  // duda" sigue cumplido, solo que ahora vive en el `title` del input.
+  const motivoPorId = new Map<string, string>();
+  for (const p of analisis?.pendientesCelda || []) if (p.motivo) motivoPorId.set(p.id, p.motivo);
+  for (const p of analisis?.pendientesInline || []) if (p.motivo) motivoPorId.set(p.id, p.motivo);
 
   const handleGenerar = async () => {
     setGenerando(true);
@@ -576,59 +478,15 @@ export function AnexoRellenoModal({
                 </div>
               )}
 
-              {hayFormularios ? (
-                <>
-                  {/* Un bloque por formulario, con TODO lo suyo adentro: lo que se completa solo,
-                      la tabla tal cual está en el Word, y lo que hay que escribir. Antes los
-                      completados iban en una sola lista arriba, sin decir a qué formulario
-                      pertenecía cada uno — en un documento con 5 formularios que piden los mismos
-                      datos, esa lista era ilegible. */}
-                  {gruposFormulario.map(g => {
-                    const porLlenar = g.items.length + contarInputs(g.tablas);
-                    return (
-                      <div key={g.titulo} className="space-y-2">
-                        <div className="flex items-baseline justify-between gap-2 border-b border-indigo-100 pb-1">
-                          <p className="text-[11px] font-bold text-indigo-700 uppercase tracking-wider truncate" title={g.titulo}>
-                            {limpiarTituloFormulario(g.titulo)}
-                          </p>
-                          <p className="text-[10.5px] text-slate-400 flex-shrink-0">
-                            {porLlenar > 0 ? `${porLlenar} por llenar` : 'nada por llenar'}
-                          </p>
-                        </div>
-                        {g.tablas.map((t, i) => (
-                          <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
-                        ))}
-                        <GrillaCampos autos={g.autos} items={g.items} respuestas={respuestas} onChange={setRespuesta} />
-                      </div>
-                    );
-                  })}
-                  {(sinFormulario.length > 0 || tablasSinFormulario.length > 0 || autosSinFormulario.length > 0) && (
-                    <div className="space-y-2">
-                      <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-100 pb-1">
-                        Otros campos
-                        {sinFormulario.length + contarInputs(tablasSinFormulario) > 0
-                          && ` (${sinFormulario.length + contarInputs(tablasSinFormulario)})`}
-                      </p>
-                      {tablasSinFormulario.map((t, i) => (
-                        <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
-                      ))}
-                      <GrillaCampos autos={autosSinFormulario} items={sinFormulario} respuestas={respuestas} onChange={setRespuesta} />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (
-                    <p className="text-[12px] text-slate-400">No quedan campos pendientes por completar a mano.</p>
-                  )}
-                  {tablasSinFormulario.map((t, i) => (
-                    <TablaReal key={i} tabla={t} respuestas={respuestas} onChange={setRespuesta} />
-                  ))}
-                  <GrillaCampos autos={autosSinFormulario} items={sinFormulario} respuestas={respuestas} onChange={setRespuesta} />
-                </>
+              {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (
+                <p className="text-[12px] text-slate-400">No quedan campos pendientes por completar a mano.</p>
               )}
 
-              {analisis.completadosAuto.length === 0 && totalPendientes === 0 && (
+              {analisis.documento.length > 0 ? (
+                <DocumentoReplica
+                  documento={analisis.documento} respuestas={respuestas} onChange={setRespuesta} motivoPorId={motivoPorId}
+                />
+              ) : (
                 <div className="flex items-center gap-2 text-[12.5px] text-slate-400 py-6 justify-center">
                   <FileText size={14} /> No se detectaron campos para completar en este documento.
                 </div>

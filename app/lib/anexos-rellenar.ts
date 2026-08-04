@@ -33,6 +33,7 @@ import {
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { calcularTotalesPorSeccion, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
+import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
 import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 
 export type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
@@ -232,11 +233,37 @@ async function descargarFirma(firmaUrl: string): Promise<{ buffer: Buffer; exten
 
 export interface FirmaInfo { detectada: boolean; disponible: boolean }
 
+// Arma la vista de UNA tabla (todas sus filas/columnas, no solo las vacías) — la usan tanto
+// `tablas` (lista plana filtrada, para las herramientas de medición) como `tablasPorIndice` (sin
+// filtrar, para que la réplica del documento muestre también las tablas que no tienen blancos).
+function construirTablaUI(
+  t: TablaCruda, formularios: FormularioDetectado[], titulos: TituloCercano[],
+  resolucionPorIndice: Map<number, ResolucionMostrada>, rellenosPorParaId: Map<string, { paraId: string; valor: string }>,
+): TablaUI {
+  return {
+    formulario: t.indicePrimero != null ? formularioDe(t.indicePrimero, formularios) : undefined,
+    titulo: tituloDeTabla(t.indicePrimero, titulos)?.texto,
+    filas: t.filas.map(f => f.celdas.map((c): CeldaTablaUI => {
+      const relleno = c.ultimoParaId ? rellenosPorParaId.get(c.ultimoParaId) : undefined;
+      if (relleno) return { texto: c.texto, auto: { valor: `${c.texto ? c.texto + ' ' : ''}${relleno.valor}`, via: 'costeo' } };
+      if (c.indiceGlobal == null) return { texto: c.texto };
+      const res = resolucionPorIndice.get(c.indiceGlobal);
+      if (!res) return { texto: c.texto };
+      if (res.tipo === 'auto') return { texto: '', auto: { valor: res.valor, via: res.via } };
+      return { texto: '', input: { id: res.id } };
+    })),
+  };
+}
+
 export interface AnalisisAnexo {
   completadosAuto: CampoCompletado[];
   pendientesCelda: PendienteCelda[];
   pendientesInline: PendienteInline[];
   tablas: TablaUI[];
+  // El documento COMPLETO en orden, listo para dibujarse como una copia del Word en pantalla
+  // (ver anexos-documento-ui.ts). Es lo que realmente se muestra: `completadosAuto`/`pendientes*`
+  // quedan como resumen/contadores y para las herramientas de medición (scripts/anexos-golden).
+  documento: BloqueUI<TablaUI>[];
   secciones: SeccionInfo[];
   firma: FirmaInfo;
   ordenFormularios: string[];
@@ -251,10 +278,11 @@ type ResolucionMostrada =
 export async function analizarAnexoParaUI(
   bufferOriginal: Buffer, empresa: EmpresaCampos, itemsCosteo?: ItemCosteoPrecio[], basesTexto?: string,
 ): Promise<AnalisisAnexo> {
-  const { xml: xmlCrudo } = await abrirDocx(bufferOriginal);
+  const { zip, xml: xmlCrudo } = await abrirDocx(bufferOriginal);
   const { xml: xmlNormalizado } = normalizarParaIds(xmlCrudo);
   const analisis = analizarAnexo(xmlNormalizado);
   const formularios = detectarFormularios(xmlNormalizado);
+  const numeracion = await leerNumeracion(zip);
 
   const tablasCrudo = extraerTablasCrudo(xmlNormalizado);
   const indicesEnTablas = new Set(
@@ -289,24 +317,18 @@ export async function analizarAnexoParaUI(
     return { id, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios), categoria: motivo?.categoria, motivo: motivo?.motivo };
   });
 
-  // Reconstruye cada tabla del Word COMPLETA (todas las celdas, no solo las vacías) para que el
-  // panel de pendientes se vea como el documento real.
+  // Reconstruye cada tabla del Word COMPLETA (todas las celdas, no solo las vacías). `tablasPorIndice`
+  // queda SIN filtrar (todas, incluidas las que no tienen ningún blanco) porque la réplica del
+  // documento (`documento`, ver más abajo) necesita mostrarlas igual que en el Word aunque no haya
+  // nada que llenar en ellas; `tablas` sigue filtrada (solo las que tienen algo por completar) para
+  // las herramientas de medición (scripts/anexos-golden) que ya dependían de ese recorte.
   const rellenosPorParaId = new Map(anexarDirecto.map(r => [r.paraId, r]));
-  const tablas: TablaUI[] = tablasCrudo
-    .map(t => ({
-      formulario: t.indicePrimero != null ? formularioDe(t.indicePrimero, formularios) : undefined,
-      titulo: tituloDeTabla(t.indicePrimero, titulos)?.texto,
-      filas: t.filas.map(f => f.celdas.map((c): CeldaTablaUI => {
-        const relleno = c.ultimoParaId ? rellenosPorParaId.get(c.ultimoParaId) : undefined;
-        if (relleno) return { texto: c.texto, auto: { valor: `${c.texto ? c.texto + ' ' : ''}${relleno.valor}`, via: 'costeo' } };
-        if (c.indiceGlobal == null) return { texto: c.texto };
-        const res = resolucionPorIndice.get(c.indiceGlobal);
-        if (!res) return { texto: c.texto };
-        if (res.tipo === 'auto') return { texto: '', auto: { valor: res.valor, via: res.via } };
-        return { texto: '', input: { id: res.id } };
-      })),
-    }))
-    .filter(t => t.filas.some(f => f.some(c => c.input || c.auto)));
+  const tablasUI = tablasCrudo.map(t => ({ t, ui: construirTablaUI(t, formularios, titulos, resolucionPorIndice, rellenosPorParaId) }));
+  const tablasPorIndice = new Map<number, TablaUI>();
+  for (const { t, ui } of tablasUI) {
+    if (t.indicePrimero != null) tablasPorIndice.set(t.indicePrimero, ui);
+  }
+  const tablas: TablaUI[] = tablasUI.map(({ ui }) => ui).filter(t => t.filas.some(f => f.some(c => c.input || c.auto)));
 
   const pendientesCelda = pendientesCeldaTodos.filter(p => {
     const indice = Number(p.id.split(':')[1]);
@@ -342,11 +364,35 @@ export async function analizarAnexoParaUI(
   // duplicado: una vez adentro de la tabla, otra vez como tarjeta suelta más abajo.
   const completadosAutoFinal = completadosAuto.filter(c => c.indice == null || !indicesEnTablas.has(c.indice));
 
+  // La réplica del documento (ver anexos-documento-ui.ts): un `Resuelto` por cada blanco YA
+  // resuelto, en las dos formas en que puede estar — por PÁRRAFO (`resolucionPorIndice`, mismo
+  // mapa que arma las tablas de arriba) y por BLANCO INLINE (`inlineAuto`/`inlinePendientes`,
+  // clave `${indiceRun}:${posEnTexto}`). Los índices que caen DENTRO de una tabla no hacen daño
+  // acá: `construirDocumentoUI` nunca los consulta porque una tabla se dibuja entera a través de
+  // `tablasPorIndice`, no párrafo por párrafo.
+  const porParrafo = new Map<number, Resuelto>();
+  for (const [indice, res] of resolucionPorIndice) {
+    porParrafo.set(indice, res.tipo === 'auto'
+      ? { tipo: 'auto', valor: res.valor, via: res.via }
+      : { tipo: 'pendiente', id: res.id });
+  }
+  const porBlancoInline = new Map<string, Resuelto>();
+  for (const a of inlineAuto) {
+    porBlancoInline.set(`${a.b.indiceRun}:${a.b.posEnTexto}`, { tipo: 'auto', valor: a.valor, via: 'ia' });
+  }
+  for (const { b } of inlinePendientes) {
+    porBlancoInline.set(`${b.indiceRun}:${b.posEnTexto}`, { tipo: 'pendiente', id: `inline:${b.indiceRun}:${b.posEnTexto}` });
+  }
+  const documento = construirDocumentoUI({
+    xml: xmlNormalizado, porParrafo, porBlancoInline, tablasPorIndice, numeracion,
+  });
+
   return {
     completadosAuto: completadosAutoFinal,
     pendientesCelda,
     pendientesInline,
     tablas,
+    documento,
     secciones: analisis.secciones.map(s => ({ tipo: s.tipo, decision: s.decision, textoEncabezado: s.textoEncabezado })),
     firma,
     ordenFormularios: formularios.map(f => f.titulo),
