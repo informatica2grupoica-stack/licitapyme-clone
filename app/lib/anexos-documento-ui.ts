@@ -189,12 +189,29 @@ export function construirDocumentoUI<T>({
     const bloqueXml = xml.slice(m.index, fin);
 
     if (esTabla) {
-      const tabla = tablasPorIndice.get(indiceParrafo);
+      const indiceInicioTabla = indiceParrafo;
+      const numParrafosTabla = (bloqueXml.match(/<w:p\b[^>]*>/g) || []).length;
+      const tabla = tablasPorIndice.get(indiceInicioTabla);
       if (tabla !== undefined) bloques.push({ tipo: 'tabla', tabla });
+      // Tablas ANIDADAS (un <w:tbl> dentro de una celda de esta): finDeTabla ya las consumió
+      // enteras como parte del span de la tabla exterior (por eso nunca generan su propio match
+      // de nivel superior más adelante en este mismo recorrido) — sin este barrido quedarían
+      // completamente invisibles, ni su contenido ni sus blancos. tablasCrudo (anexos-detectar.ts)
+      // SÍ las reporta como entradas propias en tablasPorIndice, así que alcanza con buscar, entre
+      // el índice de esta tabla y el de la siguiente cosa que sigue, cuáles otras claves caen
+      // adentro y emitirlas también — en el orden en que aparecen, justo después de la exterior.
+      // Caso real (1058086-43-LP26, "PAUTA DE EVALUACIÓN TÉCNICA... (ANEXO 11)"): sin esto, dos de
+      // las tablas del documento (las de "ANEXO N°12"/"ANEXO N°13") no aparecían nunca en la
+      // réplica ni eran rellenables.
+      for (const [indiceTablaAnidada, tablaAnidada] of tablasPorIndice) {
+        if (indiceTablaAnidada > indiceInicioTabla && indiceTablaAnidada < indiceInicioTabla + numParrafosTabla) {
+          bloques.push({ tipo: 'tabla', tabla: tablaAnidada });
+        }
+      }
       // Aunque la tabla se dibuje aparte, sus párrafos y sus <w:t> SÍ cuentan para la numeración
       // global — si no se avanzan los contadores, todo lo que viene después queda corrido y los
       // blancos se ubicarían en el párrafo equivocado.
-      indiceParrafo += (bloqueXml.match(/<w:p\b[^>]*>/g) || []).length;
+      indiceParrafo += numParrafosTabla;
       indiceRunGlobal += (bloqueXml.match(RE_TEXTO) || []).length;
       pos = fin;
       continue;

@@ -337,6 +337,53 @@ export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: numb
   return ultimo;
 }
 
+// Red de respaldo de indiceFilaEncabezado, para cuando esta NO encuentra nada (-1): busca el
+// PRÓXIMO bloque de filas completas en CUALQUIER PARTE de lo que queda de la tabla, no solo al
+// principio — y aplica el mismo criterio de arriba (saltar título de 1 celda / gridSpan, quedarse
+// con la última del bloque) sobre ese bloque.
+//
+// Caso real (1058086-43-LP26, "PAUTA DE EVALUACIÓN TÉCNICA DE INSUMOS CLÍNICOS (ANEXO 11)"): UN
+// SOLO <w:tbl> físico mete tres secciones distintas, una atrás de otra ("1.- DATOS
+// INSTITUCIONALES", "2.- CARACTERÍSTICAS ENVASE", "3.- CARACTERÍSTICAS PRODUCTO"), cada una con SU
+// PROPIO encabezado de columnas (SÍ | NO | N/A | FUNDAMENTACIÓN) a mitad de tabla — la primera
+// fila de la tabla YA es una celda vacía (relleno de layout), así que indiceFilaEncabezado corta
+// el rastreo ahí mismo y nunca llega a ver esos encabezados. Sin esto, `detectarCandidatosTabla`
+// se saltaba la tabla ENTERA (`iEncabezado < 0`) y cada fila de evaluación ("A) ROTULACIÓN EN
+// ESPAÑOL", 4 casillas SÍ/NO/N/A/FUNDAMENTACIÓN) quedaba en manos del patrón 1 (etiqueta + UN
+// blanco siguiente): de las 4 casillas por fila, solo la primera (bajo "SÍ") aparecía en pantalla.
+//
+// Exige 3+ columnas — a diferencia de indiceFilaEncabezado, que sí acepta un encabezado de 2 (ver
+// "ANEXO N°6 (MARCAR CON UNA X)" en detectarCandidatosTabla): activar este respaldo con solo 2
+// columnas en medio de una tabla de FORMULARIO [etiqueta][valor] arriesgaría tomar una fila
+// casualmente llena (ej. una fecha pre-impresa entre dos filas en blanco) como un encabezado
+// falso y desalinear todo lo que sigue. Con 3+ columnas ese falso positivo es improbable.
+//
+// Y a diferencia de indiceFilaEncabezado, NO exige que TODAS las celdas traigan texto — se
+// conforma con "como mucho una en blanco". La grilla SÍ/NO/N/A/FUNDAMENTACIÓN real trae la
+// PRIMERA columna (la que en las filas de datos lleva la etiqueta "A) ROTULACIÓN...") en blanco
+// también en la fila de encabezado — no hay "nombre de columna" para la columna de la etiqueta,
+// solo para las que vienen después. Exigir el 100% de las celdas con texto (como si fuera el
+// encabezado de arriba de una tabla de datos normal) hacía que esta fila NUNCA calzara.
+//
+// Tampoco descarta filas con celda combinada (gridSpan) — a diferencia de indiceFilaEncabezado.
+// Verificado contra el documento real: la fila SÍ/NO/N/A/FUNDAMENTACIÓN trae un gridSpan (probable
+// combinación de layout ajena al significado de las columnas) y sin este ajuste NUNCA calificaba
+// como encabezado. El requisito de "como mucho una celda en blanco" ya descarta las filas de DATOS
+// de esta misma tabla (traen 1 sola celda con texto de 5), así que no hay riesgo real de tomar una
+// fila de datos por encabezado solo por sacar esta condición.
+function siguienteEncabezadoTablaExtenso(
+  filas: { numCeldas: number; numCeldasConTexto: number; tieneCeldaCombinada?: boolean }[], desde: number,
+): number {
+  const esCandidata = (f: { numCeldas: number; numCeldasConTexto: number; tieneCeldaCombinada?: boolean }) =>
+    f.numCeldas >= 3 && f.numCeldasConTexto >= f.numCeldas - 1;
+  let i = desde;
+  while (i < filas.length && !esCandidata(filas[i])) i++;
+  if (i >= filas.length) return -1;
+  let ultimo = i;
+  for (; i < filas.length && esCandidata(filas[i]); i++) ultimo = i;
+  return ultimo;
+}
+
 function textosDeFila(filaXml: string): string[] {
   return [...filaXml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)].map(
     tc => [...tc[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim(),
@@ -395,98 +442,122 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
     if (filas.length < 2) continue; // hace falta al menos encabezado + 1 fila de datos
 
     // El encabezado no es necesariamente la fila 0 — ver indiceFilaEncabezado. Las filas anteriores
-    // son títulos de la tabla y no llevan datos. Si no hay encabezado (-1), la tabla es de
-    // formulario y la cubre el patrón 1.
-    const iEncabezado = indiceFilaEncabezado(filas.map(f => {
+    // son títulos de la tabla y no llevan datos. Si no hay encabezado (-1) en el bloque inicial, se
+    // intenta el respaldo (siguienteEncabezadoTablaExtenso): puede haber uno o más encabezados más
+    // adelante en la MISMA tabla física (ver su comentario — caso real ANEXO 11). Si tampoco
+    // encuentra nada, la tabla es de formulario y la cubre el patrón 1.
+    const filasInfo = filas.map(f => {
       const textos = textosDeFila(f[1]);
       return {
         completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length,
+        numCeldasConTexto: textos.filter(t => t !== '').length,
         tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
       };
-    }));
-    if (iEncabezado < 0) continue;
-    const primeraFila = filas[iEncabezado];
-    const restoFilas = filas.slice(iEncabezado + 1);
-    if (!restoFilas.length) continue;
-    const celdasEncabezado = extraerCeldasDeFila(primeraFila[1], 0, new Map());
-    const nombresColumna = celdasEncabezado.map(c => c.texto);
-    const anchosHeader = celdasEncabezado.map(c => c.anchoPct);
+    });
+    const primerEncabezado = indiceFilaEncabezado(filasInfo);
+    const encabezados: number[] = [];
+    if (primerEncabezado >= 0) {
+      // Camino normal — SIN cambios de comportamiento respecto a antes: un solo encabezado.
+      encabezados.push(primerEncabezado);
+    } else {
+      for (let desde = 0; ;) {
+        const i = siguienteEncabezadoTablaExtenso(filasInfo, desde);
+        if (i < 0) break;
+        encabezados.push(i);
+        desde = i + 1;
+      }
+    }
+    if (!encabezados.length) continue;
 
-    // ¿Es una tabla de DATOS (primera fila = nombres de columna, resto = filas de datos) o una
-    // tabla de FORMULARIO ([etiqueta][valor][etiqueta][valor], sin encabezado)? Todo lo que sigue
-    // asume la primera; aplicado a la segunda produce datos en la celda equivocada.
-    //
-    // BUG REAL que esto corrige (4291-38-LP26, verificado exportando el .docx generado a PDF): la
-    // tabla de identificación del oferente es
-    //     [NOMBRE O RAZÓN SOCIAL][  ][RUT          ][  ]
-    //     [DIRECCIÓN COMERCIAL  ][  ][INICIO ACTIV.][  ]
-    //     [CIUDAD               ][  ][FONO         ][  ]
-    // Al tratarla como tabla de datos: (a) `filaContexto` —la celda más larga de la fila— se le
-    // asignaba a TODAS las celdas vacías de esa fila, así que la celda de INICIO ACTIV. recibía la
-    // etiqueta "DIRECCIÓN COMERCIAL" y terminaba con la dirección escrita adentro, y la del RUT del
-    // representante recibía "NOMBRE COMPLETO REP. LEGAL" y terminaba con el nombre; (b) la primera
-    // fila se tomaba como encabezado, inventando una columna llamada "RUT" que producía etiquetas
-    // fantasma ("CORREO ELECTRÓNICO — RUT") rellenadas con el RUT de la empresa; y (c) al quedar
-    // dos celdas bajo una sola etiqueta, CIUDAD, FONO y CONTACTO OFERENTE 2 nunca llegaban a ser
-    // candidatos y quedaban vacíos sin avisar.
-    //
-    // La señal es simple y determinista: un encabezado REAL tiene todas sus columnas nombradas. Si
-    // ninguna fila inicial cumple eso, la tabla no tiene encabezado y es de formulario — la cubre el
-    // patrón 1, que empareja cada etiqueta con la celda vacía que le sigue en orden de lectura. Ese
-    // caso ya salió por el `iEncabezado < 0` de arriba.
-    const hayEncabezado = nombresColumna.some(t => t.length > 0);
+    // Cada encabezado abre su propio SEGMENTO — sus filas de datos van hasta el próximo encabezado
+    // (o el fin de la tabla, para el último). Con un solo encabezado (el caso de siempre) hay un
+    // solo segmento y esto es idéntico al comportamiento anterior.
+    for (let s = 0; s < encabezados.length; s++) {
+      const iEncabezado = encabezados[s];
+      const finSegmento = s + 1 < encabezados.length ? encabezados[s + 1] : filas.length;
+      const primeraFila = filas[iEncabezado];
+      const restoFilas = filas.slice(iEncabezado + 1, finSegmento);
+      if (!restoFilas.length) continue;
+      const celdasEncabezado = extraerCeldasDeFila(primeraFila[1], 0, new Map());
+      const nombresColumna = celdasEncabezado.map(c => c.texto);
+      const anchosHeader = celdasEncabezado.map(c => c.anchoPct);
 
-    for (const fila of restoFilas) {
-      // Mismo ajuste que arriba: fila.index es la posición del <w:tr>...</w:tr> completo, pero
-      // fila[1] (lo que se le pasa a extraerCeldasDeFila) arranca después de la apertura "<w:tr...>".
-      const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
-      const celdas = extraerCeldasDeFila(fila[1], offsetFila, offsetsIndices);
-      // Antes exigía 3+ columnas ("2 ya las cubre el patrón 1, etiqueta | valor") — pero esa
-      // suposición solo vale cuando la tabla NO tiene encabezado (ahí sí la cubre el patrón 1, y
-      // ni siquiera se llega hasta acá por el `if (iEncabezado < 0) continue` de arriba). Con
-      // encabezado SÍ detectado (como acá) y solo 2 columnas, el patrón 1 nunca la toca — caso
-      // real 1058086-43-LP26, ANEXO N°6 "(MARCAR CON UNA X)": una tabla de 2 columnas [casilla
-      // vacía | descripción de la opción] donde la primera fila trae AMBAS celdas con texto (la
-      // instrucción "(MARCAR CON UNA X)" comparte fila con la primera opción) — quedaba fuera de
-      // los dos patrones a la vez y ninguna casilla de "marcar con X" aparecía nunca en el modal.
-      if (celdas.length < 2) continue;
+      // ¿Es una tabla de DATOS (primera fila = nombres de columna, resto = filas de datos) o una
+      // tabla de FORMULARIO ([etiqueta][valor][etiqueta][valor], sin encabezado)? Todo lo que sigue
+      // asume la primera; aplicado a la segunda produce datos en la celda equivocada.
+      //
+      // BUG REAL que esto corrige (4291-38-LP26, verificado exportando el .docx generado a PDF): la
+      // tabla de identificación del oferente es
+      //     [NOMBRE O RAZÓN SOCIAL][  ][RUT          ][  ]
+      //     [DIRECCIÓN COMERCIAL  ][  ][INICIO ACTIV.][  ]
+      //     [CIUDAD               ][  ][FONO         ][  ]
+      // Al tratarla como tabla de datos: (a) `filaContexto` —la celda más larga de la fila— se le
+      // asignaba a TODAS las celdas vacías de esa fila, así que la celda de INICIO ACTIV. recibía la
+      // etiqueta "DIRECCIÓN COMERCIAL" y terminaba con la dirección escrita adentro, y la del RUT del
+      // representante recibía "NOMBRE COMPLETO REP. LEGAL" y terminaba con el nombre; (b) la primera
+      // fila se tomaba como encabezado, inventando una columna llamada "RUT" que producía etiquetas
+      // fantasma ("CORREO ELECTRÓNICO — RUT") rellenadas con el RUT de la empresa; y (c) al quedar
+      // dos celdas bajo una sola etiqueta, CIUDAD, FONO y CONTACTO OFERENTE 2 nunca llegaban a ser
+      // candidatos y quedaban vacíos sin avisar.
+      //
+      // La señal es simple y determinista: un encabezado REAL tiene todas sus columnas nombradas. Si
+      // ninguna fila inicial cumple eso, la tabla no tiene encabezado y es de formulario — la cubre el
+      // patrón 1, que empareja cada etiqueta con la celda vacía que le sigue en orden de lectura. Ese
+      // caso ya salió por el `if (!encabezados.length) continue` de arriba.
+      const hayEncabezado = nombresColumna.some(t => t.length > 0);
 
-      let filaContexto = '';
-      for (const c of celdas) if (c.texto.length > filaContexto.length) filaContexto = c.texto;
-      // Una fila SIN NINGÚN texto propio sigue siendo válida: en una tabla que se llena entera
-      // (especificaciones técnicas, participantes de una capacitación) TODAS las filas están en
-      // blanco y la etiqueta sale del nombre de la columna. Antes se descartaba la fila completa —
-      // caso real 4291-38-LP26: el FORMULARIO N°3 tiene 20 celdas para llenar y no aparecía
-      // ninguna, la caja salía en pantalla sin una sola casilla.
+      for (const fila of restoFilas) {
+        // Mismo ajuste que arriba: fila.index es la posición del <w:tr>...</w:tr> completo, pero
+        // fila[1] (lo que se le pasa a extraerCeldasDeFila) arranca después de la apertura "<w:tr...>".
+        const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
+        const celdas = extraerCeldasDeFila(fila[1], offsetFila, offsetsIndices);
+        // Antes exigía 3+ columnas ("2 ya las cubre el patrón 1, etiqueta | valor") — pero esa
+        // suposición solo vale cuando la tabla NO tiene encabezado (ahí sí la cubre el patrón 1, y
+        // ni siquiera se llega hasta acá por el `if (!encabezados.length) continue` de arriba). Con
+        // encabezado SÍ detectado (como acá) y solo 2 columnas, el patrón 1 nunca la toca — caso
+        // real 1058086-43-LP26, ANEXO N°6 "(MARCAR CON UNA X)": una tabla de 2 columnas [casilla
+        // vacía | descripción de la opción] donde la primera fila trae AMBAS celdas con texto (la
+        // instrucción "(MARCAR CON UNA X)" comparte fila con la primera opción) — quedaba fuera de
+        // los dos patrones a la vez y ninguna casilla de "marcar con X" aparecía nunca en el modal.
+        if (celdas.length < 2) continue;
 
-      // Alineación por ANCHO REAL, no por índice de posición — ver columnasPorAncho arriba.
-      // Reemplaza la alineación "desde la derecha" anterior: esa asumía que el relleno decorativo
-      // siempre va al PRINCIPIO de la fila, pero un documento real (1738-18-LE26) trae filas con
-      // relleno en cantidad y posición distintas fila a fila — con índices, cualquier fila que no
-      // calzara con el patrón asumido perdía su candidato real de PRECIO (o lo etiquetaba con la
-      // columna equivocada).
-      const columnaDeCadaCelda = columnasPorAncho(anchosHeader, celdas.map(c => c.anchoPct));
+        let filaContexto = '';
+        for (const c of celdas) if (c.texto.length > filaContexto.length) filaContexto = c.texto;
+        // Una fila SIN NINGÚN texto propio sigue siendo válida: en una tabla que se llena entera
+        // (especificaciones técnicas, participantes de una capacitación) TODAS las filas están en
+        // blanco y la etiqueta sale del nombre de la columna. Antes se descartaba la fila completa —
+        // caso real 4291-38-LP26: el FORMULARIO N°3 tiene 20 celdas para llenar y no aparecía
+        // ninguna, la caja salía en pantalla sin una sola casilla.
 
-      celdas.forEach((c, colIndex) => {
-        if (!c.vacio || c.indiceGlobal == null || !c.paraId) return;
-        // Celda angosta a propósito (relleno de layout, ver ANCHO_PCT_MINIMO_COLUMNA_REAL) —
-        // nunca es un dato real que pedir, se ignora aunque esté "vacía".
-        if (c.anchoPct != null && c.anchoPct < ANCHO_PCT_MINIMO_COLUMNA_REAL) return;
-        const nombreColumna = hayEncabezado ? nombresColumna[columnaDeCadaCelda[colIndex]] : '';
-        const etiqueta = filaContexto && nombreColumna
-          ? `${filaContexto} — ${nombreColumna}`
-          : (filaContexto || nombreColumna);
-        if (!etiqueta) return; // ni fila ni columna dan un nombre: no hay cómo describir la celda
-        // Si la fila no aporta NINGÚN texto, la etiqueta es solo el nombre de la columna y la celda
-        // pertenece a una tabla que se llena entera (especificaciones, participantes de una
-        // capacitación): son datos de la oferta, nunca de identificación de la empresa. Se muestran
-        // para llenarlos a mano pero no se autocompletan — sin esto, la columna "RUT" de la tabla de
-        // asistentes del acta de capacitación se rellenaba con el RUT de la empresa en las 8 filas.
-        out.push({
-          etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal,
-          ...(filaContexto ? {} : { soloManual: true }),
+        // Alineación por ANCHO REAL, no por índice de posición — ver columnasPorAncho arriba.
+        // Reemplaza la alineación "desde la derecha" anterior: esa asumía que el relleno decorativo
+        // siempre va al PRINCIPIO de la fila, pero un documento real (1738-18-LE26) trae filas con
+        // relleno en cantidad y posición distintas fila a fila — con índices, cualquier fila que no
+        // calzara con el patrón asumido perdía su candidato real de PRECIO (o lo etiquetaba con la
+        // columna equivocada).
+        const columnaDeCadaCelda = columnasPorAncho(anchosHeader, celdas.map(c => c.anchoPct));
+
+        celdas.forEach((c, colIndex) => {
+          if (!c.vacio || c.indiceGlobal == null || !c.paraId) return;
+          // Celda angosta a propósito (relleno de layout, ver ANCHO_PCT_MINIMO_COLUMNA_REAL) —
+          // nunca es un dato real que pedir, se ignora aunque esté "vacía".
+          if (c.anchoPct != null && c.anchoPct < ANCHO_PCT_MINIMO_COLUMNA_REAL) return;
+          const nombreColumna = hayEncabezado ? nombresColumna[columnaDeCadaCelda[colIndex]] : '';
+          const etiqueta = filaContexto && nombreColumna
+            ? `${filaContexto} — ${nombreColumna}`
+            : (filaContexto || nombreColumna);
+          if (!etiqueta) return; // ni fila ni columna dan un nombre: no hay cómo describir la celda
+          // Si la fila no aporta NINGÚN texto, la etiqueta es solo el nombre de la columna y la celda
+          // pertenece a una tabla que se llena entera (especificaciones, participantes de una
+          // capacitación): son datos de la oferta, nunca de identificación de la empresa. Se muestran
+          // para llenarlos a mano pero no se autocompletan — sin esto, la columna "RUT" de la tabla de
+          // asistentes del acta de capacitación se rellenaba con el RUT de la empresa en las 8 filas.
+          out.push({
+            etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal,
+            ...(filaContexto ? {} : { soloManual: true }),
+          });
         });
-      });
+      }
     }
   }
   return out;

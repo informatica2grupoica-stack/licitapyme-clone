@@ -22,7 +22,14 @@ export interface FormularioDetectado { titulo: string; indiceInicio: number; ind
 // secciones pegadas en un mismo .docx (caso real encontrado: "ANEXO Nº1" / "ANEXO N°2
 // ECONOMICO" — antes solo se reconocía "FORMULARIO", así que un documento así no se dividía
 // nunca, quedaba como un solo bloque de cientos de párrafos sin segmentar).
-export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+/i;
+//
+// Segunda forma (la alternativa después del "|"): a partir de cierto número, el mismo organismo
+// puede titular "PAUTA DE EVALUACIÓN TÉCNICA DE INSUMOS CLÍNICOS (ANEXO 11)" — el número va al
+// FINAL de una línea descriptiva, entre paréntesis, y SIN el "N°" (caso real 1058086-43-LP26:
+// Anexo 1 a 10 usan "ANEXO N°X" al principio de la línea, pero 11, 12 y 13 usan "(ANEXO X)" al
+// final). Sin esta segunda forma esos tres anexos no calzaban con ningún encabezado: no se
+// dividían en su propio archivo y quedaban fusionados dentro del bloque del ANEXO N°10 anterior.
+export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+|\(\s*ANEXO\s*N?[°ºO]?\.?\s*\d+(?:-[A-Z])?\s*\)\s*$/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
 // Un BLOQUE es un elemento de NIVEL SUPERIOR del body: un párrafo suelto o una tabla completa
@@ -148,8 +155,10 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
 }
 
 // "FORMULARIO N°1-A: IDENTIFICACIÓN..." / "ANEXO N°2 ECONOMICO" → "N1-A" / "N2" (nombre de archivo)
+// / "PAUTA... (ANEXO 11)" → "N11" (ver RE_ENCABEZADO_FORMULARIO para la forma "(ANEXO X)").
 function sufijoDeArchivo(titulo: string): string {
-  const m = titulo.match(/(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*(\d+(?:-[A-Z])?)/i);
+  const m = titulo.match(/(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*(\d+(?:-[A-Z])?)/i)
+    ?? titulo.match(/\(\s*ANEXO\s*N?[°ºO]?\.?\s*(\d+(?:-[A-Z])?)\s*\)\s*$/i);
   const base = m ? `N${m[1]}` : titulo.slice(0, 20);
   return base.replace(/[^\w-]/g, '_');
 }
