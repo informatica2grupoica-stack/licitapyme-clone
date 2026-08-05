@@ -13,7 +13,7 @@ import {
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha } from '../anexos-detectar';
 import { valorExisteEnFicha, type EmpresaCampos } from '../anexos-ia-motor';
 import { esCandidatoDePrecioUnitario } from '../anexos-precios-columnas';
-import { calcularTotalesAlPie } from '../anexos-totales-seccion';
+import { calcularTotalesAlPie, pareceFilaDePie } from '../anexos-totales-seccion';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
 const FIN = '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
@@ -444,12 +444,27 @@ test('esCandidatoDePrecioUnitario reconoce los encabezados reales y sigue excluy
   }
 
   // La columna TOTAL nunca se autocompleta (la cantidad del Word no tiene por qué ser la del
-  // costeo), y una columna que no habla de plata tampoco entra.
+  // costeo), y una columna que no habla de plata tampoco entra. Los casos con "unitario" Y "total"
+  // (o "con IVA") son los que importan: solo se rechazan si la exclusión funciona de verdad — sin
+  // ellos el test pasaba igual por el camino del encabezado neutro, y así se coló el bug del
+  // cuantificador (`totales?` = "totale"+"s"?, que nunca calzó con "total").
   for (const columna of [
     'PRECIO TOTAL', 'VALOR TOTAL', 'TOTAL NETO', 'MONTO TOTAL OFERTADO', 'SUBTOTAL',
     'CANTIDAD', 'UNIDAD DE MEDIDA', 'PLAZO DE ENTREGA', 'IVA 19%',
+    // Todos estos existen tal cual en los anexos ya descargados:
+    'Precio Unitario Total (Neto )',                                   // dice unitario Y total
+    'Valor Unitario (Impuestos incluidos)',                            // unitario pero CON impuestos
+    'VALOR UNITARIO CON IVA $',                                        // idem
+    'Precio unitario BRUTO (Precio unitario neto + IVA)',              // el costeo entrega NETOS
+    'Valor bruto',
+    'PRECIO MÁXIMO DISPONIBLE (INCLUYE IMPUESTOS Y FLETE) POR UNIDAD', // presupuesto del organismo
   ]) {
     assert.equal(esCandidatoDePrecioUnitario(`EMPANADA PINO — ${columna}`), false, `NO debería aceptar "${columna}"`);
+  }
+
+  // Y estos SÍ, sacados del mismo corpus.
+  for (const columna of ['Costo Unitario Neto', 'Valor Neto precio unitario ($) (*)', 'Valor Unitario (Sin IVA)', 'Precio Unitario Neto (CLP)']) {
+    assert.equal(esCandidatoDePrecioUnitario(`EMPANADA PINO — ${columna}`), true, `debería aceptar "${columna}"`);
   }
 
   // Sin la forma "<ítem> — <columna>" no hay tabla de precios que cruzar.
@@ -484,6 +499,71 @@ test('totales al pie: suma la columna, aplica el IVA que declara la fila y cuadr
   // Regla dura: si UN ítem quedó sin precio, no se escribe NINGÚN total de esa tabla.
   const incompleto = calcularTotalesAlPie(tablas, i => (i === preciosIdx[0] ? 3941 : null));
   assert.deepEqual(incompleto, [], `con un ítem sin precio no se escribe nada: ${JSON.stringify(incompleto)}`);
+});
+
+// "Total" es una MARCA de herramientas muy usada en Chile: filas de ítem reales dicen "marca
+// equivalente a: Total" (3825-20-LE26, 2322-27-LE26, 2735-55-LE26). Tomarlas por fila de pie las
+// dejaba fuera de la suma Y les escribía el total encima de su precio.
+test('totales al pie: una fila de ítem que menciona la marca "Total" no es el pie de la tabla', () => {
+  const xml = NS + tabla(
+    fila('N°', 'DESCRIPCIÓN', 'CANTIDAD', 'PRECIO UNITARIO'),
+    fila('1', 'SIERRA CALADORA, 570w, marca equivalente a: Total', '2', ''),
+    fila('2', 'HUINCHA DE MEDIR 10M. Marca equivalente a TOTAL', '10', ''),
+    fila('TOTAL NETO', '', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const tablas = extraerTablasCrudo(norm);
+  const idx = tablas[0].filas.slice(1, 3).map(f => f.celdas[3].indiceGlobal!);
+  const valores = new Map([[idx[0], 50_000], [idx[1], 3_000]]);
+
+  const rellenos = calcularTotalesAlPie(tablas, i => valores.get(i) ?? null);
+  assert.equal(rellenos.length, 1, `solo la fila TOTAL NETO es pie: ${JSON.stringify(rellenos)}`);
+  assert.equal(rellenos[0].etiqueta.trim(), 'TOTAL NETO');
+  // Y las dos sierras/huinchas entraron a la suma con su cantidad: 2×50.000 + 10×3.000 = 130.000.
+  assert.equal(rellenos[0].valor, '130.000');
+});
+
+// Una fila de pie con TRES casillas vacías (neto | IVA | total en la misma fila) es ambigua: no
+// hay forma de saber cuál es cuál, y adivinar escribe un número donde no va.
+test('totales al pie: fila de pie con más de una casilla vacía se deja al humano', () => {
+  const xml = NS + tabla(
+    fila('N°', 'PRODUCTO', 'PRECIO NETO'),
+    fila('1', 'PAN AMASADO', ''),
+    fila('Total Neto IVA Total con IVA', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const tablas = extraerTablasCrudo(norm);
+  const idx = tablas[0].filas[1].celdas[2].indiceGlobal!;
+  assert.deepEqual(calcularTotalesAlPie(tablas, i => (i === idx ? 1689 : null)), []);
+});
+
+// Los rótulos de acá salieron de auditar los 300 anexos .docx ya descargados — no son inventados.
+test('pareceFilaDePie: rótulos reales del corpus, a favor y en contra', () => {
+  const c = (texto: string) => ({ texto, indiceGlobal: null, anchoPct: null, ultimoParaId: null, indicesParrafos: [] }) as any;
+
+  for (const rotulo of [
+    'TOTAL NETO', 'IVA 19%', 'TOTAL IVA INCLUIDO', 'IMPUESTO AL VALOR AGREGADO 19%',
+    'Total Valor Neto (*)', 'TOTAL IVA INC.', 'VALOR NETO TOTAL (*) $', 'VALOR TOTAL (**) $',
+    'Total a ofertar $', 'TOTAL C/IVA $', 'VALOR TOTAL, IMPUESTOS INCLUIDOS $',
+    'TOTAL NETO DE LA CONTRATACIÓN', 'I.V.A (19%) $ ___________ .-',
+    'SUMATORIA TOTAL NETA (ÍTEM I + ÍTEM II) $ ___________ .-',
+  ]) {
+    assert.equal(pareceFilaDePie([c(rotulo)], rotulo), true, `debería ser pie de tabla: "${rotulo}"`);
+  }
+
+  for (const rotulo of [
+    // "Total" es marca de herramientas: estas son filas de ÍTEM, no el pie.
+    '2 UNIDAD Se solicita SIERRA CALADORA, 570w, marca equivalente a: Total',
+    'HUINCHA DE MEDIR, 10MX25MM. Marca equivalente a TOTAL',
+    '18 LLAVES ALLEN Y TORX TOTAL, CROMO VANADIO 01 SET',
+    // Este pide el total escrito EN PALABRAS: el número ahí sería incorrecto.
+    'Valor Total de la Oferta IVA incluido (en Palabras):',
+    // Un IVA condicional lo decide un humano (puede facturar exento).
+    'IVA (si aplicará)',
+    'Impuesto (19%) (en caso de facturación exenta, dejar en blanco) $',
+  ]) {
+    assert.equal(pareceFilaDePie([c(rotulo)], rotulo), false, `NO debería ser pie de tabla: "${rotulo}"`);
+  }
 });
 
 test('totales al pie: sin porcentaje declarado el IVA no se inventa', () => {

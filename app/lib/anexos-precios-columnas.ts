@@ -18,10 +18,18 @@
 // un total no se autocompleta nunca, porque la cantidad que usa el Word para calcularlo no tiene
 // por qué ser la del costeo. Sin la palabra "unitario" se exige además un encabezado corto y
 // neutro ("Precio", "Valor neto"), para no tragarse una columna rara que solo mencione "valor".
-const RE_MONEDA = /\b(precio|valor|monto)s?\b/;
-const RE_NO_ES_UNITARIO = /\b(totales?|subtotales?|cantidades?|iva|impuesto|descuento|plazo)\b/;
+// OJO con el cuantificador: `totales?` NO es "total con es opcional", es "totale" con "s"
+// opcional — nunca calza con "total". Ese error dejó la exclusión entera muerta y "Precio Unitario
+// Total (Neto)" pasó como precio unitario en la auditoría del corpus (el test no lo cazó porque
+// "PRECIO TOTAL" caía igual por el otro camino, al no ser un encabezado neutro). El plural va en
+// grupo: `total(es)?`.
+const RE_MONEDA = /\b(precio|valor|monto|costo)s?\b/;
+const RE_NO_ES_UNITARIO = /\b(total(es)?|subtotal(es)?|cantidad(es)?|iva|impuestos?|descuento|plazo)\b/;
 const RE_UNITARIO = /\b(unitarios?|unit\.?|c\/u|por\s+unidad)\b/;
-const RE_ENCABEZADO_NEUTRO = /^(precio|valor|monto)s?(\s+(neto|netos|bruto|brutos|ofertado|ofertados|oferta|final|\$|clp))*$/;
+// "bruto" NO está entre los adornos aceptados a propósito: el costeo entrega precios NETOS, así
+// que escribirlos en una columna que pide el valor bruto sería un error de $ — mismo motivo por el
+// que RE_NO_ES_UNITARIO bota "con IVA" / "impuestos incluidos".
+const RE_ENCABEZADO_NEUTRO = /^(precio|valor|monto|costo)s?(\s+(neto|netos|ofertado|ofertados|oferta|final|\$|clp))*$/;
 
 function normalizarColumna(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()

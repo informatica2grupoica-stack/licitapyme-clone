@@ -117,9 +117,71 @@ export function calcularTotalesPorSeccion(
 //     anexo: solo precios unitarios), es la suma de la columna.
 const RE_COLUMNA_CANTIDAD = /^cantidad(es)?$/i;
 // El orden importa: "TOTAL IVA INCLUIDO" tiene que caer en `bruto`, no en `neto` ni en `iva`.
-const RE_PIE_BRUTO = /\b(iva\s*inclu|con\s*iva|total\s*bruto|total\s*final|total\s*general)/i;
-const RE_PIE_IVA = /^\s*(i\.?v\.?a\.?|impuesto)\b/i;
-const RE_PIE_NETO = /\b(total|subtotal|sub\s*total|suma)\b/i;
+const RE_PIE_BRUTO = /\b(iva\s*inclu|impuestos?\s*inclu|con\s*iva|total\s*bruto|total\s*final|total\s*general)/i;
+const RE_PIE_IVA = /^\s*(i\.?v\.?a\.?|impuestos?)\b/i;
+const RE_PIE_NETO = /\b(total(es)?|subtotal(es)?|sub\s*total|suma|sumatoria)\b/i;
+
+// Un rótulo NO basta con que MENCIONE "total" para ser el pie de la tabla. Encontrado auditando
+// los 300 anexos .docx ya descargados: "Total" es una MARCA de herramientas muy común en Chile, y
+// filas de ítem perfectamente normales dicen "2 UNIDAD Se solicita SIERRA CALADORA, marca
+// equivalente a: Total" (3825-20-LE26, 2322-27-LE26, 2735-55-LE26). Tratadas como pie, esas filas
+// se habrían quedado FUERA de la suma y encima habrían recibido el total escrito sobre su celda de
+// precio — un desastre en una oferta económica.
+//
+// El filtro es un vocabulario CERRADO: el rótulo completo, ya sin símbolos, tiene que estar hecho
+// SOLO de palabras de la familia "total/IVA". Cualquier palabra ajena ("marca", "solicita",
+// "sierra") lo descarta. Es seguro por diseño: lo que este vocabulario no conoce no se escribe.
+const LARGO_MAX_ROTULO_PIE = 70;
+const PALABRAS_DE_PIE = new RegExp(
+  '^(' + [
+    'total(es)?', 'subtotal(es)?', 'sub', 'suma', 'sumatoria', 'monto', 'valor(es)?', 'precio',
+    'costo', 'net[oa]s?', 'brut[oa]s?', 'iva', 'i\\.?v\\.?a\\.?', 'impuestos?', 'inclu[iíday]+os?',
+    'incluido', 'incluida', 'de', 'la', 'el', 'los', 'las', 'del', 'con', 'sin', 'mas', 'y', 'a',
+    'en', 'por', 'oferta', 'ofertad[oa]', 'contratacion', 'servicio', 'item', 'items',
+    'i', 'ii', 'iii', 'iv', 'v', 'pesos', 'clp', 'chilenos', '\\d+([.,]\\d+)?', '%', '\\$', '\\+',
+    // Sacados de los rótulos reales del corpus: "IMPUESTO AL VALOR AGREGADO 19%", "TOTAL IVA
+    // INC.", "Total a ofertar $", "TOTAL C/IVA $", "Total Valor Neto (*)", "VALOR TOTAL (**) $".
+    'agregado', 'al', 'inc', 'ofertar', 'c', '\\*+',
+  ].join('|') + ')(\\s+|$)',
+  'i',
+);
+
+// El rótulo de una fila de pie: sin símbolos de relleno ($, guiones bajos, ".-", puntuación) y sin
+// tildes, para poder compararlo contra el vocabulario de arriba.
+function normalizarRotuloPie(rotulo: string): string {
+  return rotulo.normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[_.\-–—:;,()[\]/]+/g, ' ')
+    // "$" y "%" van pegados al número en el papel ("IVA 19%", "TOTAL $"): se separan para que
+    // cuenten como palabras propias del vocabulario y no rompan el token del número.
+    .replace(/([%$+])/g, ' $1 ')
+    .replace(/\s+/g, ' ')
+    // "I.V.A" quedó como "i v a" al convertir los puntos en espacios: se vuelve a juntar para que
+    // los patrones de IVA lo reconozcan (aparece así en anexos reales: "I.V.A (19%) $ ______").
+    .replace(/\bi v a\b/gi, 'iva')
+    .trim();
+}
+
+export // Un total pedido EN PALABRAS ("Valor Total de la Oferta IVA incluido (en Palabras):", visto en el
+// corpus) NO se llena con el número: ahí va "ciento noventa y ocho mil…". Se deja al humano.
+const RE_TOTAL_EN_PALABRAS = /\ben\s+(palabras|letras)\b/i;
+
+export function pareceFilaDePie(celdas: CeldaTablaCruda[], rotulo: string): boolean {
+  if (RE_TOTAL_EN_PALABRAS.test(rotulo)) return false;
+  // Las filas de pie nunca van numeradas: un "1", "2", "33" en la primera celda es un ítem.
+  const primera = celdas.find(c => c.texto.trim())?.texto.trim() ?? '';
+  if (/^\d+$/.test(primera)) return false;
+  const limpio = normalizarRotuloPie(rotulo);
+  if (!limpio || limpio.length > LARGO_MAX_ROTULO_PIE) return false;
+  // Todas las palabras tienen que pertenecer al vocabulario cerrado.
+  let resto = limpio;
+  while (resto) {
+    const m = resto.match(PALABRAS_DE_PIE);
+    if (!m) return false;
+    resto = resto.slice(m[0].length);
+  }
+  // Y tiene que hablar de un total o del IVA — "valor neto" solo no es un pie.
+  return RE_PIE_NETO.test(limpio) || RE_PIE_IVA.test(limpio) || RE_PIE_BRUTO.test(limpio);
+}
 
 export interface RellenoPie { paraId: string; indiceGlobal: number; valor: string; etiqueta: string }
 
@@ -131,12 +193,21 @@ function textoDeFila(celdas: { texto: string }[]): string {
 // rótulo va combinado (gridSpan) ocupando las columnas de la izquierda y el monto queda solo en la
 // última — por eso no sirve el índice de columna del encabezado (con celdas combinadas la
 // alineación por ancho no calza; ver alinearFilaConEncabezado).
-function celdaDelMonto(celdas: CeldaTablaCruda[]): CeldaTablaCruda | null {
-  for (let i = celdas.length - 1; i >= 0; i--) {
-    const c = celdas[i];
-    if (c.indiceGlobal != null && c.ultimoParaId && !c.texto.trim()) return c;
-  }
+function celdaDelMonto(celdas: CeldaTablaCruda[], iPrecio: number): CeldaTablaCruda | null {
+  const rellenable = (c?: CeldaTablaCruda) => !!c && c.indiceGlobal != null && !!c.ultimoParaId && !c.texto.trim();
+  // Primero, la celda que cae en la MISMA columna de los precios: es donde el lector espera el
+  // total. Si esa no está disponible (el rótulo va combinado y corre la alineación), la última
+  // vacía de la fila — en un pie el monto siempre va a la derecha del rótulo.
+  if (rellenable(celdas[iPrecio])) return celdas[iPrecio];
+  for (let i = celdas.length - 1; i >= 0; i--) if (rellenable(celdas[i])) return celdas[i];
   return null;
+}
+
+// Una fila que pide el neto Y el IVA en la misma línea ("Total Neto | IVA | Total con IVA", visto
+// en el corpus) tiene varias casillas y ninguna forma de saber cuál es cuál: se deja al humano.
+function rotuloAmbiguo(rotulo: string): boolean {
+  const limpio = normalizarRotuloPie(rotulo).toLowerCase();
+  return /\bnet[oa]s?\b/.test(limpio) && /\biva\b|\bimpuestos?\b/.test(limpio);
 }
 
 export function calcularTotalesAlPie(
@@ -158,7 +229,7 @@ export function calcularTotalesAlPie(
     let completo = true;
     for (const fila of t.filas.slice(1)) {
       const rotulo = textoDeFila(fila.celdas);
-      if (RE_PIE_BRUTO.test(rotulo) || RE_PIE_IVA.test(rotulo) || RE_PIE_NETO.test(rotulo)) {
+      if (pareceFilaDePie(fila.celdas, rotulo)) {
         filasPie.push({ celdas: fila.celdas, rotulo });
         continue;
       }
@@ -186,7 +257,8 @@ export function calcularTotalesAlPie(
 
     const neto = total;
     for (const fila of filasPie) {
-      const celda = celdaDelMonto(fila.celdas);
+      if (rotuloAmbiguo(fila.rotulo)) continue;
+      const celda = celdaDelMonto(fila.celdas, iPrecio);
       if (!celda?.ultimoParaId || celda.indiceGlobal == null) continue;
       let valor: number | null = null;
       if (RE_PIE_BRUTO.test(fila.rotulo)) {
