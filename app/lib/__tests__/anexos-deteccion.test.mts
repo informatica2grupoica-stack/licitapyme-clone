@@ -59,6 +59,25 @@ test('rellenarCeldaVacia escribe en los dos estilos y no pisa un dato existente'
 
   // Y sigue negándose a pisar un dato real.
   assert.throws(() => rellenarCeldaVacia(conParaId('<w:r><w:t>ya escrito</w:t></w:r>'), 'AAAA0001', 'x'), /ya tiene contenido/);
+
+  // REGRESIÓN 1058086-43-LP26 (FORMULARIO N°1 no abría en Word): el párrafo vacío declara
+  // tabulaciones en su <w:pPr>. El regex de "¿hay un <w:t/> vacío que llenar?" empezaba con
+  // `<w:t[^>]*/>`, que también calza <w:tab .../> — el valor se escribía DENTRO de <w:tabs>,
+  // XML bien formado pero inválido contra el esquema, y Word rechazaba el documento entero.
+  const conTabs = rellenarCeldaVacia(
+    conParaId('<w:pPr><w:tabs><w:tab w:val="left" w:pos="567"/></w:tabs><w:jc w:val="both"/></w:pPr>'),
+    'AAAA0001', 'Inversiones Claro ARZ SPA',
+  );
+  assert.match(conTabs, /<w:tabs><w:tab w:val="left" w:pos="567"\/><\/w:tabs>/, 'la tabulación queda intacta');
+  assert.match(conTabs, /<\/w:pPr><w:r>(<w:rPr>[\s\S]*?<\/w:rPr>)?<w:t xml:space="preserve">Inversiones Claro ARZ SPA<\/w:t><\/w:r>/,
+    'el valor va en un run propio, DESPUÉS de las propiedades del párrafo');
+  assert.equal(verificarXmlBienFormado(conTabs).valido, true, 'y el gate de esquema lo aprueba');
+
+  // El gate tiene que cazar el XML corrupto que producía el bug, no solo confiar en el fix.
+  const corrupto = conParaId('<w:pPr><w:tabs><w:t xml:space="preserve">valor</w:t></w:tabs></w:pPr>');
+  const chequeo = verificarXmlBienFormado(corrupto);
+  assert.equal(chequeo.valido, false);
+  assert.match(chequeo.error || '', /w:t.*colgando/);
 });
 
 // La tabla de identificación del oferente: [etiqueta][valor][etiqueta][valor], SIN fila de

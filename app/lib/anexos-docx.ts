@@ -170,7 +170,18 @@ export function rellenarCeldaVacia(xml: string, paraId: string, valor: string): 
 
   const texto = `<w:t xml:space="preserve">${xmlEscape(valor)}</w:t>`;
   let cuerpoNuevo: string;
-  const conTVacio = cuerpo.match(/<w:t[^>]*\/>|<w:t[^>]*><\/w:t>/);
+  // OJO con el nombre de la etiqueta: `<w:t[^>]*/>` NO significa "un <w:t/> vacío", significa
+  // "cualquier etiqueta que EMPIECE con <w:t" — y en WordprocessingML eso incluye <w:tab/>,
+  // <w:tblPr/>, <w:tcW/>, <w:top/>, <w:trHeight/>… BUG REAL (1058086-43-LP26, FORMULARIO N°1): los
+  // párrafos vacíos del formulario traen <w:pPr><w:tabs><w:tab w:val="left" w:pos="567"/></w:tabs>,
+  // así que el relleno pisaba la DEFINICIÓN DE TABULACIÓN con <w:t>Razón Social</w:t>. El XML queda
+  // bien formado (por eso pasaba el chequeo y hasta python-docx lo abría), pero es inválido contra
+  // el esquema —un <w:t> no puede vivir dentro de <w:tabs>— y Word se niega a abrir el archivo
+  // entero: "Word detectó un error al intentar abrir el archivo". Solo N1 se veía afectado porque
+  // es el único formulario con párrafos vacíos con tabulaciones declaradas.
+  // El `(?:\s[^>]*)?` exige que después de `w:t` venga un espacio (o el cierre directo), que es lo
+  // que separa la etiqueta <w:t> de toda la familia <w:tXxx>.
+  const conTVacio = cuerpo.match(/<w:t(?:\s[^>]*)?\/>|<w:t(?:\s[^>]*)?><\/w:t>/);
   const runs = [...cuerpo.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)];
   if (conTVacio) {
     cuerpoNuevo = cuerpo.replace(conTVacio[0], texto);            // ya hay un <w:t> vacío: se llena
@@ -371,7 +382,15 @@ export function rellenarInline(xml: string, textoRunOriginal: string, pos: numbe
   const patronRun = new RegExp(`<w:t([^>]*)>${escaparRegex(textoRunOriginal)}</w:t>`);
   const m = xml.match(patronRun);
   if (!m) throw new Error('No se encontró el run original — el texto pudo haber cambiado');
-  const runNuevo = `<w:t${m[1]} xml:space="preserve">${xmlEscape(textoNuevo)}</w:t>`;
+  // BUG REAL (1058086-43-LP26, varios de los ANEXOS separados salían con "hay un problema con el
+  // contenido" al abrir en Word): el run original YA trae `xml:space="preserve"` cuando el blanco
+  // tiene espacios pegados (el caso normal), y esto lo agregaba OTRA VEZ sin chequear — el XML
+  // quedaba con el atributo DUPLICADO (`<w:t xml:space="preserve" xml:space="preserve">`), que es
+  // válido para un regex ingenuo pero NO para un parser XML estricto (Word lo rechaza de plano).
+  // Mismo criterio que ya usaba unificarRunsDeMarcadores más abajo — nunca agregar el atributo si
+  // ya está.
+  const attrs = /xml:space=/.test(m[1]) ? m[1] : `${m[1]} xml:space="preserve"`;
+  const runNuevo = `<w:t${attrs}>${xmlEscape(textoNuevo)}</w:t>`;
   return xml.replace(m[0], runNuevo);
 }
 
@@ -419,7 +438,13 @@ export function rellenarRunPorIndice(
     textoNuevo = textoNuevo.slice(0, pos) + valorFinal + textoNuevo.slice(pos + largo);
   }
 
-  const runNuevo = `<w:t${attrs} xml:space="preserve">${xmlEscape(textoNuevo)}</w:t>`;
+  // BUG REAL (1058086-43-LP26): mismo problema que rellenarInline — el run original casi siempre
+  // YA trae `xml:space="preserve"` (cualquier blanco con espacios alrededor lo fuerza), así que
+  // agregarlo sin chequear deja el atributo DUPLICADO y Word rechaza el .docx entero al abrirlo
+  // ("hay un problema con el contenido"). Esta es la función que usa generarAnexoFinal para TODO
+  // blanco inline, así que el bug afectaba cualquier anexo con al menos un blanco de ese tipo.
+  const attrsFinal = /xml:space=/.test(attrs) ? attrs : `${attrs} xml:space="preserve"`;
+  const runNuevo = `<w:t${attrsFinal}>${xmlEscape(textoNuevo)}</w:t>`;
   return xml.slice(0, m.index) + runNuevo + xml.slice((m.index ?? 0) + entero.length);
 }
 
@@ -493,6 +518,18 @@ export function verificarXmlBienFormado(xml: string): { valido: boolean; error?:
           error: `el prefijo de namespace "${prefijo}" (en "${usado}", posición ${m.index}) no está declarado en ningún ancestro — Word rechaza el archivo`,
         };
       }
+    }
+
+    // TERCER BUG REAL (1058086-43-LP26): etiquetas calzadas, namespaces declarados… y Word igual se
+    // negaba a abrir el FORMULARIO N°1. El XML era bien formado pero inválido contra el ESQUEMA: un
+    // <w:t> había quedado dentro de <w:pPr><w:tabs> (ver rellenarCeldaVacia). Validar el esquema
+    // completo es imposible acá, pero esta regla puntual cubre la única forma en que este módulo
+    // puede romperlo: <w:t> lo inserta SIEMPRE este código, y su único padre legal es <w:r>.
+    if (nombre === 'w:t' && pila[pila.length - 1] !== 'w:r') {
+      return {
+        valido: false,
+        error: `<w:t> colgando de <${pila[pila.length - 1] ?? 'nada'}> en la posición ${m.index} — su único padre válido es <w:r>; Word rechaza el archivo`,
+      };
     }
 
     if (autocierre) scopes.pop(); // <tag .../> no abre nada que cerrar

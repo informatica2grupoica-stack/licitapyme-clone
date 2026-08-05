@@ -26,9 +26,22 @@ interface PendienteInline {
   parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
   categoria?: string; motivo?: string;
 }
-interface CeldaTablaUI { texto: string; auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' }; input?: { id: string } }
+type SegmentoCeldaUI =
+  | { t: 'texto'; v: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' }
+  | { t: 'input'; id: string };
+interface CeldaTablaUI {
+  texto: string; auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' }; input?: { id: string };
+  // Blanco inline DENTRO de una celda con texto propio ("SI ____ NO ____ declaro...") — ver el
+  // mismo campo en anexos-rellenar.ts.
+  segmentosInline?: SegmentoCeldaUI[];
+}
 interface TablaUI { filas: CeldaTablaUI[][]; formulario?: string; titulo?: string }
 interface AlertaInadmisibilidad { riesgo: string; datoQueLoResuelve: string; disponible: boolean }
+// Sección pegada como FOTO/ESCANEO (ver anexos-imagen-escaneada.ts) — nunca se autocompleta (no se
+// puede editar una imagen); se muestra qué pide y con qué dato de la ficha, para copiarlo a mano.
+interface CampoSeccionEscaneada { etiqueta: string; valor: string | null; campo: string | null }
+interface SeccionEscaneada { titulo: string; campos: CampoSeccionEscaneada[]; ocrFallido: boolean }
 
 // Réplica del documento en orden (ver anexos-documento-ui.ts en el backend, que arma esto
 // recorriendo el .docx real): un bloque por cada párrafo o tabla, con su alineación/sangría/
@@ -63,6 +76,7 @@ interface Analisis {
   ordenFormularios?: string[]; // títulos en el orden del documento
   alertasInadmisibilidad?: AlertaInadmisibilidad[];
   checklistPendientes?: string[];
+  seccionesEscaneadas?: SeccionEscaneada[];
 }
 
 // Vista de tabla REAL: mismas filas/columnas que el Word, para que quede claro a qué celda
@@ -98,7 +112,37 @@ function TablaReal({
                   colSpan={j === fila.length - 1 && fila.length < maxCols ? maxCols - fila.length + 1 : undefined}
                   className={`border border-slate-200 px-2 py-1 align-middle break-words ${i === 0 ? 'font-semibold text-slate-700' : ''}`}
                 >
-                  {c.input ? (
+                  {c.segmentosInline ? (
+                    // Celda con texto propio que trae un blanco INLINE adentro ("SI ____ NO ____
+                    // declaro...", "Plazo de entrega ……… días hábiles") — antes se mostraba como
+                    // texto fijo de solo lectura, el blanco desaparecía. Mismo tipo de segmento
+                    // que la réplica de párrafo (BloqueParrafo), pero en línea dentro de la celda.
+                    <span className="leading-relaxed">
+                      {c.segmentosInline.map((s, k) => {
+                        if (s.t === 'texto') return <span key={k}>{s.v}</span>;
+                        if (s.t === 'auto') {
+                          return (
+                            <span
+                              key={k}
+                              className={`font-semibold ${s.via === 'costeo' ? 'text-cyan-700' : s.via === 'bases' ? 'text-amber-700' : 'text-emerald-700'}`}
+                            >
+                              {s.v}
+                            </span>
+                          );
+                        }
+                        return (
+                          <input
+                            key={k}
+                            type="text"
+                            value={respuestas[s.id] || ''}
+                            onChange={e => onChange(s.id, e.target.value)}
+                            placeholder="…"
+                            className="inline-block w-20 mx-0.5 px-1 py-0.5 text-[11.5px] bg-indigo-50/50 border-0 border-b-2 border-indigo-300 rounded-sm focus:outline-none focus:bg-indigo-50 focus:border-indigo-500"
+                          />
+                        );
+                      })}
+                    </span>
+                  ) : c.input ? (
                     <div className="flex items-center gap-1">
                       {/* Prefijo ya escrito en el Word (ej. "$") — el valor va PEGADO después, así
                           que se muestra para que el usuario sepa que no debe repetirlo. */}
@@ -278,6 +322,44 @@ function ChecklistPendientes({ items }: { items: string[] }) {
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// Sección del anexo pegada como FOTO/ESCANEO (ver anexos-imagen-escaneada.ts): no hay texto real
+// que autocompletar (no se puede editar una imagen), así que se le muestra al usuario QUÉ pide el
+// formulario y CON QUÉ DATO de su ficha lo llenaría, para copiarlo a mano — a papel, o al portal
+// externo del organismo si el propio documento dice que corresponde presentarlo aparte.
+function SeccionesEscaneadas({ secciones }: { secciones: SeccionEscaneada[] }) {
+  if (!secciones.length) return null;
+  return (
+    <div className="space-y-2">
+      {secciones.map((s, i) => (
+        <div key={i} className="rounded-lg border border-indigo-200 bg-indigo-50/70 px-3 py-2.5">
+          <p className="flex items-center gap-1.5 text-[12px] font-bold text-indigo-800 mb-1">
+            <AlertTriangle size={13} className="flex-shrink-0" /> Esta sección es una imagen escaneada — {s.titulo}
+          </p>
+          <p className="text-[11.5px] text-indigo-700 mb-1.5">
+            No se puede rellenar automáticamente (no hay texto que editar, es una foto). Complétala a mano con estos datos:
+          </p>
+          {s.ocrFallido ? (
+            <p className="text-[11.5px] text-indigo-600 italic">No se pudo leer la imagen (falló el OCR). Revísala directamente en el documento.</p>
+          ) : s.campos.length === 0 ? (
+            <p className="text-[11.5px] text-indigo-600 italic">No se identificaron casillas — revísala directamente en el documento.</p>
+          ) : (
+            <ul className="space-y-0.5 pl-1">
+              {s.campos.map((c, j) => (
+                <li key={j} className="text-[11.5px] text-indigo-900 leading-snug">
+                  <span className="font-semibold">{c.etiqueta}:</span>{' '}
+                  {c.valor
+                    ? <span className="text-indigo-700">{c.valor}</span>
+                    : <span className="text-indigo-400 italic">complétalo tú (no es un dato de tu ficha)</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -606,6 +688,9 @@ export function AnexoRellenoModal({
               )}
               {analisis.checklistPendientes && analisis.checklistPendientes.length > 0 && (
                 <ChecklistPendientes items={analisis.checklistPendientes} />
+              )}
+              {analisis.seccionesEscaneadas && analisis.seccionesEscaneadas.length > 0 && (
+                <SeccionesEscaneadas secciones={analisis.seccionesEscaneadas} />
               )}
               {analisis.firma.detectada && !analisis.firma.disponible && (
                 <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">

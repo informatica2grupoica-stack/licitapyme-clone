@@ -237,6 +237,22 @@ export async function extraerPaginasConGlmOcr(
   }
 }
 
+// ─── OCR de UNA imagen suelta (no un PDF) — anexo con una sección escaneada/foto ─────────────
+// A diferencia de los PDFs (que GLM-OCR solo acepta por URL pública), las imágenes SÍ aceptan
+// base64 directo (ver la nota al inicio del archivo) — no necesitan vivir en R2 primero. Se usa
+// para anexos .docx que traen la sección de datos (ej. autorización bancaria) pegada como una
+// FOTO en vez de texto real: ahí no hay nada que editar en el .docx, pero sí interesa saber QUÉ
+// pide el formulario para mostrárselo al usuario (ver anexos-imagen-escaneada.ts).
+export async function ocrImagenConGlmOcr(buffer: Buffer, mimeType: string): Promise<string> {
+  const dataUri = `data:${mimeType};base64,${buffer.toString('base64')}`;
+  try {
+    return (await glmLayoutParsing(dataUri)).trim();
+  } catch (e) {
+    console.warn('[glm-ocr] fallo (imagen suelta):', e instanceof Error ? e.message : e);
+    return '';
+  }
+}
+
 // ─── OCR de un PDF completo por URL (ventanas paralelas + marcadores absolutos) ──
 // `totalPaginas` es el conteo real (de pdf-parse) DE ESTE archivo/URL. Si es 0/desconocido,
 // una sola llamada al documento completo (sin marcadores por-página). Devuelve '' si no

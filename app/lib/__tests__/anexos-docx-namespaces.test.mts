@@ -101,7 +101,9 @@ test('verificarXmlBienFormado caza un prefijo de namespace sin declarar', () => 
   for (const bueno of [
     `<w:document xmlns:w="urn:w"><w:body><w:p><a:graphic xmlns:a="${NS_A}"><a:blip/></a:graphic></w:p></w:body></w:document>`,
     `<w:document xmlns:w="urn:w" xmlns:a="${NS_A}"><w:body><w:p><a:graphic/></w:p></w:body></w:document>`,
-    '<w:document xmlns:w="urn:w"><w:body><w:p><w:t xml:space="preserve">x</w:t></w:p></w:body></w:document>',
+    // El <w:t> va dentro de su <w:r> como en un documento real: el gate ahora exige ese padre
+    // (ver la regla de esquema en verificarXmlBienFormado), no solo etiquetas calzadas.
+    '<w:document xmlns:w="urn:w"><w:body><w:p><w:r><w:t xml:space="preserve">x</w:t></w:r></w:p></w:body></w:document>',
   ]) {
     const ok = verificarXmlBienFormado(bueno);
     assert.equal(ok.valido, true, `falso positivo: ${ok.error}`);

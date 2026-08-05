@@ -507,6 +507,66 @@ export async function resolverAlertasInadmisibilidad(basesTexto: string, tituloA
   }
 }
 
+// ── Sección de anexo pegada como IMAGEN/FOTO (no hay texto real que editar) ───────────────────
+// Caso real (1019-79-LP26, ANEXO N°7 "Autorización pagos a través de bancos"): el organismo pegó
+// un formulario ESCANEADO dentro del .docx en vez de escribirlo como texto de Word. Ahí no hay
+// ningún <w:t> que editar — el motor normal ni se entera de que existe (0 candidatos). Este paso
+// NUNCA escribe nada en el documento: solo lee el texto que salió del OCR de la imagen (ver
+// anexos-imagen-escaneada.ts) y le dice al usuario QUÉ pide el formulario y CON QUÉ DATO de su
+// ficha lo llenaría, para que lo copie a mano (a papel, o al portal externo si el organismo lo
+// exige aparte — ver detectarNotaFormularioExterno).
+export interface CampoSeccionEscaneada { etiqueta: string; valor: string | null; campo: string | null }
+
+const SYS_IMAGEN_ESCANEADA = `Eres un experto en licitaciones públicas chilenas. Te paso el texto que salió del OCR de una IMAGEN ESCANEADA pegada dentro de un anexo Word (un formulario o declaración que el organismo comprador exige, pero que llegó como foto/escaneo en vez de texto editable). NO se puede escribir nada dentro de esa imagen — tu única tarea es identificar QUÉ casillas o datos pide el formulario, para que el sistema le muestre al usuario los valores exactos que le corresponden y los copie a mano (a papel o a un formulario externo).
+
+Para cada casilla o dato real que el formulario pida, indica:
+- "etiqueta": el nombre del campo tal como aparece ("Nombre del Banco", "N° de Cuenta Corriente", "Tipo de Cuenta")
+- "campo": el NOMBRE EXACTO del campo de la ficha de empresa que lo resuelve (de la lista de abajo), o null si es un dato que la ficha NO tiene (firma manuscrita, fecha de hoy, un dato específico de esta licitación puntual, una decisión del oferente)
+
+Ignora títulos, instrucciones o texto legal que no sea una casilla real a completar. Si el OCR salió incompleto o ilegible en partes, igual identifica lo que SÍ se entiende — no descartes el formulario completo por eso.
+
+Campos disponibles en la ficha de empresa:
+{CAMPOS}
+
+Devuelve SOLO JSON: {"campos":[{"etiqueta":"...","campo":"..."|null}]}`;
+
+export async function identificarCamposDeSeccionEscaneada(
+  textoOcr: string, empresa: EmpresaCampos,
+): Promise<CampoSeccionEscaneada[]> {
+  if (!textoOcr || !textoOcr.trim()) return [];
+  const camposConDato = (Object.keys(empresa) as (keyof EmpresaCampos)[])
+    .filter(c => c !== 'firma_url' && c !== 'timbre_url' && empresa[c] != null && String(empresa[c]).trim());
+  if (!camposConDato.length) return [];
+
+  const listaCampos = camposConDato.map(c => `- ${c}: ${DESCRIPCION_CAMPO[c] || c}`).join('\n');
+  const sys = SYS_IMAGEN_ESCANEADA.replace('{CAMPOS}', listaCampos);
+  const user = `TEXTO OCR DE LA IMAGEN:\n${textoOcr.slice(0, 6_000)}`;
+  try {
+    const completion: any = await crearChatIA({
+      messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
+      temperature: 0.1, stream: false, max_tokens: 1_500,
+      response_format: { type: 'json_object' },
+    }, { timeoutMs: 60_000 });
+    const txt = String(completion.choices?.[0]?.message?.content ?? '');
+    const parsed: any = parseJsonIA(txt) || {};
+    const arr = Array.isArray(parsed.campos) ? parsed.campos : [];
+    return arr
+      .filter((c: any) => c && typeof c.etiqueta === 'string' && c.etiqueta.trim())
+      .map((c: any) => {
+        const campo = typeof c.campo === 'string' ? c.campo.trim() : null;
+        // Guardarraíl anti-invención de siempre: el VALOR sale SIEMPRE de la ficha real, nunca
+        // de lo que "escriba" el modelo — si el nombre de campo no existe de verdad, queda null.
+        const valor = campo && camposConDato.includes(campo as keyof EmpresaCampos)
+          ? String(empresa[campo as keyof EmpresaCampos])
+          : null;
+        return { etiqueta: String(c.etiqueta).trim().slice(0, 160), campo: valor ? campo : null, valor };
+      });
+  } catch (error) {
+    console.error('[anexos-ia-motor] Falló identificar campos de sección escaneada, se omite sin bloquear el resto:', String(error).slice(0, 200));
+    return [];
+  }
+}
+
 // ── Orquestador ────────────────────────────────────────────────────────────────────────────
 export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<ResultadoMotor> {
   const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP } = entrada;

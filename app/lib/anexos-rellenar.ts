@@ -39,7 +39,10 @@ import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { calcularTotalesPorSeccion, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
+import { analizarSeccionesEscaneadas, type SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
 import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
+
+export type { SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
 
 export type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 
@@ -67,10 +70,24 @@ export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: 
 // "etiqueta: input"), esto reconstruye la tabla del Word tal cual es — todas las columnas, todas
 // las filas — para que en pantalla se vea igual que el documento y quede claro a qué celda
 // corresponde cada input.
+// Un blanco INLINE dentro de una celda con texto propio ("SI ____ NO ____ declaro...", "Plazo de
+// entrega" con relleno de puntos al lado) — mismo shape que SegmentoUI en el modal, pero acá vive
+// en el backend porque lo arma construirTablaUI, no la réplica de párrafo.
+export type SegmentoCeldaUI =
+  | { t: 'texto'; v: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' }
+  | { t: 'input'; id: string };
+
 export interface CeldaTablaUI {
   texto: string;                                   // texto ya existente en el Word (columna, dato fijo)
   auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' };   // se completó sola — se muestra el valor, sin input
   input?: { id: string };                          // blanco real pendiente — el mismo id que usa generarAnexoFinal
+  // BUG REAL (3713-7-LE26): una celda con texto propio que además trae un blanco INLINE adentro
+  // ("SI ____ NO ____ declaro...", "Plazo de entrega ……… días hábiles") nunca calzaba con
+  // `indiceGlobal` (la celda no está vacía) — el patrón de tabla la mostraba como texto fijo de
+  // solo lectura y el blanco desaparecía de la réplica, aunque el detector SÍ lo hubiera
+  // encontrado (blancosInline). Cuando existe, la UI debe pintar ESTO en vez de `texto` plano.
+  segmentosInline?: SegmentoCeldaUI[];
 }
 export interface TablaUI {
   filas: CeldaTablaUI[][]; formulario?: string;
@@ -364,9 +381,42 @@ function porDefectoEnLugar(pideTimbre: boolean, hayFirma: boolean, hayTimbre: bo
 // Arma la vista de UNA tabla (todas sus filas/columnas, no solo las vacías) — la usan tanto
 // `tablas` (lista plana filtrada, para las herramientas de medición) como `tablasPorIndice` (sin
 // filtrar, para que la réplica del documento muestre también las tablas que no tienen blancos).
+// Arma los segmentos de una celda con blancos INLINE adentro (ver SegmentoCeldaUI) — mismo
+// criterio de corte que la réplica de párrafo (construirDocumentoUI): recorre los párrafos de la
+// celda EN ORDEN, ubica cada blanco por su posición dentro del párrafo (posEnParrafo/largo, que
+// ya calculó detectarBlancosInline) y lo resuelve contra `porBlancoInline` — la MISMA clave
+// `${indiceRun}:${posEnTexto}` que usa el resto del pipeline, así nunca puede desalinearse.
+// Devuelve null si ninguno de los párrafos de la celda tiene un blanco (caso normal: la celda
+// sigue mostrándose como `texto` plano, sin cambiar nada de lo que ya funcionaba).
+function segmentosDeCelda(
+  indicesParrafos: number[], blancosPorParrafo: Map<number, CandidatoInline[]>,
+  porBlancoInline: Map<string, Resuelto>, parrafos: Parrafo[],
+): SegmentoCeldaUI[] | null {
+  const conBlancos = indicesParrafos.filter(i => (blancosPorParrafo.get(i)?.length ?? 0) > 0);
+  if (!conBlancos.length) return null;
+
+  const segmentos: SegmentoCeldaUI[] = [];
+  indicesParrafos.forEach((indice, i) => {
+    if (i > 0) segmentos.push({ t: 'texto', v: ' ' }); // mismo separador que usaba el texto plano (join(' '))
+    const textoParrafo = parrafos[indice]?.texto ?? '';
+    const blancos = [...(blancosPorParrafo.get(indice) ?? [])].sort((a, b) => a.posEnParrafo - b.posEnParrafo);
+    let cursor = 0;
+    for (const b of blancos) {
+      const res = porBlancoInline.get(`${b.indiceRun}:${b.posEnTexto}`);
+      if (!res) continue; // no debería pasar (todo blanco termina auto o pendiente) — defensivo
+      if (b.posEnParrafo > cursor) segmentos.push({ t: 'texto', v: textoParrafo.slice(cursor, b.posEnParrafo) });
+      segmentos.push(res.tipo === 'auto' ? { t: 'auto', v: res.valor, via: res.via } : { t: 'input', id: res.id });
+      cursor = b.posEnParrafo + b.largo;
+    }
+    if (cursor < textoParrafo.length) segmentos.push({ t: 'texto', v: textoParrafo.slice(cursor) });
+  });
+  return segmentos;
+}
+
 function construirTablaUI(
   t: TablaCruda, formularios: FormularioDetectado[], titulos: TituloCercano[],
   resolucionPorIndice: Map<number, ResolucionMostrada>, rellenosPorParaId: Map<string, { paraId: string; valor: string }>,
+  blancosPorParrafo: Map<number, CandidatoInline[]>, porBlancoInline: Map<string, Resuelto>, parrafos: Parrafo[],
 ): TablaUI {
   return {
     formulario: t.indicePrimero != null ? formularioDe(t.indicePrimero, formularios) : undefined,
@@ -374,9 +424,15 @@ function construirTablaUI(
     filas: t.filas.map(f => f.celdas.map((c): CeldaTablaUI => {
       const relleno = c.ultimoParaId ? rellenosPorParaId.get(c.ultimoParaId) : undefined;
       if (relleno) return { texto: c.texto, auto: { valor: `${c.texto ? c.texto + ' ' : ''}${relleno.valor}`, via: 'costeo' } };
-      if (c.indiceGlobal == null) return { texto: c.texto };
+      if (c.indiceGlobal == null) {
+        const segmentosInline = segmentosDeCelda(c.indicesParrafos, blancosPorParrafo, porBlancoInline, parrafos);
+        return segmentosInline ? { texto: c.texto, segmentosInline } : { texto: c.texto };
+      }
       const res = resolucionPorIndice.get(c.indiceGlobal);
-      if (!res) return { texto: c.texto };
+      if (!res) {
+        const segmentosInline = segmentosDeCelda(c.indicesParrafos, blancosPorParrafo, porBlancoInline, parrafos);
+        return segmentosInline ? { texto: c.texto, segmentosInline } : { texto: c.texto };
+      }
       // `c.texto` sigue siendo '' para una celda realmente vacía (sin cambio de comportamiento) —
       // pero conserva el prefijo de moneda ("$") en una celda dosPuntos, que si no desaparecía de
       // la vista aunque el .docx generado sí lo mantuviera (ver detectarCandidatosTabla).
@@ -403,6 +459,10 @@ export interface AnalisisAnexo {
   // El propio documento dice que este anexo no nos corresponde (ver detectarAvisoNoAplica). Cuando
   // viene, NADA se autocompletó: la pantalla lo avisa y ofrece el interruptor "sí nos corresponde".
   avisoNoAplica: AvisoNoAplica | null;
+  // Secciones pegadas como FOTO/ESCANEO (ver anexos-imagen-escaneada.ts) — nunca se autocompletan
+  // (no se puede editar una imagen), pero se le muestra al usuario qué piden y con qué dato de su
+  // ficha las llenaría a mano. Vacío si el documento no tiene ninguna imagen sustancial.
+  seccionesEscaneadas: SeccionEscaneada[];
 }
 
 type ResolucionMostrada =
@@ -435,16 +495,27 @@ export async function analizarAnexoParaUI(
   const resolucionPorIndice = new Map<number, ResolucionMostrada>();
 
   const avisoNoAplica = forzarAplica ? null : analisis.avisoNoAplica;
+  // Las secciones-imagen se analizan EN PARALELO con la resolución normal (extracción+OCR+IA
+  // corren aparte, no comparten nada con el resto del pipeline) — ahorra el tiempo de espera de
+  // uno detrás del otro. Nunca puede fallar el análisis completo: si algo revienta ahí, el resto
+  // del anexo sigue funcionando igual (ver el try/catch adentro de analizarSeccionesEscaneadas).
+  const [resolucion, seccionesEscaneadas] = await Promise.all([
+    avisoNoAplica
+      ? Promise.resolve(todoPendientePorNoAplicar(analisis.candidatosCelda, analisis.blancosInline, avisoNoAplica.motivo))
+      : resolverTodo(
+        analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
+        empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
+        formularios.map(f => f.titulo), forzarAplica, analisis.tripletesFecha,
+      ),
+    analizarSeccionesEscaneadas(zip, xmlNormalizado, empresa).catch(e => {
+      console.error('[anexos-rellenar] Falló el análisis de secciones escaneadas, se omite sin bloquear el resto:', String(e).slice(0, 200));
+      return [];
+    }),
+  ]);
   const {
     matcheados, pendientes, pendientesConMotivo, inlineAuto, inlinePendientes,
     alertasInadmisibilidad, checklistPendientes,
-  } = avisoNoAplica
-    ? todoPendientePorNoAplicar(analisis.candidatosCelda, analisis.blancosInline, avisoNoAplica.motivo)
-    : await resolverTodo(
-      analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
-      empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
-      formularios.map(f => f.titulo), forzarAplica, analisis.tripletesFecha,
-    );
+  } = resolucion;
   const { matcheadosExtra, pendientesFiltrados, anexarDirecto, titulos }
     = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes);
   const matcheadosTodos = [...matcheados, ...matcheadosExtra];
@@ -463,13 +534,30 @@ export async function analizarAnexoParaUI(
     return { id, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios), categoria: motivo?.categoria, motivo: motivo?.motivo };
   });
 
+  // Se arma ACÁ (antes de las tablas) porque construirTablaUI ahora también lo necesita — una
+  // celda con texto propio puede traer un blanco inline adentro (ver segmentosDeCelda arriba).
+  const porBlancoInline = new Map<string, Resuelto>();
+  for (const a of inlineAuto) {
+    porBlancoInline.set(`${a.b.indiceRun}:${a.b.posEnTexto}`, { tipo: 'auto', valor: a.valor, via: a.via });
+  }
+  for (const { b } of inlinePendientes) {
+    porBlancoInline.set(`${b.indiceRun}:${b.posEnTexto}`, { tipo: 'pendiente', id: `inline:${b.indiceRun}:${b.posEnTexto}` });
+  }
+  const blancosPorParrafo = new Map<number, CandidatoInline[]>();
+  for (const b of analisis.blancosInline) {
+    if (!blancosPorParrafo.has(b.indiceParrafo)) blancosPorParrafo.set(b.indiceParrafo, []);
+    blancosPorParrafo.get(b.indiceParrafo)!.push(b);
+  }
+
   // Reconstruye cada tabla del Word COMPLETA (todas las celdas, no solo las vacías). `tablasPorIndice`
   // queda SIN filtrar (todas, incluidas las que no tienen ningún blanco) porque la réplica del
   // documento (`documento`, ver más abajo) necesita mostrarlas igual que en el Word aunque no haya
   // nada que llenar en ellas; `tablas` sigue filtrada (solo las que tienen algo por completar) para
   // las herramientas de medición (scripts/anexos-golden) que ya dependían de ese recorte.
   const rellenosPorParaId = new Map(anexarDirecto.map(r => [r.paraId, r]));
-  const tablasUI = tablasCrudo.map(t => ({ t, ui: construirTablaUI(t, formularios, titulos, resolucionPorIndice, rellenosPorParaId) }));
+  const tablasUI = tablasCrudo.map(t => ({
+    t, ui: construirTablaUI(t, formularios, titulos, resolucionPorIndice, rellenosPorParaId, blancosPorParrafo, porBlancoInline, analisis.parrafos),
+  }));
   const tablasPorIndice = new Map<number, TablaUI>();
   for (const { t, ui } of tablasUI) {
     if (t.indicePrimero != null) tablasPorIndice.set(t.indicePrimero, ui);
@@ -528,22 +616,15 @@ export async function analizarAnexoParaUI(
 
   // La réplica del documento (ver anexos-documento-ui.ts): un `Resuelto` por cada blanco YA
   // resuelto, en las dos formas en que puede estar — por PÁRRAFO (`resolucionPorIndice`, mismo
-  // mapa que arma las tablas de arriba) y por BLANCO INLINE (`inlineAuto`/`inlinePendientes`,
-  // clave `${indiceRun}:${posEnTexto}`). Los índices que caen DENTRO de una tabla no hacen daño
-  // acá: `construirDocumentoUI` nunca los consulta porque una tabla se dibuja entera a través de
-  // `tablasPorIndice`, no párrafo por párrafo.
+  // mapa que arma las tablas de arriba) y por BLANCO INLINE (`porBlancoInline`, armado más arriba
+  // porque las tablas también lo necesitan). Los índices que caen DENTRO de una tabla no hacen
+  // daño acá: `construirDocumentoUI` nunca los consulta porque una tabla se dibuja entera a
+  // través de `tablasPorIndice`, no párrafo por párrafo.
   const porParrafo = new Map<number, Resuelto>();
   for (const [indice, res] of resolucionPorIndice) {
     porParrafo.set(indice, res.tipo === 'auto'
       ? { tipo: 'auto', valor: res.valor, via: res.via }
       : { tipo: 'pendiente', id: res.id });
-  }
-  const porBlancoInline = new Map<string, Resuelto>();
-  for (const a of inlineAuto) {
-    porBlancoInline.set(`${a.b.indiceRun}:${a.b.posEnTexto}`, { tipo: 'auto', valor: a.valor, via: a.via });
-  }
-  for (const { b } of inlinePendientes) {
-    porBlancoInline.set(`${b.indiceRun}:${b.posEnTexto}`, { tipo: 'pendiente', id: `inline:${b.indiceRun}:${b.posEnTexto}` });
   }
   const documento = construirDocumentoUI({
     xml: xmlNormalizado, porParrafo, porBlancoInline, tablasPorIndice, numeracion,
@@ -561,6 +642,7 @@ export async function analizarAnexoParaUI(
     alertasInadmisibilidad,
     checklistPendientes,
     avisoNoAplica,
+    seccionesEscaneadas,
   };
 }
 

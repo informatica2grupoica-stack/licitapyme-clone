@@ -317,6 +317,15 @@ interface CeldaCruda {
   // true si `paraId`/`indiceGlobal` apuntan a un párrafo con texto (el prefijo de moneda) — el
   // candidato que salga de acá necesita rellenarFinDeParrafo, no rellenarCeldaVacia.
   dosPuntos?: boolean;
+  // Índice GLOBAL de cada párrafo de la celda (mismo `indice` que usa Parrafo/blancosInline) —
+  // BUG REAL (3713-7-LE26): una celda con texto propio ("SI ____ NO ____ declaro...", "Plazo de
+  // entrega" con relleno de puntos al lado) NUNCA se marcaba `vacio`, así que el patrón de tabla
+  // la trataba como texto fijo de solo lectura — el blanco INLINE que trae adentro (ver
+  // blancosInline) desaparecía de la réplica aunque el detector sí lo hubiera encontrado. Con
+  // estos índices, construirTablaUI (anexos-rellenar.ts) puede cruzar la celda contra
+  // analisis.blancosInline y pintar el input donde corresponde, igual que ya hace con un párrafo
+  // normal fuera de tabla.
+  indicesParrafos: number[];
 }
 
 // Umbral de "celda decorativa": encontrado en un anexo real donde una columna de categoría del
@@ -484,6 +493,13 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
     const anchoPct = anchoMatch ? Number(anchoMatch[1]) : null;
     const parrafosCelda = [...cuerpoCelda.matchAll(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"[^>]*>([\s\S]*?)<\/w:p>/g)];
     const textoCelda = parrafosCelda.map(p => textoDeRuns(p[2])).join(' ').trim();
+    // tc.index es la posición del <w:tc>...</w:tc> completo; cuerpoCelda (tc[1]) arranca DESPUÉS
+    // de la apertura "<w:tc...>" — hay que sumar esa diferencia para llegar a la posición real
+    // dentro del XML completo (mismo ajuste para cualquier offset relativo a cuerpoCelda).
+    const offsetCelda = offsetFila + tc.index! + tc[0].indexOf(cuerpoCelda);
+    const indicesParrafos = parrafosCelda
+      .map(p => offsetsIndices.get(offsetCelda + (p.index ?? 0)))
+      .filter((i): i is number => i != null);
     // Toma el ÚLTIMO párrafo vacío de la celda como candidato a rellenar — casi siempre las celdas
     // de una tabla de specs traen un solo párrafo, así que en la práctica es el único. Se usa
     // parrafoEstaVacio (sin TEXTO) y no "sin runs": con el XML de LibreOffice, que deja un run
@@ -494,11 +510,6 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
     let dosPuntos = false;
     if (parrafoVacio && textoCelda === '') {
       paraId = parrafoVacio[1];
-      // tc.index es la posición del <w:tc>...</w:tc> completo; cuerpoCelda (tc[1]) arranca
-      // DESPUÉS de la apertura "<w:tc...>" — hay que sumar esa diferencia para llegar a la
-      // posición real del párrafo dentro del XML completo (mismo ajuste para parrafoVacio.index,
-      // que es relativo a cuerpoCelda).
-      const offsetCelda = offsetFila + tc.index! + tc[0].indexOf(cuerpoCelda);
       indiceGlobal = offsetsIndices.get(offsetCelda + (parrafoVacio.index ?? 0)) ?? null;
     } else if (RE_PREFIJO_MONEDA.test(textoCelda) && parrafosCelda.length) {
       // Celda con SOLO un prefijo de moneda ("$"): no hay párrafo vacío que ofrecer (el único
@@ -506,14 +517,13 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
       // tiene el "$"— para escribir el número PEGADO a continuación (dosPuntos, ver más abajo).
       const ultimo = parrafosCelda[parrafosCelda.length - 1];
       paraId = ultimo[1];
-      const offsetCelda = offsetFila + tc.index! + tc[0].indexOf(cuerpoCelda);
       indiceGlobal = offsetsIndices.get(offsetCelda + (ultimo.index ?? 0)) ?? null;
       dosPuntos = true;
     }
     const ultimoParaId = parrafosCelda.length ? parrafosCelda[parrafosCelda.length - 1][1] : null;
     celdas.push({
       texto: textoCelda, vacio: (textoCelda === '' && paraId != null) || dosPuntos,
-      paraId, indiceGlobal, anchoPct, ultimoParaId, dosPuntos,
+      paraId, indiceGlobal, anchoPct, ultimoParaId, dosPuntos, indicesParrafos,
     });
   }
   return celdas;
@@ -1235,7 +1245,12 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
 // entiende a qué celda corresponde cada blanco. Reutiliza extraerCeldasDeFila (la misma función
 // que ya usa detectarCandidatosTabla) para que "qué celda es un blanco real" sea EXACTAMENTE la
 // misma lógica en los dos lugares — nunca dos criterios de "vacío" que puedan divergir.
-export interface CeldaTablaCruda { texto: string; indiceGlobal: number | null; anchoPct: number | null; ultimoParaId: string | null }
+export interface CeldaTablaCruda {
+  texto: string; indiceGlobal: number | null; anchoPct: number | null; ultimoParaId: string | null;
+  // Índice global de cada párrafo de la celda — permite cruzar contra blancosInline para pintar
+  // un blanco DENTRO de una celda con texto propio (ver el comentario en CeldaCruda).
+  indicesParrafos: number[];
+}
 export interface FilaTablaCruda { celdas: CeldaTablaCruda[] }
 export interface TablaCruda { indicePrimero: number | null; filas: FilaTablaCruda[] }
 
@@ -1259,7 +1274,7 @@ function alinearFilaConEncabezado(header: CeldaTablaCruda[], fila: CeldaTablaCru
   fila.forEach((c, i) => grupos[columnaDeCadaCelda[i]].push(c));
 
   return grupos.map(grupo => {
-    if (grupo.length === 0) return { texto: '', indiceGlobal: null, anchoPct: null, ultimoParaId: null };
+    if (grupo.length === 0) return { texto: '', indiceGlobal: null, anchoPct: null, ultimoParaId: null, indicesParrafos: [] };
     if (grupo.length === 1) return grupo[0];
     // Varias celdas cayeron en la misma columna (típico: 2-3 celdas angostas decorativas, a
     // veces junto con la real) — concatena el texto real si lo hay, y usa como referencia (para
@@ -1267,7 +1282,10 @@ function alinearFilaConEncabezado(header: CeldaTablaCruda[], fila: CeldaTablaCru
     // todas son angostas, ninguna era un dato real de todos modos, cualquiera sirve.
     const texto = grupo.map(c => c.texto).filter(Boolean).join(' ').trim();
     const real = grupo.find(c => c.anchoPct == null || c.anchoPct >= ANCHO_PCT_MINIMO_COLUMNA_REAL) ?? grupo[grupo.length - 1];
-    return { texto, indiceGlobal: real.indiceGlobal, anchoPct: real.anchoPct, ultimoParaId: real.ultimoParaId };
+    return {
+      texto, indiceGlobal: real.indiceGlobal, anchoPct: real.anchoPct, ultimoParaId: real.ultimoParaId,
+      indicesParrafos: grupo.flatMap(c => c.indicesParrafos),
+    };
   });
 }
 
@@ -1289,7 +1307,7 @@ export function extraerTablasCrudo(xml: string): TablaCruda[] {
     const filasCrudo: FilaTablaCruda[] = filasXml.map(filaM => {
       const offsetFila = offsetTabla + filaM.index! + filaM[0].indexOf(filaM[1]);
       const celdas = extraerCeldasDeFila(filaM[1], offsetFila, offsetsIndices);
-      return { celdas: celdas.map(c => ({ texto: c.texto, indiceGlobal: c.indiceGlobal, anchoPct: c.anchoPct, ultimoParaId: c.ultimoParaId })) };
+      return { celdas: celdas.map(c => ({ texto: c.texto, indiceGlobal: c.indiceGlobal, anchoPct: c.anchoPct, ultimoParaId: c.ultimoParaId, indicesParrafos: c.indicesParrafos })) };
     });
 
     // Se alinea contra el encabezado REAL (que puede no ser la fila 0 si la tabla abre con un
