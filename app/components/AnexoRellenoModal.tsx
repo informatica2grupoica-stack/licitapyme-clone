@@ -99,13 +99,18 @@ function TablaReal({
                   className={`border border-slate-200 px-2 py-1 align-middle break-words ${i === 0 ? 'font-semibold text-slate-700' : ''}`}
                 >
                   {c.input ? (
-                    <input
-                      type="text"
-                      value={respuestas[c.input.id] || ''}
-                      onChange={e => onChange(c.input!.id, e.target.value)}
-                      placeholder="…"
-                      className="w-full min-w-0 text-[11.5px] px-1.5 py-1 border border-indigo-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
-                    />
+                    <div className="flex items-center gap-1">
+                      {/* Prefijo ya escrito en el Word (ej. "$") — el valor va PEGADO después, así
+                          que se muestra para que el usuario sepa que no debe repetirlo. */}
+                      {c.texto && <span className="shrink-0 font-medium text-slate-600">{c.texto}</span>}
+                      <input
+                        type="text"
+                        value={respuestas[c.input.id] || ''}
+                        onChange={e => onChange(c.input!.id, e.target.value)}
+                        placeholder="…"
+                        className="w-full min-w-0 text-[11.5px] px-1.5 py-1 border border-indigo-200 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+                      />
+                    </div>
                   ) : c.auto ? (
                     <span
                       className={`inline-flex items-center gap-1 font-medium ${
@@ -117,7 +122,9 @@ function TablaReal({
                           : 'Completado por IA'
                       }
                     >
-                      {c.auto.valor}
+                      {/* Prefijo ya escrito en el Word (ej. "$"), si lo hay — igual criterio que la
+                          celda con input de al lado. */}
+                      {c.texto ? `${c.texto} ${c.auto.valor}` : c.auto.valor}
                       {c.auto.via === 'costeo' && (
                         <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-cyan-100 text-cyan-700">$</span>
                       )}

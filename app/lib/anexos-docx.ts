@@ -252,11 +252,16 @@ const RE_MARCADORES = [
 ];
 const RE_LETRA = /[A-Za-zÀ-ÿ]/;
 
-// Blancos "de raya": guiones bajos (lo de siempre) y líneas de PUNTOS. El umbral de los puntos es
-// más alto (6) que el de los guiones (4) a propósito: tres puntos son puntos suspensivos y cuatro
-// pueden ser un "etc...." mal escrito, mientras que nadie escribe seis puntos seguidos salvo para
-// dejar una línea para llenar.
-const RE_RAYAS = /_{4,}|\.{6,}/g;
+// Blancos "de raya": guiones bajos (lo de siempre), líneas de PUNTOS, y líneas del carácter
+// ELIPSIS "…" (U+2026, UN SOLO carácter que Word/el usuario tipea como "..." y autocorrige a un
+// glifo). BUG REAL (3713-7-LE26): "Plazo de entrega" / "Garantía" rellenan con "…………………" (7
+// elipsis seguidos) — invisibles para este regex hasta ahora, así que NI se ofrecían para
+// autocompletar NI aparecían pendientes para rellenar a mano: el campo entero desaparecía. El
+// umbral de los puntos ASCII es más alto (6) que el de los guiones (4) a propósito: tres puntos
+// son puntos suspensivos y cuatro pueden ser un "etc...." mal escrito, mientras que nadie escribe
+// seis puntos seguidos salvo para dejar una línea para llenar — mismo criterio en elipsis: 2+
+// (cada glifo ya "vale" 3 puntos, así que 2 equivalen al umbral de 6).
+const RE_RAYAS = /_{4,}|\.{6,}|…{2,}/g;
 
 // Encuentra, en un <w:t> YA DECODIFICADO (ver decodificarXml), cada blanco con su contexto previo.
 export function listarBlancosInline(textoRun: string): BlancoInline[] {

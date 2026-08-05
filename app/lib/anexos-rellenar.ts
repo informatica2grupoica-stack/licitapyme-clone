@@ -190,8 +190,12 @@ async function resolverTodo(
 
   for (const c of [...elegibles, ...camposConDosPuntos]) {
     const res = celda.get(c.indice);
+    // `c.dosPuntos` cubre el caso NUEVO (celda de tabla con solo un prefijo de moneda, "$" — ver
+    // detectarCandidatosTabla): a diferencia del patrón 5 clásico (título terminado en ":",
+    // indicesDosPuntos), este SÍ debe seguir alimentando `pendientes` si la IA no lo resuelve —
+    // por eso el chequeo de abajo sigue siendo solo `indicesDosPuntos`, nunca `c.dosPuntos`.
     if (res?.tipo === 'auto') {
-      matcheados.push({ c, campo: res.categoria, valor: res.valor, via: 'ia', dosPuntos: indicesDosPuntos.has(c.indice) });
+      matcheados.push({ c, campo: res.categoria, valor: res.valor, via: 'ia', dosPuntos: c.dosPuntos || indicesDosPuntos.has(c.indice) });
     } else if (!indicesDosPuntos.has(c.indice)) {
       // "Etiqueta:" (patrón 5) NUNCA alimenta la lista de pendientes — ver el comentario de
       // detectarCamposConDosPuntos en anexos-detectar.ts: cualquier título que termine en dos
@@ -373,8 +377,11 @@ function construirTablaUI(
       if (c.indiceGlobal == null) return { texto: c.texto };
       const res = resolucionPorIndice.get(c.indiceGlobal);
       if (!res) return { texto: c.texto };
-      if (res.tipo === 'auto') return { texto: '', auto: { valor: res.valor, via: res.via } };
-      return { texto: '', input: { id: res.id } };
+      // `c.texto` sigue siendo '' para una celda realmente vacía (sin cambio de comportamiento) —
+      // pero conserva el prefijo de moneda ("$") en una celda dosPuntos, que si no desaparecía de
+      // la vista aunque el .docx generado sí lo mantuviera (ver detectarCandidatosTabla).
+      if (res.tipo === 'auto') return { texto: c.texto, auto: { valor: res.valor, via: res.via } };
+      return { texto: c.texto, input: { id: res.id } };
     })),
   };
 }
@@ -639,7 +646,8 @@ export async function generarAnexoFinal(
   for (const c of pendientesFiltrados) {
     const respuesta = respuestas[`celda:${c.indice}`];
     if (respuesta && respuesta.trim()) {
-      xml = rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
+      // Una celda con prefijo de moneda ("$") ya tiene texto — rellenarCeldaVacia revienta ahí.
+      xml = c.dosPuntos ? rellenarFinDeParrafo(xml, c.paraId, respuesta.trim()) : rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
       respondidos++;
     }
   }

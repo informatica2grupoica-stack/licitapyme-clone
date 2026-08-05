@@ -11,6 +11,15 @@ import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
 // el diccionario (anexos-diccionario.ts, borrado — el motor 100% IA ya no lo necesita para
 // decidir VALORES), pero esto es detección ESTRUCTURAL: sigue haciendo falta para saber qué
 // CONTEXTO mostrarle al motor de IA cuando el mismo texto corto se repite en bloques distintos.
+// Mismo patrón que RE_RAYAS en anexos-docx.ts (guiones bajos, puntos ASCII, o el carácter elipsis
+// "…" repetido) — usado acá para reconocer "este párrafo YA trae su propio blanco inline" en
+// varios puntos de este archivo. BUG REAL (3713-7-LE26): cuando solo se miraba "_{4,}", un párrafo
+// como "Garantía ………………… meses" (relleno con elipsis, no guiones) no se reconocía como que ya
+// traía su propio blanco — Patrón 1 lo tomaba entero como ETIQUETA de un campo, apuntando al
+// párrafo SIGUIENTE (puro espaciado) como si ahí fuera el valor, en vez de a los puntos DENTRO de
+// esta misma línea (que ahora sí cubre el patrón 2, inline).
+const RE_TIENE_BLANCO_PROPIO = /_{4,}|\.{6,}|…{2,}/;
+
 const CONTEXTO_REPRESENTANTE = /(representante\s+legal|rep\.?\s*legal)/i;
 const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|entidad\s+bancaria|titular)/i;
 const CONTEXTO_MISMA_PERSONA = /(encargado|contacto|administrador(\s+de\s+contrato)?|coordinador|responsable|ejecutivo|apoderado|coordinaci[óo]n|coordinador[ao])/i;
@@ -38,7 +47,20 @@ export interface CandidatoCelda {
   // las filas en blanco de una tabla que se llena entera (ver detectarCandidatosTabla) y para las
   // secciones de oferente que no nos corresponden (ver analizarAnexo).
   soloManual?: boolean;
+  // true si el párrafo YA tiene texto (un prefijo de moneda como "$", o "Etiqueta:") y el valor va
+  // PEGADO al final — se escribe con rellenarFinDeParrafo, nunca con rellenarCeldaVacia (que exige
+  // la celda vacía y revienta si encuentra texto). Ver detectarCeldaPrefijoMoneda más abajo.
+  dosPuntos?: boolean;
 }
+
+// Celda de tabla cuyo ÚNICO contenido es un prefijo de moneda ("$", "US$", "CLP$") — el número va
+// PEGADO después, en el mismo párrafo. BUG REAL (3713-7-LE26, tabla de "PRODUCTO/CANTIDAD/VALOR
+// UNITARIO/VALOR TOTAL"): la celda de VALOR UNITARIO trae "$" ya escrito, así que `vacio` daba
+// false (textoCelda !== '') y la celda entera desaparecía — ni se autocompletaba ni quedaba
+// pendiente para rellenar a mano, el usuario no tenía CÓMO escribir el precio unitario. El mismo
+// prefijo ya se resolvía para las filas de TOTALES (IVA, VALOR TOTAL — ver anexos-totales-seccion.ts,
+// que usa `ultimoParaId` con el mismo criterio), pero nunca para las filas de PRODUCTO individuales.
+const RE_PREFIJO_MONEDA = /^(?:US\$|CLP\$|\$)$/;
 
 // Versión CRUDA (sin desambiguarDuplicados) — la necesita el clasificador por IA
 // (anexos-clasificar-ia.ts): ese módulo reemplaza el heurístico "prefijo con el candidato
@@ -78,7 +100,7 @@ export function detectarCandidatosCeldaCrudos(parrafos: Parrafo[]): CandidatoCel
     // etiqueta de otro campo: ese blanco lo cubre el patrón 2 (inline), y el párrafo vacío
     // siguiente es de nuevo espaciado. Sin esto se pedía el mismo dato dos veces —y, por la
     // desambiguación de duplicados, con el prefijo "Firma del Oferente…" pegado adelante.
-    if (/_{4,}/.test(actual.texto)) continue;
+    if (RE_TIENE_BLANCO_PROPIO.test(actual.texto)) continue;
 
     out.push({ etiqueta: actual.texto, paraId: siguiente.paraId, indice: siguiente.indice });
   }
@@ -292,6 +314,9 @@ interface CeldaCruda {
   // escribir en celdas que no son técnicamente "vacías" pero traen un prefijo fijo sin blanco
   // propio (ej. una celda cuyo único contenido es "$", el número va pegado después).
   ultimoParaId: string | null;
+  // true si `paraId`/`indiceGlobal` apuntan a un párrafo con texto (el prefijo de moneda) — el
+  // candidato que salga de acá necesita rellenarFinDeParrafo, no rellenarCeldaVacia.
+  dosPuntos?: boolean;
 }
 
 // Umbral de "celda decorativa": encontrado en un anexo real donde una columna de categoría del
@@ -466,6 +491,7 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
     const parrafoVacio = [...parrafosCelda].reverse().find(p => parrafoEstaVacio(p[2]));
     let paraId: string | null = null;
     let indiceGlobal: number | null = null;
+    let dosPuntos = false;
     if (parrafoVacio && textoCelda === '') {
       paraId = parrafoVacio[1];
       // tc.index es la posición del <w:tc>...</w:tc> completo; cuerpoCelda (tc[1]) arranca
@@ -474,9 +500,21 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
       // que es relativo a cuerpoCelda).
       const offsetCelda = offsetFila + tc.index! + tc[0].indexOf(cuerpoCelda);
       indiceGlobal = offsetsIndices.get(offsetCelda + (parrafoVacio.index ?? 0)) ?? null;
+    } else if (RE_PREFIJO_MONEDA.test(textoCelda) && parrafosCelda.length) {
+      // Celda con SOLO un prefijo de moneda ("$"): no hay párrafo vacío que ofrecer (el único
+      // párrafo ya tiene texto), así que el candidato apunta al ÚLTIMO párrafo de la celda —el que
+      // tiene el "$"— para escribir el número PEGADO a continuación (dosPuntos, ver más abajo).
+      const ultimo = parrafosCelda[parrafosCelda.length - 1];
+      paraId = ultimo[1];
+      const offsetCelda = offsetFila + tc.index! + tc[0].indexOf(cuerpoCelda);
+      indiceGlobal = offsetsIndices.get(offsetCelda + (ultimo.index ?? 0)) ?? null;
+      dosPuntos = true;
     }
     const ultimoParaId = parrafosCelda.length ? parrafosCelda[parrafosCelda.length - 1][1] : null;
-    celdas.push({ texto: textoCelda, vacio: textoCelda === '' && paraId != null, paraId, indiceGlobal, anchoPct, ultimoParaId });
+    celdas.push({
+      texto: textoCelda, vacio: (textoCelda === '' && paraId != null) || dosPuntos,
+      paraId, indiceGlobal, anchoPct, ultimoParaId, dosPuntos,
+    });
   }
   return celdas;
 }
@@ -605,6 +643,7 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
           out.push({
             etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal,
             ...(filaContexto ? {} : { soloManual: true }),
+            ...(c.dosPuntos ? { dosPuntos: true } : {}),
           });
         });
       }
@@ -656,9 +695,11 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
         // dejaban la corrida de guiones del campo ANTERIOR pegada al contexto del siguiente, y el
         // slice(-60) a ciegas cortaba la etiqueta a la mitad ("Cargo:" salía como "rgo:", caso
         // real 1058086-43-LP26, ANEXO N°8).
-        // También corta en un MARCADOR anterior (patrón 2b) y en una línea de puntos, por la misma
-        // razón que corta en "_{4,}": el marcador de la casilla previa no es contexto de esta.
-        const contexto = (previo.split(/[,.;]|\(\*+\)|_{4,}|>>|\]/).pop() || previo).trim().slice(-60);
+        // También corta en un MARCADOR anterior (patrón 2b) y en una línea de puntos (ASCII o el
+        // carácter elipsis "…", que Word suele meter como un solo glifo en vez de tres puntos —
+        // ver RE_RAYAS en anexos-docx.ts), por la misma razón que corta en "_{4,}": el marcador o
+        // la raya de la casilla previa no son contexto de esta.
+        const contexto = (previo.split(/[,.;]|\(\*+\)|_{4,}|…+|>>|\]/).pop() || previo).trim().slice(-60);
         // Cuánto espacio se recorta por la izquierda al hacer trim() — para correr posEnParrafo
         // en la misma medida y que siga apuntando al blanco real dentro del texto YA recortado.
         const recorteIzquierdo = textoParrafoCompleto.length - textoParrafoCompleto.trimStart().length;
@@ -768,7 +809,7 @@ export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[
     const p = parrafos[i];
     const texto = p.texto.trim();
     if (!texto.endsWith(':') || texto.length > 80 || p.centrado) continue;
-    if (/_{4,}/.test(texto)) continue;              // tiene su propio blanco → lo cubre el patrón 2
+    if (RE_TIENE_BLANCO_PROPIO.test(texto)) continue;   // tiene su propio blanco → lo cubre el patrón 2
     out.push({ etiqueta: texto.replace(/\s*:\s*$/, ''), paraId: p.paraId, indice: p.indice });
   }
   return out;
@@ -802,7 +843,7 @@ function esEncabezadoDeSeccion(texto: string): { tipo: TipoSeccion } | null {
   // un CAMPO del formulario, no el título de una sección nueva. Caso real 4291-38-LP26: como
   // SOLO_PUNTUACION_FINAL acepta "_", este campo se tomaba por encabezado y abría una sección UTP
   // que —sin el corte por formulario de abajo— se extendía hasta el final del documento.
-  if (/_{4,}/.test(texto)) return null;
+  if (RE_TIENE_BLANCO_PROPIO.test(texto)) return null;
   for (const pat of PATRONES) {
     const m = texto.match(pat.re);
     if (!m) continue;

@@ -542,6 +542,41 @@ test('detectarTripletesFecha: dupla día/mes con el año ya impreso en el docume
   assert.equal(sinAnio.tripletesFecha.size, 0);
 });
 
+// ── Raya de relleno con el carácter ELIPSIS "…" (U+2026), no puntos ASCII ─────────────────────
+// BUG REAL (3713-7-LE26): "Plazo de entrega" / "Garantía" rellenan con "…………………" (7 elipsis, un
+// solo carácter cada uno) — invisible para el regex viejo (solo conocía "_{4,}" y ".{6,}" ASCII),
+// así que el campo entero desaparecía: ni se autocompletaba NI quedaba pendiente para rellenar a
+// mano. Nadie escribía ahí porque el sistema nunca vio que había algo que llenar.
+test('raya de elipsis "…" se detecta igual que guiones bajos o puntos ASCII', () => {
+  const conElipsis = analizarAnexo(normalizarParaIds(NS + p('Plazo de entrega: ………………… días hábiles') + FIN).xml);
+  assert.equal(conElipsis.blancosInline.length, 1, 'la raya de elipsis debe verse como un blanco');
+
+  // Control: dos elipsis SUELTOS (puntos suspensivos reales, "etc…") no son una raya — mismo
+  // umbral que los puntos ASCII (6+, acá 2+ porque cada glifo ya "vale" 3).
+  const puntosSuspensivos = analizarAnexo(normalizarParaIds(NS + p('Etcétera… fin de la frase') + FIN).xml);
+  assert.equal(puntosSuspensivos.blancosInline.length, 0, 'un solo "…" es puntuación normal, no una raya');
+});
+
+// ── Celda de tabla con SOLO un prefijo de moneda ("$") — el número va pegado después ──────────
+// BUG REAL (3713-7-LE26, tabla PRODUCTO/CANTIDAD/VALOR UNITARIO/VALOR TOTAL): la celda de VALOR
+// UNITARIO trae "$" ya escrito. Como la celda no está técnicamente vacía, desaparecía por completo
+// — ni auto ni pendiente — y el usuario no tenía dónde escribir el precio unitario del producto.
+test('celda de tabla con solo "$" se ofrece como candidato (dosPuntos) en vez de desaparecer', () => {
+  const xml = NS + tabla(
+    fila('Nº', 'PRODUCTO', 'CANTIDAD', 'VALOR UNITARIO', 'VALOR TOTAL'),
+    fila('1', 'Contenedores Modulares', '7', '$', ''),
+  ) + FIN;
+  const a = analizarAnexo(normalizarParaIds(xml).xml);
+  const conValorUnitario = a.candidatosCelda.find(c => c.etiqueta.includes('VALOR UNITARIO'));
+  assert.ok(conValorUnitario, 'la celda "$" debe aparecer como candidato');
+  assert.equal(conValorUnitario?.dosPuntos, true, 'debe marcarse para escribirse con rellenarFinDeParrafo (append), no rellenarCeldaVacia');
+
+  // La celda de VALOR TOTAL (realmente vacía, sin "$") sigue funcionando como siempre.
+  const conValorTotal = a.candidatosCelda.find(c => c.etiqueta.includes('VALOR TOTAL'));
+  assert.ok(conValorTotal, 'la celda de VALOR TOTAL sigue detectándose');
+  assert.equal(conValorTotal?.dosPuntos, undefined, 'una celda realmente vacía no lleva dosPuntos');
+});
+
 // ── Anexo que el propio documento dice que NO nos corresponde presentar ───────────────────────
 // ANEXO N°4 de 1057480-41-LP26: es de Unión Temporal de Proveedores y cierra con la nota. Antes se
 // entregaba a medio llenar (los datos de la UTP en blanco, pero la fecha, la firma y el timbre
