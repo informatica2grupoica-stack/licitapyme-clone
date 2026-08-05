@@ -98,6 +98,20 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
     RE_INICIO_BLOQUE.lastIndex = pos;
     const m = RE_INICIO_BLOQUE.exec(xml);
     if (!m) break;
+    // Lo que queda ENTRE el cierre del bloque anterior y la apertura de este NO es basura
+    // descartable: puede ser el cierre real de un cuadro de texto flotante (<w:txbxContent>,
+    // <wps:txbx>, el propio </w:p> del párrafo ancla) cuyos párrafos INTERNOS (con su propio
+    // w14:paraId) ya se contaron como bloques separados más arriba — a propósito, ver el
+    // comentario de finDeTabla sobre por qué <w:p> no se empareja con pila. BUG REAL
+    // (1227338-6-LE26, "FIRMA REPRESENTANTE LEGAL" en un cuadro de texto flotante): sin esto, ese
+    // cierre se perdía en el salto entre el último párrafo interno del cuadro y el siguiente
+    // párrafo del cuerpo — el fragmento dividido por formulario (anexos-dividir.ts) quedaba con
+    // un "<w:txbxContent>" abierto sin su cierre, y Word se negaba a abrir el archivo entero
+    // ("Word detectó un error de contenido"). Se pega al bloque ANTERIOR (el que dejó algo
+    // abierto), nunca al siguiente, que es un párrafo/tabla nuevo sin relación con ese cierre.
+    if (m.index > pos && out.length) {
+      out[out.length - 1].xmlCompleto += xml.slice(pos, m.index);
+    }
     const esTabla = m[0].startsWith('<w:tbl');
     let fin: number;
     if (esTabla) {
@@ -126,6 +140,18 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
       ordinal += 1;
     }
     pos = fin;
+  }
+  // Cola final: mismo problema que el salto entre bloques de arriba, pero para el ÚLTIMO — ahí
+  // no hay ningún "próximo bloque" que dispare esa captura. BUG REAL (1227338-6-LE26): el párrafo
+  // ancla de un cuadro de texto trae OTRO run de texto normal DESPUÉS del cuadro, en el MISMO
+  // <w:p> (nunca se abre un <w:p> nuevo) — el bucle se quedaba sin más aperturas que encontrar y
+  // terminaba (`if (!m) break`) sin haber capturado el cierre real del cuadro ni ese texto final.
+  // Se recorta justo antes del <w:sectPr> final (o `</w:body>` si no hay), que es donde termina
+  // el contenido real del cuerpo — nunca antes, para no perder ese texto final.
+  if (out.length) {
+    const sectPrMatch = xml.slice(pos).match(/<w:sectPr\b/);
+    const finCuerpo = sectPrMatch ? pos + sectPrMatch.index! : xml.indexOf('</w:body>', pos);
+    if (finCuerpo > pos) out[out.length - 1].xmlCompleto += xml.slice(pos, finCuerpo);
   }
   return out;
 }
