@@ -967,6 +967,12 @@ export interface LineaFirma {
   // ficha, se estampa al lado de la firma; si la leyenda solo dice "firma", no se estampa timbre
   // aunque exista, porque no lo están pidiendo.
   pideTimbre?: boolean;
+  // true cuando el párrafo NO tiene ninguna raya de guiones que limpiar (viene del patrón 5,
+  // "Etiqueta:" sola — ver más abajo en analizarAnexo): la imagen se AGREGA al final del párrafo
+  // sin tocar nada de lo que ya hay, nunca reemplazando texto. Caso real (1227338-6-LE26): un
+  // cuadro de texto flotante trae "FIRMA REPRESENTANTE LEGAL:" impreso directo, sin celda ni raya
+  // — insertar limpiando el párrafo (el comportamiento de siempre) borraría esa misma etiqueta.
+  sinRaya?: boolean;
 }
 
 // Antes exigía que el párrafo fuera UN solo guion largo (^_{10,}$) — pero cuando la raya trae DOS
@@ -1231,15 +1237,30 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   const candidatosFirmaCelda = candidatosCeldaTodos.filter(c => esFirmaPropia(c.etiqueta));
   const candidatosCelda = candidatosCeldaTodos.filter(c => !esEtiquetaFirma(c.etiqueta));
 
+  // El patrón 5 ("Etiqueta:" sola, sin celda ni raya al lado — ver más abajo) TAMBIÉN puede pedir
+  // una firma. BUG REAL (1227338-6-LE26): un cuadro de texto flotante trae "FIRMA REPRESENTANTE
+  // LEGAL:" y "RUT:" impresos directo, sin ninguna celda vacía ni raya de guiones (en el papel
+  // original, la firma se estampa a mano ENCIMA de ese texto). Sin esto, "FIRMA REPRESENTANTE
+  // LEGAL:" caía al flujo normal diccionario→IA, que no tiene ninguna forma de insertar una
+  // IMAGEN — el párrafo quedaba intacto, sin firma y sin siquiera avisar que faltaba. Se separa
+  // ACÁ, antes de armar `parrafos` en RAW (detectarCamposConDosPuntos no depende de nada de lo de
+  // abajo), para que reciba la imagen igual que cualquier otra firma.
+  const camposConDosPuntosCrudo = acotarASeccionesHabilitadas(detectarCamposConDosPuntos(parrafos), secciones);
+  const camposDosPuntosFirma = camposConDosPuntosCrudo.filter(c => esFirmaPropia(c.etiqueta));
+  const camposConDosPuntosSinFirma = camposConDosPuntosCrudo.filter(c => !esEtiquetaFirma(c.etiqueta));
+
   // El mismo filtro esFirmaPropia que ya se aplicaba a las CELDAS de firma vale igual para las
   // RAYAS y leyendas — antes no se aplicaba y era un bug real: en 1057480-41-LP26 los anexos 6 y 9
   // cierran con "________ / FIRMA Y TIMBRE EVALUADOR", el bloque que llena el HOSPITAL al evaluar
   // la oferta, y ahí se estampaba nuestra firma escaneada. Firmar por el evaluador de la licitación
   // es bastante peor que dejar el documento sin firmar.
   const todasLasLineasFirma = detectarLineasFirma(parrafos);
-  const lineasFirma = [
+  const lineasFirma: LineaFirma[] = [
     ...todasLasLineasFirma.filter(f => esRayaFirmaPropia(f.contexto)),
     ...candidatosFirmaCelda.map(c => ({ paraId: c.paraId, indice: c.indice, contexto: c.etiqueta, pideTimbre: /timbre/i.test(c.etiqueta) })),
+    ...camposDosPuntosFirma.map(c => ({
+      paraId: c.paraId, indice: c.indice, contexto: c.etiqueta, pideTimbre: /timbre/i.test(c.etiqueta), sinRaya: true,
+    })),
   ];
   // La raya de una línea de firma también matchea el patrón 2 (blanco inline, "_{4,}") — se
   // excluye de ahí para no ofrecer un input de texto Y la firma para el mismo párrafo. Esto vale
@@ -1261,17 +1282,28 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     ...lineasFirma.map(f => f.indice),
     ...blancosInline.map(b => b.indiceParrafo),
   ]);
-  // Se descarta también si el párrafo SIGUIENTE ya es un blanco de otro patrón: ahí el valor va en
-  // esa celda/párrafo, no al final de la etiqueta, y escribir en los dos lo pondría duplicado. Se
-  // mira el resultado real de los otros patrones y no "¿el siguiente está vacío?": un párrafo vacío
-  // puede haber sido descartado como candidato (ej. blancoPrecedeTabla lo filtró por ser el
-  // espaciado antes de una tabla), y en ese caso el campo SÍ queda para este patrón — es
-  // exactamente el caso del "RUT:" del FORMULARIO N°2 de 4291-38-LP26, que si no queda sin llenar
-  // por caer en el hueco entre los dos patrones.
+  // Se descarta también si el párrafo SIGUIENTE ya es un blanco VACÍO que otro patrón reclamó
+  // (una celda de tabla, o la raya de una firma): ahí el valor va en esa celda/párrafo, no al
+  // final de la etiqueta, y escribir en los dos lo pondría duplicado. Se mira el resultado real
+  // de esos dos patrones y no "¿el siguiente está vacío?": un párrafo vacío puede haber sido
+  // descartado como candidato (ej. blancoPrecedeTabla lo filtró por ser el espaciado antes de una
+  // tabla), y en ese caso el campo SÍ queda para este patrón — es exactamente el caso del "RUT:"
+  // del FORMULARIO N°2 de 4291-38-LP26, que si no queda sin llenar por caer en el hueco entre los
+  // dos patrones.
+  //
+  // A propósito NO se mira blancosInline acá (aunque sí más abajo, para `c.indice` mismo): un
+  // párrafo con blanco inline SIEMPRE trae texto propio ("SANTIAGO, ____ DE ____"), nunca es un
+  // "hueco vacío que le pertenece a la etiqueta de arriba" — es un campo INDEPENDIENTE con su
+  // propia etiqueta adentro. BUG REAL (1227338-6-LE26, cuadro de texto "FIRMA REPRESENTANTE
+  // LEGAL:" / "RUT:" / "SANTIAGO, ___ DE ___", tres líneas sueltas sin ninguna relación entre
+  // sí): "RUT:" se descartaba entero porque la línea SIGUIENTE (la fecha) tenía su propio blanco
+  // inline — el RUT desaparecía sin ninguna casilla, ni siquiera pendiente, por un campo de OTRA
+  // línea que no tiene nada que ver.
+  const yaCubiertosComoVacio = new Set([...candidatosCeldaTodos.map(c => c.indice), ...lineasFirma.map(f => f.indice)]);
   // Ni siquiera un título de sección real (nunca un campo, ver indicesFilaTituloMergeada arriba).
   const indicesTituloMergeado = indicesFilaTituloMergeada(xml);
-  const camposConDosPuntos = acotarASeccionesHabilitadas(detectarCamposConDosPuntos(parrafos), secciones)
-    .filter(c => !yaCubiertos.has(c.indice) && !yaCubiertos.has(c.indice + 1))
+  const camposConDosPuntos = camposConDosPuntosSinFirma
+    .filter(c => !yaCubiertos.has(c.indice) && !yaCubiertosComoVacio.has(c.indice + 1))
     .filter(c => !indicesTituloMergeado.has(c.indice));
 
   return {

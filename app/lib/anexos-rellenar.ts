@@ -791,15 +791,18 @@ export async function generarAnexoFinal(
       if (que === 'ninguna') continue;
       // La PRIMERA imagen que entra al párrafo es la que limpia la raya; la segunda se suma con
       // `conservar` para no borrarla. Si solo va el timbre, entonces es él el que entra primero.
+      // `linea.sinRaya` (patrón 5, "Etiqueta:" sola — ver analizarAnexo) fuerza `conservar` desde
+      // la PRIMERA imagen: no hay ninguna raya que limpiar, así que nunca se debe borrar nada del
+      // párrafo (la etiqueta "FIRMA REPRESENTANTE LEGAL:" tiene que sobrevivir intacta).
       let primera = true;
       if (firma && (que === 'ambas' || que === 'firma')) {
-        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma', alineacion });
+        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya });
         primera = false;
       }
       if (timbre && (que === 'ambas' || que === 'timbre')) {
         xml = await insertarImagenEnParrafo(
           zip, xml, linea.paraId, timbre.buffer, timbre.extension,
-          { etiqueta: 'timbre', anchoCm: 2.8, conservar: !primera, alineacion },
+          { etiqueta: 'timbre', anchoCm: 2.8, conservar: !primera || !!linea.sinRaya, alineacion },
         );
       }
     }
