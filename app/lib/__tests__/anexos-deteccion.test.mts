@@ -107,6 +107,36 @@ test('tabla de formulario: cada etiqueta se queda con SU celda (regresión 4291-
     `no debe inventar columnas desde la primera fila: ${JSON.stringify(etiquetas)}`);
 });
 
+// BUG REAL (1227338-6-LE26, "IDENTIFICACIÓN DEL PROPONENTE"/"…DEL REPRESENTANTE LEGAL"): la celda
+// de la ETIQUETA trae un párrafo vacío de relleno DESPUÉS del texto (un salto de línea extra que
+// Word deja dentro de la celda) — con la regla vieja (mirar solo el párrafo i+1), el patrón 1
+// tomaba ese relleno por el valor: la razón social, el RUT y el domicilio del proponente, y el
+// bloque ENTERO del representante legal (nombre/RUT/domicilio/teléfono) quedaban sin ninguna
+// casilla donde escribir — ni auto, ni pendiente, directamente invisibles.
+test('patrón 1: la etiqueta no se queda pegada al relleno de su PROPIA celda (regresión 1227338-6-LE26)', () => {
+  const celdaConRelleno = (texto: string) => `<w:tc><w:tcPr><w:tcW w:w="1250" w:type="pct"/></w:tcPr>${p(texto)}<w:p/></w:tc>`;
+  const xml = NS + tabla(
+    `<w:tr>${celdaConRelleno('NOMBRE O RAZÓN SOCIAL')}${celda('')}</w:tr>`,
+    `<w:tr>${celdaConRelleno('RUT DEL PROPONENTE')}${celda('')}</w:tr>`,
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const candidatos = analizarAnexo(norm).candidatosCelda;
+  const etiquetas = candidatos.map(c => c.etiqueta).sort();
+  assert.deepEqual(etiquetas, ['NOMBRE O RAZÓN SOCIAL', 'RUT DEL PROPONENTE'].sort(),
+    `deben sobrevivir las dos etiquetas: ${JSON.stringify(etiquetas)}`);
+
+  // Y cada candidato apunta a la celda de VALOR (la segunda de su fila), nunca al relleno que
+  // vive dentro de la celda de la etiqueta: rellenar no puede terminar escribiendo el valor
+  // pegado bajo la propia etiqueta en la primera celda.
+  for (const c of candidatos) {
+    const rellenado = rellenarCeldaVacia(norm, c.paraId, 'Comercial MP SpA');
+    const filaConEtiqueta = rellenado.split('</w:tr>').find(f => f.includes(c.etiqueta))! + '</w:tr>';
+    const celdas = filaConEtiqueta.split('</w:tc>');
+    assert.ok(!celdas[0].includes('Comercial MP SpA'), `"${c.etiqueta}": el valor no puede quedar en la celda de la etiqueta`);
+    assert.ok(celdas[1]?.includes('Comercial MP SpA'), `"${c.etiqueta}": el valor debe quedar en la celda de al lado`);
+  }
+});
+
 // La fila de encabezado no es siempre la 0: hay tablas que abren con un TÍTULO mergeado, y otras
 // donde la fila 0 SÍ es el encabezado y la 1 ya trae blancos. Las dos formas conviven en el mismo
 // documento (4291-38-LP26) y elegir mal rompe cosas distintas en cada una.

@@ -67,11 +67,27 @@ const RE_PREFIJO_MONEDA = /^(?:US\$|CLP\$|\$)$/;
 // anterior en la lista" por contexto real (fila/columna de tabla, párrafos previos), así que
 // necesita la etiqueta TAL CUAL la vio el patrón 1, no ya mezclada con un vecino. El camino
 // viejo (determinista) sigue usando `detectarCandidatosCelda` (con desambiguación) sin cambios.
-export function detectarCandidatosCeldaCrudos(parrafos: Parrafo[]): CandidatoCelda[] {
+//
+// `indicesVacioSinCampo` (ver parrafosQueNuncaSonCampoEnTabla): párrafos vacíos que son puro
+// RELLENO dentro de la MISMA celda que una etiqueta — un salto de línea extra que Word deja
+// dentro de la celda de la etiqueta, no la celda de valor de al lado. BUG REAL (1227338-6-LE26,
+// "IDENTIFICACIÓN DEL PROPONENTE"/"…DEL REPRESENTANTE LEGAL"): la celda de "NOMBRE O RAZÓN
+// SOCIAL" trae DOS párrafos —el texto y uno vacío de relleno— antes de llegar a la celda de valor
+// real (una tabla de 2 columnas [etiqueta][valor], SIN encabezado, que cubre justamente este
+// patrón). Sin este ajuste, `actual`/`siguiente` (mirando solo i, i+1) tomaba ese relleno por el
+// valor: la etiqueta apuntaba a un párrafo DENTRO de su propia celda —nunca la celda de al
+// lado— y el campo quedaba sin ninguna casilla donde escribir, en TODO el bloque de
+// identificación (razón social, RUT, domicilio, representante legal completo). Saltando los
+// párrafos de puro relleno se llega al primer vacío de verdad, que es la celda de valor.
+export function detectarCandidatosCeldaCrudos(
+  parrafos: Parrafo[], indicesVacioSinCampo: Set<number> = new Set(),
+): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   for (let i = 0; i < parrafos.length - 1; i++) {
     const actual = parrafos[i];
-    const siguiente = parrafos[i + 1];
+    let j = i + 1;
+    while (j < parrafos.length && parrafos[j].vacio && indicesVacioSinCampo.has(parrafos[j].indice)) j++;
+    const siguiente = parrafos[j];
     // Un párrafo CENTRADO seguido de blanco es un encabezado/título de sección (Word centra
     // títulos, nunca etiquetas de campo — esas siempre van alineadas a la izquierda para calzar
     // con su blanco al lado o abajo). Caso real: "IDENTIFICACION DEL OFERENTE" como título de
@@ -79,7 +95,7 @@ export function detectarCandidatosCeldaCrudos(parrafos: Parrafo[]): CandidatoCel
     // idéntico a la etiqueta real de una fila de esa misma tabla ("IDENTIFICACIÓN DEL OFERENTE"),
     // así que ni el diccionario ni un clasificador de IA por texto puro pueden distinguirlos de
     // forma confiable — pero la alineación SÍ los distingue, sin ambigüedad y sin costo de IA.
-    if (!actual.texto || actual.texto.length > 60 || actual.centrado || !siguiente.vacio) continue;
+    if (!actual.texto || actual.texto.length > 60 || actual.centrado || !siguiente || !siguiente.vacio) continue;
 
     // La LEYENDA de una línea de firma ("Firma del Oferente o Represente Legal.", el párrafo justo
     // debajo de la raya) no es la etiqueta de un campo — el párrafo vacío que le sigue es puro
@@ -107,8 +123,8 @@ export function detectarCandidatosCeldaCrudos(parrafos: Parrafo[]): CandidatoCel
   return out;
 }
 
-export function detectarCandidatosCelda(parrafos: Parrafo[]): CandidatoCelda[] {
-  return desambiguarDuplicados(detectarCandidatosCeldaCrudos(parrafos), parrafos);
+export function detectarCandidatosCelda(parrafos: Parrafo[], indicesVacioSinCampo: Set<number> = new Set()): CandidatoCelda[] {
+  return desambiguarDuplicados(detectarCandidatosCeldaCrudos(parrafos, indicesVacioSinCampo), parrafos);
 }
 
 // Caso real (1738-18-LE26): una tabla de identificación trae "RUT" DOS veces — una fila para el
@@ -1153,12 +1169,12 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // resto del post-procesado de abajo siguen valiendo igual para ambos.
   const candidatosCeldaSinDesambiguar = [
     ...candidatosTabla,
-    ...detectarCandidatosCeldaCrudos(parrafos)
+    ...detectarCandidatosCeldaCrudos(parrafos, parrafosSinCampo)
       .filter(c => !indicesTabla.has(c.indice))
       .filter(c => !parrafosSinCampo.has(c.indice))
       .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId)),
   ];
-  const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos)
+  const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos, parrafosSinCampo)
     .filter(c => !indicesTabla.has(c.indice))
     .filter(c => !parrafosSinCampo.has(c.indice))
     .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId));
