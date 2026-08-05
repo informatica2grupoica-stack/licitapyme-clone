@@ -1419,15 +1419,21 @@ function DetalleContent() {
     if (negocio?.licitacion_codigo) fetchAnalisisIA(negocio.licitacion_codigo);
   }, [negocio?.licitacion_codigo]); // eslint-disable-line
 
-  // Cargar el informe de viabilidad IA (para el bloque de resumen)
-  useEffect(() => {
+  // Cargar el informe de viabilidad IA (para el bloque de resumen y el gate de "En proceso").
+  // fetchViabIA se re-expone como onComplete al panel de Viabilidad: si no se refresca ahí,
+  // terminar un (re)análisis dentro de esta misma sesión deja viabIA con el valor viejo (null en
+  // la primera vez) y el botón "En proceso" queda bloqueado aunque el informe YA esté guardado —
+  // solo se destrababa recargando la página (que sí vuelve a correr este efecto desde cero).
+  const fetchViabIA = useCallback(async () => {
     const cod = negocio?.licitacion_codigo;
     if (!cod) return;
-    fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(cod)}`)
-      .then(r => r.json())
-      .then(d => { if (d?.informeIA) setViabIA(d.informeIA); })
-      .catch(() => { /* silencioso */ });
+    try {
+      const r = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(cod)}`);
+      const d = await r.json();
+      if (d?.informeIA) setViabIA(d.informeIA);
+    } catch { /* silencioso */ }
   }, [negocio?.licitacion_codigo]);
+  useEffect(() => { fetchViabIA(); }, [fetchViabIA]);
 
   // Contador del menú: cuántos puntos comerciales esperan visto bueno. Solo se pide cuando
   // la etapa lo amerita, para no generar el checklist en licitaciones que aún están en análisis.
@@ -1715,7 +1721,7 @@ function DetalleContent() {
             )}
             {seccion === 'fechas' && <SeccionFechas licitacion={licitacion} />}
             {seccion === 'items' && <SeccionItems licitacion={licitacion} analisisIA={analisisIA} />}
-            {seccion === 'viabilidad' && <ViabilidadIAPanel codigo={negocio.licitacion_codigo} />}
+            {seccion === 'viabilidad' && <ViabilidadIAPanel codigo={negocio.licitacion_codigo} onComplete={fetchViabIA} />}
             {seccion === 'documentos' && (
               <DocumentosSection
                 codigoDecoded={negocio.licitacion_codigo}

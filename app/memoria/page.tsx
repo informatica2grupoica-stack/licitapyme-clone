@@ -19,7 +19,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { StatCard } from '@/app/components/ui/StatCard';
 import {
   Library, Search, Loader2, Plus, Trash2, Save, X, FileText, Receipt,
-  Building2, Calendar, Package, Inbox, Info,
+  Building2, Calendar, Package, Inbox, Info, Zap,
 } from 'lucide-react';
 
 interface Caso {
@@ -34,6 +34,7 @@ interface Caso {
   categoria: string | null;
   descripcion: string | null;
   empresa_nombre: string | null;
+  origen: string;
   n_items: number;
   n_facturas: number;
   n_oc: number;
@@ -390,7 +391,18 @@ export default function MemoriaPage() {
               <tbody>
                 {casos.map(c => (
                   <tr key={c.id} className="border-t border-slate-100 text-slate-700 hover:bg-slate-50/60">
-                    <td className="px-3 py-2 font-mono text-[11.5px]">{c.oc_numero}</td>
+                    <td className="px-3 py-2 font-mono text-[11.5px]">
+                      <span className="flex items-center gap-1.5">
+                        {c.oc_numero}
+                        {c.origen && c.origen !== 'MANUAL' && (
+                          <span
+                            title={`Cargado automático desde ${c.origen}`}
+                            className="inline-flex items-center gap-0.5 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-sans">
+                            <Zap size={9} /> {c.origen}
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-3 py-2 truncate max-w-[220px]" title={c.entidad_nombre}>{c.entidad_nombre}</td>
                     <td className="px-3 py-2 text-slate-500 truncate max-w-[130px]">{c.categoria || '—'}</td>
                     <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtCLP(c.monto)}</td>
