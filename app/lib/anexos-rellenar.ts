@@ -36,7 +36,7 @@ import {
   type EmpresaCampos, type Resolucion, type AlertaInadmisibilidad,
 } from '@/app/lib/anexos-ia-motor';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
-import { calcularTotalesPorSeccion, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
+import { calcularTotalesPorSeccion, calcularTotalesAlPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
 import { analizarSeccionesEscaneadas, type SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
@@ -303,9 +303,23 @@ function aplicarTotalesPorSeccion(
   const rellenos = resolverTablaResumen(tablasCrudo, totalesSeccion);
 
   const matcheadosExtra: CampoResuelto[] = [];
+
   const anexarDirecto: { paraId: string; valor: string }[] = [];
   const paraIdsResueltos = new Set<string>();
+
+  // TOTAL NETO / IVA / TOTAL IVA INCLUIDO al pie de la MISMA tabla de precios (539119-76-LP26) —
+  // ver calcularTotalesAlPie. Son celdas distintas de las de la tabla resumen de abajo, pero la
+  // deduplicación por paraId vale igual: una celda se escribe UNA vez o no se escribe.
+  for (const r of calcularTotalesAlPie(tablasCrudo, valorResuelto)) {
+    paraIdsResueltos.add(r.paraId);
+    matcheadosExtra.push({
+      c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
+      campo: 'total_calculado', valor: r.valor, via: 'costeo',
+    });
+  }
+
   for (const r of rellenos) {
+    if (paraIdsResueltos.has(r.paraId)) continue;
     if (r.anexar) {
       anexarDirecto.push({ paraId: r.paraId, valor: r.valor });
     } else if (r.indiceGlobal != null) {

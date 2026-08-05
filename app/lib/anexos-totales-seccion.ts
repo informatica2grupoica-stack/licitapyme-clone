@@ -10,8 +10,9 @@
 // Nunca escribe un total PARCIAL: si algún ítem de la sección quedó sin precio resuelto, la
 // sección completa se deja pendiente (ver TotalSeccion.completo) — un total que parece completo
 // pero le falta un ítem es peor que uno visiblemente vacío.
-import type { TablaCruda } from '@/app/lib/anexos-detectar';
+import type { TablaCruda, CeldaTablaCruda } from '@/app/lib/anexos-detectar';
 import type { Parrafo } from '@/app/lib/anexos-docx';
+import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
 
 export interface TituloCercano { texto: string; indice: number }
 
@@ -94,6 +95,131 @@ export function calcularTotalesPorSeccion(
     if (filasConDato > 0) totales.push({ titulo: titulo.texto, total, completo });
   }
   return totales;
+}
+
+// ── Totales AL PIE de la misma tabla (TOTAL NETO / IVA 19% / TOTAL IVA INCLUIDO) ─────────────
+// Patrón distinto al de arriba: acá no hay tabla resumen aparte ni columna de cantidad — las tres
+// últimas filas de la MISMA tabla de productos piden el total de la columna de precios unitarios.
+// Caso real 539119-76-LP26 (ANEXO N°3, oferta económica de panadería): con los 33 precios ya
+// puestos desde el costeo, esas tres casillas quedaban vacías y había que sumar 33 números a mano
+// — justo el error que este módulo existe para evitar. El costeo NO trae estos totales (confirmado
+// con el usuario): la única fuente posible es la propia columna ya rellenada, que es también lo
+// que el organismo va a sumar para evaluar.
+//
+// Reglas de seguridad, deliberadamente estrictas — es una oferta económica, un número mal escrito
+// aquí es peor que una casilla vacía:
+//   · Si UN solo ítem quedó sin precio, no se escribe NINGÚN total de esa tabla (mismo criterio
+//     que calcularTotalesPorSeccion: nunca un total parcial que parezca completo).
+//   · El IVA se calcula con el porcentaje que dice la propia fila ("IVA 19%"); si la fila no lo
+//     dice, no se inventa un 19% por defecto: esa fila se deja pendiente.
+//   · El total con IVA se calcula como neto + IVA, nunca por su cuenta.
+//   · Si la tabla trae columna CANTIDAD, el total es Σ(cantidad × precio); si no (el caso de este
+//     anexo: solo precios unitarios), es la suma de la columna.
+const RE_COLUMNA_CANTIDAD = /^cantidad(es)?$/i;
+// El orden importa: "TOTAL IVA INCLUIDO" tiene que caer en `bruto`, no en `neto` ni en `iva`.
+const RE_PIE_BRUTO = /\b(iva\s*inclu|con\s*iva|total\s*bruto|total\s*final|total\s*general)/i;
+const RE_PIE_IVA = /^\s*(i\.?v\.?a\.?|impuesto)\b/i;
+const RE_PIE_NETO = /\b(total|subtotal|sub\s*total|suma)\b/i;
+
+export interface RellenoPie { paraId: string; indiceGlobal: number; valor: string; etiqueta: string }
+
+function textoDeFila(celdas: { texto: string }[]): string {
+  return celdas.map(c => c.texto).filter(Boolean).join(' ').trim();
+}
+
+// La casilla donde va el monto: la celda vacía más a la DERECHA de la fila. En estas filas el
+// rótulo va combinado (gridSpan) ocupando las columnas de la izquierda y el monto queda solo en la
+// última — por eso no sirve el índice de columna del encabezado (con celdas combinadas la
+// alineación por ancho no calza; ver alinearFilaConEncabezado).
+function celdaDelMonto(celdas: CeldaTablaCruda[]): CeldaTablaCruda | null {
+  for (let i = celdas.length - 1; i >= 0; i--) {
+    const c = celdas[i];
+    if (c.indiceGlobal != null && c.ultimoParaId && !c.texto.trim()) return c;
+  }
+  return null;
+}
+
+export function calcularTotalesAlPie(
+  tablasCrudo: TablaCruda[], valorResuelto: (indiceGlobal: number) => number | null,
+): RellenoPie[] {
+  const out: RellenoPie[] = [];
+  for (const t of tablasCrudo) {
+    if (t.filas.length < 3) continue; // encabezado + al menos un ítem + al menos una fila de pie
+    const header = t.filas[0].celdas.map(c => c.texto);
+    const iPrecio = header.findIndex(h => esCandidatoDePrecioUnitario(`x — ${h}`));
+    if (iPrecio < 0) continue;
+    const iCantidad = header.findIndex(h => RE_COLUMNA_CANTIDAD.test(h.trim()));
+
+    // Se separan las filas de PIE de las de ítem antes de sumar: una fila de pie no es un ítem
+    // (no tiene precio propio que sumar) y un ítem sin resolver invalida el total.
+    const filasPie: { celdas: CeldaTablaCruda[]; rotulo: string }[] = [];
+    let total = 0;
+    let itemsConDato = 0;
+    let completo = true;
+    for (const fila of t.filas.slice(1)) {
+      const rotulo = textoDeFila(fila.celdas);
+      if (RE_PIE_BRUTO.test(rotulo) || RE_PIE_IVA.test(rotulo) || RE_PIE_NETO.test(rotulo)) {
+        filasPie.push({ celdas: fila.celdas, rotulo });
+        continue;
+      }
+      const celdaPrecio = fila.celdas[iPrecio];
+      if (!celdaPrecio) continue;
+      // Una fila puede traer el precio YA escrito en el Word (no todas se resuelven por costeo).
+      const yaEscrito = Number(celdaPrecio.texto.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.'));
+      const precio = celdaPrecio.indiceGlobal != null
+        ? valorResuelto(celdaPrecio.indiceGlobal)
+        : (Number.isFinite(yaEscrito) && yaEscrito > 0 ? yaEscrito : null);
+      if (precio == null) {
+        // Una fila totalmente vacía (sin rótulo ni precio) es relleno visual, no un ítem sin resolver.
+        if (rotulo) completo = false;
+        continue;
+      }
+      itemsConDato++;
+      if (iCantidad >= 0) {
+        const cantidad = Number(String(fila.celdas[iCantidad]?.texto ?? '').trim().replace(',', '.'));
+        total += Number.isFinite(cantidad) && cantidad > 0 ? cantidad * precio : precio;
+      } else {
+        total += precio;
+      }
+    }
+    if (!completo || itemsConDato === 0 || filasPie.length === 0) continue;
+
+    const neto = total;
+    for (const fila of filasPie) {
+      const celda = celdaDelMonto(fila.celdas);
+      if (!celda?.ultimoParaId || celda.indiceGlobal == null) continue;
+      let valor: number | null = null;
+      if (RE_PIE_BRUTO.test(fila.rotulo)) {
+        // neto + IVA YA REDONDEADO, no round(neto × 1,19): así el papel cuadra a la vista (las
+        // dos líneas de arriba suman exactamente esta), que es lo primero que revisa quien evalúa.
+        // Las dos formas pueden diferir en $1 por el redondeo, y esa diferencia se ve.
+        const pct = porcentajeIva(fila.rotulo, filasPie);
+        valor = pct == null ? null : Math.round(neto) + Math.round(neto * pct / 100);
+      } else if (RE_PIE_IVA.test(fila.rotulo)) {
+        const pct = porcentajeIva(fila.rotulo, filasPie);
+        valor = pct == null ? null : Math.round(neto * pct / 100);
+      } else {
+        valor = Math.round(neto);
+      }
+      if (valor == null) continue; // sin porcentaje declarado no se adivina — la casilla queda pendiente
+      out.push({
+        paraId: celda.ultimoParaId, indiceGlobal: celda.indiceGlobal, etiqueta: fila.rotulo.slice(0, 80),
+        valor: new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(valor),
+      });
+    }
+  }
+  return out;
+}
+
+// El porcentaje sale del texto de la propia tabla ("IVA 19%"), nunca de una constante: si mañana
+// cambia la tasa, o el anexo usa otra, el documento manda. La fila del total con IVA suele no
+// repetirlo ("TOTAL IVA INCLUIDO"), así que se acepta el que declare cualquier fila de pie.
+function porcentajeIva(rotulo: string, filasPie: { rotulo: string }[]): number | null {
+  for (const texto of [rotulo, ...filasPie.map(f => f.rotulo)]) {
+    const m = texto.match(/(\d{1,2}(?:[.,]\d+)?)\s*%/);
+    if (m) return Number(m[1].replace(',', '.'));
+  }
+  return null;
 }
 
 export interface RellenoTotal {

@@ -12,6 +12,8 @@ import {
 } from '../anexos-docx';
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha } from '../anexos-detectar';
 import { valorExisteEnFicha, type EmpresaCampos } from '../anexos-ia-motor';
+import { esCandidatoDePrecioUnitario } from '../anexos-precios-columnas';
+import { calcularTotalesAlPie } from '../anexos-totales-seccion';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
 const FIN = '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
@@ -401,6 +403,104 @@ test('fila de ítem con celda combinada (gridSpan) no es el encabezado (regresi�
   for (const esperada of ['Cumple (Sí/No)', 'Catálogo', 'Observaciones']) {
     assert.ok(etiquetas.some(e => e.includes(esperada)), `falta candidato para "${esperada}": ${JSON.stringify(etiquetas)}`);
   }
+});
+
+// ── Anexo de OFERTA ECONÓMICA: la fila la nombra su producto, no su celda más larga ──────────
+// REGRESIÓN 539119-76-LP26 ("los anexos donde hay que poner precio no los detecta"): en el ANEXO
+// N°3, la fila "5 | MASA DE PIZZA | 1 BOLSA CON 2 UNIDADES | ___" se etiquetaba con la UNIDAD DE
+// MEDIDA porque ese texto es más largo que el nombre del producto. Esa etiqueta es la que después
+// se cruza contra el costeo, así que la fila perdía su precio: "MASA DE PIZZA" está en el costeo,
+// "1 BOLSA CON 2 UNIDADES" no.
+test('la etiqueta de una fila de precios sale de la columna descriptiva, no de la más larga', () => {
+  const xml = NS + tabla(
+    fila('N°', 'PRODUCTOS', 'UNIDAD DE MEDIDA', 'VALOR UNITARIO OFERTADO NETO'),
+    fila('1', 'EMPANADA PINO', 'UNIDAD', ''),
+    fila('5', 'MASA DE PIZZA', '1 BOLSA CON 2 UNIDADES', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = detectarCandidatosTabla(norm).map(c => c.etiqueta);
+
+  assert.ok(etiquetas.includes('MASA DE PIZZA — VALOR UNITARIO OFERTADO NETO'),
+    `la fila debe nombrarse por el producto: ${JSON.stringify(etiquetas)}`);
+  assert.ok(etiquetas.includes('EMPANADA PINO — VALOR UNITARIO OFERTADO NETO'),
+    `la fila con unidad corta tampoco debe cambiar: ${JSON.stringify(etiquetas)}`);
+});
+
+// Segunda mitad del mismo bug: aunque la etiqueta sea correcta, el cruce con el costeo solo se
+// intentaba si la columna se llamaba EXACTAMENTE "precio unitario" / "valor unitario" / "monto
+// unitario". El anexo real dice "VALOR UNITARIO OFERTADO NETO" y quedaba fuera, así que
+// matchearPreciosConIA cortaba en la primera línea con cero candidatos.
+test('esCandidatoDePrecioUnitario reconoce los encabezados reales y sigue excluyendo los totales', () => {
+  for (const columna of [
+    'VALOR UNITARIO OFERTADO NETO',   // 539119-76-LP26 ANEXO N°3 línea 2
+    'PRECIO NETO',                    // 539119-76-LP26 ANEXO N°3 línea 1
+    'Precio unitario',
+    'PRECIO UNITARIO NETO',
+    'Monto unitario (sin IVA)',
+    'Valor Unitario',
+    'PRECIO',
+  ]) {
+    assert.equal(esCandidatoDePrecioUnitario(`EMPANADA PINO — ${columna}`), true, `debería aceptar "${columna}"`);
+  }
+
+  // La columna TOTAL nunca se autocompleta (la cantidad del Word no tiene por qué ser la del
+  // costeo), y una columna que no habla de plata tampoco entra.
+  for (const columna of [
+    'PRECIO TOTAL', 'VALOR TOTAL', 'TOTAL NETO', 'MONTO TOTAL OFERTADO', 'SUBTOTAL',
+    'CANTIDAD', 'UNIDAD DE MEDIDA', 'PLAZO DE ENTREGA', 'IVA 19%',
+  ]) {
+    assert.equal(esCandidatoDePrecioUnitario(`EMPANADA PINO — ${columna}`), false, `NO debería aceptar "${columna}"`);
+  }
+
+  // Sin la forma "<ítem> — <columna>" no hay tabla de precios que cruzar.
+  assert.equal(esCandidatoDePrecioUnitario('PRECIO UNITARIO'), false);
+});
+
+// ── TOTAL NETO / IVA / TOTAL IVA INCLUIDO al pie de la tabla de precios (539119-76-LP26) ─────
+// Con los precios ya puestos desde el costeo, estas tres casillas quedaban vacías y había que
+// sumar 33 números a mano. El costeo no trae estos totales: se calculan de la propia columna.
+test('totales al pie: suma la columna, aplica el IVA que declara la fila y cuadra a la vista', () => {
+  const xml = NS + tabla(
+    fila('N°', 'PRODUCTOS', 'UNIDAD DE MEDIDA', 'VALOR UNITARIO OFERTADO NETO'),
+    fila('1', 'EMPANADA PINO', 'UNIDAD', ''),
+    fila('2', 'MASA DE PIZZA', '1 BOLSA', ''),
+    fila('TOTAL NETO', '', '', ''),
+    fila('IVA 19%', '', '', ''),
+    fila('TOTAL IVA INCLUIDO', '', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const tablas = extraerTablasCrudo(norm);
+  // Los índices de las dos celdas de precio, en orden de aparición.
+  const preciosIdx = tablas[0].filas.slice(1, 3).map(f => f.celdas[3].indiceGlobal!);
+  const valores = new Map([[preciosIdx[0], 3941], [preciosIdx[1], 6531]]);
+
+  const rellenos = calcularTotalesAlPie(tablas, i => valores.get(i) ?? null);
+  const porRotulo = new Map(rellenos.map(r => [r.etiqueta.trim(), r.valor]));
+  assert.equal(porRotulo.get('TOTAL NETO'), '10.472', JSON.stringify([...porRotulo]));
+  assert.equal(porRotulo.get('IVA 19%'), '1.990');
+  // 10.472 + 1.990 = 12.462 exacto: el papel tiene que cuadrar con las dos líneas de arriba.
+  assert.equal(porRotulo.get('TOTAL IVA INCLUIDO'), '12.462');
+
+  // Regla dura: si UN ítem quedó sin precio, no se escribe NINGÚN total de esa tabla.
+  const incompleto = calcularTotalesAlPie(tablas, i => (i === preciosIdx[0] ? 3941 : null));
+  assert.deepEqual(incompleto, [], `con un ítem sin precio no se escribe nada: ${JSON.stringify(incompleto)}`);
+});
+
+test('totales al pie: sin porcentaje declarado el IVA no se inventa', () => {
+  const xml = NS + tabla(
+    fila('N°', 'PRODUCTO', 'PRECIO NETO'),
+    fila('1', 'PAN AMASADO', ''),
+    fila('IVA', '', ''),
+    fila('TOTAL', '', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const tablas = extraerTablasCrudo(norm);
+  const idx = tablas[0].filas[1].celdas[2].indiceGlobal!;
+  const rellenos = calcularTotalesAlPie(tablas, i => (i === idx ? 1689 : null));
+  const rotulos = rellenos.map(r => r.etiqueta.trim());
+
+  assert.ok(rotulos.includes('TOTAL'), `el neto sí se calcula: ${JSON.stringify(rellenos)}`);
+  assert.ok(!rotulos.includes('IVA'), `sin "%" en ninguna fila, el IVA queda pendiente: ${JSON.stringify(rellenos)}`);
 });
 
 // ── Patrón 2b: marcadores de relleno (1057480-41-LP26, Hospital San José de Melipilla) ────────

@@ -25,19 +25,18 @@ function enLotes<T>(items: T[], tamano: number): T[][] {
   return lotes;
 }
 
-// Solo la columna de precio UNITARIO — nunca "Precio total", "Cantidad" ni cualquier otra. La
-// columna total NUNCA se autocompleta: no hay certeza de que la cantidad que usa el Word para
-// calcularlo sea la misma del costeo (una tabla puede pedir la cantidad de las bases, que no
-// siempre calza con la del costeo) — mejor dejarla en blanco que escribir un total mal calculado.
-// Por construcción excluye "precio total"/"valor total": esas frases no matchean ninguno de los
-// patrones exactos de abajo.
-const RE_COLUMNA_PRECIO_UNITARIO = /^(precio(\s+unitario)?|valor(\s+unitario)?|monto(\s+unitario)?)$/i;
-
-export function esCandidatoDePrecioUnitario(etiqueta: string): boolean {
-  const partes = etiqueta.split(' — ');
-  if (partes.length < 2) return false; // siempre viene como "<ítem> — <columna>" (patrón 1b de tablas)
-  return RE_COLUMNA_PRECIO_UNITARIO.test(partes[partes.length - 1].trim());
-}
+// Solo la columna de precio UNITARIO — nunca "Precio total", "Cantidad" ni cualquier otra: no hay
+// certeza de que la cantidad que usa el Word para calcular un total sea la misma del costeo (una
+// tabla puede pedir la cantidad de las bases, que no siempre calza), así que un total nunca se
+// autocompleta CRUZANDO CONTRA EL COSTEO. (Sí se calcula, aparte, sumando la columna ya rellenada
+// del propio anexo — ver calcularTotalesAlPie en anexos-totales-seccion.ts.)
+//
+// El criterio de "¿esta columna pide un precio unitario?" vive en anexos-precios-columnas.ts —
+// es una regla pura que también usa anexos-totales-seccion.ts, que no puede importar este módulo
+// (arrastra gemini.ts, server-only). Se re-exporta para no cambiarles el import a quienes ya la
+// consumían desde acá.
+export { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
+import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
 
 // ── Match EXACTO por texto normalizado — antes de gastar ni un token de IA ───────────────────
 // El costeo casi siempre copia la descripción del ítem TAL CUAL viene en el anexo (es de donde

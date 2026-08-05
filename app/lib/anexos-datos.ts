@@ -130,6 +130,7 @@ async function obtenerLicitacionParaAnexo(codigo: string): Promise<CamposLicitac
 // se pudo leer, se degrada a "sin precios" — el Anexo Creator sigue funcionando igual que hoy,
 // solo sin el auto-relleno de precios.
 export async function obtenerItemsCosteoParaAnexo(codigo: string): Promise<ItemCosteoPrecio[]> {
+  // 1) El camino "oficial": la planilla vigente del checklist comercial.
   try {
     const [rows] = await pool.query(
       `SELECT ccc.archivo_url
@@ -140,15 +141,68 @@ export async function obtenerItemsCosteoParaAnexo(codigo: string): Promise<ItemC
       [codigo],
     ) as any;
     const url = (rows as any[])[0]?.archivo_url;
-    if (!url) return [];
+    if (url) {
+      const items = await itemsDeUnCosteo(url);
+      if (items.length) return items;
+    }
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudo leer el costeo del checklist de ${codigo}:`, String(e).slice(0, 200));
+  }
 
+  // 2) BUG REAL (539119-76-LP26, "los anexos donde hay que poner precio no los detecta"): el
+  // ANEXO N°3 de oferta económica quedaba 0/10 aunque el costeo YA estaba hecho y cargado —
+  // porque el usuario lo subió a mano a Documentos Propios y nunca pasó por el checklist
+  // comercial, que es la única tabla que se miraba acá. La planilla estaba a un clic de
+  // distancia, con los precios exactos de los 5 productos del anexo, y el Anexo Creator ni la
+  // veía. Documentos Propios es donde el usuario deja la planilla en el flujo real, así que ese
+  // es el segundo lugar donde hay que buscar, no un caso raro.
+  //
+  // No basta con mirar el nombre: se PARSEA cada candidato y se acepta el primero que rinda
+  // ítems con precio (la planilla real siempre los tiene), así que un .xlsx propio que no sea un
+  // costeo simplemente no aporta nada y se sigue de largo — mismo criterio degradable que el
+  // resto de la función. Se ordenan poniendo primero los que se llaman "costeo" (el nombre que
+  // genera el propio sistema, ver generar-costeo.ts) y, dentro de eso, el más reciente.
+  try {
+    const [rows] = await pool.query(
+      `SELECT documento_nombre, documento_url_local
+         FROM documentos_cache
+        WHERE licitacion_codigo = ? AND categoria = 'DOCUMENTOS_PROPIOS'
+          AND (documento_nombre LIKE '%.xlsx' OR documento_nombre LIKE '%.xlsm')
+        ORDER BY (documento_nombre LIKE '%COSTEO%') DESC, id DESC
+        LIMIT ?`,
+      [codigo, MAX_COSTEOS_PROPIOS],
+    ) as any;
+    for (const doc of rows as any[]) {
+      if (!doc.documento_url_local) continue;
+      const items = await itemsDeUnCosteo(doc.documento_url_local);
+      if (items.length) {
+        console.log(`[anexos-datos] precios del anexo económico tomados de Documentos Propios: "${doc.documento_nombre}" (${items.length} ítems)`);
+        return items;
+      }
+    }
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudo leer el costeo de Documentos Propios de ${codigo}:`, String(e).slice(0, 200));
+  }
+
+  return [];
+}
+
+// Cuántas planillas propias se alcanzan a probar antes de rendirse. Parsear un .xlsx es barato
+// comparado con el resto del análisis, pero esto corre en cada apertura de la pantalla: sin tope,
+// una licitación con 20 planillas propias pagaría 20 descargas para nada.
+const MAX_COSTEOS_PROPIOS = 4;
+
+// Descarga y parsea UNA planilla. Nunca lanza: un archivo que no sea un costeo (o una URL caída)
+// devuelve lista vacía y el que llama sigue probando el siguiente candidato.
+async function itemsDeUnCosteo(url: string): Promise<ItemCosteoPrecio[]> {
+  try {
     const res = await fetch(url);
     if (!res.ok) return [];
     const buffer = Buffer.from(await res.arrayBuffer());
     const filas = await parsearCosteo(buffer);
     return itemsPrecioDeCosteo(filas);
   } catch (e) {
-    console.error(`[anexos-datos] no se pudo leer el costeo de ${codigo} para el Anexo Creator:`, String(e).slice(0, 200));
+    console.error('[anexos-datos] planilla de costeo ilegible:', String(e).slice(0, 200));
     return [];
   }
 }

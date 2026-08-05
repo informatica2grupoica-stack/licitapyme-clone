@@ -337,6 +337,16 @@ interface CeldaCruda {
 // puro relleno visual de layout.
 const ANCHO_PCT_MINIMO_COLUMNA_REAL = 400;
 
+// Columnas que NOMBRAN la fila (qué producto/servicio es), distintas de las que la describen de
+// otra forma (unidad de medida, cantidad, plazo). Se usan para elegir el texto que identifica a la
+// fila cuando la tabla trae encabezado — ver detectarCandidatosTabla. Sin tildes a propósito: la
+// comparación normaliza antes (DESCRIPCIÓN / DESCRIPCION / Ítem / item son la misma columna).
+const RE_COLUMNA_DESCRIPTIVA = /\b(producto|productos|descripcion|descripciones|detalle|detalles|item|items|articulo|articulos|servicio|servicios|glosa|partida|partidas|insumo|insumos|material|materiales|especie|especies)\b/;
+
+function sinTildesMinuscula(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
 // Ubica cada celda de una fila en la columna del encabezado que le corresponde por ANCHO REAL
 // (w:tcW, escala pct 0-5000 de OOXML), no por índice de posición simple. Necesario porque una
 // columna del encabezado puede venir partida en 2-3 celdas angostas sueltas en las filas de
@@ -619,14 +629,6 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
         // los dos patrones a la vez y ninguna casilla de "marcar con X" aparecía nunca en el modal.
         if (celdas.length < 2) continue;
 
-        let filaContexto = '';
-        for (const c of celdas) if (c.texto.length > filaContexto.length) filaContexto = c.texto;
-        // Una fila SIN NINGÚN texto propio sigue siendo válida: en una tabla que se llena entera
-        // (especificaciones técnicas, participantes de una capacitación) TODAS las filas están en
-        // blanco y la etiqueta sale del nombre de la columna. Antes se descartaba la fila completa —
-        // caso real 4291-38-LP26: el FORMULARIO N°3 tiene 20 celdas para llenar y no aparecía
-        // ninguna, la caja salía en pantalla sin una sola casilla.
-
         // Alineación por ANCHO REAL, no por índice de posición — ver columnasPorAncho arriba.
         // Reemplaza la alineación "desde la derecha" anterior: esa asumía que el relleno decorativo
         // siempre va al PRINCIPIO de la fila, pero un documento real (1738-18-LE26) trae filas con
@@ -634,6 +636,31 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
         // calzara con el patrón asumido perdía su candidato real de PRECIO (o lo etiquetaba con la
         // columna equivocada).
         const columnaDeCadaCelda = columnasPorAncho(anchosHeader, celdas.map(c => c.anchoPct));
+
+        // Qué texto de la fila la identifica. El criterio "la celda con más texto" funciona en la
+        // mayoría de las tablas, pero se equivoca justo donde más duele: BUG REAL
+        // (539119-76-LP26, ANEXO N°3) la fila "5 | MASA DE PIZZA | 1 BOLSA CON 2 UNIDADES | ___"
+        // se etiquetaba "1 BOLSA CON 2 UNIDADES — VALOR UNITARIO OFERTADO NETO" porque la unidad
+        // de medida es más larga que el nombre del producto. La etiqueta es lo que después se
+        // cruza contra el costeo (ver anexos-precios-ia.ts), así que perder el nombre del producto
+        // es perder el precio: "MASA DE PIZZA" estaba en el costeo, "1 BOLSA CON 2 UNIDADES" no.
+        // Con encabezado detectado hay una señal mucho mejor que la longitud: la propia tabla dice
+        // cuál es su columna descriptiva ("PRODUCTOS", "DESCRIPCIÓN", "ÍTEM", "DETALLE"…).
+        let filaContexto = '';
+        const colDescriptiva = hayEncabezado
+          ? nombresColumna.findIndex(n => RE_COLUMNA_DESCRIPTIVA.test(sinTildesMinuscula(n)))
+          : -1;
+        if (colDescriptiva >= 0) {
+          const celdaDescriptiva = celdas.find((_, i) => columnaDeCadaCelda[i] === colDescriptiva);
+          if (celdaDescriptiva?.texto) filaContexto = celdaDescriptiva.texto;
+        }
+        // Sin columna descriptiva (o con esa celda vacía) se mantiene el criterio de siempre.
+        if (!filaContexto) for (const c of celdas) if (c.texto.length > filaContexto.length) filaContexto = c.texto;
+        // Una fila SIN NINGÚN texto propio sigue siendo válida: en una tabla que se llena entera
+        // (especificaciones técnicas, participantes de una capacitación) TODAS las filas están en
+        // blanco y la etiqueta sale del nombre de la columna. Antes se descartaba la fila completa —
+        // caso real 4291-38-LP26: el FORMULARIO N°3 tiene 20 celdas para llenar y no aparecía
+        // ninguna, la caja salía en pantalla sin una sola casilla.
 
         celdas.forEach((c, colIndex) => {
           if (!c.vacio || c.indiceGlobal == null || !c.paraId) return;
