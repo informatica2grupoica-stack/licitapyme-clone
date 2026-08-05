@@ -16,6 +16,17 @@ const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|entidad\s+
 const CONTEXTO_MISMA_PERSONA = /(encargado|contacto|administrador(\s+de\s+contrato)?|coordinador|responsable|ejecutivo|apoderado|coordinaci[óo]n|coordinador[ao])/i;
 const CONTEXTO_TERCERO_AJENO = /(u\.?t\.?p\.?|uni[óo]n\s+temporal|integrante|socio|accionista|mandante|contraparte|inspector|i\.?t\.?o\.?|participante|capacitaci[óo]n|asistente|testigo|notario|proveedor\s+asociado|subcontrat)/i;
 
+// De quién es una firma/fecha cuando la leyenda o el párrafo cercano lo dice: usado tanto para
+// decidir si estampamos la imagen de la firma (más abajo) como para excluir una FECHA que en
+// realidad le pertenece al evaluador (ver precedeFirmaContraparte). El lado NEGATIVO
+// (CONTRAPARTE) es tan necesario como el positivo: hay leyendas que nombran a los dos a la vez
+// ("FIRMA Y TIMBRE REPRESENTANTE LEGAL   FIRMA Y TIMBRE EVALUADOR" en el mismo párrafo) — ahí no
+// se adivina, se trata como contraparte para no arriesgar estampar donde no corresponde.
+const RE_FIRMA_NUESTRA = /(oferente|proponente|proveedor|contratista|representante\s+legal|rep\.?\s*legal|persona\s+natural)/i;
+// Ojo: NO se puede meter acá "uso exclusivo" — "Para uso exclusivo Proveedor Adjudicado" es
+// NUESTRO bloque (caso real 4291-38-LP26, cubierto por un test).
+const RE_FIRMA_CONTRAPARTE = /(evaluador|entidad\s+licitante|comisi[óo]n\s+evaluadora|ministro\s+de\s+fe|mandante|inspector)/i;
+
 // ── Patrón 1: etiqueta corta + párrafo vacío inmediatamente después ───────────────────────
 // (celda de tabla de 2 columnas: "Razón social" | <celda vacía>). Es RUIDOSO a propósito: no
 // distingue un título corto ("ANEXO N°1") de un campo real ("RUT") — esa distinción la hace
@@ -54,7 +65,14 @@ export function detectarCandidatosCeldaCrudos(parrafos: Parrafo[]): CandidatoCel
     // generado a PDF): como la etiqueta menciona "firma", analizarAnexo la mandaba a lineasFirma y
     // estampaba la imagen de la firma en ese espaciado — quedaban DOS firmas seguidas, una sobre la
     // leyenda y otra debajo.
-    if (i > 0 && RE_RAYA_LARGA.test(parrafos[i - 1].texto) && RE_LEYENDA_FIRMA.test(actual.texto)) continue;
+    if (i > 0 && esRayaLarga(parrafos[i - 1].texto) && RE_LEYENDA_FIRMA.test(actual.texto)) continue;
+
+    // Caption breve bajo una firma doble ("(OFERENTE)", junto a su par "(EVALUADOR)" al otro
+    // lado del mismo bloque) que solo indica DE QUIÉN es la columna de arriba — nunca pide un
+    // dato. BUG REAL (1057480-41-LP26, anexos 7 y 8): "(OFERENTE)" seguido de un párrafo vacío
+    // (puro espaciado antes de la línea de Fecha) calzaba con este patrón 1 y la IA, corrida tras
+    // corrida, a veces le escribía la razón social ahí — texto suelto en medio del bloque de firma.
+    if (RE_CAPTION_ROL_FIRMA.test(actual.texto)) continue;
 
     // Un párrafo que YA trae su propio blanco ("Antofagasta,________________") tampoco es la
     // etiqueta de otro campo: ese blanco lo cubre el patrón 2 (inline), y el párrafo vacío
@@ -136,6 +154,42 @@ function contextoDeRolCercano(parrafos: Parrafo[], antesDeIndice: number): strin
     if (RE_CONTEXTO_ROL.test(p.texto)) return p.texto;
   }
   return null;
+}
+
+// BUG REAL (1057480-41-LP26, anexos 6 y 9): ambos cierran con la MISMA raya + "FIRMA Y TIMBRE
+// EVALUADOR" seguida, 1-2 párrafos después, de "FECHA DE EVALUACIÓN: ___/___/___" — un blanco
+// que vive en SU PROPIO párrafo, sin ninguna raya de firma adentro. La firma ya se excluía
+// (esRayaFirmaPropia/esFirmaPropia), pero esa fecha es un candidato inline más: el motor de IA
+// solo ve el párrafo donde vive ("FECHA DE EVALUACIÓN: ___/___/___"), sin la leyenda de la firma
+// que la precede, y decidía caso a caso — en el anexo 9 la autocompletó con la fecha de HOY como
+// si fuera nuestra, en el anexo 6 (mismo párrafo literal) la dejó pendiente. Ambos documentos son
+// del HOSPITAL: esa fecha la escribe el evaluador al firmar, nunca el oferente. Ventana CORTA a
+// propósito (a diferencia de VENTANA_CONTEXTO_ROL): solo cuenta si la firma de contraparte está
+// PEGADA arriba (raya + leyenda + a lo más un espaciador), no en otro bloque lejano del documento.
+//
+// SEGUNDO BUG REAL, mismo síntoma (anexos 7 y 8 del mismo documento): la leyenda trae los DOS
+// bloques en un solo párrafo ("FIRMA Y TIMBRE REPRESENTANTE LEGAL      FIRMA Y TIMBRE EVALUADOR")
+// y la fecha que sigue también junta las DOS casillas en una sola línea ("Fecha: __/__/__
+// Fecha: __/__/__", oferente a la izquierda, evaluador a la derecha — el mismo orden que la
+// leyenda de arriba). Como ambos grupos de blancos viven en el MISMO párrafo, no hay forma de
+// decirle al motor "el primero es tuyo, el segundo no" sin adivinar por posición de texto — y de
+// hecho probado dos veces seguidas contra el documento real, el resultado varió: una corrida llenó
+// el grupo del evaluador COMPLETO con nuestra fecha, la otra lo llenó A MEDIAS (mes y año sí, día
+// no, un dato roto peor que uno vacío). Iguales al caso de la firma ("estampar sería adivinar cuál
+// es cuál", ver esRayaFirmaPropia): si la leyenda menciona a la contraparte, aunque sea junto con
+// la nuestra en el mismo párrafo, ninguna fecha cercana se autocompleta — la escribe un humano
+// mirando cuál casilla es cuál.
+const VENTANA_FECHA_CONTRAPARTE = 4;
+
+function precedeFirmaContraparte(parrafos: Parrafo[], indiceParrafo: number): boolean {
+  let vistos = 0;
+  for (let i = indiceParrafo - 1; i >= 0 && vistos < VENTANA_FECHA_CONTRAPARTE; i--) {
+    const p = parrafos[i];
+    if (!p?.texto) continue;
+    vistos++;
+    if (RE_FIRMA_CONTRAPARTE.test(p.texto)) return true;
+  }
+  return false;
 }
 
 function desambiguarDuplicados(candidatos: CandidatoCelda[], parrafos: Parrafo[]): CandidatoCelda[] {
@@ -624,6 +678,82 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
   return out;
 }
 
+// ── Fecha partida en 3 casillas — resuelto DETERMINISTA, sin pasar por la IA ──────────────────
+// BUG REAL (608-156-LP26, "Viña del Mar, ___ de ________________ de ________" repetido 5 veces en
+// el mismo documento): es SIEMPRE la fecha de hoy, en el mismo orden (día/mes/año), sin excepción
+// — no hay nada que "decidir" ahí. Dejárselo a la IA, aun con el prompt explícito, dio dos fallas
+// reales corriendo contra el documento: 1) escribió el MES EN NÚMERO ("08") en la casilla que va
+// en palabra ("agosto") — formato equivocado para una declaración jurada chilena; 2) con las 5
+// ocurrencias casi idénticas en el mismo documento, la categorización se mezcló entre ellas —
+// el valor del DÍA apareció en la casilla del MES en una de las 5. Mismo criterio que
+// detectarAvisoNoAplica: cuando la respuesta correcta NUNCA depende del contexto del documento,
+// resolverla en código es más confiable que pedírsela al modelo.
+export type RolFechaTriplete = 'dia' | 'mes_numero' | 'mes_palabra' | 'anio';
+
+// Una línea de fecha siempre es corta ("Viña del Mar, ___ de ___ de ___" son ~55 caracteres). El
+// tope descarta un párrafo de declaración jurada larga que solo por casualidad tenga dos "de"
+// sueltos entre blancos no relacionados con una fecha.
+const LARGO_MAX_LINEA_FECHA = 120;
+const RE_CONECTOR_DE = /^de$/i;
+
+// Clave = `${indiceRun}:${posEnTexto}`, el mismo formato que usa el resto del pipeline
+// (resolverAnexoConIA, generarAnexoFinal) para identificar un blanco inline único.
+// Además del trío completo (día/mes/año los tres en blanco), hay un segundo formato real, igual
+// de determinista: el AÑO ya viene IMPRESO en el propio documento y solo el día y el mes quedan en
+// blanco — "Los Vilos, ____________de_______________2026" (caso real 3713-7-LE26, 6 ocurrencias en
+// el mismo documento). Se exige que justo después del segundo blanco aparezca un año de 4 dígitos
+// (19xx/20xx) suelto — sin eso, "de" es una palabra demasiado común como para bastar por sí sola.
+const RE_ANIO_IMPRESO = /\b(19|20)\d{2}\b/;
+const LARGO_COLA_ANIO = 20;
+
+export function detectarTripletesFecha(blancos: CandidatoInline[]): Map<string, RolFechaTriplete> {
+  const out = new Map<string, RolFechaTriplete>();
+  const porParrafo = new Map<number, CandidatoInline[]>();
+  for (const b of blancos) {
+    if (!porParrafo.has(b.indiceParrafo)) porParrafo.set(b.indiceParrafo, []);
+    porParrafo.get(b.indiceParrafo)!.push(b);
+  }
+  for (const grupoSinOrdenar of porParrafo.values()) {
+    if (grupoSinOrdenar.length < 2) continue;
+    const grupo = [...grupoSinOrdenar].sort((a, b) => a.posEnParrafo - b.posEnParrafo);
+    const texto = grupo[0].parrafoCompleto;
+    if (texto.length > LARGO_MAX_LINEA_FECHA) continue;
+    let i = 0;
+    while (i < grupo.length) {
+      // Trío: día / mes / año, los tres en blanco — se intenta PRIMERO (más específico: dos
+      // conectores en vez de uno) para no dejar que la dupla se coma el primer par de un trío.
+      if (i + 2 < grupo.length) {
+        const [b1, b2, b3] = [grupo[i], grupo[i + 1], grupo[i + 2]];
+        const conector1 = texto.slice(b1.posEnParrafo + b1.largo, b2.posEnParrafo).trim();
+        const conector2 = texto.slice(b2.posEnParrafo + b2.largo, b3.posEnParrafo).trim();
+        const esBarra = conector1 === '/' && conector2 === '/';
+        const esDe = RE_CONECTOR_DE.test(conector1) && RE_CONECTOR_DE.test(conector2);
+        if (esBarra || esDe) {
+          out.set(`${b1.indiceRun}:${b1.posEnTexto}`, 'dia');
+          out.set(`${b2.indiceRun}:${b2.posEnTexto}`, esBarra ? 'mes_numero' : 'mes_palabra');
+          out.set(`${b3.indiceRun}:${b3.posEnTexto}`, 'anio');
+          i += 3;
+          continue;
+        }
+      }
+      // Dupla: día / mes, con el año ya impreso a continuación.
+      if (i + 1 < grupo.length) {
+        const [b1, b2] = [grupo[i], grupo[i + 1]];
+        const conector = texto.slice(b1.posEnParrafo + b1.largo, b2.posEnParrafo).trim();
+        const cola = texto.slice(b2.posEnParrafo + b2.largo, b2.posEnParrafo + b2.largo + LARGO_COLA_ANIO);
+        if (RE_CONECTOR_DE.test(conector) && RE_ANIO_IMPRESO.test(cola)) {
+          out.set(`${b1.indiceRun}:${b1.posEnTexto}`, 'dia');
+          out.set(`${b2.indiceRun}:${b2.posEnTexto}`, 'mes_palabra');
+          i += 2;
+          continue;
+        }
+      }
+      i++;
+    }
+  }
+  return out;
+}
+
 // ── Patrón 5: "Etiqueta:" sin nada después, el valor va en la misma línea ─────────────────
 // Ver rellenarFinDeParrafo() en anexos-docx.ts para el caso real que lo motiva (FORMULARIO N°2 de
 // 4291-38-LP26: "Nombre o Razón Social       :" y "RUT:", párrafos sueltos sin celda ni subrayado).
@@ -745,11 +875,28 @@ export interface LineaFirma {
   pideTimbre?: boolean;
 }
 
-const RE_RAYA_LARGA = /^_{10,}$/;
+// Antes exigía que el párrafo fuera UN solo guion largo (^_{10,}$) — pero cuando la raya trae DOS
+// columnas de firma lado a lado en el MISMO párrafo ("_________________        __________",
+// oferente y evaluador, separadas por espacios en blanco de layout), esta regex no la reconocía
+// como raya: caso real 1057480-41-LP26 anexos 7 y 8. Sin reconocerla, ninguna de las dos columnas
+// entraba a `todasLasLineasFirma`, así que sus guiones quedaban sueltos como blancos inline
+// genéricos (candidatos "(sin contexto)" enviados a la IA sin ningún significado, puro ruido —
+// la ambigüedad de A QUIÉN pertenece cada columna ya se resuelve aparte, ver esRayaFirmaPropia).
+// Ahora acepta cualquier combinación de guiones bajos y espacios/tabs, siempre que haya al menos
+// 10 guiones en total y NINGÚN otro carácter (así nunca confunde texto real con una raya).
+function esRayaLarga(texto: string): boolean {
+  return /^[_\s]+$/.test(texto) && (texto.match(/_/g)?.length ?? 0) >= 10;
+}
 // La leyenda bajo la raya no siempre dice "firma" — un caso real dice "Nombre Persona Natural o
 // Representante legal..." sin esa palabra. "representante legal" / "persona natural" al pie de
 // una raya de 10+ guiones es, en la práctica, siempre un bloque de firma en estos documentos.
 const RE_LEYENDA_FIRMA = /firma|representante\s+legal|persona\s+natural/i;
+
+// Ver el uso en detectarCandidatosCeldaCrudos: un párrafo que es SOLO uno de estos roles (con o
+// sin paréntesis) es un caption de "de quién es la columna de arriba", nunca la etiqueta de un
+// campo — anclado con ^...$ para no descartar una etiqueta real que solo MENCIONE la palabra
+// ("Nombre del oferente" sigue siendo un campo válido, esto exige que sea la línea COMPLETA).
+const RE_CAPTION_ROL_FIRMA = /^\(?\s*(oferente|proponente|evaluador|proveedor|contratista)\s*\)?$/i;
 
 // Caso C (ver abajo): leyenda de firma SIN raya. Es un regex mucho más estrecho que
 // RE_LEYENDA_FIRMA a propósito — ahí basta con que el texto MENCIONE "representante legal" porque
@@ -776,7 +923,7 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
 
     // Caso A: la raya ES todo el párrafo — la leyenda viene en el/los párrafo(s) siguiente(s)
     // ("____________\nFirma del Oferente...", en párrafos separados).
-    if (RE_RAYA_LARGA.test(p.texto)) {
+    if (esRayaLarga(p.texto)) {
       const siguiente1 = parrafos[i + 1]?.texto || '';
       const siguiente2 = parrafos[i + 2]?.texto || '';
       const contexto = RE_LEYENDA_FIRMA.test(siguiente1) ? siguiente1 : (RE_LEYENDA_FIRMA.test(siguiente2) ? siguiente2 : '');
@@ -975,12 +1122,8 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // nombran a los dos a la vez ("FIRMA Y TIMBRE REPRESENTANTE LEGAL      FIRMA Y TIMBRE EVALUADOR",
   // los dos bloques en el MISMO párrafo — anexos 7 y 8 de 1057480-41-LP26). Ahí la mención al
   // oferente es real pero no alcanza para saber DÓNDE va nuestra firma dentro del párrafo, así que
-  // no se estampa nada y lo firma un humano.
-  const RE_FIRMA_NUESTRA = /(oferente|proponente|proveedor|contratista|representante\s+legal|rep\.?\s*legal|persona\s+natural)/i;
-  // Ojo: NO se puede meter acá "uso exclusivo" — "Para uso exclusivo Proveedor Adjudicado" es
-  // NUESTRO bloque (caso real 4291-38-LP26, cubierto por un test). El bloque ajeno de ese mismo
-  // documento ("…Universidad de Antofagasta") ya queda fuera por el lado positivo, que no lo nombra.
-  const RE_FIRMA_CONTRAPARTE = /(evaluador|entidad\s+licitante|comisi[óo]n\s+evaluadora|ministro\s+de\s+fe|mandante|inspector)/i;
+  // no se estampa nada y lo firma un humano. (RE_FIRMA_NUESTRA/RE_FIRMA_CONTRAPARTE ahora viven a
+  // nivel de módulo — los reusa precedeFirmaContraparte más abajo.)
   const esFirmaPropia = (etiqueta: string) =>
     esEtiquetaFirma(etiqueta) && RE_FIRMA_NUESTRA.test(etiqueta) && !RE_FIRMA_CONTRAPARTE.test(etiqueta);
   // Para una RAYA de firma no se exige la palabra "firma" en la leyenda: la raya de 10+ guiones ya
@@ -999,14 +1142,23 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // cierran con "________ / FIRMA Y TIMBRE EVALUADOR", el bloque que llena el HOSPITAL al evaluar
   // la oferta, y ahí se estampaba nuestra firma escaneada. Firmar por el evaluador de la licitación
   // es bastante peor que dejar el documento sin firmar.
+  const todasLasLineasFirma = detectarLineasFirma(parrafos);
   const lineasFirma = [
-    ...detectarLineasFirma(parrafos).filter(f => esRayaFirmaPropia(f.contexto)),
+    ...todasLasLineasFirma.filter(f => esRayaFirmaPropia(f.contexto)),
     ...candidatosFirmaCelda.map(c => ({ paraId: c.paraId, indice: c.indice, contexto: c.etiqueta, pideTimbre: /timbre/i.test(c.etiqueta) })),
   ];
-  const indicesFirma = new Set(lineasFirma.map(f => f.indice));
   // La raya de una línea de firma también matchea el patrón 2 (blanco inline, "_{4,}") — se
-  // excluye de ahí para no ofrecer un input de texto Y la firma para el mismo párrafo.
-  const blancosInline = detectarBlancosInline(xml).filter(b => !indicesFirma.has(b.indiceParrafo));
+  // excluye de ahí para no ofrecer un input de texto Y la firma para el mismo párrafo. Esto vale
+  // para CUALQUIER raya de firma, sea nuestra o ajena: una raya de guiones bajo "FIRMA Y TIMBRE
+  // EVALUADOR" no recibe la imagen (esRayaFirmaPropia la excluye de lineasFirma) pero tampoco es
+  // texto que rellenar — sin esto quedaba como blanco inline genérico, ofrecido a la IA como si
+  // fuera una casilla cualquiera. También se excluye una FECHA que precede directo a una firma de
+  // contraparte (ver precedeFirmaContraparte): esa fecha es del evaluador, no nuestra, y antes se
+  // ofrecía a la IA sin ese contexto.
+  const indicesRayaFirma = new Set(todasLasLineasFirma.map(f => f.indice));
+  const blancosInline = detectarBlancosInline(xml)
+    .filter(b => !indicesRayaFirma.has(b.indiceParrafo))
+    .filter(b => !(/fecha/i.test(parrafos[b.indiceParrafo]?.texto || '') && precedeFirmaContraparte(parrafos, b.indiceParrafo)));
 
   // Patrón 5: solo los que caen en una sección habilitada y no pisan un blanco ya detectado por
   // otro patrón (nunca se rellena dos veces el mismo párrafo).
@@ -1032,6 +1184,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     parrafos, secciones, candidatosCelda, blancosInline, lineasFirma, camposConDosPuntos, indicesSoloManual,
     candidatosCeldaSinDesambiguar,
     avisoNoAplica: detectarAvisoNoAplica(parrafos),
+    tripletesFecha: detectarTripletesFecha(blancosInline),
   };
 }
 

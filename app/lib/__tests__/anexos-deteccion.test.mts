@@ -10,7 +10,7 @@ import {
   normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio,
   unificarRunsDeMarcadores, rellenarRunPorIndice, verificarParrafos, verificarXmlBienFormado,
 } from '../anexos-docx';
-import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla } from '../anexos-detectar';
+import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha } from '../anexos-detectar';
 import { valorExisteEnFicha, type EmpresaCampos } from '../anexos-ia-motor';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
@@ -437,6 +437,109 @@ test('firma: leyenda sin raya sí se firma, la del evaluador no', () => {
   // Misma regla para el patrón viejo (raya + leyenda debajo), que antes NO filtraba por dueño.
   const conRaya = analizarAnexo(normalizarParaIds(NS + p('_'.repeat(40)) + p('FIRMA Y TIMBRE EVALUADOR') + FIN).xml);
   assert.equal(conRaya.lineasFirma.length, 0, 'una raya bajo la leyenda del evaluador tampoco se firma');
+});
+
+// BUG REAL (1057480-41-LP26, anexos 6 y 9 — MISMO párrafo literal en los dos): la firma del
+// evaluador ya no se estampa (test de arriba), pero la "FECHA DE EVALUACIÓN" que sigue 1-2
+// párrafos después es un blanco APARTE, en su propio párrafo, sin ninguna raya de firma adentro —
+// el motor de IA solo veía ESE párrafo aislado, sin la leyenda de arriba, y decidía distinto según
+// la corrida: en el anexo 9 la autocompletó con la fecha de HOY (como si fuera nuestra), en el
+// anexo 6 la dejó pendiente. Ambas son del HOSPITAL evaluando, nunca del oferente.
+test('fecha que sigue a una firma de contraparte no se ofrece como blanco nuestro', () => {
+  const bloqueEvaluador = p('_'.repeat(75)) + p('FIRMA Y TIMBRE EVALUADOR') + p('') + p('FECHA DE EVALUACIÓN: _____/______/______');
+  const ajena = analizarAnexo(normalizarParaIds(NS + bloqueEvaluador + FIN).xml);
+  assert.equal(ajena.blancosInline.length, 0, 'la fecha del evaluador no debe llegar como candidato inline');
+
+  // Control: la MISMA etiqueta de fecha, sin ninguna firma de contraparte cerca, sigue detectándose
+  // normal (no es que "fecha de evaluación" quedó bloqueada como frase — depende del contexto real).
+  const sola = analizarAnexo(normalizarParaIds(NS + p('FECHA DE EVALUACIÓN: _____/______/______') + FIN).xml);
+  assert.equal(sola.blancosInline.length, 3, 'sin firma de contraparte cerca, los 3 blancos (día/mes/año) siguen ofreciéndose');
+
+  // Control: una fecha NUESTRA (tras la firma del representante legal) tampoco se bloquea.
+  const nuestra = analizarAnexo(normalizarParaIds(
+    NS + p('_'.repeat(75)) + p('FIRMA Y TIMBRE REPRESENTANTE LEGAL') + p('') + p('FECHA: _____/______/______') + FIN,
+  ).xml);
+  assert.equal(nuestra.blancosInline.length, 3, 'la fecha tras la firma del representante legal sigue siendo nuestra');
+});
+
+// SEGUNDO BUG REAL (anexos 7 y 8, mismo documento): la leyenda junta los DOS bloques en un
+// párrafo ("FIRMA Y TIMBRE REPRESENTANTE LEGAL      FIRMA Y TIMBRE EVALUADOR") y la fecha que
+// sigue también junta las dos casillas en una línea ("Fecha: __/__/__      Fecha: __/__/__").
+// Probado dos veces contra el documento real: una corrida llenó el grupo del evaluador COMPLETO
+// con nuestra fecha, la otra lo llenó a medias (mes/año sí, día no) — un dato roto. Como con la
+// firma, si la leyenda menciona a la contraparte (aunque sea junto con la nuestra), la fecha
+// tampoco se autocompleta: no hay forma de saber cuál de los dos grupos es cuál sin adivinar.
+test('fecha doble (oferente + evaluador en la misma línea) no se autocompleta ninguna', () => {
+  const bloqueDual = p('_'.repeat(75) + '                        ' + '_'.repeat(30))
+    + p('FIRMA Y TIMBRE REPRESENTANTE LEGAL                     FIRMA Y TIMBRE EVALUADOR')
+    + p('(OFERENTE)')
+    + p('')
+    + p('Fecha: _________ /_________ /_________                                    Fecha: ________ /________ /_______');
+  const a = analizarAnexo(normalizarParaIds(NS + bloqueDual + FIN).xml);
+  assert.equal(a.blancosInline.length, 0, 'ninguna de las dos fechas se ofrece: no se puede saber cuál es la nuestra sin adivinar');
+  assert.equal(a.candidatosCelda.some(c => c.etiqueta === '(OFERENTE)'), false,
+    'el caption "(OFERENTE)" bajo la firma doble no es un campo — corrida a corrida, la IA a veces le escribía la razón social ahí');
+});
+
+// TERCER BUG REAL, mismo bloque: "(OFERENTE)" es un caption ("de quién es la columna de arriba"),
+// no la etiqueta de un campo — pero como es corto y el párrafo siguiente está vacío, calzaba con
+// el patrón 1 (etiqueta + celda vacía) y quedaba disponible para que la IA le escribiera algo.
+test('caption de rol bajo una firma ("(OFERENTE)") no es un campo, pero un campo real que lo mencione sigue siéndolo', () => {
+  const conCaption = analizarAnexo(normalizarParaIds(NS + p('(OFERENTE)') + p('') + p('siguiente') + FIN).xml);
+  assert.equal(conCaption.candidatosCelda.length, 0, '"(OFERENTE)" solo, sin paréntesis o no, nunca es un campo');
+
+  const sinParentesis = analizarAnexo(normalizarParaIds(NS + p('EVALUADOR') + p('') + p('siguiente') + FIN).xml);
+  assert.equal(sinParentesis.candidatosCelda.length, 0, 'vale igual sin los paréntesis');
+
+  // Control: una etiqueta real que solo MENCIONA el rol sigue detectándose (el regex está anclado).
+  const campoReal = analizarAnexo(normalizarParaIds(NS + p('Nombre del oferente') + p('') + p('siguiente') + FIN).xml);
+  assert.equal(campoReal.candidatosCelda.length, 1, 'una etiqueta real que menciona "oferente" no se descarta');
+});
+
+// ── Fecha partida en 3 casillas — resuelta en código, nunca por la IA ─────────────────────────
+// BUG REAL (608-156-LP26): "Viña del Mar, ___ de ________________ de ________" repetido 5 veces en
+// el mismo documento. La IA escribió el mes EN NÚMERO donde el formato pide la palabra ("agosto"),
+// y con las 5 ocurrencias casi idénticas mezcló el valor del día en la casilla del mes. Como la
+// respuesta NUNCA depende del documento (es la fecha de hoy, mismo orden), se resuelve en código.
+test('detectarTripletesFecha: barra = mes en número, "de" = mes en palabra', () => {
+  const conBarra = analizarAnexo(normalizarParaIds(NS + p('Fecha: _________ /_________ /_________') + FIN).xml);
+  const rolesBarra = [...conBarra.blancosInline].map(b => conBarra.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  assert.deepEqual(rolesBarra, ['dia', 'mes_numero', 'anio']);
+
+  const conDe = analizarAnexo(normalizarParaIds(NS + p('Viña del Mar, _____   de ________________ de ________') + FIN).xml);
+  const rolesDe = [...conDe.blancosInline].map(b => conDe.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  assert.deepEqual(rolesDe, ['dia', 'mes_palabra', 'anio']);
+
+  // Dos fechas seguidas en el mismo párrafo (oferente + evaluador, separadas por espacios de
+  // layout): cada trío se resuelve por separado, sin que el primero contamine al segundo.
+  const doble = analizarAnexo(normalizarParaIds(
+    NS + p('Fecha: _________ /_________ /_________                                    Fecha: ________ /________ /_______') + FIN,
+  ).xml);
+  const rolesDoble = [...doble.blancosInline].map(b => doble.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  assert.deepEqual(rolesDoble, ['dia', 'mes_numero', 'anio', 'dia', 'mes_numero', 'anio']);
+
+  // Control: un blanco suelto que NO forma un trío de fecha no se marca (ej. un solo "Nombre: ___").
+  const suelto = analizarAnexo(normalizarParaIds(NS + p('Nombre: ____________________') + FIN).xml);
+  assert.equal(suelto.tripletesFecha.size, 0);
+
+  // Control: 3 blancos separados por texto que NO es "/" ni "de" no se confunden con una fecha.
+  const noFecha = analizarAnexo(normalizarParaIds(NS + p('A: ____ B: ____ C: ____') + FIN).xml);
+  assert.equal(noFecha.tripletesFecha.size, 0);
+});
+
+// SEGUNDO FORMATO REAL (3713-7-LE26, 6 ocurrencias del mismo párrafo): el año viene YA IMPRESO en
+// el documento y solo el día y el mes quedan en blanco — "Los Vilos, ___de___2026". Sin esto caía
+// al camino de la IA y ahí SÍ mezclaba: en una corrida escribió el mes en número ("08") donde el
+// formato pide la palabra, en otra intercambió día↔mes entre ocurrencias distintas del documento.
+test('detectarTripletesFecha: dupla día/mes con el año ya impreso en el documento', () => {
+  const conAnioImpreso = analizarAnexo(normalizarParaIds(NS + p('Los Vilos, ____________de_______________2026') + FIN).xml);
+  const roles = [...conAnioImpreso.blancosInline].map(b => conAnioImpreso.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  assert.deepEqual(roles, ['dia', 'mes_palabra']);
+
+  // Control: la palabra "de" entre dos blancos SIN un año de 4 dígitos después no es una fecha —
+  // la señal de un solo "de" es débil por sí sola (es una palabra común), así que se exige el año.
+  const sinAnio = analizarAnexo(normalizarParaIds(NS + p('Cargo____________de____________Departamento') + FIN).xml);
+  assert.equal(sinAnio.tripletesFecha.size, 0);
 });
 
 // ── Anexo que el propio documento dice que NO nos corresponde presentar ───────────────────────

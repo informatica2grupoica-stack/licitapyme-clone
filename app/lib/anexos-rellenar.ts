@@ -29,7 +29,7 @@ import {
 } from '@/app/lib/anexos-docx';
 import {
   analizarAnexo, extraerTablasCrudo,
-  type CandidatoCelda, type CandidatoInline, type TablaCruda, type AvisoNoAplica,
+  type CandidatoCelda, type CandidatoInline, type TablaCruda, type AvisoNoAplica, type RolFechaTriplete,
 } from '@/app/lib/anexos-detectar';
 import {
   resolverAnexoConIA, resolverEspecificacionesDesdeBasesConIA,
@@ -126,6 +126,16 @@ function todoPendientePorNoAplicar(
   };
 }
 
+// Valor de una casilla de fecha partida — ver detectarTripletesFecha en anexos-detectar.ts. Nunca
+// pasa por la IA: es siempre la fecha de hoy, en el mismo orden, sin excepción.
+function valorTripleteFecha(rol: RolFechaTriplete, empresa: EmpresaCampos): string | null {
+  const valor = rol === 'dia' ? empresa.fecha_hoy_dia
+    : rol === 'mes_numero' ? empresa.fecha_hoy_mes
+    : rol === 'mes_palabra' ? empresa.fecha_hoy_mes_palabra
+    : empresa.fecha_hoy_anio;
+  return valor && String(valor).trim() ? String(valor) : null;
+}
+
 async function resolverTodo(
   candidatosCelda: CandidatoCelda[],
   camposConDosPuntos: CandidatoCelda[],
@@ -137,14 +147,31 @@ async function resolverTodo(
   basesTexto: string | undefined,
   tituloAnexos: string[] | undefined,
   postulaComoUTP: boolean,
+  tripletesFecha: Map<string, RolFechaTriplete>,
 ): Promise<ResultadoResolucion> {
   const elegibles = candidatosCelda.filter(c => !soloManual?.has(c.indice));
   const soloManualCandidatos = candidatosCelda.filter(c => soloManual?.has(c.indice));
   const indicesDosPuntos = new Set(camposConDosPuntos.map(c => c.indice));
 
+  // Fecha partida en 3 casillas ("Fecha: __/__/__" o "___ de ___ de ___"): la respuesta NUNCA
+  // depende del documento (es la fecha de hoy, mismo orden siempre), así que se resuelve acá y
+  // esos blancos ni siquiera se le mandan a la IA — bug real corregido (608-156-LP26): con 5
+  // ocurrencias casi idénticas del mismo párrafo en un documento, el motor mezclaba el valor del
+  // día en la casilla del mes en una de las cinco, y escribía el mes en NÚMERO donde el formato
+  // pide la palabra ("agosto"). Si por algo el valor no está disponible (defensivo, no debería
+  // pasar: conCamposDerivados siempre los calcula), cae al camino normal — mejor pendiente que nada.
+  const inlineFecha: { b: CandidatoInline; valor: string }[] = [];
+  const blancosParaIA: CandidatoInline[] = [];
+  for (const b of blancosInline) {
+    const rol = tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`);
+    const valor = rol ? valorTripleteFecha(rol, empresa) : null;
+    if (rol && valor) inlineFecha.push({ b, valor });
+    else blancosParaIA.push(b);
+  }
+
   const { celda, inline, alertasInadmisibilidad, checklistPendientes } = await resolverAnexoConIA({
     candidatos: [...elegibles, ...camposConDosPuntos],
-    blancosInline,
+    blancosInline: blancosParaIA,
     parrafos,
     empresa,
     basesTexto,
@@ -191,7 +218,10 @@ async function resolverTodo(
 
   const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' }[] = [];
   const inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[] = [];
-  for (const b of blancosInline) {
+  for (const { b, valor } of inlineFecha) {
+    inlineAuto.push({ b, valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia' });
+  }
+  for (const b of blancosParaIA) {
     const res = inline.get(`${b.indiceRun}:${b.posEnTexto}`);
     if (res?.tipo === 'auto') inlineAuto.push({ b, valor: res.valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia' });
     else if (res?.tipo === 'pendiente') inlinePendientes.push({ b, categoria: res.categoria, motivo: res.motivo });
@@ -406,7 +436,7 @@ export async function analizarAnexoParaUI(
     : await resolverTodo(
       analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
       empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
-      formularios.map(f => f.titulo), forzarAplica,
+      formularios.map(f => f.titulo), forzarAplica, analisis.tripletesFecha,
     );
   const { matcheadosExtra, pendientesFiltrados, anexarDirecto, titulos }
     = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes);
@@ -563,7 +593,7 @@ export async function generarAnexoFinal(
     : await resolverTodo(
       analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
       empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
-      formularios.map(f => f.titulo), respuestas.anexoAplica === '1',
+      formularios.map(f => f.titulo), respuestas.anexoAplica === '1', analisis.tripletesFecha,
     );
 
   let xml = xmlNormalizado;

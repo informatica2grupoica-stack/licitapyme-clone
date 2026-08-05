@@ -70,6 +70,13 @@ export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): 
     // Las tres partes por separado, para los pies de firma "Fecha: ____ /____ /____" (tres casillas
     // independientes, el formato más común de los anexos chilenos). Misma hora de Chile que
     // fechaLargaChile — nunca se derivan del string ya formateado.
-    ...(({ dia, mes, anio }) => ({ fecha_hoy_dia: dia, fecha_hoy_mes: mes, fecha_hoy_anio: anio }))(partesFechaChile(ahora)),
+    ...(({ dia, mes, anio }) => ({
+      fecha_hoy_dia: dia, fecha_hoy_mes: mes, fecha_hoy_anio: anio,
+      // El OTRO formato de pie de firma, igual de común: "___ de ___ de ___" en vez de barras.
+      // Ahí la casilla del medio pide el MES EN PALABRA ("agosto"), no el número — mismo criterio
+      // que la fecha larga (nadie escribe "3 de 08 de 2026" en una declaración jurada). Ver
+      // detectarTripletesFecha en anexos-detectar.ts, que resuelve este trío sin pasar por la IA.
+      fecha_hoy_mes_palabra: MESES[Number(mes) - 1],
+    }))(partesFechaChile(ahora)),
   };
 }

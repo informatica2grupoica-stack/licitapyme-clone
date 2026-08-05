@@ -56,6 +56,11 @@ export interface EmpresaCampos {
   fecha_hoy_dia?: string | null;
   fecha_hoy_mes?: string | null;
   fecha_hoy_anio?: string | null;
+  // El OTRO formato de fecha partida, igual de común: "___ de ___ de ___" (con la palabra "de"
+  // en vez de barras) — ahí la casilla del medio pide el MES EN PALABRA ("agosto"), no el número.
+  // En la práctica este trío lo resuelve detectarTripletesFecha (anexos-detectar.ts) sin pasar por
+  // este motor; el campo queda documentado igual por si algún caso raro cae al camino normal.
+  fecha_hoy_mes_palabra?: string | null;
   // Datos de ESTA LICITACIÓN (tampoco son columnas de `empresas` — se resuelven en
   // anexos-datos.ts llamando a Mercado Público por el código de la licitación que se está
   // rellenando, ver obtenerLicitacionParaAnexo). Van en el MISMO objeto que la ficha de empresa
@@ -98,7 +103,7 @@ const CAMPOS_PERMITIDOS_POR_CATEGORIA: Record<string, (keyof EmpresaCampos)[]> =
   perfil_empresa: [
     'razon_social', 'rut', 'direccion', 'region', 'giro', 'tipo_persona_juridica',
     'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
-    'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio',
+    'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra',
   ],
   perfil_representante_legal: ['representante_nombre', 'representante_rut', 'representante_cargo'],
   perfil_contacto: ['email1', 'telefono1'],
@@ -186,6 +191,7 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   fecha_hoy_dia: 'Solo el DÍA de hoy (número) — para pies de firma partidos: "Fecha: __ /__ /__"',
   fecha_hoy_mes: 'Solo el MES de hoy (número) — la casilla del medio de "Fecha: __ /__ /__"',
   fecha_hoy_anio: 'Solo el AÑO de hoy (4 dígitos) — la última casilla de "Fecha: __ /__ /__"',
+  fecha_hoy_mes_palabra: 'Solo el MES de hoy EN PALABRA ("agosto") — la casilla del medio de "___ de __ de ___" (NUNCA el número ahí)',
   licitacion_codigo: 'Código/ID de ESTA licitación en Mercado Público',
   licitacion_nombre: 'Nombre/título de ESTA licitación',
   licitacion_organismo: 'Nombre del organismo comprador (la institución que licita, no el oferente)',
@@ -253,7 +259,9 @@ MARCADORES DEL ORGANISMO (léelos, son la instrucción literal): muchas casillas
 - "[Insertar Nombre o Razón Social]" → perfil_empresa/razon_social · "[Insertar RUT]" → perfil_empresa/rut · "[Insertar ID de Mercado Público]" → datos_licitacion/licitacion_codigo · "[Nombre Completo del Representante Legal]" → perfil_representante_legal/representante_nombre · "[Número de RUN]" → perfil_representante_legal/representante_rut · "[fecha]" → perfil_empresa/fecha_hoy · "[ciudad/país]" → perfil_empresa/region.
 - Un marcador que es una INSTRUCCIÓN al oferente ("[indicar en esta casilla el número o nombre del documento que respalda…]", "[marcar con una X]") NO es un dato de la ficha: categoria="especifico_licitacion" o "decision_del_usuario" con valor null — lo llena el humano sabiendo qué documentos va a adjuntar. Nunca lo autocompletes ni lo dejes fuera: tiene que quedar visible como pendiente.
 
-PIE DE FIRMA CON FECHA PARTIDA: "Fecha: 【CASILLA-1】 / 【CASILLA-2】 / 【CASILLA-3】" son día, mes y año de la fecha en que se presenta la oferta — categoria=perfil_empresa y campo fecha_hoy_dia, fecha_hoy_mes y fecha_hoy_anio respectivamente (en ese orden). No es firma_fecha: la firma es la raya, la fecha se escribe.
+PIE DE FIRMA CON FECHA PARTIDA: día, mes y año de la fecha en que se presenta la oferta, categoria=perfil_empresa en las tres — NUNCA firma_fecha (la firma es la raya, la fecha se escribe). Hay DOS formatos, y la casilla del MES cambia de campo según cuál sea:
+- Con barras, "Fecha: 【CASILLA-1】 / 【CASILLA-2】 / 【CASILLA-3】" → campo fecha_hoy_dia, fecha_hoy_mes (NÚMERO), fecha_hoy_anio.
+- Con la palabra "de", "【CASILLA-1】 de 【CASILLA-2】 de 【CASILLA-3】" (ej. "Viña del Mar, ___ de ___ de ___") → campo fecha_hoy_dia, fecha_hoy_mes_palabra (EN PALABRA, "agosto" — jamás el número aquí, nadie escribe "3 de 08 de 2026"), fecha_hoy_anio.
 
 REGLAS DE FORMATO CHILENAS:
 - RUT: cópialo TAL CUAL viene en la ficha (no lo reformatees ni "corrijas").
