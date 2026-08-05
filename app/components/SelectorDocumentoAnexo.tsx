@@ -13,6 +13,15 @@ import type { AnexoDoc } from '@/app/components/AnexoRellenoModal';
 
 interface DocCache { id: number; documento_nombre: string; documento_url_local: string; categoria?: string | null }
 
+// Cuando la licitación no publicó ningún Word, los anexos suelen venir impresos DENTRO del PDF de
+// bases (ver anexos-en-bases.ts). Sin esto el modal decía "descárgalos en la pestaña Documentos",
+// mandando a buscar un archivo que no existe — pasa en 30 de las licitaciones ya descargadas.
+interface AnexosEnBases {
+  documento: { id: number; nombre: string; url: string };
+  paginaInicio: number | null;
+  anexos: { titulo: string; pagina: number | null }[];
+}
+
 export function SelectorDocumentoAnexo({
   codigo, tituloItem, onSeleccionar, onClose,
 }: {
@@ -24,11 +33,13 @@ export function SelectorDocumentoAnexo({
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [candidatos, setCandidatos] = useState<(DocCache & { puntaje: number })[]>([]);
+  const [enBases, setEnBases] = useState<AnexosEnBases | null>(null);
 
   useEffect(() => {
     if (!codigo || !tituloItem) return;
     setCargando(true);
     setError(null);
+    setEnBases(null);
     fetch(`/api/documentos/cache/${encodeURIComponent(codigo)}`)
       .then(r => r.json())
       .then(d => {
@@ -45,6 +56,15 @@ export function SelectorDocumentoAnexo({
           ...doc,
           puntaje: ordenados.find(o => o.id === doc.id)?.puntaje ?? 0,
         })).sort((a, b) => b.puntaje - a.puntaje));
+        // Sin ningún Word que ofrecer, hay que averiguar si los anexos están dentro del PDF de
+        // bases antes de decirle nada al usuario. Nunca bloquea la lista: si falla, se cae al
+        // mensaje de siempre.
+        if (docs.length === 0) {
+          fetch(`/api/anexos/en-bases?codigo=${encodeURIComponent(codigo)}`)
+            .then(r => r.json())
+            .then(res => { if (res?.success && res.hay) setEnBases(res); })
+            .catch(() => {});
+        }
       })
       .catch(e => setError(String(e)))
       .finally(() => setCargando(false));
@@ -89,7 +109,49 @@ export function SelectorDocumentoAnexo({
               <p className="text-[12px] text-amber-800">{error}</p>
             </div>
           )}
-          {!cargando && !error && candidatos.length === 0 && (
+          {/* Los anexos vienen impresos dentro del PDF de bases: no hay Word que rellenar, pero sí
+              se puede decir exactamente dónde están en vez de mandar a buscar a ciegas. */}
+          {!cargando && !error && candidatos.length === 0 && enBases && (
+            <div className="p-1">
+              <div className="flex items-start gap-2 px-3 py-2.5 bg-amber-50 border border-amber-200 rounded-xl">
+                <AlertTriangle size={13} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-[12px] font-semibold text-amber-900">
+                    Esta licitación no publicó los anexos como archivos aparte
+                  </p>
+                  <p className="text-[11.5px] text-amber-800 mt-0.5">
+                    Sus {enBases.anexos.length} anexos vienen dentro de{' '}
+                    <span className="font-medium">{enBases.documento.nombre}</span>
+                    {enBases.paginaInicio != null && <>, desde la página {enBases.paginaInicio}</>}.
+                    Como es un PDF, hay que llenarlos a mano — el relleno automático solo funciona sobre Word.
+                  </p>
+                </div>
+              </div>
+
+              <ul className="mt-1.5 max-h-[30vh] overflow-y-auto">
+                {enBases.anexos.map((a, i) => (
+                  <li key={`${a.titulo}-${i}`}>
+                    <a
+                      href={a.pagina != null ? `${enBases.documento.url}#page=${a.pagina}` : enBases.documento.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-indigo-50 transition-colors group"
+                    >
+                      <FileText size={14} className="text-slate-400 group-hover:text-indigo-500 flex-shrink-0" />
+                      <span className="flex-1 min-w-0 text-[12.5px] text-slate-700 truncate" title={a.titulo}>{a.titulo}</span>
+                      {a.pagina != null && (
+                        <span className="flex-shrink-0 text-[10px] font-medium text-slate-400 group-hover:text-indigo-500">
+                          pág. {a.pagina}
+                        </span>
+                      )}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!cargando && !error && candidatos.length === 0 && !enBases && (
             <div className="flex flex-col items-center gap-1.5 py-8 text-center px-4">
               <FileText size={20} className="text-slate-300" />
               <p className="text-[12.5px] text-slate-500">Esta licitación no tiene documentos Word descargados todavía.</p>
