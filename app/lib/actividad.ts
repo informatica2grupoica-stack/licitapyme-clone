@@ -32,6 +32,7 @@ export type AccionActividad =
   | 'ver_preguntas_licitacion' // consultó el foro de preguntas y respuestas (portal MP en vivo)
   | 'radar_manual'    // disparó manualmente la actualización del radar
   | 'anexo_relleno'   // generó un anexo de oferente rellenado (automático + respuestas manuales)
+  | 'anexo_reconstruido' // convirtió a Word un anexo impreso dentro del PDF de bases
   | 'eliminacion';    // dio de baja un negocio (activo = FALSE)
 
 // Pestañas del detalle de la licitación que se registran como 'ver_seccion'.

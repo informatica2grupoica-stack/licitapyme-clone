@@ -7,7 +7,7 @@
 // es una sugerencia, nunca una decisión silenciosa.
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, FileText, AlertTriangle, Wand2 } from 'lucide-react';
+import { X, Loader2, FileText, AlertTriangle, Wand2, FileCog } from 'lucide-react';
 import { ordenarPorCoincidencia } from '@/app/lib/anexos-match';
 import type { AnexoDoc } from '@/app/components/AnexoRellenoModal';
 
@@ -34,6 +34,11 @@ export function SelectorDocumentoAnexo({
   const [error, setError] = useState<string | null>(null);
   const [candidatos, setCandidatos] = useState<(DocCache & { puntaje: number })[]>([]);
   const [enBases, setEnBases] = useState<AnexosEnBases | null>(null);
+  // Página que se está convirtiendo ahora mismo (null = ninguna en curso). Se usa la página en
+  // vez del título como clave porque es lo único que identifica sin ambigüedad a cuál de los
+  // anexos detectados corresponde el clic, incluso cuando dos comparten título parecido.
+  const [convirtiendo, setConvirtiendo] = useState<number | null>(null);
+  const [errorConversion, setErrorConversion] = useState<string | null>(null);
 
   useEffect(() => {
     if (!codigo || !tituloItem) return;
@@ -45,11 +50,12 @@ export function SelectorDocumentoAnexo({
       .then(d => {
         if (!d.success) { setError(d.error || 'No se pudo listar los documentos'); return; }
         // Solo Word reales de la licitación — nunca los que ya generamos nosotros (Documentos
-        // Propios), que son el RESULTADO de este mismo flujo, no la fuente.
+        // Propios, resultado del relleno) ni los que reconstruimos automáticamente desde el PDF
+        // de bases (ANEXO_RECONSTRUIDO, resultado de ESTE mismo flujo, no la fuente).
         const docs: DocCache[] = (d.documentos || []).filter((doc: DocCache) =>
           doc.id != null
           && /\.docx?$/i.test(doc.documento_nombre || '')
-          && String(doc.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS',
+          && !['DOCUMENTOS_PROPIOS', 'ANEXO_RECONSTRUIDO'].includes(String(doc.categoria || '').toUpperCase()),
         );
         const ordenados = ordenarPorCoincidencia(tituloItem, docs.map(doc => ({ id: doc.id, nombre: doc.documento_nombre })));
         setCandidatos(docs.map(doc => ({
@@ -69,6 +75,30 @@ export function SelectorDocumentoAnexo({
       .catch(e => setError(String(e)))
       .finally(() => setCargando(false));
   }, [codigo, tituloItem]);
+
+  // Convierte el anexo (páginas recortadas del PDF de bases) a un .docx editable y lo entrega
+  // directo al flujo normal de relleno — el usuario nunca ve que no vino de Mercado Público.
+  // Sin página detectada no hay rango que recortar (ver rangosDeAnexos en anexos-pdf-a-docx.ts),
+  // así que ese caso se queda solo con el link manual de abajo.
+  const convertirAnexo = async (pagina: number) => {
+    if (!codigo) return;
+    setConvirtiendo(pagina);
+    setErrorConversion(null);
+    try {
+      const r = await fetch('/api/anexos/en-bases/extraer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo, pagina }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.success) throw new Error(d.error || 'No se pudo convertir el anexo');
+      onSeleccionar(d.documento);
+    } catch (e: any) {
+      setErrorConversion(e?.message || String(e));
+    } finally {
+      setConvirtiendo(null);
+    }
+  };
 
   if (!codigo || !tituloItem) return null;
 
@@ -123,30 +153,58 @@ export function SelectorDocumentoAnexo({
                     Sus {enBases.anexos.length} anexos vienen dentro de{' '}
                     <span className="font-medium">{enBases.documento.nombre}</span>
                     {enBases.paginaInicio != null && <>, desde la página {enBases.paginaInicio}</>}.
-                    Como es un PDF, hay que llenarlos a mano — el relleno automático solo funciona sobre Word.
+                    Se pueden convertir a Word automáticamente para rellenarlos igual que cualquier
+                    otro anexo — revisa el resultado contra el original antes de presentarlo.
                   </p>
                 </div>
               </div>
 
+              {errorConversion && (
+                <div className="flex items-start gap-2 px-3 py-2 mt-1.5 bg-red-50 border border-red-200 rounded-xl">
+                  <AlertTriangle size={13} className="text-red-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-[11.5px] text-red-700">{errorConversion}</p>
+                </div>
+              )}
+
               <ul className="mt-1.5 max-h-[30vh] overflow-y-auto">
-                {enBases.anexos.map((a, i) => (
-                  <li key={`${a.titulo}-${i}`}>
-                    <a
-                      href={a.pagina != null ? `${enBases.documento.url}#page=${a.pagina}` : enBases.documento.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-indigo-50 transition-colors group"
-                    >
-                      <FileText size={14} className="text-slate-400 group-hover:text-indigo-500 flex-shrink-0" />
-                      <span className="flex-1 min-w-0 text-[12.5px] text-slate-700 truncate" title={a.titulo}>{a.titulo}</span>
-                      {a.pagina != null && (
-                        <span className="flex-shrink-0 text-[10px] font-medium text-slate-400 group-hover:text-indigo-500">
-                          pág. {a.pagina}
+                {enBases.anexos.map((a, i) => {
+                  const ocupado = convirtiendo != null;
+                  const puedeConvertir = a.pagina != null;
+                  return (
+                    <li key={`${a.titulo}-${i}`} className="flex items-center gap-1 px-1 py-0.5">
+                      <button
+                        type="button"
+                        disabled={!puedeConvertir || ocupado}
+                        onClick={() => puedeConvertir && convertirAnexo(a.pagina!)}
+                        title={puedeConvertir ? 'Convertir a Word y rellenar' : 'No se detectó su página exacta — usa el link para verlo'}
+                        className="flex-1 min-w-0 flex items-center gap-2.5 px-2 py-2 rounded-xl hover:bg-indigo-50 transition-colors group text-left disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                      >
+                        {convirtiendo === a.pagina ? (
+                          <Loader2 size={14} className="text-indigo-500 flex-shrink-0 animate-spin" />
+                        ) : (
+                          <FileCog size={14} className={`flex-shrink-0 ${puedeConvertir ? 'text-slate-400 group-hover:text-indigo-500' : 'text-slate-300'}`} />
+                        )}
+                        <span className={`flex-1 min-w-0 text-[12.5px] truncate ${puedeConvertir ? 'text-slate-700' : 'text-slate-400'}`} title={a.titulo}>
+                          {a.titulo}
                         </span>
-                      )}
-                    </a>
-                  </li>
-                ))}
+                        {a.pagina != null && (
+                          <span className="flex-shrink-0 text-[10px] font-medium text-slate-400 group-hover:text-indigo-500">
+                            pág. {a.pagina}
+                          </span>
+                        )}
+                      </button>
+                      <a
+                        href={a.pagina != null ? `${enBases.documento.url}#page=${a.pagina}` : enBases.documento.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Ver la página original en el PDF"
+                        className="flex-shrink-0 p-2 text-slate-400 hover:text-indigo-500 hover:bg-indigo-50 rounded-xl transition-colors"
+                      >
+                        <FileText size={14} />
+                      </a>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
