@@ -151,6 +151,34 @@ export function contarParrafos(xml: string): number {
   return (xml.match(/<w:p\b/g) || []).length;
 }
 
+// ── Cuadros de texto flotantes con respaldo VML duplicado ───────────────────────────────
+// Word declara CADA cuadro de texto flotante (firma, sello, leyenda superpuesta) DOS VECES: una
+// versión moderna (`<mc:Choice Requires="wps">`, DrawingML) y una versión VML antigua
+// (`<mc:Fallback>`) por si el programa que abre el archivo no entiende la moderna — la norma de
+// compatibilidad de Office dice usar SOLO UNA, nunca las dos a la vez, y cualquier Word real
+// ignora el Fallback en cuanto entiende el Choice (siempre, en cualquier versión moderna).
+//
+// BUG REAL (1227338-6-LE26, "FIRMA REPRESENTANTE LEGAL"): como el resto de este módulo no sabe
+// de esta regla, veía las DOS copias del mismo texto como si fueran contenido real y distinto —
+// (a) la vista previa del anexo mostraba el bloque de firma DOS VECES, y (b) al dividir el
+// documento por formulario (ver anexos-dividir.ts) el corte a veces caía a mitad de una de las
+// dos copias y el archivo quedaba corrupto ("Word detectó un error de contenido").
+// Se elimina el `<mc:Fallback>` completo y se desenvuelve el `<mc:Choice>` que queda —ya no hace
+// falta el envoltorio de "elegir" si no hay entre qué elegir—, dejando SOLO la copia moderna.
+// Mismo resultado visual que abrir el .docx en cualquier Word real: nunca se pierde contenido
+// que se vería, solo el duplicado que ningún programa real muestra.
+//
+// Se aplica ANTES de normalizarParaIds/contar párrafos —en las DOS rutas, análisis y
+// generación— para que la comparación de integridad (verificarParrafos) mida desde esta MISMA
+// base achicada, y no contra el original con el duplicado todavía adentro (que marcaría como
+// "perdido" un párrafo que nunca fue contenido real).
+export function eliminarRespaldoVmlDuplicado(xml: string): string {
+  return xml.replace(
+    /<mc:AlternateContent\b[^>]*>\s*<mc:Choice\b[^>]*>([\s\S]*?)<\/mc:Choice>\s*<mc:Fallback\b[^>]*>[\s\S]*?<\/mc:Fallback>\s*<\/mc:AlternateContent>/g,
+    '$1',
+  );
+}
+
 // ── Patrón 1: celda de tabla vacía ───────────────────────────────────────────────────────
 // Inserta el valor DENTRO del <w:p> vacío identificado por su paraId — nunca agrega/quita
 // párrafo. Reutiliza el rPr existente para heredar la misma fuente que el resto del formulario.

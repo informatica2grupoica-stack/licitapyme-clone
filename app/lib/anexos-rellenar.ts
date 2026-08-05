@@ -25,7 +25,7 @@
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
   insertarImagenEnParrafo, rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
-  type Parrafo,
+  eliminarRespaldoVmlDuplicado, type Parrafo,
 } from '@/app/lib/anexos-docx';
 import {
   analizarAnexo, extraerTablasCrudo,
@@ -489,7 +489,11 @@ export async function analizarAnexoParaUI(
   // UTP) — se ignora el aviso del documento y se autocompleta normal.
   forzarAplica = false,
 ): Promise<AnalisisAnexo> {
-  const { zip, xml: xmlCrudo } = await abrirDocx(bufferOriginal);
+  const { zip, xml: xmlCrudoSinNormalizar } = await abrirDocx(bufferOriginal);
+  // eliminarRespaldoVmlDuplicado va PRIMERO, antes que nada más — ver su comentario en
+  // anexos-docx.ts. Redefine qué cuenta como "el original" para las DOS rutas por igual, así que
+  // xmlCrudo (el que compara verificarParrafos) ya nace sin el duplicado.
+  const xmlCrudo = eliminarRespaldoVmlDuplicado(xmlCrudoSinNormalizar);
   // unificarRunsDeMarcadores va SIEMPRE junto a normalizarParaIds y en las DOS rutas (analizar y
   // generar): junta en un solo <w:t> los marcadores "<<NOMBRE …>>" que Word dejó partidos entre
   // runs, sin cambiar el conteo de párrafos ni de runs — ver su comentario en anexos-docx.ts. Si
@@ -674,7 +678,12 @@ export async function generarAnexoFinal(
   itemsCosteo?: ItemCosteoPrecio[],
   basesTexto?: string,
 ): Promise<ResultadoGeneracion> {
-  const { zip, xml: xmlCrudo } = await abrirDocx(bufferOriginal);
+  const { zip, xml: xmlCrudoSinNormalizar } = await abrirDocx(bufferOriginal);
+  // eliminarRespaldoVmlDuplicado va PRIMERO, antes que nada más — ver su comentario en
+  // anexos-docx.ts. Redefine qué cuenta como "el original" para las DOS rutas por igual, así que
+  // xmlCrudo (el que compara verificarParrafos más abajo) ya nace sin el duplicado — sin esto,
+  // la comparación de integridad marcaría como "perdido" un párrafo que nunca fue contenido real.
+  const xmlCrudo = eliminarRespaldoVmlDuplicado(xmlCrudoSinNormalizar);
   // unificarRunsDeMarcadores va SIEMPRE junto a normalizarParaIds y en las DOS rutas (analizar y
   // generar): junta en un solo <w:t> los marcadores "<<NOMBRE …>>" que Word dejó partidos entre
   // runs, sin cambiar el conteo de párrafos ni de runs — ver su comentario en anexos-docx.ts. Si
