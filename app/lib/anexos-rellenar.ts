@@ -179,6 +179,7 @@ async function resolverTodo(
   tituloAnexos: string[] | undefined,
   postulaComoUTP: boolean,
   tripletesFecha: Map<string, RolFechaTriplete>,
+  alternativasExcluyentes: Set<string>,
 ): Promise<ResultadoResolucion> {
   const elegibles = candidatosCelda.filter(c => !soloManual?.has(c.indice));
   const soloManualCandidatos = candidatosCelda.filter(c => soloManual?.has(c.indice));
@@ -191,12 +192,19 @@ async function resolverTodo(
   // día en la casilla del mes en una de las cinco, y escribía el mes en NÚMERO donde el formato
   // pide la palabra ("agosto"). Si por algo el valor no está disponible (defensivo, no debería
   // pasar: conCamposDerivados siempre los calcula), cae al camino normal — mejor pendiente que nada.
+  //
+  // Alternativa excluyente en prosa ("___registra..." / "___no registra...", ver
+  // detectarAlternativasExcluyentes): tampoco se le manda a la IA — no es un dato de la ficha, es
+  // una decisión del oferente, y dejarla a la IA daba un resultado distinto según qué otros
+  // candidatos le tocaran de vecinos en el lote (bug real 4999-8-LE26). Va derecho a pendiente.
   const inlineFecha: { b: CandidatoInline; valor: string }[] = [];
+  const inlineAlternativa: CandidatoInline[] = [];
   const blancosParaIA: CandidatoInline[] = [];
   for (const b of blancosInline) {
     const rol = tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`);
     const valor = rol ? valorTripleteFecha(rol, empresa) : null;
     if (rol && valor) inlineFecha.push({ b, valor });
+    else if (alternativasExcluyentes.has(`${b.indiceRun}:${b.posEnTexto}`)) inlineAlternativa.push(b);
     else blancosParaIA.push(b);
   }
 
@@ -270,6 +278,12 @@ async function resolverTodo(
   const inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[] = [];
   for (const { b, valor } of inlineFecha) {
     inlineAuto.push({ b, valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia' });
+  }
+  for (const b of inlineAlternativa) {
+    inlinePendientes.push({
+      b, categoria: 'decision_del_usuario',
+      motivo: 'Hay que marcar cuál de las dos alternativas aplica — es una decisión del oferente, no un dato de la ficha.',
+    });
   }
   for (const b of blancosParaIA) {
     const res = inline.get(`${b.indiceRun}:${b.posEnTexto}`);
@@ -552,7 +566,7 @@ export async function analizarAnexoParaUI(
       : resolverTodo(
         analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
         empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
-        formularios.map(f => f.titulo), forzarAplica, analisis.tripletesFecha,
+        formularios.map(f => f.titulo), forzarAplica, analisis.tripletesFecha, analisis.alternativasExcluyentes,
       ),
     analizarSeccionesEscaneadas(zip, xmlNormalizado, empresa).catch(e => {
       console.error('[anexos-rellenar] Falló el análisis de secciones escaneadas, se omite sin bloquear el resto:', String(e).slice(0, 200));
@@ -738,7 +752,7 @@ export async function generarAnexoFinal(
     : await resolverTodo(
       analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
       empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
-      formularios.map(f => f.titulo), respuestas.anexoAplica === '1', analisis.tripletesFecha,
+      formularios.map(f => f.titulo), respuestas.anexoAplica === '1', analisis.tripletesFecha, analisis.alternativasExcluyentes,
     );
 
   let xml = xmlNormalizado;

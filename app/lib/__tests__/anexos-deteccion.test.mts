@@ -10,7 +10,7 @@ import {
   normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio,
   unificarRunsDeMarcadores, rellenarRunPorIndice, verificarParrafos, verificarXmlBienFormado,
 } from '../anexos-docx';
-import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, esEtiquetaDeCampo } from '../anexos-detectar';
+import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, detectarAlternativasExcluyentes, esEtiquetaDeCampo } from '../anexos-detectar';
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
 import { esCandidatoDePrecioUnitario } from '../anexos-precios-columnas';
 import { calcularTotalesAlPie, pareceFilaDePie } from '../anexos-totales-seccion';
@@ -805,6 +805,44 @@ test('detectarTripletesFecha: dupla día/mes con el año ya impreso en el docume
   // la señal de un solo "de" es débil por sí sola (es una palabra común), así que se exige el año.
   const sinAnio = analizarAnexo(normalizarParaIds(NS + p('Cargo____________de____________Departamento') + FIN).xml);
   assert.equal(sinAnio.tripletesFecha.size, 0);
+});
+
+// BUG REAL (4999-8-LE26, "ANEXO N°4-A", encontrado 6-ago-2026): una declaración jurada ofrece dos
+// blancos, cada uno al inicio de su propio párrafo, para marcar la alternativa que aplica — la
+// MISMA frase, una vez en positivo y otra negada. Antes se le mandaban a la IA como cualquier otro
+// blanco suelto y el resultado variaba de corrida en corrida (a veces pendiente, a veces con la
+// razón social escrita ahí) según qué otros candidatos le tocaran de vecinos en el lote.
+test('detectarAlternativasExcluyentes: "___registra" / "___no registra" se resuelve determinista, sin IA', () => {
+  const par = analizarAnexo(normalizarParaIds(
+    NS
+    + p('_____registra saldos insolutos de remuneraciones o cotizaciones de seguridad social con sus trabajadores.')
+    + p('_____no registra saldos insolutos de remuneraciones o cotizaciones de seguridad social con sus trabajadores.')
+    + FIN,
+  ).xml);
+  assert.equal(par.alternativasExcluyentes.size, 2, `debe marcar los DOS blancos del par: ${par.alternativasExcluyentes.size}`);
+  for (const b of par.blancosInline) {
+    assert.ok(par.alternativasExcluyentes.has(`${b.indiceRun}:${b.posEnTexto}`), 'cada blanco del par debe estar marcado');
+  }
+
+  // El orden no importa: negado primero, positivo después, sigue siendo el mismo par.
+  const parInvertido = analizarAnexo(normalizarParaIds(
+    NS
+    + p('_____no cumple con el requisito de experiencia mínima exigido en las bases.')
+    + p('_____cumple con el requisito de experiencia mínima exigido en las bases.')
+    + FIN,
+  ).xml);
+  assert.equal(parInvertido.alternativasExcluyentes.size, 2);
+
+  // Control: un blanco suelto sin par no se marca (lo sigue resolviendo la IA normal).
+  const suelto = analizarAnexo(normalizarParaIds(NS + p('_____registra deudas previsionales con sus trabajadores.') + FIN).xml);
+  assert.equal(suelto.alternativasExcluyentes.size, 0);
+
+  // Control: dos blancos consecutivos SIN relación de negación entre sí (frases distintas) no se
+  // confunden con el patrón — cada uno sigue su camino normal (IA o el patrón que le corresponda).
+  const sinRelacion = analizarAnexo(normalizarParaIds(
+    NS + p('_____Nombre completo del representante.') + p('_____Cédula de identidad del representante.') + FIN,
+  ).xml);
+  assert.equal(sinRelacion.alternativasExcluyentes.size, 0);
 });
 
 // ── Raya de relleno con el carácter ELIPSIS "…" (U+2026), no puntos ASCII ─────────────────────

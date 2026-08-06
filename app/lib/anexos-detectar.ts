@@ -1549,6 +1549,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     candidatosCeldaSinDesambiguar,
     avisoNoAplica: detectarAvisoNoAplica(parrafos),
     tripletesFecha: detectarTripletesFecha(blancosInline),
+    alternativasExcluyentes: detectarAlternativasExcluyentes(blancosInline),
   };
 }
 
