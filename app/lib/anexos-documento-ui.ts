@@ -25,7 +25,10 @@ export type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
 
 export type SegmentoUI =
   | { t: 'texto'; v: string; negrita?: boolean; subrayado?: boolean }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' }
+  // `etiqueta` — de dónde salió este valor (ver ResueltoAuto) — viaja hasta el frontend para que
+  // el botón "corregir" (feedback loop, ver anexos-feedback.ts) sepa a qué TIPO de casilla
+  // enseñarle la regla cuando el usuario diga que este valor está mal.
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string }
   | { t: 'input'; id: string; largo?: number }
   | { t: 'salto' };
 
@@ -45,7 +48,7 @@ export type BloqueUI<T> = BloqueParrafoUI | BloqueTablaUI<T>;
 // por BLANCO INLINE (una corrida de ____ dentro de una oración, que puede haber varias en el
 // mismo párrafo). Las claves son exactamente las que ya usan los ids de los pendientes, para
 // que lo que se escriba en pantalla vuelva al backend apuntando al mismo lugar.
-export interface ResueltoAuto { tipo: 'auto'; valor: string; via: 'ia' | 'costeo' | 'bases' }
+export interface ResueltoAuto { tipo: 'auto'; valor: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string }
 export interface ResueltoInput { tipo: 'pendiente'; id: string }
 export type Resuelto = ResueltoAuto | ResueltoInput;
 
@@ -269,7 +272,7 @@ export function construirDocumentoUI<T>({
           if (!res) continue;
           if (b.posEnTexto > cursor) segmentos.push({ t: 'texto', v: texto.slice(cursor, b.posEnTexto), negrita, subrayado });
           segmentos.push(res.tipo === 'auto'
-            ? { t: 'auto', v: res.valor, via: res.via }
+            ? { t: 'auto', v: res.valor, via: res.via, etiqueta: res.etiqueta }
             : { t: 'input', id: res.id, largo: b.largo });
           cursor = b.posEnTexto + b.largo;
         }
@@ -285,7 +288,7 @@ export function construirDocumentoUI<T>({
     const delParrafo = porParrafo.get(indiceParrafo);
     if (delParrafo) {
       segmentos.push(delParrafo.tipo === 'auto'
-        ? { t: 'auto', v: delParrafo.valor, via: delParrafo.via }
+        ? { t: 'auto', v: delParrafo.valor, via: delParrafo.via, etiqueta: delParrafo.etiqueta }
         : { t: 'input', id: delParrafo.id });
     }
 

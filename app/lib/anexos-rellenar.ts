@@ -40,6 +40,7 @@ import { calcularTotalesPorSeccion, calcularTotalesAlPie, resolverTablaResumen, 
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
 import { analizarSeccionesEscaneadas, type SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
+import { cargarReglasAprendidasAnexo } from '@/app/lib/anexos-feedback';
 import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 
 export type { SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
@@ -75,12 +76,14 @@ export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: 
 // en el backend porque lo arma construirTablaUI, no la réplica de párrafo.
 export type SegmentoCeldaUI =
   | { t: 'texto'; v: string }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string }
   | { t: 'input'; id: string };
 
 export interface CeldaTablaUI {
   texto: string;                                   // texto ya existente en el Word (columna, dato fijo)
-  auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' };   // se completó sola — se muestra el valor, sin input
+  // `etiqueta` — de dónde viene este valor (ver ResolucionMostrada) — viaja hasta el frontend para
+  // que el botón "corregir" (ver anexos-feedback.ts) sepa a qué TIPO de casilla enseñarle la regla.
+  auto?: { valor: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string };   // se completó sola — se muestra el valor, sin input
   input?: { id: string };                          // blanco real pendiente — el mismo id que usa generarAnexoFinal
   // BUG REAL (3713-7-LE26): una celda con texto propio que además trae un blanco INLINE adentro
   // ("SI ____ NO ____ declaro...", "Plazo de entrega ……… días hábiles") nunca calzaba con
@@ -197,6 +200,11 @@ async function resolverTodo(
     else blancosParaIA.push(b);
   }
 
+  // Reglas del feedback loop (ver anexos-feedback.ts): correcciones que el usuario ya hizo antes
+  // sobre casillas parecidas, por TIPO de etiqueta. Resiliente — si falla la consulta, el análisis
+  // sigue igual sin reglas (nunca bloquea el relleno).
+  const reglasAprendidas = await cargarReglasAprendidasAnexo().catch(() => []);
+
   const { celda, inline, alertasInadmisibilidad, checklistPendientes } = await resolverAnexoConIA({
     candidatos: [...elegibles, ...camposConDosPuntos],
     blancosInline: blancosParaIA,
@@ -205,6 +213,7 @@ async function resolverTodo(
     basesTexto,
     tituloAnexos,
     postulaComoUTP,
+    reglasAprendidas,
   });
 
   const matcheados: CampoResuelto[] = [];
@@ -439,7 +448,7 @@ function segmentosDeCelda(
       const res = porBlancoInline.get(`${b.indiceRun}:${b.posEnTexto}`);
       if (!res) continue; // no debería pasar (todo blanco termina auto o pendiente) — defensivo
       if (b.posEnParrafo > cursor) segmentos.push({ t: 'texto', v: textoParrafo.slice(cursor, b.posEnParrafo) });
-      segmentos.push(res.tipo === 'auto' ? { t: 'auto', v: res.valor, via: res.via } : { t: 'input', id: res.id });
+      segmentos.push(res.tipo === 'auto' ? { t: 'auto', v: res.valor, via: res.via, etiqueta: res.etiqueta } : { t: 'input', id: res.id });
       cursor = b.posEnParrafo + b.largo;
     }
     if (cursor < textoParrafo.length) segmentos.push({ t: 'texto', v: textoParrafo.slice(cursor) });
@@ -470,7 +479,7 @@ function construirTablaUI(
       // `c.texto` sigue siendo '' para una celda realmente vacía (sin cambio de comportamiento) —
       // pero conserva el prefijo de moneda ("$") en una celda dosPuntos, que si no desaparecía de
       // la vista aunque el .docx generado sí lo mantuviera (ver detectarCandidatosTabla).
-      if (res.tipo === 'auto') return { texto: c.texto, auto: { valor: res.valor, via: res.via } };
+      if (res.tipo === 'auto') return { texto: c.texto, auto: { valor: res.valor, via: res.via, etiqueta: res.etiqueta } };
       return { texto: c.texto, input: { id: res.id } };
     })),
   };
@@ -576,7 +585,7 @@ export async function analizarAnexoParaUI(
   // celda con texto propio puede traer un blanco inline adentro (ver segmentosDeCelda arriba).
   const porBlancoInline = new Map<string, Resuelto>();
   for (const a of inlineAuto) {
-    porBlancoInline.set(`${a.b.indiceRun}:${a.b.posEnTexto}`, { tipo: 'auto', valor: a.valor, via: a.via });
+    porBlancoInline.set(`${a.b.indiceRun}:${a.b.posEnTexto}`, { tipo: 'auto', valor: a.valor, via: a.via, etiqueta: a.etiqueta });
   }
   for (const { b } of inlinePendientes) {
     porBlancoInline.set(`${b.indiceRun}:${b.posEnTexto}`, { tipo: 'pendiente', id: `inline:${b.indiceRun}:${b.posEnTexto}` });
@@ -661,7 +670,7 @@ export async function analizarAnexoParaUI(
   const porParrafo = new Map<number, Resuelto>();
   for (const [indice, res] of resolucionPorIndice) {
     porParrafo.set(indice, res.tipo === 'auto'
-      ? { tipo: 'auto', valor: res.valor, via: res.via }
+      ? { tipo: 'auto', valor: res.valor, via: res.via, etiqueta: res.etiqueta }
       : { tipo: 'pendiente', id: res.id });
   }
   const documento = construirDocumentoUI({

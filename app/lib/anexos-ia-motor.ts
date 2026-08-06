@@ -20,6 +20,7 @@ import { crearChatIA } from '@/app/lib/gemini';
 import { parseJsonIA } from '@/app/lib/json-ia';
 import type { Parrafo } from '@/app/lib/anexos-docx';
 import type { CandidatoCelda, CandidatoInline } from '@/app/lib/anexos-detectar';
+import { bloqueReglasAprendidasAnexo } from '@/app/lib/anexos-feedback';
 
 export interface EmpresaCampos {
   razon_social: string | null;
@@ -177,6 +178,10 @@ export interface EntradaMotor {
   basesTexto?: string;
   tituloAnexos?: string[]; // ordenFormularios — nombres de los anexos detectados, para el Paso 1
   postulaComoUTP?: boolean;   // ver contextoUTP en resolverLoteCampos
+  // Reglas aprendidas del feedback loop (ver anexos-feedback.ts) — correcciones del experto sobre
+  // casillas mal resueltas antes, destiladas por TIPO de etiqueta (no por documento). Se inyectan
+  // en el prompt de cada lote con prioridad máxima.
+  reglasAprendidas?: string[];
 }
 
 export interface ResultadoMotor {
@@ -425,7 +430,7 @@ interface ItemLote {
 
 async function resolverLoteCampos(
   items: ItemLote[], empresa: EmpresaCampos, camposConDato: (keyof EmpresaCampos)[],
-  postulaComoUTP = false,
+  postulaComoUTP = false, reglasAprendidas: string[] = [],
 ): Promise<Map<number, Resolucion>> {
   const out = new Map<number, Resolucion>();
   const ficha = camposConDato
@@ -437,7 +442,7 @@ async function resolverLoteCampos(
   const contextoUTP = postulaComoUTP
     ? '\n\nCONTEXTO DE ESTA OFERTA: en ESTA licitación la empresa se presenta en UNIÓN TEMPORAL DE PROVEEDORES (UTP), como uno de sus integrantes. Por lo tanto la excepción "bloque de UTP → no_aplica_al_oferente" de la regla f) NO corre acá: un anexo o bloque de UTP que pida el nombre / RUT / domicilio del integrante que declara SÍ se llena con los datos de la ficha, igual que cualquier otro.'
     : '';
-  const user = `FICHA DE LA EMPRESA QUE POSTULA:\n${ficha}${contextoUTP}\n\nCASILLAS (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
+  const user = `FICHA DE LA EMPRESA QUE POSTULA:\n${ficha}${contextoUTP}${bloqueReglasAprendidasAnexo(reglasAprendidas)}\n\nCASILLAS (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
 
   try {
     // modeloPreferido: 'glm-4.7' (salta el default 'flashx') — medido en pruebas reales: en
@@ -701,7 +706,7 @@ export async function identificarCamposDeSeccionEscaneada(
 
 // ── Orquestador ────────────────────────────────────────────────────────────────────────────
 export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<ResultadoMotor> {
-  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP } = entrada;
+  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP, reglasAprendidas } = entrada;
 
   const camposConDato = (Object.keys(empresa) as (keyof EmpresaCampos)[])
     // firma_url/timbre_url son URLs de imágenes, no texto que se escriba en una casilla — si se le
@@ -751,7 +756,7 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
 
   const resultados = await enParaleloLimitado(
     enLotes(items, TAMANO_LOTE), LOTES_EN_PARALELO,
-    lote => resolverLoteCampos(lote, empresa, camposConDato, postulaComoUTP),
+    lote => resolverLoteCampos(lote, empresa, camposConDato, postulaComoUTP, reglasAprendidas || []),
   );
 
   const checklistSet = new Set<string>();

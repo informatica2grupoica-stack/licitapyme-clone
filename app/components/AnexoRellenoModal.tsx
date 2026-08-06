@@ -8,7 +8,7 @@
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, Download, ChevronDown, ShieldAlert, ListChecks } from 'lucide-react';
+import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, Download, ChevronDown, ShieldAlert, ListChecks, Pencil, Check } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 
 // Mismo problema que el visor del ojo "Ver" en Documentos (ver DocumentViewerModal): el visor
@@ -28,10 +28,10 @@ interface PendienteInline {
 }
 type SegmentoCeldaUI =
   | { t: 'texto'; v: string }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string }
   | { t: 'input'; id: string };
 interface CeldaTablaUI {
-  texto: string; auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' }; input?: { id: string };
+  texto: string; auto?: { valor: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string }; input?: { id: string };
   // Blanco inline DENTRO de una celda con texto propio ("SI ____ NO ____ declaro...") — ver el
   // mismo campo en anexos-rellenar.ts.
   segmentosInline?: SegmentoCeldaUI[];
@@ -50,7 +50,7 @@ interface SeccionEscaneada { titulo: string; campos: CampoSeccionEscaneada[]; oc
 type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
 type SegmentoUI =
   | { t: 'texto'; v: string; negrita?: boolean; subrayado?: boolean }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string }
   | { t: 'input'; id: string; largo?: number }
   | { t: 'salto' };
 interface BloqueParrafoUI {
@@ -79,12 +79,106 @@ interface Analisis {
   seccionesEscaneadas?: SeccionEscaneada[];
 }
 
+// Un valor que el motor completó solo, mostrado en su lugar dentro de la réplica del documento —
+// clickeable para corregirlo. Pedido explícito del usuario (6-ago-2026, caso 4777-24-LE26 con
+// "Calle"/"N°"/"Comuna" mal separados): "eso se debe aprender y que si sale otra igual logre
+// rellenarla". Al corregir, la corrección se destila en una regla GENERAL por tipo de etiqueta
+// (ver anexos-feedback.ts) — no queda atada a esta licitación — y se re-analiza el documento en el
+// acto para que el mismo anexo también quede corregido, sin esperar al próximo.
+//
+// Sin `etiqueta` (algunos totales de costeo insertados directo por paraId, ver
+// `rellenosPorParaId` en anexos-rellenar.ts) no hay con qué enseñarle una regla al motor — se
+// muestra el valor igual, solo que sin el lápiz de corrección.
+function CampoAuto({
+  valor, via, etiqueta, codigo, onCorregido, prefijo,
+}: {
+  valor: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string; codigo: string;
+  onCorregido: () => void; prefijo?: string;
+}) {
+  const toast = useToast();
+  const [editando, setEditando] = useState(false);
+  const [valorNuevo, setValorNuevo] = useState(valor);
+  const [guardando, setGuardando] = useState(false);
+  const colorClase = via === 'costeo' ? 'text-cyan-700' : via === 'bases' ? 'text-amber-700' : 'text-emerald-700';
+
+  const guardarCorreccion = async () => {
+    const corregido = valorNuevo.trim();
+    if (!corregido || !etiqueta) return;
+    setGuardando(true);
+    try {
+      const r = await fetch('/api/anexos/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo, etiqueta, valorIA: valor, valorCorrecto: corregido }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo guardar la corrección');
+      toast.success('Corrección guardada', 'La IA va a aplicar esto en este y en futuros anexos con una casilla parecida.');
+      setEditando(false);
+      onCorregido();
+    } catch (e: any) {
+      toast.error('No se pudo guardar la corrección', e.message);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  if (editando) {
+    return (
+      <span className="inline-flex items-center gap-1 align-baseline">
+        {prefijo && <span className="shrink-0 font-medium text-slate-600">{prefijo}</span>}
+        <input
+          type="text"
+          value={valorNuevo}
+          onChange={e => setValorNuevo(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') guardarCorreccion(); if (e.key === 'Escape') setEditando(false); }}
+          autoFocus
+          className="inline-block w-40 px-1 py-0.5 text-[12px] bg-white border border-indigo-300 rounded-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
+        />
+        <button
+          type="button" disabled={guardando || !valorNuevo.trim()} onClick={guardarCorreccion} title="Guardar corrección"
+          className="inline-flex items-center justify-center w-5 h-5 rounded bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white"
+        >
+          {guardando ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
+        </button>
+        <button
+          type="button" onClick={() => { setEditando(false); setValorNuevo(valor); }} title="Cancelar"
+          className="inline-flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+        >
+          <X size={10} />
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`group/campo inline-flex items-center gap-0.5 font-semibold ${colorClase} ${etiqueta ? 'cursor-pointer' : ''}`}
+      title={
+        !etiqueta ? undefined
+          : via === 'costeo' ? 'Precio cruzado con el costeo subido — clic para corregir'
+          : via === 'bases' ? 'Sacado del texto de las Bases — clic para corregir'
+          : 'Completado por IA — clic para corregir'
+      }
+      onClick={etiqueta ? () => setEditando(true) : undefined}
+    >
+      {prefijo ? `${prefijo} ${valor}` : valor}
+      {via === 'costeo' && <span className="shrink-0 text-[9px] font-bold align-super">$</span>}
+      {via === 'bases' && <span className="shrink-0 text-[9px] font-bold align-super">bases</span>}
+      {etiqueta && <Pencil size={9} className="shrink-0 opacity-0 group-hover/campo:opacity-60 transition-opacity" />}
+    </span>
+  );
+}
+
 // Vista de tabla REAL: mismas filas/columnas que el Word, para que quede claro a qué celda
 // corresponde cada input (pedido explícito del usuario tras probar la lista plana con un anexo
 // económico real de 160 blancos sueltos — imposible saber cuál era cuál sin esto).
 function TablaReal({
-  tabla, respuestas, onChange,
-}: { tabla: TablaUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void }) {
+  tabla, respuestas, onChange, codigo, onCorregido,
+}: {
+  tabla: TablaUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
+  codigo: string; onCorregido: () => void;
+}) {
   // Una fila con MENOS celdas que el resto es un título mergeado (ver indiceFilaEncabezado en
   // anexos-detectar.ts — "DATOS DEL PROPONENTE:", "INTEGRANTES DE LA UTP"...): se le da colSpan a
   // su última celda para que ocupe todo el ancho, igual que en el Word, en vez de verse como una
@@ -122,12 +216,7 @@ function TablaReal({
                         if (s.t === 'texto') return <span key={k}>{s.v}</span>;
                         if (s.t === 'auto') {
                           return (
-                            <span
-                              key={k}
-                              className={`font-semibold ${s.via === 'costeo' ? 'text-cyan-700' : s.via === 'bases' ? 'text-amber-700' : 'text-emerald-700'}`}
-                            >
-                              {s.v}
-                            </span>
+                            <CampoAuto key={k} valor={s.v} via={s.via} etiqueta={s.etiqueta} codigo={codigo} onCorregido={onCorregido} />
                           );
                         }
                         return (
@@ -156,26 +245,12 @@ function TablaReal({
                       />
                     </div>
                   ) : c.auto ? (
-                    <span
-                      className={`inline-flex items-center gap-1 font-medium ${
-                        c.auto.via === 'costeo' ? 'text-cyan-700' : c.auto.via === 'bases' ? 'text-amber-700' : 'text-emerald-700'
-                      }`}
-                      title={
-                        c.auto.via === 'costeo' ? 'Precio cruzado con el costeo subido — revisa antes de generar'
-                          : c.auto.via === 'bases' ? 'Sacado del texto de las Bases — revisa antes de generar'
-                          : 'Completado por IA'
-                      }
-                    >
-                      {/* Prefijo ya escrito en el Word (ej. "$"), si lo hay — igual criterio que la
-                          celda con input de al lado. */}
-                      {c.texto ? `${c.texto} ${c.auto.valor}` : c.auto.valor}
-                      {c.auto.via === 'costeo' && (
-                        <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-cyan-100 text-cyan-700">$</span>
-                      )}
-                      {c.auto.via === 'bases' && (
-                        <span className="shrink-0 text-[9px] font-bold px-1 py-px rounded-full bg-amber-100 text-amber-700">bases</span>
-                      )}
-                    </span>
+                    // Prefijo ya escrito en el Word (ej. "$"), si lo hay — igual criterio que la
+                    // celda con input de al lado.
+                    <CampoAuto
+                      valor={c.auto.valor} via={c.auto.via} etiqueta={c.auto.etiqueta} prefijo={c.texto || undefined}
+                      codigo={codigo} onCorregido={onCorregido}
+                    />
                   ) : (
                     <span className="text-slate-700">{c.texto}</span>
                   )}
@@ -195,9 +270,9 @@ function TablaReal({
 // subrayado. Los blancos van INTERCALADOS en el texto: un valor ya resuelto se ve destacado en
 // su lugar, y uno pendiente es un input angosto (tamaño según el largo real del "____" en el
 // Word) justo donde va — no una tarjeta aparte más abajo.
-function BloqueParrafo({ b, respuestas, onChange, motivoPorId }: {
+function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregido }: {
   b: BloqueParrafoUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
-  motivoPorId: Map<string, string>;
+  motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void;
 }) {
   const alineacionClase: Record<Alineacion, string> = {
     izquierda: 'text-left', centro: 'text-center', derecha: 'text-right', justificado: 'text-justify',
@@ -219,23 +294,7 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId }: {
           );
         }
         if (s.t === 'auto') {
-          return (
-            <span
-              key={i}
-              className={`font-semibold ${
-                s.via === 'costeo' ? 'text-cyan-700' : s.via === 'bases' ? 'text-amber-700' : 'text-emerald-700'
-              }`}
-              title={
-                s.via === 'costeo' ? 'Precio cruzado con el costeo subido — revisa antes de generar'
-                  : s.via === 'bases' ? 'Sacado del texto de las Bases — revisa antes de generar'
-                  : 'Completado por IA'
-              }
-            >
-              {s.v}
-              {s.via === 'costeo' && <span className="ml-0.5 text-[9px] font-bold align-super">$</span>}
-              {s.via === 'bases' && <span className="ml-0.5 text-[9px] font-bold align-super">bases</span>}
-            </span>
-          );
+          return <CampoAuto key={i} valor={s.v} via={s.via} etiqueta={s.etiqueta} codigo={codigo} onCorregido={onCorregido} />;
         }
         const motivo = motivoPorId.get(s.id);
         return (
@@ -261,15 +320,15 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId }: {
 // blancos ya resueltos o por llenar en su lugar. Reemplaza la vieja grilla de tarjetas: pedido
 // explícito del usuario (4-ago-2026) — "tiene que ser tal cual el mismo texto, la misma
 // estructura", no una lista de campos.
-function DocumentoReplica({ documento, respuestas, onChange, motivoPorId }: {
+function DocumentoReplica({ documento, respuestas, onChange, motivoPorId, codigo, onCorregido }: {
   documento: BloqueUI[]; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
-  motivoPorId: Map<string, string>;
+  motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void;
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl px-5 py-4">
       {documento.map((bloque, i) => bloque.tipo === 'tabla'
-        ? <div key={i} className="my-2.5"><TablaReal tabla={bloque.tabla} respuestas={respuestas} onChange={onChange} /></div>
-        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} />)}
+        ? <div key={i} className="my-2.5"><TablaReal tabla={bloque.tabla} respuestas={respuestas} onChange={onChange} codigo={codigo} onCorregido={onCorregido} /></div>
+        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} codigo={codigo} onCorregido={onCorregido} />)}
     </div>
   );
 }
@@ -550,6 +609,25 @@ export function AnexoRellenoModal({
   for (const p of analisis?.pendientesCelda || []) if (p.motivo) motivoPorId.set(p.id, p.motivo);
   for (const p of analisis?.pendientesInline || []) if (p.motivo) motivoPorId.set(p.id, p.motivo);
 
+  // Tras guardar una corrección (ver CampoAuto), se re-analiza el documento EN EL ACTO — la regla
+  // recién aprendida ya se inyecta en este mismo re-análisis (ver cargarReglasAprendidasAnexo en
+  // anexos-rellenar.ts), así que lo más probable es que la casilla corregida salga bien esta vez.
+  // A propósito NO toca `respuestas`: lo que el usuario ya tecleó a mano en los pendientes se
+  // mantiene igual, solo se refresca lo que decidió la IA.
+  const recargarAnalisis = async () => {
+    if (!doc || !empresaId) return;
+    try {
+      const params = new URLSearchParams({ codigo, documentoId: String(doc.id), empresaId: String(empresaId) });
+      if (forzarAplica) params.set('aplica', '1');
+      const r = await fetch(`/api/anexos/analizar?${params}`);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo re-analizar el documento');
+      setAnalisis(data);
+    } catch (e: any) {
+      toast.error('No se pudo actualizar la vista', e.message);
+    }
+  };
+
   const handleGenerar = async () => {
     setGenerando(true);
     try {
@@ -750,6 +828,7 @@ export function AnexoRellenoModal({
               {analisis.documento.length > 0 ? (
                 <DocumentoReplica
                   documento={analisis.documento} respuestas={respuestas} onChange={setRespuesta} motivoPorId={motivoPorId}
+                  codigo={codigo} onCorregido={recargarAnalisis}
                 />
               ) : (
                 <div className="flex items-center gap-2 text-[12.5px] text-slate-400 py-6 justify-center">
