@@ -180,6 +180,7 @@ async function resolverTodo(
   postulaComoUTP: boolean,
   tripletesFecha: Map<string, RolFechaTriplete>,
   alternativasExcluyentes: Set<string>,
+  haySeccionUtpOmitida: boolean,
 ): Promise<ResultadoResolucion> {
   const elegibles = candidatosCelda.filter(c => !soloManual?.has(c.indice));
   const soloManualCandidatos = candidatosCelda.filter(c => soloManual?.has(c.indice));
@@ -221,6 +222,7 @@ async function resolverTodo(
     basesTexto,
     tituloAnexos,
     postulaComoUTP,
+    haySeccionUtpOmitida,
     reglasAprendidas,
   });
 
@@ -567,6 +569,7 @@ export async function analizarAnexoParaUI(
         analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
         empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
         formularios.map(f => f.titulo), forzarAplica, analisis.tripletesFecha, analisis.alternativasExcluyentes,
+        analisis.secciones.some(s => s.tipo === 'UTP' && s.decision === 'OMITIR'),
       ),
     analizarSeccionesEscaneadas(zip, xmlNormalizado, empresa).catch(e => {
       console.error('[anexos-rellenar] Falló el análisis de secciones escaneadas, se omite sin bloquear el resto:', String(e).slice(0, 200));
@@ -753,6 +756,7 @@ export async function generarAnexoFinal(
       analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
       empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
       formularios.map(f => f.titulo), respuestas.anexoAplica === '1', analisis.tripletesFecha, analisis.alternativasExcluyentes,
+      analisis.secciones.some(s => s.tipo === 'UTP' && s.decision === 'OMITIR'),
     );
 
   let xml = xmlNormalizado;

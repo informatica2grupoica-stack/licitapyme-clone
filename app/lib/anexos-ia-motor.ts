@@ -178,6 +178,9 @@ export interface EntradaMotor {
   basesTexto?: string;
   tituloAnexos?: string[]; // ordenFormularios — nombres de los anexos detectados, para el Paso 1
   postulaComoUTP?: boolean;   // ver contextoUTP en resolverLoteCampos
+  // Hay una sección UTP omitida en el documento (independiente de postulaComoUTP) — ver
+  // contextoProponenteUTP en resolverLoteCampos.
+  haySeccionUtpOmitida?: boolean;
   // Reglas aprendidas del feedback loop (ver anexos-feedback.ts) — correcciones del experto sobre
   // casillas mal resueltas antes, destiladas por TIPO de etiqueta (no por documento). Se inyectan
   // en el prompt de cada lote con prioridad máxima.
@@ -430,7 +433,7 @@ interface ItemLote {
 
 async function resolverLoteCampos(
   items: ItemLote[], empresa: EmpresaCampos, camposConDato: (keyof EmpresaCampos)[],
-  postulaComoUTP = false, reglasAprendidas: string[] = [],
+  postulaComoUTP = false, reglasAprendidas: string[] = [], haySeccionUtpOmitida = false,
 ): Promise<Map<number, Resolucion>> {
   const out = new Map<number, Resolucion>();
   const ficha = camposConDato
@@ -442,7 +445,20 @@ async function resolverLoteCampos(
   const contextoUTP = postulaComoUTP
     ? '\n\nCONTEXTO DE ESTA OFERTA: en ESTA licitación la empresa se presenta en UNIÓN TEMPORAL DE PROVEEDORES (UTP), como uno de sus integrantes. Por lo tanto la excepción "bloque de UTP → no_aplica_al_oferente" de la regla f) NO corre acá: un anexo o bloque de UTP que pida el nombre / RUT / domicilio del integrante que declara SÍ se llena con los datos de la ficha, igual que cualquier otro.'
     : '';
-  const user = `FICHA DE LA EMPRESA QUE POSTULA:\n${ficha}${contextoUTP}${bloqueReglasAprendidasAnexo(reglasAprendidas)}\n\nCASILLAS (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
+  // Caso DISTINTO del de arriba: la empresa NO postula en UTP (postulaComoUTP=false, el bloque UTP
+  // sigue sin corresponder), pero el sistema YA filtró de este lote las casillas de UTP que
+  // genuinamente piden datos de OTRA empresa (la tabla de integrantes, nunca llega acá) — lo que
+  // SÍ llega son casillas sueltas que piden el nombre/RUT/representante legal del "PROPONENTE" u
+  // "OFERENTE" MISMO. BUG REAL (4777-24-LE26, 6-ago-2026): sin este aviso, la IA veía el contexto
+  // cercano ("UNIÓN TEMPORAL DE PROVEEDORES") y aplicaba la regla f) igual, aunque el candidato
+  // que le llegó no era de un integrante — "proponente" es sinónimo de "oferente" en estos
+  // formularios, la MISMA empresa de la ficha, se postule sola o en unión.
+  const contextoProponenteUTP = !postulaComoUTP && haySeccionUtpOmitida
+    ? '\n\nCONTEXTO: este documento tiene un bloque de "Unión Temporal de Proveedores" (UTP) que NO corresponde presentar en esta oferta (la empresa postula sola). El sistema YA excluyó de esta lista lo que genuinamente pide datos de OTRA empresa (una tabla de integrantes) — si de todas formas ves, entre las casillas de abajo, una suelta (no una fila de tabla) que pide el nombre/RUT/representante legal del "PROPONENTE" u "OFERENTE" y el párrafo cercano menciona "Unión Temporal de Proveedores", NO la mandes a no_aplica_al_oferente por eso: "proponente" es sinónimo de "oferente", la MISMA empresa de la ficha — resuélvela normal (perfil_empresa/perfil_representante_legal). Esto NO aplica si la casilla nombra explícitamente a un integrante/socio distinto.'
+    : '';
+  const user = `FICHA DE LA EMPRESA QUE POSTULA:\n${ficha}${contextoUTP}${contextoProponenteUTP}${bloqueReglasAprendidasAnexo(reglasAprendidas)}\n\nCASILLAS (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
+  console.error('[DEBUG_TEMP] haySeccionUtpOmitida=', haySeccionUtpOmitida, 'postulaComoUTP=', postulaComoUTP, 'contextoProponenteUTP.length=', contextoProponenteUTP.length);
+  console.error('[DEBUG_TEMP] USER PROMPT:\n', user);
 
   try {
     // modeloPreferido: 'glm-4.7' (salta el default 'flashx') — medido en pruebas reales: en
@@ -706,7 +722,7 @@ export async function identificarCamposDeSeccionEscaneada(
 
 // ── Orquestador ────────────────────────────────────────────────────────────────────────────
 export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<ResultadoMotor> {
-  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP, reglasAprendidas } = entrada;
+  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP, haySeccionUtpOmitida, reglasAprendidas } = entrada;
 
   const camposConDato = (Object.keys(empresa) as (keyof EmpresaCampos)[])
     // firma_url/timbre_url son URLs de imágenes, no texto que se escriba en una casilla — si se le
@@ -756,7 +772,7 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
 
   const resultados = await enParaleloLimitado(
     enLotes(items, TAMANO_LOTE), LOTES_EN_PARALELO,
-    lote => resolverLoteCampos(lote, empresa, camposConDato, postulaComoUTP, reglasAprendidas || []),
+    lote => resolverLoteCampos(lote, empresa, camposConDato, postulaComoUTP, reglasAprendidas || [], haySeccionUtpOmitida),
   );
 
   const checklistSet = new Set<string>();
