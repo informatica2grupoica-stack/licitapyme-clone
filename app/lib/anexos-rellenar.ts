@@ -153,6 +153,17 @@ function valorTripleteFecha(rol: RolFechaTriplete, empresa: EmpresaCampos): stri
   return valor && String(valor).trim() ? String(valor) : null;
 }
 
+// ¿El motor reconoció que esta casilla pide un dato concreto (de la ficha, de la licitación o de
+// la oferta) aunque no haya podido completarlo? Solo esas merecen mostrarse como pendiente cuando
+// vienen del patrón 5 — ver el uso más abajo.
+const CATEGORIAS_QUE_PIDEN_UN_DATO = new Set([
+  'perfil_empresa', 'perfil_representante_legal', 'perfil_contacto', 'perfil_bancario',
+  'datos_licitacion', 'especifico_licitacion',
+]);
+function esPendienteQueSiPideUnDato(res: Resolucion | undefined): boolean {
+  return res?.tipo === 'pendiente' && CATEGORIAS_QUE_PIDEN_UN_DATO.has(res.categoria);
+}
+
 async function resolverTodo(
   candidatosCelda: CandidatoCelda[],
   camposConDosPuntos: CandidatoCelda[],
@@ -213,12 +224,21 @@ async function resolverTodo(
     // por eso el chequeo de abajo sigue siendo solo `indicesDosPuntos`, nunca `c.dosPuntos`.
     if (res?.tipo === 'auto') {
       matcheados.push({ c, campo: res.categoria, valor: res.valor, via: 'ia', dosPuntos: c.dosPuntos || indicesDosPuntos.has(c.indice) });
-    } else if (!indicesDosPuntos.has(c.indice)) {
-      // "Etiqueta:" (patrón 5) NUNCA alimenta la lista de pendientes — ver el comentario de
-      // detectarCamposConDosPuntos en anexos-detectar.ts: cualquier título que termine en dos
-      // puntos calza con esta forma, y mostrarlos todos llenaría la pantalla de campos que no
-      // existen. Solo se usan para auto-completar; si el motor no resuelve uno, se descarta.
-      pendientes.push(c);
+    } else if (!indicesDosPuntos.has(c.indice) || esPendienteQueSiPideUnDato(res)) {
+      // "Etiqueta:" (patrón 5) casi nunca alimenta la lista de pendientes — ver el comentario de
+      // detectarCamposConDosPuntos en anexos-detectar.ts: muchos títulos terminan en dos puntos y
+      // mostrarlos todos llenaría la pantalla de campos que no existen.
+      //
+      // La excepción (6-ago-2026) es la que hacía DESAPARECER campos reales: cuando el motor sí
+      // reconoció que la casilla pide un dato de la ficha o de la licitación pero no pudo
+      // completarlo, descartarla en silencio deja el documento incompleto sin que nadie se entere.
+      // Caso real 1227338-6-LE26: de los seis "RUT:" al pie de firma, uno quedó sin resolver y
+      // simplemente no existió — ni relleno ni casilla donde escribirlo. Los títulos siguen fuera:
+      // esos el motor los clasifica como no_aplica_al_oferente / firma_fecha, que no entran acá.
+      // `dosPuntos` viaja con el pendiente para que, si el humano lo escribe, el valor se agregue al
+      // FINAL del párrafo ("RUT: 6.736.698-0") en vez de intentar rellenar una celda vacía que no
+      // existe — rellenarCeldaVacia revienta si encuentra texto donde esperaba una celda libre.
+      pendientes.push(indicesDosPuntos.has(c.indice) ? { ...c, dosPuntos: true } : c);
       if (res?.tipo === 'pendiente') pendientesConMotivo.set(c.indice, { categoria: res.categoria, motivo: res.motivo });
     }
   }

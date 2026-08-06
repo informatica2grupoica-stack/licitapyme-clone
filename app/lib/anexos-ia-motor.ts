@@ -99,14 +99,38 @@ const CATEGORIAS_PERFIL: CategoriaCampo[] = [
 // perfil_representante_legal (bug real encontrado en pruebas: ambas devolvían
 // representante_nombre). Acotar por categoría, no solo por "existe en la ficha", es lo que evita
 // que un valor real pero del campo equivocado pase el guardarraíl.
+//
+// AJUSTE 6-ago-2026 (bug real medido en 1227338-6-LE26): separar perfil_empresa /
+// perfil_representante_legal / perfil_contacto en tres pozos ESTANCOS costaba más de lo que
+// protegía. En el ANEXO N°1 de ese documento —la tabla de identificación más común que existe—
+// quedaron vacías tres casillas cuyo dato SÍ está en la ficha:
+//   · "IDENTIFICACIÓN DEL REPRESENTANTE LEGAL — TELÉFONO"  (la IA respondió
+//     categoria=perfil_representante_legal + campo=telefono1, y telefono1 no estaba en el pozo de
+//     esa categoría → se descartó un acierto)
+//   · "IDENTIFICACIÓN DEL CONTACTO — MAIL" y "— TELÉFONO"  (mismo mecanismo)
+// El propio usuario lo dice de frente: en esta operación el oferente, el representante legal y el
+// contacto/encargado son SIEMPRE la misma persona de la misma empresa, y los datos se repiten.
+// Partir la ficha en tres compartimentos modela una distinción que no existe, y el precio es que
+// cualquier desacuerdo de ETIQUETA (no de dato) borra el dato correcto.
+//
+// Las tres comparten ahora un solo pozo. Lo que protegía el corte —que "cédula de identidad" no
+// termine con el NOMBRE— pasó a hacerlo `campoCalzaConLaEtiqueta` (más abajo), que valida la FORMA
+// del valor contra lo que la etiqueta pide: es una comprobación directa sobre el dato, no un
+// filtro indirecto por nombre de categoría, y además atrapa el error viniera de la categoría que
+// viniera. Lo bancario y los datos de licitación siguen aparte a propósito: ahí sí hay dos titulares
+// distintos posibles (la cuenta puede estar a nombre de otro) y dos fuentes de datos distintas.
+const CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA: (keyof EmpresaCampos)[] = [
+  'razon_social', 'rut', 'direccion', 'region', 'giro', 'tipo_persona_juridica',
+  'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
+  'representante_nombre', 'representante_rut', 'representante_cargo',
+  'email1', 'telefono1',
+  'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra',
+];
+
 const CAMPOS_PERMITIDOS_POR_CATEGORIA: Record<string, (keyof EmpresaCampos)[]> = {
-  perfil_empresa: [
-    'razon_social', 'rut', 'direccion', 'region', 'giro', 'tipo_persona_juridica',
-    'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
-    'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra',
-  ],
-  perfil_representante_legal: ['representante_nombre', 'representante_rut', 'representante_cargo'],
-  perfil_contacto: ['email1', 'telefono1'],
+  perfil_empresa: CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA,
+  perfil_representante_legal: CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA,
+  perfil_contacto: CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA,
   perfil_bancario: [
     'banco_tipo_cuenta', 'banco_numero', 'banco_nombre', 'banco_email',
     'banco_titular_nombre', 'banco_titular_rut',
@@ -164,6 +188,46 @@ export function valorExisteEnFicha(valor: string, empresa: EmpresaCampos): boole
   return Object.values(empresa).some(v => v != null && normalizarValor(String(v)) === n);
 }
 
+// ── ¿El valor que va a escribirse tiene la FORMA de lo que la casilla pide? ──────────────────
+// Reemplaza (y mejora) lo que antes intentaba el corte por categoría: en vez de preguntar "¿el
+// nombre de campo pertenece al grupo que la IA declaró?", pregunta lo único que importa de verdad
+// — "¿esto que voy a escribir se PARECE a lo que la etiqueta está pidiendo?". Un RUT donde dice
+// "NOMBRE", o un nombre donde dice "RUT", se ven a simple vista y se atajan sin llamar a nadie.
+//
+// Solo dice que NO cuando hay contradicción evidente. Una etiqueta que no habla de ninguna de
+// estas formas (giro, cargo, notaría, "Marca Ofertada"…) pasa sin opinión — este chequeo nunca
+// puede ser la razón por la que un dato correcto se pierda.
+const RE_PARECE_RUT = /^\s*\d{1,3}(\.\d{3})*\s*-\s*[\dkK]\s*$/;
+const pareceRut = (v: string) => RE_PARECE_RUT.test(v);
+const pareceCorreo = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
+const pareceTelefono = (v: string) => !/@/.test(v) && (v.match(/\d/g)?.length ?? 0) >= 7 && !pareceRut(v);
+
+// Se evalúan EN ORDEN y manda la primera que calce: "Nombre y RUT del representante" es una
+// etiqueta real y ahí el RUT es una respuesta válida, así que la regla de RUT tiene que ganarle a
+// la de nombre.
+const REGLAS_FORMA: { pide: RegExp; valido: (v: string) => boolean }[] = [
+  { pide: /\b(rut|r\.\s*u\.\s*t|c[ée]dula|c\.\s*i\.|\brun\b|rol\s+[úu]nico\s+tributario)\b/i, valido: pareceRut },
+  { pide: /\b(correo|e-?mail|mail|casilla\s+electr[óo]nica)\b/i, valido: pareceCorreo },
+  { pide: /\b(tel[ée]fono|fono|celular|m[óo]vil|anexo\s+telef)\b/i, valido: pareceTelefono },
+  // Un nombre / razón social / dirección nunca es un RUT pelado ni un correo.
+  { pide: /\b(nombre|raz[óo]n\s+social|direcci[óo]n|domicilio|calle)\b/i, valido: v => !pareceRut(v) && !pareceCorreo(v) },
+];
+
+export function campoCalzaConLaEtiqueta(etiqueta: string, valor: string): boolean {
+  if (!etiqueta || !valor) return true;
+  const regla = REGLAS_FORMA.find(r => r.pide.test(etiqueta));
+  return regla ? regla.valido(valor) : true;
+}
+
+// Las TRES partes sueltas de la fecha de hoy ("06", "08", "2026") solo tienen sentido dentro de una
+// línea partida en casillas ("Fecha: __ / __ / __", "___ de ___ de ___") — y ese caso ya se
+// resuelve entero y determinista en detectarTripletesFecha, sin pasar por la IA. Si el modelo
+// propone una de ellas para una CELDA o una etiqueta suelta, es siempre un error de juicio: queda
+// un número huérfano en el documento sin nada que lo explique. Caso real medido (1058086-43-LP26,
+// corriendo con el modelo de respaldo): el título "PROPUESTA:" terminó completado con "06".
+// `fecha_hoy` (la fecha larga, "6 de agosto de 2026") sí es un valor válido para una celda "FECHA".
+const CAMPOS_SOLO_PARA_TRIPLETE_DE_FECHA = new Set<string>(['fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra']);
+
 const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   razon_social: 'Razón social / nombre de la empresa',
   rut: 'RUT de la empresa',
@@ -215,6 +279,29 @@ function enLotes<T>(items: T[], tamano: number): T[][] {
   return lotes;
 }
 
+// Cuántos lotes van a la IA AL MISMO TIEMPO. BUG REAL medido (1227338-6-LE26, 100 casillas → 13
+// lotes): con `Promise.all` sobre todos los lotes, las 13 llamadas salían de golpe, Z.AI
+// respondía 429 y la cadena de respaldo bajaba rung por rung hasta salirse de GLM y terminar
+// resolviendo el documento ENTERO con deepseek-chat — el modelo que este pipeline justamente evita
+// (ver el comentario de `modeloPreferido: glm-4.7` más abajo). No era un problema de prompt ni de
+// detección: el documento se llenaba con el peor modelo disponible por saturar la cuota nosotros
+// mismos. De a 3 el trabajo sigue siendo paralelo, sin gatillar el límite.
+const LOTES_EN_PARALELO = 3;
+
+async function enParaleloLimitado<T, R>(items: T[], limite: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let siguiente = 0;
+  const trabajadores = Array.from({ length: Math.min(limite, items.length) }, async () => {
+    while (true) {
+      const i = siguiente++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(trabajadores);
+  return out;
+}
+
 function contextoPrevio(parrafos: Parrafo[], antesDeIndice: number): string[] {
   const out: string[] = [];
   for (let i = antesDeIndice - 1; i >= 0 && out.length < CANTIDAD_PARRAFOS_PREVIOS; i--) {
@@ -241,6 +328,8 @@ d) "declaracion_tercero": lo debe completar y firmar alguien externo al oferente
 e) "firma_fecha": SOLO una raya de firma manuscrita, o "Ciudad y fecha ___" pegado a ESA raya. Una declaración jurada que TERMINA en "declara bajo juramento que:" o similar NO es firma_fecha por sí sola — sus datos (nombre, cédula, domicilio) son perfil_* si los pide, igual que cualquier otro bloque. Valor null.
 f) "no_aplica_al_oferente": encabezado/columna sin dato propio que pedir, bloque de Persona Natural o UTP (esta empresa postula como persona jurídica individual), o anexo de uso interno del organismo licitante ("USO DE LA ENTIDAD LICITANTE", pautas de evaluación internas). Valor null.
 g) "decision_del_usuario": exige elegir entre opciones que no se infieren de datos objetivos (ej. qué nivel de programa de integridad declarar, si pertenece a un grupo empresarial) y no viene resuelto en ninguna ficha. Valor null.
+
+TÍTULOS QUE NO SON CASILLAS: la detección es a propósito ruidosa y te va a pasar, mezclados con las casillas reales, encabezados y títulos de sección ("PROPUESTA:", "1. Detalle del suministro", "ANTECEDENTES GENERALES", "OFERTA ECONÓMICA:"). Un título ANUNCIA lo que viene abajo, no pide un dato: categoria="no_aplica_al_oferente", campo=null. La señal es simple — si al escribir el valor ahí la línea quedaría sin sentido leída en voz alta ("PROPUESTA: 06"), es un título. Ante la duda entre título y campo, elige título: una casilla de más que el humano llena es un costo menor que un dato suelto en medio del documento.
 
 REGLA CLAVE — UNA SOLA PERSONA: el oferente, el representante legal, el encargado de la propuesta, el contacto para la licitación y el administrador de contrato son SIEMPRE la misma persona de la ficha. Si un bloque pide "Nombre completo", "Cargo", "Cédula de identidad", "Teléfono" o "Correo" bajo cualquiera de esos títulos (incluida una declaración jurada corrida: "Yo, don ___, cédula de identidad N° ___, en representación de ___"), se llena con los datos del representante legal / de la empresa según el dato pedido — no lo dejes pendiente por dudar de quién es.
 
@@ -356,11 +445,21 @@ async function resolverLoteCampos(
       // representante porque ambos son "perfil_representante_legal") y (2) tener dato real en la
       // ficha. El VALOR sale SIEMPRE de `empresa[campo]` directo — la IA nunca reescribe texto,
       // así que no puede "mejorarlo" ni inventarlo.
-      if (CATEGORIAS_PERFIL.includes(categoria) && campo) {
+      const esCelda = item.ref.tipo === 'celda';
+      if (CATEGORIAS_PERFIL.includes(categoria) && campo && !(esCelda && CAMPOS_SOLO_PARA_TRIPLETE_DE_FECHA.has(campo))) {
         const permitidos = CAMPOS_PERMITIDOS_POR_CATEGORIA[categoria] || [];
         const valorFicha = permitidos.includes(campo as keyof EmpresaCampos) ? empresa[campo as keyof EmpresaCampos] : null;
         if (valorFicha != null && String(valorFicha).trim()) {
-          out.set(item.n, { tipo: 'auto', valor: String(valorFicha), categoria, evidencia: etiqueta || null });
+          // Último filtro antes de escribir: que el valor tenga la FORMA de lo que la casilla pide
+          // (ver campoCalzaConLaEtiqueta). Un RUT bajo "NOMBRE" no se escribe aunque el dato sea real.
+          if (campoCalzaConLaEtiqueta(etiqueta, String(valorFicha))) {
+            out.set(item.n, { tipo: 'auto', valor: String(valorFicha), categoria, evidencia: etiqueta || null });
+            continue;
+          }
+          out.set(item.n, {
+            tipo: 'pendiente', categoria,
+            motivo: `El dato propuesto ("${String(valorFicha).slice(0, 40)}") no tiene la forma de lo que pide esta casilla — revísalo a mano.`,
+          });
           continue;
         }
       }
@@ -461,7 +560,7 @@ export async function resolverEspecificacionesDesdeBasesConIA(
   }
 
   const lotes = enLotes(items, TAMANO_LOTE);
-  const resueltosPorLote = await Promise.all(lotes.map(lote => resolverLoteDesdeBases(lote, basesTexto)));
+  const resueltosPorLote = await enParaleloLimitado(lotes, LOTES_EN_PARALELO, lote => resolverLoteDesdeBases(lote, basesTexto));
   for (const mapa of resueltosPorLote) {
     for (const [n, resolucion] of mapa) {
       const item = items.find(i => i.n === n);
@@ -587,9 +686,28 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
     return { celda, inline, alertasInadmisibilidad, checklistPendientes: alertasInadmisibilidad.filter(a => !a.disponible).map(a => a.riesgo) };
   }
 
+  // Casillas ya resueltas por la ESTRUCTURA del documento (`campoFijo` — hoy: los datos que
+  // cuelgan de una firma que nombra a su firmante, ver asignarCamposDeBloqueFirma en
+  // anexos-detectar.ts). No se le preguntan a la IA: la respuesta no depende de ningún juicio y
+  // preguntarla es justamente lo que hacía que seis "RUT:" idénticos salieran distintos entre sí.
+  const candidatosParaIA: CandidatoCelda[] = [];
+  for (const c of candidatos) {
+    const campo = c.campoFijo as keyof EmpresaCampos | undefined;
+    const valor = campo && CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA.includes(campo) ? empresa[campo] : null;
+    if (campo && valor != null && String(valor).trim() && campoCalzaConLaEtiqueta(c.etiqueta, String(valor))) {
+      celda.set(c.indice, {
+        tipo: 'auto', valor: String(valor),
+        categoria: campo.startsWith('representante_') ? 'perfil_representante_legal' : 'perfil_empresa',
+        evidencia: c.etiqueta,
+      });
+    } else {
+      candidatosParaIA.push(c);
+    }
+  }
+
   let n = 0;
   const items: ItemLote[] = [
-    ...candidatos.map((c): ItemLote => ({ n: ++n, ref: { tipo: 'celda', c }, texto: '' })),
+    ...candidatosParaIA.map((c): ItemLote => ({ n: ++n, ref: { tipo: 'celda', c }, texto: '' })),
     ...blancosInline.map((b): ItemLote => ({ n: ++n, ref: { tipo: 'inline', b }, texto: '' })),
   ];
   for (const item of items) {
@@ -598,8 +716,9 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
       : formatearCandidatoInline(item.ref.b, item.n);
   }
 
-  const resultados = await Promise.all(
-    enLotes(items, TAMANO_LOTE).map(lote => resolverLoteCampos(lote, empresa, camposConDato, postulaComoUTP)),
+  const resultados = await enParaleloLimitado(
+    enLotes(items, TAMANO_LOTE), LOTES_EN_PARALELO,
+    lote => resolverLoteCampos(lote, empresa, camposConDato, postulaComoUTP),
   );
 
   const checklistSet = new Set<string>();

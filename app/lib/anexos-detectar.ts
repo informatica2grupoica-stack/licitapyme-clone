@@ -43,6 +43,10 @@ const RE_FIRMA_CONTRAPARTE = /(evaluador|entidad\s+licitante|comisi[óo]n\s+eval
 // conocido, no se autocompleta nada, como mucho queda disponible para que un humano la vea.
 export interface CandidatoCelda {
   etiqueta: string; paraId: string; indice: number;
+  // Campo de la ficha resuelto DE FORMA DETERMINISTA por la estructura del documento, sin pasar
+  // por la IA — hoy solo lo pone asignarCamposDeBloqueFirma (ver más abajo): un "RUT:" / "NOMBRE:"
+  // pegado bajo "FIRMA REPRESENTANTE LEGAL:" es, sin ninguna ambigüedad, el dato de esa persona.
+  campoFijo?: string;
   // La celda se muestra para que la llene un humano, pero NUNCA se autocompleta sola. Se usa para
   // las filas en blanco de una tabla que se llena entera (ver detectarCandidatosTabla) y para las
   // secciones de oferente que no nos corresponden (ver analizarAnexo).
@@ -111,6 +115,16 @@ export function detectarCandidatosCeldaCrudos(
     // (puro espaciado antes de la línea de Fecha) calzaba con este patrón 1 y la IA, corrida tras
     // corrida, a veces le escribía la razón social ahí — texto suelto en medio del bloque de firma.
     if (RE_CAPTION_ROL_FIRMA.test(actual.texto)) continue;
+
+    // Una PALABRA SUELTA terminada en punto, o cualquier texto terminado en coma, es el final de
+    // una frase — no una etiqueta. Caso real medido (1058086-43-LP26): el párrafo "SANTIAGO." —la
+    // ciudad de una línea de fecha, cuyo resto quedó en el párrafo de al lado— seguido de un vacío
+    // de espaciado, se ofreció como campo y terminó rellenado con la región de la empresa en medio
+    // del pie del anexo.
+    // El punto solo descarta si el párrafo es UNA sola palabra, porque en una etiqueta de varias el
+    // punto final casi siempre es una abreviatura: "INICIO ACTIV." es un campo real (4291-38-LP26)
+    // y descartarlo dejaba esa casilla sin ninguna forma de llenarse.
+    if (/,$/.test(actual.texto) || (/\.$/.test(actual.texto) && !/\s/.test(actual.texto.trim()))) continue;
 
     // Un párrafo que YA trae su propio blanco ("Antofagasta,________________") tampoco es la
     // etiqueta de otro campo: ese blanco lo cubre el patrón 2 (inline), y el párrafo vacío
@@ -856,6 +870,32 @@ export function detectarTripletesFecha(blancos: CandidatoInline[]): Map<string, 
 // puntos ("OFERTA ECONÓMICA:", "INTEGRANTES DE LA UTP:") calza con esta forma, y ofrecerlos todos
 // llenaría la pantalla de campos que no existen. Solo se usa para AUTO-completar cuando el
 // diccionario reconoce la etiqueta con certeza — si no la reconoce, el párrafo queda intacto.
+// Una ETIQUETA de campo es una FRASE NOMINAL corta ("RUT:", "Nombre o Razón Social:", "FIRMA
+// REPRESENTANTE LEGAL:", "N° de Teléfono:"). Un párrafo que TAMBIÉN termina en ":" pero es una
+// ORACIÓN no es un campo: es el texto legal que introduce lo que viene abajo.
+//
+// BUG REAL GRAVE (1227338-6-LE26, visto en el .docx entregado al usuario): el patrón 5 tomó
+// "El oferente que suscribe declara bajo juramento que:" y "Asimismo declara que:" como si fueran
+// etiquetas de campo, y como el patrón 5 SÍ autocompleta (nunca queda visible como pendiente,
+// ver el comentario de arriba), la IA les pegó el RUT del representante al final:
+//   "El oferente que suscribe declara bajo juramento que: 6.736.698-0"
+// dentro de una declaración jurada real. Un dato inventado en medio del texto legal es el peor
+// resultado posible del sistema — peor que dejarlo en blanco.
+//
+// Dos filtros, los dos deterministas y baratos:
+//  · Cantidad de palabras: ninguna etiqueta real de un anexo chileno pasa de ~6 palabras.
+//  · Vocabulario que SOLO aparece en oraciones (verbos declarativos, conectores, "que"):
+//    una frase nominal no los usa nunca.
+const MAX_PALABRAS_ETIQUETA = 6;
+const RE_PALABRA_DE_ORACION = /\b(que|qué|cual|cuales|declaro|declara|declaran|declaramos|declarar|suscribe|suscrito|suscribo|siguiente|siguientes|continuaci[óo]n|manifiesta|manifiesto|expresa|se[ñn]ala|indica|informa|certifica|acredita|compromete|comprometo|obliga|acepta|acepto|conoce|conozco|entiende|solicita|adjunta|cumple|mediante|asimismo|adem[áa]s|por\s+medio|a\s+saber|lo\s+cual)\b/i;
+
+export function esEtiquetaDeCampo(texto: string): boolean {
+  const limpio = texto.replace(/\s*:\s*$/, '').trim();
+  if (!limpio) return false;
+  if (RE_PALABRA_DE_ORACION.test(limpio)) return false;
+  return limpio.split(/\s+/).length <= MAX_PALABRAS_ETIQUETA;
+}
+
 export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   for (let i = 0; i < parrafos.length; i++) {
@@ -863,6 +903,7 @@ export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[
     const texto = p.texto.trim();
     if (!texto.endsWith(':') || texto.length > 80 || p.centrado) continue;
     if (RE_TIENE_BLANCO_PROPIO.test(texto)) continue;   // tiene su propio blanco → lo cubre el patrón 2
+    if (!esEtiquetaDeCampo(texto)) continue;            // es una oración, no una etiqueta
     out.push({ etiqueta: texto.replace(/\s*:\s*$/, ''), paraId: p.paraId, indice: p.indice });
   }
   return out;
@@ -1005,7 +1046,14 @@ const RE_CAPTION_ROL_FIRMA = /^\(?\s*(oferente|proponente|evaluador|proveedor|co
 // jurada: usarlo estamparía la firma escaneada en mitad del texto legal. Acá se exige que el
 // párrafo SEA la leyenda ("FIRMA Y TIMBRE REPRESENTANTE LEGAL", "Firma del oferente") — que empiece
 // con la palabra firma y sea corto, como toda leyenda de pie de firma real.
-const RE_LEYENDA_FIRMA_SOLA = /^[\s(]*firma\b/i;
+// Antes exigía que el párrafo EMPEZARA con "firma". BUG REAL (3909-9-LE26, ANEXO N°1 de
+// identificación del oferente): su pie dice "NOMBRE Y FIRMA" — la palabra está al final, así que
+// el documento salía sin ninguna línea de firma detectada y el usuario tenía que estamparla a mano
+// en un anexo que se autocompleta entero. Ahora basta con que la leyenda MENCIONE la firma, pero
+// se sigue exigiendo que sea una leyenda y no texto corrido: `esEtiquetaDeCampo` (frase nominal
+// corta, sin verbos ni conectores) descarta una declaración como "el que suscribe firma en señal
+// de aceptación", que es justo lo que el ancla al inicio protegía.
+const RE_LEYENDA_FIRMA_SOLA = /\bfirma[ns]?\b/i;
 const LARGO_MAX_LEYENDA_FIRMA = 90;
 const RE_PIDE_TIMBRE = /timbre/i;
 
@@ -1026,7 +1074,14 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
     if (esRayaLarga(p.texto)) {
       const siguiente1 = parrafos[i + 1]?.texto || '';
       const siguiente2 = parrafos[i + 2]?.texto || '';
-      const contexto = RE_LEYENDA_FIRMA.test(siguiente1) ? siguiente1 : (RE_LEYENDA_FIRMA.test(siguiente2) ? siguiente2 : '');
+      // La leyenda se lee ENTERA, no solo su primera línea. BUG REAL (3909-9-LE26, ANEXO N°1): el
+      // pie es "NOMBRE Y FIRMA" / "REPRESENTANTE LEGAL" en DOS párrafos — quedándose con el primero
+      // (el único que trae la palabra "firma"), el contexto no decía de quién era la firma y
+      // esRayaFirmaPropia la descartaba por precaución: un anexo que se autocompleta entero salía
+      // sin firmar. Juntar las dos líneas también hace más conservador el caso opuesto — si la
+      // segunda nombra al evaluador, ahora sí se ve y el bloque se excluye.
+      const partes = [siguiente1, siguiente2].filter(t => t && t.length <= LARGO_MAX_LEYENDA_FIRMA && !RE_TIENE_BLANCO_PROPIO.test(t));
+      const contexto = partes.some(t => RE_LEYENDA_FIRMA.test(t)) ? partes.join(' ').trim() : '';
       if (contexto) { agregar(p, contexto); continue; }
     }
 
@@ -1050,12 +1105,52 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
     // algo — es justo lo que pasa en los anexos 7 y 8 de esta misma licitación, donde arriba de la
     // leyenda va un párrafo con DOS rayas (la del oferente y la del evaluador) y estampar sería
     // adivinar cuál es cuál.
-    if (p.texto.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(p.texto)) {
+    if (p.texto.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(p.texto) && esEtiquetaDeCampo(p.texto)) {
       if (!parrafos[i - 1]?.vacio) continue;
       agregar(parrafos[i - 1], p.texto.trim());   // el hueco pegado a la leyenda, que es donde se firma
     }
   }
   return out;
+}
+
+// ── Datos PEGADOS a una línea de firma: de quién son ya lo dice el documento ──────────────
+// BUG REAL (1227338-6-LE26): los 6 anexos del documento cierran con el MISMO bloque de tres
+// líneas sueltas —"FIRMA REPRESENTANTE LEGAL:" / "RUT:" / "SANTIAGO, ___ DE ___ DEL 2026"— y ese
+// "RUT:" se le mandaba a la IA como una etiqueta pelada de dos caracteres. Resultado medido
+// contra el documento real: de los 6 "RUT:" idénticos, uno salió con el RUT de la EMPRESA, cuatro
+// con el del REPRESENTANTE y uno quedó sin nada. Seis casillas iguales, tres respuestas distintas
+// — y como el patrón 5 no alimenta la lista de pendientes, la que no se resolvió desapareció sin
+// avisar. No es un problema de prompt: es que la respuesta correcta NO depende de ningún juicio.
+// Bajo una leyenda que dice textualmente "FIRMA REPRESENTANTE LEGAL", el RUT/nombre/cargo que se
+// escribe al pie es el de ESA persona, siempre. Mismo criterio que detectarTripletesFecha: lo que
+// no depende del contexto se resuelve en código, donde el resultado es idéntico las 6 veces.
+//
+// Se exige que la leyenda NOMBRE al firmante ("representante legal" / "apoderado" / "persona
+// natural"). Una leyenda genérica ("Firma del oferente") se deja pasar a la IA como hasta ahora:
+// ahí el RUT que corresponde puede ser el de la empresa y no hay por qué adivinarlo en código.
+const VENTANA_CAMPOS_BLOQUE_FIRMA = 4;
+const RE_LEYENDA_NOMBRA_PERSONA = /(representante\s+legal|rep\.?\s*legal|apoderado|persona\s+natural)/i;
+
+const CAMPOS_FIJOS_BLOQUE_FIRMA: { re: RegExp; campo: string }[] = [
+  { re: /^(r\.?u\.?t\.?|rol\s+[úu]nico\s+tributario|c[ée]dula(\s+de\s+identidad)?|c\.?i\.?|r\.?u\.?n\.?)$/i, campo: 'representante_rut' },
+  { re: /^(nombre(\s+completo)?|nombre\s+del?\s+(representante|firmante|apoderado))$/i, campo: 'representante_nombre' },
+  { re: /^(cargo|cargo\s+del?\s+representante)$/i, campo: 'representante_cargo' },
+];
+
+// Marca con `campoFijo` los candidatos que caen dentro del bloque de una firma que nombra a su
+// firmante. No borra ni agrega candidatos: solo les adjunta la respuesta ya conocida.
+export function asignarCamposDeBloqueFirma<T extends CandidatoCelda>(
+  candidatos: T[], lineasFirma: LineaFirma[],
+): T[] {
+  const anclas = lineasFirma.filter(f => RE_LEYENDA_NOMBRA_PERSONA.test(f.contexto)).map(f => f.indice);
+  if (!anclas.length) return candidatos;
+  return candidatos.map(c => {
+    const cerca = anclas.some(i => c.indice > i && c.indice <= i + VENTANA_CAMPOS_BLOQUE_FIRMA);
+    if (!cerca) return c;
+    const limpia = c.etiqueta.replace(/\s*:\s*$/, '').trim();
+    const regla = CAMPOS_FIJOS_BLOQUE_FIRMA.find(r => r.re.test(limpia));
+    return regla ? { ...c, campoFijo: regla.campo } : c;
+  });
 }
 
 // Un título/sección seguido de un párrafo vacío que es puro espaciado ANTES de su propia tabla
@@ -1229,8 +1324,21 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // Para una RAYA de firma no se exige la palabra "firma" en la leyenda: la raya de 10+ guiones ya
   // es la señal de que ahí se firma, y hay leyendas reales que no la dicen ("Nombre Persona Natural
   // o Representante legal…", ver RE_LEYENDA_FIRMA). Solo se decide DE QUIÉN es.
-  const esRayaFirmaPropia = (contexto: string) =>
-    RE_FIRMA_NUESTRA.test(contexto) && !RE_FIRMA_CONTRAPARTE.test(contexto);
+  //
+  // Y cuando la leyenda no nombra a NADIE ("NOMBRE Y FIRMA", "Firma", a secas) hay una segunda
+  // señal, del documento completo, que resuelve la ambigüedad sin adivinar: si en ninguna parte del
+  // anexo aparece una contraparte que firme (evaluador, comisión evaluadora, ministro de fe,
+  // entidad licitante, mandante, inspector), entonces la única firma que ese documento puede pedir
+  // es la nuestra. BUG REAL (3909-9-LE26, ANEXO N°1): un anexo de identificación del oferente que se
+  // autocompleta entero, cuyo pie dice solo "NOMBRE Y FIRMA", salía sin firma. La regla conservadora
+  // sigue mandando donde de verdad hay dos bloques (ahí sí "no se adivina", ver arriba), y en
+  // cualquier caso el usuario decide lugar por lugar desde la pantalla antes de generar.
+  const hayContraparteEnElDocumento = parrafos.some(p => RE_FIRMA_CONTRAPARTE.test(p.texto));
+  const esRayaFirmaPropia = (contexto: string) => {
+    if (RE_FIRMA_CONTRAPARTE.test(contexto)) return false;
+    if (RE_FIRMA_NUESTRA.test(contexto)) return true;
+    return !hayContraparteEnElDocumento;
+  };
   // Las celdas de firma AJENA (ni nuestra firma ni un dato que tengamos) quedan fuera de los dos
   // grupos: no reciben la imagen, y tampoco vuelven al flujo diccionario→IA, que es donde antes
   // terminaban rellenadas con un cargo inventado. Las llena a mano quien corresponda.
@@ -1255,12 +1363,41 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // la oferta, y ahí se estampaba nuestra firma escaneada. Firmar por el evaluador de la licitación
   // es bastante peor que dejar el documento sin firmar.
   const todasLasLineasFirma = detectarLineasFirma(parrafos);
+  // El MISMO bloque de firma puede ser visto por dos patrones a la vez: el caso C de
+  // detectarLineasFirma (leyenda sin raya → devuelve el párrafo VACÍO de ARRIBA, donde se firmaría a
+  // mano) y el patrón 5 (la leyenda misma, "FIRMA REPRESENTANTE LEGAL:", terminada en dos puntos).
+  //
+  // BUG REAL (1227338-6-LE26, encontrado abriendo el .docx generado en Word y contando las formas):
+  // los 6 anexos cierran con un CUADRO DE TEXTO flotante que contiene las tres líneas del pie
+  // ("FIRMA REPRESENTANTE LEGAL:" / "RUT:" / "SANTIAGO, ___"). En 2 de los 6, el párrafo anterior a
+  // la leyenda estaba vacío, así que los dos patrones vieron el mismo bloque: se estampaban DOS
+  // firmas, y peor — la del caso C caía en ese párrafo vacío, que vive FUERA del cuadro de texto.
+  // Resultado en pantalla: dos de los seis anexos aparecían SIN firma en su pie (la imagen quedaba
+  // suelta en el cuerpo del documento, arriba del recuadro).
+  //
+  // Cuando los dos patrones apuntan al mismo bloque manda SIEMPRE el patrón 5: apunta al párrafo que
+  // contiene la leyenda, o sea al mismo contenedor donde el pie realmente vive (cuadro de texto,
+  // celda o cuerpo), y `sinRaya` hace que la imagen se agregue sin borrar la etiqueta. El hueco de
+  // arriba solo se conserva si no hay ninguna leyenda con dos puntos justo debajo.
+  // Cuál de los dos gana depende de qué haya arriba de la leyenda:
+  //  · un párrafo VACÍO (caso C) → gana el patrón 5, por lo dicho arriba;
+  //  · una RAYA de guiones real (casos A y B) → gana la raya, que es el lugar de firma clásico:
+  //    la imagen la reemplaza y queda exactamente donde el organismo dibujó la línea.
+  const indicesDosPuntosFirma = new Set(camposDosPuntosFirma.map(c => c.indice));
+  const lineasFirmaRaya = todasLasLineasFirma
+    .filter(f => esRayaFirmaPropia(f.contexto))
+    .filter(f => !(parrafos[f.indice]?.vacio && indicesDosPuntosFirma.has(f.indice + 1)));
+  const indicesConRayaArriba = new Set(
+    lineasFirmaRaya.filter(f => !parrafos[f.indice]?.vacio).map(f => f.indice + 1),
+  );
   const lineasFirma: LineaFirma[] = [
-    ...todasLasLineasFirma.filter(f => esRayaFirmaPropia(f.contexto)),
+    ...lineasFirmaRaya,
     ...candidatosFirmaCelda.map(c => ({ paraId: c.paraId, indice: c.indice, contexto: c.etiqueta, pideTimbre: /timbre/i.test(c.etiqueta) })),
-    ...camposDosPuntosFirma.map(c => ({
-      paraId: c.paraId, indice: c.indice, contexto: c.etiqueta, pideTimbre: /timbre/i.test(c.etiqueta), sinRaya: true,
-    })),
+    ...camposDosPuntosFirma
+      .filter(c => !indicesConRayaArriba.has(c.indice))
+      .map(c => ({
+        paraId: c.paraId, indice: c.indice, contexto: c.etiqueta, pideTimbre: /timbre/i.test(c.etiqueta), sinRaya: true,
+      })),
   ];
   // La raya de una línea de firma también matchea el patrón 2 (blanco inline, "_{4,}") — se
   // excluye de ahí para no ofrecer un input de texto Y la firma para el mismo párrafo. Esto vale
@@ -1307,7 +1444,11 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     .filter(c => !indicesTituloMergeado.has(c.indice));
 
   return {
-    parrafos, secciones, candidatosCelda, blancosInline, lineasFirma, camposConDosPuntos, indicesSoloManual,
+    parrafos, secciones, blancosInline, lineasFirma, indicesSoloManual,
+    // Los datos que viven DENTRO de un bloque de firma que nombra a su firmante quedan resueltos
+    // acá mismo (`campoFijo`), sin pasar por la IA — ver asignarCamposDeBloqueFirma.
+    candidatosCelda: asignarCamposDeBloqueFirma(candidatosCelda, lineasFirma),
+    camposConDosPuntos: asignarCamposDeBloqueFirma(camposConDosPuntos, lineasFirma),
     candidatosCeldaSinDesambiguar,
     avisoNoAplica: detectarAvisoNoAplica(parrafos),
     tripletesFecha: detectarTripletesFecha(blancosInline),

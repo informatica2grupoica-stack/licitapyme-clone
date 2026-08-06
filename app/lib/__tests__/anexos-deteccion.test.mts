@@ -10,8 +10,8 @@ import {
   normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio,
   unificarRunsDeMarcadores, rellenarRunPorIndice, verificarParrafos, verificarXmlBienFormado,
 } from '../anexos-docx';
-import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha } from '../anexos-detectar';
-import { valorExisteEnFicha, type EmpresaCampos } from '../anexos-ia-motor';
+import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, esEtiquetaDeCampo } from '../anexos-detectar';
+import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
 import { esCandidatoDePrecioUnitario } from '../anexos-precios-columnas';
 import { calcularTotalesAlPie, pareceFilaDePie } from '../anexos-totales-seccion';
 
@@ -836,4 +836,96 @@ test('postulaComoUTP habilita las secciones de Unión Temporal', () => {
   assert.equal(decision(false).UTP, 'OMITIR');
   assert.equal(decision(true).UTP, 'RELLENAR');
   assert.equal(decision(true).PERSONA_JURIDICA, 'RELLENAR');   // la jurídica nunca cambia
+});
+
+// ── Regresión 1227338-6-LE26 (6-ago-2026) ─────────────────────────────────────────────────────
+// Los seis anexos de ese documento cierran con el MISMO pie de tres líneas dentro de un cuadro de
+// texto flotante: "FIRMA REPRESENTANTE LEGAL:" / "RUT:" / "SANTIAGO, ___ DE ___ DEL 2026". Todo lo
+// que sigue salió de comparar el .docx entregado al usuario contra el documento original.
+
+test('una ORACIÓN terminada en ":" no es una etiqueta de campo (patrón 5)', () => {
+  // El bug más grave del lote: el patrón 5 autocompleta sin dejar rastro en pantalla, así que
+  // "El oferente que suscribe declara bajo juramento que:" terminó con el RUT del representante
+  // pegado al final, DENTRO de una declaración jurada real.
+  for (const oracion of [
+    'El oferente que suscribe declara bajo juramento que:',
+    'Asimismo declara que:',
+    'Mediante el presente formulario declaro:',
+    'Asimismo, mediante el presente formulario declaro:',
+    'El proponente que suscribe, declara lo siguiente:',
+  ]) {
+    assert.equal(esEtiquetaDeCampo(oracion), false, `debería descartarse: ${oracion}`);
+  }
+  // …y las etiquetas reales del mismo documento (y de los otros del banco) siguen pasando.
+  for (const etiqueta of [
+    'RUT:', 'FIRMA REPRESENTANTE LEGAL:', 'Nombre o Razón Social:', 'N° de Teléfono:',
+    'CONTACTO DEL PROPONENTE:', 'RUT DEL REPRESENTANTE LEGAL:', 'Entidad Bancaria:',
+  ]) {
+    assert.equal(esEtiquetaDeCampo(etiqueta), true, `debería pasar: ${etiqueta}`);
+  }
+
+  const xml = normalizarParaIds(
+    NS + p('El oferente que suscribe declara bajo juramento que:') + p('RUT:') + FIN,
+  ).xml;
+  const etiquetas = analizarAnexo(xml).camposConDosPuntos.map(c => c.etiqueta);
+  assert.deepEqual(etiquetas, ['RUT']);
+});
+
+test('el RUT que cuelga de una firma es el del firmante que la leyenda nombra, siempre', () => {
+  // Seis "RUT:" idénticos en el mismo documento daban tres respuestas distintas cuando lo decidía
+  // la IA (uno con el RUT de la empresa, cuatro con el del representante, uno sin nada). No es un
+  // problema de prompt: bajo "FIRMA REPRESENTANTE LEGAL" la respuesta no depende de ningún juicio.
+  const pie = () => p('FIRMA REPRESENTANTE LEGAL:') + p('RUT:') + p('SANTIAGO, ____ DE ____________ DEL 2026');
+  const xml = normalizarParaIds(NS + p('ANEXO N°1') + pie() + p('ANEXO N°2') + pie() + FIN).xml;
+  const campos = analizarAnexo(xml).camposConDosPuntos;
+  const ruts = campos.filter(c => c.etiqueta === 'RUT');
+  assert.equal(ruts.length, 2);
+  for (const r of ruts) assert.equal(r.campoFijo, 'representante_rut');
+
+  // Una leyenda que NO nombra al firmante se sigue dejando a la IA: ahí el RUT bien puede ser el
+  // de la empresa y no hay por qué adivinarlo en código.
+  const generico = normalizarParaIds(NS + p('Firma del oferente:') + p('RUT:') + FIN).xml;
+  assert.equal(analizarAnexo(generico).camposConDosPuntos.find(c => c.etiqueta === 'RUT')?.campoFijo, undefined);
+});
+
+test('un pie de firma da UN solo lugar de firma, y es el párrafo de la leyenda', () => {
+  // Con un párrafo vacío justo encima de la leyenda, dos patrones veían el mismo bloque: se
+  // estampaban dos firmas y la del hueco caía FUERA del cuadro de texto — dos de los seis anexos
+  // salían visualmente sin firma. Manda el patrón 5: apunta al párrafo de la leyenda, o sea al
+  // mismo contenedor donde vive el pie.
+  const xml = normalizarParaIds(
+    NS + p('NOTAS') + p('') + p('FIRMA REPRESENTANTE LEGAL:') + p('RUT:') + FIN,
+  ).xml;
+  const firmas = analizarAnexo(xml).lineasFirma;
+  assert.equal(firmas.length, 1, JSON.stringify(firmas));
+  assert.equal(firmas[0].sinRaya, true);
+  assert.equal(listarParrafos(xml)[firmas[0].indice].texto, 'FIRMA REPRESENTANTE LEGAL:');
+
+  // Una RAYA de guiones real sigue ganando: ese es el lugar de firma clásico.
+  const conRaya = normalizarParaIds(NS + p('_'.repeat(20)) + p('FIRMA REPRESENTANTE LEGAL:') + FIN).xml;
+  const deRaya = analizarAnexo(conRaya).lineasFirma;
+  assert.equal(deRaya.length, 1);
+  assert.equal(deRaya[0].sinRaya, undefined);
+});
+
+test('una etiqueta que termina en punto o coma no recibe datos', () => {
+  // "SANTIAGO." (la ciudad de una línea de fecha partida entre dos párrafos) seguida de un vacío de
+  // espaciado se ofrecía como campo, y terminó rellenada con la región de la empresa.
+  const xml = normalizarParaIds(NS + p('SANTIAGO.') + p('') + p('DOMICILIO') + p('') + FIN).xml;
+  assert.deepEqual(analizarAnexo(xml).candidatosCelda.map(c => c.etiqueta), ['DOMICILIO']);
+});
+
+test('campoCalzaConLaEtiqueta: ataja el valor real puesto en la casilla equivocada', () => {
+  // Reemplaza lo que antes protegía el corte por categoría (que costaba más aciertos de los que
+  // salvaba): se mira la FORMA del dato contra lo que la etiqueta pide.
+  assert.equal(campoCalzaConLaEtiqueta('Cédula de identidad', 'Lidia Valenzuela'), false);
+  assert.equal(campoCalzaConLaEtiqueta('Cédula de identidad', '6.736.698-0'), true);
+  assert.equal(campoCalzaConLaEtiqueta('NOMBRE O RAZÓN SOCIAL', '78.388.175-6'), false);
+  assert.equal(campoCalzaConLaEtiqueta('MAIL', '+569 7549 1833'), false);
+  assert.equal(campoCalzaConLaEtiqueta('MAIL', 'ventas@sociedadcomercialmp.cl'), true);
+  assert.equal(campoCalzaConLaEtiqueta('TELÉFONO', '+569 7549 1833'), true);
+  assert.equal(campoCalzaConLaEtiqueta('Nombre y RUT del representante', '6.736.698-0'), true);
+  // Sin nada que contradecir, no opina — nunca puede ser la razón de que un dato correcto se pierda.
+  assert.equal(campoCalzaConLaEtiqueta('Giro Comercial', 'Venta de equipos'), true);
+  assert.equal(campoCalzaConLaEtiqueta('Marca Ofertada', 'cualquier cosa'), true);
 });
