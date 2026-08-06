@@ -107,6 +107,42 @@ test('tabla de formulario: cada etiqueta se queda con SU celda (regresión 4291-
     `no debe inventar columnas desde la primera fila: ${JSON.stringify(etiquetas)}`);
 });
 
+// BUG REAL (4999-8-LE26, "ANEXO N°1 FORMULARIO DATOS DEL OFERENTE", encontrado 6-ago-2026 corriendo
+// el banco de pruebas contra licitaciones reales): misma tabla [etiqueta][valor] de 2 columnas SIN
+// encabezado que el caso de arriba, pero acá la CELDA de la etiqueta viene centrada por estilo del
+// organismo (`<w:jc w:val="center"/>`, no negrita ni nada que la distinga de un campo real). El
+// heurístico "centrado = título de página, nunca etiqueta de campo" (protege contra un título como
+// "IDENTIFICACION DEL OFERENTE" antes de la tabla) descartaba TODAS las filas por igual — 10 de 10
+// candidatos perdidos: Nombre/RUT/Representante/Dirección/Ciudad/Teléfono/Correo, ninguno auto, ninguno
+// pendiente, invisibles por completo en pantalla.
+test('tabla de formulario: una etiqueta CENTRADA por estilo sigue siendo candidato (regresión 4999-8-LE26)', () => {
+  const celdaCentrada = (texto: string) =>
+    `<w:tc><w:tcPr><w:tcW w:w="1250" w:type="pct"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">${texto}</w:t></w:r></w:p></w:tc>`;
+  const xml = NS + tabla(
+    `<w:tr>${celdaCentrada('Nombre o Razón Social del Oferente')}${celda('')}</w:tr>`,
+    `<w:tr>${celdaCentrada('RUT del Oferente')}${celda('')}</w:tr>`,
+    `<w:tr>${celdaCentrada('Dirección')}${celda('')}</w:tr>`,
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
+  for (const esperada of ['Nombre o Razón Social del Oferente', 'RUT del Oferente', 'Dirección']) {
+    assert.ok(etiquetas.includes(esperada), `falta el candidato centrado "${esperada}": ${JSON.stringify(etiquetas)}`);
+  }
+
+  // El caso ORIGINAL que el heurístico protege sigue intacto: un título de página centrado, FUERA
+  // de cualquier celda de tabla, antes de la tabla real — no puede colarse como candidato.
+  const tituloCentrado = '<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:t xml:space="preserve">IDENTIFICACION DEL OFERENTE</w:t></w:r></w:p>';
+  const xmlConTitulo = NS
+    + tituloCentrado
+    + p('')
+    + tabla(fila('NOMBRE O RAZÓN SOCIAL', ''))
+    + FIN;
+  const { xml: normTitulo } = normalizarParaIds(xmlConTitulo);
+  const etiquetasConTitulo = analizarAnexo(normTitulo).candidatosCelda.map(c => c.etiqueta);
+  assert.equal(etiquetasConTitulo.filter(e => e === 'IDENTIFICACION DEL OFERENTE').length, 0,
+    `un título de página centrado sigue sin ser candidato: ${JSON.stringify(etiquetasConTitulo)}`);
+});
+
 // BUG REAL (1227338-6-LE26, "IDENTIFICACIÓN DEL PROPONENTE"/"…DEL REPRESENTANTE LEGAL"): la celda
 // de la ETIQUETA trae un párrafo vacío de relleno DESPUÉS del texto (un salto de línea extra que
 // Word deja dentro de la celda) — con la regla vieja (mirar solo el párrafo i+1), el patrón 1

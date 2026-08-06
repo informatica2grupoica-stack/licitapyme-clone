@@ -105,6 +105,19 @@ for (const id of ids) {
     const analisis = await analizarAnexoParaUI(buffer, empresa);
 
     for (const m of analisis.completadosAuto) base.auto.push({ etiqueta: m.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
+    // Las casillas de tabla (celda vacía dentro de una tabla real) NO están en completadosAuto —
+    // el panel las muestra dentro de `tablas[].filas[].auto` (ver AnexoRellenoModal.tsx). Sin este
+    // conteo, un anexo tipo "tabla de identificación" (Nombre/RUT/Dirección…) sin encabezado
+    // aparecía con auto=0 aunque TODAS sus filas se hubieran completado solas — el banco medía mal
+    // el caso justo donde más importa (bug real encontrado 6-ago-2026, 4999-8-LE26 Anexo N°1: 8 de
+    // 10 filas se llenaban solas y el conteo decía 0).
+    for (const t of analisis.tablas) {
+      for (const f of t.filas) {
+        for (const c of f) {
+          if (c.auto) base.auto.push({ etiqueta: '(celda de tabla)', campo: '', valor: c.auto.valor, via: c.auto.via });
+        }
+      }
+    }
     base.pendientes = [
       ...analisis.pendientesCelda.map(p => `${p.etiqueta}${p.categoria ? `  [${p.categoria}]` : ''}`),
       ...analisis.pendientesInline.map(p => `${(p.contexto || '(sin contexto)').trim()}  [inline${p.categoria ? `/${p.categoria}` : ''}]`),

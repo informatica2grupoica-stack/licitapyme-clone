@@ -84,7 +84,7 @@ const RE_PREFIJO_MONEDA = /^(?:US\$|CLP\$|\$)$/;
 // identificación (razón social, RUT, domicilio, representante legal completo). Saltando los
 // párrafos de puro relleno se llega al primer vacío de verdad, que es la celda de valor.
 export function detectarCandidatosCeldaCrudos(
-  parrafos: Parrafo[], indicesVacioSinCampo: Set<number> = new Set(),
+  parrafos: Parrafo[], indicesVacioSinCampo: Set<number> = new Set(), indicesEnCelda: Set<number> = new Set(),
 ): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   for (let i = 0; i < parrafos.length - 1; i++) {
@@ -99,7 +99,15 @@ export function detectarCandidatosCeldaCrudos(
     // idéntico a la etiqueta real de una fila de esa misma tabla ("IDENTIFICACIÓN DEL OFERENTE"),
     // así que ni el diccionario ni un clasificador de IA por texto puro pueden distinguirlos de
     // forma confiable — pero la alineación SÍ los distingue, sin ambigüedad y sin costo de IA.
-    if (!actual.texto || actual.texto.length > 60 || actual.centrado || !siguiente || !siguiente.vacio) continue;
+    //
+    // Ese heurístico NO aplica dentro de una celda de tabla (`indicesEnCelda`, ver
+    // indicesDentroDeCelda). BUG REAL (4999-8-LE26, "ANEXO N°1 FORMULARIO DATOS DEL OFERENTE"):
+    // una tabla [etiqueta][valor] de 2 columnas SIN encabezado, con la CELDA (no el texto) centrada
+    // por estilo del organismo — Nombre/RUT/Representante/Dirección/Ciudad/Teléfono/Correo, las 10
+    // filas quedaron con 0 candidatos: ni auto ni pendiente, invisibles por completo en pantalla.
+    // Un título de página nunca vive DENTRO de un `<w:tc>` (va antes de que empiece la tabla); una
+    // etiqueta de fila sí — es la señal real que distingue los dos casos, no el centrado en sí.
+    if (!actual.texto || actual.texto.length > 60 || (actual.centrado && !indicesEnCelda.has(actual.indice)) || !siguiente || !siguiente.vacio) continue;
 
     // La LEYENDA de una línea de firma ("Firma del Oferente o Represente Legal.", el párrafo justo
     // debajo de la raya) no es la etiqueta de un campo — el párrafo vacío que le sigue es puro
@@ -137,8 +145,10 @@ export function detectarCandidatosCeldaCrudos(
   return out;
 }
 
-export function detectarCandidatosCelda(parrafos: Parrafo[], indicesVacioSinCampo: Set<number> = new Set()): CandidatoCelda[] {
-  return desambiguarDuplicados(detectarCandidatosCeldaCrudos(parrafos, indicesVacioSinCampo), parrafos);
+export function detectarCandidatosCelda(
+  parrafos: Parrafo[], indicesVacioSinCampo: Set<number> = new Set(), indicesEnCelda: Set<number> = new Set(),
+): CandidatoCelda[] {
+  return desambiguarDuplicados(detectarCandidatosCeldaCrudos(parrafos, indicesVacioSinCampo, indicesEnCelda), parrafos);
 }
 
 // Caso real (1738-18-LE26): una tabla de identificación trae "RUT" DOS veces — una fila para el
@@ -306,6 +316,25 @@ function offsetsAIndices(xml: string): Map<number, number> {
 // A propósito NO se excluye toda celda vacía normal (esa sigue cubierta por Patrón 1, ver "2
 // columnas ya las cubre el patrón 1" en detectarCandidatosTabla) — solo estas dos formas de
 // relleno, que nunca son un campo real a llenar en ningún caso.
+// Todo párrafo que vive DENTRO de algún `<w:tc>` (celda de tabla), sin importar si es la etiqueta
+// o el valor. Única señal que distingue de forma confiable "título de página centrado" (nunca
+// vive dentro de una celda — va antes de que empiece la tabla) de "etiqueta de fila centrada por
+// estilo del organismo" (sí vive dentro de una celda) — ver el comentario de
+// detectarCandidatosCeldaCrudos. Mismo patrón de escaneo que parrafosQueNuncaSonCampoEnTabla.
+function indicesDentroDeCelda(xml: string): Set<number> {
+  const offsetsIndices = offsetsAIndices(xml);
+  const dentro = new Set<number>();
+  for (const tc of xml.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)) {
+    const cuerpoCelda = tc[1];
+    const offsetCelda = tc.index! + tc[0].indexOf(cuerpoCelda);
+    for (const p of cuerpoCelda.matchAll(/<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>/g)) {
+      const indice = offsetsIndices.get(offsetCelda + p.index!);
+      if (indice != null) dentro.add(indice);
+    }
+  }
+  return dentro;
+}
+
 function parrafosQueNuncaSonCampoEnTabla(xml: string): Set<number> {
   const offsetsIndices = offsetsAIndices(xml);
   const excluidos = new Set<number>();
@@ -862,6 +891,73 @@ export function detectarTripletesFecha(blancos: CandidatoInline[]): Map<string, 
   return out;
 }
 
+// ── Alternativa excluyente en prosa: "___registra..." / "___no registra..." — DETERMINISTA ──────
+// BUG REAL (4999-8-LE26, "ANEXO N°4-A", encontrado 6-ago-2026 corriendo el banco de pruebas contra
+// licitaciones reales): una declaración jurada ofrece DOS blancos, cada uno al principio de su
+// propio párrafo, para que el oferente marque una X en la alternativa que le aplica — la MISMA
+// frase repetida, una vez en positivo y otra negada con "no":
+//   "___registra saldos insolutos de remuneraciones..."
+//   "___no registra saldos insolutos de remuneraciones..."
+// No es un dato que salga de la ficha de empresa: es una decisión que el oferente declara sobre sí
+// mismo (nadie puede saber si tiene deudas laborales mirando su razón social). Dejárselo a la IA
+// dio un resultado INCONSISTENTE entre corridas del mismo documento: a veces las dos casillas
+// quedaban pendientes (correcto), otras la IA escribió la razón social en una de las dos —un dato
+// real, pero del tipo equivocado, en una declaración jurada— solo porque el AGRUPAMIENTO en lotes
+// de 8 le tocó distintos vecinos de un lote a otro (con temperature:0 cada llamada es estable, pero
+// qué candidatos comparten lote con este par no lo es). Mismo criterio que detectarTripletesFecha:
+// cuando la respuesta NUNCA puede salir de la ficha, resolverlo en código —mandándolo derecho a
+// "hay que decidirlo"— es más confiable que dejar que la IA adivine lote a lote.
+const LARGO_MAX_ALTERNATIVA = 400;
+const RE_NEGACION_INICIAL = /^no\s+/i;
+// El blanco tiene que vivir prácticamente al INICIO de su párrafo (excluyendo un posible espacio
+// previo) — así una negación cualquiera en medio de una oración larga no dispara nada; el patrón
+// real siempre abre la frase con la casilla a marcar.
+const POS_MAX_INICIO_PARRAFO_ALTERNATIVA = 3;
+
+function normalizarParaComparar(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// Devuelve las claves (`${indiceRun}:${posEnTexto}`, mismo formato que usa el resto del pipeline)
+// de los blancos que forman un par de alternativa excluyente — para que anexos-rellenar.ts los
+// mande derecho a pendiente/decisión del usuario, sin pasar por la IA.
+export function detectarAlternativasExcluyentes(blancos: CandidatoInline[]): Set<string> {
+  const out = new Set<string>();
+  const porParrafo = new Map<number, CandidatoInline[]>();
+  for (const b of blancos) {
+    if (!porParrafo.has(b.indiceParrafo)) porParrafo.set(b.indiceParrafo, []);
+    porParrafo.get(b.indiceParrafo)!.push(b);
+  }
+  // Solo párrafos con UN blanco al inicio califican — un párrafo con varios blancos ya lo cubre
+  // otro patrón (fecha partida, declaración jurada corrida con nombre/RUT/domicilio).
+  const candidatoPorIndice = new Map<number, CandidatoInline>();
+  for (const [indiceParrafo, grupo] of porParrafo) {
+    if (grupo.length !== 1) continue;
+    const [b] = grupo;
+    if (b.posEnParrafo > POS_MAX_INICIO_PARRAFO_ALTERNATIVA) continue;
+    if ((b.parrafoCompleto || '').length > LARGO_MAX_ALTERNATIVA) continue;
+    candidatoPorIndice.set(indiceParrafo, b);
+  }
+  for (const [indiceParrafo, b1] of candidatoPorIndice) {
+    // Solo mira el párrafo INMEDIATAMENTE siguiente — el patrón real siempre viene pegado, una
+    // alternativa justo debajo de la otra.
+    const b2 = candidatoPorIndice.get(indiceParrafo + 1);
+    if (!b2) continue;
+    const restoA = (b1.parrafoCompleto || '').slice(b1.posEnParrafo + b1.largo).trim();
+    const restoB = (b2.parrafoCompleto || '').slice(b2.posEnParrafo + b2.largo).trim();
+    if (!restoA || !restoB) continue;
+    // ¿Es B la negación de A, o A la negación de B? El orden positivo→negado es lo habitual en
+    // estas declaraciones, pero no se asume — se prueban los dos sentidos.
+    const esNegacion =
+      (RE_NEGACION_INICIAL.test(restoB) && normalizarParaComparar(restoB.replace(RE_NEGACION_INICIAL, '')) === normalizarParaComparar(restoA))
+      || (RE_NEGACION_INICIAL.test(restoA) && normalizarParaComparar(restoA.replace(RE_NEGACION_INICIAL, '')) === normalizarParaComparar(restoB));
+    if (!esNegacion) continue;
+    out.add(`${b1.indiceRun}:${b1.posEnTexto}`);
+    out.add(`${b2.indiceRun}:${b2.posEnTexto}`);
+  }
+  return out;
+}
+
 // ── Patrón 5: "Etiqueta:" sin nada después, el valor va en la misma línea ─────────────────
 // Ver rellenarFinDeParrafo() en anexos-docx.ts para el caso real que lo motiva (FORMULARIO N°2 de
 // 4291-38-LP26: "Nombre o Razón Social       :" y "RUT:", párrafos sueltos sin celda ni subrayado).
@@ -1264,18 +1360,19 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // Relleno de tabla que nunca es un campo real (ver parrafosQueNuncaSonCampoEnTabla): ni como
   // valor apuntado por el candidato (el caso real encontrado), ni celdas angostas de puro layout.
   const parrafosSinCampo = parrafosQueNuncaSonCampoEnTabla(xml);
+  const indicesEnCelda = indicesDentroDeCelda(xml);
   // Camino paralelo SIN desambiguar (mismos filtros geométricos, sin el prefijo "candidato
   // anterior") — lo necesita anexos-clasificar-ia.ts. `.indice`/`.paraId` son idénticos al camino
   // desambiguado (desambiguarDuplicados solo toca `.etiqueta`), así que indicesSoloManual y el
   // resto del post-procesado de abajo siguen valiendo igual para ambos.
   const candidatosCeldaSinDesambiguar = [
     ...candidatosTabla,
-    ...detectarCandidatosCeldaCrudos(parrafos, parrafosSinCampo)
+    ...detectarCandidatosCeldaCrudos(parrafos, parrafosSinCampo, indicesEnCelda)
       .filter(c => !indicesTabla.has(c.indice))
       .filter(c => !parrafosSinCampo.has(c.indice))
       .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId)),
   ];
-  const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos, parrafosSinCampo)
+  const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos, parrafosSinCampo, indicesEnCelda)
     .filter(c => !indicesTabla.has(c.indice))
     .filter(c => !parrafosSinCampo.has(c.indice))
     .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId));
