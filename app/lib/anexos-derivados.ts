@@ -108,6 +108,13 @@ export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): 
       // que la fecha larga (nadie escribe "3 de 08 de 2026" en una declaración jurada). Ver
       // detectarTripletesFecha en anexos-detectar.ts, que resuelve este trío sin pasar por la IA.
       fecha_hoy_mes_palabra: MESES[Number(mes) - 1],
+      // Caso real (4777-24-LE26, "LA UNIÓN, ___ DE 2026.-"): el AÑO ya viene impreso como texto
+      // fijo en la plantilla y queda UN solo blanco para "día + de + mes en palabra" — no es un
+      // triplete (no hay tres casillas) así que no pasa por detectarTripletesFecha, y ninguno de
+      // los campos de arriba sirve solo (fecha_hoy trae el año de más, fecha_hoy_dia es un número
+      // huérfano sin el mes). A diferencia de esos, este SÍ es válido como respuesta suelta de una
+      // sola celda — se lee completo ("06 de agosto") sin depender de casillas vecinas.
+      fecha_hoy_dia_mes: `${dia} de ${MESES[Number(mes) - 1]}`,
     }))(partesFechaChile(ahora)),
   };
 }

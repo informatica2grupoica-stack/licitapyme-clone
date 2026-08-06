@@ -62,6 +62,12 @@ export interface EmpresaCampos {
   // En la práctica este trío lo resuelve detectarTripletesFecha (anexos-detectar.ts) sin pasar por
   // este motor; el campo queda documentado igual por si algún caso raro cae al camino normal.
   fecha_hoy_mes_palabra?: string | null;
+  // Caso real (4777-24-LE26): el año ya viene impreso fijo en la plantilla ("LA UNIÓN, ___ DE
+  // 2026.-") y queda un solo blanco para "día + de + mes en palabra" — a diferencia de los cuatro
+  // campos de arriba, este SÍ se lee completo por sí solo ("06 de agosto"), así que es válido
+  // como respuesta de una celda suelta, no solo dentro de un triplete — ver
+  // CAMPOS_SOLO_PARA_TRIPLETE_DE_FECHA más abajo, que a propósito NO lo incluye.
+  fecha_hoy_dia_mes?: string | null;
   // Dirección partida (6-ago-2026, caso real 4777-24-LE26): un formulario "Domicilio: Calle ___
   // N°: ___ Comuna: ___ Ciudad: ___" son CUATRO casillas — sin esto, el único campo disponible era
   // `direccion` entera, y el motor la repetía completa en las cuatro (o, peor, elegía cualquier
@@ -135,7 +141,7 @@ const CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA: (keyof EmpresaCampos)[] = [
   'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
   'representante_nombre', 'representante_rut', 'representante_cargo',
   'email1', 'telefono1',
-  'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra',
+  'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra', 'fecha_hoy_dia_mes',
 ];
 
 const CAMPOS_PERMITIDOS_POR_CATEGORIA: Record<string, (keyof EmpresaCampos)[]> = {
@@ -293,6 +299,7 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   fecha_hoy_mes: 'Solo el MES de hoy (número) — la casilla del medio de "Fecha: __ /__ /__"',
   fecha_hoy_anio: 'Solo el AÑO de hoy (4 dígitos) — la última casilla de "Fecha: __ /__ /__"',
   fecha_hoy_mes_palabra: 'Solo el MES de hoy EN PALABRA ("agosto") — la casilla del medio de "___ de __ de ___" (NUNCA el número ahí)',
+  fecha_hoy_dia_mes: 'Día + mes en palabra de HOY, SIN año ("06 de agosto") — para una casilla SUELTA (no un triplete) donde el año ya viene impreso fijo en la plantilla, ej. "LA UNIÓN, ___ DE 2026"',
   licitacion_codigo: 'Código/ID de ESTA licitación en Mercado Público',
   licitacion_nombre: 'Nombre/título de ESTA licitación',
   licitacion_organismo: 'Nombre del organismo comprador (la institución que licita, no el oferente)',
@@ -364,7 +371,11 @@ c) "especifico_licitacion": precio, cantidad, plazo, especificación técnica ex
 d) "declaracion_tercero": lo debe completar y firmar alguien externo al oferente (ej. un cliente anterior en un certificado de experiencia, otro integrante de una UTP, el organismo/mandante). Valor null.
 e) "firma_fecha": SOLO una raya de firma manuscrita, o "Ciudad y fecha ___" pegado a ESA raya. Una declaración jurada que TERMINA en "declara bajo juramento que:" o similar NO es firma_fecha por sí sola — sus datos (nombre, cédula, domicilio) son perfil_* si los pide, igual que cualquier otro bloque. Valor null.
 f) "no_aplica_al_oferente": encabezado/columna sin dato propio que pedir, bloque de Persona Natural o UTP (esta empresa postula como persona jurídica individual), o anexo de uso interno del organismo licitante ("USO DE LA ENTIDAD LICITANTE", pautas de evaluación internas). Valor null.
+
+ANEXO O SECCIÓN CONDICIONAL COMPLETA (caso particular de la regla f, caso real 4777-24-LE26): si el TÍTULO del anexo o de la sección (no una frase suelta a mitad de párrafo) indica explícitamente que ese bloque entero solo aplica bajo una condición que el oferente no cumple — ej. "FORMATO IDENTIFICACIÓN UNIÓN TEMPORAL DE PROVEEDORES (SOLO SI CORRESPONDE)" cuando la empresa postula sola, o "ANEXO PERSONA NATURAL" cuando postula una persona jurídica — TODAS las casillas de ese anexo/sección van a no_aplica_al_oferente con valor null, INCLUIDAS las que pidan "nombre del proponente", "RUT del oferente", "representante legal del proponente" o cualquier fecha/encabezado que preceda a esos datos ("REGIÓN:", "PROVINCIA:", "COMUNA:", "FECHA:"). Señal para reconocerlo: el título trae "(SOLO SI CORRESPONDE)", "EN CASO DE UNIÓN TEMPORAL", "SI POSTULA COMO PERSONA NATURAL" o equivalente, y aparece ANTES de las casillas como encabezado de sección — no en medio de una oración. Esto prima sobre la sinonimia proponente=oferente y sobre la regla de "una sola persona" de más abajo: esas dos solo aplican a una casilla suelta dentro de un párrafo mixto que menciona UTP de pasada, NUNCA cuando el título mismo del bloque marca la condición de exclusión.
 g) "decision_del_usuario": exige elegir entre opciones que no se infieren de datos objetivos (ej. qué nivel de programa de integridad declarar, si pertenece a un grupo empresarial) y no viene resuelto en ninguna ficha. Valor null.
+
+CASILLA SIN CONTEXTO: si el contexto que te llega para una casilla está vacío o es solo la casilla misma, sin ninguna palabra real alrededor (ni etiqueta, ni oración, ni fila de tabla), no hay información suficiente para clasificarla con certeza → categoria="especifico_licitacion", campo=null. Nunca la fuerces a perfil_* por descarte, ni a firma_fecha, ni a no_aplica_al_oferente: "sin contexto" no es lo mismo que "es un título" o "no aplica", es un dato que el humano debe revisar directamente en el documento.
 
 TÍTULOS QUE NO SON CASILLAS: la detección es a propósito ruidosa y te va a pasar, mezclados con las casillas reales, encabezados y títulos de sección ("PROPUESTA:", "1. Detalle del suministro", "ANTECEDENTES GENERALES", "OFERTA ECONÓMICA:"). Un título ANUNCIA lo que viene abajo, no pide un dato: categoria="no_aplica_al_oferente", campo=null. La señal es simple — si al escribir el valor ahí la línea quedaría sin sentido leída en voz alta ("PROPUESTA: 06"), es un título. Ante la duda entre título y campo, elige título: una casilla de más que el humano llena es un costo menor que un dato suelto en medio del documento.
 
@@ -385,9 +396,11 @@ MARCADORES DEL ORGANISMO (léelos, son la instrucción literal): muchas casillas
 - "[Insertar Nombre o Razón Social]" → perfil_empresa/razon_social · "[Insertar RUT]" → perfil_empresa/rut · "[Insertar ID de Mercado Público]" → datos_licitacion/licitacion_codigo · "[Nombre Completo del Representante Legal]" → perfil_representante_legal/representante_nombre · "[Número de RUN]" → perfil_representante_legal/representante_rut · "[fecha]" → perfil_empresa/fecha_hoy · "[ciudad/país]" → perfil_empresa/region.
 - Un marcador que es una INSTRUCCIÓN al oferente ("[indicar en esta casilla el número o nombre del documento que respalda…]", "[marcar con una X]") NO es un dato de la ficha: categoria="especifico_licitacion" o "decision_del_usuario" con valor null — lo llena el humano sabiendo qué documentos va a adjuntar. Nunca lo autocompletes ni lo dejes fuera: tiene que quedar visible como pendiente.
 
-PIE DE FIRMA CON FECHA PARTIDA: día, mes y año de la fecha en que se presenta la oferta, categoria=perfil_empresa en las tres — NUNCA firma_fecha (la firma es la raya, la fecha se escribe). Hay DOS formatos, y la casilla del MES cambia de campo según cuál sea:
-- Con barras, "Fecha: 【CASILLA-1】 / 【CASILLA-2】 / 【CASILLA-3】" → campo fecha_hoy_dia, fecha_hoy_mes (NÚMERO), fecha_hoy_anio.
-- Con la palabra "de", "【CASILLA-1】 de 【CASILLA-2】 de 【CASILLA-3】" (ej. "Viña del Mar, ___ de ___ de ___") → campo fecha_hoy_dia, fecha_hoy_mes_palabra (EN PALABRA, "agosto" — jamás el número aquí, nadie escribe "3 de 08 de 2026"), fecha_hoy_anio.
+PIE DE FIRMA CON FECHA: día, mes y/o año de la fecha en que se presenta la oferta, categoria=perfil_empresa siempre — NUNCA firma_fecha (la firma es la raya, la fecha se escribe). Hay varios formatos:
+- Partida en tres con barras, "Fecha: 【CASILLA-1】 / 【CASILLA-2】 / 【CASILLA-3】" → campo fecha_hoy_dia, fecha_hoy_mes (NÚMERO), fecha_hoy_anio.
+- Partida en tres con la palabra "de", "【CASILLA-1】 de 【CASILLA-2】 de 【CASILLA-3】" (ej. "Viña del Mar, ___ de ___ de ___") → campo fecha_hoy_dia, fecha_hoy_mes_palabra (EN PALABRA, "agosto" — jamás el número aquí, nadie escribe "3 de 08 de 2026"), fecha_hoy_anio.
+- Suelta SIN partir, un solo blanco tras "FECHA:" que no está dividido en día/mes/año y no está pegado a una raya de firma manuscrita → campo fecha_hoy (fecha larga completa, "06 de agosto de 2026"). Excepción: si esa "FECHA:" cae dentro de un ANEXO O SECCIÓN CONDICIONAL COMPLETA que no corresponde (regla f de arriba), prima la exclusión → no_aplica_al_oferente.
+- Con el AÑO ya fijo como texto literal en la plantilla y UN solo blanco para el resto (ej. "LA UNIÓN, 【CASILLA】 DE 2026.-") → ese blanco pide "día + de + mes en palabra" → campo fecha_hoy_dia_mes (formato "06 de agosto", SIN año — el año ya está impreso, no lo repitas).
 
 REGLAS DE FORMATO CHILENAS:
 - RUT: cópialo TAL CUAL viene en la ficha (no lo reformatees ni "corrijas").
@@ -457,8 +470,6 @@ async function resolverLoteCampos(
     ? '\n\nCONTEXTO: este documento tiene un bloque de "Unión Temporal de Proveedores" (UTP) que NO corresponde presentar en esta oferta (la empresa postula sola). El sistema YA excluyó de esta lista lo que genuinamente pide datos de OTRA empresa (una tabla de integrantes) — si de todas formas ves, entre las casillas de abajo, una suelta (no una fila de tabla) que pide el nombre/RUT/representante legal del "PROPONENTE" u "OFERENTE" y el párrafo cercano menciona "Unión Temporal de Proveedores", NO la mandes a no_aplica_al_oferente por eso: "proponente" es sinónimo de "oferente", la MISMA empresa de la ficha — resuélvela normal (perfil_empresa/perfil_representante_legal). Esto NO aplica si la casilla nombra explícitamente a un integrante/socio distinto.'
     : '';
   const user = `FICHA DE LA EMPRESA QUE POSTULA:\n${ficha}${contextoUTP}${contextoProponenteUTP}${bloqueReglasAprendidasAnexo(reglasAprendidas)}\n\nCASILLAS (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
-  console.error('[DEBUG_TEMP] haySeccionUtpOmitida=', haySeccionUtpOmitida, 'postulaComoUTP=', postulaComoUTP, 'contextoProponenteUTP.length=', contextoProponenteUTP.length);
-  console.error('[DEBUG_TEMP] USER PROMPT:\n', user);
 
   try {
     // modeloPreferido: 'glm-4.7' (salta el default 'flashx') — medido en pruebas reales: en

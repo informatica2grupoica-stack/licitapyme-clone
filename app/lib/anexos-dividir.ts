@@ -51,6 +51,7 @@ interface BloqueCrudo {
   xmlCompleto: string;
   ordinalInicio: number;
   ordinalFin: number;
+  enCuadroFlotante: boolean; // ver comentario sobre profundidadTxbx más abajo
 }
 
 const RE_PARRAFO_CON_ID = /<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>/g;
@@ -92,6 +93,15 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
   const out: BloqueCrudo[] = [];
   let ordinal = 0;
   let pos = 0;
+  // Profundidad de <w:txbxContent> ABIERTOS y aún no cerrados, actualizada con cada trozo de XML
+  // consumido (gap entre bloques + xmlCompleto de cada bloque). Un bloque que arranca con
+  // profundidad > 0 es un párrafo ANIDADO dentro de un cuadro de texto flotante — ver
+  // enCuadroFlotante más abajo y el BUG REAL que resuelve (4777-24-LE26) en detectarFormularios.
+  let profundidadTxbx = 0;
+  const registrarTxbx = (fragmento: string) => {
+    profundidadTxbx += (fragmento.match(/<w:txbxContent\b/g) || []).length;
+    profundidadTxbx -= (fragmento.match(/<\/w:txbxContent>/g) || []).length;
+  };
   // Tras una TABLA se salta a su cierre real, así los <w:p> de sus celdas quedan dentro del salto y
   // nunca se toman como bloque propio (el ordinal de la tabla ya los cuenta, más abajo).
   for (;;) {
@@ -110,8 +120,11 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
     // ("Word detectó un error de contenido"). Se pega al bloque ANTERIOR (el que dejó algo
     // abierto), nunca al siguiente, que es un párrafo/tabla nuevo sin relación con ese cierre.
     if (m.index > pos && out.length) {
-      out[out.length - 1].xmlCompleto += xml.slice(pos, m.index);
+      const gap = xml.slice(pos, m.index);
+      out[out.length - 1].xmlCompleto += gap;
+      registrarTxbx(gap);
     }
+    const enCuadroFlotante = profundidadTxbx > 0;
     const esTabla = m[0].startsWith('<w:tbl');
     let fin: number;
     if (esTabla) {
@@ -122,10 +135,11 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
     }
     if (fin < 0) break;
     const xmlCompleto = xml.slice(m.index, fin);
+    registrarTxbx(xmlCompleto);
 
     if (esTabla) {
       const numParrafos = (xmlCompleto.match(RE_PARRAFO_CON_ID) || []).length || 1;
-      out.push({ tipo: 'tabla', textoPlano: '', xmlCompleto, ordinalInicio: ordinal, ordinalFin: ordinal + numParrafos - 1 });
+      out.push({ tipo: 'tabla', textoPlano: '', xmlCompleto, ordinalInicio: ordinal, ordinalFin: ordinal + numParrafos - 1, enCuadroFlotante });
       ordinal += numParrafos;
     } else {
       // <w:br/> (salto de línea MANUAL, sin párrafo nuevo) se conserva como "\n" — caso real
@@ -136,7 +150,7 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
       // el anexo entero desaparecía, absorbido dentro del anterior.
       const texto = [...xmlCompleto.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>|<w:(?:br|cr)\b[^>]*\/?>/g)]
         .map(m => (m[1] !== undefined ? m[1] : '\n')).join('').trim();
-      out.push({ tipo: 'parrafo', textoPlano: texto, xmlCompleto, ordinalInicio: ordinal, ordinalFin: ordinal });
+      out.push({ tipo: 'parrafo', textoPlano: texto, xmlCompleto, ordinalInicio: ordinal, ordinalFin: ordinal, enCuadroFlotante });
       ordinal += 1;
     }
     pos = fin;
@@ -161,6 +175,19 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
   const encabezados: { indice: number; titulo: string }[] = [];
   for (const b of bloques) {
     if (b.tipo !== 'parrafo') continue;
+    // BUG REAL (4777-24-LE26, "ANEXO N°2" impreso como título dentro de un cuadro de texto
+    // flotante de ~48 KB que envuelve casi todo el formulario, típico de plantillas con un borde
+    // decorativo hecho con <w:txbxContent>): el bloque que abre ESE cuadro (el <w:p> ancla con
+    // <w:drawing>/<w:txbxContent>) queda con un ordinal ANTERIOR al de este título — es un
+    // párrafo interno más, contado aparte a propósito (ver el comentario de finDeTabla). Si se
+    // usa este título como borde de un formulario, dividirPorFormularios excluye ese bloque
+    // ancla por ordinal (queda ordinalmente ANTES del rango) pero el bloque que se lleva el
+    // CIERRE real del cuadro (el gap tras el último párrafo interno) SÍ cae dentro del rango —
+    // el fragmento queda con un "</w:txbxContent>" sin su apertura, Word se niega a abrirlo. Un
+    // título real de sección nunca vive DENTRO de un cuadro de texto sin cerrar; se ignora acá y,
+    // si eso deja menos de 2 encabezados, dividirPorFormularios simplemente no divide (se sigue
+    // generando un solo archivo, como antes de existir esta función — nunca corrupto).
+    if (b.enCuadroFlotante) continue;
     // El título casi siempre ES el párrafo entero, pero cuando comparte <w:p> con el cierre del
     // anexo anterior (ver el comentario de "\n" en listarBloquesCrudos) queda en una línea
     // interna — se prueba cada línea, no solo el texto completo, para no perder ese caso.

@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizarParaIds, verificarXmlBienFormado, eliminarRespaldoVmlDuplicado, abrirDocx } from '../anexos-docx';
-import { dividirPorFormularios } from '../anexos-dividir';
+import { dividirPorFormularios, detectarFormularios } from '../anexos-dividir';
 import JSZip from 'jszip';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14" xmlns:mc="urn:mc"><w:body>';
@@ -54,6 +54,44 @@ test('dividirPorFormularios: un cuadro de texto con párrafos internos no pierde
   // tag de cierre, el contenido real también sobrevive.
   const { xml: xmlN2 } = await abrirDocx(formularios[1].buffer);
   assert.match(xmlN2, /texto normal después del cuadro/);
+});
+
+// BUG REAL (4777-24-LE26): un cuadro de texto flotante gigante envuelve casi todo el formulario y
+// trae, como su PRIMER párrafo interno, el título "ANEXO N°2" — el mismo patrón que
+// detectarFormularios usa para marcar el INICIO de un formulario nuevo. El bloque que abre ese
+// cuadro (el <w:p> ancla) queda ordinalmente ANTES del título (es un párrafo interno más, contado
+// aparte), así que si se usa igual como borde, dividirPorFormularios lo excluye del fragmento por
+// rango de ordinales — pero el bloque que se lleva el CIERRE del cuadro sí entra, dejando un
+// "</w:txbxContent>" sin su apertura. Un título real nunca debería vivir dentro de un cuadro de
+// texto sin cerrar: se ignora como borde de formulario y, al quedar un solo título real, no se
+// divide — un solo archivo, nunca corrupto.
+test('dividirPorFormularios: un título dentro de un cuadro de texto flotante no se usa como borde (regresión 4777-24-LE26)', async () => {
+  // El párrafo vacío ANTES del título es el caso real (4777-24-LE26): el <w:p> ancla se funde con
+  // el PRIMER párrafo interno del cuadro (indexOf toma su </w:p>, no el del ancla) — recién el
+  // SEGUNDO párrafo interno (el del título) arranca con el cuadro ya "abierto" para el contador de
+  // profundidad. Sin este párrafo vacío el título quedaría fundido con el ancla, que sí abre el
+  // cuadro dentro de su propio bloque — un falso negativo que no prueba nada.
+  const cuadroConTituloDentro = '<w:p><w:pPr/><w:r><w:drawing><w:txbxContent>'
+    + p('')
+    + p('ANEXO N°2: DECLARACIÓN')
+    + p('contenido dentro del cuadro')
+    + '</w:txbxContent></w:drawing></w:r>' + p('texto normal después del cuadro, mismo párrafo ancla').replace(/^<w:p>|<\/w:p>$/g, '') + '</w:p>';
+
+  const xml = NS
+    + p('ANEXO N°1: IDENTIFICACIÓN')
+    + p('Nombre del proponente')
+    + cuadroConTituloDentro
+    + p('Último párrafo, fuera del cuadro')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 1, 'el título dentro del cuadro no cuenta como borde — solo queda el real');
+  assert.equal(formularios[0].titulo, 'ANEXO N°1: IDENTIFICACIÓN');
+
+  const buffer = await bufferDe(norm);
+  const divididos = await dividirPorFormularios(buffer, norm);
+  assert.equal(divididos.length, 0, 'con menos de 2 encabezados no se divide — un solo archivo, nunca corrupto');
 });
 
 // Cuadro de texto duplicado (DrawingML + respaldo VML) vía mc:AlternateContent — Word escribe
