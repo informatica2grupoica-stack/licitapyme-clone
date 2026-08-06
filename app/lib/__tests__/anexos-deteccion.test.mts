@@ -313,6 +313,45 @@ test('la sección UTP no se come los formularios siguientes (regresión 4291-38-
     `el campo del FORMULARIO N°2 debe sobrevivir: ${JSON.stringify(etiquetas)}`);
 });
 
+// BUG REAL (6-ago-2026, "ANEXO N°1-A FORMATO IDENTIFICACIÓN UNIÓN TEMPORAL DE PROVEEDORES (SOLO SI
+// CORRESPONDE)"): el TÍTULO del propio formulario matchea el regex de sección UTP, así que el
+// documento entero quedaba soloManual — incluidos los campos A/B/C ("NOMBRE COMPLETO DEL
+// PROPONENTE", "ROL UNICO TRIBUTARIO", "NOMBRE Y RUT DEL REPRESENTANTE LEGAL DEL PROPONENTE"), que
+// son los MISMOS datos que cualquier otro anexo de identificación (perfil_empresa/
+// perfil_representante_legal). Pedido explícito del usuario: "proponente" es lo mismo que
+// "oferente", son los mismos datos, y están en la ficha.
+test('sección UTP: los campos sueltos (A/B/C) son del proponente por defecto; la tabla de integrantes no (regla 6-ago-2026)', () => {
+  const xml = NS
+    + p('ANEXO N° 1 - A')
+    + p('FORMATO IDENTIFICACIÓN UNION TEMPORAL DE PROVEEDORES (SOLO SI CORRESPONDE)')
+    + p('A. NOMBRE COMPLETO DEL PROPONENTE:') + p('')
+    + p('B. ROL UNICO TRIBUTARIO') + p('')
+    + p('C. NOMBRE Y RUT DEL REPRESENTANTE LEGAL DEL PROPONENTE:') + p('')
+    + p('D. IDENTIFICACION DE MIEMBROS UNION DE PROVEEDORES')
+    + tabla(
+      fila('Nombre o Razón Social', 'Representante Legal', 'RUT', 'Domicilio', 'Correo Electrónico'),
+      fila('', '', '', '', ''),
+    )
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+  const etiquetas = analisis.candidatosCelda.map(c => c.etiqueta);
+
+  // A, B y C siguen siendo candidatos Y no quedan marcados soloManual — se autocompletan normal.
+  for (const esperada of ['NOMBRE COMPLETO DEL PROPONENTE', 'ROL UNICO TRIBUTARIO', 'NOMBRE Y RUT DEL REPRESENTANTE LEGAL DEL PROPONENTE']) {
+    const c = analisis.candidatosCelda.find(x => x.etiqueta.includes(esperada));
+    assert.ok(c, `"${esperada}" debe seguir siendo candidato: ${JSON.stringify(etiquetas)}`);
+    assert.ok(!analisis.indicesSoloManual.has(c!.indice), `"${esperada}" no debe quedar soloManual (es el proponente mismo)`);
+  }
+
+  // La tabla de integrantes SIGUE excluida — su columna no dice "proponente" ni "tercero", pero
+  // es una estructura repetida (una fila por integrante): datos de OTRAS empresas que la ficha no
+  // tiene.
+  const columnaMiembro = analisis.candidatosCelda.find(c => c.etiqueta.includes('Nombre o Razón Social'));
+  assert.ok(columnaMiembro, 'la tabla de integrantes debe seguir detectándose (para mostrarla)');
+  assert.ok(analisis.indicesSoloManual.has(columnaMiembro!.indice), 'pero queda soloManual — son datos de otra empresa');
+});
+
 // "Nombre de la Unión Temporal de Proveedores: ______" es un CAMPO, no el título de una sección.
 test('un párrafo con su propio blanco no abre una sección', () => {
   const { xml: norm } = normalizarParaIds(NS + p('Nombre de la Unión Temporal de Proveedores: ___________') + FIN);

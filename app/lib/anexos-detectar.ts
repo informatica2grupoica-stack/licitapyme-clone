@@ -1025,6 +1025,12 @@ const PATRONES: { tipo: TipoSeccion; re: RegExp }[] = [
 ];
 const LARGO_MAX_ENCABEZADO = 80;
 const SOLO_PUNTUACION_FINAL = /^[\s_:"'”)]*$/;
+// Un título puede traer una aclaración final entre paréntesis — caso real (6-ago-2026) "FORMATO
+// IDENTIFICACIÓN UNION TEMPORAL DE PROVEEDORES (SOLO SI CORRESPONDE)": sin esto, el texto que
+// sigue a la frase ("SOLO SI CORRESPONDE" trae letras) no calzaba con SOLO_PUNTUACION_FINAL y el
+// título NUNCA se reconocía como encabezado de sección — la sección UTP no se abría ni se omitía,
+// simplemente no existía para el resto del pipeline.
+const CALIFICADOR_FINAL_ENTRE_PARENTESIS = /^\s*\([^()]{0,60}\)\s*$/;
 
 function esEncabezadoDeSeccion(texto: string): { tipo: TipoSeccion } | null {
   if (texto.length > LARGO_MAX_ENCABEZADO) return null;
@@ -1038,7 +1044,8 @@ function esEncabezadoDeSeccion(texto: string): { tipo: TipoSeccion } | null {
     const m = texto.match(pat.re);
     if (!m) continue;
     const restante = texto.slice((m.index ?? 0) + m[0].length);
-    if (SOLO_PUNTUACION_FINAL.test(restante)) return { tipo: pat.tipo }; // la frase es el final real del párrafo
+    // La frase es el final real del párrafo (con o sin una aclaración entre paréntesis pegada).
+    if (SOLO_PUNTUACION_FINAL.test(restante) || CALIFICADOR_FINAL_ENTRE_PARENTESIS.test(restante)) return { tipo: pat.tipo };
   }
   return null;
 }
@@ -1081,14 +1088,40 @@ export function detectarSecciones(parrafos: Parrafo[], postulaComoUTP = false): 
   });
 }
 
-// Filtra candidatos de celda para quedarse SOLO con los que caen dentro de secciones
-// habilitadas (RELLENAR) — si el documento no tiene secciones (caso común: un solo anexo sin
-// variantes), no se descarta nada.
-export function acotarASeccionesHabilitadas(candidatos: CandidatoCelda[], secciones: SeccionOferente[]): CandidatoCelda[] {
+// Dentro de una sección UTP OMITIDA, un campo SUELTO (no una fila de tabla) se trata por defecto
+// como dato del PROPONENTE MISMO, no de un integrante de la unión — "proponente" es sinónimo de
+// "oferente": la misma empresa de la ficha, se postule sola o como parte de una unión temporal.
+// Regla agregada a pedido explícito del usuario (6-ago-2026), caso real "ANEXO N°1-A FORMATO
+// IDENTIFICACIÓN UNIÓN TEMPORAL DE PROVEEDORES (SOLO SI CORRESPONDE)": el TÍTULO del propio
+// formulario matchea el regex de sección UTP, así que el documento ENTERO —incluidos "NOMBRE
+// COMPLETO DEL PROPONENTE", "ROL ÚNICO TRIBUTARIO" (sin la palabra "proponente" en SU propia
+// etiqueta, pero es el mismo bloque A/B/C) y "NOMBRE Y RUT DEL REPRESENTANTE LEGAL DEL
+// PROPONENTE"— quedaba marcado soloManual: 0/22 campos completados en un formulario que sí tenía
+// de dónde sacar 3 de ellos.
+//
+// Dos frenos, para no pasarse de largo:
+//  1. Solo aplica a secciones UTP, nunca a PERSONA_NATURAL: ahí si el campo dice "del proponente
+//     (Persona Natural)" SÍ hay que omitirlo, porque pide datos de una persona natural que la
+//     empresa (jurídica) no tiene — es una omisión real, no la misma confusión.
+//  2. Si la ETIQUETA del campo suelto ya nombra a un tercero (integrante, socio, u otro miembro
+//     de la unión — mismo vocabulario que CONTEXTO_TERCERO_AJENO, declarado arriba), sigue
+//     excluido: la excepción es "por defecto es nuestro", no "siempre es nuestro".
+//  3. La tabla real de MIEMBROS/INTEGRANTES (una fila por integrante) queda excluida SIEMPRE, sin
+//     mirar el nombre de su columna — "Nombre o Razón Social"/"RUT"/"Domicilio" no dicen
+//     "proponente" ni "tercero", pero una estructura repetida (varias filas) es la señal real de
+//     que pide datos de MÁS de una empresa, que la ficha no tiene.
+export function acotarASeccionesHabilitadas(
+  candidatos: CandidatoCelda[], secciones: SeccionOferente[], indicesDeTabla: Set<number> = new Set(),
+): CandidatoCelda[] {
   if (!secciones.length) return candidatos;
   const rangosOmitidos = secciones.filter(s => s.decision === 'OMITIR');
   if (!rangosOmitidos.length) return candidatos;
-  return candidatos.filter(c => !rangosOmitidos.some(r => c.indice >= r.indiceInicio && c.indice <= r.indiceFin));
+  return candidatos.filter(c => {
+    const rango = rangosOmitidos.find(r => c.indice >= r.indiceInicio && c.indice <= r.indiceFin);
+    if (!rango) return true;
+    if (rango.tipo !== 'UTP' || indicesDeTabla.has(c.indice)) return false;
+    return !CONTEXTO_TERCERO_AJENO.test(c.etiqueta);
+  });
 }
 
 // ── Patrón 4: línea de firma ("____________" + "Firma del Oferente...") ──────────────────
@@ -1385,7 +1418,8 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // completarlas. La regla original ("no rellenar solo lo que no nos corresponde") se mantiene
   // intacta; lo que cambia es que ahora se ven.
   const candidatosCeldaTodos = [...candidatosTabla, ...candidatosCeldaCrudos];
-  const habilitados = new Set(acotarASeccionesHabilitadas(candidatosCeldaTodos, secciones).map(c => c.indice));
+  const indicesDeTabla = new Set(candidatosTabla.map(c => c.indice));
+  const habilitados = new Set(acotarASeccionesHabilitadas(candidatosCeldaTodos, secciones, indicesDeTabla).map(c => c.indice));
   const indicesSoloManual = new Set(
     candidatosCeldaTodos.filter(c => c.soloManual || !habilitados.has(c.indice)).map(c => c.indice),
   );
