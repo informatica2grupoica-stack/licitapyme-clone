@@ -674,61 +674,86 @@ export function detectarLineasProductoTecnicas(docs: { texto: string }[]): numbe
 // bien formado (una hoja/sección real por línea, como el Excel Anexo N°6) tiene TODAS sus secciones
 // con contenido — su peor sección sigue siendo mucho más grande que el peor caso de un candidato
 // con etiquetas sueltas.
+//
+// Caso real 707423-56-LE26 (6-ago-2026): el MISMO documento traía DOS juegos de encabezados de
+// línea — un resumen corto "Línea 9 - Comunicaciones:" (con guion, ~200 caracteres, sin tabla de
+// productos) Y, más abajo, las secciones REALES con tabla completa "## LINEA 1 INVERNADERO" /
+// "## LINEA 2 MOTRICIDAD" (sin "DE PRODUCTO", sin "N°", Y sin ":"/"–" — el único ancla es que la
+// línea del documento contiene SOLO "LINEA N NOMBRE", nada más, un título real de tabla). Antes,
+// el patrón corto encontraba las 4 menciones-resumen (≥2, así que paraba ahí) y NUNCA llegaba a
+// intentar el patrón de título — el manifiesto se quedó con apenas 3 de los 12 productos reales.
+// Fix: los TRES patrones se prueban SIEMPRE (no en cascada "para en el primero que matchee ≥2") y
+// compiten por PISO igual que ya competían los documentos entre sí — así el candidato con tablas
+// reales le gana al candidato con solo etiquetas sueltas, sea cual sea el orden en que aparecen.
 export function extraerSeccionesLineaProducto(docs: { nombre?: string; texto?: string | null }[]): { linea: number; nombre: string; texto: string }[] {
-  const re = /(?:(\d{1,2})\.(\d{1,2})\.?\s*)?L[ÍI]NEA\s+DE\s+PRODUCTO\s+N[°º]\s*(\d{1,2})\s*[:–\-]?\s*([^\n]{0,60})/gi;
+  const RE_ESTRICTO = /(?:(\d{1,2})\.(\d{1,2})\.?\s*)?L[ÍI]NEA\s+DE\s+PRODUCTO\s+N[°º]\s*(\d{1,2})\s*[:–\-]?\s*([^\n]{0,60})/gi;
   // Encabezado CORTO "LÍNEA 1: Nombre" (sin "DE PRODUCTO" ni "N°") — el Anexo N°2 Económico de
   // proyectos PMU lo usa así. Sin "DE PRODUCTO"/"N°" de por medio, el ÚNICO ancla estructural que
   // separa un título real de una mención suelta en prosa ("la línea 1 del cuadro...") es el ":"/"–"
-  // pegado al número, así que aquí SÍ es obligatorio (a diferencia del regex de arriba, donde "DE
-  // PRODUCTO"/"N°" ya son ancla suficiente y el separador puede faltar).
-  const reCorta = /L[ÍI]NEA\s+(\d{1,2})\s*[:–\-]\s*([^\n]{0,60})/gi;
+  // pegado al número.
+  const RE_CORTA = /L[ÍI]NEA\s+(\d{1,2})\s*[:–\-]\s*([^\n]{0,60})/gi;
+  // Encabezado de TÍTULO "LINEA N NOMBRE" — sin "DE PRODUCTO", sin "N°" Y sin separador tampoco.
+  // El ancla acá no es puntuación: es que la línea ENTERA del documento (delimitada por `\n`, con
+  // flag `m`) es solo eso, nada antes ni después — un título real de sección, a diferencia de una
+  // mención en prosa ("Para la Línea 11, deberán...") que SIEMPRE trae texto antes en su misma
+  // línea y por eso nunca calza con `^`. El prefijo "#+" (heading markdown que deja el OCR) es
+  // opcional porque algunas secciones vienen sin él (envueltas en un `<div align="center">`, ver
+  // caso 707423-56-LE26 línea 11).
+  const RE_TITULO = /^(?:#+\s*)?L[ÍI]NEA\s+(\d{1,2})\s+([^\n]{2,60})$/gim;
+
+  function heads(t: string, patron: RegExp): { idx: number; linea: number; nombre: string }[] {
+    const out: { idx: number; linea: number; nombre: string }[] = [];
+    patron.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    // El nombre de sección puede venir seguido de comas CSV colgando (celdas vacías del Excel
+    // exportado a texto, ej. `Mobiliario Urbano",,,,,,,`) — se recortan por prolijidad (no afecta
+    // la extracción de ítems, que usa `texto`, solo la etiqueta que se muestra).
+    while ((m = patron.exec(t)) !== null) {
+      // RE_ESTRICTO trae el número de línea en el grupo 3 (el 1/2 son el numeral de artículo
+      // opcional); los otros dos patrones lo traen en el grupo 1.
+      const linea = parseInt(m[3] ?? m[1], 10);
+      const nombre = (m[4] ?? m[2] ?? '').replace(/["'\s,]+$/, '').trim();
+      out.push({ idx: m.index, linea, nombre });
+    }
+    return out;
+  }
+
+  // Un mismo documento puede repetir el mismo número de línea varias veces (portada + tabla de
+  // presupuesto + tabla de tiempos = 3 apariciones de "Línea N°1"), cada aparición mucho más chica
+  // que la sección real. Nos quedamos SOLO con la aparición MÁS GRANDE de cada número de línea:
+  // así una mención suelta de una línea no arrastra al piso hacia abajo si esa MISMA línea tiene
+  // en otra parte del documento su sección real y grande.
+  function seccionesDe(t: string, hs: { idx: number; linea: number; nombre: string }[]): { linea: number; nombre: string; texto: string }[] {
+    if (hs.length < 2) return [];
+    const porLinea = new Map<number, { linea: number; nombre: string; texto: string }>();
+    for (let i = 0; i < hs.length; i++) {
+      const start = hs[i].idx;
+      let end = i + 1 < hs.length ? hs[i + 1].idx : t.length;
+      // Última sección: cortar en el próximo título numerado "N.M TÍTULO" (FORMA DE ENTREGA, etc.).
+      if (i + 1 >= hs.length) {
+        const mNext = t.slice(start + 1, end).match(/\n\s*\d{1,2}\.\d{1,2}\.?\s+[A-ZÁÉÍÓÚ]{4,}/);
+        if (mNext && mNext.index != null) end = start + 1 + mNext.index;
+      }
+      const texto = t.slice(start, Math.min(end, start + 16000));
+      const prev = porLinea.get(hs[i].linea);
+      if (!prev || texto.length > prev.texto.length) {
+        porLinea.set(hs[i].linea, { linea: hs[i].linea, nombre: hs[i].nombre, texto });
+      }
+    }
+    return [...porLinea.values()].sort((a, b) => a.linea - b.linea);
+  }
+
   let mejor: { linea: number; nombre: string; texto: string }[] = [];
   let mejorPiso = 0;
   for (const d of docs) {
     const t = d.texto || '';
     if (t.length < 200) continue;
-    let heads: { idx: number; linea: number; nombre: string }[] = [];
-    let m: RegExpExecArray | null;
-    // El nombre de sección puede venir seguido de comas CSV colgando (celdas vacías del Excel
-    // exportado a texto, ej. `Mobiliario Urbano",,,,,,,`) — se recortan por prolijidad (no afecta
-    // la extracción de ítems, que usa `texto`, solo la etiqueta que se muestra).
-    while ((m = re.exec(t)) !== null) heads.push({ idx: m.index, linea: parseInt(m[3], 10), nombre: (m[4] || '').replace(/["'\s,]+$/, '').trim() });
-    re.lastIndex = 0;
-    // El patrón corto SOLO se prueba si el estricto no alcanzó a encontrar 2 secciones — así un
-    // documento que YA funciona con "DE PRODUCTO"/"N°" queda intacto, sin arriesgar que una mención
-    // suelta de "línea" en otra parte del mismo documento inserte un corte espurio entre secciones
-    // reales.
-    if (heads.length < 2) {
-      const headsCorta: { idx: number; linea: number; nombre: string }[] = [];
-      while ((m = reCorta.exec(t)) !== null) headsCorta.push({ idx: m.index, linea: parseInt(m[1], 10), nombre: (m[2] || '').replace(/["'\s,]+$/, '').trim() });
-      reCorta.lastIndex = 0;
-      if (headsCorta.length >= 2) heads = headsCorta;
+    for (const patron of [RE_ESTRICTO, RE_CORTA, RE_TITULO]) {
+      const out = seccionesDe(t, heads(t, patron));
+      if (out.length < 2) continue;
+      const piso = Math.min(...out.map(s => s.texto.length));
+      if (piso > mejorPiso) { mejorPiso = piso; mejor = out; }
     }
-    if (heads.length < 2) continue;
-    // Un mismo documento puede repetir el mismo número de línea varias veces (portada + tabla de
-    // presupuesto + tabla de tiempos = 3 apariciones de "Línea N°1"), cada aparición mucho más chica
-    // que la sección real. Nos quedamos SOLO con la aparición MÁS GRANDE de cada número de línea:
-    // así una mención suelta de una línea no arrastra al piso hacia abajo si esa MISMA línea tiene
-    // en otra parte del documento su sección real y grande.
-    const porLinea = new Map<number, { linea: number; nombre: string; texto: string }>();
-    for (let i = 0; i < heads.length; i++) {
-      const start = heads[i].idx;
-      let end = i + 1 < heads.length ? heads[i + 1].idx : t.length;
-      // Última sección: cortar en el próximo título numerado "N.M TÍTULO" (FORMA DE ENTREGA, etc.).
-      if (i + 1 >= heads.length) {
-        const mNext = t.slice(start + 1, end).match(/\n\s*\d{1,2}\.\d{1,2}\.?\s+[A-ZÁÉÍÓÚ]{4,}/);
-        if (mNext && mNext.index != null) end = start + 1 + mNext.index;
-      }
-      const texto = t.slice(start, Math.min(end, start + 16000));
-      const prev = porLinea.get(heads[i].linea);
-      if (!prev || texto.length > prev.texto.length) {
-        porLinea.set(heads[i].linea, { linea: heads[i].linea, nombre: heads[i].nombre, texto });
-      }
-    }
-    const out = [...porLinea.values()].sort((a, b) => a.linea - b.linea);
-    if (out.length < 2) continue;
-    const piso = Math.min(...out.map(s => s.texto.length));
-    if (piso > mejorPiso) { mejorPiso = piso; mejor = out; }
   }
   return mejor;
 }
