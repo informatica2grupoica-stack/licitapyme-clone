@@ -4,9 +4,11 @@
 // de viabilidad con IA (PROMPT 2). Rediseño profesional: fecha+hora del análisis, DE QUIÉN
 // es la licitación (perfil asignado), toda la info del análisis, orden y filtros completos.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { AppLayout } from '@/app/components/AppLayout';
+import { useSession } from '@/app/lib/session-context';
 import { Sparkles, Loader2, ChevronRight, Building2, Calendar, Search, Filter, X, Gauge, Trophy, Layers, Users, ArrowUpDown, Clock, RefreshCw, Wallet } from 'lucide-react';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
@@ -44,6 +46,10 @@ const modalidadLabel = (m?: string | null) => (m ? String(m).replace(/_/g, ' ') 
 type Orden = 'reciente' | 'antiguo' | 'score_desc' | 'score_asc' | 'cierre' | 'presupuesto';
 
 export default function AnalizadasPage() {
+  const { usuario, cargando: cargandoSesion } = useSession();
+  const router = useRouter();
+  const puedeVer = usuario?.rol === 'admin';
+
   const [lics, setLics] = useState<Analizada[]>([]);
   const [cargando, setCargando] = useState(true);
   const [q, setQ] = useState('');
@@ -55,12 +61,20 @@ export default function AnalizadasPage() {
   const hayFiltro = fSemaforo.length > 0 || fResultado.length > 0 || fModalidad.length > 0 || fOwner.length > 0;
   const limpiar = () => { setFSemaforo([]); setFResultado([]); setFModalidad([]); setFOwner([]); };
 
-  useEffect(() => {
+  const cargar = useCallback(() => {
     fetch('/api/analizadas').then(r => r.json())
       .then(d => { if (d.success) setLics(d.licitaciones || []); })
       .catch(() => { /* noop */ })
       .finally(() => setCargando(false));
   }, []);
+
+  // Análisis IA de TODOS los negocios: es admin-only de verdad (la API también lo exige),
+  // no solo un ítem oculto en el sidebar — ver auditoría ago-2026.
+  useEffect(() => {
+    if (cargandoSesion) return;
+    if (!puedeVer) { router.replace('/dashboard'); return; }
+    cargar();
+  }, [cargandoSesion, puedeVer, router, cargar]);
 
   // Opciones (con conteo) presentes en los datos, para cada filtro.
   const opciones = useMemo(() => {
@@ -109,6 +123,15 @@ export default function AnalizadasPage() {
     });
     return arrSorted;
   }, [lics, q, fSemaforo, fResultado, fModalidad, fOwner, orden]);
+
+  if (cargandoSesion || (!puedeVer && cargando)) {
+    return (
+      <AppLayout>
+        <div className="flex flex-col items-center py-20 text-slate-400"><Loader2 size={26} className="animate-spin mb-2" /><p className="text-[13px]">Cargando…</p></div>
+      </AppLayout>
+    );
+  }
+  if (!puedeVer) return null;
 
   return (
     <AppLayout breadcrumb={[{ label: 'Dashboard', href: '/dashboard' }, { label: 'Licitaciones analizadas' }]}>

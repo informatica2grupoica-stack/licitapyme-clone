@@ -8,7 +8,7 @@ import {
   Loader2, DownloadCloud
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
-import { descargarDocumento, formatFileSize, getIconForDocument } from '@/app/services/documentosService';
+import { descargarDocumento, formatFileSize, getIconForDocument } from '@/app/services/documentosService.client';
 
 interface DocumentosListProps {
   documentos: DocumentoAdjunto[];

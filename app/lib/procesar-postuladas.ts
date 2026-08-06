@@ -29,6 +29,15 @@ import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { registrarEvento } from '@/app/lib/historial';
 import { construirDesdeLicitacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
 import { abrirEntregaSiCorresponde } from '@/app/lib/entrega-proyecto';
+import { publicarCambio } from '@/app/lib/sse-bus';
+import { idsEquivalentes, normalizarEstado } from '@/app/lib/pipeline';
+
+// IDs (vigente + legados) que cuentan como "postulada" / "adjudicada" / "perdida" — ver misma
+// nota en detectar-aperturas.ts.
+const ESTADOS_POSTULADA = idsEquivalentes('POSTULADA');
+const IN_POSTULADA = ESTADOS_POSTULADA.map(() => '?').join(', ');
+const ESTADOS_RESUELTAS = [...idsEquivalentes('ADJUDICADA'), ...idsEquivalentes('PERDIDA')];
+const IN_RESUELTAS = ESTADOS_RESUELTAS.map(() => '?').join(', ');
 
 const CODIGO_CONCURRENCIA = 4;      // detalles de MP consultados en paralelo
 const PRESUPUESTO_MS       = 25_000; // tope de tiempo del paso principal (margen bajo maxDuration del cron)
@@ -89,9 +98,10 @@ export async function procesarPostuladas(
        LEFT JOIN adjudicacion_cache c
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
-         AND n.estado_pipeline = 'POSTULADA'
+         AND n.estado_pipeline IN (${IN_POSTULADA})
          ${soloCerradas ? 'AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < NOW()' : ''}
        ORDER BY (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
+      ESTADOS_POSTULADA,
     ) as any[];
     filas = rows as FilaPostulada[];
   } catch (e) {
@@ -134,12 +144,16 @@ export async function procesarPostuladas(
         for (const n of negocios) {
           const [upd] = await pool.query(
             `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW()
-             WHERE id = ? AND estado_pipeline = 'POSTULADA'`,
-            [nuevoEstado, n.id],
+             WHERE id = ? AND estado_pipeline IN (${IN_POSTULADA})`,
+            [nuevoEstado, n.id, ...ESTADOS_POSTULADA],
           ) as any;
           // Solo cuenta como resultado NUEVO si el UPDATE movió la fila de verdad. Si otra
           // corrida (o alguien a mano) ya la había sacado de POSTULADA, no se vuelve a avisar.
           if (!upd?.affectedRows) continue;
+          // El auto-avance POSTULADA→ADJUDICADA/PERDIDA es tan real como un PATCH manual — los
+          // tableros de otros perfiles (admin viendo Postuladas/Adjudicadas ajenas, el dashboard)
+          // deben enterarse en vivo, no solo el dueño del negocio vía la campana (auditoría ago-2026).
+          publicarCambio('negocio');
 
           // ── ENTREGA DE PROYECTOS (Frente F.1) ──
           // Ganamos → se abre la entrega y arranca el circuito de acuse de recibo. Va atado a la
@@ -213,9 +227,10 @@ async function reconfirmarResueltasSinCache(
        LEFT JOIN adjudicacion_cache c
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
-         AND n.estado_pipeline IN ('ADJUDICADA', 'PERDIDA')
+         AND n.estado_pipeline IN (${IN_RESUELTAS})
          AND (c.licitacion_codigo IS NULL OR c.es_adjudicada = 0)
        ORDER BY (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
+      ESTADOS_RESUELTAS,
     ) as any[];
     filas = rows as (FilaPostulada & { estado_pipeline: string })[];
   } catch (e) {
@@ -244,9 +259,10 @@ async function reconfirmarResueltasSinCache(
 
       const resultadoReal = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
       for (const n of negocios) {
-        if (n.estado_pipeline === resultadoReal) continue; // coincide con lo puesto a mano: solo hacía falta el cache
+        if (normalizarEstado(n.estado_pipeline) === resultadoReal) continue; // coincide con lo puesto a mano (o su alias legado): solo hacía falta el cache
         // MP dice algo DISTINTO de lo que había a mano → corrige y avisa (la verdad es el acta).
         await pool.query(`UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`, [resultadoReal, n.id]);
+        publicarCambio('negocio');
         // Caso real: alguien la había marcado PERDIDA a mano y el acta dice que ganamos. Es una
         // victoria que nadie sabía que existía → también abre la entrega.
         if (adj.ganamos) {

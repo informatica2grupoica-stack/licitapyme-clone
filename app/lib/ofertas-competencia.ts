@@ -16,6 +16,11 @@ import {
   leerOfertasApertura, descargarDocumentoOferta, descargarAnexoPorPostback, normalizarRut,
   ROTULO_CATEGORIA, type OfertaLeida, type DocumentoOferta, type CategoriaAnexo,
 } from '@/app/lib/mp-ofertas';
+import { idsEquivalentes } from '@/app/lib/pipeline';
+
+// IDs (vigente + legados) que cuentan como "postulada" — ver misma nota en detectar-aperturas.ts.
+const ESTADOS_POSTULADA = idsEquivalentes('POSTULADA');
+const IN_POSTULADA = ESTADOS_POSTULADA.map(() => '?').join(', ');
 
 const CONCURRENCIA     = 2;        // la apertura es más pesada que la ficha: sé gentil con MP
 const PRESUPUESTO_MS   = 260_000;  // margen bajo maxDuration=300
@@ -141,8 +146,8 @@ async function avisarOfertasLeidas(codigo: string, cuantas: number): Promise<voi
     const [rows] = await pool.query(
       `SELECT n.asignado_a, n.licitacion_nombre, u.nombre AS usuario_nombre
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
-        WHERE n.activo = TRUE AND n.estado_pipeline = 'POSTULADA' AND n.licitacion_codigo = ?`,
-      [codigo],
+        WHERE n.activo = TRUE AND n.estado_pipeline IN (${IN_POSTULADA}) AND n.licitacion_codigo = ?`,
+      [...ESTADOS_POSTULADA, codigo],
     ) as any;
     for (const r of rows as any[]) {
       await registrarEvento({
@@ -202,10 +207,11 @@ export async function contarPendientesOfertas(): Promise<number> {
          FROM licitacion_apertura la
          JOIN negocios n
            ON n.licitacion_codigo COLLATE utf8mb4_unicode_ci = la.licitacion_codigo
-          AND n.activo = TRUE AND n.estado_pipeline = 'POSTULADA'
+          AND n.activo = TRUE AND n.estado_pipeline IN (${IN_POSTULADA})
         WHERE la.aperturada = 1
           AND la.ofertas_leidas_en IS NULL
           AND la.ofertas_intentos < 6`,
+      ESTADOS_POSTULADA,
     ) as any;
     return Number((rows as any[])[0]?.n) || 0;
   } catch (e) {
@@ -227,12 +233,13 @@ export async function procesarOfertasPendientes(lote = 10): Promise<{
          FROM licitacion_apertura la
          JOIN negocios n
            ON n.licitacion_codigo COLLATE utf8mb4_unicode_ci = la.licitacion_codigo
-          AND n.activo = TRUE AND n.estado_pipeline = 'POSTULADA'
+          AND n.activo = TRUE AND n.estado_pipeline IN (${IN_POSTULADA})
         WHERE la.aperturada = 1
           AND la.ofertas_leidas_en IS NULL
           AND la.ofertas_intentos < 6
         ORDER BY la.detectada_en DESC
         LIMIT ${Math.max(1, Math.min(lote, 50))}`,
+      ESTADOS_POSTULADA,
     ) as any;
     codigos = (rows as any[]).map(r => String(r.codigo));
   } catch (e) {

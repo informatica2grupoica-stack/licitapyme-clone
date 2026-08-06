@@ -61,6 +61,15 @@ export interface EmpresaCampos {
   // En la práctica este trío lo resuelve detectarTripletesFecha (anexos-detectar.ts) sin pasar por
   // este motor; el campo queda documentado igual por si algún caso raro cae al camino normal.
   fecha_hoy_mes_palabra?: string | null;
+  // Dirección partida (6-ago-2026, caso real 4777-24-LE26): un formulario "Domicilio: Calle ___
+  // N°: ___ Comuna: ___ Ciudad: ___" son CUATRO casillas — sin esto, el único campo disponible era
+  // `direccion` entera, y el motor la repetía completa en las cuatro (o, peor, elegía cualquier
+  // otro campo con tal de llenar algo). `null` si `direccion` no trae una marca "N°"/"Nº" clara
+  // que permita separar sin adivinar — ver calleYNumeroDeDireccion en anexos-derivados.ts.
+  direccion_calle?: string | null;
+  direccion_numero?: string | null;
+  comuna?: string | null;
+  ciudad?: string | null;
   // Datos de ESTA LICITACIÓN (tampoco son columnas de `empresas` — se resuelven en
   // anexos-datos.ts llamando a Mercado Público por el código de la licitación que se está
   // rellenando, ver obtenerLicitacionParaAnexo). Van en el MISMO objeto que la ficha de empresa
@@ -120,7 +129,8 @@ const CATEGORIAS_PERFIL: CategoriaCampo[] = [
 // viniera. Lo bancario y los datos de licitación siguen aparte a propósito: ahí sí hay dos titulares
 // distintos posibles (la cuenta puede estar a nombre de otro) y dos fuentes de datos distintas.
 const CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA: (keyof EmpresaCampos)[] = [
-  'razon_social', 'rut', 'direccion', 'region', 'giro', 'tipo_persona_juridica',
+  'razon_social', 'rut', 'direccion', 'direccion_calle', 'direccion_numero', 'comuna', 'ciudad',
+  'region', 'giro', 'tipo_persona_juridica',
   'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
   'representante_nombre', 'representante_rut', 'representante_cargo',
   'email1', 'telefono1',
@@ -201,6 +211,15 @@ const RE_PARECE_RUT = /^\s*\d{1,3}(\.\d{3})*\s*-\s*[\dkK]\s*$/;
 const pareceRut = (v: string) => RE_PARECE_RUT.test(v);
 const pareceCorreo = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 const pareceTelefono = (v: string) => !/@/.test(v) && (v.match(/\d/g)?.length ?? 0) >= 7 && !pareceRut(v);
+// Un N°/número de domicilio SIEMPRE trae al menos un dígito ("492", "575 N° 6", "s/n" es la única
+// excepción real y es tan rara que no vale la pena contemplarla). Un nombre de persona, una razón
+// social o una dirección completa (lo que terminaba cayendo ahí antes — caso real 4777-24-LE26,
+// "Lidia Valenzuela" en la casilla "N°:") nunca tiene un dígito. Esta única condición basta para
+// atajar el error sin importar qué campo equivocado haya propuesto la IA.
+const pareceNumeroDomicilio = (v: string) => /\d/.test(v) && v.trim().length <= 25;
+// Comuna/ciudad son UN nombre de lugar, no una dirección compuesta: si trae coma o la palabra
+// "Región", es el campo `region`/`direccion` completo colado donde no correspondía.
+const pareceLugarSuelto = (v: string) => !/,/.test(v) && !/\bregi[óo]n\b/i.test(v) && !pareceRut(v) && !pareceCorreo(v);
 
 // Se evalúan EN ORDEN y manda la primera que calce: "Nombre y RUT del representante" es una
 // etiqueta real y ahí el RUT es una respuesta válida, así que la regla de RUT tiene que ganarle a
@@ -209,6 +228,12 @@ const REGLAS_FORMA: { pide: RegExp; valido: (v: string) => boolean }[] = [
   { pide: /\b(rut|r\.\s*u\.\s*t|c[ée]dula|c\.\s*i\.|\brun\b|rol\s+[úu]nico\s+tributario)\b/i, valido: pareceRut },
   { pide: /\b(correo|e-?mail|mail|casilla\s+electr[óo]nica)\b/i, valido: pareceCorreo },
   { pide: /\b(tel[ée]fono|fono|celular|m[óo]vil|anexo\s+telef)\b/i, valido: pareceTelefono },
+  // "N°"/"Nº"/"Número" SOLO cuando no viene pegado a RUT/teléfono (esos ya se resolvieron arriba
+  // y ganan por orden). Cubre "N°:", "Número", "Nro" como etiqueta de casilla de domicilio.
+  // OJO: nunca agregar una "o" suelta al char-class de abajo — "n[o]:" calza con "Fono:"/
+  // "Teléfono:" (terminan en "no:"), solo el signo de grado real distingue "N°" de esas palabras.
+  { pide: /(?:^|[^a-záéíóúñ])n[°º]\s*:|\bn[úu]mero\b|\bnro\.?\b/i, valido: pareceNumeroDomicilio },
+  { pide: /\bcomuna\b|\bciudad\b/i, valido: pareceLugarSuelto },
   // Un nombre / razón social / dirección nunca es un RUT pelado ni un correo.
   { pide: /\b(nombre|raz[óo]n\s+social|direcci[óo]n|domicilio|calle)\b/i, valido: v => !pareceRut(v) && !pareceCorreo(v) },
 ];
@@ -231,8 +256,12 @@ const CAMPOS_SOLO_PARA_TRIPLETE_DE_FECHA = new Set<string>(['fecha_hoy_dia', 'fe
 const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   razon_social: 'Razón social / nombre de la empresa',
   rut: 'RUT de la empresa',
-  direccion: 'Dirección comercial',
-  region: 'Región (incluye la comuna al final, ej. "Región del Bío Bío, Concepción") — úsalo también si la casilla pide "Región y comuna"/"Ciudad, Región"',
+  direccion: 'Dirección comercial COMPLETA (calle + número + comuna) — úsalo SOLO si la casilla pide "Domicilio"/"Dirección" en UNA sola casilla. Si la casilla dice "Calle", "N°"/"Número", "Comuna" o "Ciudad" por separado, usa el campo específico de abajo, nunca este entero.',
+  direccion_calle: 'Solo el NOMBRE DE LA CALLE del domicilio comercial (sin número) — casilla "Calle".',
+  direccion_numero: 'Solo el NÚMERO/N° del domicilio comercial (sin el nombre de la calle) — casilla "N°"/"Número".',
+  comuna: 'Comuna del domicilio comercial — casilla "Comuna".',
+  ciudad: 'Ciudad del domicilio comercial — casilla "Ciudad".',
+  region: 'Región CON la comuna al final, ej. "Región del Bío Bío, Concepción" — úsalo SOLO si la casilla junta "Región y comuna" o "Ciudad, Región" en una sola casilla. Si la casilla pide solo "Comuna" o solo "Ciudad", usa esos campos, no este.',
   giro: 'Giro comercial',
   tipo_persona_juridica: 'Tipo de persona jurídica',
   fecha_sociedad: 'Fecha/tipo/notaría de constitución (texto libre, todo junto)',
@@ -416,11 +445,15 @@ async function resolverLoteCampos(
     // representada/RUT, los 5 en la misma frase) flashx confundía qué campo iba en cuál, incluso
     // repitiendo el mismo campo en dos casillas distintas. Esto se escribe en declaraciones
     // juradas reales — vale la pena el modelo más cuidadoso (sigue siendo GLM, costo marginal).
+    // soloGlm: true — sin esto, si glm-4.7 y sus respaldos GLM fallaban en racha, la cadena caía
+    // en DeepSeek, exactamente el modelo que este comentario dice que confunde campos (auditoría
+    // ago-2026). Con soloGlm, ante una degradación total de Z.AI el lote queda "pendiente" (motivo
+    // visible) en vez de arriesgar un campo cruzado sin aviso.
     const completion: any = await crearChatIA({
       messages: [{ role: 'system', content: SYS_CAMPOS }, { role: 'user', content: user }],
       temperature: 0, stream: false, max_tokens: 4_000,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7' });
+    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
 
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};
@@ -514,7 +547,7 @@ async function resolverLoteDesdeBases(items: ItemLote[], basesTexto: string): Pr
       messages: [{ role: 'system', content: SYS_BASES_CAMPOS }, { role: 'user', content: user }],
       temperature: 0, stream: false, max_tokens: 4_000,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7' });
+    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
 
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};

@@ -7,7 +7,7 @@ import {
   LayoutDashboard, Search, Users, LogOut, User,
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
-  PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart, PackageCheck, Library,
+  PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart, PackageCheck, Library, Star, FolderOpen,
 } from 'lucide-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
@@ -155,6 +155,19 @@ function UserMenu({ dark = false, angosto = false }: { dark?: boolean; angosto?:
           <Link href="/perfil" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
             <User size={15} className="text-slate-400" /> Mi perfil
           </Link>
+          {/* Favoritos y Mis documentos: herramientas personales (licitaciones marcadas, archivos
+              que subiste), no organizacionales — por eso viven acá y no en el sidebar principal.
+              Ocultas para "externo" porque dependen del buscador/radar, al que no tiene acceso. */}
+          {usuario.rol !== 'externo' && (
+            <>
+              <Link href="/favoritos" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+                <Star size={15} className="text-slate-400" /> Favoritos
+              </Link>
+              <Link href="/documentos" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+                <FolderOpen size={15} className="text-slate-400" /> Mis documentos
+              </Link>
+            </>
+          )}
           {usuario.rol === 'admin' && (
             <>
               <Link href="/admin/usuarios" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">

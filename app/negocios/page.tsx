@@ -15,7 +15,7 @@ import {
   SlidersHorizontal, MapPin, Clock, Check, Download, ArrowUpNarrowWide, ArrowDownWideNarrow, Trophy,
 } from 'lucide-react';
 import dayjs from 'dayjs';
-import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
+import { getEstadoPipeline, ESTADOS_PIPELINE, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS, TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
@@ -571,12 +571,15 @@ function VistaCalendario({ negocios, onAbrirDia }: { negocios: Negocio[]; onAbri
                 {items.length > 0 && <span className="text-[10px] font-bold text-indigo-600 tabular-nums">{items.length}</span>}
               </div>
               <div className="flex flex-wrap gap-1 mt-1.5">
-                {items.slice(0, 6).map((n, i) => (
-                  <span key={i}
-                    title={`${n.usuario_nombre || n.usuario_email}${n.estado_pipeline === 'DESCARTADA' ? ' · Descartada' : n.estado_pipeline === 'POSTULADA' ? ' · Postulada' : ''}`}
-                    style={{ background: n.estado_pipeline === 'DESCARTADA' ? '#DC2626' : n.estado_pipeline === 'POSTULADA' ? '#059669' : colorUsuario(n.usuario_email || n.usuario_nombre) }}
-                    className="w-2 h-2 rounded-full" />
-                ))}
+                {items.slice(0, 6).map((n, i) => {
+                  const estadoItem = normalizarEstado(n.estado_pipeline);
+                  return (
+                    <span key={i}
+                      title={`${n.usuario_nombre || n.usuario_email}${estadoItem === 'DESCARTADA' ? ' · Descartada' : estadoItem === 'POSTULADA' ? ' · Postulada' : ''}`}
+                      style={{ background: estadoItem === 'DESCARTADA' ? '#DC2626' : estadoItem === 'POSTULADA' ? '#059669' : colorUsuario(n.usuario_email || n.usuario_nombre) }}
+                      className="w-2 h-2 rounded-full" />
+                  );
+                })}
                 {items.length > 6 && <span className="text-[8px] text-slate-400 leading-none self-center">+{items.length - 6}</span>}
               </div>
             </button>
@@ -1551,7 +1554,7 @@ function NegociosContent() {
     const VENTANA_ALERTA_MS = 2 * 86400000;
     const conPreguntas = negocios
       .filter(n => {
-        if (n.estado_pipeline === 'DESCARTADA' || !n.fecha_fin_preguntas) return false;
+        if (normalizarEstado(n.estado_pipeline) === 'DESCARTADA' || !n.fecha_fin_preguntas) return false;
         const faltan = new Date(n.fecha_fin_preguntas).getTime() - ahora;
         return faltan >= 0 && faltan <= VENTANA_ALERTA_MS;
       })

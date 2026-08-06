@@ -6,16 +6,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
+import { getAuthedUser } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-function getUserId(req: NextRequest): number | null {
-  const id = req.headers.get('x-user-id');
-  if (!id) return null;
-  const n = parseInt(id, 10);
-  return isNaN(n) ? null : n;
-}
 
 function parseJSON(v: any): any {
   if (v == null) return null;
@@ -24,8 +18,12 @@ function parseJSON(v: any): any {
 }
 
 export async function GET(request: NextRequest) {
-  const userId = getUserId(request);
-  if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  // Admin-only de verdad: expone el análisis IA de TODOS los negocios de TODOS los perfiles.
+  // Antes solo el sidebar lo ocultaba a no-admins; cualquiera podía verlo tecleando la URL
+  // (auditoría ago-2026). getAuthedUser() vuelve a verificar el JWT, no confía en el header.
+  const u = await getAuthedUser(request);
+  if (!u) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (u.rol !== 'admin') return NextResponse.json({ error: 'Solo administradores.' }, { status: 403 });
 
   try {
     // Dueño = el negocio ACTIVO más reciente de esa licitación (una fila por código, sin

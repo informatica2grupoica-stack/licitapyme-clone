@@ -49,6 +49,30 @@ function comunaDeDireccion(direccion: string | null | undefined): string | null 
   return partes.length > 1 ? partes[partes.length - 1] : null;
 }
 
+// Calle y número, sueltos de `direccion` — pedido explícito del usuario (6-ago-2026, caso real
+// 4777-24-LE26): un anexo con "Domicilio: Calle ___ N°: ___ Comuna: ___ Ciudad: ___" como CUATRO
+// casillas separadas no tenía ningún campo propio que ofrecerle a cada una por separado, así que
+// el motor terminaba repitiendo la dirección COMPLETA en "Calle" y de nuevo en "N°" (y, en un caso
+// peor, el nombre del representante en "N°" porque no había ninguna opción mejor que calzara).
+//
+// Deliberadamente NO es una migración a `empresas` (mismo criterio que comunaDeDireccion, ver
+// comentario de arriba): es texto que ya existe en `direccion`, solo hay que partirlo. El corte es
+// en el PRIMER "N°"/"Nº"/"N" seguido de dígito — el separador que casi cualquier dirección chilena
+// usa entre la calle y el número. Si esa marca no aparece, NO se inventa una calle/número: se
+// deja `null` y la casilla queda pendiente (mejor sin dato que un dato mal cortado) — misma regla
+// de oro anti-alucinación que el resto del motor.
+const RE_MARCA_NUMERO = /\bN[°ºo]?\.?\s*(?=\d)/i;
+
+function calleYNumeroDeDireccion(direccion: string | null | undefined): { calle: string | null; numero: string | null } {
+  const sinComuna = (direccion || '').split(',')[0]?.trim() || '';
+  const m = RE_MARCA_NUMERO.exec(sinComuna);
+  if (!m) return { calle: null, numero: null };
+  const calle = sinComuna.slice(0, m.index).trim().replace(/[,\-]+$/, '');
+  const numero = sinComuna.slice(m.index + m[0].length).trim();
+  if (!calle || !numero) return { calle: null, numero: null };
+  return { calle, numero };
+}
+
 // La ficha de empresa guarda la región como la escribió el usuario ("Metropolitana", "Región del
 // Bío Bío"). En un anexo se escribe siempre con la palabra "Región" adelante — si ya la trae, se
 // deja tal cual — y se le agrega la comuna (ver comunaDeDireccion) cuando la dirección la trae.
@@ -63,9 +87,16 @@ export function regionCompleta(region: string | null | undefined, direccion?: st
 // Toma el registro tal cual sale de la tabla `empresas` y devuelve el mismo registro CON los
 // campos derivados resueltos. No pisa nada que ya venga con dato propio.
 export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): EmpresaCampos {
+  const comuna = comunaDeDireccion(empresa.direccion);
+  const { calle, numero } = calleYNumeroDeDireccion(empresa.direccion);
   return {
     ...empresa,
     region: regionCompleta(empresa.region, empresa.direccion),
+    // Chile no distingue de forma confiable "comuna" de "ciudad" en una dirección comercial en
+    // texto libre (Talagante es comuna Y ciudad a la vez) — se ofrece el mismo valor para las dos
+    // etiquetas, igual de válido para cualquiera de las dos.
+    comuna, ciudad: comuna,
+    direccion_calle: calle, direccion_numero: numero,
     fecha_hoy: fechaLargaChile(ahora),
     // Las tres partes por separado, para los pies de firma "Fecha: ____ /____ /____" (tres casillas
     // independientes, el formato más común de los anexos chilenos). Misma hora de Chile que

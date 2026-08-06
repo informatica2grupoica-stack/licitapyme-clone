@@ -689,6 +689,10 @@ export interface ResultadoGeneracion {
   completados: number;
   respondidos: number;
   integridad: { parrafosIguales: boolean; parrafosAntes: number; parrafosDespues: number };
+  // Firma/timbre que DEBÍAN estamparse (la empresa tiene la URL cargada y algún lugar del
+  // documento los pedía) pero la descarga desde R2 falló — antes esto se tragaba en silencio y
+  // el .docx salía "exitoso" sin la imagen (auditoría ago-2026). Vacío si todo se estampó bien.
+  avisos: string[];
 }
 
 export async function generarAnexoFinal(
@@ -730,6 +734,7 @@ export async function generarAnexoFinal(
 
   let xml = xmlNormalizado;
   let respondidos = 0;
+  const avisos: string[] = [];
 
   // 1) Blancos inline PRIMERO — mismo orden y misma razón que antes: este paso solo EDITA texto
   //    de runs que ya existían, nunca agrega/quita un <w:t>, así que el índice de aparición no
@@ -806,6 +811,11 @@ export async function generarAnexoFinal(
     const usaTimbre = decisiones.some(d => d.que === 'ambas' || d.que === 'timbre');
     const firma = usaFirma && empresa.firma_url ? await descargarFirma(empresa.firma_url) : null;
     const timbre = usaTimbre && empresa.timbre_url ? await descargarFirma(empresa.timbre_url) : null;
+    // La empresa SÍ tenía la URL cargada y algún lugar la necesitaba: si `descargarFirma` volvió
+    // null igual, no fue "no aplica", fue que la descarga falló (red, R2 caído, etc.) — eso hay
+    // que decirlo, no dejar que el .docx salga "exitoso" sin la imagen.
+    if (usaFirma && empresa.firma_url && !firma) avisos.push('No se pudo descargar la firma guardada — el documento se generó SIN firma.');
+    if (usaTimbre && empresa.timbre_url && !timbre) avisos.push('No se pudo descargar el timbre guardado — el documento se generó SIN timbre.');
 
     for (const { linea, que, alineacion } of decisiones) {
       if (que === 'ninguna') continue;
@@ -831,5 +841,5 @@ export async function generarAnexoFinal(
   const integridad = verificarParrafos(xmlCrudo, xml);
   const buffer = await guardarDocx(zip, xml);
 
-  return { buffer, completados, respondidos, integridad };
+  return { buffer, completados, respondidos, integridad, avisos };
 }

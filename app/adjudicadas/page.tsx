@@ -18,6 +18,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { normalizarEstado } from '@/app/lib/pipeline';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
@@ -88,7 +89,7 @@ const OPCIONES_ORDEN: { value: Orden; label: string }[] = [
 // manda ese. Si viene parcial o aún no cargó, cae al estado ya promovido por el cron.
 function resultadoDe(n: Negocio, adj?: Adjudicacion | null): Resultado {
   if (adj?.esAdjudicada && typeof adj.ganamos === 'boolean') return adj.ganamos ? 'ganada' : 'perdida';
-  return n.estado_pipeline === 'PERDIDA' ? 'perdida' : 'ganada';
+  return normalizarEstado(n.estado_pipeline) === 'PERDIDA' ? 'perdida' : 'ganada';
 }
 
 // Monto que mostramos como "resultado": lo ganado por nosotros o el total adjudicado a terceros.
@@ -582,7 +583,8 @@ export default function AdjudicadasPage() {
   const esResuelta = useCallback((n: Negocio) => {
     const a = adjMap[n.licitacion_codigo];
     if (a) return a.esAdjudicada;
-    return n.estado_pipeline === 'ADJUDICADA' || n.estado_pipeline === 'PERDIDA';
+    const estado = normalizarEstado(n.estado_pipeline);
+    return estado === 'ADJUDICADA' || estado === 'PERDIDA';
   }, [adjMap]);
   const resueltas = useMemo(() => negocios.filter(esResuelta), [negocios, esResuelta]);
 

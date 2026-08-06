@@ -14,6 +14,7 @@ import { generarAnexoFinal } from '@/app/lib/anexos-rellenar';
 import { abrirDocx, verificarXmlBienFormado } from '@/app/lib/anexos-docx';
 import { dividirPorFormularios } from '@/app/lib/anexos-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
+import { yaCongelado } from '@/app/lib/congelamiento';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,6 +57,26 @@ export async function POST(request: NextRequest) {
   // mientras se decide quiénes más lo van a usar — reforzado acá, no solo ocultando el botón.
   if (!(await esAdmin(request))) {
     return NextResponse.json({ error: 'El creador de anexos está disponible solo para administradores por ahora' }, { status: 403 });
+  }
+
+  // Guardarraíl real (antes era solo el botón de la UI, no una regla del backend — auditoría
+  // ago-2026): una vez que el negocio se postuló, el Auditor Técnico queda congelado y el anexo ya
+  // se presentó — no tiene sentido seguir generando/reemplazando anexos para él. Fail-closed: si no
+  // se puede determinar el negocio o su estado, no se genera.
+  try {
+    const [rows] = await pool.query(
+      `SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`,
+      [codigo],
+    ) as any;
+    const negocio = (rows as any[])[0];
+    if (negocio && (await yaCongelado(negocio.id))) {
+      return NextResponse.json(
+        { error: 'Este negocio ya se postuló y su Auditor Técnico quedó congelado — ya no se pueden generar más anexos.' },
+        { status: 409 },
+      );
+    }
+  } catch (e) {
+    return NextResponse.json({ error: 'No se pudo verificar el estado del negocio, inténtalo de nuevo.' }, { status: 503 });
   }
 
   try {
@@ -120,17 +141,19 @@ export async function POST(request: NextRequest) {
       usuarioId: usuario.id, accion: 'anexo_relleno',
       entidadTipo: 'licitacion', entidadId: codigo,
       descripcion: `Rellenó el anexo "${nombreOriginal}" (${resultado.completados} automáticos, ${resultado.respondidos} manuales)`
-        + (archivos.length > 1 ? ` — dividido en ${archivos.length} formularios` : ''),
+        + (archivos.length > 1 ? ` — dividido en ${archivos.length} formularios` : '')
+        + (resultado.avisos.length > 0 ? ` — AVISO: ${resultado.avisos.join(' ')}` : ''),
       metadata: {
         licitacion_codigo: codigo, documento: nombreOriginal,
         completados: resultado.completados, respondidos: resultado.respondidos,
-        archivos: archivos.map(a => a.nombre),
+        archivos: archivos.map(a => a.nombre), avisos: resultado.avisos,
       },
     });
 
     return NextResponse.json({
       success: true, archivos, dividido: archivos.length > 1,
       completados: resultado.completados, respondidos: resultado.respondidos,
+      avisos: resultado.avisos,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 400 });

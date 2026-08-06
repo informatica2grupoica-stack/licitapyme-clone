@@ -16,6 +16,12 @@
 import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
 import { detectarAperturaPortal } from '@/app/lib/mp-apertura';
+import { idsEquivalentes } from '@/app/lib/pipeline';
+
+// IDs (vigente + legados) que cuentan como "postulada" en estas queries — sin esto, un registro
+// con id legado (ej. '7POSTULADO_JV') quedaba invisible sin error (auditoría ago-2026).
+const ESTADOS_POSTULADA = idsEquivalentes('POSTULADA');
+const IN_POSTULADA = ESTADOS_POSTULADA.map(() => '?').join(', ');
 
 const CONCURRENCIA   = 3;       // fichas del portal en paralelo (gentil con MP)
 const PRESUPUESTO_MS = 280_000; // margen bajo maxDuration=300 del cron
@@ -86,8 +92,8 @@ async function marcarYAvisar(codigo: string, aperturada: boolean, evidencia: str
     const [rows] = await pool.query(
       `SELECT n.asignado_a, n.licitacion_nombre, u.nombre AS usuario_nombre
        FROM negocios n JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
-       WHERE n.activo = TRUE AND n.estado_pipeline = 'POSTULADA' AND n.licitacion_codigo = ?`,
-      [codigo],
+       WHERE n.activo = TRUE AND n.estado_pipeline IN (${IN_POSTULADA}) AND n.licitacion_codigo = ?`,
+      [...ESTADOS_POSTULADA, codigo],
     ) as any[];
     for (const n of rows as any[]) {
       await registrarEvento({
@@ -153,10 +159,11 @@ export async function contarPendientesApertura(): Promise<number> {
        FROM negocios n
        LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo COLLATE utf8mb4_unicode_ci
        WHERE n.activo = TRUE
-         AND n.estado_pipeline = 'POSTULADA'
+         AND n.estado_pipeline IN (${IN_POSTULADA})
          AND n.licitacion_cierre IS NOT NULL
          AND n.licitacion_cierre < NOW()
          AND (la.aperturada IS NULL OR la.aperturada = 0)`,
+      ESTADOS_POSTULADA,
     ) as any[];
     return Number((rows as any[])[0]?.n) || 0;
   } catch (e) {
@@ -182,13 +189,14 @@ export async function detectarAperturas(lote = 40): Promise<{
        FROM negocios n
        LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo COLLATE utf8mb4_unicode_ci
        WHERE n.activo = TRUE
-         AND n.estado_pipeline = 'POSTULADA'
+         AND n.estado_pipeline IN (${IN_POSTULADA})
          AND n.licitacion_cierre IS NOT NULL
          AND n.licitacion_cierre < NOW()
          AND (la.aperturada IS NULL OR la.aperturada = 0)
        GROUP BY n.licitacion_codigo
        ORDER BY cierre DESC
        LIMIT ${Math.max(1, Math.min(lote, 200))}`,
+      ESTADOS_POSTULADA,
     ) as any[];
     codigos = (rows as any[]).map(r => r.codigo as string);
   } catch (e) {

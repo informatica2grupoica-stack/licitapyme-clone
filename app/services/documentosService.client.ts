@@ -57,6 +57,28 @@ export function getMockDocumentos(codigo: string): DocumentoAdjunto[] {
   ];
 }
 
+// Descargar un documento (versión simple, vía el proxy — evita CORS contra Mercado Público)
+export async function descargarDocumento(url: string, nombre: string): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
+    if (!response.ok) throw new Error('Error al descargar');
+
+    const blob = await response.blob();
+    const link = document.createElement('a');
+    const objectUrl = URL.createObjectURL(blob);
+    link.href = objectUrl;
+    link.download = nombre;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(objectUrl);
+    return true;
+  } catch (error) {
+    console.error('Error al descargar:', error);
+    return false;
+  }
+}
+
 // Descargar documento usando el worker (cliente)
 export async function descargarDocumentoConWorker(
   licitacionCodigo: string,

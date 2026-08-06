@@ -25,7 +25,7 @@ import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useRealtime } from '@/app/lib/use-realtime';
-import { ESTADOS_PIPELINE, getEstadoPipeline } from '@/app/lib/pipeline';
+import { ESTADOS_PIPELINE, getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licitacion';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { useConfirm } from '@/app/components/ui/confirm';
@@ -908,8 +908,9 @@ export default function PostuladasPage() {
       if (a?.tieneCacheReal) return resultadoDe(a);
       // Sin cache aún: si ya quedó resuelta por estado, respétalo (coincide con /adjudicadas
       // durante la carga y si MP no respondiera).
-      if (n.estado_pipeline === 'ADJUDICADA') return 'ganada';
-      if (n.estado_pipeline === 'PERDIDA') return 'perdida';
+      const estado = normalizarEstado(n.estado_pipeline);
+      if (estado === 'ADJUDICADA') return 'ganada';
+      if (estado === 'PERDIDA') return 'perdida';
       return 'evaluacion';
     },
     [adjMap],

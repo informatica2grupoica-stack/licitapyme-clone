@@ -565,6 +565,11 @@ export function AnexoRellenoModal({
         data.dividido ? `${data.archivos?.length || 0} formularios generados` : 'Anexo generado',
         `${resumenCampos} — disponible${data.dividido ? 's' : ''} en Documentos para MP`,
       );
+      // La firma/timbre estaban cargadas y el documento las pedía, pero la descarga falló al
+      // generar — el archivo SÍ se subió, solo que sin esa imagen. Avisar en vez de dejar que se
+      // descubra recién al abrir el Word (auditoría ago-2026).
+      const avisos: string[] = Array.isArray(data.avisos) ? data.avisos : [];
+      if (avisos.length > 0) toast.warning('Revisa antes de enviar', avisos.join(' '));
       onGenerado(data.archivos || []);
       onClose();
     } catch (e: any) {

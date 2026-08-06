@@ -254,6 +254,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       // es la protección real: cubre lista, selector y llamadas directas a la API).
       if (normalizarEstado(estado_pipeline) === 'EN_PROCESO'
           && normalizarEstado(neg.estado_pipeline) !== 'EN_PROCESO') {
+        // Fail-closed: si no se puede LEER si hay viabilidad (JOIN roto, JSON corrupto, etc.), no
+        // se asume que sí la hay — antes este catch tragaba el error y dejaba pasar el cambio de
+        // estado sin haber verificado nada (auditoría ago-2026).
         let tieneViabilidad = false;
         try {
           const [vrows] = await pool.query(
@@ -265,13 +268,19 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             const ie = typeof vr.informe_ejecutivo === 'string' ? JSON.parse(vr.informe_ejecutivo) : vr.informe_ejecutivo;
             tieneViabilidad = !!(ie?._informe_ia_v3 ?? ie?._informe_ia);
           }
-          if (!tieneViabilidad) {
-            return NextResponse.json(
-              { error: 'Primero realiza el análisis de viabilidad IA antes de pasar la licitación a "En proceso".' },
-              { status: 409 },
-            );
-          }
-        } catch { /* fallo de lectura (tabla/JSON): no bloquea — el front ya gatea */ }
+        } catch (e) {
+          console.error('[negocios PATCH] no se pudo verificar viabilidad IA, se bloquea el cambio a EN_PROCESO:', String(e).slice(0, 200));
+          return NextResponse.json(
+            { error: 'No se pudo verificar el análisis de viabilidad IA, inténtalo de nuevo.' },
+            { status: 503 },
+          );
+        }
+        if (!tieneViabilidad) {
+          return NextResponse.json(
+            { error: 'Primero realiza el análisis de viabilidad IA antes de pasar la licitación a "En proceso".' },
+            { status: 409 },
+          );
+        }
       }
       try {
         if (estado_pipeline === 'DESCARTADA') {

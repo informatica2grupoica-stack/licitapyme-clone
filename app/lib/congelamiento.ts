@@ -20,11 +20,18 @@ export interface PaqueteTraspaso {
   } | null;
 }
 
+/**
+ * ¿Este negocio ya congeló su Auditor Técnico? Es el guard que bloquea edición tras postular
+ * (spec §12.1, solo lectura). FAIL-CLOSED por diseño: si la consulta falla, LANZA en vez de
+ * devolver `false` — un error de infraestructura no debe traducirse en "no está congelado" y
+ * dejar editable un negocio que debería estar bloqueado (auditoría ago-2026). Las rutas que usan
+ * esto como guard de escritura ya están dentro de un try/catch que responde 500 y no escribe
+ * nada; los llamadores internos que sí deben tolerar el fallo (congelarAuditorSiCorresponde,
+ * congelarPendientes) lo atrapan explícitamente ellos mismos.
+ */
 export async function yaCongelado(negocioId: number): Promise<boolean> {
-  try {
-    const [rows] = await pool.query(`SELECT 1 FROM checklist_comercial_congelamiento WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
-    return (rows as any[]).length > 0;
-  } catch { return false; }
+  const [rows] = await pool.query(`SELECT 1 FROM checklist_comercial_congelamiento WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  return (rows as any[]).length > 0;
 }
 
 export async function leerCongelamiento(negocioId: number): Promise<{ congeladoAt: string; congeladoPorNombre: string | null; paquete: PaqueteTraspaso } | null> {
@@ -231,12 +238,18 @@ export async function congelarPendientes(limite = 20): Promise<{ revisados: numb
 
   for (const f of filas) {
     res.revisados++;
-    const antes = await yaCongelado(f.id);
-    if (antes) continue; // se congeló entre la consulta y ahora (carrera con el flujo normal)
-    await congelarAuditorSiCorresponde(f.id, f.licitacion_codigo, null, 'Reconciliación automática');
-    if (await yaCongelado(f.id)) {
-      res.congelados++;
-      console.log(`[congelamiento] reconciliado negocio ${f.id} (${f.licitacion_codigo})`);
+    try {
+      const antes = await yaCongelado(f.id);
+      if (antes) continue; // se congeló entre la consulta y ahora (carrera con el flujo normal)
+      await congelarAuditorSiCorresponde(f.id, f.licitacion_codigo, null, 'Reconciliación automática');
+      if (await yaCongelado(f.id)) {
+        res.congelados++;
+        console.log(`[congelamiento] reconciliado negocio ${f.id} (${f.licitacion_codigo})`);
+      }
+    } catch (e) {
+      // Best-effort: si no se puede verificar este candidato, se salta y se reintenta en la
+      // próxima corrida — nunca se asume "no congelado" para forzar un congelamiento a ciegas.
+      console.error(`[congelamiento] reconciliación de negocio ${f.id} falló:`, String(e).slice(0, 200));
     }
   }
   return res;
@@ -250,7 +263,15 @@ export async function congelarPendientes(limite = 20): Promise<{ revisados: numb
 export async function congelarAuditorSiCorresponde(
   negocioId: number, licitacionCodigo: string, userId: number | null, userNombre: string,
 ): Promise<void> {
-  if (await yaCongelado(negocioId)) return;
+  try {
+    if (await yaCongelado(negocioId)) return;
+  } catch (e) {
+    // No se pudo verificar si ya estaba congelado: no intentar construir/insertar a ciegas
+    // (podría duplicar trabajo o pisar una carrera). Se reintentará en la próxima postulación
+    // o en la reconciliación de congelarPendientes().
+    console.error('[congelamiento] no se pudo verificar estado previo (no bloquea la postulación):', String(e).slice(0, 200));
+    return;
+  }
   try {
     const paquete = await construirPaquete(negocioId, licitacionCodigo);
     await pool.query(

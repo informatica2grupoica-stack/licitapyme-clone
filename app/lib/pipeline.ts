@@ -59,6 +59,18 @@ export function normalizarEstado(id: string | null | undefined): string {
   return ALIAS_LEGADO[id] ?? id;
 }
 
+// Inverso de ALIAS_LEGADO: dado un id VIGENTE, todos los ids (vigente + legados) que representan
+// el mismo estado en la BD. Para usar en un `WHERE estado_pipeline IN (...)` — las queries SQL no
+// pueden pasar por normalizarEstado() fila a fila, así que amplían la comparación en vez de
+// angostarla (auditoría ago-2026: varias queries comparaban solo contra el id vigente y un
+// registro legado quedaba invisible sin error, no por decisión, por descuido).
+export function idsEquivalentes(idVigente: string): string[] {
+  const legados = Object.entries(ALIAS_LEGADO)
+    .filter(([, nuevo]) => nuevo === idVigente)
+    .map(([viejo]) => viejo);
+  return [idVigente, ...legados];
+}
+
 export function getEstadoPipeline(id: string | null | undefined): EstadoPipeline | null {
   if (!id) return null;
   const key = ALIAS_LEGADO[id] ?? id;
