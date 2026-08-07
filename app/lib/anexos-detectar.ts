@@ -1190,6 +1190,17 @@ export interface LineaFirma {
   // de la imagen (si el usuario no eligió una posición a mano en el modal), para que la firma
   // quede bajo su propio título en vez de heredar el alineado (o falta de él) del párrafo vacío.
   centradaLeyenda?: boolean;
+  // paraIds de una corrida de párrafos VACÍOS pegada justo ANTES del bloque leyenda/firma — la
+  // "raya negra" en varios anexos de Los Vilos NO es texto (`_____`), es un borde inferior
+  // (`<w:pBdr><w:bottom .../></w:pBdr>`) puesto en 6-8 párrafos vacíos consecutivos, así que
+  // `esRayaLarga` (que solo mira texto) nunca la ve — para el detector esa corrida es indistinguible
+  // de espaciado suelto. BUG REAL (3713-7-LE26, mismo día que paraIdLeyenda): el keepNext entre
+  // leyenda y firma alcanzaba para que esas dos no se separaran, pero Word igual podía cortar
+  // ENTRE la raya y la leyenda — la línea negra quedaba sola al fondo de una página, sin ningún
+  // texto ni firma debajo, y la leyenda+firma aparecían solas en la siguiente. Con esto,
+  // generarAnexoFinal encadena keepNext también sobre toda la corrida (orden ascendente = cada
+  // párrafo con el siguiente) para que la raya nunca quede separada de lo que anuncia.
+  paraIdsRayaAntes?: string[];
 }
 
 // Antes exigía que el párrafo fuera UN solo guion largo (^_{10,}$) — pero cuando la raya trae DOS
@@ -1248,7 +1259,17 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
   // HACIA ADELANTE) le agregaba una SEGUNDA firma fantasma en el párrafo vacío de espaciado que
   // le sigue — dos imágenes por el mismo bloque.
   const leyendasConRaya = new Set<number>();
-  const agregar = (p: Parrafo, contexto: string, leyenda?: Parrafo) => {
+  // Corrida de párrafos VACÍOS pegada justo antes de `desdeIndice` (tope de 20 — es solo la raya
+  // visual, nunca debería ser más larga; el tope evita encadenar un bloque de espaciado enorme si
+  // algún documento raro trae una corrida atípica). Devuelve los paraId en orden ascendente
+  // (el más antiguo primero) para que keepNext los encadene en cascada hacia la leyenda.
+  const corridaVaciosAntes = (desdeIndice: number): string[] => {
+    const ids: string[] = [];
+    let j = desdeIndice;
+    while (j >= 0 && ids.length < 20 && parrafos[j]?.vacio) { ids.unshift(parrafos[j].paraId); j--; }
+    return ids;
+  };
+  const agregar = (p: Parrafo, contexto: string, leyenda?: Parrafo, paraIdsRayaAntes?: string[]) => {
     if (usados.has(p.indice)) return;
     usados.add(p.indice);
     out.push({
@@ -1256,6 +1277,7 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
       pideTimbre: RE_PIDE_TIMBRE.test(contexto), pideNombre: RE_PIDE_NOMBRE.test(contexto),
       paraIdLeyenda: leyenda && leyenda.paraId !== p.paraId ? leyenda.paraId : undefined,
       centradaLeyenda: leyenda?.centrado,
+      paraIdsRayaAntes: paraIdsRayaAntes?.length ? paraIdsRayaAntes : undefined,
     });
   };
 
@@ -1313,9 +1335,11 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
       // ESTA fila está DESPUÉS de "Firma", no antes; lo de antes es la celda de valor de la fila
       // de ARRIBA (la de "R.U.T."). Se prueba primero porque es la forma más específica: si el
       // siguiente párrafo está vacío, es la propia celda de esta fila, sin ambigüedad.
-      if (parrafos[i + 1]?.vacio) { agregar(parrafos[i + 1], p.texto.trim(), p); continue; }
+      if (parrafos[i + 1]?.vacio) { agregar(parrafos[i + 1], p.texto.trim(), p, corridaVaciosAntes(i - 1)); continue; }
       if (!parrafos[i - 1]?.vacio) continue;
-      agregar(parrafos[i - 1], p.texto.trim(), p);   // el hueco pegado a la leyenda, que es donde se firma
+      // el hueco pegado a la leyenda, que es donde se firma — y lo que haya ANTES de ese hueco
+      // (típicamente la raya-borde, ver paraIdsRayaAntes) también debe quedar pegado a la leyenda.
+      agregar(parrafos[i - 1], p.texto.trim(), p, corridaVaciosAntes(i - 2));
     }
   }
   return out;

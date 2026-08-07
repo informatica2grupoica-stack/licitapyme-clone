@@ -880,6 +880,10 @@ export async function generarAnexoFinal(
       if (estampoAlgo) {
         xml = marcarKeepNext(xml, linea.paraId);
         if (linea.paraIdLeyenda) xml = marcarKeepNext(xml, linea.paraIdLeyenda);
+        // La "raya negra" de algunos anexos NO es texto: son varios párrafos vacíos con borde
+        // inferior (ver LineaFirma.paraIdsRayaAntes) — sin encadenarlos también, Word podía cortar
+        // ENTRE la raya y la leyenda, dejando la línea sola al fondo de una página (3713-7-LE26).
+        if (linea.paraIdsRayaAntes) for (const id of linea.paraIdsRayaAntes) xml = marcarKeepNext(xml, id);
       }
     }
   }
