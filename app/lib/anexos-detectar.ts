@@ -979,10 +979,23 @@ export function detectarAlternativasExcluyentes(blancos: CandidatoInline[]): Set
 // resultado posible del sistema — peor que dejarlo en blanco.
 //
 // Dos filtros, los dos deterministas y baratos:
-//  · Cantidad de palabras: ninguna etiqueta real de un anexo chileno pasa de ~6 palabras.
+//  · Cantidad de palabras: una frase nominal corta, aunque sea COMPUESTA ("Firma Persona Natural o
+//    Firma Representante Legal", 7 palabras — caso real 4928-14-LP26, ver BUG REAL abajo), no pasa
+//    de ~9 palabras.
 //  · Vocabulario que SOLO aparece en oraciones (verbos declarativos, conectores, "que"):
 //    una frase nominal no los usa nunca.
-const MAX_PALABRAS_ETIQUETA = 6;
+//
+// BUG REAL (4928-14-LP26, Carabineros de Chile, 7-ago-2026): la leyenda de firma cubre los DOS
+// casos posibles ("Firma Persona Natural O Firma Representante Legal") en una sola línea en vez de
+// la forma corta de un solo caso ("FIRMA REPRESENTANTE LEGAL", 3 palabras) — con el tope viejo (6)
+// esEtiquetaDeCampo la rechazaba por "muy larga" (7 palabras), el Caso C de detectarLineasFirma
+// (línea 1237) nunca disparaba, y el documento salía SIN FIRMA pese a tener el hueco vacío listo
+// arriba — el motor de IA nunca llega a intervenir acá, es puro conteo de palabras. El bloqueo por
+// vocabulario de oración (RE_PALABRA_DE_ORACION, más abajo) sigue intacto: "El oferente que
+// suscribe declara bajo juramento que:" (el caso que motivó el tope original, 1227338-6-LE26) cae
+// por "que"/"suscribe"/"declara" sin importar cuántas palabras tenga — subir el tope no reabre esa
+// puerta.
+const MAX_PALABRAS_ETIQUETA = 9;
 const RE_PALABRA_DE_ORACION = /\b(que|qué|cual|cuales|declaro|declara|declaran|declaramos|declarar|suscribe|suscrito|suscribo|siguiente|siguientes|continuaci[óo]n|manifiesta|manifiesto|expresa|se[ñn]ala|indica|informa|certifica|acredita|compromete|comprometo|obliga|acepta|acepto|conoce|conozco|entiende|solicita|adjunta|cumple|mediante|asimismo|adem[áa]s|por\s+medio|a\s+saber|lo\s+cual)\b/i;
 
 export function esEtiquetaDeCampo(texto: string): boolean {

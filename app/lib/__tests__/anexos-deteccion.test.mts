@@ -743,6 +743,23 @@ test('firma: leyenda sin raya sí se firma, la del evaluador no', () => {
   assert.equal(conRaya.lineasFirma.length, 0, 'una raya bajo la leyenda del evaluador tampoco se firma');
 });
 
+// BUG REAL (4928-14-LP26, Carabineros de Chile): la leyenda cubre los DOS casos posibles en una
+// sola línea ("Firma Persona Natural o Firma Representante Legal", 7 palabras) en vez de la forma
+// corta de un solo caso — con el tope de palabras viejo (6), esEtiquetaDeCampo la rechazaba por
+// "muy larga" y el documento salía SIN FIRMA pese al hueco vacío listo arriba. No es un problema
+// de la IA (que ni siquiera interviene acá): es puro conteo de palabras determinista.
+test('firma: la leyenda compuesta ("Persona Natural o Representante Legal") sí se firma (regresión 4928-14-LP26)', () => {
+  const xml = NS + p('texto previo') + p('') + p('') + p('Firma Persona Natural o Firma Representante Legal') + FIN;
+  const analisis = analizarAnexo(normalizarParaIds(xml).xml);
+  assert.equal(analisis.lineasFirma.length, 1, 'la leyenda compuesta debe detectarse como firma propia');
+
+  // El bloqueo por vocabulario de oración (el caso que motivó el tope original, 1227338-6-LE26)
+  // sigue intacto: subir el tope de palabras no reabre esa puerta.
+  const oracion = NS + p('texto previo') + p('') + p('') + p('El oferente que suscribe declara bajo juramento que firma') + FIN;
+  const conOracion = analizarAnexo(normalizarParaIds(oracion).xml);
+  assert.equal(conOracion.lineasFirma.length, 0, 'una oración real (con "que"/"declara"/"suscribe") sigue sin firmarse');
+});
+
 // BUG REAL (1057480-41-LP26, anexos 6 y 9 — MISMO párrafo literal en los dos): la firma del
 // evaluador ya no se estampa (test de arriba), pero la "FECHA DE EVALUACIÓN" que sigue 1-2
 // párrafos después es un blanco APARTE, en su propio párrafo, sin ninguna raya de firma adentro —
