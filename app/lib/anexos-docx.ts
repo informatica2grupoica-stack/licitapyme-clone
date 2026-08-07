@@ -705,9 +705,18 @@ export async function insertarImagenEnParrafo(
   // `alineacion` mueve la imagen a la izquierda / al centro / a la derecha del renglón. Es lo que
   // reemplaza al "arrastrarla con el mouse": un dibujo INLINE de Word no tiene coordenadas propias,
   // vive dentro del párrafo y se ubica como se ubica el texto de ese párrafo.
+  // `nombreDebajo`: cuando la leyenda pide "Nombre y Firma..." (no solo la firma — caso real
+  // 1057678-2-LE26, "Nombre y Firma del Oferente o su Representante Legal", repetido en 6 anexos
+  // del mismo documento), se escribe el nombre del representante como texto justo debajo de la
+  // imagen (un <w:br/> separa las dos líneas dentro del MISMO párrafo — nunca se agrega un <w:p>
+  // nuevo, la regla intocable de todo este módulo). Antes solo se estampaba la firma y el "Nombre"
+  // que la leyenda pedía se quedaba sin ningún dato en ningún lugar del documento.
   {
-    anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion,
-  }: { anchoCm?: number; etiqueta?: string; conservar?: boolean; alineacion?: 'izquierda' | 'centro' | 'derecha' } = {},
+    anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion, nombreDebajo,
+  }: {
+    anchoCm?: number; etiqueta?: string; conservar?: boolean; alineacion?: 'izquierda' | 'centro' | 'derecha';
+    nombreDebajo?: string;
+  } = {},
 ): Promise<string> {
   const dim = leerDimensionesImagen(imagen);
   const relacionAltoAncho = dim && dim.anchoPx > 0 ? dim.altoPx / dim.anchoPx : 0.4;
@@ -773,6 +782,11 @@ export async function insertarImagenEnParrafo(
     + `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${anchoEmu}" cy="${altoEmu}"/></a:xfrm>`
     + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>`
     + `</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+  // <w:br/> separa la imagen del nombre EN EL MISMO párrafo/run — nunca un <w:p> nuevo (la regla
+  // intocable del conteo de párrafos, ver el encabezado del archivo).
+  const runNombre = nombreDebajo
+    ? `<w:r><w:br/><w:t xml:space="preserve">${xmlEscape(nombreDebajo)}</w:t></w:r>` : '';
+  const drawingCompleto = drawing + runNombre;
 
   const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);
   const m = xmlConNamespaces.match(re);
@@ -789,26 +803,46 @@ export async function insertarImagenEnParrafo(
   //       Acá se separa en dos: el dibujo + un run de texto NUEVO (mismo rPr, para heredar el
   //       formato) que conserva solo la parte de leyenda.
   const runs = [...cuerpo.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)];
+  const esRunDeSoloRaya = (r: string) => {
+    const textoRun = [...r.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('');
+    return /^_{10,}$/.test(textoRun.trim());
+  };
   const runRaya = runs.find(r => {
     const textoRun = [...r[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('');
     return /^_{10,}/.test(textoRun.trim());
   });
+  // BUG REAL (1057678-2-LE26): un párrafo puede traer la raya partida en DOS runs — el primero
+  // (con texto adicional o no) es el que arriba se detecta y reemplaza por el dibujo; un SEGUNDO
+  // run, más adelante en el mismo párrafo, con OTRA tanda de guiones bajos sueltos (a veces detrás
+  // de un <w:tab/>, doble ancho de la misma raya visual) sobrevivía intacto — con `nombreDebajo` se
+  // volvió visible: "Lidia Valenzuela ___________________________________" en vez de solo el
+  // nombre. Cualquier run de raya ADICIONAL al ya reemplazado se limpia (texto vacío, se conserva
+  // el run por si trae <w:tab/> u otro contenido no textual antes de los guiones).
+  const rayasSobrantes = runs.filter(r => r !== runRaya && esRunDeSoloRaya(r[0]));
 
   let nuevoCuerpo: string;
   if (conservar) {
-    nuevoCuerpo = cuerpo + drawing;   // timbre al lado de la firma ya estampada — no se borra nada
+    nuevoCuerpo = cuerpo + drawingCompleto;   // timbre al lado de la firma ya estampada — no se borra nada
   } else if (runRaya) {
     const textoRunCompleto = [...runRaya[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('');
-    const restoTexto = textoRunCompleto.replace(/^_+\s*/, '');
+    // BUG REAL (1057678-2-LE26): un run de raya puede traer ESPACIOS ANTES de los guiones
+    // ("                  ___________..." — indentación con espacios en vez de <w:tab/>). El
+    // regex viejo (`^_+\s*`) solo comía guiones al inicio; con espacios primero no matcheaba nada,
+    // así que restoTexto quedaba con el string COMPLETO (espacios + guiones) y ese "resto" se
+    // trataba como leyenda real a conservar — la raya entera sobrevivía intacta al lado del dibujo.
+    const restoTexto = textoRunCompleto.replace(/^\s*_+\s*/, '');
     if (restoTexto.trim()) {
       const rPrMatch = runRaya[0].match(/<w:rPr>[\s\S]*?<\/w:rPr>/);
       const runLeyenda = `<w:r>${rPrMatch ? rPrMatch[0] : ''}<w:t xml:space="preserve">${xmlEscape(restoTexto)}</w:t></w:r>`;
-      nuevoCuerpo = cuerpo.replace(runRaya[0], drawing + runLeyenda);
+      nuevoCuerpo = cuerpo.replace(runRaya[0], drawingCompleto + runLeyenda);
     } else {
-      nuevoCuerpo = cuerpo.replace(runRaya[0], drawing);
+      nuevoCuerpo = cuerpo.replace(runRaya[0], drawingCompleto);
+    }
+    for (const sobrante of rayasSobrantes) {
+      nuevoCuerpo = nuevoCuerpo.replace(sobrante[0], sobrante[0].replace(/<w:t[^>]*>[^<]*<\/w:t>/, '<w:t/>'));
     }
   } else {
-    nuevoCuerpo = cuerpo.replace(/<w:r\b[\s\S]*?<\/w:r>/g, '') + drawing; // fallback: no se identificó un run puntual
+    nuevoCuerpo = cuerpo.replace(/<w:r\b[\s\S]*?<\/w:r>/g, '') + drawingCompleto; // fallback: no se identificó un run puntual
   }
 
   if (alineacion) nuevoCuerpo = conAlineacion(nuevoCuerpo, alineacion);

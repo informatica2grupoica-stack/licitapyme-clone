@@ -205,3 +205,33 @@ test('la firma queda válida en TODOS los fragmentos aunque LibreOffice declare 
   const { xml: xmlN1 } = await abrirDocx(fragmentos[0].buffer);
   assert.match(xmlN1, /Nombre Persona Natural/, 'la leyenda del párrafo de firma debe sobrevivir');
 });
+
+// BUG REAL (1057678-2-LE26, "Nombre y Firma del Oferente o su Representante Legal"): la leyenda
+// pide el nombre ADEMÁS de la firma — insertarImagenEnParrafo ahora escribe el nombre debajo de
+// la imagen (`nombreDebajo`). Dos fallas encontradas verificando esto contra el documento real:
+// 1) un párrafo puede traer la raya partida en DOS runs (una segunda tanda de guiones sueltos,
+//    a veces detrás de un <w:tab/>) — la segunda sobrevivía intacta al lado del nombre;
+// 2) un run de raya puede traer ESPACIOS antes de los guiones ("    ______"), y el recorte de
+//    "resto de texto" solo esperaba que empezara directo en un guión — con espacio adelante no
+//    recortaba nada y la raya completa se conservaba como si fuera texto de leyenda real.
+test('insertarImagenEnParrafo con nombreDebajo no deja rayas sueltas (regresión 1057678-2-LE26)', async () => {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="urn:ct"><Default Extension="xml" ContentType="application/xml"/></Types>');
+  zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+
+  // Raya principal partida de la raya sobrante por un <w:tab/>, y la sobrante con espacios antes
+  // de los guiones — el patrón exacto encontrado en el documento real.
+  const parrafo = '<w:p w14:paraId="0000B001" w14:textId="77777777">'
+    + '<w:r><w:t xml:space="preserve">___________________________________</w:t></w:r>'
+    + '<w:r><w:tab/><w:t xml:space="preserve">   _________________________________________________</w:t></w:r>'
+    + '</w:p>';
+  const xml = `<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>${parrafo}`
+    + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+
+  const final = await insertarImagenEnParrafo(zip, xml, '0000B001', PNG_1X1, 'png', { nombreDebajo: 'Lidia Valenzuela' });
+
+  assert.match(final, /Lidia Valenzuela/, 'el nombre debe quedar escrito');
+  assert.doesNotMatch(final, /_{5,}/, `no debe sobrevivir ninguna raya de guiones: ${final}`);
+  const chequeo = verificarXmlBienFormado(final);
+  assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
+});

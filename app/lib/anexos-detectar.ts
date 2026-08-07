@@ -1160,6 +1160,13 @@ export interface LineaFirma {
   // ficha, se estampa al lado de la firma; si la leyenda solo dice "firma", no se estampa timbre
   // aunque exista, porque no lo están pidiendo.
   pideTimbre?: boolean;
+  // La leyenda pide NOMBRE además de firma ("Nombre y Firma del Oferente o su Representante
+  // Legal" — caso real 1057678-2-LE26, repetido en 6 anexos distintos del mismo documento). Antes
+  // solo se estampaba la imagen y el "Nombre" de la leyenda quedaba sin ningún dato al lado —
+  // como si la leyenda solo pidiera la firma. Cuando la ficha trae representante_nombre, se
+  // escribe como texto justo debajo de la imagen (ver insertarImagenEnParrafo, parámetro
+  // `nombreDebajo`).
+  pideNombre?: boolean;
   // true cuando el párrafo NO tiene ninguna raya de guiones que limpiar (viene del patrón 5,
   // "Etiqueta:" sola — ver más abajo en analizarAnexo): la imagen se AGREGA al final del párrafo
   // sin tocar nada de lo que ya hay, nunca reemplazando texto. Caso real (1227338-6-LE26): un
@@ -1208,6 +1215,11 @@ const RE_CAPTION_ROL_FIRMA = /^\(?\s*(oferente|proponente|evaluador|proveedor|co
 const RE_LEYENDA_FIRMA_SOLA = /\bfirma[ns]?\b/i;
 const LARGO_MAX_LEYENDA_FIRMA = 90;
 const RE_PIDE_TIMBRE = /timbre/i;
+// "Nombre" aparte de "Firma" en la MISMA leyenda ("Nombre y Firma...") — no calza con RE_LEYENDA_
+// FIRMA_SOLA (esa exige la palabra "firma") a propósito: una leyenda puede pedir nombre sin pedir
+// firma explícitamente en el mismo lugar, pero acá siempre se evalúa junto a una leyenda que YA
+// pasó ese filtro, así que basta con la palabra "nombre" sola.
+const RE_PIDE_NOMBRE = /\bnombre\b/i;
 
 export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
   const out: LineaFirma[] = [];
@@ -1222,7 +1234,10 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
   const agregar = (p: Parrafo, contexto: string) => {
     if (usados.has(p.indice)) return;
     usados.add(p.indice);
-    out.push({ paraId: p.paraId, indice: p.indice, contexto, pideTimbre: RE_PIDE_TIMBRE.test(contexto) });
+    out.push({
+      paraId: p.paraId, indice: p.indice, contexto,
+      pideTimbre: RE_PIDE_TIMBRE.test(contexto), pideNombre: RE_PIDE_NOMBRE.test(contexto),
+    });
   };
 
   for (let i = 0; i < parrafos.length; i++) {
@@ -1595,11 +1610,15 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   );
   const lineasFirma: LineaFirma[] = [
     ...lineasFirmaRaya,
-    ...candidatosFirmaCelda.map(c => ({ paraId: c.paraId, indice: c.indice, contexto: c.etiqueta, pideTimbre: /timbre/i.test(c.etiqueta) })),
+    ...candidatosFirmaCelda.map(c => ({
+      paraId: c.paraId, indice: c.indice, contexto: c.etiqueta,
+      pideTimbre: /timbre/i.test(c.etiqueta), pideNombre: RE_PIDE_NOMBRE.test(c.etiqueta),
+    })),
     ...camposDosPuntosFirma
       .filter(c => !indicesConRayaArriba.has(c.indice))
       .map(c => ({
-        paraId: c.paraId, indice: c.indice, contexto: c.etiqueta, pideTimbre: /timbre/i.test(c.etiqueta), sinRaya: true,
+        paraId: c.paraId, indice: c.indice, contexto: c.etiqueta,
+        pideTimbre: /timbre/i.test(c.etiqueta), pideNombre: RE_PIDE_NOMBRE.test(c.etiqueta), sinRaya: true,
       })),
   ];
   // La raya de una línea de firma también matchea el patrón 2 (blanco inline, "_{4,}") — se

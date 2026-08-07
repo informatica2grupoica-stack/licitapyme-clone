@@ -853,7 +853,11 @@ export async function generarAnexoFinal(
       // párrafo (la etiqueta "FIRMA REPRESENTANTE LEGAL:" tiene que sobrevivir intacta).
       let primera = true;
       if (firma && (que === 'ambas' || que === 'firma')) {
-        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya });
+        // linea.pideNombre: la leyenda dice "Nombre y Firma..." (no solo "Firma") — ver el
+        // comentario de nombreDebajo en insertarImagenEnParrafo. Sin representante_nombre en la
+        // ficha no se escribe nada (no se inventa), la imagen se estampa igual.
+        const nombreDebajo = linea.pideNombre && empresa.representante_nombre ? empresa.representante_nombre : undefined;
+        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya, nombreDebajo });
         primera = false;
       }
       if (timbre && (que === 'ambas' || que === 'timbre')) {
