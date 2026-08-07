@@ -26,6 +26,12 @@ export interface Parrafo {
   vacio: boolean;   // sin ningún <w:r> adentro (candidato a "celda para rellenar")
   indice: number;   // posición en el documento, en orden de aparición
   centrado: boolean; // <w:jc w:val="center"> — señal de encabezado/título, no de etiqueta de campo
+  // <w:pBdr><w:bottom .../></w:pBdr> — la "raya" de firma en varios anexos de Los Vilos NO es
+  // texto (`_____`), es un borde inferior puesto en párrafos vacíos consecutivos. BUG REAL
+  // (3713-7-LE26): sin esto, detectarLineasFirma no distinguía un párrafo vacío CON raya (donde
+  // corresponde estampar — la firma queda "sobre la línea", que es el estándar en estos anexos) de
+  // un párrafo vacío SIN raya que solo es espaciado suelto — y a veces elegía el segundo.
+  bordeInferior: boolean;
   // Ver rangosTapadosPorCuadroOpaco: este párrafo es contenido NORMAL del cuerpo que queda tapado
   // detrás de un cuadro de texto flotante opaco dibujado encima — el XML lo trae como texto
   // legible, pero ningún humano lo ve al abrir el documento en Word.
@@ -235,6 +241,7 @@ export function listarParrafos(xml: string): Parrafo[] {
       vacio: parrafoEstaVacio(cuerpo),
       indice,
       centrado: /<w:jc\s+w:val="center"/.test(cuerpo),
+      bordeInferior: /<w:pBdr>[\s\S]*?<w:bottom\b/.test(cuerpo),
       tapadoPorCuadroOpaco: seSuperponeConAlgunRango(match.index!, match.index! + match[0].length, rangosTapados),
     };
   });

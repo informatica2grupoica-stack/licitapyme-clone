@@ -1327,6 +1327,19 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
     // adivinar cuál es cuál.
     if (!leyendasConRaya.has(p.indice)
       && p.texto.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(p.texto) && esEtiquetaDeCampo(p.texto)) {
+      // Prioridad 0: el párrafo INMEDIATAMENTE anterior es la raya de verdad (vacío + borde
+      // inferior, ver Parrafo.bordeInferior) — ahí se firma, "sobre la línea", que es el estándar
+      // visual chileno (la tinta va justo encima del renglón). BUG REAL (3713-7-LE26, Los Vilos):
+      // esta licitación tiene AMBAS cosas a la vez — la raya-borde arriba de la leyenda Y un
+      // párrafo vacío suelto (puro espaciado, sin borde) DESPUÉS de la leyenda. El Caso D de abajo
+      // (pensado para tablas) tomaba el de abajo por ser "el más específico" y la firma salía
+      // flotando sin ninguna línea, mientras la raya de verdad quedaba sin usar. Gana siempre que
+      // haya borde real — no compite con el Caso D de tabla porque una celda de valor no trae
+      // `pBdr` propio.
+      if (parrafos[i - 1]?.vacio && parrafos[i - 1].bordeInferior) {
+        agregar(parrafos[i - 1], p.texto.trim(), p, corridaVaciosAntes(i - 2));
+        continue;
+      }
       // Caso D: "Firma" como ETIQUETA de una fila de tabla [Nombre | RUT | Firma], con su propia
       // celda vacía DESPUÉS (mismo patrón que Nombre/RUT, Patrón 1 — "etiqueta + celda vacía" —
       // solo que esta etiqueta también nombra la firma). BUG REAL (4928-14-LP26, Carabineros de
