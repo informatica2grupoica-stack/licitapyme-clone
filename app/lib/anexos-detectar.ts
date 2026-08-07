@@ -132,7 +132,17 @@ export function detectarCandidatosCeldaCrudos(
     // El punto solo descarta si el párrafo es UNA sola palabra, porque en una etiqueta de varias el
     // punto final casi siempre es una abreviatura: "INICIO ACTIV." es un campo real (4291-38-LP26)
     // y descartarlo dejaba esa casilla sin ninguna forma de llenarse.
-    if (/,$/.test(actual.texto) || (/\.$/.test(actual.texto) && !/\s/.test(actual.texto.trim()))) continue;
+    //
+    // BUG REAL (4928-14-LP26, Carabineros de Chile): "R.U.T." como etiqueta SUELTA de una tabla
+    // [Nombre|RUT|Firma] caía en esta misma regla — "sin espacios" también describe una sigla
+    // (R-punto-U-punto-T-punto), no solo "SANTIAGO." La diferencia real es CUÁNTOS puntos trae: una
+    // frase que termina en punto tiene UNO solo (el punto final); una sigla como "R.U.T."/"I.V.A."
+    // trae uno POR CADA LETRA. Exigir un único punto total deja pasar la sigla y sigue rechazando
+    // "SANTIAGO." — y de paso, sin esa casilla capturada, el párrafo vacío que le seguía quedaba
+    // libre para que detectarLineasFirma (Caso C) lo tomara como el hueco de la firma de LA FILA
+    // DE ABAJO: la imagen terminaba estampada en la celda de "R.U.T.", no en la de "Firma".
+    if (/,$/.test(actual.texto)
+      || (/\.$/.test(actual.texto) && !/\s/.test(actual.texto.trim()) && (actual.texto.match(/\./g)?.length ?? 0) === 1)) continue;
 
     // Un párrafo que YA trae su propio blanco ("Antofagasta,________________") tampoco es la
     // etiqueta de otro campo: ese blanco lo cubre el patrón 2 (inline), y el párrafo vacío
@@ -1202,6 +1212,13 @@ const RE_PIDE_TIMBRE = /timbre/i;
 export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
   const out: LineaFirma[] = [];
   const usados = new Set<number>();
+  // Índices de párrafo YA leídos como la LEYENDA de un bloque de firma con raya (Casos A/B) — un
+  // párrafo así no puede volver a evaluarse como si fuera una leyenda SIN raya (Casos C/D):
+  // BUG REAL (4928-14-LP26, ver Caso D más abajo): "Firma del Oferente…" ya resuelto por la raya
+  // de arriba (Caso A) se volvía a examinar en su propia vuelta del loop, y el Caso D (que mira
+  // HACIA ADELANTE) le agregaba una SEGUNDA firma fantasma en el párrafo vacío de espaciado que
+  // le sigue — dos imágenes por el mismo bloque.
+  const leyendasConRaya = new Set<number>();
   const agregar = (p: Parrafo, contexto: string) => {
     if (usados.has(p.indice)) return;
     usados.add(p.indice);
@@ -1224,7 +1241,12 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
       // segunda nombra al evaluador, ahora sí se ve y el bloque se excluye.
       const partes = [siguiente1, siguiente2].filter(t => t && t.length <= LARGO_MAX_LEYENDA_FIRMA && !RE_TIENE_BLANCO_PROPIO.test(t));
       const contexto = partes.some(t => RE_LEYENDA_FIRMA.test(t)) ? partes.join(' ').trim() : '';
-      if (contexto) { agregar(p, contexto); continue; }
+      if (contexto) {
+        agregar(p, contexto);
+        if (parrafos[i + 1]) leyendasConRaya.add(parrafos[i + 1].indice);
+        if (partes.length > 1 && parrafos[i + 2]) leyendasConRaya.add(parrafos[i + 2].indice);
+        continue;
+      }
     }
 
     // Caso B: la raya y la leyenda comparten el MISMO párrafo — otro patrón real visto
@@ -1247,7 +1269,17 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
     // algo — es justo lo que pasa en los anexos 7 y 8 de esta misma licitación, donde arriba de la
     // leyenda va un párrafo con DOS rayas (la del oferente y la del evaluador) y estampar sería
     // adivinar cuál es cuál.
-    if (p.texto.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(p.texto) && esEtiquetaDeCampo(p.texto)) {
+    if (!leyendasConRaya.has(p.indice)
+      && p.texto.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(p.texto) && esEtiquetaDeCampo(p.texto)) {
+      // Caso D: "Firma" como ETIQUETA de una fila de tabla [Nombre | RUT | Firma], con su propia
+      // celda vacía DESPUÉS (mismo patrón que Nombre/RUT, Patrón 1 — "etiqueta + celda vacía" —
+      // solo que esta etiqueta también nombra la firma). BUG REAL (4928-14-LP26, Carabineros de
+      // Chile): el Caso C de arriba solo mira HACIA ATRÁS ("el hueco pegado a la leyenda" en un
+      // documento que fluye, con la raya/espacio ARRIBA de la leyenda) — en una tabla el hueco de
+      // ESTA fila está DESPUÉS de "Firma", no antes; lo de antes es la celda de valor de la fila
+      // de ARRIBA (la de "R.U.T."). Se prueba primero porque es la forma más específica: si el
+      // siguiente párrafo está vacío, es la propia celda de esta fila, sin ambigüedad.
+      if (parrafos[i + 1]?.vacio) { agregar(parrafos[i + 1], p.texto.trim()); continue; }
       if (!parrafos[i - 1]?.vacio) continue;
       agregar(parrafos[i - 1], p.texto.trim());   // el hueco pegado a la leyenda, que es donde se firma
     }
@@ -1519,8 +1551,21 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // cierran con "________ / FIRMA Y TIMBRE EVALUADOR", el bloque que llena el HOSPITAL al evaluar
   // la oferta, y ahí se estampaba nuestra firma escaneada. Firmar por el evaluador de la licitación
   // es bastante peor que dejar el documento sin firmar.
+  // BUG REAL (4928-14-LP26, tabla [Nombre | RUT | Firma] de 3 filas): el Caso C de
+  // detectarLineasFirma sube al párrafo vacío INMEDIATAMENTE anterior a la leyenda "Firma" para
+  // usarlo de hueco donde firmar — pero en una tabla ese vacío puede ser la celda de VALOR de la
+  // fila de ARRIBA ("R.U.T." + su propio vacío), no espacio libre. Sin este cruce, la imagen de la
+  // firma se estampaba en la celda del RUT y la celda de "Firma" quedaba vacía. Un párrafo que YA
+  // es el valor reclamado de OTRA etiqueta nunca puede ser también "el hueco para firmar".
+  //
+  // A propósito `candidatosCelda` (YA sin las etiquetas de firma, ver el filtro de arriba) y NO
+  // `candidatosCeldaTodos`: la propia fila "Firma" también calza con el Patrón 1 genérico
+  // (etiqueta + celda vacía, `candidatosCeldaTodos` SÍ la trae) — usar esa lista sin filtrar
+  // excluía la celda de la firma DE SU PROPIA fila, dejando `todasLasLineasFirma` vacío entero.
+  const indicesYaClaimedosPorCandidato = new Set(candidatosCelda.map(c => c.indice));
   const todasLasLineasFirma = detectarLineasFirma(parrafos)
-    .filter(f => !indicesTapadosPorCuadro.has(f.indice));
+    .filter(f => !indicesTapadosPorCuadro.has(f.indice))
+    .filter(f => !indicesYaClaimedosPorCandidato.has(f.indice));
   // El MISMO bloque de firma puede ser visto por dos patrones a la vez: el caso C de
   // detectarLineasFirma (leyenda sin raya → devuelve el párrafo VACÍO de ARRIBA, donde se firmaría a
   // mano) y el patrón 5 (la leyenda misma, "FIRMA REPRESENTANTE LEGAL:", terminada en dos puntos).

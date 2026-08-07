@@ -760,6 +760,29 @@ test('firma: la leyenda compuesta ("Persona Natural o Representante Legal") sí 
   assert.equal(conOracion.lineasFirma.length, 0, 'una oración real (con "que"/"declara"/"suscribe") sigue sin firmarse');
 });
 
+// BUG REAL (4928-14-LP26, Carabineros de Chile): tabla de 3 filas [Nombre | RUT | Firma], cada
+// una con su propia celda vacía A LA DERECHA (mismo patrón que Nombre/RUT). Dos fallas juntas:
+// 1) "R.U.T." (una sola "palabra" sin espacios que termina en punto) caía en la regla de "fin de
+//    oración" (pensada para "SANTIAGO."), así que su celda vacía quedaba libre;
+// 2) el Caso C de detectarLineasFirma, que solo mira HACIA ATRÁS, tomaba esa celda libre (la de
+//    RUT, la fila de ARRIBA) como si fuera el hueco para firmar — la imagen quedaba en la fila
+//    de RUT y la fila de Firma se quedaba vacía.
+test('firma en tabla [Nombre|RUT|Firma]: cada fila usa su PROPIA celda, no la de la fila de arriba (regresión 4928-14-LP26)', () => {
+  const xml = NS + p('Nombre') + p('') + p('R.U.T.') + p('') + p('Firma') + p('') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const parrafos = listarParrafos(norm);
+  const analisis = analizarAnexo(norm);
+
+  const etiquetas = analisis.candidatosCelda.map(c => c.etiqueta);
+  assert.ok(etiquetas.includes('R.U.T.'), `"R.U.T." debe seguir siendo una etiqueta válida: ${JSON.stringify(etiquetas)}`);
+
+  assert.equal(analisis.lineasFirma.length, 1, 'una sola línea de firma');
+  const indiceRUT = parrafos.findIndex(p => p.texto === 'R.U.T.') + 1; // su celda vacía
+  const indiceFirma = parrafos.findIndex(p => p.texto === 'Firma') + 1; // su propia celda vacía
+  assert.equal(analisis.lineasFirma[0].indice, indiceFirma, 'la firma va en la celda de la fila "Firma", no en la de "R.U.T."');
+  assert.notEqual(analisis.lineasFirma[0].indice, indiceRUT, 'nunca en la celda de RUT');
+});
+
 // BUG REAL (1057480-41-LP26, anexos 6 y 9 — MISMO párrafo literal en los dos): la firma del
 // evaluador ya no se estampa (test de arriba), pero la "FECHA DE EVALUACIÓN" que sigue 1-2
 // párrafos después es un blanco APARTE, en su propio párrafo, sin ninguna raya de firma adentro —
