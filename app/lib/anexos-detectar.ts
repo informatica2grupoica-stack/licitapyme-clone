@@ -1173,6 +1173,16 @@ export interface LineaFirma {
   // cuadro de texto flotante trae "FIRMA REPRESENTANTE LEGAL:" impreso directo, sin celda ni raya
   // — insertar limpiando el párrafo (el comportamiento de siempre) borraría esa misma etiqueta.
   sinRaya?: boolean;
+  // paraId del párrafo de la LEYENDA cuando es uno DISTINTO del que recibe la imagen (Casos C/D:
+  // el hueco de la firma es un párrafo vacío separado, arriba o abajo de la leyenda — ver más
+  // abajo). BUG REAL (3713-7-LE26, "Los Vilos"): sin nada que los mantenga juntos, Word paginaba
+  // el bloque donde caía — la leyenda quedaba sola al final de una página ("NOMBRE COMPLETO, RUT Y
+  // FIRMA REPRESENTANTE LEGAL" sin firma) y la firma+nombre aparecían solos al principio de la
+  // siguiente, como flotando. La firma SÍ se estampaba — el bug era de paginación, no de datos —
+  // pero se leía exactamente igual a "no se firmó". Con este paraId, generarAnexoFinal marca
+  // ambos párrafos con keepNext (ver marcarKeepNext en anexos-docx.ts) para que Word nunca separe
+  // la leyenda de su firma.
+  paraIdLeyenda?: string;
 }
 
 // Antes exigía que el párrafo fuera UN solo guion largo (^_{10,}$) — pero cuando la raya trae DOS
@@ -1231,12 +1241,13 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
   // HACIA ADELANTE) le agregaba una SEGUNDA firma fantasma en el párrafo vacío de espaciado que
   // le sigue — dos imágenes por el mismo bloque.
   const leyendasConRaya = new Set<number>();
-  const agregar = (p: Parrafo, contexto: string) => {
+  const agregar = (p: Parrafo, contexto: string, paraIdLeyenda?: string) => {
     if (usados.has(p.indice)) return;
     usados.add(p.indice);
     out.push({
       paraId: p.paraId, indice: p.indice, contexto,
       pideTimbre: RE_PIDE_TIMBRE.test(contexto), pideNombre: RE_PIDE_NOMBRE.test(contexto),
+      paraIdLeyenda: paraIdLeyenda && paraIdLeyenda !== p.paraId ? paraIdLeyenda : undefined,
     });
   };
 
@@ -1257,7 +1268,7 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
       const partes = [siguiente1, siguiente2].filter(t => t && t.length <= LARGO_MAX_LEYENDA_FIRMA && !RE_TIENE_BLANCO_PROPIO.test(t));
       const contexto = partes.some(t => RE_LEYENDA_FIRMA.test(t)) ? partes.join(' ').trim() : '';
       if (contexto) {
-        agregar(p, contexto);
+        agregar(p, contexto, parrafos[i + 1]?.paraId);
         if (parrafos[i + 1]) leyendasConRaya.add(parrafos[i + 1].indice);
         if (partes.length > 1 && parrafos[i + 2]) leyendasConRaya.add(parrafos[i + 2].indice);
         continue;
@@ -1294,9 +1305,9 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
       // ESTA fila está DESPUÉS de "Firma", no antes; lo de antes es la celda de valor de la fila
       // de ARRIBA (la de "R.U.T."). Se prueba primero porque es la forma más específica: si el
       // siguiente párrafo está vacío, es la propia celda de esta fila, sin ambigüedad.
-      if (parrafos[i + 1]?.vacio) { agregar(parrafos[i + 1], p.texto.trim()); continue; }
+      if (parrafos[i + 1]?.vacio) { agregar(parrafos[i + 1], p.texto.trim(), p.paraId); continue; }
       if (!parrafos[i - 1]?.vacio) continue;
-      agregar(parrafos[i - 1], p.texto.trim());   // el hueco pegado a la leyenda, que es donde se firma
+      agregar(parrafos[i - 1], p.texto.trim(), p.paraId);   // el hueco pegado a la leyenda, que es donde se firma
     }
   }
   return out;

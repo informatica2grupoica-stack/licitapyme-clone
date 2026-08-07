@@ -25,7 +25,7 @@
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
   insertarImagenEnParrafo, rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
-  eliminarRespaldoVmlDuplicado, type Parrafo,
+  eliminarRespaldoVmlDuplicado, marcarKeepNext, type Parrafo,
 } from '@/app/lib/anexos-docx';
 import {
   analizarAnexo, extraerTablasCrudo,
@@ -852,6 +852,7 @@ export async function generarAnexoFinal(
       // la PRIMERA imagen: no hay ninguna raya que limpiar, así que nunca se debe borrar nada del
       // párrafo (la etiqueta "FIRMA REPRESENTANTE LEGAL:" tiene que sobrevivir intacta).
       let primera = true;
+      let estampoAlgo = false;
       if (firma && (que === 'ambas' || que === 'firma')) {
         // linea.pideNombre: la leyenda dice "Nombre y Firma..." (no solo "Firma") — ver el
         // comentario de nombreDebajo en insertarImagenEnParrafo. Sin representante_nombre en la
@@ -859,12 +860,21 @@ export async function generarAnexoFinal(
         const nombreDebajo = linea.pideNombre && empresa.representante_nombre ? empresa.representante_nombre : undefined;
         xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya, nombreDebajo });
         primera = false;
+        estampoAlgo = true;
       }
       if (timbre && (que === 'ambas' || que === 'timbre')) {
         xml = await insertarImagenEnParrafo(
           zip, xml, linea.paraId, timbre.buffer, timbre.extension,
           { etiqueta: 'timbre', anchoCm: 2.8, conservar: !primera || !!linea.sinRaya, alineacion },
         );
+        estampoAlgo = true;
+      }
+      // La leyenda y el párrafo donde se estampó la imagen pueden ser DOS párrafos distintos (ver
+      // LineaFirma.paraIdLeyenda) — sin esto Word los separa en un salto de página y la leyenda
+      // queda sola, como si no se hubiera firmado. Ver marcarKeepNext en anexos-docx.ts.
+      if (estampoAlgo) {
+        xml = marcarKeepNext(xml, linea.paraId);
+        if (linea.paraIdLeyenda) xml = marcarKeepNext(xml, linea.paraIdLeyenda);
       }
     }
   }

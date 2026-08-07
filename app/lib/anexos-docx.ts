@@ -866,6 +866,35 @@ function conAlineacion(cuerpo: string, alineacion: 'izquierda' | 'centro' | 'der
   return cuerpo.replace(pPr[0], `<w:pPr>${nuevoDentro}</w:pPr>`);
 }
 
+// Marca un párrafo con <w:keepNext/> — le dice a Word "no pongas un salto de página entre este
+// párrafo y el siguiente". BUG REAL (3713-7-LE26, "Los Vilos"): la leyenda de firma y el párrafo
+// vacío donde se estampa la imagen son DOS párrafos distintos (Casos C/D de detectarLineasFirma);
+// sin nada que los ate, Word los paginaba donde cayeran — la leyenda quedaba sola al fondo de una
+// página (se leía como "no se firmó") y la firma+nombre aparecían solos al principio de la
+// siguiente. Se llama con el paraId de la leyenda Y con el de la firma (ver
+// LineaFirma.paraIdLeyenda) para que toda la fila quede pegada. Igual que `conAlineacion`, respeta
+// el orden del esquema OOXML: `keepNext` va CASI al principio del `pPr` (después de `pStyle` si
+// existe, antes de cualquier otra cosa).
+export function marcarKeepNext(xml: string, paraId: string): string {
+  const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);
+  const m = xml.match(re);
+  if (!m) return xml;
+  const [entero, apertura, cuerpo, cierre] = m;
+  const pPr = cuerpo.match(/<w:pPr>([\s\S]*?)<\/w:pPr>/);
+  let nuevoCuerpo: string;
+  if (!pPr) {
+    nuevoCuerpo = `<w:pPr><w:keepNext/></w:pPr>${cuerpo}`;
+  } else if (/<w:keepNext\b/.test(pPr[1])) {
+    nuevoCuerpo = cuerpo; // ya lo tiene
+  } else {
+    const dentro = pPr[1];
+    const pStyleMatch = dentro.match(/^(<w:pStyle[^>]*\/>)/);
+    const nuevoDentro = pStyleMatch ? dentro.replace(pStyleMatch[1], `${pStyleMatch[1]}<w:keepNext/>`) : `<w:keepNext/>${dentro}`;
+    nuevoCuerpo = cuerpo.replace(pPr[0], `<w:pPr>${nuevoDentro}</w:pPr>`);
+  }
+  return xml.slice(0, m.index) + apertura + nuevoCuerpo + cierre + xml.slice((m.index ?? 0) + entero.length);
+}
+
 // ── Abrir / guardar el .docx completo (ZIP) ───────────────────────────────────────────────
 export async function abrirDocx(buffer: Buffer): Promise<{ zip: JSZip; xml: string }> {
   const zip = await JSZip.loadAsync(buffer);
