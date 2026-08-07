@@ -26,6 +26,10 @@ export interface Parrafo {
   vacio: boolean;   // sin ningún <w:r> adentro (candidato a "celda para rellenar")
   indice: number;   // posición en el documento, en orden de aparición
   centrado: boolean; // <w:jc w:val="center"> — señal de encabezado/título, no de etiqueta de campo
+  // Ver rangosTapadosPorCuadroOpaco: este párrafo es contenido NORMAL del cuerpo que queda tapado
+  // detrás de un cuadro de texto flotante opaco dibujado encima — el XML lo trae como texto
+  // legible, pero ningún humano lo ve al abrir el documento en Word.
+  tapadoPorCuadroOpaco: boolean;
 }
 
 function xmlEscape(s: string): string {
@@ -135,16 +139,105 @@ export function parrafoEstaVacio(cuerpo: string): boolean {
   return [...cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join('').trim() === '';
 }
 
+// ── Cuadros de texto flotantes MÁS ALTOS QUE UNA PÁGINA ──────────────────────────────────
+// BUG REAL (4777-24-LE26, ANEXO_2.docx de la Municipalidad de La Unión): un cuadro de texto
+// flotante de 7,6" x 11,1" (más alto que la página completa, relleno blanco sólido, posicionado
+// con offset NEGATIVO respecto a la columna) trae adentro una copia duplicada del propio "ANEXO
+// N°2" MÁS el formulario completo de "ANEXO N°1-A" pegado al final — contenido que Word (probado
+// exportando a PDF con Word COM real) NUNCA muestra en la página visible: al abrir el documento
+// normal, el humano solo ve la tabla de "ANEXO N°2" bien puesta; el cuadro gigante queda fuera de
+// la vista, casi seguro un resto de un copy-paste mal hecho al armar la plantilla. Nuestro
+// detector, que lee el XML como texto plano, SÍ veía ese contenido y ofrecía sus casillas
+// ("A.NOMBRE COMPLETO DEL PROPONENTE…") como si fueran reales — confundiendo al usuario con
+// campos de un anexo que ni siquiera existe en la página que va a firmar.
+//
+// El umbral (5 pulgadas) separa este caso de un cuadro de firma/sello LEGÍTIMO y chico (ej.
+// 1227338-6-LE26, "FIRMA REPRESENTANTE LEGAL" en un cuadro de unas pocas líneas) — esos SIGUEN
+// procesándose normal, solo se excluye lo que estructuralmente no puede ser un cuadro de firma.
+const ALTURA_MAXIMA_CUADRO_NORMAL_EMU = 4572000; // 5" — 914400 EMU = 1 pulgada
+
+interface CuadroFlotanteGrande { inicio: number; fin: number; opacoYEnFrente: boolean }
+
+function cuadrosFlotantesGrandes(xml: string): CuadroFlotanteGrande[] {
+  const out: CuadroFlotanteGrande[] = [];
+  const reApertura = /<w:txbxContent\b[^>]*>/g;
+  let m: RegExpExecArray | null;
+  while ((m = reApertura.exec(xml))) {
+    const inicioTag = m.index;
+    const cierre = xml.indexOf('</w:txbxContent>', inicioTag);
+    if (cierre < 0) continue;
+    const fin = cierre + '</w:txbxContent>'.length;
+    // La altura del cuadro vive en el <wp:extent>/<a:ext> MÁS CERCANO antes de esta apertura —
+    // es el tamaño del cuadro (wps:txbx/w:drawing) que lo envuelve. 4000 caracteres alcanza de
+    // sobra: entre <wp:anchor>/<wp:extent> y <w:txbxContent> solo hay spPr/prstGeom/relleno/borde.
+    const antes = xml.slice(Math.max(0, inicioTag - 4000), inicioTag);
+    const extents = [...antes.matchAll(/\b(?:wp:extent|a:ext)\b[^>]*\bcy="(\d+)"/g)];
+    const alturaEmu = extents.length ? Number(extents[extents.length - 1][1]) : 0;
+    if (alturaEmu > ALTURA_MAXIMA_CUADRO_NORMAL_EMU) {
+      // opacoYEnFrente: ver rangosTapadosPorCuadroOpaco — solo un cuadro RELLENO (no transparente)
+      // y dibujado EN FRENTE del texto (behindDoc="0", el default de Word) puede tapar visualmente
+      // el contenido normal que sigue. behindDoc="1" (detrás) o relleno "noFill" dejan ver lo de
+      // abajo — ahí no hay nada que ocultar.
+      const behindDoc = antes.match(/\bbehindDoc="(\d)"/);
+      const opacoYEnFrente = behindDoc?.[1] !== '1' && /<a:solidFill\b/.test(antes) && !/<a:noFill\b/.test(antes);
+      out.push({ inicio: inicioTag, fin, opacoYEnFrente });
+    }
+    reApertura.lastIndex = fin;
+  }
+  return out;
+}
+
+export function rangosDeCuadrosFlotantesGrandes(xml: string): { inicio: number; fin: number }[] {
+  return cuadrosFlotantesGrandes(xml).map(({ inicio, fin }) => ({ inicio, fin }));
+}
+
+// ── Contenido normal TAPADO por un cuadro flotante opaco ─────────────────────────────────
+// BUG REAL (4777-24-LE26, ANEXO_2.docx de la Municipalidad de La Unión): un cuadro de texto
+// flotante de 7,6" x 11,1" (más alto que la página, relleno BLANCO SÓLIDO, dibujado EN FRENTE del
+// texto — behindDoc="0") trae adentro el formulario completo y bien formado de "ANEXO N°2" — ESE
+// es el que un humano ve al abrir el documento en Word (verificado exportando a PDF con Word COM
+// real). El cuerpo normal del documento, DEBAJO del cuadro, sigue trayendo su propio contenido
+// ("ANEXO N°1-A" completo, con sus propias casillas) — pero un cuadro opaco dibujado encima lo
+// tapa por completo, así que ese contenido normal NUNCA se ve. Al revés de lo que parece a
+// primera vista: no es el contenido DENTRO del cuadro el que hay que ignorar (ese es justo el que
+// SÍ se ve) — es el contenido normal que queda tapado DETRÁS.
+//
+// El tramo tapado va desde donde cierra el cuadro hasta el próximo salto de página real
+// (`<w:br w:type="page"/>`) o `<w:sectPr>` — un cuadro flotante no empuja el flujo normal, así
+// que todo lo que venga después, en la MISMA página, queda bajo su sombra; un salto de página
+// real sí saca el contenido de debajo del cuadro.
+export function rangosTapadosPorCuadroOpaco(xml: string): { inicio: number; fin: number }[] {
+  const cuadros = cuadrosFlotantesGrandes(xml).filter(c => c.opacoYEnFrente);
+  return cuadros.map(c => {
+    const reLimite = /<w:br\b[^>]*w:type="page"[^>]*\/?>|<w:sectPr\b/g;
+    reLimite.lastIndex = c.fin;
+    const limite = reLimite.exec(xml);
+    return { inicio: c.fin, fin: limite ? limite.index : xml.length };
+  });
+}
+
+// Se compara el RANGO completo del match (no solo dónde empieza) contra el tramo tapado: un
+// párrafo que arranca justo antes de que cierre el cuadro (ej. comparte <w:p> con el ancla de OTRO
+// elemento) pero cuyo cierre real cae ya en el tramo tapado cuenta igual como tapado — su texto
+// vive ahí.
+const seSuperponeConAlgunRango = (inicio: number, fin: number, rangos: { inicio: number; fin: number }[]) =>
+  rangos.some(r => inicio < r.fin && fin > r.inicio);
+
 // ── Lectura: lista todos los párrafos del documento, en orden ────────────────────────────
 export function listarParrafos(xml: string): Parrafo[] {
   const matches = [...xml.matchAll(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"[^>]*>([\s\S]*?)<\/w:p>/g)];
-  return matches.map(([, paraId, cuerpo], indice) => ({
-    paraId,
-    texto: textoDeRuns(cuerpo).trim(),
-    vacio: parrafoEstaVacio(cuerpo),
-    indice,
-    centrado: /<w:jc\s+w:val="center"/.test(cuerpo),
-  }));
+  const rangosTapados = rangosTapadosPorCuadroOpaco(xml);
+  return matches.map((match, indice) => {
+    const [, paraId, cuerpo] = match;
+    return {
+      paraId,
+      texto: textoDeRuns(cuerpo).trim(),
+      vacio: parrafoEstaVacio(cuerpo),
+      indice,
+      centrado: /<w:jc\s+w:val="center"/.test(cuerpo),
+      tapadoPorCuadroOpaco: seSuperponeConAlgunRango(match.index!, match.index! + match[0].length, rangosTapados),
+    };
+  });
 }
 
 export function contarParrafos(xml: string): number {

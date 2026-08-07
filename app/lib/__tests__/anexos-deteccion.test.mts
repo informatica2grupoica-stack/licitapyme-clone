@@ -1042,3 +1042,47 @@ test('campoCalzaConLaEtiqueta: ataja el valor real puesto en la casilla equivoca
   assert.equal(campoCalzaConLaEtiqueta('Giro Comercial', 'Venta de equipos'), true);
   assert.equal(campoCalzaConLaEtiqueta('Marca Ofertada', 'cualquier cosa'), true);
 });
+
+// BUG REAL (4777-24-LE26, ANEXO_2.docx): un cuadro de texto flotante de 7,6" x 11,1" (más alto
+// que la página, relleno BLANCO SÓLIDO, dibujado EN FRENTE del texto — behindDoc="0") traía
+// adentro el formulario COMPLETO y bien formado de "ANEXO N°2" — verificado exportando el
+// documento real a PDF con Word: ESE es el que un humano ve al abrir el archivo. El contenido
+// normal del cuerpo, DEBAJO del cuadro ("ANEXO N°1-A" completo, con sus propias casillas), queda
+// tapado por el cuadro opaco — nunca se ve, aunque el XML lo trae como texto legible. Ojo: es lo
+// CONTRARIO de lo que parece a primera vista — no hay que ignorar lo de ADENTRO del cuadro (eso
+// es justo lo que SÍ se ve), hay que ignorar el contenido normal que queda TAPADO detrás.
+test('analizarAnexo ignora las casillas normales tapadas detrás de un cuadro flotante opaco (regresión 4777-24-LE26)', () => {
+  const cuadroOpacoGrande = '<w:p><w:pPr/><w:r><w:drawing><wp:anchor behindDoc="0"><wp:extent cx="6934200" cy="10172700"/>'
+    + '<wps:spPr><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></wps:spPr><w:txbxContent>'
+    + p('ANEXO N°2 — OFERTA ECONOMICA')
+    + '</w:txbxContent></wp:anchor></w:drawing></w:r></w:p>';
+  const xml = normalizarParaIds(
+    NS + cuadroOpacoGrande + p('A.NOMBRE COMPLETO DEL PROPONENTE:') + p('') + FIN,
+  ).xml;
+  const analisis = analizarAnexo(xml);
+  const etiquetas = [...analisis.candidatosCelda.map(c => c.etiqueta), ...analisis.camposConDosPuntos.map(c => c.etiqueta)];
+  assert.ok(!etiquetas.some(e => e.includes('PROPONENTE')), `la casilla tapada detrás del cuadro no debía verse: ${JSON.stringify(etiquetas)}`);
+
+  // Con un salto de página REAL entre el cuadro y el contenido siguiente, ese contenido ya no
+  // queda tapado — el cuadro no puede cubrir una página que no es la suya.
+  const conSaltoDePagina = normalizarParaIds(
+    NS + cuadroOpacoGrande + '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+      + p('A.NOMBRE COMPLETO DEL PROPONENTE:') + p('') + FIN,
+  ).xml;
+  const conSalto = analizarAnexo(conSaltoDePagina);
+  const etiquetasConSalto = [...conSalto.candidatosCelda.map(c => c.etiqueta), ...conSalto.camposConDosPuntos.map(c => c.etiqueta)];
+  assert.ok(etiquetasConSalto.some(e => e.includes('PROPONENTE')), `con salto de página real, la casilla siguiente SÍ debía verse: ${JSON.stringify(etiquetasConSalto)}`);
+
+  // Un cuadro de firma chico y legítimo (1227338-6-LE26) no llega al umbral de altura — nada
+  // detrás de él se considera tapado.
+  const cuadroFirmaChico = '<w:p><w:pPr/><w:r><w:drawing><wp:anchor behindDoc="0"><wp:extent cx="2000000" cy="900000"/>'
+    + '<wps:spPr><a:solidFill><a:schemeClr val="lt1"/></a:solidFill></wps:spPr><w:txbxContent>'
+    + p('FIRMA REPRESENTANTE LEGAL:')
+    + '</w:txbxContent></wp:anchor></w:drawing></w:r></w:p>';
+  const conFirmaChica = analizarAnexo(normalizarParaIds(NS + cuadroFirmaChico + p('DOMICILIO:') + p('') + FIN).xml);
+  assert.equal(conFirmaChica.lineasFirma.length, 1, 'un cuadro chico de firma sigue detectándose igual que antes');
+  assert.ok(
+    [...conFirmaChica.candidatosCelda.map(c => c.etiqueta), ...conFirmaChica.camposConDosPuntos.map(c => c.etiqueta)].some(e => e.includes('DOMICILIO')),
+    'un cuadro chico no tapa nada detrás',
+  );
+});

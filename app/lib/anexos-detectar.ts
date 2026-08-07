@@ -1384,11 +1384,21 @@ export function detectarAvisoNoAplica(parrafos: Parrafo[]): AvisoNoAplica | null
 export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postulaComoUTP?: boolean } = {}) {
   const parrafos = listarParrafos(xml);
   const secciones = detectarSecciones(parrafos, postulaComoUTP);
+  // Ver tapadoPorCuadroOpaco (anexos-docx.ts, listarParrafos): párrafos NORMALES del cuerpo que
+  // quedan tapados detrás de un cuadro de texto flotante opaco dibujado encima — contenido que
+  // Word no muestra en la página visible (caso real 4777-24-LE26: el cuadro trae el ANEXO N°2
+  // real y visible; "ANEXO N°1-A", debajo, nunca se ve). Se descarta acá, antes de cualquier
+  // patrón de detección, para que ninguno de los cinco (celda, tabla, inline, "Etiqueta:", firma)
+  // lo ofrezca como casilla.
+  const indicesTapadosPorCuadro = new Set(
+    parrafos.filter(p => p.tapadoPorCuadroOpaco).map(p => p.indice),
+  );
 
   // El patrón de tabla (1b) va PRIMERO — tiene mejor etiqueta — y el patrón plano (1) solo
   // aporta los índices que la tabla no reclamó, para no mostrar el mismo blanco dos veces con
   // una etiqueta buena y otra mala ("CO").
-  const candidatosTabla = detectarCandidatosTabla(xml);
+  const candidatosTabla = detectarCandidatosTabla(xml)
+    .filter(c => !indicesTapadosPorCuadro.has(c.indice));
   const indicesTabla = new Set(candidatosTabla.map(c => c.indice));
   // Relleno de tabla que nunca es un campo real (ver parrafosQueNuncaSonCampoEnTabla): ni como
   // valor apuntado por el candidato (el caso real encontrado), ni celdas angostas de puro layout.
@@ -1403,11 +1413,13 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     ...detectarCandidatosCeldaCrudos(parrafos, parrafosSinCampo, indicesEnCelda)
       .filter(c => !indicesTabla.has(c.indice))
       .filter(c => !parrafosSinCampo.has(c.indice))
+      .filter(c => !indicesTapadosPorCuadro.has(c.indice))
       .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId)),
   ];
   const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos, parrafosSinCampo, indicesEnCelda)
     .filter(c => !indicesTabla.has(c.indice))
     .filter(c => !parrafosSinCampo.has(c.indice))
+    .filter(c => !indicesTapadosPorCuadro.has(c.indice))
     .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId));
 
   // Los campos de una sección OMITIDA (Persona Natural / UTP, cuando postulamos como jurídica) ya
@@ -1484,7 +1496,8 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // IMAGEN — el párrafo quedaba intacto, sin firma y sin siquiera avisar que faltaba. Se separa
   // ACÁ, antes de armar `parrafos` en RAW (detectarCamposConDosPuntos no depende de nada de lo de
   // abajo), para que reciba la imagen igual que cualquier otra firma.
-  const camposConDosPuntosCrudo = acotarASeccionesHabilitadas(detectarCamposConDosPuntos(parrafos), secciones);
+  const camposConDosPuntosCrudo = acotarASeccionesHabilitadas(detectarCamposConDosPuntos(parrafos), secciones)
+    .filter(c => !indicesTapadosPorCuadro.has(c.indice));
   const camposDosPuntosFirma = camposConDosPuntosCrudo.filter(c => esFirmaPropia(c.etiqueta));
   const camposConDosPuntosSinFirma = camposConDosPuntosCrudo.filter(c => !esEtiquetaFirma(c.etiqueta));
 
@@ -1493,7 +1506,8 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // cierran con "________ / FIRMA Y TIMBRE EVALUADOR", el bloque que llena el HOSPITAL al evaluar
   // la oferta, y ahí se estampaba nuestra firma escaneada. Firmar por el evaluador de la licitación
   // es bastante peor que dejar el documento sin firmar.
-  const todasLasLineasFirma = detectarLineasFirma(parrafos);
+  const todasLasLineasFirma = detectarLineasFirma(parrafos)
+    .filter(f => !indicesTapadosPorCuadro.has(f.indice));
   // El MISMO bloque de firma puede ser visto por dos patrones a la vez: el caso C de
   // detectarLineasFirma (leyenda sin raya → devuelve el párrafo VACÍO de ARRIBA, donde se firmaría a
   // mano) y el patrón 5 (la leyenda misma, "FIRMA REPRESENTANTE LEGAL:", terminada en dos puntos).
@@ -1541,6 +1555,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   const indicesRayaFirma = new Set(todasLasLineasFirma.map(f => f.indice));
   const blancosInline = detectarBlancosInline(xml)
     .filter(b => !indicesRayaFirma.has(b.indiceParrafo))
+    .filter(b => !indicesTapadosPorCuadro.has(b.indiceParrafo))
     .filter(b => !(/fecha/i.test(parrafos[b.indiceParrafo]?.texto || '') && precedeFirmaContraparte(parrafos, b.indiceParrafo)));
 
   // Patrón 5: solo los que caen en una sección habilitada y no pisan un blanco ya detectado por
