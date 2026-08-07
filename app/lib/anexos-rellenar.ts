@@ -827,10 +827,15 @@ export async function generarAnexoFinal(
         ? elegido
         : porDefectoEnLugar(!!linea.pideTimbre, !!empresa.firma_url, !!empresa.timbre_url, !avisoNoAplica);
       const pos = respuestas[`firmaPos:${linea.indice}`] as PosicionFirma | undefined;
-      return {
-        linea, que,
-        alineacion: pos && ['izquierda', 'centro', 'derecha'].includes(pos) ? pos : undefined,
-      };
+      // Sin elección manual, la imagen heredaría el alineado (o falta de él) del párrafo VACÍO
+      // donde se estampa — que casi nunca trae `<w:jc>` propio (default = izquierda). Si la
+      // leyenda de arriba está centrada (`centradaLeyenda`, ver LineaFirma), la firma queda pegada
+      // al margen izquierdo, suelta debajo de un título centrado — "todo corrido" (3713-7-LE26).
+      // Se usa el centrado de la leyenda como default, sin pisar una elección explícita del modal.
+      const alineacion = pos && ['izquierda', 'centro', 'derecha'].includes(pos)
+        ? pos
+        : (linea.centradaLeyenda ? 'centro' : undefined);
+      return { linea, que, alineacion };
     });
 
     // Las imágenes se bajan UNA vez, y solo si alguna decisión las va a usar.
