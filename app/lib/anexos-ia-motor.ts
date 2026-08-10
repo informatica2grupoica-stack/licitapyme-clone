@@ -770,9 +770,20 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
     }
   }
 
+  // BUG REAL (1426039-8-LE26, 10-ago-2026): `candidatos` llega como [...candidatosCelda (patrón 1),
+  // ...camposConDosPuntos (patrón 5)] — dos listas pegadas, NO en orden de aparición en el
+  // documento. "NOMBRE O RAZÓN SOCIAL:" y "R.U.T:" (patrón 5, dos filas seguidas de la MISMA
+  // tabla) terminaron en LOTES DISTINTOS porque toda la lista de patrón 1 se interponía en el
+  // medio — "R.U.T" quedó SOLO en un lote de 1, sin "NOMBRE O RAZÓN SOCIAL" al lado para anclar
+  // el contexto, y la IA (probado aislándolo) lo clasificó "no_aplica_al_oferente — uso interno
+  // del organismo" en vez de perfil_empresa/rut. Emparejado con su vecino real (mismo bloque,
+  // mismo lote), resuelve bien. Ordenar por posición en el documento ANTES de trocear en lotes
+  // mantiene juntas las casillas que están juntas en el papel — no cambia ninguna categoría ni
+  // guardarraíl, solo qué comparte lote con qué.
+  const candidatosOrdenados = [...candidatosParaIA].sort((a, b) => a.indice - b.indice);
   let n = 0;
   const items: ItemLote[] = [
-    ...candidatosParaIA.map((c): ItemLote => ({ n: ++n, ref: { tipo: 'celda', c }, texto: '' })),
+    ...candidatosOrdenados.map((c): ItemLote => ({ n: ++n, ref: { tipo: 'celda', c }, texto: '' })),
     ...blancosInline.map((b): ItemLote => ({ n: ++n, ref: { tipo: 'inline', b }, texto: '' })),
   ];
   for (const item of items) {

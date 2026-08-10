@@ -473,6 +473,24 @@ test('el título de una fila de tabla mergeada nunca es candidato del patrón "E
     `el título de la fila no debe ofrecerse como campo suelto: ${JSON.stringify(etiquetas)}`);
 });
 
+// BUG REAL (1426039-8-LE26, 10-ago-2026, ANEXO N°5): "NOMBRE O RAZÓN SOCIAL: " y "R.U.T: " venían
+// cada una en su PROPIA fila de tabla de 1 sola celda (una tabla de una sola columna, sin ninguna
+// fila de 2+ celdas al lado) — la regla de arriba, pensada para un título REDUNDANTE con datos
+// reales en las filas siguientes, las descartaba igual aunque acá cada fila de 1 celda ES el
+// campo completo (el valor se escribe pegado al final, "NOMBRE O RAZÓN SOCIAL: Inversiones..."),
+// sin ninguna fila de repuesto que las vuelva innecesarias. Nombre y RUT — los dos datos más
+// básicos que hay — desaparecían sin dejar ni una casilla, ni auto ni pendiente.
+test('tabla de una sola columna: cada fila de 1 celda ES un campo, no un título (regresión 1426039-8-LE26)', () => {
+  const xml = NS + tabla(
+    fila('NOMBRE O RAZÓN SOCIAL:'),
+    fila('R.U.T:'),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).camposConDosPuntos.map(c => c.etiqueta);
+  assert.ok(etiquetas.includes('NOMBRE O RAZÓN SOCIAL'), `falta razón social: ${JSON.stringify(etiquetas)}`);
+  assert.ok(etiquetas.includes('R.U.T'), `falta RUT: ${JSON.stringify(etiquetas)}`);
+});
+
 // BUG REAL (1057472-89-LE26, ANEXO N°2): "El proponente que suscribe, declara lo siguiente:" va
 // seguido de un párrafo vacío de espaciado y luego la lista de declaraciones (a, b, c...) con
 // numeración AUTOMÁTICA de Word (<w:numPr> — el "a)" nunca es texto literal en el XML). El patrón 1

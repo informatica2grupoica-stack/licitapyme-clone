@@ -1488,7 +1488,19 @@ function indicesFilaTituloMergeada(xml: string): Set<number> {
   for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
     const cuerpoTabla = tabla[1];
     const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
-    for (const fila of cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)) {
+    const filas = [...cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
+    // BUG REAL (1426039-8-LE26, 10-ago-2026): sin esto, CUALQUIER tabla de una sola columna
+    // perdía TODOS sus campos — "NOMBRE O RAZÓN SOCIAL: " y "R.U.T: ", cada una en su propia fila
+    // de 1 celda (el valor se escribe pegado al final, mismo patrón que detectarCamposConDosPuntos
+    // espera), se trataban como "título mergeado" y desaparecían sin dejar ni una casilla.
+    // La señal real del bug original (CONTACTO DEL PROPONENTE:) es que esa fila de 1 celda es
+    // REDUNDANTE: el dato de verdad vive en las filas de 2+ celdas que la SIGUEN en la MISMA
+    // tabla ([Nombre completo][  ], [Cargo][  ]). Si la tabla entera es de filas de 1 celda, no
+    // hay ningún "campo real" del que esta fila sea el título — cada fila de 1 celda ES el campo,
+    // vía el patrón "Etiqueta: valor inline", y hay que dejarla pasar.
+    const hayFilaConVariasCeldas = filas.some(f => [...f[1].matchAll(/<w:tc\b[^>]*>/g)].length >= 2);
+    if (!hayFilaConVariasCeldas) continue;
+    for (const fila of filas) {
       const celdas = [...fila[1].matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)];
       if (celdas.length !== 1) continue; // solo filas de 1 celda: título mergeado
       const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
