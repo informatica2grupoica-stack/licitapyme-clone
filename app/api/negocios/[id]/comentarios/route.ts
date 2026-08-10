@@ -127,8 +127,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (pipeline_estado) {
       try {
         await pool.query(
-          `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW() WHERE id = ?`,
-          [pipeline_estado, id]
+          `UPDATE negocios SET estado_pipeline = ?, updated_at = ? WHERE id = ?`,
+          [pipeline_estado, ahoraChileSQL(), id]
         );
         nuevoEstado = pipeline_estado;
       } catch {
@@ -136,8 +136,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
     }
 
-    // Actualizar updated_at del negocio
-    await pool.query(`UPDATE negocios SET updated_at = NOW() WHERE id = ?`, [id]);
+    // Actualizar updated_at del negocio (hora de pared de Chile, no NOW() del servidor MySQL)
+    await pool.query(`UPDATE negocios SET updated_at = ? WHERE id = ?`, [ahoraChileSQL(), id]);
 
     registrarActividad({
       usuarioId: userId, accion: 'comentario_negocio',

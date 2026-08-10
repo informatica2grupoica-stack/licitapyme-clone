@@ -260,3 +260,34 @@ test('insertarImagenEnParrafo con nombreDebajo como array: nombre y RUT, cada un
   const chequeo = verificarXmlBienFormado(final);
   assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
 });
+
+// BUG REAL (1426039-8-LE26, 10-ago-2026, segunda vuelta): el usuario pidió explícitamente que la
+// firma quede ANTES de la leyenda ("Nombre, RUT y Firma Representante Legal"), no después — línea
+// → firma → etiqueta → nombre/RUT, el orden que se lee en el papel. `conservar` a secas siempre
+// agrega la imagen al FINAL; `saltoAntesDeImagen` la antepone en cambio, dejando la leyenda
+// existente intacta después y nombreDebajo al final de todo (nunca pegado a la imagen).
+test('insertarImagenEnParrafo con saltoAntesDeImagen: la imagen queda ANTES de la leyenda, no después (regresión 1426039-8-LE26)', async () => {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="urn:ct"><Default Extension="xml" ContentType="application/xml"/></Types>');
+  zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+
+  const parrafo = '<w:p w14:paraId="0000B003" w14:textId="77777777">'
+    + '<w:r><w:t xml:space="preserve">Nombre, RUT y Firma Representante Legal</w:t></w:r>'
+    + '</w:p>';
+  const xml = `<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>${parrafo}`
+    + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+
+  const final = await insertarImagenEnParrafo(zip, xml, '0000B003', PNG_1X1, 'png', {
+    conservar: true, saltoAntesDeImagen: true, nombreDebajo: ['Lidia Valenzuela', '6.736.698-0'],
+  });
+
+  const posImagen = final.indexOf('<w:drawing>');
+  const posLeyenda = final.indexOf('Nombre, RUT y Firma Representante Legal');
+  const posNombre = final.indexOf('Lidia Valenzuela');
+  assert.ok(posImagen >= 0 && posLeyenda >= 0 && posNombre >= 0, `faltó algún elemento: ${final}`);
+  assert.ok(posImagen < posLeyenda, `la imagen debe ir ANTES de la leyenda: img=${posImagen} leyenda=${posLeyenda}`);
+  assert.ok(posLeyenda < posNombre, `el nombre/RUT va DESPUÉS de la leyenda, no pegado a la imagen: leyenda=${posLeyenda} nombre=${posNombre}`);
+  assert.match(final, /Nombre, RUT y Firma Representante Legal/, 'la leyenda original debe sobrevivir intacta');
+  const chequeo = verificarXmlBienFormado(final);
+  assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
+});

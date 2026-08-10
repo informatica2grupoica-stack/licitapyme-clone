@@ -162,12 +162,15 @@ export async function avisarCierresProximos(horas = 72): Promise<{ eventos: numb
     const values: unknown[] = [];
     for (const p of planos) {
       values.push('CIERRE_PROXIMO', p.it.fila.licitacion_codigo, p.it.fila.licitacion_nombre, p.uid, p.nombre,
-        null, null, p.msg, JSON.stringify({ cierre: p.it.fila.licitacion_cierre, perfil: p.it.perfil || undefined }));
+        null, null, p.msg, JSON.stringify({ cierre: p.it.fila.licitacion_cierre, perfil: p.it.perfil || undefined }),
+        ahoraChileSQL());
     }
-    const ph2 = planos.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+    // created_at EXPLÍCITO en hora de pared de Chile (mismo bug de siempre: el DEFAULT
+    // CURRENT_TIMESTAMP lo pone el servidor MySQL de Bluehost, UTC-6, 2h atrás de Chile).
+    const ph2 = planos.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',');
     const [ins] = await pool.query(
       `INSERT INTO historial_eventos
-         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata)
+         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata, created_at)
        VALUES ${ph2}`,
       values,
     ) as any[];

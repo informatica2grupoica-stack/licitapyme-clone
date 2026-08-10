@@ -10,6 +10,7 @@ import { getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline } from 
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { refrescarEstadoCodigo } from '@/app/lib/refrescar-estados';
 import { congelarAuditorSiCorresponde } from '@/app/lib/congelamiento';
+import { ahoraChileSQL } from '@/app/lib/tz';
 
 function getUser(req: NextRequest) {
   const id  = req.headers.get('x-user-id');
@@ -283,25 +284,28 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         }
       }
       try {
+        // created_at/updated_at/descarte_at EXPLÍCITOS en hora de pared de Chile: el DEFAULT/
+        // NOW() del servidor MySQL de Bluehost (UTC-6) queda 2h atrás de Chile.
+        const ahora = ahoraChileSQL();
         if (estado_pipeline === 'DESCARTADA') {
           await pool.query(
             `UPDATE negocios SET estado_pipeline = 'DESCARTADA', descarte_motivo = ?,
-                    descarte_por = ?, descarte_at = NOW(), updated_at = NOW() WHERE id = ?`,
-            [motivo.slice(0, 500), userId, id]
+                    descarte_por = ?, descarte_at = ?, updated_at = ? WHERE id = ?`,
+            [motivo.slice(0, 500), userId, ahora, ahora, id]
           );
           // Deja el motivo también en el hilo de comentarios del negocio (best-effort).
           try {
             await pool.query(
-              `INSERT INTO comentarios_negocio (negocio_id, usuario_id, comentario) VALUES (?, ?, ?)`,
-              [id, userId, `Descartada — motivo: ${motivo}`]
+              `INSERT INTO comentarios_negocio (negocio_id, usuario_id, comentario, created_at) VALUES (?, ?, ?, ?)`,
+              [id, userId, `Descartada — motivo: ${motivo}`, ahora]
             );
           } catch { /* si la tabla no existe, no bloquea el descarte */ }
         } else {
           // Cualquier otro estado limpia los metadatos de descarte previos.
           await pool.query(
             `UPDATE negocios SET estado_pipeline = ?, descarte_motivo = NULL,
-                    descarte_por = NULL, descarte_at = NULL, updated_at = NOW() WHERE id = ?`,
-            [estado_pipeline || null, id]
+                    descarte_por = NULL, descarte_at = NULL, updated_at = ? WHERE id = ?`,
+            [estado_pipeline || null, ahora, id]
           );
         }
         registrarActividad({
@@ -368,8 +372,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           await pool.query(`DELETE FROM negocios WHERE id = ?`, [dup.id]);
         }
         await pool.query(
-          `UPDATE negocios SET asignado_a = ?, asignado_por = ?, updated_at = NOW() WHERE id = ?`,
-          [nuevo, userId, id],
+          `UPDATE negocios SET asignado_a = ?, asignado_por = ?, updated_at = ? WHERE id = ?`,
+          [nuevo, userId, ahoraChileSQL(), id],
         );
         registrarActividad({
           usuarioId: userId, accion: 'asignacion',

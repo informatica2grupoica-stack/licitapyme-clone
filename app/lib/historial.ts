@@ -3,6 +3,7 @@
 // destinatario (usuario_id) para su campana de notificaciones.
 import pool from '@/app/lib/db';
 import { publicar } from '@/app/lib/sse-bus';
+import { ahoraChileSQL } from '@/app/lib/tz';
 
 export interface EventoHistorial {
   tipo: string;                       // ASIGNACION, REASIGNACION, DESCARTE, CAMBIO_ETAPA, ...
@@ -18,15 +19,18 @@ export interface EventoHistorial {
 
 export async function registrarEvento(e: EventoHistorial): Promise<number | null> {
   try {
+    // created_at EXPLÍCITO en hora de pared de Chile: el DEFAULT CURRENT_TIMESTAMP lo pone
+    // el servidor MySQL de Bluehost (UTC-6), 2h atrás de Chile — mismo bug que actividad_usuario.
     const [r] = await pool.query(
       `INSERT INTO historial_eventos
-         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         e.tipo, e.licitacionCodigo ?? null, e.licitacionNombre ?? null,
         e.usuarioId ?? null, e.usuarioNombre ?? null,
         e.actorId ?? null, e.actorNombre ?? null,
         e.mensaje, e.metadata ? JSON.stringify(e.metadata) : null,
+        ahoraChileSQL(),
       ],
     );
     const id = (r as any).insertId || null;

@@ -471,12 +471,15 @@ async function avisarOrdenes(
           orden: p.a.oc.Codigo, estado: p.a.oc.CodigoEstado, total: p.a.oc.Total,
           nueva: p.a.esNueva, estadoAnterior: p.a.estadoAnterior,
         }),
+        ahoraChileSQL(),
       );
     }
-    const ph = planos.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+    // created_at EXPLÍCITO en hora de pared de Chile (mismo bug de siempre: el DEFAULT
+    // CURRENT_TIMESTAMP lo pone el servidor MySQL de Bluehost, UTC-6, 2h atrás de Chile).
+    const ph = planos.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',');
     const [ins] = await pool.query(
       `INSERT INTO historial_eventos
-         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata)
+         (tipo, licitacion_codigo, licitacion_nombre, usuario_id, usuario_nombre, actor_id, actor_nombre, mensaje, metadata, created_at)
        VALUES ${ph}`,
       values,
     ) as any[];

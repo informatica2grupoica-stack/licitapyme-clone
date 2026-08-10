@@ -740,11 +740,13 @@ export async function insertarImagenEnParrafo(
   // existente).
   // `saltoAntesDeImagen`: con `conservar`, el dibujo SIEMPRE se agrega al FINAL del párrafo — bien
   // para el timbre (va PEGADO al lado de la firma que ya se estampó ahí) pero mal cuando lo que ya
-  // hay es una LEYENDA larga que envuelve a 2+ líneas visuales por lo angosto de la celda ("Nombre,
-  // RUT y Firma Representante" / "Legal" — caso real 1426039-8-LE26): sin salto, la imagen quedaba
-  // pegada justo donde envuelve la última línea y se veía superpuesta con "Legal". Con esto, un
-  // <w:r><w:br/></w:r> separa el texto existente de la imagen ANTES de agregarla — nunca se activa
-  // para el timbre (que no lo pide), así que firma+timbre lado a lado sigue exactamente igual.
+  // hay es una LEYENDA que describe la firma ("Nombre, RUT y Firma Representante Legal", caso real
+  // 1426039-8-LE26): ahí la imagen tiene que quedar ANTES de la leyenda (línea → firma → etiqueta →
+  // nombre/RUT, el orden que se lee en el papel), no después. Con esto, la imagen se antepone (con
+  // un <w:r><w:br/></w:r> justo después) y la leyenda existente queda intacta a continuación;
+  // `nombreDebajo` (si lo hay) se agrega al FINAL de todo, después de la leyenda — nunca pegado a
+  // la imagen. Nunca se activa para el timbre (que no lo pide), así que firma+timbre lado a lado
+  // sigue exactamente igual.
   {
     anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion, nombreDebajo, saltoAntesDeImagen = false,
   }: {
@@ -860,9 +862,18 @@ export async function insertarImagenEnParrafo(
 
   let nuevoCuerpo: string;
   if (conservar) {
-    // timbre al lado de la firma ya estampada — no se borra nada. Con saltoAntesDeImagen, el
-    // dibujo empieza en su propia línea en vez de pegado al final del texto que ya había.
-    nuevoCuerpo = cuerpo + (saltoAntesDeImagen ? '<w:r><w:br/></w:r>' : '') + drawingCompleto;
+    if (saltoAntesDeImagen) {
+      // La imagen va PRIMERO (con un salto de línea justo después), dejando la leyenda existente
+      // INTACTA a continuación — y nombreDebajo (si lo hay) se agrega al FINAL de todo, después
+      // de la leyenda, no pegado a la imagen. BUG REAL (1426039-8-LE26, 10-ago-2026): la primera
+      // versión de este fix agregaba la imagen al final de la leyenda (evitaba la superposición,
+      // pero la imagen seguía saliendo DEBAJO de "Nombre, RUT y Firma..." en vez de arriba) — el
+      // usuario pidió explícitamente que la firma quede ANTES de la etiqueta, no después: línea →
+      // firma → "Nombre, RUT y Firma Representante Legal" → nombre/RUT.
+      nuevoCuerpo = drawing + '<w:r><w:br/></w:r>' + cuerpo + runNombre;
+    } else {
+      nuevoCuerpo = cuerpo + drawingCompleto;   // timbre al lado de la firma ya estampada — no se borra nada
+    }
   } else if (runRaya) {
     const textoRunCompleto = [...runRaya[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('');
     // BUG REAL (1057678-2-LE26): un run de raya puede traer ESPACIOS ANTES de los guiones
