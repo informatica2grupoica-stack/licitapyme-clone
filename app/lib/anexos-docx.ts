@@ -383,13 +383,29 @@ export interface BlancoInline {
 // (descarta notas al pie "[1]", referencias "[2-4]") y no puede anidar otro delimitador del mismo
 // tipo. Un falso positivo acá no escribe nada malo en el documento: la casilla queda como pendiente
 // para que la vea un humano, que es exactamente el peor caso aceptable.
-const RE_MARCADORES = [
-  /<<([^<>]{2,200}?)>>/g,        // <<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>
-  /«([^«»]{2,200}?)»/g,          // variante tipográfica de lo mismo
-  /\{\{([^{}]{2,200}?)\}\}/g,    // {{razon_social}} — plantillas
-  /\[([^[\]]{2,200}?)\]/g,       // [Insertar RUT] / [fecha] / [indicar “en esta casilla”…]
-];
 const RE_LETRA = /[A-Za-zÀ-ÿ]/;
+
+// Solo para el paréntesis (ver RE_MARCADORES más abajo): a diferencia de "[...]"/"<<...>>" (raros
+// en prosa legal chilena normal), "(...)" es MUY común para incisos legítimos — "(en adelante, 'el
+// Oferente')", "(Ley N° 19.886)", "(IVA incluido)", enumeraciones "(a)", "(b)" — así que aceptar
+// CUALQUIER paréntesis con una letra adentro (el único filtro que basta para los otros tres
+// delimitadores) inundaría cada documento de falsos positivos. Se reconoce SOLO cuando el
+// contenido, de punta a punta, es un nombre de campo real — como mucho con un calificador corto
+// pegado ("razón social empresa", "RUT del representante") — nunca por descarte de lo que NO es.
+const RE_CAMPO_ENTRE_PARENTESIS = /^(nombres?|apellidos?|r\.?\s*u\.?\s*t\.?|c[ée]dula(\s+de\s+identidad)?|raz[óo]n\s+social|domicilio|direcci[óo]n|comuna|ciudad|regi[óo]n|cargo|giro|fecha|correo(\s+electr[óo]nico)?|e-?mail|tel[ée]fono|fono|celular|representante(\s+legal)?)(\s+(de\s+la\s+|del\s+)?(empresa|oferente|adjudicatario|representante(\s+legal)?))?$/i;
+
+const RE_MARCADORES: { re: RegExp; valido: (dentro: string) => boolean }[] = [
+  { re: /<<([^<>]{2,200}?)>>/g, valido: (d) => RE_LETRA.test(d) },      // <<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>
+  { re: /«([^«»]{2,200}?)»/g, valido: (d) => RE_LETRA.test(d) },        // variante tipográfica de lo mismo
+  { re: /\{\{([^{}]{2,200}?)\}\}/g, valido: (d) => RE_LETRA.test(d) },  // {{razon_social}} — plantillas
+  { re: /\[([^[\]]{2,200}?)\]/g, valido: (d) => RE_LETRA.test(d) },     // [Insertar RUT] / [fecha] / [indicar "en esta casilla"…]
+  // BUG REAL (10-ago-2026, declaración jurada corrida: "Yo (nombre), cédula de identidad Nº
+  // (RUT)…, (razón social empresa), RUT N° (RUT empresa), con domicilio en (domicilio),
+  // (comuna), (ciudad), declaro bajo juramento que:"): el organismo usa PARÉNTESIS en vez de
+  // "[...]" para decir qué va en cada casilla — antes esa frase entera (7 marcadores) era
+  // invisible: cero blancos detectados, ni auto ni pendiente, nada.
+  { re: /\(([^()]{2,60}?)\)/g, valido: (d) => RE_CAMPO_ENTRE_PARENTESIS.test(d.trim()) },
+];
 
 // Blancos "de raya": guiones bajos (lo de siempre), líneas de PUNTOS, y líneas del carácter
 // ELIPSIS "…" (U+2026, UN SOLO carácter que Word/el usuario tipea como "..." y autocorrige a un
@@ -406,10 +422,10 @@ const RE_RAYAS = /_{4,}|\.{6,}|…{2,}/g;
 export function listarBlancosInline(textoRun: string): BlancoInline[] {
   const crudos: { pos: number; largo: number; textoMarcador?: string }[] = [];
   for (const m of textoRun.matchAll(RE_RAYAS)) crudos.push({ pos: m.index!, largo: m[0].length });
-  for (const re of RE_MARCADORES) {
+  for (const { re, valido } of RE_MARCADORES) {
     for (const m of textoRun.matchAll(re)) {
       const dentro = m[1].trim();
-      if (!RE_LETRA.test(dentro)) continue;
+      if (!valido(dentro)) continue;
       crudos.push({ pos: m.index!, largo: m[0].length, textoMarcador: dentro });
     }
   }
@@ -467,9 +483,9 @@ export function unificarRunsDeMarcadores(xml: string): string {
     // texto: reescribir run por run sobre la marcha dejaría los offsets del siguiente marcador
     // corridos respecto del texto original.
     const tramos: { desde: number; hasta: number; run: number }[] = [];
-    for (const re of RE_MARCADORES) {
+    for (const { re, valido } of RE_MARCADORES) {
       for (const m of completo.matchAll(re)) {
-        if (!RE_LETRA.test(m[1])) continue;
+        if (!valido(m[1].trim())) continue;
         const primerRun = runDe(m.index!);
         if (primerRun === runDe(m.index! + m[0].length - 1)) continue; // ya vive entero en un run
         tramos.push({ desde: m.index!, hasta: m.index! + m[0].length, run: primerRun });

@@ -816,6 +816,43 @@ test('marcadores <<…>> / […] / línea de puntos se detectan como blancos', (
   assert.equal(a.blancosInline.filter(b => !b.textoMarcador).length, 2, 'las dos líneas de puntos del "Yo, …"');
 });
 
+// BUG REAL (10-ago-2026): una declaración jurada corrida usa PARÉNTESIS en vez de "[...]" para
+// decir qué va en cada casilla — "Yo (nombre), cédula de identidad Nº (RUT), en mi calidad de
+// adjudicatario o representante legal del adjudicatario, (razón social empresa), RUT N° (RUT
+// empresa), con domicilio en (domicilio), (comuna), (ciudad), declaro bajo juramento que:". Antes
+// la frase ENTERA (7 marcadores) era invisible — cero blancos, ni auto ni pendiente.
+test('marcadores entre paréntesis: "(nombre)"/"(RUT)"/"(razón social empresa)" se detectan (regresión declaración jurada corrida)', () => {
+  const xml = NS + p('Yo (nombre), cédula de identidad Nº (RUT), en mi calidad de adjudicatario o '
+    + 'representante legal del adjudicatario, (razón social empresa), RUT N° (RUT empresa), con '
+    + 'domicilio en (domicilio), (comuna), (ciudad), declaro bajo juramento que:') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(unificarRunsDeMarcadores(norm));
+  const marcadores = a.blancosInline.map(b => b.textoMarcador);
+  assert.deepEqual(marcadores, ['nombre', 'RUT', 'razón social empresa', 'RUT empresa', 'domicilio', 'comuna', 'ciudad'],
+    `marcadores detectados: ${JSON.stringify(marcadores)}`);
+});
+
+// El paréntesis es MUY común en prosa legal chilena para incisos que NO son casillas a llenar —
+// a diferencia de "[...]"/"<<...>>" (raros ahí), blanket-matching cualquier "(...)" inundaría el
+// documento de falsos positivos. Ninguna de estas frases reales debe generar un solo marcador.
+test('marcadores entre paréntesis: incisos legales normales NO se confunden con casillas', () => {
+  const frasesReales = [
+    'de acuerdo a la Ley N° 19.886 (en adelante, "la Ley de Compras")',
+    'el oferente (en adelante "el Proponente")',
+    'el valor total (IVA incluido) asciende a $500.000',
+    'según lo dispuesto en las letras a), b) y c) del artículo 4°',
+    'remitido por correo certificado a la dirección indicada',
+    'el documento (Resolución Exenta N°251) aprueba las bases',
+    'la garantía (Boleta Bancaria) debe presentarse antes de la apertura',
+  ];
+  for (const frase of frasesReales) {
+    const xml = NS + p(frase) + FIN;
+    const { xml: norm } = normalizarParaIds(xml);
+    const a = analizarAnexo(unificarRunsDeMarcadores(norm));
+    assert.equal(a.blancosInline.length, 0, `"${frase}" no debería generar ningún marcador: ${JSON.stringify(a.blancosInline)}`);
+  }
+});
+
 // Escritura: el marcador se reemplaza ENTERO (no queda medio ">>" suelto), el texto no se
 // doble-escapa y el conteo de párrafos no se mueve.
 test('rellenar un marcador lo reemplaza entero y deja el XML sano', () => {
