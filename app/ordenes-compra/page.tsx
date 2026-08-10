@@ -5,10 +5,11 @@
 // en nuestra base (los trae el cron diario, ver app/lib/ordenes-compra.ts) — la API de MP no permite
 // consultar por licitación, así que no hay nada que pedirle al portal desde acá.
 //
-// "Vincular a licitación" existe porque el cruce automático (por el NOMBRE de la orden) no siempre
-// encuentra el código de origen — un admin puede corregirlo a mano buscando la licitación por
-// código o nombre (PATCH /api/ordenes-compra/[codigo]).
-import { useState, useEffect, useCallback, useRef } from 'react';
+// "Usar como experiencia" NO reasigna la OC (ya está fija a la licitación que la generó, se
+// adjudicó ahí) — copia su PDF a "Documentos Propios" de OTRA licitación en la que se está
+// postulando, como respaldo de experiencia/track record. Reusa /api/documentos/guardar, el mismo
+// endpoint con el que el usuario sube documentos a mano (misma caja "Documentos Propios").
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
@@ -19,7 +20,7 @@ import { Select } from '@/app/components/ui/Select';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import {
   Receipt, Loader2, Search, Filter, X, Calendar, Building2, Package, ChevronDown, ChevronUp,
-  ExternalLink, Eye, Download, Link2, Link2Off, ArrowUpRight,
+  ExternalLink, Eye, Download, ArrowUpRight, FolderInput, Check,
 } from 'lucide-react';
 
 interface ItemOC { descripcion: string; cantidad: number | null; precioNeto: number | null; total: number | null }
@@ -81,12 +82,16 @@ const fmtFecha = (f: string | null) => {
   try { return new Date(f).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }); } catch { return null; }
 };
 
-// Modal de "vincular a licitación": busca en negocios por código o nombre y aplica el PATCH.
-function VincularModal({ oc, onClose, onVinculada }: { oc: OrdenCompra; onClose: () => void; onVinculada: (negocio: NegocioBusqueda | null) => void }) {
+// Modal "Usar como experiencia": busca una licitación (negocios) y copia el PDF de la OC a su
+// caja "Experiencia" dentro de Documentos Propios. Se puede mandar a VARIAS licitaciones sin
+// cerrar el modal — cada envío queda marcado con un check en la lista de resultados.
+function EnviarExperienciaModal({ oc, onClose }: { oc: OrdenCompra; onClose: () => void }) {
   const [q, setQ] = useState('');
   const [resultados, setResultados] = useState<NegocioBusqueda[]>([]);
   const [buscando, setBuscando] = useState(false);
-  const [guardando, setGuardando] = useState(false);
+  const [enviandoA, setEnviandoA] = useState<string | null>(null);
+  const [enviadosA, setEnviadosA] = useState<Set<string>>(new Set());
+  const [pdfUrl, setPdfUrl] = useState(oc.pdfUrl);
   const toast = useToast();
 
   useEffect(() => {
@@ -111,22 +116,35 @@ function VincularModal({ oc, onClose, onVinculada }: { oc: OrdenCompra; onClose:
     return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
   }, [onClose]);
 
-  const vincular = async (negocio: NegocioBusqueda | null) => {
-    setGuardando(true);
+  const enviar = async (negocio: NegocioBusqueda) => {
+    setEnviandoA(negocio.licitacion_codigo);
     try {
-      const res = await fetch(`/api/ordenes-compra/${encodeURIComponent(oc.codigo)}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ licitacion_codigo: negocio?.licitacion_codigo || null }),
+      let url = pdfUrl;
+      if (!url) {
+        const r = await fetch('/api/ordenes-compra/pdf', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ codigoOC: oc.codigo }),
+        });
+        const d = await r.json().catch(() => null);
+        if (!d?.success || !d.url) throw new Error(d?.error || 'No se pudo obtener el PDF de la orden');
+        url = d.url; setPdfUrl(url);
+      }
+      const res = await fetch('/api/documentos/guardar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          licitacionCodigo: negocio.licitacion_codigo,
+          documentoNombre: `OC_${oc.codigo}_experiencia.pdf`,
+          url, categoria: 'DOCUMENTOS_PROPIOS', subcategoria: 'Experiencia',
+        }),
       });
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'No se pudo vincular');
-      toast.success(negocio ? 'Orden vinculada' : 'Orden desvinculada', negocio ? `${oc.codigo} → ${negocio.licitacion_codigo}` : oc.codigo);
-      onVinculada(negocio);
-      onClose();
+      if (!data.success) throw new Error(data.error || 'No se pudo enviar');
+      setEnviadosA(prev => new Set(prev).add(negocio.licitacion_codigo));
+      toast.success('Enviada como experiencia', `${oc.codigo} → Documentos Propios de ${negocio.licitacion_codigo}`);
     } catch (e: any) {
-      toast.error('Error al vincular', e.message || 'Intenta de nuevo');
+      toast.error('Error al enviar', e.message || 'Intenta de nuevo');
     } finally {
-      setGuardando(false);
+      setEnviandoA(null);
     }
   };
 
@@ -136,9 +154,9 @@ function VincularModal({ oc, onClose, onVinculada }: { oc: OrdenCompra; onClose:
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md modal-in">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center"><Link2 size={16} className="text-indigo-600" /></div>
+            <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center"><FolderInput size={16} className="text-indigo-600" /></div>
             <div>
-              <h3 className="text-[13px] font-bold text-slate-800">Vincular a licitación</h3>
+              <h3 className="text-[13px] font-bold text-slate-800">Usar como experiencia</h3>
               <p className="text-[11px] text-slate-500 font-mono">{oc.codigo}</p>
             </div>
           </div>
@@ -146,19 +164,15 @@ function VincularModal({ oc, onClose, onVinculada }: { oc: OrdenCompra; onClose:
         </div>
 
         <div className="px-6 py-4">
-          {oc.licitacionCodigo && (
-            <div className="flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200">
-              <span className="text-[12px] text-slate-600">Vinculada a <b className="font-mono">{oc.licitacionCodigo}</b></span>
-              <button onClick={() => vincular(null)} disabled={guardando}
-                className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 inline-flex items-center gap-1 disabled:opacity-50">
-                <Link2Off size={12} /> Desvincular
-              </button>
-            </div>
-          )}
+          <p className="text-[12px] text-slate-500 mb-3">
+            Copia el PDF de esta orden a <b>Documentos Propios → Experiencia</b> de la licitación que
+            elijas — sirve para respaldar experiencia al postular a otra oportunidad. No mueve ni
+            cambia la licitación de origen de esta OC.
+          </p>
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input autoFocus value={q} onChange={e => setQ(e.target.value)}
-              placeholder="Buscar por código o nombre de la licitación…"
+              placeholder="Buscar por código o nombre de la licitación destino…"
               className="w-full pl-8 pr-3 py-2 text-[13px] border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 outline-none" />
           </div>
           <div className="mt-2 max-h-64 overflow-y-auto space-y-1">
@@ -168,14 +182,23 @@ function VincularModal({ oc, onClose, onVinculada }: { oc: OrdenCompra; onClose:
               <p className="text-[12px] text-slate-400 text-center py-4">Escribe al menos 2 caracteres</p>
             ) : resultados.length === 0 ? (
               <p className="text-[12px] text-slate-400 text-center py-4">Sin resultados</p>
-            ) : resultados.map(n => (
-              <button key={n.licitacion_codigo} disabled={guardando} onClick={() => vincular(n)}
-                className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 border border-transparent hover:border-slate-200 transition-colors disabled:opacity-50">
-                <p className="text-[11px] font-mono text-slate-400">{n.licitacion_codigo}</p>
-                <p className="text-[12.5px] font-semibold text-slate-700 truncate">{n.licitacion_nombre || '—'}</p>
-                {n.licitacion_organismo && <p className="text-[11px] text-slate-400 truncate">{n.licitacion_organismo}</p>}
-              </button>
-            ))}
+            ) : resultados.map(n => {
+              const enviado = enviadosA.has(n.licitacion_codigo);
+              const cargando = enviandoA === n.licitacion_codigo;
+              return (
+                <button key={n.licitacion_codigo} disabled={cargando} onClick={() => enviar(n)}
+                  className={`w-full text-left px-3 py-2 rounded-lg border transition-colors disabled:opacity-50 flex items-center gap-2
+                    ${enviado ? 'bg-emerald-50 border-emerald-200' : 'border-transparent hover:bg-slate-50 hover:border-slate-200'}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-mono text-slate-400">{n.licitacion_codigo}</p>
+                    <p className="text-[12.5px] font-semibold text-slate-700 truncate">{n.licitacion_nombre || '—'}</p>
+                    {n.licitacion_organismo && <p className="text-[11px] text-slate-400 truncate">{n.licitacion_organismo}</p>}
+                  </div>
+                  {cargando ? <Loader2 size={15} className="animate-spin text-indigo-500 flex-shrink-0" />
+                    : enviado ? <Check size={15} className="text-emerald-600 flex-shrink-0" /> : null}
+                </button>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -221,7 +244,7 @@ function AccionesDocumento({ codigo, nombre, pdfUrlInicial, onVer }: { codigo: s
   );
 }
 
-function FilaOrden({ oc, onVer, onVincular }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => void; onVincular: (oc: OrdenCompra) => void }) {
+function FilaOrden({ oc, onVer, onEnviarExperiencia }: { oc: OrdenCompra; onVer: (doc: VisorDoc) => void; onEnviarExperiencia: (oc: OrdenCompra) => void }) {
   const [abierto, setAbierto] = useState(false);
   const c = colorEstado(oc.codigoEstado);
   const fecha = fmtFecha(oc.fechaEnvio) || fmtFecha(oc.fechaCreacion);
@@ -251,10 +274,7 @@ function FilaOrden({ oc, onVer, onVincular }: { oc: OrdenCompra; onVer: (doc: Vi
               {oc.licitacionNombre || oc.licitacionCodigo} <ArrowUpRight size={11} />
             </Link>
           ) : (
-            <button onClick={() => onVincular(oc)}
-              className="mt-1 inline-flex items-center gap-1 text-[11.5px] font-semibold text-amber-600 hover:text-amber-700">
-              <Link2 size={11} /> Sin licitación vinculada — vincular
-            </button>
+            <span className="mt-1 block text-[11.5px] text-slate-400">Sin licitación de origen detectada</span>
           )}
         </div>
         <div className="text-right whitespace-nowrap">
@@ -271,11 +291,11 @@ function FilaOrden({ oc, onVer, onVincular }: { oc: OrdenCompra; onVer: (doc: Vi
           </button>
         )}
         <div className="ml-auto flex items-center gap-3">
-          {oc.licitacionCodigo && (
-            <button onClick={() => onVincular(oc)} className="text-[11px] text-slate-400 hover:text-slate-600" title="Cambiar licitación vinculada">
-              <Link2 size={13} />
-            </button>
-          )}
+          <button onClick={() => onEnviarExperiencia(oc)}
+            className="text-[11.5px] font-semibold text-slate-600 hover:text-indigo-600 inline-flex items-center gap-1"
+            title="Copiar a Documentos Propios de otra licitación">
+            <FolderInput size={13} /> Usar como experiencia
+          </button>
           <AccionesDocumento codigo={oc.codigo} nombre={`OC_${oc.codigo}.pdf`} pdfUrlInicial={oc.pdfUrl} onVer={onVer} />
           <a href={oc.url} target="_blank" rel="noopener noreferrer" className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
             <ExternalLink size={12} /> Mercado Público
@@ -322,7 +342,7 @@ export default function OrdenesCompraPage() {
   const [hasta, setHasta] = useState('');
   const [incluirTerceros, setIncluirTerceros] = useState(false);
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
-  const [vinculandoOC, setVinculandoOC] = useState<OrdenCompra | null>(null);
+  const [experienciaOC, setExperienciaOC] = useState<OrdenCompra | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(q.trim()), 350);
@@ -367,12 +387,6 @@ export default function OrdenesCompraPage() {
 
   const hayFiltro = !!qDebounced || !!empresaId || !!estado || !!desde || !!hasta || incluirTerceros;
   const limpiar = () => { setQ(''); setEmpresaId(''); setEstado(''); setDesde(''); setHasta(''); setIncluirTerceros(false); };
-
-  const actualizarVinculo = (codigo: string, negocio: NegocioBusqueda | null) => {
-    setOrdenes(prev => prev.map(o => o.codigo === codigo
-      ? { ...o, licitacionCodigo: negocio?.licitacion_codigo || null, licitacionNombre: negocio?.licitacion_nombre || null }
-      : o));
-  };
 
   if (cargandoSesion || (!puedeVer && loading)) {
     return (
@@ -454,7 +468,7 @@ export default function OrdenesCompraPage() {
           <>
             <div className="space-y-2">
               {ordenes.map(oc => (
-                <FilaOrden key={oc.codigo} oc={oc} onVer={setVisorDoc} onVincular={setVinculandoOC} />
+                <FilaOrden key={oc.codigo} oc={oc} onVer={setVisorDoc} onEnviarExperiencia={setExperienciaOC} />
               ))}
             </div>
             {ordenes.length < total && (
@@ -471,10 +485,7 @@ export default function OrdenesCompraPage() {
       </div>
 
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
-      {vinculandoOC && (
-        <VincularModal oc={vinculandoOC} onClose={() => setVinculandoOC(null)}
-          onVinculada={(negocio) => actualizarVinculo(vinculandoOC.codigo, negocio)} />
-      )}
+      {experienciaOC && <EnviarExperienciaModal oc={experienciaOC} onClose={() => setExperienciaOC(null)} />}
     </AppLayout>
   );
 }

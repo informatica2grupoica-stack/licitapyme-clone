@@ -648,27 +648,6 @@ export async function listarOrdenesCompra(
   return { ordenes, total, sumaTotal };
 }
 
-/**
- * Vincula (o desvincula, con licitacionCodigo = null) manualmente una orden de compra a una
- * licitación — para los casos donde el cruce automático por nombre (mencionaCodigo) no la
- * encontró. Nunca pisa un empresa_id ya resuelto por RUT (ver es_nuestra en la migración 64):
- * solo lo completa si estaba vacío.
- */
-export async function vincularOrdenALicitacion(codigoOC: string, licitacionCodigo: string | null): Promise<void> {
-  const codigo = licitacionCodigo ? licitacionCodigo.trim().toUpperCase() : null;
-  let empresaId: number | null = null;
-  if (codigo) {
-    const [rows] = await pool.query(
-      `SELECT empresa_id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE LIMIT 1`, [codigo],
-    ) as any[];
-    empresaId = (rows as any[])[0]?.empresa_id ?? null;
-  }
-  await pool.query(
-    `UPDATE ordenes_compra SET licitacion_codigo = ?, empresa_id = COALESCE(empresa_id, ?) WHERE codigo = ?`,
-    [codigo, empresaId, codigoOC],
-  );
-}
-
 /** Las órdenes de compra de UNA licitación, listas para la sección "Resultado". */
 export async function ordenesDeLicitacion(codigo: string): Promise<OrdenCompraFila[]> {
   const [rows] = await pool.query(
