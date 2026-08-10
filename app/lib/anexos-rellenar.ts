@@ -483,7 +483,22 @@ function construirTablaUI(
     filas: t.filas.map(f => f.celdas.map((c): CeldaTablaUI => {
       const relleno = c.ultimoParaId ? rellenosPorParaId.get(c.ultimoParaId) : undefined;
       if (relleno) return { texto: c.texto, auto: { valor: `${c.texto ? c.texto + ' ' : ''}${relleno.valor}`, via: 'costeo' } };
+      // BUG REAL (1426039-8-LE26, 10-ago-2026): una celda "Etiqueta: " (patrón 5 — extraerCeldasDeFila
+      // no la marca `vacía`, porque SÍ tiene texto propio, así que `c.indiceGlobal` queda null) se
+      // resolvía bien de verdad (el .docx generado la traía completa) pero la vista previa nunca
+      // cruzaba esa resolución — mostraba solo la etiqueta, sin el valor, como si no se hubiera
+      // completado. `resolucionPorIndice` guarda la resolución bajo el índice del párrafo de la
+      // ETIQUETA (así es como camposConDosPuntos identifica la celda), que SIGUE viviendo en
+      // `c.indicesParrafos` aunque la celda no cuente como "vacía". Antes de caer al texto plano, se
+      // busca ahí — mismo criterio en las DOS ramas (con y sin indiceGlobal), así la vista previa
+      // nunca vuelve a mostrar "sin completar" algo que el documento real sí trae.
       if (c.indiceGlobal == null) {
+        for (const idx of c.indicesParrafos) {
+          const res = resolucionPorIndice.get(idx);
+          if (!res) continue;
+          if (res.tipo === 'auto') return { texto: c.texto, auto: { valor: res.valor, via: res.via, etiqueta: res.etiqueta } };
+          return { texto: c.texto, input: { id: res.id } };
+        }
         const segmentosInline = segmentosDeCelda(c.indicesParrafos, blancosPorParrafo, porBlancoInline, parrafos);
         return segmentosInline ? { texto: c.texto, segmentosInline } : { texto: c.texto };
       }
