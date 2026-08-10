@@ -437,6 +437,33 @@ test('la leyenda "Nombre, RUT y Firma..." marca pideNombre Y pideRut (regresión
   assert.equal(linea!.pideRut, true, 'debe pedir RUT');
 });
 
+// BUG REAL (1426039-8-LE26, 10-ago-2026): en esta plantilla la "línea" no es texto ni un borde de
+// PÁRRAFO — es el borde SUPERIOR de la CELDA de tabla donde vive la leyenda misma, heredado del
+// borde general de la tabla (la celda de al lado anula sus 4 bordes; la de la leyenda solo anula
+// izquierda/abajo/derecha, así que el de arriba queda visible). Sin reconocer esto, la firma
+// terminaba en la fila de ABAJO (una celda vacía separada, pensada como relleno), lejos de la
+// línea real — con este fix se estampa en la MISMA celda de la leyenda, justo debajo del borde.
+test('línea de firma = borde superior de celda de tabla (no texto, no borde de párrafo) (regresión 1426039-8-LE26)', () => {
+  const xml = NS + '<w:tbl><w:tblPr><w:tblBorders>'
+    + '<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+    + '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+    + '</w:tblBorders></w:tblPr>'
+    + '<w:tr>'
+    + '<w:tc><w:tcPr><w:tcBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders></w:tcPr><w:p/></w:tc>'
+    + '<w:tc><w:tcPr><w:tcBorders><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders></w:tcPr>'
+    + p('Nombre, RUT y Firma Representante Legal') + '</w:tc>'
+    + '</w:tr>'
+    + '<w:tr><w:tc><w:tcPr><w:tcBorders><w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/><w:right w:val="nil"/></w:tcBorders></w:tcPr><w:p/></w:tc></w:tr>'
+    + '</w:tbl>' + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+  const linea = analisis.lineasFirma.find(f => /Representante Legal/i.test(f.contexto));
+  assert.ok(linea, `no se encontró la línea de firma: ${JSON.stringify(analisis.lineasFirma)}`);
+  assert.equal(linea!.contexto, 'Nombre, RUT y Firma Representante Legal');
+  assert.equal(linea!.sinRaya, true, 'se estampa DENTRO de la celda de la leyenda, sin raya que limpiar');
+  assert.equal(linea!.paraIdLeyenda, undefined, 'la leyenda y el lugar de la firma son EL MISMO párrafo');
+});
+
 // El motor 100% IA (anexos-ia-motor.ts) reemplazó el diccionario, pero el guardarraíl
 // anti-invención sigue siendo obligatorio: la IA elige el valor y, ante la duda, puede
 // "mejorarlo" o inventar uno parecido — regresión real (diseño anterior): a "CIUDAD" le asignó

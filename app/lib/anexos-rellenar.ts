@@ -886,7 +886,13 @@ export async function generarAnexoFinal(
           linea.pideRut && empresa.representante_rut ? empresa.representante_rut : null,
         ].filter((l): l is string => l != null);
         const nombreDebajo = lineasDebajo.length ? lineasDebajo : undefined;
-        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya, nombreDebajo });
+        // linea.saltoAntesDeFirma: SOLO la raya-borde-de-celda lo pide (leyenda larga que envuelve
+        // 2+ líneas visuales) — ver el comentario en insertarImagenEnParrafo. El sinRaya "clásico"
+        // (patrón 5, leyenda corta de una línea) no lo activa, mismo comportamiento de siempre.
+        xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, {
+          etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya, nombreDebajo,
+          saltoAntesDeImagen: !!linea.saltoAntesDeFirma,
+        });
         primera = false;
         estampoAlgo = true;
       }

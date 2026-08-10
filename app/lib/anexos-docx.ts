@@ -738,10 +738,18 @@ export async function insertarImagenEnParrafo(
   // datos aparte de la imagen) — cada elemento es SU PROPIA línea, un <w:br/> por elemento. Un
   // string suelto se sigue aceptando tal cual (mismo comportamiento de siempre para todo llamador
   // existente).
+  // `saltoAntesDeImagen`: con `conservar`, el dibujo SIEMPRE se agrega al FINAL del párrafo — bien
+  // para el timbre (va PEGADO al lado de la firma que ya se estampó ahí) pero mal cuando lo que ya
+  // hay es una LEYENDA larga que envuelve a 2+ líneas visuales por lo angosto de la celda ("Nombre,
+  // RUT y Firma Representante" / "Legal" — caso real 1426039-8-LE26): sin salto, la imagen quedaba
+  // pegada justo donde envuelve la última línea y se veía superpuesta con "Legal". Con esto, un
+  // <w:r><w:br/></w:r> separa el texto existente de la imagen ANTES de agregarla — nunca se activa
+  // para el timbre (que no lo pide), así que firma+timbre lado a lado sigue exactamente igual.
   {
-    anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion, nombreDebajo,
+    anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion, nombreDebajo, saltoAntesDeImagen = false,
   }: {
     anchoCm?: number; etiqueta?: string; conservar?: boolean; alineacion?: 'izquierda' | 'centro' | 'derecha';
+    saltoAntesDeImagen?: boolean;
     nombreDebajo?: string | string[];
   } = {},
 ): Promise<string> {
@@ -852,7 +860,9 @@ export async function insertarImagenEnParrafo(
 
   let nuevoCuerpo: string;
   if (conservar) {
-    nuevoCuerpo = cuerpo + drawingCompleto;   // timbre al lado de la firma ya estampada — no se borra nada
+    // timbre al lado de la firma ya estampada — no se borra nada. Con saltoAntesDeImagen, el
+    // dibujo empieza en su propia línea en vez de pegado al final del texto que ya había.
+    nuevoCuerpo = cuerpo + (saltoAntesDeImagen ? '<w:r><w:br/></w:r>' : '') + drawingCompleto;
   } else if (runRaya) {
     const textoRunCompleto = [...runRaya[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('');
     // BUG REAL (1057678-2-LE26): un run de raya puede traer ESPACIOS ANTES de los guiones

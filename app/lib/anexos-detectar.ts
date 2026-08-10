@@ -345,6 +345,45 @@ function indicesDentroDeCelda(xml: string): Set<number> {
   return dentro;
 }
 
+// Índices de párrafo que son el PRIMER párrafo de una celda de tabla cuyo borde SUPERIOR
+// efectivo es visible — la "raya" de firma en algunos anexos no es texto (`_____`) ni un borde de
+// PÁRRAFO (`<w:pBdr>`, ver Parrafo.bordeInferior): es el borde de la CELDA misma, casi siempre
+// heredado del borde general de la tabla (`<w:tblBorders>`) y visible porque esa celda en
+// particular no lo anula. BUG REAL (1426039-8-LE26, 10-ago-2026): "Nombre, RUT y Firma
+// Representante Legal" vive en una tabla de 2 celdas por fila — la celda de la izquierda anula
+// los 4 bordes (`nil`), la de la leyenda solo anula izquierda/abajo/derecha, así que el borde
+// SUPERIOR (heredado de la tabla) queda como la única línea visible, justo arriba del texto.
+//
+// "Efectivo" = la propia celda manda si declara `<w:tcBorders><w:top>`; si no lo declara, hereda
+// el de `<w:tblBorders><w:top>` de SU tabla. "Visible" = cualquier valor de `w:val` que no sea
+// "nil"/"none" (los dos que OOXML usa para "sin borde").
+function indicesConBordeSuperiorDeCeldaVisible(xml: string): Set<number> {
+  const offsetsIndices = offsetsAIndices(xml);
+  const out = new Set<number>();
+  const esVisible = (val: string | undefined) => !!val && val !== 'nil' && val !== 'none';
+  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
+    const cuerpoTabla = tabla[1];
+    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+    const tblBordersMatch = cuerpoTabla.match(/<w:tblBorders>([\s\S]*?)<\/w:tblBorders>/);
+    const tblTop = tblBordersMatch?.[1].match(/<w:top\s+[^>]*w:val="([^"]+)"/)?.[1];
+    for (const tc of cuerpoTabla.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)) {
+      const cuerpoCelda = tc[1];
+      const tcBordersMatch = cuerpoCelda.match(/<w:tcBorders>([\s\S]*?)<\/w:tcBorders>/);
+      const tcTop = tcBordersMatch?.[1].match(/<w:top\s+[^>]*w:val="([^"]+)"/)?.[1];
+      // La celda manda si declara SU PROPIO top (aunque sea para anularlo); si no lo declara,
+      // hereda el de la tabla completa.
+      const efectivo = tcTop !== undefined ? tcTop : tblTop;
+      if (!esVisible(efectivo)) continue;
+      const primerParrafo = cuerpoCelda.match(/<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>/);
+      if (!primerParrafo) continue;
+      const offsetCelda = offsetTabla + tc.index! + tc[0].indexOf(cuerpoCelda);
+      const indice = offsetsIndices.get(offsetCelda + primerParrafo.index!);
+      if (indice != null) out.add(indice);
+    }
+  }
+  return out;
+}
+
 function parrafosQueNuncaSonCampoEnTabla(xml: string): Set<number> {
   const offsetsIndices = offsetsAIndices(xml);
   const excluidos = new Set<number>();
@@ -1306,6 +1345,15 @@ export interface LineaFirma {
   // generarAnexoFinal encadena keepNext también sobre toda la corrida (orden ascendente = cada
   // párrafo con el siguiente) para que la raya nunca quede separada de lo que anuncia.
   paraIdsRayaAntes?: string[];
+  // true SOLO para la raya-borde-de-celda (ver Prioridad -1 más abajo): la leyenda va DENTRO de la
+  // misma celda angosta que dibuja la línea, y suele envolver a 2+ líneas visuales por lo angosto
+  // de la columna ("Nombre, RUT y Firma Representante" / "Legal"). BUG REAL (1426039-8-LE26,
+  // 10-ago-2026): sin este salto, la imagen se agregaba pegada AL FINAL del texto de la leyenda
+  // (mismo comportamiento que sinRaya siempre tuvo, pensado para una leyenda corta de una sola
+  // línea, "FIRMA REPRESENTANTE LEGAL:") y terminaba superpuesta con "Legal", la segunda línea
+  // envuelta. NO se activa en el sinRaya "clásico" (patrón 5, leyenda corta) para no arriesgar un
+  // caso ya verificado — ver el uso en insertarImagenEnParrafo/anexos-rellenar.ts.
+  saltoAntesDeFirma?: boolean;
 }
 
 // Antes exigía que el párrafo fuera UN solo guion largo (^_{10,}$) — pero cuando la raya trae DOS
@@ -1358,7 +1406,7 @@ const RE_PIDE_NOMBRE = /\bnombre\b/i;
 // de RUT normal (esas las cubre el motor de IA de siempre, este regex solo mira leyendas de firma).
 const RE_PIDE_RUT = /\br\.?\s*u\.?\s*t\b/i;
 
-export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
+export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperiorDeCelda: Set<number> = new Set()): LineaFirma[] {
   const out: LineaFirma[] = [];
   const usados = new Set<number>();
   // Índices de párrafo YA leídos como la LEYENDA de un bloque de firma con raya (Casos A/B) — un
@@ -1378,7 +1426,10 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
     while (j >= 0 && ids.length < 20 && parrafos[j]?.vacio) { ids.unshift(parrafos[j].paraId); j--; }
     return ids;
   };
-  const agregar = (p: Parrafo, contexto: string, leyenda?: Parrafo, paraIdsRayaAntes?: string[]) => {
+  const agregar = (
+    p: Parrafo, contexto: string, leyenda?: Parrafo, paraIdsRayaAntes?: string[],
+    sinRaya?: boolean, saltoAntesDeFirma?: boolean,
+  ) => {
     if (usados.has(p.indice)) return;
     usados.add(p.indice);
     out.push({
@@ -1388,6 +1439,8 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
       paraIdLeyenda: leyenda && leyenda.paraId !== p.paraId ? leyenda.paraId : undefined,
       centradaLeyenda: leyenda?.centrado,
       paraIdsRayaAntes: paraIdsRayaAntes?.length ? paraIdsRayaAntes : undefined,
+      ...(sinRaya ? { sinRaya: true } : {}),
+      ...(saltoAntesDeFirma ? { saltoAntesDeFirma: true } : {}),
     });
   };
 
@@ -1437,6 +1490,22 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
     // adivinar cuál es cuál.
     if (!leyendasConRaya.has(p.indice)
       && p.texto.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(p.texto) && esEtiquetaDeCampo(p.texto)) {
+      // Prioridad -1: la raya NO es texto ni un borde de párrafo (pBdr) — es el borde SUPERIOR de
+      // la CELDA de tabla donde vive la leyenda misma (heredado del borde general de la tabla o
+      // puesto directo en esa celda). BUG REAL (1426039-8-LE26, 10-ago-2026, "Nombre, RUT y Firma
+      // Representante Legal"): no hay ningún párrafo vacío ni antes ni después con el hueco
+      // correcto — la única celda de esa fila ES la leyenda, y la línea visual está en el borde de
+      // la celda, no en ningún párrafo. Los Casos C/D de abajo terminaban buscando el próximo
+      // párrafo vacío disponible, que en esta plantilla cae en la FILA DE ABAJO (una celda vacía
+      // separada, pensada como espacio de relleno) — la firma quedaba lejos de la línea, con la
+      // leyenda en el medio. Con la celda propia bordeada, se firma en la MISMA celda de la
+      // leyenda (imagen primero, la leyenda debajo — mismo mecanismo que sinRaya ya usa para
+      // "Etiqueta:" del patrón 5, ver insertarImagenEnParrafo/nombreDebajo): no hay párrafo nuevo
+      // que agregar, solo contenido nuevo dentro del que ya existe.
+      if (indicesConBordeSuperiorDeCelda.has(p.indice)) {
+        agregar(p, p.texto.trim(), undefined, undefined, true, true);
+        continue;
+      }
       // Prioridad 0: el párrafo INMEDIATAMENTE anterior es la raya de verdad (vacío + borde
       // inferior, ver Parrafo.bordeInferior) — ahí se firma, "sobre la línea", que es el estándar
       // visual chileno (la tinta va justo encima del renglón). BUG REAL (3713-7-LE26, Los Vilos):
@@ -1763,7 +1832,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // (etiqueta + celda vacía, `candidatosCeldaTodos` SÍ la trae) — usar esa lista sin filtrar
   // excluía la celda de la firma DE SU PROPIA fila, dejando `todasLasLineasFirma` vacío entero.
   const indicesYaClaimedosPorCandidato = new Set(candidatosCelda.map(c => c.indice));
-  const todasLasLineasFirma = detectarLineasFirma(parrafos)
+  const todasLasLineasFirma = detectarLineasFirma(parrafos, indicesConBordeSuperiorDeCeldaVisible(xml))
     .filter(f => !indicesTapadosPorCuadro.has(f.indice))
     .filter(f => !indicesYaClaimedosPorCandidato.has(f.indice));
   // El MISMO bloque de firma puede ser visto por dos patrones a la vez: el caso C de
