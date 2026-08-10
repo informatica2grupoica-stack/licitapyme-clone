@@ -317,6 +317,17 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
     // LA EVALUACIÓN FINAL DE cada línea" (752-24-LP26, con "de", no "por" — ambas preposiciones
     // aparecen en la práctica).
     /(?:mejor\s+oferta|mayor\s+puntaje)(?:\s+final)?[\s\S]{0,40}?\b(?:por|de)\s+(?:cada\s+)?(?:l[ií]neas?|lotes?|[ií]tems?)\b/i,
+    // 10-ago-2026 (caso real 608-156-LP26, Hospital Dr. Gustavo Fricke, papel clínico): declaración
+    // FORMAL en el CONSIDERANDO de la resolución — "la modalidad [del proceso] será DE adjudicación
+    // MÚLTIPLE" — sin "por línea/lote", "independiente" ni "distintos oferentes" cerca (por eso
+    // ningún patrón de arriba la cazaba; la ventana de 30 caract. del primer patrón exige "múltiple
+    // por línea/lote" pegados, y acá "múltiple" es el final de la oración). Es la clasificación
+    // OFICIAL del tipo de proceso (terminología ChileCompra: adjudicación simple = 1 ganador,
+    // múltiple = puede ir a más de un proveedor) — no requiere elaboración adicional para ser
+    // evidencia decisiva, a diferencia de una mención suelta de "múltiple" en otro contexto.
+    /modalidad[\s\S]{0,60}?ser[aá]\s+de\s+adjudicaci[oó]n\s+m[uú]ltiple\b/i,
+    // Campo/encabezado formal "TIPO DE ADJUDICACIÓN: MÚLTIPLE" sin calificativo adicional cerca.
+    /tipo\s+de\s+adjudicaci[oó]n\s*:?\s*m[uú]ltiple\b/i,
   ];
   for (const d of docs) {
     if (!d.texto) continue;
@@ -397,7 +408,11 @@ export function detectarLenguajePorLinea(docs: { texto: string }[]): string | nu
   // "se evaluará por línea (de producto)": cómo se EVALÚA, no a quién se adjudica → gatilla.
   // Caso real 1250623-4-LE26: "se evaluará por línea de\nproducto" (OCR parte la frase con
   // saltos de línea; \s+ los cruza). No confundir con "adjudicación por línea" a secas.
-  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+)?(?:una\s+o\s+m[aá]s|por)\s+l[ií]neas?|se\s+evaluar[aá]n?\s+por\s+l[ií]neas?(?:\s+de\s+producto)?|se\s+evaluar[aá]\s+cada\s+l[ií]nea(?:\s+de\s+manera\s+individual)?|cada\s+l[ií]nea\s+(?:se\s+evaluar[aá]|ser[aá]\s+evaluada)\s+de\s+manera\s+individual|se\s+evaluar[aá]n?\s+(?:[uú]nicamente\s+)?las\s+l[ií]neas\s+que|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas/i;
+  // 10-ago-2026 (caso real 608-156-LP26): otras tres formas reales de decir "se evalúa por línea"
+  // que el verbo "evaluar" de arriba no cubre porque usan otro verbo — "la evaluación... SE
+  // REALIZARÁ por la línea de insumo licitado", "se ASIGNARÁ PUNTAJE por la línea", "se
+  // CONSIDERARÁ LA NOTA por cada línea" (Criterios de Evaluación, numeral 4.4).
+  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+)?(?:una\s+o\s+m[aá]s|por)\s+l[ií]neas?|se\s+evaluar[aá]n?\s+por\s+l[ií]neas?(?:\s+de\s+producto)?|se\s+evaluar[aá]\s+cada\s+l[ií]nea(?:\s+de\s+manera\s+individual)?|cada\s+l[ií]nea\s+(?:se\s+evaluar[aá]|ser[aá]\s+evaluada)\s+de\s+manera\s+individual|se\s+evaluar[aá]n?\s+(?:[uú]nicamente\s+)?las\s+l[ií]neas\s+que|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas|evaluaci[oó]n[\s\S]{0,60}?se\s+realizar[aá]\s+por\s+(?:la\s+)?l[ií]nea|se\s+asignar[aá]\s+puntaje\s+por\s+(?:la\s+)?l[ií]nea|(?:se\s+)?considerar[aá]\s+la\s+nota\s+por\s+cada\s+l[ií]nea/i;
   for (const d of docs) {
     if (!d.texto) continue;
     const m = d.texto.match(re);

@@ -1,5 +1,15 @@
 [
   {
+    "codigo": "608-156-LP26",
+    "nota": "corregido 10-ago-2026 (Hospital Dr. Gustavo Fricke, papel térmico/clínico, 8 insumos heterogéneos): el CONSIDERANDO 5 de la resolución declara literalmente 'la modalidad será de adjudicación MULTIPLE' — declaración FORMAL sin 'por línea/lote' ni 'independiente' ni 'distintos oferentes' cerca, así que ningún patrón de detectarTipoAdjudicacionMultiple la cazaba (fix: nuevo patrón 'modalidad...será de adjudicación múltiple' + 'tipo de adjudicación: múltiple'). Numeral 4.4 además evalúa 'por la línea de insumo licitado' con verbos que detectarLenguajePorLinea no cubría ('se realizará por la línea', 'se asignará puntaje por línea', 'se considerará la nota por cada línea' — fix aditivo al mismo detector). Antes: adjudicación GLOBAL/REVISION_HUMANA citando 'ni declaración de adjudicación múltiple' (falso — sí estaba, solo que sin la forma que el detector esperaba) y modalidad suma_alzada. Anexo N°6 (oferta económica) es tabla de Valor Unitario Neto por insumo, SIN total consolidado — consistente con por_linea. Verificado con re-análisis real guardado en BD (confianza 1, estado DETERMINADA, costeo regenerado a 8 hojas, una por línea).",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_items_min": 8,
+      "revision_humana": false
+    }
+  },
+  {
     "codigo": "1057536-83-LE26",
     "nota": "corregido 28-jul (CESFAM Frutillar, equipamiento médico heterogéneo): bases dicen 'Se podrá adjudicar a un solo proveedor por línea' (Art. 24.2) — el detector no la cazaba porque 'un solo proveedor' queda ENTRE 'adjudicar' y 'por línea' (fix en detectarTipoAdjudicacionMultiple). Además se separó definitivamente costeo de adjudicación en viabilidad-ia.ts: cuando no hay evidencia dura de bases pero el manifiesto trae líneas heterogéneas (heterogeneidad='alta') con presupuesto propio en TODAS las líneas, el costeo se promueve a por_linea de forma independiente a la adjudicación (nunca al revés). El LLM es no-determinista: la misma licitación salió POR_LINEAS en una corrida y GLOBAL con confianza 1 en otra citando la misma evidencia — por eso la adjudicación no debe decidirse solo por el manifiesto, sino por evidencia textual dura de las bases (este fix), y el costeo por separado. Verificado con re-análisis real guardado en BD (confianza 1, estado DETERMINADA, evidencia cita la frase exacta).",
     "esperado": {
