@@ -397,6 +397,23 @@ test('solo se firma donde la etiqueta dice que la firma es nuestra', () => {
   assert.equal(analisis.candidatosCelda.filter(c => /firma/i.test(c.etiqueta)).length, 0);
 });
 
+// BUG REAL (1426039-8-LE26, 10-ago-2026): la leyenda pide TRES cosas ("Nombre, RUT y Firma
+// Representante Legal") — antes solo existía pideNombre, así que el RUT que la leyenda pide
+// explícito no se detectaba y nunca se escribía en el documento generado (ver anexos-rellenar.ts,
+// que ahora lee pideRut para agregar representante_rut como línea aparte bajo la imagen).
+test('la leyenda "Nombre, RUT y Firma..." marca pideNombre Y pideRut (regresión 1426039-8-LE26)', () => {
+  const xml = NS
+    + p('____________________________________')
+    + p('Nombre, RUT y Firma Representante Legal')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+  const linea = analisis.lineasFirma.find(f => /Representante Legal/i.test(f.contexto));
+  assert.ok(linea, `no se encontró la línea de firma: ${JSON.stringify(analisis.lineasFirma)}`);
+  assert.equal(linea!.pideNombre, true, 'debe pedir nombre');
+  assert.equal(linea!.pideRut, true, 'debe pedir RUT');
+});
+
 // El motor 100% IA (anexos-ia-motor.ts) reemplazó el diccionario, pero el guardarraíl
 // anti-invención sigue siendo obligatorio: la IA elige el valor y, ante la duda, puede
 // "mejorarlo" o inventar uno parecido — regresión real (diseño anterior): a "CIUDAD" le asignó

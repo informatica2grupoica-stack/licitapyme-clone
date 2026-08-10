@@ -859,10 +859,18 @@ export async function generarAnexoFinal(
       let primera = true;
       let estampoAlgo = false;
       if (firma && (que === 'ambas' || que === 'firma')) {
-        // linea.pideNombre: la leyenda dice "Nombre y Firma..." (no solo "Firma") — ver el
-        // comentario de nombreDebajo en insertarImagenEnParrafo. Sin representante_nombre en la
-        // ficha no se escribe nada (no se inventa), la imagen se estampa igual.
-        const nombreDebajo = linea.pideNombre && empresa.representante_nombre ? empresa.representante_nombre : undefined;
+        // linea.pideNombre/pideRut: la leyenda dice "Nombre y Firma..." o "Nombre, RUT y Firma..."
+        // (no solo "Firma") — ver el comentario de nombreDebajo en insertarImagenEnParrafo. Cada
+        // dato que la leyenda pide y SÍ está en la ficha se agrega como su propia línea debajo de
+        // la imagen; sin el dato correspondiente no se escribe nada de esa línea (no se inventa),
+        // la imagen se estampa igual. BUG REAL (1426039-8-LE26, 10-ago-2026): "Nombre, RUT y Firma
+        // Representante Legal" solo entregaba el nombre — el RUT que la leyenda pedía explícito no
+        // salía en ningún lugar del documento.
+        const lineasDebajo = [
+          linea.pideNombre && empresa.representante_nombre ? empresa.representante_nombre : null,
+          linea.pideRut && empresa.representante_rut ? empresa.representante_rut : null,
+        ].filter((l): l is string => l != null);
+        const nombreDebajo = lineasDebajo.length ? lineasDebajo : undefined;
         xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, { etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya, nombreDebajo });
         primera = false;
         estampoAlgo = true;

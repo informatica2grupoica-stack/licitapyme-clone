@@ -1204,6 +1204,13 @@ export interface LineaFirma {
   // escribe como texto justo debajo de la imagen (ver insertarImagenEnParrafo, parámetro
   // `nombreDebajo`).
   pideNombre?: boolean;
+  // La leyenda pide RUT además de nombre y firma ("Nombre, RUT y Firma Representante Legal" —
+  // caso real 1426039-8-LE26, 10-ago-2026, y ya mencionado como ejemplo en el comentario de
+  // paraIdLeyenda de más abajo sin que nadie lo hubiera implementado todavía). Mismo mecanismo que
+  // pideNombre: se escribe representante_rut como una línea más debajo de la imagen (ver
+  // insertarImagenEnParrafo, ahora acepta varias líneas en `nombreDebajo`). Antes la leyenda pedía
+  // tres cosas y solo se entregaban dos (firma + nombre) — el RUT no salía en ningún lugar.
+  pideRut?: boolean;
   // true cuando el párrafo NO tiene ninguna raya de guiones que limpiar (viene del patrón 5,
   // "Etiqueta:" sola — ver más abajo en analizarAnexo): la imagen se AGREGA al final del párrafo
   // sin tocar nada de lo que ya hay, nunca reemplazando texto. Caso real (1227338-6-LE26): un
@@ -1285,6 +1292,10 @@ const RE_PIDE_TIMBRE = /timbre/i;
 // firma explícitamente en el mismo lugar, pero acá siempre se evalúa junto a una leyenda que YA
 // pasó ese filtro, así que basta con la palabra "nombre" sola.
 const RE_PIDE_NOMBRE = /\bnombre\b/i;
+// Mismo criterio que RE_PIDE_NOMBRE: "RUT" (o "R.U.T", con o sin puntos) suelto en la leyenda,
+// evaluado siempre junto a una leyenda que ya mencionó "firma" — nunca se confunde con una celda
+// de RUT normal (esas las cubre el motor de IA de siempre, este regex solo mira leyendas de firma).
+const RE_PIDE_RUT = /\br\.?\s*u\.?\s*t\b/i;
 
 export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
   const out: LineaFirma[] = [];
@@ -1312,6 +1323,7 @@ export function detectarLineasFirma(parrafos: Parrafo[]): LineaFirma[] {
     out.push({
       paraId: p.paraId, indice: p.indice, contexto,
       pideTimbre: RE_PIDE_TIMBRE.test(contexto), pideNombre: RE_PIDE_NOMBRE.test(contexto),
+      pideRut: RE_PIDE_RUT.test(contexto),
       paraIdLeyenda: leyenda && leyenda.paraId !== p.paraId ? leyenda.paraId : undefined,
       centradaLeyenda: leyenda?.centrado,
       paraIdsRayaAntes: paraIdsRayaAntes?.length ? paraIdsRayaAntes : undefined,
@@ -1705,13 +1717,13 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     ...lineasFirmaRaya,
     ...candidatosFirmaCelda.map(c => ({
       paraId: c.paraId, indice: c.indice, contexto: c.etiqueta,
-      pideTimbre: /timbre/i.test(c.etiqueta), pideNombre: RE_PIDE_NOMBRE.test(c.etiqueta),
+      pideTimbre: /timbre/i.test(c.etiqueta), pideNombre: RE_PIDE_NOMBRE.test(c.etiqueta), pideRut: RE_PIDE_RUT.test(c.etiqueta),
     })),
     ...camposDosPuntosFirma
       .filter(c => !indicesConRayaArriba.has(c.indice))
       .map(c => ({
         paraId: c.paraId, indice: c.indice, contexto: c.etiqueta,
-        pideTimbre: /timbre/i.test(c.etiqueta), pideNombre: RE_PIDE_NOMBRE.test(c.etiqueta), sinRaya: true,
+        pideTimbre: /timbre/i.test(c.etiqueta), pideNombre: RE_PIDE_NOMBRE.test(c.etiqueta), pideRut: RE_PIDE_RUT.test(c.etiqueta), sinRaya: true,
       })),
   ];
   // La raya de una línea de firma también matchea el patrón 2 (blanco inline, "_{4,}") — se

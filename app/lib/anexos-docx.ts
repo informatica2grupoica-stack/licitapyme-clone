@@ -718,11 +718,15 @@ export async function insertarImagenEnParrafo(
   // imagen (un <w:br/> separa las dos líneas dentro del MISMO párrafo — nunca se agrega un <w:p>
   // nuevo, la regla intocable de todo este módulo). Antes solo se estampaba la firma y el "Nombre"
   // que la leyenda pedía se quedaba sin ningún dato en ningún lugar del documento.
+  // Acepta un array (caso real 1426039-8-LE26: "Nombre, RUT y Firma Representante Legal" pide DOS
+  // datos aparte de la imagen) — cada elemento es SU PROPIA línea, un <w:br/> por elemento. Un
+  // string suelto se sigue aceptando tal cual (mismo comportamiento de siempre para todo llamador
+  // existente).
   {
     anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion, nombreDebajo,
   }: {
     anchoCm?: number; etiqueta?: string; conservar?: boolean; alineacion?: 'izquierda' | 'centro' | 'derecha';
-    nombreDebajo?: string;
+    nombreDebajo?: string | string[];
   } = {},
 ): Promise<string> {
   const dim = leerDimensionesImagen(imagen);
@@ -789,10 +793,13 @@ export async function insertarImagenEnParrafo(
     + `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${anchoEmu}" cy="${altoEmu}"/></a:xfrm>`
     + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>`
     + `</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
-  // <w:br/> separa la imagen del nombre EN EL MISMO párrafo/run — nunca un <w:p> nuevo (la regla
-  // intocable del conteo de párrafos, ver el encabezado del archivo).
-  const runNombre = nombreDebajo
-    ? `<w:r><w:br/><w:t xml:space="preserve">${xmlEscape(nombreDebajo)}</w:t></w:r>` : '';
+  // <w:br/> separa la imagen de cada línea (nombre, RUT…) EN EL MISMO párrafo/run — nunca un
+  // <w:p> nuevo (la regla intocable del conteo de párrafos, ver el encabezado del archivo).
+  const lineasDebajo = nombreDebajo == null ? [] : Array.isArray(nombreDebajo) ? nombreDebajo : [nombreDebajo];
+  const runNombre = lineasDebajo
+    .filter(l => l && l.trim())
+    .map(l => `<w:r><w:br/><w:t xml:space="preserve">${xmlEscape(l)}</w:t></w:r>`)
+    .join('');
   const drawingCompleto = drawing + runNombre;
 
   const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);

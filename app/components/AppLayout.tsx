@@ -8,6 +8,7 @@ import {
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
   PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart, PackageCheck, Library, Star, FolderOpen,
+  Receipt,
 } from 'lucide-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
@@ -76,6 +77,9 @@ const NAV_GROUPS: NavGroup[] = [
       // Memoria (F.3): visible para todo perfil interno — orienta el trabajo de cualquiera que
       // cotice o postule, no solo del admin. Cargar experiencia sí es admin (lo bloquea la API).
       { label: 'Memoria', href: '/memoria', icon: <Library size={17} /> },
+      // Vista transversal de las OC de las dos empresas (ver app/lib/ordenes-compra.ts). Admin-only
+      // porque toca RUT/montos de ambas empresas a la vez, igual criterio que Compras.
+      { label: 'Órdenes de compra', href: '/ordenes-compra', icon: <Receipt size={17} />, adminOnly: true },
       { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
       { label: 'Historial', href: '/alertas', icon: <History size={17} />, adminOnly: true },
     ],

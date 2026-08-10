@@ -235,3 +235,28 @@ test('insertarImagenEnParrafo con nombreDebajo no deja rayas sueltas (regresión
   const chequeo = verificarXmlBienFormado(final);
   assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
 });
+
+// BUG REAL (1426039-8-LE26, 10-ago-2026): "Nombre, RUT y Firma Representante Legal" pide TRES
+// cosas — antes nombreDebajo solo aceptaba un string, así que solo el nombre salía escrito y el
+// RUT que la leyenda pedía explícito no aparecía en ningún lugar del documento generado.
+test('insertarImagenEnParrafo con nombreDebajo como array: nombre y RUT, cada uno en su línea (regresión 1426039-8-LE26)', async () => {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="urn:ct"><Default Extension="xml" ContentType="application/xml"/></Types>');
+  zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+
+  const parrafo = '<w:p w14:paraId="0000B002" w14:textId="77777777">'
+    + '<w:r><w:t xml:space="preserve">___________________________________</w:t></w:r>'
+    + '</w:p>';
+  const xml = `<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>${parrafo}`
+    + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+
+  const final = await insertarImagenEnParrafo(zip, xml, '0000B002', PNG_1X1, 'png', {
+    nombreDebajo: ['Lidia Valenzuela', '6.736.698-0'],
+  });
+
+  assert.match(final, /Lidia Valenzuela/, 'el nombre debe quedar escrito');
+  assert.match(final, /6\.736\.698-0/, 'el RUT debe quedar escrito');
+  assert.equal([...final.matchAll(/<w:br\/>/g)].length, 2, `debe haber una línea (un <w:br\\/>) por cada dato: ${final}`);
+  const chequeo = verificarXmlBienFormado(final);
+  assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
+});

@@ -541,6 +541,134 @@ export interface OrdenCompraFila {
   pdfUrl: string | null;
 }
 
+export interface OrdenCompraListaFila extends OrdenCompraFila {
+  licitacionCodigo: string | null;
+  licitacionNombre: string | null;
+  empresaId: number | null;
+  empresaNombre: string | null;
+}
+
+export interface ListadoOrdenesFiltro {
+  desde?: string;             // 'YYYY-MM-DD'
+  hasta?: string;              // 'YYYY-MM-DD'
+  empresaId?: number;
+  codigoEstado?: number;
+  q?: string;                  // busca en código, nombre, organismo, proveedor, licitación e ítems
+  incluirTerceros?: boolean;   // por defecto solo es_nuestra = 1
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * Lista transversal de órdenes de compra (de TODAS las empresas) para la pantalla de gestión,
+ * con filtros. A diferencia de ordenesDeLicitacion (una licitación puntual), acá se pagina y se
+ * trae el nombre de la licitación / empresa por JOIN, para no repetir esa resolución en el cliente.
+ */
+export async function listarOrdenesCompra(
+  filtro: ListadoOrdenesFiltro = {},
+): Promise<{ ordenes: OrdenCompraListaFila[]; total: number; sumaTotal: number }> {
+  const cond: string[] = [];
+  const params: unknown[] = [];
+
+  if (!filtro.incluirTerceros) cond.push('oc.es_nuestra = 1');
+  if (filtro.empresaId) { cond.push('oc.empresa_id = ?'); params.push(filtro.empresaId); }
+  if (filtro.codigoEstado != null) { cond.push('oc.codigo_estado = ?'); params.push(filtro.codigoEstado); }
+  if (filtro.desde) { cond.push('COALESCE(oc.fecha_envio, oc.fecha_creacion) >= ?'); params.push(`${filtro.desde} 00:00:00`); }
+  if (filtro.hasta) { cond.push('COALESCE(oc.fecha_envio, oc.fecha_creacion) <= ?'); params.push(`${filtro.hasta} 23:59:59`); }
+  if (filtro.q && filtro.q.trim()) {
+    const like = `%${filtro.q.trim()}%`;
+    cond.push(`(oc.codigo LIKE ? OR oc.nombre LIKE ? OR oc.comprador_organismo LIKE ?
+                 OR oc.proveedor_nombre LIKE ? OR oc.licitacion_codigo LIKE ? OR oc.items_json LIKE ?)`);
+    params.push(like, like, like, like, like, like);
+  }
+  const where = cond.length ? `WHERE ${cond.join(' AND ')}` : '';
+
+  const [totalRows] = await pool.query(
+    `SELECT COUNT(*) AS total, SUM(oc.total) AS suma FROM ordenes_compra oc ${where}`, params,
+  ) as any[];
+  const total = Number((totalRows as any[])[0]?.total || 0);
+  const sumaTotal = Number((totalRows as any[])[0]?.suma || 0);
+
+  const limit = Math.min(100, Math.max(1, filtro.limit ?? 30));
+  const offset = Math.max(0, filtro.offset ?? 0);
+
+  const [rows] = await pool.query(
+    `SELECT oc.codigo, oc.nombre, oc.estado, oc.codigo_estado, oc.tipo,
+            oc.fecha_creacion, oc.fecha_envio, oc.fecha_aceptacion,
+            oc.moneda, oc.total_neto, oc.total,
+            oc.comprador_organismo, oc.comprador_unidad, oc.comprador_contacto, oc.comprador_mail,
+            oc.items_json, oc.es_nuestra, oc.proveedor_nombre, oc.pdf_url,
+            oc.licitacion_codigo, oc.empresa_id,
+            n.licitacion_nombre, emp.razon_social AS empresa_nombre
+       FROM ordenes_compra oc
+       LEFT JOIN negocios n ON n.licitacion_codigo = oc.licitacion_codigo AND n.activo = TRUE
+       LEFT JOIN empresas emp ON emp.id = oc.empresa_id
+       ${where}
+      ORDER BY COALESCE(oc.fecha_envio, oc.fecha_creacion) DESC, oc.codigo DESC
+      LIMIT ? OFFSET ?`,
+    [...params, limit, offset],
+  ) as any[];
+
+  const ordenes: OrdenCompraListaFila[] = (rows as any[]).map(r => {
+    let items: any[] = [];
+    try { items = r.items_json ? JSON.parse(r.items_json) : []; } catch { items = []; }
+    return {
+      codigo: r.codigo,
+      esNuestra: !!r.es_nuestra,
+      proveedorNombre: r.proveedor_nombre,
+      nombre: r.nombre,
+      estado: r.estado || ESTADOS_OC[Number(r.codigo_estado)] || null,
+      codigoEstado: r.codigo_estado == null ? null : Number(r.codigo_estado),
+      tipo: r.tipo,
+      fechaCreacion: r.fecha_creacion ? new Date(r.fecha_creacion).toISOString() : null,
+      fechaEnvio: r.fecha_envio ? new Date(r.fecha_envio).toISOString() : null,
+      fechaAceptacion: r.fecha_aceptacion ? new Date(r.fecha_aceptacion).toISOString() : null,
+      moneda: r.moneda,
+      totalNeto: r.total_neto == null ? null : Number(r.total_neto),
+      total: r.total == null ? null : Number(r.total),
+      compradorOrganismo: r.comprador_organismo,
+      compradorUnidad: r.comprador_unidad,
+      compradorContacto: r.comprador_contacto,
+      compradorMail: r.comprador_mail,
+      items: (Array.isArray(items) ? items : []).map((it: any) => ({
+        descripcion: String(it?.EspecificacionComprador || it?.EspecificacionProveedor || it?.Categoria || '').slice(0, 400),
+        cantidad: num(it?.Cantidad),
+        precioNeto: num(it?.PrecioNeto),
+        total: num(it?.Total),
+      })),
+      url: `https://www.mercadopublico.cl/PurchaseOrder/Modules/PO/DetailsPurchaseOrder.aspx?codigoOC=${encodeURIComponent(r.codigo)}`,
+      pdfUrl: r.pdf_url || null,
+      licitacionCodigo: r.licitacion_codigo || null,
+      licitacionNombre: r.licitacion_nombre || null,
+      empresaId: r.empresa_id == null ? null : Number(r.empresa_id),
+      empresaNombre: r.empresa_nombre || null,
+    };
+  });
+
+  return { ordenes, total, sumaTotal };
+}
+
+/**
+ * Vincula (o desvincula, con licitacionCodigo = null) manualmente una orden de compra a una
+ * licitación — para los casos donde el cruce automático por nombre (mencionaCodigo) no la
+ * encontró. Nunca pisa un empresa_id ya resuelto por RUT (ver es_nuestra en la migración 64):
+ * solo lo completa si estaba vacío.
+ */
+export async function vincularOrdenALicitacion(codigoOC: string, licitacionCodigo: string | null): Promise<void> {
+  const codigo = licitacionCodigo ? licitacionCodigo.trim().toUpperCase() : null;
+  let empresaId: number | null = null;
+  if (codigo) {
+    const [rows] = await pool.query(
+      `SELECT empresa_id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE LIMIT 1`, [codigo],
+    ) as any[];
+    empresaId = (rows as any[])[0]?.empresa_id ?? null;
+  }
+  await pool.query(
+    `UPDATE ordenes_compra SET licitacion_codigo = ?, empresa_id = COALESCE(empresa_id, ?) WHERE codigo = ?`,
+    [codigo, empresaId, codigoOC],
+  );
+}
+
 /** Las órdenes de compra de UNA licitación, listas para la sección "Resultado". */
 export async function ordenesDeLicitacion(codigo: string): Promise<OrdenCompraFila[]> {
   const [rows] = await pool.query(
