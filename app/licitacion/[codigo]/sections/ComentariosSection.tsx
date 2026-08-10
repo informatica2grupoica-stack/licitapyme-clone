@@ -6,6 +6,7 @@ import { MessageSquare, Send, Loader2, Trash2, User } from 'lucide-react';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { formatDateTime, SectionHeader } from '../utils';
+import { ESTADOS_PIPELINE, getEstadoPipeline, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
 
 interface Comentario {
   id: number;
@@ -15,6 +16,7 @@ interface Comentario {
   usuario_nombre: string;
   usuario_email: string;
   origen?: 'licitacion' | 'negocio';
+  pipeline_estado?: string | null;
 }
 
 function AvatarInicial({ nombre, email }: { nombre?: string; email?: string }) {
@@ -29,17 +31,31 @@ function AvatarInicial({ nombre, email }: { nombre?: string; email?: string }) {
   );
 }
 
-export function ComentariosSection({ codigoDecoded }: { codigoDecoded: string }) {
+interface ComentariosSectionProps {
+  codigoDecoded: string;
+  // Si se provee (vista /negocios/[id]), el composer postea a /api/negocios/{id}/comentarios,
+  // lo que habilita además los chips para cambiar de etapa al comentar. Sin esto, se postea a
+  // /api/licitacion-comentarios/{codigo} (comentario "suelto", sin negocio asociado todavía).
+  negocioId?: number;
+  estadoActual?: string | null;
+  isAdmin?: boolean;
+  onEstadoChanged?: (estadoId: string) => void;
+}
+
+export function ComentariosSection({ codigoDecoded, negocioId, estadoActual, isAdmin, onEstadoChanged }: ComentariosSectionProps) {
   const { usuario } = useSession();
   const { success: toastSuccess, error: toastError } = useToast();
   const [comentarios, setComentarios] = useState<Comentario[]>([]);
   const [loading, setLoading] = useState(true);
   const [texto, setTexto] = useState('');
+  const [pipelineSel, setPipelineSel] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
 
   const cargar = useCallback(async () => {
     if (!usuario) { setLoading(false); return; }
     try {
+      // Siempre se lee de licitacion-comentarios: fusiona comentarios_licitacion +
+      // comentarios_negocio en un solo hilo, para que ambas vistas muestren lo mismo.
       const res = await fetch(`/api/licitacion-comentarios/${encodeURIComponent(codigoDecoded)}`);
       const data = await res.json();
       if (data.success) setComentarios(data.comentarios || []);
@@ -53,15 +69,28 @@ export function ComentariosSection({ codigoDecoded }: { codigoDecoded: string })
     if (!texto.trim() || !usuario) return;
     setEnviando(true);
     try {
-      const res = await fetch(`/api/licitacion-comentarios/${encodeURIComponent(codigoDecoded)}`, {
+      const endpoint = negocioId
+        ? `/api/negocios/${negocioId}/comentarios`
+        : `/api/licitacion-comentarios/${encodeURIComponent(codigoDecoded)}`;
+      const body = negocioId
+        ? { comentario: texto.trim(), pipeline_estado: pipelineSel || null }
+        : { comentario: texto.trim() };
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comentario: texto.trim() }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.success) {
+      if (res.ok && data.success) {
         setTexto('');
-        toastSuccess('Comentario agregado');
+        if (data.nuevo_estado) {
+          onEstadoChanged?.(data.nuevo_estado);
+          const info = getEstadoPipeline(data.nuevo_estado);
+          toastSuccess(`Estado actualizado: ${info?.label ?? data.nuevo_estado}`);
+        } else {
+          toastSuccess('Comentario agregado');
+        }
+        setPipelineSel(null);
         cargar();
       } else {
         toastError('Error', data.error || 'No se pudo agregar el comentario');
@@ -109,11 +138,48 @@ export function ComentariosSection({ codigoDecoded }: { codigoDecoded: string })
             <div className="flex gap-3">
               <AvatarInicial nombre={usuario.nombre ?? undefined} email={usuario.email} />
               <div className="flex-1">
+                {negocioId && onEstadoChanged && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setPipelineSel(null)}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold transition-all ${
+                        pipelineSel === null
+                          ? 'bg-slate-800 text-white border-slate-800'
+                          : 'border-slate-200 text-slate-400 hover:border-slate-400 hover:text-slate-600'
+                      }`}
+                    >
+                      Sin cambio de etapa
+                    </button>
+                    {ESTADOS_PIPELINE.map(est => {
+                      const sel = pipelineSel === est.id;
+                      const chequeo = puedeCambiarEstadoPipeline(estadoActual, est.id, !!isAdmin);
+                      return (
+                        <button
+                          key={est.id}
+                          type="button"
+                          disabled={!chequeo.permitido}
+                          title={chequeo.permitido ? undefined : chequeo.motivo}
+                          onClick={() => { if (!chequeo.permitido) return; setPipelineSel(sel ? null : est.id); }}
+                          style={sel ? { backgroundColor: est.color + '20', color: est.color, borderColor: est.color + '60' } : {}}
+                          className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold transition-all ${
+                            sel ? '' : 'border-slate-200 text-slate-500 hover:border-slate-400'
+                          } ${chequeo.permitido ? '' : 'opacity-40 cursor-not-allowed hover:border-slate-200'}`}
+                        >
+                          {sel && '✓ '}{est.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <textarea
                   value={texto}
                   onChange={e => setTexto(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) handleEnviar(); }}
-                  placeholder="Escribe un comentario para tu equipo..."
+                  placeholder={pipelineSel
+                    ? `Comentario al pasar a "${getEstadoPipeline(pipelineSel)?.label}"...`
+                    : 'Escribe un comentario para tu equipo...'
+                  }
                   rows={2}
                   className="w-full px-3 py-2.5 border border-slate-200 bg-white rounded-xl text-sm resize-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-shadow"
                 />
@@ -155,7 +221,22 @@ export function ComentariosSection({ codigoDecoded }: { codigoDecoded: string })
                   <div className="flex-1 min-w-0">
                     <div className="bg-slate-50 rounded-xl rounded-tl-sm px-3.5 py-3 border border-slate-100">
                       <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <p className="text-[12px] font-semibold text-slate-800">{c.usuario_nombre || c.usuario_email}</p>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <p className="text-[12px] font-semibold text-slate-800 truncate">{c.usuario_nombre || c.usuario_email}</p>
+                          {c.pipeline_estado && (() => {
+                            const info = getEstadoPipeline(c.pipeline_estado);
+                            if (!info) return null;
+                            return (
+                              <span
+                                style={{ backgroundColor: info.color + '18', color: info.color, borderColor: info.color + '50' }}
+                                className="inline-flex items-center gap-1 text-[10px] px-1.5 py-px rounded-full font-bold border flex-shrink-0"
+                              >
+                                <span style={{ backgroundColor: info.color }} className="w-1.5 h-1.5 rounded-full flex-shrink-0" />
+                                {info.label}
+                              </span>
+                            );
+                          })()}
+                        </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <span className="text-[11px] text-slate-400">{formatDateTime(c.created_at)}</span>
                           {usuario && (usuario.id === c.usuario_id || usuario.rol === 'admin') && (

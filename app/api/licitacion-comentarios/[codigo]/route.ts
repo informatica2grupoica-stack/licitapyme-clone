@@ -26,7 +26,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   try {
     const [rowsLic] = await pool.query(
-      `SELECT c.id, c.comentario, c.created_at, 'licitacion' AS origen,
+      `SELECT c.id, c.comentario, c.created_at, 'licitacion' AS origen, NULL AS pipeline_estado,
               u.id AS usuario_id, u.nombre AS usuario_nombre, u.email AS usuario_email
        FROM comentarios_licitacion c
        JOIN usuarios u ON u.id = c.usuario_id
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       const negocioId = (neg as any[])[0]?.id;
       if (negocioId) {
         const [rn] = await pool.query(
-          `SELECT c.id, c.comentario, c.created_at, 'negocio' AS origen,
+          `SELECT c.id, c.comentario, c.created_at, 'negocio' AS origen, c.pipeline_estado,
                   u.id AS usuario_id, u.nombre AS usuario_nombre, u.email AS usuario_email
            FROM comentarios_negocio c
            JOIN usuarios u ON u.id = c.usuario_id

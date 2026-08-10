@@ -83,7 +83,7 @@ export function formatDate(d?: string | null) {
   try {
     const date = new Date(d);
     if (isNaN(date.getTime())) return null;
-    return date.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' });
+    return date.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'America/Santiago' });
   } catch { return null; }
 }
 
@@ -92,7 +92,7 @@ export function formatDateTime(d?: string | null) {
   try {
     const date = new Date(d);
     if (isNaN(date.getTime())) return null;
-    return date.toLocaleString('es-CL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleString('es-CL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' });
   } catch { return null; }
 }
 

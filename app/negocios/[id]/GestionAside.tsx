@@ -27,7 +27,7 @@ function fmt(n: number | null | undefined): string {
 export function fmtFecha(s: string | null | undefined): string {
   if (!s) return '—';
   try {
-    return new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' });
   } catch { return s; }
 }
 
