@@ -542,7 +542,21 @@ function siguienteEncabezadoTablaExtenso(
   filas: { numCeldas: number; numCeldasConTexto: number; tieneCeldaCombinada?: boolean }[], desde: number,
 ): number {
   const esCandidata = (f: { numCeldas: number; numCeldasConTexto: number; tieneCeldaCombinada?: boolean }) =>
-    f.numCeldas >= 3 && f.numCeldasConTexto >= f.numCeldas - 1;
+    (f.numCeldas >= 3 && f.numCeldasConTexto >= f.numCeldas - 1)
+    // BUG REAL (2908-16-LE26, 10-ago-2026): "NOMBRE O RAZÓN SOCIAL DEL OFERENTE" | "RUT EMPRESA"
+    // — la tabla de identificación más común que existe — usa gridSpan para repartir el ANCHO
+    // entre dos columnas REALES, cada una fusionando varias columnas de la grilla. Eso también
+    // pone tieneCeldaCombinada=true, así que sin esta rama la tabla entera se descartaba: caía al
+    // patrón 1 (celda simple), que solo empareja UNA etiqueta con el ÚNICO párrafo vacío
+    // siguiente — como las DOS etiquetas comparten la misma fila, la primera ("NOMBRE...") no
+    // tenía con qué emparejarse y la segunda ("RUT EMPRESA") terminaba con la celda vacía de la
+    // OTRA columna. Distinto del gridSpan de la rama de arriba (una celda-cajón que fusiona VARIAS
+    // columnas conceptuales en una, "Requisitos excluyentes:", ANEXO N°4 1057472-89-LE26): acá
+    // exigir EXACTAMENTE 2 celdas y las DOS con texto (no "casi todas") es la diferencia — un
+    // encabezado ancho de 2 columnas siempre tiene sus 2 nombres completos; una fila de ítem con
+    // gridSpan real trae solo el rótulo del cajón con texto, el resto de sus celdas (Cumple,
+    // Catálogo, Observaciones) vienen vacías y esa asimetría ya la descarta esta regla.
+    || (f.numCeldas === 2 && f.numCeldasConTexto === 2 && !!f.tieneCeldaCombinada);
   let i = desde;
   while (i < filas.length && !esCandidata(filas[i])) i++;
   if (i >= filas.length) return -1;
@@ -683,11 +697,19 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
       // caso ya salió por el `if (!encabezados.length) continue` de arriba.
       const hayEncabezado = nombresColumna.some(t => t.length > 0);
 
-      for (const fila of restoFilas) {
-        // Mismo ajuste que arriba: fila.index es la posición del <w:tr>...</w:tr> completo, pero
-        // fila[1] (lo que se le pasa a extraerCeldasDeFila) arranca después de la apertura "<w:tr...>".
-        const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
-        const celdas = extraerCeldasDeFila(fila[1], offsetFila, offsetsIndices);
+      // Cuántas filas de este segmento son DATOS reales (≥2 celdas propias — mismo filtro que el
+      // `continue` de más abajo, calculado antes para no repetir el parseo dos veces). Determina si
+      // esto es una LISTA (varias entidades desconocidas, ej. asistentes a una capacitación —
+      // ahí SÍ hay que forzar solo-manual, nunca adivinar de quién es cada fila) o el FORMULARIO DE
+      // UNA SOLA ENTIDAD (identificación del propio oferente: Dirección/Teléfono/Representante
+      // Legal como bloques de una fila cada uno) — ver el uso más abajo, junto al out.push.
+      const filasDeDatos = restoFilas
+        .map(fila => {
+          // Mismo ajuste que siempre: fila.index es la posición del <w:tr>...</w:tr> completo, pero
+          // fila[1] (lo que recibe extraerCeldasDeFila) arranca después de la apertura "<w:tr...>".
+          const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
+          return extraerCeldasDeFila(fila[1], offsetFila, offsetsIndices);
+        })
         // Antes exigía 3+ columnas ("2 ya las cubre el patrón 1, etiqueta | valor") — pero esa
         // suposición solo vale cuando la tabla NO tiene encabezado (ahí sí la cubre el patrón 1, y
         // ni siquiera se llega hasta acá por el `if (!encabezados.length) continue` de arriba). Con
@@ -696,7 +718,20 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
         // vacía | descripción de la opción] donde la primera fila trae AMBAS celdas con texto (la
         // instrucción "(MARCAR CON UNA X)" comparte fila con la primera opción) — quedaba fuera de
         // los dos patrones a la vez y ninguna casilla de "marcar con X" aparecía nunca en el modal.
-        if (celdas.length < 2) continue;
+        .filter(celdas => celdas.length >= 2);
+      // BUG REAL (2908-16-LE26, 10-ago-2026): la tabla de identificación más común que existe trae
+      // Dirección Comercial / Teléfono / Representante Legal como bloques de UNA fila cada uno, SIN
+      // texto propio (el dato va en una celda vacía bajo el nombre de columna) — antes, "sin texto
+      // propio" forzaba SIEMPRE solo-manual, sin distinguir esto de una lista de terceros. Con
+      // UNA sola fila de datos bajo el encabezado no hay ambigüedad de "a quién pertenece": el
+      // propio nombre de columna ("Nombre"/"Rut"/"Cargo" bajo "REPRESENTANTE LEGAL:") ya lo dice, y
+      // el resto del pipeline (contexto de párrafos previos + campoCalzaConLaEtiqueta +
+      // CAMPOS_PERMITIDOS_POR_CATEGORIA) es el mismo que ya resuelve bien estos campos cuando vienen
+      // por el patrón 5 ("Nombre del Representante Legal:" + valor en la misma línea). Con DOS O MÁS
+      // filas de datos sigue siendo una LISTA (asistentes, integrantes) y se mantiene solo-manual.
+      const esListaDeVariasFilas = filasDeDatos.length > 1;
+
+      for (const celdas of filasDeDatos) {
 
         // Alineación por ANCHO REAL, no por índice de posición — ver columnasPorAncho arriba.
         // Reemplaza la alineación "desde la derecha" anterior: esa asumía que el relleno decorativo
@@ -741,14 +776,16 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
             ? `${filaContexto} — ${nombreColumna}`
             : (filaContexto || nombreColumna);
           if (!etiqueta) return; // ni fila ni columna dan un nombre: no hay cómo describir la celda
-          // Si la fila no aporta NINGÚN texto, la etiqueta es solo el nombre de la columna y la celda
-          // pertenece a una tabla que se llena entera (especificaciones, participantes de una
-          // capacitación): son datos de la oferta, nunca de identificación de la empresa. Se muestran
-          // para llenarlos a mano pero no se autocompletan — sin esto, la columna "RUT" de la tabla de
-          // asistentes del acta de capacitación se rellenaba con el RUT de la empresa en las 8 filas.
+          // Si la fila no aporta NINGÚN texto, la etiqueta es solo el nombre de la columna. Si
+          // ADEMÁS hay más de una fila así (una LISTA — especificaciones, participantes de una
+          // capacitación), son datos de la oferta o de terceros desconocidos: se muestran para
+          // llenarlos a mano pero NUNCA se autocompletan — sin esto, la columna "RUT" de la tabla de
+          // asistentes del acta de capacitación se rellenaba con el RUT de la empresa en las 8
+          // filas. Con UNA sola fila (el FORMULARIO de una sola entidad — ver esListaDeVariasFilas
+          // más arriba) no hay esa ambigüedad y se deja resolver normal.
           out.push({
             etiqueta: etiqueta.slice(0, 160), paraId: c.paraId, indice: c.indiceGlobal,
-            ...(filaContexto ? {} : { soloManual: true }),
+            ...(filaContexto || !esListaDeVariasFilas ? {} : { soloManual: true }),
             ...(c.dosPuntos ? { dosPuntos: true } : {}),
           });
         });

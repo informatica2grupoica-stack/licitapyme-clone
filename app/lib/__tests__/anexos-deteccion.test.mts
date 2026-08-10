@@ -510,6 +510,54 @@ test('fila de ítem con celda combinada (gridSpan) no es el encabezado (regresi�
   }
 });
 
+// BUG REAL (2908-16-LE26, 10-ago-2026): la tabla de identificación del oferente más común que
+// existe usa gridSpan para repartir el ANCHO entre dos columnas REALES ("NOMBRE O RAZÓN SOCIAL DEL
+// OFERENTE" | "RUT EMPRESA"), cada una fusionando varias columnas de la grilla — DISTINTO del
+// gridSpan del test de arriba (una celda-cajón que fusiona VARIAS columnas conceptuales en una
+// sola, "Requisitos excluyentes:"). Con la regla vieja ("cualquier gridSpan → nunca encabezado"),
+// la tabla entera se descartaba y caía al patrón 1 (celda simple: etiqueta + el ÚNICO párrafo
+// vacío siguiente) — como las DOS etiquetas viven en la MISMA fila, "NOMBRE..." nunca se
+// emparejaba con nada (su "siguiente" párrafo es "RUT EMPRESA", que no está vacío) y "RUT EMPRESA"
+// terminaba emparejado con la celda vacía que en realidad estaba bajo "NOMBRE...". Razón social se
+// perdía sin ni siquiera quedar pendiente; RUT se escribía en la celda equivocada.
+test('tabla de identificación con encabezado ancho por gridSpan: se detecta y se autocompleta (regresión 2908-16-LE26)', () => {
+  const celdaAncha = (texto: string, span: number) =>
+    `<w:tc><w:tcPr><w:gridSpan w:val="${span}"/></w:tcPr>${p(texto)}</w:tc>`;
+  const xml = NS + tabla(
+    `<w:tr>${celdaAncha('NOMBRE O RAZÓN SOCIAL DEL OFERENTE', 5)}${celdaAncha('RUT EMPRESA', 2)}</w:tr>`,
+    `<w:tr>${celdaAncha('', 5)}${celdaAncha('', 2)}</w:tr>`,
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(norm);
+  const etiquetas = a.candidatosCelda.map(c => c.etiqueta);
+  assert.ok(etiquetas.includes('NOMBRE O RAZÓN SOCIAL DEL OFERENTE'), `falta razón social: ${JSON.stringify(etiquetas)}`);
+  assert.ok(etiquetas.includes('RUT EMPRESA'), `falta RUT: ${JSON.stringify(etiquetas)}`);
+  for (const c of a.candidatosCelda.filter(c => etiquetas.includes(c.etiqueta))) {
+    assert.ok(!a.indicesSoloManual.has(c.indice),
+      `una tabla de UNA sola fila de datos (identificación propia, no una lista de terceros) sí debe poder autocompletarse: ${c.etiqueta}`);
+  }
+});
+
+// Misma forma (gridSpan de ancho) pero con VARIAS filas de datos: sigue siendo una LISTA de
+// entidades desconocidas (no la identificación de una sola), así que sigue solo manual — el fix de
+// arriba no debe reabrir el bug original (RUT de la tabla de asistentes rellenado con el nuestro).
+test('tabla con gridSpan de ancho pero VARIAS filas de datos: sigue solo manual (no es un formulario de una sola entidad)', () => {
+  const celdaAncha = (texto: string, span: number) =>
+    `<w:tc><w:tcPr><w:gridSpan w:val="${span}"/></w:tcPr>${p(texto)}</w:tc>`;
+  const xml = NS + tabla(
+    `<w:tr>${celdaAncha('Nombre', 5)}${celdaAncha('RUT', 2)}</w:tr>`,
+    `<w:tr>${celdaAncha('', 5)}${celdaAncha('', 2)}</w:tr>`,
+    `<w:tr>${celdaAncha('', 5)}${celdaAncha('', 2)}</w:tr>`,
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(norm);
+  const rut = a.candidatosCelda.filter(c => c.etiqueta === 'RUT');
+  assert.equal(rut.length, 2, `una casilla de RUT por fila de datos: ${JSON.stringify(a.candidatosCelda.map(c => c.etiqueta))}`);
+  for (const c of rut) {
+    assert.ok(a.indicesSoloManual.has(c.indice), 'una LISTA de varias filas (varias entidades) nunca se autocompleta sola, tenga o no gridSpan');
+  }
+});
+
 // ── Anexo de OFERTA ECONÓMICA: la fila la nombra su producto, no su celda más larga ──────────
 // REGRESIÓN 539119-76-LP26 ("los anexos donde hay que poner precio no los detecta"): en el ANEXO
 // N°3, la fila "5 | MASA DE PIZZA | 1 BOLSA CON 2 UNIDADES | ___" se etiquetaba con la UNIDAD DE
