@@ -795,6 +795,67 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
   return out;
 }
 
+// Todos los índices de párrafo que viven en las celdas de DATOS de una tabla que
+// detectarCandidatosTabla reconoció con encabezado real — no solo el ÚLTIMO párrafo vacío que ese
+// patrón elige como destino de cada celda, sino TODOS (incluidos los blancos "de más" que Word
+// deja en la misma celda). Réplica intencional de la búsqueda de segmentos de detectarCandidatosTabla
+// (mismas funciones, mismas condiciones) — se mantiene APARTE, sin tocar esa función ni su tipo de
+// retorno (ya probado con casos reales), solo para juntar este set más ancho.
+//
+// BUG REAL (1426039-8-LE26, 10-ago-2026, ANEXO N°6): la celda de valor de "Banco"/"Tipo de
+// Cuenta"/"Número de Cuenta" trae DOS párrafos vacíos (línea de más que deja Word). El patrón de
+// tabla se queda con el SEGUNDO (mejor contexto: etiqueta "Banco — INFORMACIÓN"), pero el patrón 1
+// —que solo mira "la etiqueta y el párrafo QUE LE SIGUE si está vacío"— se quedaba con el PRIMERO,
+// un índice DISTINTO. El filtro que ya existía para no duplicar lo que la tabla reclama
+// (`!indicesTabla.has(c.indice)`) no los reconocía como el mismo campo porque literalmente
+// apuntan a párrafos distintos: quedaban dos candidatos para la misma casilla visual, uno con
+// contexto rico (columna de la tabla) y otro sin ninguno — y ese segundo, sin nada que lo ancle,
+// podía resolver "no aplica" aunque el dato SÍ estuviera en la ficha. Con este set más ancho, el
+// párrafo "de más" también queda fuera del alcance del patrón 1 desde el vamos.
+function indicesEnCeldasDeDatosDeTabla(xml: string): Set<number> {
+  const out = new Set<number>();
+  const offsetsIndices = offsetsAIndices(xml);
+  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
+    const cuerpoTabla = tabla[1];
+    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+    const filas = [...cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
+    if (filas.length < 2) continue;
+    const filasInfo = filas.map(f => {
+      const textos = textosDeFila(f[1]);
+      return {
+        completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length,
+        numCeldasConTexto: textos.filter(t => t !== '').length,
+        tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
+      };
+    });
+    const primerEncabezado = indiceFilaEncabezado(filasInfo);
+    const encabezados: number[] = [];
+    if (primerEncabezado >= 0) {
+      encabezados.push(primerEncabezado);
+    } else {
+      for (let desde = 0; ;) {
+        const i = siguienteEncabezadoTablaExtenso(filasInfo, desde);
+        if (i < 0) break;
+        encabezados.push(i);
+        desde = i + 1;
+      }
+    }
+    if (!encabezados.length) continue;
+    for (let s = 0; s < encabezados.length; s++) {
+      const iEncabezado = encabezados[s];
+      const finSegmento = s + 1 < encabezados.length ? encabezados[s + 1] : filas.length;
+      const restoFilas = filas.slice(iEncabezado + 1, finSegmento);
+      for (const fila of restoFilas) {
+        const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
+        const celdas = extraerCeldasDeFila(fila[1], offsetFila, offsetsIndices);
+        if (celdas.length < 2) continue;
+        for (const c of celdas) for (const idx of c.indicesParrafos) out.add(idx);
+      }
+    }
+  }
+  return out;
+}
+
 // ── Patrón 2: subrayados dentro de una misma oración ──────────────────────────────────────
 // indiceRun es GLOBAL (posición entre TODOS los <w:t> del documento — lo que espera
 // rellenarRunPorIndice para editar). indiceParrafo ubica en qué párrafo cae (para agrupar por
@@ -1576,7 +1637,14 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // una etiqueta buena y otra mala ("CO").
   const candidatosTabla = detectarCandidatosTabla(xml)
     .filter(c => !indicesTapadosPorCuadro.has(c.indice));
-  const indicesTabla = new Set(candidatosTabla.map(c => c.indice));
+  // Set AMPLIO: no solo los índices que el patrón de tabla eligió como destino final
+  // (`indicesTabla`), sino TODOS los párrafos de las celdas de datos de esas tablas — ver
+  // indicesEnCeldasDeDatosDeTabla arriba. Evita que el patrón 1 dispute con el patrón de tabla
+  // un párrafo "de más" de la MISMA celda con menos contexto que el que la tabla ya tiene.
+  const indicesTabla = new Set([
+    ...candidatosTabla.map(c => c.indice),
+    ...indicesEnCeldasDeDatosDeTabla(xml),
+  ]);
   // Relleno de tabla que nunca es un campo real (ver parrafosQueNuncaSonCampoEnTabla): ni como
   // valor apuntado por el candidato (el caso real encontrado), ni celdas angostas de puro layout.
   const parrafosSinCampo = parrafosQueNuncaSonCampoEnTabla(xml);

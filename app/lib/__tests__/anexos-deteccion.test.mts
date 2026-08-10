@@ -287,6 +287,29 @@ test('tabla de datos con encabezado real sigue etiquetando por columna', () => {
   assert.ok(etiquetas.some(e => e.includes('BIEN O SERVICIO')), `debe usar el nombre de columna: ${JSON.stringify(etiquetas)}`);
 });
 
+// BUG REAL (1426039-8-LE26, 10-ago-2026, ANEXO N°6): la celda de VALOR de una fila de tabla trae
+// DOS párrafos vacíos (una línea de más que deja Word) en vez de uno. El patrón de tabla se queda
+// con el segundo (mejor contexto: "Banco — INFORMACIÓN"), pero el patrón 1 —que solo mira "la
+// etiqueta y el párrafo QUE LE SIGUE si está vacío"— se quedaba con el PRIMERO, un candidato
+// DISTINTO y sin contexto de tabla para el MISMO campo visual. Con dos candidatos por el mismo
+// dato, uno resolvía bien (el de la tabla) y el otro podía resolver "no aplica" — y en la
+// pantalla o el documento final, cuál ganaba dependía de qué índice mirara cada parte del código.
+test('celda de valor con un párrafo vacío "de más": no genera un segundo candidato sin contexto (regresión 1426039-8-LE26)', () => {
+  const filaConDosVacios = '<w:tr>'
+    + celda('Banco')
+    + '<w:tc><w:tcPr><w:tcW w:w="1250" w:type="pct"/></w:tcPr><w:p/><w:p/></w:tc>'
+    + '</w:tr>';
+  const xml = NS + tabla(
+    fila('Dato solicitado', 'INFORMACIÓN'),
+    filaConDosVacios,
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+  const conBanco = analisis.candidatosCelda.filter(c => /Banco/i.test(c.etiqueta));
+  assert.equal(conBanco.length, 1, `debe haber UN solo candidato para "Banco", no uno por cada párrafo vacío: ${JSON.stringify(conBanco)}`);
+  assert.ok(conBanco[0].etiqueta.includes('INFORMACIÓN'), `el único candidato debe ser el de la tabla (con contexto de columna): ${JSON.stringify(conBanco[0])}`);
+});
+
 // El FORMULARIO N°1-A es el de Unión Temporal de Proveedores; como la empresa postula siempre como
 // persona jurídica, esa sección se omite. Sin corte por formulario, "omitir la sección UTP"
 // terminaba omitiendo los formularios 2, 3 y 4 completos — de 44 campos del documento sobrevivían

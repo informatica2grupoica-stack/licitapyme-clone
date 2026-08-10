@@ -77,6 +77,13 @@ export interface EmpresaCampos {
   direccion_numero?: string | null;
   comuna?: string | null;
   ciudad?: string | null;
+  // Nombres/Apellidos del representante legal, sueltos de `representante_nombre` (10-ago-2026,
+  // caso real 1426039-8-LE26): una tabla "Nombres | Apellidos" son DOS casillas — sin esto, el
+  // único campo disponible era el nombre completo, y el motor lo repetía igual en las dos. `null`
+  // si `representante_nombre` no tiene una cantidad de palabras que se pueda partir sin adivinar
+  // (1 palabra, o 5+) — ver nombresYApellidosDe en anexos-derivados.ts.
+  representante_nombres?: string | null;
+  representante_apellidos?: string | null;
   // Datos de ESTA LICITACIÓN (tampoco son columnas de `empresas` — se resuelven en
   // anexos-datos.ts llamando a Mercado Público por el código de la licitación que se está
   // rellenando, ver obtenerLicitacionParaAnexo). Van en el MISMO objeto que la ficha de empresa
@@ -140,6 +147,7 @@ const CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA: (keyof EmpresaCampos)[] = [
   'region', 'giro', 'tipo_persona_juridica',
   'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
   'representante_nombre', 'representante_rut', 'representante_cargo',
+  'representante_nombres', 'representante_apellidos',
   'email1', 'telefono1',
   'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra', 'fecha_hoy_dia_mes',
 ];
@@ -283,9 +291,11 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   notaria: 'Notaría donde se firmó la escritura',
   numero_repertorio: 'Número de repertorio de la escritura',
   fojas_numero_anio: 'Fojas/Número/Año de inscripción de la escritura',
-  representante_nombre: 'Nombre completo del representante legal',
+  representante_nombre: 'Nombre completo del representante legal (nombres + apellidos juntos) — úsalo SOLO si la casilla pide "Nombre completo"/"Nombre" en UNA sola casilla. Si la casilla dice "Nombres" y "Apellidos" por separado, usa los campos específicos de abajo, nunca este entero.',
   representante_rut: 'RUT/cédula de identidad del representante legal',
   representante_cargo: 'Cargo del representante legal',
+  representante_nombres: 'Solo los NOMBRES (de pila) del representante legal, sin apellidos — casilla "Nombres".',
+  representante_apellidos: 'Solo los APELLIDOS del representante legal, sin nombres — casilla "Apellidos".',
   email1: 'Correo electrónico de la empresa',
   telefono1: 'Teléfono de la empresa',
   banco_tipo_cuenta: 'Tipo de cuenta bancaria',

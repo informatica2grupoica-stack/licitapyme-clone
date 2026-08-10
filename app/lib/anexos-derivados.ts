@@ -73,6 +73,27 @@ function calleYNumeroDeDireccion(direccion: string | null | undefined): { calle:
   return { calle, numero };
 }
 
+// Nombres y apellidos, sueltos de `representante_nombre` — pedido explícito del usuario (10-ago-
+// 2026, caso real 1426039-8-LE26, ANEXO N°6): una tabla "Nombres | Apellidos" como DOS casillas
+// separadas no tenía ningún campo propio que ofrecerle a cada una, así que el motor repetía el
+// NOMBRE COMPLETO en las dos ("Lidia Valenzuela" en "Nombres" Y en "Apellidos").
+//
+// Deliberadamente NO adivina más allá de lo que el conteo de palabras permite asegurar (misma
+// regla de oro que calleYNumeroDeDireccion): un nombre chileno completo casi siempre es
+// "Nombre(s) ApellidoPaterno [ApellidoMaterno]", pero de un string suelto no hay forma de saber
+// SIN AMBIGÜEDAD cuántas palabras son nombre y cuántas apellido salvo en los casos más comunes:
+//   2 palabras → 1 nombre + 1 apellido (ej. "Lidia Valenzuela").
+//   3 palabras → 1 nombre + 2 apellidos (paterno + materno, el patrón chileno más común).
+//   4 palabras → 2 nombres + 2 apellidos.
+// Con 1 palabra o 5+, no se separa (mejor pendiente que un corte inventado).
+function nombresYApellidosDe(nombreCompleto: string | null | undefined): { nombres: string | null; apellidos: string | null } {
+  const palabras = (nombreCompleto || '').trim().split(/\s+/).filter(Boolean);
+  if (palabras.length === 2) return { nombres: palabras[0], apellidos: palabras[1] };
+  if (palabras.length === 3) return { nombres: palabras[0], apellidos: palabras.slice(1).join(' ') };
+  if (palabras.length === 4) return { nombres: palabras.slice(0, 2).join(' '), apellidos: palabras.slice(2).join(' ') };
+  return { nombres: null, apellidos: null };
+}
+
 // La ficha de empresa guarda la región como la escribió el usuario ("Metropolitana", "Región del
 // Bío Bío"). En un anexo se escribe siempre con la palabra "Región" adelante — si ya la trae, se
 // deja tal cual — y se le agrega la comuna (ver comunaDeDireccion) cuando la dirección la trae.
@@ -89,6 +110,7 @@ export function regionCompleta(region: string | null | undefined, direccion?: st
 export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): EmpresaCampos {
   const comuna = comunaDeDireccion(empresa.direccion);
   const { calle, numero } = calleYNumeroDeDireccion(empresa.direccion);
+  const { nombres, apellidos } = nombresYApellidosDe(empresa.representante_nombre);
   return {
     ...empresa,
     region: regionCompleta(empresa.region, empresa.direccion),
@@ -97,6 +119,7 @@ export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): 
     // etiquetas, igual de válido para cualquiera de las dos.
     comuna, ciudad: comuna,
     direccion_calle: calle, direccion_numero: numero,
+    representante_nombres: nombres, representante_apellidos: apellidos,
     fecha_hoy: fechaLargaChile(ahora),
     // Las tres partes por separado, para los pies de firma "Fecha: ____ /____ /____" (tres casillas
     // independientes, el formato más común de los anexos chilenos). Misma hora de Chile que
