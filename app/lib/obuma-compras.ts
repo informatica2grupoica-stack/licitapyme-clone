@@ -13,7 +13,7 @@
 // Solo se guardan las compras que SÍ mencionan una licitación nuestra: esto no es un espejo del
 // ERP completo (~16.700 compras en la cuenta), es la vista cruzada que pidió el usuario.
 import pool from '@/app/lib/db';
-import { listarComprasOc, listarComprasOcItems, proveedorPorId, type ObumaCompraOc } from '@/app/lib/obuma';
+import { listarComprasOc, listarComprasOcItems, listarComprasDte, proveedorPorId, type ObumaCompraOc } from '@/app/lib/obuma';
 import { mencionaCodigo, licitacionesOfertadas } from '@/app/lib/ordenes-compra';
 
 function num(v: unknown): number | null {
@@ -36,6 +36,13 @@ function fechaMySQL(v: unknown): string | null {
 const LIMITE_POR_PAGINA = 100;
 const PAUSA_MS = 300;   // Obuma no documenta un límite de tasa, pero se va con calma igual
 const dormir = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+export interface FacturaObuma {
+  tipoDcto: string; folioDte: string; dteId: string;
+  total: number | null; fecha: string | null;
+  proveedorRazonSocial: string | null; proveedorRut: string | null;
+  s3Link: string | null;   // XML real de la factura, descarga directa (link público de Obuma)
+}
 
 export interface ResumenSyncObuma {
   paginasBarridas: number;
@@ -96,6 +103,36 @@ export async function sincronizarComprasObuma(
     }
   };
 
+  // Factura(s) real(es) — ver docs/migration-67-obuma-facturas.sql para el porqué. Solo cuando la
+  // OC está facturada: `compra_oc_facturada_tipo_dcto` trae "tipo#folio" por cada documento
+  // (varias, separadas por coma, si son varias facturas para la misma OC — probado en vivo).
+  const resolverFacturas = async (c: ObumaCompraOc): Promise<FacturaObuma[]> => {
+    const crudo = String(c.compra_oc_facturada_tipo_dcto || '').trim();
+    if (!crudo) return [];
+    const pares = crudo.split(',').filter(Boolean);
+    const facturas: FacturaObuma[] = [];
+    for (const par of pares) {
+      const [tipoDcto, folioDte] = par.split('#');
+      if (!tipoDcto || !folioDte) continue;
+      try {
+        const r = await listarComprasDte({ tipo_dcto: tipoDcto, folio_dcto: folioDte });
+        const dte = r.data?.[0];
+        if (dte) {
+          facturas.push({
+            tipoDcto, folioDte, dteId: dte.dte_id,
+            total: num(dte.dte_total), fecha: dte.dte_fecha || null,
+            proveedorRazonSocial: dte.dte_razonsocial_emisor || null, proveedorRut: dte.dte_rut_emisor || null,
+            s3Link: dte.s3_link || null,
+          });
+        }
+      } catch (err) {
+        console.warn(`[obuma-compras] factura ${tipoDcto}#${folioDte} de OC ${c.compra_oc_folio} falló:`, String(err).slice(0, 120));
+      }
+      await dormir(PAUSA_MS);
+    }
+    return facturas;
+  };
+
   for (const c of candidatas) {
     const referencia = c.compra_oc_referencia || '';
     const licitacionCodigo = codigos.find(cod => mencionaCodigo(referencia, cod)) || null;
@@ -111,12 +148,14 @@ export async function sincronizarComprasObuma(
     }
     await dormir(PAUSA_MS);
 
+    const facturas = await resolverFacturas(c);
+
     await pool.query(
       `INSERT INTO obuma_compras
          (compra_oc_id, folio, fecha_ingreso, referencia, licitacion_codigo, empresa_id,
           estado, centro_costo, subtotal, neto, iva, total,
-          proveedor_id, proveedor_rut, proveedor_razon_social, items_json, raw_json)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          proveedor_id, proveedor_rut, proveedor_razon_social, items_json, facturas_json, raw_json)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE
          folio = VALUES(folio), fecha_ingreso = VALUES(fecha_ingreso),
          referencia = VALUES(referencia),
@@ -126,14 +165,16 @@ export async function sincronizarComprasObuma(
          subtotal = VALUES(subtotal), neto = VALUES(neto), iva = VALUES(iva), total = VALUES(total),
          proveedor_id = VALUES(proveedor_id), proveedor_rut = VALUES(proveedor_rut),
          proveedor_razon_social = VALUES(proveedor_razon_social),
-         items_json = VALUES(items_json), raw_json = VALUES(raw_json)`,
+         items_json = VALUES(items_json), facturas_json = VALUES(facturas_json), raw_json = VALUES(raw_json)`,
       [
         c.compra_oc_id, c.compra_oc_folio || null, fechaMySQL(c.compra_oc_fecha_ingreso),
         referencia || null, licitacionCodigo, negocio?.empresa_id ?? null,
         c.compra_oc_estado || null, c.compra_oc_centro_costo || null,
         num(c.compra_oc_subtotal), num(c.compra_oc_neto), num(c.compra_oc_iva), num(c.compra_oc_total),
         c.rel_proveedor_id || null, proveedor.rut, proveedor.razonSocial,
-        items ? JSON.stringify(items) : null, JSON.stringify(c),
+        items ? JSON.stringify(items) : null,
+        facturas.length ? JSON.stringify(facturas) : null,
+        JSON.stringify(c),
       ],
     );
     resumen.nuevasOActualizadas++;
@@ -156,6 +197,7 @@ export interface CompraObumaFila {
   proveedorRut: string | null;
   proveedorRazonSocial: string | null;
   items: ItemCompraObuma[];
+  facturas: FacturaObuma[];
 }
 
 function itemsDesdeJson(json: string | null): ItemCompraObuma[] {
@@ -167,6 +209,11 @@ function itemsDesdeJson(json: string | null): ItemCompraObuma[] {
       cantidad: num(it.cantidad), precio: num(it.precio), subtotal: num(it.subtotal),
     }));
   } catch { return []; }
+}
+
+function facturasDesdeJson(json: string | null): FacturaObuma[] {
+  if (!json) return [];
+  try { return JSON.parse(json) as FacturaObuma[]; } catch { return []; }
 }
 
 /** Compras de Obuma ya guardadas para una licitación — no llama a la API, lee de obuma_compras. */
@@ -188,5 +235,6 @@ export async function comprasObumaDeLicitacion(codigo: string): Promise<CompraOb
     proveedorRut: r.proveedor_rut,
     proveedorRazonSocial: r.proveedor_razon_social,
     items: itemsDesdeJson(r.items_json),
+    facturas: facturasDesdeJson(r.facturas_json),
   }));
 }

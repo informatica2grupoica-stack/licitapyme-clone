@@ -5,10 +5,16 @@
 // cumplir esa licitación (el costo real: proveedor, ítems, monto). Los datos los deja el cron
 // (app/lib/obuma-compras.ts) — acá solo se leen de nuestra base.
 import { useEffect, useState } from 'react';
-import { ShoppingBag, Building2, Package, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { ShoppingBag, Building2, Package, Loader2, ChevronDown, ChevronUp, FileText, ExternalLink } from 'lucide-react';
 import { useRealtime } from '@/app/lib/use-realtime';
 
 interface ItemCompra { descripcion: string; cantidad: number | null; precio: number | null; subtotal: number | null }
+interface FacturaObuma {
+  tipoDcto: string; folioDte: string; dteId: string;
+  total: number | null; fecha: string | null;
+  proveedorRazonSocial: string | null; proveedorRut: string | null;
+  s3Link: string | null;
+}
 interface CompraObuma {
   compraOcId: string;
   folio: string | null;
@@ -20,6 +26,7 @@ interface CompraObuma {
   proveedorRut: string | null;
   proveedorRazonSocial: string | null;
   items: ItemCompra[];
+  facturas: FacturaObuma[];
 }
 
 const fmtCLP = (n: number | null | undefined) => n == null ? '—'
@@ -65,13 +72,28 @@ function FilaCompra({ c }: { c: CompraObuma }) {
         </div>
       </div>
 
-      {c.items.length > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2 border-t border-slate-100 bg-slate-50/60">
-          <button onClick={() => setAbierto(o => !o)}
-            className="text-[11.5px] font-semibold text-slate-600 hover:text-slate-800 inline-flex items-center gap-1">
-            <Package size={12} /> {c.items.length} ítem{c.items.length !== 1 ? 's' : ''}
-            {abierto ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-          </button>
+      {(c.items.length > 0 || c.facturas.length > 0) && (
+        <div className="flex items-center gap-3 flex-wrap px-4 py-2 border-t border-slate-100 bg-slate-50/60">
+          {c.items.length > 0 && (
+            <button onClick={() => setAbierto(o => !o)}
+              className="text-[11.5px] font-semibold text-slate-600 hover:text-slate-800 inline-flex items-center gap-1">
+              <Package size={12} /> {c.items.length} ítem{c.items.length !== 1 ? 's' : ''}
+              {abierto ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+            </button>
+          )}
+          {c.facturas.map(f => (
+            f.s3Link ? (
+              <a key={f.dteId} href={f.s3Link} target="_blank" rel="noopener noreferrer"
+                title={`XML de la factura${f.total != null ? ` · ${fmtCLP(f.total)}` : ''}`}
+                className="text-[11.5px] font-semibold text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1">
+                <FileText size={12} /> Factura {f.folioDte} <ExternalLink size={10} />
+              </a>
+            ) : (
+              <span key={f.dteId} className="text-[11.5px] text-slate-400 inline-flex items-center gap-1">
+                <FileText size={12} /> Factura {f.folioDte} (sin XML)
+              </span>
+            )
+          ))}
         </div>
       )}
       {abierto && c.items.length > 0 && (
