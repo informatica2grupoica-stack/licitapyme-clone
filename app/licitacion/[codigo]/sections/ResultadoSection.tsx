@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { useSession } from '@/app/lib/session-context';
 import DocumentosActa from '@/app/components/DocumentosActa';
 import { OrdenesCompraBloque } from './OrdenesCompraBloque';
+import { ComprasObumaBloque } from './ComprasObumaBloque';
 import {
   Trophy, Award, Calendar, Users, FileCheck2, ExternalLink,
   CheckCircle2, Loader2, Hourglass, ChevronDown, ChevronUp, Table2,
@@ -102,6 +103,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
             los organismos que emiten la OC y publican la resolución después), así que el bloque se
             muestra igual — si no hay nada, él mismo lo explica. */}
         <OrdenesCompraBloque codigo={codigo} />
+        <ComprasObumaBloque codigo={codigo} />
       </div>
     );
   }
@@ -165,6 +167,7 @@ export function ResultadoSection({ codigo, mpUrl }: { codigo: string; mpUrl: str
       {/* Órdenes de compra: el cierre real del ciclo. La adjudicación dice que ganamos; la orden
           de compra es la venta, y es de donde salen después los certificados de experiencia. */}
       <OrdenesCompraBloque codigo={codigo} />
+      <ComprasObumaBloque codigo={codigo} />
 
       {/* Ganadores por línea */}
       {lineas.length > 0 && (

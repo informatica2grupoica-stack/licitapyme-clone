@@ -110,6 +110,13 @@ async function jobPostuladas() {
 // días cubre el fin de semana y cualquier corrida caída.
 async function jobOrdenesCompra() { await loop('órdenes de compra', '/api/cron/ordenes-compra', { maxPasadas: 1, body: { dias: 3 } }); }
 
+// Compras de Obuma (nuestro ERP): busca las que mencionan una licitación que ya ofertamos. También
+// UNA VEZ AL DÍA — es el mismo ritmo que las OC de Mercado Público del lado de la venta, y las
+// compras nuevas siempre están en las primeras páginas (comprasOc.list.json entrega más reciente
+// primero), así que un barrido corto (5 páginas ≈ últimas 500 compras) alcanza sin re-barrer el
+// historial completo cada día.
+async function jobComprasObuma() { await loop('compras Obuma', '/api/cron/obuma-compras', { maxPasadas: 1, body: { paginas: 5 } }); }
+
 // ── Programación (hora Chile) ───────────────────────────────────────────────────
 const opts = { timezone: TZ };
 
@@ -122,9 +129,11 @@ cron.schedule('30 1-23/4 * * *', jobViabilidad, opts);  // 01:30,05:30,... (30 m
 // 07:40: temprano, para que el aviso de "salió la orden de compra" esté cuando se abre la app, y
 // fuera de las horas en punto donde ya corren el intake y las postuladas.
 cron.schedule('40 7 * * *',     jobOrdenesCompra, opts);
+// 07:45: justo después de las OC de MP, mismo criterio de horario.
+cron.schedule('45 7 * * *',     jobComprasObuma, opts);
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 (1×/día)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.

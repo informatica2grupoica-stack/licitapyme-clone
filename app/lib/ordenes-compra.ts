@@ -92,14 +92,16 @@ async function empresasNuestras(): Promise<EmpresaNuestra[]> {
   return rows as EmpresaNuestra[];
 }
 
-interface NegocioOfertado {
+export interface NegocioOfertado {
   licitacion_codigo: string;
   licitacion_nombre: string | null;
   empresa_id: number | null;
   asignado_a: number | null;
 }
 
-async function licitacionesOfertadas(): Promise<Map<string, NegocioOfertado>> {
+// Exportada: la reusa app/lib/obuma-compras.ts (mismo criterio de "qué licitaciones son nuestras"
+// para el cruce por texto libre contra las compras de Obuma — una sola definición de la verdad).
+export async function licitacionesOfertadas(): Promise<Map<string, NegocioOfertado>> {
   const ph = ETAPAS_CON_OFERTA.map(() => '?').join(',');
   const [rows] = await pool.query(
     `SELECT licitacion_codigo, licitacion_nombre, empresa_id, asignado_a
