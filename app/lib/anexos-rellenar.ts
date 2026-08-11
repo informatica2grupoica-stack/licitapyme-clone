@@ -808,19 +808,49 @@ export async function generarAnexoFinal(
     tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
   );
   const { matcheadosExtra, pendientesFiltrados, anexarDirecto } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, respuestas);
+  // BUG REAL (1954-1-LE26, 11-ago-2026): "El párrafo <paraId> ya tiene contenido" tumbaba la
+  // generación ENTERA del anexo — un solo campo en conflicto (ej. dos candidatos estructuralmente
+  // distintos que, por lo que sea, terminan apuntando al mismo w14:paraId; o `analizar`/`generar`
+  // categorizando distinto la MISMA casilla entre sus dos llamadas separadas a la IA, ya que no
+  // comparten estado) dejaba sin generar los otros 20+ campos que sí estaban bien. Mismo criterio
+  // que ya usan firma/timbre más abajo (`avisos`): una escritura que falla se reporta y se salta,
+  // nunca bloquea el resto del documento. `paraIdsCeldaEscritos` además previene el conflicto MÁS
+  // común de raíz (dos entradas de `matcheados`/`matcheadosExtra` con el mismo paraId) sin
+  // necesitar la excepción para detectarlo.
+  const paraIdsCeldaEscritos = new Set<string>();
   for (const m of [...matcheados, ...matcheadosExtra]) {
-    // "Etiqueta:" (patrón 5) NO es una celda vacía — el párrafo ya trae la etiqueta como texto,
-    // así que el valor se agrega al FINAL de ese mismo párrafo, nunca reemplazando/exigiendo que
-    // esté vacío (rellenarCeldaVacia revienta si encuentra texto donde esperaba una celda libre).
-    xml = m.dosPuntos ? rellenarFinDeParrafo(xml, m.c.paraId, m.valor) : rellenarCeldaVacia(xml, m.c.paraId, m.valor);
-    completados++;
+    if (!m.dosPuntos && paraIdsCeldaEscritos.has(m.c.paraId)) {
+      avisos.push(`Campo duplicado detectado ("${m.c.etiqueta}") — se dejó pendiente para revisar a mano en vez de arriesgar el documento.`);
+      continue;
+    }
+    try {
+      // "Etiqueta:" (patrón 5) NO es una celda vacía — el párrafo ya trae la etiqueta como texto,
+      // así que el valor se agrega al FINAL de ese mismo párrafo, nunca reemplazando/exigiendo que
+      // esté vacío (rellenarCeldaVacia revienta si encuentra texto donde esperaba una celda libre).
+      xml = m.dosPuntos ? rellenarFinDeParrafo(xml, m.c.paraId, m.valor) : rellenarCeldaVacia(xml, m.c.paraId, m.valor);
+      if (!m.dosPuntos) paraIdsCeldaEscritos.add(m.c.paraId);
+      completados++;
+    } catch (error) {
+      console.error(`[anexos-rellenar] No se pudo escribir "${m.c.etiqueta}" (paraId ${m.c.paraId}), se omite sin bloquear el resto:`, String(error).slice(0, 200));
+      avisos.push(`No se pudo completar "${m.c.etiqueta}" automáticamente — revísalo a mano en el documento generado.`);
+    }
   }
   for (const c of pendientesFiltrados) {
     const respuesta = respuestas[`celda:${c.indice}`];
     if (respuesta && respuesta.trim()) {
-      // Una celda con prefijo de moneda ("$") ya tiene texto — rellenarCeldaVacia revienta ahí.
-      xml = c.dosPuntos ? rellenarFinDeParrafo(xml, c.paraId, respuesta.trim()) : rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
-      respondidos++;
+      if (!c.dosPuntos && paraIdsCeldaEscritos.has(c.paraId)) {
+        avisos.push(`"${c.etiqueta}" ya se había completado automáticamente — lo que escribiste ahí no se aplicó, revisa el documento generado.`);
+        continue;
+      }
+      try {
+        // Una celda con prefijo de moneda ("$") ya tiene texto — rellenarCeldaVacia revienta ahí.
+        xml = c.dosPuntos ? rellenarFinDeParrafo(xml, c.paraId, respuesta.trim()) : rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
+        if (!c.dosPuntos) paraIdsCeldaEscritos.add(c.paraId);
+        respondidos++;
+      } catch (error) {
+        console.error(`[anexos-rellenar] No se pudo escribir la respuesta de "${c.etiqueta}" (paraId ${c.paraId}):`, String(error).slice(0, 200));
+        avisos.push(`No se pudo escribir lo que ingresaste en "${c.etiqueta}" — revísalo a mano en el documento generado.`);
+      }
     }
   }
   for (const a of anexarDirecto) {
