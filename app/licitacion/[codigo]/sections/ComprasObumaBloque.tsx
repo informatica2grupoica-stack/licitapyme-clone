@@ -5,8 +5,9 @@
 // cumplir esa licitación (el costo real: proveedor, ítems, monto). Los datos los deja el cron
 // (app/lib/obuma-compras.ts) — acá solo se leen de nuestra base.
 import { useEffect, useState } from 'react';
-import { ShoppingBag, Building2, Package, Loader2, ChevronDown, ChevronUp, FileText, ExternalLink } from 'lucide-react';
+import { ShoppingBag, Building2, Package, Loader2, ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import { useRealtime } from '@/app/lib/use-realtime';
+import { FacturaObumaModal } from './FacturaObumaModal';
 
 interface ItemCompra { descripcion: string; cantidad: number | null; precio: number | null; subtotal: number | null }
 interface FacturaObuma {
@@ -36,7 +37,7 @@ const fmtFecha = (f: string | null) => {
   try { return new Date(f).toLocaleDateString('es-CL', { timeZone: 'America/Santiago' }); } catch { return null; }
 };
 
-function FilaCompra({ c }: { c: CompraObuma }) {
+function FilaCompra({ c, onVerFactura }: { c: CompraObuma; onVerFactura: (dteId: string) => void }) {
   const [abierto, setAbierto] = useState(false);
   return (
     <div className="rounded-xl border border-slate-200 overflow-hidden">
@@ -83,11 +84,11 @@ function FilaCompra({ c }: { c: CompraObuma }) {
           )}
           {c.facturas.map(f => (
             f.s3Link ? (
-              <a key={f.dteId} href={f.s3Link} target="_blank" rel="noopener noreferrer"
-                title={`XML de la factura${f.total != null ? ` · ${fmtCLP(f.total)}` : ''}`}
+              <button key={f.dteId} type="button" onClick={() => onVerFactura(f.dteId)}
+                title={`Ver la factura${f.total != null ? ` · ${fmtCLP(f.total)}` : ''}`}
                 className="text-[11.5px] font-semibold text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1">
-                <FileText size={12} /> Factura {f.folioDte} <ExternalLink size={10} />
-              </a>
+                <FileText size={12} /> Factura {f.folioDte}
+              </button>
             ) : (
               <span key={f.dteId} className="text-[11.5px] text-slate-400 inline-flex items-center gap-1">
                 <FileText size={12} /> Factura {f.folioDte} (sin XML)
@@ -116,6 +117,7 @@ function FilaCompra({ c }: { c: CompraObuma }) {
 export function ComprasObumaBloque({ codigo }: { codigo: string }) {
   const [compras, setCompras] = useState<CompraObuma[] | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [facturaAbierta, setFacturaAbierta] = useState<{ compraOcId: string; dteId: string } | null>(null);
 
   const cargar = () => {
     fetch(`/api/obuma-compras?codigo=${encodeURIComponent(codigo)}`)
@@ -151,8 +153,16 @@ export function ComprasObumaBloque({ codigo }: { codigo: string }) {
         referencia que se escribe al crear la orden de compra en Obuma.
       </p>
       <div className="p-3 space-y-2">
-        {compras.map(c => <FilaCompra key={c.compraOcId} c={c} />)}
+        {compras.map(c => (
+          <FilaCompra key={c.compraOcId} c={c}
+            onVerFactura={dteId => setFacturaAbierta({ compraOcId: c.compraOcId, dteId })} />
+        ))}
       </div>
+
+      {facturaAbierta && (
+        <FacturaObumaModal codigo={codigo} compraOcId={facturaAbierta.compraOcId} dteId={facturaAbierta.dteId}
+          onClose={() => setFacturaAbierta(null)} />
+      )}
     </div>
   );
 }
