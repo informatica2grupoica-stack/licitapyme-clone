@@ -892,6 +892,10 @@ export async function generarAnexoFinal(
         xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, {
           etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya, nombreDebajo,
           saltoAntesDeImagen: !!linea.saltoAntesDeFirma,
+          // Misma condición que saltoAntesDeFirma (raya-borde-de-celda): ahí, y SOLO ahí, la
+          // línea es un borde real que el contenido en línea nunca puede superar — se necesita
+          // flotante para que la firma quede visualmente arriba de verdad.
+          flotarSobreLinea: !!linea.saltoAntesDeFirma,
         });
         primera = false;
         estampoAlgo = true;

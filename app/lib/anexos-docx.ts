@@ -747,11 +747,21 @@ export async function insertarImagenEnParrafo(
   // `nombreDebajo` (si lo hay) se agrega al FINAL de todo, después de la leyenda — nunca pegado a
   // la imagen. Nunca se activa para el timbre (que no lo pide), así que firma+timbre lado a lado
   // sigue exactamente igual.
+  // `flotarSobreLinea`: pedido explícito del usuario (1426039-8-LE26, 10-ago-2026, tercera vez que
+  // insiste) — la firma tiene que quedar VISUALMENTE arriba del borde de la celda, no solo primera
+  // en el flujo del párrafo (que sigue quedando debajo del borde, límite real de OOXML para
+  // contenido inline). Cambia el dibujo de `<wp:inline>` a `<wp:anchor>` con posición flotante y
+  // desplazamiento vertical negativo — ver el comentario junto a OFFSET_FLOTANTE_EMU. Es una
+  // aproximación (el desplazamiento es un valor fijo, ajustado a ojo contra el documento real, no
+  // calculado por fila) — puede necesitar retoque si aparece un documento con una fila mucho más
+  // alta o más baja que la de este caso.
   {
     anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion, nombreDebajo, saltoAntesDeImagen = false,
+    flotarSobreLinea = false,
   }: {
     anchoCm?: number; etiqueta?: string; conservar?: boolean; alineacion?: 'izquierda' | 'centro' | 'derecha';
     saltoAntesDeImagen?: boolean;
+    flotarSobreLinea?: boolean;
     nombreDebajo?: string | string[];
   } = {},
 ): Promise<string> {
@@ -808,17 +818,37 @@ export async function insertarImagenEnParrafo(
   // XML bajo otro <w:document>, y un fragmento cuya firma dependiera solo de la raíz volvería a
   // romperse si esa raíz cambiara.
   const declsDibujo = Object.entries(NS).map(([p, uri]) => ` xmlns:${p}="${uri}"`).join('');
-  const drawing = `<w:r><w:drawing><wp:inline${declsDibujo} distT="0" distB="0" distL="0" distR="0">`
+  const picXml = `<pic:pic><pic:nvPicPr><pic:cNvPr id="${idDocPr}" name="${etiqueta}_${idDocPr}"/><pic:cNvPicPr/></pic:nvPicPr>`
+    + `<pic:blipFill><a:blip r:embed="${nuevoId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`
+    + `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${anchoEmu}" cy="${altoEmu}"/></a:xfrm>`
+    + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>`;
+  // `flotarSobreLinea` (ver más abajo): en vez de `<wp:inline>` (fluye DENTRO del párrafo, nunca
+  // puede quedar más arriba que el borde de la celda que lo contiene — límite real de OOXML, no
+  // hay forma de esquivarlo con contenido en línea), se usa `<wp:anchor>` — una imagen FLOTANTE
+  // con posición propia, `relativeFrom="paragraph"` y un desplazamiento vertical NEGATIVO, que
+  // sale del flujo normal y puede dibujarse por ENCIMA de donde el párrafo empieza (y por lo
+  // tanto, por encima del borde de la celda). `layoutInCell="1"` es obligatorio para que la
+  // referencia sea la CELDA que la contiene y no la página entera.
+  const drawingInline = `<w:r><w:drawing><wp:inline${declsDibujo} distT="0" distB="0" distL="0" distR="0">`
     + `<wp:extent cx="${anchoEmu}" cy="${altoEmu}"/>`
     + `<wp:effectExtent l="0" t="0" r="0" b="0"/>`
     + `<wp:docPr id="${idDocPr}" name="${etiqueta}_${idDocPr}"/>`
     + `<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`
-    + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">`
-    + `<pic:pic><pic:nvPicPr><pic:cNvPr id="${idDocPr}" name="${etiqueta}_${idDocPr}"/><pic:cNvPicPr/></pic:nvPicPr>`
-    + `<pic:blipFill><a:blip r:embed="${nuevoId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>`
-    + `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${anchoEmu}" cy="${altoEmu}"/></a:xfrm>`
-    + `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>`
-    + `</a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+    + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">${picXml}</a:graphicData></a:graphic>`
+    + `</wp:inline></w:drawing></w:r>`;
+  const OFFSET_FLOTANTE_EMU = -Math.round(2.6 * EMU_POR_CM); // ajustado a ojo (ver comentario de flotarSobreLinea)
+  const drawingAnchor = `<w:r><w:drawing><wp:anchor${declsDibujo} distT="0" distB="0" distL="0" distR="0" simplePos="0" relativeHeight="${idDocPr}" behindDoc="0" locked="0" layoutInCell="1" allowOverlap="1">`
+    + `<wp:simplePos x="0" y="0"/>`
+    + `<wp:positionH relativeFrom="column"><wp:align>center</wp:align></wp:positionH>`
+    + `<wp:positionV relativeFrom="paragraph"><wp:posOffset>${OFFSET_FLOTANTE_EMU}</wp:posOffset></wp:positionV>`
+    + `<wp:extent cx="${anchoEmu}" cy="${altoEmu}"/>`
+    + `<wp:effectExtent l="0" t="0" r="0" b="0"/>`
+    + `<wp:wrapNone/>`
+    + `<wp:docPr id="${idDocPr}" name="${etiqueta}_${idDocPr}"/>`
+    + `<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>`
+    + `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">${picXml}</a:graphicData></a:graphic>`
+    + `</wp:anchor></w:drawing></w:r>`;
+  const drawing = flotarSobreLinea ? drawingAnchor : drawingInline;
   // <w:br/> separa la imagen de cada línea (nombre, RUT…) EN EL MISMO párrafo/run — nunca un
   // <w:p> nuevo (la regla intocable del conteo de párrafos, ver el encabezado del archivo).
   const lineasDebajo = nombreDebajo == null ? [] : Array.isArray(nombreDebajo) ? nombreDebajo : [nombreDebajo];
