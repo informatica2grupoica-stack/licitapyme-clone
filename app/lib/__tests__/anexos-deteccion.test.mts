@@ -1109,6 +1109,48 @@ test('raya de elipsis "…" se detecta igual que guiones bajos o puntos ASCII', 
   assert.equal(puntosSuspensivos.blancosInline.length, 0, 'un solo "…" es puntuación normal, no una raya');
 });
 
+// ── Raya de puntos PARTIDA entre varios <w:r> por Word (revisión ortográfica) ─────────────────
+// BUG REAL (4928-15-LE26, "EMPRESA……………………………(Indicar)" / "PLAZO DE ENTREGA…….… (Días hábiles)"):
+// Word reparte una sola línea de puntos en 8-9 runs distintos (cada uno con 1-5 caracteres,
+// separados por <w:proofErr> de revisión ortográfica, mezclando "." ASCII con el glifo "…").
+// detectarBlancosInline mira UN run a la vez, así que sin unificar antes salían 4-9 "blancos"
+// duplicados para lo que en el papel es UNA sola casilla — el usuario veía la misma respuesta
+// repetida varias veces, partida por puntos sueltos. Reproduce la forma exacta del XML real: en
+// "EMPRESA" la etiqueta y el primer tramo de puntos viven en el MISMO run; en "PLAZO DE ENTREGA"
+// la etiqueta es un run aparte del primer tramo de puntos (ese caso además prueba que
+// rellenarRunPorIndice antepone el espacio mirando el run VECINO cuando el blanco ocupa el suyo
+// entero, o el resultado sale pegado: "PLAZO DE ENTREGA30").
+const proofErr = '<w:proofErr w:type="gramStart"/>';
+const runB = (t: string) => `<w:r><w:rPr><w:b/></w:rPr><w:t>${t}</w:t></w:r>`;
+const parrafoEmpresa = '<w:p>'
+  + runB('EMPRESA…………………………………………') + proofErr + runB('…….') + proofErr + runB('.………………')
+  + proofErr + runB('…….') + proofErr + runB('.……') + proofErr + runB('…') + runB('….') + proofErr
+  + runB('.(Indicar)') + '</w:p>';
+const parrafoPlazo = '<w:p>'
+  + runB('PLAZO DE ENTREGA') + proofErr + runB('…….') + proofErr + runB('……………………') + proofErr
+  + runB('…….') + proofErr + runB('……') + proofErr + runB('…….') + proofErr + runB('.………')
+  + proofErr + runB('…….') + proofErr + runB('.………') + proofErr + runB('…….') + proofErr
+  + runB('. (Días hábiles)') + '</w:p>';
+
+test('raya de puntos partida en varios <w:r> se unifica en UN solo blanco (regresión 4928-15-LE26)', () => {
+  const { xml: norm } = normalizarParaIds(NS + parrafoEmpresa + parrafoPlazo + FIN);
+  const unificado = unificarRunsDeMarcadores(norm);
+  const det = analizarAnexo(unificado);
+  assert.equal(det.blancosInline.length, 2, 'una sola casilla por línea, no una por fragmento de puntos');
+  assert.equal(det.blancosInline[0].contexto, 'EMPRESA');
+  assert.equal(det.blancosInline[1].contexto, 'PLAZO DE ENTREGA');
+
+  let final = unificado;
+  const empresa = det.blancosInline[0];
+  const plazo = det.blancosInline[1];
+  final = rellenarRunPorIndice(final, empresa.indiceRun, [{ pos: empresa.posEnTexto, largo: empresa.largo, valor: 'Comercial MP SpA' }]);
+  final = rellenarRunPorIndice(final, plazo.indiceRun, [{ pos: plazo.posEnTexto, largo: plazo.largo, valor: '30' }]);
+  const textos = listarParrafos(final).map(p => p.texto);
+  assert.equal(textos[0], 'EMPRESA Comercial MP SpA(Indicar)');
+  assert.equal(textos[1], 'PLAZO DE ENTREGA 30 (Días hábiles)', 'espacio antepuesto aunque la etiqueta viva en el run vecino');
+  assert.equal(verificarXmlBienFormado(final).valido, true);
+});
+
 // ── Celda de tabla con SOLO un prefijo de moneda ("$") — el número va pegado después ──────────
 // BUG REAL (3713-7-LE26, tabla PRODUCTO/CANTIDAD/VALOR UNITARIO/VALOR TOTAL): la celda de VALOR
 // UNITARIO trae "$" ya escrito. Como la celda no está técnicamente vacía, desaparecía por completo

@@ -407,21 +407,49 @@ const RE_MARCADORES: { re: RegExp; valido: (dentro: string) => boolean }[] = [
   { re: /\(([^()]{2,60}?)\)/g, valido: (d) => RE_CAMPO_ENTRE_PARENTESIS.test(d.trim()) },
 ];
 
-// Blancos "de raya": guiones bajos (lo de siempre), líneas de PUNTOS, y líneas del carácter
-// ELIPSIS "…" (U+2026, UN SOLO carácter que Word/el usuario tipea como "..." y autocorrige a un
-// glifo). BUG REAL (3713-7-LE26): "Plazo de entrega" / "Garantía" rellenan con "…………………" (7
-// elipsis seguidos) — invisibles para este regex hasta ahora, así que NI se ofrecían para
-// autocompletar NI aparecían pendientes para rellenar a mano: el campo entero desaparecía. El
-// umbral de los puntos ASCII es más alto (6) que el de los guiones (4) a propósito: tres puntos
-// son puntos suspensivos y cuatro pueden ser un "etc...." mal escrito, mientras que nadie escribe
-// seis puntos seguidos salvo para dejar una línea para llenar — mismo criterio en elipsis: 2+
-// (cada glifo ya "vale" 3 puntos, así que 2 equivalen al umbral de 6).
-const RE_RAYAS = /_{4,}|\.{6,}|…{2,}/g;
+// Blancos "de raya": guiones bajos (lo de siempre) y líneas de puntos/elipsis. El umbral de los
+// guiones bajos es 4 (nadie escribe "____" salvo para dejar una línea para llenar).
+const RE_RAYAS = /_{4,}/g;
+
+// Línea de puntos: puntos ASCII (".") y/o el carácter ELIPSIS "…" (U+2026, UN SOLO carácter que
+// Word/el usuario tipea como "..." y autocorrige a un glifo) — MEZCLADOS entre sí, nunca
+// homogéneos. BUG REAL (4928-15-LE26, "EMPRESA……………(Indicar)"): Word reparte la línea de puntos en
+// varios <w:r> (revisión ortográfica) y, una vez que RE_TRAMO_PUNTOS (más abajo) los junta de vuelta
+// en un solo run, el resultado trae tramos de "." sueltos intercalados con tramos de "…" (nunca un
+// solo carácter repetido) — tratar "." y "…" como dos patrones separados con umbral propio (como
+// antes: 6 puntos ASCII O 2 elipsis) cortaba esa mezcla en 3-5 rayas distintas AUNQUE ya vivieran en
+// el mismo run, mismo bug de fondo un nivel más abajo. Se mide en PESO visual sobre CUALQUIER
+// corrida de "." y "…" mezclados (cada "…" vale 3 puntos, igual que se ve en pantalla) y se exige
+// un peso mínimo de 6 — el mismo umbral de siempre (6 puntos ASCII, o 2 elipsis, o cualquier
+// combinación que sume 6): tres puntos son puntos suspensivos y cuatro pueden ser un "etc...." mal
+// escrito, pero seis puntos (en la mezcla que sea) solo se escriben para dejar una línea para llenar.
+const RE_CORRIDA_PUNTOS = /[.…]+/g;
+const UMBRAL_PESO_PUNTOS = 6;
+function pesoPuntos(corrida: string): number {
+  let peso = 0;
+  for (const ch of corrida) peso += ch === '…' ? 3 : 1;
+  return peso;
+}
+
+// Tramo de puntos/elipsis que puede venir partido entre varios <w:r> — CASO REAL (4928-15-LE26,
+// "EMPRESA……………………………(Indicar)"): Word reparte una sola línea de puntos en 8-9 runs distintos
+// (cada uno con 1 a 5 caracteres, separados por <w:proofErr> de revisión ortográfica). Individual-
+// mente casi ningún run alcanza el umbral de RE_RAYAS, así que detectarBlancosInline (que mira UN
+// run a la vez) encontraba 4-9 "blancos" separados para lo que en el papel es UNA sola casilla —
+// el usuario veía la misma respuesta repetida varias veces, partida por puntos sueltos entre medio.
+// Se une ACÁ, antes de detectar, con el MISMO mecanismo que ya usa RE_MARCADORES más abajo: no hay
+// umbral (ni falta hace — el umbral real lo aplica RE_RAYAS DESPUÉS de unir, sobre el run ya
+// completo), así que unir un par de puntos sueltos que no llegan a ser raya no cambia nada visible.
+const RE_TRAMO_PUNTOS = /[.…]{2,}/g;
 
 // Encuentra, en un <w:t> YA DECODIFICADO (ver decodificarXml), cada blanco con su contexto previo.
 export function listarBlancosInline(textoRun: string): BlancoInline[] {
   const crudos: { pos: number; largo: number; textoMarcador?: string }[] = [];
   for (const m of textoRun.matchAll(RE_RAYAS)) crudos.push({ pos: m.index!, largo: m[0].length });
+  for (const m of textoRun.matchAll(RE_CORRIDA_PUNTOS)) {
+    if (pesoPuntos(m[0]) < UMBRAL_PESO_PUNTOS) continue;
+    crudos.push({ pos: m.index!, largo: m[0].length });
+  }
   for (const { re, valido } of RE_MARCADORES) {
     for (const m of textoRun.matchAll(re)) {
       const dentro = m[1].trim();
@@ -490,6 +518,15 @@ export function unificarRunsDeMarcadores(xml: string): string {
         if (primerRun === runDe(m.index! + m[0].length - 1)) continue; // ya vive entero en un run
         tramos.push({ desde: m.index!, hasta: m.index! + m[0].length, run: primerRun });
       }
+    }
+    // RE_TRAMO_PUNTOS va DESPUÉS: si un marcador entre corchetes trae puntos adentro
+    // ("[indicar…]"), el tramo de marcador (agregado arriba) ya cubre esas posiciones y gana por
+    // ser el primero en el array — el `tramos.find` de más abajo se queda con el primero que
+    // encuentra para cada posición.
+    for (const m of completo.matchAll(RE_TRAMO_PUNTOS)) {
+      const primerRun = runDe(m.index!);
+      if (primerRun === runDe(m.index! + m[0].length - 1)) continue; // ya vive entero en un run
+      tramos.push({ desde: m.index!, hasta: m.index! + m[0].length, run: primerRun });
     }
     if (!tramos.length) return parrafo;
 
@@ -567,10 +604,30 @@ export function rellenarRunPorIndice(
   // los offsets corridos y el resultado quedaba doble-escapado (ver decodificarXml).
   const textoOriginal = decodificarXml(textoCrudo);
 
+  // Carácter límite en el RUN VECINO (mismo párrafo) — CASO REAL (4928-15-LE26): Word suele partir
+  // "ETIQUETA" y su raya de puntos en dos <w:r> distintos aunque en el papel sean una sola frase
+  // corrida ("PLAZO DE ENTREGA" en un run, "…….…" en el siguiente). Cuando el blanco ocupa el run
+  // ENTERO por ese lado (pos=0 a la izquierda, o llega hasta el final del run a la derecha), el
+  // carácter límite real vive en el run vecino, no en este — sin mirarlo, el chequeo de abajo
+  // siempre veía "" y nunca anteponía el espacio: salía "PLAZO DE ENTREGA30" pegado. Se mira el
+  // vecino SOLO si sigue dentro del mismo <w:p>: cruzar a otro párrafo o celda daría un espacio
+  // basado en texto que no tiene nada que ver con este blanco.
+  const mismoParrafo = (desde: number, hasta: number) => !xml.slice(desde, hasta).includes('</w:p>');
+  const charLimite = (lado: 'antes' | 'despues'): string => {
+    const vecino = matches[indiceRun + (lado === 'antes' ? -1 : 1)];
+    if (!vecino) return '';
+    const dentro = lado === 'antes'
+      ? mismoParrafo((vecino.index ?? 0) + vecino[0].length, m.index ?? 0)
+      : mismoParrafo((m.index ?? 0) + entero.length, vecino.index ?? 0);
+    if (!dentro) return '';
+    const texto = decodificarXml(vecino[2]);
+    return lado === 'antes' ? (texto[texto.length - 1] || '') : (texto[0] || '');
+  };
+
   let textoNuevo = textoOriginal;
   for (const { pos, largo, valor } of [...ediciones].sort((a, b) => b.pos - a.pos)) {
-    const charPrevio = textoNuevo[pos - 1] || '';
-    const charSiguiente = textoNuevo[pos + largo] || '';
+    const charPrevio = pos > 0 ? (textoNuevo[pos - 1] || '') : charLimite('antes');
+    const charSiguiente = pos + largo < textoNuevo.length ? (textoNuevo[pos + largo] || '') : charLimite('despues');
     // Separación por los DOS lados. La de la izquierda ya estaba; la de la derecha se agregó al ver
     // el resultado real del anexo 10 de 1057480-41-LP26, cuyos blancos son líneas de puntos pegadas
     // a la palabra que sigue ("Yo, ............RUT N°............"): sin ella el documento salía con

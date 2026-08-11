@@ -341,6 +341,16 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
       // carácter de palabra (solo ASCII), así que "podrá "+\b nunca matchea y la guardia queda
       // muda en el caso más común ("no podrá..."). [^.]{0,40}$ ya acota el resto de la frase.
       if (/\bno\s+(?:se\s+)?(?:podr[aá]n?|puede[n]?|permit\w+|acept\w+)[^.]{0,40}$/i.test(previo)) continue;
+      // Guardia de negación DENTRO del propio match (11-ago-2026, caso real 1426039-8-LE26,
+      // mobiliario JUNJI): los patrones de ventana ancha ("adjudicación...por línea", hasta 150
+      // caract. en medio) pueden capturar una NEGACIÓN completa como si fuera evidencia positiva.
+      // Texto real: "Nota 1: la adjudicación NO ES por linea, sino por el total del proyecto" —
+      // declaración GLOBAL explícita, pero el patrón "adjudicación...por línea" (ventana 20
+      // caract.) la capturó ENTERA (m[0]="adjudicación no es por linea") y la citó como evidencia
+      // de POR_LINEAS: literalmente lo contrario de lo que dice el texto. La guardia de arriba no
+      // la agarra porque el "no" queda DENTRO del match, no antes. "sino" es la otra pista de la
+      // misma construcción contrastiva ("no es X, sino Y").
+      if (/\bno\s+(?:es|ser[aá]|est[aá]|fue|ser[aá]n|son)\b/i.test(m[0]) || /\bsino\b/i.test(m[0])) continue;
       return m[0].replace(/\s+/g, ' ').trim();
     }
   }
