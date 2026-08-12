@@ -954,6 +954,7 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
   let col: ColMap | null = null;
   let vistoHeader = false;
   const porNumero = new Map<number, ItemPlanilla>();
+  const vistosSinNumero = new Set<string>();
   const items: ItemPlanilla[] = [];
   // CATÁLOGO DE SUMINISTRO SIN CANTIDADES (caso real 2731-21-LE26: "Solicitud de Compra" municipal
   // con ~290 productos de ferretería, columna Cantidad VACÍA en todas las filas): las filas con
@@ -997,11 +998,14 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
     }
 
     const item: ItemPlanilla = { linea: 1, categoria: null, numero, descripcion: desc, unidad, cantidad };
-    // Dedupe por correlativo (la tabla suele venir repetida: resumen + anexo económico).
+    // Dedupe (la tabla suele venir repetida: resumen + anexo económico, o el mismo bloque OCR-eado
+    // dos veces). Con correlativo se dedupea por número; sin correlativo (tablas de solo 2 columnas
+    // tipo ARTICULO/CANTIDAD, caso real 3489-29-LP26) se dedupea por descripción+cantidad+unidad.
     if (numero != null) {
       if (!porNumero.has(numero)) { porNumero.set(numero, item); items.push(item); }
     } else {
-      items.push(item);
+      const k = `${desc.toUpperCase()}|${cantidad ?? ''}|${unidad.toUpperCase()}`;
+      if (!vistosSinNumero.has(k)) { vistosSinNumero.add(k); items.push(item); }
     }
   }
 
