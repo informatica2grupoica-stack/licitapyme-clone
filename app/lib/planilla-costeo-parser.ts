@@ -975,10 +975,12 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
     const numero = /^\d{1,3}$/.test(numRaw) ? parseInt(numRaw, 10) : null;
 
     // Cantidad = número inicial de la celda CANT; lo que sigue (si hay) es la UNIDAD pegada por el
-    // OCR ("25 MTS", "01 ROLLO", "04 Tineta").
+    // OCR ("25 MTS", "01 ROLLO", "04 Tineta"). El número puede traer separador de miles chileno
+    // ("5.500"): capturar solo \d{1,5} lo truncaba en el punto → 5 en vez de 5500 (caso real
+    // 3220-18-LE26, tabla HTML de GLM-OCR). aNumero() ya sabe leer "5.500" → 5500.
     const cantRaw = col.cant >= 0 ? limpiarCelda(celdas[col.cant] || '') : '';
-    const mCant = cantRaw.match(/^(\d{1,5})\s*(.*)$/);
-    const cantidad = mCant ? parseInt(mCant[1], 10) : null;
+    const mCant = cantRaw.match(/^(\d{1,3}(?:\.\d{3})*(?:,\d+)?)\s*(.*)$/);
+    const cantidad = mCant ? aNumero(mCant[1]) : null;
     let unidad = col.unidad >= 0 ? limpiarCelda(celdas[col.unidad] || '') : '';
     if (!unidad && mCant && mCant[2]) unidad = mCant[2].trim();
 
@@ -1042,6 +1044,10 @@ function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
   let vioFilaPlana = false;
   // Dentro de una tabla de cumplimiento/ETT ("Cumple Si/No"): sus filas NO son productos.
   let enTablaEspec = false;
+  // Correlativo esperado para desambiguar filas PEGADAS sin espacio (ver más abajo): sin esto,
+  // "122NRBARRA…" (ítem 12, cant 2) se lee mal como ítem "1", cant "22" al probar el dígito
+  // mínimo primero. Ancla la lectura al N° que debería seguir; si no calza, cae al modo laxo.
+  let siguienteNumeroPlano = 1;
 
   for (const cruda of lineas) {
     // LÍNEA/LOTE (mirar la línea cruda antes de tabular).
@@ -1072,6 +1078,40 @@ function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
               unidad: '',
               cantidad: parseInt(mp[2], 10),
             });
+          }
+        } else {
+          // Fila PLANA con columnas PEGADAS sin espacio ni "$" (caso real 3220-18-LE26,
+          // "DETALLE_MATERIALES_ELECTRICOS..pdf"): pdf-text aplana "N° | CANT. | UNIDAD |
+          // DESCRIPCION" a "3" + "5.500" + "MTS" + "CABLE RVK…" sin separador, típico de
+          // solicitudes de cotización SIN precio (por eso el patrón de arriba, que exige
+          // "$ monto" al final, nunca matchea y el documento entero queda sin ítems).
+          const UNIDAD_PEGADA = '(UN|UND|NR|MTS?|ML|M2|M3|KG|GRS?|LTS?|GL|GLB|PAR|JGO|CJA|CAJA|ROLLO|SACO|GLOBAL|SERV|DIAS?|HRS?)';
+          // Intento 1: anclar al correlativo ESPERADO ("12" para el ítem 12, no solo "1").
+          // Sin esto, un dígito mínimo lazy interpretaría "122NRBARRA…" como ítem 1 cant 22
+          // en vez de ítem 12 cant 2 (ambigüedad real: ambos parsean "bien" como regex).
+          const reEsperado = new RegExp(`^\\s*(${siguienteNumeroPlano})(\\d{1,3}(?:\\.\\d{3})*)${UNIDAD_PEGADA}([A-ZÁÉÍÓÚÑ(][^$|]{2,90})$`);
+          let mp2 = cruda.match(reEsperado);
+          if (!mp2) {
+            // Intento 2 (laxo, dígito mínimo): documentos donde la numeración no arranca en 1
+            // o no es correlativa. Puede leer mal casos de 2 dígitos, pero es mejor que nada.
+            mp2 = cruda.match(new RegExp(`^\\s*(\\d{1,3}?)(\\d{1,3}(?:\\.\\d{3})*)${UNIDAD_PEGADA}([A-ZÁÉÍÓÚÑ(][^$|]{2,90})$`));
+          }
+          if (mp2) {
+            const desc = limpiarCelda(mp2[4]);
+            const cantidad = aNumero(mp2[2]);
+            const numero = parseInt(mp2[1], 10) || null;
+            if (desc.length >= 3 && /[a-záéíóúñ]/i.test(desc) && !PALABRAS_NO_ITEM.test(desc) && cantidad != null && cantidad > 0) {
+              vioFilaPlana = true;
+              if (numero != null) siguienteNumeroPlano = numero + 1;
+              items.push({
+                linea: vioLineaExplicita ? lineaActual : 1,
+                categoria: categoriaActual,
+                numero,
+                descripcion: desc,
+                unidad: mp2[3],
+                cantidad,
+              });
+            }
           }
         }
       }

@@ -7,7 +7,73 @@ import assert from 'node:assert/strict';
 import {
   detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerSeccionesLineaProducto,
   detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea,
+  parsearPlanillaCosteo,
 } from '../planilla-costeo-parser';
+
+// Caso real 3220-18-LE26 (12-ago-2026): "DETALLE_MATERIALES_ELECTRICOS..pdf" pierde todo espacio
+// entre columnas al pasar por pdf-text — la fila queda "3" + "5.500" + "MTS" + "CABLE RVK…" pegada
+// sin separador ("N°CANT.UNIDADDESCRIPCION" como header). El patrón de fila plana existente exige
+// espacios y un precio "$ monto" final (es una solicitud de cotización, sin precios) → el documento
+// entero quedaba sin ítems y el manifiesto lo terminaba armando el LLM, que leyó "5.500" (formato
+// chileno de miles) como 5 en vez de 5500.
+test('parsearPlanillaCosteo: fila plana con columnas PEGADAS sin espacio ni "$" (regresión 3220-18-LE26)', () => {
+  const texto = [
+    'N°CANT.UNIDADDESCRIPCION',
+    '1700NRTUBO PVC CONDUIT 32MMX3MT C-4322 FUERTE',
+    '2700NRTUBO PVC CONDUIT 20MMX3MT C-4322 FUERTE',
+    '35.500MTSCABLE RVK 0.6/1KV 3X2.5MM NEGRO ASCABLE',
+    '4120NRCAJA ESTANCA TOSUN 85X85X50MM C/7 CONOS',
+    '5500NRTARUGO NYLON M-6 X 30MM',
+    '6500NRTORNILLO CRS H/GRUESO 6X1 NEGRO',
+    '74NRADHESIVO PVC TRADICIONAL 240CC C/PINCEL VINILIT',
+    '8120NRSALIDA CAJA CONDUIT 32MM',
+    '9120NRSALIDA CAJA CONDUIT 20MM',
+    '10120NRCURVA CONDUIT 32MM',
+    '11120NRCURVA CONDUIT 20MM',
+    '122NRBARRA TOMA TIERRA 5/8 15.8MM X 1MT NORMALIZADA',
+    '132NRCONECTOR BRONCE P/BARRA TOMATIERRA 5/8 NORMALIZADA',
+  ].join('\n');
+  const resultado = parsearPlanillaCosteo([{ nombre: 'DETALLE_MATERIALES_ELECTRICOS..pdf', texto }]);
+  assert.ok(resultado, 'debe parsear la planilla en vez de devolver null');
+  const cable = resultado!.items.find(i => i.descripcion.includes('CABLE RVK'));
+  assert.ok(cable, 'debe encontrar el ítem CABLE RVK');
+  assert.equal(cable!.cantidad, 5500, 'la cantidad "5.500" (miles con punto chileno) debe leerse como 5500, no 5');
+  assert.equal(cable!.unidad, 'MTS');
+  assert.equal(cable!.numero, 3);
+  // Ítem 12 usa 2 dígitos de correlativo ("122NRBARRA…" = ítem 12, cant 2): sin anclar al
+  // correlativo esperado, el dígito mínimo lazy lo leería como ítem 1, cantidad 22.
+  const barra = resultado!.items.find(i => i.descripcion.includes('BARRA TOMA TIERRA'));
+  assert.ok(barra, 'debe encontrar el ítem de 2 dígitos de correlativo');
+  assert.equal(barra!.numero, 12);
+  assert.equal(barra!.cantidad, 2);
+});
+
+// CAUSA RAÍZ REAL del bug de 3220-18-LE26: no era la fila pegada de arriba (esa era una vía
+// alterna que ni se llegaba a usar), sino que "Bases_de_Licitacion....pdf" trae la MISMA tabla
+// vía GLM-OCR como HTML ("<tr><td>3</td><td>5.500</td><td>MTS</td><td>CABLE RVK…</td></tr>") y
+// esa gana el score sobre la fila pegada (empatan en items.length, pero el doc de Bases va primero
+// alfabéticamente). parsearTablasHtml() cortaba la celda "CANT" en el primer no-dígito: "5.500"
+// → capturaba solo "5" y tiraba ".500" a la unidad (que igual se pisaba con la columna UNIDAD real).
+test('parsearPlanillaCosteo: tabla HTML (GLM-OCR) con cantidad de miles chilena "5.500" (causa raíz 3220-18-LE26)', () => {
+  const filas = [
+    ['N°', 'CANT.', 'UNIDAD', 'DESCRIPCION'],
+    ['1', '700', 'NR', 'TUBO PVC CONDUIT 32MMX3MT C-4322 FUERTE'],
+    ['2', '700', 'NR', 'TUBO PVC CONDUIT 20MMX3MT C-4322 FUERTE'],
+    ['3', '5.500', 'MTS', 'CABLE RVK 0.6/1KV 3X2.5MM NEGRO ASCABLE'],
+    ['4', '120', 'NR', 'CAJA ESTANCA TOSUN 85X85X50MM C/7 CONOS'],
+    ['5', '500', 'NR', 'TARUGO NYLON M-6 X 30MM'],
+    ['6', '500', 'NR', 'TORNILLO CRS H/GRUESO 6X1 NEGRO'],
+    ['7', '4', 'NR', 'ADHESIVO PVC TRADICIONAL 240CC C/PINCEL VINILIT'],
+    ['8', '120', 'NR', 'SALIDA CAJA CONDUIT 32MM'],
+  ];
+  const texto = filas.map(f => `<tr>${f.map(c => `<td>${c}</td>`).join('')}</tr>`).join('');
+  const resultado = parsearPlanillaCosteo([{ nombre: 'Bases_de_Licitacion.pdf', texto }]);
+  assert.ok(resultado, 'debe parsear la tabla HTML');
+  const cable = resultado!.items.find(i => i.descripcion.includes('CABLE RVK'));
+  assert.ok(cable, 'debe encontrar el ítem CABLE RVK');
+  assert.equal(cable!.cantidad, 5500, 'la celda HTML "5.500" debe leerse como 5500, no truncarse a 5');
+  assert.equal(cable!.unidad, 'MTS');
+});
 
 // Caso real 1250623-4-LE26 (21-jul-2026, detectado por CA leyendo las bases a mano): "se evaluará
 // por línea de producto" es sobre el PUNTAJE, no sobre quién gana — esta licitación se adjudica a
