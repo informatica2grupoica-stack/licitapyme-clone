@@ -59,11 +59,12 @@ export interface MensajeHistorial {
 // ─── Contexto: corpus completo de la licitación (cacheado) ──────────────────────
 export async function construirContextoChat(
   codigo: string,
-): Promise<{ texto: string; encontrado: boolean; numDocumentos: number }> {
+): Promise<{ texto: string; encontrado: boolean; numDocumentos: number; actualizadoEn: Date | null }> {
   // Firma barata de las fuentes: cuántos documentos tienen texto y cuándo se extrajo
-  // el más nuevo. Sirve para invalidar el cache sin leer todos los LONGTEXT.
+  // el más nuevo. Sirve para invalidar el cache sin leer todos los LONGTEXT, y también
+  // para saber desde cuándo el historial de chat deja de ser confiable (ver `actualizadoEn`).
   const [srcRows] = await pool.query(
-    `SELECT COUNT(*) AS n, COALESCE(MAX(UNIX_TIMESTAMP(texto_extraido_at)), 0) AS maxts
+    `SELECT COUNT(*) AS n, MAX(texto_extraido_at) AS max_dt, COALESCE(MAX(UNIX_TIMESTAMP(texto_extraido_at)), 0) AS maxts
        FROM documentos_cache
       WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL AND texto_extraido <> ''
         ${FILTRO_NO_PROPIOS}`,
@@ -71,7 +72,8 @@ export async function construirContextoChat(
   );
   const src = (srcRows as any[])[0];
   const nDocs = Number(src?.n || 0);
-  if (nDocs === 0) return { texto: '', encontrado: false, numDocumentos: 0 };
+  const actualizadoEn: Date | null = src?.max_dt ?? null;
+  if (nDocs === 0) return { texto: '', encontrado: false, numDocumentos: 0, actualizadoEn };
 
   // ¿Cache vigente? Válido si mismo nº de documentos y ninguno se re-extrajo después.
   const [cacheRows] = await pool.query(
@@ -86,7 +88,7 @@ export async function construirContextoChat(
     Number(cache.num_documentos) === nDocs &&
     Number(src.maxts) <= Number(cache.act)
   ) {
-    return { texto: cache.contexto_texto, encontrado: true, numDocumentos: nDocs };
+    return { texto: cache.contexto_texto, encontrado: true, numDocumentos: nDocs, actualizadoEn };
   }
 
   // Reconstruir el corpus desde el texto ya extraído (excluyendo documentos propios).
@@ -118,7 +120,7 @@ export async function construirContextoChat(
     [codigo, texto, texto.length, docs.length],
   );
 
-  return { texto, encontrado: true, numDocumentos: docs.length };
+  return { texto, encontrado: true, numDocumentos: docs.length, actualizadoEn };
 }
 
 // ─── Contexto: un solo documento (chat rápido por fila) ─────────────────────────
@@ -126,33 +128,43 @@ export async function construirContextoChat(
 export async function construirContextoDocumento(
   codigo: string,
   documentoNombre: string,
-): Promise<{ texto: string; encontrado: boolean }> {
+): Promise<{ texto: string; encontrado: boolean; actualizadoEn: Date | null }> {
   const [rows] = await pool.query(
-    `SELECT texto_extraido AS texto
+    `SELECT texto_extraido AS texto, texto_extraido_at AS actualizadoEn
        FROM documentos_cache
       WHERE licitacion_codigo = ? AND documento_nombre = ? LIMIT 1`,
     [codigo, documentoNombre],
   );
-  const raw = ((rows as any[])[0]?.texto || '').trim();
-  if (!raw) return { texto: '', encontrado: false };
+  const fila = (rows as any[])[0];
+  const raw = (fila?.texto || '').trim();
+  const actualizadoEn: Date | null = fila?.actualizadoEn ?? null;
+  if (!raw) return { texto: '', encontrado: false, actualizadoEn };
 
   let texto = `${marcador(documentoNombre)}\n${raw}`;
   if (texto.length > MAX_CHARS_CONTEXTO) {
     texto = texto.slice(0, MAX_CHARS_CONTEXTO) + '\n[...documento truncado...]';
   }
-  return { texto, encontrado: true };
+  return { texto, encontrado: true, actualizadoEn };
 }
 
 // ─── Historial ──────────────────────────────────────────────────────────────────
+// `soloDesde`: si viene, descarta turnos ANTERIORES a esa fecha. Se usa para que el modelo no
+// "recuerde" respuestas dadas sobre un documento que después se reprocesó (ej. un re-OCR que
+// completó páginas que antes venían con huecos): sin este corte, el LLM tiende a repetir su
+// propia respuesta vieja de la conversación en vez de releer el contexto fresco que se le mandó
+// en el mismo turno — vimos exactamente este caso en 3310-35-LE26 (respondía "página 26 no
+// disponible" 18 minutos DESPUÉS de que el re-OCR ya la había completado). El historial completo
+// (para mostrarlo en la UI) sigue viniendo de una llamada sin este filtro.
 export async function obtenerHistorial(
   codigo: string,
   sesionId: string,
+  soloDesde: Date | null = null,
 ): Promise<MensajeHistorial[]> {
   const [rows] = await pool.query(
     `SELECT rol, mensaje FROM chat_licitacion
-      WHERE licitacion_codigo = ? AND sesion_id = ?
+      WHERE licitacion_codigo = ? AND sesion_id = ? ${soloDesde ? 'AND creado_en > ?' : ''}
       ORDER BY creado_en ASC, id ASC`,
-    [codigo, sesionId],
+    soloDesde ? [codigo, sesionId, soloDesde] : [codigo, sesionId],
   );
   return (rows as any[]).map(r => ({ rol: r.rol as 'usuario' | 'asistente', mensaje: r.mensaje }));
 }

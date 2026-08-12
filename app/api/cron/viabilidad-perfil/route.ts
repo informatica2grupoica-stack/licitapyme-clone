@@ -61,6 +61,11 @@ const GATE_FALLOS =
 const GATE_PERMISO =
   `AND JSON_UNQUOTE(JSON_EXTRACT(u.permisos, '$.viabilidad_automatica')) = 'true'`;
 
+// Mismo set que RESUELTOS_CARGA de app/api/negocios/route.ts:170 — "vigente" = en trabajo, no
+// resuelta. Una licitación ya postulada/adjudicada/perdida no necesita viabilidad automática:
+// esa decisión ya se tomó (a mano o antes de que existiera este piloto).
+const ESTADOS_RESUELTOS = `'POSTULADA','DESCARTADA','ADJUDICADA','POSIBLE_ADJ','PERDIDA'`;
+
 async function pendientes(limit?: number, incluirVencidas = false): Promise<string[]> {
   const ahora = ahoraChileSQL();
   const sql = (gatePrefiltro: string, gateFallos: string) =>
@@ -68,7 +73,7 @@ async function pendientes(limit?: number, incluirVencidas = false): Promise<stri
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a
       WHERE n.activo = TRUE
-        AND n.estado_pipeline <> 'DESCARTADA'
+        AND n.estado_pipeline NOT IN (${ESTADOS_RESUELTOS})
         ${GATE_PERMISO}
         AND EXISTS (
               SELECT 1 FROM documentos_cache dc

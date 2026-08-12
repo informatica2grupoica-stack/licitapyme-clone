@@ -57,7 +57,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   if (!sesionId) return NextResponse.json({ error: 'Falta el identificador de sesión.' }, { status: 400 });
 
   // Contexto: corpus completo o un solo documento.
-  const { texto: contexto, encontrado } = documento
+  const { texto: contexto, encontrado, actualizadoEn } = documento
     ? await construirContextoDocumento(codigoDecoded, documento)
     : await construirContextoChat(codigoDecoded);
 
@@ -69,7 +69,12 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   try {
-    const historial = await obtenerHistorial(codigoDecoded, sesionId);
+    // Al modelo solo le pasamos el historial POSTERIOR al último (re)procesamiento de los
+    // documentos: si un documento se re-OCR-eó después de turnos previos, esos turnos pueden
+    // contener respuestas ya obsoletas ("no puedo leer la página X") que el modelo repetiría por
+    // anclaje conversacional en vez de releer el contexto fresco. El historial que ve el USUARIO
+    // en la UI (endpoint GET) no se filtra: sigue completo.
+    const historial = await obtenerHistorial(codigoDecoded, sesionId, actualizadoEn);
     const { respuesta, modelo } = await responderChat({ contexto, historial, pregunta });
     await guardarTurno(codigoDecoded, sesionId, pregunta, respuesta, modelo, usuario.id ?? null);
     // Bitácora: UNA vez al día por usuario/licitación/ámbito (evita una línea por pregunta).
