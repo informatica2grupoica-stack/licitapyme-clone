@@ -331,7 +331,7 @@ async function resolverTodo(
 function aplicarTotalesPorSeccion(
   tablasCrudo: TablaCruda[], parrafos: Parrafo[], indicesEnTablas: Set<number>,
   matcheados: CampoResuelto[], pendientes: CandidatoCelda[], respuestas?: Record<string, string>,
-): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; anexarDirecto: { paraId: string; valor: string }[]; titulos: TituloCercano[] } {
+): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; titulos: TituloCercano[] } {
   const titulos: TituloCercano[] = encabezadosLibres(parrafos, indicesEnTablas);
   const valoresPrecio = new Map(
     matcheados.filter(m => m.via === 'costeo').map(m => [m.c.indice, Number(m.valor.replace(/\./g, '').replace(',', '.'))]),
@@ -348,8 +348,6 @@ function aplicarTotalesPorSeccion(
   const rellenos = resolverTablaResumen(tablasCrudo, totalesSeccion);
 
   const matcheadosExtra: CampoResuelto[] = [];
-
-  const anexarDirecto: { paraId: string; valor: string }[] = [];
   const paraIdsResueltos = new Set<string>();
 
   // TOTAL NETO / IVA / TOTAL IVA INCLUIDO al pie de la MISMA tabla de precios (539119-76-LP26) —
@@ -365,18 +363,32 @@ function aplicarTotalesPorSeccion(
 
   for (const r of rellenos) {
     if (paraIdsResueltos.has(r.paraId)) continue;
+    // `r.anexar` (celda del monto NO técnicamente vacía, ej. trae un "$" fijo) usaba antes un
+    // camino aparte (`anexarDirecto`) que escribía directo al generar el documento, SIN pasar por
+    // `matcheadosExtra` — invisible en el análisis y sin lápiz de corrección en el modal (hallazgo
+    // de la auditoría 12-ago-2026: el único total de la oferta económica que el usuario no podía
+    // corregir ahí). Con `dosPuntos: true` entra al mismo mecanismo que "Etiqueta:" (patrón 5):
+    // `rellenarFinDeParrafo` en vez de `rellenarCeldaVacia`, mismo resultado en el .docx, ahora
+    // visible y corregible como cualquier otro campo. `r.indiceParrafoReal` (a diferencia de
+    // `r.indiceGlobal`, que es null justo en este caso) es el párrafo real de la celda — mismo
+    // mecanismo que ya usa `construirTablaUI` para una celda "Etiqueta:" con texto propio.
     if (r.anexar) {
-      anexarDirecto.push({ paraId: r.paraId, valor: r.valor });
+      if (r.indiceParrafoReal == null) continue; // defensivo: no debería pasar, pero sin párrafo no hay dónde anclar la corrección
+      paraIdsResueltos.add(r.paraId);
+      matcheadosExtra.push({
+        c: { etiqueta: `Monto total — ${r.etiqueta}`, paraId: r.paraId, indice: r.indiceParrafoReal },
+        campo: 'monto_total_seccion', valor: r.valor, via: 'costeo', dosPuntos: true,
+      });
     } else if (r.indiceGlobal != null) {
       paraIdsResueltos.add(r.paraId);
       matcheadosExtra.push({
-        c: { etiqueta: 'Monto total de la sección', paraId: r.paraId, indice: r.indiceGlobal },
+        c: { etiqueta: `Monto total — ${r.etiqueta}`, paraId: r.paraId, indice: r.indiceGlobal },
         campo: 'monto_total_seccion', valor: r.valor, via: 'costeo',
       });
     }
   }
   const pendientesFiltrados = pendientes.filter(c => !paraIdsResueltos.has(c.paraId));
-  return { matcheadosExtra, pendientesFiltrados, anexarDirecto, titulos };
+  return { matcheadosExtra, pendientesFiltrados, titulos };
 }
 
 // Descarga una imagen de identidad de la empresa (firma escaneada o timbre) desde su URL pública
@@ -474,15 +486,13 @@ function segmentosDeCelda(
 
 function construirTablaUI(
   t: TablaCruda, formularios: FormularioDetectado[], titulos: TituloCercano[],
-  resolucionPorIndice: Map<number, ResolucionMostrada>, rellenosPorParaId: Map<string, { paraId: string; valor: string }>,
+  resolucionPorIndice: Map<number, ResolucionMostrada>,
   blancosPorParrafo: Map<number, CandidatoInline[]>, porBlancoInline: Map<string, Resuelto>, parrafos: Parrafo[],
 ): TablaUI {
   return {
     formulario: t.indicePrimero != null ? formularioDe(t.indicePrimero, formularios) : undefined,
     titulo: tituloDeTabla(t.indicePrimero, titulos)?.texto,
     filas: t.filas.map(f => f.celdas.map((c): CeldaTablaUI => {
-      const relleno = c.ultimoParaId ? rellenosPorParaId.get(c.ultimoParaId) : undefined;
-      if (relleno) return { texto: c.texto, auto: { valor: `${c.texto ? c.texto + ' ' : ''}${relleno.valor}`, via: 'costeo' } };
       // BUG REAL (1426039-8-LE26, 10-ago-2026): una celda "Etiqueta: " (patrón 5 — extraerCeldasDeFila
       // no la marca `vacía`, porque SÍ tiene texto propio, así que `c.indiceGlobal` queda null) se
       // resolvía bien de verdad (el .docx generado la traía completa) pero la vista previa nunca
@@ -595,7 +605,7 @@ export async function analizarAnexoParaUI(
     matcheados, pendientes, pendientesConMotivo, inlineAuto, inlinePendientes,
     alertasInadmisibilidad, checklistPendientes,
   } = resolucion;
-  const { matcheadosExtra, pendientesFiltrados, anexarDirecto, titulos }
+  const { matcheadosExtra, pendientesFiltrados, titulos }
     = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablas, matcheados, pendientes);
   const matcheadosTodos = [...matcheados, ...matcheadosExtra];
   for (const m of matcheadosTodos) {
@@ -633,9 +643,8 @@ export async function analizarAnexoParaUI(
   // documento (`documento`, ver más abajo) necesita mostrarlas igual que en el Word aunque no haya
   // nada que llenar en ellas; `tablas` sigue filtrada (solo las que tienen algo por completar) para
   // las herramientas de medición (scripts/anexos-golden) que ya dependían de ese recorte.
-  const rellenosPorParaId = new Map(anexarDirecto.map(r => [r.paraId, r]));
   const tablasUI = tablasCrudo.map(t => ({
-    t, ui: construirTablaUI(t, formularios, titulos, resolucionPorIndice, rellenosPorParaId, blancosPorParrafo, porBlancoInline, analisis.parrafos),
+    t, ui: construirTablaUI(t, formularios, titulos, resolucionPorIndice, blancosPorParrafo, porBlancoInline, analisis.parrafos),
   }));
   const tablasPorIndice = new Map<number, TablaUI>();
   for (const { t, ui } of tablasUI) {
@@ -807,7 +816,7 @@ export async function generarAnexoFinal(
   const indicesEnTablasGen = new Set(
     tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
   );
-  const { matcheadosExtra, pendientesFiltrados, anexarDirecto } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, respuestas);
+  const { matcheadosExtra, pendientesFiltrados } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, respuestas);
   // BUG REAL (1954-1-LE26, 11-ago-2026): "El párrafo <paraId> ya tiene contenido" tumbaba la
   // generación ENTERA del anexo — un solo campo en conflicto (ej. dos candidatos estructuralmente
   // distintos que, por lo que sea, terminan apuntando al mismo w14:paraId; o `analizar`/`generar`
@@ -852,10 +861,6 @@ export async function generarAnexoFinal(
         avisos.push(`No se pudo escribir lo que ingresaste en "${c.etiqueta}" — revísalo a mano en el documento generado.`);
       }
     }
-  }
-  for (const a of anexarDirecto) {
-    xml = rellenarFinDeParrafo(xml, a.paraId, a.valor);
-    completados++;
   }
 
   // 3) Línea de firma: inserta la IMAGEN real si la empresa tiene una firma escaneada cargada, y

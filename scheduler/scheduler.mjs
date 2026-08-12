@@ -88,6 +88,10 @@ async function jobDocsNeg()    { await loop('descarga docs negocios', '/api/cron
 // Cada una es una llamada a la IA → lote chico y pocas pasadas (tope de costo por corrida).
 // El conjunto se autovacía, así que entre corridas la cobertura llega a 0 sola.
 async function jobViabilidad() { await loop('viabilidad',       '/api/cron/viabilidad', { lote: 3, maxPasadas: 4 }); }
+// Piloto: mismo trabajo pero acotado a los perfiles con permisos.viabilidad_automatica=true
+// (hoy solo "Asesor"). Va DESPUÉS del cron de sistema para no competir por el mismo cupo de IA
+// en el mismo instante; universo chico → lote/pasadas bajos.
+async function jobViabilidadPerfil() { await loop('viabilidad (perfil piloto)', '/api/cron/viabilidad-perfil', { lote: 2, maxPasadas: 3 }); }
 
 // Postuladas: refresca el RESULTADO (adjudicación → cache + promoción), detecta APERTURAS y
 // trae el foro de PREGUNTAS Y RESPUESTAS. Así Postuladas y las fichas de licitación —que leen
@@ -126,6 +130,7 @@ cron.schedule('0 1-23/4 * * *', jobPrefiltro,  opts);   // 01,05,09,13,17,21 (1h
 cron.schedule('0 */2 * * *',    jobDocsNeg,    opts);   // cada 2h: reintenta descargas de asignadas
 cron.schedule('15 * * * *',     jobPostuladas, opts);   // cada 1h (+15min): resultado + aperturas + preguntas
 cron.schedule('30 1-23/4 * * *', jobViabilidad, opts);  // 01:30,05:30,... (30 min DESPUÉS del prefiltro)
+cron.schedule('35 1-23/4 * * *', jobViabilidadPerfil, opts); // 01:35,05:35,... (5 min DESPUÉS del cron de sistema)
 // 07:40: temprano, para que el aviso de "salió la orden de compra" esté cuando se abre la app, y
 // fuera de las horas en punto donde ya corren el intake y las postuladas.
 cron.schedule('40 7 * * *',     jobOrdenesCompra, opts);
@@ -133,7 +138,7 @@ cron.schedule('40 7 * * *',     jobOrdenesCompra, opts);
 cron.schedule('45 7 * * *',     jobComprasObuma, opts);
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.

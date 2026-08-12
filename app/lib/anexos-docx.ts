@@ -116,10 +116,28 @@ export function normalizarParaIds(xml: string): { xml: string; agregados: number
   // una sola. Para Word un párrafo vacío autocerrado y uno con cierre vacío son idénticos.
   xml = xml.replace(/<w:p\b([^>]*)\/>/g, '<w:p$1></w:p>');
 
+  // Un w14:paraId DUPLICADO entre dos párrafos del documento ORIGINAL (posible tras una edición
+  // manual descuidada del organismo — copy/paste de una fila de tabla que arrastra el mismo id) es
+  // un riesgo real y silencioso: todas las funciones de escritura (rellenarCeldaVacia,
+  // rellenarFinDeParrafo, rellenarRunPorIndice) buscan el paraId con `.match()` (primer resultado,
+  // no todos) — si dos párrafos lo comparten, el valor puede terminar escrito en el PRIMERO que
+  // aparezca en el XML, no necesariamente el que el detector identificó como candidato. Se
+  // reasigna un id nuevo a partir de la SEGUNDA aparición de cada duplicado — el primero conserva
+  // el suyo, que es el que ya vio el resto del pipeline al detectar candidatos.
+  const vistos = new Set<string>();
   xml = xml.replace(/<w:p\b([^>]*)>/g, (m, attrs) => {
-    if (/w14:paraId=/.test(attrs)) return m;
-    agregados++;
-    return `<w:p${attrs} w14:paraId="${idAleatorio()}" w14:textId="77777777">`;
+    const existente = /w14:paraId="([0-9A-Fa-f]+)"/.exec(attrs);
+    if (!existente) {
+      agregados++;
+      return `<w:p${attrs} w14:paraId="${idAleatorio()}" w14:textId="77777777">`;
+    }
+    const id = existente[1].toUpperCase();
+    if (vistos.has(id)) {
+      agregados++;
+      return m.replace(existente[0], `w14:paraId="${idAleatorio()}"`);
+    }
+    vistos.add(id);
+    return m;
   });
   return { xml, agregados };
 }
@@ -249,6 +267,62 @@ export function listarParrafos(xml: string): Parrafo[] {
 
 export function contarParrafos(xml: string): number {
   return (xml.match(/<w:p\b/g) || []).length;
+}
+
+// ── Tablas: delimitación con anidamiento (una tabla dentro de una celda de otra) ────────────
+// BUG REAL que esto reemplaza (encontrado en anexos-dividir.ts, "Formularios.docx"): el regex
+// no-greedy `<w:tbl…>[\s\S]*?<\/w:tbl>` que usaban varias funciones cierra la tabla EXTERIOR en el
+// PRIMER `</w:tbl>` que encuentra — que es el cierre de la INTERIOR cuando hay una tabla anidada
+// dentro de una celda. La tabla exterior queda cortada a la mitad y todo lo que viene después de
+// la anidada (más filas, más campos reales) desaparece de esa tabla sin ningún aviso — nunca "cero
+// matches", así que el bug pasa desapercibido en cualquier prueba que solo mire "¿encontró algo?"
+// en vez de "¿encontró lo correcto?". `anexos-dividir.ts` ya resolvía esto para su propio uso
+// (contar anidamiento con pila) — esta es la MISMA lógica, compartida en vez de duplicada, para que
+// detección estructural y división del documento nunca puedan divergir (misma lección que evitó
+// que la vista previa reimplementara su propio detector de blancos inline — ver el comentario de
+// `listarBlancosInline` en anexos-documento-ui.ts).
+export function finDeTabla(xml: string, desde: number): number {
+  const re = /<w:tbl\b[^>]*?(\/?)>|<\/w:tbl>/g;
+  re.lastIndex = desde;
+  let profundidad = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml))) {
+    if (m[0].startsWith('</')) {
+      if (--profundidad === 0) return m.index + m[0].length;
+    } else if (m[1] !== '/') {
+      profundidad++; // apertura real; un autocierre <w:tbl …/> no abre nada
+    }
+  }
+  return -1; // sin cierre: XML mal formado — lo rechaza verificarXmlBienFormado en el endpoint
+}
+
+// `indexCuerpo` es el offset ABSOLUTO (dentro del xml completo) donde arranca `cuerpo` — mismo
+// valor que antes se recalculaba en cada función con `tabla.index! + tabla[0].indexOf(cuerpoTabla)`,
+// ahora entregado directo (no hay que volver a buscarlo).
+export interface TablaXml { index: number; indexCuerpo: number; fullMatch: string; cuerpo: string }
+
+// Todas las tablas del documento, en CUALQUIER profundidad de anidamiento, cada una con su rango
+// calculado desde SU PROPIA apertura (nunca la de otra) — sustituye a
+// `xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)` en las funciones de anexos-detectar.ts que
+// necesitan examinar cada tabla como su propia entidad (incluidas las anidadas: una tabla dentro
+// de una celda puede traer su propio encabezado y sus propios campos, y así se espera que aparezca
+// en la vista previa — ver `tablasPorIndice` en anexos-documento-ui.ts). Cuando una tabla puntual
+// queda mal formada (`finDeTabla` devuelve -1) se salta SOLO esa: no bloquea el resto del barrido.
+export function* iterarTablas(xml: string): Generator<TablaXml> {
+  const reApertura = /<w:tbl\b[^>]*>/g;
+  let m: RegExpExecArray | null;
+  while ((m = reApertura.exec(xml))) {
+    const index = m.index;
+    const fin = finDeTabla(xml, index);
+    if (fin < 0) continue;
+    const indexCuerpo = index + m[0].length;
+    const fullMatch = xml.slice(index, fin);
+    const cuerpo = xml.slice(indexCuerpo, fin - '</w:tbl>'.length);
+    yield { index, indexCuerpo, fullMatch, cuerpo };
+    // A propósito NO se salta al final de `fin`: la siguiente vuelta de reApertura sigue buscando
+    // justo después de ESTA apertura, así que una tabla anidada dentro de `cuerpo` también sale
+    // como su propia entrada, con su rango correcto (nunca el de la exterior que la contiene).
+  }
 }
 
 // ── Cuadros de texto flotantes con respaldo VML duplicado ───────────────────────────────

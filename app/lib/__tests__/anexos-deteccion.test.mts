@@ -13,7 +13,7 @@ import {
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, detectarAlternativasExcluyentes, esEtiquetaDeCampo } from '../anexos-detectar';
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
 import { esCandidatoDePrecioUnitario } from '../anexos-precios-columnas';
-import { calcularTotalesAlPie, pareceFilaDePie } from '../anexos-totales-seccion';
+import { calcularTotalesAlPie, pareceFilaDePie, calcularTotalesPorSeccion, resolverTablaResumen } from '../anexos-totales-seccion';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>';
 const FIN = '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
@@ -664,6 +664,68 @@ test('la etiqueta de una fila de precios sale de la columna descriptiva, no de l
     `la fila con unidad corta tampoco debe cambiar: ${JSON.stringify(etiquetas)}`);
 });
 
+// ── Tabla ANIDADA dentro de una celda de otra tabla — regresión del regex no-greedy ──────────
+// El regex `<w:tbl…>[\s\S]*?<\/w:tbl>` que usaban las 5 funciones de anexos-detectar.ts que
+// examinan tablas cerraba la tabla EXTERIOR en el PRIMER </w:tbl> que encontraba — el de la tabla
+// ANIDADA dentro de una celda — así que TODO lo que viene después de la anidada (más filas de la
+// exterior, y cualquier tabla HERMANA que venga más adelante en el documento) podía quedar mal
+// delimitado o mezclado con contenido ajeno. Ahora esas funciones usan iterarTablas (anexos-docx.ts,
+// que cuenta anidamiento con pila vía finDeTabla) para encontrar el RANGO de cada tabla — esto es lo
+// que se arregló y se prueba acá.
+//
+// LÍMITE CONOCIDO, a propósito no cubierto por este fix: la extracción de FILAS/CELDAS *dentro* de
+// una tabla (`<w:tr>…</w:tr>` / `<w:tc>…</w:tc>`, no-greedy en varios puntos del archivo) tiene la
+// MISMA clase de problema un nivel más abajo — si la tabla exterior en sí trae una anidada dentro
+// de una de sus celdas, esa fila de la exterior sale con datos mezclados de la anidada. No hay
+// ningún caso real documentado de esto (a diferencia del de arriba, que sí tiene un caso real —
+// "Formularios.docx" — y motivó el finDeTabla original en anexos-dividir.ts); arreglarlo bien exige
+// la misma lógica de "saltar tablas anidadas" aplicada a filas y celdas en ~11 puntos del archivo,
+// con sus propios fixtures reales antes de tocarlo — se deja pendiente a propósito, documentado acá
+// en vez de arreglado a medias.
+test('tabla con OTRA tabla anidada en una celda: la tabla exterior y la anidada salen como DOS entidades propias (regresión finDeTabla/iterarTablas)', () => {
+  const filaConAnidada = '<w:tr>'
+    + '<w:tc><w:tcPr><w:tcW w:w="1250" w:type="pct"/></w:tcPr>'
+      + '<w:tbl><w:tblPr/><w:tr><w:tc><w:tcPr/><w:p><w:r><w:t>interna</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+      + '<w:p><w:r><w:t>2</w:t></w:r></w:p>'
+    + '</w:tc>'
+    + celda('Producto con tabla anidada en su celda')
+    + celda('')
+    + '</w:tr>';
+  const xml = NS + `<w:tbl><w:tblPr/>${fila('N°', 'PRODUCTO', 'PRECIO NETO')}${filaConAnidada}</w:tbl>` + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+
+  // Antes del fix esto producía UN solo match corrupto (mezcla de exterior truncada + anidada) en
+  // vez de dos tablas limpias — extraerTablasCrudo comparte la misma delimitación que las otras 4
+  // funciones, así que probarlo acá cubre a las 5.
+  const tablas = extraerTablasCrudo(norm);
+  assert.equal(tablas.length, 2, `la exterior y la anidada deben salir como DOS tablas propias: ${JSON.stringify(tablas)}`);
+  assert.equal(tablas[0].indicePrimero, 0, 'la tabla exterior empieza en el encabezado (párrafo 0)');
+  assert.equal(tablas[1].indicePrimero, 3, 'la tabla anidada se reconoce por separado, desde su propio primer párrafo ("interna")');
+});
+
+// El caso que sí tiene un disparador real (ver el comentario de arriba): una tabla HERMANA que
+// viene DESPUÉS, en el documento, de una tabla con una anidada adentro — antes, el corte prematuro
+// de la exterior podía arrastrar basura hasta la siguiente tabla real. Con iterarTablas, la
+// hermana se sigue viendo limpia y completa, con su propio candidato detectable.
+test('una tabla hermana DESPUÉS de una con anidada adentro se sigue detectando limpia', () => {
+  const filaConAnidada = '<w:tr>'
+    + '<w:tc><w:tcPr><w:tcW w:w="1250" w:type="pct"/></w:tcPr>'
+      + '<w:tbl><w:tblPr/><w:tr><w:tc><w:tcPr/><w:p><w:r><w:t>interna</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+      + '<w:p><w:r><w:t>2</w:t></w:r></w:p>'
+    + '</w:tc>'
+    + celda('Producto con tabla anidada en su celda')
+    + '</w:tr>';
+  const xml = NS
+    + `<w:tbl><w:tblPr/>${fila('N°', 'PRODUCTO')}${filaConAnidada}</w:tbl>`
+    + tabla(fila('NOMBRE O RAZÓN SOCIAL', 'RUT'), fila('', ''))
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+
+  const etiquetas = detectarCandidatosTabla(norm).map(c => c.etiqueta);
+  assert.ok(etiquetas.some(e => e.includes('RUT')),
+    `la tabla hermana (después de la que tiene la anidada) debe seguir dando su candidato: ${JSON.stringify(etiquetas)}`);
+});
+
 // Segunda mitad del mismo bug: aunque la etiqueta sea correcta, el cruce con el costeo solo se
 // intentaba si la columna se llamaba EXACTAMENTE "precio unitario" / "valor unitario" / "monto
 // unitario". El anexo real dice "VALOR UNITARIO OFERTADO NETO" y quedaba fuera, así que
@@ -819,6 +881,36 @@ test('totales al pie: sin porcentaje declarado el IVA no se inventa', () => {
 
   assert.ok(rotulos.includes('TOTAL'), `el neto sí se calcula: ${JSON.stringify(rellenos)}`);
   assert.ok(!rotulos.includes('IVA'), `sin "%" en ninguna fila, el IVA queda pendiente: ${JSON.stringify(rellenos)}`);
+});
+
+// Auditoría 12-ago-2026: la celda de una tabla RESUMEN que cruza el total de una sección
+// (resolverTablaResumen) podía llegar NO técnicamente vacía (ej. ya trae un rótulo o símbolo
+// propio) — antes ese caso ("anexar") se escribía directo al generar el .docx, invisible en el
+// análisis y sin lápiz de corrección en el modal (el único total de la oferta económica sin
+// forma de corregirse ahí). Ahora trae su propio `etiqueta` (el título real de la sección, no un
+// genérico) y un `indiceParrafoReal` para poder registrarse como cualquier otro campo.
+test('resolverTablaResumen: una celda de monto no vacía también trae etiqueta y párrafo real (regresión "anexar" invisible)', () => {
+  const xml = NS
+    + p('LÍNEA 1')
+    + tabla(fila('N°', 'CANTIDAD', 'PRECIO UNITARIO'), fila('1', '2', ''))
+    + tabla(fila('SECCIÓN', 'MONTO'), fila('LÍNEA 1', 'Ref.'))
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const tablas = extraerTablasCrudo(norm);
+
+  const titulos = [{ texto: 'LÍNEA 1', indice: 0 }];
+  const idxPrecio = tablas[0].filas[1].celdas[2].indiceGlobal!;
+  const totalesSeccion = calcularTotalesPorSeccion(tablas, titulos, i => (i === idxPrecio ? 1000 : null));
+  assert.equal(totalesSeccion.length, 1, `no se calculó el total de la sección: ${JSON.stringify(totalesSeccion)}`);
+  assert.equal(totalesSeccion[0].total, 2000);
+
+  const rellenos = resolverTablaResumen(tablas, totalesSeccion);
+  assert.equal(rellenos.length, 1, `se esperaba un cruce con la tabla resumen: ${JSON.stringify(rellenos)}`);
+  const [r] = rellenos;
+  assert.equal(r.anexar, true, 'la celda "Ref." no está vacía: debe ir por el camino de anexar, no de reemplazar');
+  assert.equal(r.etiqueta, 'LÍNEA 1', 'debe traer el título REAL de la sección, no un rótulo genérico');
+  assert.ok(r.indiceParrafoReal != null, 'debe traer un párrafo real para poder registrarse como campo corregible en el modal');
+  assert.equal(r.valor, '2.000');
 });
 
 // ── Patrón 2b: marcadores de relleno (1057480-41-LP26, Hospital San José de Melipilla) ────────

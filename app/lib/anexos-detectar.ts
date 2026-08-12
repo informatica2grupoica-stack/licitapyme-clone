@@ -2,7 +2,7 @@
 // Frente E.1 — detección de campos a rellenar en un anexo real, sin conocimiento previo del
 // documento. Probado contra 4 anexos reales de 4 organismos (Chile Chico, Lo Barnechea, y 2
 // más) — ver docs/BITACORA-CAMBIOS-VIABILIDAD.md para el detalle de cada hallazgo.
-import { listarParrafos, listarBlancosInline, parrafoEstaVacio, decodificarXml, textoDeRuns, type Parrafo } from '@/app/lib/anexos-docx';
+import { listarParrafos, listarBlancosInline, parrafoEstaVacio, decodificarXml, textoDeRuns, iterarTablas, type Parrafo } from '@/app/lib/anexos-docx';
 import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
 
 // Vocabulario de ROL cercano a una etiqueta duplicada ("<contexto> — <campo>", ver
@@ -19,6 +19,19 @@ import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
 // párrafo SIGUIENTE (puro espaciado) como si ahí fuera el valor, en vez de a los puntos DENTRO de
 // esta misma línea (que ahora sí cubre el patrón 2, inline).
 const RE_TIENE_BLANCO_PROPIO = /_{4,}|\.{6,}|…{2,}/;
+
+// ── Diagnóstico de exclusiones silenciosas ────────────────────────────────────────────────
+// Varias reglas heurísticas de este archivo (ancho de columna, "este blanco antecede un bloque
+// no rellenable", etc.) descartan candidatos SIN dejar rastro — auditoría 12-ago-2026: cuando una
+// de ellas dispara mal contra un organismo nuevo, el síntoma en pantalla es "faltó una casilla"
+// sin ninguna pista de CUÁL regla la comió, y el único diagnóstico posible era reproducir en
+// local con breakpoints. `console.debug` (no `warn`/`error`: esto no es un error, es información)
+// solo en los puntos donde una regla EXCLUYE algo que de otro modo hubiera sido candidato — nunca
+// en el camino feliz, así que el volumen es bajo (unas pocas líneas por documento, no por
+// párrafo) y queda visible en los logs de producción (VPS) sin tener que reproducir nada.
+function logExclusion(regla: string, detalle: string): void {
+  console.debug(`[anexos-detectar] excluido por "${regla}": ${detalle}`);
+}
 
 const CONTEXTO_REPRESENTANTE = /(representante\s+legal|rep\.?\s*legal)/i;
 const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|entidad\s+bancaria|titular)/i;
@@ -361,9 +374,9 @@ function indicesConBordeSuperiorDeCeldaVisible(xml: string): Set<number> {
   const offsetsIndices = offsetsAIndices(xml);
   const out = new Set<number>();
   const esVisible = (val: string | undefined) => !!val && val !== 'nil' && val !== 'none';
-  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
-    const cuerpoTabla = tabla[1];
-    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+  for (const tabla of iterarTablas(xml)) {
+    const cuerpoTabla = tabla.cuerpo;
+    const offsetTabla = tabla.indexCuerpo;
     const tblBordersMatch = cuerpoTabla.match(/<w:tblBorders>([\s\S]*?)<\/w:tblBorders>/);
     const tblTop = tblBordersMatch?.[1].match(/<w:top\s+[^>]*w:val="([^"]+)"/)?.[1];
     for (const tc of cuerpoTabla.matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)) {
@@ -399,9 +412,18 @@ function parrafosQueNuncaSonCampoEnTabla(xml: string): Set<number> {
 
     if (angosta) {
       // Celda decorativa por ancho: NINGUNO de sus párrafos es un campo real, tenga texto o no.
+      let huboVacio = false;
       for (const p of parrafosCelda) {
         const indice = offsetsIndices.get(offsetCelda + (p.index ?? 0));
         if (indice != null) excluidos.add(indice);
+        if (parrafoEstaVacio(p[1])) huboVacio = true;
+      }
+      // Solo se registra cuando el corte por ancho se llevó un párrafo VACÍO (el caso que importa:
+      // una casilla que nunca se va a ofrecer como candidato) — una celda angosta con texto propio
+      // no pierde nada al excluirse, así que loguearla sería ruido sin valor diagnóstico.
+      if (huboVacio) {
+        logExclusion('columna angosta',
+          `celda de ${anchoPct}‰ (umbral ${ANCHO_PCT_MINIMO_COLUMNA_REAL}‰) con un párrafo vacío descartado como candidato — texto de la celda: "${textoCelda.slice(0, 60) || '(vacía)'}"`);
       }
       continue;
     }
@@ -665,9 +687,9 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   const offsetsIndices = offsetsAIndices(xml);
 
-  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
-    const cuerpoTabla = tabla[1];
-    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+  for (const tabla of iterarTablas(xml)) {
+    const cuerpoTabla = tabla.cuerpo;
+    const offsetTabla = tabla.indexCuerpo;
     const filas = [...cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
     if (filas.length < 2) continue; // hace falta al menos encabezado + 1 fila de datos
 
@@ -854,9 +876,9 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
 function indicesEnCeldasDeDatosDeTabla(xml: string): Set<number> {
   const out = new Set<number>();
   const offsetsIndices = offsetsAIndices(xml);
-  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
-    const cuerpoTabla = tabla[1];
-    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+  for (const tabla of iterarTablas(xml)) {
+    const cuerpoTabla = tabla.cuerpo;
+    const offsetTabla = tabla.indexCuerpo;
     const filas = [...cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
     if (filas.length < 2) continue;
     const filasInfo = filas.map(f => {
@@ -1615,9 +1637,9 @@ function blancoPrecedeBloqueNoRellenable(xml: string, paraId: string): boolean {
 function indicesFilaTituloMergeada(xml: string): Set<number> {
   const offsetsIndices = offsetsAIndices(xml);
   const out = new Set<number>();
-  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
-    const cuerpoTabla = tabla[1];
-    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+  for (const tabla of iterarTablas(xml)) {
+    const cuerpoTabla = tabla.cuerpo;
+    const offsetTabla = tabla.indexCuerpo;
     const filas = [...cuerpoTabla.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)];
     // BUG REAL (1426039-8-LE26, 10-ago-2026): sin esto, CUALQUIER tabla de una sola columna
     // perdía TODOS sus campos — "NOMBRE O RAZÓN SOCIAL: " y "R.U.T: ", cada una en su propia fila
@@ -1718,23 +1740,18 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // valor apuntado por el candidato (el caso real encontrado), ni celdas angostas de puro layout.
   const parrafosSinCampo = parrafosQueNuncaSonCampoEnTabla(xml);
   const indicesEnCelda = indicesDentroDeCelda(xml);
-  // Camino paralelo SIN desambiguar (mismos filtros geométricos, sin el prefijo "candidato
-  // anterior") — lo necesita anexos-clasificar-ia.ts. `.indice`/`.paraId` son idénticos al camino
-  // desambiguado (desambiguarDuplicados solo toca `.etiqueta`), así que indicesSoloManual y el
-  // resto del post-procesado de abajo siguen valiendo igual para ambos.
-  const candidatosCeldaSinDesambiguar = [
-    ...candidatosTabla,
-    ...detectarCandidatosCeldaCrudos(parrafos, parrafosSinCampo, indicesEnCelda)
-      .filter(c => !indicesTabla.has(c.indice))
-      .filter(c => !parrafosSinCampo.has(c.indice))
-      .filter(c => !indicesTapadosPorCuadro.has(c.indice))
-      .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId)),
-  ];
   const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos, parrafosSinCampo, indicesEnCelda)
     .filter(c => !indicesTabla.has(c.indice))
     .filter(c => !parrafosSinCampo.has(c.indice))
     .filter(c => !indicesTapadosPorCuadro.has(c.indice))
-    .filter(c => !blancoPrecedeBloqueNoRellenable(xml, c.paraId));
+    .filter(c => {
+      const precedeBloqueNoRellenable = blancoPrecedeBloqueNoRellenable(xml, c.paraId);
+      if (precedeBloqueNoRellenable) {
+        logExclusion('blanco antes de tabla/lista numerada',
+          `"${c.etiqueta}" (paraId ${c.paraId}) — el párrafo vacío que le seguía es en realidad el inicio de otro bloque, no su valor`);
+      }
+      return !precedeBloqueNoRellenable;
+    });
 
   // Los campos de una sección OMITIDA (Persona Natural / UTP, cuando postulamos como jurídica) ya
   // no se descartan: se muestran igual para que un humano pueda llenarlos, pero se marcan para que
@@ -1926,7 +1943,6 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     // acá mismo (`campoFijo`), sin pasar por la IA — ver asignarCamposDeBloqueFirma.
     candidatosCelda: asignarCamposDeBloqueFirma(candidatosCelda, lineasFirma),
     camposConDosPuntos: asignarCamposDeBloqueFirma(camposConDosPuntos, lineasFirma),
-    candidatosCeldaSinDesambiguar,
     avisoNoAplica: detectarAvisoNoAplica(parrafos),
     tripletesFecha: detectarTripletesFecha(blancosInline),
     alternativasExcluyentes: detectarAlternativasExcluyentes(blancosInline),
@@ -1987,9 +2003,9 @@ export function extraerTablasCrudo(xml: string): TablaCruda[] {
   const offsetsIndices = offsetsAIndices(xml);
   const tablas: TablaCruda[] = [];
 
-  for (const tabla of xml.matchAll(/<w:tbl\b[^>]*>([\s\S]*?)<\/w:tbl>/g)) {
-    const cuerpoTabla = tabla[1];
-    const offsetTabla = tabla.index! + tabla[0].indexOf(cuerpoTabla);
+  for (const tabla of iterarTablas(xml)) {
+    const cuerpoTabla = tabla.cuerpo;
+    const offsetTabla = tabla.indexCuerpo;
 
     // Posición de la tabla en la numeración de "índice de párrafo" (para poder agruparla por
     // formulario/anexo igual que el resto de los pendientes) — la del primer párrafo que

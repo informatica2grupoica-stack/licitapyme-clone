@@ -299,6 +299,17 @@ export interface RellenoTotal {
   // true: la celda no está técnicamente vacía (trae un prefijo fijo, ej. "$") — el valor se
   // AGREGA al final del mismo párrafo. false: celda realmente vacía, se llena como cualquier otra.
   anexar: boolean;
+  // Título de la sección que este total resume (LÍNEA/LOTE/ÍTEM…, lo que sea que use la
+  // licitación) — auditoría 12-ago-2026: sin esto, el caso `anexar` no tenía NINGÚN dato con el
+  // que mostrarse o corregirse en el modal (el usuario solo lo veía ya escrito en el .docx final).
+  etiqueta: string;
+  // Índice de párrafo REAL de la celda del monto — a diferencia de `indiceGlobal` (null cuando
+  // `anexar` es true, porque esa celda no cuenta como "vacía"), este SIEMPRE apunta al párrafo que
+  // existe de verdad, tomado de `indicesParrafos` (el mismo mecanismo que ya usa `construirTablaUI`
+  // para una celda "Etiqueta:" con texto propio — ver su comentario). Permite que el `anexar` se
+  // registre en `resolucionPorIndice` igual que cualquier otro campo, y así aparezca en el modal
+  // con lápiz de corrección, en vez de escribirse a ciegas solo al generar el documento final.
+  indiceParrafoReal: number | null;
 }
 
 // Cruza los totales calculados contra una tabla resumen (columna MONTO/TOTAL + una fila cuya
@@ -324,6 +335,8 @@ export function resolverTablaResumen(tablasCrudo: TablaCruda[], totales: TotalSe
         indiceGlobal: celdaMonto.indiceGlobal,
         valor: new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(info.total),
         anexar: celdaMonto.indiceGlobal == null,
+        etiqueta: info.titulo,
+        indiceParrafoReal: celdaMonto.indiceGlobal ?? celdaMonto.indicesParrafos.at(-1) ?? null,
       });
     }
   }

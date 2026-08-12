@@ -15,6 +15,7 @@
 // generando un solo archivo como antes (ver `< 2` abajo). Documentos sin ese patrón (la
 // mayoría) no se ven afectados.
 import JSZip from 'jszip';
+import { finDeTabla } from '@/app/lib/anexos-docx';
 
 export interface FormularioDetectado { titulo: string; indiceInicio: number; indiceFin: number }
 
@@ -57,14 +58,10 @@ interface BloqueCrudo {
 const RE_PARRAFO_CON_ID = /<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>/g;
 const RE_INICIO_BLOQUE = /<w:tbl\b[^>]*?(\/?)>|<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>/g;
 
-// Devuelve la posición (exclusiva) donde CIERRA la TABLA que abre en `desde`, contando anidamiento.
-// Reemplaza al no-greedy `<w:tbl…>[\s\S]*?</w:tbl>` que se usaba antes.
-//
-// BUG REAL que esto corrige (caso "Formularios.docx", detectado al validar anexos reales de la
-// base): una TABLA DENTRO DE UNA CELDA de otra tabla. El no-greedy cerraba la tabla EXTERNA en el
-// </w:tbl> de la INTERNA, así que el bloque quedaba cortado por la mitad: el fragmento salía con
-// <w:tc> sin cerrar (Word se niega a abrirlo) y, peor, los ordinales de párrafo se contaban solo
-// sobre el trozo truncado, desalineando el rango de todos los formularios siguientes.
+// finDeTabla (posición donde CIERRA la tabla que abre en `desde`, contando anidamiento) vive
+// ahora en anexos-docx.ts, compartida con anexos-documento-ui.ts y con las funciones de detección
+// de anexos-detectar.ts que examinan tablas — ver su comentario ahí para el BUG REAL que resuelve
+// (caso "Formularios.docx": una tabla dentro de una celda de otra).
 //
 // Se empareja con pila SOLO las tablas, a propósito. Los <w:p> se siguen cerrando en su primer
 // </w:p>, porque hay documentos con párrafos ANIDADOS dentro de un cuadro de texto
@@ -74,20 +71,6 @@ const RE_INICIO_BLOQUE = /<w:tbl\b[^>]*?(\/?)>|<w:p\b[^>]*w14:paraId="[0-9A-Fa-f
 // pila acá contaría el externo como uno solo y correría los índices de todo lo que viene después:
 // los campos se rellenarían en el párrafo equivocado. Mientras listarParrafos cuente plano, esto
 // también.
-function finDeTabla(xml: string, desde: number): number {
-  const re = /<w:tbl\b[^>]*?(\/?)>|<\/w:tbl>/g;
-  re.lastIndex = desde;
-  let profundidad = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml))) {
-    if (m[0].startsWith('</')) {
-      if (--profundidad === 0) return m.index + m[0].length;
-    } else if (m[1] !== '/') {
-      profundidad++; // apertura real; un autocierre <w:tbl …/> no abre nada
-    }
-  }
-  return -1; // sin cierre: XML mal formado — lo rechaza verificarXmlBienFormado en el endpoint
-}
 
 function listarBloquesCrudos(xml: string): BloqueCrudo[] {
   const out: BloqueCrudo[] = [];

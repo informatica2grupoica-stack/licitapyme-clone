@@ -46,7 +46,7 @@ import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
 // CADA click en "Generar" volvían a gastarle tokens a la IA para "adivinar" algo que ya se sabía
 // con certeza — y de paso, al no depender de un timeout de red, este paso NUNCA falla ni varía de
 // una corrida a otra (a diferencia del respaldo IA, ver el caso real más abajo).
-function normalizarParaMatchExacto(s: string): string {
+export function normalizarParaMatchExacto(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/['´`]/g, '"')
@@ -59,7 +59,7 @@ function normalizarParaMatchExacto(s: string): string {
     .trim();
 }
 
-function matchExacto(etiquetas: string[], items: ItemCosteoPrecio[]): { matches: MatchPrecio[]; sinResolver: string[] } {
+export function matchExacto(etiquetas: string[], items: ItemCosteoPrecio[]): { matches: MatchPrecio[]; sinResolver: string[] } {
   const porTexto = new Map(items.map(it => [normalizarParaMatchExacto(it.descripcion), it]));
   const matches: MatchPrecio[] = [];
   const sinResolver: string[] = [];
@@ -86,13 +86,13 @@ function matchExacto(etiquetas: string[], items: ItemCosteoPrecio[]): { matches:
 // por bueno: mejor un precio pendiente que uno inventado.
 const CONECTORES = new Set(['de', 'la', 'el', 'los', 'las', 'del', 'y', 'a', 'en', 'un', 'una', 'con', 'por', 'para', 'sin']);
 
-function palabrasSignificativas(texto: string): Set<string> {
+export function palabrasSignificativas(texto: string): Set<string> {
   const normalizado = texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
   const palabras = normalizado.replace(/[^a-z0-9]+/g, ' ').split(' ').filter(Boolean);
   return new Set(palabras.filter(p => p.length >= 3 && !CONECTORES.has(p)));
 }
 
-function compartenPalabra(a: string, b: string): boolean {
+export function compartenPalabra(a: string, b: string): boolean {
   const pa = palabrasSignificativas(a);
   const pb = palabrasSignificativas(b);
   for (const p of pa) if (pb.has(p)) return true;

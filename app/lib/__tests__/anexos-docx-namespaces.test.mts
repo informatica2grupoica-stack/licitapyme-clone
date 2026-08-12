@@ -131,6 +131,28 @@ test('normalizarParaIds no corrompe un párrafo vacío autocerrado (regresión <
   assert.match(norm, /w:rsidR="0034565C"/, 'los atributos originales se conservan');
 });
 
+// Auditoría 12-ago-2026: si el documento ORIGINAL trae dos párrafos con el MISMO w14:paraId (ej.
+// una edición manual del organismo que copia una fila de tabla y arrastra su id), las funciones de
+// escritura (rellenarCeldaVacia, rellenarFinDeParrafo) buscan el paraId con un match simple — sin
+// deduplicar, el valor podía terminar en el PRIMER párrafo que lo tuviera, no necesariamente el que
+// el detector identificó como candidato.
+test('normalizarParaIds reasigna un w14:paraId duplicado del documento original (no toca el primero)', () => {
+  const xml = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>'
+    + '<w:p w14:paraId="00001111"><w:r><w:t>primero</w:t></w:r></w:p>'
+    + '<w:p w14:paraId="00001111"><w:r><w:t>segundo, mismo id</w:t></w:r></w:p>'
+    + '</w:body></w:document>';
+  const { xml: norm } = normalizarParaIds(xml);
+
+  const ids = [...norm.matchAll(/w14:paraId="([0-9A-Fa-f]+)"/g)].map(m => m[1].toUpperCase());
+  assert.equal(ids.length, 2, 'siguen habiendo 2 párrafos, ninguno perdió su atributo');
+  assert.equal(new Set(ids).size, 2, `los dos paraId deben quedar únicos: ${JSON.stringify(ids)}`);
+  assert.equal(ids[0], '00001111', 'el PRIMER párrafo conserva su id original — es el que ya vio el resto del pipeline');
+  assert.notEqual(ids[1], '00001111', 'el segundo (el duplicado real) recibe uno nuevo');
+
+  const chequeo = verificarXmlBienFormado(norm);
+  assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
+});
+
 // Tercer bug de la misma familia, también destapado al validar anexos reales (caso
 // "Formularios.docx"): una TABLA DENTRO DE UNA CELDA de otra tabla. El no-greedy que extraía los
 // bloques cerraba la tabla externa en el </w:tbl> de la interna → el fragmento salía con <w:tc> sin

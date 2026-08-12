@@ -33,6 +33,23 @@ export async function cargarDocumentoYEmpresa(
   const doc = (docRows as any[])[0];
   if (!doc) throw new Error('Documento no encontrado en esta licitación');
 
+  // `empresaId` viaja como parámetro del cliente (query string en /analizar, body en /generar) sin
+  // ningún cruce contra la licitación — auditoría 12-ago-2026: a diferencia de `documentoId` (que
+  // SÍ está scopeado arriba con `AND licitacion_codigo = ?`), nada impedía pedir el anexo de ESTA
+  // licitación con los datos de CUALQUIER otra empresa activa del sistema. Las dos rutas son
+  // admin-only, así que no es una fuga entre tenants (un admin ya puede ver cualquier empresa),
+  // pero sí un guardarraíl de negocio real: sin esto, un `empresaId` viejo/equivocado en el cliente
+  // genera en silencio un anexo legal con la razón social/RUT de OTRA empresa. Mismo criterio de
+  // "activo, el más reciente" que ya usa el guardarraíl de congelamiento en /api/anexos/generar.
+  const [negocioRows] = await pool.query(
+    `SELECT empresa_id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`,
+    [codigo],
+  );
+  const negocio = (negocioRows as any[])[0];
+  if (negocio?.empresa_id != null && String(negocio.empresa_id) !== String(empresaId)) {
+    throw new Error('La empresa indicada no es la asignada a esta licitación');
+  }
+
   const nombre: string = doc.documento_nombre || '';
   const esDocx = /\.docx$/i.test(nombre);
   const esDocLegado = !esDocx && /\.doc$/i.test(nombre);

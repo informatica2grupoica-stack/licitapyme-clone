@@ -19,7 +19,7 @@
 // el motor de IA (anexos-ia-motor.ts) y los patrones de detección (anexos-detectar.ts); acá solo
 // se recibe el resultado ya resuelto y se ubica en el lugar del documento donde corresponde.
 import type JSZip from 'jszip';
-import { listarBlancosInline, decodificarXml } from '@/app/lib/anexos-docx';
+import { listarBlancosInline, decodificarXml, finDeTabla } from '@/app/lib/anexos-docx';
 
 export type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
 
@@ -136,17 +136,10 @@ function marcadorDeNivel(nivel: NivelNumeracion, contador: number): string {
 const RE_INICIO_BLOQUE = /<w:p\b[^>]*?(\/?)>|<w:tbl\b[^>]*?(\/?)>/g;
 const RE_TEXTO = /<w:t[^>]*>([^<]*)<\/w:t>/g;
 
-function finDeTabla(xml: string, desde: number): number {
-  const re = /<w:tbl\b[^>]*?(\/?)>|<\/w:tbl>/g;
-  re.lastIndex = desde;
-  let profundidad = 0;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(xml))) {
-    if (m[0].startsWith('</')) { if (--profundidad === 0) return m.index + m[0].length; }
-    else if (m[1] !== '/') profundidad++;
-  }
-  return -1;
-}
+// finDeTabla (contando anidamiento) vive en anexos-docx.ts, compartida con anexos-dividir.ts —
+// ver su comentario ahí. Antes había una copia idéntica acá; el mismo problema (una detección
+// reimplementada por separado que se desincroniza) ya pasó una vez con los blancos inline de más
+// abajo, y se corrigió de la misma forma: reusar la función del módulo de base, no copiarla.
 
 function alineacionDe(pPr: string): Alineacion {
   const jc = pPr.match(/<w:jc\s+w:val="([^"]+)"/)?.[1];

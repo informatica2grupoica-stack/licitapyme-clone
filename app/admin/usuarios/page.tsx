@@ -20,6 +20,7 @@ interface Permisos {
   alertas_anexos?: boolean;
   aprobar_comercial?: boolean;
   entrega_proyectos?: boolean;
+  viabilidad_automatica?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -45,6 +46,7 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string }[] 
   // otorgar desde el panel: el permiso existía y era inalcanzable.
   { key: 'aprobar_comercial',   label: 'Aprobar Información Comercial',       desc: 'Visar los puntos del checklist comercial (rol "asesor"). El admin ya lo tiene.' },
   { key: 'entrega_proyectos',   label: 'Circuito de Entrega de Proyectos',    desc: 'Recibe el aviso cuando ganamos una licitación y debe acusar recibo del proyecto.' },
+  { key: 'viabilidad_automatica', label: 'Viabilidad automática al asignar', desc: 'Piloto: sus licitaciones asignadas y activas se analizan solas, sin esperar el botón "Analizar".' },
 ];
 
 function parsePermisos(p: Permisos | string | null | undefined): Permisos {
