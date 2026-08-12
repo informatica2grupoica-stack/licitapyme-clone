@@ -53,6 +53,43 @@ export async function ocrPdfLocalTesseract(buffer: Buffer): Promise<string> {
   return texto;
 }
 
+// OCR LOCAL de páginas PUNTUALES (1-based) de un PDF — relleno de huecos que dejó GLM-OCR tras
+// agotar sus reintentos (ver zai-ocr.ts → paginasConHueco/rellenarHuecos). A diferencia de
+// ocrPdfLocalTesseract (todo el documento), esto solo procesa las páginas pedidas: mucho más
+// rápido cuando faltan 2-3 de 37, y sin el tope OCR_LOCAL_MAX_PAGINAS (son pocas por diseño).
+// Devuelve solo las páginas donde SÍ se reconoció texto; el llamador decide qué hacer con las
+// que sigan vacías (página realmente en blanco, o imagen ilegible también para Tesseract).
+export async function ocrPaginasLocalTesseract(buffer: Buffer, paginas: number[]): Promise<Map<number, string>> {
+  const out = new Map<number, string>();
+  if (!paginas.length) return out;
+  const mupdf = await import('mupdf');
+  const { createWorker } = await import('tesseract.js');
+
+  const doc = mupdf.Document.openDocument(buffer, 'application/pdf');
+  const total = doc.countPages();
+  const t0 = Date.now();
+  const worker = await createWorker('spa', undefined, { cachePath: TESSERACT_CACHE_PATH });
+  try {
+    for (const pag of paginas) {
+      if (pag < 1 || pag > total) continue; // fuera de rango (documento más corto de lo esperado)
+      try {
+        const page = doc.loadPage(pag - 1); // mupdf es 0-based
+        const pix = page.toPixmap(mupdf.Matrix.scale(OCR_LOCAL_SCALE, OCR_LOCAL_SCALE), mupdf.ColorSpace.DeviceRGB, false);
+        const png = Buffer.from(pix.asPNG());
+        const { data } = await worker.recognize(png);
+        const t = (data?.text || '').trim();
+        if (t) out.set(pag, t);
+      } catch (e) {
+        console.warn(`[tesseract] relleno pág ${pag} falló:`, e instanceof Error ? e.message : e);
+      }
+    }
+  } finally {
+    await worker.terminate().catch(() => {});
+  }
+  console.log(`[tesseract] relleno de huecos: ${out.size}/${paginas.length} pág(s) recuperadas en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  return out;
+}
+
 // OCR de UNA imagen suelta (png/jpeg), sin pasar por mupdf (eso es solo para rasterizar PÁGINAS
 // de un PDF) — el buffer YA es una imagen. Respaldo local cuando GLM-OCR falla o no hay saldo,
 // para el caso de un anexo con una sección pegada como foto (ver anexos-imagen-escaneada.ts).

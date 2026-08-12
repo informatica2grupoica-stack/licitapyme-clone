@@ -64,6 +64,46 @@ export function ocrTieneHuecos(texto: string): boolean {
   return typeof texto === 'string' && texto.includes(MARCA_HUECO);
 }
 
+// ─── Relleno de huecos con OCR local (Tesseract) ─────────────────────────────────
+// Tras las 3 pasadas contra Z.AI, un hueco que persiste ya no es "un 429 que se va a despejar
+// solo" — puede serlo, pero no hay por qué esperar a la próxima corrida para saberlo. Estas dos
+// funciones permiten que el llamador (document-extraction.ts, que SÍ tiene el buffer del PDF)
+// mande esas páginas puntuales a Tesseract local (sin red, sin cuota, sin rate-limit) en vez de
+// dejarlas en blanco. Menor calidad que GLM-OCR en tablas complejas, pero real texto > nada.
+
+// Extrae los números de página (absolutos, 1-based) marcados con MARCA_HUECO en el texto
+// ensamblado. Soporta tanto huecos de una página ([[PÁGINA 5]]) como de rango
+// ([[PÁGINA 5-8]], cuando GLM_OCR_PAGINAS_POR_LLAMADA>1).
+export function paginasConHueco(texto: string): number[] {
+  const out = new Set<number>();
+  const re = /\[\[PÁGINA (\d+)(?:-(\d+))?\]\]\n\[OCR_NO_DISPONIBLE/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(texto)) !== null) {
+    const a = parseInt(m[1], 10), b = m[2] ? parseInt(m[2], 10) : a;
+    for (let p = a; p <= b; p++) out.add(p);
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+// Sustituye cada bloque de hueco por el texto recuperado (si lo hay) para esa(s) página(s). Un
+// bloque de rango con solo ALGUNAS páginas resueltas se parte en sub-bloques por página; las que
+// sigan sin texto (Tesseract tampoco pudo — página realmente en blanco o imagen ilegible) dejan
+// el bloque de hueco original intacto, visible, para que se note.
+export function rellenarHuecos(texto: string, resueltos: Map<number, string>): string {
+  if (!resueltos.size) return texto;
+  return texto.replace(
+    /\[\[PÁGINA (\d+)(?:-(\d+))?\]\]\n\[OCR_NO_DISPONIBLE[^\]]*\]/g,
+    (bloqueOriginal, aStr, bStr) => {
+      const a = parseInt(aStr, 10), b = bStr ? parseInt(bStr, 10) : a;
+      const partes: string[] = [];
+      for (let p = a; p <= b; p++) {
+        if (resueltos.has(p)) partes.push(`[[PÁGINA ${p} — OCR local, calidad menor]]\n${resueltos.get(p)}`);
+      }
+      return partes.length ? partes.join('\n\n') : bloqueOriginal;
+    },
+  );
+}
+
 // ─── Detector de CAPA DE TEXTO BASURA (caso real 2731-21-LE26) ───────────────────
 // Un PDF fotocopiado puede traer una capa de texto generada por el OCR del ESCÁNER
 // municipal, de pésima calidad ("I-MTJNICIPALIDAO", "MUR¡ÁTICO", "RENDICIOXE§"). Esa

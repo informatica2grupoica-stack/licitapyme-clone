@@ -391,20 +391,37 @@ export async function extractTextFromDocument(
       if (ocrProvider !== 'gemini' && ocrProvider !== 'tesseract' && opts.sourceUrl && esUrlOcrPublica(opts.sourceUrl) && process.env.ZAI_API_KEY) {
         console.log(`⚠️ PDF escaneado (${pdfData.text?.length || 0} chars, ${pdfData.numpages} págs). GLM-OCR (por URL)...`);
         try {
-          const { extraerTextoPdfPorUrlConGlmOcr, ocrTieneHuecos, GLM_OCR_LIMITE_PAGINAS } = await import('@/app/lib/zai-ocr');
+          const { extraerTextoPdfPorUrlConGlmOcr, ocrTieneHuecos, paginasConHueco, rellenarHuecos, GLM_OCR_LIMITE_PAGINAS } = await import('@/app/lib/zai-ocr');
           // GLM rechaza PDFs de >100 págs (code 1214) aunque se pida un rango: hay que trocear el
           // archivo en sub-PDFs ≤100 págs, subirlos a R2 y OCR-ear cada uno con offset absoluto.
-          const textoGlm = (pdfData.numpages || 0) > GLM_OCR_LIMITE_PAGINAS
+          let textoGlm = (pdfData.numpages || 0) > GLM_OCR_LIMITE_PAGINAS
             ? await ocrPdfGrandePorChunksGlm(buffer, pdfData.numpages, fileName)
             : await extraerTextoPdfPorUrlConGlmOcr(opts.sourceUrl, pdfData.numpages || 0);
           if (textoGlm && textoGlm.trim().length > 100) {
-            // Si alguna ventana quedó sin OCR (hueco), lo marcamos como incompleto y confianza
-            // BAJA: así el reuso de caché lo re-OCR-ea en vez de fijarlo (auto-sanación).
+            // Si tras las 3 pasadas contra Z.AI (zai-ocr.ts) quedaron páginas sin OCR, no
+            // esperamos a la próxima corrida: las rellenamos YA con Tesseract local (sin red,
+            // sin cuota, sin rate-limit — el mismo motivo por el que fallaron con GLM no aplica
+            // acá). Menor calidad en tablas complejas, pero real texto > un hueco visible.
+            const faltantesGlm = paginasConHueco(textoGlm);
+            let rellenoTesseract = false;
+            if (faltantesGlm.length) {
+              console.warn(`[OCR] GLM-OCR dejó ${faltantesGlm.length} pág(s) sin leer tras 3 pasadas (${faltantesGlm.join(',')}) → relleno con Tesseract local...`);
+              try {
+                const { ocrPaginasLocalTesseract } = await import('@/app/lib/tesseract-ocr');
+                const resueltos = await ocrPaginasLocalTesseract(buffer, faltantesGlm);
+                if (resueltos.size) { textoGlm = rellenarHuecos(textoGlm, resueltos); rellenoTesseract = true; }
+              } catch (rellenoErr) {
+                console.warn('[OCR] relleno con Tesseract local falló:', rellenoErr instanceof Error ? rellenoErr.message : rellenoErr);
+              }
+            }
+            // Si alguna página sigue sin OCR (ni GLM ni Tesseract pudieron — imagen realmente
+            // ilegible o página en blanco), lo marcamos como incompleto y confianza BAJA: así el
+            // reuso de caché lo reintenta de nuevo la próxima vez (auto-sanación).
             const incompleto = ocrTieneHuecos(textoGlm);
             return {
               texto: textoGlm, numPages: pdfData.numpages,
-              metodo: incompleto ? 'pdf-glm-ocr-incompleto' : 'pdf-glm-ocr',
-              confianza: incompleto ? 'baja' : 'alta',
+              metodo: incompleto ? 'pdf-glm-ocr-incompleto' : (rellenoTesseract ? 'pdf-glm-ocr+tesseract-relleno' : 'pdf-glm-ocr'),
+              confianza: incompleto ? 'baja' : (rellenoTesseract ? 'media' : 'alta'),
             };
           }
         } catch (glmErr) {
