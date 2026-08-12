@@ -46,7 +46,12 @@ export const GLM_OCR_LIMITE_PAGINAS = 100;
 // Ventanas en paralelo: reduce el muro total; los reintentos con backoff absorben 429/503.
 // Configurable por env (GLM_OCR_CONCURRENCIA): subir acelera docs grandes, pero más alto arriesga
 // más 429/503 de Z.AI. Acotado a [1, 8] por seguridad.
-const CONCURRENCIA = Math.min(8, Math.max(1, Number(process.env.GLM_OCR_CONCURRENCIA) || 5));
+// BAJADO de 5→3 default (medido 12-ago-2026): con ventana=1 pág/llamada, un PDF de 37 págs
+// dispara 37 llamadas; a concurrencia 5 el primer lote YA satura el límite de Z.AI (no publican
+// el número exacto, pero el propio log mostró 24/37 ventanas con 429 "code 1302" en la 1ª pasada
+// de 3310-35-LE26). Preferimos ceder velocidad a cambio de completitud: menos 429 en la 1ª pasada
+// = menos dependencia de los reintentos para llegar al 100% de las páginas.
+const CONCURRENCIA = Math.min(8, Math.max(1, Number(process.env.GLM_OCR_CONCURRENCIA) || 3));
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -323,9 +328,23 @@ export async function extraerTextoPdfPorUrlConGlmOcr(
   // 2ª pasada (SERIAL) solo sobre las ventanas que fallaron: absorbe tormentas de 429/503
   // que ya se despejaron. Serial para no volver a saturar. Sin esto, un fallo pasajero
   // borraba 8 páginas en silencio (p.ej. el bloque con el presupuesto).
-  const fallidas = ventanas.map((_, i) => i).filter(i => !estado[i].ok);
+  let fallidas = ventanas.map((_, i) => i).filter(i => !estado[i].ok);
   if (fallidas.length && !glmOcrSinSaldo) {
     console.warn(`[glm-ocr] reintentando ${fallidas.length} ventana(s) fallida(s) en serie...`);
+    await correr(fallidas, 1);
+  }
+
+  // 3ª pasada (SERIAL, con pausa larga) — REGLA: nunca conformarse con huecos si todavía hay
+  // margen de reintento. Medido en vivo (3310-35-LE26, 12-ago-2026): tras una tormenta de 429
+  // que dejó 24/37 páginas sin OCR incluso después de la 2ª pasada, un reintento posterior
+  // (minutos después, cuando la cuota de Z.AI ya se había liberado) las leyó TODAS sin un solo
+  // fallo. Esta pasada automatiza esa espera dentro de la misma corrida en vez de depender de
+  // que alguien vuelva a lanzar el análisis a mano. Solo corre si de verdad quedaron huecos.
+  fallidas = ventanas.map((_, i) => i).filter(i => !estado[i].ok);
+  if (fallidas.length && !glmOcrSinSaldo) {
+    const esperaMs = Math.max(1000, Number(process.env.GLM_OCR_ESPERA_3RA_PASADA_MS) || 45_000);
+    console.warn(`[glm-ocr] ${fallidas.length} ventana(s) siguen sin OCR tras 2 pasadas — esperando ${Math.round(esperaMs / 1000)}s y reintentando una 3ª vez...`);
+    await sleep(esperaMs);
     await correr(fallidas, 1);
   }
 
