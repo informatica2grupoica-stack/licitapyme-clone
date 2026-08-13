@@ -315,3 +315,84 @@ test('insertarImagenEnParrafo con saltoAntesDeImagen: imagen + nombreDebajo qued
   const chequeo = verificarXmlBienFormado(final);
   assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
 });
+
+// BUG REAL (13-ago-2026, caso 1063538-204-LE26, leyenda "Nombre, Rut, firma y timbre del
+// Representante Legal"): la firma se estampa PRIMERO (con nombreDebajo: [nombre, rut], cada uno
+// en su línea), y el timbre se estampa DESPUÉS en una llamada aparte con `conservar: true` (sin
+// `saltoAntesDeImagen` — ese flag es solo para el caso de leyenda-antes-de-todo). Sin ningún
+// <w:br/> entre el RUT y el timbre, el timbre quedaba en la MISMA línea que "6.736.698-0" — al
+// abrir el .docx real en Word, la imagen del timbre (~2.8cm, mucho más alta que una línea de
+// texto) se dibujaba flotando y tapando visualmente el nombre de arriba, en vez de quedar debajo
+// del RUT como una línea propia.
+test('insertarImagenEnParrafo: el timbre estampado DESPUÉS de la firma+nombre+RUT queda en su PROPIA línea (regresión 1063538-204-LE26)', async () => {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="urn:ct"><Default Extension="xml" ContentType="application/xml"/></Types>');
+  zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+
+  const parrafo = '<w:p w14:paraId="0000B004" w14:textId="77777777">'
+    + '<w:r><w:t xml:space="preserve">___________________________________</w:t></w:r>'
+    + '</w:p>';
+  const xml = `<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>${parrafo}`
+    + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+
+  // Primero la firma (reemplaza la raya), con nombre y RUT debajo — igual que hace
+  // anexos-rellenar.ts cuando `linea.pideNombre`/`linea.pideRut` son true.
+  let final = await insertarImagenEnParrafo(zip, xml, '0000B004', PNG_1X1, 'png', {
+    nombreDebajo: ['Lidia Valenzuela', '6.736.698-0'],
+  });
+  // Después el timbre, en una llamada APARTE con conservar — igual que hace anexos-rellenar.ts.
+  final = await insertarImagenEnParrafo(zip, final, '0000B004', PNG_1X1, 'png', {
+    etiqueta: 'timbre', anchoCm: 2.8, conservar: true,
+  });
+
+  const posRut = final.indexOf('6.736.698-0');
+  const posSegundaImagen = final.indexOf('<w:drawing>', posRut);
+  assert.ok(posSegundaImagen > posRut, `el timbre debe venir después del RUT: ${final}`);
+  const entreRutYTimbre = final.slice(posRut, posSegundaImagen);
+  assert.match(entreRutYTimbre, /<w:br\/>/, `debe haber un salto de línea entre el RUT y el timbre — si no, quedan en la misma línea: ${entreRutYTimbre}`);
+  assert.equal((final.match(/<w:drawing>/g) || []).length, 2, 'deben quedar las 2 imágenes (firma + timbre)');
+  const chequeo = verificarXmlBienFormado(final);
+  assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
+});
+
+// Pedido explícito del usuario (13-ago-2026, mismo caso 1063538-204-LE26): en vez del layout
+// apilado de arriba, texto (nombre+RUT) a la IZQUIERDA y firma+timbre lado a lado a la DERECHA, en
+// la MISMA línea — con una tabulación derecha calculada del ancho real de la página (no una
+// coordenada fija: el mismo offset absoluto que se ve bien en un documento queda corrido o fuera
+// de la hoja en otro con márgenes distintos).
+test('insertarImagenEnParrafo con columnaDerecha: texto a la izquierda, firma+timbre lado a lado a la derecha (13-ago-2026, caso 1063538-204-LE26)', async () => {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="urn:ct"><Default Extension="xml" ContentType="application/xml"/></Types>');
+  zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+
+  const parrafo = '<w:p w14:paraId="0000B005" w14:textId="77777777">'
+    + '<w:r><w:t xml:space="preserve">___________________________________</w:t></w:r>'
+    + '</w:p>';
+  // A4 (11906 twips) con márgenes de 1417 twips (2.5cm) — ancho de texto esperado: 11906-2834=9072.
+  const xml = `<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>${parrafo}`
+    + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1417" w:right="1417" w:bottom="1417" w:left="1417"/></w:sectPr></w:body></w:document>';
+
+  let final = await insertarImagenEnParrafo(zip, xml, '0000B005', PNG_1X1, 'png', {
+    nombreDebajo: ['Lidia Valenzuela', '6.736.698-0'], columnaDerecha: true,
+  });
+  final = await insertarImagenEnParrafo(zip, final, '0000B005', PNG_1X1, 'png', {
+    etiqueta: 'timbre', anchoCm: 2.8, conservar: true, columnaDerecha: true,
+  });
+
+  // Orden esperado en el texto: nombre, rut, TAB, imagen, imagen — nunca un <w:br/> de por medio.
+  const posNombre = final.indexOf('Lidia Valenzuela');
+  const posRut = final.indexOf('6.736.698-0');
+  const posTab = final.indexOf('<w:tab/>');
+  const posImg1 = final.indexOf('<w:drawing>');
+  const posImg2 = final.indexOf('<w:drawing>', posImg1 + 1);
+  assert.ok(posNombre >= 0 && posRut > posNombre && posTab > posRut && posImg1 > posTab && posImg2 > posImg1,
+    `orden esperado nombre < rut < tab < imagen1 < imagen2: ${JSON.stringify({ posNombre, posRut, posTab, posImg1, posImg2 })}`);
+  assert.doesNotMatch(final.slice(posRut, posImg2), /<w:br\/>/,
+    `nombre/rut/firma/timbre deben quedar en la MISMA línea, sin <w:br/> entre medio: ${final.slice(posRut, posImg2)}`);
+
+  // La tabulación derecha debe calzar con el ancho REAL de este documento (9072), no un valor fijo.
+  assert.match(final, /<w:tab w:val="right" w:pos="9072"\/>/, `falta o calculó mal la parada de tabulación: ${final}`);
+
+  const chequeo = verificarXmlBienFormado(final);
+  assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
+});

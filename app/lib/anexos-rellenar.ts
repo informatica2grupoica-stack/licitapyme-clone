@@ -908,24 +908,34 @@ export async function generarAnexoFinal(
       // párrafo (la etiqueta "FIRMA REPRESENTANTE LEGAL:" tiene que sobrevivir intacta).
       let primera = true;
       let estampoAlgo = false;
+      // linea.pideNombre/pideRut: la leyenda dice "Nombre y Firma..." o "Nombre, RUT y Firma..."
+      // (no solo "Firma") — ver el comentario de nombreDebajo en insertarImagenEnParrafo. Cada
+      // dato que la leyenda pide y SÍ está en la ficha se agrega junto a la imagen; sin el dato
+      // correspondiente no se escribe nada de esa línea (no se inventa), la imagen se estampa
+      // igual. BUG REAL (1426039-8-LE26, 10-ago-2026): "Nombre, RUT y Firma Representante Legal"
+      // solo entregaba el nombre — el RUT que la leyenda pedía explícito no salía en ningún lugar
+      // del documento. Se calcula una sola vez acá (no adentro del bloque de la firma) porque el
+      // timbre necesita saber si hubo texto para decidir su propio layout (ver columnaDerecha).
+      const lineasDebajo = [
+        linea.pideNombre && empresa.representante_nombre ? empresa.representante_nombre : null,
+        linea.pideRut && empresa.representante_rut ? empresa.representante_rut : null,
+      ].filter((l): l is string => l != null);
+      const nombreDebajo = lineasDebajo.length ? lineasDebajo : undefined;
+      // `columnaDerecha`: pedido explícito del usuario (13-ago-2026, caso 1063538-204-LE26) — con
+      // nombre y/o RUT de por medio, el layout apilado (imagen arriba, nombre y RUT cada uno en su
+      // línea debajo) dejaba el bloque de firma innecesariamente alto y, con el timbre sumado,
+      // arriesgaba partir la página a la mitad del bloque. En vez de eso: texto a la izquierda,
+      // firma+timbre lado a lado a la derecha, todo en una sola línea — ver columnaDerecha en
+      // insertarImagenEnParrafo. Nunca se combina con `saltoAntesDeFirma` (raya-borde-de-celda,
+      // patrón flotante aparte) ni tiene sentido sin nombre/RUT (no habría texto que poner a la
+      // izquierda del tab).
+      const columnaDerecha = !!nombreDebajo && !linea.saltoAntesDeFirma;
       if (firma && (que === 'ambas' || que === 'firma')) {
-        // linea.pideNombre/pideRut: la leyenda dice "Nombre y Firma..." o "Nombre, RUT y Firma..."
-        // (no solo "Firma") — ver el comentario de nombreDebajo en insertarImagenEnParrafo. Cada
-        // dato que la leyenda pide y SÍ está en la ficha se agrega como su propia línea debajo de
-        // la imagen; sin el dato correspondiente no se escribe nada de esa línea (no se inventa),
-        // la imagen se estampa igual. BUG REAL (1426039-8-LE26, 10-ago-2026): "Nombre, RUT y Firma
-        // Representante Legal" solo entregaba el nombre — el RUT que la leyenda pedía explícito no
-        // salía en ningún lugar del documento.
-        const lineasDebajo = [
-          linea.pideNombre && empresa.representante_nombre ? empresa.representante_nombre : null,
-          linea.pideRut && empresa.representante_rut ? empresa.representante_rut : null,
-        ].filter((l): l is string => l != null);
-        const nombreDebajo = lineasDebajo.length ? lineasDebajo : undefined;
         // linea.saltoAntesDeFirma: SOLO la raya-borde-de-celda lo pide (leyenda larga que envuelve
         // 2+ líneas visuales) — ver el comentario en insertarImagenEnParrafo. El sinRaya "clásico"
         // (patrón 5, leyenda corta de una línea) no lo activa, mismo comportamiento de siempre.
         xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, {
-          etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya, nombreDebajo,
+          etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya, nombreDebajo, columnaDerecha,
           saltoAntesDeImagen: !!linea.saltoAntesDeFirma,
           // Misma condición que saltoAntesDeFirma (raya-borde-de-celda): ahí, y SOLO ahí, la
           // línea es un borde real que el contenido en línea nunca puede superar — se necesita
@@ -938,7 +948,7 @@ export async function generarAnexoFinal(
       if (timbre && (que === 'ambas' || que === 'timbre')) {
         xml = await insertarImagenEnParrafo(
           zip, xml, linea.paraId, timbre.buffer, timbre.extension,
-          { etiqueta: 'timbre', anchoCm: 2.8, conservar: !primera || !!linea.sinRaya, alineacion },
+          { etiqueta: 'timbre', anchoCm: 2.8, conservar: !primera || !!linea.sinRaya, alineacion, columnaDerecha },
         );
         estampoAlgo = true;
       }

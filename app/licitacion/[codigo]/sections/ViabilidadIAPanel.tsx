@@ -12,6 +12,16 @@ import { useSession } from '@/app/lib/session-context';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 import { registrarVerCita } from '@/app/lib/actividad-cliente';
 
+// Copia local del tipo de app/lib/viabilidad-ia.ts (server-only por gemini.ts/node:async_hooks —
+// ver [[project_gemini_server_only_boundary]] — no se puede importar directo en un Client Component).
+type FaseAnalisisIA = 'leyendo_documentos' | 'analizando_ia' | 'verificando' | 'guardando';
+const FASE_LABEL: Record<FaseAnalisisIA, string> = {
+  leyendo_documentos: 'Leyendo los documentos de la licitación…',
+  analizando_ia: 'La IA está analizando las bases (puede encadenar un modelo de respaldo si el principal está lento)…',
+  verificando: 'Verificando el informe generado…',
+  guardando: 'Guardando el resultado…',
+};
+
 interface Feedback {
   id: number;
   veredicto_ia?: string | null;
@@ -147,6 +157,26 @@ const SEM: Record<string, { label: string; ring: string; text: string; bg: strin
   ROJO:      { label: 'Baja',            ring: '#ef4444', text: 'text-red-700',     bg: 'bg-red-500',     soft: 'bg-red-50 border-red-200' },
   ROJO_DURO: { label: 'Descartar',       ring: '#b91c1c', text: 'text-red-800',     bg: 'bg-red-700',     soft: 'bg-red-100 border-red-300' },
 };
+
+// Barra de progreso del análisis en curso. `pct` es aproximado (tiempo transcurrido / tope del
+// servidor, NO un progreso real de trabajo hecho — no hay forma de medir eso dentro de una sola
+// llamada IA), tope 97% para no dar la falsa sensación de "listo" justo antes de terminar.
+function BarraProgreso({ elapsedMs, timeoutMs, fase }: { elapsedMs: number | null; timeoutMs: number; fase: FaseAnalisisIA | null }) {
+  const pct = elapsedMs != null ? Math.min(97, Math.round((elapsedMs / timeoutMs) * 100)) : 8;
+  const segs = elapsedMs != null ? Math.round(elapsedMs / 1000) : null;
+  const mmss = segs != null ? `${Math.floor(segs / 60)}:${String(segs % 60).padStart(2, '0')}` : null;
+  return (
+    <div className="mt-2">
+      <div className="h-1.5 w-full bg-sky-100 rounded-full overflow-hidden">
+        <div className="h-full bg-sky-500 rounded-full transition-all duration-1000 ease-linear" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex items-center justify-between mt-1">
+        <p className="text-[11px] text-sky-600">{fase ? FASE_LABEL[fase] : 'Analizando…'}</p>
+        {mmss && <p className="text-[11px] text-sky-500 flex-shrink-0 ml-2">{mmss} / {Math.round(timeoutMs / 60_000)}:00</p>}
+      </div>
+    </div>
+  );
+}
 
 function Gauge({ score, sem }: { score: number; sem: { ring: string } }) {
   const r = 34, c = 2 * Math.PI * r, off = c - (Math.max(0, Math.min(100, score)) / 100) * c;
@@ -1016,6 +1046,12 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   // borraba el aviso y la pantalla quedaba como si nada hubiera pasado — el usuario apretaba el
   // botón de nuevo (gastando OTRO análisis completo) o tenía que refrescar para enterarse.
   const [avisoLargo, setAvisoLargo] = useState<string | null>(null);
+  // Barra de progreso: `fase`/`elapsedMs`/`timeoutMs` vienen del servidor en cada poll (BD,
+  // tabla viabilidad_jobs) — usamos el reloj DEL SERVIDOR, no uno propio del navegador, para que
+  // no se desincronice si la pestaña queda en segundo plano (los timers del browser se frenan).
+  const [fase, setFase] = useState<FaseAnalisisIA | null>(null);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
+  const [timeoutMsServidor, setTimeoutMsServidor] = useState<number>(10 * 60_000);
   const [docs, setDocs] = useState<DocRef[]>([]);
   const [visor, setVisor] = useState<VisorOpts | null>(null);   // modal de fuente (página + resaltado)
   // Abre el visor de una cita y lo deja en la bitácora: qué fuente concreta fue a verificar el
@@ -1031,30 +1067,25 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
     inf ? `${inf.score_0_100}|${inf.semaforo}|${(inf as any).docs_hash || ''}|${JSON.stringify(inf.veredicto || {})}` : '';
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
 
-  // POLLING del resultado. El análisis corre en SEGUNDO PLANO en el server (dura 1-3 min normal,
-  // más si el modelo rápido falla y encadena respaldos — cada uno con hasta 240s de margen antes
-  // de darse por vencido, ver VIABILIDAD_LLM_TIMEOUT_MS en gemini.ts), así que no lo esperamos en
-  // la petición: refrescamos el GET hasta que aparezca el informe nuevo, el server reporte un
-  // error de fondo, o se agote el tiempo. `previo` = huella del informe antes de arrancar (para
-  // detectar el cambio en un re-análisis).
-  //
-  // LÍMITE de espera: 20 minutos (240 intentos × 5s) — antes eran 6 min (72 intentos), que se
-  // quedaba corto contra el peor caso REAL de la cadena de modelos (gemini.ts, PROVEEDORES_TEXTO):
-  // hasta 4 respaldos GLM en fila (flashx → glm-4.7 → glm-4.5-air → glm-5.2), cada uno con hasta
-  // 240s de margen antes de darse por vencido (~16 min solo en timeouts, visto en vivo en
-  // 2467-70-LE26: "flashx, 4.5-air Y 4.7 los tres dieron timeout seguidos") — más el tiempo de
-  // OCR de las bases escaneadas encima. 13-ago-2026, reportado por el usuario: la pantalla "se
-  // cortaba" (quedaba como si no hubiera pasado nada) mientras el análisis SEGUÍA corriendo en
-  // el server — el usuario apretaba el botón de nuevo (gastando un análisis completo extra) o
-  // tenía que refrescar la página para enterarse si había terminado.
-  const LIMITE_INTENTOS_POLL = 240;
+  // POLLING del resultado. El análisis corre en SEGUNDO PLANO en el server (dura 1-3 min normal).
+  // 13-ago-2026 (pedido del usuario tras 1171142-100-LE26): el SERVER ahora aplica un TOPE DURO
+  // de 10 minutos (VIABILIDAD_JOB_TIMEOUT_MS, ver route.ts) — pasado ese plazo el job se marca
+  // error de inmediato, con mensaje explícito. El estado del job vive en BD (tabla
+  // viabilidad_jobs, migration-68), así que sobrevive un reinicio del servidor a mitad de camino
+  // — antes vivía en memoria y un reinicio (p.ej. al desplegar) lo borraba en silencio, dejando la
+  // pantalla como si nada hubiera pasado (el bug real que reportó el usuario). Este polling del
+  // navegador es ahora solo una RED DE SEGURIDAD extra por si la respuesta del servidor nunca
+  // llega (p.ej. túnel caído) — margen de sobra sobre el tope real del servidor (10 min + margen
+  // de detección de huérfanos) para no cortar antes de que el server tenga chance de reportar.
+  const LIMITE_INTENTOS_POLL = 168; // 168 × 5s = 14 min
   const iniciarPolling = useCallback((previo: string) => {
     setAvisoProceso('Analizando las bases… puede tardar 1 a 3 minutos (más si hace falta un modelo de respaldo). Esta pantalla se actualizará sola cuando termine — puedes seguir navegando.');
     setAvisoLargo(null);
     setError(null);
     setCargando(true);
     let intentos = 0;
-    const parar = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } setCargando(false); };
+    let huboInforme = !!previo;
+    const parar = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } setCargando(false); setFase(null); setElapsedMs(null); };
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
       intentos++;
@@ -1063,30 +1094,43 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         const nuevo = rr?.informeIA || null;
         if (typeof rr?.puedeReanalizar === 'boolean') setPuedeReanalizar(rr.puedeReanalizar);
         setMotivoNoReanalizar(rr?.motivoNoPuedeReanalizar ?? null);
+        if (rr?.enProceso) {
+          setFase(rr.fase ?? null);
+          setElapsedMs(typeof rr.elapsedMs === 'number' ? rr.elapsedMs : null);
+          if (typeof rr.timeoutMs === 'number') setTimeoutMsServidor(rr.timeoutMs);
+        }
         // 1) Resultado nuevo listo → mostrarlo (y refrescar documentos: aparece el Excel de costeo).
         if (nuevo && fpInforme(nuevo) !== previo) {
           setInforme(nuevo); setError(null); setAvisoProceso(null); setAvisoLargo(null);
           try { onComplete?.(); } catch { /* noop */ }
           parar(); return;
         }
-        // 2) El server reportó un error de fondo → mostrarlo (rojo) y parar.
+        // 2) El server reportó un error de fondo (incluye el tope duro de 10 min y jobs huérfanos
+        //    por un reinicio del servidor) → mostrarlo (rojo) y parar. Ya NO es un silencio.
         if (rr?.error && !rr?.enProceso) { setAvisoProceso(null); setError(rr.error); parar(); return; }
-        // 3) El job terminó sin cambiar la huella (resultado idéntico) → cerrar sin error.
+        // 3) El job terminó sin cambiar la huella. Si YA había un informe antes (re-análisis que
+        //    dio el mismo resultado), es normal → cerrar sin error. Si NUNCA hubo informe (primer
+        //    análisis) y el server dice que ya no está en proceso pero no hay informe NI error,
+        //    es una anomalía (no debería pasar con el job persistido en BD) — mejor decirlo que
+        //    fingir que no pasó nada, que fue exactamente el bug original.
         if (rr?.enProceso === false) {
-          if (nuevo) setInforme(nuevo);
+          if (nuevo) { setInforme(nuevo); huboInforme = true; }
+          if (!huboInforme && !nuevo) {
+            setAvisoProceso(null);
+            setError('El análisis terminó sin resultado y sin mensaje de error — puede haber sido interrumpido. Vuelve a intentarlo; si se repite, revisa los logs del servidor.');
+            parar(); return;
+          }
           setAvisoProceso(null); setAvisoLargo(null);
           try { onComplete?.(); } catch { /* noop */ }
           parar(); return;
         }
         // 4) Sigue en proceso → esperar al próximo tick.
       } catch { /* reintenta en el próximo tick */ }
-      // Se agotó el margen de espera SIN señal de que terminó — a diferencia de antes, esto NO
-      // borra el aviso en silencio: el análisis puede seguir vivo en el server (el job del
-      // backend no tiene este límite, solo el polling de esta pantalla), así que se deja un
-      // mensaje explícito en vez de fingir que no hay nada corriendo.
+      // Red de seguridad: el server nunca respondió con un estado terminal. A diferencia de
+      // antes, esto NO borra el aviso en silencio — deja un mensaje explícito.
       if (intentos >= LIMITE_INTENTOS_POLL) {
         setAvisoProceso(null);
-        setAvisoLargo('El análisis está tardando más de lo normal (más de 20 minutos) — puede seguir corriendo en el servidor. Volvé a entrar en unos minutos o refrescá la página antes de apretar "Re-analizar" de nuevo: si lo apretás ahora vas a gastar un análisis completo aparte.');
+        setAvisoLargo('No se pudo confirmar el estado del análisis (el servidor no respondió con un resultado final tras varios minutos). Puede seguir corriendo — refrescá la página en unos minutos antes de reintentar, o revisá los logs del servidor.');
         parar();
       }
     }, 5000);
@@ -1115,7 +1159,12 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         // pero antes se ignoraba por completo — la pantalla cargaba como si no hubiera nada
         // corriendo, sin ningún aviso ni polling, hasta que el usuario refrescaba de nuevo a
         // ciegas. Ahora retoma el polling apenas detecta que sigue en curso.
-        if (r?.enProceso) iniciarPolling(fpInforme(r?.informeIA ?? null));
+        if (r?.enProceso) {
+          setFase(r.fase ?? null);
+          setElapsedMs(typeof r.elapsedMs === 'number' ? r.elapsedMs : null);
+          if (typeof r.timeoutMs === 'number') setTimeoutMsServidor(r.timeoutMs);
+          iniciarPolling(fpInforme(r?.informeIA ?? null));
+        }
         return;
       } catch {
         if (intento < 3) await new Promise(rr => setTimeout(rr, intento * 900));
@@ -1190,6 +1239,8 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
     setCargando(false);
     setAvisoProceso(null);
     setAvisoLargo(null);
+    setFase(null);
+    setElapsedMs(null);
   };
 
   const analizar = async () => {
@@ -1385,7 +1436,11 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
       {avisoProceso && !error && (
         <div className="flex items-start gap-2 text-[13px] text-sky-800 bg-sky-50 border border-sky-200 rounded-lg p-3">
           <Loader2 size={15} className="flex-shrink-0 mt-0.5 animate-spin text-sky-600" />
-          <div><p className="font-semibold">Analizando…</p><p className="text-sky-700">{avisoProceso}</p></div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">Analizando…</p>
+            <p className="text-sky-700">{avisoProceso}</p>
+            <BarraProgreso elapsedMs={elapsedMs} timeoutMs={timeoutMsServidor} fase={fase} />
+          </div>
         </div>
       )}
 

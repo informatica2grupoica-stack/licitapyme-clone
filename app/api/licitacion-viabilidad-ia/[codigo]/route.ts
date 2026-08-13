@@ -34,23 +34,75 @@ export const maxDuration = 300;
 
 type Params = { params: Promise<{ codigo: string }> };
 
-// ── Registro EN MEMORIA de análisis en curso ──────────────────────────────────────────────
-// El análisis de viabilidad tarda 1-3 min (OCR + IA). El túnel de Cloudflare corta cualquier
-// respuesta HTTP a los ~100s, así que NO se puede esperar el resultado en la misma petición.
-// Solución: el POST arranca el análisis en SEGUNDO PLANO y responde de inmediato ("procesando");
-// el GET informa si sigue en curso o si terminó con error, y el front hace polling hasta que
-// aparece el informe. Este mapa vive en el proceso (el notebook corre un server Node persistente,
-// no serverless), así que el estado del job se conserva entre el POST y los GET de polling.
-type EstadoJob = { estado: 'procesando' | 'error'; error?: string; desde: number };
-const jobs = new Map<string, EstadoJob>();
+// ── Registro del análisis en curso, PERSISTIDO EN BD (tabla viabilidad_jobs, migration-68) ─────
+// El análisis de viabilidad tarda 1-3 min normal (OCR + IA), hasta ~10 min en el peor caso
+// (cadena de respaldo GLM agotando todos sus timeouts). El túnel/proxy corta cualquier respuesta
+// HTTP a los ~100s, así que NO se puede esperar el resultado en la misma petición: el POST
+// arranca el análisis en SEGUNDO PLANO y responde de inmediato ("procesando"); el GET informa si
+// sigue en curso, terminó con error, o quedó HUÉRFANO, y el front hace polling hasta enterarse.
+//
+// 13-ago-2026 (bug real, reportado por el usuario en 1171142-100-LE26): esto ANTES vivía en un
+// `Map` en memoria del proceso. Si el contenedor se reinicia mientras un análisis corre —
+// exactamente lo que pasa al desplegar (`docker compose up -d --build`), como ese mismo día—
+// el job muere sin dejar rastro: el Map queda vacío, el GET reporta "nada en curso, sin error,
+// sin informe", y el front lo interpretaba como "terminó sin cambios" — la pantalla se cortaba
+// en silencio sin decir jamás qué pasó. Persistir en BD sobrevive el reinicio; y si de verdad
+// el proceso murió a mitad de camino, `jobHuerfano()` en el GET lo detecta por el `actualizado_at`
+// congelado y lo marca error explícito en vez de fingir que no pasó nada.
+const VIABILIDAD_JOB_TIMEOUT_MS = Math.max(120_000, Number(process.env.VIABILIDAD_JOB_TIMEOUT_MS) || 10 * 60_000);
+const HUERFANO_MARGEN_MS = 90_000; // margen sobre el tope antes de declarar un job huérfano (reloj del server vs. del setInterval de fondo)
 
-// Traduce el error interno del análisis a un mensaje claro para el usuario.
-function mensajeErrorAnalisis(error: unknown): string {
+type FilaJob = { estado: 'procesando' | 'error'; fase: string | null; error: string | null; run_id: string; iniciado_at: string; actualizado_at: string };
+
+async function leerJob(codigo: string): Promise<FilaJob | null> {
+  const [rows] = await pool.query(`SELECT * FROM viabilidad_jobs WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+  return (rows as any[])[0] ?? null;
+}
+
+async function marcarJobProcesando(codigo: string, runId: string): Promise<void> {
+  await pool.query(
+    `INSERT INTO viabilidad_jobs (licitacion_codigo, run_id, estado, fase, error, iniciado_at, actualizado_at)
+     VALUES (?, ?, 'procesando', 'leyendo_documentos', NULL, NOW(), NOW())
+     ON DUPLICATE KEY UPDATE run_id = VALUES(run_id), estado = 'procesando', fase = 'leyendo_documentos', error = NULL, iniciado_at = NOW(), actualizado_at = NOW()`,
+    [codigo, runId],
+  );
+}
+
+// Actualiza la FASE de un job en curso — best-effort (si falla, no debe tumbar el análisis) y
+// solo si el `run_id` sigue siendo el mismo (evita que un job viejo, ya reemplazado por un
+// re-análisis más nuevo, escriba encima del estado del nuevo).
+async function actualizarFaseJob(codigo: string, runId: string, fase: string): Promise<void> {
+  try {
+    await pool.query(
+      `UPDATE viabilidad_jobs SET fase = ?, actualizado_at = NOW() WHERE licitacion_codigo = ? AND run_id = ? AND estado = 'procesando'`,
+      [fase, codigo, runId],
+    );
+  } catch (e) { console.error(`[licitacion-viabilidad-ia] ${codigo}: no se pudo actualizar fase="${fase}":`, String(e).slice(0, 200)); }
+}
+
+async function marcarJobError(codigo: string, runId: string, mensaje: string): Promise<void> {
+  await pool.query(
+    `UPDATE viabilidad_jobs SET estado = 'error', error = ?, actualizado_at = NOW() WHERE licitacion_codigo = ? AND run_id = ?`,
+    [mensaje.slice(0, 500), codigo, runId],
+  );
+}
+
+// Job terminado OK: se borra el registro (el resultado ya vive en viabilidad_licitacion, que es
+// lo que lee el GET). Guardado por run_id: si el usuario ya arrancó OTRO análisis (re-análisis
+// tras un timeout), esta corrida vieja no debe borrar el job del nuevo.
+async function marcarJobListo(codigo: string, runId: string): Promise<void> {
+  await pool.query(`DELETE FROM viabilidad_jobs WHERE licitacion_codigo = ? AND run_id = ?`, [codigo, runId]);
+}
+
+// Traduce el error interno del análisis a un mensaje claro para el usuario. SIEMPRE loguea el
+// detalle completo (mensaje + stack si lo hay) — antes solo quedaba el mensaje genérico visible
+// para el usuario y el detalle real se perdía si no se miraba la consola del contenedor en vivo.
+function mensajeErrorAnalisis(codigo: string, error: unknown): string {
   const msg = String((error as any)?.message ?? error);
+  console.error(`[licitacion-viabilidad-ia] ${codigo}: Error de fondo — ${msg}`, (error as any)?.stack ? `\n${(error as any).stack}` : '');
   if (msg.includes('429') || msg.toLowerCase().includes('quota')) return 'El servicio de IA quedó sin cuota (429). Reintenta más tarde.';
   if (msg.includes('saturad') || msg.includes('503')) return 'El servicio de IA está saturado en este momento. Reintenta en unos minutos.';
-  console.error('[licitacion-viabilidad-ia] Error de fondo:', msg);
-  return 'No se pudo completar el análisis. Reintenta en unos minutos.';
+  return `No se pudo completar el análisis. Reintenta en unos minutos. (${msg.slice(0, 160)})`;
 }
 
 // Lee el informe IA ya guardado (o null) sin volver a llamar al modelo.
@@ -111,14 +163,31 @@ export async function GET(request: NextRequest, { params }: Params) {
         informeIA = ie?._informe_ia_v3 ?? ie?._informe_ia ?? null;   // prefiere v3 si existe
       } catch { /* json inválido */ }
     }
-    // Estado del análisis en segundo plano (para el polling del front).
-    const job = jobs.get(codigoDecoded);
+    // Estado del análisis en segundo plano (para el polling del front). Persistido en BD
+    // (viabilidad_jobs, migration-68): sobrevive un reinicio del contenedor a mitad de análisis.
+    let job = await leerJob(codigoDecoded);
+    // Job HUÉRFANO: sigue "procesando" pero nadie actualizó `actualizado_at` hace más del tope +
+    // margen — el proceso que lo corría murió (reinicio/deploy/crash) sin poder avisar. Antes
+    // esto se veía como "no hay nada corriendo" (silencio); ahora se declara error explícito.
+    if (job?.estado === 'procesando') {
+      const edadMs = Date.now() - new Date(job.actualizado_at).getTime();
+      if (edadMs > VIABILIDAD_JOB_TIMEOUT_MS + HUERFANO_MARGEN_MS) {
+        const msg = 'El análisis se interrumpió (probablemente el servidor se reinició a mitad de camino, p.ej. por un despliegue). Vuelve a intentarlo.';
+        console.error(`[licitacion-viabilidad-ia] ${codigoDecoded}: job huérfano detectado (sin actualizar hace ${Math.round(edadMs / 1000)}s) — marcado error.`);
+        await marcarJobError(codigoDecoded, job.run_id, msg).catch(() => {});
+        job = { ...job, estado: 'error', error: msg };
+      }
+    }
     const reanalisis = await estadoReanalisis(usuario, codigoDecoded);
     return NextResponse.json({
       success: true,
       informeIA: conValidadorFresco(informeIA),
       enProceso: job?.estado === 'procesando',
       error: job?.estado === 'error' ? (job.error || 'No se pudo completar el análisis.') : null,
+      // Para la barra de progreso del front: fase actual + segundos transcurridos + tope duro.
+      fase: job?.estado === 'procesando' ? job.fase : null,
+      elapsedMs: job ? Date.now() - new Date(job.iniciado_at).getTime() : null,
+      timeoutMs: VIABILIDAD_JOB_TIMEOUT_MS,
       puedeReanalizar: reanalisis.puede,
       motivoNoPuedeReanalizar: reanalisis.puede ? null : reanalisis.motivo,
     });
@@ -176,7 +245,8 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   // 4) ¿Ya hay un análisis en curso para este código? Responder "procesando" (no es un error):
   //    el front seguirá con su polling y tomará el resultado cuando el job que ya corre termine.
-  if (jobs.get(codigoDecoded)?.estado === 'procesando') {
+  const jobPrevio = await leerJob(codigoDecoded);
+  if (jobPrevio?.estado === 'procesando') {
     return NextResponse.json({ success: true, status: 'procesando' }, { status: 202 });
   }
 
@@ -189,8 +259,18 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   // 6) Arranca el análisis en SEGUNDO PLANO y responde de inmediato (antes del límite ~100s del
   //    túnel). El resultado se guarda en BD; el front lo recoge por polling del GET. NO await:
-  //    el server del notebook es persistente, así que la promesa sigue viva tras responder.
-  jobs.set(codigoDecoded, { estado: 'procesando', desde: Date.now() });
+  //    el server es persistente, así que la promesa sigue viva tras responder.
+  //
+  //    TOPE DURO de 10 minutos (13-ago-2026, pedido explícito del usuario): la cadena de modelos
+  //    de respaldo (gemini.ts) puede, en el peor caso, tardar ~610s ELLA SOLA (130s primario + 2
+  //    respaldos × 240s) sin contar la lectura/OCR de los documentos — así que no alcanza con
+  //    afinar los timeouts internos, hace falta un plazo GLOBAL a nivel de este job. Si se agota,
+  //    el job se marca error de inmediato (el usuario deja de ver "procesando" para siempre) — la
+  //    promesa de abajo puede seguir viva en el proceso (no se cancela el fetch en curso, ver
+  //    nota de `settled`), pero deja de bloquear la experiencia del usuario. `run_id` evita que
+  //    esa promesa vieja, si termina más tarde, pise el estado de un re-análisis posterior.
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  await marcarJobProcesando(codigoDecoded, runId);
   // Bitácora: corrió (o re-corrió) el análisis de viabilidad IA (best-effort, aparece en el Historial).
   registrarActividad({
     usuarioId: usuario.id, accion: 'viabilidad',
@@ -198,12 +278,21 @@ export async function POST(request: NextRequest, { params }: Params) {
     descripcion: force ? 'Re-analizó la viabilidad IA' : 'Corrió el análisis de viabilidad IA',
     metadata: { licitacion_codigo: codigoDecoded, force },
   });
-  analizarYGuardarViabilidadIA(codigoDecoded)
+
+  let settled = false; // true en cuanto el tope duro dispara — evita que el resultado tardío pise un re-análisis nuevo sin querer (se sigue guardando por run_id de todas formas)
+  const deadline = new Promise<never>((_, reject) => {
+    setTimeout(() => { settled = true; reject(new Error(`TOPE_DURO_${VIABILIDAD_JOB_TIMEOUT_MS}ms`)); }, VIABILIDAD_JOB_TIMEOUT_MS);
+  });
+
+  Promise.race([
+    analizarYGuardarViabilidadIA(codigoDecoded, (fase) => { if (!settled) void actualizarFaseJob(codigoDecoded, runId, fase); }),
+    deadline,
+  ])
     .then((informeIA) => {
       if (!informeIA) {
-        jobs.set(codigoDecoded, { estado: 'error', error: 'No hay documentos legibles para analizar. Descárgalos primero.', desde: Date.now() });
+        void marcarJobError(codigoDecoded, runId, 'No hay documentos legibles para analizar. Descárgalos primero.');
       } else {
-        jobs.delete(codigoDecoded); // OK: el informe quedó guardado en BD, el GET ya lo devuelve.
+        void marcarJobListo(codigoDecoded, runId); // OK: el informe quedó guardado en BD, el GET ya lo devuelve.
         // Marca la única re-análisis del usuario normal como usada — SOLO si el análisis terminó
         // bien de verdad (si falla, no le cobramos su oportunidad).
         if (negocioIdReanalisis != null) {
@@ -213,7 +302,12 @@ export async function POST(request: NextRequest, { params }: Params) {
       }
     })
     .catch((error) => {
-      jobs.set(codigoDecoded, { estado: 'error', error: mensajeErrorAnalisis(error), desde: Date.now() });
+      const esTopeDuro = String((error as any)?.message ?? '').startsWith('TOPE_DURO_');
+      const msg = esTopeDuro
+        ? `El análisis superó el tope de ${Math.round(VIABILIDAD_JOB_TIMEOUT_MS / 60_000)} minutos y se marcó como fallido. Puede que el modelo de IA de respaldo esté lento o caído — vuelve a intentarlo en unos minutos.`
+        : mensajeErrorAnalisis(codigoDecoded, error);
+      if (esTopeDuro) console.error(`[licitacion-viabilidad-ia] ${codigoDecoded}: TOPE DURO de ${VIABILIDAD_JOB_TIMEOUT_MS}ms alcanzado — marcado error (la llamada de fondo puede seguir corriendo, no se cancela).`);
+      void marcarJobError(codigoDecoded, runId, msg);
     })
     .finally(() => { void liberarLock(lockKey); });
 

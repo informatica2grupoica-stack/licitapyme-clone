@@ -841,6 +841,45 @@ function leerDimensionesImagen(buf: Buffer): { anchoPx: number; altoPx: number }
 
 const EMU_POR_CM = 360000;
 
+// Ancho de TEXTO imprimible (twips: 1/20 de punto) del documento — pgSz menos los márgenes
+// izquierdo y derecho del último <w:sectPr> real (mismo criterio de "el ÚLTIMO es el que manda"
+// que usa dividirPorFormularios, ver su comentario). Sirve como posición de una tabulación DERECHA
+// que empuje contenido al borde derecho SIN importar el ancho de página de este documento en
+// particular — un offset fijo (lo que arrastrar una imagen con el mouse en Word deja grabado)
+// solo sirve para el documento donde se midió; este número se recalcula por documento.
+const ANCHO_TEXTO_FALLBACK_TWIPS = 9000; // ~15.9cm, típico de A4/Carta con márgenes de ~2.2-2.5cm
+function calcularAnchoTextoTwips(xml: string): number {
+  const sectPrMatches = [...xml.matchAll(/<w:sectPr\b[^>]*>[\s\S]*?<\/w:sectPr>/g)];
+  const sectPr = sectPrMatches.length ? sectPrMatches[sectPrMatches.length - 1][0] : '';
+  const anchoPagina = Number(sectPr.match(/<w:pgSz\b[^>]*\bw:w="(\d+)"/)?.[1]);
+  const pgMar = sectPr.match(/<w:pgMar\b[^>]*\/>/)?.[0] || '';
+  const margenIzq = Number(pgMar.match(/\bw:left="(\d+)"/)?.[1]);
+  const margenDer = Number(pgMar.match(/\bw:right="(\d+)"/)?.[1]);
+  if (!anchoPagina || !margenIzq || !margenDer) return ANCHO_TEXTO_FALLBACK_TWIPS;
+  const ancho = anchoPagina - margenIzq - margenDer;
+  return ancho > 0 ? ancho : ANCHO_TEXTO_FALLBACK_TWIPS;
+}
+
+// Agrega una parada de tabulación DERECHA en `posicionTwips` al <w:pPr> del párrafo — el <w:tab/>
+// que separa el texto de la imagen (ver columnaDerecha en insertarImagenEnParrafo) salta hasta ahí,
+// nunca al tab por defecto de Word (~cada 1.25cm). Mismo respeto al orden del esquema OOXML que
+// conAlineacion/marcarKeepNext: `tabs` va DESPUÉS de `pBdr`/`keepNext` y ANTES de `jc`/`rPr` —
+// insertarlo en el lugar equivocado es XML que el propio esquema de Word puede rechazar.
+function conTabDerecha(cuerpo: string, posicionTwips: number): string {
+  const tabsXml = `<w:tabs><w:tab w:val="right" w:pos="${posicionTwips}"/></w:tabs>`;
+  const pPr = cuerpo.match(/<w:pPr>([\s\S]*?)<\/w:pPr>/);
+  if (!pPr) return `<w:pPr>${tabsXml}</w:pPr>${cuerpo}`;
+  if (/<w:tabs\b/.test(pPr[1])) return cuerpo; // ya trae sus propias tabulaciones, no se pisan
+  const dentro = pPr[1];
+  const pBdrMatch = dentro.match(/<w:pBdr>[\s\S]*?<\/w:pBdr>/);
+  let nuevoDentro: string;
+  if (pBdrMatch) nuevoDentro = dentro.replace(pBdrMatch[0], pBdrMatch[0] + tabsXml);
+  else if (/<w:jc\b[^>]*\/>/.test(dentro)) nuevoDentro = dentro.replace(/(<w:jc\b[^>]*\/>)/, `${tabsXml}$1`);
+  else if (/<w:rPr>/.test(dentro)) nuevoDentro = dentro.replace('<w:rPr>', `${tabsXml}<w:rPr>`);
+  else nuevoDentro = dentro + tabsXml;
+  return cuerpo.replace(pPr[0], `<w:pPr>${nuevoDentro}</w:pPr>`);
+}
+
 // Inserta la imagen DENTRO del párrafo identificado por paraId — mismo principio que
 // rellenarCeldaVacia: nunca se agrega/quita un <w:p>, solo se reemplaza lo que hay adentro (acá,
 // la raya de subrayado por el dibujo). anchoCm fijo con alto proporcional a la imagen real (o
@@ -886,13 +925,25 @@ export async function insertarImagenEnParrafo(
   // aproximación (el desplazamiento es un valor fijo, ajustado a ojo contra el documento real, no
   // calculado por fila) — puede necesitar retoque si aparece un documento con una fila mucho más
   // alta o más baja que la de este caso.
+  // `columnaDerecha`: pedido explícito del usuario (13-ago-2026, caso 1063538-204-LE26) — en vez
+  // del layout apilado de siempre (imagen, nombre debajo, RUT debajo, timbre debajo), nombreDebajo
+  // va en UNA sola línea de texto a la IZQUIERDA del párrafo y firma+timbre quedan lado a lado a la
+  // DERECHA, en la MISMA línea — el layout que el usuario armó a mano en Word arrastrando las
+  // imágenes con coordenadas absolutas (`wp:anchor` con `posOffset` fijo). Coordenadas absolutas no
+  // sirven acá: este motor procesa anexos de organismos distintos con anchos de página/márgenes
+  // distintos, y un offset fijo calcado de un documento se ve corrido (o directo fuera de la hoja)
+  // en cualquier otro. En vez de eso, se usa una TABULACIÓN DERECHA (`<w:tabs><w:tab val="right">`)
+  // calculada del `<w:sectPr>` real de ESTE documento (ver calcularAnchoTextoTwips) — la misma
+  // técnica que usa cualquier plantilla de Word para alinear algo al margen derecho sin importar el
+  // ancho de página, y no agrega ningún <w:p> nuevo (la regla intocable de este módulo).
   {
     anchoCm = 3.5, etiqueta = 'firma', conservar = false, alineacion, nombreDebajo, saltoAntesDeImagen = false,
-    flotarSobreLinea = false,
+    flotarSobreLinea = false, columnaDerecha = false,
   }: {
     anchoCm?: number; etiqueta?: string; conservar?: boolean; alineacion?: 'izquierda' | 'centro' | 'derecha';
     saltoAntesDeImagen?: boolean;
     flotarSobreLinea?: boolean;
+    columnaDerecha?: boolean;
     nombreDebajo?: string | string[];
   } = {},
 ): Promise<string> {
@@ -983,11 +1034,24 @@ export async function insertarImagenEnParrafo(
   // <w:br/> separa la imagen de cada línea (nombre, RUT…) EN EL MISMO párrafo/run — nunca un
   // <w:p> nuevo (la regla intocable del conteo de párrafos, ver el encabezado del archivo).
   const lineasDebajo = nombreDebajo == null ? [] : Array.isArray(nombreDebajo) ? nombreDebajo : [nombreDebajo];
-  const runNombre = lineasDebajo
-    .filter(l => l && l.trim())
+  const lineasConTexto = lineasDebajo.filter(l => l && l.trim());
+  const runNombre = lineasConTexto
     .map(l => `<w:r><w:br/><w:t xml:space="preserve">${xmlEscape(l)}</w:t></w:r>`)
     .join('');
-  const drawingCompleto = drawing + runNombre;
+  // `columnaDerecha`: el texto (nombre + RUT, unidos con espacio) va ANTES de la imagen, en la
+  // MISMA línea, separado por un <w:tab/> que la tabulación derecha (ver más abajo) empuja hasta el
+  // margen — layout completo: "Lidia Valenzuela   6.736.698-0[TAB][firma][timbre]".
+  const runNombreEnLinea = lineasConTexto.length
+    ? `<w:r><w:t xml:space="preserve">${lineasConTexto.map(xmlEscape).join('    ')}</w:t></w:r>`
+    : '';
+  // Sin lineasConTexto (la llamada del TIMBRE, que nunca pasa nombreDebajo) no hay nada que
+  // tabular — se pega la imagen directa, sea cual sea el modo, para que quede al lado de la firma
+  // ya estampada (ver el branch `conservar` más abajo, que decide si además necesita un salto).
+  const drawingCompleto = !lineasConTexto.length
+    ? drawing
+    : columnaDerecha
+      ? runNombreEnLinea + '<w:r><w:tab/></w:r>' + drawing
+      : drawing + runNombre;
 
   const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);
   const m = xmlConNamespaces.match(re);
@@ -1034,7 +1098,23 @@ export async function insertarImagenEnParrafo(
       // cual sea la combinación que pida (solo firma, firma+nombre, o firma+nombre+RUT).
       nuevoCuerpo = drawing + runNombre + '<w:r><w:br/></w:r>' + cuerpo;
     } else {
-      nuevoCuerpo = cuerpo + drawingCompleto;   // timbre al lado de la firma ya estampada — no se borra nada
+      // Si el párrafo YA trae una imagen (la firma, recién estampada — con nombreDebajo, en SUS
+      // PROPIAS líneas separadas por <w:br/>), pegar el timbre directo al final del último <w:t>
+      // lo deja en la MISMA línea que la última ("6.736.698-0" o el nombre si no hay RUT) — una
+      // imagen de ~2.8cm ahí se dibuja mucho más alta que una línea de texto y visualmente TAPA
+      // las líneas de arriba en vez de quedar junto a la firma como se pretendía ("timbre al lado
+      // de la firma", el comentario original de este código, cierto solo cuando no hay
+      // nombreDebajo de por medio). BUG REAL (13-ago-2026, caso 1063538-204-LE26): en los 3
+      // anexos generados el timbre quedaba flotando ENTRE el nombre y el RUT del representante
+      // legal. Con el salto, el timbre pasa a su PROPIA línea, debajo del RUT — nunca se toca el
+      // caso sin imagen previa (la firma con `sinRaya`, ver arriba), que sigue igual.
+      // En modo `columnaDerecha` NO corresponde el salto: el timbre tiene que quedar PEGADO al
+      // lado de la firma, ambos ya empujados al margen derecho por el <w:tab/> que puso la llamada
+      // anterior (la de la firma) — un salto acá los separaría en dos líneas distintas, deshaciendo
+      // justo el layout "lado a lado" que columnaDerecha existe para lograr.
+      const yaTieneImagen = /<w:drawing>/.test(cuerpo);
+      const necesitaSalto = yaTieneImagen && !columnaDerecha;
+      nuevoCuerpo = cuerpo + (necesitaSalto ? '<w:r><w:br/></w:r>' : '') + drawingCompleto;
     }
   } else if (runRaya) {
     const textoRunCompleto = [...runRaya[0].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('');
@@ -1058,6 +1138,14 @@ export async function insertarImagenEnParrafo(
     nuevoCuerpo = cuerpo.replace(/<w:r\b[\s\S]*?<\/w:r>/g, '') + drawingCompleto; // fallback: no se identificó un run puntual
   }
 
+  // Sin esto, el <w:tab/> que separa el texto de la imagen (ver drawingCompleto) no tiene ninguna
+  // parada de tabulación que lo empuje al margen — Word lo trataría como el tab por defecto (cada
+  // ~1.25cm), y la firma+timbre quedarían pegadas justo después del texto en vez de alineadas al
+  // borde derecho. Solo se agrega en la llamada que REALMENTE tabuló (la de la firma, con texto);
+  // la del timbre reutiliza el mismo párrafo, que ya la tiene.
+  if (columnaDerecha && lineasConTexto.length) {
+    nuevoCuerpo = conTabDerecha(nuevoCuerpo, calcularAnchoTextoTwips(xmlConNamespaces));
+  }
   if (alineacion) nuevoCuerpo = conAlineacion(nuevoCuerpo, alineacion);
 
   return xmlConNamespaces.slice(0, m.index) + apertura + nuevoCuerpo + cierre

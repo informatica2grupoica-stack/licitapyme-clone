@@ -1528,13 +1528,13 @@ function _reglaManifiestoQueFalla(r: any): 'V-09' | 'V-12' | null {
 // completa (puede ser 1 o 2 llamadas al modelo, más sus respaldos) — antes solo se veía el costo
 // de cada llamada suelta, sin un total a la vista. Se loguea SIEMPRE al salir, incluso si la
 // corrida termina en error (para ver cuánto se alcanzó a gastar antes de fallar).
-export async function analizarViabilidadIAV3(codigo: string): Promise<any | null> {
+export async function analizarViabilidadIAV3(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
   // El log TOTAL debe leerse DENTRO del callback de conAcumuladorCostoIA (que corre dentro de
   // AsyncLocalStorage.run): fuera de ahí el contexto ya cerró y costoAcumuladoActual() da null.
   return conAcumuladorCostoIA(async () => {
     const t0 = Date.now();
     try {
-      return await _orquestarAnalisisV3(codigo);
+      return await _orquestarAnalisisV3(codigo, onFase);
     } finally {
       const ac = costoAcumuladoActual();
       if (ac) {
@@ -1546,13 +1546,13 @@ export async function analizarViabilidadIAV3(codigo: string): Promise<any | null
   });
 }
 
-async function _orquestarAnalisisV3(codigo: string): Promise<any | null> {
-  const primero = await _analizarViabilidadIAV3Intento(codigo);
+async function _orquestarAnalisisV3(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
+  const primero = await _analizarViabilidadIAV3Intento(codigo, onFase);
   const problemaPrimero = primero ? _reglaManifiestoQueFalla(primero) : null;
   if (!primero || !problemaPrimero) return primero;
 
   console.warn(`[viabilidad-ia-v3] ${codigo}: manifiesto de productos con problema (${problemaPrimero}) en el 1er intento → reintentando análisis completo una vez más antes de guardar.`);
-  const segundo = await _analizarViabilidadIAV3Intento(codigo);
+  const segundo = await _analizarViabilidadIAV3Intento(codigo, onFase);
   if (!segundo) return primero; // el reintento no produjo nada (docs/red) → nos quedamos con el primero
 
   const problemaSegundo = _reglaManifiestoQueFalla(segundo);
@@ -1579,7 +1579,8 @@ async function _orquestarAnalisisV3(codigo: string): Promise<any | null> {
 
 // Un intento completo de análisis v3 (lectura de documentos + llamada al modelo + overrides +
 // validador). Reusa la carga de documentos/contexto/señal del v2, cambia prompt+esquema.
-async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | null> {
+async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
+  try { onFase?.('leyendo_documentos'); } catch { /* noop */ }
   const docs = await cargarDocumentos(codigo);
   const leidos = docs.filter(d => d.ok);
   if (leidos.length === 0) return null;
@@ -1663,8 +1664,10 @@ async function _analizarViabilidadIAV3Intento(codigo: string): Promise<any | nul
       console.log(`[viabilidad-ia-v3] ${codigo}: reglas del experto inyectadas — ${reglasGlobal.length} de viabilidad, ${genericas.length} de lectura${similares.length ? `, ${similares.length} de lectura POR FIRMA (documento parecido a uno ya corregido)` : ''}.`);
     }
   } catch { /* las reglas son opcionales: si fallan, se analiza igual con el prompt base */ }
+  try { onFase?.('analizando_ia'); } catch { /* noop */ }
   const parsed = await llamarGeminiJSON(systemPrompt, userPrompt);
   if (!parsed || typeof parsed !== 'object') return null;
+  try { onFase?.('verificando'); } catch { /* noop */ }
 
   // CORRECCIÓN DETERMINISTA DE PÁGINAS DE CITA: el modelo a veces cita la página IMPRESA del PDF
   // (footer), no la física; reescribimos cada "fuente" a la página del marcador [[PÁGINA N]] real
@@ -2149,11 +2152,16 @@ async function guardarViabilidadIAV3(codigo: string, r: any): Promise<void> {
   }
 }
 
-export async function analizarYGuardarViabilidadIA(codigo: string): Promise<ViabilidadIAResult | null> {
+// `onFase` es un hook OPCIONAL (best-effort, nunca lanza) para que el caller (la ruta API) pueda
+// reportar progreso — hoy alimenta la barra de progreso del panel de viabilidad. Fases:
+// leyendo_documentos → analizando_ia → verificando → guardando.
+export type FaseAnalisisIA = 'leyendo_documentos' | 'analizando_ia' | 'verificando' | 'guardando';
+export async function analizarYGuardarViabilidadIA(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<ViabilidadIAResult | null> {
   // Analizador ÚNICO v3: prompt/esquema modular, override determinista de adjudicación y puente
   // al costeo (manifiesto_productos/modalidad/estructura_costeo que arma analizarViabilidadIAV3).
-  const rv3 = await analizarViabilidadIAV3(codigo);
+  const rv3 = await analizarViabilidadIAV3(codigo, onFase);
   if (!rv3) return null;
+  try { onFase?.('guardando'); } catch { /* noop */ }
   try { await guardarViabilidadIAV3(codigo, rv3); }
   catch (e) { console.error('[viabilidad-ia-v3] guardar falló:', String(e).slice(0, 200)); }
   // Vuelca ítems al negocio y genera el Excel de costeo.
