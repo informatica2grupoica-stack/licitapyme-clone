@@ -196,6 +196,29 @@ test('dividirPorFormularios: encabezado pelado toma el título del párrafo sigu
   assert.match(divididos[1].nombreArchivo, /^FORMULARIO_N3_OFERTA_ECONÓMICA/);
 });
 
+// Regresión real 1063538-204-LE26 (mismo documento, otro bug): el organismo tituló el primer
+// formulario "FORMULARIO Nº 7" (sin punto) pero los siguientes "FORMULARIO N.º 8"/"N.º 9" — con
+// el punto ANTES del símbolo º, no después. El regex solo aceptaba el punto en el orden símbolo→
+// punto, así que detectarFormularios veía un solo encabezado (el Nº 7) y todo el resto del
+// documento (8, 9, 10…) quedaba fusionado en ese mismo bloque — "Separar anexos" respondía "no
+// trae más de un anexo pegado" en un archivo que en realidad traía cuatro.
+test('detectarFormularios: "N.º" con el punto ANTES del símbolo º se reconoce igual que "Nº"/"N°" (regresión 1063538-204-LE26)', () => {
+  const xml = NS
+    + p('FORMULARIO Nº 7')
+    + p('DECLARACION JURADA SIMPLE LEY Nº 20.393')
+    + p('FORMULARIO N.º 8')
+    + p('DECLARACIÓN JURADA DE INHABILIDAD')
+    + p('FORMULARIO N.º 9')
+    + p('DECLARACIÓN JURADA DE INDEPENDENCIA')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 3);
+  assert.equal(formularios[0].titulo, 'FORMULARIO Nº 7 DECLARACION JURADA SIMPLE LEY Nº 20.393');
+  assert.equal(formularios[1].titulo, 'FORMULARIO N.º 8 DECLARACIÓN JURADA DE INHABILIDAD');
+  assert.equal(formularios[2].titulo, 'FORMULARIO N.º 9 DECLARACIÓN JURADA DE INDEPENDENCIA');
+});
+
 // Encabezado YA descriptivo ("ANEXO N°1: IDENTIFICACIÓN") no debe mirar el párrafo siguiente —
 // solo los encabezados PELADOS (nada más que el número) disparan la búsqueda de subtítulo.
 test('detectarFormularios: un encabezado ya descriptivo no se contamina con el párrafo siguiente', () => {

@@ -30,13 +30,20 @@ export interface FormularioDetectado { titulo: string; indiceInicio: number; ind
 // Anexo 1 a 10 usan "ANEXO N°X" al principio de la línea, pero 11, 12 y 13 usan "(ANEXO X)" al
 // final). Sin esta segunda forma esos tres anexos no calzaban con ningún encabezado: no se
 // dividían en su propio archivo y quedaban fusionados dentro del bloque del ANEXO N°10 anterior.
-export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+|\(\s*ANEXO\s*N?[°ºO]?\.?\s*\d+(?:-[A-Z])?\s*\)\s*$/i;
+// BUG REAL (13-ago-2026, caso 1063538-204-LE26): el mismo organismo tituló "FORMULARIO Nº 7" sin
+// punto pero "FORMULARIO N.º 8" y "FORMULARIO N.º 9" CON punto ANTES del símbolo º (no después,
+// que es el único orden que el regex aceptaba vía el `\.?` al final). Con eso, detectarFormularios
+// solo veía el encabezado N°7 y trataba TODO el resto del documento (8, 9, 10…) como si fuera
+// parte de ese mismo formulario — "no trae más de un anexo pegado" en un archivo que en realidad
+// traía varios. Los signos de puntuación (punto y/o °/º/O) ahora se aceptan en cualquier orden y
+// cualquier cantidad entre la "N" y el número.
+export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
 // Solo la forma "FORMULARIO/ANEXO N°X" al INICIO (sin la alternativa "(ANEXO X)" al final) — se usa
 // como fallback cuando la línea completa es demasiado larga para el chequeo normal de arriba. Ver
 // RE_ENCABEZADO_PEGADO_SIN_ESPACIO más abajo para el caso real que motiva esto.
-const RE_ENCABEZADO_PREFIJO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+(?:\s*-\s*[A-Za-z])?/i;
+const RE_ENCABEZADO_PREFIJO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:\s*-\s*[A-Za-z])?/i;
 
 // BUG REAL (13-ago-2026, caso 1211839-58-LE26, "FORMULARIOS.doc"): el conversor de producción
 // (LibreOffice headless, microservicio conversor-doc/) fusiona el párrafo del encabezado con el
@@ -191,7 +198,7 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
 // saber cuál es cuál sin abrirlos). Se usa como GUARDA para no tocar el caso ya-descriptivo
 // ("ANEXO N°1: IDENTIFICACIÓN", "ANEXO N°2 ECONOMICO") — ahí no hace falta ni conviene mirar el
 // párrafo siguiente (ver buscarSubtituloTrasEncabezadoPelado, que solo se llama cuando esto matchea).
-const RE_ENCABEZADO_PELADO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+(?:-[A-Za-z])?\.?$/i;
+const RE_ENCABEZADO_PELADO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Za-z])?\.?$/i;
 
 // El nombre real de la licitación se repite ENTRE COMILLAS al pie de cada formulario ("SERVICIO
 // DE ARRIENDO…") — nunca es el título de la sección, así que corta la búsqueda del subtítulo ahí.
@@ -266,8 +273,8 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
 // "FORMULARIO N°1-A: IDENTIFICACIÓN..." / "ANEXO N°2 ECONOMICO" → "N1-A" / "N2" (nombre de archivo)
 // / "PAUTA... (ANEXO 11)" → "N11" (ver RE_ENCABEZADO_FORMULARIO para la forma "(ANEXO X)").
 function sufijoDeArchivo(titulo: string): string {
-  const m = titulo.match(/(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*(\d+(?:-[A-Z])?)/i)
-    ?? titulo.match(/\(\s*ANEXO\s*N?[°ºO]?\.?\s*(\d+(?:-[A-Z])?)\s*\)\s*$/i);
+  const m = titulo.match(/(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)/i)
+    ?? titulo.match(/\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)\s*\)\s*$/i);
   const base = m ? `N${m[1]}` : titulo.slice(0, 20);
   return base.replace(/[^\w-]/g, '_');
 }
@@ -340,7 +347,7 @@ export function clasificarAnexo(titulo: string, textoPlano: string): CategoriaAn
 // letra. Perder ese guion no rompe nada visualmente, pero silenciosamente hace que un anexo con
 // letra (ej. "1-A") deje de encontrar su punto exacto y caiga en el genérico.
 function limpiarParaNombreArchivo(texto: string, maxLargo = 80): string {
-  const conNumeroPegado = texto.replace(/N[°ºO]?\.?\s*(\d)/gi, 'N$1');
+  const conNumeroPegado = texto.replace(/N[.\s]*[°ºO]?[.\s]*(\d)/gi, 'N$1');
   const limpio = conNumeroPegado
     .replace(/[^\p{L}\p{N}-]+/gu, '_')
     .replace(/-{2,}/g, '-')
