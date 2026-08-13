@@ -807,8 +807,15 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
     lote => resolverLoteCampos(lote, empresa, camposConDato, postulaComoUTP, reglasAprendidas || [], haySeccionUtpOmitida),
   );
 
+  // Los riesgos de inadmisibilidad NO se repiten acá a propósito (13-ago-2026, feedback del
+  // usuario: "las amarillas no me sirven para nada"). Antes esta lista se sembraba con
+  // `alertasInadmisibilidad.filter(a => !a.disponible)` — exactamente el mismo conjunto que ya se
+  // muestra, palabra por palabra, en el recuadro ROJO de arriba (ver AlertasInadmisibilidad en
+  // AnexoRellenoModal.tsx, que filtra por el mismo `!a.disponible`). El resultado era un bloque
+  // amarillo que solo repetía el rojo, sin agregar ni una línea nueva. El checklist queda para lo
+  // que NO tiene otro lugar donde aparecer: las casillas que la IA no pudo decidir sola y necesitan
+  // un criterio del usuario (categoria decision_del_usuario).
   const checklistSet = new Set<string>();
-  for (const a of alertasInadmisibilidad) if (!a.disponible) checklistSet.add(a.riesgo);
 
   for (const mapa of resultados) {
     for (const [n2, res] of mapa) {

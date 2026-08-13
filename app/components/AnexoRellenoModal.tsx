@@ -6,16 +6,10 @@
 // Word mientras se llena, en vez de adivinar a ciegas desde un fragmento de texto corto. Al
 // generar, el .docx final se sube a R2 y queda registrado como documento propio — aparece en
 // "Documentos para MP" (misma lista que el costeo/informe generados).
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, Download, ChevronDown, ShieldAlert, ListChecks, Pencil, Check } from 'lucide-react';
+import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, ChevronDown, ShieldAlert, ListChecks, Pencil, Check } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
-
-// Mismo problema que el visor del ojo "Ver" en Documentos (ver DocumentViewerModal): el visor
-// de Office de Microsoft no avisa si el documento real nunca termina de cargar adentro suyo —
-// a veces se queda pegado sin mostrar nada ni error. Pasado este tiempo sin confirmación, se
-// muestra un aviso con la salida real (abrir/descargar) en vez de un spinner para siempre.
-const TIMEOUT_VISOR_OFFICE_MS = 14_000;
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
@@ -173,11 +167,20 @@ function CampoAuto({
 // Vista de tabla REAL: mismas filas/columnas que el Word, para que quede claro a qué celda
 // corresponde cada input (pedido explícito del usuario tras probar la lista plana con un anexo
 // económico real de 160 blancos sueltos — imposible saber cuál era cuál sin esto).
+// Un blanco del documento ORIGINAL (panel izquierdo): la raya tal como venía en el Word, sin nada
+// escrito. No es un input — ese panel es de solo lectura, está para comparar contra el de la
+// derecha. El largo se acota para que una raya larguísima no descuadre la línea.
+function BlancoOriginal({ largo }: { largo?: number }) {
+  return (
+    <span className="text-slate-400 select-none">{'_'.repeat(Math.min(40, Math.max(6, largo ?? 12)))}</span>
+  );
+}
+
 function TablaReal({
-  tabla, respuestas, onChange, codigo, onCorregido,
+  tabla, respuestas, onChange, codigo, onCorregido, modoOriginal = false,
 }: {
   tabla: TablaUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
-  codigo: string; onCorregido: () => void;
+  codigo: string; onCorregido: () => void; modoOriginal?: boolean;
 }) {
   // Una fila con MENOS celdas que el resto es un título mergeado (ver indiceFilaEncabezado en
   // anexos-detectar.ts — "DATOS DEL PROPONENTE:", "INTEGRANTES DE LA UTP"...): se le da colSpan a
@@ -206,7 +209,23 @@ function TablaReal({
                   colSpan={j === fila.length - 1 && fila.length < maxCols ? maxCols - fila.length + 1 : undefined}
                   className={`border border-slate-200 px-2 py-1 align-middle break-words ${i === 0 ? 'font-semibold text-slate-700' : ''}`}
                 >
-                  {c.segmentosInline ? (
+                  {modoOriginal ? (
+                    // Panel izquierdo (documento original): la celda como vino — su texto fijo, y
+                    // una raya donde haya algo por completar. Nunca un input ni un valor resuelto.
+                    c.segmentosInline ? (
+                      <span className="leading-relaxed">
+                        {c.segmentosInline.map((s, k) => (
+                          s.t === 'texto'
+                            ? <span key={k}>{s.v}</span>
+                            : <BlancoOriginal key={k} largo={s.t === 'auto' ? s.v.length : undefined} />
+                        ))}
+                      </span>
+                    ) : c.input || c.auto ? (
+                      <span>{c.texto}<BlancoOriginal largo={c.auto?.valor.length} /></span>
+                    ) : (
+                      <span className="text-slate-700">{c.texto}</span>
+                    )
+                  ) : c.segmentosInline ? (
                     // Celda con texto propio que trae un blanco INLINE adentro ("SI ____ NO ____
                     // declaro...", "Plazo de entrega ……… días hábiles") — antes se mostraba como
                     // texto fijo de solo lectura, el blanco desaparecía. Mismo tipo de segmento
@@ -270,9 +289,13 @@ function TablaReal({
 // subrayado. Los blancos van INTERCALADOS en el texto: un valor ya resuelto se ve destacado en
 // su lugar, y uno pendiente es un input angosto (tamaño según el largo real del "____" en el
 // Word) justo donde va — no una tarjeta aparte más abajo.
-function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregido }: {
+function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false }: {
   b: BloqueParrafoUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
   motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void;
+  // Panel IZQUIERDO: el documento como VINO, sin nada completado — misma estructura de bloques que
+  // el de la derecha (por eso reusa este mismo componente y no otro), así los dos paneles tienen
+  // exactamente los mismos párrafos en el mismo orden y el scroll sincronizado calza de verdad.
+  modoOriginal?: boolean;
 }) {
   const alineacionClase: Record<Alineacion, string> = {
     izquierda: 'text-left', centro: 'text-center', derecha: 'text-right', justificado: 'text-justify',
@@ -293,6 +316,7 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregi
             </span>
           );
         }
+        if (modoOriginal) return <BlancoOriginal key={i} largo={s.t === 'input' ? s.largo : s.v.length} />;
         if (s.t === 'auto') {
           return <CampoAuto key={i} valor={s.v} via={s.via} etiqueta={s.etiqueta} codigo={codigo} onCorregido={onCorregido} />;
         }
@@ -320,15 +344,15 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregi
 // blancos ya resueltos o por llenar en su lugar. Reemplaza la vieja grilla de tarjetas: pedido
 // explícito del usuario (4-ago-2026) — "tiene que ser tal cual el mismo texto, la misma
 // estructura", no una lista de campos.
-function DocumentoReplica({ documento, respuestas, onChange, motivoPorId, codigo, onCorregido }: {
+function DocumentoReplica({ documento, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false }: {
   documento: BloqueUI[]; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
-  motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void;
+  motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void; modoOriginal?: boolean;
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl px-5 py-4">
       {documento.map((bloque, i) => bloque.tipo === 'tabla'
-        ? <div key={i} className="my-2.5"><TablaReal tabla={bloque.tabla} respuestas={respuestas} onChange={onChange} codigo={codigo} onCorregido={onCorregido} /></div>
-        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} codigo={codigo} onCorregido={onCorregido} />)}
+        ? <div key={i} className="my-2.5"><TablaReal tabla={bloque.tabla} respuestas={respuestas} onChange={onChange} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} /></div>
+        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} />)}
     </div>
   );
 }
@@ -423,32 +447,27 @@ function SeccionesEscaneadas({ secciones }: { secciones: SeccionEscaneada[] }) {
   );
 }
 
-// ── Firma y timbre: qué se estampa en cada bloque y dónde ────────────────────────────────────
-// Pedido del usuario (4-ago-2026): poder VER cuál imagen es cuál antes de generar, y elegir por
-// bloque si van las dos, solo una o ninguna. Lo de "moverla con el mouse" no se puede hacer tal
-// cual: en un .docx la firma es un dibujo INLINE, vive dentro de un párrafo y no tiene coordenadas
-// propias — arrastrarla a un punto arbitrario de la hoja obligaría a convertirla en un objeto
-// flotante anclado, que es exactamente lo que descoloca el documento al abrirlo en otro Word. Lo
-// que sí manda su posición es la alineación del párrafo, y eso es lo que se expone acá.
-const OPCIONES_ESTAMPA = [
-  { v: 'ambas', label: 'Firma + timbre' },
-  { v: 'firma', label: 'Solo firma' },
-  { v: 'timbre', label: 'Solo timbre' },
-  { v: 'ninguna', label: 'Ninguna' },
-] as const;
-const OPCIONES_POSICION = [
-  { v: 'izquierda', label: 'Izq.' },
-  { v: 'centro', label: 'Centro' },
-  { v: 'derecha', label: 'Der.' },
-] as const;
-
-function BloqueFirmaTimbre({ firma, respuestas, onChange }: {
-  firma: Analisis['firma']; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
-}) {
-  const hayFirma = firma.disponible;
-  const hayTimbre = firma.timbreDisponible;
-  const disponible = (v: string) =>
-    v === 'ninguna' || (v === 'firma' && hayFirma) || (v === 'timbre' && hayTimbre) || (v === 'ambas' && hayFirma && hayTimbre);
+// ── Firma y timbre: informativo, SIN opciones que elegir ─────────────────────────────────────
+// Antes esto eran 4 botones (firma+timbre / solo firma / solo timbre / ninguna) más 3 de posición
+// (izq./centro/der.). Se quitaron (13-ago-2026, pedido explícito del usuario: "eso el programa lo
+// debe de detectar automático y ponerlo, no dejar que yo seleccione"). No se perdió ninguna
+// decisión: QUÉ estampar ya lo decidía solo el backend según lo que pida la leyenda del anexo y lo
+// que haya en la ficha (ver porDefectoEnLugar en anexos-rellenar.ts) — los botones solo dejaban
+// pisar esa decisión a mano, y venían premarcados con ella. La POSICIÓN también se calcula sola
+// ahora: el layout "texto a la izquierda, firma+timbre a la derecha" se arma con una tabulación
+// derecha medida del ancho real de la página (ver columnaDerecha en anexos-docx.ts), así que
+// elegir izq./centro/der. a mano dejó de tener sentido. El backend sigue aceptando las claves
+// `firma:N`/`firmaPos:N` por si alguna vez hay que reponer el control manual; simplemente ya nadie
+// las manda. Lo que SÍ se conserva acá es lo útil: ver qué imagen es cuál antes de generar.
+function BloqueFirmaTimbre({ firma }: { firma: Analisis['firma'] }) {
+  const irá = firma.disponible || (firma.timbreDetectado && firma.timbreDisponible);
+  const detalle = !irá
+    ? 'No hay firma ni timbre cargados en la ficha de la empresa — el documento se genera sin ellos.'
+    : firma.disponible && firma.timbreDetectado && firma.timbreDisponible
+      ? 'Se estampan la firma y el timbre automáticamente donde el anexo los pide.'
+      : firma.disponible
+        ? 'Se estampa la firma automáticamente donde el anexo la pide.'
+        : 'Se estampa el timbre automáticamente donde el anexo lo pide.';
 
   return (
     <div className="border border-slate-200 rounded-xl p-3 space-y-2.5">
@@ -470,57 +489,7 @@ function BloqueFirmaTimbre({ firma, respuestas, onChange }: {
         </div>
       </div>
 
-      {firma.lugares.map(lugar => {
-        const indice = lugar.id.split(':')[1];
-        // `porDefecto` viene calculado del backend (ver LugarFirmaUI): lo que se ve marcado es
-        // exactamente lo que va a pasar si no se toca nada, sin reimplementar la regla acá.
-        const valor = respuestas[lugar.id] || lugar.porDefecto;
-        const pos = respuestas[`firmaPos:${indice}`] || '';
-        return (
-          <div key={lugar.id} className="bg-slate-50 rounded-lg p-2 space-y-1.5">
-            <p className="text-[11.5px] text-slate-600 truncate" title={lugar.contexto}>{lugar.contexto}</p>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {OPCIONES_ESTAMPA.map(o => (
-                <button
-                  key={o.v}
-                  type="button"
-                  disabled={!disponible(o.v)}
-                  title={disponible(o.v) ? undefined : `No hay ${o.v === 'ambas' ? 'firma y timbre' : o.v} cargado en la ficha de la empresa`}
-                  onClick={() => onChange(lugar.id, o.v)}
-                  className={`text-[11px] px-2 py-1 rounded-md border transition ${
-                    valor === o.v
-                      ? 'bg-indigo-600 border-indigo-600 text-white font-medium'
-                      : disponible(o.v)
-                        ? 'bg-white border-slate-200 text-slate-600 hover:border-indigo-300'
-                        : 'bg-slate-100 border-slate-200 text-slate-300 cursor-not-allowed'
-                  }`}
-                >
-                  {o.label}
-                </button>
-              ))}
-              {valor !== 'ninguna' && (
-                <span className="flex items-center gap-1.5 ml-auto">
-                  <span className="text-[10.5px] text-slate-400">posición</span>
-                  {OPCIONES_POSICION.map(o => (
-                    <button
-                      key={o.v}
-                      type="button"
-                      onClick={() => onChange(`firmaPos:${indice}`, pos === o.v ? '' : o.v)}
-                      className={`text-[11px] px-1.5 py-1 rounded-md border transition ${
-                        pos === o.v
-                          ? 'bg-slate-700 border-slate-700 text-white'
-                          : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400'
-                      }`}
-                    >
-                      {o.label}
-                    </button>
-                  ))}
-                </span>
-              )}
-            </div>
-          </div>
-        );
-      })}
+      <p className="text-[11.5px] text-slate-500 leading-snug">{detalle}</p>
     </div>
   );
 }
@@ -543,9 +512,31 @@ export function AnexoRellenoModal({
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
   const [generando, setGenerando] = useState(false);
-  const [cargandoVisor, setCargandoVisor] = useState(true);
-  const [visorLento, setVisorLento] = useState(false);
-  const [avisoLentoCerrado, setAvisoLentoCerrado] = useState(false);
+  // Scroll acoplado entre los dos paneles (original ↔ completado). Se sincroniza por PROPORCIÓN
+  // (cuánto del alto total llevás recorrido), no por píxeles: los dos paneles tienen los mismos
+  // bloques pero no exactamente el mismo alto — un input o un valor largo ocupan un poco más que la
+  // raya del original — así que copiar el scrollTop crudo los iría desfasando hacia el final.
+  // `sincronizando` corta el rebote: mover un panel dispara el onScroll del otro, que si no
+  // quedaría reposicionando al primero en un ida y vuelta infinito.
+  const panelOriginalRef = useRef<HTMLDivElement>(null);
+  const panelRellenoRef = useRef<HTMLDivElement>(null);
+  const sincronizando = useRef(false);
+  const sincronizarScroll = (
+    desde: React.RefObject<HTMLDivElement | null>, hacia: React.RefObject<HTMLDivElement | null>,
+  ) => {
+    if (sincronizando.current) return;
+    const a = desde.current;
+    const b = hacia.current;
+    if (!a || !b) return;
+    const recorribleA = a.scrollHeight - a.clientHeight;
+    const recorribleB = b.scrollHeight - b.clientHeight;
+    if (recorribleA <= 0 || recorribleB <= 0) return;
+    sincronizando.current = true;
+    b.scrollTop = (a.scrollTop / recorribleA) * recorribleB;
+    // El navegador dispara el onScroll del otro panel de forma asíncrona — se libera el candado en
+    // el siguiente frame, cuando ese evento ya pasó.
+    requestAnimationFrame(() => { sincronizando.current = false; });
+  };
   // "Sí, este anexo nos corresponde": ignora el aviso del propio documento (ej. es de UTP y esta
   // vez sí postulamos en UTP). Re-dispara el análisis, y viaja también en `respuestas` para que la
   // generación tome la misma decisión que la pantalla mostró.
@@ -559,20 +550,16 @@ export function AnexoRellenoModal({
     setError(null);
     setAnalisis(null);
     setRespuestas(forzarAplica ? { anexoAplica: '1' } : {});
-    setCargandoVisor(true);
-    setVisorLento(false);
-    setAvisoLentoCerrado(false);
 
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const timerVisor = window.setTimeout(() => setVisorLento(true), TIMEOUT_VISOR_OFFICE_MS);
 
     if (!empresaId) {
       setCargando(false);
       setError('Esta licitación no tiene una empresa asignada. Asígnala en «Información Comercial» antes de rellenar anexos.');
-      return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; window.clearTimeout(timerVisor); };
+      return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; };
     }
 
     const params = new URLSearchParams({ codigo, documentoId: String(doc.id), empresaId: String(empresaId) });
@@ -586,7 +573,7 @@ export function AnexoRellenoModal({
       .catch(e => setError(e.message || 'Error al analizar el documento'))
       .finally(() => setCargando(false));
 
-    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; window.clearTimeout(timerVisor); };
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = prevOverflow; };
   }, [doc, codigo, empresaId, onClose, forzarAplica]);
 
   if (!doc) return null;
@@ -695,52 +682,44 @@ export function AnexoRellenoModal({
           </button>
         </div>
 
-        {/* Cuerpo: visor del documento a la izquierda, formulario a la derecha */}
+        {/* Cuerpo: documento ORIGINAL a la izquierda, documento COMPLETADO a la derecha */}
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
-          {/* Visor — mismo mecanismo que el ojo "Ver" en Documentos (Office Online embed). 40% en
-              vez de 50/50: el formulario es el que necesita el espacio (tablas de varias columnas),
-              el visor del Word se lee bien más angosto. */}
-          <div className="relative w-full lg:w-[40%] h-64 lg:h-full bg-slate-100 border-b lg:border-b-0 lg:border-r border-slate-200 flex-shrink-0">
-            {cargandoVisor && !visorLento && (
-              <div className="absolute inset-0 flex items-center justify-center gap-2 text-sm text-slate-500 pointer-events-none">
+          {/* Panel izquierdo: el anexo TAL COMO VINO. Antes era un <iframe> al visor de Office
+              Online de Microsoft; se reemplazó (13-ago-2026, pedido del usuario) porque ese visor es
+              de OTRO dominio y el navegador no deja leer ni mover su scroll desde acá — sincronizar
+              los dos paneles era imposible por diseño, no por falta de código. Renderizando el
+              original con la MISMA réplica que la derecha (`modoOriginal`), los dos paneles tienen
+              exactamente los mismos bloques en el mismo orden y el scroll sí se puede acoplar.
+              El Word real sigue a un clic, en el botón de la cabecera. */}
+          <div
+            ref={panelOriginalRef}
+            onScroll={() => sincronizarScroll(panelOriginalRef, panelRellenoRef)}
+            className="w-full lg:w-[40%] h-64 lg:h-full overflow-y-auto bg-slate-100 border-b lg:border-b-0 lg:border-r border-slate-200 flex-shrink-0 px-3 py-4"
+          >
+            {cargando && (
+              <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
                 <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documento…
               </div>
             )}
-            <iframe
-              src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(doc.url)}`}
-              title={doc.nombre}
-              className="w-full h-full border-0"
-              onLoad={() => setCargandoVisor(false)}
-            />
-            {visorLento && !avisoLentoCerrado && (
-              <div className="absolute top-3 left-3 right-3 z-10 flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl shadow-lg">
-                <AlertTriangle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12.5px] text-amber-800">
-                    El visor de Microsoft está tardando más de lo normal (servicio externo sin garantía) — si no ves el documento, abrilo directo:
-                  </p>
-                  <div className="flex items-center gap-2 mt-2">
-                    <a
-                      href={doc.url} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-[12px] font-semibold rounded-lg transition-colors"
-                    >
-                      <ExternalLink size={12} /> Abrir en pestaña nueva
-                    </a>
-                    <a
-                      href={doc.url} download={doc.nombre}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-[12px] font-semibold rounded-lg transition-colors"
-                    >
-                      <Download size={12} /> Descargar
-                    </a>
-                  </div>
-                </div>
-                <button
-                  type="button" onClick={() => setAvisoLentoCerrado(true)}
-                  className="p-1 text-amber-400 hover:text-amber-700 hover:bg-amber-100 rounded-lg transition-colors flex-shrink-0"
-                  aria-label="Cerrar aviso"
+            {!cargando && analisis && analisis.documento.length > 0 && (
+              <>
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Documento original</p>
+                <DocumentoReplica
+                  documento={analisis.documento} respuestas={{}} onChange={() => {}} motivoPorId={motivoPorId}
+                  codigo={codigo} onCorregido={() => {}} modoOriginal
+                />
+              </>
+            )}
+            {!cargando && (!analisis || analisis.documento.length === 0) && (
+              <div className="flex flex-col items-center gap-2 py-10 text-center">
+                <FileText size={20} className="text-slate-300" />
+                <p className="text-[12px] text-slate-500">No se pudo reconstruir la vista del documento.</p>
+                <a
+                  href={doc.url} target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-[12px] font-semibold rounded-lg transition-colors"
                 >
-                  <X size={14} />
-                </button>
+                  <ExternalLink size={12} /> Abrir el Word original
+                </a>
               </div>
             )}
           </div>
@@ -750,7 +729,11 @@ export function AnexoRellenoModal({
               de al lado en `flex-shrink-0 w-1/2`, esta columna se desbordaba fuera del modal y los
               inputs quedaban cortados por el borde derecho de la pantalla. */}
           <div className="flex-1 min-w-0 min-h-0 flex flex-col">
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div
+          ref={panelRellenoRef}
+          onScroll={() => sincronizarScroll(panelRellenoRef, panelOriginalRef)}
+          className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
+        >
           {cargando && (
             <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
               <Loader2 size={16} className="animate-spin text-indigo-500" /> Analizando documento…
@@ -818,7 +801,7 @@ export function AnexoRellenoModal({
               )}
 
               {analisis.firma.lugares?.length > 0 && (
-                <BloqueFirmaTimbre firma={analisis.firma} respuestas={respuestas} onChange={setRespuesta} />
+                <BloqueFirmaTimbre firma={analisis.firma} />
               )}
 
               {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (

@@ -1243,6 +1243,36 @@ test('raya de puntos partida en varios <w:r> se unifica en UN solo blanco (regre
   assert.equal(verificarXmlBienFormado(final).valido, true);
 });
 
+// MISMO bug que el de arriba pero con GUIONES BAJOS — el separador más común de todos, y por eso el
+// más caro. BUG REAL (13-ago-2026, 1063538-204-LE26, FORMULARIO N°5): "Mediante el presente
+// Formulario, la empresa______________________" es UNA raya en el papel, pero Word la parte en 3
+// runs. Se detectaban TRES casillas y el motor de IA llenaba cada una con un campo distinto —
+// "la empresa Comercial MP SpA 78.388.175-6 Lidia Valenzuela": razón social, RUT y representante
+// legal concatenados donde la oración pide SOLO el nombre de la empresa. Los tramos de abajo son
+// los largos EXACTOS del documento real (28 + 6 + 6 guiones).
+test('raya de guiones bajos partida en varios <w:r> se unifica en UN solo blanco (regresión 1063538-204-LE26)', () => {
+  const run = (t: string) => `<w:r><w:t xml:space="preserve">${t}</w:t></w:r>`;
+  const parrafo = '<w:p>'
+    + run('Mediante el presente Formulario, la empresa' + '_'.repeat(28))
+    + run('_'.repeat(6))
+    + run('_'.repeat(6))
+    + '</w:p>';
+  const { xml: norm } = normalizarParaIds(NS + parrafo + FIN);
+  const det = analizarAnexo(unificarRunsDeMarcadores(norm));
+
+  assert.equal(det.blancosInline.length, 1, 'una sola casilla, no una por fragmento de guiones');
+  assert.equal(det.blancosInline[0].contexto, 'la empresa',
+    'el contexto debe nombrar a la EMPRESA — es lo que le permite al motor responder razón social y no otro campo');
+  assert.equal(det.blancosInline[0].largo, 40, 'la casilla abarca la raya COMPLETA (28+6+6)');
+
+  // Y al rellenarla queda un solo valor, no tres concatenados.
+  const b = det.blancosInline[0];
+  const final = rellenarRunPorIndice(unificarRunsDeMarcadores(norm), b.indiceRun,
+    [{ pos: b.posEnTexto, largo: b.largo, valor: 'Comercial MP SpA' }]);
+  assert.equal(listarParrafos(final)[0].texto, 'Mediante el presente Formulario, la empresa Comercial MP SpA');
+  assert.equal(verificarXmlBienFormado(final).valido, true);
+});
+
 // ── Celda de tabla con SOLO un prefijo de moneda ("$") — el número va pegado después ──────────
 // BUG REAL (3713-7-LE26, tabla PRODUCTO/CANTIDAD/VALOR UNITARIO/VALOR TOTAL): la celda de VALOR
 // UNITARIO trae "$" ya escrito. Como la celda no está técnicamente vacía, desaparecía por completo

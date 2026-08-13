@@ -516,6 +516,19 @@ function pesoPuntos(corrida: string): number {
 // completo), así que unir un par de puntos sueltos que no llegan a ser raya no cambia nada visible.
 const RE_TRAMO_PUNTOS = /[.…]{2,}/g;
 
+// MISMO bug que RE_TRAMO_PUNTOS, con guiones bajos — el caso MÁS común de todos, y por eso el más
+// caro. BUG REAL (13-ago-2026, 1063538-204-LE26, FORMULARIO N°5): "Mediante el presente Formulario,
+// la empresa________________________________" es UNA sola raya en el papel, pero Word la reparte en
+// 3 runs ("…la empresa" + 28 guiones / "______" / "______"). detectarBlancosInline mira UN run a la
+// vez, así que veía TRES casillas independientes y el motor de IA llenaba cada una con un campo
+// DISTINTO: "la empresa Comercial MP SpA 78.388.175-6 Lidia Valenzuela" — razón social, RUT y
+// representante legal concatenados en la misma línea, cuando la oración pide solo el nombre de la
+// empresa. No era un error de criterio del modelo (cada casilla, vista aislada, es plausible): era
+// que se le preguntaba tres veces por la misma casilla. Se une antes de detectar, igual que los
+// puntos; el umbral real (RE_RAYAS, `_{4,}`) se aplica DESPUÉS sobre el run ya completo, así que
+// juntar un par de guiones sueltos que no llegan a ser raya no cambia nada visible.
+const RE_TRAMO_RAYAS = /_{2,}/g;
+
 // Encuentra, en un <w:t> YA DECODIFICADO (ver decodificarXml), cada blanco con su contexto previo.
 export function listarBlancosInline(textoRun: string): BlancoInline[] {
   const crudos: { pos: number; largo: number; textoMarcador?: string }[] = [];
@@ -598,6 +611,12 @@ export function unificarRunsDeMarcadores(xml: string): string {
     // ser el primero en el array — el `tramos.find` de más abajo se queda con el primero que
     // encuentra para cada posición.
     for (const m of completo.matchAll(RE_TRAMO_PUNTOS)) {
+      const primerRun = runDe(m.index!);
+      if (primerRun === runDe(m.index! + m[0].length - 1)) continue; // ya vive entero en un run
+      tramos.push({ desde: m.index!, hasta: m.index! + m[0].length, run: primerRun });
+    }
+    // Guiones bajos partidos entre runs — ver RE_TRAMO_RAYAS. Mismo tratamiento que los puntos.
+    for (const m of completo.matchAll(RE_TRAMO_RAYAS)) {
       const primerRun = runDe(m.index!);
       if (primerRun === runDe(m.index! + m[0].length - 1)) continue; // ya vive entero en un run
       tramos.push({ desde: m.index!, hasta: m.index! + m[0].length, run: primerRun });
