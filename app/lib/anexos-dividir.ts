@@ -153,10 +153,43 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
   return out;
 }
 
+// Un encabezado "PELADO" (nada más que "FORMULARIO Nº 1", sin descripción propia) — caso real
+// 1063538-204-LE26: cada Formulario abre con el número solo en su propio párrafo, y el título
+// real ("IDENTIFICACION DEL PROPONENTE", "OFERTA ECONÓMICA"…) vive en el PÁRRAFO SIGUIENTE.
+// Sin distinguir este caso, el nombre de archivo (nombreArchivoDesdeTitulo) salía genérico
+// ("FORMULARIO_N1", "FORMULARIO_N5"…) — indistinguibles entre sí a simple vista, justo lo que el
+// usuario reportó (7 anexos separados, todos con el mismo prefijo de categoría y sin forma de
+// saber cuál es cuál sin abrirlos). Se usa como GUARDA para no tocar el caso ya-descriptivo
+// ("ANEXO N°1: IDENTIFICACIÓN", "ANEXO N°2 ECONOMICO") — ahí no hace falta ni conviene mirar el
+// párrafo siguiente (ver buscarSubtituloTrasEncabezadoPelado, que solo se llama cuando esto matchea).
+const RE_ENCABEZADO_PELADO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+(?:-[A-Za-z])?\.?$/i;
+
+// El nombre real de la licitación se repite ENTRE COMILLAS al pie de cada formulario ("SERVICIO
+// DE ARRIENDO…") — nunca es el título de la sección, así que corta la búsqueda del subtítulo ahí.
+const RE_EMPIEZA_CON_COMILLA = /^["“”«]/;
+
+// Busca el título real de un encabezado pelado en los párrafos que le siguen (hasta 3, o hasta
+// toparse con la línea entre comillas del nombre de la licitación / una tabla / otro encabezado).
+// Se llama SOLO cuando el propio encabezado no trae nada más que el número (ver RE_ENCABEZADO_PELADO) —
+// un encabezado ya descriptivo no necesita ni debe mirar más allá de su propio párrafo.
+function buscarSubtituloTrasEncabezadoPelado(bloques: BloqueCrudo[], desdeIndice: number): string {
+  const partes: string[] = [];
+  for (let i = desdeIndice + 1; i < bloques.length && partes.length < 2; i++) {
+    const b = bloques[i];
+    if (b.tipo !== 'parrafo' || b.enCuadroFlotante) break;
+    const texto = b.textoPlano.trim();
+    if (!texto) continue; // párrafo vacío de por medio: se sigue buscando, no corta
+    if (RE_EMPIEZA_CON_COMILLA.test(texto) || RE_ENCABEZADO_FORMULARIO.test(texto)) break;
+    partes.push(texto);
+  }
+  return partes.join(' ').slice(0, 120);
+}
+
 export function detectarFormularios(xml: string): FormularioDetectado[] {
   const bloques = listarBloquesCrudos(xml);
   const encabezados: { indice: number; titulo: string }[] = [];
-  for (const b of bloques) {
+  for (let bi = 0; bi < bloques.length; bi++) {
+    const b = bloques[bi];
     if (b.tipo !== 'parrafo') continue;
     // BUG REAL (4777-24-LE26, "ANEXO N°2" impreso como título dentro de un cuadro de texto
     // flotante de ~48 KB que envuelve casi todo el formulario, típico de plantillas con un borde
@@ -177,7 +210,8 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
     for (const linea of b.textoPlano.split('\n')) {
       const l = linea.trim();
       if (l.length <= LARGO_MAX_ENCABEZADO && RE_ENCABEZADO_FORMULARIO.test(l)) {
-        encabezados.push({ indice: b.ordinalInicio, titulo: l });
+        const subtitulo = RE_ENCABEZADO_PELADO.test(l) ? buscarSubtituloTrasEncabezadoPelado(bloques, bi) : '';
+        encabezados.push({ indice: b.ordinalInicio, titulo: subtitulo ? `${l} ${subtitulo}` : l });
         break; // un párrafo no trae dos encabezados propios
       }
     }
@@ -257,13 +291,6 @@ export function clasificarAnexo(titulo: string, textoPlano: string): CategoriaAn
   return mejorCategoria;
 }
 
-const PREFIJO_CATEGORIA: Record<CategoriaAnexo, string> = {
-  administrativo: 'ADMINISTRATIVO',
-  tecnico: 'TECNICO',
-  economico: 'ECONOMICO',
-  sin_clasificar: 'SIN_CLASIFICAR',
-};
-
 // "ANEXO N°1: DECLARACIÓN JURADA DE REQUISITOS PARA OFERTAR" → "ANEXO_N1_DECLARACION_JURADA...".
 // Se pega el número al "N" ANTES de la limpieza genérica (si no, "N°1" queda "N_1", separado del
 // número por un guion bajo de más — mismo patrón "N{numero}" que ya usa sufijoDeArchivo).
@@ -273,7 +300,7 @@ const PREFIJO_CATEGORIA: Record<CategoriaAnexo, string> = {
 // el guion literal pegado al número — su regex exige "-" o nada, nunca "_", entre el número y la
 // letra. Perder ese guion no rompe nada visualmente, pero silenciosamente hace que un anexo con
 // letra (ej. "1-A") deje de encontrar su punto exacto y caiga en el genérico.
-function limpiarParaNombreArchivo(texto: string, maxLargo = 70): string {
+function limpiarParaNombreArchivo(texto: string, maxLargo = 80): string {
   const conNumeroPegado = texto.replace(/N[°ºO]?\.?\s*(\d)/gi, 'N$1');
   const limpio = conNumeroPegado
     .replace(/[^\p{L}\p{N}-]+/gu, '_')
@@ -283,8 +310,14 @@ function limpiarParaNombreArchivo(texto: string, maxLargo = 70): string {
   return limpio.slice(0, maxLargo).replace(/[_-]+$/, '') || 'ANEXO';
 }
 
-export function nombreArchivoDesdeTitulo(titulo: string, categoria: CategoriaAnexo): string {
-  return `${PREFIJO_CATEGORIA[categoria]}_${limpiarParaNombreArchivo(titulo)}`;
+// Sin prefijo de categoría a propósito (13-ago-2026, feedback real del usuario: caso
+// 1063538-204-LE26, 7 anexos separados todos "administrativos" — con el prefijo, la lista de
+// documentos (que trunca nombres largos en la UI) mostraba "ADMINISTRATIVO…" idéntico en los 7,
+// sin ninguna forma de distinguirlos a simple vista). La categoría ya se ve en la CAJA donde
+// queda cada archivo ("Anexos Administrativos"/"Técnicos"/"Económicos" — ver
+// POST /api/anexos/separar), así que repetirla en el nombre era redundante Y rompía la lectura.
+export function nombreArchivoDesdeTitulo(titulo: string): string {
+  return limpiarParaNombreArchivo(titulo);
 }
 
 // Mismo criterio de extracción de texto que usa listarBloquesCrudos para el título de un párrafo
@@ -359,7 +392,7 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
       titulo: f.titulo,
       buffer,
       categoria,
-      nombreArchivo: nombreConDesempate(nombreArchivoDesdeTitulo(f.titulo, categoria), nombresUsados),
+      nombreArchivo: nombreConDesempate(nombreArchivoDesdeTitulo(f.titulo), nombresUsados),
     });
   }
   return resultados;

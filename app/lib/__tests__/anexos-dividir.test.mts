@@ -137,19 +137,22 @@ test('clasificarAnexo: sin señal clara (0 coincidencias o empate) no adivina, q
 // su punto del checklist del Auditor Técnico — con "_" en vez de "-", el matching de letra se
 // pierde en silencio y el archivo cae en el ítem genérico en vez del suyo.
 test('nombreArchivoDesdeTitulo: conserva el guion del sufijo de letra ("N°1-A") para que anexos-match.ts lo siga reconociendo', () => {
-  const nombre = nombreArchivoDesdeTitulo('ANEXO Nº 1-A: IDENTIFICACIÓN DEL OFERENTE', 'administrativo');
+  const nombre = nombreArchivoDesdeTitulo('ANEXO Nº 1-A: IDENTIFICACIÓN DEL OFERENTE');
   assert.match(nombre, /N1-A/, `debe conservar "N1-A" literal, salió: ${nombre}`);
   // Y ese nombre sigue matcheando contra el título del checklist con el mismo número+letra —
   // la prueba de fondo es que repartirArchivosGenerados no lo mande al ítem equivocado.
   assert.ok(puntajeCoincidencia('Anexo N°1-A - Identificación del Oferente', nombre) >= 100, 'debe matchear por número con letra, no solo por número');
 });
 
-test('nombreArchivoDesdeTitulo: nombre legible, en mayúsculas, con la categoría como prefijo', () => {
-  const nombre = nombreArchivoDesdeTitulo('ANEXO N°3: OFERTA ECONÓMICA', 'economico');
-  assert.equal(nombre, 'ECONOMICO_ANEXO_N3_OFERTA_ECONÓMICA');
+// Sin prefijo de categoría a propósito (13-ago-2026, regresión 1063538-204-LE26): la categoría
+// ya se ve en la caja donde queda el archivo — repetirla en el nombre solo hacía que varios
+// anexos de la MISMA categoría se vieran idénticos en una lista truncada por la UI.
+test('nombreArchivoDesdeTitulo: nombre legible, en mayúsculas, SIN prefijo de categoría', () => {
+  const nombre = nombreArchivoDesdeTitulo('ANEXO N°3: OFERTA ECONÓMICA');
+  assert.equal(nombre, 'ANEXO_N3_OFERTA_ECONÓMICA');
 });
 
-test('dividirPorFormularios: cada fragmento sale con categoría y nombreArchivo (título limpio, no solo el número)', async () => {
+test('dividirPorFormularios: cada fragmento sale con categoría y nombreArchivo (título limpio, sin prefijo de categoría)', async () => {
   const xml = NS
     + p('ANEXO N°1: DECLARACIÓN JURADA SIMPLE')
     + p('Yo, representante legal, declaro bajo juramento que no tengo inhabilidad para contratar con el Estado')
@@ -162,7 +165,48 @@ test('dividirPorFormularios: cada fragmento sale con categoría y nombreArchivo 
   const divididos = await dividirPorFormularios(buffer, norm);
   assert.equal(divididos.length, 2);
   assert.equal(divididos[0].categoria, 'administrativo');
-  assert.match(divididos[0].nombreArchivo, /^ADMINISTRATIVO_ANEXO_N1/);
+  assert.match(divididos[0].nombreArchivo, /^ANEXO_N1/);
   assert.equal(divididos[1].categoria, 'economico');
-  assert.match(divididos[1].nombreArchivo, /^ECONOMICO_ANEXO_N2/);
+  assert.match(divididos[1].nombreArchivo, /^ANEXO_N2/);
+});
+
+// Regresión real 1063538-204-LE26: encabezado "pelado" (nada más que el número) con el título
+// verdadero en el párrafo SIGUIENTE — antes el nombre de archivo salía genérico ("FORMULARIO_N1"),
+// indistinguible de los otros 9 formularios del mismo documento.
+test('dividirPorFormularios: encabezado pelado toma el título del párrafo siguiente (regresión 1063538-204-LE26)', async () => {
+  const xml = NS
+    + p('FORMULARIO Nº 1')
+    + p('IDENTIFICACION DEL PROPONENTE')
+    + p('“SERVICIO DE ARRIENDO LITOTRIPTOR NEUMÁTICO”')
+    + p('Nombre completo o Razón Social')
+    + p('FORMULARIO Nº 3')
+    + p('OFERTA ECONÓMICA')
+    + p('“SERVICIO DE ARRIENDO LITOTRIPTOR NEUMÁTICO”')
+    + p('Valor unitario')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios[0].titulo, 'FORMULARIO Nº 1 IDENTIFICACION DEL PROPONENTE');
+  assert.equal(formularios[1].titulo, 'FORMULARIO Nº 3 OFERTA ECONÓMICA');
+
+  const buffer = await bufferDe(norm);
+  const divididos = await dividirPorFormularios(buffer, norm);
+  assert.match(divididos[0].nombreArchivo, /^FORMULARIO_N1_IDENTIFICACION_DEL_PROPONENTE/);
+  assert.match(divididos[1].nombreArchivo, /^FORMULARIO_N3_OFERTA_ECONÓMICA/);
+});
+
+// Encabezado YA descriptivo ("ANEXO N°1: IDENTIFICACIÓN") no debe mirar el párrafo siguiente —
+// solo los encabezados PELADOS (nada más que el número) disparan la búsqueda de subtítulo.
+test('detectarFormularios: un encabezado ya descriptivo no se contamina con el párrafo siguiente', () => {
+  const xml = NS
+    + p('ANEXO N°1: IDENTIFICACIÓN')
+    + p('Nombre del proponente')
+    + p('ANEXO N°2: DECLARACIÓN')
+    + p('Yo declaro')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios[0].titulo, 'ANEXO N°1: IDENTIFICACIÓN');
+  assert.equal(formularios[1].titulo, 'ANEXO N°2: DECLARACIÓN');
 });
