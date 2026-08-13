@@ -15,7 +15,7 @@ import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoBase } from '@/app/lib/anexos-datos';
-import { abrirDocx, verificarXmlBienFormado } from '@/app/lib/anexos-docx';
+import { abrirDocx, verificarXmlBienFormado, normalizarParaIds } from '@/app/lib/anexos-docx';
 import { dividirPorFormularios } from '@/app/lib/anexos-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
 
@@ -58,7 +58,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const { bufferOriginal, nombreOriginal } = await cargarDocumentoBase(codigo, documentoId);
-    const { xml } = await abrirDocx(bufferOriginal);
+    const { xml: xmlCrudo } = await abrirDocx(bufferOriginal);
+    // BUG REAL (13-ago-2026, caso 1211839-58-LE26): un .docx convertido por el conversor de
+    // producción (LibreOffice) puede no traer w14:paraId en sus párrafos (mismo caso ya conocido
+    // en anexos-docx.ts — ver su comentario arriba, "1 de 4 documentos probados no lo traía").
+    // listarBloquesCrudos (anexos-dividir.ts) SOLO reconoce un párrafo como bloque si trae ese
+    // atributo — sin él, todo el contenido (títulos de FORMULARIO incluidos) cae como texto de
+    // relleno pegado al bloque anterior y detectarFormularios ve 0, sin importar qué tan limpios
+    // estén los encabezados. Las otras rutas que dividen (anexos-rellenar → /api/anexos/generar)
+    // no tenían este problema porque el relleno ya normaliza los IDs antes de llegar acá — este
+    // paso es INDEPENDIENTE del relleno (ver comentario de arriba) y nunca pasaba por ahí.
+    const { xml } = normalizarParaIds(xmlCrudo);
     const formularios = await dividirPorFormularios(bufferOriginal, xml);
 
     if (formularios.length < 2) {
