@@ -26,6 +26,7 @@ if (!anexo) { console.error('No se encontró ANEXO_N°4 entre:', docs.map(d => d
 
 console.log(`Re-extrayendo: ${anexo.documento_nombre}`);
 const r = await descargarYExtraerTexto(anexo.documento_url_local, anexo.documento_nombre, {});
+if (!r) { console.error('descargarYExtraerTexto devolvió null — no se pudo re-extraer.'); process.exit(1); }
 console.log(`Método: ${r.metodo} · confianza: ${r.confianza} · ${r.texto.length} caracteres`);
 console.log(`¿Contiene <table>? ${/<table/i.test(r.texto)}`);
 
