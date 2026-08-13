@@ -429,10 +429,18 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         stream: false,
         max_tokens: 32_000,
         response_format: { type: 'json_object' },
-      }, { timeoutMs: Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000), soloGlm: true });
-      // ↑ timeout primario. Los análisis buenos tardan ~180-200s; con 240s no se cortan, pero si
-      // el modelo activo se CUELGA (le pasa con inputs grandes) caemos al respaldo rápido 40s
-      // antes que con los 280s previos. Configurable con VIABILIDAD_LLM_TIMEOUT_MS.
+      }, {
+        timeoutMs: Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000),
+        // 13-ago-2026 (pedido del usuario, medido en vivo con 1211839-58-LE26: flashx colgado
+        // gastó 690s de los cuales la mayoría fue esperar su propio timeout antes de caer al
+        // respaldo). El modelo PRINCIPAL (flashx, pensado para ser el rápido) tiene un margen
+        // más corto — casos reales exitosos tardaron 4-93s; si no responde en ese margen, mejor
+        // pasar pronto a la cadena de respaldo (que sí conserva el margen completo, 240s por
+        // defecto, para los modelos de última instancia). Configurable con
+        // VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO.
+        timeoutMsPrimario: Math.max(60_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO) || 130_000),
+        soloGlm: true,
+      });
     } catch (e: any) {
       // La CADENA completa (primario + los 2 respaldos GLM) ya se agotó dentro de crearChatIA —
       // reintentar el mismo bloque de nuevo no va a cambiar el resultado, solo suma minutos
@@ -2153,97 +2161,7 @@ export async function analizarYGuardarViabilidadIA(codigo: string): Promise<Viab
   catch (e) { console.error('[viabilidad-ia-v3] volcar ítems falló:', String(e).slice(0, 200)); }
   try { await autoGenerarCosteo(codigo, rv3 as any); }
   catch (e) { console.error('[viabilidad-ia-v3] generar costeo falló:', String(e).slice(0, 200)); }
-  // INFORME TÉCNICO (PDF): si hay maquinaria/equipos, arma la ficha técnica y la deja en Documentos
-  // Propios. Si NO hay maquinaria, no genera nada (la viabilidad completa se ve en pantalla).
-  try { await autoGenerarInformePdf(codigo, rv3 as any); }
-  catch (e) { console.error('[viabilidad-ia-v3] generar informe técnico falló:', String(e).slice(0, 200)); }
   return rv3 as any;
-}
-
-// Heurística barata para no gastar IA en materiales/insumos: un ítem es CANDIDATO a equipo/maquinaria
-// si trae una ficha técnica con suficientes características (los insumos vienen "a secas").
-function esCandidatoEquipo(it: any): boolean {
-  const caracts = Array.isArray(it?.caracteristicas) ? it.caracteristicas.filter(Boolean) : [];
-  return caracts.length >= 6;
-}
-
-// Genera el INFORME TÉCNICO (ficha de especificaciones) del equipamiento tras el análisis y lo registra
-// como documento propio. NO es la viabilidad completa. Detecta la maquinaria, separa las specs reales
-// (vía IA, reusando el analizador de equipamiento) y arma el PDF. Si no hay maquinaria, no genera nada.
-// Tolerante a fallos: si algo falla, el análisis y el costeo NO se ven afectados.
-export async function autoGenerarInformePdf(codigo: string, r: any): Promise<string | null> {
-  const items: any[] = Array.isArray(r?.productos?.items) ? r.productos.items
-    : Array.isArray(r?.costeo?.items) ? r.costeo.items : [];
-  const candidatos = items.filter(esCandidatoEquipo).slice(0, 8); // tope defensivo de llamadas IA
-  if (candidatos.length === 0) {
-    console.log(`[informe-tecnico] ${codigo}: sin ítems con ficha técnica (no es maquinaria) → no se genera informe técnico.`);
-    return null;
-  }
-
-  const { generarBusquedaEquipamiento } = await import('@/app/lib/buscar-equipamiento');
-  const { construirInformeTecnicoHtml, generarInformePdf } = await import('@/app/lib/generar-informe');
-  const { subirDocumentoR2 } = await import('@/app/lib/r2');
-
-  const region = r?.meta?.region || '';
-  const fichas: import('@/app/lib/generar-informe').FichaTecnica[] = [];
-  for (const it of candidatos) {
-    try {
-      const res = await generarBusquedaEquipamiento({
-        nombre: _str(it.nombre || it.descripcion_exacta || it.descripcion),
-        caracteristicas: Array.isArray(it.caracteristicas) ? it.caracteristicas.map(String) : [],
-        cantidad: _num(it.cantidad), region,
-      });
-      if (!res.es_maquinaria) continue;         // la IA confirma que NO es maquinaria → se omite
-      fichas.push({
-        nombre: res.nombre || _str(it.nombre || it.descripcion),
-        marca_referencia: _str(it.marca_modelo_referencia || it.marca_modelo),
-        cantidad: _num(it.cantidad), unidad: _str(it.unidad_medida), ruta: _str(it.ruta),
-        admite_equivalente: it.admite_equivalente,
-        specs_tecnicas: res.specs_tecnicas.length ? res.specs_tecnicas : (Array.isArray(it.caracteristicas) ? it.caracteristicas.map(String) : []),
-        requisitos_admisibilidad: res.requisitos_admisibilidad,
-        condiciones_no_tecnicas: res.descartadas,
-      });
-    } catch (e) { console.warn(`[informe-tecnico] ${codigo}: ficha de un ítem falló:`, String(e).slice(0, 120)); }
-  }
-  if (fichas.length === 0) {
-    console.log(`[informe-tecnico] ${codigo}: la IA no confirmó maquinaria → no se genera informe técnico.`);
-    return null;
-  }
-
-  const html = construirInformeTecnicoHtml(codigo, r?.meta || {}, fichas);
-  const buffer = await generarInformePdf(html);
-  console.log(`[informe-tecnico] ${codigo}: ${fichas.length} ficha(s), PDF ${buffer.length} bytes — subiendo a R2…`);
-
-  const fecha = new Date().toISOString().slice(0, 10);
-  const nombreArchivo = `INFORME_TECNICO_${codigo}_${fecha}.pdf`;
-  const url = await subirDocumentoR2(codigo, nombreArchivo, buffer, 'application/pdf');
-  console.log(`[informe-tecnico] ${codigo}: R2 OK → ${url}`);
-
-  // Inserción defensiva (mismas columnas opcionales que el costeo).
-  let colsExtra = '', valsExtra = '', updateExtra = '';
-  const params: any[] = [codigo, nombreArchivo, url, buffer.length];
-  try {
-    const [cols] = await pool.query(
-      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'documentos_cache'
-       AND COLUMN_NAME IN ('categoria','content_type')`) as any[];
-    const existentes = new Set((cols as any[]).map((c: any) => c.COLUMN_NAME));
-    if (existentes.has('content_type')) { colsExtra += ', content_type'; valsExtra += ', ?'; updateExtra += ', content_type = VALUES(content_type)'; params.push('application/pdf'); }
-    if (existentes.has('categoria')) { colsExtra += ', categoria'; valsExtra += ', ?'; updateExtra += ', categoria = VALUES(categoria)'; params.push('DOCUMENTOS_PROPIOS'); }
-  } catch { /* sin columnas extra */ }
-
-  await pool.query(
-    `INSERT INTO documentos_cache
-       (licitacion_codigo, documento_nombre, documento_url_local, size_bytes${colsExtra})
-     VALUES (?, ?, ?, ?${valsExtra})
-     ON DUPLICATE KEY UPDATE
-       documento_url_local = VALUES(documento_url_local),
-       size_bytes          = VALUES(size_bytes)${updateExtra},
-       updated_at          = CURRENT_TIMESTAMP`,
-    params);
-
-  console.log(`[informe-tecnico] ✅ ${codigo}: informe técnico guardado`);
-  return url;
 }
 
 // Genera el Excel de costeo automáticamente tras el análisis IA.

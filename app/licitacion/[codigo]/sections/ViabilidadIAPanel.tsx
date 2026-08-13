@@ -1010,6 +1010,12 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [avisoProceso, setAvisoProceso] = useState<string | null>(null);  // "Analizando…" (info, NO error)
+  // El polling se rindió sin ver el resultado (ver iniciarPolling) — el análisis puede SEGUIR
+  // corriendo en el server (algunos casos encadenan varios modelos de respaldo, cada uno con
+  // hasta 240s de margen antes de fallar — ver crearChatIA en gemini.ts). Antes esto simplemente
+  // borraba el aviso y la pantalla quedaba como si nada hubiera pasado — el usuario apretaba el
+  // botón de nuevo (gastando OTRO análisis completo) o tenía que refrescar para enterarse.
+  const [avisoLargo, setAvisoLargo] = useState<string | null>(null);
   const [docs, setDocs] = useState<DocRef[]>([]);
   const [visor, setVisor] = useState<VisorOpts | null>(null);   // modal de fuente (página + resaltado)
   // Abre el visor de una cita y lo deja en la bitácora: qué fuente concreta fue a verificar el
@@ -1024,6 +1030,67 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
   const fpInforme = (inf: InformeIA | null) =>
     inf ? `${inf.score_0_100}|${inf.semaforo}|${(inf as any).docs_hash || ''}|${JSON.stringify(inf.veredicto || {})}` : '';
   useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current); }, []);
+
+  // POLLING del resultado. El análisis corre en SEGUNDO PLANO en el server (dura 1-3 min normal,
+  // más si el modelo rápido falla y encadena respaldos — cada uno con hasta 240s de margen antes
+  // de darse por vencido, ver VIABILIDAD_LLM_TIMEOUT_MS en gemini.ts), así que no lo esperamos en
+  // la petición: refrescamos el GET hasta que aparezca el informe nuevo, el server reporte un
+  // error de fondo, o se agote el tiempo. `previo` = huella del informe antes de arrancar (para
+  // detectar el cambio en un re-análisis).
+  //
+  // LÍMITE de espera: 20 minutos (240 intentos × 5s) — antes eran 6 min (72 intentos), que se
+  // quedaba corto contra el peor caso REAL de la cadena de modelos (gemini.ts, PROVEEDORES_TEXTO):
+  // hasta 4 respaldos GLM en fila (flashx → glm-4.7 → glm-4.5-air → glm-5.2), cada uno con hasta
+  // 240s de margen antes de darse por vencido (~16 min solo en timeouts, visto en vivo en
+  // 2467-70-LE26: "flashx, 4.5-air Y 4.7 los tres dieron timeout seguidos") — más el tiempo de
+  // OCR de las bases escaneadas encima. 13-ago-2026, reportado por el usuario: la pantalla "se
+  // cortaba" (quedaba como si no hubiera pasado nada) mientras el análisis SEGUÍA corriendo en
+  // el server — el usuario apretaba el botón de nuevo (gastando un análisis completo extra) o
+  // tenía que refrescar la página para enterarse si había terminado.
+  const LIMITE_INTENTOS_POLL = 240;
+  const iniciarPolling = useCallback((previo: string) => {
+    setAvisoProceso('Analizando las bases… puede tardar 1 a 3 minutos (más si hace falta un modelo de respaldo). Esta pantalla se actualizará sola cuando termine — puedes seguir navegando.');
+    setAvisoLargo(null);
+    setError(null);
+    setCargando(true);
+    let intentos = 0;
+    const parar = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } setCargando(false); };
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      intentos++;
+      try {
+        const rr = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`).then(x => x.json());
+        const nuevo = rr?.informeIA || null;
+        if (typeof rr?.puedeReanalizar === 'boolean') setPuedeReanalizar(rr.puedeReanalizar);
+        setMotivoNoReanalizar(rr?.motivoNoPuedeReanalizar ?? null);
+        // 1) Resultado nuevo listo → mostrarlo (y refrescar documentos: aparece el Excel de costeo).
+        if (nuevo && fpInforme(nuevo) !== previo) {
+          setInforme(nuevo); setError(null); setAvisoProceso(null); setAvisoLargo(null);
+          try { onComplete?.(); } catch { /* noop */ }
+          parar(); return;
+        }
+        // 2) El server reportó un error de fondo → mostrarlo (rojo) y parar.
+        if (rr?.error && !rr?.enProceso) { setAvisoProceso(null); setError(rr.error); parar(); return; }
+        // 3) El job terminó sin cambiar la huella (resultado idéntico) → cerrar sin error.
+        if (rr?.enProceso === false) {
+          if (nuevo) setInforme(nuevo);
+          setAvisoProceso(null); setAvisoLargo(null);
+          try { onComplete?.(); } catch { /* noop */ }
+          parar(); return;
+        }
+        // 4) Sigue en proceso → esperar al próximo tick.
+      } catch { /* reintenta en el próximo tick */ }
+      // Se agotó el margen de espera SIN señal de que terminó — a diferencia de antes, esto NO
+      // borra el aviso en silencio: el análisis puede seguir vivo en el server (el job del
+      // backend no tiene este límite, solo el polling de esta pantalla), así que se deja un
+      // mensaje explícito en vez de fingir que no hay nada corriendo.
+      if (intentos >= LIMITE_INTENTOS_POLL) {
+        setAvisoProceso(null);
+        setAvisoLargo('El análisis está tardando más de lo normal (más de 20 minutos) — puede seguir corriendo en el servidor. Volvé a entrar en unos minutos o refrescá la página antes de apretar "Re-analizar" de nuevo: si lo apretás ahora vas a gastar un análisis completo aparte.');
+        parar();
+      }
+    }, 5000);
+  }, [codigo, onComplete]);
 
   const [cargandoInforme, setCargandoInforme] = useState(true);   // cargando el informe YA guardado (GET inicial)
   const [errorCarga, setErrorCarga] = useState(false);            // el GET del informe guardado falló tras reintentos
@@ -1042,6 +1109,13 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         if (typeof r?.puedeReanalizar === 'boolean') setPuedeReanalizar(r.puedeReanalizar);
         setMotivoNoReanalizar(r?.motivoNoPuedeReanalizar ?? null);
         setCargandoInforme(false);
+        // BUG REAL (13-ago-2026, reportado por el usuario): si el usuario refresca la página
+        // MIENTRAS el análisis sigue corriendo en el server, este GET inicial ya trae
+        // `enProceso: true` (el backend lo sabe, ver GET de licitacion-viabilidad-ia/[codigo])
+        // pero antes se ignoraba por completo — la pantalla cargaba como si no hubiera nada
+        // corriendo, sin ningún aviso ni polling, hasta que el usuario refrescaba de nuevo a
+        // ciegas. Ahora retoma el polling apenas detecta que sigue en curso.
+        if (r?.enProceso) iniciarPolling(fpInforme(r?.informeIA ?? null));
         return;
       } catch {
         if (intento < 3) await new Promise(rr => setTimeout(rr, intento * 900));
@@ -1049,7 +1123,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
     }
     setCargandoInforme(false);
     setErrorCarga(true);
-  }, [codigo]);
+  }, [codigo, iniciarPolling]);
   useEffect(() => { cargar(); }, [cargar]);
 
   // Documentos de la licitación (nombre + URL) para enlazar cada cita a su PDF.
@@ -1115,49 +1189,11 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setCargando(false);
     setAvisoProceso(null);
-  };
-
-  // POLLING del resultado. El análisis corre en SEGUNDO PLANO en el server (dura 1-3 min, más que
-  // el límite ~100s del túnel), así que no lo esperamos en la petición: refrescamos el GET hasta
-  // que aparezca el informe nuevo, el server reporte un error de fondo, o se agote el tiempo.
-  // `previo` = huella del informe antes de arrancar (para detectar el cambio en un re-análisis).
-  const iniciarPolling = (previo: string) => {
-    setAvisoProceso('Analizando las bases… puede tardar 1 a 3 minutos. Esta pantalla se actualizará sola cuando termine — puedes seguir navegando.');
-    setError(null);
-    setCargando(true);
-    let intentos = 0;
-    const parar = () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } setCargando(false); };
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      intentos++;
-      try {
-        const rr = await fetch(`/api/licitacion-viabilidad-ia/${encodeURIComponent(codigo)}`).then(x => x.json());
-        const nuevo = rr?.informeIA || null;
-        if (typeof rr?.puedeReanalizar === 'boolean') setPuedeReanalizar(rr.puedeReanalizar);
-        setMotivoNoReanalizar(rr?.motivoNoPuedeReanalizar ?? null);
-        // 1) Resultado nuevo listo → mostrarlo (y refrescar documentos: aparece el Excel de costeo).
-        if (nuevo && fpInforme(nuevo) !== previo) {
-          setInforme(nuevo); setError(null); setAvisoProceso(null);
-          try { onComplete?.(); } catch { /* noop */ }
-          parar(); return;
-        }
-        // 2) El server reportó un error de fondo → mostrarlo (rojo) y parar.
-        if (rr?.error && !rr?.enProceso) { setAvisoProceso(null); setError(rr.error); parar(); return; }
-        // 3) El job terminó sin cambiar la huella (resultado idéntico) → cerrar sin error.
-        if (rr?.enProceso === false) {
-          if (nuevo) setInforme(nuevo);
-          setAvisoProceso(null);
-          try { onComplete?.(); } catch { /* noop */ }
-          parar(); return;
-        }
-        // 4) Sigue en proceso → esperar al próximo tick.
-      } catch { /* reintenta en el próximo tick */ }
-      if (intentos >= 72) { setAvisoProceso(null); parar(); }  // ~6 min máx (poll cada 5s)
-    }, 5000);
+    setAvisoLargo(null);
   };
 
   const analizar = async () => {
-    setCargando(true); setError(null); setAvisoProceso(null);
+    setCargando(true); setError(null); setAvisoProceso(null); setAvisoLargo(null);
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }  // corta un poll previo
     abortRef.current = new AbortController();
     const previo = fpInforme(informe);
@@ -1350,6 +1386,15 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
         <div className="flex items-start gap-2 text-[13px] text-sky-800 bg-sky-50 border border-sky-200 rounded-lg p-3">
           <Loader2 size={15} className="flex-shrink-0 mt-0.5 animate-spin text-sky-600" />
           <div><p className="font-semibold">Analizando…</p><p className="text-sky-700">{avisoProceso}</p></div>
+        </div>
+      )}
+
+      {/* El polling se rindió sin ver el resultado — a diferencia de antes, esto NO desaparece
+          en silencio: el análisis puede seguir corriendo en el server (ver iniciarPolling). */}
+      {avisoLargo && !error && !avisoProceso && (
+        <div className="flex items-start gap-2 text-[13px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3">
+          <AlertTriangle size={15} className="flex-shrink-0 mt-0.5 text-amber-500" />
+          <div><p className="font-semibold">Sigue esperando…</p><p className="text-amber-700">{avisoLargo}</p></div>
         </div>
       )}
 

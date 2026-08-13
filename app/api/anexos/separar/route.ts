@@ -62,6 +62,16 @@ export async function POST(request: NextRequest) {
     const formularios = await dividirPorFormularios(bufferOriginal, xml);
 
     if (formularios.length < 2) {
+      // DIAGNÓSTICO (13-ago-2026, caso real 1211839-58-LE26): un .doc convertido por el
+      // conversor de producción (LibreOffice) puede estructurar el XML distinto a como lo hace
+      // Word para el MISMO documento origen — el mismo archivo separó perfecto (6 formularios)
+      // al convertirlo con Word, pero el detector encontró <2 acá. Sin este log, un caso así
+      // queda como "no hay nada que separar" indistinguible de un documento que de verdad no
+      // trae nada pegado — no hay forma de diagnosticarlo sin reproducirlo a mano.
+      const textoPlano = [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>|<w:(?:br|cr)\b[^>]*\/?>/g)]
+        .map(m => (m[1] !== undefined ? m[1] : '\n')).join('');
+      const candidatos = [...textoPlano.matchAll(/(?:formulario|anexo)[^\n]{0,60}/gi)].slice(0, 15).map(m => m[0].trim());
+      console.log(`[anexos-separar] ${codigo}: "${nombreOriginal}" — solo ${formularios.length} formulario(s) detectado(s), no se divide. Menciones de "formulario/anexo" en el texto (${candidatos.length}):`, candidatos);
       return NextResponse.json({
         success: true,
         separado: false,

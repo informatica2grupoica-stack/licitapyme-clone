@@ -279,10 +279,13 @@ function esTransitorioIA(e: any): boolean {
 
 // ¿Es específicamente un TIMEOUT (el modelo se colgó, sin respuesta HTTP)? A diferencia de un
 // 429/503 (responde rápido, vale la pena reintentar 3 veces con backoff corto), un timeout ya
-// significa que se esperó el timeoutMs COMPLETO (hasta 240s) sin respuesta — reintentar el MISMO
-// modelo con el MISMO input grande casi siempre vuelve a colgarse. Se le da como máximo 1
-// reintento (por si fue un pico puntual) en vez de las 3 vueltas completas de los transitorios
-// rápidos, para no sumar minutos muertos antes de pasar al siguiente modelo de la cadena.
+// significa que se esperó el timeoutMs COMPLETO sin respuesta — reintentar el MISMO modelo con
+// el MISMO input grande casi siempre vuelve a colgarse. CERO reintentos (13-ago-2026, corregido
+// tras medir en vivo): antes se daba 1 reintento "por si fue un pico puntual", pero eso significa
+// esperar el timeout COMPLETO DOS VECES antes de pasar al siguiente modelo de la cadena — con 4
+// eslabones eso puede sumar más de media hora muerta. Casos reales de esta misma sesión
+// (1211839-58-LE26: flashx colgado, cadena completa hasta glm-5.2) mostraron que cuando un
+// modelo se cuelga por timeout, reintentarlo el mismo no ayuda — conviene pasar al siguiente ya.
 function esTimeoutIA(e: any): boolean {
   if (Number(e?.status ?? 0)) return false; // tiene status HTTP (429/503/...) → no es timeout de cliente
   const s = `${String(e?.code ?? '')} ${String(e?.cause?.code ?? '')} ${String(e?.message ?? '')}`;
@@ -304,7 +307,7 @@ async function intentarProveedor(cfg: ProveedorTexto, params: any, reqOpts: any,
     } catch (e: any) {
       ultimo = e;
       if (esSaldoAgotadoTexto(e) || !esTransitorioIA(e)) throw e; // permanente → arriba decide
-      if (esTimeoutIA(e) && i >= 1) throw e; // timeout: máx 1 reintento, no las 3 vueltas completas
+      if (esTimeoutIA(e)) throw e; // timeout: CERO reintentos, pasar directo al siguiente modelo
       console.warn(`[ia] ${cfg.model} transitorio (${String(e?.status ?? e?.code ?? e?.message).slice(0, 60)}), reintento ${i + 1}/${ESPERAS.length}...`);
     }
   }
@@ -330,9 +333,18 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
 // convertirlo en el modelo de todo el sistema. La cadena de respaldo se arma igual a partir de
 // ese modelo (cfgTextoRespaldos ya excluye duplicados), así que no se pierde ni reintentos ni
 // telemetría ni circuit breaker. No afecta a ningún caller existente (todos omiten esta opción).
-export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string } = {}) {
+//
+// opts.timeoutMsPrimario (13-ago-2026, pedido del usuario tras medir en vivo): el modelo
+// PRINCIPAL (ej. glm-4.7-flashx, pensado para ser el rápido/barato) puede tener un margen más
+// corto que la cadena de respaldo — si de verdad es rápido, responde bien dentro de eso (casos
+// reales medidos: 4-93s); si no responde, mejor pasar pronto al respaldo que esperar el mismo
+// margen generoso que se le da a los modelos de última instancia. Si no se pasa, usa opts.timeoutMs
+// para el principal también (comportamiento previo, sin cambios para callers que no lo usan).
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string } = {}) {
   const activo = opts.modeloPreferido ? { ...PROVEEDORES_TEXTO.zai, model: opts.modeloPreferido } : cfgTexto();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
+  const timeoutPrimario = opts.timeoutMsPrimario ?? opts.timeoutMs;
+  const reqOptsPrimario = timeoutPrimario ? { timeout: timeoutPrimario } : undefined;
   const reqOpts = opts.timeoutMs ? { timeout: opts.timeoutMs } : undefined;
   // IA_SIN_RESPALDO=1 → fuerza usar SOLO el proveedor activo (sin caer a la cadena). Útil para
   // medir/garantizar que TODO corra en un único modelo.
@@ -347,8 +359,8 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; sinRe
   if (textoPrincipalSinSaldo && respaldos.length) return intentarCadena(respaldos, params, reqOpts);
 
   try {
-    if (dbg) console.log(`[ia-dbg] chat PRINCIPAL → ${activo.model} (${activo.baseURL})${opts.timeoutMs ? ` timeout=${opts.timeoutMs}ms` : ''}`);
-    return await intentarProveedor(activo, params, reqOpts, false);
+    if (dbg) console.log(`[ia-dbg] chat PRINCIPAL → ${activo.model} (${activo.baseURL})${timeoutPrimario ? ` timeout=${timeoutPrimario}ms` : ''}`);
+    return await intentarProveedor(activo, params, reqOptsPrimario, false);
   } catch (e: any) {
     // Saldo agotado (1113) → activar breaker para no reintentar el principal en toda la sesión.
     if (esSaldoAgotadoTexto(e) && !textoPrincipalSinSaldo) {
