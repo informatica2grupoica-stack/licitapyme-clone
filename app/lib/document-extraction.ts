@@ -252,7 +252,17 @@ export async function extractTextFromDocument(
       try {
         const mammoth = await import('mammoth');
         const result = await mammoth.extractRawText({ buffer });
-        const texto = result.value || '';
+        let texto = result.value || '';
+        // extractRawText() DESTRUYE la estructura de fila de las tablas Word: cada celda queda
+        // en su propia línea suelta, sin separador — un itemizado de 126 filas (caso real
+        // 1736-82-LE26, ANEXO_N°4.docx) queda irreconocible para el parser de planillas. Se
+        // extraen aparte las tablas reales vía convertToHtml() y se anexan como <table><tr><td>,
+        // el mismo formato que ya sabe leer parsearTablasHtml() (hecho para GLM-OCR).
+        try {
+          const html = await mammoth.convertToHtml({ buffer });
+          const tablas = (html.value.match(/<table[\s\S]*?<\/table>/gi) || []).join('\n\n');
+          if (tablas) texto += '\n\n' + tablas;
+        } catch { /* si falla, se mantiene solo el texto plano */ }
         console.log(`✅ Word (.docx): ${texto.length} caracteres extraídos`);
         return { texto, numPages: 1, metodo: 'word', confianza: 'alta' };
       } catch (error) {

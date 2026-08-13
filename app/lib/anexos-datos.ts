@@ -11,17 +11,19 @@ import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 
-export interface DocumentoYEmpresa {
+export interface DocumentoBase {
   bufferOriginal: Buffer;
   nombreOriginal: string;
+}
+
+export interface DocumentoYEmpresa extends DocumentoBase {
   empresa: EmpresaCampos;
 }
 
-export async function cargarDocumentoYEmpresa(
-  codigo: string,
-  documentoId: string,
-  empresaId: string,
-): Promise<DocumentoYEmpresa> {
+// Carga y normaliza el .doc/.docx crudo de la licitación (sin nada de empresa/negocio) — el único
+// puente que comparten cargarDocumentoYEmpresa (relleno, necesita además la ficha de la empresa) y
+// anexos-separar (solo necesita el documento, se usa ANTES de rellenar nada).
+export async function cargarDocumentoBase(codigo: string, documentoId: string): Promise<DocumentoBase> {
   const [docRows] = await pool.query(
     // Sin filtro de categoría a propósito: el clasificador de Mercado Público a veces mete un
     // anexo real en otra caja (BASES_ADMINISTRATIVAS, OTROS, sin clasificar…) — cualquier .doc/
@@ -32,6 +34,32 @@ export async function cargarDocumentoYEmpresa(
   );
   const doc = (docRows as any[])[0];
   if (!doc) throw new Error('Documento no encontrado en esta licitación');
+
+  const nombre: string = doc.documento_nombre || '';
+  const esDocx = /\.docx$/i.test(nombre);
+  const esDocLegado = !esDocx && /\.doc$/i.test(nombre);
+  if (!esDocx && !esDocLegado) {
+    throw new Error('Solo se soportan documentos Word (.doc o .docx), este no lo es');
+  }
+
+  const resDoc = await fetch(doc.documento_url_local);
+  if (!resDoc.ok) throw new Error(`No se pudo bajar el documento original (HTTP ${resDoc.status})`);
+  const bufferDescargado = Buffer.from(await resDoc.arrayBuffer());
+
+  // .doc legado (Word 97-2003, binario OLE) no se puede editar directo — se convierte a .docx
+  // en el conversor del VPS (LibreOffice headless) antes de analizar/rellenar/separar.
+  const bufferOriginal = esDocLegado ? await convertirDocADocx(bufferDescargado) : bufferDescargado;
+  const nombreOriginal = esDocLegado ? nombre.replace(/\.doc$/i, '.docx') : nombre;
+
+  return { bufferOriginal, nombreOriginal };
+}
+
+export async function cargarDocumentoYEmpresa(
+  codigo: string,
+  documentoId: string,
+  empresaId: string,
+): Promise<DocumentoYEmpresa> {
+  const { bufferOriginal, nombreOriginal } = await cargarDocumentoBase(codigo, documentoId);
 
   // `empresaId` viaja como parámetro del cliente (query string en /analizar, body en /generar) sin
   // ningún cruce contra la licitación — auditoría 12-ago-2026: a diferencia de `documentoId` (que
@@ -48,13 +76,6 @@ export async function cargarDocumentoYEmpresa(
   const negocio = (negocioRows as any[])[0];
   if (negocio?.empresa_id != null && String(negocio.empresa_id) !== String(empresaId)) {
     throw new Error('La empresa indicada no es la asignada a esta licitación');
-  }
-
-  const nombre: string = doc.documento_nombre || '';
-  const esDocx = /\.docx$/i.test(nombre);
-  const esDocLegado = !esDocx && /\.doc$/i.test(nombre);
-  if (!esDocx && !esDocLegado) {
-    throw new Error('Solo se soportan anexos Word (.doc o .docx), este no lo es');
   }
 
   const [empRows] = await pool.query(
@@ -74,15 +95,6 @@ export async function cargarDocumentoYEmpresa(
   // Los datos de LA LICITACIÓN (código, organismo, monto, fechas — ver obtenerLicitacionParaAnexo)
   // se fusionan en el mismo punto, por la misma razón.
   const empresa = { ...conCamposDerivados(empresaCruda), ...(await obtenerLicitacionParaAnexo(codigo)) };
-
-  const resDoc = await fetch(doc.documento_url_local);
-  if (!resDoc.ok) throw new Error(`No se pudo bajar el anexo original (HTTP ${resDoc.status})`);
-  const bufferDescargado = Buffer.from(await resDoc.arrayBuffer());
-
-  // .doc legado (Word 97-2003, binario OLE) no se puede editar directo — se convierte a .docx
-  // en el conversor del VPS (LibreOffice headless) antes de analizar/rellenar.
-  const bufferOriginal = esDocLegado ? await convertirDocADocx(bufferDescargado) : bufferDescargado;
-  const nombreOriginal = esDocLegado ? nombre.replace(/\.doc$/i, '.docx') : nombre;
 
   return { bufferOriginal, nombreOriginal, empresa };
 }

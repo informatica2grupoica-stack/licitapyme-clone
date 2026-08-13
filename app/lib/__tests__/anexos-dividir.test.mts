@@ -3,7 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizarParaIds, verificarXmlBienFormado, eliminarRespaldoVmlDuplicado, abrirDocx } from '../anexos-docx';
-import { dividirPorFormularios, detectarFormularios } from '../anexos-dividir';
+import { dividirPorFormularios, detectarFormularios, clasificarAnexo, nombreArchivoDesdeTitulo } from '../anexos-dividir';
+import { puntajeCoincidencia } from '../anexos-match';
 import JSZip from 'jszip';
 
 const NS = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14" xmlns:mc="urn:mc"><w:body>';
@@ -107,4 +108,61 @@ test('eliminarRespaldoVmlDuplicado: se queda con la copia moderna (mc:Choice), t
   assert.equal((limpio.match(/FIRMA REPRESENTANTE LEGAL/g) || []).length, 1, 'debe quedar UNA sola copia del texto');
   assert.ok(!limpio.includes('mc:Fallback'), 'el respaldo VML no puede sobrevivir');
   assert.ok(limpio.includes('<w:drawing>'), 'la copia moderna (DrawingML) sí se conserva');
+});
+
+// Separación en archivos independientes por título (13-ago-2026): el nombre debe salir del
+// TÍTULO real (no solo el número), y cada fragmento debe quedar clasificado por categoría.
+test('clasificarAnexo: reconoce administrativo/técnico/económico por palabras clave del título + cuerpo', () => {
+  assert.equal(
+    clasificarAnexo('ANEXO N°1: DECLARACIÓN JURADA SIMPLE', 'Yo, representante legal, declaro bajo juramento que no tengo inhabilidad para contratar'),
+    'administrativo',
+  );
+  assert.equal(
+    clasificarAnexo('ANEXO N°2: ESPECIFICACIONES TÉCNICAS', 'El equipo de trabajo y el cronograma de la propuesta técnica se detallan a continuación'),
+    'tecnico',
+  );
+  assert.equal(
+    clasificarAnexo('ANEXO N°3: OFERTA ECONÓMICA', 'Cuadro de precios unitarios, valor total e IVA incluido'),
+    'economico',
+  );
+});
+
+test('clasificarAnexo: sin señal clara (0 coincidencias o empate) no adivina, queda sin_clasificar', () => {
+  assert.equal(clasificarAnexo('ANEXO N°4', 'texto sin ninguna palabra clave reconocible'), 'sin_clasificar');
+});
+
+// BUG REAL evitado en esta implementación: limpiar el título a un nombre de archivo no puede
+// convertir el guion de un sufijo tipo "N°1-A" en "_", porque anexos-match.ts (repartirArchivosGenerados)
+// usa ESE guion literal para reconocer el mismo número+letra al repartir cada archivo dividido a
+// su punto del checklist del Auditor Técnico — con "_" en vez de "-", el matching de letra se
+// pierde en silencio y el archivo cae en el ítem genérico en vez del suyo.
+test('nombreArchivoDesdeTitulo: conserva el guion del sufijo de letra ("N°1-A") para que anexos-match.ts lo siga reconociendo', () => {
+  const nombre = nombreArchivoDesdeTitulo('ANEXO Nº 1-A: IDENTIFICACIÓN DEL OFERENTE', 'administrativo');
+  assert.match(nombre, /N1-A/, `debe conservar "N1-A" literal, salió: ${nombre}`);
+  // Y ese nombre sigue matcheando contra el título del checklist con el mismo número+letra —
+  // la prueba de fondo es que repartirArchivosGenerados no lo mande al ítem equivocado.
+  assert.ok(puntajeCoincidencia('Anexo N°1-A - Identificación del Oferente', nombre) >= 100, 'debe matchear por número con letra, no solo por número');
+});
+
+test('nombreArchivoDesdeTitulo: nombre legible, en mayúsculas, con la categoría como prefijo', () => {
+  const nombre = nombreArchivoDesdeTitulo('ANEXO N°3: OFERTA ECONÓMICA', 'economico');
+  assert.equal(nombre, 'ECONOMICO_ANEXO_N3_OFERTA_ECONÓMICA');
+});
+
+test('dividirPorFormularios: cada fragmento sale con categoría y nombreArchivo (título limpio, no solo el número)', async () => {
+  const xml = NS
+    + p('ANEXO N°1: DECLARACIÓN JURADA SIMPLE')
+    + p('Yo, representante legal, declaro bajo juramento que no tengo inhabilidad para contratar con el Estado')
+    + p('ANEXO N°2: OFERTA ECONÓMICA')
+    + p('Cuadro de precios unitarios y valor total con IVA incluido')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const buffer = await bufferDe(norm);
+
+  const divididos = await dividirPorFormularios(buffer, norm);
+  assert.equal(divididos.length, 2);
+  assert.equal(divididos[0].categoria, 'administrativo');
+  assert.match(divididos[0].nombreArchivo, /^ADMINISTRATIVO_ANEXO_N1/);
+  assert.equal(divididos[1].categoria, 'economico');
+  assert.match(divididos[1].nombreArchivo, /^ECONOMICO_ANEXO_N2/);
 });

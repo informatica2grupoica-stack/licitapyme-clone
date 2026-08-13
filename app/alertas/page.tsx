@@ -42,7 +42,7 @@ const ACCION_META: Record<string, { label: string; icon: React.ReactNode; color:
   favorito:              { label: 'Favorito',                 icon: <Star size={14} />,          color: '#ca8a04', bg: '#fefce8' },
   descarte_radar:        { label: 'Descarte del radar',       icon: <X size={14} />,             color: '#dc2626', bg: '#fef2f2' },
   feedback_viabilidad:   { label: 'Corrección de viabilidad', icon: <MessageSquare size={14} />, color: '#9333ea', bg: '#faf5ff' },
-  chat_ia:               { label: 'Consulta al chat IA',      icon: <MessageSquare size={14} />, color: '#0d9488', bg: '#f0fdfa' },
+  chat_ia:               { label: 'Consulta a ankIA',         icon: <MessageSquare size={14} />, color: '#0d9488', bg: '#f0fdfa' },
   informe:               { label: 'Informe técnico PDF',      icon: <Activity size={14} />,      color: '#4f46e5', bg: '#eef2ff' },
   busqueda_equipamiento: { label: 'Búsqueda de equipamiento', icon: <Eye size={14} />,           color: '#0369a1', bg: '#f0f9ff' },
   radar_manual:          { label: 'Actualizó el radar',       icon: <RadarIcon size={14} />,     color: '#d97706', bg: '#fffbeb' },

@@ -1236,6 +1236,10 @@ function esCandidato(doc: DocTexto): boolean {
   // Catálogo de suministro con valor unitario (aunque el doc no tenga "cantidad" ni nombre típico):
   // la firma "Código interno … Valor Unitario Neto" identifica la tabla de productos a costear.
   if (/c[oó]digo\s+interno|valor\s+unitario\s+neto/i.test(doc.texto)) return true;
+  // Cabecera "Cantidad / Unidad / Productos" con precio unitario (caso real 1736-82-LE26,
+  // ANEXO_N°4.docx: "Precio unitario (Neto$)", sin "valor unitario neto" exacto ni "detalle/
+  // descripción" — y el nombre del archivo no dice "económico"). Firma más laxa a propósito.
+  if (/precio\s+unitario/i.test(doc.texto) && /\bcant/i.test(doc.texto) && /\bunidad\b/i.test(doc.texto)) return true;
   return /detalle|descrip/i.test(doc.texto) && /\bcant/i.test(doc.texto);
 }
 

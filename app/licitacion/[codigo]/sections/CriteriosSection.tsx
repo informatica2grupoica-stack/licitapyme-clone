@@ -56,7 +56,7 @@ export function CriteriosSection({ criterios, analisisIA, criteriosViabilidad, a
         ) : (
           <AlertBanner tipo="info" titulo="Sin criterios informados">
             Mercado Público no informó los criterios de evaluación de forma estructurada para esta licitación, y el análisis
-            automático no encontró criterios en los documentos analizados. Puedes intentar extraerlos desde el asistente de documentos.
+            automático no encontró criterios en los documentos analizados. Puedes intentar extraerlos preguntándole a ankIA.
           </AlertBanner>
         )}
 

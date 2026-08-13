@@ -32,6 +32,7 @@ export type AccionActividad =
   | 'ver_preguntas_licitacion' // consultó el foro de preguntas y respuestas (portal MP en vivo)
   | 'radar_manual'    // disparó manualmente la actualización del radar
   | 'anexo_relleno'   // generó un anexo de oferente rellenado (automático + respuestas manuales)
+  | 'anexo_separado'  // separó un .docx con varios anexos pegados en un archivo por anexo
   | 'feedback_anexo'  // corrigió una casilla mal resuelta del Anexo Creator (feedback loop)
   | 'eliminacion';    // dio de baja un negocio (activo = FALSE)
 
@@ -44,7 +45,7 @@ export type SeccionActividad = (typeof SECCIONES_ACTIVIDAD)[number];
 export const LABEL_SECCION: Record<SeccionActividad, string> = {
   resumen: 'Resumen', viabilidad: 'Viabilidad', criterios: 'Criterios de evaluación',
   fechas: 'Fechas', items: 'Ítems y cantidades', documentos: 'Documentos',
-  analisis: 'Inteligencia', comentarios: 'Comentarios',
+  analisis: 'ankIA', comentarios: 'Comentarios',
 };
 
 export interface EventoActividad {

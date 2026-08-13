@@ -1,8 +1,8 @@
 // app/licitacion/[codigo]/sections/InteligenciaSection.tsx
-// Sección "Inteligencia": chat IA sobre TODOS los documentos de la licitación (corpus
+// Sección "ankIA": chat IA sobre TODOS los documentos de la licitación (corpus
 // completo). Reusa el texto ya extraído (documentos_cache.texto_extraido) cacheado como
 // contexto, con historial persistido por sesión. Backend: /api/licitacion/[codigo]/chat
-// (Gemini 2.5-flash principal + DeepSeek de respaldo). No re-descarga ni re-OCR-ea.
+// (GLM de Z.AI principal, ver chat-licitacion.ts). No re-descarga ni re-OCR-ea.
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
@@ -86,7 +86,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
       if (data.error) throw new Error(data.error);
       setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'respuesta', texto: data.respuesta || 'Sin respuesta.' }]);
     } catch (e: any) {
-      setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'error', texto: e?.message || 'Error al consultar el asistente.' }]);
+      setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'error', texto: e?.message || 'Error al consultar a ankIA.' }]);
     } finally {
       setCargando(false);
       inputRef.current?.focus();
@@ -97,8 +97,8 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
     <div className="space-y-4 fade-in">
       <SectionHeader
         icon={<Brain size={18} />}
-        title="Inteligencia"
-        subtitle="Asistente sobre todos los documentos de la licitación"
+        title="ankIA"
+        subtitle="El asistente que ya leyó todos los documentos de la licitación"
       />
 
       <div className="bg-white rounded-xl border border-zinc-200 shadow-sm overflow-hidden flex flex-col">
@@ -108,7 +108,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
             <div className="p-1.5 bg-purple-600 rounded-lg">
               <Bot size={13} className="text-white" />
             </div>
-            <span className="text-sm font-semibold text-zinc-800">Asistente · Licitación</span>
+            <span className="text-sm font-semibold text-zinc-800">ankIA · Licitación</span>
             <span className="text-xs text-zinc-400 truncate hidden sm:inline">{nombreLicitacion}</span>
             {hayDocs && (
               <span className="ml-auto text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
@@ -127,7 +127,7 @@ export function InteligenciaSection({ codigo, documentosAnalizables, nombreLicit
               </div>
               <p className="text-sm font-medium text-zinc-600">Sin documentos aún</p>
               <p className="text-xs text-zinc-400 mt-1 max-w-[260px]">
-                Descarga documentos de Mercado Público en la sección &quot;Documentos y Bases&quot; para consultarlos con el asistente
+                Descarga documentos de Mercado Público en la sección &quot;Documentos y Bases&quot; para consultarlos con ankIA
               </p>
             </div>
           ) : cargandoHistorial ? (

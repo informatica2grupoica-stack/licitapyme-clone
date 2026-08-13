@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
-  Upload, Trash2, Pencil, Check, X, FolderPlus, Wand2, Send,
+  Upload, Trash2, Pencil, Check, X, FolderPlus, Wand2, Send, Scissors,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
@@ -91,6 +91,7 @@ function DocItem({
   onOpenIA,
   onDelete,
   onRellenarAnexo,
+  onSepararAnexo,
   onEnviarAuditor,
 }: {
   doc: DocumentoAdjunto & { categoria?: string };
@@ -101,6 +102,9 @@ function DocItem({
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onDelete?: (doc: DocumentoAdjunto & { categoria?: string }) => void;
   onRellenarAnexo?: (doc: AnexoDoc) => void;
+  // Separa un .docx que trae varios anexos pegados (ver anexos-dividir.ts) en un archivo por
+  // anexo — paso independiente del relleno, útil para organizar ANTES de llenar nada.
+  onSepararAnexo?: (doc: AnexoDoc) => void;
   // Presente solo cuando esta pantalla vive dentro de un negocio (nunca al mirar una licitación
   // suelta, todavía sin asignar) — manda el documento tal cual está al checklist del Auditor
   // Técnico, sin pasar por el relleno. Para lo que YA quedó listo (una garantía escaneada, un
@@ -110,6 +114,7 @@ function DocItem({
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
   const esPropio = (doc.categoria || '').toUpperCase() === CAT_PROPIOS;
   const rellenable = onRellenarAnexo && esAnexoRellenable(doc);
+  const separable = onSepararAnexo && esAnexoRellenable(doc);
   return (
     <div
       draggable
@@ -141,6 +146,17 @@ function DocItem({
             draggable={false}
           >
             <Wand2 size={11} />
+          </button>
+        )}
+        {separable && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onSepararAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+            className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+            title="Separar en anexos independientes (si trae varios pegados en un solo Word)"
+            draggable={false}
+          >
+            <Scissors size={11} />
           </button>
         )}
         {onEnviarAuditor && (
@@ -215,6 +231,7 @@ function CajaDroppable({
   onUpload,
   onDelete,
   onRellenarAnexo,
+  onSepararAnexo,
   onEnviarAuditor,
   subiendo,
 }: {
@@ -234,6 +251,7 @@ function CajaDroppable({
   onUpload: (file: File, categoria: string) => void;
   onDelete: (doc: DocumentoAdjunto & { categoria?: string }) => void;
   onRellenarAnexo?: (doc: AnexoDoc) => void;
+  onSepararAnexo?: (doc: AnexoDoc) => void;
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
   subiendo: string | null; // key de la caja que está subiendo un archivo
 }) {
@@ -277,6 +295,7 @@ function CajaDroppable({
             onOpenIA={onOpenIA}
             onDelete={onDelete}
             onRellenarAnexo={onRellenarAnexo}
+            onSepararAnexo={onSepararAnexo}
             onEnviarAuditor={onEnviarAuditor}
           />
         ))}
@@ -305,6 +324,7 @@ function DocumentosGrid({
   onOpenIA,
   onRefrescar,
   onRellenarAnexo,
+  onSepararAnexo,
   onEnviarAuditor,
   modo,
 }: {
@@ -314,6 +334,10 @@ function DocumentosGrid({
   onOpenIA: (doc: { nombre: string; url: string }) => void;
   onRefrescar: () => void;
   onRellenarAnexo?: (doc: AnexoDoc) => void;
+  // Habilita el botón de separar en la grilla (gateado por admin desde el padre, igual que
+  // onRellenarAnexo) — el handler real vive ACÁ ABAJO porque necesita toast/confirm/onRefrescar,
+  // que ya están en este componente.
+  onSepararAnexo?: true;
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
   // 'licitacion' = todas las cajas MENOS Documentos Propios (docs de la licitación);
   // 'propios' = SOLO la caja Documentos Propios (lo que creamos/editamos);
@@ -377,6 +401,40 @@ function DocumentosGrid({
         return next;
       });
       toast.error('No se pudo eliminar', e?.message);
+    }
+  };
+
+  // Separa un .docx que trae varios anexos pegados en un archivo por anexo (nombrado por su
+  // título y clasificado admin/técnico/económico — ver anexos-dividir.ts). Nunca toca el
+  // original: los resultados quedan en Documentos Propios, como cualquier archivo generado.
+  const handleSepararAnexo = async (doc: AnexoDoc) => {
+    const ok = await confirmar({
+      titulo: '¿Separar anexos?',
+      mensaje: `Se revisará "${doc.nombre}" en busca de varios anexos pegados en un solo Word. `
+        + 'Si se detecta más de uno, cada uno queda como archivo independiente en Documentos Propios '
+        + '(el original no se modifica).',
+      confirmarLabel: 'Separar',
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch('/api/anexos/separar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: codigoDecoded, documentoId: doc.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo separar el documento');
+      if (!data.separado) {
+        toast.info('Nada que separar', data.mensaje);
+        return;
+      }
+      toast.success(
+        `Separado en ${data.archivos.length} anexos`,
+        data.archivos.map((a: { nombre: string }) => a.nombre).join(', '),
+      );
+      onRefrescar();
+    } catch (e: any) {
+      toast.error('No se pudo separar', e?.message);
     }
   };
 
@@ -563,6 +621,7 @@ function DocumentosGrid({
             onUpload={handleUpload}
             onDelete={handleDelete}
             onRellenarAnexo={onRellenarAnexo}
+            onSepararAnexo={onSepararAnexo ? handleSepararAnexo : undefined}
             onEnviarAuditor={onEnviarAuditor}
             subiendo={subiendo}
           />
@@ -1450,6 +1509,7 @@ export function DocumentosSection({
               onOpenIA={setIaDoc}
               onRefrescar={fetchDocumentos}
               onRellenarAnexo={isAdmin ? setAnexoDoc : undefined}
+              onSepararAnexo={isAdmin ? true : undefined}
               onEnviarAuditor={isAdmin && negocioId ? setEnviandoDoc : undefined}
               modo="licitacion"
             />

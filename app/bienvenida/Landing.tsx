@@ -152,7 +152,7 @@ export default function Landing() {
           </a>
           <nav className="hidden items-center gap-8 text-[13.5px] font-medium text-zinc-500 md:flex">
             <a href="#producto" className="transition-colors hover:text-zinc-900">Producto</a>
-            <a href="#asistente" className="transition-colors hover:text-zinc-900">Asistente IA</a>
+            <a href="#asistente" className="transition-colors hover:text-zinc-900">ankIA</a>
             <a href="#flujo" className="transition-colors hover:text-zinc-900">Cómo funciona</a>
             <a href="#roles" className="transition-colors hover:text-zinc-900">Acceso</a>
           </nav>
@@ -353,18 +353,18 @@ export default function Landing() {
           </div>
         </section>
 
-        {/* ── Asistente IA ─────────────────────────────────────────────────── */}
+        {/* ── ankIA ─────────────────────────────────────────────────────────── */}
         <section id="asistente" className="border-y border-zinc-200 bg-white">
           <div className="mx-auto grid max-w-6xl items-center gap-12 px-4 py-20 sm:px-6 sm:py-24 lg:grid-cols-2 lg:gap-16">
             <Reveal>
               <p className="text-[12.5px] font-bold uppercase tracking-[0.15em]" style={{ color: BRAND_INK }}>
-                Asistente por licitación
+                ankIA · por licitación
               </p>
               <h2 className="mt-3 text-[28px] font-black leading-tight tracking-tight sm:text-[36px]">
                 Pregúntale a las bases, responde con las bases
               </h2>
               <p className="mt-5 max-w-lg text-[15px] leading-relaxed text-zinc-600">
-                Cada licitación tiene su propio asistente, que ya leyó todos los documentos
+                Cada licitación tiene su propio ankIA, que ya leyó todos los documentos
                 del proceso. Responde en segundos y siempre indica de dónde salió el dato:
                 documento, artículo y página. Nada de interpretar a ciegas.
               </p>
@@ -504,7 +504,7 @@ export default function Landing() {
           </div>
           <div className="flex items-center gap-6 text-[13px] text-zinc-500">
             <a href="#producto" className="transition-colors hover:text-zinc-900">Producto</a>
-            <a href="#asistente" className="transition-colors hover:text-zinc-900">Asistente IA</a>
+            <a href="#asistente" className="transition-colors hover:text-zinc-900">ankIA</a>
             <a href="#flujo" className="transition-colors hover:text-zinc-900">Cómo funciona</a>
             <Link href="/login" className="font-semibold transition-colors hover:opacity-80" style={{ color: BRAND_INK }}>
               Iniciar sesión
@@ -682,7 +682,7 @@ function ChatDemo({ reduce }: { reduce: boolean }) {
           <LicitankIcon size={22} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-bold leading-tight">Asistente de la licitación</p>
+          <p className="text-[13px] font-bold leading-tight">ankIA</p>
           <p className="truncate font-mono text-[11px] text-zinc-400">1549-58-LE26 · Hospital San José</p>
         </div>
         <span className="inline-flex items-center gap-1.5 rounded-full bg-[#2FC7A6]/10 px-2.5 py-1 text-[10.5px] font-bold" style={{ color: BRAND_INK }}>

@@ -199,7 +199,113 @@ function sufijoDeArchivo(titulo: string): string {
   return base.replace(/[^\w-]/g, '_');
 }
 
-export interface FormularioDividido { nombreSufijo: string; titulo: string; buffer: Buffer }
+// ── Clasificación por categoría (administrativo/técnico/económico) ────────────────────────────
+// Pedido explícito del usuario (13-ago-2026): al separar un .docx que trae varios anexos pegados,
+// además de un archivo por anexo, cada uno debe quedar etiquetado por su categoría real de
+// licitación pública — mismo criterio con el que un analista humano los ordena antes de armar la
+// oferta. Determinista por palabras clave (mismo espíritu que los 4 regex de contexto de rol en
+// anexos-detectar.ts): sin IA, porque el título + el texto del propio anexo casi siempre alcanzan
+// y una clasificación equivocada acá es visible/corregible de inmediato (es solo el nombre del
+// archivo), a diferencia de un campo mal rellenado. Si ninguna categoría destaca con claridad
+// (empate o cero coincidencias), se deja "sin_clasificar" — nunca se adivina.
+export type CategoriaAnexo = 'administrativo' | 'tecnico' | 'economico' | 'sin_clasificar';
+
+const PALABRAS_ADMINISTRATIVO = [
+  'declaracion jurada', 'identificacion del oferente', 'identificacion del proponente',
+  'antecedentes legales', 'antecedentes administrativos', 'representante legal', 'domicilio',
+  'boleta de garantia', 'garantia de seriedad', 'garantia de fiel cumplimiento', 'toma de razon',
+  'pacto de integridad', 'inhabilidad', 'union temporal de proveedores', 'utp', 'plazo de entrega',
+  'experiencia del oferente', 'vigencia de la oferta', 'certificado de antecedentes',
+  'no tener deudas', 'discapacidad', 'responsabilidad penal', 'persona juridica', 'persona natural',
+  'constitucion de la sociedad', 'poder del representante',
+];
+const PALABRAS_TECNICO = [
+  'especificaciones tecnicas', 'ficha tecnica', 'propuesta tecnica', 'oferta tecnica',
+  'cumplimiento tecnico', 'anexo tecnico', 'certificado de calidad', 'muestra',
+  'capacidad tecnica', 'equipo de trabajo', 'personal tecnico', 'cronograma', 'plan de trabajo',
+  'metodologia', 'garantia tecnica del producto', 'ficha de producto', 'catalogo tecnico',
+  'memoria tecnica', 'hoja de datos de seguridad', 'certificacion iso',
+];
+const PALABRAS_ECONOMICO = [
+  'oferta economica', 'propuesta economica', 'precio unitario', 'presupuesto detallado',
+  'cotizacion', 'valor total', 'monto total', 'estructura de costos', 'forma de pago',
+  'precio neto', 'anexo economico', 'cuadro de precios', 'lista de precios', 'iva incluido',
+];
+
+function normalizarParaClasificar(s: string): string {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function contarCoincidencias(base: string, palabras: string[]): number {
+  return palabras.reduce((n, p) => n + (base.includes(p) ? 1 : 0), 0);
+}
+
+// `titulo` pesa igual que el resto del texto — a propósito no se le da más peso, porque un
+// título como "ANEXO N°3" (sin descripción) no aporta nada y el cuerpo del formulario es la
+// única señal real disponible en ese caso.
+export function clasificarAnexo(titulo: string, textoPlano: string): CategoriaAnexo {
+  const base = normalizarParaClasificar(`${titulo} ${textoPlano}`);
+  const puntajes: [CategoriaAnexo, number][] = [
+    ['administrativo', contarCoincidencias(base, PALABRAS_ADMINISTRATIVO)],
+    ['tecnico', contarCoincidencias(base, PALABRAS_TECNICO)],
+    ['economico', contarCoincidencias(base, PALABRAS_ECONOMICO)],
+  ];
+  puntajes.sort((a, b) => b[1] - a[1]);
+  const [mejorCategoria, mejorPuntaje] = puntajes[0];
+  const [, segundoPuntaje] = puntajes[1];
+  if (mejorPuntaje === 0 || mejorPuntaje === segundoPuntaje) return 'sin_clasificar';
+  return mejorCategoria;
+}
+
+const PREFIJO_CATEGORIA: Record<CategoriaAnexo, string> = {
+  administrativo: 'ADMINISTRATIVO',
+  tecnico: 'TECNICO',
+  economico: 'ECONOMICO',
+  sin_clasificar: 'SIN_CLASIFICAR',
+};
+
+// "ANEXO N°1: DECLARACIÓN JURADA DE REQUISITOS PARA OFERTAR" → "ANEXO_N1_DECLARACION_JURADA...".
+// Se pega el número al "N" ANTES de la limpieza genérica (si no, "N°1" queda "N_1", separado del
+// número por un guion bajo de más — mismo patrón "N{numero}" que ya usa sufijoDeArchivo).
+// El guion SÍ se conserva (a diferencia del resto de la puntuación, que cae a "_"): un sufijo de
+// letra tipo "N°1-A" solo lo reconoce anexos-match.ts (repartirArchivosGenerados, que empareja
+// cada archivo dividido con SU punto del checklist del Auditor Técnico) si queda como "N1-A", con
+// el guion literal pegado al número — su regex exige "-" o nada, nunca "_", entre el número y la
+// letra. Perder ese guion no rompe nada visualmente, pero silenciosamente hace que un anexo con
+// letra (ej. "1-A") deje de encontrar su punto exacto y caiga en el genérico.
+function limpiarParaNombreArchivo(texto: string, maxLargo = 70): string {
+  const conNumeroPegado = texto.replace(/N[°ºO]?\.?\s*(\d)/gi, 'N$1');
+  const limpio = conNumeroPegado
+    .replace(/[^\p{L}\p{N}-]+/gu, '_')
+    .replace(/-{2,}/g, '-')
+    .replace(/^[_-]+|[_-]+$/g, '')
+    .toUpperCase();
+  return limpio.slice(0, maxLargo).replace(/[_-]+$/, '') || 'ANEXO';
+}
+
+export function nombreArchivoDesdeTitulo(titulo: string, categoria: CategoriaAnexo): string {
+  return `${PREFIJO_CATEGORIA[categoria]}_${limpiarParaNombreArchivo(titulo)}`;
+}
+
+// Mismo criterio de extracción de texto que usa listarBloquesCrudos para el título de un párrafo
+// (ver el comentario del "\n" ahí), aplicado al FRAGMENTO completo del formulario — sirve como
+// insumo de clasifarAnexo() cuando el título solo no alcanza (ej. "ANEXO N°3" sin descripción).
+// Acotado a un largo razonable: alcanza con las primeras etiquetas/oraciones del formulario, no
+// hace falta el documento entero para reconocer su categoría.
+const LARGO_MAX_TEXTO_CLASIFICACION = 3000;
+
+function textoPlanoDeXml(xml: string, maxLargo = LARGO_MAX_TEXTO_CLASIFICACION): string {
+  const texto = [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join(' ');
+  return texto.slice(0, maxLargo);
+}
+
+export interface FormularioDividido {
+  nombreSufijo: string;
+  titulo: string;
+  buffer: Buffer;
+  categoria: CategoriaAnexo;
+  nombreArchivo: string; // sin extensión — ver nombreArchivoDesdeTitulo
+}
 
 export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Promise<FormularioDividido[]> {
   const bloques = listarBloquesCrudos(xml);
@@ -233,6 +339,7 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
   const sectPr = sectPrMatches.length ? sectPrMatches[sectPrMatches.length - 1][0] : '';
 
   const resultados: FormularioDividido[] = [];
+  const nombresUsados = new Set<string>();
   for (const f of formularios) {
     // Un bloque entra en el fragmento si CUALQUIER parte de su rango de ordinales cae dentro
     // del rango del formulario — así una tabla se incluye COMPLETA (nunca cortada a la mitad)
@@ -246,7 +353,29 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
     const zip = await JSZip.loadAsync(bufferBase);
     zip.file('word/document.xml', xmlFragmento);
     const buffer = await zip.generateAsync({ type: 'nodebuffer' });
-    resultados.push({ nombreSufijo: sufijoDeArchivo(f.titulo), titulo: f.titulo, buffer });
+    const categoria = clasificarAnexo(f.titulo, textoPlanoDeXml(cuerpo));
+    resultados.push({
+      nombreSufijo: sufijoDeArchivo(f.titulo),
+      titulo: f.titulo,
+      buffer,
+      categoria,
+      nombreArchivo: nombreConDesempate(nombreArchivoDesdeTitulo(f.titulo, categoria), nombresUsados),
+    });
   }
   return resultados;
+}
+
+// Dos anexos del mismo documento rara vez comparten título exacto, pero un título repetido (o dos
+// que se limpian al mismo nombre, ej. "ANEXO N°1" y "ANEXO N°1 (continuación)" truncados por
+// maxLargo) no puede pisarse en R2/documentos_cache — cada nombre devuelto queda único agregando
+// un sufijo numérico a partir del segundo choque.
+function nombreConDesempate(base: string, usados: Set<string>): string {
+  let candidato = base;
+  let n = 2;
+  while (usados.has(candidato)) {
+    candidato = `${base}_${n}`;
+    n += 1;
+  }
+  usados.add(candidato);
+  return candidato;
 }

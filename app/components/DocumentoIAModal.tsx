@@ -1,6 +1,6 @@
 'use client';
 
-// Modal GRANDE de IA por documento: el documento se PREVISUALIZA a la izquierda
+// Modal GRANDE de ankIA por documento: el documento se PREVISUALIZA a la izquierda
 // (mismo motor que DocumentViewerModal: PDF/imagen por proxy inline, Office por el visor
 // de Microsoft) y el chat va a la derecha. Así se pregunta viendo el documento.
 //
@@ -107,7 +107,7 @@ export function DocumentoIAModal({
       if (data.error) throw new Error(data.error);
       setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'respuesta', texto: data.respuesta || 'Sin respuesta.' }]);
     } catch (e: any) {
-      setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'error', texto: e?.message || 'Error al consultar el asistente.' }]);
+      setMensajes(prev => [...prev, { id: nuevoId(), tipo: 'error', texto: e?.message || 'Error al consultar a ankIA.' }]);
     } finally {
       setCargando(false);
       inputRef.current?.focus();
@@ -138,7 +138,7 @@ export function DocumentoIAModal({
       >
         {/* Cabecera */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-slate-200 bg-gradient-to-r from-purple-50 to-indigo-50 flex-shrink-0">
-          <div className="p-1.5 bg-purple-600 rounded-lg flex-shrink-0">
+          <div className="p-1.5 bg-purple-600 rounded-lg flex-shrink-0" title="ankIA">
             <Bot size={14} className="text-white" />
           </div>
           <p className="flex-1 min-w-0 text-[13px] font-semibold text-slate-800 truncate" title={doc.nombre}>
@@ -248,9 +248,9 @@ export function DocumentoIAModal({
                   <div className="w-11 h-11 bg-purple-50 rounded-full flex items-center justify-center mb-3">
                     <Bot size={18} className="text-purple-400" />
                   </div>
-                  <p className="text-sm font-medium text-slate-600">Pregúntame sobre este documento</p>
+                  <p className="text-sm font-medium text-slate-600">ankIA</p>
                   <p className="text-xs text-slate-400 mt-1 max-w-[260px]">
-                    Uso solo el contenido de este documento. Elige una pregunta rápida o escribe la tuya.
+                    Pregúntame sobre este documento. Uso solo su contenido real — elige una pregunta rápida o escribe la tuya.
                   </p>
                 </div>
               )}

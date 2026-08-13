@@ -12,16 +12,23 @@
 // Historial persistido en chat_licitacion por sesion_id ("corpus" para el panel
 // completo; "doc:<nombre>" para el chat rápido de un documento).
 //
-// Modelo principal: Gemini 2.5-flash (respuestas en español natural). Respaldo:
-// DeepSeek (getGemini() del proyecto apunta a DeepSeek).
+// Modelo principal: GLM de Z.AI, fijado a glm-4.7 (MODELO_CHAT_PRINCIPAL más abajo) — NO el
+// glm-4.7-flashx por defecto del resto del sistema, ver el comentario junto a esa constante.
+// Respaldo automático (cfgTextoRespaldos en gemini.ts): otro modelo GLM más liviano, luego
+// DeepSeek. Gemini está RETIRADO (dormido salvo GEMINI_HABILITADO=1 + key).
 
 import pool from './db';
-import { crearChatIA, MODELO_TEXTO, geminiHabilitado } from './gemini';
+import { crearChatIA, geminiHabilitado } from './gemini';
+import { ocrTieneHuecos } from './zai-ocr';
 
-// ~45k tokens de contexto. Holgado para el corpus de una licitación (bases admin +
-// técnicas + aclaraciones); el exceso se trunca SACRIFICANDO lo de menor jerarquía
-// (ver orden por precedencia en construirContextoChat), nunca las bases.
-export const MAX_CHARS_CONTEXTO = 180_000;
+// AUDITORÍA ago-2026 (alucinaciones reportadas por el dueño): medido en BD, 27.6% de las
+// licitaciones (291/1053) tenían un corpus > 180_000 chars y se truncaban — perdiendo bases
+// técnicas/anexos completos sin que el modelo lo supiera con claridad. La viabilidad (mismo
+// modelo GLM, mismo proveedor) ya usa 350_000 chars (~95k tokens, ver MAX_CHARS_DOCS_ANALISIS en
+// viabilidad-ia.ts) porque glm-4.7 aguanta ese contexto de sobra — se alinea el chat al mismo
+// tope en vez de quedarse más corto sin motivo. Con 350k, p95 de corpus real (355_501) casi
+// entra completo: solo ~5% de licitaciones (las más grandes) siguen truncando.
+export const MAX_CHARS_CONTEXTO = Math.max(60_000, Number(process.env.CHAT_MAX_CHARS_CONTEXTO) || 350_000);
 
 // Precedencia documental para el corpus del chat: si hay que truncar, se conserva lo
 // soberano (aclaraciones/bases) y se sacrifican anexos/planos. Menor nº = va primero.
@@ -48,8 +55,24 @@ const MAX_TURNOS = 6;
 const MODELO_GEMINI = 'gemini-2.5-flash';
 
 // Cada documento se envuelve con este marcador para que el modelo pueda citar de qué
-// documento salió cada dato. Mismo formato en el corpus y en el doc individual.
-const marcador = (nombre: string) => `[[DOCUMENTO: ${nombre}]]`;
+// documento salió cada dato. Mismo formato en el corpus y en el doc individual. Si el método de
+// extracción fue de menor confianza (OCR incompleto o de respaldo), se agrega una ADVERTENCIA
+// visible en el propio marcador — así el modelo la ve pegada al texto que debe tratar con cautela,
+// en vez de asumir que todo el corpus tiene la misma fiabilidad.
+const marcador = (nombre: string, advertencia?: string) =>
+  `[[DOCUMENTO: ${nombre}${advertencia ? ` — ADVERTENCIA: ${advertencia}` : ''}]]`;
+
+// Métodos de extracción que NO son de máxima confianza (ver document-extraction.ts). El chat no
+// tenía forma de saberlo: aunque el texto ya venía marcado con el hueco literal OCR_NO_DISPONIBLE
+// cuando la extracción quedó incompleta, el prompt nunca le explicaba al modelo qué significa esa
+// marca ni que un documento entero podía ser de menor fiabilidad — sin ese aviso, el modelo trataba
+// ese texto igual que el resto y podía "leer" con seguridad algo que en realidad es un hueco.
+function advertenciaExtraccion(metodo: string | null, texto: string): string | undefined {
+  if (ocrTieneHuecos(texto)) return 'este documento tiene páginas que aún no se pudieron leer por OCR (marcadas como OCR_NO_DISPONIBLE en el texto) — no asumas que esas páginas no dicen nada, simplemente no se pudieron leer todavía';
+  if (metodo === 'pdf-tesseract-local' || metodo === 'pdf-glm-ocr+tesseract-relleno') return 'texto leído por OCR de respaldo (menor precisión que el OCR principal), puede tener errores de reconocimiento en cifras o nombres';
+  if (metodo === 'pdf-sin-ocr' || metodo === 'pdf-sin-texto' || metodo === 'pdf-error' || metodo === 'word-error' || metodo === 'excel-error') return 'extracción de baja confianza, puede tener texto incompleto o mal reconocido';
+  return undefined;
+}
 
 export interface MensajeHistorial {
   rol: 'usuario' | 'asistente';
@@ -92,8 +115,10 @@ export async function construirContextoChat(
   }
 
   // Reconstruir el corpus desde el texto ya extraído (excluyendo documentos propios).
+  // metodo_extraccion viaja también: sirve para marcar en el propio corpus los documentos de
+  // menor confianza (OCR de respaldo, extracción incompleta) — ver advertenciaExtraccion().
   const [docRows] = await pool.query(
-    `SELECT documento_nombre AS nombre, categoria, texto_extraido AS texto
+    `SELECT documento_nombre AS nombre, categoria, texto_extraido AS texto, metodo_extraccion AS metodo
        FROM documentos_cache
       WHERE licitacion_codigo = ? AND texto_extraido IS NOT NULL AND texto_extraido <> ''
         ${FILTRO_NO_PROPIOS}
@@ -102,11 +127,22 @@ export async function construirContextoChat(
   );
   // Orden por PRECEDENCIA (aclaraciones/bases primero) para que un eventual truncado
   // sacrifique lo de menor jerarquía (anexos/planos) y nunca las bases con el presupuesto.
-  const docs = (docRows as Array<{ nombre: string; categoria: string | null; texto: string }>)
+  const docs = (docRows as Array<{ nombre: string; categoria: string | null; texto: string; metodo: string | null }>)
     .sort((a, b) => prioridadChat(a.nombre, a.categoria) - prioridadChat(b.nombre, b.categoria));
-  let texto = docs.map(d => `${marcador(d.nombre)}\n${(d.texto || '').trim()}`).join('\n\n');
+  let texto = docs
+    .map(d => {
+      const t = (d.texto || '').trim();
+      return `${marcador(d.nombre, advertenciaExtraccion(d.metodo, t))}\n${t}`;
+    })
+    .join('\n\n');
   if (texto.length > MAX_CHARS_CONTEXTO) {
-    texto = texto.slice(0, MAX_CHARS_CONTEXTO) + '\n[...contexto truncado: documentos de menor jerarquía omitidos...]';
+    texto = texto.slice(0, MAX_CHARS_CONTEXTO) +
+      '\n\n[[CONTEXTO TRUNCADO: por límite de tamaño se omitió el resto — quedaron afuera documentos ' +
+      'de MENOR jerarquía (anexos/planos/formularios); las bases y aclaraciones, si entran en el ' +
+      'presupuesto de caracteres, van primero y completas. Si la pregunta trata algo que razonablemente ' +
+      'estaría en un documento que no ves arriba, NO respondas como si ese documento no existiera o no ' +
+      'dijera nada: dilo explícitamente ("no tengo ese documento cargado en este momento; puedes abrirlo ' +
+      'y preguntar directamente sobre él") en vez de inventar o asumir su contenido.]]';
   }
 
   await pool.query(
@@ -130,7 +166,7 @@ export async function construirContextoDocumento(
   documentoNombre: string,
 ): Promise<{ texto: string; encontrado: boolean; actualizadoEn: Date | null }> {
   const [rows] = await pool.query(
-    `SELECT texto_extraido AS texto, texto_extraido_at AS actualizadoEn
+    `SELECT texto_extraido AS texto, texto_extraido_at AS actualizadoEn, metodo_extraccion AS metodo
        FROM documentos_cache
       WHERE licitacion_codigo = ? AND documento_nombre = ? LIMIT 1`,
     [codigo, documentoNombre],
@@ -140,9 +176,11 @@ export async function construirContextoDocumento(
   const actualizadoEn: Date | null = fila?.actualizadoEn ?? null;
   if (!raw) return { texto: '', encontrado: false, actualizadoEn };
 
-  let texto = `${marcador(documentoNombre)}\n${raw}`;
+  let texto = `${marcador(documentoNombre, advertenciaExtraccion(fila?.metodo ?? null, raw))}\n${raw}`;
   if (texto.length > MAX_CHARS_CONTEXTO) {
-    texto = texto.slice(0, MAX_CHARS_CONTEXTO) + '\n[...documento truncado...]';
+    texto = texto.slice(0, MAX_CHARS_CONTEXTO) +
+      '\n\n[[DOCUMENTO TRUNCADO: por límite de tamaño no se incluyó el resto de este documento. Si la ' +
+      'pregunta apunta a una parte que no ves arriba, dilo explícitamente en vez de asumir su contenido.]]';
   }
   return { texto, encontrado: true, actualizadoEn };
 }
@@ -185,15 +223,29 @@ export async function guardarTurno(
 }
 
 // ─── Respuesta del modelo ────────────────────────────────────────────────────────
-const REGLAS = `Eres un asistente experto en licitaciones públicas de Chile (Ley 19.886, DS 250, portal Mercado Público).
-Respondes preguntas sobre UNA licitación usando EXCLUSIVAMENTE el contenido de los documentos entregados.
+// AUDITORÍA ANTI-ALUCINACIÓN (ago-2026): la versión anterior de este prompt solo decía "no
+// inventes" al pasar, sin darle al modelo un PROCEDIMIENTO concreto ni explicarle las señales que
+// el propio sistema ya le manda en el contexto (marca de hueco de OCR, aviso de truncado,
+// documentos de menor confianza) — el modelo no tenía cómo distinguir "el dato no está" de "el
+// dato está en la parte que no llegué a leer". Reescrito con la misma técnica de "regla de oro
+// anti-alucinación" + procedimiento explícito que ya usa anexos-ia-motor.ts (SYS_CAMPOS) para el
+// relleno de anexos, adaptada a respuesta libre en vez de JSON estructurado.
+const REGLAS = `Eres ankIA, el asistente de lectura de documentos de LICITANK, experto en licitaciones públicas de Chile (Ley 19.886, DS 250, portal Mercado Público).
+Respondes preguntas sobre UNA licitación usando EXCLUSIVAMENTE el contenido de los documentos entregados abajo. Tu conocimiento de licitaciones chilenas es solo para ENTENDER ese texto (jerga, siglas, estructura típica de unas bases) — NUNCA para rellenar con lo "típico" o "esperable" un dato que el texto no trae.
 
-Reglas:
+PROCEDIMIENTO OBLIGATORIO (síguelo en orden antes de responder):
+1. Busca el dato TEXTUALMENTE en los documentos entregados. Si no aparece tal cual (como cifra, fecha, plazo o requisito exacto), NO existe para ti — no lo estimes, no lo completes por analogía con licitaciones típicas, no "redondees".
+2. Todo dato duro (monto, plazo, fecha, porcentaje, requisito, garantía, multa, criterio de evaluación) debe quedar asociado al documento del que salió, citando su marcador tal como aparece en el contexto (cada documento viene envuelto en [[DOCUMENTO: nombre]]). Si no puedes señalar de qué documento sale un dato, no lo afirmes como hecho: dilo como "no encontrado" en vez de arriesgarlo.
+3. Si el dato NO aparece en ningún documento, dilo con honestidad y así de explícito: "No aparece en los documentos disponibles." NUNCA inventes cifras, plazos ni requisitos para no dejar la respuesta incompleta — una respuesta incompleta pero honesta es correcta; una completa pero inventada es el peor resultado posible.
+4. Si dentro del texto de un documento ves la marca "OCR_NO_DISPONIBLE", esa parte específica todavía no se pudo leer por OCR — es un HUECO, no evidencia de que el documento no menciona el dato. Si la pregunta cae ahí, dilo explícitamente ("esa parte del documento aún no se pudo leer por OCR, no puedo confirmarlo") en vez de responder como si esa sección no existiera o no dijera nada.
+5. Si un documento trae "ADVERTENCIA" en su marcador (extracción incompleta o de menor confianza), trata sus datos con más cautela y avísale al usuario en la respuesta en vez de darlos con total seguridad.
+6. Si ves un bloque "[[CONTEXTO TRUNCADO...]]" o "[[DOCUMENTO TRUNCADO...]]", parte de los documentos no llegó a tu contexto por tamaño. Si la pregunta apunta a algo que razonablemente estaría en lo que falta y no lo ves en lo que sí tienes, dilo ("no tengo ese documento cargado en este momento") — nunca lo interpretes como que ese documento no existe o no trata el tema.
+7. El HISTORIAL de la conversación es solo para seguir el hilo de la charla, JAMÁS una fuente de datos: si respondiste algo antes y el contexto de documentos (que se te reenvía completo en cada turno) lo contradice, corrígelo — prevalece siempre lo que dicen los documentos AHORA, no lo que dijiste antes.
+
+Estilo de respuesta:
 - Responde en español, claro y directo, como un analista que ya leyó las bases.
-- Básate SOLO en los documentos. Si el dato no aparece, dilo con honestidad ("No aparece en los documentos disponibles"). NUNCA inventes cifras, plazos ni requisitos.
-- Cuando entregues un dato importante, indica de qué documento proviene (cada documento viene marcado con [[DOCUMENTO: nombre]]).
 - Resalta montos, plazos, porcentajes y fechas. Usa viñetas o numeración cuando aclare.
-- Sé conciso: ve al punto, sin relleno.`;
+- Sé conciso: ve al punto, sin relleno — pero nunca sacrifiques una advertencia de dato faltante o incierto por ir más rápido.`;
 
 function historialParaModelo(historial: MensajeHistorial[]): MensajeHistorial[] {
   // Solo los últimos MAX_TURNOS pares (usuario+asistente) para no inflar el prompt.
@@ -222,7 +274,7 @@ async function responderConGemini(contexto: string, historial: MensajeHistorial[
     contents,
     // thinkingBudget:0 → sin tokens de "thinking" (un chat sobre contexto dado no lo necesita):
     // ahorra tokens y evita que el thinking se coma el presupuesto y devuelva texto vacío.
-    generationConfig: { temperature: 0.2, maxOutputTokens: 4_000, thinkingConfig: { thinkingBudget: 0 } },
+    generationConfig: { temperature: 0.1, maxOutputTokens: 4_000, thinkingConfig: { thinkingBudget: 0 } },
   });
 
   const MODELOS = [MODELO_GEMINI, 'gemini-flash-latest'];
@@ -248,6 +300,21 @@ async function responderConGemini(contexto: string, historial: MensajeHistorial[
   throw new Error(`Gemini no respondió: ${ultimoErr}`);
 }
 
+// AUDITORÍA ago-2026: el chat usaba el proveedor de texto ACTIVO sin fijar modelo, es decir
+// GLM_TEXT_MODEL por defecto (glm-4.7-flashx) — el rung más barato/rápido de la cadena, el mismo
+// que el propio .env.local documenta como causante de "manifiestos de ítems vacíos/errados" en la
+// viabilidad, y que anexos-ia-motor.ts/auditor-tecnico.ts evitan a propósito con modeloPreferido
+// (glm-4.7 / glm-5.2) para sus pasos más sensibles a errores. El chat responde directo al usuario
+// sin ningún validador/guardarraíl posterior (a diferencia de viabilidad y anexos, que sí tienen
+// uno) — es exactamente el caso donde MENOS conviene el modelo más barato. Se fija glm-4.7 (el
+// mismo que anexos-ia-motor.ts eligió tras medir que flashx confundía datos): más cuidadoso,
+// sigue siendo GLM (mismo costo de cuenta), y NO se activa soloGlm para no perder el respaldo
+// DeepSeek — el dueño lo quiere reservado justo para el chat (ver cfgTextoRespaldos en gemini.ts).
+// Trade-off asumido: ~5-8x más caro por token que flashx (glm-4.7 $0.60/$2.20 vs flashx
+// $0.07/$0.4 por M) — aceptable porque el chat es interactivo (una llamada por pregunta de un
+// humano), no una corrida batch sobre miles de licitaciones como la viabilidad.
+const MODELO_CHAT_PRINCIPAL = 'glm-4.7';
+
 // Respaldo con el proveedor de texto activo (GLM de Z.AI por defecto; DeepSeek si se revierte).
 async function responderConIA(contexto: string, historial: MensajeHistorial[], pregunta: string): Promise<string> {
   const messages = [
@@ -258,14 +325,12 @@ async function responderConIA(contexto: string, historial: MensajeHistorial[], p
     })),
     { role: 'user' as const, content: pregunta },
   ];
-  const completion = await crearChatIA({
-    messages,
-    temperature: 0.2,
-    stream: false,
-    max_tokens: 4_000,
-  });
+  const completion = await crearChatIA(
+    { messages, temperature: 0.1, stream: false, max_tokens: 4_000 },
+    { modeloPreferido: MODELO_CHAT_PRINCIPAL },
+  );
   const texto = (completion.choices[0]?.message?.content ?? '').trim();
-  if (!texto) throw new Error(`${MODELO_TEXTO}: respuesta vacía`);
+  if (!texto) throw new Error(`${MODELO_CHAT_PRINCIPAL}: respuesta vacía`);
   return texto;
 }
 
@@ -279,7 +344,7 @@ export async function responderChat(opts: {
   // RETIRADO: su respaldo solo corre si se reactiva a propósito (GEMINI_HABILITADO=1 + key).
   try {
     const respuesta = await responderConIA(contexto, historial, pregunta);
-    return { respuesta, modelo: MODELO_TEXTO };
+    return { respuesta, modelo: MODELO_CHAT_PRINCIPAL };
   } catch (e) {
     if (!geminiHabilitado()) throw e;
     console.warn('[chat-licitacion] GLM falló, uso Gemini de respaldo:', e instanceof Error ? e.message : e);

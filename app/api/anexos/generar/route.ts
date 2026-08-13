@@ -106,7 +106,7 @@ export async function POST(request: NextRequest) {
     const formularios = await dividirPorFormularios(resultado.buffer, xmlFinal);
 
     const candidatos = formularios.length >= 2
-      ? formularios.map(f => ({ nombre: `ANEXO_${f.nombreSufijo}_${nombreOriginal}`, buffer: f.buffer }))
+      ? formularios.map(f => ({ nombre: `${f.nombreArchivo}.docx`, buffer: f.buffer }))
       : [{ nombre: `ANEXO_${nombreOriginal}`, buffer: resultado.buffer }];
 
     // Antes de subir NADA: cada .docx candidato debe tener un XML bien formado — ver
