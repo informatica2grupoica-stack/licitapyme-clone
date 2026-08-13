@@ -436,5 +436,15 @@
       "revision_humana": false,
       "excluido": false
     }
+  },
+  {
+    "codigo": "4928-14-LP26",
+    "nota": "corregido 13-ago-2026 (reportado por el usuario: herramientas de uso común, Hospital — bases dicen literalmente 'se desarrollará en Adjudicación en Líneas... el oferente podrá participar por el total o por alguna de las líneas'). No fue un bug de código: los detectores actuales (detectarTipoAdjudicacionMultiple vía 'postular en adjudicación en líneas', detectarOfertaSubconjuntoItems vía 'participar por el total o por alguna') SÍ reconocen el texto real de este caso — el análisis guardado en BD estaba desactualizado (creado 24-jul-2026, antes de que esos patrones existieran/llegaran al VPS de producción) y decía 'sin evidencia objetiva → default GLOBAL'. Re-analizado en vivo el 13-ago-2026: adjudicación pasó a POR_LINEAS (confianza 1, estado DETERMINADA, fuente 'postular en adjudicación en líneas'), modalidad por_linea, costeo regenerado a 3 hojas / 6 ítems. Caso agregado al golden set para que una futura regresión de estos detectores no vuelva a pasar desapercibida.",
+    "esperado": {
+      "modalidad": "por_linea",
+      "adjudicacion": "POR_LINEAS",
+      "n_items_min": 6,
+      "revision_humana": false
+    }
   }
 ]

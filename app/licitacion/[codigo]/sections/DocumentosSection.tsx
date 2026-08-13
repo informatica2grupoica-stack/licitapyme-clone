@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
@@ -12,6 +13,7 @@ import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentVie
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
 import { SelectorPuntoAuditor } from '@/app/components/SelectorPuntoAuditor';
+import { DocSplitLoader } from '@/app/components/ui/DocSplitLoader';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
@@ -376,6 +378,9 @@ function DocumentosGrid({
   const [draggingDoc, setDraggingDoc] = useState<DocumentoAdjunto | null>(null);
   const [subiendo, setSubiendo] = useState<string | null>(null);
   const [errorSubida, setErrorSubida] = useState<string | null>(null);
+  // Nombre del documento que se está separando ahora mismo (null = ninguno) — muestra el
+  // overlay con DocSplitLoader mientras dura el fetch a /api/anexos/separar.
+  const [separando, setSeparando] = useState<string | null>(null);
   const dragEnterCount = useRef<Record<string, number>>({});
   const confirmar = useConfirm();
   const toast = useToast();
@@ -433,6 +438,7 @@ function DocumentosGrid({
       confirmarLabel: 'Separar',
     });
     if (!ok) return;
+    setSeparando(doc.nombre);
     try {
       const res = await fetch('/api/anexos/separar', {
         method: 'POST',
@@ -452,6 +458,8 @@ function DocumentosGrid({
       onRefrescar();
     } catch (e: any) {
       toast.error('No se pudo separar', e?.message);
+    } finally {
+      setSeparando(null);
     }
   };
 
@@ -672,6 +680,20 @@ function DocumentosGrid({
             ))}
           </div>
         </div>
+      )}
+
+      {/* Overlay mientras corre POST /api/anexos/separar — el usuario no tiene forma de saber
+          cuánto tarda (descarga + parsea + clasifica + sube N archivos), así que se le muestra
+          la animación en vez de dejar el botón "colgado" sin feedback. No se puede cerrar a
+          mano: desaparece sola cuando el fetch resuelve (éxito o error), en el finally de
+          handleSepararAnexo. */}
+      {separando && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
+          <div className="bg-white rounded-2xl shadow-2xl px-8 py-7 modal-in">
+            <DocSplitLoader titulo="Separando anexos…" subtitulo={`Revisando "${separando}"`} />
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

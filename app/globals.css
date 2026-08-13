@@ -128,6 +128,34 @@
   100% { transform: translate(-40px, -46px) rotate(0deg); }
 }
 
+/* ── DocSplitLoader: animación de "separar anexos" (ver anexos-dividir.ts) ──
+   Un documento combinado se abre en dos que se deslizan hacia los costados,
+   con una tijera que corta justo en el momento del quiebre. Se repite en loop
+   (se desconoce cuánto tarda el fetch real, puede ser 1 o varios segundos). */
+@keyframes docsplitBase {
+  0%, 22%  { opacity: 1; transform: translateY(0) scale(1); }
+  34%, 88% { opacity: 0; transform: translateY(2px) scale(0.96); }
+  100%     { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes docsplitLeft {
+  0%, 30%   { opacity: 0; transform: translateX(0) rotate(0deg); }
+  42%       { opacity: 1; }
+  55%, 82%  { opacity: 1; transform: translateX(-24px) rotate(-8deg); }
+  96%,100%  { opacity: 0; transform: translateX(-24px) rotate(-8deg); }
+}
+@keyframes docsplitRight {
+  0%, 30%   { opacity: 0; transform: translateX(0) rotate(0deg); }
+  42%       { opacity: 1; }
+  55%, 82%  { opacity: 1; transform: translateX(24px) rotate(8deg); }
+  96%,100%  { opacity: 0; transform: translateX(24px) rotate(8deg); }
+}
+@keyframes docsplitSnip {
+  0%, 20%  { opacity: 0; transform: translate(-50%, -50%) scale(0.5) rotate(-25deg); }
+  26%      { opacity: 1; transform: translate(-50%, -50%) scale(1.15) rotate(20deg); }
+  33%      { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(-12deg); }
+  46%,100% { opacity: 0; transform: translate(-50%, -50%) scale(0.6) rotate(0deg); }
+}
+
 /* ── Utility classes ─────────────────────────────────────────────────────── */
 @layer components {
   .fade-in        { animation: fadeIn       0.2s ease-out both; }
@@ -204,6 +232,23 @@
   .docscan-mango {
     position: absolute; width: 12px; height: 4px; background: #7c3aed;
     border-radius: 2px; bottom: 6px; right: 0; transform: rotate(45deg);
+  }
+
+  /* DocSplitLoader (ver app/components/ui/DocSplitLoader.tsx) */
+  .docsplit { position: relative; width: 110px; height: 96px; }
+  .docsplit-doc {
+    position: absolute; top: 8px; left: 50%; width: 58px; height: 76px;
+    margin-left: -29px; background: #fff; border: 1.5px solid #e2e8f0; border-radius: 9px;
+    padding: 10px 9px; display: flex; flex-direction: column; gap: 6px;
+    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+  }
+  .docsplit-line { height: 4px; border-radius: 3px; background: #e2e8f0; }
+  .docsplit-base { animation: docsplitBase 3.2s ease-in-out infinite; z-index: 2; }
+  .docsplit-left  { animation: docsplitLeft  3.2s ease-in-out infinite; border-color: #ddd6fe; }
+  .docsplit-right { animation: docsplitRight 3.2s ease-in-out infinite; border-color: #ddd6fe; }
+  .docsplit-snip {
+    position: absolute; top: 50%; left: 50%; width: 26px; height: 26px;
+    color: #7c3aed; z-index: 3; animation: docsplitSnip 3.2s ease-in-out infinite;
   }
 
   /* Skeleton shimmer */
