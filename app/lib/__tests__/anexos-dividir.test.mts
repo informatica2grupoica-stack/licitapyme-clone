@@ -210,3 +210,57 @@ test('detectarFormularios: un encabezado ya descriptivo no se contamina con el p
   assert.equal(formularios[0].titulo, 'ANEXO N°1: IDENTIFICACIÓN');
   assert.equal(formularios[1].titulo, 'ANEXO N°2: DECLARACIÓN');
 });
+
+// BUG REAL (13-ago-2026, caso 1211839-58-LE26, "FORMULARIOS.doc"): el conversor de producción
+// (LibreOffice) fusiona el párrafo del encabezado con el del contenido siguiente SIN dejar
+// ningún espacio ni salto entre medio — mismo .doc convertido con Word real sí los separa en
+// párrafos distintos. La línea completa queda demasiado larga (LARGO_MAX_ENCABEZADO) y antes se
+// descartaba entera: "Separar anexos" detectaba 0 formularios en un documento con 6 reales.
+// Strings EXACTOS capturados del log de producción (docker compose logs, mismo caso real).
+test('detectarFormularios: encabezado pegado sin espacio al contenido siguiente (regresión 1211839-58-LE26, bug de conversión LibreOffice)', async () => {
+  const xml = NS
+    + p('FORMULARIO N°1 - AIDENTIFICACIÓN DEL PROPONENTEPROPUESTA PÚBLICA“SERVICIO DE MOVILIZACIÓN')
+    + p('FORMULARIO N°1 - BIDENTIFICACIÓN DEL PROPONENTE EN UNIÓN TEMPORAL DE PROVEEDORESPROPUESTA PÚBLICA“SERVICIO DE MOVILIZACIÓN')
+    + p('FORMULARIO Nº 2OFERTA ECONÓMICAPROPUESTA PÚBLICA“SERVICIO DE MOVILIZACIÓN PARA EDUCACIÓN')
+    + p('FORMULARIO N°3EXPERIENCIA DEL OFERENTE“SERVICIO DE MOVILIZACIÓN PARA EDUCACIÓN MUNICIPAL')
+    + p('FORMULARIO N°4LISTADO DE VEHÍCULOS“SERVICIO DE MOVILIZACIÓN PARA EDUCACIÓN MUNICIPAL')
+    + p('FORMULARIO N°5DECLARACIÓN JURADA INHABILIDADES DEL ARTÍCULO 35 QUÁTER DE LA LEY N°19.886')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 6, 'deben detectarse los 6 formularios reales, no 0');
+  assert.equal(formularios[0].titulo, 'FORMULARIO N°1 - A');
+  assert.equal(formularios[1].titulo, 'FORMULARIO N°1 - B');
+  assert.equal(formularios[2].titulo, 'FORMULARIO Nº 2');
+  assert.equal(formularios[3].titulo, 'FORMULARIO N°3');
+  assert.equal(formularios[4].titulo, 'FORMULARIO N°4');
+  assert.equal(formularios[5].titulo, 'FORMULARIO N°5');
+
+  // Y la división real produce 6 fragmentos válidos (no solo la detección de encabezados).
+  const buffer = await bufferDe(norm);
+  const divididos = await dividirPorFormularios(buffer, norm);
+  assert.equal(divididos.length, 6);
+  for (const d of divididos) {
+    const { xml: fxml } = await abrirDocx(d.buffer);
+    assert.equal(verificarXmlBienFormado(fxml).valido, true, `"${d.nombreArchivo}" debe quedar bien formado`);
+  }
+});
+
+// GUARDARRAÍL: el fallback NO debe reabrir el falso positivo original que motivó
+// LARGO_MAX_ENCABEZADO — una oración larga real que MENCIONA "Formulario N°1" (con espacio o
+// puntuación normal después, como cualquier prosa) nunca debe contarse como encabezado.
+test('detectarFormularios: una oración larga que MENCIONA un formulario (con espacio real) sigue sin contar como encabezado', () => {
+  const xml = NS
+    + p('ANEXO N°1: IDENTIFICACIÓN')
+    + p('Nombre del proponente')
+    + p('Formulario N°1 debe presentarse junto con la boleta de garantía correspondiente al proceso licitatorio, dentro del sobre cerrado que se entrega en la oficina de partes')
+    + p('ANEXO N°2: DECLARACIÓN')
+    + p('Yo declaro')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 2, 'la mención suelta en prosa no debe contarse como un 3er encabezado');
+  assert.equal(formularios[0].titulo, 'ANEXO N°1: IDENTIFICACIÓN');
+  assert.equal(formularios[1].titulo, 'ANEXO N°2: DECLARACIÓN');
+});

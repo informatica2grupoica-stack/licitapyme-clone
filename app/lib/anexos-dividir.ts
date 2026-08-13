@@ -33,6 +33,35 @@ export interface FormularioDetectado { titulo: string; indiceInicio: number; ind
 export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+|\(\s*ANEXO\s*N?[°ºO]?\.?\s*\d+(?:-[A-Z])?\s*\)\s*$/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
+// Solo la forma "FORMULARIO/ANEXO N°X" al INICIO (sin la alternativa "(ANEXO X)" al final) — se usa
+// como fallback cuando la línea completa es demasiado larga para el chequeo normal de arriba. Ver
+// RE_ENCABEZADO_PEGADO_SIN_ESPACIO más abajo para el caso real que motiva esto.
+const RE_ENCABEZADO_PREFIJO = /^(?:FORMULARIO|ANEXO)\s*N[°ºO]?\.?\s*\d+(?:\s*-\s*[A-Za-z])?/i;
+
+// BUG REAL (13-ago-2026, caso 1211839-58-LE26, "FORMULARIOS.doc"): el conversor de producción
+// (LibreOffice headless, microservicio conversor-doc/) fusiona el párrafo del encabezado con el
+// del título/contenido que sigue SIN dejar ningún espacio ni salto entre medio — mismo .doc
+// convertido con Word real sí separa cada uno en su propio párrafo. Resultado: la línea completa
+// queda gigante ("FORMULARIO N°1 - AIDENTIFICACIÓN DEL PROPONENTEPROPUESTA PÚBLICA…", con el
+// nombre de la licitación repetido de yapa) y supera LARGO_MAX_ENCABEZADO, así que el chequeo de
+// arriba la descarta entera — 0 formularios detectados, "Separar anexos" no hacía nada.
+//
+// Guardarraíl clave para no reabrir el falso positivo que motivó LARGO_MAX_ENCABEZADO ("una
+// oración larga que MENCIONA 'Formulario N°1' no es un encabezado", ej. "Formulario N°1 debe
+// presentarse junto con..."): en prosa real SIEMPRE hay un espacio o signo de puntuación después
+// de "Formulario N°1" — nunca queda pegado letra con letra a la palabra siguiente. Los 6 casos
+// reales de este bug (1211839-58-LE26) confirman el patrón: "...- AIDENTIFICACIÓN", "N°3EXPERIENCIA",
+// "N°4LISTADO", "N°5DECLARACIÓN" — CERO espacio entre el número/letra y lo que sigue. Por eso el
+// fallback exige que el carácter INMEDIATAMENTE siguiente al match sea una letra/dígito sin ningún
+// espacio antes — eso es estructuralmente imposible en una oración real, así que no puede reabrir
+// el falso positivo original.
+function pareceEncabezadoPegadoSinEspacio(linea: string): RegExpExecArray | null {
+  const m = RE_ENCABEZADO_PREFIJO.exec(linea);
+  if (!m || m.index !== 0) return null;
+  const siguiente = linea.slice(m[0].length);
+  return /^[\p{L}\p{N}]/u.test(siguiente) ? m : null;
+}
+
 // Un BLOQUE es un elemento de NIVEL SUPERIOR del body: un párrafo suelto o una tabla completa
 // (con todos sus <w:tr>/<w:tc> intactos). Bug real encontrado y corregido acá: la versión
 // anterior aplanaba el documento a solo <w:p>, así que una tabla dentro del rango de un
@@ -213,6 +242,16 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
         const subtitulo = RE_ENCABEZADO_PELADO.test(l) ? buscarSubtituloTrasEncabezadoPelado(bloques, bi) : '';
         encabezados.push({ indice: b.ordinalInicio, titulo: subtitulo ? `${l} ${subtitulo}` : l });
         break; // un párrafo no trae dos encabezados propios
+      }
+      // Fallback: encabezado real pegado sin espacio al contenido siguiente (ver
+      // pareceEncabezadoPegadoSinEspacio) — la línea completa no calzó arriba (casi siempre por
+      // ser demasiado larga), pero el INICIO sí es un encabezado real. Se usa solo esa parte
+      // pegada (número/letra) como título — el resto quedó mezclado sin separador, no se puede
+      // reconstruir un subtítulo limpio de ahí.
+      const mPegado = pareceEncabezadoPegadoSinEspacio(l);
+      if (mPegado) {
+        encabezados.push({ indice: b.ordinalInicio, titulo: mPegado[0].trim() });
+        break;
       }
     }
   }
