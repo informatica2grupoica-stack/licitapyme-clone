@@ -30,6 +30,16 @@ function esAnexoRellenable(doc: DocumentoAdjunto & { categoria?: string }): bool
 // los oficiales descargados de Mercado Público quedan protegidos).
 const CAT_PROPIOS = 'DOCUMENTOS_PROPIOS';
 
+// Las 3 cajas de anexos YA SEPARADOS por categoría (ver anexos-dividir.ts `clasificarAnexo` +
+// POST /api/anexos/separar) — pedido explícito del usuario (13-ago-2026): quedan en "Documentos
+// y Bases" (nunca en "Documentos Propios"), pero siguen siendo archivos que GENERAMOS nosotros
+// (nunca oficiales de MP), así que son borrables/renombrables igual que DOCUMENTOS_PROPIOS —
+// ver CATS_BORRABLES abajo y el mismo criterio espejado en app/api/documentos/[codigo]/route.ts.
+const CAT_ANEXOS_ADMIN = 'ANEXOS_ADMINISTRATIVOS';
+const CAT_ANEXOS_TECNICOS = 'ANEXOS_TECNICOS';
+const CAT_ANEXOS_ECONOMICOS = 'ANEXOS_ECONOMICOS';
+const CATS_BORRABLES = new Set([CAT_PROPIOS, CAT_ANEXOS_ADMIN, CAT_ANEXOS_TECNICOS, CAT_ANEXOS_ECONOMICOS]);
+
 // ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
 // Estilo común a todas las cajas (neutro). El color real lo da el contenido.
 const ESTILO_CAJA = {
@@ -48,6 +58,9 @@ const CAJA_LABELS: Record<string, string> = {
   BASES_ADMINISTRATIVAS: 'Bases Administrativas',
   BASES_TECNICAS: 'Bases Técnicas',
   ANEXOS_OFERENTE: 'Anexos Oferente',
+  ANEXOS_ADMINISTRATIVOS: 'Anexos Administrativos',
+  ANEXOS_TECNICOS: 'Anexos Técnicos',
+  ANEXOS_ECONOMICOS: 'Anexos Económicos',
   DOCUMENTOS_PROCESO: 'Documentos Proceso',
   DOCUMENTOS_PROPIOS: 'Documentos Propios',
   OTROS: 'Otros',
@@ -58,6 +71,9 @@ const ORDEN_CAJAS = [
   'BASES_ADMINISTRATIVAS',
   'BASES_TECNICAS',
   'ANEXOS_OFERENTE',
+  'ANEXOS_ADMINISTRATIVOS',
+  'ANEXOS_TECNICOS',
+  'ANEXOS_ECONOMICOS',
   'DOCUMENTOS_PROCESO',
   'DOCUMENTOS_PROPIOS',
   'OTROS',
@@ -112,7 +128,7 @@ function DocItem({
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
 }) {
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
-  const esPropio = (doc.categoria || '').toUpperCase() === CAT_PROPIOS;
+  const esPropio = CATS_BORRABLES.has((doc.categoria || '').toUpperCase());
   const rellenable = onRellenarAnexo && esAnexoRellenable(doc);
   const separable = onSepararAnexo && esAnexoRellenable(doc);
   return (
@@ -406,13 +422,14 @@ function DocumentosGrid({
 
   // Separa un .docx que trae varios anexos pegados en un archivo por anexo (nombrado por su
   // título y clasificado admin/técnico/económico — ver anexos-dividir.ts). Nunca toca el
-  // original: los resultados quedan en Documentos Propios, como cualquier archivo generado.
+  // original: los resultados quedan en sus propias cajas de "Documentos y Bases"
+  // (Anexos Administrativos/Técnicos/Económicos), no en Documentos Propios.
   const handleSepararAnexo = async (doc: AnexoDoc) => {
     const ok = await confirmar({
       titulo: '¿Separar anexos?',
       mensaje: `Se revisará "${doc.nombre}" en busca de varios anexos pegados en un solo Word. `
-        + 'Si se detecta más de uno, cada uno queda como archivo independiente en Documentos Propios '
-        + '(el original no se modifica).',
+        + 'Si se detecta más de uno, cada uno queda como archivo independiente en su caja de anexos '
+        + '(Administrativos/Técnicos/Económicos, según corresponda) — el original no se modifica.',
       confirmarLabel: 'Separar',
     });
     if (!ok) return;

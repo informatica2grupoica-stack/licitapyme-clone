@@ -2,10 +2,14 @@
 // POST /api/anexos/separar { codigo, documentoId }
 // Paso INDEPENDIENTE del relleno: toma un .docx TAL COMO se bajó de Mercado Público (nunca lo
 // modifica) y, si trae varios anexos pegados en un solo archivo (patrón "FORMULARIO N°X" /
-// "ANEXO N°X" — ver anexos-dividir.ts), sube un archivo nuevo por cada uno a Documentos Propios:
-// nombrado por su título real y clasificado por categoría (administrativo/técnico/económico).
+// "ANEXO N°X" — ver anexos-dividir.ts), sube un archivo nuevo por cada uno, nombrado por su
+// título real. Cada archivo queda en su caja de "Documentos y Bases" según su categoría
+// (ANEXOS_ADMINISTRATIVOS/TECNICOS/ECONOMICOS — ver CATEGORIA_POR_CLASIFICACION abajo), NUNCA en
+// Documentos Propios (pedido explícito del usuario 13-ago-2026: separar es organizar la
+// licitación, no generar un archivo nuestro aparte).
 // Sirve para ORGANIZAR anexos antes de rellenar nada — a diferencia de /api/anexos/generar, que
-// también divide pero solo como resultado de rellenar el documento combinado completo.
+// también divide pero solo como resultado de rellenar el documento combinado completo (ese SÍ
+// sube a Documentos Propios: ahí el resultado es el anexo YA LISTO para presentar).
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
@@ -20,6 +24,17 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const CONTENT_TYPE_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+// Categoría de "Documentos y Bases" (NUNCA Documentos Propios — pedido explícito del usuario
+// 13-ago-2026, así queda visible junto al resto de la licitación, no escondido en la sección de
+// lo que nosotros subimos). "sin_clasificar" cae en ANEXOS_OFERENTE, la caja catch-all que ya
+// existía para anexos sin separar — no amerita una 4ª caja nueva solo para lo no reconocido.
+const CATEGORIA_POR_CLASIFICACION: Record<string, string> = {
+  administrativo: 'ANEXOS_ADMINISTRATIVOS',
+  tecnico: 'ANEXOS_TECNICOS',
+  economico: 'ANEXOS_ECONOMICOS',
+  sin_clasificar: 'ANEXOS_OFERENTE',
+};
 
 export async function POST(request: NextRequest) {
   const usuario = await getAuthedUser(request);
@@ -71,16 +86,17 @@ export async function POST(request: NextRequest) {
     const archivos: { nombre: string; categoria: string; titulo: string; url: string }[] = [];
     for (const f of formularios) {
       const nombre = `${f.nombreArchivo}.docx`;
+      const categoriaCaja = CATEGORIA_POR_CLASIFICACION[f.categoria] || 'ANEXOS_OFERENTE';
       const url = await subirDocumentoR2(codigo, nombre, f.buffer, CONTENT_TYPE_DOCX);
       await pool.query(
         `INSERT INTO documentos_cache
-           (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, usuario_id)
-         VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', ?)
+           (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, categoria_manual, usuario_id)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?)
          ON DUPLICATE KEY UPDATE
            documento_url_local = VALUES(documento_url_local),
            size_bytes          = VALUES(size_bytes),
            updated_at          = CURRENT_TIMESTAMP`,
-        [codigo, nombre, url, f.buffer.length, CONTENT_TYPE_DOCX, usuario.id],
+        [codigo, nombre, url, f.buffer.length, CONTENT_TYPE_DOCX, categoriaCaja, usuario.id],
       );
       archivos.push({ nombre, categoria: f.categoria, titulo: f.titulo, url });
     }

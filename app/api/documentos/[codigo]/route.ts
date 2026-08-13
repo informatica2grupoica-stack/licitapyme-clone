@@ -5,6 +5,12 @@ import { puedeVerLicitacion } from '@/app/lib/api-auth';
 import { borrarDocumentoR2 } from '@/app/lib/r2';
 import { registrarActividad, userIdFromHeaders } from '@/app/lib/actividad';
 
+// Categorías de archivos que GENERAMOS nosotros (nunca oficiales de Mercado Público) — todas
+// borrables/renombrables por igual. Las 3 de anexos separados (ver anexos-dividir.ts
+// `clasificarAnexo` + POST /api/anexos/separar) quedan en "Documentos y Bases", no en
+// DOCUMENTOS_PROPIOS, pero son igual de nuestras — mismo Set espejado en DocumentosSection.tsx.
+const CATS_PROPIAS = new Set(['DOCUMENTOS_PROPIOS', 'ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS']);
+
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ codigo: string }> }
@@ -45,7 +51,7 @@ export async function GET(
   }
 }
 
-// DELETE — borra un documento PROPIO (categoría DOCUMENTOS_PROPIOS) de la licitación.
+// DELETE — borra un documento PROPIO (ver CATS_PROPIAS) de la licitación.
 // Solo se permiten los propios: los oficiales descargados de Mercado Público quedan
 // protegidos. Lo puede hacer cualquier perfil con acceso a la licitación (no requiere admin).
 // Se identifica el documento por su URL (documento_url_local) o, en su defecto, por nombre.
@@ -82,7 +88,7 @@ export async function DELETE(
     // Se pueden borrar los propios; el costeo con precios (COSTEO_ADMIN) solo el admin.
     const cat = (doc.categoria || '').toUpperCase();
     const esAdmin = request.headers.get('x-user-rol') === 'admin';
-    const borrable = cat === 'DOCUMENTOS_PROPIOS' || (cat === 'COSTEO_ADMIN' && esAdmin);
+    const borrable = CATS_PROPIAS.has(cat) || (cat === 'COSTEO_ADMIN' && esAdmin);
     if (!borrable)
       return NextResponse.json(
         { error: 'Solo se pueden eliminar documentos propios; los oficiales de Mercado Público están protegidos.' },
@@ -135,7 +141,7 @@ export async function PATCH(
       [codigoDec, url || '', nombre || '']);
     const doc = (rows as any[])[0];
     if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
-    if ((doc.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS')
+    if (!CATS_PROPIAS.has((doc.categoria || '').toUpperCase()))
       return NextResponse.json({ error: 'Solo se pueden renombrar documentos propios.' }, { status: 403 });
 
     // Conserva la extensión original si el nuevo nombre no la trae.
