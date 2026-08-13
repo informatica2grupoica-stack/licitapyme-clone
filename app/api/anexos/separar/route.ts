@@ -108,6 +108,13 @@ export async function POST(request: NextRequest) {
       const nombre = `${f.nombreArchivo}.docx`;
       const categoriaCaja = CATEGORIA_POR_CLASIFICACION[f.categoria] || 'ANEXOS_OFERENTE';
       const url = await subirDocumentoR2(codigo, nombre, f.buffer, CONTENT_TYPE_DOCX);
+      // BUG REAL (13-ago-2026, caso 1211839-58-LE26): categoria NO estaba en el UPDATE — un
+      // reintento sobre un nombre que ya existía (ej. de un intento anterior fallido a medias)
+      // dejaba la categoría VIEJA pegada para siempre, aunque este mismo cálculo determinista
+      // (clasificarAnexo) ahora diera una distinta. El archivo quedaba subido y su fila existía,
+      // pero en la caja equivocada — visualmente indistinguible de "no se separó" para quien
+      // solo mira una caja a la vez (reportado como "separó 5 de 6": el 6º estaba ahí, pero en
+      // Anexos Oferente en vez de Económicos).
       await pool.query(
         `INSERT INTO documentos_cache
            (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, categoria_manual, usuario_id)
@@ -115,6 +122,7 @@ export async function POST(request: NextRequest) {
          ON DUPLICATE KEY UPDATE
            documento_url_local = VALUES(documento_url_local),
            size_bytes          = VALUES(size_bytes),
+           categoria           = VALUES(categoria),
            updated_at          = CURRENT_TIMESTAMP`,
         [codigo, nombre, url, f.buffer.length, CONTENT_TYPE_DOCX, categoriaCaja, usuario.id],
       );
