@@ -371,3 +371,24 @@ test('detectarFormularios: "ANEXOS"/"FORMULARIOS" en plural (portada genérica, 
   assert.equal(formularios.length, 1);
   assert.equal(formularios[0].titulo, 'ANEXO Nº 1 Contenido');
 });
+
+// CUARTA forma de encabezado (14-ago-2026, caso real 1057536-107-LE26, CESFAM Frutillar): el
+// organismo rotula por CATEGORÍA + número — "FORMULARIO A-1"/"A-2"/"A-3" (Administrativos),
+// "T-1".."T-6" (Técnicos), "E-1"/"E-2" (Económicos) — letra PRIMERO, guion, número, sin "N" y sin
+// comillas. Documento real de 10.452 párrafos, 12 formularios así, 0 detectados antes de esto.
+test('detectarFormularios: encabezados por categoría + número, "FORMULARIO A-1"/"T-1"/"E-1" sin "N" (regresión 1057536-107-LE26)', () => {
+  const xml = NS
+    + p('FORMULARIO A-1')
+    + p('Nombre completo o Razón Social')
+    + p('FORMULARIO T-1')
+    + p('Especificaciones técnicas')
+    + p('FORMULARIO E-1')
+    + p('Oferta económica')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 3);
+  assert.equal(formularios[0].titulo, 'FORMULARIO A-1 Nombre completo o Razón Social');
+  assert.equal(formularios[1].titulo, 'FORMULARIO T-1 Especificaciones técnicas');
+  assert.equal(formularios[2].titulo, 'FORMULARIO E-1 Oferta económica');
+});

@@ -50,13 +50,20 @@ export interface FormularioDetectado { titulo: string; indiceInicio: number; ind
 // fantasma antes del primero real. No hay ningún caso real visto con la letra SIN comillas;
 // si aparece, mejor perderlo (queda pendiente, sin dividir ese anexo puntual) que arriesgar este
 // falso positivo, que contamina TODOS los documentos con un título de portada genérico.
-export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$|^(?:FORMULARIO|ANEXO)\s*["“‘'][A-Z]["”’']\s*$/i;
+// CUARTA forma (14-ago-2026, caso real 1057536-107-LE26, CESFAM Frutillar): el organismo rotula
+// por CATEGORÍA + número — "FORMULARIO A-1"/"A-2"/"A-3" (Administrativos), "FORMULARIO T-1" a
+// "T-6" (Técnicos), "FORMULARIO E-1"/"E-2" (Económicos) — letra PRIMERO, guion, número, sin "N"
+// en absoluto. Ninguna de las tres formas de arriba lo cubre (todas exigen "N" o comillas
+// alrededor de la letra). Documento real de 10.452 párrafos, 12 formularios así, 0 detectados
+// antes de esto — el peor caso visto hasta ahora de este mismo bug (título dentro/fuera de tabla
+// no aplica acá, esto vive en párrafos sueltos normales; el problema era puramente el regex).
+export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$|^(?:FORMULARIO|ANEXO)\s*["“‘'][A-Z]["”’']\s*$|^(?:FORMULARIO|ANEXO)\s*[A-Z]-\d+\s*$/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
 // Solo la forma "FORMULARIO/ANEXO N°X" al INICIO (sin la alternativa "(ANEXO X)" al final) — se usa
 // como fallback cuando la línea completa es demasiado larga para el chequeo normal de arriba. Ver
 // RE_ENCABEZADO_PEGADO_SIN_ESPACIO más abajo para el caso real que motiva esto.
-const RE_ENCABEZADO_PREFIJO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:\s*-\s*[A-Za-z])?/i;
+const RE_ENCABEZADO_PREFIJO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:\s*-\s*[A-Za-z])?|^(?:FORMULARIO|ANEXO)\s*[A-Z]-\d+/i;
 
 // BUG REAL (13-ago-2026, caso 1211839-58-LE26, "FORMULARIOS.doc"): el conversor de producción
 // (LibreOffice headless, microservicio conversor-doc/) fusiona el párrafo del encabezado con el
@@ -211,7 +218,7 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
 // saber cuál es cuál sin abrirlos). Se usa como GUARDA para no tocar el caso ya-descriptivo
 // ("ANEXO N°1: IDENTIFICACIÓN", "ANEXO N°2 ECONOMICO") — ahí no hace falta ni conviene mirar el
 // párrafo siguiente (ver buscarSubtituloTrasEncabezadoPelado, que solo se llama cuando esto matchea).
-const RE_ENCABEZADO_PELADO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Za-z])?\.?$/i;
+const RE_ENCABEZADO_PELADO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Za-z])?\.?$|^(?:FORMULARIO|ANEXO)\s*[A-Z]-\d+\.?$/i;
 
 // El nombre real de la licitación se repite ENTRE COMILLAS al pie de cada formulario ("SERVICIO
 // DE ARRIENDO…") — nunca es el título de la sección, así que corta la búsqueda del subtítulo ahí.
