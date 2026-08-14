@@ -429,14 +429,36 @@ Devuelve SOLO JSON válido: {"lineas":[{"linea":1,"items":[{"descripcion":"...",
 // modelos: flashx → 4.7 → 4.5-air) con sus propios reintentos — si esa cadena entera se agota,
 // reintentarla de nuevo acá no cambia nada. Este loop ahora SOLO reintenta cuando la llamada
 // SÍ respondió pero el JSON vino inválido/truncado (ahí sí vale la pena una segunda pasada).
+// UMBRAL DE PROMPT GRANDE (14-ago-2026, medido en vivo con 4563-10-LP26): con un prompt de
+// 360.194 chars, el primario (flashx, timeout 130s) Y el primer respaldo (240s) se agotaron por
+// timeout ANTES de llegar al modelo de contexto grande que sí respondió (glm-5.2, 201s) — 573 de
+// los 600s del tope duro se gastaron solo en LLEGAR a una respuesta útil, sin margen para nada
+// más (ni el reintento que hizo falta cuando el JSON salió truncado). El comentario de zai_alt3
+// en gemini.ts YA documenta que ese modelo existe justo para el "caso raro" de prompts grandes —
+// pero antes SIEMPRE se pagaba el timeout completo de los eslabones livianos antes de llegar a
+// él. Con un prompt de este tamaño no es una apuesta: el propio código ya sabe que los modelos
+// livianos fallan ahí. Configurable por si el umbral resulta muy agresivo/laxo en la práctica.
+const UMBRAL_PROMPT_GRANDE_CHARS = Math.max(50_000, Number(process.env.VIABILIDAD_UMBRAL_PROMPT_GRANDE) || 200_000);
+
 async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<any> {
   const MAX_INTENTOS_JSON = 2; // 1 reintento si el modelo respondió pero el JSON salió roto
+  const promptTotalChars = systemPrompt.length + userPrompt.length;
+  // Prompt grande → saltar DIRECTO al modelo de contexto grande (evita pagar el timeout completo
+  // de los eslabones livianos, que ya sabemos que van a fallar con un prompt así). Se le da el
+  // margen COMPLETO (timeoutMs, no timeoutMsPrimario) porque, a diferencia de flashx, este NO es
+  // rápido — 201s medidos en vivo, muy por sobre el margen corto pensado para el primario normal.
+  const modeloGrande = promptTotalChars > UMBRAL_PROMPT_GRANDE_CHARS
+    ? (process.env.GLM_TEXT_MODEL_FALLBACK3 || 'glm-5.2') : null;
+  if (modeloGrande) {
+    console.log(`[viabilidad-ia] prompt grande (${promptTotalChars} chars) → saltando directo a ${modeloGrande} (evita agotar el timeout en los modelos más livianos, que con este tamaño van a fallar igual).`);
+  }
   let ultimoErr = '';
   for (let intento = 0; intento < MAX_INTENTOS_JSON; intento++) {
     if (intento > 0) await sleep(5_000);
     let completion: any;
     const t0 = Date.now();
     try {
+      const timeoutMsCompleto = Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000);
       completion = await crearChatIA({
         messages: [
           { role: 'system', content: systemPrompt },
@@ -447,16 +469,18 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         max_tokens: 32_000,
         response_format: { type: 'json_object' },
       }, {
-        timeoutMs: Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000),
+        timeoutMs: timeoutMsCompleto,
         // 13-ago-2026 (pedido del usuario, medido en vivo con 1211839-58-LE26: flashx colgado
         // gastó 690s de los cuales la mayoría fue esperar su propio timeout antes de caer al
         // respaldo). El modelo PRINCIPAL (flashx, pensado para ser el rápido) tiene un margen
         // más corto — casos reales exitosos tardaron 4-93s; si no responde en ese margen, mejor
         // pasar pronto a la cadena de respaldo (que sí conserva el margen completo, 240s por
         // defecto, para los modelos de última instancia). Configurable con
-        // VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO.
-        timeoutMsPrimario: Math.max(60_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO) || 130_000),
+        // VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO. Con prompt grande, el "principal" YA ES el modelo
+        // de contexto grande (modeloGrande) — ese SÍ necesita el margen completo, no el corto.
+        timeoutMsPrimario: modeloGrande ? timeoutMsCompleto : Math.max(60_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO) || 130_000),
         soloGlm: true,
+        ...(modeloGrande ? { modeloPreferido: modeloGrande } : {}),
       });
     } catch (e: any) {
       // La CADENA completa (primario + los 2 respaldos GLM) ya se agotó dentro de crearChatIA —
