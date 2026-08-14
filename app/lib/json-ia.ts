@@ -32,6 +32,19 @@ export function repararJSONTruncado(s: string): string {
   t = t.replace(/:\s*\d+\.?\d*\s*$/, ': null');
   // Clave colgante al final (`{"id":` o `,"id":`) sin valor → descartar ese par incompleto.
   t = t.replace(/([{,])\s*"[^"]*"\s*:\s*$/, '$1');
+  // BUG REAL (14-ago-2026, caso 4563-10-LP26, GLM-5.2 con finish=length): el corte puede caer
+  // ANTES de que la clave (o un elemento de array) siquiera termine de abrirse — el modelo
+  // alcanzó a escribir `..., "L1", "` y ahí se acabó el tope de tokens, sin colon, sin comilla
+  // de cierre, sin valor. Ninguna regla de arriba lo cubre — todas exigen un ":" antes de la
+  // comilla abierta (string-valor sin cerrar) o la comilla de CIERRE de la clave (clave sin
+  // valor); acá la comilla de APERTURA nunca se cerró. El resultado quedaba con un string sin
+  // terminar y JSON.parse fallaba SIEMPRE, aunque solo faltara un fragmento mínimo — eso
+  // disparaba el reintento COMPLETO de la llamada (200s+ en el modelo de respaldo más lento) en
+  // vez de repararse solo, y ese reintento no siempre alcanzaba a terminar dentro del tope duro
+  // de 10 minutos del análisis. Mismo tratamiento que la clave colgante de arriba: se descarta
+  // el fragmento incompleto entero (clave o elemento de array, da igual — ninguno de los dos
+  // tiene contenido real que rescatar).
+  t = t.replace(/([{,])\s*"[^"]*$/, '$1');
   t = t.replace(/,\s*$/, '');                              // coma que pudo quedar tras el descarte
   const stack: string[] = [];
   let inStr = false, esc = false;
