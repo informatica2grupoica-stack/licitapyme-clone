@@ -105,12 +105,27 @@ export function regionCompleta(region: string | null | undefined, direccion?: st
   return comuna ? `${base}, ${comuna}` : base;
 }
 
+// Socio único al 100% (14-ago-2026, pedido explícito del usuario, instructivo interno "Presentacion_
+// Creacion_Anexos_FINAL_CON_EJEMPLOS.pdf" punto 4): sin un registro societario real con varios
+// socios, la política documentada de la empresa es declarar al representante legal como socio
+// único. `null` si no hay representante (mismo criterio anti-invención que el resto del archivo:
+// sin nombre de representante, tampoco hay socio que ofrecer).
+function socioUnicoDe(representanteNombre: string | null | undefined): { nombre: string | null; participacion: string | null } {
+  const nombre = (representanteNombre || '').trim() || null;
+  return { nombre, participacion: nombre ? '100%' : null };
+}
+
+// Programa de Integridad / Compliance (mismo instructivo, punto 5): política fija de la empresa,
+// no depende de la licitación ni de la ficha — se responde "SÍ" siempre que se pregunte.
+const PROGRAMA_INTEGRIDAD_RESPUESTA = 'SÍ';
+
 // Toma el registro tal cual sale de la tabla `empresas` y devuelve el mismo registro CON los
 // campos derivados resueltos. No pisa nada que ya venga con dato propio.
 export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): EmpresaCampos {
   const comuna = comunaDeDireccion(empresa.direccion);
   const { calle, numero } = calleYNumeroDeDireccion(empresa.direccion);
   const { nombres, apellidos } = nombresYApellidosDe(empresa.representante_nombre);
+  const socio = socioUnicoDe(empresa.representante_nombre);
   return {
     ...empresa,
     region: regionCompleta(empresa.region, empresa.direccion),
@@ -120,6 +135,8 @@ export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): 
     comuna, ciudad: comuna,
     direccion_calle: calle, direccion_numero: numero,
     representante_nombres: nombres, representante_apellidos: apellidos,
+    socio_nombre: socio.nombre, socio_participacion: socio.participacion,
+    programa_integridad_respuesta: PROGRAMA_INTEGRIDAD_RESPUESTA,
     fecha_hoy: fechaLargaChile(ahora),
     // Las tres partes por separado, para los pies de firma "Fecha: ____ /____ /____" (tres casillas
     // independientes, el formato más común de los anexos chilenos). Misma hora de Chile que

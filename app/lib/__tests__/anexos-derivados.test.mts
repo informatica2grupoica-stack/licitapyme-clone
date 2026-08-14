@@ -52,3 +52,35 @@ test('nombres/apellidos: sin representante_nombre, no revienta y queda null', ()
   assert.equal(representante_nombres, null);
   assert.equal(representante_apellidos, null);
 });
+
+// (14-ago-2026, pedido explícito del usuario, instructivo interno "Presentacion_Creacion_Anexos_
+// FINAL_CON_EJEMPLOS.pdf" puntos 4 y 5): socio único al 100% y Programa de Integridad siempre "SÍ"
+// — política fija de la empresa, no algo que dependa de la licitación.
+test('socio_nombre/socio_participacion: socio único = representante legal al 100%', () => {
+  const { socio_nombre, socio_participacion } = conCamposDerivados({ ...empresaBase, representante_nombre: 'Lidia Valenzuela' });
+  assert.equal(socio_nombre, 'Lidia Valenzuela');
+  assert.equal(socio_participacion, '100%');
+});
+
+test('socio_nombre/socio_participacion: sin representante, no inventa un socio (mejor pendiente)', () => {
+  const { socio_nombre, socio_participacion } = conCamposDerivados(empresaBase);
+  assert.equal(socio_nombre, null);
+  assert.equal(socio_participacion, null);
+});
+
+test('programa_integridad_respuesta: siempre "SÍ", sin depender de ningún dato de la ficha', () => {
+  assert.equal(conCamposDerivados(empresaBase).programa_integridad_respuesta, 'SÍ');
+});
+
+// BUG REAL (14-ago-2026, mismo instructivo, punto 7): "fecha_hoy" (la fecha con la que se firma y
+// presenta la oferta) debe basarse en la fecha de CIERRE de la licitación cuando se conoce — no en
+// el reloj real del momento en que se genera el anexo (un anexo preparado varios días antes del
+// cierre no debe quedar fechado con el día de la preparación).
+test('fecha_hoy: se basa en la fecha que se pase como "ahora" (la fecha de cierre, no el reloj real)', () => {
+  const fechaCierre = new Date('2026-09-15T15:00:00-04:00');
+  const { fecha_hoy, fecha_hoy_dia, fecha_hoy_mes, fecha_hoy_anio } = conCamposDerivados(empresaBase, fechaCierre);
+  assert.equal(fecha_hoy, '15 de septiembre de 2026');
+  assert.equal(fecha_hoy_dia, '15');
+  assert.equal(fecha_hoy_mes, '09');
+  assert.equal(fecha_hoy_anio, '2026');
+});

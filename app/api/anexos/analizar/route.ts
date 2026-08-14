@@ -5,7 +5,7 @@
 // al abrir la pantalla de relleno).
 import { NextRequest, NextResponse } from 'next/server';
 import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
-import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo } from '@/app/lib/anexos-datos';
+import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo } from '@/app/lib/anexos-datos';
 import { analizarAnexoParaUI } from '@/app/lib/anexos-rellenar';
 
 export const runtime = 'nodejs';
@@ -30,15 +30,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo, basesTexto] = await Promise.all([
+    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo, basesTexto, experienciaOcTexto] = await Promise.all([
       cargarDocumentoYEmpresa(codigo, documentoId, empresaId),
       obtenerItemsCosteoParaAnexo(codigo),
       obtenerTextoBasesParaAnexo(codigo),
+      obtenerExperienciaOcParaAnexo(Number(empresaId)),
     ]);
     // El usuario respondió que sí nos corresponde presentar este anexo pese al aviso del propio
     // documento (ej. esta licitación SÍ se postula en UTP) — ver detectarAvisoNoAplica.
     const forzarAplica = searchParams.get('aplica') === '1';
-    const analisis = await analizarAnexoParaUI(bufferOriginal, empresa, itemsCosteo, basesTexto, forzarAplica);
+    const analisis = await analizarAnexoParaUI(bufferOriginal, empresa, itemsCosteo, basesTexto, forzarAplica, experienciaOcTexto);
     return NextResponse.json({ success: true, nombre: nombreOriginal, ...analisis });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 400 });

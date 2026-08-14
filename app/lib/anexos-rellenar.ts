@@ -32,7 +32,7 @@ import {
   type CandidatoCelda, type CandidatoInline, type TablaCruda, type AvisoNoAplica, type RolFechaTriplete,
 } from '@/app/lib/anexos-detectar';
 import {
-  resolverAnexoConIA, resolverEspecificacionesDesdeBasesConIA,
+  resolverAnexoConIA, resolverEspecificacionesDesdeBasesConIA, resolverExperienciaDesdeOrdenesCompra,
   type EmpresaCampos, type Resolucion, type AlertaInadmisibilidad,
 } from '@/app/lib/anexos-ia-motor';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
@@ -50,7 +50,7 @@ export type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 const fmtNumeroCL = (n: number) => new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n);
 
 export interface CampoCompletado {
-  etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases';
+  etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra';
   formulario?: string; // a qué "FORMULARIO N°X" pertenece, para agruparlo igual que los pendientes
   // Índice de párrafo de la celda de origen (candidatosCelda) — no lo usa el modal, solo las
   // herramientas de medición (scripts/anexos-golden.mts) para alinear contra el humano por celda.
@@ -76,14 +76,14 @@ export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: 
 // en el backend porque lo arma construirTablaUI, no la réplica de párrafo.
 export type SegmentoCeldaUI =
   | { t: 'texto'; v: string }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string }
   | { t: 'input'; id: string };
 
 export interface CeldaTablaUI {
   texto: string;                                   // texto ya existente en el Word (columna, dato fijo)
   // `etiqueta` — de dónde viene este valor (ver ResolucionMostrada) — viaja hasta el frontend para
   // que el botón "corregir" (ver anexos-feedback.ts) sepa a qué TIPO de casilla enseñarle la regla.
-  auto?: { valor: string; via: 'ia' | 'costeo' | 'bases'; etiqueta?: string };   // se completó sola — se muestra el valor, sin input
+  auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string };   // se completó sola — se muestra el valor, sin input
   input?: { id: string };                          // blanco real pendiente — el mismo id que usa generarAnexoFinal
   // BUG REAL (3713-7-LE26): una celda con texto propio que además trae un blanco INLINE adentro
   // ("SI ____ NO ____ declaro...", "Plazo de entrega ……… días hábiles") nunca calzaba con
@@ -104,7 +104,7 @@ function formularioDe(indiceParrafo: number, formularios: FormularioDetectado[])
 }
 
 export interface CampoResuelto {
-  c: CandidatoCelda; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases';
+  c: CandidatoCelda; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra';
   // true si viene de camposConDosPuntos ("Etiqueta:" con el valor en la misma línea) — ese
   // párrafo YA tiene texto (la etiqueta misma), así que se escribe con rellenarFinDeParrafo
   // (agrega al final), nunca con rellenarCeldaVacia (que exige la celda vacía y revienta si no).
@@ -122,7 +122,7 @@ interface ResultadoResolucion {
   matcheados: CampoResuelto[];
   pendientes: CandidatoCelda[];
   pendientesConMotivo: Map<number, { categoria: string; motivo: string }>;
-  inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' }[];
+  inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra' }[];
   inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[];
   alertasInadmisibilidad: AlertaInadmisibilidad[];
   checklistPendientes: string[];
@@ -181,6 +181,7 @@ async function resolverTodo(
   tripletesFecha: Map<string, RolFechaTriplete>,
   alternativasExcluyentes: Set<string>,
   haySeccionUtpOmitida: boolean,
+  ocsTexto: string | undefined,
 ): Promise<ResultadoResolucion> {
   const elegibles = candidatosCelda.filter(c => !soloManual?.has(c.indice));
   const soloManualCandidatos = candidatosCelda.filter(c => soloManual?.has(c.indice));
@@ -276,7 +277,7 @@ async function resolverTodo(
     }
   }
 
-  const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' }[] = [];
+  const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra' }[] = [];
   const inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[] = [];
   for (const { b, valor } of inlineFecha) {
     inlineAuto.push({ b, valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia' });
@@ -318,6 +319,35 @@ async function resolverTodo(
         if (res?.tipo === 'auto') inlineAuto.push({ b: p.b, valor: res.valor, etiqueta: (p.b.contexto || '').replace(/\s*:\s*$/, ''), via: 'bases' });
         else inlinePendientesFinal.push(p);
       }
+    }
+  }
+
+  // Tercera oportunidad, SOLO para lo que sigue pendiente como "especifico_licitacion" tras
+  // bases: una tabla de "Experiencia del Oferente" (N° OC, fecha, cliente, objeto, monto) no la
+  // resuelven las bases (piden un dato NUESTRO, no algo que publicó el organismo) — la resuelve la
+  // base real de Órdenes de Compra (ver resolverExperienciaDesdeOrdenesCompra). El propio prompt
+  // de ese paso exige que la etiqueta calce con una tabla de experiencia antes de proponer nada, así
+  // que no hace falta filtrar más acá — una casilla ajena (ej. "Plazo de entrega") simplemente
+  // vuelve con valor null y sigue pendiente igual que antes.
+  if (ocsTexto && ocsTexto.trim()) {
+    const celdaEspecifico = pendientesFinal.filter(c => pendientesConMotivo.get(c.indice)?.categoria === 'especifico_licitacion');
+    const inlineEspecifico = inlinePendientesFinal.filter(p => p.categoria === 'especifico_licitacion').map(p => p.b);
+    if (celdaEspecifico.length || inlineEspecifico.length) {
+      const desdeOc = await resolverExperienciaDesdeOrdenesCompra(celdaEspecifico, inlineEspecifico, parrafos, ocsTexto);
+      const pendientesTrasOc: CandidatoCelda[] = [];
+      for (const c of pendientesFinal) {
+        const res = desdeOc.celda.get(c.indice);
+        if (res?.tipo === 'auto') { matcheados.push({ c, campo: res.categoria, valor: res.valor, via: 'ordenes_compra' }); pendientesConMotivo.delete(c.indice); }
+        else pendientesTrasOc.push(c);
+      }
+      pendientesFinal = pendientesTrasOc;
+      const inlinePendientesTrasOc: typeof inlinePendientesFinal = [];
+      for (const p of inlinePendientesFinal) {
+        const res = desdeOc.inline.get(`${p.b.indiceRun}:${p.b.posEnTexto}`);
+        if (res?.tipo === 'auto') inlineAuto.push({ b: p.b, valor: res.valor, etiqueta: (p.b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ordenes_compra' });
+        else inlinePendientesTrasOc.push(p);
+      }
+      inlinePendientesFinal = inlinePendientesTrasOc;
     }
   }
 
@@ -550,7 +580,7 @@ export interface AnalisisAnexo {
 }
 
 type ResolucionMostrada =
-  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' }
+  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' }
   | { tipo: 'pendiente'; etiqueta: string; id: string };
 
 export async function analizarAnexoParaUI(
@@ -558,6 +588,11 @@ export async function analizarAnexoParaUI(
   // El usuario dijo explícitamente "sí, este anexo nos corresponde" (ej. esta vez SÍ postulamos en
   // UTP) — se ignora el aviso del documento y se autocompleta normal.
   forzarAplica = false,
+  // Órdenes de compra reales de esta empresa (Aceptada/Recepción conforme), como texto — candidatos
+  // para la tabla de "Experiencia del Oferente" (ver resolverExperienciaDesdeOrdenesCompra y
+  // obtenerExperienciaOcParaAnexo en anexos-datos.ts). Opcional: sin esto, esas casillas quedan
+  // pendientes igual que antes, nunca rompe el resto del análisis.
+  experienciaOcTexto = '',
 ): Promise<AnalisisAnexo> {
   const { zip, xml: xmlCrudoSinNormalizar } = await abrirDocx(bufferOriginal);
   // eliminarRespaldoVmlDuplicado va PRIMERO, antes que nada más — ver su comentario en
@@ -595,6 +630,7 @@ export async function analizarAnexoParaUI(
         empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
         formularios.map(f => f.titulo), forzarAplica, analisis.tripletesFecha, analisis.alternativasExcluyentes,
         analisis.secciones.some(s => s.tipo === 'UTP' && s.decision === 'OMITIR'),
+        experienciaOcTexto,
       ),
     analizarSeccionesEscaneadas(zip, xmlNormalizado, empresa).catch(e => {
       console.error('[anexos-rellenar] Falló el análisis de secciones escaneadas, se omite sin bloquear el resto:', String(e).slice(0, 200));
@@ -751,6 +787,8 @@ export async function generarAnexoFinal(
   respuestas: Record<string, string>,
   itemsCosteo?: ItemCosteoPrecio[],
   basesTexto?: string,
+  // Ver el mismo parámetro en analizarAnexoParaUI — candidatos de experiencia desde OC reales.
+  experienciaOcTexto = '',
 ): Promise<ResultadoGeneracion> {
   const { zip, xml: xmlCrudoSinNormalizar } = await abrirDocx(bufferOriginal);
   // eliminarRespaldoVmlDuplicado va PRIMERO, antes que nada más — ver su comentario en
@@ -781,6 +819,7 @@ export async function generarAnexoFinal(
       empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
       formularios.map(f => f.titulo), respuestas.anexoAplica === '1', analisis.tripletesFecha, analisis.alternativasExcluyentes,
       analisis.secciones.some(s => s.tipo === 'UTP' && s.decision === 'OMITIR'),
+      experienciaOcTexto,
     );
 
   let xml = xmlNormalizado;

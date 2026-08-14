@@ -698,3 +698,56 @@ export async function ordenesDeLicitacion(codigo: string): Promise<OrdenCompraFi
     };
   });
 }
+
+// ── Órdenes de compra como EXPERIENCIA acreditable (14-ago-2026, pedido explícito del usuario,
+// instructivo interno "Presentacion_Creacion_Anexos_FINAL_CON_EJEMPLOS.pdf" punto 8) ────────────
+// Los anexos de "Experiencia del Oferente" piden una tabla con contratos/OC anteriores (fecha,
+// N° OC, cliente/mandante, descripción del objeto, monto) — antes el Anexo Creator no tenía ninguna
+// conexión con esta base de OC ya cruzada por RUT/nombre (ver la cabecera de este archivo), así que
+// esa tabla quedaba siempre en blanco pese a que la data real ya existe acá.
+//
+// Filtro de estado — regla explícita del instructivo: SOLO cuentan las OC en "Aceptada" (código 6)
+// o "Recepción conforme" (código 12). Una OC "Enviada a proveedor" o "En proceso" todavía puede
+// caerse o rechazarse, no es evidencia firme de experiencia cumplida — y "Cancelada" obviamente
+// tampoco. Se deja afuera "Recepción conforme incompleta" (código 15) a propósito: el instructivo
+// nombra los dos estados exactos, no una entrega parcial.
+const ESTADOS_ACREDITAN_EXPERIENCIA = [6, 12];
+
+export interface OcExperiencia {
+  codigo: string;
+  fecha: string | null;       // ISO — la más confiable disponible (aceptación > envío > creación)
+  cliente: string | null;     // organismo comprador (el "mandante" que pide el instructivo)
+  descripcion: string;        // nombre de la OC — lo más parecido a "objeto de la contratación" que trae el registro
+  monto: number | null;
+  moneda: string | null;
+}
+
+/**
+ * OC reales de ESTA empresa que acreditan experiencia (estado Aceptada/Recepción conforme),
+ * más recientes primero. Se usan como candidatos para la tabla de "Experiencia del Oferente" de
+ * los anexos — NUNCA se auto-confirman solas: la IA (ver resolverExperienciaDesdeOrdenesCompra en
+ * anexos-ia-motor.ts) todavía tiene que juzgar si describen la experiencia que ESTA licitación
+ * puntual pide, y el resultado queda marcado `via: 'ordenes_compra'` en la UI para que un humano
+ * confirme la pertinencia antes de presentar — mismo criterio de cautela que pide el instructivo
+ * ("no basta con que exista una OC; debe ser pertinente a la experiencia que se está acreditando").
+ */
+export async function ocsParaExperiencia(empresaId: number, limite = 15): Promise<OcExperiencia[]> {
+  const ph = ESTADOS_ACREDITAN_EXPERIENCIA.map(() => '?').join(',');
+  const [rows] = await pool.query(
+    `SELECT codigo, nombre, comprador_organismo, moneda, total,
+            COALESCE(fecha_aceptacion, fecha_envio, fecha_creacion) AS fecha
+       FROM ordenes_compra
+      WHERE empresa_id = ? AND es_nuestra = 1 AND codigo_estado IN (${ph})
+      ORDER BY COALESCE(fecha_aceptacion, fecha_envio, fecha_creacion) DESC
+      LIMIT ?`,
+    [empresaId, ...ESTADOS_ACREDITAN_EXPERIENCIA, limite],
+  ) as any[];
+  return (rows as any[]).map(r => ({
+    codigo: r.codigo,
+    fecha: r.fecha ? new Date(r.fecha).toISOString() : null,
+    cliente: r.comprador_organismo || null,
+    descripcion: r.nombre || '',
+    monto: r.total == null ? null : Number(r.total),
+    moneda: r.moneda || null,
+  }));
+}

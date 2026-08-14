@@ -10,6 +10,7 @@ import { parsearCosteo, itemsPrecioDeCosteo, type ItemCosteoPrecio } from '@/app
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
+import { ocsParaExperiencia } from '@/app/lib/ordenes-compra';
 
 export interface DocumentoBase {
   bufferOriginal: Buffer;
@@ -94,7 +95,18 @@ export async function cargarDocumentoYEmpresa(
   // (analizar/generar), para que ninguna pueda quedarse con el registro crudo por olvido.
   // Los datos de LA LICITACIÓN (código, organismo, monto, fechas — ver obtenerLicitacionParaAnexo)
   // se fusionan en el mismo punto, por la misma razón.
-  const empresa = { ...conCamposDerivados(empresaCruda), ...(await obtenerLicitacionParaAnexo(codigo)) };
+  //
+  // FECHA (14-ago-2026, pedido explícito del usuario, instructivo interno "Presentacion_Creacion_
+  // Anexos_FINAL_CON_EJEMPLOS.pdf" punto 7): "fecha_hoy" — la fecha con la que se firma y presenta
+  // la oferta — se basa en la FECHA DE CIERRE vigente de la licitación, no en el reloj del momento
+  // en que se genera el anexo. Antes usaba `new Date()` (la hora real del servidor): un anexo
+  // preparado varios días antes del cierre quedaba fechado con el día de la preparación, no con el
+  // día de cierre que pide la política de la empresa. Se obtiene la licitación PRIMERO (antes tenía
+  // el orden invertido) para tener la fecha de cierre disponible al llamar a conCamposDerivados —
+  // sin cierre disponible (MP lento/caído, o licitación sin fecha), se degrada al reloj real, igual
+  // que siempre.
+  const { campos: datosLicitacion, fechaCierre } = await obtenerLicitacionParaAnexo(codigo);
+  const empresa = { ...conCamposDerivados(empresaCruda, fechaCierre ?? undefined), ...datosLicitacion };
 
   return { bufferOriginal, nombreOriginal, empresa };
 }
@@ -128,27 +140,35 @@ type CamposLicitacion = Pick<EmpresaCampos,
   | 'licitacion_monto_estimado' | 'licitacion_moneda' | 'licitacion_fecha_publicacion' | 'licitacion_fecha_cierre'
 >;
 
-async function obtenerLicitacionParaAnexo(codigo: string): Promise<CamposLicitacion> {
+// `fechaCierre` viaja SUELTA (además de dentro de `campos`, ya formateada como texto largo) porque
+// cargarDocumentoYEmpresa la necesita como Date real para conCamposDerivados — ver el comentario
+// de ahí sobre por qué "fecha_hoy" pasó a basarse en el cierre de la licitación, no en el reloj.
+async function obtenerLicitacionParaAnexo(codigo: string): Promise<{ campos: CamposLicitacion; fechaCierre: Date | null }> {
   try {
     const lic = await getMercadoPublicoClient().obtenerPorCodigoRapido(codigo, 8_000);
-    if (!lic) return {};
+    if (!lic) return { campos: {}, fechaCierre: null };
+    const fechaCierreCruda = lic.FechaCierre ? new Date(lic.FechaCierre) : null;
+    const fechaCierre = fechaCierreCruda && !Number.isNaN(fechaCierreCruda.getTime()) ? fechaCierreCruda : null;
     return {
-      licitacion_codigo: lic.Codigo || codigo,
-      licitacion_nombre: lic.Nombre || null,
-      licitacion_organismo: lic.Organismo || null,
-      licitacion_organismo_rut: lic.RutOrganismo || null,
-      licitacion_direccion: lic.DireccionUnidad || null,
-      licitacion_comuna: lic.ComunaUnidad || null,
-      licitacion_region: lic.Region || null,
-      licitacion_unidad_compradora: lic.NombreUnidad || null,
-      licitacion_monto_estimado: formatearMontoCLP(lic.MontoEstimado ?? lic.MontoTotal),
-      licitacion_moneda: MONEDA_LABEL_MAP[lic.Moneda || 'CLP'] || lic.Moneda || null,
-      licitacion_fecha_publicacion: formatearFechaLicitacion(lic.FechaPublicacion),
-      licitacion_fecha_cierre: formatearFechaLicitacion(lic.FechaCierre),
+      campos: {
+        licitacion_codigo: lic.Codigo || codigo,
+        licitacion_nombre: lic.Nombre || null,
+        licitacion_organismo: lic.Organismo || null,
+        licitacion_organismo_rut: lic.RutOrganismo || null,
+        licitacion_direccion: lic.DireccionUnidad || null,
+        licitacion_comuna: lic.ComunaUnidad || null,
+        licitacion_region: lic.Region || null,
+        licitacion_unidad_compradora: lic.NombreUnidad || null,
+        licitacion_monto_estimado: formatearMontoCLP(lic.MontoEstimado ?? lic.MontoTotal),
+        licitacion_moneda: MONEDA_LABEL_MAP[lic.Moneda || 'CLP'] || lic.Moneda || null,
+        licitacion_fecha_publicacion: formatearFechaLicitacion(lic.FechaPublicacion),
+        licitacion_fecha_cierre: fechaCierre ? fechaLargaChile(fechaCierre) : null,
+      },
+      fechaCierre,
     };
   } catch (e) {
     console.error(`[anexos-datos] no se pudo obtener la licitación ${codigo} para el Anexo Creator:`, String(e).slice(0, 200));
-    return {};
+    return { campos: {}, fechaCierre: null };
   }
 }
 
@@ -264,6 +284,32 @@ export async function obtenerTextoBasesParaAnexo(codigo: string): Promise<string
     return texto;
   } catch (e) {
     console.error(`[anexos-datos] no se pudo leer el texto de bases de ${codigo}:`, String(e).slice(0, 200));
+    return '';
+  }
+}
+
+// ── Órdenes de compra reales — candidatos para la tabla "Experiencia del Oferente" ────────────
+// (14-ago-2026, pedido explícito del usuario, ver ocsParaExperiencia en ordenes-compra.ts para el
+// filtro de estado y el criterio completo). Se formatea como texto plano compacto — mismo
+// tratamiento que obtenerTextoBasesParaAnexo de arriba: el motor de IA recibe texto, nunca la
+// estructura completa, así resolverExperienciaDesdeOrdenesCompra (anexos-ia-motor.ts) queda
+// desacoplado del esquema real de la tabla `ordenes_compra`. Best-effort y NUNCA lanza: sin OC
+// reales que ofrecer, el Anexo Creator sigue igual, esas casillas simplemente siguen pendientes.
+function formatearMontoOC(monto: number | null, moneda: string | null): string {
+  if (monto == null) return 'monto no registrado';
+  const fmt = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(monto);
+  return `${moneda || 'CLP'} ${fmt}`;
+}
+
+export async function obtenerExperienciaOcParaAnexo(empresaId: number): Promise<string> {
+  try {
+    const ocs = await ocsParaExperiencia(empresaId);
+    if (!ocs.length) return '';
+    return ocs
+      .map(oc => `N° OC ${oc.codigo} | Fecha: ${oc.fecha ? fechaLargaChile(new Date(oc.fecha)) : 'sin fecha'} | Cliente/mandante: ${oc.cliente || 'sin registrar'} | Objeto: ${oc.descripcion || 'sin descripción'} | Monto: ${formatearMontoOC(oc.monto, oc.moneda)}`)
+      .join('\n');
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudieron leer las OC de experiencia de la empresa ${empresaId}:`, String(e).slice(0, 200));
     return '';
   }
 }

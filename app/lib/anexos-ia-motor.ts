@@ -84,6 +84,24 @@ export interface EmpresaCampos {
   // (1 palabra, o 5+) — ver nombresYApellidosDe en anexos-derivados.ts.
   representante_nombres?: string | null;
   representante_apellidos?: string | null;
+  // Socio/Accionista + % de participación (14-ago-2026, pedido explícito del usuario, ver
+  // instructivo interno "Presentacion_Creacion_Anexos_FINAL_CON_EJEMPLOS.pdf" punto 4): la ficha
+  // de empresa no guarda un registro societario real (varios socios, cada uno con su %) — cuando
+  // un anexo pide "Nombre Socio/Accionista" y "Porcentaje de Derechos o Participación" sin que
+  // haya otro dato más específico, la política de la empresa (documentada, no una suposición
+  // nuestra) es usar al representante legal como socio único al 100%. Si más adelante se necesita
+  // una ficha societaria real con varios socios, esto deja de ser un campo derivado y pasa a ser
+  // una tabla propia — por ahora resuelve el caso que se da en la práctica.
+  socio_nombre?: string | null;
+  socio_participacion?: string | null;
+  // Programa de Integridad / Compliance (14-ago-2026, mismo instructivo interno, punto 5): TODOS
+  // los anexos que preguntan si la empresa cuenta con Programa de Integridad se responden "SÍ" —
+  // política de la empresa, no un dato que varíe por licitación. Antes esta pregunta quedaba
+  // SIEMPRE en decision_del_usuario (ver el comentario de esa categoría más abajo) y había que
+  // marcarla a mano en cada anexo de cada licitación. Ojo: esto SOLO resuelve la pregunta
+  // SÍ/NO de "¿cuenta con...?" — una casilla que pide DESCRIBIR el programa (en qué consiste, qué
+  // políticas incluye) sigue siendo decision_del_usuario, ese texto no es un booleano fijo.
+  programa_integridad_respuesta?: string | null;
   // Datos de ESTA LICITACIÓN (tampoco son columnas de `empresas` — se resuelven en
   // anexos-datos.ts llamando a Mercado Público por el código de la licitación que se está
   // rellenando, ver obtenerLicitacionParaAnexo). Van en el MISMO objeto que la ficha de empresa
@@ -150,6 +168,7 @@ const CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA: (keyof EmpresaCampos)[] = [
   'representante_nombres', 'representante_apellidos',
   'email1', 'telefono1',
   'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra', 'fecha_hoy_dia_mes',
+  'socio_nombre', 'socio_participacion', 'programa_integridad_respuesta',
 ];
 
 const CAMPOS_PERMITIDOS_POR_CATEGORIA: Record<string, (keyof EmpresaCampos)[]> = {
@@ -304,12 +323,15 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   banco_email: 'Correo electrónico para pagos',
   banco_titular_nombre: 'Nombre del titular de la cuenta bancaria (puede ser distinto de la razón social)',
   banco_titular_rut: 'RUT/cédula de identidad del titular de la cuenta bancaria',
-  fecha_hoy: 'Fecha de hoy en formato largo ("4 de agosto de 2026") — con la que se firma y presenta esta oferta',
+  fecha_hoy: 'Fecha con la que se firma y presenta esta oferta, en formato largo ("4 de agosto de 2026") — la fecha de CIERRE de esta licitación cuando se conoce (política de la empresa), si no la fecha real de hoy',
   fecha_hoy_dia: 'Solo el DÍA de hoy (número) — para pies de firma partidos: "Fecha: __ /__ /__"',
   fecha_hoy_mes: 'Solo el MES de hoy (número) — la casilla del medio de "Fecha: __ /__ /__"',
   fecha_hoy_anio: 'Solo el AÑO de hoy (4 dígitos) — la última casilla de "Fecha: __ /__ /__"',
   fecha_hoy_mes_palabra: 'Solo el MES de hoy EN PALABRA ("agosto") — la casilla del medio de "___ de __ de ___" (NUNCA el número ahí)',
   fecha_hoy_dia_mes: 'Día + mes en palabra de HOY, SIN año ("06 de agosto") — para una casilla SUELTA (no un triplete) donde el año ya viene impreso fijo en la plantilla, ej. "LA UNIÓN, ___ DE 2026"',
+  socio_nombre: 'Nombre del Socio/Accionista — por política de la empresa, el representante legal (socio único). Casilla "Nombre Socio/Accionista".',
+  socio_participacion: 'Porcentaje de Derechos o Participación del socio — siempre "100%" (socio único). Casilla "Porcentaje de Derechos"/"% de Participación".',
+  programa_integridad_respuesta: '"SÍ" — respuesta fija a "¿Cuenta con Programa de Integridad/Compliance?" o equivalente (código de ética, Directiva N°31 ChileCompra). Política de la empresa: SIEMPRE se responde que sí.',
   licitacion_codigo: 'Código/ID de ESTA licitación en Mercado Público',
   licitacion_nombre: 'Nombre/título de ESTA licitación',
   licitacion_organismo: 'Nombre del organismo comprador (la institución que licita, no el oferente)',
@@ -383,7 +405,7 @@ e) "firma_fecha": SOLO una raya de firma manuscrita, o "Ciudad y fecha ___" pega
 f) "no_aplica_al_oferente": encabezado/columna sin dato propio que pedir, bloque de Persona Natural o UTP (esta empresa postula como persona jurídica individual), o anexo de uso interno del organismo licitante ("USO DE LA ENTIDAD LICITANTE", pautas de evaluación internas). Valor null.
 
 ANEXO O SECCIÓN CONDICIONAL COMPLETA (caso particular de la regla f, caso real 4777-24-LE26): si el TÍTULO del anexo o de la sección (no una frase suelta a mitad de párrafo) indica explícitamente que ese bloque entero solo aplica bajo una condición que el oferente no cumple — ej. "FORMATO IDENTIFICACIÓN UNIÓN TEMPORAL DE PROVEEDORES (SOLO SI CORRESPONDE)" cuando la empresa postula sola, o "ANEXO PERSONA NATURAL" cuando postula una persona jurídica — TODAS las casillas de ese anexo/sección van a no_aplica_al_oferente con valor null, INCLUIDAS las que pidan "nombre del proponente", "RUT del oferente", "representante legal del proponente" o cualquier fecha/encabezado que preceda a esos datos ("REGIÓN:", "PROVINCIA:", "COMUNA:", "FECHA:"). Señal para reconocerlo: el título trae "(SOLO SI CORRESPONDE)", "EN CASO DE UNIÓN TEMPORAL", "SI POSTULA COMO PERSONA NATURAL" o equivalente, y aparece ANTES de las casillas como encabezado de sección — no en medio de una oración. Esto prima sobre la sinonimia proponente=oferente y sobre la regla de "una sola persona" de más abajo: esas dos solo aplican a una casilla suelta dentro de un párrafo mixto que menciona UTP de pasada, NUNCA cuando el título mismo del bloque marca la condición de exclusión.
-g) "decision_del_usuario": exige elegir entre opciones que no se infieren de datos objetivos (ej. qué nivel de programa de integridad declarar, si pertenece a un grupo empresarial) y no viene resuelto en ninguna ficha. Valor null.
+g) "decision_del_usuario": exige elegir entre opciones que no se infieren de datos objetivos (ej. DESCRIBIR en qué consiste el programa de integridad de la empresa, si pertenece a un grupo empresarial) y no viene resuelto en ninguna ficha. Valor null. Ojo: la pregunta SÍ/NO de "¿cuenta con Programa de Integridad?" NO es decision_del_usuario — ver PROGRAMA DE INTEGRIDAD más abajo, esa sí se resuelve sola.
 
 CASILLA SIN CONTEXTO: si el contexto que te llega para una casilla está vacío o es solo la casilla misma, sin ninguna palabra real alrededor (ni etiqueta, ni oración, ni fila de tabla), no hay información suficiente para clasificarla con certeza → categoria="especifico_licitacion", campo=null. Nunca la fuerces a perfil_* por descarte, ni a firma_fecha, ni a no_aplica_al_oferente: "sin contexto" no es lo mismo que "es un título" o "no aplica", es un dato que el humano debe revisar directamente en el documento.
 
@@ -411,6 +433,10 @@ PIE DE FIRMA CON FECHA: día, mes y/o año de la fecha en que se presenta la ofe
 - Partida en tres con la palabra "de", "【CASILLA-1】 de 【CASILLA-2】 de 【CASILLA-3】" (ej. "Viña del Mar, ___ de ___ de ___") → campo fecha_hoy_dia, fecha_hoy_mes_palabra (EN PALABRA, "agosto" — jamás el número aquí, nadie escribe "3 de 08 de 2026"), fecha_hoy_anio.
 - Suelta SIN partir, un solo blanco tras "FECHA:" que no está dividido en día/mes/año y no está pegado a una raya de firma manuscrita → campo fecha_hoy (fecha larga completa, "06 de agosto de 2026"). Excepción: si esa "FECHA:" cae dentro de un ANEXO O SECCIÓN CONDICIONAL COMPLETA que no corresponde (regla f de arriba), prima la exclusión → no_aplica_al_oferente.
 - Con el AÑO ya fijo como texto literal en la plantilla y UN solo blanco para el resto (ej. "LA UNIÓN, 【CASILLA】 DE 2026.-") → ese blanco pide "día + de + mes en palabra" → campo fecha_hoy_dia_mes (formato "06 de agosto", SIN año — el año ya está impreso, no lo repitas).
+
+PROGRAMA DE INTEGRIDAD: cuando una casilla pregunta, en cualquier formato (SI___NO___, casillero a marcar, "Cumple: Sí/No"), si la empresa CUENTA CON un Programa de Integridad, política de integridad, código de ética para proveedores, o adhiere a la Directiva N°31 de ChileCompra → categoria=perfil_empresa, campo=programa_integridad_respuesta (siempre resuelve "SÍ", es política fija de la empresa). Esto es DISTINTO de una casilla que pide DESCRIBIR el programa (en qué consiste, qué políticas incluye, un texto libre) — esa sigue siendo decision_del_usuario, valor null.
+
+SOCIO/ACCIONISTA: cuando un anexo pide identificar socios o accionistas con su porcentaje de participación ("Nombre Socio/Accionista", "RUT Socio", "Porcentaje de Derechos o Participación") y no hay ningún otro dato en el documento que indique una sociedad con varios socios distintos → categoria=perfil_empresa, campo=socio_nombre para el nombre y campo=socio_participacion para el porcentaje (la empresa opera con socio único, el representante legal, al 100%). Si la casilla pide el RUT del socio, usa representante_rut (es la misma persona).
 
 REGLAS DE FORMATO CHILENAS:
 - RUT: cópialo TAL CUAL viene en la ficha (no lo reformatees ni "corrijas").
@@ -647,10 +673,122 @@ export async function resolverEspecificacionesDesdeBasesConIA(
   return { celda, inline };
 }
 
-// ── Paso 1: barrido de riesgos de inadmisibilidad sobre el texto de las bases ────────────────
-const SYS_BASES = `Eres un experto en licitaciones públicas chilenas. Te doy el texto de las BASES administrativas/técnicas de una licitación y la lista de ANEXOS que el oferente debe completar. Busca cláusulas de causal de inadmisibilidad, rechazo, o declaración de oferta desierta ligadas a: certificaciones obligatorias de producto, garantías exigidas, topes máximos (ej. plazo de entrega), u otro requisito documental duro.
+// ── Paso 1c: casillas "especifico_licitacion" de EXPERIENCIA — candidatos desde OC reales ─────
+// (14-ago-2026, pedido explícito del usuario, instructivo interno "Presentacion_Creacion_Anexos_
+// FINAL_CON_EJEMPLOS.pdf" punto 8). Igual que resolverEspecificacionesDesdeBasesConIA (Paso 1b):
+// se corre DESPUÉS, solo sobre lo que sigue pendiente con categoría especifico_licitacion tras
+// intentarlo contra las bases — una tabla de "Experiencia del Oferente" (N° OC, fecha, cliente,
+// objeto, monto) no la resuelven las bases (piden un dato NUESTRO, no algo que el organismo haya
+// publicado), la resuelve la base real de Órdenes de Compra ya cruzada por RUT/nombre (ver
+// ocsParaExperiencia en ordenes-compra.ts).
+//
+// DIFERENCIA CLAVE con Paso 1b — el instructivo pide explícitamente verificar PERTINENCIA ("no
+// basta con que exista una OC; debe ser pertinente a la experiencia que se está acreditando"), así
+// que este prompt es más cauto: exige que el prompt del anexo (rubro/objeto que pide la
+// licitación) calce con el objeto de la OC candidata, y deja explícito que ante la duda es mejor
+// null que una OC no pertinente. El resultado NUNCA se trata como confirmado: ver `via:
+// 'ordenes_compra'` en anexos-rellenar.ts, que lo pinta distinto en la UI para que un humano
+// confirme antes de presentar (mismo criterio que 'bases', nunca 'ia' puro).
+const SYS_OC_EXPERIENCIA = `Eres un experto en licitaciones públicas chilenas. Te doy una lista de ÓRDENES DE COMPRA REALES ya emitidas a esta empresa (con estado "Aceptada" o "Recepción conforme" — ya confirmadas, sirven como experiencia acreditable) y una lista NUMERADA de CASILLAS de una tabla de "Experiencia del Oferente" de un anexo que NO se pudieron resolver antes.
 
-Para cada riesgo real que encuentres, indica: el riesgo en una frase, qué dato lo resuelve, y si ese dato típicamente ya está disponible en la ficha de la empresa o el costeo (certificaciones de producto y plazos NUNCA lo están — pon disponible:false para esos).
+Cada casilla pide UN dato de UNA fila de esa tabla (ej. "Fecha del documento", "N° de Orden de Compra", "Cliente o mandante", "Descripción/objeto de la contratación", "Monto"). Tu trabajo:
+1. Para cada casilla, identifica a qué FILA de la tabla pertenece (por el contexto que te doy — número de fila, o casillas vecinas de la misma fila que ya se resolvieron).
+2. Asigna una OC REAL de la lista a esa fila — la MISMA OC para todas las casillas de una misma fila (no mezcles datos de dos OC distintas en una sola fila).
+3. Completa la casilla con el dato de ESA OC que corresponda a lo que pide la etiqueta.
+
+REGLA DE PERTINENCIA (la más importante, no la saltes): antes de usar una OC, compara su "Objeto" con lo que la licitación/anexo indica que la experiencia debe acreditar (rubro, tipo de producto o servicio). Si el contexto no te da pistas de qué rubro se pide, o el objeto de la OC no calza razonablemente con ese rubro, NO la uses — deja la casilla en null. Es preferible una fila vacía que una OC que no acredita la experiencia real que se pide.
+
+NUNCA inventes un dato que no esté en la lista de OC que te di. Nunca reutilices la misma OC en dos filas DISTINTAS si hay más de una disponible (usa OC distintas para acreditar experiencia variada, salvo que solo tengas una).
+
+Devuelve SOLO JSON, sin markdown ni texto adicional, respondiendo TODAS las casillas que te di, en orden:
+{"campos":[{"id":<número>,"valor":"<el dato tal cual, sin reformatear>"|null,"evidencia":"<código de la OC usada, ej. \\"1234-56-SE26\\">"|null}]}`;
+
+async function resolverLoteDesdeOrdenesCompra(items: ItemLote[], ocsTexto: string): Promise<Map<number, Resolucion>> {
+  const out = new Map<number, Resolucion>();
+  const user = `ÓRDENES DE COMPRA REALES (Aceptada/Recepción conforme):\n${ocsTexto.slice(0, 6_000)}\n\nCASILLAS DE LA TABLA DE EXPERIENCIA (${items.length}):\n${items.map(i => i.texto).join('\n')}`;
+  try {
+    const completion: any = await crearChatIA({
+      messages: [{ role: 'system', content: SYS_OC_EXPERIENCIA }, { role: 'user', content: user }],
+      temperature: 0, stream: false, max_tokens: 4_000,
+      response_format: { type: 'json_object' },
+    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
+
+    const txt = String(completion.choices?.[0]?.message?.content ?? '');
+    const parsed: any = parseJsonIA(txt) || {};
+    const arr = Array.isArray(parsed.campos) ? parsed.campos : [];
+    for (const r of arr) {
+      if (!r) continue;
+      const item = items.find(i => i.n === Number(r.id));
+      if (!item) continue;
+      const valor = typeof r.valor === 'string' ? r.valor.trim() : '';
+      if (!valor) continue; // sigue pendiente con el motivo que ya traía — no se pisa con nada
+      const evidencia = typeof r.evidencia === 'string' && r.evidencia.trim() ? r.evidencia.trim() : null;
+      out.set(item.n, { tipo: 'auto', valor, categoria: 'especifico_licitacion', evidencia });
+    }
+  } catch (error) {
+    console.error('[anexos-ia-motor] Falló un lote de OC de experiencia, esas casillas siguen pendientes:', String(error).slice(0, 200));
+  }
+  return out;
+}
+
+// Recibe SOLO lo que quedó pendiente con categoría especifico_licitacion TRAS el Paso 1b (bases) —
+// mismo criterio de "nunca vuelve a mandar lo ya resuelto" que ese paso. Si el llamador no filtra
+// por contexto de "experiencia" antes de pasar los pendientes acá (queda a criterio del llamador,
+// igual que Paso 1b), el propio prompt ya exige que la etiqueta calce con una tabla de experiencia
+// antes de proponer nada — una casilla de "Plazo de entrega" simplemente vuelve con valor null.
+export async function resolverExperienciaDesdeOrdenesCompra(
+  pendientesCelda: CandidatoCelda[],
+  pendientesInline: CandidatoInline[],
+  parrafos: Parrafo[],
+  ocsTexto: string,
+): Promise<{ celda: Map<number, Resolucion>; inline: Map<string, Resolucion> }> {
+  const celda = new Map<number, Resolucion>();
+  const inline = new Map<string, Resolucion>();
+  if (!ocsTexto || !ocsTexto.trim()) return { celda, inline };
+  if (!pendientesCelda.length && !pendientesInline.length) return { celda, inline };
+
+  let contador = 0;
+  const items: ItemLote[] = [];
+  for (const c of pendientesCelda) {
+    const n = ++contador;
+    items.push({ n, ref: { tipo: 'celda', c }, texto: formatearCandidatoCelda(c, parrafos, n) });
+  }
+  for (const b of pendientesInline) {
+    const n = ++contador;
+    items.push({ n, ref: { tipo: 'inline', b }, texto: formatearCandidatoInline(b, n) });
+  }
+
+  // Sin lotes de a TAMANO_LOTE acá a propósito: partir una tabla de experiencia en pedazos de 8
+  // casillas podría separar filas relacionadas en llamadas distintas, perdiendo el contexto que
+  // el modelo necesita para no repetir/mezclar OC entre filas. Una tabla de experiencia real rara
+  // vez supera unas pocas decenas de casillas, así que un solo lote (o unos pocos, si es enorme)
+  // es manejable sin volver a trocear por 8.
+  const lotes = enLotes(items, TAMANO_LOTE * 3);
+  const resueltosPorLote = await enParaleloLimitado(lotes, LOTES_EN_PARALELO, lote => resolverLoteDesdeOrdenesCompra(lote, ocsTexto));
+  for (const mapa of resueltosPorLote) {
+    for (const [n, resolucion] of mapa) {
+      const item = items.find(i => i.n === n);
+      if (!item) continue;
+      if (item.ref.tipo === 'celda') celda.set(item.ref.c.indice, resolucion);
+      else inline.set(`${item.ref.b.indiceRun}:${item.ref.b.posEnTexto}`, resolucion);
+    }
+  }
+  return { celda, inline };
+}
+
+// ── Paso 1: barrido de riesgos de inadmisibilidad sobre el texto de las bases ────────────────
+// FIRMA MANUSCRITA (14-ago-2026, pedido explícito del usuario, instructivo interno
+// "Presentacion_Creacion_Anexos_FINAL_CON_EJEMPLOS.pdf" punto 3): algunas bases exigen que
+// determinados documentos vengan firmados "de puño y letra" (manuscrita, no digital/electrónica)
+// como requisito de admisibilidad — y el Anexo Creator estampa la firma guardada (`firma_url`)
+// igual en cualquier raya de firma, sin saber si ESE anexo puntual exige la manuscrita. Antes este
+// barrido de riesgos no buscaba esta cláusula en absoluto (solo certificaciones/garantías/topes),
+// así que el aviso nunca aparecía — el documento salía "listo" con una firma que, si las bases
+// exigen puño y letra, no sirve para presentar. `disponible:false` siempre para este riesgo: es
+// una firma física, ningún dato de la ficha lo resuelve, tiene que firmarlo un humano en papel.
+const SYS_BASES = `Eres un experto en licitaciones públicas chilenas. Te doy el texto de las BASES administrativas/técnicas de una licitación y la lista de ANEXOS que el oferente debe completar. Busca cláusulas de causal de inadmisibilidad, rechazo, o declaración de oferta desierta ligadas a: certificaciones obligatorias de producto, garantías exigidas, topes máximos (ej. plazo de entrega), exigencia de FIRMA MANUSCRITA/de puño y letra (no digital ni electrónica) en algún documento u anexo específico, u otro requisito documental duro.
+
+Para cada riesgo real que encuentres, indica: el riesgo en una frase, qué dato lo resuelve, y si ese dato típicamente ya está disponible en la ficha de la empresa o el costeo (certificaciones de producto, plazos, y exigencias de firma manuscrita NUNCA lo están — pon disponible:false para esos).
 
 Si no encuentras ningún riesgo real, devuelve una lista vacía — no inventes riesgos genéricos.
 
