@@ -28,6 +28,16 @@ function esAnexoRellenable(doc: DocumentoAdjunto & { categoria?: string }): bool
   return /\.docx?$/i.test(doc.nombre || '') && doc.id != null;
 }
 
+// "Separar anexos" ADEMÁS acepta PDF (14-ago-2026, pedido explícito del usuario: "sacar los
+// anexos de un PDF y dejarlos en Word, sin tocar el PDF") — el backend
+// (cargarDocumentoBaseParaSeparar, anexos-datos.ts) lo convierte con LibreOffice antes de dividir.
+// A propósito NO se reusa para "rellenar": un PDF convertido es una aproximación de LibreOffice,
+// no la estructura Word real que publicó el organismo — mandarlo al auto-relleno arriesgaría
+// escribir sobre algo que no es lo que se va a presentar.
+function esAnexoSeparable(doc: DocumentoAdjunto & { categoria?: string }): boolean {
+  return /\.(docx?|pdf)$/i.test(doc.nombre || '') && doc.id != null;
+}
+
 // Categoría de documentos SUBIDOS por el equipo (los únicos que se pueden eliminar;
 // los oficiales descargados de Mercado Público quedan protegidos).
 const CAT_PROPIOS = 'DOCUMENTOS_PROPIOS';
@@ -132,7 +142,7 @@ function DocItem({
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
   const esPropio = CATS_BORRABLES.has((doc.categoria || '').toUpperCase());
   const rellenable = onRellenarAnexo && esAnexoRellenable(doc);
-  const separable = onSepararAnexo && esAnexoRellenable(doc);
+  const separable = onSepararAnexo && esAnexoSeparable(doc);
   return (
     <div
       draggable
@@ -425,15 +435,19 @@ function DocumentosGrid({
     }
   };
 
-  // Separa un .docx que trae varios anexos pegados en un archivo por anexo (nombrado por su
-  // título y clasificado admin/técnico/económico — ver anexos-dividir.ts). Nunca toca el
-  // original: los resultados quedan en sus propias cajas de "Documentos y Bases"
-  // (Anexos Administrativos/Técnicos/Económicos), no en Documentos Propios.
+  // Separa un .docx (o un PDF, convertido primero a .docx con LibreOffice — ver
+  // cargarDocumentoBaseParaSeparar en anexos-datos.ts) que trae varios anexos pegados, en un
+  // archivo por anexo (nombrado por su título y clasificado admin/técnico/económico — ver
+  // anexos-dividir.ts). Nunca toca el original: los resultados quedan en sus propias cajas de
+  // "Documentos y Bases" (Anexos Administrativos/Técnicos/Económicos), no en Documentos Propios.
   const handleSepararAnexo = async (doc: AnexoDoc) => {
+    const esPdf = /\.pdf$/i.test(doc.nombre || '');
     const ok = await confirmar({
       titulo: '¿Separar anexos?',
-      mensaje: `Se revisará "${doc.nombre}" en busca de varios anexos pegados en un solo Word. `
-        + 'Si se detecta más de uno, cada uno queda como archivo independiente en su caja de anexos '
+      mensaje: (esPdf
+        ? `Se convertirá "${doc.nombre}" a Word y se revisará en busca de varios anexos pegados. `
+        : `Se revisará "${doc.nombre}" en busca de varios anexos pegados en un solo Word. `)
+        + 'Si se detecta más de uno, cada uno queda como archivo Word independiente en su caja de anexos '
         + '(Administrativos/Técnicos/Económicos, según corresponda) — el original no se modifica.',
       confirmarLabel: 'Separar',
     });

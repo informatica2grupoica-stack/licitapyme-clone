@@ -37,7 +37,20 @@ export interface FormularioDetectado { titulo: string; indiceInicio: number; ind
 // parte de ese mismo formulario — "no trae más de un anexo pegado" en un archivo que en realidad
 // traía varios. Los signos de puntuación (punto y/o °/º/O) ahora se aceptan en cualquier orden y
 // cualquier cantidad entre la "N" y el número.
-export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$/i;
+// TERCERA forma (14-ago-2026, caso real 761391-104-LE26): el mismo organismo puede rotular los
+// anexos con LETRA en vez de número — "ANEXO “A”", "ANEXO “B”"… (comillas tipográficas, las que
+// pega Word solo). Antes el regex exigía "N" + dígito SIEMPRE, así que un documento así detectaba
+// 0 encabezados — el archivo entero (10 anexos con letra) quedaba como un solo bloque sin dividir.
+// Anclado a fin de línea (`$`) para no confundir "Anexo A" con el inicio de una oración real
+// ("Anexo a la presente declaración…" nunca calza: después de la letra sigue más texto, no el
+// fin de la línea) — mismo criterio de "línea sola, nada más" que ya usa el resto del regex.
+// Las comillas son OBLIGATORIAS a propósito (no ambas opcionales): sin exigirlas, "ANEXOS" y
+// "FORMULARIOS" (el plural, sin número, título genérico de portada) calzaban igual —"ANEXO" +
+// la "S" final interpretada como si fuera la letra del anexo— y aparecían como un encabezado
+// fantasma antes del primero real. No hay ningún caso real visto con la letra SIN comillas;
+// si aparece, mejor perderlo (queda pendiente, sin dividir ese anexo puntual) que arriesgar este
+// falso positivo, que contamina TODOS los documentos con un título de portada genérico.
+export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$|^(?:FORMULARIO|ANEXO)\s*["“‘'][A-Z]["”’']\s*$/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
 // Solo la forma "FORMULARIO/ANEXO N°X" al INICIO (sin la alternativa "(ANEXO X)" al final) — se usa
@@ -221,12 +234,78 @@ function buscarSubtituloTrasEncabezadoPelado(bloques: BloqueCrudo[], desdeIndice
   return partes.join(' ').slice(0, 120);
 }
 
+// Párrafos internos de una tabla, CADA UNO por separado con su propio offset de ordinal —
+// nunca aplanados en un solo string (ver el BUG REAL que motiva esto en detectarFormularios: la
+// primera versión unía TODAS las celdas con espacios y el resultado, título + subtítulo + nombre
+// de la licitación pegados, superaba siempre LARGO_MAX_ENCABEZADO, así que nunca calzaba con
+// nada). `offset` cuenta TODOS los <w:p> (incluidos los vacíos, filtrados de la lista pero no del
+// contador) para que `b.ordinalInicio + offset` siga apuntando al párrafo real — misma numeración
+// que usa listarBloquesCrudos para contar una tabla (un <w:p> = una posición, esté vacío o no).
+function parrafosDeTabla(xmlTabla: string): { texto: string; offset: number }[] {
+  const out: { texto: string; offset: number }[] = [];
+  const re = /<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>([\s\S]*?)<\/w:p>/g;
+  let m: RegExpExecArray | null;
+  let offset = 0;
+  while ((m = re.exec(xmlTabla))) {
+    const texto = [...m[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(t => t[1]).join('').trim();
+    if (texto) out.push({ texto, offset });
+    offset++;
+  }
+  return out;
+}
+
 export function detectarFormularios(xml: string): FormularioDetectado[] {
   const bloques = listarBloquesCrudos(xml);
   const encabezados: { indice: number; titulo: string }[] = [];
+  // BUG REAL (14-ago-2026, caso 5827-3-LE26): al quitar el tope de tamaño de tabla (ver más
+  // abajo), una tabla de DATOS real puede traer una columna que repite literalmente "ANEXO N.° 9"
+  // en varias filas (qué línea/anexo cubre cada ítem) — cada aparición, sola en su celda, calza
+  // con el regex de encabezado igual que un título real. Un título de sección real aparece UNA
+  // sola vez en todo el documento; si el mismo texto se repite dentro de una tabla, es un VALOR de
+  // columna, no un título — se guardan los candidatos de tabla APARTE y se descartan los que se
+  // repiten antes de sumarlos a la lista final (ver el filtro después del loop principal).
+  const candidatosTabla: { indice: number; titulo: string; clave: string }[] = [];
   for (let bi = 0; bi < bloques.length; bi++) {
     const b = bloques[bi];
-    if (b.tipo !== 'parrafo') continue;
+    if (b.tipo !== 'parrafo') {
+      // BUG REAL (14-ago-2026, casos 759-21-LE26 y 634-49-LR26): el organismo puede meter los
+      // títulos DENTRO de una tabla — a veces una cajita de 1 celda por título (759-21-LE26,
+      // recurso puramente visual para dibujarle un recuadro), a veces el documento ENTERO adentro
+      // de UNA sola tabla gigante (634-49-LR26, layout de página completo). `listarBloquesCrudos`
+      // cuenta cualquier tabla como un bloque tipo "tabla" (textoPlano vacío por diseño), así que
+      // el chequeo de encabezado de abajo nunca las veía: en ambos casos, el documento entero
+      // quedaba con 0 encabezados detectados pese a traer varios formularios/anexos completos.
+      //
+      // Se revisan los párrafos INTERNOS uno por uno (ver parrafosDeTabla) — NUNCA aplanados en
+      // un solo string, y SIN límite de tamaño de tabla: la seguridad no viene de "la tabla es
+      // chica" (un documento entero adentro de una tabla, como 634-49-LR26, rompe cualquier tope
+      // razonable) sino del propio regex — una fila de datos real de un anexo económico o técnico
+      // nunca es, ELLA SOLA en su párrafo, la línea exacta "FORMULARIO N°X"/"ANEXO N°X" y nada más.
+      if (b.tipo === 'tabla') {
+        const parrafosTabla = parrafosDeTabla(b.xmlCompleto);
+        for (let ti = 0; ti < parrafosTabla.length; ti++) {
+          const l = parrafosTabla[ti].texto;
+          if (l.length > LARGO_MAX_ENCABEZADO || !RE_ENCABEZADO_FORMULARIO.test(l)) continue;
+          // Mismo criterio que buscarSubtituloTrasEncabezadoPelado: si el encabezado viene
+          // "pelado" (nada más que el número/letra), el título real vive en los párrafos
+          // siguientes DE LA MISMA TABLA — se descarta el que empieza con comilla (el nombre de
+          // la licitación, siempre entre comillas) y cualquiera que sea OTRO encabezado (el
+          // siguiente formulario, si esta tabla los agrupa a todos).
+          const subtitulo = RE_ENCABEZADO_PELADO.test(l)
+            ? parrafosTabla.slice(ti + 1, ti + 3)
+                .map(p => p.texto)
+                .filter(t => t && !RE_EMPIEZA_CON_COMILLA.test(t) && !RE_ENCABEZADO_FORMULARIO.test(t))
+                .join(' ').slice(0, 120)
+            : '';
+          candidatosTabla.push({
+            indice: b.ordinalInicio + parrafosTabla[ti].offset,
+            titulo: subtitulo ? `${l} ${subtitulo}` : l,
+            clave: l.trim().toUpperCase(),
+          });
+        }
+      }
+      continue;
+    }
     // BUG REAL (4777-24-LE26, "ANEXO N°2" impreso como título dentro de un cuadro de texto
     // flotante de ~48 KB que envuelve casi todo el formulario, típico de plantillas con un borde
     // decorativo hecho con <w:txbxContent>): el bloque que abre ESE cuadro (el <w:p> ancla con
@@ -262,6 +341,17 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
       }
     }
   }
+  // Descarta los candidatos de tabla que se REPITEN (ver el comentario de candidatosTabla más
+  // arriba) y recién ahí los suma a los de párrafo — después se reordena por índice, porque
+  // tablas y párrafos se intercalan en el documento real y cada fuente se empujó en su propio
+  // momento del recorrido, no necesariamente en orden final.
+  const conteoClave = new Map<string, number>();
+  for (const c of candidatosTabla) conteoClave.set(c.clave, (conteoClave.get(c.clave) ?? 0) + 1);
+  for (const c of candidatosTabla) {
+    if ((conteoClave.get(c.clave) ?? 0) > 1) continue;
+    encabezados.push({ indice: c.indice, titulo: c.titulo });
+  }
+  encabezados.sort((a, b) => a.indice - b.indice);
   const totalOrdinales = bloques.length ? bloques[bloques.length - 1].ordinalFin + 1 : 0;
   return encabezados.map((h, i) => ({
     titulo: h.titulo,

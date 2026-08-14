@@ -287,3 +287,87 @@ test('detectarFormularios: una oración larga que MENCIONA un formulario (con es
   assert.equal(formularios[0].titulo, 'ANEXO N°1: IDENTIFICACIÓN');
   assert.equal(formularios[1].titulo, 'ANEXO N°2: DECLARACIÓN');
 });
+
+// Una tabla de 1 celda con varios párrafos internos (recurso visual para dibujarle un recuadro
+// al título — sin esto, cualquier título metido en una tabla era invisible para el detector).
+const tabla = (...parrafos: string[]) => `<w:tbl><w:tr><w:tc>${parrafos.map(p).join('')}</w:tc></w:tr></w:tbl>`;
+
+// BUG REAL (14-ago-2026, caso 759-21-LE26): CADA título ("ANEXO Nº 1" a "ANEXO Nº 10") vivía
+// dentro de su propia tabla de una celda, "pelado" (sin descripción propia) — el título real y el
+// nombre de la licitación (siempre entre comillas) vienen en los párrafos SIGUIENTES, dentro de
+// la MISMA tabla. Antes esto daba 0 encabezados: el documento entero quedaba sin dividir.
+test('detectarFormularios: título "pelado" dentro de una tabla de 1 celda, con subtítulo en los párrafos siguientes de esa misma tabla (regresión 759-21-LE26)', () => {
+  const xml = NS
+    + tabla('ANEXO Nº 1', 'IDENTIFICACIÓN DEL OFERENTE', '“SERVICIO DE ARRIENDO”')
+    + p('Nombre completo o Razón Social')
+    + tabla('ANEXO Nº 2', 'DECLARACIÓN JURADA SIMPLE', '“SERVICIO DE ARRIENDO”')
+    + p('Yo declaro')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 2);
+  assert.equal(formularios[0].titulo, 'ANEXO Nº 1 IDENTIFICACIÓN DEL OFERENTE');
+  assert.equal(formularios[1].titulo, 'ANEXO Nº 2 DECLARACIÓN JURADA SIMPLE');
+});
+
+// BUG REAL (14-ago-2026, caso 634-49-LR26): el documento ENTERO (los 10 formularios) vive dentro
+// de UNA SOLA tabla gigante, usada como layout de página completo — no una cajita chica por
+// título. El detector no debe depender de "la tabla es chica" para revisarla: la seguridad viene
+// del propio regex del encabezado, no del tamaño.
+test('detectarFormularios: el documento ENTERO adentro de una sola tabla grande, sin tope de tamaño (regresión 634-49-LR26)', () => {
+  const filas = ['FORMULARIO N°1', 'texto del formulario 1'.repeat(5), 'FORMULARIO N°2', 'texto del formulario 2'.repeat(5), 'FORMULARIO N°3', 'texto del formulario 3'.repeat(5)];
+  const xml = NS + tabla(...filas) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 3);
+  assert.equal(formularios[0].titulo.startsWith('FORMULARIO N°1'), true);
+  assert.equal(formularios[1].titulo.startsWith('FORMULARIO N°2'), true);
+  assert.equal(formularios[2].titulo.startsWith('FORMULARIO N°3'), true);
+});
+
+// BUG REAL (14-ago-2026, caso 5827-3-LE26): una tabla de DATOS real puede traer una columna que
+// repite literalmente "ANEXO N.° 9" en varias filas (a qué línea/anexo pertenece cada ítem) — cada
+// aparición, sola en su celda, calza con el regex de encabezado igual que un título real. Un
+// título real aparece UNA sola vez; si el mismo texto se repite dentro de una tabla, se descarta
+// entero (todas sus apariciones), porque no hay forma de saber cuál, si alguna, es la real.
+test('detectarFormularios: un valor de columna repetido dentro de una tabla NO se confunde con un título (regresión 5827-3-LE26)', () => {
+  const xml = NS
+    + tabla('ANEXO N.° 9', '26 INSUMOS FARMACÉUTICOS')
+    + tabla('ANEXO N.° 9', '27 INSUMOS QUÍMICOS')
+    + tabla('ANEXO N.° 9', 'NETO IVA')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 0, 'las 3 repeticiones de "ANEXO N.° 9" se descartan todas');
+});
+
+// TERCERA forma de encabezado: letra entre comillas tipográficas en vez de número (regresión
+// 761391-104-LE26) — y guardarraíl del falso positivo real que motivó exigir las comillas: el
+// plural "ANEXOS"/"FORMULARIOS" (título de portada genérico, sin número) NO debe calzar como si la
+// "S" final fuera la letra del anexo.
+test('detectarFormularios: anexos rotulados con LETRA entre comillas tipográficas (regresión 761391-104-LE26)', () => {
+  const xml = NS
+    + p('ANEXO “A”')
+    + p('Contenido del anexo A')
+    + p('ANEXO “B”')
+    + p('Contenido del anexo B')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 2);
+  assert.equal(formularios[0].titulo, 'ANEXO “A”');
+  assert.equal(formularios[1].titulo, 'ANEXO “B”');
+});
+
+test('detectarFormularios: "ANEXOS"/"FORMULARIOS" en plural (portada genérica, sin número) no se confunde con "Anexo + letra S"', () => {
+  const xml = NS
+    + p('ANEXOS')
+    + p('FORMULARIOS')
+    + p('ANEXO Nº 1')
+    + p('Contenido')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 1);
+  assert.equal(formularios[0].titulo, 'ANEXO Nº 1 Contenido');
+});

@@ -1,27 +1,36 @@
 // app/api/anexos/separar/route.ts
 // POST /api/anexos/separar { codigo, documentoId }
-// Paso INDEPENDIENTE del relleno: toma un .docx TAL COMO se bajó de Mercado Público (nunca lo
-// modifica) y, si trae varios anexos pegados en un solo archivo (patrón "FORMULARIO N°X" /
-// "ANEXO N°X" — ver anexos-dividir.ts), sube un archivo nuevo por cada uno, nombrado por su
-// título real. Cada archivo queda en su caja de "Documentos y Bases" según su categoría
+// Paso INDEPENDIENTE del relleno: toma un .docx/.doc/.pdf TAL COMO se bajó de Mercado Público
+// (nunca lo modifica) y, si trae varios anexos pegados en un solo archivo (patrón "FORMULARIO
+// N°X" / "ANEXO N°X" — ver anexos-dividir.ts), sube un archivo .docx nuevo por cada uno, nombrado
+// por su título real. Cada archivo queda en su caja de "Documentos y Bases" según su categoría
 // (ANEXOS_ADMINISTRATIVOS/TECNICOS/ECONOMICOS — ver CATEGORIA_POR_CLASIFICACION abajo), NUNCA en
 // Documentos Propios (pedido explícito del usuario 13-ago-2026: separar es organizar la
 // licitación, no generar un archivo nuestro aparte).
 // Sirve para ORGANIZAR anexos antes de rellenar nada — a diferencia de /api/anexos/generar, que
 // también divide pero solo como resultado de rellenar el documento combinado completo (ese SÍ
 // sube a Documentos Propios: ahí el resultado es el anexo YA LISTO para presentar).
+//
+// PDF (14-ago-2026, pedido explícito del usuario: "sacar los anexos de un PDF y dejarlos en Word,
+// sin tocar el PDF"): cargarDocumentoBaseParaSeparar (a diferencia de cargarDocumentoBase, que
+// usan /analizar y /generar) también acepta .pdf — lo convierte a .docx con LibreOffice
+// (conversor-doc/) antes de dividir, y rechaza con un mensaje claro los PDF escaneados (LibreOffice
+// no hace OCR, convertiría a un .docx vacío). El PDF original NUNCA se toca ni se sube de nuevo —
+// solo se generan los fragmentos .docx, igual que con cualquier .docx que ya traía varios anexos.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
-import { cargarDocumentoBase } from '@/app/lib/anexos-datos';
+import { cargarDocumentoBaseParaSeparar } from '@/app/lib/anexos-datos';
 import { abrirDocx, verificarXmlBienFormado, normalizarParaIds } from '@/app/lib/anexos-docx';
 import { dividirPorFormularios } from '@/app/lib/anexos-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// 120s (antes 60s): un PDF puede tardar hasta 90s en convertirse a .docx con LibreOffice (ver
+// convertirPdfADocx) — 60s cortaba la conversión antes de que pudiera terminar en el caso grande.
+export const maxDuration = 120;
 
 const CONTENT_TYPE_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
@@ -57,7 +66,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { bufferOriginal, nombreOriginal } = await cargarDocumentoBase(codigo, documentoId);
+    const { bufferOriginal, nombreOriginal } = await cargarDocumentoBaseParaSeparar(codigo, documentoId);
     const { xml: xmlCrudo } = await abrirDocx(bufferOriginal);
     // BUG REAL (13-ago-2026, caso 1211839-58-LE26): un .docx convertido por el conversor de
     // producción (LibreOffice) puede no traer w14:paraId en sus párrafos (mismo caso ya conocido

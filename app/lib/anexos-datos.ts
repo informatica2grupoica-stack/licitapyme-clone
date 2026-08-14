@@ -5,7 +5,7 @@
 import pool from '@/app/lib/db';
 import type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 import { conCamposDerivados, fechaLargaChile } from '@/app/lib/anexos-derivados';
-import { convertirDocADocx } from '@/app/lib/anexos-doc-legacy';
+import { convertirDocADocx, convertirPdfADocx } from '@/app/lib/anexos-doc-legacy';
 import { parsearCosteo, itemsPrecioDeCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
@@ -53,6 +53,62 @@ export async function cargarDocumentoBase(codigo: string, documentoId: string): 
   const nombreOriginal = esDocLegado ? nombre.replace(/\.doc$/i, '.docx') : nombre;
 
   return { bufferOriginal, nombreOriginal };
+}
+
+// Variante de cargarDocumentoBase SOLO para /api/anexos/separar (14-ago-2026, pedido explícito
+// del usuario: "sacar los anexos de un PDF y dejarlos en Word, sin tocar el PDF"). También acepta
+// .pdf, convertido a .docx con el mismo conversor LibreOffice que ya usan los .doc legados — la
+// única diferencia real es el Content-Type que le indica al conversor qué extensión escribir (ver
+// convertirPdfADocx). NO se usa para rellenar (cargarDocumentoYEmpresa/cargarDocumentoBase de
+// arriba siguen solo con .doc/.docx): un PDF convertido es una aproximación de LibreOffice de la
+// estructura del documento, no una plantilla Word real con sus casillas — separarlo en fragmentos
+// es razonablemente seguro, pero mandarlo al motor de auto-relleno arriesgaría escribir sobre una
+// estructura que no es la que el organismo publicó de verdad.
+export async function cargarDocumentoBaseParaSeparar(codigo: string, documentoId: string): Promise<DocumentoBase> {
+  const [docRows] = await pool.query(
+    `SELECT documento_nombre, documento_url_local, metodo_extraccion
+       FROM documentos_cache WHERE id = ? AND licitacion_codigo = ? LIMIT 1`,
+    [documentoId, codigo],
+  );
+  const doc = (docRows as any[])[0];
+  if (!doc) throw new Error('Documento no encontrado en esta licitación');
+
+  const nombre: string = doc.documento_nombre || '';
+  const esDocx = /\.docx$/i.test(nombre);
+  const esDocLegado = !esDocx && /\.doc$/i.test(nombre);
+  const esPdf = !esDocx && !esDocLegado && /\.pdf$/i.test(nombre);
+  if (!esDocx && !esDocLegado && !esPdf) {
+    throw new Error('Solo se soportan documentos Word (.doc/.docx) o PDF, este no lo es');
+  }
+
+  if (esPdf) {
+    // PDF ESCANEADO (imagen, sin capa de texto real): LibreOffice no hace OCR, así que convertiría
+    // a un .docx vacío o con basura — separarlo "con éxito" en ese estado sería peor que avisar
+    // que no se puede. `metodo_extraccion` YA sabe si este PDF necesitó OCR para leerse (lo cachea
+    // el análisis de viabilidad/lectura previo) — 'pdf-text' es el ÚNICO método que confirma texto
+    // real, seguro de convertir. Sin ese dato cacheado (documento nunca analizado), se avisa igual
+    // en vez de arriesgar un .docx vacío disfrazado de "separado con éxito".
+    const metodo = doc.metodo_extraccion || null;
+    if (metodo !== 'pdf-text') {
+      throw new Error(
+        metodo
+          ? `Este PDF está escaneado (se leyó con OCR: ${metodo}) — LibreOffice no puede convertir una imagen a texto editable, así que no se pueden extraer sus anexos en Word.`
+          : 'Este PDF todavía no se analizó (falta el texto extraído en caché) — analiza la licitación primero para confirmar si es un PDF de texto real o uno escaneado.',
+      );
+    }
+  }
+
+  const resDoc = await fetch(doc.documento_url_local);
+  if (!resDoc.ok) throw new Error(`No se pudo bajar el documento original (HTTP ${resDoc.status})`);
+  const bufferDescargado = Buffer.from(await resDoc.arrayBuffer());
+
+  if (esDocLegado) {
+    return { bufferOriginal: await convertirDocADocx(bufferDescargado), nombreOriginal: nombre.replace(/\.doc$/i, '.docx') };
+  }
+  if (esPdf) {
+    return { bufferOriginal: await convertirPdfADocx(bufferDescargado), nombreOriginal: nombre.replace(/\.pdf$/i, '.docx') };
+  }
+  return { bufferOriginal: bufferDescargado, nombreOriginal: nombre };
 }
 
 export async function cargarDocumentoYEmpresa(

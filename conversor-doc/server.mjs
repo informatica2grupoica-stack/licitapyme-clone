@@ -1,12 +1,20 @@
 // conversor-doc/server.mjs
-// Microservicio interno: recibe un .doc (Word 97-2003) por POST y devuelve el mismo documento
-// convertido a .docx (OOXML), usando LibreOffice headless (soffice) instalado en la imagen.
-// Contenedor aparte del de "app" en el mismo docker-compose, para no cargar esa imagen con
-// LibreOffice — se llega por la red interna de compose (http://conversor-doc:8091), nunca
+// Microservicio interno: recibe un .doc (Word 97-2003) O un .pdf por POST y devuelve el mismo
+// documento convertido a .docx (OOXML), usando LibreOffice headless (soffice) instalado en la
+// imagen. Contenedor aparte del de "app" en el mismo docker-compose, para no cargar esa imagen
+// con LibreOffice — se llega por la red interna de compose (http://conversor-doc:8091), nunca
 // expuesto al público.
 //
+// PDF (14-ago-2026, pedido explícito del usuario): mismo comando de LibreOffice, distinta
+// extensión de entrada — `soffice --convert-to docx` detecta el formato de origen por la
+// extensión del archivo, así que basta con escribir el temporal como .pdf en vez de .doc.
+// LibreOffice NO hace OCR: un PDF escaneado (imagen) convierte a un .docx vacío o con basura —
+// el CALLER (anexos-doc-legacy.ts) es responsable de no mandar un PDF escaneado acá, este
+// servicio no tiene forma de saberlo por sí solo.
+//
 // Un solo endpoint, sin framework (no hace falta express para esto):
-//   POST /convertir   body = bytes crudos del .doc, header x-conversor-secret = CONVERSOR_SECRET
+//   POST /convertir   body = bytes crudos, Content-Type: application/msword (.doc) o
+//                      application/pdf (.pdf), header x-conversor-secret = CONVERSOR_SECRET
 //                      → 200 con los bytes del .docx (Content-Type OOXML)
 //   GET  /salud        → 200 "ok" (para healthcheck de docker-compose)
 import http from 'node:http';
@@ -39,12 +47,12 @@ async function leerBody(req) {
   return Buffer.concat(chunks);
 }
 
-async function convertirDocADocx(bufferDoc) {
+async function convertirADocx(bufferEntrada, extensionEntrada) {
   const id = randomUUID();
   const dir = await mkdtemp(join(tmpdir(), `conv-${id}-`));
   const perfilLO = join(tmpdir(), `lo-profile-${id}`); // perfil aislado: evita choques si dos conversiones caen a la vez
-  const entrada = join(dir, 'entrada.doc');
-  await writeFile(entrada, bufferDoc);
+  const entrada = join(dir, `entrada.${extensionEntrada}`);
+  await writeFile(entrada, bufferEntrada);
 
   try {
     await execFileAsync('soffice', [
@@ -83,14 +91,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    const bufferDoc = await leerBody(req);
-    if (bufferDoc.length === 0) {
+    const bufferEntrada = await leerBody(req);
+    if (bufferEntrada.length === 0) {
       res.writeHead(400, { 'Content-Type': 'text/plain' });
       res.end('Cuerpo vacío');
       return;
     }
-    console.log(`[conversor-doc] Convirtiendo ${bufferDoc.length} bytes…`);
-    const bufferDocx = await convertirDocADocx(bufferDoc);
+    // Content-Type decide la extensión del temporal — de eso depende que LibreOffice detecte
+    // bien el formato de origen. 'application/msword' es el default histórico (así llamaba el
+    // único caller que existía antes del soporte PDF) — nunca romper esa compatibilidad.
+    const contentType = String(req.headers['content-type'] || '').toLowerCase();
+    const extensionEntrada = contentType.includes('pdf') ? 'pdf' : 'doc';
+    console.log(`[conversor-doc] Convirtiendo ${bufferEntrada.length} bytes (.${extensionEntrada})…`);
+    const bufferDocx = await convertirADocx(bufferEntrada, extensionEntrada);
     console.log(`[conversor-doc] OK → ${bufferDocx.length} bytes`);
     res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
     res.end(bufferDocx);
