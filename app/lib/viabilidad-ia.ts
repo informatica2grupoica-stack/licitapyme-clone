@@ -232,20 +232,37 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
 
   const out: DocLeido[] = [];
   // Concurrencia 2 para no disparar 429 de Gemini visión.
+  //
+  // LOG EN TIEMPO REAL, SIEMPRE ACTIVO (14-ago-2026, pedido explícito del usuario: "quiero saber
+  // qué hace en tiempo real"). Antes el único log de lectura de documentos era el resumen de
+  // `VIAB_DEBUG` al FINAL de este bucle completo (línea de abajo) — mientras la fase
+  // "leyendo_documentos" estaba en curso (puede tardar minutos con OCR de por medio) no salía NADA
+  // a la consola, indistinguible de un proceso colgado. Estas dos líneas (inicio/fin de CADA
+  // documento) no dependen de ninguna env var — son el rastro mínimo para saber, mirando el log en
+  // vivo, en qué documento puntual está el análisis y si avanza.
   for (let i = 0; i < docs.length; i += 2) {
     const batch = docs.slice(i, i + 2);
-    const res = await Promise.all(batch.map(async (d) => {
+    const res = await Promise.all(batch.map(async (d, j) => {
+      const pos = i + j + 1;
+      const cacheTxt = (d.texto_extraido || '').trim();
       // CACHÉ: si ya leímos este documento antes, reusamos el texto (no re-OCR) → rápido.
       // EXCEPCIÓN (auto-sanación): si el OCR cacheado quedó INCOMPLETO (marca de hueco) o
       // es BASURA (capa de texto ilegible del escáner — caso 2731-21-LE26), NO lo reusamos:
       // se re-extrae (document-extraction ahora enruta la basura a GLM-OCR) y se persiste.
-      const cacheTxt = (d.texto_extraido || '').trim();
       if (cacheTxt.length >= 50 && !ocrTieneHuecos(cacheTxt) && !esTextoBasuraOCR(cacheTxt)) {
+        console.log(`[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" — ya está en caché (${cacheTxt.length} chars), no se vuelve a leer.`);
         return { nombre: d.documento_nombre, categoria: d.categoria, texto: cacheTxt, metodo: d.metodo_extraccion || 'cache', ok: true } as DocLeido;
       }
-      const r = await descargarYExtraerTexto(d.documento_url_local, d.documento_nombre, { omitirOCR: noRequiereOCR(d.documento_nombre) }).catch(() => null);
+      const omiteOCR = noRequiereOCR(d.documento_nombre);
+      console.log(`[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] leyendo "${d.documento_nombre}"${omiteOCR ? '' : ' (puede necesitar OCR si es escaneado — puede tardar 1-2 min)'}…`);
+      const t0doc = Date.now();
+      const r = await descargarYExtraerTexto(d.documento_url_local, d.documento_nombre, { omitirOCR: omiteOCR }).catch(() => null);
       const texto = (r?.texto || '').replace(/\s+\n/g, '\n').trim();
       const metodo = r?.metodo || 'error';
+      const segs = ((Date.now() - t0doc) / 1000).toFixed(1);
+      console.log(texto.length >= 50
+        ? `[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" leído en ${segs}s → ${texto.length} chars (método=${metodo}).`
+        : `[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" NO se pudo leer (${segs}s, método=${metodo}) — queda sin texto.`);
       // Persistir el texto leído para no volver a hacer OCR la próxima vez (best-effort).
       if (texto.length >= 50) {
         pool.query(
@@ -1547,6 +1564,7 @@ export async function analizarViabilidadIAV3(codigo: string, onFase?: (fase: Fas
 }
 
 async function _orquestarAnalisisV3(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
+  console.log(`[viabilidad-ia] ${codigo}: ▶ arrancando análisis de viabilidad IA…`);
   const primero = await _analizarViabilidadIAV3Intento(codigo, onFase);
   const problemaPrimero = primero ? _reglaManifiestoQueFalla(primero) : null;
   if (!primero || !problemaPrimero) return primero;
@@ -1580,6 +1598,7 @@ async function _orquestarAnalisisV3(codigo: string, onFase?: (fase: FaseAnalisis
 // Un intento completo de análisis v3 (lectura de documentos + llamada al modelo + overrides +
 // validador). Reusa la carga de documentos/contexto/señal del v2, cambia prompt+esquema.
 async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: FaseAnalisisIA) => void): Promise<any | null> {
+  console.log(`[viabilidad-ia] ${codigo}: === FASE leyendo_documentos ===`);
   try { onFase?.('leyendo_documentos'); } catch { /* noop */ }
   const docs = await cargarDocumentos(codigo);
   const leidos = docs.filter(d => d.ok);
@@ -1664,9 +1683,13 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
       console.log(`[viabilidad-ia-v3] ${codigo}: reglas del experto inyectadas — ${reglasGlobal.length} de viabilidad, ${genericas.length} de lectura${similares.length ? `, ${similares.length} de lectura POR FIRMA (documento parecido a uno ya corregido)` : ''}.`);
     }
   } catch { /* las reglas son opcionales: si fallan, se analiza igual con el prompt base */ }
+  console.log(`[viabilidad-ia] ${codigo}: === FASE analizando_ia === (prompt ${userPrompt.length} chars, ${leidos.length} documento(s) legible(s)) — llamando al modelo…`);
   try { onFase?.('analizando_ia'); } catch { /* noop */ }
+  const tIA0 = Date.now();
   const parsed = await llamarGeminiJSON(systemPrompt, userPrompt);
+  console.log(`[viabilidad-ia] ${codigo}: modelo respondió en ${((Date.now() - tIA0) / 1000).toFixed(1)}s${parsed ? '' : ' — SIN respuesta utilizable'}.`);
   if (!parsed || typeof parsed !== 'object') return null;
+  console.log(`[viabilidad-ia] ${codigo}: === FASE verificando ===`);
   try { onFase?.('verificando'); } catch { /* noop */ }
 
   // CORRECCIÓN DETERMINISTA DE PÁGINAS DE CITA: el modelo a veces cita la página IMPRESA del PDF
@@ -2161,6 +2184,7 @@ export async function analizarYGuardarViabilidadIA(codigo: string, onFase?: (fas
   // al costeo (manifiesto_productos/modalidad/estructura_costeo que arma analizarViabilidadIAV3).
   const rv3 = await analizarViabilidadIAV3(codigo, onFase);
   if (!rv3) return null;
+  console.log(`[viabilidad-ia] ${codigo}: === FASE guardando === (informe listo, score=${rv3.score_0_100 ?? '?'}, guardando en BD y generando costeo)…`);
   try { onFase?.('guardando'); } catch { /* noop */ }
   try { await guardarViabilidadIAV3(codigo, rv3); }
   catch (e) { console.error('[viabilidad-ia-v3] guardar falló:', String(e).slice(0, 200)); }
