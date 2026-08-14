@@ -52,18 +52,40 @@ type Params = { params: Promise<{ codigo: string }> };
 const VIABILIDAD_JOB_TIMEOUT_MS = Math.max(120_000, Number(process.env.VIABILIDAD_JOB_TIMEOUT_MS) || 10 * 60_000);
 const HUERFANO_MARGEN_MS = 90_000; // margen sobre el tope antes de declarar un job huérfano (reloj del server vs. del setInterval de fondo)
 
-type FilaJob = { estado: 'procesando' | 'error'; fase: string | null; error: string | null; run_id: string; iniciado_at: string; actualizado_at: string };
+type FilaJob = {
+  estado: 'procesando' | 'error'; fase: string | null; error: string | null; run_id: string;
+  iniciado_at: string; actualizado_at: string; edad_seg: number; elapsed_seg: number;
+};
 
+// BUG REAL (14-ago-2026, reportado por el usuario, reproducido en 1057494-50-LR26 — ver también
+// 1261-27-LP26): el job huérfano se marcaba a los POCOS SEGUNDOS de arrancar cualquier análisis,
+// siempre, no solo tras un reinicio real del contenedor. Causa: `NOW()` de MySQL devuelve la hora
+// del SYSTEM del servidor de Bluehost (verificado en vivo: UTC-6, NI la del servidor de la app —
+// America/Santiago, UTC-4 — NI UTC real), pero se leía de vuelta con `new Date(job.actualizado_at)`
+// en JS, que mysql2 (`timezone:'local'`, ver db.ts) interpreta como si esa hora YA fuera
+// America/Santiago. El resultado: cada `edadMs` calculado así traía un sesgo fijo de ~2 HORAS de
+// más — muy por encima del margen de huérfano (11.5 min) — así que el primer poll del navegador
+// (a los 5s) ya veía el job como "abandonado hace 2 horas" y lo marcaba error de inmediato, sin
+// importar que la IA estuviera respondiendo perfecto. El mismo sesgo inflaba `elapsedMs` (la barra
+// de progreso IBA SIEMPRE al 97% desde el primer render, con un contador de minutos absurdo).
+// Fix: la resta de tiempos se hace DENTRO de MySQL (`TIMESTAMPDIFF` contra `UTC_TIMESTAMP()`, con
+// las columnas también escritas en UTC) — nunca cruza el límite Node/mysql2 donde vivía el sesgo.
 async function leerJob(codigo: string): Promise<FilaJob | null> {
-  const [rows] = await pool.query(`SELECT * FROM viabilidad_jobs WHERE licitacion_codigo = ? LIMIT 1`, [codigo]);
+  const [rows] = await pool.query(
+    `SELECT *,
+            TIMESTAMPDIFF(SECOND, actualizado_at, UTC_TIMESTAMP()) AS edad_seg,
+            TIMESTAMPDIFF(SECOND, iniciado_at, UTC_TIMESTAMP()) AS elapsed_seg
+       FROM viabilidad_jobs WHERE licitacion_codigo = ? LIMIT 1`,
+    [codigo],
+  );
   return (rows as any[])[0] ?? null;
 }
 
 async function marcarJobProcesando(codigo: string, runId: string): Promise<void> {
   await pool.query(
     `INSERT INTO viabilidad_jobs (licitacion_codigo, run_id, estado, fase, error, iniciado_at, actualizado_at)
-     VALUES (?, ?, 'procesando', 'leyendo_documentos', NULL, NOW(), NOW())
-     ON DUPLICATE KEY UPDATE run_id = VALUES(run_id), estado = 'procesando', fase = 'leyendo_documentos', error = NULL, iniciado_at = NOW(), actualizado_at = NOW()`,
+     VALUES (?, ?, 'procesando', 'leyendo_documentos', NULL, UTC_TIMESTAMP(), UTC_TIMESTAMP())
+     ON DUPLICATE KEY UPDATE run_id = VALUES(run_id), estado = 'procesando', fase = 'leyendo_documentos', error = NULL, iniciado_at = UTC_TIMESTAMP(), actualizado_at = UTC_TIMESTAMP()`,
     [codigo, runId],
   );
 }
@@ -74,7 +96,7 @@ async function marcarJobProcesando(codigo: string, runId: string): Promise<void>
 async function actualizarFaseJob(codigo: string, runId: string, fase: string): Promise<void> {
   try {
     await pool.query(
-      `UPDATE viabilidad_jobs SET fase = ?, actualizado_at = NOW() WHERE licitacion_codigo = ? AND run_id = ? AND estado = 'procesando'`,
+      `UPDATE viabilidad_jobs SET fase = ?, actualizado_at = UTC_TIMESTAMP() WHERE licitacion_codigo = ? AND run_id = ? AND estado = 'procesando'`,
       [fase, codigo, runId],
     );
   } catch (e) { console.error(`[licitacion-viabilidad-ia] ${codigo}: no se pudo actualizar fase="${fase}":`, String(e).slice(0, 200)); }
@@ -82,7 +104,7 @@ async function actualizarFaseJob(codigo: string, runId: string, fase: string): P
 
 async function marcarJobError(codigo: string, runId: string, mensaje: string): Promise<void> {
   await pool.query(
-    `UPDATE viabilidad_jobs SET estado = 'error', error = ?, actualizado_at = NOW() WHERE licitacion_codigo = ? AND run_id = ?`,
+    `UPDATE viabilidad_jobs SET estado = 'error', error = ?, actualizado_at = UTC_TIMESTAMP() WHERE licitacion_codigo = ? AND run_id = ?`,
     [mensaje.slice(0, 500), codigo, runId],
   );
 }
@@ -183,7 +205,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     // margen — el proceso que lo corría murió (reinicio/deploy/crash) sin poder avisar. Antes
     // esto se veía como "no hay nada corriendo" (silencio); ahora se declara error explícito.
     if (job?.estado === 'procesando') {
-      const edadMs = Date.now() - new Date(job.actualizado_at).getTime();
+      const edadMs = job.edad_seg * 1000;
       if (edadMs > VIABILIDAD_JOB_TIMEOUT_MS + HUERFANO_MARGEN_MS) {
         const msg = 'El análisis se interrumpió (probablemente el servidor se reinició a mitad de camino, p.ej. por un despliegue). Vuelve a intentarlo.';
         console.error(`[licitacion-viabilidad-ia] ${codigoDecoded}: job huérfano detectado (sin actualizar hace ${Math.round(edadMs / 1000)}s) — marcado error.`);
@@ -204,7 +226,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       errorPuedeSerTemporal: !!errorCrudo?.startsWith(PREFIJO_ERROR_TEMPORAL),
       // Para la barra de progreso del front: fase actual + segundos transcurridos + tope duro.
       fase: job?.estado === 'procesando' ? job.fase : null,
-      elapsedMs: job ? Date.now() - new Date(job.iniciado_at).getTime() : null,
+      elapsedMs: job ? job.elapsed_seg * 1000 : null,
       timeoutMs: VIABILIDAD_JOB_TIMEOUT_MS,
       puedeReanalizar: reanalisis.puede,
       motivoNoPuedeReanalizar: reanalisis.puede ? null : reanalisis.motivo,
