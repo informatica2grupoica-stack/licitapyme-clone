@@ -1105,9 +1105,18 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           try { onComplete?.(); } catch { /* noop */ }
           parar(); return;
         }
-        // 2) El server reportó un error de fondo (incluye el tope duro de 10 min y jobs huérfanos
-        //    por un reinicio del servidor) → mostrarlo (rojo) y parar. Ya NO es un silencio.
-        if (rr?.error && !rr?.enProceso) { setAvisoProceso(null); setError(rr.error); parar(); return; }
+        // 2) El server reportó un error de fondo. Los jobs huérfanos de verdad (el proceso murió
+        //    con el contenedor) son finales → mostrarlo (rojo) y parar. El tope duro de 10 min es
+        //    DISTINTO (`errorPuedeSerTemporal`): la llamada de fondo NO se cancela al dispararse
+        //    (ver route.ts) y puede guardar un informe real segundos/minutos después — si paramos
+        //    acá, el usuario ve un error rojo y tiene que refrescar a mano para enterarse de que sí
+        //    terminó bien (BUG REAL 14-ago-2026, 1261-27-LP26). Para ese caso NO se para: se sigue
+        //    poll-eando con un aviso ámbar (no rojo, no es un error confirmado) hasta que aparezca
+        //    el informe o se agote LIMITE_INTENTOS_POLL más abajo.
+        if (rr?.error && !rr?.enProceso) {
+          if (rr.errorPuedeSerTemporal) { setAvisoProceso(null); setAvisoLargo(rr.error); return; }
+          setAvisoProceso(null); setError(rr.error); parar(); return;
+        }
         // 3) El job terminó sin cambiar la huella. Si YA había un informe antes (re-análisis que
         //    dio el mismo resultado), es normal → cerrar sin error. Si NUNCA hubo informe (primer
         //    análisis) y el server dice que ya no está en proceso pero no hay informe NI error,
@@ -1164,6 +1173,20 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
           setElapsedMs(typeof r.elapsedMs === 'number' ? r.elapsedMs : null);
           if (typeof r.timeoutMs === 'number') setTimeoutMsServidor(r.timeoutMs);
           iniciarPolling(fpInforme(r?.informeIA ?? null));
+        } else if (r?.error && !r?.informeIA) {
+          // BUG REAL (14-ago-2026, 1261-27-LP26): este GET inicial corre cada vez que el panel se
+          // MONTA — incluido al cambiar de pestaña de la licitación y volver a "Visibilidad" (el
+          // componente se desmonta/remonta, no queda vivo en segundo plano). Antes se ignoraba
+          // `r.error` por completo acá: si el job había quedado en estado "error" (p.ej. el tope
+          // duro de 10 min, ver route.ts), la pantalla volvía a mostrarse como "Aún sin análisis"
+          // sin ningún aviso, indistinguible de nunca haber apretado "Analizar". Un error
+          // "temporal" (tope duro: la llamada de fondo sigue corriendo y puede terminar bien) NO se
+          // muestra en rojo — se retoma el polling, igual que si siguiera en curso.
+          if (r.errorPuedeSerTemporal) {
+            iniciarPolling(fpInforme(null));
+          } else {
+            setError(r.error);
+          }
         }
         return;
       } catch {

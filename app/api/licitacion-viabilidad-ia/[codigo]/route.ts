@@ -87,6 +87,19 @@ async function marcarJobError(codigo: string, runId: string, mensaje: string): P
   );
 }
 
+// BUG REAL (14-ago-2026, reportado por el usuario): cuando el TOPE DURO de arriba dispara, la
+// llamada de fondo (`analizarYGuardarViabilidadIA`) NO se cancela — sigue corriendo y, si termina
+// bien poco después, guarda el informe real DENTRO de su propia ejecución (ver
+// guardarViabilidadIAV3 en viabilidad-ia.ts), sin relación con esta carrera. El usuario vio la
+// vista de error roja, pero el informe SÍ había quedado guardado — solo se enteró al refrescar la
+// página a mano, porque el polling del front paraba apenas veía CUALQUIER error (ver
+// iniciarPolling en ViabilidadIAPanel.tsx). Este prefijo marca el error del tope duro como
+// "puede que el trabajo de fondo siga terminando" — a diferencia de un job huérfano de verdad
+// (el proceso murió con el contenedor, ahí no hay nada corriendo) o un error real de la IA (cuota,
+// sin documentos legibles): esos SÍ son finales. El front usa esto para seguir consultando en vez
+// de darse por vencido con un error que puede quedar obsoleto en segundos.
+const PREFIJO_ERROR_TEMPORAL = '[TEMPORAL] ';
+
 // Job terminado OK: se borra el registro (el resultado ya vive en viabilidad_licitacion, que es
 // lo que lee el GET). Guardado por run_id: si el usuario ya arrancó OTRO análisis (re-análisis
 // tras un timeout), esta corrida vieja no debe borrar el job del nuevo.
@@ -179,11 +192,16 @@ export async function GET(request: NextRequest, { params }: Params) {
       }
     }
     const reanalisis = await estadoReanalisis(usuario, codigoDecoded);
+    const errorCrudo = job?.estado === 'error' ? (job.error || 'No se pudo completar el análisis.') : null;
     return NextResponse.json({
       success: true,
       informeIA: conValidadorFresco(informeIA),
       enProceso: job?.estado === 'procesando',
-      error: job?.estado === 'error' ? (job.error || 'No se pudo completar el análisis.') : null,
+      error: errorCrudo?.startsWith(PREFIJO_ERROR_TEMPORAL) ? errorCrudo.slice(PREFIJO_ERROR_TEMPORAL.length) : errorCrudo,
+      // El trabajo de fondo del tope duro NO se cancela (ver el prefijo más arriba) — puede seguir
+      // corriendo y guardar un informe real segundos/minutos después de marcarse "error". El front
+      // usa esto para seguir consultando en vez de darse por vencido con un error obsoleto.
+      errorPuedeSerTemporal: !!errorCrudo?.startsWith(PREFIJO_ERROR_TEMPORAL),
       // Para la barra de progreso del front: fase actual + segundos transcurridos + tope duro.
       fase: job?.estado === 'procesando' ? job.fase : null,
       elapsedMs: job ? Date.now() - new Date(job.iniciado_at).getTime() : null,
@@ -304,7 +322,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     .catch((error) => {
       const esTopeDuro = String((error as any)?.message ?? '').startsWith('TOPE_DURO_');
       const msg = esTopeDuro
-        ? `El análisis superó el tope de ${Math.round(VIABILIDAD_JOB_TIMEOUT_MS / 60_000)} minutos y se marcó como fallido. Puede que el modelo de IA de respaldo esté lento o caído — vuelve a intentarlo en unos minutos.`
+        ? `${PREFIJO_ERROR_TEMPORAL}El análisis superó el tope de ${Math.round(VIABILIDAD_JOB_TIMEOUT_MS / 60_000)} minutos. El modelo de respaldo puede estar lento — puede que el resultado real aparezca solo en unos momentos más; si no, vuelve a intentarlo.`
         : mensajeErrorAnalisis(codigoDecoded, error);
       if (esTopeDuro) console.error(`[licitacion-viabilidad-ia] ${codigoDecoded}: TOPE DURO de ${VIABILIDAD_JOB_TIMEOUT_MS}ms alcanzado — marcado error (la llamada de fondo puede seguir corriendo, no se cancela).`);
       void marcarJobError(codigoDecoded, runId, msg);
