@@ -148,94 +148,96 @@ function DocItem({
       draggable
       onDragStart={(e) => onDragStart(e, doc)}
       className={`
-        group flex items-center gap-2 px-2.5 py-2 rounded-lg border
+        group flex flex-col gap-1.5 px-2.5 py-2 rounded-lg border
         cursor-grab active:cursor-grabbing select-none transition-all
         ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
         bg-white border-slate-100 hover:bg-slate-50
       `}
     >
-      <GripVertical size={12} className="text-slate-300 flex-shrink-0" />
-      <span className="text-base flex-shrink-0">{getFileIcon(doc.nombre)}</span>
-      <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-semibold text-slate-700 truncate leading-tight" title={doc.nombre}>
+      <div className="flex items-start gap-2">
+        <GripVertical size={12} className="text-slate-300 flex-shrink-0 mt-0.5" />
+        <span className="text-base flex-shrink-0 leading-none">{getFileIcon(doc.nombre)}</span>
+        <p className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 leading-snug line-clamp-2 break-words" title={doc.nombre}>
           {doc.nombre}
         </p>
-        {doc.size && (
-          <p className="text-[10px] text-slate-400 leading-tight">{formatFileSize(doc.size)}</p>
-        )}
       </div>
-      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-        {rellenable && (
+      <div className="flex items-center justify-between pl-[26px]">
+        <span className="text-[10px] text-slate-400 leading-tight flex-shrink-0">
+          {doc.size ? formatFileSize(doc.size) : ''}
+        </span>
+        <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          {rellenable && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onRellenarAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
+              title="Rellenar anexo con los datos de la empresa"
+              draggable={false}
+            >
+              <Wand2 size={11} />
+            </button>
+          )}
+          {separable && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onSepararAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+              className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
+              title="Separar en anexos independientes (si trae varios pegados en un solo Word)"
+              draggable={false}
+            >
+              <Scissors size={11} />
+            </button>
+          )}
+          {onEnviarAuditor && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onEnviarAuditor({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+              className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+              title="Enviar al Auditor Técnico"
+              draggable={false}
+            >
+              <Send size={11} />
+            </button>
+          )}
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onRellenarAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+            onClick={(e) => { e.stopPropagation(); onOpenIA({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+            className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
+            title="Preguntar sobre este documento"
+            draggable={false}
+          >
+            <Sparkles size={11} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onView({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
             className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-            title="Rellenar anexo con los datos de la empresa"
+            title="Ver en el visor"
             draggable={false}
           >
-            <Wand2 size={11} />
+            <Eye size={11} />
           </button>
-        )}
-        {separable && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onSepararAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-            className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
-            title="Separar en anexos independientes (si trae varios pegados en un solo Word)"
-            draggable={false}
-          >
-            <Scissors size={11} />
-          </button>
-        )}
-        {onEnviarAuditor && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onEnviarAuditor({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+          <a
+            href={doc.url_local || doc.url} download={doc.nombre}
+            onClick={(e) => { e.stopPropagation(); registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó'); }}
             className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
-            title="Enviar al Auditor Técnico"
+            title="Descargar"
             draggable={false}
           >
-            <Send size={11} />
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onOpenIA({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-          className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
-          title="Preguntar sobre este documento"
-          draggable={false}
-        >
-          <Sparkles size={11} />
-        </button>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onView({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-          className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-          title="Ver en el visor"
-          draggable={false}
-        >
-          <Eye size={11} />
-        </button>
-        <a
-          href={doc.url_local || doc.url} download={doc.nombre}
-          onClick={(e) => { e.stopPropagation(); registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó'); }}
-          className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
-          title="Descargar"
-          draggable={false}
-        >
-          <Download size={11} />
-        </a>
-        {esPropio && onDelete && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onDelete(doc); }}
-            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-            title="Eliminar documento propio"
-            draggable={false}
-          >
-            <Trash2 size={11} />
-          </button>
-        )}
+            <Download size={11} />
+          </a>
+          {esPropio && onDelete && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onDelete(doc); }}
+              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+              title="Eliminar documento propio"
+              draggable={false}
+            >
+              <Trash2 size={11} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -789,48 +791,52 @@ function DocPropioItem({
       draggable={!isEditing}
       onDragStart={(e) => onDragStart(e, doc)}
       className={`
-        group flex items-center gap-2 px-2.5 py-2 rounded-lg border
+        group flex flex-col gap-1.5 px-2.5 py-2 rounded-lg border
         cursor-grab active:cursor-grabbing select-none transition-all
         ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
         bg-white border-slate-100 hover:bg-slate-50
       `}
     >
-      <GripVertical size={12} className="text-slate-300 flex-shrink-0" />
-      <span className="text-base flex-shrink-0">{getFileIcon(doc.nombre)}</span>
-      <div className="flex-1 min-w-0">
-        {isEditing ? (
-          <input
-            autoFocus value={valorNombre} onChange={e => onChangeValorNombre(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') onGuardarNombre(); if (e.key === 'Escape') onCancelarEdicion(); }}
-            className="w-full text-[11px] px-1.5 py-0.5 border border-violet-300 rounded focus:outline-none focus:ring-1 focus:ring-violet-400"
-          />
-        ) : (
-          <>
-            <p className="text-[11px] font-semibold text-slate-700 truncate leading-tight" title={doc.nombre}>
+      <div className="flex items-start gap-2">
+        <GripVertical size={12} className="text-slate-300 flex-shrink-0 mt-0.5" />
+        <span className="text-base flex-shrink-0 leading-none">{getFileIcon(doc.nombre)}</span>
+        <div className="flex-1 min-w-0">
+          {isEditing ? (
+            <input
+              autoFocus value={valorNombre} onChange={e => onChangeValorNombre(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') onGuardarNombre(); if (e.key === 'Escape') onCancelarEdicion(); }}
+              className="w-full text-[11px] px-1.5 py-0.5 border border-violet-300 rounded focus:outline-none focus:ring-1 focus:ring-violet-400"
+            />
+          ) : (
+            <p className="text-[11px] font-semibold text-slate-700 leading-snug line-clamp-2 break-words" title={doc.nombre}>
               {doc.nombre}
             </p>
-            {doc.size && <p className="text-[10px] text-slate-400 leading-tight">{formatFileSize(doc.size)}</p>}
-          </>
+          )}
+        </div>
+        {busy && <Loader2 size={12} className="animate-spin text-violet-500 flex-shrink-0 mt-0.5" />}
+      </div>
+      <div className="flex items-center justify-between pl-[26px]">
+        <span className="text-[10px] text-slate-400 leading-tight flex-shrink-0">
+          {doc.size ? formatFileSize(doc.size) : ''}
+        </span>
+        {isEditing ? (
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            <button type="button" onClick={onGuardarNombre} title="Guardar" className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><Check size={12} /></button>
+            <button type="button" onClick={onCancelarEdicion} title="Cancelar" className="p-1 text-slate-400 hover:bg-slate-100 rounded"><X size={12} /></button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0">
+            <button type="button" onClick={(e) => { e.stopPropagation(); onView(); }} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors" title="Ver en el visor" draggable={false}><Eye size={11} /></button>
+            <a href={urlDe} download={doc.nombre} onClick={(e) => { e.stopPropagation(); onDownloadClick(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Descargar" draggable={false}><Download size={11} /></a>
+            {onEnviarAuditor && (
+              <button type="button" onClick={(e) => { e.stopPropagation(); onEnviarAuditor(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Enviar al Auditor Técnico" draggable={false}><Send size={11} /></button>
+            )}
+            <button type="button" onClick={(e) => { e.stopPropagation(); onReemplazar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors disabled:opacity-50" title="Reemplazar (subir versión nueva)" draggable={false}><Upload size={11} /></button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); onRenombrarClick(); }} disabled={busy} className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors disabled:opacity-50" title="Renombrar" draggable={false}><Pencil size={11} /></button>
+            <button type="button" onClick={(e) => { e.stopPropagation(); onEliminar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50" title="Eliminar" draggable={false}><Trash2 size={11} /></button>
+          </div>
         )}
       </div>
-      {busy && <Loader2 size={12} className="animate-spin text-violet-500 flex-shrink-0" />}
-      {isEditing ? (
-        <div className="flex items-center gap-0.5 flex-shrink-0">
-          <button type="button" onClick={onGuardarNombre} title="Guardar" className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><Check size={12} /></button>
-          <button type="button" onClick={onCancelarEdicion} title="Cancelar" className="p-1 text-slate-400 hover:bg-slate-100 rounded"><X size={12} /></button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          <button type="button" onClick={(e) => { e.stopPropagation(); onView(); }} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors" title="Ver en el visor" draggable={false}><Eye size={11} /></button>
-          <a href={urlDe} download={doc.nombre} onClick={(e) => { e.stopPropagation(); onDownloadClick(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Descargar" draggable={false}><Download size={11} /></a>
-          {onEnviarAuditor && (
-            <button type="button" onClick={(e) => { e.stopPropagation(); onEnviarAuditor(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Enviar al Auditor Técnico" draggable={false}><Send size={11} /></button>
-          )}
-          <button type="button" onClick={(e) => { e.stopPropagation(); onReemplazar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors disabled:opacity-50" title="Reemplazar (subir versión nueva)" draggable={false}><Upload size={11} /></button>
-          <button type="button" onClick={(e) => { e.stopPropagation(); onRenombrarClick(); }} disabled={busy} className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors disabled:opacity-50" title="Renombrar" draggable={false}><Pencil size={11} /></button>
-          <button type="button" onClick={(e) => { e.stopPropagation(); onEliminar(); }} disabled={busy} className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors disabled:opacity-50" title="Eliminar" draggable={false}><Trash2 size={11} /></button>
-        </div>
-      )}
     </div>
   );
 }
