@@ -1243,6 +1243,67 @@ function esCandidato(doc: DocTexto): boolean {
   return /detalle|descrip/i.test(doc.texto) && /\bcant/i.test(doc.texto);
 }
 
+// ─── TABLA CANÓNICA "Producto | Cantidad" de las BASES TÉCNICAS ────────────────────────────
+// (17-ago-2026, caso real 2345-128-LP26.) El listado AUTORITATIVO de qué se compra casi siempre
+// vive en las bases técnicas como una tabla mínima de dos columnas:
+//
+//     Producto Cantidad
+//     Chaleco Balístico con funda con logo institucional. 155
+//     Cascos balísticos   300
+//
+// Extraída de un PDF, esa tabla NO es markdown ni CSV — las columnas se aplastan en una sola
+// línea con el número al final, así que `celdasDe()` (que solo entiende "|" y comas) devuelve
+// null y el parser tabular completo nunca la ve. Resultado: el manifiesto quedaba 100% a merced
+// del LLM, que en este caso mezcló 20 filas de la tabla de criterios entre los 10 productos.
+//
+// Esta función es a propósito ESTRECHA: exige el encabezado literal de dos columnas y filas
+// "<descripción con letras> <entero>". No compite con el parser tabular (que maneja planillas
+// ricas con unidad/línea/categoría) — es una RED DE SEGURIDAD determinista para saber CUÁNTOS y
+// CUÁLES productos son, cuando el documento fuente es un PDF de bases y no una planilla Excel.
+const RE_HEADER_PRODUCTO_CANTIDAD =
+  /^(producto|productos|bien|bienes|art[ií]culo|art[ií]culos|descripci[óo]n|detalle|insumo|insumos|equipamiento)\s*\|?\s*(cantidad|cant\.?|n[°º]\s*unidades)\s*$/i;
+// Corta el barrido: un encabezado de sección nueva ("B.2. ESPECIFICACIONES", "ANEXO N°3",
+// "5. GARANTÍAS") significa que la tabla terminó. Sin esto, el barrido seguiría comiéndose la
+// prosa que viene abajo mientras alguna línea termine por casualidad en un número.
+const RE_FIN_DE_TABLA_CANONICA =
+  /^(\s*[A-Z]\.\d|\s*\d+\.\d|anexo\b|formulario\b|art[ií]culo\s+\d|cap[ií]tulo\b|secci[óo]n\b)/i;
+
+export function extraerTablaProductoCantidad(docs: DocTexto[]): ItemPlanilla[] {
+  for (const doc of docs) {
+    if (!doc.texto) continue;
+    const lineas = doc.texto.split('\n');
+    for (let i = 0; i < lineas.length; i++) {
+      if (!RE_HEADER_PRODUCTO_CANTIDAD.test(limpiarCelda(lineas[i]))) continue;
+
+      const items: ItemPlanilla[] = [];
+      let vacíasSeguidas = 0;
+      for (let j = i + 1; j < lineas.length; j++) {
+        const t = limpiarCelda(lineas[j]);
+        if (!t) {
+          // Una tabla de PDF trae líneas en blanco entre filas (saltos de página, espaciado).
+          // Se toleran unas pocas; muchas seguidas significan que la tabla ya terminó.
+          if (++vacíasSeguidas > 3) break;
+          continue;
+        }
+        if (RE_FIN_DE_TABLA_CANONICA.test(t)) break;
+        vacíasSeguidas = 0;
+        // Fila válida: texto con letras + un entero al final. El punto final es habitual
+        // ("Cascos balísticos.  300") y no forma parte ni del nombre ni del número.
+        const m = t.match(/^(.*[\p{L}].*?)\s*[.:]?\s+(\d{1,6})\s*$/u);
+        if (!m) break;                       // una fila que no calza cierra la tabla
+        const descripcion = m[1].replace(/[.\s]+$/, '').trim();
+        const cantidad = Number(m[2]);
+        if (descripcion.length < 3 || descripcion.length > 200) break;
+        if (!Number.isFinite(cantidad) || cantidad <= 0) break;
+        items.push({ linea: 1, categoria: null, numero: items.length + 1, descripcion, unidad: '', cantidad });
+      }
+      // Dos filas no son una tabla (puede ser prosa con un número al final por casualidad).
+      if (items.length >= 3) return items;
+    }
+  }
+  return [];
+}
+
 // Recorre los documentos candidatos y devuelve el MEJOR resultado (más ítems; a igualdad,
 // el que detecte líneas y luego categorías). Si ninguno califica → null.
 export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | null {

@@ -7,8 +7,72 @@ import assert from 'node:assert/strict';
 import {
   detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerSeccionesLineaProducto,
   detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea,
-  parsearPlanillaCosteo,
+  parsearPlanillaCosteo, extraerTablaProductoCantidad,
 } from '../planilla-costeo-parser';
+
+const doc = (texto: string) => [{ nombre: 'bases.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto, metodo: 'pdf-text' }];
+
+// ── Tabla canónica "Producto | Cantidad" de las bases técnicas ────────────────────────────
+// (17-ago-2026, caso real 2345-128-LP26.) Extraída de un PDF, la tabla no es markdown ni CSV:
+// las columnas se aplastan en una línea con el número al final. Sin este extractor, el listado
+// autoritativo de qué se compra quedaba 100% a merced del LLM.
+test('tabla canónica: extrae producto + cantidad de una tabla de bases en PDF (regresión 2345-128-LP26)', () => {
+  const items = extraerTablaProductoCantidad(doc(`
+B.1. ALCANCE Y DESCRIPCIÓN GENERAL
+El objetivo del presente proceso es contratar la adquisición de equipamiento.
+Producto Cantidad
+Chaleco Balístico con funda con logo institucional. 155
+Funda Chaleco Balístico con logo institucional 150
+Cascos balísticos   300
+Bastón Retráctil. 250
+Linterna con funda. 260
+
+B.2. ESPECIFICACIONES TÉCNICAS
+A) Chaleco balístico con funda y logo institucional
+El presente requerimiento técnico tiene por objeto establecer 3 especificaciones mínimas 40
+`));
+  assert.equal(items.length, 5, 'debe cortar en B.2 y no comerse la prosa de abajo');
+  assert.equal(items[0].descripcion, 'Chaleco Balístico con funda con logo institucional');
+  assert.equal(items[0].cantidad, 155);
+  assert.equal(items[2].descripcion, 'Cascos balísticos');
+  assert.equal(items[2].cantidad, 300);
+  assert.equal(items[4].cantidad, 260);
+});
+
+test('tabla canónica: la tabla de CRITERIOS ("Ítem | Puntaje") nunca se confunde con productos', () => {
+  const items = extraerTablaProductoCantidad(doc(`
+RESUMEN DE EVALUACIÓN
+Ítem Puntaje
+Oferta Administrativa 4
+Oferta Técnica 26
+Oferta económica 70
+`));
+  assert.equal(items.length, 0, 'el encabezado dice Puntaje, no Cantidad → no es tabla de productos');
+});
+
+test('tabla canónica: prosa con números al final no se confunde con una tabla', () => {
+  const items = extraerTablaProductoCantidad(doc(`
+El plazo de entrega no podrá superar los 60
+La garantía deberá extenderse por 12
+`));
+  assert.equal(items.length, 0, 'sin encabezado Producto|Cantidad no se extrae nada');
+});
+
+test('tabla canónica: menos de 3 filas no cuenta como tabla', () => {
+  const items = extraerTablaProductoCantidad(doc(`
+Producto Cantidad
+Chaleco balístico 155
+Cascos balísticos 300
+`));
+  assert.equal(items.length, 0, 'dos filas pueden ser coincidencia, no una tabla');
+});
+
+test('tabla canónica: acepta variantes del encabezado (Descripción/Bien/Artículo)', () => {
+  for (const encabezado of ['Descripción Cantidad', 'Bienes Cantidad', 'Artículo Cant.']) {
+    const items = extraerTablaProductoCantidad(doc(`${encabezado}\nMartillo de acero 10\nDestornillador plano 25\nLlave inglesa 12\n`));
+    assert.equal(items.length, 3, `debe reconocer el encabezado "${encabezado}"`);
+  }
+});
 
 // Caso real 3220-18-LE26 (12-ago-2026): "DETALLE_MATERIALES_ELECTRICOS..pdf" pierde todo espacio
 // entre columnas al pasar por pdf-text — la fila queda "3" + "5.500" + "MTS" + "CABLE RVK…" pegada

@@ -20,7 +20,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla, extraerTablaProductoCantidad } from '@/app/lib/planilla-costeo-parser';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
@@ -2034,6 +2034,40 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
         descartados.slice(0, 8).map(d => `"${d.descripcion.slice(0, 60)}"`).join(', '));
     }
   }
+
+  // ── CONTRASTE CONTRA LA TABLA CANÓNICA DE LAS BASES TÉCNICAS ────────────────────────────
+  // (17-ago-2026.) El listado autoritativo de QUÉ se compra vive en las bases técnicas como una
+  // tabla "Producto | Cantidad" — extraíble de forma 100% determinista, sin IA (ver
+  // extraerTablaProductoCantidad). Se usa como CONTROL del manifiesto del LLM:
+  //   · Si el LLM trae los mismos productos MÁS un montón de filas extra, esas extras son ruido
+  //     (criterios, requisitos, notas) y manda la tabla canónica.
+  //   · Si el LLM trae MENOS o distinto, NO se pisa: la tabla canónica puede ser un resumen y el
+  //     detalle real vivir en otro documento (un anexo con más desglose) — ahí el LLM aporta.
+  // El guardarraíl de "el LLM ya contiene lo canónico" es lo que hace seguro el override: solo
+  // recorta cuando está probado que lo correcto YA está adentro y lo demás sobra.
+  try {
+    const canonica = extraerTablaProductoCantidad(fuentes.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
+    if (canonica.length >= 3 && manifiesto.length > 0) {
+      const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+      const enManifiesto = manifiesto.map(m => norm(m.descripcion));
+      const cubiertos = canonica.filter(c => {
+        const nc = norm(c.descripcion);
+        return enManifiesto.some(em => em === nc || em.includes(nc) || nc.includes(em));
+      }).length;
+      const cobertura = cubiertos / canonica.length;
+      if (cobertura >= 0.7 && manifiesto.length > canonica.length * 1.5) {
+        console.warn(`[viabilidad-ia-v3] ${codigo}: el manifiesto del LLM traía ${manifiesto.length} ítems pero la tabla canónica de las bases lista ${canonica.length} (cobertura ${Math.round(cobertura * 100)}%) → se recorta a la canónica; el resto era ruido del documento.`);
+        manifiesto = canonica.map(c => ({
+          linea: 1, categoria: null, descripcion: c.descripcion, modelo: '',
+          cantidad: c.cantidad, unidad_medida: '', unidad_inferida: true,
+          presupuesto_linea: null, tipo: 'generico', ruta: '',
+        }));
+      } else if (canonica.length !== manifiesto.length) {
+        console.log(`[viabilidad-ia-v3] ${codigo}: tabla canónica de bases = ${canonica.length} ítems vs manifiesto = ${manifiesto.length} (cobertura ${Math.round(cobertura * 100)}%) — se conserva el manifiesto (puede tener desglose que la tabla resume).`);
+      }
+    }
+  } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: contraste con tabla canónica falló:`, String(e).slice(0, 140)); }
+
   let estructuraCosteo: 'por_categoria' | null = null;
   // GATE DE CALIDAD para que el parser pise al LLM (caso real 2178-14-LE26: un Excel CSV mal
   // mapeado daba 15 "ítems" basura que reemplazaban los 10 productos correctos del modelo):
