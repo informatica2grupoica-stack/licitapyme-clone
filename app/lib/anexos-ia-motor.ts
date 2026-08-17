@@ -304,7 +304,7 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   comuna: 'Comuna del domicilio comercial — casilla "Comuna".',
   ciudad: 'Ciudad del domicilio comercial — casilla "Ciudad".',
   region: 'Región CON la comuna al final, ej. "Región del Bío Bío, Concepción" — úsalo SOLO si la casilla junta "Región y comuna" o "Ciudad, Región" en una sola casilla. Si la casilla pide solo "Comuna" o solo "Ciudad", usa esos campos, no este.',
-  giro: 'Giro comercial',
+  giro: 'Giro comercial — en algunos formularios la casilla dice "Rubro Comercial" o "Rubro" en vez de "Giro": es el MISMO dato, no lo dejes pendiente por la etiqueta distinta.',
   tipo_persona_juridica: 'Tipo de persona jurídica',
   fecha_sociedad: 'Fecha/tipo/notaría de constitución (texto libre, todo junto)',
   fecha_escritura: 'Fecha de la escritura de constitución (solo la fecha)',
@@ -322,8 +322,8 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   banco_numero: 'Número de cuenta bancaria',
   banco_nombre: 'Nombre del banco',
   banco_email: 'Correo electrónico para pagos',
-  banco_titular_nombre: 'Nombre del titular de la cuenta bancaria (puede ser distinto de la razón social)',
-  banco_titular_rut: 'RUT/cédula de identidad del titular de la cuenta bancaria',
+  banco_titular_nombre: 'Nombre del titular de la cuenta bancaria (puede ser distinto de la razón social) — dentro de un bloque "DATOS BANCARIOS PARA TRANSFERENCIA", la casilla suele decir simplemente "NOMBRE TITULAR" o "TITULAR" sin la palabra "cuenta" ni "banco" al lado — igual es este campo.',
+  banco_titular_rut: 'RUT/cédula de identidad del titular de la cuenta bancaria — mismo criterio: dentro de "DATOS BANCARIOS" la casilla puede decir solo "RUT TITULAR" o "RUT".',
   fecha_hoy: 'Fecha con la que se firma y presenta esta oferta, en formato largo ("4 de agosto de 2026") — la fecha de CIERRE de esta licitación cuando se conoce (política de la empresa), si no la fecha real de hoy',
   fecha_hoy_dia: 'Solo el DÍA de hoy (número) — para pies de firma partidos: "Fecha: __ /__ /__"',
   fecha_hoy_mes: 'Solo el MES de hoy (número) — la casilla del medio de "Fecha: __ /__ /__"',
@@ -412,7 +412,7 @@ CASILLA SIN CONTEXTO: si el contexto que te llega para una casilla está vacío 
 
 TÍTULOS QUE NO SON CASILLAS: la detección es a propósito ruidosa y te va a pasar, mezclados con las casillas reales, encabezados y títulos de sección ("PROPUESTA:", "1. Detalle del suministro", "ANTECEDENTES GENERALES", "OFERTA ECONÓMICA:"). Un título ANUNCIA lo que viene abajo, no pide un dato: categoria="no_aplica_al_oferente", campo=null. La señal es simple — si al escribir el valor ahí la línea quedaría sin sentido leída en voz alta ("PROPUESTA: 06"), es un título. Ante la duda entre título y campo, elige título: una casilla de más que el humano llena es un costo menor que un dato suelto en medio del documento.
 
-REGLA CLAVE — UNA SOLA PERSONA: el oferente, el representante legal, el encargado de la propuesta, el contacto para la licitación y el administrador de contrato son SIEMPRE la misma persona de la ficha. Si un bloque pide "Nombre completo", "Cargo", "Cédula de identidad", "Teléfono" o "Correo" bajo cualquiera de esos títulos (incluida una declaración jurada corrida: "Yo, don ___, cédula de identidad N° ___, en representación de ___"), se llena con los datos del representante legal / de la empresa según el dato pedido — no lo dejes pendiente por dudar de quién es.
+REGLA CLAVE — UNA SOLA PERSONA: el oferente, el representante legal, el encargado de la propuesta, el contacto para la licitación y el administrador de contrato son SIEMPRE la misma persona de la ficha. Si un bloque pide "Nombre completo", "Cargo", "Cédula de identidad", "Teléfono" o "Correo" bajo cualquiera de esos títulos (incluida una declaración jurada corrida: "Yo, don ___, cédula de identidad N° ___, en representación de ___"), se llena con los datos del representante legal / de la empresa según el dato pedido — no lo dejes pendiente por dudar de quién es. CONSISTENCIA DENTRO DEL MISMO BLOQUE (no negociable): si dentro de ese mismo bloque de contacto ya resolviste el TELÉFONO/CELULAR con telefono1, el E-MAIL/CORREO del bloque se resuelve con email1 exactamente con el mismo criterio — nunca trates el teléfono y el correo de la misma persona/bloque de forma distinta, uno pendiente y el otro no.
 
 DOS EJEMPLOS CONCRETOS DE DECLARACIÓN JURADA CORRIDA (el caso que MÁS se falla — analízalos con calma, casilla por casilla, NUNCA los trates como un solo bloque de firma):
 1. "El proponente, por medio de su representante legal, don 【CASILLA A LLENAR】 declara bajo juramento lo siguiente:" → la casilla pide el NOMBRE del representante legal → categoria="perfil_representante_legal", valor=representante_nombre. Que la oración diga "declara bajo juramento" NO la vuelve firma_fecha: es el estilo legal del texto, no una raya de firma.
