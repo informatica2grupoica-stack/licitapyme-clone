@@ -253,6 +253,9 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   // caen los archivos que ningún punto matcheó con confianza (ver repartirArchivosGenerados).
   const [generandoItem, setGenerandoItem] = useState<Item | null>(null);
   const [anexoDocSeleccionado, setAnexoDocSeleccionado] = useState<AnexoDoc | null>(null);
+  // Con licitaciones de 100+ ítems, revisar línea por línea es inviable — por defecto el bloque
+  // TECNICO solo muestra las líneas técnicas que aún no están aprobadas.
+  const [soloExcepcionesTecnico, setSoloExcepcionesTecnico] = useState(true);
 
   const cargar = useCallback(async () => {
     try {
@@ -398,6 +401,19 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   }
 
   const sinEmpresa = !empresa;
+
+  // Agregado del bloque TECNICO: no vive en el backend (es una suma en caliente de los
+  // resumen_tecnico que ya trae cada línea), así que sincronizar() sigue sin tocar IA.
+  const lineasTecnicas = items.filter(i => i.tipo === 'linea_tecnica');
+  const resumenTecnicoGlobal = lineasTecnicas.reduce((acc, i) => {
+    acc.totalLineas++;
+    if (i.estado === 'APROBADO') acc.aprobadas++;
+    const r = i.resumen_tecnico;
+    if (!r || r.total === 0) acc.sinValidar++;
+    else if (r.noCumplen > 0) acc.noCumplen++;
+    else if (r.conComplemento > 0 || r.pendientesProveedor > 0) acc.conComplemento++;
+    return acc;
+  }, { totalLineas: 0, aprobadas: 0, noCumplen: 0, conComplemento: 0, sinValidar: 0 });
 
   return (
     <div className="space-y-5 fade-in">
@@ -555,9 +571,25 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
             {b.key === 'COMERCIAL' && <MotorComercialCard negocioId={negocioId} licitacionCodigo={licitacionCodigo} />}
 
+            {b.key === 'TECNICO' && lineasTecnicas.length > 0 && (
+              <div className="px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-3 text-[11.5px] flex-wrap">
+                  <span className="font-semibold text-zinc-600">{resumenTecnicoGlobal.totalLineas} línea{resumenTecnicoGlobal.totalLineas === 1 ? '' : 's'}</span>
+                  <span className="text-emerald-600 font-semibold">{resumenTecnicoGlobal.aprobadas} aprobada{resumenTecnicoGlobal.aprobadas === 1 ? '' : 's'}</span>
+                  {resumenTecnicoGlobal.noCumplen > 0 && <span className="text-rose-600 font-semibold">{resumenTecnicoGlobal.noCumplen} no cumple</span>}
+                  {resumenTecnicoGlobal.conComplemento > 0 && <span className="text-amber-600 font-semibold">{resumenTecnicoGlobal.conComplemento} con complemento</span>}
+                  {resumenTecnicoGlobal.sinValidar > 0 && <span className="text-zinc-400">{resumenTecnicoGlobal.sinValidar} sin validar</span>}
+                </div>
+                <button onClick={() => setSoloExcepcionesTecnico(v => !v)} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
+                  {soloExcepcionesTecnico ? 'Mostrar todas las líneas' : 'Mostrar solo pendientes'}
+                </button>
+              </div>
+            )}
+
             <div className="divide-y divide-zinc-100">
-              {delBloque.map(item => (
-                item.tipo === 'linea_tecnica' ? (
+              {delBloque.map(item => {
+                if (b.key === 'TECNICO' && item.tipo === 'linea_tecnica' && soloExcepcionesTecnico && item.estado === 'APROBADO') return null;
+                return item.tipo === 'linea_tecnica' ? (
                   <FilaLineaTecnica
                     key={item.id}
                     item={item}
@@ -581,8 +613,11 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                     onGenerar={isAdmin ? setGenerandoItem : undefined}
                     toast={toast}
                   />
-                )
-              ))}
+                );
+              })}
+              {b.key === 'TECNICO' && soloExcepcionesTecnico && lineasTecnicas.length > 0 && resumenTecnicoGlobal.aprobadas === resumenTecnicoGlobal.totalLineas && (
+                <p className="px-4 py-3 text-[12px] text-emerald-600 font-medium">Todas las líneas técnicas están aprobadas.</p>
+              )}
             </div>
 
             {/* Total de la oferta, solo en el bloque comercial por línea */}

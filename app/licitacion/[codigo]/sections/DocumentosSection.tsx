@@ -13,6 +13,7 @@ import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentVie
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
 import { SelectorPuntoAuditor } from '@/app/components/SelectorPuntoAuditor';
+import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
 import { DocSplitLoader } from '@/app/components/ui/DocSplitLoader';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
@@ -1271,13 +1272,23 @@ export function DocumentosSection({
   const [anexoDoc, setAnexoDoc] = useState<AnexoDoc | null>(null);
   // Documento elegido para mandar al Auditor Técnico — abre el selector de punto (SelectorPuntoAuditor).
   const [enviandoDoc, setEnviandoDoc] = useState<{ nombre: string; url: string } | null>(null);
-  const enviarAAuditor = async (itemId: number) => {
+  // Si el punto elegido es una LÍNEA TÉCNICA (ficha de producto), no basta con "adjuntar y
+  // quedar en CARGADO" — hay que correr la comparación (Agente Técnico) y mostrar el resultado
+  // de inmediato en el modal, no un toast ciego. Los puntos tipo "documento" (anexos genéricos)
+  // siguen el camino de siempre, más abajo.
+  const [comparandoFicha, setComparandoFicha] = useState<{ itemId: number; documento: { nombre: string; url: string } } | null>(null);
+  const enviarAAuditor = async (item: { id: number; tipo: string }) => {
     if (!enviandoDoc || !negocioId) return;
+    if (item.tipo === 'linea_tecnica') {
+      setComparandoFicha({ itemId: item.id, documento: enviandoDoc });
+      setEnviandoDoc(null);
+      return;
+    }
     try {
       const r = await fetch(`/api/negocios/${negocioId}/comercial`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId, accion: 'CARGAR', documentos: [enviandoDoc] }),
+        body: JSON.stringify({ itemId: item.id, accion: 'CARGAR', documentos: [enviandoDoc] }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo enviar al Auditor Técnico'); return; }
@@ -1539,6 +1550,20 @@ export function DocumentosSection({
         onSeleccionar={enviarAAuditor}
         onClose={() => setEnviandoDoc(null)}
       />
+
+      {/* Camino "línea técnica": el documento se compara contra las características exigidas
+          apenas se abre, y el resultado se ve en el modal — no en un toast. */}
+      {comparandoFicha && negocioId && (
+        <ModalAuditorLineaTecnica
+          negocioId={negocioId}
+          itemId={comparandoFicha.itemId}
+          licitacionCodigo={codigoDecoded}
+          puedeAprobar={false}
+          bloqueado={false}
+          documentoInicial={comparandoFicha.documento}
+          onClose={() => setComparandoFicha(null)}
+        />
+      )}
 
       {/* Pantalla de relleno de un anexo de oferente */}
       <AnexoRellenoModal

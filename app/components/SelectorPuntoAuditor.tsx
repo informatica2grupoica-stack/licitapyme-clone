@@ -4,13 +4,18 @@
 // lo generó otra pantalla — costeo, informe, un anexo llenado fuera de la app) y lo que falta
 // es decidir a QUÉ PUNTO del checklist del Auditor Técnico corresponde. Mismo motor de
 // coincidencia por texto (anexos-match.ts), pero comparando el nombre del archivo contra el
-// título de CADA punto tipo "documento" del negocio — administrativo, técnico o comercial.
+// título de CADA punto tipo "documento" O "linea_tecnica" del negocio — administrativo, técnico
+// (anexos genéricos) o comercial, más las líneas técnicas del Agente Técnico (fichas de producto).
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, Send, AlertTriangle, FileText } from 'lucide-react';
+import { X, Loader2, Send, AlertTriangle, FileText, Wrench } from 'lucide-react';
 import { ordenarPorCoincidencia } from '@/app/lib/anexos-match';
 
-interface ItemChecklist { id: number; bloque: 'ADMINISTRATIVO' | 'TECNICO' | 'COMERCIAL'; tipo: string; titulo: string; estado: string }
+interface ResumenTecnico { total: number; cumplen: number; noCumplen: number; conComplemento: number; sinEvaluar: number; pendientesProveedor: number }
+interface ItemChecklist {
+  id: number; bloque: 'ADMINISTRATIVO' | 'TECNICO' | 'COMERCIAL'; tipo: string; titulo: string; estado: string;
+  resumen_tecnico?: ResumenTecnico | null;
+}
 
 const BLOQUE_LABEL: Record<string, string> = { ADMINISTRATIVO: 'Administrativo', TECNICO: 'Técnico', COMERCIAL: 'Comercial' };
 const ESTADO_LABEL: Record<string, { label: string; cls: string }> = {
@@ -25,7 +30,7 @@ export function SelectorPuntoAuditor({
 }: {
   negocioId: number | null;
   nombreArchivo: string | null;
-  onSeleccionar: (itemId: number) => void;
+  onSeleccionar: (item: { id: number; tipo: string }) => void;
   onClose: () => void;
 }) {
   const [cargando, setCargando] = useState(true);
@@ -41,7 +46,7 @@ export function SelectorPuntoAuditor({
       .then(d => {
         if (!d.success) { setError(d.error || 'No se pudo cargar el Auditor Técnico'); return; }
         if (d.migracionPendiente || !d.activo) { setError('El Auditor Técnico todavía no está activo para este negocio.'); return; }
-        const items: ItemChecklist[] = (d.items || []).filter((i: ItemChecklist) => i.tipo === 'documento');
+        const items: ItemChecklist[] = (d.items || []).filter((i: ItemChecklist) => i.tipo === 'documento' || i.tipo === 'linea_tecnica');
         const ordenados = ordenarPorCoincidencia(nombreArchivo, items.map(i => ({ id: i.id, nombre: i.titulo })));
         setCandidatos(items.map(i => ({
           ...i,
@@ -95,19 +100,33 @@ export function SelectorPuntoAuditor({
             </div>
           )}
           {!cargando && !error && candidatos.map((c, i) => {
+            const esTecnica = c.tipo === 'linea_tecnica';
             const est = ESTADO_LABEL[c.estado] || ESTADO_LABEL.PENDIENTE;
+            const r = c.resumen_tecnico;
             return (
               <button
                 key={c.id}
-                onClick={() => onSeleccionar(c.id)}
+                onClick={() => onSeleccionar({ id: c.id, tipo: c.tipo })}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-emerald-50 text-left transition-colors group"
               >
-                <FileText size={15} className="text-slate-400 group-hover:text-emerald-500 flex-shrink-0" />
+                {esTecnica
+                  ? <Wrench size={15} className="text-slate-400 group-hover:text-emerald-500 flex-shrink-0" />
+                  : <FileText size={15} className="text-slate-400 group-hover:text-emerald-500 flex-shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <p className="text-[12.5px] font-medium text-slate-700 truncate" title={c.titulo}>{c.titulo}</p>
-                  <p className="text-[10px] text-slate-400">{BLOQUE_LABEL[c.bloque] || c.bloque}</p>
+                  <p className="text-[10px] text-slate-400">
+                    {BLOQUE_LABEL[c.bloque] || c.bloque}
+                    {esTecnica && r && r.total > 0 && ` · ${r.cumplen} de ${r.total} cumple`}
+                    {esTecnica && (!r || r.total === 0) && ' · sin validar'}
+                  </p>
                 </div>
-                <span className={`flex-shrink-0 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full ${est.cls}`}>{est.label}</span>
+                {esTecnica ? (
+                  <span className="flex-shrink-0 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">
+                    Comparar ficha
+                  </span>
+                ) : (
+                  <span className={`flex-shrink-0 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full ${est.cls}`}>{est.label}</span>
+                )}
                 {i === 0 && mejorPuntaje > 0 && (
                   <span className="flex-shrink-0 text-[9.5px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
                     Sugerido
