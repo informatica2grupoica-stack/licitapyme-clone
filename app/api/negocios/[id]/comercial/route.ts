@@ -752,28 +752,44 @@ async function compararDocumentoMasivo(args: {
         else if (veredictoFinal === 'NO_CUMPLE') noCumplen++;
       }
 
-      // Auto-transición: igual que en .../[itemId]/caracteristicas (POST comparar_ficha) — si
-      // toda la línea quedó resuelta pasa sola a CARGADO, lista para que el asesor la revise.
+      // Auto-transición: mismo criterio que .../[itemId]/caracteristicas (intentarAutoTransicion)
+      // — si toda la línea quedó resuelta Y sin ningún NO_CUMPLE/CON_COMPLEMENTO, se aprueba sola
+      // (nada que decidir); si quedó algún incumplimiento, pasa a CARGADO para que el asesor lo vea.
       const [chkRows] = await pool.query(
-        `SELECT COUNT(*) AS total, SUM(veredicto IS NULL) AS sin_evaluar, SUM(pendiente_confirmacion_proveedor = 1) AS pendientes
+        `SELECT COUNT(*) AS total, SUM(veredicto IS NULL) AS sin_evaluar, SUM(pendiente_confirmacion_proveedor = 1) AS pendientes,
+                SUM(veredicto = 'NO_CUMPLE') AS no_cumplen, SUM(veredicto = 'CUMPLE_CON_COMPLEMENTO') AS con_complemento
            FROM checklist_comercial_caracteristicas WHERE item_id = ?`,
         [item.id],
       ) as any;
       const chk = (chkRows as any[])[0];
       if (chk && Number(chk.total) > 0 && Number(chk.sin_evaluar) === 0 && Number(chk.pendientes) === 0) {
-        const nuevoEstado = transicion(item.estado, 'CARGAR');
-        if (nuevoEstado) {
-          const ahora = ahoraChileSQL();
+        const ahora = ahoraChileSQL();
+        const todoCumple = Number(chk.no_cumplen) === 0 && Number(chk.con_complemento) === 0;
+        if (todoCumple) {
           await pool.query(
             `UPDATE checklist_comercial
-                SET estado = 'CARGADO', cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
-                    aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL
+                SET estado = 'APROBADO', cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
+                    aprobado_por = NULL, aprobado_por_nombre = ?, aprobado_at = ?
               WHERE id = ?`,
-            [userId, nombreActor, ahora, item.id],
+            [userId, nombreActor, ahora, `Auto-aprobado (${Number(chk.total)}/${Number(chk.total)} cumple)`, ahora, item.id],
           );
-          await bitacora(item.id, negocio.id, 'CARGAR', item.estado, 'CARGADO',
-            `Comparado en lote contra "${documentoNombre}" — ${Number(chk.total)}/${Number(chk.total)} características evaluadas`,
+          await bitacora(item.id, negocio.id, 'AUTO_APROBAR', item.estado, 'APROBADO',
+            `Comparado en lote contra "${documentoNombre}" — ${Number(chk.total)}/${Number(chk.total)} cumplen, sin excepciones`,
             userId, nombreActor);
+        } else {
+          const nuevoEstado = transicion(item.estado, 'CARGAR');
+          if (nuevoEstado) {
+            await pool.query(
+              `UPDATE checklist_comercial
+                  SET estado = 'CARGADO', cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
+                      aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL
+                WHERE id = ?`,
+              [userId, nombreActor, ahora, item.id],
+            );
+            await bitacora(item.id, negocio.id, 'CARGAR', item.estado, 'CARGADO',
+              `Comparado en lote contra "${documentoNombre}" — ${Number(chk.total)}/${Number(chk.total)} características evaluadas`,
+              userId, nombreActor);
+          }
         }
       }
 

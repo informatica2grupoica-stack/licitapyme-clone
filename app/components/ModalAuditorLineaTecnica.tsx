@@ -16,8 +16,9 @@
 // igual desde un lugar que ya tenía el item cargado (la pestaña) que desde uno que no (Documentos).
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, Check, HelpCircle, Upload, RefreshCw, Undo2, FileText, Wrench } from 'lucide-react';
+import { X, Loader2, Check, HelpCircle, Upload, RefreshCw, Undo2, FileText, Wrench, Trash2 } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
+import { useConfirm } from '@/app/components/ui/confirm';
 
 type Veredicto = 'CUMPLE' | 'NO_CUMPLE' | 'CUMPLE_CON_COMPLEMENTO';
 type EstadoItem = 'PENDIENTE' | 'CARGADO' | 'APROBADO' | 'OBSERVADO';
@@ -42,7 +43,16 @@ interface Caracteristica {
   origen: 'interrogatorio' | 'ficha' | 'manual';
 }
 
-interface ItemHeader { id: number; titulo: string; estado: EstadoItem; linea_numero: number | null }
+interface ItemHeader {
+  id: number; titulo: string; estado: EstadoItem; linea_numero: number | null;
+  aprobado_por_nombre: string | null; aprobado_at: string | null;
+}
+
+const fmtFecha = (s: string | null) => {
+  if (!s) return '';
+  try { return new Date(s.replace(' ', 'T')).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
+  catch { return ''; }
+};
 interface ComercialLigado {
   precio: { valorNumero: number | null; estado: EstadoItem } | null;
   plazo: { valorTexto: string | null; estado: EstadoItem } | null;
@@ -90,6 +100,7 @@ export function ModalAuditorLineaTecnica({
   onCambio?: () => void;
 }) {
   const toast = useToast();
+  const confirmar = useConfirm();
   const base = `/api/negocios/${negocioId}/comercial/${itemId}/caracteristicas`;
   const [cargando, setCargando] = useState(true);
   const [item, setItem] = useState<ItemHeader | null>(null);
@@ -97,6 +108,7 @@ export function ModalAuditorLineaTecnica({
   const [caracteristicas, setCaracteristicas] = useState<Caracteristica[]>([]);
   const [validando, setValidando] = useState(false);
   const [subiendoFicha, setSubiendoFicha] = useState(false);
+  const [reiniciando, setReiniciando] = useState(false);
   const [progreso, setProgreso] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const autoEjecutado = useRef(false);
@@ -111,7 +123,10 @@ export function ModalAuditorLineaTecnica({
     const items: any[] = dHeader.items || [];
     const propio = items.find((i: any) => i.id === itemId);
     if (propio) {
-      setItem({ id: propio.id, titulo: propio.titulo, estado: propio.estado, linea_numero: propio.linea_numero });
+      setItem({
+        id: propio.id, titulo: propio.titulo, estado: propio.estado, linea_numero: propio.linea_numero,
+        aprobado_por_nombre: propio.aprobado_por_nombre ?? null, aprobado_at: propio.aprobado_at ?? null,
+      });
       const precio = propio.linea_numero != null
         ? items.find((i: any) => i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.linea_numero === propio.linea_numero)
         : null;
@@ -204,6 +219,30 @@ export function ModalAuditorLineaTecnica({
     }
   };
 
+  const reiniciar = async () => {
+    const ok = await confirmar({
+      titulo: '¿Borrar toda la comparación de esta línea?',
+      mensaje: 'Se eliminan las características clasificadas y lo que se comparó hasta ahora. La línea vuelve a "sin validar", como si nunca se hubiera tocado.',
+      confirmarLabel: 'Borrar y empezar de nuevo',
+      peligro: true,
+    });
+    if (!ok) return;
+    setReiniciando(true);
+    try {
+      const r = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'reiniciar' }) });
+      const d = await r.json();
+      if (!r.ok) { toast.error(d.error || 'No se pudo reiniciar la línea'); return; }
+      setCaracteristicas([]);
+      toast.success('Línea reiniciada', 'Ya puedes validar de nuevo o subir otra ficha.');
+      onCambio?.();
+      await cargarTodo();
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally {
+      setReiniciando(false);
+    }
+  };
+
   const responder = async (caracteristicaId: number, extra: Record<string, unknown>) => {
     const r = await fetch(base, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'responder', caracteristicaId, ...extra }) });
     const d = await r.json();
@@ -249,6 +288,11 @@ export function ModalAuditorLineaTecnica({
                 </>
               ) : 'Sin características clasificadas todavía'}
             </p>
+            {item?.estado === 'APROBADO' && item.aprobado_por_nombre && (
+              <p className="text-[10.5px] text-emerald-600 font-medium mt-0.5 flex items-center gap-1">
+                <Check size={11} /> {item.aprobado_por_nombre}{item.aprobado_at ? ` · ${fmtFecha(item.aprobado_at)}` : ''}
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-colors flex-shrink-0" aria-label="Cerrar"><X size={16} /></button>
         </div>
@@ -277,6 +321,12 @@ export function ModalAuditorLineaTecnica({
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-zinc-500 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors disabled:opacity-50">
                       {subiendoFicha ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Subir ficha
                     </button>
+                    {caracteristicas.length > 0 && !bloqueado && (
+                      <button onClick={reiniciar} disabled={reiniciando} title="Borrar toda la comparación y volver a empezar"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-rose-500 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50">
+                        {reiniciando ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />} Reiniciar
+                      </button>
+                    )}
                   </div>
                 </div>
 

@@ -20,6 +20,7 @@ import { publicarCambio } from '@/app/lib/sse-bus';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { transicion } from '@/app/lib/checklist-comercial';
+import { yaCongelado } from '@/app/lib/congelamiento';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import {
   lineasTecnicasDelInforme, clasificarCaracteristicasLinea, compararFichaProveedor,
@@ -76,12 +77,18 @@ async function leerCaracteristicas(itemId: number) {
 
 /**
  * Si TODAS las características de la línea quedaron resueltas (veredicto no nulo y sin
- * pendientes de proveedor), la cabecera pasa sola a CARGADO — "evaluación terminada, lista para
- * que el asesor la revise", igual que cualquier otro punto. No implica que todo cumpla.
+ * pendientes de proveedor): si TODAS dieron CUMPLE, la línea se aprueba SOLA — no tiene sentido
+ * hacer esperar al asesor un punto donde no hay nada que decidir. Si quedó al menos un NO_CUMPLE
+ * o CUMPLE_CON_COMPLEMENTO, pasa a CARGADO como antes (alguien tiene que mirarlo). La
+ * auto-aprobación queda marcada como tal (aprobado_por_nombre distinto de una firma humana) y
+ * sigue siendo reversible con "Reabrir" — que solo el asesor puede hacer — así que "aprobado
+ * solo" no significa "sin control", solo que el control por defecto es revisar la excepción, no
+ * cada línea perfecta.
  */
 async function intentarAutoTransicion(item: any, negocioId: number, userId: number, nombreActor: string): Promise<void> {
   const [rows] = await pool.query(
-    `SELECT COUNT(*) AS total, SUM(veredicto IS NULL) AS sin_evaluar, SUM(pendiente_confirmacion_proveedor = 1) AS pendientes
+    `SELECT COUNT(*) AS total, SUM(veredicto IS NULL) AS sin_evaluar, SUM(pendiente_confirmacion_proveedor = 1) AS pendientes,
+            SUM(veredicto = 'NO_CUMPLE') AS no_cumplen, SUM(veredicto = 'CUMPLE_CON_COMPLEMENTO') AS con_complemento
        FROM checklist_comercial_caracteristicas WHERE item_id = ?`,
     [item.id],
   ) as any;
@@ -89,9 +96,23 @@ async function intentarAutoTransicion(item: any, negocioId: number, userId: numb
   if (!r || Number(r.total) === 0) return;
   if (Number(r.sin_evaluar) > 0 || Number(r.pendientes) > 0) return;
 
+  const ahora = ahoraChileSQL();
+  const todoCumple = Number(r.no_cumplen) === 0 && Number(r.con_complemento) === 0;
+
+  if (todoCumple) {
+    await pool.query(
+      `UPDATE checklist_comercial
+          SET estado = 'APROBADO', cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
+              aprobado_por = NULL, aprobado_por_nombre = ?, aprobado_at = ?
+        WHERE id = ?`,
+      [userId, nombreActor, ahora, `Auto-aprobado (${Number(r.total)}/${Number(r.total)} cumple)`, ahora, item.id],
+    );
+    await bitacora(item.id, negocioId, 'AUTO_APROBAR', item.estado, 'APROBADO', `${Number(r.total)}/${Number(r.total)} características cumplen — sin excepciones que revisar`, userId, nombreActor);
+    return;
+  }
+
   const nuevo = transicion(item.estado, 'CARGAR');
   if (!nuevo) return;
-  const ahora = ahoraChileSQL();
   await pool.query(
     `UPDATE checklist_comercial
         SET estado = 'CARGADO', cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
@@ -147,6 +168,29 @@ export async function POST(request: NextRequest, { params }: Params) {
     const body = await request.json().catch(() => ({}));
     const accion = String(body.accion || '');
     const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
+
+    // ── Reiniciar: borra TODAS las características de la línea (ficha equivocada, prueba con
+    // datos de otra licitación, etc.) y la devuelve a PENDIENTE — vuelve a quedar como si nunca
+    // se hubiera validado, para "Validar línea" / "Subir ficha" desde cero sin arrastrar datos
+    // viejos mezclados con los nuevos.
+    if (accion === 'reiniciar') {
+      if (await yaCongelado(negocio.id))
+        return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
+
+      const [delRows] = await pool.query(`DELETE FROM checklist_comercial_caracteristicas WHERE item_id = ?`, [item.id]) as any;
+      await pool.query(
+        `UPDATE checklist_comercial
+            SET estado = 'PENDIENTE', observacion = NULL,
+                cargado_por = NULL, cargado_por_nombre = NULL, cargado_at = NULL,
+                aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL
+          WHERE id = ?`,
+        [item.id],
+      );
+      await bitacora(item.id, negocio.id, 'REINICIAR', item.estado, 'PENDIENTE',
+        `Se borraron ${(delRows as any).affectedRows || 0} característica(s) para volver a empezar`, userId, nombreActor);
+      publicarCambio('checklist_comercial');
+      return NextResponse.json({ success: true, caracteristicas: [] });
+    }
 
     // ── Agente 1: clasifica caracteristicas[] del informe en PISO/TECHO/EXACTO/RANGO ──────────
     if (accion === 'validar') {
