@@ -20,7 +20,12 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla, extraerTablaProductoCantidad } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla, extraerTablaProductoCantidad, esFilaDeCriterioNoProducto } from '@/app/lib/planilla-costeo-parser';
+
+// Re-export para no romper a quien lo importaba desde acá (el filtro vive ahora en
+// planilla-costeo-parser.ts, módulo PURO sin dependencias, para que generar-costeo.ts también
+// pueda usarlo sin crear una importación circular — ver el comentario de la función).
+export { esFilaDeCriterioNoProducto };
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
@@ -830,38 +835,6 @@ const _bool = (x: any): boolean => x === true || x === 'true' || x === 1;
 // los dígitos donde estén. Sin dígitos → 1 (default seguro, igual que el mapeo histórico).
 const _lineaNum = (x: any): number => { const m = String(x ?? '').match(/\d+/); return m ? Number(m[0]) : 1; };
 
-// Guardarraíl DETERMINISTA (código, no IA) contra filas de la tabla de CRITERIOS DE EVALUACIÓN
-// coladas en el manifiesto de productos — el prompt ya lo prohíbe explícito (ver punto ⑨ del
-// bloque v3.5, BLOQUE_BARRIDO_V35 más abajo), pero un guardarraíl de código no depende de que el
-// modelo se acuerde cada vez. BUG REAL (14-ago-2026, caso 2345-128-LP26, pedido explícito del
-// usuario: "me pone cualquier cantidad de cosas… que no son parte del costeo"): 20 de 30
-// "productos" del manifiesto eran en realidad la tabla de criterios — ponderaciones ("Oferta
-// Técnica" con cantidad=26, el % del criterio leído como si fuera cantidad), tramos de puntaje
-// ("Entre 10 y 14" cantidad=10), rankings ("1er Lugar: Oferta con…" cantidad=6) y el texto legal
-// completo de una declaración jurada de cumplimiento ("El oferente… acredita que cuenta con
-// Programa de Integridad…") — todo mezclado con los 10 productos reales (chalecos, cascos, etc.)
-// en el mismo manifiesto, y de ahí derecho al Excel de costeo como si fueran ítems a cotizar.
-const RE_PONDERACION_CRITERIO = /^oferta\s+(t[ée]cnica|econ[óo]mica|administrativa)$/i;
-const RE_TRAMO_PUNTAJE = /^(entre\s+\d+\s+y\s+\d+|\d+\s+o\s+m[áa]s|menos\s+de\s+\d+)$/i;
-const RE_RANKING_LUGAR = /^\d+(er|d[oa]|t[oa]|v[oa]|m[oa])\s+lugar\b/i;
-const RE_SIN_INFORMACION = /^["“]?sin\s+informaci[óo]n["”]?$/i;
-// Las DOS CARAS de un criterio BINARIO: frases que describen AL OFERENTE o su conducta
-// documental ("El oferente… acredita/cuenta con…" / "No presenta los antecedentes…"). La señal
-// no es el LARGO sino la FORMA: un producto real es siempre una frase NOMINAL — un objeto con
-// su nombre ("Chaleco balístico con funda", "Bastón retráctil") — jamás una oración con sujeto
-// "el oferente" ni encabezada por un verbo conjugado de cumplimiento. Ningún producto de un
-// catálogo real empieza así, por eso no hace falta acotar por largo (la primera versión de este
-// filtro exigía >120 caracteres y dejaba pasar 6 de las 20 filas de criterios del caso real).
-const RE_ORACION_SOBRE_EL_OFERENTE = /^(el|la|los|las)\s+(oferente|proponente|adjudicatario|postulante)s?\b/i;
-const RE_VERBO_DE_CUMPLIMIENTO = /^(no\s+)?(presenta|acredita|cumple|declara|adjunta|entrega)\b/i;
-const RE_NO_PRESENTA_INFO = /\bno\s+presenta\s+informaci[óo]n\b/i;
-export function esFilaDeCriterioNoProducto(descripcion: string): boolean {
-  const d = (descripcion || '').trim();
-  if (!d) return false;
-  if (RE_PONDERACION_CRITERIO.test(d) || RE_TRAMO_PUNTAJE.test(d) || RE_RANKING_LUGAR.test(d) || RE_SIN_INFORMACION.test(d)) return true;
-  if (RE_ORACION_SOBRE_EL_OFERENTE.test(d) || RE_VERBO_DE_CUMPLIMIENTO.test(d) || RE_NO_PRESENTA_INFO.test(d)) return true;
-  return false;
-}
 
 // Recalcula el gate de presupuesto con la regla de las bases (PROMPT 2, PASO 0.B). El piso
 // se aplica SOBRE EL NETO: "Normaliza a neto (÷1,19) … < $8.000.000 → NO_CALIFICA". Por eso

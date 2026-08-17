@@ -14,6 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { esFilaDeCriterioNoProducto } from '../viabilidad-ia';
+import { adaptarViabilidadACosteo } from '../generar-costeo';
 
 // Los 10 productos REALES de 2345-128-LP26 — ninguno debe descartarse jamás.
 const PRODUCTOS_REALES = [
@@ -94,4 +95,53 @@ test('descripción vacía o solo espacios no revienta ni se marca como criterio'
   assert.equal(esFilaDeCriterioNoProducto('   '), false);
   assert.equal(esFilaDeCriterioNoProducto(null as any), false);
   assert.equal(esFilaDeCriterioNoProducto(undefined as any), false);
+});
+
+// BUG REAL (17-ago-2026): el filtro estaba SOLO en el análisis (que ESCRIBE el manifiesto), pero
+// "Regenerar costeo" (POST /api/documentos/generar-costeo) lee el manifiesto YA GUARDADO y arma el
+// Excel de nuevo — ese camino no pasaba por el filtro, así que un informe viejo con ítems inflados
+// seguía produciendo un Excel sucio, indistinguible de "el fix no funcionó". Ahora el filtro está
+// en adaptarViabilidadACosteo, la última puerta antes del Excel, así que cubre TODOS los caminos.
+test('adaptarViabilidadACosteo filtra los criterios aunque el manifiesto GUARDADO venga sucio (regresión 2345-128-LP26)', () => {
+  const informe: any = {
+    manifiesto_productos: [
+      ...PRODUCTOS_REALES.map((descripcion, i) => ({
+        linea: 1, categoria: null, descripcion, modelo: '',
+        cantidad: 100 + i, unidad_medida: 'UN', unidad_inferida: false,
+        presupuesto_linea: null, tipo: 'generico', ruta: '',
+      })),
+      ...FILAS_DE_CRITERIOS.map((descripcion) => ({
+        linea: 1, categoria: null, descripcion, modelo: '',
+        cantidad: 1, unidad_medida: 'UN', unidad_inferida: true,
+        presupuesto_linea: null, tipo: 'generico', ruta: '',
+      })),
+    ],
+    modalidad: { tipo: 'suma_alzada' },
+    presupuesto: { bruto: 300_000_000 },
+  };
+
+  const datos = adaptarViabilidadACosteo('2345-128-LP26', informe);
+  const items = datos.grupos.flatMap(g => g.items);
+
+  assert.equal(items.length, PRODUCTOS_REALES.length, 'al Excel solo deben llegar los productos reales');
+  for (const d of FILAS_DE_CRITERIOS) {
+    assert.ok(!items.some(i => i.descripcion === d), `se colό una fila de criterios: "${d.slice(0, 50)}"`);
+  }
+  for (const d of PRODUCTOS_REALES) {
+    assert.ok(items.some(i => i.descripcion === d), `falta un producto real: "${d}"`);
+  }
+});
+
+test('adaptarViabilidadACosteo no toca un manifiesto que ya viene limpio', () => {
+  const informe: any = {
+    manifiesto_productos: PRODUCTOS_REALES.map((descripcion, i) => ({
+      linea: 1, categoria: null, descripcion, modelo: '',
+      cantidad: 10 + i, unidad_medida: 'UN', unidad_inferida: false,
+      presupuesto_linea: null, tipo: 'generico', ruta: '',
+    })),
+    modalidad: { tipo: 'suma_alzada' },
+    presupuesto: { bruto: 300_000_000 },
+  };
+  const items = adaptarViabilidadACosteo('X-1-LP26', informe).grupos.flatMap(g => g.items);
+  assert.equal(items.length, PRODUCTOS_REALES.length);
 });

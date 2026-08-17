@@ -12,6 +12,7 @@
 import path from 'path';
 import ExcelJS from 'exceljs';
 import type { ManifiestoLinea, ViabilidadIAResult } from '@/app/lib/viabilidad-ia';
+import { esFilaDeCriterioNoProducto } from '@/app/lib/planilla-costeo-parser';
 
 export type ModalidadCosteo = 'suma_alzada' | 'por_linea' | 'por_categoria';
 
@@ -382,8 +383,30 @@ export function adaptarViabilidadACosteo(
   codigo: string,
   informe: ViabilidadIAResult,
 ): DatosCosteo {
-  const manifiesto = Array.isArray(informe.manifiesto_productos)
+  // ÚLTIMA BARRERA antes del Excel: filas de la tabla de CRITERIOS DE EVALUACIÓN que se colaron
+  // en el manifiesto como si fueran productos (ver esFilaDeCriterioNoProducto).
+  //
+  // BUG REAL (17-ago-2026, caso 2345-128-LP26): el filtro se había puesto SOLO en el análisis
+  // (analizarViabilidadIAV3, que es quien ESCRIBE el manifiesto). Pero regenerar el costeo NO
+  // vuelve a analizar: POST /api/documentos/generar-costeo lee el manifiesto YA GUARDADO en
+  // viabilidad_licitacion y arma el Excel de nuevo. Ese camino no pasaba por el filtro, así que
+  // un informe viejo con los 30 ítems inflados seguía produciendo un Excel con los 30 —
+  // indistinguible de "el fix no funcionó" desde la vista del usuario.
+  //
+  // Filtrar ACÁ (y no solo en el análisis) cubre TODOS los caminos que terminan en un Excel, hoy
+  // y los que se agreguen después: el manifiesto guardado puede quedar sucio, pero el costeo que
+  // se entrega ya no. Por eso el filtro vive en planilla-costeo-parser.ts (módulo puro): así lo
+  // pueden usar tanto el análisis como este adaptador, sin importación circular.
+  const manifiestoCrudo = Array.isArray(informe.manifiesto_productos)
     ? informe.manifiesto_productos : [];
+  const descartados = manifiestoCrudo.filter(p => esFilaDeCriterioNoProducto(p?.descripcion || ''));
+  const manifiesto = descartados.length
+    ? manifiestoCrudo.filter(p => !esFilaDeCriterioNoProducto(p?.descripcion || ''))
+    : manifiestoCrudo;
+  if (descartados.length) {
+    console.warn(`[costeo] ${codigo}: ${descartados.length}/${manifiestoCrudo.length} fila(s) del manifiesto guardado NO son productos (tabla de criterios de evaluación) — se excluyen del Excel:`,
+      descartados.slice(0, 6).map(d => `"${String(d.descripcion).slice(0, 50)}"`).join(', '));
+  }
 
   // La ESTRUCTURA del Excel:
   //  1) por_categoria SOLO si el análisis lo marcó (informe.estructura_costeo), que se pone
