@@ -295,3 +295,21 @@ test('el guardarraíl de tercero no bloquea un "Cargo:" normal, sin institución
   });
   assert.equal(valorAuto(r.celda, 1), 'Gerente General');
 });
+
+// ── Casos reales del certificado de experiencia (1786987035022_ANEXO_N2.docx, 17-ago-2026) ──
+test('REGRESIÓN certificado de experiencia: "Correo del que EXTIENDE el certificado" es del TERCERO, no nuestro', () => {
+  // Encabezado real: "DATOS DE LA PERSONA QUE EXTIENDE EL CERTIFICADO." — no dice "institución" ni
+  // "mandante" ni ninguna de las frases que ya cazaba el guardarraíl; había que ampliarlo.
+  const parrafos = [parrafo(0, 'DATOS DE LA PERSONA QUE EXTIENDE EL CERTIFICADO.')];
+  const empresaConCorreo = { ...EMPRESA, email1: 'contacto@nuestraempresa.cl' } as EmpresaCampos;
+  const r = resolverDeterminista({
+    candidatos: [celda(1, 'Nombre'), celda(2, 'Correo electrónico')],
+    blancosInline: [], parrafos, empresa: empresaConCorreo,
+  });
+  assert.equal(r.celda.has(1), false);
+  assert.equal(r.celda.has(2), false, 'el correo de la empresa no debe escribirse en la casilla del tercero');
+});
+
+test('"Nombre del proveedor postulante a la licitación" SÍ somos nosotros — se resuelve', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Nombre del proveedor postulante a la licitación'), 'razon_social');
+});

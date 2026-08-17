@@ -28,11 +28,12 @@ import { SelectorDocumentoAnexo } from '@/app/components/SelectorDocumentoAnexo'
 import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
 import { FilaLineaTecnica } from './FilaLineaTecnica';
 import { MotorComercialCard } from './MotorComercialCard';
+import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
 import { tieneAnexosAuditor } from '@/app/lib/checklist-comercial';
 import {
   ShieldCheck, Building2, Check, X, Upload, Loader2, AlertTriangle, Copy,
   FileText, DollarSign, Wrench, ClipboardCheck, RefreshCw, Undo2, Sparkles,
-  Eye, Download, Trash2, History,
+  Eye, Download, Trash2, History, FileStack,
 } from 'lucide-react';
 
 // ── Tipos (espejo de lo que devuelve /api/negocios/[id]/comercial) ──────────────
@@ -256,6 +257,41 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   // Con licitaciones de 100+ ítems, revisar línea por línea es inviable — por defecto el bloque
   // TECNICO solo muestra las líneas técnicas que aún no están aprobadas.
   const [soloExcepcionesTecnico, setSoloExcepcionesTecnico] = useState(true);
+  // Carga masiva: UN documento (catálogo, ficha completa) comparado contra TODAS las líneas
+  // técnicas de una vez — evita subir el mismo archivo N veces, una por línea.
+  const [comparandoMasivo, setComparandoMasivo] = useState(false);
+  const [resultadoMasivo, setResultadoMasivo] = useState<Array<{ lineaNumero: number; itemId: number; titulo: string; total: number; cumplen: number; noCumplen: number; error?: string }> | null>(null);
+  const [verLineaId, setVerLineaId] = useState<number | null>(null);
+  const fileMasivoRef = useRef<HTMLInputElement>(null);
+
+  const compararDocumentoMasivo = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setComparandoMasivo(true);
+    try {
+      const fd = new FormData();
+      fd.append('licitacionCodigo', licitacionCodigo);
+      fd.append('files', files[0]);
+      const rSubida = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
+      const dSubida = await rSubida.json();
+      if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || 'No se pudo subir el documento'); return; }
+      const doc = dSubida.documentos[0];
+
+      const r = await fetch(`/api/negocios/${negocioId}/comercial`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'comparar_documento_masivo', documentoUrl: doc.url, documentoNombre: doc.nombre }),
+      });
+      const d = await r.json();
+      if (!r.ok) { toast.error(d.error || 'No se pudo comparar el documento'); return; }
+      setItems(d.items || []);
+      setResumen(d.resumen || null);
+      setResultadoMasivo(d.resultados || []);
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally {
+      setComparandoMasivo(false);
+      if (fileMasivoRef.current) fileMasivoRef.current.value = '';
+    }
+  };
 
   const cargar = useCallback(async () => {
     try {
@@ -580,9 +616,21 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                   {resumenTecnicoGlobal.conComplemento > 0 && <span className="text-amber-600 font-semibold">{resumenTecnicoGlobal.conComplemento} con complemento</span>}
                   {resumenTecnicoGlobal.sinValidar > 0 && <span className="text-zinc-400">{resumenTecnicoGlobal.sinValidar} sin validar</span>}
                 </div>
-                <button onClick={() => setSoloExcepcionesTecnico(v => !v)} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
-                  {soloExcepcionesTecnico ? 'Mostrar todas las líneas' : 'Mostrar solo pendientes'}
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <input ref={fileMasivoRef} type="file" className="hidden" onChange={e => compararDocumentoMasivo(e.target.files)} />
+                  <button
+                    onClick={() => fileMasivoRef.current?.click()}
+                    disabled={comparandoMasivo}
+                    title="Un solo documento con las especificaciones de varias líneas — se compara contra cada una automáticamente"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg border border-violet-200 transition-colors disabled:opacity-50"
+                  >
+                    {comparandoMasivo ? <Loader2 size={12} className="animate-spin" /> : <FileStack size={12} />}
+                    {comparandoMasivo ? 'Comparando…' : 'Comparar contra un documento'}
+                  </button>
+                  <button onClick={() => setSoloExcepcionesTecnico(v => !v)} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
+                    {soloExcepcionesTecnico ? 'Mostrar todas las líneas' : 'Mostrar solo pendientes'}
+                  </button>
+                </div>
               </div>
             )}
 
@@ -652,6 +700,26 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
 
+      {resultadoMasivo && (
+        <ModalResultadoMasivo
+          resultados={resultadoMasivo}
+          onVerLinea={id => { setResultadoMasivo(null); setVerLineaId(id); }}
+          onClose={() => setResultadoMasivo(null)}
+        />
+      )}
+
+      {verLineaId != null && (
+        <ModalAuditorLineaTecnica
+          negocioId={negocioId}
+          itemId={verLineaId}
+          licitacionCodigo={licitacionCodigo}
+          puedeAprobar={puedeAprobar}
+          bloqueado={sinEmpresa}
+          onClose={() => setVerLineaId(null)}
+          onAccion={accionar}
+        />
+      )}
+
       {/* Flujo "Generar" — paso 1: elegir a cuál Word real de la licitación corresponde este
           anexo. Se oculta en cuanto se elige uno (paso 2, el modal de relleno, toma el relevo). */}
       <SelectorDocumentoAnexo
@@ -671,6 +739,63 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         onGenerado={handleAnexoGenerado}
       />
     </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════════
+// Resultado de "Comparar contra un documento" (carga masiva) — una fila por línea procesada,
+// con acceso directo a la comparación completa de la que tenga algo pendiente.
+function ModalResultadoMasivo({ resultados, onVerLinea, onClose }: {
+  resultados: Array<{ lineaNumero: number; itemId: number; titulo: string; total: number; cumplen: number; noCumplen: number; error?: string }>;
+  onVerLinea: (itemId: number) => void;
+  onClose: () => void;
+}) {
+  const totalCumplen = resultados.filter(r => !r.error && r.total > 0 && r.noCumplen === 0).length;
+  const totalNoCumplen = resultados.filter(r => r.noCumplen > 0).length;
+  const totalErrores = resultados.filter(r => r.error).length;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3" onClick={onClose} role="dialog" aria-modal="true" aria-label="Resultado de la comparación masiva">
+      <div className="w-full max-w-lg max-h-[85vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-zinc-100 flex items-start gap-3 flex-shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0"><FileStack size={15} className="text-violet-600" /></div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[14.5px] font-bold text-zinc-900">Comparación masiva</p>
+            <p className="text-[12px] text-zinc-400 mt-0.5">
+              {resultados.length} línea{resultados.length === 1 ? '' : 's'} procesada{resultados.length === 1 ? '' : 's'} · {totalCumplen} sin problemas
+              {totalNoCumplen > 0 && <span className="text-rose-600 font-semibold"> · {totalNoCumplen} con incumplimientos</span>}
+              {totalErrores > 0 && <span className="text-amber-600 font-semibold"> · {totalErrores} con error</span>}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-colors flex-shrink-0" aria-label="Cerrar"><X size={16} /></button>
+        </div>
+        <div className="px-3 py-2 overflow-y-auto flex-1 space-y-1">
+          {resultados.map(r => {
+            const ok = !r.error && r.total > 0 && r.noCumplen === 0;
+            return (
+              <button key={r.itemId} onClick={() => onVerLinea(r.itemId)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-zinc-50 text-left transition-colors">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[12.5px] font-medium text-zinc-800 truncate">Línea {r.lineaNumero} — {r.titulo}</p>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    {r.error ? r.error : `${r.cumplen} de ${r.total} cumple${r.noCumplen > 0 ? ` · ${r.noCumplen} no cumple` : ''}`}
+                  </p>
+                </div>
+                <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  r.error ? 'bg-amber-100 text-amber-700' : ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
+                }`}>
+                  {r.error ? 'Error' : ok ? 'Sin problemas' : `${r.noCumplen} no cumple`}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="px-5 py-3 border-t border-zinc-100 flex-shrink-0">
+          <button onClick={onClose} className="w-full px-3 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-zinc-700">Cerrar</button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -22,13 +22,6 @@ interface ItemLineaTecnica {
   resumen_tecnico: ResumenTecnico | null;
 }
 
-const CRIT_STYLE: Record<string, { bg: string; text: string; label: string }> = {
-  ADMISIBILIDAD_DURA:    { bg: 'bg-rose-100',  text: 'text-rose-700',  label: 'Admisibilidad' },
-  PUNTAJE_CONDICIONANTE: { bg: 'bg-amber-100', text: 'text-amber-700', label: 'Puntaje' },
-  COMPROMISO_EJECUCION:  { bg: 'bg-sky-100',   text: 'text-sky-700',   label: 'Ejecución' },
-  INFORMATIVO:           { bg: 'bg-zinc-100',  text: 'text-zinc-500',  label: 'Informativo' },
-};
-
 // ════════════════════════════════════════════════════════════════════════════════
 export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprobar, bloqueado, ocupado, onAccion }: {
   item: ItemLineaTecnica;
@@ -40,7 +33,6 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
   onAccion: (itemId: number, accion: string, extra?: Record<string, unknown>) => Promise<boolean>;
 }) {
   const [modalAbierto, setModalAbierto] = useState(false);
-  const crit = CRIT_STYLE[item.criticidad] || CRIT_STYLE.INFORMATIVO;
   const resumen = item.resumen_tecnico;
 
   return (
@@ -54,22 +46,27 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
               : <div className={`w-5 h-5 rounded-full border-2 ${item.estado === 'CARGADO' ? 'border-indigo-400 bg-indigo-50' : 'border-zinc-200'}`} />}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-2 flex-wrap">
-            <Wrench size={12} className="text-zinc-400 mt-0.5 flex-shrink-0" />
-            <p className="text-[13px] font-semibold text-zinc-800 leading-snug">{item.titulo}</p>
-            <span className={`text-[9.5px] font-bold px-1.5 py-px rounded ${crit.bg} ${crit.text}`}>{crit.label}</span>
+          <p className="text-[13px] font-semibold text-zinc-800 leading-snug flex items-center gap-1.5">
+            <Wrench size={12} className="text-zinc-400 flex-shrink-0" />
+            {item.titulo}
+          </p>
+          <div className="mt-1">
             {resumen && resumen.total > 0 ? (
-              <span className={`text-[11px] font-bold ${resumen.noCumplen > 0 ? 'text-rose-600' : 'text-zinc-500'}`}>
+              <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                resumen.noCumplen > 0 ? 'bg-rose-100 text-rose-700'
+                : (resumen.conComplemento > 0 || resumen.pendientesProveedor > 0) ? 'bg-amber-100 text-amber-700'
+                : 'bg-emerald-100 text-emerald-700'
+              }`}>
                 {resumen.cumplen} de {resumen.total} cumple
-                {resumen.noCumplen > 0 && <span className="ml-1">· {resumen.noCumplen} no cumple</span>}
-                {resumen.conComplemento > 0 && <span className="ml-1">· {resumen.conComplemento} con complemento</span>}
-                {resumen.pendientesProveedor > 0 && <span className="ml-1 text-amber-600">· {resumen.pendientesProveedor} por confirmar</span>}
+                {resumen.noCumplen > 0 && ` · ${resumen.noCumplen} no cumple`}
+                {resumen.conComplemento > 0 && ` · ${resumen.conComplemento} con complemento`}
+                {resumen.pendientesProveedor > 0 && ` · ${resumen.pendientesProveedor} por confirmar`}
               </span>
             ) : (
-              <span className="text-[11px] text-zinc-400">Sin validar todavía</span>
+              <span className="inline-block text-[11px] font-medium text-zinc-400 bg-zinc-100 px-2 py-0.5 rounded-full">Sin validar todavía</span>
             )}
           </div>
-          {item.descripcion && <p className="text-[11.5px] text-zinc-500 leading-snug mt-0.5">{item.descripcion}</p>}
+          {item.descripcion && <p className="text-[11.5px] text-zinc-500 leading-snug mt-1">{item.descripcion}</p>}
         </div>
       </div>
 

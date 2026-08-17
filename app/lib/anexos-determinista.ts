@@ -93,6 +93,10 @@ const DICCIONARIO: Entrada[] = [
     /^nombre (?:completo )?(?:del? (?:proponente|oferente)) o razon social$/,
     /^(?:identificacion|individualizacion) del (?:oferente|proponente|contribuyente)$/,
     /^empresa$/, /^empresa oferente$/, /^nombre de fantasia$/,
+    // "Nombre del proveedor postulante A LA LICITACIÓN" (1786987035022_ANEXO_N2.docx) — el
+    // sufijo OFERENTE exige que la frase TERMINE en la palabra que dice a quién describe; acá
+    // sigue "a la licitación/a este proceso" después, y por eso no calzaba con nada de arriba.
+    new RegExp(`^nombre\\s+del?\\s+(?:proveedor|oferente|proponente|participante|postulante)(?:\\s+postulante)?\\s+a\\s+(?:la\\s+licitacion|este\\s+proceso|esta\\s+propuesta)$`),
   ] },
   { campo: 'rut', patrones: [
     new RegExp(`^r\\s*u\\s*t${OFERENTE}$`),
@@ -363,7 +367,13 @@ const RE_MARCADOR_INSTRUCCION = /\b(?:indicar|indique|marcar|marque|senalar|señ
 // para NUESTRO representante — pero puesta al lado de "Institución:" pasa a describir a la
 // persona de esa OTRA institución. Con datos de un tercero, pendiente es siempre más seguro que
 // un dato nuestro puesto en la declaración de otro.
-const RE_BLOQUE_TERCERO = /\b(instituci(?:o|ó)n|cliente|mandante|contraparte|quien\s+certifica|emisor\s+del\s+certificado|contratante|entidad\s+que\s+certifica)\b/i;
+// BUG REAL 2 (1786987035022_ANEXO_N2.docx, certificado de experiencia): la lista de abajo no
+// cazaba con "DATOS DE LA PERSONA QUE EXTIENDE EL CERTIFICADO" — un encabezado real que tampoco
+// dice "institución"/"mandante"/"cliente" — y el "Correo electrónico:" de ESA persona (el cliente
+// que certifica, no nosotros) se llenó con el correo de la propia empresa. Ampliado a cualquier
+// frase que hable de EXTENDER/EMITIR un certificado o de haber RECIBIDO el servicio — el lenguaje
+// que usa el organismo que certifica, nunca el que usa el oferente para hablar de sí mismo.
+const RE_BLOQUE_TERCERO = /\b(instituci(?:o|ó)n|cliente|mandante|contraparte|quien\s+certifica|emisor\s+del\s+certificado|contratante|entidad\s+que\s+certifica|extiende\s+el\s+certificado|persona\s+que\s+extiende|certificad[oa]\s+por|recibi[oó]\s+el\s+servicio|organismo\s+que\s+recibi[oó]|qui[eé]n\s+emite)\b/i;
 // El guion bajo es \w para el motor de regex, así que "___Institución" no tiene frontera de
 // palabra ANTES de la I (\w seguido de \w no es \b) y el \b de arriba nunca dispara. Se prueba
 // sobre el texto con las rayas de relleno ya convertidas a espacio, nunca sobre el crudo.

@@ -54,17 +54,23 @@ const VEREDICTO_STYLE: Record<Veredicto, { bg: string; text: string; label: stri
   CUMPLE_CON_COMPLEMENTO: { bg: 'bg-amber-100',   text: 'text-amber-700',   label: 'Con complemento' },
 };
 
+// El clasificador (IA) a veces guarda 0 en vez de dejar el campo numérico vacío para
+// características que en realidad son texto ("Impresión digital en blanco y negro" quedaba con
+// valor_requerido_numero=0). Por eso el texto SIEMPRE manda cuando existe — el número solo se
+// usa si no hay texto Y el número no es 0 (0 sin texto no aporta nada, es "sin dato").
 function requeridoDe(c: Caracteristica): string {
-  if (c.tipo === 'RANGO' && c.valor_requerido_numero != null)
+  if (c.valor_requerido_texto && c.valor_requerido_texto.trim()) return c.valor_requerido_texto;
+  if (c.tipo === 'RANGO' && c.valor_requerido_numero)
     return `${c.valor_requerido_numero} a ${c.valor_requerido_numero_max ?? c.valor_requerido_numero}${c.unidad_requerida ? ` ${c.unidad_requerida}` : ''}`;
-  if (c.valor_requerido_numero != null) return `${c.valor_requerido_numero}${c.unidad_requerida ? ` ${c.unidad_requerida}` : ''}`;
-  return c.valor_requerido_texto || '—';
+  if (c.valor_requerido_numero) return `${c.valor_requerido_numero}${c.unidad_requerida ? ` ${c.unidad_requerida}` : ''}`;
+  return '—';
 }
 
 function ofertadoDe(c: Caracteristica): string {
-  if (c.valor_ofertado_numero != null)
+  if (c.valor_ofertado_texto && c.valor_ofertado_texto.trim()) return c.valor_ofertado_texto;
+  if (c.valor_ofertado_numero)
     return `${c.valor_convertido_numero ?? c.valor_ofertado_numero}${c.unidad_ofertada_original ? ` ${c.unidad_ofertada_original}` : ''}`;
-  return c.valor_ofertado_texto || '—';
+  return '—';
 }
 
 const fmtCLP = (n: number | null) =>
@@ -229,7 +235,7 @@ export function ModalAuditorLineaTecnica({
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3"
       onClick={onClose} role="dialog" aria-modal="true" aria-label="Comparación del Auditor Técnico"
     >
-      <div className="w-full max-w-2xl max-h-[88vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-3xl max-h-[88vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-zinc-100 flex items-start gap-3 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0"><Wrench size={15} className="text-violet-600" /></div>
           <div className="min-w-0 flex-1">
@@ -277,10 +283,17 @@ export function ModalAuditorLineaTecnica({
                 {caracteristicas.length === 0 ? (
                   <p className="text-[12px] text-zinc-400 py-3">Sin características clasificadas todavía. Pulsa "Validar" o sube la ficha del producto.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {caracteristicas.map(c => (
-                      <FilaComparacion key={c.id} c={c} puedeAprobar={puedeAprobar} bloqueado={bloqueado} onResponder={responder} onCorregir={corregir} />
-                    ))}
+                  <div className="border border-zinc-100 rounded-lg overflow-hidden">
+                    <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
+                      <span>Lo que pide el producto</span>
+                      <span>Lo que subió el asistente</span>
+                      <span>Resultado</span>
+                    </div>
+                    <div className="divide-y divide-zinc-100">
+                      {caracteristicas.map(c => (
+                        <FilaComparacion key={c.id} c={c} puedeAprobar={puedeAprobar} bloqueado={bloqueado} onResponder={responder} onCorregir={corregir} />
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -345,6 +358,8 @@ export function ModalAuditorLineaTecnica({
   );
 }
 
+// Una fila = un ítem en las DOS listas a la vez ("lo que pide" / "lo que subió"), no una tarjeta
+// con etiquetas sueltas — así se lee como una comparación real, no como un formulario.
 function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir }: {
   c: Caracteristica;
   puedeAprobar: boolean;
@@ -352,6 +367,7 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir }
   onResponder: (id: number, extra: Record<string, unknown>) => Promise<void>;
   onCorregir: (id: number, veredicto: string) => Promise<void>;
 }) {
+  const [abierto, setAbierto] = useState(false);
   const [respondiendo, setRespondiendo] = useState(false);
   const [valorNumero, setValorNumero] = useState('');
   const [unidad, setUnidad] = useState(c.unidad_requerida || '');
@@ -376,61 +392,65 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir }
   };
 
   return (
-    <div className="border border-zinc-100 rounded-lg px-3 py-2.5">
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[12.5px] font-medium text-zinc-800 leading-snug">
-          {c.descripcion} <span className="text-[10.5px] text-zinc-400 font-normal">({c.tipo})</span>
-        </p>
-        <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${est.bg} ${est.text}`}>{est.label}</span>
-      </div>
-      <div className="grid grid-cols-2 gap-3 mt-1.5">
-        <div>
-          <p className="text-[10px] text-zinc-400">Exigido por las bases</p>
-          <p className="text-[12.5px] text-zinc-700 mt-0.5">{requeridoDe(c)}</p>
+    <div className={abierto ? 'bg-zinc-50/60' : ''}>
+      <button
+        type="button" onClick={() => setAbierto(v => !v)}
+        className="w-full grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 items-start px-3 py-2.5 text-left hover:bg-zinc-50 transition-colors"
+      >
+        <div className="min-w-0">
+          <p className="text-[10px] text-zinc-400 leading-snug">{c.descripcion}</p>
+          <p className="text-[12.5px] font-medium text-zinc-800 leading-snug mt-0.5 break-words">{requeridoDe(c)}</p>
         </div>
-        <div>
-          <p className="text-[10px] text-zinc-400">Ofertado</p>
-          <p className="text-[12.5px] text-zinc-700 mt-0.5">{ofertadoDe(c)}</p>
+        <div className="min-w-0">
+          <p className="text-[12.5px] text-zinc-700 leading-snug break-words">{ofertadoDe(c)}</p>
+          {c.pendiente_confirmacion_proveedor && (
+            <p className="text-[10px] text-amber-600 flex items-center gap-1 mt-0.5"><HelpCircle size={10} /> Por confirmar</p>
+          )}
         </div>
-      </div>
-      {c.pendiente_confirmacion_proveedor && (
-        <p className="text-[10.5px] text-amber-600 flex items-center gap-1 mt-1.5"><HelpCircle size={11} /> Pendiente de confirmación del proveedor</p>
-      )}
-      {c.fundamento_cita && <p className="text-[10px] text-zinc-400 mt-1 truncate" title={c.fundamento_cita}>Fuente: {c.fundamento_cita}</p>}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${est.bg} ${est.text}`}>{est.label}</span>
+        </div>
+      </button>
 
-      {respondiendo ? (
-        <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-          {esNumerica ? (
-            <>
-              <input type="text" inputMode="decimal" autoFocus value={valorNumero} onChange={e => setValorNumero(e.target.value)}
-                placeholder="Valor ofertado" className="w-28 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
-              <input type="text" value={unidad} onChange={e => setUnidad(e.target.value)}
-                placeholder="Unidad" className="w-20 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
-            </>
+      {abierto && (
+        <div className="px-3 pb-3 -mt-1">
+          {c.fundamento_cita && <p className="text-[10.5px] text-zinc-400 mb-2">Fuente: {c.fundamento_cita}</p>}
+
+          {respondiendo ? (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {esNumerica ? (
+                <>
+                  <input type="text" inputMode="decimal" autoFocus value={valorNumero} onChange={e => setValorNumero(e.target.value)}
+                    placeholder="Valor ofertado" className="w-28 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                  <input type="text" value={unidad} onChange={e => setUnidad(e.target.value)}
+                    placeholder="Unidad" className="w-20 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                </>
+              ) : (
+                <input type="text" autoFocus value={valorTexto} onChange={e => setValorTexto(e.target.value)}
+                  placeholder="Descripción de lo ofertado" className="flex-1 min-w-[10rem] px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
+              )}
+              <button onClick={guardar} disabled={guardando} className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-semibold rounded disabled:opacity-50">
+                {guardando ? <Loader2 size={11} className="animate-spin" /> : 'Guardar'}
+              </button>
+              <button onClick={() => setRespondiendo(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
+            </div>
           ) : (
-            <input type="text" autoFocus value={valorTexto} onChange={e => setValorTexto(e.target.value)}
-              placeholder="Descripción de lo ofertado" className="flex-1 min-w-[10rem] px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
-          )}
-          <button onClick={guardar} disabled={guardando} className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-semibold rounded disabled:opacity-50">
-            {guardando ? <Loader2 size={11} className="animate-spin" /> : 'Guardar'}
-          </button>
-          <button onClick={() => setRespondiendo(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
-        </div>
-      ) : (
-        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-          {!bloqueado && (
-            <button onClick={() => setRespondiendo(true)} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
-              {c.veredicto ? 'Corregir respuesta' : 'Responder'}
-            </button>
-          )}
-          {puedeAprobar && (
-            <div className="flex items-center gap-1">
-              {(['CUMPLE', 'NO_CUMPLE', 'CUMPLE_CON_COMPLEMENTO'] as const).filter(v => v !== c.veredicto).map(v => (
-                <button key={v} onClick={() => onCorregir(c.id, v)}
-                  className="text-[10.5px] font-semibold text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 px-1.5 py-0.5 rounded">
-                  → {VEREDICTO_STYLE[v].label}
+            <div className="flex items-center gap-2 flex-wrap">
+              {!bloqueado && (
+                <button onClick={() => setRespondiendo(true)} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
+                  {c.veredicto ? 'Corregir respuesta' : 'Responder'}
                 </button>
-              ))}
+              )}
+              {puedeAprobar && (
+                <div className="flex items-center gap-1">
+                  {(['CUMPLE', 'NO_CUMPLE', 'CUMPLE_CON_COMPLEMENTO'] as const).filter(v => v !== c.veredicto).map(v => (
+                    <button key={v} onClick={() => onCorregir(c.id, v)}
+                      className="text-[10.5px] font-semibold text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 px-1.5 py-0.5 rounded">
+                      → {VEREDICTO_STYLE[v].label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
