@@ -830,6 +830,39 @@ const _bool = (x: any): boolean => x === true || x === 'true' || x === 1;
 // los dígitos donde estén. Sin dígitos → 1 (default seguro, igual que el mapeo histórico).
 const _lineaNum = (x: any): number => { const m = String(x ?? '').match(/\d+/); return m ? Number(m[0]) : 1; };
 
+// Guardarraíl DETERMINISTA (código, no IA) contra filas de la tabla de CRITERIOS DE EVALUACIÓN
+// coladas en el manifiesto de productos — el prompt ya lo prohíbe explícito (ver punto ⑨ del
+// bloque v3.5, BLOQUE_BARRIDO_V35 más abajo), pero un guardarraíl de código no depende de que el
+// modelo se acuerde cada vez. BUG REAL (14-ago-2026, caso 2345-128-LP26, pedido explícito del
+// usuario: "me pone cualquier cantidad de cosas… que no son parte del costeo"): 20 de 30
+// "productos" del manifiesto eran en realidad la tabla de criterios — ponderaciones ("Oferta
+// Técnica" con cantidad=26, el % del criterio leído como si fuera cantidad), tramos de puntaje
+// ("Entre 10 y 14" cantidad=10), rankings ("1er Lugar: Oferta con…" cantidad=6) y el texto legal
+// completo de una declaración jurada de cumplimiento ("El oferente… acredita que cuenta con
+// Programa de Integridad…") — todo mezclado con los 10 productos reales (chalecos, cascos, etc.)
+// en el mismo manifiesto, y de ahí derecho al Excel de costeo como si fueran ítems a cotizar.
+const RE_PONDERACION_CRITERIO = /^oferta\s+(t[ée]cnica|econ[óo]mica|administrativa)$/i;
+const RE_TRAMO_PUNTAJE = /^(entre\s+\d+\s+y\s+\d+|\d+\s+o\s+m[áa]s|menos\s+de\s+\d+)$/i;
+const RE_RANKING_LUGAR = /^\d+(er|d[oa]|t[oa]|v[oa]|m[oa])\s+lugar\b/i;
+const RE_SIN_INFORMACION = /^["“]?sin\s+informaci[óo]n["”]?$/i;
+// Las DOS CARAS de un criterio BINARIO: frases que describen AL OFERENTE o su conducta
+// documental ("El oferente… acredita/cuenta con…" / "No presenta los antecedentes…"). La señal
+// no es el LARGO sino la FORMA: un producto real es siempre una frase NOMINAL — un objeto con
+// su nombre ("Chaleco balístico con funda", "Bastón retráctil") — jamás una oración con sujeto
+// "el oferente" ni encabezada por un verbo conjugado de cumplimiento. Ningún producto de un
+// catálogo real empieza así, por eso no hace falta acotar por largo (la primera versión de este
+// filtro exigía >120 caracteres y dejaba pasar 6 de las 20 filas de criterios del caso real).
+const RE_ORACION_SOBRE_EL_OFERENTE = /^(el|la|los|las)\s+(oferente|proponente|adjudicatario|postulante)s?\b/i;
+const RE_VERBO_DE_CUMPLIMIENTO = /^(no\s+)?(presenta|acredita|cumple|declara|adjunta|entrega)\b/i;
+const RE_NO_PRESENTA_INFO = /\bno\s+presenta\s+informaci[óo]n\b/i;
+export function esFilaDeCriterioNoProducto(descripcion: string): boolean {
+  const d = (descripcion || '').trim();
+  if (!d) return false;
+  if (RE_PONDERACION_CRITERIO.test(d) || RE_TRAMO_PUNTAJE.test(d) || RE_RANKING_LUGAR.test(d) || RE_SIN_INFORMACION.test(d)) return true;
+  if (RE_ORACION_SOBRE_EL_OFERENTE.test(d) || RE_VERBO_DE_CUMPLIMIENTO.test(d) || RE_NO_PRESENTA_INFO.test(d)) return true;
+  return false;
+}
+
 // Recalcula el gate de presupuesto con la regla de las bases (PROMPT 2, PASO 0.B). El piso
 // se aplica SOBRE EL NETO: "Normaliza a neto (÷1,19) … < $8.000.000 → NO_CALIFICA". Por eso
 // usamos NETO preferente; si el modelo solo trajo bruto (con IVA), derivamos el neto (÷1,19),
@@ -1322,6 +1355,40 @@ PASO 3 — FORMATOS (identifícalos y trátalos así):
    la tabla completa en un ítem genérico con el texto del rowspan como "característica" — ese es
    precisamente el error a evitar (caso real 2920-30-LE26, 6 líneas/117 productos con presupuesto
    compartido por rowspan, colapsadas 2 veces seguidas a 6 ítems genéricos "Línea").
+⑨ TABLA DE CRITERIOS DE EVALUACIÓN DISFRAZADA DE PRODUCTOS (BUG REAL, 14-ago-2026, caso 2345-128-LP26:
+   10 productos reales + 20 filas de la tabla de criterios coladas como si fueran productos, con el
+   PUNTAJE leído como si fuera "cantidad"). La tabla de CRITERIOS/PUNTAJE tiene números en sus filas
+   igual que una tabla de productos — NUNCA la confundas, aunque venga en un anexo/formulario y no en
+   las bases mismas.
+   ══ LA SEÑAL DECISIVA ES EL ENCABEZADO DE LA COLUMNA NUMÉRICA ══ (evidencia del caso real: UN MISMO
+   archivo de anexos traía las DOS tablas, ambas con primera columna llamada "Ítem"):
+     · "Ítem | Valor Unitario Neto | CANTIDAD | Valor Total Neto"  → TABLA DE PRODUCTOS (Anexo de
+       Oferta Económica). Su columna numérica es CANTIDAD → productos.items. ✔
+     · "Ítem | PUNTAJE"  ·  "Documento | PUNTAJE"  ·  "Órdenes de Compra… | PUNTAJE"  → TABLA DE
+       EVALUACIÓN (Anexo "Metodología y Pauta de Evaluación"). Su columna numérica es PUNTAJE, NO
+       cantidad → criterios_evaluacion. ✘ JAMÁS a productos.items.
+   Que la primera columna diga "Ítem" NO convierte una tabla en listado de productos: mira SIEMPRE
+   cómo se llama la columna de números. Si dice "Puntaje"/"Puntos"/"Ponderación"/"%", es evaluación.
+   Refuerzo por TÍTULO DEL ANEXO: un anexo titulado "Metodología y Pauta de Evaluación", "Criterios
+   de Evaluación" o "Resumen de Evaluación" NO aporta NI UN ítem al manifiesto de productos, por más
+   tablas con números que traiga. El anexo que SÍ los aporta es el de "Oferta Económica"/listado de
+   bienes, con su columna Cantidad.
+   Señales de que una fila es CRITERIO, no producto (si calza CUALQUIERA, va al
+   módulo 1 "criterios_evaluacion", JAMÁS a "productos.items"):
+     • Ponderaciones/pesos de los ejes de evaluación: "Oferta Técnica", "Oferta Económica", "Oferta
+       Administrativa" con un % o puntaje al lado (ej. 70/26/4) — son los pesos del criterio, no
+       "cantidad" de nada comprable.
+     • Tramos de puntaje por rango: "15 o más", "Entre 10 y 14", "Entre 5 y 9" con un puntaje asociado
+       — es la escala POR TRAMOS de un criterio (ver módulo 1), no un producto llamado "Entre 10 y 14".
+     • Rankings de posición: "1er Lugar", "2do Lugar", "3er Lugar" con puntaje decreciente — es la
+       forma de aplicación de un criterio comparativo (ej. plazo de entrega), no cuatro productos.
+     • Declaraciones de cumplimiento binario ("El oferente… acredita que cuenta con Programa de
+       Integridad…" / su contraparte "no acredita…", "Presenta todos los antecedentes en el plazo
+       ordinario" / "No presenta…", "Sin Información") — son las DOS CARAS de un criterio BINARIO
+       (cumple/no cumple), nunca una lista de productos a costear.
+   La prueba rápida: si la "descripción" del supuesto ítem es una CONDICIÓN, un RANGO, un RANKING o
+   un TEXTO LEGAL de acreditación — no un OBJETO físico con marca/modelo/especificación técnica que se
+   pueda cotizar — es un criterio, no un producto. Ante la duda, PROHIBIDO emitirlo en productos.items.
 PASO 4 — CIERRE: total_items = suma del mapa; cruza con la API MP (si trae MÁS líneas, revisa qué doc
 no barriste). Cada FILA con cantidad y unidad propia es UN producto; un SET/KIT jamás se emite como un
 solo ítem si el documento desglosa su contenido. Una celda con rowspan que cubre varias filas NUNCA
@@ -1953,6 +2020,20 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     cantidad: _num(it.cantidad), unidad_medida: _str(it.unidad_medida), unidad_inferida: _bool(it.unidad_inferida),
     presupuesto_linea: _num(it.presupuesto_linea), tipo: _str(it.clasificacion || it.tipo) || 'generico', ruta: _str(it.ruta),
   }));
+  // Filtro determinista de filas de la tabla de CRITERIOS coladas como productos — ver
+  // esFilaDeCriterioNoProducto arriba (caso real 2345-128-LP26: 20 de 30 "productos" eran
+  // ponderaciones/tramos/rankings/declaraciones juradas). Va ANTES del gate de la planilla a
+  // propósito: ese gate compara `planilla.items.length >= manifiesto.length`, y con el manifiesto
+  // inflado por criterios la planilla (que SÍ es fiel) perdía la comparación y nunca reemplazaba.
+  {
+    const antes = manifiesto.length;
+    const descartados = manifiesto.filter(m => esFilaDeCriterioNoProducto(m.descripcion));
+    if (descartados.length) {
+      manifiesto = manifiesto.filter(m => !esFilaDeCriterioNoProducto(m.descripcion));
+      console.warn(`[viabilidad-ia-v3] ${codigo}: ${descartados.length}/${antes} "producto(s)" descartado(s) por ser filas de la tabla de CRITERIOS DE EVALUACIÓN, no ítems a cotizar —`,
+        descartados.slice(0, 8).map(d => `"${d.descripcion.slice(0, 60)}"`).join(', '));
+    }
+  }
   let estructuraCosteo: 'por_categoria' | null = null;
   // GATE DE CALIDAD para que el parser pise al LLM (caso real 2178-14-LE26: un Excel CSV mal
   // mapeado daba 15 "ítems" basura que reemplazaban los 10 productos correctos del modelo):
