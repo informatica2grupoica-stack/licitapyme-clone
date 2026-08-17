@@ -1,0 +1,510 @@
+// app/lib/anexos-determinista.ts
+// Motor DETERMINISTA de relleno de anexos administrativos: etiqueta → campo de la ficha, sin IA.
+//
+// POR QUÉ EXISTE (decisión del usuario, 17-ago-2026: "sacar 100% la IA y hacerlo con código"):
+// el tramo que la IA hacía —etiqueta → nombre de campo— es una tabla de equivalencias, no un
+// juicio. Medido sobre el banco de documentos reales: de 111 casillas automáticas, casi todas son
+// mapeo directo ("NOMBRE REPRESENTANTE LEGAL" → representante_nombre). Dejarlo en un prompt tenía
+// tres costos concretos que este archivo elimina:
+//   1. Un 429 del proveedor se veía en la UI como "el motor no supo" (fallo silencioso).
+//   2. Tocar una regla del prompt movía otras: dos ediciones en un día produjeron una regresión
+//      verificada (el "NOMBRE" pelado del Anexo N°5 pasó de la persona a la razón social).
+//   3. No se podía testear. El prompt no tiene un solo test que lo ejercite — por eso esas dos
+//      regresiones pasaron los 227 tests sin despeinarse. Cada regla de acá SÍ tiene test.
+//
+// LO QUE NO HACE: no detecta dónde hay una casilla (eso ya es determinista y vive en
+// anexos-detectar.ts: secciones PN/PJ/UTP, líneas de firma, tripletes de fecha, alternativas
+// excluyentes) y no escribe el .docx (anexos-docx.ts). Solo decide QUÉ CAMPO va en cada casilla
+// ya detectada.
+//
+// LÍMITE HONESTO: lo que NO sale de la ficha de empresa sigue sin salir de acá — precios y
+// cantidades (los resuelve anexos-precios-ia.ts contra el costeo), especificaciones técnicas (las
+// bases), experiencia contra órdenes de compra, y los anexos escaneados (imagen). Este módulo
+// cubre el anexo ADMINISTRATIVO, que es donde estaba el 100% del trabajo repetitivo.
+import type { CandidatoCelda, CandidatoInline } from '@/app/lib/anexos-detectar';
+import type { Parrafo } from '@/app/lib/anexos-docx';
+import type { EmpresaCampos, Resolucion, CategoriaCampo } from '@/app/lib/anexos-ia-motor';
+
+type Campo = keyof EmpresaCampos;
+
+export interface EntradaDeterminista {
+  candidatos: CandidatoCelda[];
+  blancosInline: CandidatoInline[];
+  parrafos: Parrafo[];
+  empresa: EmpresaCampos;
+}
+
+export interface ResultadoDeterminista {
+  celda: Map<number, Resolucion>;
+  inline: Map<string, Resolucion>;
+  /** Lo que el diccionario no cubrió — va al respaldo IA si está habilitado, si no, al humano. */
+  celdaSinResolver: CandidatoCelda[];
+  inlineSinResolver: CandidatoInline[];
+}
+
+// ── Normalización ────────────────────────────────────────────────────────────────────────────
+// Una misma pregunta viene escrita de N formas en anexos de distintos organismos ("R.U.T.",
+// "RUT:", "Rut del oferente", "R U T"). Todo lo que sigue compara SOBRE el texto normalizado.
+export function normalizarEtiqueta(s: string): string {
+  return (s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')   // sin tildes
+    .toLowerCase()
+    .replace(/\(.*?\)/g, ' ')                            // "(si correspondiere)", "(en palabras)"
+    // Numeración de lista al inicio ("3. DIRECCIÓN", "a) Giro", "- Comuna"). El espacio final es
+    // OBLIGATORIO: sin él, "R.U.T." se leía como la viñeta "r." seguida de "U.T." y la etiqueta
+    // más común del país quedaba en "u t", sin matchear nada (lo cazó el test de los remates).
+    // `[.)-]+` (uno o más), no uno solo: medido contra 1738-18-LE26, donde las OCHO casillas de la
+    // tabla de identificación vienen numeradas "1.- NOMBRE COMPLETO DEL PROPONENTE…". Con un solo
+    // signo, "1." se comía y quedaba "- nombre completo…", que no matcheaba nada: el anexo más
+    // típico que existe se resolvía en 0 casillas.
+    .replace(/^\s*(?:\d+\s*[.)-]+|[a-z][.)]|[-•*])\s+/, ' ')
+    .replace(/[.:;,_·"'“”]+/g, ' ')                      // puntuación y rayas de relleno
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const CATEGORIA_DE_CAMPO = (campo: Campo): CategoriaCampo => {
+  if (String(campo).startsWith('representante_')) return 'perfil_representante_legal';
+  if (String(campo).startsWith('banco_')) return 'perfil_bancario';
+  if (String(campo).startsWith('licitacion_')) return 'datos_licitacion';
+  return 'perfil_empresa';
+};
+
+// ── CAPA 1 — Diccionario de etiquetas INEQUÍVOCAS ────────────────────────────────────────────
+// Doctrina heredada del anexos-diccionario.ts original (borrado en 43c1898) y que se conserva a
+// propósito: solo entran las etiquetas que, tal cual vienen escritas, YA dicen a QUIÉN describen.
+// "Nombre", "RUT" o "Cargo" a secas NO están acá — los resuelve la capa 2 mirando el bloque. Un
+// diccionario que adivina la segunda aparición de "Nombre" es peor que no tener diccionario.
+//
+// Sufijo opcional "del oferente / de la empresa / del proponente": la MISMA pregunta viene con
+// cualquiera de esos remates según el organismo. Sin él, "RUT DEL OFERENTE:" no matcheaba nada.
+const OFERENTE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:empresa|oferente|proponente|participante|postulante|contribuyente|prestador|proveedor))?';
+const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representante(?:\\s+legal)?|apoderado|declarante|firmante|suscriptor))';
+
+interface Entrada { campo: Campo; patrones: RegExp[] }
+
+const DICCIONARIO: Entrada[] = [
+  // ── Empresa ──
+  { campo: 'razon_social', patrones: [
+    new RegExp(`^razon\\s+social${OFERENTE}$`),
+    new RegExp(`^nombre\\s+(?:completo\\s+)?o\\s+razon\\s+social${OFERENTE}$`),
+    new RegExp(`^razon\\s+social\\s+o\\s+nombre(?:\\s+completo)?${OFERENTE}$`),
+    new RegExp(`^nombre\\s+(?:completo\\s+)?(?:del?\\s+|de\\s+la\\s+)(?:empresa|oferente|proponente|participante|postulante|sociedad|entidad|institucion|firma)$`),
+    /^nombre (?:completo )?(?:del? (?:proponente|oferente)) o razon social$/,
+    /^(?:identificacion|individualizacion) del (?:oferente|proponente|contribuyente)$/,
+    /^empresa$/, /^empresa oferente$/, /^nombre de fantasia$/,
+  ] },
+  { campo: 'rut', patrones: [
+    new RegExp(`^r\\s*u\\s*t${OFERENTE}$`),
+    new RegExp(`^rol\\s+unico\\s+tributario${OFERENTE}$`),
+    /^rut (?:de la )?(?:empresa|sociedad|entidad|razon social)$/,
+    // "R.U.T. N°:" (1058086-43-LP26) — tras normalizar queda "r u t n°", con el signo de grado
+    // intacto a propósito (ver normalizarEtiqueta: quitarlo confundiría "N°" con "No").
+    /^r\s*u\s*t\s*(?:n[°º]?)?$/, /^rut\/run$/,
+  ] },
+  { campo: 'giro', patrones: [
+    new RegExp(`^giro(?:\\s+(?:comercial|del\\s+negocio|o\\s+actividad))?${OFERENTE}$`),
+    /^actividad (?:economica|comercial)$/, /^rubro$/,
+  ] },
+  { campo: 'direccion', patrones: [
+    new RegExp(`^(?:direccion|domicilio)(?:\\s+(?:comercial|legal|particular|de\\s+la\\s+empresa))?${OFERENTE}$`),
+    /^direccion completa$/, /^domicilio (?:para efectos de )?(?:esta )?(?:licitacion|propuesta)$/,
+  ] },
+  { campo: 'direccion_calle', patrones: [/^calle(?: y numero)?$/, /^nombre de (?:la )?calle$/, /^avenida\/calle$/] },
+  { campo: 'direccion_numero', patrones: [/^n[°º]$/, /^numero$/, /^nro$/, /^numero de (?:la )?(?:calle|direccion|domicilio)$/] },
+  { campo: 'comuna', patrones: [/^comuna$/, new RegExp(`^comuna${OFERENTE}$`)] },
+  { campo: 'ciudad', patrones: [/^ciudad$/, new RegExp(`^ciudad${OFERENTE}$`), /^localidad$/] },
+  { campo: 'region', patrones: [/^region$/, /^region y comuna$/, /^ciudad y region$/, /^region\/comuna$/] },
+  { campo: 'telefono1', patrones: [
+    new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|fijo))?${OFERENTE}$`),
+    /^telefono\/celular$/, /^fono contacto$/, /^numero de (?:telefono|contacto)$/,
+    /^n[°º]? de telefono$/,
+  ] },
+  { campo: 'email1', patrones: [
+    new RegExp(`^(?:correo|correo\\s+electronico|e\\s*mail|mail|casilla\\s+electronica)(?:\\s+de\\s+contacto)?${OFERENTE}$`),
+    /^correo electronico para (?:notificaciones|efectos de (?:esta )?licitacion)$/,
+  ] },
+  // "FECHA:" suelta (un solo blanco, no un triplete día/mes/año — esos ya los resuelve entero
+  // detectarTripletesFecha antes de llegar acá) → fecha larga con la que se firma la oferta.
+  { campo: 'fecha_hoy', patrones: [/^fecha$/, /^fecha de (?:la )?(?:oferta|presentacion|propuesta|declaracion)$/] },
+  { campo: 'tipo_persona_juridica', patrones: [/^tipo de (?:persona|sociedad|empresa)(?: juridica)?$/, /^naturaleza juridica$/] },
+
+  // ── Constitución ──
+  { campo: 'fecha_escritura', patrones: [/^fecha (?:de (?:la )?)?escritura(?: publica)?(?: de constitucion)?$/] },
+  { campo: 'fecha_sociedad', patrones: [/^(?:datos de )?(?:la )?constitucion(?: de la sociedad)?$/, /^antecedentes de constitucion$/] },
+  { campo: 'notaria', patrones: [/^notaria$/, /^notario$/, /^notaria (?:en que se firmo|de)$/] },
+  { campo: 'numero_repertorio', patrones: [/^(?:numero de )?repertorio(?: n[°º]?)?$/] },
+  { campo: 'fojas_numero_anio', patrones: [/^fojas(?: numero)?(?: anio)?$/, /^inscripcion (?:de )?(?:fojas|comercio)$/] },
+
+  // ── Representante legal ──
+  { campo: 'representante_nombre', patrones: [
+    new RegExp(`^nombre(?:\\s+completo)?${REPRE}$`),
+    new RegExp(`^(?:representante\\s+legal|apoderado)$`),
+    /^nombre y apellidos? del representante(?: legal)?$/,
+    /^(?:identificacion|individualizacion) del (?:representante(?: legal)?|apoderado)$/,
+    /^representante legal de la empresa$/, /^nombre del firmante$/, /^quien suscribe$/,
+  ] },
+  { campo: 'representante_nombres', patrones: [/^nombres$/, /^nombres? de pila$/] },
+  { campo: 'representante_apellidos', patrones: [/^apellidos$/, /^apellido paterno y materno$/] },
+  { campo: 'representante_rut', patrones: [
+    new RegExp(`^(?:rut|r\\s*u\\s*t|run|cedula(?:\\s+de\\s+identidad)?|c\\s*i)${REPRE}$`),
+    /^cedula de identidad(?: n[°º]?)?$/, /^c i n[°º]?$/, /^run$/, /^numero de (?:cedula|run)$/,
+    /^rut representante$/, /^cedula nacional de identidad$/,
+  ] },
+  { campo: 'representante_cargo', patrones: [
+    new RegExp(`^cargo${REPRE}$`),
+    /^cargo(?: o funcion| que desempena| en la empresa)?$/, /^calidad en que comparece$/,
+  ] },
+
+  // ── Bancario ──
+  { campo: 'banco_nombre', patrones: [/^(?:nombre del )?banco$/, /^institucion (?:bancaria|financiera)$/] },
+  { campo: 'banco_tipo_cuenta', patrones: [/^tipo de cuenta$/, /^cuenta (?:corriente\/vista|tipo)$/] },
+  { campo: 'banco_numero', patrones: [/^n[°º] de cuenta$/, /^numero de cuenta$/, /^cuenta n[°º]?$/, /^cuenta bancaria$/] },
+  { campo: 'banco_email', patrones: [/^correo(?: electronico)? para (?:pagos|aviso de pago|transferencias)$/] },
+  { campo: 'banco_titular_nombre', patrones: [/^(?:nombre del )?titular(?: de la cuenta)?$/] },
+  { campo: 'banco_titular_rut', patrones: [/^rut del titular(?: de la cuenta)?$/] },
+
+  // ── CAPA 4 — Datos de ESTA licitación (vienen de la API de MP, nunca de un juicio) ──
+  { campo: 'licitacion_codigo', patrones: [
+    /^(?:id|codigo|n[°º]|numero)(?: de(?: la)?)? (?:licitacion|adquisicion|proceso|propuesta)(?: publica)?$/,
+    /^id(?: de)? mercado publico$/, /^licitacion (?:id|n[°º]|numero)$/, /^id$/,
+  ] },
+  { campo: 'licitacion_nombre', patrones: [
+    /^nombre(?: de(?: la)?)? licitacion(?: publica)?$/, /^licitacion publica$/,
+    /^nombre del (?:proceso|proyecto|servicio licitado)$/, /^denominacion de la licitacion$/,
+  ] },
+  { campo: 'licitacion_organismo', patrones: [
+    /^(?:nombre del )?organismo(?: comprador| licitante| demandante)?$/,
+    /^(?:entidad|institucion|servicio|municipalidad) licitante$/, /^mandante$/, /^comprador$/,
+  ] },
+  { campo: 'licitacion_organismo_rut', patrones: [/^rut del? (?:organismo|entidad|institucion|mandante)(?: licitante| comprador)?$/] },
+  { campo: 'licitacion_unidad_compradora', patrones: [/^unidad(?: de)? compra(?:dora)?$/] },
+
+  // ── CAPA 6 — Reglas fijas de política de la empresa ──
+  { campo: 'socio_nombre', patrones: [/^nombre (?:del )?(?:socio|accionista)(?:\/accionista)?$/, /^socio\/accionista$/, /^socios? o accionistas?$/] },
+  { campo: 'socio_participacion', patrones: [
+    /^porcentaje de (?:derechos|participacion)(?: o participacion)?$/, /^% de (?:participacion|derechos)$/,
+    /^participacion(?: societaria| accionaria)?$/,
+  ] },
+];
+
+/** Etiqueta que ya dice a quién describe → campo, sin mirar el contexto. `null` si es ambigua. */
+export function campoDeEtiquetaInequivoca(etiqueta: string): Campo | null {
+  const n = normalizarEtiqueta(etiqueta);
+  if (!n) return null;
+  for (const e of DICCIONARIO) if (e.patrones.some(p => p.test(n))) return e.campo;
+  return null;
+}
+
+// ── CAPA 6b — Programa de integridad: respuesta fija de política ─────────────────────────────
+// Preguntar "¿cuenta con Programa de Integridad?" siempre se responde SÍ. Distinto de una casilla
+// que pide DESCRIBIR el programa: esa es texto libre y queda al humano.
+const RE_INTEGRIDAD = /\b(programa|politica|codigo)\s+(de\s+)?(integridad|etica|cumplimiento|compliance)\b|\bdirectiva\s+n?\s*[°º]?\s*31\b/;
+const RE_PIDE_DESCRIBIR = /\b(describ|detall|indique en que consiste|explique|senale como|adjunte)\w*/;
+function esPreguntaDeIntegridad(texto: string): boolean {
+  const n = normalizarEtiqueta(texto);
+  return RE_INTEGRIDAD.test(n) && !RE_PIDE_DESCRIBIR.test(n);
+}
+
+// ── CAPA 2 — Desambiguación por BLOQUE ───────────────────────────────────────────────────────
+// Una etiqueta pelada ("NOMBRE", "RUT", "CARGO") se decide mirando las OTRAS casillas del mismo
+// bloque y el encabezado que lo precede. Esta es exactamente la regla que evita la regresión
+// verificada del 17-ago-2026 (caso real 1058086-43-LP26, ANEXO N°5):
+//     NOMBRE: ___  /  RUT: ___  /  NOMBRE DE LA EMPRESA (si correspondiere): ___
+// Poner la razón social en la primera duplica la empresa y borra al firmante.
+const ETIQUETAS_PELADAS: { re: RegExp; persona: Campo; empresa: Campo }[] = [
+  { re: /^nombre(?: completo)?$/,                    persona: 'representante_nombre', empresa: 'razon_social' },
+  { re: /^(?:rut|r u t|rol unico tributario)$/,      persona: 'representante_rut',    empresa: 'rut' },
+  { re: /^(?:rut|cedula|c i|run)(?: n[°º]?)?$/,      persona: 'representante_rut',    empresa: 'rut' },
+];
+
+const RE_CTX_PERSONA = /\b(representante(\s+legal)?|apoderado|declarante|firmante|don|dona|suscribe|persona natural|encargado|administrador de contrato|contacto)\b/;
+const RE_CTX_EMPRESA = /\b(oferente|proponente|empresa|razon social|proveedor|postulante|sociedad|contribuyente|antecedentes (del|de la) (proveedor|empresa))\b/;
+// Casillas HERMANAS que ya cubren explícitamente a uno de los dos titulares. Si el bloque ya tiene
+// una casilla propia de la empresa, el pelado es la persona — y viceversa.
+const RE_HERMANA_EMPRESA = /^(?:nombre (?:de la |del )?(?:empresa|sociedad|oferente|proponente)|razon social|nombre o razon social|rut (?:de la )?empresa)/;
+const RE_HERMANA_PERSONA = /^(?:nombre(?: completo)? del (?:representante|apoderado)|representante legal|cedula de identidad|rut del representante)/;
+
+interface Bloque { indices: number[]; etiquetas: string[]; contexto: string }
+
+/**
+ * Bloque = casillas contiguas en el documento. Dos casillas separadas por más de `GAP` párrafos ya
+ * no se explican entre sí (son otra tabla, otra sección). Es el mismo criterio con el que un
+ * humano lee: lo que está junto en el papel habla de lo mismo.
+ */
+const GAP = 4;
+function construirBloques(candidatos: CandidatoCelda[], parrafos: Parrafo[]): Map<number, Bloque> {
+  const orden = [...candidatos].sort((a, b) => a.indice - b.indice);
+  const bloques: Bloque[] = [];
+  let actual: CandidatoCelda[] = [];
+  const cerrar = () => {
+    if (!actual.length) return;
+    const primero = actual[0].indice;
+    const previos: string[] = [];
+    for (let i = primero - 1; i >= 0 && previos.length < 3; i--) {
+      const p = parrafos[i];
+      if (p?.texto && !p.vacio) previos.push(p.texto);
+    }
+    // El prefijo "FILA — COLUMNA" de una etiqueta compuesta es contexto del bloque, no la etiqueta.
+    const encabezados = actual.map(c => c.etiqueta.match(/^(.+?)\s+—\s+/)?.[1] || '').filter(Boolean);
+    bloques.push({
+      indices: actual.map(c => c.indice),
+      etiquetas: actual.map(c => normalizarEtiqueta(etiquetaPropia(c.etiqueta))),
+      contexto: normalizarEtiqueta([...previos, ...encabezados].join(' · ')),
+    });
+    actual = [];
+  };
+  for (const c of orden) {
+    if (actual.length && c.indice - actual[actual.length - 1].indice > GAP) cerrar();
+    actual.push(c);
+  }
+  cerrar();
+  const porIndice = new Map<number, Bloque>();
+  for (const b of bloques) for (const i of b.indices) porIndice.set(i, b);
+  return porIndice;
+}
+
+/** De "IDENTIFICACIÓN DEL REPRESENTANTE — NOMBRE" devuelve solo "NOMBRE". */
+function etiquetaPropia(etiqueta: string): string {
+  return etiqueta.match(/^(?:.+?)\s+—\s+(.+)$/)?.[1] ?? etiqueta;
+}
+
+/**
+ * Resuelve una etiqueta pelada por su bloque. Devuelve `null` cuando el bloque no da ninguna
+ * señal: preferimos una casilla pendiente que el humano llena en 3 segundos antes que un dato
+ * equivocado en una declaración jurada.
+ */
+export function resolverPeladaPorBloque(
+  etiqueta: string, hermanas: string[], contexto: string, esPieDeFirma: boolean,
+): Campo | null {
+  const n = normalizarEtiqueta(etiquetaPropia(etiqueta));
+  const regla = ETIQUETAS_PELADAS.find(r => r.re.test(n));
+  if (!regla) return null;
+
+  const propias = hermanas.filter(h => h !== n);
+  // 1. Hermana explícita: la señal más fuerte y la que evita la regresión del Anexo N°5.
+  if (propias.some(h => RE_HERMANA_EMPRESA.test(h))) return regla.persona;
+  if (propias.some(h => RE_HERMANA_PERSONA.test(h))) return regla.empresa;
+  // 2. Encabezado del bloque.
+  const ctxPersona = RE_CTX_PERSONA.test(contexto);
+  const ctxEmpresa = RE_CTX_EMPRESA.test(contexto);
+  if (ctxPersona && !ctxEmpresa) return regla.persona;
+  if (ctxEmpresa && !ctxPersona) return regla.empresa;
+  // 3. Pie de firma sin más contexto: quien firma es la persona.
+  if (esPieDeFirma) return regla.persona;
+  return null;
+}
+
+// ── CAPA 3 — Declaración jurada corrida (blancos a mitad de oración) ─────────────────────────
+// El texto da la respuesta en las palabras INMEDIATAMENTE ANTERIORES al blanco. No es un juicio:
+// es una tabla de regex sobre la cola del texto previo. Caso real verificado sin llenar (ANEXO N°4
+// "DECLARACIÓN JURADA SIMPLE DE PRÁCTICAS ANTISINDICALES"):
+//   "Yo ___, Cédula de identidad N.º ___, con domicilio en la ciudad de ___, en representación de
+//    ___, Rut Nº ___"  → 5 casillas, 5 reglas, cero ambigüedad.
+// Se evalúan EN ORDEN y manda la primera que calce: "en representación de la empresa ___" tiene
+// que ganarle a "empresa ___".
+const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
+  // A quién se representa → la EMPRESA (nunca la persona, aunque venga tras "representante").
+  { re: /\ben\s+represent(?:acion|ación)\s+(?:legal\s+)?de(?:\s+la)?(?:\s+(?:empresa|sociedad|razon\s+social))?\s*$/i, campo: 'razon_social' },
+  { re: /\b(?:para|por)\s+(?:y\s+en\s+nombre\s+de|cuenta\s+de)\s*$/i, campo: 'razon_social' },
+  // Nombre de quien declara.
+  { re: /\byo,?\s*$/i, campo: 'representante_nombre' },
+  { re: /\b(?:don|dona|doña|sr|sra|senor|señor)\.?,?\s*$/i, campo: 'representante_nombre' },
+  { re: /\bnombre\s+(?:completo\s+)?(?:del\s+)?(?:representante|apoderado|declarante)?\s*:?\s*$/i, campo: 'representante_nombre' },
+  // Cédula de la persona — distinta del RUT de la empresa aunque compartan la oración.
+  { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run)\s*(?:n[°º.]*|numero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
+  // Domicilio.
+  { re: /\b(?:con\s+)?domicili(?:o|ado)\s+(?:en|para\s+estos\s+efectos\s+en)(?:\s+(?:la\s+)?(?:ciudad|comuna)\s+de)?\s*$/i, campo: 'direccion' },
+  { re: /\bdirecci(?:o|ó)n\s*:?\s*$/i, campo: 'direccion' },
+  // RUT: por defecto el de la EMPRESA. La cédula de la persona ya se atrapó arriba con su palabra
+  // propia ("cédula", "C.I.", "RUN"); un "Rut N°" pelado en una declaración jurada acompaña
+  // siempre a la razón social recién nombrada.
+  { re: /\b(?:r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|numero|nro)?\s*:?\s*$/i, campo: 'rut' },
+  { re: /\bgiro\s*:?\s*$/i, campo: 'giro' },
+  { re: /\b(?:tel(?:e|é)fono|fono|celular)\s*:?\s*$/i, campo: 'telefono1' },
+  { re: /\b(?:correo(?:\s+electr(?:o|ó)nico)?|e-?mail)\s*:?\s*$/i, campo: 'email1' },
+  { re: /\bcargo\s+(?:de\s+)?\s*:?\s*$/i, campo: 'representante_cargo' },
+  // Datos de la licitación.
+  { re: /\b(?:licitaci(?:o|ó)n\s+p(?:u|ú)blica|id\s+(?:de\s+)?mercado\s+p(?:u|ú)blico|propuesta\s+p(?:u|ú)blica)\s*(?:n[°º.]*|id)?\s*:?\s*$/i, campo: 'licitacion_codigo' },
+  { re: /\b(?:denominada|individualizada\s+como|cuyo\s+nombre\s+es)\s*$/i, campo: 'licitacion_nombre' },
+];
+
+// CAPA 5 — Localidad de firma. "En ______ a ___ de ___" cae hoy en firma_fecha → null, y el dato
+// existe sin usar: la comuna del ORGANISMO licitante (ComunaUnidad). Ojo: la regla vieja mandaba
+// "[ciudad/país]" a la región de la EMPRESA — el instructivo pide la del organismo. Corregido acá.
+const RE_LOCALIDAD_FIRMA = /(?:^|[.;])\s*(?:en|ciudad\s+de)\s*$/i;
+const RE_SIGUE_FECHA = /^\s*[,]?\s*(?:a|con\s+fecha|el\s+d(?:i|í)a)\b|^\s*,?\s*\d{0,2}\s*de\b/i;
+
+// Marcadores literales del organismo ("[Insertar RUT]"): el texto dentro del marcador dice
+// EXACTAMENTE qué va ahí y manda sobre cualquier inferencia del contexto.
+const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
+  { re: /nombre\s+completo\s+del\s+representante|representante\s+legal/i, campo: 'representante_nombre' },
+  { re: /n(?:u|ú)mero\s+de\s+run|\brun\b|c(?:e|é)dula/i, campo: 'representante_rut' },
+  { re: /nombre\s+o\s+raz(?:o|ó)n\s+social|raz(?:o|ó)n\s+social|nombre\s+persona\s+(?:natural|jur(?:i|í)dica)/i, campo: 'razon_social' },
+  { re: /insertar\s+rut|^\s*rut\s*$/i, campo: 'rut' },
+  { re: /id\s+de\s+mercado\s+p(?:u|ú)blico|id\s+licitaci(?:o|ó)n/i, campo: 'licitacion_codigo' },
+  { re: /nombre\s+(?:de\s+la\s+)?licitaci(?:o|ó)n/i, campo: 'licitacion_nombre' },
+  { re: /^\s*fecha\s*$/i, campo: 'fecha_hoy' },
+  { re: /ciudad|comuna|localidad/i, campo: 'licitacion_comuna' },
+  { re: /domicilio|direcci(?:o|ó)n/i, campo: 'direccion' },
+  { re: /giro/i, campo: 'giro' },
+];
+
+// Un marcador que es una INSTRUCCIÓN al oferente no es un dato de la ficha: lo llena el humano
+// sabiendo qué va a adjuntar. Nunca autocompletar, nunca esconder.
+// Ojo con los verbos recortados: un `complet\w*` genérico matchea "Nombre COMPLETO del
+// Representante Legal" y descartaba el marcador más útil que existe (lo cazó el test de marcadores).
+// Van solo las formas verbales, nunca el adjetivo.
+const RE_MARCADOR_INSTRUCCION = /\b(?:indicar|indique|marcar|marque|senalar|señalar|senale|señale|completar|complete|adjuntar|adjunte|describir|describa|detallar|detalle|explicar|explique)\b/i;
+
+// BUG REAL atrapado por el banco (1058086-43-LP26): un bloque "Nombre: ___ Cargo: ___
+// Institución: ___" es la firma de un TERCERO que certifica algo del oferente (ej. un cliente
+// anterior), no la del propio oferente. "Cargo:" solo, sin más pista, es una etiqueta inequívoca
+// para NUESTRO representante — pero puesta al lado de "Institución:" pasa a describir a la
+// persona de esa OTRA institución. Con datos de un tercero, pendiente es siempre más seguro que
+// un dato nuestro puesto en la declaración de otro.
+const RE_BLOQUE_TERCERO = /\b(instituci(?:o|ó)n|cliente|mandante|contraparte|quien\s+certifica|emisor\s+del\s+certificado|contratante|entidad\s+que\s+certifica)\b/i;
+// El guion bajo es \w para el motor de regex, así que "___Institución" no tiene frontera de
+// palabra ANTES de la I (\w seguido de \w no es \b) y el \b de arriba nunca dispara. Se prueba
+// sobre el texto con las rayas de relleno ya convertidas a espacio, nunca sobre el crudo.
+const esBloqueDeTercero = (texto: string) => RE_BLOQUE_TERCERO.test(texto.replace(/_+/g, ' '));
+
+/** Campo que pide un blanco a mitad de oración, por lo que el documento dice ANTES de él. */
+export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
+  if (b.textoMarcador) {
+    if (RE_MARCADOR_INSTRUCCION.test(b.textoMarcador)) return null;
+    const m = REGLAS_MARCADOR.find(r => r.re.test(b.textoMarcador!));
+    if (m) return m.campo;
+  }
+  const parrafo = b.parrafoCompleto ?? b.contexto ?? '';
+  const pos = b.posEnParrafo ?? b.posEnTexto ?? 0;
+  if (esBloqueDeTercero(parrafo)) return null;
+  const antes = parrafo.slice(0, pos);
+  if (!antes.trim()) return null;
+  const despues = parrafo.slice(pos + (b.largo || 0));
+
+  // Localidad de firma: "En ______ a 12 de agosto de 2026".
+  if (RE_LOCALIDAD_FIRMA.test(antes) && RE_SIGUE_FECHA.test(despues)) return 'licitacion_comuna';
+
+  const regla = REGLAS_PREVIAS.find(r => r.re.test(antes));
+  if (regla) return regla.campo;
+
+  // Blanco que sigue a una ETIQUETA con dos puntos ("Nombre o Razón Social: ____", "ID
+  // LICITACIÓN: ____", "Cargo: ____"). Es el mismo problema de la capa 1 pero escrito en prosa, así
+  // que se resuelve con el MISMO diccionario en vez de duplicar reglas: medido en 1058086-43-LP26,
+  // donde seis casillas de un bloque de contacto quedaban pendientes solo por venir inline.
+  //
+  // BUG REAL atrapado por el propio banco de pruebas: excluir solo \n\t·; no bastaba. Cuando el
+  // blanco ANTERIOR del mismo párrafo es una raya de guiones bajos literal ("Nombre: ___Cargo:
+  // ___"), esos guiones bajos entran en la clase de caracteres permitidos y el regex, al probar
+  // desde el inicio del párrafo, capturaba "Nombre: ___...Cargo" ENTERO como si fuera una sola
+  // etiqueta — normalizada a algo que no calza con nada, perdiendo un campo real. Excluir el
+  // guion bajo (y limitar a una sola línea de "palabras") obliga a que el match empiece DESPUÉS
+  // de la raya anterior, en la etiqueta inmediatamente pegada al blanco actual.
+  const etiqueta = antes.match(/[\p{L}\p{N} .()°ºª/-]{2,60}:\s*$/u)?.[0];
+  return etiqueta ? campoDeEtiquetaInequivoca(etiqueta) : null;
+}
+
+// ── Guardarraíl anti-invención ───────────────────────────────────────────────────────────────
+// Se conserva del diseño anterior: si el campo elegido no tiene un valor real en la ficha, la
+// casilla queda PENDIENTE. Es peor un dato equivocado en una declaración jurada que uno vacío.
+function valorDe(empresa: EmpresaCampos, campo: Campo): string | null {
+  const v = empresa[campo];
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s ? s : null;
+}
+
+// Las tres partes sueltas de la fecha solo tienen sentido dentro de un triplete, que ya se resuelve
+// entero y determinista antes de llegar acá (detectarTripletesFecha). Si alguna regla las propone
+// para una celda suelta, queda un número huérfano en el documento sin nada que lo explique.
+const SOLO_TRIPLETE = new Set<Campo>(['fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra'] as Campo[]);
+
+// ── Clasificación del PENDIENTE ──────────────────────────────────────────────────────────────
+// Una casilla que no se resolvió no es toda igual: la UI decide con esto si la muestra pidiendo un
+// dato o si la calla por ser un título. Ante la duda entre título y campo, gana título: una casilla
+// de más que el humano llena cuesta menos que un dato suelto a mitad del documento.
+const RE_TITULO = /^(?:antecedentes|identificacion|datos|propuesta|oferta|declaracion|anexo|formulario|seccion|i+\.?|[ivx]+)\b/;
+const RE_ESPECIFICO = /\b(precio|valor|monto|total|neto|iva|cantidad|unidad|plazo|dias|marca|modelo|especificacion|caracteristica|cumple|catalogo|item|producto|servicio|garantia|dimension|codigo del producto)\b/;
+const RE_DECISION = /\b(marque|marcar|con una x|describa|describ|indique|senale|detalle|explique|justifique|seleccione)\b/;
+const RE_TERCERO = /\b(cliente|mandante|contraparte|quien certifica|emisor del certificado|contratante)\b/;
+
+export function clasificarPendiente(etiqueta: string): { categoria: CategoriaCampo; motivo: string } {
+  const n = normalizarEtiqueta(etiquetaPropia(etiqueta));
+  if (!n) {
+    return { categoria: 'especifico_licitacion', motivo: 'Casilla sin etiqueta ni contexto alrededor — hay que revisarla directamente en el documento.' };
+  }
+  if (RE_TERCERO.test(n)) {
+    return { categoria: 'declaracion_tercero', motivo: 'Debe completarlo y firmarlo un tercero (ej. un cliente anterior), no el oferente.' };
+  }
+  if (RE_DECISION.test(n)) {
+    return { categoria: 'decision_del_usuario', motivo: 'Hay que decidirlo o redactarlo — no se puede inferir de forma segura de la ficha.' };
+  }
+  if (RE_ESPECIFICO.test(n)) {
+    return { categoria: 'especifico_licitacion', motivo: 'Dato específico de esta oferta (precio, cantidad, plazo o especificación técnica) — se intenta cruzar contra el costeo y las bases; si tampoco aparece ahí, hay que escribirlo a mano.' };
+  }
+  if (RE_TITULO.test(n) && n.split(' ').length <= 5) {
+    return { categoria: 'no_aplica_al_oferente', motivo: 'Es un encabezado o título de sección — anuncia lo que viene abajo, no pide un dato.' };
+  }
+  // Fallback deliberadamente CALLADO (no_aplica_al_oferente, no especifico_licitacion): una
+  // etiqueta que el diccionario no reconoce y que tampoco habla de precio/plazo/decisión es, la
+  // mayoría de las veces, un encabezado. Las casillas del patrón 1 se siguen mostrando igual —
+  // ese camino ignora la categoría (ver resolverTodo en anexos-rellenar.ts); esta clasificación
+  // solo decide si un "Etiqueta:" del patrón 5 llena la pantalla o no.
+  return { categoria: 'no_aplica_al_oferente', motivo: 'La etiqueta no corresponde a ningún dato de la ficha de la empresa ni de la licitación — si es una casilla real, complétala a mano.' };
+}
+
+// ── Entrada principal ────────────────────────────────────────────────────────────────────────
+export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDeterminista {
+  const { candidatos, blancosInline, parrafos, empresa } = entrada;
+  const celda = new Map<number, Resolucion>();
+  const inline = new Map<string, Resolucion>();
+  const celdaSinResolver: CandidatoCelda[] = [];
+  const inlineSinResolver: CandidatoInline[] = [];
+
+  const bloques = construirBloques(candidatos, parrafos);
+
+  const anotar = (campo: Campo | null, etiqueta: string, set: (r: Resolucion) => void): boolean => {
+    if (!campo || SOLO_TRIPLETE.has(campo)) return false;
+    const valor = valorDe(empresa, campo);
+    if (!valor) return false;
+    set({ tipo: 'auto', valor, categoria: CATEGORIA_DE_CAMPO(campo), evidencia: etiqueta });
+    return true;
+  };
+
+  for (const c of candidatos) {
+    const propia = etiquetaPropia(c.etiqueta);
+    const bloque = bloques.get(c.indice);
+
+    // 0. `campoFijo` — ya resuelto por la ESTRUCTURA del documento (asignarCamposDeBloqueFirma:
+    //    un "RUT:" colgando de "FIRMA REPRESENTANTE LEGAL:" no admite discusión). Manda sobre todo.
+    let campo: Campo | null = (c.campoFijo as Campo | undefined) ?? null;
+    // Bloque de un TERCERO (ver RE_BLOQUE_TERCERO): "Nombre / Cargo / Institución" que certifica
+    // algo del oferente es la firma de OTRA persona, no la nuestra — "Cargo" ahí es inequívoco
+    // como etiqueta pero describe al cargo de esa otra persona. Ninguna capa por debajo de
+    // campoFijo puede rellenar con datos de la empresa dentro de este bloque.
+    const esTercero = !campo && esBloqueDeTercero(`${propia} ${bloque?.contexto ?? ''} ${(bloque?.etiquetas ?? []).join(' ')}`);
+    // 1. Diccionario de etiquetas inequívocas, sobre la etiqueta propia y sobre la compuesta
+    //    ("IDENTIFICACIÓN DEL REPRESENTANTE LEGAL — NOMBRE" resuelve por la compuesta).
+    if (!campo && !esTercero) campo = campoDeEtiquetaInequivoca(propia) ?? campoDeEtiquetaInequivoca(c.etiqueta.replace(/\s+—\s+/g, ' '));
+    // 2. Etiqueta pelada, desambiguada por el bloque.
+    if (!campo && !esTercero && bloque) {
+      campo = resolverPeladaPorBloque(c.etiqueta, bloque.etiquetas, bloque.contexto, RE_CTX_PERSONA.test(bloque.contexto));
+    }
+    // 6. Política fija: programa de integridad siempre "SÍ".
+    if (!campo && esPreguntaDeIntegridad(`${c.etiqueta} ${bloque?.contexto ?? ''}`)) campo = 'programa_integridad_respuesta' as Campo;
+
+    if (anotar(campo, propia, r => celda.set(c.indice, r))) continue;
+    celdaSinResolver.push(c);
+  }
+
+  for (const b of blancosInline) {
+    const campo = campoDeBlancoInline(b);
+    const clave = `${b.indiceRun}:${b.posEnTexto}`;
+    const etiqueta = (b.textoMarcador || b.contexto || '').slice(0, 120);
+    if (anotar(campo, etiqueta, r => inline.set(clave, r))) continue;
+    inlineSinResolver.push(b);
+  }
+
+  return { celda, inline, celdaSinResolver, inlineSinResolver };
+}

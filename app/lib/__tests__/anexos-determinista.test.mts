@@ -1,0 +1,297 @@
+// Motor DETERMINISTA de anexos (anexos-determinista.ts, 17-ago-2026). Cada regla del motor tiene
+// su test acá — esa es la razón de ser del cambio: el prompt que reemplaza no tenía UN SOLO test
+// que lo ejercitara, y por eso dos regresiones verificadas en un día pasaron los 227 tests sin
+// despeinarse. Los casos con código de licitación son documentos reales del banco de pruebas.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  resolverDeterminista, campoDeEtiquetaInequivoca, resolverPeladaPorBloque,
+  campoDeBlancoInline, clasificarPendiente, normalizarEtiqueta,
+} from '../anexos-determinista';
+import type { EmpresaCampos, Resolucion } from '../anexos-ia-motor';
+import type { CandidatoCelda, CandidatoInline } from '../anexos-detectar';
+import type { Parrafo } from '../anexos-docx';
+
+const EMPRESA: EmpresaCampos = {
+  razon_social: 'Comercial Los Robles SpA', rut: '76.902.659-2',
+  direccion: 'Av. Alemania 0671, Temuco', region: 'Región de La Araucanía', giro: 'Venta de equipos',
+  tipo_persona_juridica: 'SpA', fecha_sociedad: null, fecha_escritura: null, notaria: null,
+  numero_repertorio: null, fojas_numero_anio: null,
+  representante_nombre: 'Lidia Valenzuela Soto', representante_rut: '6.736.698-0',
+  representante_cargo: 'Gerente General',
+  email1: 'contacto@losrobles.cl', telefono1: '+56 45 2 123456',
+  banco_tipo_cuenta: null, banco_numero: null, banco_nombre: null, banco_email: null,
+  banco_titular_nombre: null, banco_titular_rut: null, firma_url: null, timbre_url: null,
+  licitacion_comuna: 'Nueva Imperial', licitacion_codigo: '3713-7-LE26',
+} as EmpresaCampos;
+
+const parrafo = (indice: number, texto: string): Parrafo => ({
+  paraId: `p${indice}`, texto, vacio: !texto, indice,
+  centrado: false, bordeInferior: false, tapadoPorCuadroOpaco: false,
+});
+const celda = (indice: number, etiqueta: string, extra: Partial<CandidatoCelda> = {}): CandidatoCelda =>
+  ({ etiqueta, paraId: `p${indice}`, indice, ...extra });
+/** Valor auto de una casilla, o null si quedó pendiente — evita repetir el narrowing en cada test. */
+const valorAuto = (m: Map<number | string, Resolucion>, k: number | string): string | null => {
+  const r = m.get(k);
+  return r?.tipo === 'auto' ? r.valor : null;
+};
+const blanco = (parrafoCompleto: string, posEnParrafo: number, extra: Partial<CandidatoInline> = {}): CandidatoInline => ({
+  indiceRun: 1, indiceParrafo: 1, textoRunOriginal: parrafoCompleto, posEnTexto: posEnParrafo,
+  largo: 5, contexto: parrafoCompleto, parrafoCompleto, posEnParrafo, ...extra,
+});
+
+// ── Capa 1: diccionario de etiquetas inequívocas ─────────────────────────────────────────────
+test('diccionario: la MISMA pregunta con los remates de distintos organismos cae en el mismo campo', () => {
+  for (const e of ['RUT', 'R.U.T.', 'Rut del oferente', 'R.U.T. DEL PROPONENTE', 'Rol Único Tributario de la empresa']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'rut', e);
+  }
+  for (const e of ['Razón Social', 'Nombre o Razón Social', 'NOMBRE COMPLETO O RAZÓN SOCIAL DEL PROPONENTE', 'Nombre de la Empresa']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'razon_social', e);
+  }
+});
+
+test('diccionario: la etiqueta que ya nombra al representante no depende del contexto', () => {
+  assert.equal(campoDeEtiquetaInequivoca('NOMBRE REPRESENTANTE LEGAL'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Nombre completo del apoderado'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Cédula de Identidad N°'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('RUT del representante legal'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('Cargo del representante'), 'representante_cargo');
+});
+
+test('diccionario: es CONSERVADOR — las etiquetas ambiguas NO entran (las decide el bloque)', () => {
+  for (const e of ['Nombre', 'NOMBRE', 'Firma', 'Observaciones']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), null, e);
+  }
+});
+
+test('diccionario: "Cargo" pelado SÍ entra — no existe un cargo de la empresa que compita', () => {
+  // A diferencia de "Nombre"/"RUT" (que tienen dos titulares posibles en el mismo bloque), el
+  // cargo solo puede ser el de la persona que suscribe. Dejarlo ambiguo pendiente no protegía nada.
+  assert.equal(campoDeEtiquetaInequivoca('Cargo'), 'representante_cargo');
+  assert.equal(campoDeEtiquetaInequivoca('Cargo o función'), 'representante_cargo');
+});
+
+test('diccionario: normaliza tildes, numeración de lista y "(si correspondiere)"', () => {
+  assert.equal(normalizarEtiqueta('3. DIRECCIÓN (comercial):'), 'direccion');
+  assert.equal(campoDeEtiquetaInequivoca('1) Giro comercial:'), 'giro');
+  assert.equal(campoDeEtiquetaInequivoca('Comuna (si correspondiere)'), 'comuna');
+});
+
+test('diccionario: los datos de ESTA licitación salen de la API de MP, no de un juicio', () => {
+  assert.equal(campoDeEtiquetaInequivoca('ID Licitación Pública'), 'licitacion_codigo');
+  assert.equal(campoDeEtiquetaInequivoca('Nombre Licitación Pública'), 'licitacion_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Organismo comprador'), 'licitacion_organismo');
+});
+
+// ── Capa 2: desambiguación por bloque ────────────────────────────────────────────────────────
+test('REGRESIÓN 1058086-43-LP26 Anexo N°5: con "NOMBRE DE LA EMPRESA" al lado, el NOMBRE pelado es la PERSONA', () => {
+  const hermanas = ['nombre', 'rut', 'nombre de la empresa'];
+  assert.equal(resolverPeladaPorBloque('NOMBRE', hermanas, '', false), 'representante_nombre');
+  // Y el RUT pelado sigue al nombre de su propio bloque — nunca se mezcla la persona con la empresa.
+  assert.equal(resolverPeladaPorBloque('RUT', hermanas, '', false), 'representante_rut');
+});
+
+test('bloque: si la casilla propia de la persona ya existe, el pelado es la EMPRESA', () => {
+  const hermanas = ['nombre', 'rut', 'nombre del representante legal'];
+  assert.equal(resolverPeladaPorBloque('NOMBRE', hermanas, '', false), 'razon_social');
+  assert.equal(resolverPeladaPorBloque('RUT', hermanas, '', false), 'rut');
+});
+
+test('bloque: sin hermana explícita, manda el encabezado que precede al bloque', () => {
+  assert.equal(resolverPeladaPorBloque('NOMBRE', ['nombre', 'rut'], 'identificacion del representante legal', false), 'representante_nombre');
+  assert.equal(resolverPeladaPorBloque('NOMBRE', ['nombre', 'rut'], 'antecedentes del oferente', false), 'razon_social');
+});
+
+test('bloque: encabezado que nombra a los DOS no decide — mejor pendiente que un dato equivocado', () => {
+  assert.equal(resolverPeladaPorBloque('NOMBRE', ['nombre'], 'datos del oferente y su representante legal', false), null);
+  assert.equal(resolverPeladaPorBloque('NOMBRE', ['nombre'], '', false), null);
+});
+
+test('bloque: al pie de una firma sin más contexto, quien firma es la persona', () => {
+  assert.equal(resolverPeladaPorBloque('NOMBRE', ['nombre'], 'firma del representante legal', true), 'representante_nombre');
+});
+
+// ── Capa 3: declaración jurada corrida ───────────────────────────────────────────────────────
+test('ANEXO N°4 antisindicales: las 5 casillas de la MISMA oración piden 5 campos DISTINTOS', () => {
+  const oracion = 'Yo , Cédula de identidad N.º , con domicilio en la ciudad de , en representación de , Rut Nº , declaro bajo juramento que:';
+  const pos = (frag: string) => oracion.indexOf(frag) + frag.length;
+  assert.equal(campoDeBlancoInline(blanco(oracion, pos('Yo '))), 'representante_nombre');
+  assert.equal(campoDeBlancoInline(blanco(oracion, pos('Cédula de identidad N.º '))), 'representante_rut');
+  assert.equal(campoDeBlancoInline(blanco(oracion, pos('con domicilio en la ciudad de '))), 'direccion');
+  assert.equal(campoDeBlancoInline(blanco(oracion, pos('en representación de '))), 'razon_social');
+  assert.equal(campoDeBlancoInline(blanco(oracion, pos('Rut Nº '))), 'rut');
+});
+
+test('declaración jurada: "don ___" es el nombre del representante, no la empresa', () => {
+  const o = 'El proponente, por medio de su representante legal, don  declara bajo juramento lo siguiente:';
+  assert.equal(campoDeBlancoInline(blanco(o, o.indexOf('don ') + 4)), 'representante_nombre');
+});
+
+test('declaración jurada: "en representación de" gana aunque venga tras la palabra representante', () => {
+  const o = 'comparece en representación de  la sociedad';
+  assert.equal(campoDeBlancoInline(blanco(o, o.indexOf('de ') + 3)), 'razon_social');
+});
+
+// ── Capa 5: localidad de la firma (hueco abierto del instructivo) ────────────────────────────
+test('localidad de firma: "En ____ a 12 de agosto" es la comuna del ORGANISMO, no la región de la empresa', () => {
+  const o = 'En  a 12 de agosto de 2026';
+  assert.equal(campoDeBlancoInline(blanco(o, 3)), 'licitacion_comuna');
+});
+
+test('localidad: "en" sin fecha detrás no es localidad — no se fuerza', () => {
+  const o = 'participa en  el proceso';
+  assert.equal(campoDeBlancoInline(blanco(o, o.indexOf('en ') + 3)), null);
+});
+
+// ── Marcadores literales del organismo ───────────────────────────────────────────────────────
+test('marcador: el texto dentro del marcador manda sobre el contexto inferido', () => {
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: '[Nombre Completo del Representante Legal]' })), 'representante_nombre');
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: '[Número de RUN]' })), 'representante_rut');
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: '<<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>' })), 'razon_social');
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: '[Insertar ID de Mercado Público]' })), 'licitacion_codigo');
+});
+
+test('marcador que es una INSTRUCCIÓN al oferente nunca se autocompleta', () => {
+  const m = '[indicar en esta casilla el número del documento que respalda]';
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: m })), null);
+});
+
+// ── Motor completo + guardarraíl anti-invención ──────────────────────────────────────────────
+test('resolverDeterminista: resuelve la tabla de identificación entera sin llamar a nadie', () => {
+  const parrafos = [parrafo(0, 'ANEXO N°1 — IDENTIFICACIÓN DEL OFERENTE'), parrafo(1, ''), parrafo(2, ''), parrafo(3, '')];
+  const r = resolverDeterminista({
+    candidatos: [celda(1, 'Razón Social'), celda(2, 'R.U.T.'), celda(3, 'Nombre del Representante Legal')],
+    blancosInline: [], parrafos, empresa: EMPRESA,
+  });
+  assert.equal(valorAuto(r.celda, 1), 'Comercial Los Robles SpA');
+  assert.equal(valorAuto(r.celda, 2), '76.902.659-2');
+  assert.equal(valorAuto(r.celda, 3), 'Lidia Valenzuela Soto');
+  assert.equal(r.celdaSinResolver.length, 0);
+});
+
+test('resolverDeterminista: la categoría acompaña al campo (la UI agrupa por ella)', () => {
+  const r = resolverDeterminista({
+    candidatos: [celda(1, 'Nombre del Representante Legal'), celda(5, 'ID Licitación Pública')],
+    blancosInline: [], parrafos: [parrafo(0, 'x')], empresa: EMPRESA,
+  });
+  assert.equal(r.celda.get(1)?.categoria, 'perfil_representante_legal');
+  assert.equal(r.celda.get(5)?.categoria, 'datos_licitacion');
+});
+
+test('guardarraíl: campo reconocido pero SIN valor en la ficha queda pendiente, nunca inventado', () => {
+  const r = resolverDeterminista({
+    candidatos: [celda(1, 'Notaría'), celda(2, 'N° de cuenta')],
+    blancosInline: [], parrafos: [parrafo(0, 'x')], empresa: EMPRESA,
+  });
+  assert.equal(r.celda.size, 0);
+  assert.equal(r.celdaSinResolver.length, 2);
+});
+
+test('campoFijo (estructura del documento) manda sobre cualquier otra capa', () => {
+  const r = resolverDeterminista({
+    candidatos: [celda(1, 'RUT:', { campoFijo: 'representante_rut' })],
+    blancosInline: [], parrafos: [parrafo(0, 'FIRMA REPRESENTANTE LEGAL:')], empresa: EMPRESA,
+  });
+  assert.equal(valorAuto(r.celda, 1), '6.736.698-0');
+});
+
+test('resolverDeterminista es idempotente: dos corridas dan exactamente lo mismo', () => {
+  const entrada = {
+    candidatos: [celda(1, 'Nombre'), celda(2, 'RUT'), celda(3, 'Nombre de la Empresa')],
+    blancosInline: [], parrafos: [parrafo(0, 'ANEXO N°5')], empresa: EMPRESA,
+  };
+  const a = resolverDeterminista(entrada), b = resolverDeterminista(entrada);
+  assert.deepEqual([...a.celda], [...b.celda]);
+  // Y el resultado es el correcto del caso real, no solo estable.
+  assert.equal(valorAuto(a.celda, 1), 'Lidia Valenzuela Soto');
+  assert.equal(valorAuto(a.celda, 3), 'Comercial Los Robles SpA');
+});
+
+// ── Política fija ────────────────────────────────────────────────────────────────────────────
+test('programa de integridad: la pregunta SÍ/NO se responde sola; "describa" queda al humano', () => {
+  const parrafos = [parrafo(0, '¿La empresa cuenta con un Programa de Integridad?')];
+  const conRespuesta = { ...EMPRESA, programa_integridad_respuesta: 'SÍ' } as EmpresaCampos;
+  const r = resolverDeterminista({
+    candidatos: [celda(1, '¿Cuenta con Programa de Integridad?')],
+    blancosInline: [], parrafos, empresa: conRespuesta,
+  });
+  assert.equal(valorAuto(r.celda, 1), 'SÍ');
+
+  const r2 = resolverDeterminista({
+    candidatos: [celda(1, 'Describa en qué consiste su Programa de Integridad')],
+    blancosInline: [], parrafos, empresa: conRespuesta,
+  });
+  assert.equal(r2.celda.size, 0);
+});
+
+// ── Clasificación del pendiente ──────────────────────────────────────────────────────────────
+test('clasificarPendiente: distingue precio, decisión, tercero y título', () => {
+  assert.equal(clasificarPendiente('Valor unitario neto').categoria, 'especifico_licitacion');
+  assert.equal(clasificarPendiente('Plazo de entrega en días').categoria, 'especifico_licitacion');
+  assert.equal(clasificarPendiente('Marque con una X').categoria, 'decision_del_usuario');
+  assert.equal(clasificarPendiente('Nombre del cliente que certifica').categoria, 'declaracion_tercero');
+  assert.equal(clasificarPendiente('ANTECEDENTES GENERALES').categoria, 'no_aplica_al_oferente');
+  assert.equal(clasificarPendiente('').categoria, 'especifico_licitacion');
+});
+
+test('clasificarPendiente: siempre trae un motivo legible para mostrar bajo la casilla', () => {
+  for (const e of ['Valor unitario', 'Marque con una X', '', 'Individualización del compareciente']) {
+    assert.ok(clasificarPendiente(e).motivo.length > 20, e);
+  }
+});
+
+// ── Casos reales que el banco encontró (17-ago-2026) ─────────────────────────────────────────
+test('REGRESIÓN 1738-18-LE26: la tabla numerada "1.- NOMBRE…" se resuelve entera', () => {
+  const etiquetas: [string, string][] = [
+    ['1.- NOMBRE COMPLETO DEL PROPONENTE O RAZON SOCIAL:', 'razon_social'],
+    ['2.- RUT:', 'rut'],
+    ['3.- NOMBRE DEL REPRESENTANTE LEGAL:', 'representante_nombre'],
+    ['4.- RUT DEL REPRESENTANTE LEGAL:', 'representante_rut'],
+    ['5.- DIRECCION (Calle, N°, Comuna):', 'direccion'],
+    ['6.- N° DE TELEFONO:', 'telefono1'],
+    ['7.- CORREO ELECTRÓNICO:', 'email1'],
+  ];
+  for (const [e, campo] of etiquetas) assert.equal(campoDeEtiquetaInequivoca(e), campo, e);
+});
+
+test('1058086-43-LP26: "R.U.T. N°:" es la etiqueta más común del país escrita con puntos', () => {
+  assert.equal(campoDeEtiquetaInequivoca('R.U.T. N°:'), 'rut');
+});
+
+test('inline tras "Etiqueta:" usa el MISMO diccionario que las celdas, sin duplicar reglas', () => {
+  const caso = (texto: string) => campoDeBlancoInline(blanco(texto, texto.length));
+  assert.equal(caso('Nombre o Razón Social: '), 'razon_social');
+  assert.equal(caso('ID LICITACIÓN: '), 'licitacion_codigo');
+  assert.equal(caso('Cargo: '), 'representante_cargo');
+  assert.equal(caso('FECHA                                 : '), 'fecha_hoy');
+  // Una etiqueta que el diccionario no reconoce sigue quedando pendiente, no se fuerza.
+  assert.equal(caso('Institución: '), null);
+});
+
+// ── Guardarraíl: bloque de un TERCERO no se llena con datos de la empresa ────────────────────
+test('REGRESIÓN 1058086-43-LP26: "Nombre/Cargo/Institución" es la firma de un TERCERO, no la nuestra', () => {
+  // "Cargo" solo es inequívoco (capa 1) y "Nombre" lo resuelve la capa 2 por bloque — pero acá
+  // el bloque certifica algo DEL OFERENTE y lo firma alguien de OTRA institución: ninguno de los
+  // dos debe llenarse con la ficha de la empresa.
+  const p = 'Nombre: __________________________________________Cargo: ___________________________________________Institución: ______________________________________';
+  assert.equal(campoDeBlancoInline(blanco(p, 8, { largo: 42, contexto: 'Nombre:' })), null);
+  assert.equal(campoDeBlancoInline(blanco(p, 57, { largo: 43, contexto: 'Cargo:' })), null);
+
+  const parrafos = [parrafo(0, 'CERTIFICADO DE EXPERIENCIA')];
+  // Con "Institución" como hermana del mismo bloque, "Cargo" pelado queda pendiente.
+  const rBloque = resolverDeterminista({
+    candidatos: [celda(1, 'Institución'), celda(2, 'Cargo')],
+    blancosInline: [], parrafos, empresa: EMPRESA,
+  });
+  assert.equal(rBloque.celda.has(2), false);
+  assert.equal(rBloque.celdaSinResolver.some(c => c.indice === 2), true);
+});
+
+test('el guardarraíl de tercero no bloquea un "Cargo:" normal, sin institución cerca', () => {
+  const r = resolverDeterminista({
+    candidatos: [celda(1, 'Cargo')],
+    blancosInline: [], parrafos: [parrafo(0, 'firma del representante legal')], empresa: EMPRESA,
+  });
+  assert.equal(valorAuto(r.celda, 1), 'Gerente General');
+});

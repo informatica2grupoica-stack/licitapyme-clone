@@ -325,9 +325,19 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
     // OFICIAL del tipo de proceso (terminología ChileCompra: adjudicación simple = 1 ganador,
     // múltiple = puede ir a más de un proveedor) — no requiere elaboración adicional para ser
     // evidencia decisiva, a diferencia de una mención suelta de "múltiple" en otro contexto.
-    /modalidad[\s\S]{0,60}?ser[aá]\s+de\s+adjudicaci[oó]n\s+m[uú]ltiple\b/i,
+    // 17-ago-2026 (caso real 859378-8-LE26, kayaks Escuela Naútica): el sujeto de "será DE
+    // adjudicación múltiple" no siempre es "la modalidad" — la forma más común en la práctica es
+    // "la presente licitación será de adjudicación múltiple". Ampliado el sujeto para no exigir
+    // literalmente "modalidad" delante.
+    /(?:modalidad|licitaci[oó]n|proceso(?:\s+de\s+compra)?|contrataci[oó]n)[\s\S]{0,60}?ser[aá]\s+de\s+adjudicaci[oó]n\s+m[uú]ltiple\b/i,
     // Campo/encabezado formal "TIPO DE ADJUDICACIÓN: MÚLTIPLE" sin calificativo adicional cerca.
     /tipo\s+de\s+adjudicaci[oó]n\s*:?\s*m[uú]ltiple\b/i,
+    // 17-ago-2026 (mismo caso 859378-8-LE26): "pudiendo adjudicar a más de un oferente [o a un
+    // mismo oferente]" — declara explícitamente que puede haber más de un ganador, sin decir
+    // "distintos/diferentes" oferentes (los clusters de arriba exigen ese calificativo) ni "por
+    // línea/lote" pegado a "adjudicar". Es evidencia decisiva por sí sola: si el propio texto dice
+    // que SE PUEDE repartir entre más de un oferente, no es adjudicación global a un solo ganador.
+    /adjudicar\s+a\s+m[aá]s\s+de\s+un\s+(?:oferente|proveedor|adjudicatario)\b/i,
   ];
   for (const d of docs) {
     if (!d.texto) continue;

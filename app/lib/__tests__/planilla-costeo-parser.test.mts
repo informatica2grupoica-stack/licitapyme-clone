@@ -336,6 +336,23 @@ test('detectarTipoAdjudicacionMultiple: "mayor puntaje en la evaluación... DE c
   assert.ok(detectarTipoAdjudicacionMultiple(docs));
 });
 
+// Caso real 859378-8-LE26 (kayaks Escuela Naútica de Gestión en Turismo y Cultura, 17-ago-2026):
+// "La presente licitación será de adjudicación múltiple" — el sujeto es "la licitación", no "la
+// modalidad" (único sujeto que el patrón del 10-ago cubría), así que caía al default GLOBAL pese
+// a la declaración explícita de las bases.
+test('detectarTipoAdjudicacionMultiple: "la presente licitación será de adjudicación múltiple" (859378-8-LE26)', () => {
+  const docs = [{ texto: 'La presente licitación será de adjudicación múltiple, pudiendo adjudicar a más de un oferente o a un mismo oferente las siguientes cuatro líneas de contratación:' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+// Mismo caso: aunque no se detectara la frase anterior, "pudiendo adjudicar a más de un oferente"
+// es evidencia decisiva por sí sola (no exige "distintos/diferentes oferentes" como los clusters
+// existentes, ni "por línea/lote" pegado a "adjudicar").
+test('detectarTipoAdjudicacionMultiple: "adjudicar a más de un oferente" sin "distintos/diferentes" (859378-8-LE26)', () => {
+  const docs = [{ texto: 'pudiendo adjudicar a más de un oferente o a un mismo oferente las siguientes cuatro líneas de contratación' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
 // Caso real 2713-110-LE26: tabla "LINEAS | PARTIDA | UNIDAD | CANTIDAD | Presupuesto disponible
 // por línea" con filas numeradas y su monto, agrupadas por categoría (OPERACIONAL/ADMINISTRATIVO)
 // vía <td colspan>. La palabra "línea" NO se repite por fila (solo una vez, en el encabezado de

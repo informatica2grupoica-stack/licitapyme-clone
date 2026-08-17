@@ -715,10 +715,16 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
             ? <span title="Si la oferta supera este monto queda inadmisible (fuera de bases)" className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">EXCLUYENTE</span>
             : <span title="Monto de referencia: se puede ofertar por sobre él, aunque puede restar competitividad" className="text-[9px] font-bold px-1 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help">referencial</span>}
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3">
-          <p className="text-[10px] font-bold text-slate-400 uppercase">Cómo se adjudica</p>
-          <p title={adj.estado === 'REVISION_HUMANA' ? 'El ⚠ indica que la forma de adjudicación no quedó totalmente clara en las bases: conviene verificarla' : 'Cómo reparte la compra el organismo: global (todo a un proveedor) o por línea/lote (puede dividirla)'}
-            className="text-[14px] font-semibold text-slate-800 leading-tight cursor-help">{cap(adj.como_se_adjudica) || '—'}{adj.estado === 'REVISION_HUMANA' ? ' ⚠' : ''}</p>
+        <div className={`border rounded-xl p-3 ${adj.estado === 'REVISION_HUMANA' ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
+          <p className={`text-[10px] font-bold uppercase ${adj.estado === 'REVISION_HUMANA' ? 'text-amber-600' : 'text-slate-400'}`}>Cómo se adjudica</p>
+          {/* REVISION_HUMANA = la IA no encontró evidencia objetiva y usó un DEFAULT (ver
+              veredictoAdjudicacionDeterminista en viabilidad-ia.ts), no un dato leído de las bases.
+              Antes se mostraba con el mismo estilo bold que un dato confirmado (solo un ⚠ chico
+              distinguía uno de otro) — caso real 859378-8-LE26: el valor por defecto "Global" se leyó
+              como respuesta firme y contradijo las bases. Ahora el tile completo cambia a ámbar (mismo
+              lenguaje visual que el badge REVISIÓN HUMANA de la tarjeta) y el texto dice "sin confirmar". */}
+          <p title={adj.estado === 'REVISION_HUMANA' ? 'La IA no encontró evidencia objetiva en las bases: este es un valor POR DEFECTO, no un dato leído. Verifícalo antes de armar la estrategia o el costeo.' : 'Cómo reparte la compra el organismo: global (todo a un proveedor) o por línea/lote (puede dividirla)'}
+            className={`text-[14px] font-semibold leading-tight cursor-help ${adj.estado === 'REVISION_HUMANA' ? 'text-amber-700' : 'text-slate-800'}`}>{cap(adj.como_se_adjudica) || '—'}{adj.estado === 'REVISION_HUMANA' ? ' ⚠ sin confirmar' : ''}</p>
           {adj.cotizar_100_obligatorio && <span title="Hay que ofertar TODOS los ítems: si falta uno, la oferta completa queda fuera" className="text-[9px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-700 cursor-help">COTIZAR 100%</span>}
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3" title="Días “gratis” entre la adjudicación y el inicio del plazo de entrega: la holgura administrativa para conseguir los productos">

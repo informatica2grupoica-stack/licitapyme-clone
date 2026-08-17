@@ -21,6 +21,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import type { Parrafo } from '@/app/lib/anexos-docx';
 import type { CandidatoCelda, CandidatoInline } from '@/app/lib/anexos-detectar';
 import { bloqueReglasAprendidasAnexo } from '@/app/lib/anexos-feedback';
+import { resolverDeterminista, clasificarPendiente } from '@/app/lib/anexos-determinista';
 
 export interface EmpresaCampos {
   razon_social: string | null;
@@ -899,23 +900,37 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
     return { celda, inline, alertasInadmisibilidad, checklistPendientes: alertasInadmisibilidad.filter(a => !a.disponible).map(a => a.riesgo) };
   }
 
-  // Casillas ya resueltas por la ESTRUCTURA del documento (`campoFijo` — hoy: los datos que
-  // cuelgan de una firma que nombra a su firmante, ver asignarCamposDeBloqueFirma en
-  // anexos-detectar.ts). No se le preguntan a la IA: la respuesta no depende de ningún juicio y
-  // preguntarla es justamente lo que hacía que seis "RUT:" idénticos salieran distintos entre sí.
-  const candidatosParaIA: CandidatoCelda[] = [];
-  for (const c of candidatos) {
-    const campo = c.campoFijo as keyof EmpresaCampos | undefined;
-    const valor = campo && CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA.includes(campo) ? empresa[campo] : null;
-    if (campo && valor != null && String(valor).trim() && campoCalzaConLaEtiqueta(c.etiqueta, String(valor))) {
-      celda.set(c.indice, {
-        tipo: 'auto', valor: String(valor),
-        categoria: campo.startsWith('representante_') ? 'perfil_representante_legal' : 'perfil_empresa',
-        evidencia: c.etiqueta,
-      });
-    } else {
-      candidatosParaIA.push(c);
+  // ── PASO 1: motor DETERMINISTA (anexos-determinista.ts) ──────────────────────────────────
+  // Es el camino PRINCIPAL desde el 17-ago-2026. Resuelve `campoFijo` (estructura del documento),
+  // el diccionario de etiquetas inequívocas, las etiquetas peladas desambiguadas por bloque, la
+  // declaración jurada corrida y las reglas fijas de política. Lo que resuelve acá NUNCA se le
+  // pregunta a nadie: la respuesta no depende de ningún juicio, no varía entre corridas y no se
+  // cae por un 429 del proveedor.
+  const det = resolverDeterminista({ candidatos, blancosInline, parrafos, empresa });
+  for (const [i, r] of det.celda) celda.set(i, r);
+  for (const [k, r] of det.inline) inline.set(k, r);
+
+  const candidatosParaIA = det.celdaSinResolver;
+  const blancosParaIA = det.inlineSinResolver;
+
+  // ── PASO 2: respaldo IA, APAGADO por defecto ─────────────────────────────────────────────
+  // `ANEXOS_IA_RESPALDO=1` lo enciende para la cola que el diccionario no cubre (etiquetas
+  // redactadas de forma no anticipada). Apagado, el motor es 100% código: lo no resuelto queda
+  // pendiente con un motivo legible, que es exactamente lo que el humano necesita ver.
+  //
+  // Regla dura en ambos modos: la IA solo AGREGA. Nunca pisa lo que el determinista ya resolvió
+  // —por eso arranca desde `celdaSinResolver`, no desde la lista completa.
+  if (process.env.ANEXOS_IA_RESPALDO !== '1') {
+    for (const c of candidatosParaIA) {
+      celda.set(c.indice, { tipo: 'pendiente', ...clasificarPendiente(c.etiqueta) });
     }
+    for (const b of blancosParaIA) {
+      inline.set(`${b.indiceRun}:${b.posEnTexto}`, { tipo: 'pendiente', ...clasificarPendiente(b.textoMarcador || b.contexto || '') });
+    }
+    const checklist = [...celda.values(), ...inline.values()]
+      .filter((r): r is ResolucionPendiente => r.tipo === 'pendiente' && r.categoria === 'decision_del_usuario')
+      .map(r => r.motivo);
+    return { celda, inline, alertasInadmisibilidad, checklistPendientes: [...new Set(checklist)] };
   }
 
   // BUG REAL (1426039-8-LE26, 10-ago-2026): `candidatos` llega como [...candidatosCelda (patrón 1),
@@ -932,7 +947,7 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
   let n = 0;
   const items: ItemLote[] = [
     ...candidatosOrdenados.map((c): ItemLote => ({ n: ++n, ref: { tipo: 'celda', c }, texto: '' })),
-    ...blancosInline.map((b): ItemLote => ({ n: ++n, ref: { tipo: 'inline', b }, texto: '' })),
+    ...blancosParaIA.map((b): ItemLote => ({ n: ++n, ref: { tipo: 'inline', b }, texto: '' })),
   ];
   for (const item of items) {
     item.texto = item.ref.tipo === 'celda'
