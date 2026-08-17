@@ -26,7 +26,7 @@ import {
   lineasTecnicasDelInforme, clasificarCaracteristicasLinea, compararFichaProveedor,
   evaluarCaracteristicaDeterminista, evaluarCaracteristicaConIA, slugCaracteristica,
 } from '@/app/lib/auditor-tecnico';
-import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS } from '../../route';
+import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -277,6 +277,10 @@ export async function POST(request: NextRequest, { params }: Params) {
           ],
         );
       }
+
+      // Deja la ficha como evidencia adjunta de la línea — mismo "Ver documento" que cualquier
+      // otro punto del checklist (DocumentViewerModal), en vez de un visor aparte solo para esto.
+      await agregarDocumentos(item.id, negocio.id, [{ url: documentoUrl, nombre: documentoNombre }], userId, nombreActor);
 
       await intentarAutoTransicion(item, negocio.id, userId, nombreActor);
       publicarCambio('checklist_comercial');

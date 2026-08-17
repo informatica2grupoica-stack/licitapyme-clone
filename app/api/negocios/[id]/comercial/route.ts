@@ -175,8 +175,11 @@ export async function leerItems(negocioId: number) {
   }));
 }
 
-/** Agrega documentos nuevos a un punto (nunca reemplaza los anteriores: se acumulan). */
-async function agregarDocumentos(
+/** Agrega documentos nuevos a un punto (nunca reemplaza los anteriores: se acumulan). Exportada:
+ *  la ruta hermana .../[itemId]/caracteristicas la reusa para dejar la ficha comparada como
+ *  evidencia adjunta de la línea (mismo "Ver documento" que cualquier otro punto del checklist,
+ *  en vez de inventar un visor aparte solo para fichas técnicas). */
+export async function agregarDocumentos(
   itemId: number, negocioId: number, docs: Array<{ url: string; nombre: string }>,
   userId: number, userNombre: string,
 ): Promise<void> {
@@ -751,6 +754,10 @@ async function compararDocumentoMasivo(args: {
         if (veredictoFinal === 'CUMPLE') cumplen++;
         else if (veredictoFinal === 'NO_CUMPLE') noCumplen++;
       }
+
+      // Deja la ficha como evidencia adjunta de la línea — mismo "Ver documento" que cualquier
+      // otro punto del checklist, para no tener que confiar solo en el nombre citado en cada fila.
+      await agregarDocumentos(item.id, negocio.id, [{ url: documentoUrl, nombre: documentoNombre }], userId, nombreActor);
 
       // Auto-transición: mismo criterio que .../[itemId]/caracteristicas (intentarAutoTransicion)
       // — si toda la línea quedó resuelta Y sin ningún NO_CUMPLE/CON_COMPLEMENTO, se aprueba sola

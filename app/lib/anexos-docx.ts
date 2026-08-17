@@ -1131,8 +1131,18 @@ export async function insertarImagenEnParrafo(
       // lado de la firma, ambos ya empujados al margen derecho por el <w:tab/> que puso la llamada
       // anterior (la de la firma) — un salto acá los separaría en dos líneas distintas, deshaciendo
       // justo el layout "lado a lado" que columnaDerecha existe para lograr.
-      const yaTieneImagen = /<w:drawing>/.test(cuerpo);
-      const necesitaSalto = yaTieneImagen && !columnaDerecha;
+      //
+      // BUG REAL (17-ago-2026, encontrado inspeccionando un anexo ya generado): la condición
+      // original disparaba el salto con CUALQUIER imagen previa en el párrafo — no solo cuando esa
+      // imagen traía nombre/RUT debajo (el caso 1063538-204-LE26 que el salto vino a arreglar). El
+      // caso más común, "FIRMA Y TIMBRE REPRESENTANTE LEGAL" SIN nombre ni RUT de por medio (que
+      // nunca pasa nombreDebajo), también tenía `yaTieneImagen=true` apenas se estampaba la firma,
+      // así que el timbre igual saltaba a una línea aparte — quedaban "uno arriba y otro abajo" en
+      // vez de al lado, que es como se pidió desde el principio. El salto solo tiene sentido si
+      // hay TEXTO (nombre/RUT) después de la imagen — eso es lo único que el timbre podría tapar.
+      const cuerpoTrasUltimaImagen = cuerpo.slice(cuerpo.lastIndexOf('</w:drawing>'));
+      const tieneTextoTrasImagen = /<w:t[ >]/.test(cuerpoTrasUltimaImagen);
+      const necesitaSalto = tieneTextoTrasImagen && !columnaDerecha;
       nuevoCuerpo = cuerpo + (necesitaSalto ? '<w:r><w:br/></w:r>' : '') + drawingCompleto;
     }
   } else if (runRaya) {

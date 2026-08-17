@@ -355,6 +355,39 @@ test('insertarImagenEnParrafo: el timbre estampado DESPUÉS de la firma+nombre+R
   assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
 });
 
+// BUG REAL (17-ago-2026): la leyenda MÁS común, "FIRMA Y TIMBRE REPRESENTANTE LEGAL" SIN pedir
+// nombre ni RUT (nunca pasa nombreDebajo), quedaba con el timbre en su PROPIA línea igual que el
+// caso 1063538-204-LE26 de arriba — porque `necesitaSalto` original solo miraba "¿ya hay una
+// imagen en el párrafo?", no si esa imagen traía texto debajo que el timbre pudiera tapar. Sin
+// nombre/RUT no hay nada que tapar: firma y timbre tienen que quedar en la MISMA línea, uno al
+// lado del otro — encontrado inspeccionando un anexo real ya generado (ANEXO N°1, 1057480-41-LP26).
+test('insertarImagenEnParrafo: firma y timbre SIN nombreDebajo quedan lado a lado, no uno arriba y otro abajo (regresión 17-ago-2026)', async () => {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', '<?xml version="1.0"?><Types xmlns="urn:ct"><Default Extension="xml" ContentType="application/xml"/></Types>');
+  zip.file('word/_rels/document.xml.rels', '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>');
+
+  const parrafo = '<w:p w14:paraId="0000B006" w14:textId="77777777">'
+    + '<w:r><w:t xml:space="preserve">___________________________________</w:t></w:r>'
+    + '</w:p>';
+  const xml = `<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>${parrafo}`
+    + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/></w:sectPr></w:body></w:document>';
+
+  // Firma sin nombreDebajo (la leyenda solo pide "FIRMA Y TIMBRE", ni nombre ni RUT).
+  let final = await insertarImagenEnParrafo(zip, xml, '0000B006', PNG_1X1, 'png', {});
+  // Timbre después, en llamada aparte con conservar — mismo camino real que anexos-rellenar.ts.
+  final = await insertarImagenEnParrafo(zip, final, '0000B006', PNG_1X1, 'png', {
+    etiqueta: 'timbre', anchoCm: 2.8, conservar: true,
+  });
+
+  assert.equal((final.match(/<w:drawing>/g) || []).length, 2, 'deben quedar las 2 imágenes (firma + timbre)');
+  const posImg1 = final.indexOf('<w:drawing>');
+  const posImg2 = final.indexOf('<w:drawing>', posImg1 + 1);
+  assert.doesNotMatch(final.slice(posImg1, posImg2), /<w:br\/>/,
+    `sin nombre/RUT de por medio, firma y timbre deben quedar en la MISMA línea, sin <w:br/> entre medio: ${final.slice(posImg1, posImg2)}`);
+  const chequeo = verificarXmlBienFormado(final);
+  assert.equal(chequeo.valido, true, `quedó mal formado: ${chequeo.error}`);
+});
+
 // Pedido explícito del usuario (13-ago-2026, mismo caso 1063538-204-LE26): en vez del layout
 // apilado de arriba, texto (nombre+RUT) a la IZQUIERDA y firma+timbre lado a lado a la DERECHA, en
 // la MISMA línea — con una tabulación derecha calculada del ancho real de la página (no una

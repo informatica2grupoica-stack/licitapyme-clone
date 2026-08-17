@@ -16,9 +16,10 @@
 // igual desde un lugar que ya tenía el item cargado (la pestaña) que desde uno que no (Documentos).
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, Check, HelpCircle, Upload, RefreshCw, Undo2, FileText, Wrench, Trash2 } from 'lucide-react';
+import { X, Loader2, Check, HelpCircle, Upload, RefreshCw, Undo2, FileText, Wrench, Trash2, Eye } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
+import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 
 type Veredicto = 'CUMPLE' | 'NO_CUMPLE' | 'CUMPLE_CON_COMPLEMENTO';
 type EstadoItem = 'PENDIENTE' | 'CARGADO' | 'APROBADO' | 'OBSERVADO';
@@ -106,6 +107,8 @@ export function ModalAuditorLineaTecnica({
   const [item, setItem] = useState<ItemHeader | null>(null);
   const [comercial, setComercial] = useState<ComercialLigado>({ precio: null, plazo: null });
   const [caracteristicas, setCaracteristicas] = useState<Caracteristica[]>([]);
+  const [documentos, setDocumentos] = useState<Array<{ id: number; url: string; nombre: string }>>([]);
+  const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
   const [validando, setValidando] = useState(false);
   const [subiendoFicha, setSubiendoFicha] = useState(false);
   const [reiniciando, setReiniciando] = useState(false);
@@ -127,6 +130,7 @@ export function ModalAuditorLineaTecnica({
         id: propio.id, titulo: propio.titulo, estado: propio.estado, linea_numero: propio.linea_numero,
         aprobado_por_nombre: propio.aprobado_por_nombre ?? null, aprobado_at: propio.aprobado_at ?? null,
       });
+      setDocumentos(Array.isArray(propio.documentos) ? propio.documentos : []);
       const precio = propio.linea_numero != null
         ? items.find((i: any) => i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.linea_numero === propio.linea_numero)
         : null;
@@ -375,7 +379,20 @@ export function ModalAuditorLineaTecnica({
                 </div>
               </div>
 
-              {documentoReferencia && (
+              {documentos.length > 0 ? (
+                <div className="space-y-1.5">
+                  {documentos.map(doc => (
+                    <div key={doc.id} className="flex items-center gap-2 px-3 py-2.5 bg-zinc-50 rounded-lg border border-zinc-100">
+                      <FileText size={15} className="text-zinc-400 flex-shrink-0" />
+                      <span className="text-[12.5px] text-zinc-600 truncate flex-1" title={doc.nombre}>{doc.nombre}</span>
+                      <button onClick={() => setVisorDoc({ nombre: doc.nombre, url: doc.url })} title="Ver documento"
+                        className="p-1 text-zinc-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors flex-shrink-0">
+                        <Eye size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : documentoReferencia && (
                 <div className="flex items-center gap-2 px-3 py-2.5 bg-zinc-50 rounded-lg border border-zinc-100">
                   <FileText size={15} className="text-zinc-400 flex-shrink-0" />
                   <span className="text-[12.5px] text-zinc-600 truncate flex-1" title={documentoReferencia}>{documentoReferencia}</span>
@@ -402,6 +419,10 @@ export function ModalAuditorLineaTecnica({
             <button onClick={onClose} className="px-3 py-1.5 text-[12px] font-semibold text-zinc-400 hover:text-zinc-600">Cerrar</button>
           </div>
         )}
+        {/* Dentro de la tarjeta interna (que ya frena la propagación de su propio onClick) para
+            que cerrar el visor de documento no cierre también este modal — los clics de un portal
+            burbujean por el árbol de React, no por el DOM, así que la posición en el JSX importa. */}
+        <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
       </div>
     </div>,
     document.body,
