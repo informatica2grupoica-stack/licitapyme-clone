@@ -571,10 +571,38 @@ test('REGRESIÓN FORMULARIO N°5: el blanco tras "la empresa" es la razón socia
   // empieza a devolver 'razon_social', la regla nueva se comió a una anterior.
   // "<dato> DE la empresa ___" pide ese dato, NO la razón social. La regla exige una coma antes de
   // "la empresa" justo para no comerse estos casos (la primera versión sí los rompía).
-  for (const prefijo of ['el domicilio de la empresa ', 'el RUT de la empresa ',
-                         'el giro de la empresa ', 'el representante legal de la empresa ']) {
+  // Ojo: "el representante legal DE la empresa ___" NO va acá — ese blanco sí es la razón social
+  // (se pide a quién representa). Tiene su propio test más abajo.
+  for (const prefijo of ['el domicilio de la empresa ', 'el RUT de la empresa ', 'el giro de la empresa ']) {
     const l = `${prefijo}____________________ y más texto`;
     const campo = campoDeBlancoInline(blanco(l, prefijo.length, { largo: 20 }));
     assert.notEqual(campo, 'razon_social', `"${prefijo}" no puede resolver a la razón social`);
   }
+});
+
+// Detectado por la AUDITORÍA automática del 18-ago-2026 (scripts/doctor-anexos.mts) sobre
+// 1057480-41-LP26: "Yo, …, representante legal de ______" dejaba el blanco vacío. A quien se
+// representa es la EMPRESA, no otra persona.
+test('AUDITORÍA 1057480-41-LP26: "representante legal de ___" es la razón social', () => {
+  const f = 'Yo, Lidia Valenzuela, representante legal de ';
+  assert.equal(campoDeBlancoInline(blanco(f + '______________', f.length, { largo: 14 })), 'razon_social');
+  const g = 'representante legal de la empresa ';
+  assert.equal(campoDeBlancoInline(blanco(g + '______________', g.length, { largo: 14 })), 'razon_social');
+
+  // GUARDARRAÍL: sin el "de" final sigue siendo el NOMBRE de la persona, que es otro dato.
+  const h = 'Nombre del representante legal ';
+  assert.equal(campoDeBlancoInline(blanco(h + '______________', h.length, { largo: 14 })), 'representante_nombre');
+});
+
+// Detectado por la AUDITORÍA del 18-ago-2026 sobre 5251-65-LE26 y 1057480-41-LP26.
+test('AUDITORÍA: instrucción que nombra el dato antes del blanco, y "Cédula de Identidad Nacional"', () => {
+  // El organismo escribe la instrucción de qué va, y después el blanco.
+  const f = 'Llenar con el Nombre o razón social de la empresa participante ';
+  assert.equal(campoDeBlancoInline(blanco(f + '______________', f.length, { largo: 14 })), 'razon_social');
+  // "Nacional" al FINAL, no en medio ("Cédula de Identidad Nacional" vs "Cédula Nacional de Identidad").
+  assert.equal(campoDeEtiquetaInequivoca('Cédula de Identidad Nacional:'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('Cédula Nacional de Identidad'), 'representante_rut');
+  // GUARDARRAÍL: "Llenar con ___" a secas no dice qué dato es — sigue pendiente, no se adivina.
+  const g = 'Llenar con ';
+  assert.equal(campoDeBlancoInline(blanco(g + '______________', g.length, { largo: 14 })), null);
 });

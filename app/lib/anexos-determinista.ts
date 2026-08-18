@@ -234,7 +234,7 @@ const DICCIONARIO: Entrada[] = [
   { campo: 'representante_rut', patrones: [
     new RegExp(`^(?:rut|r\\s*u\\s*t|run|cedula(?:\\s+de\\s+identidad)?|c\\s*i)${REPRE}$`),
     /^cedula de identidad(?: n[°º]?)?$/, /^c i n[°º]?$/, /^run$/, /^numero de (?:cedula|run)$/,
-    /^rut representante$/, /^(?:n[°º]?\s*(?:de\s+)?)?cedula (?:nacional )?de identidad$/,
+    /^rut representante$/, /^(?:n[°º]?\s*(?:de\s+)?)?cedula (?:nacional )?de identidad(?: nacional)?$/,
   ] },
   // La PROFESIÓN u OFICIO no es el CARGO: un anexo puede pedir las dos en el mismo bloque
   // ("Cargo: Gerente" / "Profesión u oficio: Empresaria"). Ver migration-69.
@@ -442,6 +442,15 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // A quién se representa → la EMPRESA (nunca la persona, aunque venga tras "representante").
   { re: /\ben\s+represent(?:acion|ación)\s+(?:legal\s+)?de(?:\s+la)?(?:\s+(?:empresa|sociedad|razon\s+social))?\s*$/i, campo: 'razon_social' },
   { re: /\b(?:para|por)\s+(?:y\s+en\s+nombre\s+de|cuenta\s+de)\s*$/i, campo: 'razon_social' },
+  // "Yo, Lidia Valenzuela, representante legal de ______" — a quien se representa es la EMPRESA, no
+  // otra persona. Detectado por la auditoría del 18-ago-2026 sobre 1057480-41-LP26. El "de" final es
+  // obligatorio y es lo que lo separa del caso vecino: "nombre del representante legal ___" (sin
+  // "de" al final) sigue resolviendo al NOMBRE de la persona, que es un dato distinto.
+  // ORDEN: esta va ANTES que la de razón social de abajo. "Nombre del representante legal ___" pide
+  // a la PERSONA; "representante legal DE ___" pide a la empresa que representa. La diferencia es la
+  // preposición final, y si la de empresa se evaluara primero se comería esta.
+  { re: /\bnombre\s+(?:completo\s+)?(?:del?\s+|de\s+la\s+)?representan?te(?:\s+legal)?\s*:?\s*$/i, campo: 'representante_nombre' },
+  { re: /\brepresentan?te\s+legal\s+de(?:\s+la)?(?:\s+(?:empresa|sociedad))?\s*$/i, campo: 'razon_social' },
   // Nombre de quien declara.
   { re: /\byo,?\s*$/i, campo: 'representante_nombre' },
   { re: /\b(?:don|dona|doña|sr|sra|senor|señor)\.?,?\s*$/i, campo: 'representante_nombre' },
@@ -478,6 +487,9 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // lo atrapó el guardarraíl del test antes de llegar a producción. La forma real de este caso
   // SIEMPRE trae la coma ("…presente Formulario, la empresa ___"), mientras que "<dato> DE la
   // empresa" nunca la tiene.
+  // "…llenar con el Nombre o razón social de la empresa participante ___" (5251-65-LE26,
+  // detectado por la auditoría): el organismo escribe la INSTRUCCIÓN de qué va antes del blanco.
+  { re: /\bnombre\s+(?:completo\s+)?o\s+raz(?:o|ó)n\s+social(?:\s+de(?:\s+la)?)?(?:\s+(?:empresa|sociedad))?(?:\s+(?:participante|oferente|proponente|postulante))?\s*:?\s*$/i, campo: 'razon_social' },
   { re: /(?:^|,)\s*(?:la\s+)?empresa\s*,?\s*$/i, campo: 'razon_social' },
 ];
 

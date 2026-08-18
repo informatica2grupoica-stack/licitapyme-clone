@@ -164,6 +164,13 @@ function valorTripleteFecha(rol: RolFechaTriplete, empresa: EmpresaCampos): stri
 // ¿El motor reconoció que esta casilla pide un dato concreto (de la ficha, de la licitación o de
 // la oferta) aunque no haya podido completarlo? Solo esas merecen mostrarse como pendiente cuando
 // vienen del patrón 5 — ver el uso más abajo.
+// Categorías que el motor NO puede resolver desde la ficha de empresa, por diseño — ver
+// `casillasFueraDeAlcance` en anexos-cobertura.ts. No son fallos: son el trabajo que le toca al
+// asistente (o que resuelven el costeo y la ficha técnica).
+const CATEGORIAS_FUERA_DE_ALCANCE = new Set([
+  'especifico_licitacion', 'decision_del_usuario', 'declaracion_tercero', 'firma_timbre',
+]);
+
 const CATEGORIAS_QUE_PIDEN_UN_DATO = new Set([
   'perfil_empresa', 'perfil_representante_legal', 'perfil_contacto', 'perfil_bancario',
   'datos_licitacion', 'especifico_licitacion',
@@ -783,6 +790,12 @@ export async function analizarAnexoParaUI(
         + tablas.reduce((acc, t) => acc + t.filas.reduce((m, f) => m + f.filter(c => c.auto || c.input).length, 0), 0),
       casillasResueltas: completadosAuto.length
         + tablas.reduce((acc, t) => acc + t.filas.reduce((m, f) => m + f.filter(c => c.auto).length, 0), 0),
+      // Precios, cantidades, marcas, plazos ofertados, decisiones del usuario y firmas de terceros
+      // NO salen de la ficha de empresa: que queden en blanco es lo correcto. Las celdas de tabla
+      // entran enteras acá porque son, casi siempre, el cuadro económico o la ficha técnica.
+      casillasFueraDeAlcance:
+        [...pendientesCelda, ...pendientesInline].filter(p => p.categoria && CATEGORIAS_FUERA_DE_ALCANCE.has(p.categoria)).length
+        + tablas.reduce((acc, t) => acc + t.filas.reduce((m, f) => m + f.filter(c => c.input).length, 0), 0),
     }),
   };
 }

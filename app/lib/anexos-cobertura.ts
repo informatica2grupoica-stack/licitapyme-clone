@@ -66,8 +66,22 @@ export function diagnosticarCobertura(args: {
   parrafosConTexto: number;
   casillasDetectadas: number;
   casillasResueltas: number;
+  /**
+   * Casillas que NO salen de la ficha de empresa por diseño: precios, cantidades, marcas, modelos,
+   * plazos ofertados, decisiones del usuario, firmas de terceros. Salen del costeo, de la ficha
+   * técnica o de un juicio comercial — que queden en blanco es lo CORRECTO, no un fallo.
+   *
+   * Sin esto, un anexo económico con 45 celdas de precios se reportaba como "no se pudo completar
+   * ninguna" (caso real 1171142-100-LE26). Un aviso que salta donde no hay problema enseña a
+   * ignorar los avisos, que es exactamente lo que este módulo viene a evitar.
+   */
+  casillasFueraDeAlcance?: number;
 }): DiagnosticoCobertura {
   const { textoPlano, parrafosConTexto, casillasDetectadas, casillasResueltas } = args;
+  const fueraDeAlcance = args.casillasFueraDeAlcance ?? 0;
+  // Lo que el motor SÍ debía poder completar. Si todo lo detectado está fuera de alcance, no hay
+  // nada que reprocharle.
+  const enAlcance = Math.max(0, casillasDetectadas - fueraDeAlcance);
   const senales: Record<string, number> = {};
   let totalSenales = 0;
   for (const s of SENALES) {
@@ -102,12 +116,12 @@ export function diagnosticarCobertura(args: {
     };
   }
 
-  // Detectó, pero no supo llenar NADA. No es ceguera: es el diccionario.
-  if (casillasResueltas === 0) {
+  // Detectó, pero no supo llenar NADA de lo que le tocaba. No es ceguera: es el diccionario.
+  if (casillasResueltas === 0 && enAlcance > 0) {
     return {
       ...base, severidad: 'revisar',
-      motivo: `Se detectaron ${casillasDetectadas} casilla(s) pero no se pudo completar ninguna — `
-        + 'las etiquetas de este documento no calzan con ningún dato conocido.',
+      motivo: `Se detectaron ${enAlcance} casilla(s) que deberían salir de la ficha, pero no se pudo `
+        + 'completar ninguna — las etiquetas de este documento no calzan con ningún dato conocido.',
     };
   }
 
