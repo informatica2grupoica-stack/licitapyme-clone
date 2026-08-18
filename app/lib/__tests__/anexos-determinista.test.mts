@@ -557,3 +557,24 @@ test('REGRESIÓN FORMULARIO N°1: cédula/RUT con "N°" delante, y "Teléfono / 
   // Una casilla de FAX SOLA sigue pendiente: no tenemos fax y no se inventa.
   assert.equal(campoDeEtiquetaInequivoca('Fax'), null);
 });
+
+// REGRESIÓN FORMULARIO N°5 de 1063538-204-LE26 (18-ago-2026): "Mediante el presente Formulario, la
+// empresa ______ certifica que el plazo para entrega…". El blanco pegado a "la empresa" es la razón
+// social del oferente, sea cual sea la empresa asignada al negocio.
+test('REGRESIÓN FORMULARIO N°5: el blanco tras "la empresa" es la razón social', () => {
+  const frase = 'Mediante el presente Formulario, la empresa ';
+  const linea = `${frase}____________________ certifica que el plazo para entrega es de 15 días.`;
+  assert.equal(campoDeBlancoInline(blanco(linea, frase.length, { largo: 20 })), 'razon_social');
+
+  // GUARDARRAÍL — la razón por la que esta regla va AL FINAL de REGLAS_PREVIAS: cualquier frase más
+  // específica que también termine en "empresa" tiene que seguir ganando. Si alguna de estas
+  // empieza a devolver 'razon_social', la regla nueva se comió a una anterior.
+  // "<dato> DE la empresa ___" pide ese dato, NO la razón social. La regla exige una coma antes de
+  // "la empresa" justo para no comerse estos casos (la primera versión sí los rompía).
+  for (const prefijo of ['el domicilio de la empresa ', 'el RUT de la empresa ',
+                         'el giro de la empresa ', 'el representante legal de la empresa ']) {
+    const l = `${prefijo}____________________ y más texto`;
+    const campo = campoDeBlancoInline(blanco(l, prefijo.length, { largo: 20 }));
+    assert.notEqual(campo, 'razon_social', `"${prefijo}" no puede resolver a la razón social`);
+  }
+});

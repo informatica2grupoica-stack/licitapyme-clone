@@ -462,6 +462,23 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // Datos de la licitación.
   { re: /\b(?:licitaci(?:o|ó)n\s+p(?:u|ú)blica|id\s+(?:de\s+)?mercado\s+p(?:u|ú)blico|propuesta\s+p(?:u|ú)blica)\s*(?:n[°º.]*|id)?\s*:?\s*$/i, campo: 'licitacion_codigo' },
   { re: /\b(?:denominada|individualizada\s+como|cuyo\s+nombre\s+es)\s*$/i, campo: 'licitacion_nombre' },
+  // "Mediante el presente Formulario, la empresa ______ certifica que el plazo para entrega…"
+  // (FORMULARIO N°5 de 1063538-204-LE26, reportado por el usuario 18-ago-2026). El blanco viene
+  // pegado a "la empresa" y es siempre la razón social del oferente — sea Comercial MP o
+  // Inversiones Claro, la que esté asignada al negocio.
+  //
+  // VA AL FINAL DE LA LISTA A PROPÓSITO: `REGLAS_PREVIAS` se recorre en orden y gana la primera que
+  // matchea, así que cualquier regla MÁS ESPECÍFICA que también termine en "empresa" sigue
+  // ganándole. Ejemplos que ya están arriba y NO se ven afectados: "domicilio de la empresa ___"
+  // (→ direccion), "RUT de la empresa ___" (→ rut), "giro de la empresa ___" (→ giro),
+  // "el representante legal de la empresa ___" (→ representante_nombre). Esta regla solo recoge
+  // el caso en que "empresa" es la ÚLTIMA palabra antes del blanco sin ningún otro dato pedido.
+  // Exige COMA (o inicio de frase) justo antes de "la empresa". Sin eso, la regla se comía a las más
+  // específicas: "el domicilio de la empresa ___" devolvía la razón social en vez de la dirección —
+  // lo atrapó el guardarraíl del test antes de llegar a producción. La forma real de este caso
+  // SIEMPRE trae la coma ("…presente Formulario, la empresa ___"), mientras que "<dato> DE la
+  // empresa" nunca la tiene.
+  { re: /(?:^|,)\s*(?:la\s+)?empresa\s*,?\s*$/i, campo: 'razon_social' },
 ];
 
 // CAPA 5 — Localidad de firma. "En ______ a ___ de ___" cae hoy en firma_fecha → null, y el dato
