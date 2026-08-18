@@ -109,6 +109,9 @@ const DICCIONARIO: Entrada[] = [
     // (al oferente, no a la persona que firma) — no es un "Nombre" pelado, que sí es ambiguo y
     // por eso se resuelve por bloque en la capa 2.
     /^(?:oferente|proponente|postulante|participante|contratista)$/,
+    // "NOMBRE EMPRESA" / "NOMBRE PROVEEDOR" — sin el "de la" que exige el patrón de arriba
+    // (evidencia de anexos reales ya presentados).
+    /^nombre (?:empresa|sociedad|oferente|proponente|proveedor|contratista)$/,
     // "Nombre del proveedor postulante A LA LICITACIÓN" (1786987035022_ANEXO_N2.docx) — el
     // sufijo OFERENTE exige que la frase TERMINE en la palabra que dice a quién describe; acá
     // sigue "a la licitación/a este proceso" después, y por eso no calzaba con nada de arriba.
@@ -133,10 +136,18 @@ const DICCIONARIO: Entrada[] = [
     // "GIRO SII:" / "GIRO SERVICIOS DE IMPUESTOS INTERNOS:" (2296-48-LE26) — el organismo aclara
     // de dónde sale el giro (el registrado en el SII), que es exactamente el que guarda la ficha.
     /^giro s\s*i\s*i$/, /^giro servicios de impuestos internos$/,
+    // "PROFESIÓN, OFICIO O GIRO" — evidencia de anexos REALES ya presentados (banco de plantillas
+    // del usuario, 18-ago-2026): el organismo ofrece las tres palabras porque el oferente puede ser
+    // persona natural; para una empresa el dato es el giro, que es lo que el humano escribió ahí.
+    /^profesion,? oficio o giro$/, /^giro,? profesion u oficio$/,
   ] },
   { campo: 'direccion', patrones: [
     new RegExp(`^(?:direccion|domicilio)(?:\\s+(?:comercial|legal|particular|de\\s+la\\s+empresa))?${OFERENTE}$`),
     /^direccion completa$/, /^domicilio (?:para efectos de )?(?:esta )?(?:licitacion|propuesta)$/,
+    // Evidencia de anexos reales ya presentados: el humano escribe la dirección completa (con la
+    // comuna dentro) en una sola casilla cuando la etiqueta pide las dos cosas juntas.
+    /^(?:direccion|domicilio) y comuna$/, /^comuna y (?:direccion|domicilio)$/,
+    /^domicilio comercial(?: que acredita| declarado)?$/,
   ] },
   { campo: 'direccion_calle', patrones: [/^calle(?: y numero)?$/, /^nombre de (?:la )?calle$/, /^avenida\/calle$/] },
   { campo: 'direccion_numero', patrones: [/^n[°º]$/, /^numero$/, /^nro$/, /^numero de (?:la )?(?:calle|direccion|domicilio)$/] },
@@ -147,6 +158,8 @@ const DICCIONARIO: Entrada[] = [
     new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|fijo))?${OFERENTE}$`),
     /^telefono\/celular$/, /^fono contacto$/, /^numero de (?:telefono|contacto)$/,
     /^n[°º]? de telefono$/,
+    // "TELÉFONO FIJO Y CELULAR" — una sola casilla para las dos formas (anexos reales presentados).
+    /^telefono fijo y celular$/, /^telefono(?: fijo)?\/celular$/, /^fono fijo y movil$/,
   ] },
   { campo: 'email1', patrones: [
     new RegExp(`^(?:correo|correo\\s+electronico|e\\s*mail|mail|casilla\\s+electronica)(?:\\s+de\\s+contacto)?${OFERENTE}$`),
@@ -177,7 +190,7 @@ const DICCIONARIO: Entrada[] = [
   { campo: 'representante_rut', patrones: [
     new RegExp(`^(?:rut|r\\s*u\\s*t|run|cedula(?:\\s+de\\s+identidad)?|c\\s*i)${REPRE}$`),
     /^cedula de identidad(?: n[°º]?)?$/, /^c i n[°º]?$/, /^run$/, /^numero de (?:cedula|run)$/,
-    /^rut representante$/, /^cedula nacional de identidad$/,
+    /^rut representante$/, /^(?:n[°º]? de )?cedula (?:nacional )?de identidad$/,
   ] },
   { campo: 'representante_cargo', patrones: [
     new RegExp(`^cargo${REPRE}$`),

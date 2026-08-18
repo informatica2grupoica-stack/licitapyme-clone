@@ -339,3 +339,18 @@ test('REGRESIÓN 2296-48-LE26: la viñeta "A.-" se quita como cualquier otra num
   // punto y la letra siguiente, que es justo lo que distingue una viñeta real de una sigla.
   assert.equal(campoDeEtiquetaInequivoca('R.U.T.'), 'rut');
 });
+
+// Evidencia de ANEXOS REALES YA PRESENTADOS (banco de plantillas del usuario, 18-ago-2026): se
+// extrajeron los pares "etiqueta → lo que escribió el humano" de 20 anexos presentados y se
+// contrastaron contra el diccionario. Estas son las etiquetas que un humano respondió con un dato
+// de la ficha de empresa y que nosotros dejábamos pendientes — brechas medidas, no supuestas.
+test('etiquetas de anexos REALES ya presentados que quedaban pendientes', () => {
+  assert.equal(campoDeEtiquetaInequivoca('PROFESIÓN, OFICIO O GIRO'), 'giro');
+  assert.equal(campoDeEtiquetaInequivoca('NOMBRE EMPRESA'), 'razon_social');
+  assert.equal(campoDeEtiquetaInequivoca('DOMICILIO Y COMUNA'), 'direccion');
+  assert.equal(campoDeEtiquetaInequivoca('Domicilio comercial que acredita'), 'direccion');
+  assert.equal(campoDeEtiquetaInequivoca('TELÉFONO FIJO Y CELULAR'), 'telefono1');
+  assert.equal(campoDeEtiquetaInequivoca('N° DE CÉDULA NACIONAL DE IDENTIDAD'), 'representante_rut');
+  // Guardarraíl: "CÉDULA DE IDENTIDAD" a secas seguía siendo del representante, no de la empresa.
+  assert.equal(campoDeEtiquetaInequivoca('CÉDULA DE IDENTIDAD'), 'representante_rut');
+});
