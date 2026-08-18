@@ -12,8 +12,76 @@
 // La hoja "AUDITORIA" se ignora: es un espejo con fórmulas, no datos propios.
 import ExcelJS from 'exceljs';
 
+// Posiciones de la plantilla V3 que genera generar-costeo.ts. Se conservan SOLO como respaldo
+// para una hoja cuyo encabezado no se pueda reconocer (ver detectarEsquema) — ya no como supuesto.
 const FILA_ITEM_1 = 4;
 const COL = { item: 1, detalle: 2, unidad: 3, cantidad: 5, costoUnitario: 7, costoTotal: 8, precioUnitario: 10, precioTotal: 11 };
+
+// ── Esquema por ENCABEZADO, no por posición fija ─────────────────────────────────────────────
+// BUG REAL (18-ago-2026, "1787062742902_1_COSTEO_2296-48-LE26.xlsx"): la empresa cotiza en SU
+// propia planilla histórica (hojas "Analisis"/"COSTEO"/"Datos Proveedor"), no en la plantilla V3
+// que genera el sistema. Ahí los ítems arrancan en la fila 3 (no la 4) y las columnas están
+// corridas (unidad="CONVERSION" en D, cantidad en C, precio sin decimales en I). Con las
+// posiciones fijas el resultado era catastrófico Y SILENCIOSO: el único ítem real se perdía,
+// itemsPrecioDeCosteo devolvía [] (por eso el anexo de Oferta Económica salía en blanco) y
+// totalesDeCosteo daba $0 — o sea, el motor comercial calculaba sus alertas de "sobre
+// presupuesto" y "discordancia con el anexo" contra un costeo que creía vacío. Además se
+// parseaban como ítems las hojas que no son de costeo ("Datos Proveedor" → 323 filas basura).
+//
+// Ahora cada hoja se lee por lo que DICE su encabezado. Una hoja solo se considera de costeo si
+// tiene una columna de PRECIO DE VENTA: es lo único que distingue un costeo real de una tabla de
+// proveedores o de un resumen — "Datos Proveedor" también trae ITEM/Detalle/Cantidad y costos,
+// pero nunca precio de venta.
+const PATRONES_COLUMNA: Array<{ campo: keyof EsquemaHoja['col']; re: RegExp }> = [
+  { campo: 'item', re: /^item$|^n[°º]?$|^nro$/ },
+  { campo: 'detalle', re: /^detalle|^descripcion|^producto$|^glosa$/ },
+  // "CONVERSION" es como esa planilla rotula la unidad de medida.
+  { campo: 'unidad', re: /^unidad|^conversion$|^u\.?\s*m\.?$/ },
+  { campo: 'cantidad', re: /^cantidad/ },
+  // "REAL" es la sección de Compras (lo que efectivamente se pagó después), NUNCA el costeo de
+  // la oferta — se excluye a propósito en las cuatro columnas de costo/precio.
+  { campo: 'costoUnitario', re: /^costo unitario(?! real)/ },
+  { campo: 'costoTotal', re: /^costo total(?! .*real)/ },
+  { campo: 'precioTotal', re: /^precio total(?! .*real)/ },
+  { campo: 'linea', re: /^linea|^l[ií]nea/ },
+];
+
+// El precio unitario se elige aparte porque hay DOS columnas candidatas y el orden importa: la de
+// "sin decimales" es la que de verdad se oferta en el portal (la otra trae la fracción del cálculo).
+const RE_PRECIO_UNIT_SIN_DECIMALES = /^precio unitario sin decimal/;
+const RE_PRECIO_UNIT = /^precio unitario(?! .*real)/;
+
+interface EsquemaHoja {
+  filaPrimerItem: number;
+  col: { item: number; detalle: number; unidad: number; cantidad: number; costoUnitario: number; costoTotal: number; precioUnitario: number; precioTotal: number; linea: number };
+}
+
+const normEncabezado = (v: unknown): string =>
+  (texto(v) || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+
+const FILAS_A_MIRAR_ENCABEZADO = 12;
+
+function detectarEsquema(ws: ExcelJS.Worksheet): EsquemaHoja | null {
+  const maxCol = Math.min(ws.columnCount || 0, 40);
+  for (let r = 1; r <= Math.min(ws.rowCount || 0, FILAS_A_MIRAR_ENCABEZADO); r++) {
+    const col: any = { item: 0, detalle: 0, unidad: 0, cantidad: 0, costoUnitario: 0, costoTotal: 0, precioUnitario: 0, precioTotal: 0, linea: 0 };
+    let precioUnitExacto = 0, precioUnitLaxo = 0;
+    for (let c = 1; c <= maxCol; c++) {
+      const h = normEncabezado(ws.getCell(r, c).value);
+      if (!h) continue;
+      if (RE_PRECIO_UNIT_SIN_DECIMALES.test(h)) precioUnitExacto ||= c;
+      else if (RE_PRECIO_UNIT.test(h)) precioUnitLaxo ||= c;
+      for (const p of PATRONES_COLUMNA) if (!col[p.campo] && p.re.test(h)) { col[p.campo] = c; break; }
+    }
+    col.precioUnitario = precioUnitExacto || precioUnitLaxo;
+    // Mínimo para considerarla hoja de costeo: algo que identifique la fila (item o detalle) y
+    // AL MENOS un precio de venta. Sin precio de venta no es un costeo.
+    if ((col.item || col.detalle) && (col.precioUnitario || col.precioTotal)) {
+      return { filaPrimerItem: r + 1, col };
+    }
+  }
+  return null;
+}
 
 export interface FilaCosteo {
   hoja: string; fila: number;
@@ -63,19 +131,54 @@ export async function parsearCosteo(buffer: Buffer): Promise<FilaCosteo[]> {
 
   wb.eachSheet(ws => {
     if (ws.name.trim().toUpperCase() === 'AUDITORIA') return;
-    const lineaPublicada = lineaDeHoja(ws.name);
-    for (let r = FILA_ITEM_1; r <= 5000; r++) {
-      const item = num(ws.getCell(r, COL.item).value);
-      const detalle = texto(ws.getCell(r, COL.detalle).value);
-      if (item == null && !detalle) break;   // fin del bloque de ítems de esta hoja
+    const esquema = detectarEsquema(ws);
+    // Sin encabezado de costeo reconocible la hoja se SALTA entera. Antes se leía igual con las
+    // posiciones fijas, que es como "Datos Proveedor" y "Analisis" entraban con cientos de filas
+    // basura. La excepción es la hoja que la propia plantilla V3 llama "Costeo"/"LINEAn": ahí el
+    // formato lo controlamos nosotros, así que el respaldo por posición sigue siendo válido.
+    const esHojaNuestra = /^costeo$/i.test(ws.name.trim()) || lineaDeHoja(ws.name) != null;
+    if (!esquema && !esHojaNuestra) return;
+    const col = esquema ? esquema.col : { ...COL, linea: 0 };
+    const desde = esquema ? esquema.filaPrimerItem : FILA_ITEM_1;
+    const lineaDelNombre = lineaDeHoja(ws.name);
+    const leer = (r: number, c: number) => (c ? ws.getCell(r, c).value : null);
+
+    // Una fila vacía NO corta el recorrido: la planilla histórica de la empresa deja huecos entre
+    // bloques de ítems. Se corta después de varias vacías seguidas, que sí marca el fin real.
+    let vaciasSeguidas = 0;
+    for (let r = desde; r <= Math.min(ws.rowCount || 0, 5000); r++) {
+      const item = num(leer(r, col.item));
+      const detalle = texto(leer(r, col.detalle));
+      if (item == null && !detalle) {
+        if (++vaciasSeguidas >= 5) break;
+        continue;
+      }
+      vaciasSeguidas = 0;
+      const cantidad = num(leer(r, col.cantidad));
+      const costoUnitario = num(leer(r, col.costoUnitario));
+      const precioUnitario = num(leer(r, col.precioUnitario));
+      const precioTotal = num(leer(r, col.precioTotal));
+      // Una fila de PIE ("COSTEADO POR: …", "Total neto venta", notas al margen) suele caer en la
+      // misma columna de precio total y, sumada, DUPLICA el costeo: en el caso real que motivó
+      // esto el total daba $68.872.084 en vez de $21.589.995, porque el pie repetía el total neto
+      // y el total con IVA. Un ítem real siempre trae, además del texto, una cantidad o un precio
+      // POR UNIDAD; un pie trae solo un monto acumulado. Ese es el corte, y es determinista.
+      const tieneDatoPropio = cantidad != null || costoUnitario != null || precioUnitario != null;
+      const esFilaDeItem = item != null ? (detalle != null || tieneDatoPropio) : (detalle != null && tieneDatoPropio);
+      if (!esFilaDeItem) continue;
+      // La línea sale de la COLUMNA si la planilla la trae (una sola hoja con todas las líneas) y
+      // si no, del NOMBRE de la hoja ("LINEA4" → 4, que es como la arma generar-costeo.ts). Los
+      // dos formatos de "por línea" conviven en la realidad; antes solo se reconocía el segundo.
+      const lineaCelda = num(leer(r, col.linea));
       filas.push({
-        hoja: ws.name, fila: r, item, detalle, lineaPublicada,
-        unidad: texto(ws.getCell(r, COL.unidad).value),
-        cantidadOriginal: num(ws.getCell(r, COL.cantidad).value),
-        costoUnitarioNeto: num(ws.getCell(r, COL.costoUnitario).value),
-        costoTotalNeto: num(ws.getCell(r, COL.costoTotal).value),
-        precioUnitarioSinDecimales: num(ws.getCell(r, COL.precioUnitario).value),
-        precioTotalNeto: num(ws.getCell(r, COL.precioTotal).value),
+        hoja: ws.name, fila: r, item, detalle,
+        lineaPublicada: lineaCelda ?? lineaDelNombre,
+        unidad: texto(leer(r, col.unidad)),
+        cantidadOriginal: cantidad,
+        costoUnitarioNeto: costoUnitario,
+        costoTotalNeto: num(leer(r, col.costoTotal)),
+        precioUnitarioSinDecimales: precioUnitario,
+        precioTotalNeto: precioTotal,
       });
     }
   });
