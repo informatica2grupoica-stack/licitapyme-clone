@@ -397,3 +397,23 @@ test('REGRESIÓN Formatos Esmaltes: rótulo entre paréntesis junto al blanco in
   const neutro = `Declaro (bajo juramento) ${raya}`;
   assert.equal(campoDeBlancoInline(blanco(neutro, neutro.indexOf('_'), { largo: raya.length })), null);
 });
+
+// REGRESIÓN 1247197-54-LE26 ("DECLARACIÓN JURADA PARA CONTRATAR", 18-ago-2026). Ese organismo
+// rotula con UN par de ángulos y repite "o persona natural según corresponda" en TODOS los
+// marcadores, para cubrir los dos tipos de oferente. Dos bugs distintos:
+//   1. `<…>` simple no era un marcador reconocido (solo `<<…>>`) → el anexo se veía "sin nada que
+//      llenar" cuando pedía los seis datos más básicos. Arreglado en anexos-docx.ts.
+//   2. "RUT representante legal o persona natural…" caía en la regla de "representante legal" y se
+//      completaba con el NOMBRE donde iba el RUT: un dato equivocado en una declaración jurada.
+test('REGRESIÓN 1247197-54-LE26: el DATO manda sobre el TITULAR en los marcadores de RUT', () => {
+  const marcador = (textoMarcador: string) => campoDeBlancoInline(blanco('texto', 0, { textoMarcador }));
+  // Los dos marcadores del caso real. "o persona natural según corresponda" está en AMBOS, así que
+  // no puede ser la señal que desambigua — lo que decide es la palabra pegada al dato.
+  assert.equal(marcador('<RUT representante legal o persona natural según corresponda >'), 'representante_rut');
+  assert.equal(marcador('<RUT empresa o persona natural según corresponda >'), 'rut');
+  assert.equal(marcador('<nombre de representante legal o persona natural según corresponda >'), 'representante_nombre');
+  assert.equal(marcador('<razón social empresa o persona natural según corresponda >'), 'razon_social');
+  assert.equal(marcador('<domicilio>'), 'direccion');
+  // "Cédula de identidad" sola sigue siendo del representante, como siempre.
+  assert.equal(marcador('[Cédula de identidad]'), 'representante_rut');
+});

@@ -398,6 +398,20 @@ const RE_SIGUE_FECHA = /^\s*[,]?\s*(?:a|con\s+fecha|el\s+d(?:i|í)a)\b|^\s*,?\s*
 // Marcadores literales del organismo ("[Insertar RUT]"): el texto dentro del marcador dice
 // EXACTAMENTE qué va ahí y manda sobre cualquier inferencia del contexto.
 const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
+  // BUG REAL (18-ago-2026, 1247197-54-LE26, "DECLARACIÓN JURADA PARA CONTRATAR"): el marcador
+  // "<RUT representante legal o persona natural según corresponda>" caía en la regla de
+  // "representante legal" (que estaba PRIMERA) y se completaba con el NOMBRE del representante
+  // donde el documento pedía su RUT — un dato equivocado dentro de una declaración jurada, que es
+  // peor que dejarlo en blanco. La regla general: un marcador que nombra las dos cosas dice QUÉ
+  // dato es ("RUT") y DE QUIÉN es ("representante legal"); el QUÉ manda, el DE QUIÉN solo elige
+  // entre las dos variantes del mismo dato. Por eso estas dos van ANTES que cualquier regla de
+  // titular: son las únicas que miran las dos señales a la vez.
+  // Ojo con "o persona natural según corresponda": el organismo lo pega a los DOS marcadores (el
+  // del representante y el de la empresa) para cubrir ambos tipos de oferente, así que NO sirve
+  // para desambiguar — usarlo mandaba el RUT del representante a la casilla del RUT de la empresa.
+  // Lo que decide es la palabra pegada al dato: "RUT empresa…" vs "RUT representante legal…".
+  { re: /(?:rut|run)\s*(?:n[°º.]?\s*)?(?:de\s+la\s+|del\s+|de\s+)?(?:empresa|raz(?:o|ó)n\s+social|sociedad|proponente|oferente|persona\s+jur(?:i|í)dica)/i, campo: 'rut' },
+  { re: /(?:rut|run|c(?:e|é)dula)[\s\S]{0,25}?(?:representante|apoderado|firmante|declarante)/i, campo: 'representante_rut' },
   { re: /nombre\s+completo\s+del\s+representante|representante\s+legal/i, campo: 'representante_nombre' },
   { re: /n(?:u|ú)mero\s+de\s+run|\brun\b|c(?:e|é)dula/i, campo: 'representante_rut' },
   { re: /nombre\s+o\s+raz(?:o|ó)n\s+social|raz(?:o|ó)n\s+social|nombre\s+persona\s+(?:natural|jur(?:i|í)dica)/i, campo: 'razon_social' },

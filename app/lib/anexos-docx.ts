@@ -470,6 +470,15 @@ const RE_CAMPO_ENTRE_PARENTESIS = /^(nombres?|apellidos?|r\.?\s*u\.?\s*t\.?|c[é
 
 const RE_MARCADORES: { re: RegExp; valido: (dentro: string) => boolean }[] = [
   { re: /<<([^<>]{2,200}?)>>/g, valido: (d) => RE_LETRA.test(d) },      // <<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>
+  // BUG REAL (18-ago-2026, 1247197-54-LE26, "DECLARACIÓN JURADA PARA CONTRATAR"): el organismo usa
+  // UN SOLO par de ángulos, no dos — "Yo, <nombre de representante legal o persona natural según
+  // corresponda>, cédula de identidad N° <RUT representante legal o persona natural>". El patrón de
+  // arriba exige "<<" y "»" el de abajo, así que esos dos campos eran INVISIBLES: ni automáticos ni
+  // pendientes, el anexo se veía "sin nada que llenar" cuando en realidad pedía los dos datos más
+  // básicos. Va DESPUÉS del de "<<…>>" a propósito: ese ya consumió su tramo cuando existe, así que
+  // este no puede robarle el interior. Exige una LETRA adentro (igual que los otros), lo que
+  // descarta comparaciones numéricas sueltas del tipo "<5" o "<=100" que no son marcadores.
+  { re: /<([^<>]{2,200}?)>/g, valido: (d) => RE_LETRA.test(d) },        // <nombre del representante legal>
   { re: /«([^«»]{2,200}?)»/g, valido: (d) => RE_LETRA.test(d) },        // variante tipográfica de lo mismo
   { re: /\{\{([^{}]{2,200}?)\}\}/g, valido: (d) => RE_LETRA.test(d) },  // {{razon_social}} — plantillas
   { re: /\[([^[\]]{2,200}?)\]/g, valido: (d) => RE_LETRA.test(d) },     // [Insertar RUT] / [fecha] / [indicar "en esta casilla"…]
