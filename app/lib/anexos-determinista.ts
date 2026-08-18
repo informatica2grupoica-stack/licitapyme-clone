@@ -57,7 +57,13 @@ export function normalizarEtiqueta(s: string): string {
     // tabla de identificación vienen numeradas "1.- NOMBRE COMPLETO DEL PROPONENTE…". Con un solo
     // signo, "1." se comía y quedaba "- nombre completo…", que no matcheaba nada: el anexo más
     // típico que existe se resolvía en 0 casillas.
-    .replace(/^\s*(?:\d+\s*[.)-]+|[a-z][.)]|[-•*])\s+/, ' ')
+    // La viñeta de LETRA acepta la misma puntuación compuesta que la de número ("A.- RAZÓN
+    // SOCIAL DEL PROPONENTE", "B.- NOMBRE DEL REPRESENTANTE LEGAL" — caso real 2296-48-LE26,
+    // FORMATO Nº2): antes solo se aceptaba UN signo ("a)" / "a."), así que "a.-" no se quitaba y
+    // la etiqueta quedaba como "a - razon social del proponente", sin matchear nada. El espacio
+    // final obligatorio sigue protegiendo "R.U.T." igual que en la viñeta de número: ahí no hay
+    // espacio entre la "r." y la "U", así que nunca se confunde con una viñeta.
+    .replace(/^\s*(?:\d+\s*[.)-]+|[a-z]\s*[.)-]+|[-•*])\s+/, ' ')
     .replace(/[.:;,_·"'“”]+/g, ' ')                      // puntuación y rayas de relleno
     .replace(/\s+/g, ' ')
     .trim();
@@ -93,6 +99,16 @@ const DICCIONARIO: Entrada[] = [
     /^nombre (?:completo )?(?:del? (?:proponente|oferente)) o razon social$/,
     /^(?:identificacion|individualizacion) del (?:oferente|proponente|contribuyente)$/,
     /^empresa$/, /^empresa oferente$/, /^nombre de fantasia$/,
+    // "NOMBRE OFERENTE O RAZÓN SOCIAL:" (caso real 2296-48-LE26, FORMATOS Nº3/Nº4/Nº6 — la
+    // etiqueta más repetida de ese pliego): el patrón de arriba exige "nombre O razon social"
+    // seguidos, sin nada en medio; acá el organismo intercala a QUIÉN se refiere. Es la misma
+    // pregunta, no una distinta.
+    /^nombre (?:completo )?(?:del? |de la )?(?:empresa|oferente|proponente|participante|postulante|proveedor) o razon social$/,
+    // La palabra sola, sin "nombre" ni "razón social" delante ("PROPONENTE:…………", 2296-48-LE26
+    // FORMATO Nº1-A/Nº1-B). Es INEQUÍVOCA en el sentido de esta capa: ya dice a quién describe
+    // (al oferente, no a la persona que firma) — no es un "Nombre" pelado, que sí es ambiguo y
+    // por eso se resuelve por bloque en la capa 2.
+    /^(?:oferente|proponente|postulante|participante|contratista)$/,
     // "Nombre del proveedor postulante A LA LICITACIÓN" (1786987035022_ANEXO_N2.docx) — el
     // sufijo OFERENTE exige que la frase TERMINE en la palabra que dice a quién describe; acá
     // sigue "a la licitación/a este proceso" después, y por eso no calzaba con nada de arriba.
@@ -105,10 +121,18 @@ const DICCIONARIO: Entrada[] = [
     // "R.U.T. N°:" (1058086-43-LP26) — tras normalizar queda "r u t n°", con el signo de grado
     // intacto a propósito (ver normalizarEtiqueta: quitarlo confundiría "N°" con "No").
     /^r\s*u\s*t\s*(?:n[°º]?)?$/, /^rut\/run$/,
+    // "RUT o C.I:" (2296-48-LE26, FORMATO Nº1-A/Nº1-B) — el organismo ofrece las dos formas en la
+    // MISMA casilla porque el oferente puede ser empresa o persona natural. Para nosotros
+    // (persona jurídica) es el RUT de la empresa; el RUT del representante tiene su propia
+    // casilla más abajo en ese mismo formulario, así que no hay colisión.
+    /^r\s*u\s*t\s*o\s*c\s*i$/, /^rut o cedula(?: de identidad)?$/,
   ] },
   { campo: 'giro', patrones: [
     new RegExp(`^giro(?:\\s+(?:comercial|del\\s+negocio|o\\s+actividad))?${OFERENTE}$`),
     /^actividad (?:economica|comercial)$/, /^rubro$/,
+    // "GIRO SII:" / "GIRO SERVICIOS DE IMPUESTOS INTERNOS:" (2296-48-LE26) — el organismo aclara
+    // de dónde sale el giro (el registrado en el SII), que es exactamente el que guarda la ficha.
+    /^giro s\s*i\s*i$/, /^giro servicios de impuestos internos$/,
   ] },
   { campo: 'direccion', patrones: [
     new RegExp(`^(?:direccion|domicilio)(?:\\s+(?:comercial|legal|particular|de\\s+la\\s+empresa))?${OFERENTE}$`),
