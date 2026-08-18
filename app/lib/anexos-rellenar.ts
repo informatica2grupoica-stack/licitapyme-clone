@@ -41,6 +41,7 @@ import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-
 import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
 import { analizarSeccionesEscaneadas, type SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
 import { cargarReglasAprendidasAnexo } from '@/app/lib/anexos-feedback';
+import { diagnosticarCobertura, type DiagnosticoCobertura } from '@/app/lib/anexos-cobertura';
 import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 
 export type { SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
@@ -581,6 +582,10 @@ export interface AnalisisAnexo {
   // (no se puede editar una imagen), pero se le muestra al usuario qué piden y con qué dato de su
   // ficha las llenaría a mano. Vacío si el documento no tiene ninguna imagen sustancial.
   seccionesEscaneadas: SeccionEscaneada[];
+  // AUTODIAGNÓSTICO: ¿el motor entendió este documento, o se quedó ciego ante un formato nuevo?
+  // Ver anexos-cobertura.ts. No cambia nada del análisis; es la red que convierte un fallo
+  // silencioso ("no hay nada que llenar") en un aviso.
+  cobertura: DiagnosticoCobertura;
 }
 
 type ResolucionMostrada =
@@ -771,6 +776,14 @@ export async function analizarAnexoParaUI(
     checklistPendientes,
     avisoNoAplica,
     seccionesEscaneadas,
+    cobertura: diagnosticarCobertura({
+      textoPlano: analisis.parrafos.map(p => p.texto).join('\n'),
+      parrafosConTexto: analisis.parrafos.filter(p => p.texto && !p.vacio).length,
+      casillasDetectadas: completadosAuto.length + pendientesCelda.length + pendientesInline.length
+        + tablas.reduce((acc, t) => acc + t.filas.reduce((m, f) => m + f.filter(c => c.auto || c.input).length, 0), 0),
+      casillasResueltas: completadosAuto.length
+        + tablas.reduce((acc, t) => acc + t.filas.reduce((m, f) => m + f.filter(c => c.auto).length, 0), 0),
+    }),
   };
 }
 

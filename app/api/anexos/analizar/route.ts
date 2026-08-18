@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo } from '@/app/lib/anexos-datos';
 import { analizarAnexoParaUI } from '@/app/lib/anexos-rellenar';
+import { logCobertura } from '@/app/lib/anexos-cobertura';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -40,6 +41,14 @@ export async function GET(request: NextRequest) {
     // documento (ej. esta licitación SÍ se postula en UTP) — ver detectarAvisoNoAplica.
     const forzarAplica = searchParams.get('aplica') === '1';
     const analisis = await analizarAnexoParaUI(bufferOriginal, empresa, itemsCosteo, basesTexto, forzarAplica, experienciaOcTexto);
+
+    // AUTODIAGNÓSTICO (ver anexos-cobertura.ts): el análisis ya trae `cobertura` calculada. Acá solo
+    // se deja en el log del servidor, y SOLO si hay algo que mirar — así, en los logs del VPS, un
+    // formato de casilla que todavía no reconocemos salta a la vista en vez de verse igual que un
+    // documento que de verdad no pide nada (el fallo silencioso que hizo que "FORMATO" y los
+    // marcadores "<…>" duraran semanas sin que nadie se enterara).
+    logCobertura(codigo, nombreOriginal, analisis.cobertura);
+
     return NextResponse.json({ success: true, nombre: nombreOriginal, ...analisis });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 400 });
