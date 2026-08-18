@@ -181,7 +181,11 @@ const DICCIONARIO: Entrada[] = [
     /^telefono fijo y celular$/, /^telefono(?: fijo)?\/celular$/, /^fono fijo y movil$/,
   ] },
   { campo: 'email1', patrones: [
-    new RegExp(`^(?:correo|correo\\s+electronico|e\\s*mail|mail|casilla\\s+electronica)(?:\\s+de\\s+contacto)?${OFERENTE}$`),
+    // El GUION cuenta como separador ("E-mail", de las etiquetas más frecuentes que existe).
+    // normalizarEtiqueta conserva el guion a propósito (lo necesita el sufijo de letra tipo
+    // "N°1-A"), así que "e-mail" llegaba con el guion intacto y `e\s*mail` —que solo acepta espacio
+    // o nada— no lo reconocía: el correo quedaba en blanco en cualquier anexo que lo rotule así.
+    new RegExp(`^(?:correo|correo\\s+electronico|e[\\s-]*mail|mail|casilla\\s+electronica)(?:\\s+de\\s+contacto)?${OFERENTE}$`),
     /^correo electronico para (?:notificaciones|efectos de (?:esta )?licitacion)$/,
   ] },
   // "FECHA:" suelta (un solo blanco, no un triplete día/mes/año — esos ya los resuelve entero
@@ -419,7 +423,19 @@ const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
   { re: /id\s+de\s+mercado\s+p(?:u|ú)blico|id\s+licitaci(?:o|ó)n/i, campo: 'licitacion_codigo' },
   { re: /nombre\s+(?:de\s+la\s+)?licitaci(?:o|ó)n/i, campo: 'licitacion_nombre' },
   { re: /^\s*fecha\s*$/i, campo: 'fecha_hoy' },
-  { re: /ciudad|comuna|localidad/i, campo: 'licitacion_comuna' },
+  // BUG REAL (18-ago-2026, ANEXO N°4 de 1247197-54-LE26): esta regla mandaba CUALQUIER marcador
+  // que dijera "comuna"/"ciudad" a la comuna del ORGANISMO comprador. En "con domicilio en
+  // <domicilio>, <comuna>, <ciudad> en representación de…" el resultado fue
+  // "Camino El Oliveto N° 575 N° 6, Talagante, CONCHALÍ, CONCHALÍ" — la comuna de la
+  // Municipalidad de Conchalí metida dentro del domicilio de una empresa de Talagante.
+  // La comuna del organismo SOLO aplica en la localidad de firma ("En ____, a 12 de agosto"), y
+  // ese caso ya lo resuelve RE_LOCALIDAD_FIRMA ANTES de llegar acá (ver campoDeBlancoInline). Un
+  // marcador que dice "comuna" a secas, en medio de una frase, es la comuna del OFERENTE.
+  { re: /\bciudad\b/i, campo: 'ciudad' },
+  { re: /\bcomuna\b/i, campo: 'comuna' },
+  // "localidad" sigue siendo la del organismo: es la palabra de la fórmula de cierre ("En la
+  // localidad de ___, a 12 de agosto"), nunca parte del domicilio del oferente.
+  { re: /localidad/i, campo: 'licitacion_comuna' },
   { re: /domicilio|direcci(?:o|ó)n/i, campo: 'direccion' },
   { re: /giro/i, campo: 'giro' },
 ];
@@ -557,6 +573,29 @@ export function clasificarPendiente(etiqueta: string): { categoria: CategoriaCam
 }
 
 // ── Entrada principal ────────────────────────────────────────────────────────────────────────
+/**
+ * La dirección de la ficha SIN la comuna del final. Se usa solo cuando el mismo párrafo pide la
+ * comuna en su propia casilla — ver el uso en resolverDeterminista.
+ *
+ * Recorta el sufijo en vez de recomponer desde `direccion_calle` + `direccion_numero`: así se
+ * conserva EXACTAMENTE el formato que escribió el usuario en la ficha ("Camino El Oliveto N° 575
+ * N° 6"), incluidos los "N°" y las oficinas, que una recomposición perdería. Si tras el recorte no
+ * queda nada (una ficha cuya dirección es solo el nombre de la comuna), se devuelve la original:
+ * antes dejar el dato repetido que dejar la casilla vacía.
+ */
+export function direccionSinComuna(empresa: EmpresaCampos): string | null {
+  const direccion = String((empresa as any).direccion ?? '').trim();
+  if (!direccion) return null;
+  const comuna = String((empresa as any).comuna ?? '').trim();
+  if (!comuna) return direccion;
+  const escapada = comuna.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const recortada = direccion
+    .replace(new RegExp(`\\s*,?\\s*${escapada}\\s*$`, 'i'), '')
+    .replace(/[,;\s]+$/, '')
+    .trim();
+  return recortada || direccion;
+}
+
 export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDeterminista {
   const { candidatos, blancosInline, parrafos, empresa } = entrada;
   const celda = new Map<number, Resolucion>();
@@ -600,10 +639,29 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     celdaSinResolver.push(c);
   }
 
-  for (const b of blancosInline) {
-    const campo = campoDeBlancoInline(b);
+  // Se resuelven TODOS los campos antes de escribir ninguno: la dirección necesita saber si el
+  // MISMO párrafo pide además la comuna por separado (ver direccionSinComuna).
+  const camposInline = blancosInline.map(b => ({ b, campo: campoDeBlancoInline(b) }));
+  const parrafosQuePidenComunaAparte = new Set(
+    camposInline.filter(x => x.campo === 'comuna' || x.campo === 'ciudad').map(x => x.b.indiceParrafo),
+  );
+
+  for (const { b, campo } of camposInline) {
     const clave = `${b.indiceRun}:${b.posEnTexto}`;
     const etiqueta = (b.textoMarcador || b.contexto || '').slice(0, 120);
+    // "con domicilio en <domicilio>, <comuna>, <ciudad>" → el campo `direccion` de la ficha YA trae
+    // la comuna adentro ("Camino El Oliveto N° 575 N° 6, Talagante"), así que al llenar los tres
+    // marcadores salía "…, Talagante, Talagante, Talagante" (caso real reportado por el usuario en
+    // el ANEXO N°4 de 1247197-54-LE26). Cuando el propio párrafo pide la comuna en su propia
+    // casilla, la dirección va SIN ella: cada dato aparece una sola vez, que es como lo escribiría
+    // un humano. Si el párrafo NO pide comuna aparte, la dirección va completa como siempre.
+    if (campo === 'direccion' && parrafosQuePidenComunaAparte.has(b.indiceParrafo)) {
+      const valor = direccionSinComuna(empresa);
+      if (valor) {
+        inline.set(clave, { tipo: 'auto', valor, categoria: 'perfil_empresa', evidencia: etiqueta });
+        continue;
+      }
+    }
     if (anotar(campo, etiqueta, r => inline.set(clave, r))) continue;
     inlineSinResolver.push(b);
   }

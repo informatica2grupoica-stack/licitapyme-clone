@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   resolverDeterminista, campoDeEtiquetaInequivoca, resolverPeladaPorBloque,
-  campoDeBlancoInline, clasificarPendiente, normalizarEtiqueta,
+  campoDeBlancoInline, clasificarPendiente, normalizarEtiqueta, direccionSinComuna,
 } from '../anexos-determinista';
 import type { EmpresaCampos, Resolucion } from '../anexos-ia-motor';
 import type { CandidatoCelda, CandidatoInline } from '../anexos-detectar';
@@ -416,4 +416,55 @@ test('REGRESIÓN 1247197-54-LE26: el DATO manda sobre el TITULAR en los marcador
   assert.equal(marcador('<domicilio>'), 'direccion');
   // "Cédula de identidad" sola sigue siendo del representante, como siempre.
   assert.equal(marcador('[Cédula de identidad]'), 'representante_rut');
+});
+
+// "E-mail" (con guion) es una de las etiquetas más frecuentes que existe, y quedaba sin reconocer:
+// normalizarEtiqueta conserva el guion a propósito (lo necesita el sufijo "N°1-A"), así que
+// "e-mail" llegaba con el guion y el patrón, que solo aceptaba espacio o nada, no calzaba.
+test('el correo se reconoce con guion, con espacio y junto', () => {
+  for (const e of ['E-mail', 'E-MAIL:', 'e mail', 'email', 'Correo electrónico', 'Correo Electrónico del Oferente']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'email1', e);
+  }
+});
+
+// BUG REAL (18-ago-2026, ANEXO N°4 de 1247197-54-LE26 — el usuario lo vio en el .docx generado):
+// "con domicilio en <domicilio>, <comuna>, <ciudad> en representación de…" salió como
+// "Camino El Oliveto N° 575 N° 6, Talagante, CONCHALÍ, CONCHALÍ": la comuna de la Municipalidad de
+// Conchalí (el organismo comprador) metida dentro del domicilio de una empresa de Talagante.
+test('REGRESIÓN ANEXO N°4: "<comuna>"/"<ciudad>" son del OFERENTE, no del organismo', () => {
+  const marcador = (textoMarcador: string) => campoDeBlancoInline(blanco('texto', 0, { textoMarcador }));
+  // `textoMarcador` llega SIN los delimitadores (ver BlancoInline en anexos-docx.ts); se prueban
+  // las dos formas igual, para que la regla no dependa de ese detalle.
+  assert.equal(marcador('comuna'), 'comuna');
+  assert.equal(marcador('ciudad'), 'ciudad');
+  assert.equal(marcador('<comuna>'), 'comuna');
+  assert.equal(marcador('<ciudad>'), 'ciudad');
+  // La localidad de FIRMA sí es la del organismo, y la resuelve RE_LOCALIDAD_FIRMA por el contexto
+  // de la frase (no por el marcador) — ese camino no se toca.
+  const firma = 'En ____________ a 12 de agosto de 2026';
+  assert.equal(campoDeBlancoInline(blanco(firma, firma.indexOf('_'), { largo: 14 })), 'licitacion_comuna');
+});
+
+// El campo `direccion` de la ficha YA trae la comuna adentro ("Camino El Oliveto N° 575 N° 6,
+// Talagante"), así que "con domicilio en <domicilio>, <comuna>, <ciudad>" salía como
+// "…N° 6, Talagante, Talagante, Talagante" (reportado por el usuario en el ANEXO N°4 de
+// 1247197-54-LE26). Cuando el párrafo pide la comuna aparte, la dirección va sin ella.
+test('direccionSinComuna: recorta la comuna del final conservando el formato de la ficha', () => {
+  assert.equal(
+    direccionSinComuna({ direccion: 'Camino El Oliveto N° 575 N° 6, Talagante', comuna: 'Talagante' } as any),
+    'Camino El Oliveto N° 575 N° 6',
+  );
+  // Sin tildes/mayúsculas exactas también recorta.
+  assert.equal(
+    direccionSinComuna({ direccion: 'Barros Arana N°492 Of.78, CONCEPCIÓN', comuna: 'Concepción' } as any),
+    'Barros Arana N°492 Of.78',
+  );
+  // Si la comuna NO está en la dirección, no se toca nada.
+  assert.equal(
+    direccionSinComuna({ direccion: 'Barros Arana N°492 Of.78', comuna: 'Concepción' } as any),
+    'Barros Arana N°492 Of.78',
+  );
+  // Si al recortar no queda nada, mejor repetir el dato que dejar la casilla vacía.
+  assert.equal(direccionSinComuna({ direccion: 'Talagante', comuna: 'Talagante' } as any), 'Talagante');
+  assert.equal(direccionSinComuna({ direccion: '', comuna: 'Talagante' } as any), null);
 });
