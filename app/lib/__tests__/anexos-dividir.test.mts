@@ -392,3 +392,59 @@ test('detectarFormularios: encabezados por categoría + número, "FORMULARIO A-1
   assert.equal(formularios[1].titulo, 'FORMULARIO T-1 Especificaciones técnicas');
   assert.equal(formularios[2].titulo, 'FORMULARIO E-1 Oferta económica');
 });
+
+// QUINTA forma (18-ago-2026, caso real 2296-48-LE26, Municipalidad de Conchalí): la palabra es
+// "FORMATO", no "FORMULARIO"/"ANEXO". Documento real de 445 párrafos, 7 formatos pegados,
+// 0 detectados — "Separar anexos" no hacía absolutamente nada.
+test('detectarFormularios: encabezados con la palabra "FORMATO" (regresión 2296-48-LE26)', () => {
+  const xml = NS
+    + p('FORMATO Nº1-A')
+    + p('IDENTIFICACIÓN DEL OFERENTE')
+    + p('FORMATO  Nº2')
+    + p('IDENTIFICACIÓN DE SOCIOS Y ACCIONISTAS')
+    + p('FORMATO Nº 3')
+    + p('OFERTA ECONÓMICA')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 3);
+  assert.equal(formularios[0].titulo, 'FORMATO Nº1-A IDENTIFICACIÓN DEL OFERENTE');
+  assert.equal(formularios[2].titulo, 'FORMATO Nº 3 OFERTA ECONÓMICA');
+  // El sufijo de letra tiene que sobrevivir al nombre de archivo (lo usa anexos-match.ts).
+  assert.match(nombreArchivoDesdeTitulo(formularios[0].titulo), /^FORMATO_N1-A/);
+});
+
+// El plural "Formatos" aparece en la prosa real de estos mismos documentos ("las Bases
+// Administrativas, Bases Técnicas, Formatos, y demás antecedentes") — no puede contar como
+// encabezado, igual que ya pasa con "ANEXOS"/"FORMULARIOS".
+test('detectarFormularios: "Formatos" en prosa no se confunde con un encabezado "FORMATO"', () => {
+  const xml = NS
+    + p('FORMATO Nº1')
+    + p('Conocer y aceptar las Bases Administrativas, Bases Técnicas, Formatos, y demás antecedentes')
+    + p('FORMATOS')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  assert.equal(detectarFormularios(norm).length, 1);
+});
+
+// BUG REAL (18-ago-2026, 2296-48-LE26): ese organismo pone el TÍTULO del formulario entre
+// comillas tipográficas, y la regla "una línea entre comillas es el nombre de la licitación,
+// corta ahí" dejaba los anexos con nombre pelado ("FORMATO_Nº1-B"). Lo repetido (el nombre de la
+// licitación, una vez por formulario) sigue cortando; lo que aparece UNA sola vez es el título.
+test('detectarFormularios: un título entre comillas que aparece una sola vez SÍ sirve de subtítulo (regresión 2296-48-LE26)', () => {
+  const xml = NS
+    + p('FORMATO Nº1-B')
+    + p('“IDENTIFICACIÓN DEL OFERENTE”')
+    + p('(SÓLO PARA UNIÓN TEMPORAL DE PROVEEDORES)')
+    + p('“ADQUISICIÓN DE COMPUTADORES”')
+    + p('FORMATO Nº2')
+    + p('“IDENTIFICACIÓN DE SOCIOS”')
+    + p('“ADQUISICIÓN DE COMPUTADORES”')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 2);
+  // El título entrecomillado único entra (sin sus comillas); el nombre de licitación repetido no.
+  assert.equal(formularios[0].titulo, 'FORMATO Nº1-B IDENTIFICACIÓN DEL OFERENTE (SÓLO PARA UNIÓN TEMPORAL DE PROVEEDORES)');
+  assert.equal(formularios[1].titulo, 'FORMATO Nº2 IDENTIFICACIÓN DE SOCIOS');
+});

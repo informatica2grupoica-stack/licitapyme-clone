@@ -57,13 +57,23 @@ export interface FormularioDetectado { titulo: string; indiceInicio: number; ind
 // alrededor de la letra). Documento real de 10.452 párrafos, 12 formularios así, 0 detectados
 // antes de esto — el peor caso visto hasta ahora de este mismo bug (título dentro/fuera de tabla
 // no aplica acá, esto vive en párrafos sueltos normales; el problema era puramente el regex).
-export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$|^(?:FORMULARIO|ANEXO)\s*["“‘'][A-Z]["”’']\s*$|^(?:FORMULARIO|ANEXO)\s*[A-Z]-\d+\s*$/i;
+// QUINTA forma (18-ago-2026, caso real 2296-48-LE26, Municipalidad de Conchalí): la palabra puede
+// ser "FORMATO" en vez de "FORMULARIO"/"ANEXO" — "FORMATO Nº1-A", "FORMATO  Nº1-B", "FORMATO Nº 3"…
+// Es la misma estructura de siempre (palabra + N° + número, con sufijo de letra opcional), solo
+// cambia el sustantivo; el documento traía 7 formatos pegados y se detectaban 0. "FORMATO" se suma
+// a la alternancia en TODOS los regex del módulo (encabezado, prefijo, pelado y sufijoDeArchivo) —
+// si se agrega en uno solo, el encabezado se detecta pero el nombre de archivo sale genérico.
+// No reabre el falso positivo del plural ("FORMATOS", que aparece en prosa real de estos mismos
+// documentos: "las Bases Administrativas, Bases Técnicas, Formatos, y demás antecedentes"):
+// después de la palabra el regex exige N+dígito o comillas+letra, y la "S" del plural no calza
+// con ninguno de los dos.
+export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$|^(?:FORMULARIO|ANEXO|FORMATO)\s*["“‘'][A-Z]["”’']\s*$|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]-\d+\s*$/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
 // Solo la forma "FORMULARIO/ANEXO N°X" al INICIO (sin la alternativa "(ANEXO X)" al final) — se usa
 // como fallback cuando la línea completa es demasiado larga para el chequeo normal de arriba. Ver
 // RE_ENCABEZADO_PEGADO_SIN_ESPACIO más abajo para el caso real que motiva esto.
-const RE_ENCABEZADO_PREFIJO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:\s*-\s*[A-Za-z])?|^(?:FORMULARIO|ANEXO)\s*[A-Z]-\d+/i;
+const RE_ENCABEZADO_PREFIJO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:\s*-\s*[A-Za-z])?|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]-\d+/i;
 
 // BUG REAL (13-ago-2026, caso 1211839-58-LE26, "FORMULARIOS.doc"): el conversor de producción
 // (LibreOffice headless, microservicio conversor-doc/) fusiona el párrafo del encabezado con el
@@ -218,25 +228,68 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
 // saber cuál es cuál sin abrirlos). Se usa como GUARDA para no tocar el caso ya-descriptivo
 // ("ANEXO N°1: IDENTIFICACIÓN", "ANEXO N°2 ECONOMICO") — ahí no hace falta ni conviene mirar el
 // párrafo siguiente (ver buscarSubtituloTrasEncabezadoPelado, que solo se llama cuando esto matchea).
-const RE_ENCABEZADO_PELADO = /^(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Za-z])?\.?$|^(?:FORMULARIO|ANEXO)\s*[A-Z]-\d+\.?$/i;
+const RE_ENCABEZADO_PELADO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Za-z])?\.?$|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]-\d+\.?$/i;
 
 // El nombre real de la licitación se repite ENTRE COMILLAS al pie de cada formulario ("SERVICIO
 // DE ARRIENDO…") — nunca es el título de la sección, así que corta la búsqueda del subtítulo ahí.
 const RE_EMPIEZA_CON_COMILLA = /^["“”«]/;
 
+// …PERO no toda línea entre comillas es el nombre de la licitación. BUG REAL (18-ago-2026, caso
+// 2296-48-LE26): ese organismo pone el TÍTULO del formulario entre comillas tipográficas
+// (“IDENTIFICACIÓN DEL OFERENTE…”, “IDENTIFICACIÓN DE SOCIOS Y ACCIONISTAS”), así que la regla de
+// arriba cortaba de inmediato y los anexos quedaban con nombre pelado ("FORMATO_Nº1-B",
+// "FORMATO_Nº2") — justo el problema de legibilidad que ya se había corregido para los encabezados
+// pelados sin comillas. La señal que SÍ distingue los dos casos, sin IA y sin adivinar: el nombre
+// de la licitación se REPITE (una vez al pie de cada formulario), el título de una sección aparece
+// UNA sola vez en todo el documento — mismo criterio de "lo repetido es dato, no título" que ya
+// usa candidatosTabla más abajo. Se cuentan las líneas entrecomilladas una vez por documento y
+// solo las repetidas siguen cortando; la única aparece como subtítulo, sin sus comillas.
+const RE_COMILLAS_ALREDEDOR = /^["“”«»']+|["“”«»']+$/g;
+
+function clavesEntreComillasRepetidas(bloques: BloqueCrudo[]): Set<string> {
+  const conteo = new Map<string, number>();
+  const anotar = (texto: string) => {
+    const t = texto.trim();
+    if (!t || !RE_EMPIEZA_CON_COMILLA.test(t)) return;
+    const clave = t.replace(RE_COMILLAS_ALREDEDOR, '').trim().toUpperCase();
+    if (clave) conteo.set(clave, (conteo.get(clave) ?? 0) + 1);
+  };
+  for (const b of bloques) {
+    if (b.tipo === 'tabla') for (const p of parrafosDeTabla(b.xmlCompleto)) anotar(p.texto);
+    else for (const linea of b.textoPlano.split('\n')) anotar(linea);
+  }
+  return new Set([...conteo].filter(([, n]) => n > 1).map(([clave]) => clave));
+}
+
+// ¿Esta línea entre comillas es el nombre de la licitación (corta la búsqueda) o el título real
+// del formulario (sirve de subtítulo)? Ver clavesEntreComillasRepetidas.
+function cortaSubtitulo(texto: string, repetidas: Set<string>): boolean {
+  if (RE_ENCABEZADO_FORMULARIO.test(texto)) return true;
+  if (!RE_EMPIEZA_CON_COMILLA.test(texto)) return false;
+  return repetidas.has(texto.replace(RE_COMILLAS_ALREDEDOR, '').trim().toUpperCase());
+}
+
+function sinComillas(texto: string): string {
+  return texto.replace(RE_COMILLAS_ALREDEDOR, '').trim();
+}
+
 // Busca el título real de un encabezado pelado en los párrafos que le siguen (hasta 3, o hasta
 // toparse con la línea entre comillas del nombre de la licitación / una tabla / otro encabezado).
 // Se llama SOLO cuando el propio encabezado no trae nada más que el número (ver RE_ENCABEZADO_PELADO) —
 // un encabezado ya descriptivo no necesita ni debe mirar más allá de su propio párrafo.
-function buscarSubtituloTrasEncabezadoPelado(bloques: BloqueCrudo[], desdeIndice: number): string {
+function buscarSubtituloTrasEncabezadoPelado(
+  bloques: BloqueCrudo[],
+  desdeIndice: number,
+  repetidas: Set<string>,
+): string {
   const partes: string[] = [];
   for (let i = desdeIndice + 1; i < bloques.length && partes.length < 2; i++) {
     const b = bloques[i];
     if (b.tipo !== 'parrafo' || b.enCuadroFlotante) break;
     const texto = b.textoPlano.trim();
     if (!texto) continue; // párrafo vacío de por medio: se sigue buscando, no corta
-    if (RE_EMPIEZA_CON_COMILLA.test(texto) || RE_ENCABEZADO_FORMULARIO.test(texto)) break;
-    partes.push(texto);
+    if (cortaSubtitulo(texto, repetidas)) break;
+    partes.push(sinComillas(texto));
   }
   return partes.join(' ').slice(0, 120);
 }
@@ -263,6 +316,7 @@ function parrafosDeTabla(xmlTabla: string): { texto: string; offset: number }[] 
 
 export function detectarFormularios(xml: string): FormularioDetectado[] {
   const bloques = listarBloquesCrudos(xml);
+  const repetidasEntreComillas = clavesEntreComillasRepetidas(bloques);
   const encabezados: { indice: number; titulo: string }[] = [];
   // BUG REAL (14-ago-2026, caso 5827-3-LE26): al quitar el tope de tamaño de tabla (ver más
   // abajo), una tabla de DATOS real puede traer una columna que repite literalmente "ANEXO N.° 9"
@@ -301,7 +355,8 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
           const subtitulo = RE_ENCABEZADO_PELADO.test(l)
             ? parrafosTabla.slice(ti + 1, ti + 3)
                 .map(p => p.texto)
-                .filter(t => t && !RE_EMPIEZA_CON_COMILLA.test(t) && !RE_ENCABEZADO_FORMULARIO.test(t))
+                .filter(t => t && !cortaSubtitulo(t, repetidasEntreComillas))
+                .map(sinComillas)
                 .join(' ').slice(0, 120)
             : '';
           candidatosTabla.push({
@@ -332,7 +387,7 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
     for (const linea of b.textoPlano.split('\n')) {
       const l = linea.trim();
       if (l.length <= LARGO_MAX_ENCABEZADO && RE_ENCABEZADO_FORMULARIO.test(l)) {
-        const subtitulo = RE_ENCABEZADO_PELADO.test(l) ? buscarSubtituloTrasEncabezadoPelado(bloques, bi) : '';
+        const subtitulo = RE_ENCABEZADO_PELADO.test(l) ? buscarSubtituloTrasEncabezadoPelado(bloques, bi, repetidasEntreComillas) : '';
         encabezados.push({ indice: b.ordinalInicio, titulo: subtitulo ? `${l} ${subtitulo}` : l });
         break; // un párrafo no trae dos encabezados propios
       }
@@ -370,7 +425,7 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
 // "FORMULARIO N°1-A: IDENTIFICACIÓN..." / "ANEXO N°2 ECONOMICO" → "N1-A" / "N2" (nombre de archivo)
 // / "PAUTA... (ANEXO 11)" → "N11" (ver RE_ENCABEZADO_FORMULARIO para la forma "(ANEXO X)").
 function sufijoDeArchivo(titulo: string): string {
-  const m = titulo.match(/(?:FORMULARIO|ANEXO)\s*N[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)/i)
+  const m = titulo.match(/(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)/i)
     ?? titulo.match(/\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)\s*\)\s*$/i);
   const base = m ? `N${m[1]}` : titulo.slice(0, 20);
   return base.replace(/[^\w-]/g, '_');
