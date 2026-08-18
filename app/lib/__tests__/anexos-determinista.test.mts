@@ -354,3 +354,46 @@ test('etiquetas de anexos REALES ya presentados que quedaban pendientes', () => 
   // Guardarraíl: "CÉDULA DE IDENTIDAD" a secas seguía siendo del representante, no de la empresa.
   assert.equal(campoDeEtiquetaInequivoca('CÉDULA DE IDENTIDAD'), 'representante_rut');
 });
+
+// BUG REAL (18-ago-2026, "Formatos Esmaltes" de La Serena — documento GENERADO por el sistema al
+// que el usuario reportó datos faltantes): el paréntesis se usa de las DOS formas opuestas.
+// Como ACOTACIÓN de una etiqueta que ya existe ("Nombre (si correspondiere)") hay que borrarlo.
+// Pero cuando el organismo no escribe etiqueta y deja SOLO el paréntesis como marcador de qué va
+// ahí, borrarlo dejaba la etiqueta VACÍA — el documento decía literalmente el nombre del campo y
+// la casilla igual quedaba en blanco. Se distingue por la forma: si envuelve TODO, es la etiqueta.
+test('REGRESIÓN Formatos Esmaltes: un paréntesis que envuelve TODA la etiqueta ES la etiqueta', () => {
+  assert.equal(campoDeEtiquetaInequivoca('(Razón social empresa)'), 'razon_social');
+  assert.equal(campoDeEtiquetaInequivoca('(Rut de Empresa)'), 'rut');
+  assert.equal(campoDeEtiquetaInequivoca('(Rut representante legal)'), 'representante_rut');
+  // El typo "representate" (sin la "n") es real y frecuente en los pliegos.
+  assert.equal(campoDeEtiquetaInequivoca('(representate legal)'), 'representante_nombre');
+  // Guardarraíl: con texto AFUERA del paréntesis sigue siendo una acotación que se descarta —
+  // "Nombre" pelado es ambiguo por diseño y lo resuelve la capa 2 mirando el bloque.
+  assert.equal(campoDeEtiquetaInequivoca('Nombre (si correspondiere)'), null);
+  // Guardarraíl: un paréntesis que no nombra ningún campo no inventa uno.
+  assert.equal(campoDeEtiquetaInequivoca('(SOLO SI CORRESPONDE)'), null);
+});
+
+// Misma raíz que el test del paréntesis de arriba, pero por la ruta INLINE (blanco en medio del
+// texto). El match de etiqueta exigía que el texto terminara en ":", así que un rótulo entre
+// paréntesis nunca llegaba al diccionario y la casilla quedaba en blanco aunque el documento
+// dijera qué campo va ahí. Caso real "Formatos Esmaltes" (La Serena).
+test('REGRESIÓN Formatos Esmaltes: rótulo entre paréntesis junto al blanco inline', () => {
+  // El rótulo va DESPUÉS de la raya, que es como lo imprime este organismo.
+  const linea = '______________________ (Razón social empresa)';
+  assert.equal(campoDeBlancoInline(blanco(linea, 0)), null, 'sin texto antes no se resuelve');
+
+  // `largo` es el ancho real de la raya: sin eso, el texto "después del blanco" arrastraría los
+  // guiones bajos y el rótulo no quedaría pegado al paréntesis.
+  const raya = '______________________';
+  const conAntes = `Firma: ${raya} (Rut de Empresa)`;
+  assert.equal(campoDeBlancoInline(blanco(conAntes, 'Firma: '.length, { largo: raya.length })), 'rut');
+
+  // Y también cuando el rótulo va ANTES del blanco.
+  const antes = 'Nombre (Razón social empresa) ______________________';
+  assert.equal(campoDeBlancoInline(blanco(antes, antes.indexOf('_'))), 'razon_social');
+
+  // Guardarraíl: un paréntesis que no nombra ningún campo sigue sin resolverse.
+  const neutro = `Declaro (bajo juramento) ${raya}`;
+  assert.equal(campoDeBlancoInline(blanco(neutro, neutro.indexOf('_'), { largo: raya.length })), null);
+});

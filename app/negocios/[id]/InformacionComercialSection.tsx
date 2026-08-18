@@ -1108,7 +1108,14 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
                 <textarea
                   value={valorTexto} autoFocus
                   onChange={e => setValorTexto(e.target.value)}
-                  placeholder={item.tipo === 'dato' ? 'Escribe el dato comprometido…' : 'Nota (opcional) y adjunta el documento'}
+                  // El texto SOLO ya bastaba para cargar un punto (ver `guardar`: exige texto O
+                  // documento, nunca los dos), pero el placeholder decía "y adjunta el documento"
+                  // y el usuario entendía que el archivo era obligatorio — no había forma visible
+                  // de argumentar por qué un punto no aplica. Es lo mismo que ya se guarda en
+                  // valor_texto; solo faltaba decirlo.
+                  placeholder={item.tipo === 'dato'
+                    ? 'Escribe el dato comprometido…'
+                    : 'Adjunta el documento, o explica acá por qué no aplica o no lo tienes'}
                   rows={2}
                   className="w-full px-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none"
                 />

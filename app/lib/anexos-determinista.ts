@@ -45,8 +45,23 @@ export interface ResultadoDeterminista {
 // ── Normalización ────────────────────────────────────────────────────────────────────────────
 // Una misma pregunta viene escrita de N formas en anexos de distintos organismos ("R.U.T.",
 // "RUT:", "Rut del oferente", "R U T"). Todo lo que sigue compara SOBRE el texto normalizado.
+// BUG REAL (18-ago-2026, caso "Formatos Esmaltes", La Serena): el paréntesis se usa de las DOS
+// formas opuestas y el limpiador de abajo solo contemplaba una. Como ACOTACIÓN de una etiqueta que
+// ya existe ("Nombre (si correspondiere)") hay que borrarlo — es lo que hace `.replace(/\(.*?\)/g)`.
+// Pero cuando el organismo NO escribe etiqueta y deja SOLO el paréntesis como marcador de qué va
+// ahí — "(Razón social empresa)", "(Rut de Empresa)", "(Rut representante legal)" — borrarlo deja
+// la etiqueta VACÍA: el diccionario no matchea nada y la casilla queda pendiente, aunque el
+// documento dijera literalmente el nombre del campo. Se distingue sin ambigüedad por la forma: si
+// el paréntesis envuelve TODO el texto, es el marcador y su contenido ES la etiqueta; si hay texto
+// afuera, es una acotación y se descarta como siempre.
+function sinParentesisEnvolvente(s: string): string {
+  // [\s\S] en vez del flag /s (dotAll): el target del proyecto es ES2017 y ahí ese flag no existe.
+  const m = s.trim().match(/^\(([\s\S]+)\)$/);
+  return m ? m[1] : s;
+}
+
 export function normalizarEtiqueta(s: string): string {
-  return (s || '')
+  return sinParentesisEnvolvente(s || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')   // sin tildes
     .toLowerCase()
     .replace(/\(.*?\)/g, ' ')                            // "(si correspondiere)", "(en palabras)"
@@ -85,7 +100,11 @@ const CATEGORIA_DE_CAMPO = (campo: Campo): CategoriaCampo => {
 // Sufijo opcional "del oferente / de la empresa / del proponente": la MISMA pregunta viene con
 // cualquiera de esos remates según el organismo. Sin él, "RUT DEL OFERENTE:" no matcheaba nada.
 const OFERENTE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:empresa|oferente|proponente|participante|postulante|contribuyente|prestador|proveedor))?';
-const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representante(?:\\s+legal)?|apoderado|declarante|firmante|suscriptor))';
+// "representate" (sin la "n") es un error de tipeo REAL y frecuente en los pliegos — visto en
+// "Formatos Esmaltes" (La Serena) como "(representate legal)". La casilla dice exactamente de quién
+// es el dato; perderla por una letra sería absurdo. La "n" opcional no introduce ninguna
+// ambigüedad: no existe otra palabra del dominio que se escriba "representate".
+const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representan?te(?:\\s+legal)?|apoderado|declarante|firmante|suscriptor))';
 
 interface Entrada { campo: Campo; patrones: RegExp[] }
 
@@ -180,7 +199,7 @@ const DICCIONARIO: Entrada[] = [
   // ── Representante legal ──
   { campo: 'representante_nombre', patrones: [
     new RegExp(`^nombre(?:\\s+completo)?${REPRE}$`),
-    new RegExp(`^(?:representante\\s+legal|apoderado)$`),
+    new RegExp(`^(?:representan?te\\s+legal|apoderado)$`),
     /^nombre y apellidos? del representante(?: legal)?$/,
     /^(?:identificacion|individualizacion) del (?:representante(?: legal)?|apoderado)$/,
     /^representante legal de la empresa$/, /^nombre del firmante$/, /^quien suscribe$/,
@@ -449,7 +468,29 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
   // guion bajo (y limitar a una sola línea de "palabras") obliga a que el match empiece DESPUÉS
   // de la raya anterior, en la etiqueta inmediatamente pegada al blanco actual.
   const etiqueta = antes.match(/[\p{L}\p{N} .()°ºª/-]{2,60}:\s*$/u)?.[0];
-  return etiqueta ? campoDeEtiquetaInequivoca(etiqueta) : null;
+  // Si la etiqueta con dos puntos NO resuelve, se sigue probando el rótulo entre paréntesis de más
+  // abajo en vez de rendirse: caso real "FIRMA: ______ (Rut de Empresa)", donde la etiqueta con
+  // ":" es genérica ("Firma") y el dato real lo dice el paréntesis.
+  if (etiqueta) {
+    const campo = campoDeEtiquetaInequivoca(etiqueta);
+    if (campo) return campo;
+  }
+
+  // BUG REAL (18-ago-2026, "Formatos Esmaltes" de La Serena): el organismo rotula la casilla con un
+  // PARÉNTESIS en vez de una etiqueta con dos puntos — "_________ (Razón social empresa)",
+  // "________ (Rut representante legal)". El match de arriba exige que el texto termine en ":", así
+  // que estas casillas no llegaban nunca al diccionario y quedaban en blanco pese a que el propio
+  // documento decía qué campo va ahí. Se prueba tanto ANTES como DESPUÉS del blanco porque el
+  // paréntesis-rótulo suele ir DEBAJO/al lado de la raya, no delante. Solo AGREGA resolución: si el
+  // paréntesis no nombra un campo conocido, `campoDeEtiquetaInequivoca` devuelve null igual que antes.
+  const RE_ROTULO_PARENTESIS = /\(([^()]{2,60})\)\s*$/;
+  const rotuloAntes = antes.match(RE_ROTULO_PARENTESIS)?.[0];
+  if (rotuloAntes) {
+    const campo = campoDeEtiquetaInequivoca(rotuloAntes);
+    if (campo) return campo;
+  }
+  const rotuloDespues = despues.match(/^\s*\(([^()]{2,60})\)/)?.[0];
+  return rotuloDespues ? campoDeEtiquetaInequivoca(rotuloDespues) : null;
 }
 
 // ── Guardarraíl anti-invención ───────────────────────────────────────────────────────────────
