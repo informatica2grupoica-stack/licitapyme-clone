@@ -106,6 +106,18 @@ const OFERENTE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:empresa|oferente|proponent
 // ambigüedad: no existe otra palabra del dominio que se escriba "representate".
 const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representan?te(?:\\s+legal)?|apoderado|declarante|firmante|suscriptor))';
 
+// Sufijos que NO cambian QUÉ dato se pide, solo cómo el organismo lo rotula. Se aplican al teléfono
+// y al correo, nunca al nombre ni al RUT.
+//  · "principal y alternativo" / "principal" / "alternativo": el ANEXO N°2 de 1247197-54-LE26 pide
+//    "Teléfono principal y alternativo:" y "Correo electrónico principal y alternativo:" en UNA sola
+//    casilla. Regla del usuario (18-ago-2026): la empresa usa el MISMO teléfono y el MISMO correo
+//    para todo, así que principal y alternativo son el mismo dato.
+//  · El remate de REPRESENTANTE: por la misma regla, el teléfono y el correo del representante son
+//    los de la empresa. Por eso estos dos campos aceptan el remate de OFERENTE **y** el de REPRE, a
+//    diferencia del nombre o el RUT, donde sí son personas distintas y confundirlas es un error.
+const PRINCIPAL_ALT = '(?:\\s+(?:principal(?:es)?|alternativos?|secundarios?)(?:\\s+y\\s+(?:el\\s+)?(?:alternativos?|secundarios?|principal(?:es)?))?)?';
+const CONTACTO = `(?:${OFERENTE}|${REPRE})?`;
+
 interface Entrada { campo: Campo; patrones: RegExp[] }
 
 const DICCIONARIO: Entrada[] = [
@@ -174,7 +186,7 @@ const DICCIONARIO: Entrada[] = [
   { campo: 'ciudad', patrones: [/^ciudad$/, new RegExp(`^ciudad${OFERENTE}$`), /^localidad$/] },
   { campo: 'region', patrones: [/^region$/, /^region y comuna$/, /^ciudad y region$/, /^region\/comuna$/] },
   { campo: 'telefono1', patrones: [
-    new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|fijo))?${OFERENTE}$`),
+    new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|fijo))?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
     /^telefono\/celular$/, /^fono contacto$/, /^numero de (?:telefono|contacto)$/,
     /^n[°º]? de telefono$/,
     // "TELÉFONO FIJO Y CELULAR" — una sola casilla para las dos formas (anexos reales presentados).
@@ -185,7 +197,7 @@ const DICCIONARIO: Entrada[] = [
     // normalizarEtiqueta conserva el guion a propósito (lo necesita el sufijo de letra tipo
     // "N°1-A"), así que "e-mail" llegaba con el guion intacto y `e\s*mail` —que solo acepta espacio
     // o nada— no lo reconocía: el correo quedaba en blanco en cualquier anexo que lo rotule así.
-    new RegExp(`^(?:correo|correo\\s+electronico|e[\\s-]*mail|mail|casilla\\s+electronica)(?:\\s+de\\s+contacto)?${OFERENTE}$`),
+    new RegExp(`^(?:correo|correo\\s+electronico|e[\\s-]*mail|mail|casilla\\s+electronica)(?:\\s+de\\s+contacto)?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
     /^correo electronico para (?:notificaciones|efectos de (?:esta )?licitacion)$/,
   ] },
   // "FECHA:" suelta (un solo blanco, no un triplete día/mes/año — esos ya los resuelve entero

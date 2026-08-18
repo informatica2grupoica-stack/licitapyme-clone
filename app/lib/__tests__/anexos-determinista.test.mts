@@ -468,3 +468,22 @@ test('direccionSinComuna: recorta la comuna del final conservando el formato de 
   assert.equal(direccionSinComuna({ direccion: 'Talagante', comuna: 'Talagante' } as any), 'Talagante');
   assert.equal(direccionSinComuna({ direccion: '', comuna: 'Talagante' } as any), null);
 });
+
+// REGLA DEL USUARIO (18-ago-2026, vista en el ANEXO N°2 de 1247197-54-LE26, "CARTA IDENTIFICACIÓN
+// UTP"): la empresa usa el MISMO teléfono y el MISMO correo para todo — principal y alternativo son
+// el mismo dato, y el del representante es el de la empresa. Esas dos casillas quedaban vacías.
+test('teléfono y correo: "principal y alternativo" y el del representante son el MISMO dato', () => {
+  for (const e of ['Teléfono principal y alternativo', 'Teléfono principal', 'Teléfono alternativo',
+                   'Teléfono del representante legal', 'Fono principal y alternativo']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'telefono1', e);
+  }
+  for (const e of ['Correo electrónico principal y alternativo', 'Correo electrónico alternativo',
+                   'Correo electrónico del representante legal', 'E-mail principal']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'email1', e);
+  }
+  // GUARDARRAÍL: esto vale SOLO para contacto. El nombre y el RUT del representante son de una
+  // persona distinta de la empresa — confundirlos es el error que este archivo existe para evitar.
+  assert.equal(campoDeEtiquetaInequivoca('Nombre del representante legal'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('RUT del representante legal'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('Razón social del oferente'), 'razon_social');
+});
