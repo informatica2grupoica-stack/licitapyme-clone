@@ -487,3 +487,32 @@ test('teléfono y correo: "principal y alternativo" y el del representante son e
   assert.equal(campoDeEtiquetaInequivoca('RUT del representante legal'), 'representante_rut');
   assert.equal(campoDeEtiquetaInequivoca('Razón social del oferente'), 'razon_social');
 });
+
+// REGRESIÓN FORMULARIO N°1 de 1063538-204-LE26 (18-ago-2026, reportado por el usuario sobre el
+// documento generado). Tres cosas del mismo formulario:
+test('REGRESIÓN FORMULARIO N°1: "RUT o Cédula de Identidad" es el RUT de la EMPRESA', () => {
+  // El organismo ofrece las dos formas porque el oferente puede ser persona natural. Para nosotros
+  // (persona jurídica) es el RUT de la empresa — el del representante tiene su propia casilla.
+  for (const e of ['RUT o Cédula de Identidad', 'Cédula de Identidad o RUT', 'RUT/Cédula de Identidad', 'RUT o C.I']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'rut', e);
+  }
+});
+
+// La PROFESIÓN u OFICIO no es el CARGO: un anexo puede pedir las dos en el mismo bloque
+// ("Cargo: Gerente" / "Profesión u oficio: Empresaria"). Columna creada en migration-69.
+test('profesión u oficio es un campo distinto del cargo', () => {
+  for (const e of ['Profesión', 'Oficio', 'Profesión u oficio', 'Profesión o oficio', 'Título profesional',
+                   'Profesión u oficio del representante legal']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'representante_profesion', e);
+  }
+  assert.equal(campoDeEtiquetaInequivoca('Cargo'), 'representante_cargo');
+  assert.equal(campoDeEtiquetaInequivoca('Cargo del representante legal'), 'representante_cargo');
+});
+
+// El COORDINADOR TÉCNICO lo designa el asistente para esta licitación en concreto: no es un dato de
+// la ficha de la empresa y NUNCA debe autocompletarse (regla del usuario, 18-ago-2026).
+test('el coordinador técnico nunca se autocompleta — lo designa el asistente', () => {
+  for (const e of ['Coordinador Técnico', 'Nombre del Coordinador Técnico', 'Coordinador del contrato']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), null, e);
+  }
+});

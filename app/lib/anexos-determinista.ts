@@ -160,6 +160,10 @@ const DICCIONARIO: Entrada[] = [
     // (persona jurídica) es el RUT de la empresa; el RUT del representante tiene su propia
     // casilla más abajo en ese mismo formulario, así que no hay colisión.
     /^r\s*u\s*t\s*o\s*c\s*i$/, /^rut o cedula(?: de identidad)?$/,
+    // Mismas dos formas al revés y con la cédula escrita completa (FORMULARIO N°1 de
+    // 1063538-204-LE26: "RUT o Cédula de Identidad" en el bloque de datos del oferente).
+    /^cedula de identidad o rut$/, /^c\s*i\s*o\s*r\s*u\s*t$/,
+    /^rut\/cedula(?: de identidad)?$/, /^cedula(?: de identidad)?\/rut$/,
   ] },
   { campo: 'giro', patrones: [
     new RegExp(`^giro(?:\\s+(?:comercial|del\\s+negocio|o\\s+actividad))?${OFERENTE}$`),
@@ -226,6 +230,13 @@ const DICCIONARIO: Entrada[] = [
     new RegExp(`^(?:rut|r\\s*u\\s*t|run|cedula(?:\\s+de\\s+identidad)?|c\\s*i)${REPRE}$`),
     /^cedula de identidad(?: n[°º]?)?$/, /^c i n[°º]?$/, /^run$/, /^numero de (?:cedula|run)$/,
     /^rut representante$/, /^(?:n[°º]? de )?cedula (?:nacional )?de identidad$/,
+  ] },
+  // La PROFESIÓN u OFICIO no es el CARGO: un anexo puede pedir las dos en el mismo bloque
+  // ("Cargo: Gerente" / "Profesión u oficio: Empresaria"). Ver migration-69.
+  { campo: 'representante_profesion' as Campo, patrones: [
+    new RegExp(`^(?:profesion|oficio|profesion u oficio|profesion o oficio)${REPRE}$`),
+    /^profesion$/, /^oficio$/, /^profesion u oficio$/, /^profesion o oficio$/,
+    /^titulo profesional$/, /^actividad o profesion$/,
   ] },
   { campo: 'representante_cargo', patrones: [
     new RegExp(`^cargo${REPRE}$`),

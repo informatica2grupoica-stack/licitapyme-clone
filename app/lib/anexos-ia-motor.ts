@@ -38,6 +38,12 @@ export interface EmpresaCampos {
   representante_nombre: string | null;
   representante_rut: string | null;
   representante_cargo: string | null;
+  // La PROFESIÓN u OFICIO del representante ("Empresaria", "Ingeniero Constructor"): NO es lo mismo
+  // que su CARGO en la empresa ("Gerente"), y hay anexos que piden las dos en el mismo bloque.
+  // OPCIONAL a propósito: la columna la crea migration-69 y hasta que esté aplicada (y agregada al
+  // SELECT de anexos-datos.ts) el valor llega vacío y la casilla queda PENDIENTE — que es el
+  // comportamiento correcto, nunca un dato inventado.
+  representante_profesion?: string | null;
   email1: string | null;
   telefono1: string | null;
   banco_tipo_cuenta: string | null;
@@ -314,6 +320,7 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   representante_nombre: 'Nombre completo del representante legal (nombres + apellidos juntos) — úsalo SOLO si la casilla pide "Nombre completo"/"Nombre" en UNA sola casilla. Si la casilla dice "Nombres" y "Apellidos" por separado, usa los campos específicos de abajo, nunca este entero.',
   representante_rut: 'RUT/cédula de identidad del representante legal',
   representante_cargo: 'Cargo del representante legal',
+  representante_profesion: 'Profesión u oficio del representante legal (distinto de su cargo)',
   representante_nombres: 'Solo los NOMBRES (de pila) del representante legal, sin apellidos — casilla "Nombres".',
   representante_apellidos: 'Solo los APELLIDOS del representante legal, sin nombres — casilla "Apellidos".',
   email1: 'Correo electrónico de la empresa',
