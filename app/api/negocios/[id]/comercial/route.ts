@@ -29,6 +29,8 @@ import {
   evaluarCaracteristicaDeterminista, slugCaracteristica,
 } from '@/app/lib/auditor-tecnico';
 
+import { decidirGeneracion, type DocumentoCandidato, type BloqueGenerable } from '@/app/lib/auditor-generacion';
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -290,6 +292,50 @@ function semaforoDelNegocio(negocio: any, items: any[]) {
 }
 
 // ═══ GET ════════════════════════════════════════════════════════════════════════
+/**
+ * Decide, para los bloques COMERCIAL y TÉCNICO, si ya se puede generar su anexo. Todo el juicio
+ * vive en auditor-generacion.ts (módulo puro y testeado); acá solo se juntan los datos.
+ *
+ * Los documentos candidatos son SIEMPRE los .docx que se bajaron de Mercado Público, con la
+ * categoría que anexos-dividir.ts les puso al separarlos. Nunca una plantilla nuestra: por eso se
+ * excluye DOCUMENTOS_PROPIOS, que es donde caen los archivos que la app ya generó.
+ */
+const CATEGORIA_CAJA_A_ANEXO: Record<string, DocumentoCandidato['categoria']> = {
+  ANEXOS_ADMINISTRATIVOS: 'administrativo',
+  ANEXOS_TECNICOS: 'tecnico',
+  ANEXOS_ECONOMICOS: 'economico',
+  ANEXOS_OFERENTE: 'sin_clasificar',
+};
+
+async function decidirGeneracionDeBloques(negocio: any) {
+  const [docRows] = await pool.query(
+    `SELECT id, documento_nombre, categoria, documento_url_local FROM documentos_cache
+      WHERE licitacion_codigo = ? AND categoria <> 'DOCUMENTOS_PROPIOS'
+        AND (documento_nombre LIKE '%.docx' OR documento_nombre LIKE '%.doc')`,
+    [negocio.licitacion_codigo],
+  ) as any;
+  const documentos: DocumentoCandidato[] = (docRows as any[]).map(d => ({
+    id: d.id, nombre: d.documento_nombre, url: d.documento_url_local,
+    categoria: CATEGORIA_CAJA_A_ANEXO[d.categoria] ?? 'sin_clasificar',
+  }));
+
+  const [costeoRows] = await pool.query(
+    `SELECT id FROM checklist_comercial_costeo WHERE negocio_id = ? AND vigente = 1 LIMIT 1`,
+    [negocio.id],
+  ) as any;
+  const hayCosteoVigente = (costeoRows as any[]).length > 0;
+
+  const items = await leerItems(negocio.id);
+  const porBloque = (b: BloqueGenerable) => items
+    .filter((i: any) => i.bloque === b)
+    .map((i: any) => ({ estado: i.estado, ofertamos: i.ofertamos }));
+
+  return {
+    COMERCIAL: decidirGeneracion({ bloque: 'COMERCIAL', items: porBloque('COMERCIAL'), hayCosteoVigente, documentos }),
+    TECNICO: decidirGeneracion({ bloque: 'TECNICO', items: porBloque('TECNICO'), hayCosteoVigente, documentos }),
+  };
+}
+
 export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -367,6 +413,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const { semaforo, causales, horasRestantes } = semaforoDelNegocio(negocio, items);
     const congelamiento = await leerCongelamiento(negocio.id);
+    const generacion = await decidirGeneracionDeBloques(negocio);
 
     return NextResponse.json({
       success: true,
@@ -377,6 +424,9 @@ export async function GET(request: NextRequest, { params }: Params) {
       foroSnapshot: foroSnapshotInfo,
       resumen: resumirChecklist(items),
       semaforo, causalesBloqueo: causales, horasRestantesCierre: horasRestantes,
+      // ¿Ya se puede generar el anexo económico / técnico desde acá? Ver auditor-generacion.ts:
+      // la UI muestra el botón o el motivo por el que todavía no, nunca un botón muerto.
+      generacion,
       puedeAprobar: await esAsesor(userId, rol),
       esAsignado: Number(negocio.asignado_a) === Number(userId),
       modalidad: {

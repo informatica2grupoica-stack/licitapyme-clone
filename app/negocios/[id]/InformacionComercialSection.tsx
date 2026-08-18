@@ -24,6 +24,7 @@ import { useRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
+import type { DecisionGeneracion, DocumentoCandidato } from '@/app/lib/auditor-generacion';
 import { SelectorDocumentoAnexo } from '@/app/components/SelectorDocumentoAnexo';
 import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
 import { FilaLineaTecnica } from './FilaLineaTecnica';
@@ -253,6 +254,9 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   const [resumen, setResumen] = useState<Resumen | null>(null);
   const [semaforo, setSemaforo] = useState<Semaforo>('VERDE');
   const [causalesBloqueo, setCausalesBloqueo] = useState<CausalBloqueo[]>([]);
+  // Decisión de "¿ya se puede generar el anexo de este bloque?" — la calcula el backend con
+  // auditor-generacion.ts y trae también el documento de la licitación pre-seleccionado.
+  const [generacion, setGeneracion] = useState<Record<string, DecisionGeneracion> | null>(null);
   const [foroSnapshot, setForoSnapshot] = useState<{ ultimoDelta: Array<{ tipo: string; numero: number | null; detalle: string }>; ultimoDeltaAt: string | null; bloquesRevertidos: string[] } | null>(null);
   const [congelado, setCongelado] = useState<{ congeladoAt: string; congeladoPorNombre: string | null } | null>(null);
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
@@ -316,6 +320,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       setItems(d.items || []);
       setResumen(d.resumen || null);
       setSemaforo(d.semaforo || 'VERDE');
+      setGeneracion(d.generacion || null);
       setCausalesBloqueo(d.causalesBloqueo || []);
       setForoSnapshot(d.foroSnapshot || null);
       setCongelado(d.congelado || null);
@@ -620,6 +625,18 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
               </div>
             )}
 
+            {/* Generar el anexo ECONÓMICO / TÉCNICO desde el bloque, no desde una fila: es UN
+                documento que consume TODAS las líneas del bloque (12 líneas de precio = un solo
+                anexo económico). El backend ya decidió si se puede y con qué documento de la
+                LICITACIÓN — nunca una plantilla nuestra. Ver app/lib/auditor-generacion.ts. */}
+            {isAdmin && (b.key === 'COMERCIAL' || b.key === 'TECNICO') && generacion?.[b.key] && (
+              <GenerarAnexoDeBloque
+                decision={generacion[b.key]!}
+                etiqueta={b.key === 'COMERCIAL' ? 'económico' : 'técnico'}
+                onGenerar={doc => setAnexoDocSeleccionado({ id: doc.id, nombre: doc.nombre, url: doc.url || '' })}
+              />
+            )}
+
             {b.key === 'COMERCIAL' && <MotorComercialCard negocioId={negocioId} licitacionCodigo={licitacionCodigo} />}
 
             {b.key === 'TECNICO' && lineasTecnicas.length > 0 && (
@@ -920,6 +937,48 @@ function BloqueEmpresa({ empresa, empresas, onElegir, toast, bloqueado }: {
 
 // ════════════════════════════════════════════════════════════════════════════════
 // Una fila del checklist: el punto, su evidencia, y las acciones según quién mira.
+/**
+ * Botón para generar el anexo ECONÓMICO / TÉCNICO del bloque completo.
+ *
+ * Va en la cabecera del bloque y no en cada fila porque el anexo es UNO solo que consume todas las
+ * líneas (12 líneas de precio = un anexo económico). Cuando todavía no se puede, en vez de un botón
+ * deshabilitado y mudo se muestra EXACTAMENTE qué falta — es lo que diferencia a un auditor de una
+ * lista de tareas. Ver app/lib/auditor-generacion.ts.
+ */
+function GenerarAnexoDeBloque({ decision, etiqueta, onGenerar }: {
+  decision: DecisionGeneracion;
+  etiqueta: string;
+  onGenerar: (doc: DocumentoCandidato) => void;
+}) {
+  if (!decision.puede) {
+    return (
+      <div className="px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 text-[11.5px] text-zinc-600 flex items-start gap-1.5">
+        <AlertTriangle size={13} className="text-zinc-400 mt-px flex-shrink-0" />
+        <span><b className="text-zinc-700">Anexo {etiqueta}:</b> {decision.motivo}</span>
+      </div>
+    );
+  }
+  const docs = [decision.documentoSugerido!, ...decision.alternativas];
+  return (
+    <div className="px-4 py-2.5 bg-violet-50 border-b border-violet-100">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11.5px] text-violet-900"><b>Anexo {etiqueta} listo para generar.</b> {decision.motivo}</span>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap mt-2">
+        {docs.map(d => (
+          <button key={d.id} onClick={() => onGenerar(d)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg transition-colors">
+            <Sparkles size={12} /> {docs.length > 1 ? d.nombre.slice(0, 40) : `Generar anexo ${etiqueta}`}
+          </button>
+        ))}
+      </div>
+      {/* El documento es SIEMPRE el que publicó el organismo; el motor escribe dentro de ese
+          archivo y verifica que no cambió su estructura antes de subirlo. */}
+      <p className="text-[10.5px] text-violet-700/80 mt-1.5">Se rellena el documento original de la licitación, no una plantilla.</p>
+    </div>
+  );
+}
+
 function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, onAccion, onVer, onGenerar, toast }: {
   item: Item;
   licitacionCodigo: string;
