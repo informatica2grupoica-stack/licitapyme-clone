@@ -125,6 +125,20 @@ export function diagnosticarCobertura(args: {
     };
   }
 
+  // FALLO REAL NO DETECTADO (18-ago-2026, ANEXO N°5 de 1057480-41-LP26, reportado por el usuario):
+  // el anexo tenía DOS casillas de ficha —"NOMBRE PROVEEDOR / EMPRESA" y "RUT"— y solo se llenó el
+  // RUT. Como `casillasResueltas > 0`, el diagnóstico daba "ok" y yo reporté la auditoría como
+  // limpia: en un anexo de cinco líneas faltaba el nombre del oferente. Un aviso que solo mira "¿se
+  // llenó ALGO?" no sirve; tiene que mirar cuánto de lo que le TOCABA quedó sin llenar.
+  const sinResolverEnAlcance = Math.max(0, enAlcance - casillasResueltas);
+  if (sinResolverEnAlcance > 0) {
+    return {
+      ...base, severidad: 'revisar',
+      motivo: `Quedaron ${sinResolverEnAlcance} de ${enAlcance} casilla(s) que debían salir de la ficha sin completar `
+        + `(se completaron ${casillasResueltas}). Revisa si alguna etiqueta de este documento no está en el diccionario.`,
+    };
+  }
+
   return { ...base, severidad: 'ok', motivo: `${casillasResueltas} de ${casillasDetectadas} casilla(s) completadas automáticamente.` };
 }
 

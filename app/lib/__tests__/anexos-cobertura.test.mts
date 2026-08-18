@@ -63,12 +63,20 @@ test('REVISAR: detectó las casillas pero no supo completar ninguna', () => {
   assert.match(d.motivo, /no se pudo completar ninguna/);
 });
 
-test('OK: caso normal — se detectaron y se completaron', () => {
+test('OK: caso normal — se completó TODO lo que salía de la ficha', () => {
   const texto = ['NOMBRE O RAZÓN SOCIAL:____________', 'RUT:____________',
     'DOMICILIO:____________', 'TELÉFONO:____________'].join('\n');
-  const d = diag(texto, 4, 3);
+  const d = diag(texto, 4, 4);
   assert.equal(d.severidad, 'ok');
-  assert.match(d.motivo, /3 de 4/);
+  assert.match(d.motivo, /4 de 4/);
+});
+
+// Antes este mismo caso (3 de 4) se daba por bueno: bastaba con haber llenado ALGO. Ese criterio es
+// el que dejó pasar el ANEXO N°5 de 1057480-41-LP26 con el nombre del oferente vacío.
+test('REVISAR: 3 de 4 casillas de ficha ya no se da por bueno', () => {
+  const texto = ['NOMBRE O RAZÓN SOCIAL:____________', 'RUT:____________',
+    'DOMICILIO:____________', 'TELÉFONO:____________'].join('\n');
+  assert.equal(diag(texto, 4, 3).severidad, 'revisar');
 });
 
 // El "que:" de una oración legal no es una etiqueta de campo: si contara, cualquier declaración
@@ -76,4 +84,27 @@ test('OK: caso normal — se detectaron y se completaron', () => {
 test('la línea larga que termina en ":" no cuenta como etiqueta', () => {
   const texto = 'El oferente que suscribe declara bajo juramento, para los efectos de esta licitación pública, que:';
   assert.equal(diag(texto, 0).totalSenales, 0);
+});
+
+// FALLO REAL NO DETECTADO (ANEXO N°5 de 1057480-41-LP26): el anexo tenía dos casillas de ficha
+// ("NOMBRE PROVEEDOR / EMPRESA" y "RUT") y solo se llenó el RUT. El diagnóstico daba "ok" porque
+// miraba únicamente si se había llenado ALGO — y la auditoría se reportó como limpia con el nombre
+// del oferente vacío en un anexo de cinco líneas.
+test('REVISAR: llenó algunas pero dejó casillas de ficha sin completar', () => {
+  const texto = 'IDENTIFICACIÓN DEL OFERENTE\nNOMBRE PROVEEDOR / EMPRESA:____________\nRUT:____________\nCANTIDAD DE DÍAS HÁBILES:____________';
+  const d = diagnosticarCobertura({
+    textoPlano: texto, parrafosConTexto: 4,
+    casillasDetectadas: 3, casillasResueltas: 1, casillasFueraDeAlcance: 1, // los días hábiles no salen de la ficha
+  });
+  assert.equal(d.severidad, 'revisar');
+  assert.match(d.motivo, /Quedaron 1 de 2/);
+});
+
+test('OK: si se completó TODO lo que salía de la ficha, no avisa', () => {
+  const texto = 'NOMBRE PROVEEDOR / EMPRESA:____________\nRUT:____________\nCANTIDAD DE DÍAS HÁBILES:____________';
+  const d = diagnosticarCobertura({
+    textoPlano: texto, parrafosConTexto: 3,
+    casillasDetectadas: 3, casillasResueltas: 2, casillasFueraDeAlcance: 1,
+  });
+  assert.equal(d.severidad, 'ok');
 });

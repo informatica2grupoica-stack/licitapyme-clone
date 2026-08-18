@@ -143,6 +143,10 @@ const DICCIONARIO: Entrada[] = [
     // "NOMBRE EMPRESA" / "NOMBRE PROVEEDOR" — sin el "de la" que exige el patrón de arriba
     // (evidencia de anexos reales ya presentados).
     /^nombre (?:empresa|sociedad|oferente|proponente|proveedor|contratista)$/,
+    // El organismo ofrece DOS palabras separadas por barra para cubrir los dos tipos de oferente:
+    // "NOMBRE PROVEEDOR / EMPRESA" (ANEXO N°5 de 1057480-41-LP26). Es una sola casilla y el dato
+    // es el mismo: la razón social. Se acepta la barra con o sin espacios alrededor.
+    /^nombre (?:del? |de la )?(?:proveedor|empresa|oferente|proponente|contratista|razon social)\s*\/\s*(?:proveedor|empresa|oferente|proponente|contratista|razon social)$/,
     // "Nombre del proveedor postulante A LA LICITACIÓN" (1786987035022_ANEXO_N2.docx) — el
     // sufijo OFERENTE exige que la frase TERMINE en la palabra que dice a quién describe; acá
     // sigue "a la licitación/a este proceso" después, y por eso no calzaba con nada de arriba.
