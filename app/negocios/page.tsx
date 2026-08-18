@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'rea
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { fechaHoraParaExcel, ordenarPorFecha } from '@/app/lib/exportar-fechas';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
@@ -1592,7 +1593,11 @@ function NegociosContent() {
     setExportando(true);
     try {
       const XLSX = await import('xlsx');
-      const filas = negociosLista.map(n => ({
+      const filas = negociosLista.map(n => {
+        // Fecha y hora en columnas SEPARADAS, en ISO — ver app/lib/exportar-fechas.ts.
+        const cierre = fechaHoraParaExcel(n.licitacion_cierre);
+        const apertura = fechaHoraParaExcel(n.apertura_detectada_en);
+        return ({
         'Código':            n.licitacion_codigo,
         'Nombre':            n.licitacion_nombre || '',
         'Organismo':         n.licitacion_organismo || '',
@@ -1604,18 +1609,23 @@ function NegociosContent() {
         // Apertura del acto: la detecta el poller del portal, no la API. Es lo que se pidió poder
         // filtrar en el Excel junto con el estado (Cerrada / Desierta / Adjudicada / …).
         'Aperturada':        n.aperturada ? 'Sí' : 'No',
-        'Apertura detectada': n.apertura_detectada_en ? new Date(n.apertura_detectada_en).toLocaleString('es-CL') : '',
+        'Apertura detectada (fecha)': apertura.fecha,
+        'Apertura detectada (hora)':  apertura.hora,
         'Estado gestión':    getEstadoPipeline(n.estado_pipeline || 'ASIGNADO')?.label || n.estado_pipeline || '',
         'Monto (CLP)':       n.licitacion_monto ?? '',
         'Monto ofertado':    n.monto_ofertado ?? '',
         'Monto adjudicado a nosotros': n.adj_monto_nuestro ?? '',
-        'Cierre':            n.licitacion_cierre ? new Date(n.licitacion_cierre).toLocaleString('es-CL') : '',
+        'Cierre (fecha)':    cierre.fecha,
+        'Cierre (hora)':     cierre.hora,
         'Región':            n.licitacion_region || '',
         'Líneas de negocio': (n.etiquetas || []).map(e => e.nombre).join(', '),
         'Asignada a':        n.usuario_nombre || n.usuario_email || '',
         'URL':               `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(n.licitacion_codigo)}`,
-      }));
-      const ws = XLSX.utils.json_to_sheet(filas);
+      });
+      });
+      // Agrupadas por día de cierre (pedido del usuario 18-ago-2026): las del mismo día juntas.
+      const ordenadas = ordenarPorFecha(filas, f => f['Cierre (fecha)'], f => f['Cierre (hora)']);
+      const ws = XLSX.utils.json_to_sheet(ordenadas);
       // Anchos en el MISMO orden que las claves de `filas` (si se agrega una columna, va también aquí).
       ws['!cols'] = [
         { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 },  { wch: 12 },  // código…estado MP

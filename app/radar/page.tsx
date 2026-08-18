@@ -9,6 +9,7 @@ import { Select } from '@/app/components/ui/Select';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { useSession } from '@/app/lib/session-context';
+import { fechaHoraParaExcel, ordenarPorFecha } from '@/app/lib/exportar-fechas';
 import {
   Radar, Plus, Trash2, ExternalLink, Tag,
   CheckCheck, Building2, Calendar, DollarSign, Loader2,
@@ -1659,7 +1660,11 @@ export default function RadarPage() {
     setExportando(true);
     try {
       const XLSX = await import('xlsx');
-      const filas = alertasFiltradas.map(a => ({
+      const filas = alertasFiltradas.map(a => {
+        // Fecha y hora en columnas SEPARADAS y la fecha en ISO — ver app/lib/exportar-fechas.ts.
+        const cierre = fechaHoraParaExcel(a.licitacion_cierre);
+        const detectada = fechaHoraParaExcel(a.created_at);
+        return ({
         'Código':           a.licitacion_codigo,
         'Nombre':           a.licitacion_nombre,
         'Organismo':        a.licitacion_organismo,
@@ -1667,7 +1672,8 @@ export default function RadarPage() {
         'Tipo':             getTipoLicitacion(extractTipoFromCodigo(a.licitacion_codigo))?.label || extractTipoFromCodigo(a.licitacion_codigo) || '',
         'Región':           a.licitacion_region || '',
         'Monto (CLP)':      a.licitacion_monto ?? '',
-        'Cierre':           a.licitacion_cierre ? new Date(a.licitacion_cierre).toLocaleString('es-CL') : '',
+        'Cierre (fecha)':   cierre.fecha,
+        'Cierre (hora)':    cierre.hora,
         'Días restantes':   diasAlCierre(a.licitacion_cierre) ?? '',
         'Prefiltro':        a.prefiltro_decision ? (PREFILTRO_CFG[a.prefiltro_decision]?.label || a.prefiltro_decision) : '',
         'Prefiltro motivo': a.prefiltro_categoria ? (CATEGORIA_LABEL[a.prefiltro_categoria] || a.prefiltro_categoria) : '',
@@ -1678,17 +1684,22 @@ export default function RadarPage() {
         'Descartada':       a.descartada ? 'Sí' : 'No',
         'Asignada a':       a.asignado_nombre || '',
         'Leída':            a.leida ? 'Sí' : 'No',
-        'Detectada':        a.created_at ? new Date(a.created_at).toLocaleString('es-CL') : '',
+        'Detectada (fecha)': detectada.fecha,
+        'Detectada (hora)':  detectada.hora,
         'URL':              `https://www.mercadopublico.cl/Procurement/Modules/RFB/DetailsAcquisition.aspx?idlicitacion=${encodeURIComponent(a.licitacion_codigo)}`,
-      }));
-      const ws = XLSX.utils.json_to_sheet(filas);
+      });
+      });
+      // Agrupadas por día de cierre: todas las del 13 juntas, las del 11 juntas… (pedido explícito
+      // del usuario 18-ago-2026). Las que no tienen cierre publicado van al final.
+      const ordenadas = ordenarPorFecha(filas, f => f['Cierre (fecha)'], f => f['Cierre (hora)']);
+      const ws = XLSX.utils.json_to_sheet(ordenadas);
       ws['!cols'] = [
         { wch: 18 }, { wch: 50 }, { wch: 32 }, { wch: 12 }, { wch: 34 },
-        { wch: 16 }, { wch: 16 }, { wch: 18 }, { wch: 12 },
+        { wch: 16 }, { wch: 16 }, { wch: 14 }, { wch: 10 }, { wch: 12 },
         { wch: 14 }, { wch: 22 },
         { wch: 14 }, { wch: 14 }, { wch: 14 },
         { wch: 16 }, { wch: 12 }, { wch: 20 }, { wch: 8 },
-        { wch: 18 }, { wch: 70 },
+        { wch: 14 }, { wch: 10 }, { wch: 70 },
       ];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Licitaciones');

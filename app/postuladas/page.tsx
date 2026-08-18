@@ -24,6 +24,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
+import { fechaHoraParaExcel, ordenarPorFecha } from '@/app/lib/exportar-fechas';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { ESTADOS_PIPELINE, getEstadoPipeline, normalizarEstado } from '@/app/lib/pipeline';
 import { extractTipoFromCodigo, getTipoLicitacion } from '@/app/lib/tipos-licitacion';
@@ -1028,7 +1029,10 @@ export default function PostuladasPage() {
     setExportando(true);
     try {
       const XLSX = await import('xlsx');
-      const fecha = (v: string | null | undefined) => (v ? dayjs(v).format('DD-MM-YYYY HH:mm') : '');
+      // Fecha y hora SEPARADAS y en ISO, para que Excel agrupe y ordene por día — ver
+      // app/lib/exportar-fechas.ts. `fecha()` devuelve solo el día; `hora()` solo la hora.
+      const fecha = (v: string | null | undefined) => fechaHoraParaExcel(v).fecha;
+      const hora  = (v: string | null | undefined) => fechaHoraParaExcel(v).hora;
       const dia   = (v: string | null | undefined) => (v ? dayjs(v).format('DD-MM-YYYY') : '');
       const RESULTADO_LABEL: Record<Resultado, string> = {
         ganada: 'Ganada', perdida: 'Perdida', evaluacion: 'En evaluación',
@@ -1053,10 +1057,12 @@ export default function PostuladasPage() {
           'Estado MP':          estadoMpDe(n),
           'Resultado':          RESULTADO_LABEL[resultadoDeNegocio(n)],
           'Aperturada':         n.aperturada ? 'Sí' : 'No',
-          'Apertura detectada': fecha(n.apertura_detectada_en),
+          'Apertura detectada (fecha)': fecha(n.apertura_detectada_en),
+          'Apertura detectada (hora)': hora(n.apertura_detectada_en),
           'Apertura técnica (ficha)': fecha(a?.fechaAperturaTecnica),
           'Estado gestión':     getEstadoPipeline(n.estado_pipeline || '')?.label || n.estado_pipeline || '',
-          'Cierre':             fecha(n.licitacion_cierre),
+          'Cierre (fecha)': fecha(n.licitacion_cierre),
+          'Cierre (hora)': hora(n.licitacion_cierre),
           // Cuándo se decide: la fecha real del acta si ya se adjudicó, si no la estimada de la ficha.
           'Se decide':          dia(a?.esAdjudicada ? a?.fechaAdjudicacion : a?.fechaEstimadaAdjudicacion),
           'Fecha adjudicación': fecha(a?.fechaAdjudicacion),
@@ -1078,7 +1084,9 @@ export default function PostuladasPage() {
         };
       });
 
-      const ws = XLSX.utils.json_to_sheet(filas);
+      // Agrupadas por día de cierre (pedido del usuario 18-ago-2026).
+      const ordenadas = ordenarPorFecha(filas, f => f['Cierre (fecha)'], f => f['Cierre (hora)']);
+      const ws = XLSX.utils.json_to_sheet(ordenadas);
       // Anchos en el MISMO orden que las claves de arriba.
       ws['!cols'] = [
         { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 },  { wch: 22 },  // código…región
