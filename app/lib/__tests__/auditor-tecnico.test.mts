@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   lineasTecnicasDelInforme, evaluarCaracteristicaDeterminista, resumenLinea, slugCaracteristica,
 } from '../auditor-tecnico';
+import { causalesDeBloqueo } from '../semaforo-auditor';
 
 test('lineasTecnicasDelInforme: lee productos.items preservando caracteristicas/clasificacion/marca', () => {
   const informe = {
@@ -163,4 +164,28 @@ test('resumenLinea: cuenta cada categoría correctamente', () => {
 test('slugCaracteristica: normaliza tildes, mayúsculas y símbolos a una clave estable', () => {
   assert.equal(slugCaracteristica('Capacidad estanque ≥ 500 lts'), 'capacidad_estanque_500_lts');
   assert.equal(slugCaracteristica('Peso máximo (kg)'), 'peso_maximo_kg');
+});
+
+// BUG REAL (18-ago-2026, 2296-48-LE26): la licitación cerró a las 13:00 y a las 14:06 el Auditor
+// Técnico seguía mostrando "Quedan menos de 24 horas para el cierre". El cálculo del backend estaba
+// BIEN (horasRestantes = -1.10 → "El plazo de cierre ya venció"); el popup de la UI tenía el texto
+// fijo y nunca leía la causal. Estos tests fijan el contrato del que depende la UI: el código es
+// siempre el mismo, y la DESCRIPCIÓN es la que distingue vencido de por vencer.
+test('CIERRE_INMINENTE: distingue "ya venció" de "quedan menos de 24 horas"', () => {
+  const base = {
+    bloqueantesPendientes: 0, itemsNoCumpleSinResolver: 0, itemsPendientesProveedor: 0,
+    bloqueTecnicoAprobado: true, bloqueComercialAprobado: true,
+  };
+  const causalDe = (horasRestantes: number | null) =>
+    causalesDeBloqueo({ ...base, horasRestantes }).find(c => c.codigo === 'CIERRE_INMINENTE');
+
+  // Ya venció: la UI se apoya en esta redacción para cambiar el mensaje del popup.
+  assert.match(causalDe(-1.1)!.descripcion, /ya venci/i);
+  assert.match(causalDe(-72)!.descripcion, /ya venci/i);
+  // Todavía no vence.
+  assert.match(causalDe(5)!.descripcion, /menos de 24 horas/i);
+  assert.doesNotMatch(causalDe(5)!.descripcion, /ya venci/i);
+  // Con más de 24 horas no hay causal de cierre, y sin fecha publicada tampoco se inventa una.
+  assert.equal(causalDe(48), undefined);
+  assert.equal(causalDe(null), undefined);
 });

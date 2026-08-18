@@ -131,6 +131,10 @@ const fmtFecha = (s: string | null) => {
 // (sessionStorage con la clave incluye los códigos) — si aparece un bloqueante nuevo, avisa de
 // nuevo aunque ya se hubiera reconocido uno anterior.
 function PopupSemaforoRojo({ negocioId, causales }: { negocioId: number; causales: CausalBloqueo[] }) {
+  // El backend ya distingue "ya venció" de "quedan menos de 24 horas" (ver causalesDeBloqueo en
+  // semaforo-auditor.ts, que mira `horasRestantes < 0`). Acá solo se lee esa causal en vez de
+  // asumir que todo rojo es un cierre inminente.
+  const yaVencio = causales.some(c => c.codigo === 'CIERRE_INMINENTE' && /ya venci/i.test(c.descripcion));
   const clave = `auditor-rojo-reconocido-${negocioId}-${causales.map(c => c.codigo).sort().join(',')}`;
   const [visible, setVisible] = useState(true);
 
@@ -157,9 +161,20 @@ function PopupSemaforoRojo({ negocioId, causales }: { negocioId: number; causale
             <AlertTriangle size={18} className="text-rose-600" />
           </div>
           <div>
-            <h2 className="text-[15px] font-bold text-zinc-900">Esta licitación está en rojo</h2>
+            <h2 className="text-[15px] font-bold text-zinc-900">
+              {yaVencio ? 'El plazo de esta licitación ya venció' : 'Esta licitación está en rojo'}
+            </h2>
             <p className="text-[12px] text-zinc-500 mt-1">
-              Quedan menos de 24 horas para el cierre, o hay algo bloqueante sin resolver. Revisa los avisos antes de seguir trabajando.
+              {/* BUG REAL (18-ago-2026, 2296-48-LE26): este texto era FIJO y seguía diciendo "quedan
+                  menos de 24 horas" después de que la licitación ya había cerrado (cerró a las 13:00
+                  y a las 14:06 seguía apareciendo). El backend YA lo sabía —`causalesDeBloqueo`
+                  distingue `horasRestantes < 0` y devuelve "El plazo de cierre ya venció"— pero el
+                  popup nunca miraba las causales que recibe. Un contador que dice que queda tiempo
+                  cuando el plazo se cerró es peor que no mostrar nada: confunde sobre el tiempo real
+                  para presentar la oferta. */}
+              {yaVencio
+                ? 'El plazo de cierre en Mercado Público ya se cumplió, así que no queda tiempo para presentar la oferta. Puedes seguir trabajando en el expediente, pero ya no corre contra el cierre.'
+                : 'Quedan menos de 24 horas para el cierre, o hay algo bloqueante sin resolver. Revisa los avisos antes de seguir trabajando.'}
             </p>
           </div>
         </div>

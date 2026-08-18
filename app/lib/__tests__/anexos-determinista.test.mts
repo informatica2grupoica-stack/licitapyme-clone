@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   resolverDeterminista, campoDeEtiquetaInequivoca, resolverPeladaPorBloque,
   campoDeBlancoInline, clasificarPendiente, normalizarEtiqueta, direccionSinComuna,
+  esBloqueDesignadoPorNosotros, encabezadoDeSeccionMasCercano,
 } from '../anexos-determinista';
 import type { EmpresaCampos, Resolucion } from '../anexos-ia-motor';
 import type { CandidatoCelda, CandidatoInline } from '../anexos-detectar';
@@ -515,4 +516,44 @@ test('el coordinador técnico nunca se autocompleta — lo designa el asistente'
   for (const e of ['Coordinador Técnico', 'Nombre del Coordinador Técnico', 'Coordinador del contrato']) {
     assert.equal(campoDeEtiquetaInequivoca(e), null, e);
   }
+});
+
+// REGRESIÓN FORMULARIO N°1 de 1063538-204-LE26 (18-ago-2026). El bloque "COORDINADOR TÉCNICO" trae
+// las MISMAS etiquetas peladas que el del representante legal ("Nombre completo", "Cargo o función",
+// "Correo electrónico"), y la capa 2 las resolvía por contexto: escribía a la representante legal
+// como coordinadora técnica. Regla del usuario: el coordinador lo designa el asistente para ESA
+// licitación, no sale de la ficha. Y justo debajo viene "CONTACTO DEL PROPONENTE", que SÍ se llena —
+// los dos caen en el mismo bloque (GAP=4), así que hay que mirar el encabezado real de cada casilla.
+test('REGRESIÓN FORMULARIO N°1: el coordinador técnico no se llena, el contacto del proponente sí', () => {
+  assert.equal(esBloqueDesignadoPorNosotros('COORDINADOR TECNICO*:'), true);
+  assert.equal(esBloqueDesignadoPorNosotros('Coordinador del contrato'), true);
+  assert.equal(esBloqueDesignadoPorNosotros('CONTRAPARTE TÉCNICA'), true);
+  // El contacto del proponente somos nosotros: no entra en el bloqueo.
+  assert.equal(esBloqueDesignadoPorNosotros('CONTACTO DEL PROPONENTE:'), false);
+  assert.equal(esBloqueDesignadoPorNosotros('REPRESENTANTE LEGAL:'), false);
+  assert.equal(esBloqueDesignadoPorNosotros('DATOS DEL OFERENTE'), false);
+});
+
+// El encabezado de sección se distingue de una etiqueta de campo por estar en MAYÚSCULAS. Sin esto,
+// "Nombre completo" (la etiqueta) se tomaría por encabezado y el bloqueo nunca encontraría el real.
+test('encabezadoDeSeccionMasCercano: encuentra el encabezado real, no la etiqueta de campo', () => {
+  const p = (texto: string, indice: number): any => ({ texto, indice, vacio: !texto });
+  const parrafos = [
+    p('REPRESENTANTE LEGAL:', 0), p('Nombre completo', 1), p('Lidia Valenzuela', 2),
+    p('COORDINADOR TECNICO*:', 3), p('Nombre completo', 4), p('', 5),
+    p('CONTACTO DEL PROPONENTE:', 6), p('Nombre completo', 7), p('', 8),
+  ];
+  assert.equal(encabezadoDeSeccionMasCercano(parrafos, 2), 'REPRESENTANTE LEGAL:');
+  assert.equal(encabezadoDeSeccionMasCercano(parrafos, 5), 'COORDINADOR TECNICO*:');
+  assert.equal(encabezadoDeSeccionMasCercano(parrafos, 8), 'CONTACTO DEL PROPONENTE:');
+  assert.equal(encabezadoDeSeccionMasCercano(parrafos, 0), '');
+});
+
+// Las tres etiquetas de ese mismo formulario que quedaban en blanco.
+test('REGRESIÓN FORMULARIO N°1: cédula/RUT con "N°" delante, y "Teléfono / Fax"', () => {
+  assert.equal(campoDeEtiquetaInequivoca('N° Cédula de Identidad o RUT'), 'rut');
+  assert.equal(campoDeEtiquetaInequivoca('Nº Cédula de Identidad'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('Teléfono (Anexo) / Fax'), 'telefono1');
+  // Una casilla de FAX SOLA sigue pendiente: no tenemos fax y no se inventa.
+  assert.equal(campoDeEtiquetaInequivoca('Fax'), null);
 });

@@ -162,7 +162,8 @@ const DICCIONARIO: Entrada[] = [
     /^r\s*u\s*t\s*o\s*c\s*i$/, /^rut o cedula(?: de identidad)?$/,
     // Mismas dos formas al revés y con la cédula escrita completa (FORMULARIO N°1 de
     // 1063538-204-LE26: "RUT o Cédula de Identidad" en el bloque de datos del oferente).
-    /^cedula de identidad o rut$/, /^c\s*i\s*o\s*r\s*u\s*t$/,
+    /^(?:n[°º]?\s*)?cedula de identidad o rut$/, /^c\s*i\s*o\s*r\s*u\s*t$/,
+    /^(?:n[°º]?\s*)?rut o cedula de identidad$/,
     /^rut\/cedula(?: de identidad)?$/, /^cedula(?: de identidad)?\/rut$/,
   ] },
   { campo: 'giro', patrones: [
@@ -195,6 +196,10 @@ const DICCIONARIO: Entrada[] = [
     /^n[°º]? de telefono$/,
     // "TELÉFONO FIJO Y CELULAR" — una sola casilla para las dos formas (anexos reales presentados).
     /^telefono fijo y celular$/, /^telefono(?: fijo)?\/celular$/, /^fono fijo y movil$/,
+    // "Teléfono (Anexo) / Fax" (FORMULARIO N°1 de 1063538-204-LE26): el fax ya no existe, pero
+    // el organismo lo sigue imprimiendo junto al teléfono en la misma casilla. El dato que se
+    // escribe ahí es el teléfono. Una casilla de FAX SOLA sigue quedando pendiente: no tenemos fax.
+    /^telefono\s*\/?\s*fax$/, /^fono\s*\/?\s*fax$/,
   ] },
   { campo: 'email1', patrones: [
     // El GUION cuenta como separador ("E-mail", de las etiquetas más frecuentes que existe).
@@ -229,7 +234,7 @@ const DICCIONARIO: Entrada[] = [
   { campo: 'representante_rut', patrones: [
     new RegExp(`^(?:rut|r\\s*u\\s*t|run|cedula(?:\\s+de\\s+identidad)?|c\\s*i)${REPRE}$`),
     /^cedula de identidad(?: n[°º]?)?$/, /^c i n[°º]?$/, /^run$/, /^numero de (?:cedula|run)$/,
-    /^rut representante$/, /^(?:n[°º]? de )?cedula (?:nacional )?de identidad$/,
+    /^rut representante$/, /^(?:n[°º]?\s*(?:de\s+)?)?cedula (?:nacional )?de identidad$/,
   ] },
   // La PROFESIÓN u OFICIO no es el CARGO: un anexo puede pedir las dos en el mismo bloque
   // ("Cargo: Gerente" / "Profesión u oficio: Empresaria"). Ver migration-69.
@@ -306,6 +311,49 @@ const ETIQUETAS_PELADAS: { re: RegExp; persona: Campo; empresa: Campo }[] = [
 ];
 
 const RE_CTX_PERSONA = /\b(representante(\s+legal)?|apoderado|declarante|firmante|don|dona|suscribe|persona natural|encargado|administrador de contrato|contacto)\b/;
+
+// BUG REAL (18-ago-2026, FORMULARIO N°1 de 1063538-204-LE26): el bloque "COORDINADOR TÉCNICO" trae
+// las etiquetas peladas "Nombre completo", "Cargo o función", "Correo electrónico" — las mismas del
+// bloque del representante legal que viene justo arriba. La capa 2 las resolvió por contexto
+// (RE_CTX_PERSONA matchea "encargado"/"contacto") y escribió los datos del REPRESENTANTE en el
+// coordinador. Regla del usuario, explícita: "en el coordinador técnico no se pone nada, eso lo
+// llena el asistente" — es una persona que se designa PARA ESA licitación (con su teléfono directo,
+// su cargo real en el proyecto), no un dato de la ficha de la empresa. Escribir ahí a la
+// representante legal es un dato equivocado en un documento que el organismo usa para contactar.
+//
+// Va como bloqueo DURO (misma familia que esBloqueDeTercero): ninguna capa por debajo de campoFijo
+// rellena dentro de un bloque así. La casilla queda pendiente, que es exactamente lo que se busca.
+const RE_BLOQUE_DESIGNADO_POR_NOSOTROS = /\b(coordinador|contraparte\s+tecnica|jefe\s+de\s+proyecto|supervisor\s+del\s+contrato|administrador\s+del\s+contrato)\b/;
+
+/** ¿Este bloque describe a alguien que el asistente designa para ESTA licitación, y no a la empresa
+ *  ni a su representante legal? Ver RE_BLOQUE_DESIGNADO_POR_NOSOTROS. */
+export function esBloqueDesignadoPorNosotros(texto: string): boolean {
+  return RE_BLOQUE_DESIGNADO_POR_NOSOTROS.test(normalizarEtiqueta(texto));
+}
+
+// Un ENCABEZADO DE SECCIÓN dentro de una tabla de identificación: línea corta, en mayúsculas y casi
+// siempre terminada en ":" ("DATOS DEL PROPONENTE:", "REPRESENTANTE LEGAL:", "COORDINADOR TECNICO*:",
+// "CONTACTO DEL PROPONENTE:"). Se distingue de una etiqueta de campo ("Nombre completo") porque esta
+// última va en minúsculas o Capitalizada.
+const RE_ENCABEZADO_SECCION = /^[^a-z]{4,60}$/;
+
+/**
+ * El encabezado de sección más cercano HACIA ARRIBA de una casilla.
+ *
+ * Por qué no basta el contexto del bloque: `construirBloques` agrupa casillas separadas por 4
+ * párrafos o menos, y en una tabla de identificación densa eso mete "COORDINADOR TÉCNICO" y
+ * "CONTACTO DEL PROPONENTE" en el MISMO bloque — con el mismo contexto. Mirar el contexto haría que
+ * los dos se traten igual, cuando uno se llena y el otro no (caso real: FORMULARIO N°1 de
+ * 1063538-204-LE26). Buscar el encabezado real de cada casilla los separa bien.
+ */
+export function encabezadoDeSeccionMasCercano(parrafos: Parrafo[], indice: number): string {
+  for (let i = indice - 1; i >= 0 && i > indice - 40; i--) {
+    const t = (parrafos[i]?.texto || '').trim();
+    if (!t || t.length > 60) continue;
+    if (RE_ENCABEZADO_SECCION.test(t)) return t;
+  }
+  return '';
+}
 const RE_CTX_EMPRESA = /\b(oferente|proponente|empresa|razon social|proveedor|postulante|sociedad|contribuyente|antecedentes (del|de la) (proveedor|empresa))\b/;
 // Casillas HERMANAS que ya cubren explícitamente a uno de los dos titulares. Si el bloque ya tiene
 // una casilla propia de la empresa, el pelado es la persona — y viceversa.
@@ -647,7 +695,20 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // algo del oferente es la firma de OTRA persona, no la nuestra — "Cargo" ahí es inequívoco
     // como etiqueta pero describe al cargo de esa otra persona. Ninguna capa por debajo de
     // campoFijo puede rellenar con datos de la empresa dentro de este bloque.
-    const esTercero = !campo && esBloqueDeTercero(`${propia} ${bloque?.contexto ?? ''} ${(bloque?.etiquetas ?? []).join(' ')}`);
+    // El bloque del COORDINADOR TÉCNICO (y equivalentes) se trata igual que el de un tercero: sus
+    // etiquetas son las mismas que las del representante legal ("Nombre completo", "Cargo"), pero
+    // la persona la designa el asistente para esta licitación. Ver esBloqueDesignadoPorNosotros.
+    // Solo se mira el CONTEXTO del bloque, nunca la etiqueta propia: "Nombre completo" es idéntico
+    // en los dos bloques y es el encabezado lo único que los distingue.
+    const esTercero = !campo && (
+      esBloqueDeTercero(`${propia} ${bloque?.contexto ?? ''} ${(bloque?.etiquetas ?? []).join(' ')}`)
+      // SOLO el encabezado MÁS CERCANO, no los 3 párrafos de contexto: en este mismo formulario el
+      // bloque "CONTACTO DEL PROPONENTE" viene justo debajo del de "COORDINADOR TÉCNICO", y mirar
+      // todo el contexto arrastraba el encabezado del anterior — dejaba en blanco un bloque que SÍ
+      // se llena (el contacto del proponente somos nosotros). `construirBloques` arma el contexto
+      // con el párrafo más cercano primero, separado por " · ".
+      || esBloqueDesignadoPorNosotros(encabezadoDeSeccionMasCercano(parrafos, c.indice))
+    );
     // 1. Diccionario de etiquetas inequívocas, sobre la etiqueta propia y sobre la compuesta
     //    ("IDENTIFICACIÓN DEL REPRESENTANTE LEGAL — NOMBRE" resuelve por la compuesta).
     if (!campo && !esTercero) campo = campoDeEtiquetaInequivoca(propia) ?? campoDeEtiquetaInequivoca(c.etiqueta.replace(/\s+—\s+/g, ' '));
