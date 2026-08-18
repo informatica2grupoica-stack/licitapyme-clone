@@ -215,3 +215,53 @@ test('parsearCosteo: suma alzada deja lineaPublicada en null (no inventa líneas
   assert.equal(filas.length, 1);
   assert.equal(filas[0].lineaPublicada, null);
 });
+
+// ── "Sobre presupuesto por línea": el falso positivo de 2296-48-LE26 ─────────────────────────
+// La alerta saltaba con un costeo CÓMODAMENTE bajo el presupuesto ($21.589.995 vs $22.268.908).
+// Dos causas encadenadas: (1) la licitación es suma alzada, no tiene líneas independientes, y
+// (2) el `presupuesto_linea` guardado era 26.500.000/7 = el precio máximo POR UNIDAD, comparado
+// contra el TOTAL de la línea.
+import { presupuestoDeLineaEsUnitario } from '../motor-comercial';
+
+test('presupuestoDeLineaEsUnitario: reconoce el unitario disfrazado de tope de línea', () => {
+  // Caso real: 3.785.714 × 7 = 26.500.000 = el presupuesto BRUTO publicado.
+  assert.equal(presupuestoDeLineaEsUnitario({ cantidad: 7, presupuestoLinea: 3785714 }, 22268908), true);
+  // Un tope de línea de verdad no reconstruye el global al multiplicarlo por la cantidad.
+  assert.equal(presupuestoDeLineaEsUnitario({ cantidad: 7, presupuestoLinea: 22000000 }, 22268908), false);
+  // Con cantidad 1 el unitario y el total son el mismo número: no hay nada que distinguir.
+  assert.equal(presupuestoDeLineaEsUnitario({ cantidad: 1, presupuestoLinea: 22268908 }, 22268908), false);
+  // Sin datos no se inventa nada.
+  assert.equal(presupuestoDeLineaEsUnitario({ cantidad: 7, presupuestoLinea: null }, 22268908), false);
+  assert.equal(presupuestoDeLineaEsUnitario({ cantidad: 7, presupuestoLinea: 100 }, null), false);
+});
+
+test('SOBRE_PRESUPUESTO_LINEA: no dispara en suma alzada (una sola línea)', () => {
+  const alertas = calcularAlertasMotorComercial({
+    filas: [fila({ item: 1, precioTotalNeto: 21589995, lineaPublicada: null })],
+    totalAnexoEconomico: null,
+    presupuestoPublicado: 22268908,
+    lineasPublicadas: [{ linea: 1, cantidad: 7, unidad: 'Unidad', presupuestoLinea: 3785714 }],
+  });
+  assert.equal(alertas.some(a => a.codigo === 'SOBRE_PRESUPUESTO_LINEA'), false);
+  // Y el chequeo GLOBAL tampoco: el costeo está bajo el presupuesto.
+  assert.equal(alertas.some(a => a.codigo === 'SOBRE_PRESUPUESTO'), false);
+});
+
+test('SOBRE_PRESUPUESTO_LINEA: con varias líneas y topes reales, sigue disparando', () => {
+  const alertas = calcularAlertasMotorComercial({
+    filas: [
+      fila({ hoja: 'LINEA1', item: 1, precioTotalNeto: 5000, lineaPublicada: 1 }),
+      fila({ hoja: 'LINEA2', item: 1, precioTotalNeto: 900, lineaPublicada: 2 }),
+    ],
+    totalAnexoEconomico: null,
+    presupuestoPublicado: 100000,
+    lineasPublicadas: [
+      { linea: 1, cantidad: 2, unidad: 'Unidad', presupuestoLinea: 1000 },  // 5000 > 1000 → alerta
+      { linea: 2, cantidad: 2, unidad: 'Unidad', presupuestoLinea: 1000 },  // 900 < 1000 → no
+    ],
+  });
+  const a = alertas.find(x => x.codigo === 'SOBRE_PRESUPUESTO_LINEA');
+  assert.ok(a, 'debe seguir detectando el exceso real por línea');
+  assert.match(a!.detalle, /1/);
+  assert.doesNotMatch(a!.detalle.replace(/Línea\(s\) [^:]*/, ''), /\b2\b/);
+});

@@ -200,6 +200,35 @@ export function itemsPrecioDeCosteo(filas: FilaCosteo[]): ItemCosteoPrecio[] {
 
 export interface AlertaMotorComercial { codigo: string; descripcion: string; detalle: string }
 
+/**
+ * ¿El `presupuestoLinea` que trae el informe es en realidad el precio máximo POR UNIDAD?
+ *
+ * Caso real 2296-48-LE26: presupuesto global $26.500.000 bruto, línea única de 7 juegos, y la IA
+ * guardó `presupuesto_linea = 3.785.714` — que es 26.500.000 / 7, el unitario. Usarlo como tope de
+ * la línea hace que CUALQUIER costeo con cantidad > 1 dispare "sobre presupuesto".
+ *
+ * La señal es aritmética: si `presupuestoLinea × cantidad` reconstruye el presupuesto global (±2%,
+ * margen para el IVA y el redondeo), lo guardado es el unitario. Se exige cantidad > 1, porque con
+ * cantidad 1 el unitario y el total son el mismo número y no hay nada que distinguir ni que
+ * arreglar. Devuelve true = "no se puede confiar en este tope", nunca corrige el valor: preferimos
+ * no alertar antes que alertar con un dato mal interpretado.
+ */
+export function presupuestoDeLineaEsUnitario(
+  pub: { cantidad: number | null; presupuestoLinea: number | null },
+  presupuestoGlobal: number | null,
+): boolean {
+  const { cantidad, presupuestoLinea } = pub;
+  if (presupuestoLinea == null || presupuestoGlobal == null) return false;
+  if (cantidad == null || cantidad <= 1) return false;
+  const reconstruido = presupuestoLinea * cantidad;
+  // Se compara contra el global tal cual y contra su versión bruta: el informe guarda el
+  // presupuesto en neto, pero el "unitario" suele salir de dividir el monto CON IVA publicado.
+  for (const referencia of [presupuestoGlobal, presupuestoGlobal * 1.19]) {
+    if (Math.abs(reconstruido - referencia) / referencia <= 0.02) return true;
+  }
+  return false;
+}
+
 // Mismo criterio de normalización de unidad que auditor-tecnico-core.ts (alias es/plural/tildes),
 // pero acá solo para COMPARAR igualdad textual, no para convertir — el motor comercial no
 // convierte unidades, solo detecta que costeo y línea publicada dicen algo distinto.
@@ -271,9 +300,30 @@ export function calcularAlertasMotorComercial(args: {
   // pasarse en una línea puntual — el chequeo de arriba no lo vería. Solo se evalúa donde las
   // bases de VERDAD fijan ese monto (presupuestoLinea no nulo); si no lo fijan, esa línea queda
   // cubierta únicamente por el chequeo global.
+  //
+  // FALSO POSITIVO REAL (18-ago-2026, 2296-48-LE26 "7 juegos modulares"): la alerta saltaba con un
+  // costeo que estaba CÓMODAMENTE bajo el presupuesto ($21.589.995 vs $22.268.908). Dos causas
+  // encadenadas, las dos generales:
+  //
+  //  1. La licitación es SUMA ALZADA: no hay líneas independientes, hay un solo total. El informe
+  //     igual trae una "línea 1" (es el ítem publicado), así que el chequeo corría y comparaba el
+  //     total contra un tope que las bases nunca fijaron para una línea. Cuando la modalidad no es
+  //     por línea, el chequeo global de arriba YA cubre el caso — este no aporta nada y solo puede
+  //     equivocarse. Ver `hayVariasLineas` abajo.
+  //  2. El `presupuestoLinea` guardado era $3.785.714 = 26.500.000 / 7, o sea el precio máximo POR
+  //     UNIDAD, no el tope de la línea. Comparar el TOTAL de la línea contra un UNITARIO es
+  //     comparar peras con manzanas y siempre alerta en cuanto la cantidad es > 1.
+  //
+  // El guardarraíl de (2) es aritmético y no depende de ningún juicio: si `presupuestoLinea` ×
+  // cantidad se acerca al presupuesto global, entonces lo guardado es el unitario y no se puede
+  // usar como tope de la línea. Ante la duda NO se alerta: una alerta falsa en el auditor
+  // enseña a ignorar las alertas, que es peor que no tenerla.
+  const hayVariasLineas = args.lineasPublicadas.length > 1;
   const sobrePresupuestoLinea: number[] = [];
   for (const pub of args.lineasPublicadas) {
     if (pub.presupuestoLinea == null || excluidas.has(pub.linea)) continue;
+    if (!hayVariasLineas) continue;   // suma alzada: lo cubre el chequeo global
+    if (presupuestoDeLineaEsUnitario(pub, args.presupuestoPublicado)) continue;
     const totalLinea = filasOfertadas.filter(f => lineaDe(f) === pub.linea).reduce((s, f) => s + (f.precioTotalNeto ?? 0), 0);
     if (totalLinea > 0 && Math.round((totalLinea - pub.presupuestoLinea) * 100) > 0) sobrePresupuestoLinea.push(pub.linea);
   }
