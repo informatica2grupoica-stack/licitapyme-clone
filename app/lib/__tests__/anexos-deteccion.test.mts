@@ -1148,6 +1148,27 @@ test('detectarTripletesFecha: dupla día/mes con el año ya impreso en el docume
   assert.equal(sinAnio.tripletesFecha.size, 0);
 });
 
+// TERCER FORMATO REAL (2296-48-LE26, Municipalidad de Conchalí — los 7 formatos del pliego cierran
+// igual): el organismo imprime el SIGLO ("DE  20____") o la DÉCADA ("DE  202__") y deja el resto
+// del año para escribir a mano. El conector entre el mes y el año deja de ser "de" a secas, así
+// que el trío entero no se reconocía y la fecha quedaba pendiente en LOS SIETE anexos. El rol es
+// distinto del 'anio' normal a propósito: escribir el año completo daría "20 2026" en el papel.
+test('detectarTripletesFecha: siglo o década del año ya impresos (regresión 2296-48-LE26)', () => {
+  const conSiglo = analizarAnexo(normalizarParaIds(NS + p('CONCHALÍ,……….DE…………………………DE  20……..') + FIN).xml);
+  const rolesSiglo = [...conSiglo.blancosInline].map(b => conSiglo.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  assert.deepEqual(rolesSiglo, ['dia', 'mes_palabra', 'anio_2digitos']);
+
+  const conDecada = analizarAnexo(normalizarParaIds(NS + p('CONCHALÍ,……… DE ………………………… DE  202……') + FIN).xml);
+  const rolesDecada = [...conDecada.blancosInline].map(b => conDecada.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  assert.deepEqual(rolesDecada, ['dia', 'mes_palabra', 'anio_1digito']);
+
+  // Control: con el año COMPLETO impreso, el blanco que sigue ya no es el año — es otra cosa, y
+  // completarlo con "los últimos 0 dígitos" sería escribir nada donde el humano debe decidir.
+  const anioCompleto = analizarAnexo(normalizarParaIds(NS + p('CONCHALÍ,……… DE ………………… DE 2026 ………') + FIN).xml);
+  const roles = [...anioCompleto.blancosInline].map(b => anioCompleto.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  assert.equal(roles.filter(r => r === 'anio_2digitos' || r === 'anio_1digito').length, 0);
+});
+
 // BUG REAL (4999-8-LE26, "ANEXO N°4-A", encontrado 6-ago-2026): una declaración jurada ofrece dos
 // blancos, cada uno al inicio de su propio párrafo, para marcar la alternativa que aplica — la
 // MISMA frase, una vez en positivo y otra negada. Antes se le mandaban a la IA como cualquier otro

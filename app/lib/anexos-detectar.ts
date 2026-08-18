@@ -994,13 +994,28 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
 // el valor del DÍA apareció en la casilla del MES en una de las 5. Mismo criterio que
 // detectarAvisoNoAplica: cuando la respuesta correcta NUNCA depende del contexto del documento,
 // resolverla en código es más confiable que pedírsela al modelo.
-export type RolFechaTriplete = 'dia' | 'mes_numero' | 'mes_palabra' | 'anio';
+// 'anio_2digitos': el SIGLO ya viene impreso en la plantilla y la casilla solo espera los dos
+// últimos dígitos — ver RE_CONECTOR_DE_CON_SIGLO más abajo.
+export type RolFechaTriplete = 'dia' | 'mes_numero' | 'mes_palabra' | 'anio' | 'anio_2digitos' | 'anio_1digito';
 
 // Una línea de fecha siempre es corta ("Viña del Mar, ___ de ___ de ___" son ~55 caracteres). El
 // tope descarta un párrafo de declaración jurada larga que solo por casualidad tenga dos "de"
 // sueltos entre blancos no relacionados con una fecha.
 const LARGO_MAX_LINEA_FECHA = 120;
 const RE_CONECTOR_DE = /^de$/i;
+// BUG REAL (18-ago-2026, caso 2296-48-LE26, Municipalidad de Conchalí — los 7 formatos del pliego
+// cierran igual): "CONCHALÍ,……….DE…………………………DE  20…….." — el SIGLO ("20") viene impreso en la
+// plantilla y la casilla del año solo espera los dos últimos dígitos. El conector entre el mes y
+// el año no es "de" sino "de 20", así que RE_CONECTOR_DE fallaba y el triplete entero se caía: la
+// fecha quedaba pendiente en LOS SIETE anexos del documento. Escribir el año completo ahí daría
+// "20 2026" en el papel, así que este caso tiene su propio rol (ver valorTripleteFecha).
+const RE_CONECTOR_DE_CON_SIGLO = /^de\s*(?:19|20)$/i;
+// Variante del mismo pliego (2296-48-LE26, FORMATOS Nº1-B y Nº2): el organismo imprimió TRES
+// dígitos ("DE  202") y dejó el último para escribir a mano. Se acepta hasta 3 dígitos y NUNCA 4:
+// con el año completo impreso ("DE 2026") el blanco que sigue ya no es el año, es otra cosa, y
+// completarlo con "" (los últimos 0 dígitos) sería silenciosamente escribir nada donde el humano
+// sí tiene que decidir algo.
+const RE_CONECTOR_DE_CON_DECADA = /^de\s*(?:19|20)\d$/i;
 
 // Clave = `${indiceRun}:${posEnTexto}`, el mismo formato que usa el resto del pipeline
 // (resolverAnexoConIA, generarAnexoFinal) para identificar un blanco inline único.
@@ -1034,10 +1049,13 @@ export function detectarTripletesFecha(blancos: CandidatoInline[]): Map<string, 
         const conector2 = texto.slice(b2.posEnParrafo + b2.largo, b3.posEnParrafo).trim();
         const esBarra = conector1 === '/' && conector2 === '/';
         const esDe = RE_CONECTOR_DE.test(conector1) && RE_CONECTOR_DE.test(conector2);
-        if (esBarra || esDe) {
+        const esDeConSiglo = RE_CONECTOR_DE.test(conector1) && RE_CONECTOR_DE_CON_SIGLO.test(conector2);
+        const esDeConDecada = RE_CONECTOR_DE.test(conector1) && RE_CONECTOR_DE_CON_DECADA.test(conector2);
+        if (esBarra || esDe || esDeConSiglo || esDeConDecada) {
           out.set(`${b1.indiceRun}:${b1.posEnTexto}`, 'dia');
           out.set(`${b2.indiceRun}:${b2.posEnTexto}`, esBarra ? 'mes_numero' : 'mes_palabra');
-          out.set(`${b3.indiceRun}:${b3.posEnTexto}`, 'anio');
+          out.set(`${b3.indiceRun}:${b3.posEnTexto}`,
+            esDeConSiglo ? 'anio_2digitos' : esDeConDecada ? 'anio_1digito' : 'anio');
           i += 3;
           continue;
         }

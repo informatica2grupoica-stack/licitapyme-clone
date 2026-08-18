@@ -48,3 +48,9 @@ next-env.d.ts
 # Salidas del banco de pruebas de anexos (regenerables)
 scripts/_anexos-salida/
 scripts/_anexos-actual.json
+
+# Scripts de diagnóstico desechables. Van acá (nunca sueltos en scripts/) porque tsconfig incluye
+# **/*.mts y `next build` corre el type-check sobre TODO lo incluido: un script de diagnóstico con
+# un error de tipos rompe el DEPLOY entero, aunque no sea parte de la app (pasó el 18-ago-2026).
+# Está además en el "exclude" de tsconfig.json — las dos cosas, para que no se cuele por ninguna.
+scripts/scratch/

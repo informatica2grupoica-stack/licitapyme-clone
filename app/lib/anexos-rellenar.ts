@@ -152,6 +152,10 @@ function valorTripleteFecha(rol: RolFechaTriplete, empresa: EmpresaCampos): stri
   const valor = rol === 'dia' ? empresa.fecha_hoy_dia
     : rol === 'mes_numero' ? empresa.fecha_hoy_mes
     : rol === 'mes_palabra' ? empresa.fecha_hoy_mes_palabra
+    // El siglo ya está impreso en la plantilla ("… DE  20____"): va SOLO el resto del año, si no
+    // el papel queda con "20 2026" — ver RE_CONECTOR_DE_CON_SIGLO en anexos-detectar.ts.
+    : rol === 'anio_2digitos' ? String(empresa.fecha_hoy_anio ?? '').slice(-2)
+    : rol === 'anio_1digito' ? String(empresa.fecha_hoy_anio ?? '').slice(-1)
     : empresa.fecha_hoy_anio;
   return valor && String(valor).trim() ? String(valor) : null;
 }

@@ -313,3 +313,29 @@ test('REGRESIÓN certificado de experiencia: "Correo del que EXTIENDE el certifi
 test('"Nombre del proveedor postulante a la licitación" SÍ somos nosotros — se resuelve', () => {
   assert.equal(campoDeEtiquetaInequivoca('Nombre del proveedor postulante a la licitación'), 'razon_social');
 });
+
+// REGRESIÓN 2296-48-LE26 (Municipalidad de Conchalí, 18-ago-2026). Los datos de empresa/oferente
+// de este pliego quedaban TODOS pendientes y clasificados "no_aplica_al_oferente" — el peor
+// resultado posible: el anexo se veía completo pero salía sin la identificación del oferente.
+// Cuatro brechas distintas, una por línea de este test.
+test('REGRESIÓN 2296-48-LE26: los datos del oferente de ese pliego SÍ se reconocen', () => {
+  // 1. La palabra sola, sin "nombre" ni "razón social" delante.
+  assert.equal(campoDeEtiquetaInequivoca('PROPONENTE:'), 'razon_social');
+  // 2. "oferente" intercalado entre "nombre" y "o razón social".
+  assert.equal(campoDeEtiquetaInequivoca('NOMBRE OFERENTE O RAZÓN SOCIAL:'), 'razon_social');
+  // 3. La casilla que ofrece las dos formas (empresa o persona natural) es el RUT de la empresa.
+  assert.equal(campoDeEtiquetaInequivoca('RUT o C.I:'), 'rut');
+  // 4. El organismo aclara de dónde sale el giro; sigue siendo el mismo dato de la ficha.
+  assert.equal(campoDeEtiquetaInequivoca('GIRO SII:'), 'giro');
+  assert.equal(campoDeEtiquetaInequivoca('GIRO SERVICIOS DE IMPUESTOS INTERNOS:'), 'giro');
+});
+
+// La viñeta de LETRA con puntuación compuesta ("A.-", "B.-") no se estaba quitando, así que la
+// etiqueta quedaba como "a - razon social del proponente" y no matcheaba nada.
+test('REGRESIÓN 2296-48-LE26: la viñeta "A.-" se quita como cualquier otra numeración de lista', () => {
+  assert.equal(campoDeEtiquetaInequivoca('A.- RAZÓN SOCIAL DEL PROPONENTE:'), 'razon_social');
+  assert.equal(campoDeEtiquetaInequivoca('B.- NOMBRE DEL REPRESENTANTE LEGAL'), 'representante_nombre');
+  // Guardarraíl que no se puede perder: "R.U.T." NO es la viñeta "r." — no hay espacio entre el
+  // punto y la letra siguiente, que es justo lo que distingue una viñeta real de una sigla.
+  assert.equal(campoDeEtiquetaInequivoca('R.U.T.'), 'rut');
+});
