@@ -86,7 +86,12 @@ const RE_ITEM_ROTULADO = /^[ \t>*#|]*[íi]tem\s*(?:n[°º.]?\s*)?(\d{1,3})\s*[:.
 // NO se ancla al fin de línea: cuando el PDF aplana la tabla, el nombre y la descripción quedan
 // en el mismo renglón ("5 BOMBA ASPIRACION  Bomba de aspiración portátil de sobremesa…") —
 // anclar con $ dejaba fuera 15 de los 88 productos de la ficha real de 3489-29-LP26.
-const RE_NUMERO_MAYUSCULAS = /^[ \t>*#|]*(\d{1,3})[.\-–—)]?\s+([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ0-9°/()\-.,"'\s]{3,})/;
+// El grupo del título se lleva el RESTO del renglón (`.*`) a propósito: si la clase de mayúsculas
+// cortara sola, se detendría en la primera minúscula y arrastraría la inicial de la palabra
+// siguiente ("4 BALANZA ADULTO Balanza mecánica…" daba el título "BALANZA ADULTO B"). Quien corta
+// de verdad es recortarTitulo(), que sabe distinguir esa inicial de una unidad legítima
+// ("72 PAPELERO OFICINA 10 L Papelero abierto…" tiene que conservar la L de litros).
+const RE_NUMERO_MAYUSCULAS = /^[ \t>*#|]*(\d{1,3})[.\-–—)]?\s+([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ0-9°/()\-.,"'\s]{3,}.*)$/;
 
 /** ¿Esta línea es la continuación en MAYÚSCULAS de un título partido por el salto de celda? */
 function esContinuacionDeTitulo(l: string): boolean {

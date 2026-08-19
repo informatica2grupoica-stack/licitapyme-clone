@@ -235,10 +235,21 @@ function tarifaModelo(model: string): { precIn: number; precOut: number } {
     if (m.includes('pro'))        return { precIn: 1.25, precOut: 10.00 }; // (bloqueado, referencia)
     return { precIn: 0.30, precOut: 2.50 };                               // flash (análisis)
   }
-  if (m.includes('glm')) return {
-    precIn:  Number(process.env.GLM_PRICE_IN_USD_PER_M  ?? 0.43),
-    precOut: Number(process.env.GLM_PRICE_OUT_USD_PER_M ?? 1.74),
-  };
+  if (m.includes('glm')) {
+    // 19-ago-2026: antes era una tarifa PLANA (0.43/1.74) para toda la familia GLM. Pero la cadena
+    // va de flashx a glm-5.2 y entre esos dos hay ~20x de diferencia por token, así que el costo
+    // salía muy mal justo en las corridas caras (el Auditor Técnico usa glm-5.2 de entrada).
+    // Precios de los comentarios de la cadena, más arriba en este archivo — confirmar en Z.AI.
+    const env = (i: string, o: string, di: number, dobj: number) => ({
+      precIn:  Number(process.env[i] ?? di),
+      precOut: Number(process.env[o] ?? dobj),
+    });
+    if (m.includes('flashx'))   return env('GLM_PRICE_IN_USD_PER_M_FLASHX', 'GLM_PRICE_OUT_USD_PER_M_FLASHX', 0.07, 0.40);
+    if (m.includes('air'))      return env('GLM_PRICE_IN_USD_PER_M_AIR',    'GLM_PRICE_OUT_USD_PER_M_AIR',    0.20, 1.10);
+    if (m.includes('glm-5'))    return env('GLM_PRICE_IN_USD_PER_M_5',      'GLM_PRICE_OUT_USD_PER_M_5',      1.40, 4.40);
+    if (m.includes('glm-4.7'))  return env('GLM_PRICE_IN_USD_PER_M_47',     'GLM_PRICE_OUT_USD_PER_M_47',     0.60, 2.20);
+    return env('GLM_PRICE_IN_USD_PER_M', 'GLM_PRICE_OUT_USD_PER_M', 0.43, 1.74);   // GLM desconocido
+  }
   return { precIn: 0.27, precOut: 1.10 }; // DeepSeek y otros
 }
 

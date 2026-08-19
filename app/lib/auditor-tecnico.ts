@@ -100,6 +100,10 @@ function normalizarClasificada(c: any): CaracteristicaClasificada | null {
   };
 }
 
+// Tope de características por llamada del Agente 2. Ver el comentario dentro de la función:
+// por sobre esto la salida JSON no cabe en max_tokens y se pierden veredictos en silencio.
+const MAX_CARACT_POR_LLAMADA = 25;
+
 // ─── Agente 2 (camino B): comparación contra ficha técnica del proveedor ────────────────────────
 const SYS_AGENTE2 = `Eres un auditor técnico de licitaciones públicas chilenas. Te doy una lista de características técnicas YA clasificadas (con lo exigido) y el texto de una ficha técnica de un proveedor. Para CADA característica (identificada por su "id"), busca en la ficha el dato correspondiente y compara.
 
@@ -121,6 +125,20 @@ export async function compararFichaProveedor(
 ): Promise<Map<number, VeredictoCaracteristica>> {
   const resultado = new Map<number, VeredictoCaracteristica>();
   if (!caracteristicas.length) return resultado;
+
+  // POR LOTES (19-ago-2026): la respuesta trae un objeto por característica, con valor ofertado
+  // (hasta 300 chars) y cita (hasta 500). Medido en 3489-29-LP26 hay líneas de 49 características
+  // — a ~150 tokens cada una son ~7.400, por encima del max_tokens de 6.000: el JSON se cortaba y
+  // las características del final se quedaban SIN veredicto para siempre. Falla en silencio,
+  // porque quedar "sin evaluar" es exactamente lo que se ve cuando la ficha no dice nada.
+  if (caracteristicas.length > MAX_CARACT_POR_LLAMADA) {
+    for (let i = 0; i < caracteristicas.length; i += MAX_CARACT_POR_LLAMADA) {
+      const lote = caracteristicas.slice(i, i + MAX_CARACT_POR_LLAMADA);
+      const parcial = await compararFichaProveedor(lote, fichaTexto, fichaNombre);
+      for (const [k, v] of parcial) resultado.set(k, v);
+    }
+    return resultado;
+  }
 
   const lista = caracteristicas.map(c =>
     `id=${c.id} · ${c.descripcion} (${c.tipo}${c.valorRequeridoTexto ? `, exigido: ${c.valorRequeridoTexto}` : ''}${c.unidadRequerida ? ` ${c.unidadRequerida}` : ''})`,

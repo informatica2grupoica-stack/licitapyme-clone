@@ -226,6 +226,27 @@ test('programa de integridad: la pregunta SÍ/NO se responde sola; "describa" qu
   assert.equal(r2.celda.size, 0);
 });
 
+// BUG REAL (ANEXO N°2 de 2724-35-LP26, encontrado por el repaso de IA el 19-ago-2026): el anexo
+// completo se titula "PROGRAMA DE INTEGRIDAD", así que el CONTEXTO del bloque activaba la política
+// para cualquier casilla no resuelta del documento — el pie de firma "<Ciudad>, <día/mes/año>"
+// quedó con "SÍ" escrito adentro. La etiqueta manda sobre el contexto.
+test('programa de integridad: una casilla que pide OTRO dato no recibe el "SÍ" por el contexto', () => {
+  const parrafos = [parrafo(0, 'DECLARACIÓN JURADA — PROGRAMA DE INTEGRIDAD')];
+  const conRespuesta = { ...EMPRESA, programa_integridad_respuesta: 'SÍ' } as EmpresaCampos;
+  for (const etiqueta of ['<Ciudad>, <día/mes/año>', 'Fecha', 'Comuna', 'RUT del oferente', 'Firma']) {
+    const r = resolverDeterminista({
+      candidatos: [celda(1, etiqueta)], blancosInline: [], parrafos, empresa: conRespuesta,
+    });
+    assert.notEqual(valorAuto(r.celda, 1), 'SÍ', `"${etiqueta}" no puede recibir la respuesta de integridad`);
+  }
+
+  // Y la casilla que SÍ es la pregunta se sigue resolviendo por contexto, como antes.
+  const ok = resolverDeterminista({
+    candidatos: [celda(1, '¿Cuenta con uno?')], blancosInline: [], parrafos, empresa: conRespuesta,
+  });
+  assert.equal(valorAuto(ok.celda, 1), 'SÍ');
+});
+
 // ── Clasificación del pendiente ──────────────────────────────────────────────────────────────
 test('clasificarPendiente: distingue precio, decisión, tercero y título', () => {
   assert.equal(clasificarPendiente('Valor unitario neto').categoria, 'especifico_licitacion');

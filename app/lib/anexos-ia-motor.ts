@@ -204,7 +204,12 @@ const MOTIVO_POR_DEFECTO: Partial<Record<CategoriaCampo, string>> = {
   datos_licitacion: 'Dato de esta licitación (organismo, código, monto, fechas) — no se pudo obtener de Mercado Público en este momento.',
 };
 
-export interface ResolucionAuto { tipo: 'auto'; valor: string; categoria: CategoriaCampo; evidencia: string | null }
+// `campo`: QUÉ campo de la ficha se usó para llenar la casilla. Opcional porque no todas las
+// resoluciones salen de la ficha (bases y órdenes de compra devuelven un texto que no corresponde
+// a ninguna columna). Lo necesita el REPASO (anexos-repaso-ia.ts): sin el nombre del campo, el
+// revisor tendría que adivinar de dónde salió el valor comparándolo contra la ficha entera, y dos
+// campos con el mismo contenido (ej. razón social = titular de la cuenta) lo harían inauditable.
+export interface ResolucionAuto { tipo: 'auto'; valor: string; categoria: CategoriaCampo; evidencia: string | null; campo?: string }
 export interface ResolucionPendiente { tipo: 'pendiente'; categoria: CategoriaCampo; motivo: string }
 export type Resolucion = ResolucionAuto | ResolucionPendiente;
 
@@ -225,6 +230,9 @@ export interface EntradaMotor {
   // casillas mal resueltas antes, destiladas por TIPO de etiqueta (no por documento). Se inyectan
   // en el prompt de cada lote con prioridad máxima.
   reglasAprendidas?: string[];
+  // No correr el barrido de riesgos sobre las bases (Paso 1). Lo usa `generarAnexoFinal`, que
+  // descarta ese resultado — ver el comentario de `omitirAlertas` en anexos-rellenar.ts.
+  omitirAlertas?: boolean;
 }
 
 export interface ResultadoMotor {
@@ -889,7 +897,7 @@ export async function identificarCamposDeSeccionEscaneada(
 
 // ── Orquestador ────────────────────────────────────────────────────────────────────────────
 export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<ResultadoMotor> {
-  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP, haySeccionUtpOmitida, reglasAprendidas } = entrada;
+  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP, haySeccionUtpOmitida, reglasAprendidas, omitirAlertas } = entrada;
 
   const camposConDato = (Object.keys(empresa) as (keyof EmpresaCampos)[])
     // firma_url/timbre_url son URLs de imágenes, no texto que se escriba en una casilla — si se le
@@ -899,9 +907,9 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
   const celda = new Map<number, Resolucion>();
   const inline = new Map<string, Resolucion>();
 
-  const [alertasInadmisibilidad] = await Promise.all([
-    resolverAlertasInadmisibilidad(basesTexto || '', tituloAnexos || []),
-  ]);
+  const alertasInadmisibilidad = omitirAlertas
+    ? []
+    : await resolverAlertasInadmisibilidad(basesTexto || '', tituloAnexos || []);
 
   if (!camposConDato.length || (!candidatos.length && !blancosInline.length)) {
     return { celda, inline, alertasInadmisibilidad, checklistPendientes: alertasInadmisibilidad.filter(a => !a.disponible).map(a => a.riesgo) };

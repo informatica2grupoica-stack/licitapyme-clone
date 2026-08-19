@@ -69,6 +69,12 @@ function serializar(job: any) {
     estado: job.estado, fase: job.fase, documento: job.documento_nombre,
     total: Number(job.total), procesadas: Number(job.procesadas),
     error: job.error, resumen, elapsedSeg: Number(job.elapsed_seg),
+    // Gasto real de IA. Se manda también mientras corre (se actualiza en cada línea), porque el
+    // valor de mostrarlo está justamente en poder cortar una corrida que se está yendo de precio.
+    costo: {
+      llamadas: Number(job.llamadas_ia ?? 0), tokensIn: Number(job.tokens_in ?? 0),
+      tokensOut: Number(job.tokens_out ?? 0), usd: Number(job.costo_usd ?? 0),
+    },
   };
 }
 

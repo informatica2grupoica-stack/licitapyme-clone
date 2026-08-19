@@ -315,6 +315,21 @@ export function campoDeEtiquetaInequivoca(etiqueta: string): Campo | null {
 // que pide DESCRIBIR el programa: esa es texto libre y queda al humano.
 const RE_INTEGRIDAD = /\b(programa|politica|codigo)\s+(de\s+)?(integridad|etica|cumplimiento|compliance)\b|\bdirectiva\s+n?\s*[°º]?\s*31\b/;
 const RE_PIDE_DESCRIBIR = /\b(describ|detall|indique en que consiste|explique|senale como|adjunte)\w*/;
+// BUG REAL (19-ago-2026, ANEXO N°2 de 2724-35-LP26, encontrado por el repaso de IA): esta regla
+// se evalúa sobre la etiqueta MÁS el contexto del bloque, y en un anexo cuyo título es justamente
+// "PROGRAMA DE INTEGRIDAD" el contexto la activa para CUALQUIER casilla del documento que no se
+// haya resuelto antes. El pie de firma "<Ciudad>, <día/mes/año>" terminó completado con "SÍ".
+// Escribir la respuesta de una pregunta de sí/no dentro de la casilla de la fecha es indefendible:
+// queda a la vista en el documento que se sube al portal.
+//
+// El contexto del bloque se conserva a propósito (una casilla "SI___NO___" no dice por sí sola de
+// qué pregunta es, y sin el contexto no habría forma de resolverla), pero ahora pierde SIEMPRE
+// contra una etiqueta que nombra un dato concreto y distinto. Ojo con el orden de lectura: acá no
+// se decide qué campo va, solo que NO es la respuesta de integridad — si ninguna otra capa la
+// resuelve, la casilla queda pendiente, que es el resultado correcto.
+const RE_ETIQUETA_PIDE_OTRO_DATO =
+  /\b(fecha|dia|mes|anio|ciudad|comuna|region|domicilio|direccion|calle|rut|run|cedula|nombre|razon social|telefono|fono|correo|mail|giro|cargo|firma)\b|d[ií]a\s*\/\s*mes\s*\/\s*a[nñ]o/;
+
 function esPreguntaDeIntegridad(texto: string): boolean {
   const n = normalizarEtiqueta(texto);
   return RE_INTEGRIDAD.test(n) && !RE_PIDE_DESCRIBIR.test(n);
@@ -743,7 +758,7 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     if (!campo || SOLO_TRIPLETE.has(campo)) return false;
     const valor = valorDe(empresa, campo);
     if (!valor) return false;
-    set({ tipo: 'auto', valor, categoria: CATEGORIA_DE_CAMPO(campo), evidencia: etiqueta });
+    set({ tipo: 'auto', valor, categoria: CATEGORIA_DE_CAMPO(campo), evidencia: etiqueta, campo: String(campo) });
     return true;
   };
 
@@ -804,7 +819,13 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
       campo = resolverPeladaPorBloque(c.etiqueta, bloque.etiquetas, bloque.contexto, RE_CTX_PERSONA.test(bloque.contexto));
     }
     // 6. Política fija: programa de integridad siempre "SÍ".
-    if (!campo && esPreguntaDeIntegridad(`${c.etiqueta} ${bloque?.contexto ?? ''}`)) campo = 'programa_integridad_respuesta' as Campo;
+    // La etiqueta manda sobre el contexto: si nombra un dato concreto y distinto (una fecha, una
+    // ciudad, un RUT), no es la casilla de la pregunta de integridad por más que el bloque entero
+    // hable de eso — ver RE_ETIQUETA_PIDE_OTRO_DATO.
+    if (!campo && !RE_ETIQUETA_PIDE_OTRO_DATO.test(normalizarEtiqueta(propia))
+        && esPreguntaDeIntegridad(`${c.etiqueta} ${bloque?.contexto ?? ''}`)) {
+      campo = 'programa_integridad_respuesta' as Campo;
+    }
 
     if (anotar(campo, propia, r => celda.set(c.indice, r))) continue;
     celdaSinResolver.push(c);
@@ -829,7 +850,7 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     if (campo === 'direccion' && parrafosQuePidenComunaAparte.has(b.indiceParrafo)) {
       const valor = direccionSinComuna(empresa);
       if (valor) {
-        inline.set(clave, { tipo: 'auto', valor, categoria: 'perfil_empresa', evidencia: etiqueta });
+        inline.set(clave, { tipo: 'auto', valor, categoria: 'perfil_empresa', evidencia: etiqueta, campo: 'direccion' });
         continue;
       }
     }

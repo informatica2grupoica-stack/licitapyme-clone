@@ -35,6 +35,7 @@ import {
   resolverAnexoConIA, resolverEspecificacionesDesdeBasesConIA, resolverExperienciaDesdeOrdenesCompra,
   type EmpresaCampos, type Resolucion, type AlertaInadmisibilidad,
 } from '@/app/lib/anexos-ia-motor';
+import { repasarConIA, repasoActivado } from '@/app/lib/anexos-repaso-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
 import { calcularTotalesPorSeccion, calcularTotalesAlPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
@@ -194,6 +195,11 @@ async function resolverTodo(
   alternativasExcluyentes: Set<string>,
   haySeccionUtpOmitida: boolean,
   ocsTexto: string | undefined,
+  // El barrido de riesgos de inadmisibilidad sobre las bases (Paso 1) es SOLO informativo: se
+  // pinta en el modal y no interviene en ninguna decisión de relleno. `generarAnexoFinal` lo
+  // descartaba sin mirarlo y pagaba igual la llamada — medido en un anexo real: entre 3 y 16
+  // segundos de espera pura, en el click que el usuario siente como "se demora en generar".
+  omitirAlertas = false,
 ): Promise<ResultadoResolucion> {
   const elegibles = candidatosCelda.filter(c => !soloManual?.has(c.indice));
   const soloManualCandidatos = candidatosCelda.filter(c => soloManual?.has(c.indice));
@@ -237,7 +243,21 @@ async function resolverTodo(
     postulaComoUTP,
     haySeccionUtpOmitida,
     reglasAprendidas,
+    omitirAlertas,
   });
+
+  // SEGUNDA PASADA: la IA repasa lo que el diccionario rellenó (ver anexos-repaso-ia.ts). Va acá y
+  // no dentro de resolverAnexoConIA porque opera sobre el resultado YA consolidado de la primera
+  // pasada, sea quien sea que lo haya producido — el determinista hoy, el respaldo IA si alguna
+  // vez se enciende. Apagado (ANEXOS_IA_REPASO≠1) no cuesta ni una llamada.
+  if (repasoActivado()) {
+    await repasarConIA({
+      celda, inline,
+      candidatos: [...elegibles, ...camposConDosPuntos],
+      blancosInline: blancosParaIA,
+      parrafos, empresa,
+    });
+  }
 
   const matcheados: CampoResuelto[] = [];
   const pendientes: CandidatoCelda[] = [];
@@ -862,6 +882,9 @@ export async function generarAnexoFinal(
       formularios.map(f => f.titulo), respuestas.anexoAplica === '1', analisis.tripletesFecha, analisis.alternativasExcluyentes,
       analisis.secciones.some(s => s.tipo === 'UTP' && s.decision === 'OMITIR'),
       experienciaOcTexto,
+      // Generar NO necesita las alertas de inadmisibilidad: son informativas, ya se mostraron en
+      // la pantalla durante el análisis, y acá el valor de retorno se descarta. Ver `omitirAlertas`.
+      true,
     );
 
   let xml = xmlNormalizado;

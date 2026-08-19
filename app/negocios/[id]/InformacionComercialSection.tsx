@@ -80,6 +80,12 @@ interface Resumen {
   observados: number; bloqueantesPendientes: number; listoParaPostular: boolean; avance: number;
 }
 
+/** "$0.42 USD · 63 llamadas". Se muestra con 2 decimales: bajo eso el número no dice nada útil. */
+function textoCosto(c?: { llamadas: number; usd: number } | null): string | null {
+  if (!c || c.llamadas === 0) return null;
+  return `~$${c.usd < 0.01 ? c.usd.toFixed(4) : c.usd.toFixed(2)} USD · ${c.llamadas} llamada(s) de IA`;
+}
+
 /** Resultado de una línea dentro de la comparación masiva. */
 interface ResultadoMasivoLinea {
   lineaNumero: number; itemId: number; titulo: string;
@@ -96,9 +102,11 @@ interface JobMasivo {
   total: number; procesadas: number;
   error: string | null;
   elapsedSeg: number;
+  costo?: { llamadas: number; tokensIn: number; tokensOut: number; usd: number };
   resumen: {
     documento: string; lineasTotales: number; lineasComparadas: number;
     bloquesFicha: number; resultados: ResultadoMasivoLinea[];
+    costo?: { llamadas: number; tokensIn: number; tokensOut: number; usd: number };
   } | null;
 }
 
@@ -725,10 +733,14 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                     <span className="text-[11px] text-zinc-400">
                       {jobMasivo.fase || 'Preparando'}
                       {jobMasivo.total > 0 && ` · ${Math.round((jobMasivo.procesadas / jobMasivo.total) * 100)}%`}
+                      {textoCosto(jobMasivo.costo) && <span className="text-amber-600"> · {textoCosto(jobMasivo.costo)}</span>}
                     </span>
                   )}
                   {jobMasivo?.estado === 'error' && (
-                    <span className="text-[11px] text-rose-600 font-semibold">{jobMasivo.error || 'La comparación falló'}</span>
+                    <span className="text-[11px] text-rose-600 font-semibold">
+                      {jobMasivo.error || 'La comparación falló'}
+                      {textoCosto(jobMasivo.costo) && <span className="text-amber-600 font-normal"> · alcanzó a gastar {textoCosto(jobMasivo.costo)}</span>}
+                    </span>
                   )}
                   <button onClick={() => setSoloExcepcionesTecnico(v => !v)} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
                     {soloExcepcionesTecnico ? 'Mostrar todas las líneas' : 'Mostrar solo pendientes'}
@@ -905,6 +917,13 @@ function ModalResultadoMasivo({ resultados, resumen, onVerLinea, onClose }: {
           })}
         </div>
         <div className="px-5 py-3 border-t border-zinc-100 flex-shrink-0">
+          {/* Es la operación más cara del sistema: el gasto se muestra, no se esconde en el log. */}
+          {textoCosto(resumen?.costo) && (
+            <p className="text-[11px] text-amber-600 text-center mb-2">
+              Costo de esta comparación: {textoCosto(resumen?.costo)}
+              {resumen?.costo && ` (${(resumen.costo.tokensIn + resumen.costo.tokensOut).toLocaleString('es-CL')} tokens)`}
+            </p>
+          )}
           <button onClick={onClose} className="w-full px-3 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-zinc-700">Cerrar</button>
         </div>
       </div>

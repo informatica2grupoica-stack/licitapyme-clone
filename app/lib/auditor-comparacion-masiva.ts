@@ -26,6 +26,7 @@
 // una petición HTTP, y el túnel corta a los ~100s. El front hace polling y muestra el avance.
 
 import pool from '@/app/lib/db';
+import { conAcumuladorCostoIA, costoAcumuladoActual, type AcumuladorCostoIA } from '@/app/lib/gemini';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import { agregarDocumentos, bitacora } from '@/app/lib/checklist-comercial-db';
@@ -70,6 +71,8 @@ export interface ResumenComparacion {
   lineasComparadas: number;
   bloquesFicha: number;
   resultados: ResultadoLinea[];
+  /** Gasto REAL de IA de la corrida (tokens reportados por la API), no una estimación. */
+  costo?: { llamadas: number; tokensIn: number; tokensOut: number; usd: number };
 }
 
 // ═══ Job persistido ══════════════════════════════════════════════════════════════════════════
@@ -81,6 +84,7 @@ export interface JobComparacion {
   fase: string | null; documento_nombre: string | null;
   total: number; procesadas: number; error: string | null;
   resumen_json: string | null; edad_seg: number; elapsed_seg: number;
+  llamadas_ia: number; tokens_in: number; tokens_out: number; costo_usd: number;
 }
 
 /** Sin señales de vida por este tiempo ⇒ el job murió con el proceso. Holgado: una línea puede
@@ -105,7 +109,8 @@ async function marcarProcesando(negocioId: number, runId: string, doc: string, t
      VALUES (?, ?, 'procesando', ?, ?, ?, 0, NULL, NULL, UTC_TIMESTAMP(), UTC_TIMESTAMP())
      ON DUPLICATE KEY UPDATE run_id = VALUES(run_id), estado = 'procesando', fase = VALUES(fase),
        documento_nombre = VALUES(documento_nombre), total = VALUES(total), procesadas = 0,
-       error = NULL, resumen_json = NULL, iniciado_at = UTC_TIMESTAMP(), actualizado_at = UTC_TIMESTAMP()`,
+       error = NULL, resumen_json = NULL, llamadas_ia = 0, tokens_in = 0, tokens_out = 0, costo_usd = 0,
+       iniciado_at = UTC_TIMESTAMP(), actualizado_at = UTC_TIMESTAMP()`,
     [negocioId, runId, fase.slice(0, 60), doc.slice(0, 300), total],
   );
 }
@@ -113,11 +118,19 @@ async function marcarProcesando(negocioId: number, runId: string, doc: string, t
 /** Latido + avance. Best-effort y acotado por run_id: una corrida vieja nunca pisa a una nueva. */
 async function avanzar(negocioId: number, runId: string, fase?: string) {
   try {
+    // El costo va en el mismo UPDATE del avance: es el acumulado REAL que reportó la API (no una
+    // estimación por línea), así la pantalla puede mostrar el gasto mientras la corrida avanza.
+    const ac = costoAcumuladoActual();
     await pool.query(
       `UPDATE auditor_tecnico_jobs
-          SET procesadas = procesadas + 1, fase = COALESCE(?, fase), actualizado_at = UTC_TIMESTAMP()
+          SET procesadas = procesadas + 1, fase = COALESCE(?, fase), actualizado_at = UTC_TIMESTAMP(),
+              llamadas_ia = COALESCE(?, llamadas_ia), tokens_in = COALESCE(?, tokens_in),
+              tokens_out = COALESCE(?, tokens_out), costo_usd = COALESCE(?, costo_usd)
         WHERE negocio_id = ? AND run_id = ? AND estado = 'procesando'`,
-      [fase?.slice(0, 60) ?? null, negocioId, runId],
+      [fase?.slice(0, 60) ?? null,
+       ac?.llamadas ?? null, ac?.inTok ?? null, ac?.outTok ?? null,
+       ac ? Number(ac.costoUSD.toFixed(5)) : null,
+       negocioId, runId],
     );
   } catch (e) { console.error('[auditor-masivo] avanzar falló:', String(e).slice(0, 200)); }
 }
@@ -132,19 +145,34 @@ async function marcarFase(negocioId: number, runId: string, fase: string, total?
   } catch (e) { console.error('[auditor-masivo] marcarFase falló:', String(e).slice(0, 200)); }
 }
 
-export async function marcarJobError(negocioId: number, runId: string, mensaje: string) {
+/** Fragmento SQL + parámetros para dejar grabado el costo final (o nada, si no hay acumulador). */
+function setCosto(ac: AcumuladorCostoIA | null): { sql: string; params: unknown[] } {
+  if (!ac) return { sql: '', params: [] };
+  return {
+    sql: ', llamadas_ia = ?, tokens_in = ?, tokens_out = ?, costo_usd = ?',
+    params: [ac.llamadas, ac.inTok, ac.outTok, Number(ac.costoUSD.toFixed(5))],
+  };
+}
+
+export async function marcarJobError(
+  negocioId: number, runId: string, mensaje: string, ac: AcumuladorCostoIA | null = null,
+) {
+  const c = setCosto(ac);
   await pool.query(
-    `UPDATE auditor_tecnico_jobs SET estado = 'error', error = ?, actualizado_at = UTC_TIMESTAMP()
+    `UPDATE auditor_tecnico_jobs SET estado = 'error', error = ?${c.sql}, actualizado_at = UTC_TIMESTAMP()
       WHERE negocio_id = ? AND run_id = ?`,
-    [mensaje.slice(0, 500), negocioId, runId],
+    [mensaje.slice(0, 500), ...c.params, negocioId, runId],
   );
 }
 
-async function marcarJobListo(negocioId: number, runId: string, resumen: ResumenComparacion) {
+async function marcarJobListo(
+  negocioId: number, runId: string, resumen: ResumenComparacion, ac: AcumuladorCostoIA | null = null,
+) {
+  const c = setCosto(ac);
   await pool.query(
-    `UPDATE auditor_tecnico_jobs SET estado = 'listo', fase = NULL, resumen_json = ?, actualizado_at = UTC_TIMESTAMP()
+    `UPDATE auditor_tecnico_jobs SET estado = 'listo', fase = NULL, resumen_json = ?${c.sql}, actualizado_at = UTC_TIMESTAMP()
       WHERE negocio_id = ? AND run_id = ?`,
-    [JSON.stringify(resumen).slice(0, 60_000), negocioId, runId],
+    [JSON.stringify(resumen).slice(0, 60_000), ...c.params, negocioId, runId],
   );
 }
 
@@ -204,13 +232,24 @@ export async function iniciarComparacionMasiva(
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await marcarProcesando(ctx.negocioId, runId, ctx.documentoNombre, items.length, 'leyendo documento');
 
-  correr(ctx, runId, items, informe)
-    .then(resumen => marcarJobListo(ctx.negocioId, runId, resumen))
-    .catch(e => {
+  // conAcumuladorCostoIA envuelve TODA la corrida (el mismo mecanismo que ya usa viabilidad):
+  // cada llamada de IA suma sus tokens reales al acumulador. Se lee DENTRO del callback — fuera,
+  // el contexto de AsyncLocalStorage ya cerró y costoAcumuladoActual() devuelve null.
+  conAcumuladorCostoIA(async () => {
+    try {
+      const resumen = await correr(ctx, runId, items, informe);
+      const ac = costoAcumuladoActual();
+      if (ac) {
+        resumen.costo = { llamadas: ac.llamadas, tokensIn: ac.inTok, tokensOut: ac.outTok, usd: Number(ac.costoUSD.toFixed(5)) };
+        console.log(`[auditor-masivo] 💰 TOTAL corrida: ${ac.llamadas} llamada(s) · in=${ac.inTok} out=${ac.outTok} tok · ~$${ac.costoUSD.toFixed(4)} USD`);
+      }
+      await marcarJobListo(ctx.negocioId, runId, resumen, ac);
+    } catch (e) {
       console.error('[auditor-masivo] job falló:', e);
-      return marcarJobError(ctx.negocioId, runId, mensajeDeError(e));
-    })
-    .finally(() => { try { onFin?.(); } catch { /* el aviso al front no debe tumbar el job */ } });
+      // Aunque falle, lo ya gastado se guarda: si no, una corrida caída se vería como gratis.
+      await marcarJobError(ctx.negocioId, runId, mensajeDeError(e), costoAcumuladoActual());
+    }
+  }).finally(() => { try { onFin?.(); } catch { /* el aviso al front no debe tumbar el job */ } });
 
   return { runId };
 }
@@ -420,10 +459,15 @@ async function guardarClasificadas(
     );
   }
   // El checklist mostraba el conteo del informe viejo ("1 característica(s)") aunque ahora haya
-  // 13 reales: se refresca para que la fila diga la verdad.
+  // 13 reales: se refresca para que la fila diga la verdad. Se cuenta lo que quedó EN BD, no lo
+  // que devolvió el clasificador: el INSERT IGNORE de arriba descarta silenciosamente las que
+  // colisionan en (item_id, clave_caracteristica), y la fila no puede prometer más de lo que hay.
+  const [[cuenta]] = await pool.query(
+    `SELECT COUNT(*) AS n FROM checklist_comercial_caracteristicas WHERE item_id = ?`, [item.id],
+  ) as any;
   await pool.query(
     `UPDATE checklist_comercial SET descripcion = ? WHERE id = ?`,
-    [`${clasificadas.length} característica(s) técnica(s) a verificar.`, item.id],
+    [`${Number(cuenta?.n ?? clasificadas.length)} característica(s) técnica(s) a verificar.`, item.id],
   );
 }
 
