@@ -80,6 +80,28 @@ interface Resumen {
   observados: number; bloqueantesPendientes: number; listoParaPostular: boolean; avance: number;
 }
 
+/** Resultado de una línea dentro de la comparación masiva. */
+interface ResultadoMasivoLinea {
+  lineaNumero: number; itemId: number; titulo: string;
+  total: number; cumplen: number; noCumplen: number;
+  fuenteRequisitos?: 'ya_clasificadas' | 'informe' | 'bases_tecnicas' | null;
+  segmentada?: boolean; error?: string;
+}
+
+/** Trabajo de fondo de "Comparar contra un documento" (ver migración 70). */
+interface JobMasivo {
+  estado: 'procesando' | 'listo' | 'error';
+  fase: string | null;
+  documento: string | null;
+  total: number; procesadas: number;
+  error: string | null;
+  elapsedSeg: number;
+  resumen: {
+    documento: string; lineasTotales: number; lineasComparadas: number;
+    bloquesFicha: number; resultados: ResultadoMasivoLinea[];
+  } | null;
+}
+
 interface Empresa {
   id: number; razon_social: string; rut: string; direccion: string | null; region: string | null;
   giro: string | null; tipo_persona_juridica: string | null;
@@ -278,14 +300,28 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   const [soloExcepcionesTecnico, setSoloExcepcionesTecnico] = useState(true);
   // Carga masiva: UN documento (catálogo, ficha completa) comparado contra TODAS las líneas
   // técnicas de una vez — evita subir el mismo archivo N veces, una por línea.
-  const [comparandoMasivo, setComparandoMasivo] = useState(false);
-  const [resultadoMasivo, setResultadoMasivo] = useState<Array<{ lineaNumero: number; itemId: number; titulo: string; total: number; cumplen: number; noCumplen: number; error?: string }> | null>(null);
+  // Es un TRABAJO DE FONDO (migración 70): con 88 líneas la comparación dura minutos, así que el
+  // POST solo la arranca y esta pantalla sigue el avance por polling. Sobrevive a un F5.
+  const [jobMasivo, setJobMasivo] = useState<JobMasivo | null>(null);
+  const [subiendoMasivo, setSubiendoMasivo] = useState(false);
   const [verLineaId, setVerLineaId] = useState<number | null>(null);
   const fileMasivoRef = useRef<HTMLInputElement>(null);
+  const comparandoMasivo = subiendoMasivo || jobMasivo?.estado === 'procesando';
+  const resultadoMasivo = jobMasivo?.estado === 'listo' ? (jobMasivo.resumen?.resultados ?? []) : null;
+
+  const leerJobMasivo = useCallback(async (): Promise<JobMasivo | null> => {
+    try {
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/comparacion-masiva`);
+      if (!r.ok) return null;
+      const d = await r.json();
+      setJobMasivo(d.job ?? null);
+      return d.job ?? null;
+    } catch { return null; }
+  }, [negocioId]);
 
   const compararDocumentoMasivo = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    setComparandoMasivo(true);
+    setSubiendoMasivo(true);
     try {
       const fd = new FormData();
       fd.append('licitacionCodigo', licitacionCodigo);
@@ -295,21 +331,29 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || 'No se pudo subir el documento'); return; }
       const doc = dSubida.documentos[0];
 
-      const r = await fetch(`/api/negocios/${negocioId}/comercial`, {
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/comparacion-masiva`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'comparar_documento_masivo', documentoUrl: doc.url, documentoNombre: doc.nombre }),
+        body: JSON.stringify({ documentoUrl: doc.url, documentoNombre: doc.nombre }),
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d.error || 'No se pudo comparar el documento'); return; }
-      setItems(d.items || []);
-      setResumen(d.resumen || null);
-      setResultadoMasivo(d.resultados || []);
+      await leerJobMasivo();
     } catch (e) {
       toast.error('Error de red', String(e));
     } finally {
-      setComparandoMasivo(false);
+      setSubiendoMasivo(false);
       if (fileMasivoRef.current) fileMasivoRef.current.value = '';
     }
+  };
+
+  /** Cierra la tabla de resultados: borra el job para que no reaparezca en el próximo render. */
+  const cerrarResultadoMasivo = async () => {
+    setJobMasivo(null);
+    try {
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/comparacion-masiva`, { method: 'DELETE' });
+      const d = await r.json();
+      if (r.ok && d.resumen) setResumen(d.resumen);
+    } catch { /* el job se limpia solo en la próxima corrida */ }
   };
 
   const cargar = useCallback(async () => {
@@ -338,6 +382,20 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   }, [negocioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+  // Al entrar (o volver tras un F5) puede haber una comparación corriendo desde antes.
+  useEffect(() => { leerJobMasivo(); }, [leerJobMasivo]);
+
+  // Polling del trabajo de fondo: solo mientras está vivo, y se apaga solo al terminar.
+  useEffect(() => {
+    if (jobMasivo?.estado !== 'procesando') return;
+    const t = setInterval(async () => {
+      const job = await leerJobMasivo();
+      if (job?.estado === 'listo') { cargar(); toast.success('Comparación lista', `${job.resumen?.lineasComparadas ?? 0} línea(s) comparadas.`); }
+      else if (job?.estado === 'error') toast.error('La comparación falló', job.error || undefined);
+    }, 4000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobMasivo?.estado, leerJobMasivo, cargar]);
   // El asesor tiene que poder aprobar el mismo día, en el momento: si el asistente carga algo
   // mientras esta pantalla está abierta, aparece solo.
   useRealtime(cargar);
@@ -657,8 +715,21 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg border border-violet-200 transition-colors disabled:opacity-50"
                   >
                     {comparandoMasivo ? <Loader2 size={12} className="animate-spin" /> : <FileStack size={12} />}
-                    {comparandoMasivo ? 'Comparando…' : 'Comparar contra un documento'}
+                    {!comparandoMasivo ? 'Comparar contra un documento'
+                      : jobMasivo?.estado === 'procesando' && jobMasivo.total > 0
+                        ? `Comparando… ${jobMasivo.procesadas}/${jobMasivo.total}`
+                        : 'Comparando…'}
                   </button>
+                  {/* La comparación dura minutos: sin esto la pantalla parece colgada. */}
+                  {jobMasivo?.estado === 'procesando' && (
+                    <span className="text-[11px] text-zinc-400">
+                      {jobMasivo.fase || 'Preparando'}
+                      {jobMasivo.total > 0 && ` · ${Math.round((jobMasivo.procesadas / jobMasivo.total) * 100)}%`}
+                    </span>
+                  )}
+                  {jobMasivo?.estado === 'error' && (
+                    <span className="text-[11px] text-rose-600 font-semibold">{jobMasivo.error || 'La comparación falló'}</span>
+                  )}
                   <button onClick={() => setSoloExcepcionesTecnico(v => !v)} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
                     {soloExcepcionesTecnico ? 'Mostrar todas las líneas' : 'Mostrar solo pendientes'}
                   </button>
@@ -735,8 +806,9 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       {resultadoMasivo && (
         <ModalResultadoMasivo
           resultados={resultadoMasivo}
-          onVerLinea={id => { setResultadoMasivo(null); setVerLineaId(id); }}
-          onClose={() => setResultadoMasivo(null)}
+          resumen={jobMasivo?.resumen ?? null}
+          onVerLinea={id => { cerrarResultadoMasivo(); setVerLineaId(id); }}
+          onClose={cerrarResultadoMasivo}
         />
       )}
 
@@ -777,8 +849,9 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 // ════════════════════════════════════════════════════════════════════════════════
 // Resultado de "Comparar contra un documento" (carga masiva) — una fila por línea procesada,
 // con acceso directo a la comparación completa de la que tenga algo pendiente.
-function ModalResultadoMasivo({ resultados, onVerLinea, onClose }: {
-  resultados: Array<{ lineaNumero: number; itemId: number; titulo: string; total: number; cumplen: number; noCumplen: number; error?: string }>;
+function ModalResultadoMasivo({ resultados, resumen, onVerLinea, onClose }: {
+  resultados: ResultadoMasivoLinea[];
+  resumen: JobMasivo['resumen'];
   onVerLinea: (itemId: number) => void;
   onClose: () => void;
 }) {
@@ -798,6 +871,15 @@ function ModalResultadoMasivo({ resultados, onVerLinea, onClose }: {
               {totalNoCumplen > 0 && <span className="text-rose-600 font-semibold"> · {totalNoCumplen} con incumplimientos</span>}
               {totalErrores > 0 && <span className="text-amber-600 font-semibold"> · {totalErrores} con error</span>}
             </p>
+            {/* Sin esto no se distingue "la ficha no cubre esa línea" de "la línea sí cumple". */}
+            {resumen && (
+              <p className="text-[11px] text-zinc-400 mt-0.5 truncate">
+                {resumen.documento} · {resumen.lineasComparadas} de {resumen.lineasTotales} línea(s) del checklist
+                {resumen.bloquesFicha > 0
+                  ? ` · ficha segmentada en ${resumen.bloquesFicha} bloque(s)`
+                  : ' · ficha sin segmentar (se comparó contra el texto completo)'}
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-colors flex-shrink-0" aria-label="Cerrar"><X size={16} /></button>
         </div>

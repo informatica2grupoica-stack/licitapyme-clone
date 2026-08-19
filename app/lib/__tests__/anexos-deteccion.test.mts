@@ -1481,3 +1481,47 @@ test('analizarAnexo ignora las casillas normales tapadas detrás de un cuadro fl
     'un cuadro chico no tapa nada detrás',
   );
 });
+
+// ── Regresión 2724-35-LP26 (19-ago-2026) ─────────────────────────────────────────────────────
+// El ANEXO N°1 "Formulario datos del oferente" salía COMPLETO en blanco (0 de 15 casillas) aunque
+// el motor determinista resolvía 14 de ellas: la etiqueta de la PRIMERA fila de la tabla —"Razón
+// social o nombre persona natural"— se leía como el TÍTULO de una sección de persona natural. Al
+// no haber otro encabezado ni otro formulario después, esa sección OMITIR se estiraba hasta el
+// final del documento y lo dejaba entero en `indicesSoloManual`.
+test('una etiqueta de campo que nombra el tipo de persona NO abre una sección (regresión 2724-35-LP26)', () => {
+  const xml = NS
+    + p('A) DATOS DEL OFERENTE')
+    + p('Razón social o nombre persona natural') + p('')
+    + p('RUT oferente') + p('')
+    + p('Dirección') + p('')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+
+  assert.deepEqual(detectarSecciones(listarParrafos(norm)), [],
+    '"Razón social o nombre persona natural" es una etiqueta de campo, no el título de un bloque');
+
+  const analisis = analizarAnexo(norm);
+  for (const c of analisis.candidatosCelda) {
+    assert.ok(!analisis.indicesSoloManual.has(c.indice),
+      `"${c.etiqueta}" no puede quedar soloManual: no hay ninguna sección de persona natural en este anexo`);
+  }
+});
+
+// El otro lado de la misma moneda: los títulos REALES de bloque siguen abriendo su sección y
+// siguen omitiéndose. El freno se ancla al inicio del párrafo justamente para no tocarlos.
+test('los encabezados reales de sección siguen detectándose (contraparte del fix anterior)', () => {
+  for (const titulo of [
+    'PERSONA NATURAL',
+    'A) PERSONA NATURAL',
+    'DATOS DEL OFERENTE PERSONA NATURAL',
+    'IDENTIFICACIÓN DEL OFERENTE PERSONA NATURAL',
+    'En caso de persona natural',
+    'ANTECEDENTES DE LA PERSONA NATURAL',
+  ]) {
+    const { xml: norm } = normalizarParaIds(NS + p(titulo) + p('Nombre') + p('') + FIN);
+    const secciones = detectarSecciones(listarParrafos(norm));
+    assert.equal(secciones.length, 1, `"${titulo}" debe seguir abriendo una sección: ${JSON.stringify(secciones)}`);
+    assert.equal(secciones[0].tipo, 'PERSONA_NATURAL');
+    assert.equal(secciones[0].decision, 'OMITIR');
+  }
+});

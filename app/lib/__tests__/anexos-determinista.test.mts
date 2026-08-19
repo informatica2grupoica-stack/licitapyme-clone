@@ -606,3 +606,72 @@ test('AUDITORÍA: instrucción que nombra el dato antes del blanco, y "Cédula d
   const g = 'Llenar con ';
   assert.equal(campoDeBlancoInline(blanco(g + '______________', g.length, { largo: 14 })), null);
 });
+
+// ── Regresión 2724-35-LP26 (19-ago-2026) ─────────────────────────────────────────────────────
+// El organismo aclara al final de la etiqueta para QUÉ TIPO de oferente sirve la casilla, porque
+// la misma casilla sirve para los dos ("Razón social o nombre persona natural", ANEXO N°1). Eso no
+// cambia QUÉ dato se pide, así que la aclaración se saca antes de comparar contra el diccionario:
+// sin esto, la etiqueta más básica que existe —la primera fila de toda tabla de identificación—
+// no matcheaba ninguna entrada de razon_social y quedaba pendiente.
+test('la aclaración de tipo de persona al final de la etiqueta no cambia QUÉ dato se pide', () => {
+  assert.equal(normalizarEtiqueta('Razón social o nombre persona natural'), 'razon social o nombre');
+  assert.equal(normalizarEtiqueta('RUT persona natural o jurídica'), 'rut');
+  assert.equal(normalizarEtiqueta('Nombre representante legal o persona natural según corresponda'), 'nombre representante legal');
+  assert.equal(normalizarEtiqueta('Razón social empresa o persona natural según corresponda'), 'razon social empresa');
+
+  // …pero la frase PELADA no es una casilla con aclaración: es el título de un bloque, y sacarle
+  // el "persona natural" la dejaría vacía. Se conserva tal cual (lo maneja detectarSecciones).
+  assert.equal(normalizarEtiqueta('PERSONA NATURAL'), 'persona natural');
+  assert.equal(normalizarEtiqueta('Persona Jurídica'), 'persona juridica');
+});
+
+// El marcador escribe el FORMATO de la fecha en vez de la palabra "fecha". Caso real: los siete
+// anexos de 2724-35-LP26 cierran con "<Ciudad>, <día/mes/año>" — la ciudad se llenaba y la fecha
+// quedaba con el marcador literal a la vista en el documento que se sube al portal.
+test('un marcador con el formato de la fecha ("<día/mes/año>") es la fecha de hoy', () => {
+  const conMarcador = (texto: string) => campoDeBlancoInline({
+    indiceParrafo: 0, indiceRun: 0, posEnTexto: 0, largo: 1,
+    contexto: texto, textoMarcador: texto,
+  } as CandidatoInline);
+  for (const m of ['día/mes/año', 'dd/mm/aaaa', 'DD-MM-AAAA', 'dia/mes/ano']) {
+    assert.equal(conMarcador(m), 'fecha_hoy', `"${m}" debe resolverse como la fecha de hoy`);
+  }
+});
+
+// BUG REAL (2724-35-LP26, ANEXO N°1, bloque "B) DATOS DEL CONTACTO DEL OFERENTE"): el bloque pide
+// "Nombre completo / Rut / Cargo" de la persona de contacto. El nombre y el cargo salían de la
+// persona, pero el "Rut" pelado salía con el de la EMPRESA — el RUT de un titular distinto al del
+// nombre de al lado. El RUT pelado calza con el diccionario de la capa 1 y nunca llegaba a la capa
+// que mira el bloque.
+test('el RUT pelado sigue al titular del NOMBRE pelado de su mismo bloque (regresión 2724-35-LP26)', () => {
+  const candidatos: CandidatoCelda[] = [
+    { etiqueta: 'Nombre completo', paraId: 'a', indice: 30 },
+    { etiqueta: 'Rut', paraId: 'b', indice: 32 },
+    { etiqueta: 'Cargo', paraId: 'c', indice: 34 },
+  ];
+  const parrafos = [
+    ...Array.from({ length: 29 }, (_, i) => ({ indice: i, texto: '', paraId: `p${i}`, vacio: true })),
+    { indice: 29, texto: 'B) DATOS DEL CONTACTO DEL OFERENTE PARA EFECTOS DE LA LICITACIÓN', paraId: 'h', vacio: false },
+  ] as unknown as Parrafo[];
+  const r = resolverDeterminista({ candidatos, blancosInline: [], parrafos, empresa: EMPRESA });
+
+  assert.equal(valorAuto(r.celda, 30), EMPRESA.representante_nombre);
+  assert.equal(valorAuto(r.celda, 32), EMPRESA.representante_rut,
+    'el RUT del contacto es el de la persona nombrada al lado, no el de la empresa');
+});
+
+// La contraparte: en la tabla de identificación más común del país la hermana NO es una etiqueta
+// pelada ("Nombre o Razón Social" dice explícitamente que es la empresa), y ahí el RUT sigue
+// siendo el de la empresa. Si esto se rompe, se rompe el patrón más frecuente que existe.
+test('el RUT de una tabla de identificación con "Nombre o Razón Social" sigue siendo el de la empresa', () => {
+  const candidatos: CandidatoCelda[] = [
+    { etiqueta: 'Nombre o Razón Social', paraId: 'a', indice: 5 },
+    { etiqueta: 'RUT', paraId: 'b', indice: 7 },
+  ];
+  const parrafos = [
+    ...Array.from({ length: 4 }, (_, i) => ({ indice: i, texto: '', paraId: `p${i}`, vacio: true })),
+    { indice: 4, texto: 'IDENTIFICACIÓN DEL OFERENTE', paraId: 'h', vacio: false },
+  ] as unknown as Parrafo[];
+  const r = resolverDeterminista({ candidatos, blancosInline: [], parrafos, empresa: EMPRESA });
+  assert.equal(valorAuto(r.celda, 7), EMPRESA.rut);
+});

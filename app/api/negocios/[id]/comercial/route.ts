@@ -23,11 +23,7 @@ import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor'
 import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
 import { revisarDeltaForo } from '@/app/lib/control-foro';
 import { leerCongelamiento, yaCongelado } from '@/app/lib/congelamiento';
-import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
-import {
-  lineasTecnicasDelInforme, clasificarCaracteristicasLinea, compararFichaProveedor,
-  evaluarCaracteristicaDeterminista, slugCaracteristica,
-} from '@/app/lib/auditor-tecnico';
+import { agregarDocumentos, bitacora } from '@/app/lib/checklist-comercial-db';
 
 import { decidirGeneracion, type DocumentoCandidato, type BloqueGenerable } from '@/app/lib/auditor-generacion';
 import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
@@ -178,23 +174,10 @@ export async function leerItems(negocioId: number) {
   }));
 }
 
-/** Agrega documentos nuevos a un punto (nunca reemplaza los anteriores: se acumulan). Exportada:
- *  la ruta hermana .../[itemId]/caracteristicas la reusa para dejar la ficha comparada como
- *  evidencia adjunta de la línea (mismo "Ver documento" que cualquier otro punto del checklist,
- *  en vez de inventar un visor aparte solo para fichas técnicas). */
-export async function agregarDocumentos(
-  itemId: number, negocioId: number, docs: Array<{ url: string; nombre: string }>,
-  userId: number, userNombre: string,
-): Promise<void> {
-  if (!docs.length) return;
-  for (const d of docs) {
-    await pool.query(
-      `INSERT INTO checklist_comercial_documentos (item_id, negocio_id, url, nombre, subido_por, subido_por_nombre, subido_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [itemId, negocioId, d.url.slice(0, 600), d.nombre.slice(0, 300), userId, userNombre, ahoraChileSQL()],
-    );
-  }
-}
+// agregarDocumentos y bitacora viven en app/lib/checklist-comercial-db.ts (el motor de
+// comparación masiva las necesita y este route lo importa: dejarlas aquí sería un ciclo).
+// Se re-exportan para no tocar a quienes ya las traían desde este módulo.
+export { agregarDocumentos, bitacora };
 
 /**
  * Materializa el checklist desde el informe. Idempotente: `INSERT IGNORE` contra la unique
@@ -236,23 +219,6 @@ async function viabilidadMasNuevaQueChecklist(negocioId: number, codigo: string)
     return new Date(f.viabilidad).getTime() > new Date(f.checklist).getTime();
   } catch {
     return false;   // nunca romper la pantalla por esto: en el peor caso queda el botón manual
-  }
-}
-
-export async function bitacora(
-  itemId: number, negocioId: number, accion: string,
-  anterior: string | null, nuevo: string, comentario: string | null,
-  userId: number | null, userNombre: string,
-) {
-  try {
-    await pool.query(
-      `INSERT INTO checklist_comercial_bitacora
-         (item_id, negocio_id, accion, estado_anterior, estado_nuevo, comentario, usuario_id, usuario_nombre, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [itemId, negocioId, accion, anterior, nuevo, comentario, userId, userNombre, ahoraChileSQL()],
-    );
-  } catch (e) {
-    console.error('[comercial] bitácora falló:', String(e));  // nunca bloquear la acción principal
   }
 }
 
@@ -493,22 +459,9 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ success: true, items, resumen: resumirChecklist(items) });
     }
 
-    if (accion === 'comparar_documento_masivo') {
-      if (await yaCongelado(negocio.id))
-        return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
-
-      const documentoUrl = String(body.documentoUrl || '');
-      const documentoNombre = String(body.documentoNombre || 'documento');
-      if (!documentoUrl) return NextResponse.json({ error: 'Falta el documento.' }, { status: 400 });
-
-      const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
-      const resultado = await compararDocumentoMasivo({ negocio, userId, nombreActor, documentoUrl, documentoNombre });
-      if ('error' in resultado) return NextResponse.json({ error: resultado.error }, { status: 400 });
-
-      publicarCambio('checklist_comercial');
-      const items = await leerItems(negocio.id);
-      return NextResponse.json({ success: true, resultados: resultado.resultados, items, resumen: resumirChecklist(items) });
-    }
+    // 'comparar_documento_masivo' se mudó a .../comercial/comparacion-masiva (POST arranca un
+    // trabajo de fondo, GET informa el avance): con 88 líneas técnicas no cabía en esta petición.
+    // Ver app/lib/auditor-comparacion-masiva.ts.
 
     return NextResponse.json({ error: 'Acción desconocida' }, { status: 400 });
   } catch (error) {
@@ -714,175 +667,6 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   }
 }
 
-const COLS_CARACT = `id, item_id, negocio_id, clave_caracteristica, orden, descripcion, tipo,
-  valor_requerido_texto, valor_requerido_numero, valor_requerido_numero_max, unidad_requerida,
-  valor_ofertado_texto, valor_ofertado_numero, unidad_ofertada_original, valor_convertido_numero,
-  veredicto, pendiente_confirmacion_proveedor, fundamento_documento, fundamento_cita, confianza, origen`;
-
-/**
- * CARGA MASIVA (Auditor Técnico) — un solo documento (catálogo, ficha técnica completa) que
- * trae las especificaciones de VARIAS líneas a la vez, en vez de subir el mismo archivo N veces
- * a mano. No hace falta "segmentar" el documento primero: compararFichaProveedor ya recibe el
- * texto COMPLETO y busca el dato de cada característica dentro — así que basta con correrlo una
- * vez POR LÍNEA contra el mismo texto ya extraído. Si una línea no tenía características
- * clasificadas todavía, se clasifica sobre la marcha (mismo Agente 1 que "Validar línea").
- */
-async function compararDocumentoMasivo(args: {
-  negocio: any; userId: number; nombreActor: string; documentoUrl: string; documentoNombre: string;
-}) {
-  const { negocio, userId, nombreActor, documentoUrl, documentoNombre } = args;
-
-  const informe = await leerInforme(negocio.licitacion_codigo);
-  if (!informe) return { error: 'Esta licitación aún no tiene informe de viabilidad.' as const };
-
-  const lineas = lineasTecnicasDelInforme(informe).filter(l => l.caracteristicas.length > 0);
-  if (!lineas.length) return { error: 'El informe no trae características técnicas para ninguna línea.' as const };
-
-  const extraido = await descargarYExtraerTexto(documentoUrl, documentoNombre);
-  if (!extraido?.texto || extraido.texto.trim().length < 30)
-    return { error: 'No se pudo leer texto del documento.' as const };
-
-  const [itemRows] = await pool.query(
-    `SELECT id, linea_numero, estado FROM checklist_comercial WHERE negocio_id = ? AND tipo = 'linea_tecnica'`,
-    [negocio.id],
-  ) as any;
-  const itemPorLinea = new Map<number, any>((itemRows as any[]).map(r => [r.linea_numero, r]));
-
-  const resultados: Array<{ lineaNumero: number; itemId: number; titulo: string; total: number; cumplen: number; noCumplen: number; error?: string }> = [];
-
-  for (const l of lineas) {
-    const item = itemPorLinea.get(l.linea);
-    if (!item) continue;   // el informe trae la línea pero el checklist no la generó todavía — se salta, no revienta el lote
-
-    try {
-      let [existentesRows] = await pool.query(
-        `SELECT ${COLS_CARACT} FROM checklist_comercial_caracteristicas WHERE item_id = ? ORDER BY orden, id`,
-        [item.id],
-      ) as any;
-      let existentes = existentesRows as any[];
-
-      if (existentes.length === 0) {
-        const clasificadas = await clasificarCaracteristicasLinea(l, { licitacionCodigo: negocio.licitacion_codigo });
-        let orden = 0;
-        for (const c of clasificadas) {
-          const clave = slugCaracteristica(c.descripcion);
-          await pool.query(
-            `INSERT IGNORE INTO checklist_comercial_caracteristicas
-               (item_id, negocio_id, clave_caracteristica, orden, descripcion, tipo,
-                valor_requerido_texto, valor_requerido_numero, valor_requerido_numero_max, unidad_requerida,
-                fundamento_documento, fundamento_cita, confianza, origen)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Bases técnicas', ?, ?, 'interrogatorio')`,
-            [item.id, negocio.id, clave, orden++, c.descripcion, c.tipo,
-             c.valorRequeridoTexto, c.valorRequeridoNumero, c.valorRequeridoNumeroMax, c.unidadRequerida,
-             c.fundamentoCita, c.confianza],
-          );
-        }
-        [existentesRows] = await pool.query(
-          `SELECT ${COLS_CARACT} FROM checklist_comercial_caracteristicas WHERE item_id = ? ORDER BY orden, id`,
-          [item.id],
-        ) as any;
-        existentes = existentesRows as any[];
-      }
-
-      if (existentes.length === 0) {
-        resultados.push({ lineaNumero: l.linea, itemId: item.id, titulo: l.nombre, total: 0, cumplen: 0, noCumplen: 0, error: 'Sin características clasificables' });
-        continue;
-      }
-
-      const veredictos = await compararFichaProveedor(
-        existentes.map(c => ({
-          id: c.id, descripcion: c.descripcion, tipo: c.tipo,
-          valorRequeridoNumero: c.valor_requerido_numero != null ? Number(c.valor_requerido_numero) : null,
-          valorRequeridoNumeroMax: c.valor_requerido_numero_max != null ? Number(c.valor_requerido_numero_max) : null,
-          unidadRequerida: c.unidad_requerida, valorRequeridoTexto: c.valor_requerido_texto,
-        })),
-        extraido.texto, documentoNombre,
-      );
-
-      let cumplen = 0, noCumplen = 0;
-      for (const c of existentes) {
-        const v = veredictos.get(c.id);
-        if (!v) continue;
-        let convertido: number | null = null;
-        let veredictoFinal = v.veredicto;
-        const valorReqNum = c.valor_requerido_numero != null ? Number(c.valor_requerido_numero) : null;
-        if (v.valorOfertadoNumero != null && valorReqNum != null) {
-          const det = evaluarCaracteristicaDeterminista({
-            tipo: c.tipo, valorRequeridoNumero: valorReqNum,
-            valorRequeridoNumeroMax: c.valor_requerido_numero_max != null ? Number(c.valor_requerido_numero_max) : null,
-            unidadRequerida: c.unidad_requerida, valorOfertadoNumero: v.valorOfertadoNumero, unidadOfertadaOriginal: v.unidadOfertadaOriginal,
-          });
-          if (det) { convertido = det.valorConvertidoNumero; veredictoFinal = det.veredicto; }
-        }
-        await pool.query(
-          `UPDATE checklist_comercial_caracteristicas
-              SET valor_ofertado_texto = ?, valor_ofertado_numero = ?, unidad_ofertada_original = ?,
-                  valor_convertido_numero = ?, veredicto = ?, pendiente_confirmacion_proveedor = ?,
-                  fundamento_documento = ?, fundamento_cita = COALESCE(?, fundamento_cita), confianza = ?, origen = 'ficha'
-            WHERE id = ?`,
-          [
-            v.valorOfertadoTexto, v.valorOfertadoNumero, v.unidadOfertadaOriginal, convertido,
-            veredictoFinal, (v.pendienteConfirmacionProveedor || !veredictoFinal) ? 1 : 0,
-            v.fundamentoDocumento, v.fundamentoCita, v.confianza, c.id,
-          ],
-        );
-        if (veredictoFinal === 'CUMPLE') cumplen++;
-        else if (veredictoFinal === 'NO_CUMPLE') noCumplen++;
-      }
-
-      // Deja la ficha como evidencia adjunta de la línea — mismo "Ver documento" que cualquier
-      // otro punto del checklist, para no tener que confiar solo en el nombre citado en cada fila.
-      await agregarDocumentos(item.id, negocio.id, [{ url: documentoUrl, nombre: documentoNombre }], userId, nombreActor);
-
-      // Auto-transición: mismo criterio que .../[itemId]/caracteristicas (intentarAutoTransicion)
-      // — si toda la línea quedó resuelta Y sin ningún NO_CUMPLE/CON_COMPLEMENTO, se aprueba sola
-      // (nada que decidir); si quedó algún incumplimiento, pasa a CARGADO para que el asesor lo vea.
-      const [chkRows] = await pool.query(
-        `SELECT COUNT(*) AS total, SUM(veredicto IS NULL) AS sin_evaluar, SUM(pendiente_confirmacion_proveedor = 1) AS pendientes,
-                SUM(veredicto = 'NO_CUMPLE') AS no_cumplen, SUM(veredicto = 'CUMPLE_CON_COMPLEMENTO') AS con_complemento
-           FROM checklist_comercial_caracteristicas WHERE item_id = ?`,
-        [item.id],
-      ) as any;
-      const chk = (chkRows as any[])[0];
-      if (chk && Number(chk.total) > 0 && Number(chk.sin_evaluar) === 0 && Number(chk.pendientes) === 0) {
-        const ahora = ahoraChileSQL();
-        const todoCumple = Number(chk.no_cumplen) === 0 && Number(chk.con_complemento) === 0;
-        if (todoCumple) {
-          await pool.query(
-            `UPDATE checklist_comercial
-                SET estado = 'APROBADO', cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
-                    aprobado_por = NULL, aprobado_por_nombre = ?, aprobado_at = ?
-              WHERE id = ?`,
-            [userId, nombreActor, ahora, `Auto-aprobado (${Number(chk.total)}/${Number(chk.total)} cumple)`, ahora, item.id],
-          );
-          await bitacora(item.id, negocio.id, 'AUTO_APROBAR', item.estado, 'APROBADO',
-            `Comparado en lote contra "${documentoNombre}" — ${Number(chk.total)}/${Number(chk.total)} cumplen, sin excepciones`,
-            userId, nombreActor);
-        } else {
-          const nuevoEstado = transicion(item.estado, 'CARGAR');
-          if (nuevoEstado) {
-            await pool.query(
-              `UPDATE checklist_comercial
-                  SET estado = 'CARGADO', cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
-                      aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL
-                WHERE id = ?`,
-              [userId, nombreActor, ahora, item.id],
-            );
-            await bitacora(item.id, negocio.id, 'CARGAR', item.estado, 'CARGADO',
-              `Comparado en lote contra "${documentoNombre}" — ${Number(chk.total)}/${Number(chk.total)} características evaluadas`,
-              userId, nombreActor);
-          }
-        }
-      }
-
-      resultados.push({ lineaNumero: l.linea, itemId: item.id, titulo: l.nombre, total: existentes.length, cumplen, noCumplen });
-    } catch (e) {
-      resultados.push({ lineaNumero: l.linea, itemId: item.id, titulo: l.nombre, total: 0, cumplen: 0, noCumplen: 0, error: String(e) });
-    }
-  }
-
-  return { resultados };
-}
 
 export async function nombreDe(userId: number): Promise<string | null> {
   try {

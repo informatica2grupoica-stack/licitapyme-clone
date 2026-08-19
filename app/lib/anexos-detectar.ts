@@ -1232,9 +1232,35 @@ const SOLO_PUNTUACION_FINAL = /^[\s_:"'”)]*$/;
 // simplemente no existía para el resto del pipeline.
 const CALIFICADOR_FINAL_ENTRE_PARENTESIS = /^\s*\([^()]{0,60}\)\s*$/;
 
+// BUG REAL GRAVE (2724-35-LP26, ANEXO N°1 "Formulario datos del oferente", 19-ago-2026 — el que
+// hacía que ESE anexo saliera 100% en blanco): la PRIMERA fila de la tabla de identificación se
+// rotula "Razón social o nombre persona natural" — el organismo nombra las dos formas posibles de
+// oferente en la etiqueta de UNA casilla, porque la misma casilla sirve para las dos. Como la
+// frase "persona natural" queda al FINAL del párrafo, esEncabezadoDeSeccion la leía como el TÍTULO
+// de un bloque de persona natural: se abría una sección PERSONA_NATURAL que —al no haber otro
+// encabezado ni otro formulario después— se extendía hasta el final del documento y lo dejaba
+// entero en `indicesSoloManual`. Las 15 casillas se mostraban vacías aunque el motor determinista
+// resolvía 14 de ellas sin dudar (verificado corriendo resolverDeterminista aparte). Un fallo
+// silencioso perfecto: en pantalla se ve igual que "el motor no supo".
+//
+// La regla que lo separa es la MISMA que ya distingue un campo de un título en el resto del
+// archivo (ver esEtiquetaDeCampo, y el freno por RE_TIENE_BLANCO_PROPIO acá abajo): un ENCABEZADO
+// dice de QUIÉN es el bloque ("PERSONA NATURAL", "DATOS DEL OFERENTE PERSONA NATURAL",
+// "IDENTIFICACIÓN PERSONA JURÍDICA"); una ETIQUETA DE CAMPO empieza nombrando el DATO que se pide
+// ("Razón social o nombre persona natural", "RUT persona natural o jurídica", "Domicilio persona
+// natural"), y ahí el tipo de persona es solo la aclaración de a quién describe ese dato.
+// Por eso el freno se ancla al INICIO del párrafo: los títulos reales del corpus arrancan con una
+// palabra ESTRUCTURAL (datos, antecedentes, identificación, formato, formulario, sección, anexo,
+// "en caso de", "si el oferente es") o son la frase pelada — ninguno arranca con el nombre de un
+// dato de la ficha.
+const RE_EMPIEZA_NOMBRANDO_UN_DATO =
+  /^\s*(?:\d+\s*[.)\-]*\s*|[a-zA-Z]\s*[.)\-]+\s*)?(?:nombre|raz[oó]n\s+social|r\.?\s*u\.?\s*t\.?|rol\s+[uú]nico|run|c[eé]dula|domicilio|direcci[oó]n|giro|correo|e-?mail|tel[eé]fono|fono|celular|ciudad|comuna|regi[oó]n|representante|apoderado)\b/i;
+
 function esEncabezadoDeSeccion(texto: string): { tipo: TipoSeccion } | null {
   if (texto.length > LARGO_MAX_ENCABEZADO) return null;
   if (/^firma\b/i.test(texto.trim())) return null; // pie de firma, no divisor
+  // Etiqueta de campo, no título de bloque — ver RE_EMPIEZA_NOMBRANDO_UN_DATO.
+  if (RE_EMPIEZA_NOMBRANDO_UN_DATO.test(texto)) return null;
   // Un párrafo con su propio blanco ("Nombre de la Unión Temporal de Proveedores: __________") es
   // un CAMPO del formulario, no el título de una sección nueva. Caso real 4291-38-LP26: como
   // SOLO_PUNTUACION_FINAL acepta "_", este campo se tomaba por encabezado y abría una sección UTP

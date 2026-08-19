@@ -60,6 +60,17 @@ function sinParentesisEnvolvente(s: string): string {
   return m ? m[1] : s;
 }
 
+// El organismo aclara al final de la etiqueta PARA QUÉ TIPO DE OFERENTE sirve la casilla, porque
+// la misma casilla sirve para los dos: "Razón social o nombre persona natural" (2724-35-LP26,
+// ANEXO N°1), "RUT persona natural o jurídica", "…o persona natural según corresponda"
+// (1247197-54-LE26). Eso NO cambia QUÉ dato se pide — solo dice a quién describe — así que se
+// saca antes de comparar contra el diccionario: sin esto, "Razón social o nombre persona natural"
+// no matcheaba ninguna entrada de `razon_social` y la etiqueta más básica que existe (la primera
+// fila de toda tabla de identificación) quedaba pendiente. Mismo criterio que ya aplica
+// REGLAS_MARCADOR con "o persona natural según corresponda": el QUÉ manda, el DE QUIÉN no.
+const RE_TIPO_DE_PERSONA_AL_FINAL =
+  /\s*(?:o\s+|de\s+la\s+|de\s+|para\s+)?personas?\s+(?:natural(?:es)?|juridicas?)(?:\s*(?:o|y|\/)\s*(?:personas?\s+)?(?:natural(?:es)?|juridicas?))?(?:\s+segun\s+corresponda)?$/;
+
 export function normalizarEtiqueta(s: string): string {
   return sinParentesisEnvolvente(s || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')   // sin tildes
@@ -81,6 +92,13 @@ export function normalizarEtiqueta(s: string): string {
     .replace(/^\s*(?:\d+\s*[.)-]+|[a-z]\s*[.)-]+|[-•*])\s+/, ' ')
     .replace(/[.:;,_·"'“”]+/g, ' ')                      // puntuación y rayas de relleno
     .replace(/\s+/g, ' ')
+    .trim()
+    .replace(RE_TIPO_DE_PERSONA_AL_FINAL, (coincidencia, ...resto) => {
+      // Solo se saca si queda etiqueta después: "PERSONA NATURAL" pelada NO es una casilla con
+      // aclaración, es el título de un bloque (lo maneja detectarSecciones, no este diccionario).
+      const antes = String(resto[resto.length - 1]).slice(0, resto[resto.length - 2] as number).trim();
+      return antes ? '' : coincidencia;
+    })
     .trim();
 }
 
@@ -313,6 +331,11 @@ const ETIQUETAS_PELADAS: { re: RegExp; persona: Campo; empresa: Campo }[] = [
   { re: /^(?:rut|r u t|rol unico tributario)$/,      persona: 'representante_rut',    empresa: 'rut' },
   { re: /^(?:rut|cedula|c i|run)(?: n[°º]?)?$/,      persona: 'representante_rut',    empresa: 'rut' },
 ];
+const RE_PELADA_NOMBRE = ETIQUETAS_PELADAS[0].re;
+// El RUT pelado es el ÚNICO de los tres que además calza con una entrada del diccionario de la
+// capa 1 (`^r u t${OFERENTE}$`, con el sufijo opcional): "RUT" a secas se resuelve ahí como el de
+// la EMPRESA y nunca llega a esta capa. Ver el paso 1b de resolverDeterminista.
+const RE_PELADA_RUT = /^(?:rut|r u t|rol unico tributario|cedula|c i|run)(?: n[°º]?)?$/;
 
 const RE_CTX_PERSONA = /\b(representante(\s+legal)?|apoderado|declarante|firmante|don|dona|suscribe|persona natural|encargado|administrador de contrato|contacto)\b/;
 
@@ -527,6 +550,13 @@ const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
   { re: /id\s+de\s+mercado\s+p(?:u|ú)blico|id\s+licitaci(?:o|ó)n/i, campo: 'licitacion_codigo' },
   { re: /nombre\s+(?:de\s+la\s+)?licitaci(?:o|ó)n/i, campo: 'licitacion_nombre' },
   { re: /^\s*fecha\s*$/i, campo: 'fecha_hoy' },
+  // El marcador ESCRIBE el formato en vez de la palabra "fecha": "<día/mes/año>", "<dd/mm/aaaa>",
+  // "<DD-MM-AAAA>". Caso real 2724-35-LP26 (ANEXO N°1 y los otros seis del mismo pliego, todos con
+  // el mismo pie "<Ciudad>, <día/mes/año>"): la ciudad SÍ se llenaba y la fecha quedaba con el
+  // marcador literal a la vista en el documento que se sube al portal. Es la fecha completa en UN
+  // solo hueco — distinto del triplete "___ de ___ de ___", que ya resuelve detectarTripletesFecha
+  // con sus tres campos por separado.
+  { re: /^\s*(?:d(?:i|í)a|dd?)\s*[/\-.]\s*(?:mes|mm?)\s*[/\-.]\s*(?:a(?:n|ñ)o|a{2,4}|yy(?:yy)?)\s*$/i, campo: 'fecha_hoy' },
   // BUG REAL (18-ago-2026, ANEXO N°4 de 1247197-54-LE26): esta regla mandaba CUALQUIER marcador
   // que dijera "comuna"/"ciudad" a la comuna del ORGANISMO comprador. En "con domicilio en
   // <domicilio>, <comuna>, <ciudad> en representación de…" el resultado fue
@@ -745,6 +775,30 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // 1. Diccionario de etiquetas inequívocas, sobre la etiqueta propia y sobre la compuesta
     //    ("IDENTIFICACIÓN DEL REPRESENTANTE LEGAL — NOMBRE" resuelve por la compuesta).
     if (!campo && !esTercero) campo = campoDeEtiquetaInequivoca(propia) ?? campoDeEtiquetaInequivoca(c.etiqueta.replace(/\s+—\s+/g, ' '));
+    // 1b. Coherencia de TITULAR dentro del bloque, solo para el RUT pelado.
+    //
+    // BUG REAL (2724-35-LP26, ANEXO N°1, bloque "B) DATOS DEL CONTACTO DEL OFERENTE"): ese bloque
+    // pide "Nombre completo / Rut / Cargo" de la PERSONA de contacto. "Nombre completo" y "Cargo"
+    // salen bien (la persona), pero "Rut" salía con el RUT de la EMPRESA — un bloque con el nombre
+    // de una persona y el RUT de otra. La causa es de orden: el RUT pelado calza con una entrada
+    // del diccionario de la capa 1 (`^r u t${OFERENTE}$`, sufijo OPCIONAL), así que se resuelve
+    // como dato de empresa y nunca llega a la capa 2 que sí mira el bloque — pese a que la
+    // doctrina escrita de la capa 1 dice que "Nombre", "RUT" o "Cargo" a secas NO van ahí.
+    //
+    // El arreglo no invierte el orden de las capas (eso mandaría a la persona el RUT de cualquier
+    // tabla de identificación con "Nombre o Razón Social" al lado, que es el patrón más común del
+    // país): solo exige COHERENCIA cuando el mismo bloque trae la otra etiqueta pelada del par.
+    // Si el "Nombre" pelado hermano describe a la PERSONA, el "RUT" pelado describe a la MISMA
+    // persona — son las dos casillas del mismo titular. Cuando la hermana no es pelada
+    // ("Nombre o Razón Social", "Razón social del oferente"), esto no se activa y el RUT sigue
+    // siendo el de la empresa, como hasta ahora.
+    if (campo === 'rut' && !esTercero && bloque && RE_PELADA_RUT.test(normalizarEtiqueta(propia))) {
+      const hermanaNombre = bloque.etiquetas.find(h => RE_PELADA_NOMBRE.test(h));
+      const titularDelNombre = hermanaNombre
+        ? resolverPeladaPorBloque(hermanaNombre, bloque.etiquetas, bloque.contexto, RE_CTX_PERSONA.test(bloque.contexto))
+        : null;
+      if (titularDelNombre === 'representante_nombre') campo = 'representante_rut';
+    }
     // 2. Etiqueta pelada, desambiguada por el bloque.
     if (!campo && !esTercero && bloque) {
       campo = resolverPeladaPorBloque(c.etiqueta, bloque.etiquetas, bloque.contexto, RE_CTX_PERSONA.test(bloque.contexto));
