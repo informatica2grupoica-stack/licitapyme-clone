@@ -276,9 +276,11 @@ export function ModalAuditorLineaTecnica({
   return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3"
-      onClick={onClose} role="dialog" aria-modal="true" aria-label="Comparación del Auditor Técnico"
+      role="dialog" aria-modal="true" aria-label="Comparación del Auditor Técnico"
     >
-      <div className="w-full max-w-3xl max-h-[88vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+      {/* El clic en el fondo NO cierra: acá se sube ficha, se corrigen casillas y se aprueba una
+          línea, así que un clic afuera por descuido perdía trabajo. Solo cierra la X o "Cerrar". */}
+      <div className="w-full max-w-3xl max-h-[88vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         <div className="px-5 py-4 border-b border-zinc-100 flex items-start gap-3 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0"><Wrench size={15} className="text-violet-600" /></div>
           <div className="min-w-0 flex-1">
@@ -419,9 +421,9 @@ export function ModalAuditorLineaTecnica({
             <button onClick={onClose} className="px-3 py-1.5 text-[12px] font-semibold text-zinc-400 hover:text-zinc-600">Cerrar</button>
           </div>
         )}
-        {/* Dentro de la tarjeta interna (que ya frena la propagación de su propio onClick) para
-            que cerrar el visor de documento no cierre también este modal — los clics de un portal
-            burbujean por el árbol de React, no por el DOM, así que la posición en el JSX importa. */}
+        {/* Dentro de la tarjeta interna para que cerrar el visor de documento no cierre también
+            este modal — los clics de un portal burbujean por el árbol de React, no por el DOM,
+            así que la posición en el JSX importa. */}
         <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
       </div>
     </div>,

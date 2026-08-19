@@ -155,74 +155,8 @@ const fmtFecha = (s: string | null) => {
   } catch { return ''; }
 };
 
-// Popup del semáforo en rojo (spec §9.4): "no deja avanzar hasta que se resuelva o se reconozca
-// expresamente el pendiente". No hay generación documental todavía que bloquear de verdad (Fase
-// 5), así que por ahora es este aviso: no se puede cerrar sin decisión, pero si el usuario
-// reconoce el riesgo puede seguir trabajando. Se re-muestra solo si cambia el set de causales
-// (sessionStorage con la clave incluye los códigos) — si aparece un bloqueante nuevo, avisa de
-// nuevo aunque ya se hubiera reconocido uno anterior.
-function PopupSemaforoRojo({ negocioId, causales }: { negocioId: number; causales: CausalBloqueo[] }) {
-  // El backend ya distingue "ya venció" de "quedan menos de 24 horas" (ver causalesDeBloqueo en
-  // semaforo-auditor.ts, que mira `horasRestantes < 0`). Acá solo se lee esa causal en vez de
-  // asumir que todo rojo es un cierre inminente.
-  const yaVencio = causales.some(c => c.codigo === 'CIERRE_INMINENTE' && /ya venci/i.test(c.descripcion));
-  const clave = `auditor-rojo-reconocido-${negocioId}-${causales.map(c => c.codigo).sort().join(',')}`;
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    try { setVisible(sessionStorage.getItem(clave) !== '1'); } catch { setVisible(true); }
-  }, [clave]);
-
-  if (!visible) return null;
-
-  const reconocer = () => {
-    try { sessionStorage.setItem(clave, '1'); } catch { /* no bloquear por storage */ }
-    setVisible(false);
-  };
-
-  // Portal a document.body: si se montara como hijo normal, quedaría dentro del contenedor
-  // ".fade-in" de la sección (su animación deja un transform:translateY(0) persistente, que
-  // crea un containing block para position:fixed) y el overlay se recortaría al tamaño de la
-  // tarjeta en vez de cubrir la pantalla completa. Mismo patrón que DocumentoIAModal/DocumentViewerModal.
-  return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
-        <div className="px-6 py-5 flex items-start gap-3">
-          <div className="w-10 h-10 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center flex-shrink-0">
-            <AlertTriangle size={18} className="text-rose-600" />
-          </div>
-          <div>
-            <h2 className="text-[15px] font-bold text-zinc-900">
-              {yaVencio ? 'El plazo de esta licitación ya venció' : 'Esta licitación está en rojo'}
-            </h2>
-            <p className="text-[12px] text-zinc-500 mt-1">
-              {/* BUG REAL (18-ago-2026, 2296-48-LE26): este texto era FIJO y seguía diciendo "quedan
-                  menos de 24 horas" después de que la licitación ya había cerrado (cerró a las 13:00
-                  y a las 14:06 seguía apareciendo). El backend YA lo sabía —`causalesDeBloqueo`
-                  distingue `horasRestantes < 0` y devuelve "El plazo de cierre ya venció"— pero el
-                  popup nunca miraba las causales que recibe. Un contador que dice que queda tiempo
-                  cuando el plazo se cerró es peor que no mostrar nada: confunde sobre el tiempo real
-                  para presentar la oferta. */}
-              {yaVencio
-                ? 'El plazo de cierre en Mercado Público ya se cumplió, así que no queda tiempo para presentar la oferta. Puedes seguir trabajando en el expediente, pero ya no corre contra el cierre.'
-                : 'Quedan menos de 24 horas para el cierre, o hay algo bloqueante sin resolver. Revisa los avisos antes de seguir trabajando.'}
-            </p>
-          </div>
-        </div>
-        <div className="px-6 pb-5">
-          <button onClick={reconocer} className="w-full px-4 py-2 rounded-lg text-[13px] font-semibold text-white bg-rose-600 hover:bg-rose-700 transition-colors">
-            Entiendo el riesgo, continuar
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-// Banner de "las bases cambiaron desde el análisis de viabilidad" (spec §11.1). A diferencia
-// del popup del semáforo rojo, esto no es un riesgo de plazo sino informativo — se puede
-// cerrar, y solo vuelve a aparecer si `ultimoDeltaAt` cambia (un delta nuevo de verdad), no en
+// Banner de "las bases cambiaron desde el análisis de viabilidad" (spec §11.1). Es informativo:
+// se puede cerrar, y solo vuelve a aparecer si `ultimoDeltaAt` cambia (un delta nuevo de verdad), no en
 // cada recarga de la página.
 function BannerCambioForo({ negocioId, snapshot }: {
   negocioId: number;
@@ -552,9 +486,10 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         </div>
       ) : (
         <>
-          {semaforo === 'ROJO' && causalesBloqueo.length > 0 && (
-            <PopupSemaforoRojo negocioId={negocioId} causales={causalesBloqueo} />
-          )}
+          {/* Antes acá iba un popup modal "Esta licitación está en rojo" que había que reconocer
+              antes de trabajar. Se eliminó (19-ago-2026, a pedido del usuario): no aportaba nada
+              que no dijeran ya los avisos de causales de bloqueo que se listan más abajo en la
+              propia sección, y obligaba a un clic extra en cada entrada al auditor. */}
           {foroSnapshot && <BannerCambioForo negocioId={negocioId} snapshot={foroSnapshot} />}
         </>
       )}
