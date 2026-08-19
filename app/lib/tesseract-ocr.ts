@@ -47,6 +47,17 @@ export async function ocrPdfLocalTesseract(buffer: Buffer): Promise<string> {
 
   if (total > nPags) {
     console.warn(`[tesseract] OCR local limitado a ${nPags}/${total} págs (OCR_LOCAL_MAX_PAGINAS=${OCR_LOCAL_MAX_PAGINAS}).`);
+    // BUG REAL (2981-214-LE26, 19-ago-2026): unas bases de 68 páginas se leyeron hasta la 40 y el
+    // Anexo "Tabla de Ponderación y Criterios de Evaluación" —páginas 47 y 48, donde estaba el
+    // 60/20/10/5/5 que decide quién gana— nunca existió para el sistema. El corte solo se avisaba
+    // por consola: el texto guardado en `documentos_cache` salía indistinguible de un documento
+    // leído entero, `ocrTieneHuecos()` devolvía false, y el informe de viabilidad se armó sin
+    // criterios sin que nada lo delatara.
+    //
+    // La ruta de GLM-OCR (document-extraction.ts) SÍ deja esta constancia dentro del texto desde
+    // siempre; esta no lo hacía. La nota viaja con el texto a donde sea que se use —el prompt de
+    // viabilidad, el chat, una consulta a mano— y convierte un fallo mudo en uno que se ve.
+    partes.push(`\n[NOTA: documento de ${total} págs — OCR local aplicado solo a las primeras ${nPags}. FALTA EL TEXTO DE LAS PÁGINAS ${nPags + 1} A ${total}.]`);
   }
   const texto = partes.join('\n\n');
   console.log(`[tesseract] OCR local: ${texto.length} chars de ${nPags} págs en ${((Date.now() - t0) / 1000).toFixed(1)}s`);

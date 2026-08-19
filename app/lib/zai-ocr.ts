@@ -169,7 +169,24 @@ async function glmLayoutParsing(
   // Circuit breaker: si ya sabemos que la cuenta no tiene saldo, no golpeamos GLM-OCR.
   if (glmOcrSinSaldo) throw new Error('GLM-OCR sin saldo (circuit breaker) → respaldo');
 
-  const payload: Record<string, unknown> = { model: ZAI_MODEL, file: url };
+  // BUG REAL (2981-214-LE26, 19-ago-2026): el nombre del archivo trae acentos —"Resolex N° 608
+  // Aprobación de Bases.pdf", lo más normal del mundo en Chile— y la URL viajaba con la "ó"
+  // LITERAL. El `fetch` de Node la tolera (percent-encodea solo antes de salir), así que el
+  // documento se descarga bien en toda la app y nada delata el problema; pero Z.AI recibe la URL
+  // como texto dentro del JSON, no la puede resolver, y responde 400 code 1214 — un mensaje sobre
+  // FORMATOS y TAMAÑOS que manda a investigar el PDF, cuando el PDF está perfecto.
+  //
+  // Consecuencia medida en ese caso: GLM-OCR falló en las 68 páginas, se cayó al respaldo Tesseract
+  // local (tope 40 págs), el anexo con la tabla de criterios —páginas 47-48— nunca se leyó, y el
+  // informe terminó con criterios inventados. Probado contra la API real: misma página, misma
+  // cuenta, URL cruda → 400; URL codificada → 200 y la tabla completa.
+  //
+  // `new URL(url).href` es idempotente: una URL que ya viene codificada sale igual.
+  let urlSegura = url;
+  try { urlSegura = new URL(url).href; }
+  catch { /* no es una URL absoluta: se manda tal cual y que responda la API */ }
+
+  const payload: Record<string, unknown> = { model: ZAI_MODEL, file: urlSegura };
   if (rango) { payload.start_page_id = rango.startPage; payload.end_page_id = rango.endPage; }
   const body = JSON.stringify(payload);
 

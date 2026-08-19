@@ -29,6 +29,7 @@ export { esFilaDeCriterioNoProducto };
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
+import { analizarRemisionACriterios, hayTablaDeCriterios, motivoCriteriosNoConfiables } from '@/app/lib/criterios-en-anexo';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
@@ -2143,6 +2144,52 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   }
 
   completarOrdenAnexosConLosPublicados(p3, docs, codigo);
+
+  // OVERRIDE DETERMINISTA — CRITERIOS QUE VIVEN EN UN ANEXO QUE NO LEÍMOS (ver
+  // criterios-en-anexo.ts). Caso real 2981-214-LE26: las bases remiten dos veces al ANEXO "TABLA DE
+  // PONDERACIÓN Y CRITERIOS DE EVALUACIÓN DE OFERTAS", la tabla real (60/20/10/5/5) está en las
+  // páginas 47-48 de un PDF de 68, y el OCR se cortó en la 40. El modelo, en vez de declararse
+  // incompleto como le exige el prompt, emitió tres criterios inventados (30/30/40) con citas a
+  // artículos que existen pero hablan de otra cosa — y como sumaban 100, V-01 los dio por buenos.
+  //
+  // Acá el código hace lo que el prompt pide y el modelo incumplió: si las bases REMITEN a un anexo
+  // y en NINGÚN documento leído aparece una distribución de criterios, la lista que haya emitido el
+  // modelo no puede haber salido del texto. Se descarta y se manda a revisión humana con la frase
+  // exacta que lo prueba. Es preferible un informe que dice "no pude leer los criterios" a uno que
+  // muestra cinco criterios falsos con aire de certeza.
+  try {
+    const remision = analizarRemisionACriterios(
+      leidos.filter(d => /BASES/i.test(String(d.categoria || ''))).map(d => d.texto).join('\n\n'),
+    );
+    // La tabla puede estar en un anexo suelto que SÍ bajamos (otro documento de la licitación): se
+    // busca en todo lo leído antes de concluir que no está en ninguna parte.
+    const tablaEnAlgunDocumento = hayTablaDeCriterios(leidos.map(d => d.texto).join('\n\n'));
+    if (remision.remite && !tablaEnAlgunDocumento) {
+      const motivo = motivoCriteriosNoConfiables(remision);
+      const emitidos = Array.isArray(p3?.criterios_evaluacion?.criterios) ? p3.criterios_evaluacion.criterios.length : 0;
+      console.warn(`[viabilidad-ia-v3] ${codigo}: criterios remitidos a un anexo que no está en el texto — se descartan los ${emitidos} criterios emitidos. ${motivo}`);
+      p3.criterios_evaluacion = {
+        ...(p3.criterios_evaluacion || {}),
+        criterios: [],
+        fuente_datos: 'incompleto',
+        suma_ponderaciones_real: 0,
+        suma_valida: false,
+        alertas: [...(p3.criterios_evaluacion?.alertas || []), motivo],
+        // Se conserva lo descartado para poder auditar QUÉ había inventado el modelo.
+        _descartado_por_anexo_ausente: p3.criterios_evaluacion?.criterios || [],
+      };
+      // MISMO campo y convención que usa escalarARevisionHumana (validador-viabilidad.ts): el
+      // estado vive en `veredicto.estado_veredicto` y los motivos en `veredicto.motivos_revision`.
+      // Escribirlo en la raíz del informe habría dejado la escalada invisible para la pantalla.
+      if (p3.veredicto && typeof p3.veredicto === 'object') {
+        p3.veredicto.estado_veredicto = 'REVISION_HUMANA';
+        if (!Array.isArray(p3.veredicto.motivos_revision)) p3.veredicto.motivos_revision = [];
+        p3.veredicto.motivos_revision.push(`CRITERIOS-EN-ANEXO: ${motivo}`);
+      }
+    }
+  } catch (e) {
+    console.warn(`[viabilidad-ia-v3] ${codigo}: chequeo de criterios-en-anexo falló, se omite:`, String(e).slice(0, 140));
+  }
 
   // VALIDADOR POST-FASE 2 (Frente A.2) — revisor automático por código, sin IA. Corre sobre el
   // informe YA ensamblado con todos los overrides deterministas aplicados arriba.
