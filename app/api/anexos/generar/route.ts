@@ -11,6 +11,7 @@ import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo } from '@/app/lib/anexos-datos';
 import { generarAnexoFinal } from '@/app/lib/anexos-rellenar';
+import { verificarTotalEconomico, montoDesdeTexto, type VerificacionTotal } from '@/app/lib/auditor-verificacion-total';
 import { abrirDocx, verificarXmlBienFormado } from '@/app/lib/anexos-docx';
 import { dividirPorFormularios } from '@/app/lib/anexos-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
@@ -35,6 +36,37 @@ async function subirYRegistrar(codigo: string, nombre: string, buffer: Buffer, u
     [codigo, nombre, url, buffer.length, CONTENT_TYPE_DOCX, usuarioId],
   );
   return url;
+}
+
+/**
+ * Compara el TOTAL que quedó escrito en el anexo contra el total neto del costeo VIGENTE de esa
+ * licitación. Devuelve null cuando no corresponde verificar: documento sin casilla de total (todos
+ * los administrativos) o licitación sin costeo cargado.
+ *
+ * El total del anexo se toma de la casilla "TOTAL NETO" cuando existe; si el formulario solo trae
+ * un total con IVA, se usa el mayor de los escritos y `verificarTotalEconomico` ya contempla que
+ * calce con el bruto. Nunca se reconstruye sumando celdas: eso dependería de si la columna es
+ * precio unitario o total por línea, y equivocarse ahí sería peor que no verificar.
+ */
+async function verificarTotalContraCosteo(
+  codigo: string, totalesEscritos: { etiqueta: string; valor: string }[],
+): Promise<VerificacionTotal | null> {
+  if (!totalesEscritos?.length) return null;
+
+  const [rows] = await pool.query(
+    `SELECT c.total_precio_neto FROM checklist_comercial_costeo c
+       JOIN negocios n ON n.id = c.negocio_id
+      WHERE n.licitacion_codigo = ? AND n.activo = TRUE AND c.vigente = 1
+      LIMIT 1`,
+    [codigo],
+  ) as any;
+  const totalCosteoNeto = (rows as any[])[0]?.total_precio_neto;
+  if (totalCosteoNeto == null) return null;
+
+  const neto = totalesEscritos.find(t => /neto/i.test(t.etiqueta) && !/iva/i.test(t.etiqueta));
+  const totalEnAnexo = neto ? montoDesdeTexto(neto.valor) : Math.max(...totalesEscritos.map(t => montoDesdeTexto(t.valor)));
+
+  return verificarTotalEconomico({ totalEnAnexo, totalCosteoNeto: Number(totalCosteoNeto) });
 }
 
 export async function POST(request: NextRequest) {
@@ -101,6 +133,17 @@ export async function POST(request: NextRequest) {
         { error: 'Verificación de integridad falló: el documento generado no calza con el original. No se subió.' },
         { status: 500 },
       );
+    }
+
+    // GUARDARRAÍL DEL ANEXO ECONÓMICO (18-ago-2026): el precio es lo que se evalúa, así que un
+    // total que no calza con el costeo aprobado es el error más caro que puede cometer el sistema.
+    // El motor comercial ya detectaba la discordancia, pero solo como ALERTA informativa: el
+    // archivo se subía igual. Acá es BLOQUEANTE, en el último punto donde todavía se puede evitar
+    // sin consecuencias. Solo aplica si el documento REALMENTE trae una casilla de total escrita
+    // (los anexos administrativos no tienen ninguna, y ahí no hay nada que comparar).
+    const verificacion = await verificarTotalContraCosteo(codigo, resultado.totalesEscritos);
+    if (verificacion && !verificacion.calza) {
+      return NextResponse.json({ error: verificacion.mensaje, totalNoCalza: true }, { status: 409 });
     }
 
     const { xml: xmlFinal } = await abrirDocx(resultado.buffer);

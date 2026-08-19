@@ -265,3 +265,51 @@ test('SOBRE_PRESUPUESTO_LINEA: con varias líneas y topes reales, sigue disparan
   assert.match(a!.detalle, /1/);
   assert.doesNotMatch(a!.detalle.replace(/Línea\(s\) [^:]*/, ''), /\b2\b/);
 });
+
+// BUG REAL (19-ago-2026, 3489-29-LP26, reportado por el usuario): el asistente duplicó la hoja de
+// costeo para trabajar ("Costeo" + "Hoja1", 85 de 88 filas idénticas) y el parser sumó las dos. El
+// total salió $181.422.753 en vez de $90.329.192, y con eso la app declaró "sobre presupuesto" una
+// oferta que en realidad estaba DENTRO del presupuesto publicado ($91.478.151).
+test('parsearCosteo: una hoja duplicada de trabajo no se suma dos veces', async () => {
+  const CAB = ['ITEM', 'Detalle de producto', 'Unidad de medida', 'Sku', 'Cantidad original',
+    'VALOR C/ IVA', 'Costo unitario neto', 'Costo total neto', 'Precio unitario venta',
+    'Precio unitario sin decimales', 'Precio total neto'];
+  const item = (n: number, precio: number) => [n, `PRODUCTO ${n}`, 'UN', '', 1, 0, 100, 100, precio, precio, precio];
+  const filas = [[], [], CAB, item(1, 1000), item(2, 2000)];
+
+  const buf = await libro([
+    { nombre: 'Costeo', filas },
+    { nombre: 'Hoja1', filas },   // la copia que dejó el asistente
+  ]);
+  const r = await parsearCosteo(buf);
+  assert.deepEqual([...new Set(r.map(f => f.hoja))], ['Costeo'], 'solo la hoja oficial');
+  assert.equal(totalesDeCosteo(r).totalPrecioNeto, 3000, 'no se duplica el total');
+});
+
+// Mismo criterio con el formato por línea: las LINEAn son oficiales, el resto son copias.
+test('parsearCosteo: con hojas LINEAn, las demás son copias de trabajo', async () => {
+  const CAB = ['ITEM', 'Detalle', 'Unidad', 'Cantidad', 'Costo unitario neto', 'Costo total neto',
+    'Precio unitario sin decimales', 'Precio total neto'];
+  const fila = (p: number) => [1, 'X', 'UN', 1, 10, 10, p, p];
+  const buf = await libro([
+    { nombre: 'LINEA1', filas: [CAB, fila(500)] },
+    { nombre: 'Copia de LINEA1', filas: [CAB, fila(500)] },
+  ]);
+  const r = await parsearCosteo(buf);
+  assert.deepEqual([...new Set(r.map(f => f.hoja))], ['LINEA1']);
+  assert.equal(totalesDeCosteo(r).totalPrecioNeto, 500);
+});
+
+// GUARDARRAÍL: la planilla histórica de la empresa NO usa nombres oficiales. Si se ignoraran las
+// hojas por no llamarse "Costeo", volveríamos al bug de leer $0 que se arregló el 18-ago.
+test('parsearCosteo: sin ninguna hoja oficial, se sigue leyendo por encabezado', async () => {
+  const CAB = ['ITEM', 'Detalle', 'Cantidad', 'CONVERSION', 'VALOR C/ IVA', 'Costo unitario neto',
+    'Costo total neto', 'Precio unitario venta', 'Precio unitario sin decimales', 'Precio total neto'];
+  const buf = await libro([
+    { nombre: 'Analisis', filas: [['ID'], ['Cliente']] },
+    { nombre: 'MI COSTEO 2026', filas: [CAB, [1, 'Producto', 1, 'unidad', 0, 10, 10, 999, 999, 999]] },
+  ]);
+  const r = await parsearCosteo(buf);
+  assert.equal(r.length, 1);
+  assert.equal(totalesDeCosteo(r).totalPrecioNeto, 999);
+});

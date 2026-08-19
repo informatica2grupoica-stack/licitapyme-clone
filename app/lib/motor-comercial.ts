@@ -129,8 +129,29 @@ export async function parsearCosteo(buffer: Buffer): Promise<FilaCosteo[]> {
   await wb.xlsx.load(buffer as any);
   const filas: FilaCosteo[] = [];
 
+  // BUG REAL (19-ago-2026, 3489-29-LP26): el asistente DUPLICÓ la hoja de costeo para trabajar
+  // ("Costeo" + "Hoja1", 85 de 88 filas idénticas) y el parser sumó las dos — el total ofertado
+  // salió $181.422.753 en vez de $90.329.192, y con eso la app declaró "sobre presupuesto" una
+  // oferta que en realidad estaba DENTRO del presupuesto ($91.478.151). Duplicar una hoja para
+  // probar precios es normal en Excel; sumar la copia no.
+  //
+  // Regla: si el libro trae al menos una hoja con NOMBRE OFICIAL de la plantilla ("Costeo" o
+  // "LINEAn"), esas son las únicas que cuentan y cualquier otra es una copia de trabajo. Si no hay
+  // ninguna oficial (planilla histórica de la empresa, hojas con nombre arbitrario), se mantiene el
+  // comportamiento anterior: vale cualquier hoja cuyo encabezado sea de costeo.
+  const esNombreOficial = (nombre: string) => /^costeo$/i.test(nombre.trim()) || lineaDeHoja(nombre) != null;
+  const hayOficiales = wb.worksheets.some(w => esNombreOficial(w.name));
+  const ignoradas: string[] = [];
+
   wb.eachSheet(ws => {
     if (ws.name.trim().toUpperCase() === 'AUDITORIA') return;
+    if (hayOficiales && !esNombreOficial(ws.name)) {
+      // Solo se reporta si PARECÍA un costeo: una hoja auxiliar sin encabezado de precios no
+      // interesa a nadie, pero una copia con datos sí hay que decirla — si no, volvemos al fallo
+      // silencioso que este comentario documenta.
+      if (detectarEsquema(ws)) ignoradas.push(ws.name);
+      return;
+    }
     const esquema = detectarEsquema(ws);
     // Sin encabezado de costeo reconocible la hoja se SALTA entera. Antes se leía igual con las
     // posiciones fijas, que es como "Datos Proveedor" y "Analisis" entraban con cientos de filas
@@ -182,6 +203,9 @@ export async function parsearCosteo(buffer: Buffer): Promise<FilaCosteo[]> {
       });
     }
   });
+  if (ignoradas.length) {
+    console.warn(`[motor-comercial] hoja(s) ignorada(s) por ser copia de trabajo (el libro ya trae hojas oficiales): ${ignoradas.join(', ')}`);
+  }
   return filas;
 }
 

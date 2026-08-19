@@ -373,7 +373,7 @@ async function resolverTodo(
 function aplicarTotalesPorSeccion(
   tablasCrudo: TablaCruda[], parrafos: Parrafo[], indicesEnTablas: Set<number>,
   matcheados: CampoResuelto[], pendientes: CandidatoCelda[], respuestas?: Record<string, string>,
-): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; titulos: TituloCercano[] } {
+): { matcheadosExtra: CampoResuelto[]; pendientesFiltrados: CandidatoCelda[]; titulos: TituloCercano[]; totalesPie: { etiqueta: string; valor: string }[] } {
   const titulos: TituloCercano[] = encabezadosLibres(parrafos, indicesEnTablas);
   const valoresPrecio = new Map(
     matcheados.filter(m => m.via === 'costeo').map(m => [m.c.indice, Number(m.valor.replace(/\./g, '').replace(',', '.'))]),
@@ -395,8 +395,13 @@ function aplicarTotalesPorSeccion(
   // TOTAL NETO / IVA / TOTAL IVA INCLUIDO al pie de la MISMA tabla de precios (539119-76-LP26) —
   // ver calcularTotalesAlPie. Son celdas distintas de las de la tabla resumen de abajo, pero la
   // deduplicación por paraId vale igual: una celda se escribe UNA vez o no se escribe.
+  const totalesPie: { etiqueta: string; valor: string }[] = [];
   for (const r of calcularTotalesAlPie(tablasCrudo, valorResuelto)) {
     paraIdsResueltos.add(r.paraId);
+    // Se guarda lo que de verdad quedó escrito en la casilla de TOTAL del anexo: es el número que
+    // va a leer el organismo, y contra el que se compara el costeo aprobado antes de subir el
+    // archivo (ver auditor-verificacion-total.ts).
+    totalesPie.push({ etiqueta: r.etiqueta, valor: r.valor });
     matcheadosExtra.push({
       c: { etiqueta: r.etiqueta, paraId: r.paraId, indice: r.indiceGlobal },
       campo: 'total_calculado', valor: r.valor, via: 'costeo',
@@ -430,7 +435,7 @@ function aplicarTotalesPorSeccion(
     }
   }
   const pendientesFiltrados = pendientes.filter(c => !paraIdsResueltos.has(c.paraId));
-  return { matcheadosExtra, pendientesFiltrados, titulos };
+  return { matcheadosExtra, pendientesFiltrados, titulos, totalesPie };
 }
 
 // Descarga una imagen de identidad de la empresa (firma escaneada o timbre) desde su URL pública
@@ -809,6 +814,13 @@ export interface ResultadoGeneracion {
   // documento los pedía) pero la descarga desde R2 falló — antes esto se tragaba en silencio y
   // el .docx salía "exitoso" sin la imagen (auditoría ago-2026). Vacío si todo se estampó bien.
   avisos: string[];
+  /**
+   * Lo que quedó escrito en las casillas de TOTAL del anexo ("TOTAL NETO", "IVA", "TOTAL IVA
+   * INCLUIDO"…). Es el número que va a leer el organismo, y contra el que el auditor compara el
+   * costeo aprobado antes de subir el archivo — ver auditor-verificacion-total.ts. Vacío si el
+   * documento no tiene tabla de precios (todos los anexos administrativos).
+   */
+  totalesEscritos: { etiqueta: string; valor: string }[];
 }
 
 export async function generarAnexoFinal(
@@ -885,7 +897,7 @@ export async function generarAnexoFinal(
   const indicesEnTablasGen = new Set(
     tablasCrudo.flatMap(t => t.filas.flatMap(f => f.celdas.map(c => c.indiceGlobal).filter((i): i is number => i != null))),
   );
-  const { matcheadosExtra, pendientesFiltrados } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, respuestas);
+  const { matcheadosExtra, pendientesFiltrados, totalesPie } = aplicarTotalesPorSeccion(tablasCrudo, analisis.parrafos, indicesEnTablasGen, matcheados, pendientes, respuestas);
   // BUG REAL (1954-1-LE26, 11-ago-2026): "El párrafo <paraId> ya tiene contenido" tumbaba la
   // generación ENTERA del anexo — un solo campo en conflicto (ej. dos candidatos estructuralmente
   // distintos que, por lo que sea, terminan apuntando al mismo w14:paraId; o `analizar`/`generar`
@@ -1038,5 +1050,5 @@ export async function generarAnexoFinal(
   const integridad = verificarParrafos(xmlCrudo, xml);
   const buffer = await guardarDocx(zip, xml);
 
-  return { buffer, completados, respondidos, integridad, avisos };
+  return { buffer, completados, respondidos, integridad, avisos, totalesEscritos: totalesPie };
 }
