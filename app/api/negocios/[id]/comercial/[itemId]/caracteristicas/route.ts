@@ -15,6 +15,7 @@
 // observando la LÍNEA completa igual que cualquier otro punto del checklist (mismo transicion(),
 // misma doble firma, mismo SSE).
 import { NextRequest, NextResponse } from 'next/server';
+import type { RowDataPacket } from 'mysql2';
 import pool from '@/app/lib/db';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
@@ -43,11 +44,30 @@ const COLS_CARACT = `id, item_id, negocio_id, clave_caracteristica, orden, descr
   valor_requerido_texto, valor_requerido_numero, valor_requerido_numero_max, unidad_requerida,
   valor_ofertado_texto, valor_ofertado_numero, unidad_ofertada_original, valor_convertido_numero,
   veredicto, pendiente_confirmacion_proveedor, fundamento_documento, fundamento_cita, confianza,
-  origen, veredicto_ia, corregido_por, corregido_por_nombre, corregido_at, comentario_correccion`;
+  origen, veredicto_ia, corregido_por, corregido_por_nombre, corregido_at, comentario_correccion,
+  respuesta_manual, adjunto_url, adjunto_nombre`;
 
 async function migracion50Aplicada(): Promise<boolean> {
   try { await pool.query('SELECT 1 FROM checklist_comercial_caracteristicas LIMIT 1'); return true; }
   catch { return false; }
+}
+
+// La migración 72 (respuesta_manual + adjunto por casilla) puede no estar aplicada todavía en un
+// entorno — sin este chequeo, el SELECT de COLS_CARACT reventaría entero. Se cachea porque una
+// columna no aparece de un request a otro, pero el proceso se reinicia en cada deploy, así que
+// aplicar la migración no obliga a nada más.
+let m72: boolean | null = null;
+async function migracion72Aplicada(): Promise<boolean> {
+  if (m72 !== null) return m72;
+  try {
+    const [rows] = await pool.query<Array<{ n: number }> & RowDataPacket[]>(
+      `SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'checklist_comercial_caracteristicas'
+          AND COLUMN_NAME IN ('respuesta_manual','adjunto_url','adjunto_nombre')`,
+    );
+    m72 = Number(rows[0]?.n || 0) === 3;
+  } catch { m72 = false; }
+  return m72;
 }
 
 /** El item debe pertenecer al negocio Y ser una cabecera de línea técnica (no cualquier punto). */
@@ -60,13 +80,19 @@ async function cargarItemLineaTecnica(negocioId: number, itemId: number) {
 }
 
 async function leerCaracteristicas(itemId: number) {
+  const cols = (await migracion72Aplicada())
+    ? COLS_CARACT
+    : COLS_CARACT.replace(/,\s*respuesta_manual, adjunto_url, adjunto_nombre/, '');
   const [rows] = await pool.query(
-    `SELECT ${COLS_CARACT} FROM checklist_comercial_caracteristicas WHERE item_id = ? ORDER BY orden, id`,
+    `SELECT ${cols} FROM checklist_comercial_caracteristicas WHERE item_id = ? ORDER BY orden, id`,
     [itemId],
   ) as any;
   return (rows as any[]).map(r => ({
     ...r,
     pendiente_confirmacion_proveedor: !!r.pendiente_confirmacion_proveedor,
+    respuesta_manual: !!r.respuesta_manual,
+    adjunto_url: r.adjunto_url ?? null,
+    adjunto_nombre: r.adjunto_nombre ?? null,
     valor_requerido_numero: r.valor_requerido_numero === null ? null : Number(r.valor_requerido_numero),
     valor_requerido_numero_max: r.valor_requerido_numero_max === null ? null : Number(r.valor_requerido_numero_max),
     valor_ofertado_numero: r.valor_ofertado_numero === null ? null : Number(r.valor_ofertado_numero),
@@ -233,9 +259,21 @@ export async function POST(request: NextRequest, { params }: Params) {
       const documentoNombre = String(body.documentoNombre || 'ficha técnica');
       if (!documentoUrl) return NextResponse.json({ error: 'Falta la ficha técnica.' }, { status: 400 });
 
-      const existentes = await leerCaracteristicas(item.id);
-      if (!existentes.length)
+      const todas = await leerCaracteristicas(item.id);
+      if (!todas.length)
         return NextResponse.json({ error: 'Primero valida la línea para clasificar sus características.' }, { status: 400 });
+
+      // Lo que una persona contestó a mano (o el veredicto que el asesor corrigió) NO se toca:
+      // antes esta comparación pisaba toda la línea, así que el trabajo manual se perdía cada vez
+      // que se subía otra ficha o se reabría el modal desde "Enviar al Auditor" — y había que
+      // rehacerlo. Ver migration-72. Tampoco se le mandan a la IA: no tiene nada que decidir ahí.
+      const existentes = todas.filter(c => !c.respuesta_manual);
+      const respetadas = todas.length - existentes.length;
+      if (!existentes.length)
+        return NextResponse.json({
+          success: true, respetadas, caracteristicas: todas,
+          aviso: 'Todas las características de esta línea están contestadas a mano: no se cambió ninguna.',
+        });
 
       const extraido = await descargarYExtraerTexto(documentoUrl, documentoNombre);
       if (!extraido?.texto || extraido.texto.trim().length < 30)
@@ -285,7 +323,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       await intentarAutoTransicion(item, negocio.id, userId, nombreActor);
       publicarCambio('checklist_comercial');
       const caracteristicas = await leerCaracteristicas(item.id);
-      return NextResponse.json({ success: true, caracteristicas });
+      return NextResponse.json({ success: true, respetadas, caracteristicas });
     }
 
     return NextResponse.json({ error: 'Acción desconocida' }, { status: 400 });
@@ -321,17 +359,27 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       const caracteristicaId = Number(body.caracteristicaId);
       if (!caracteristicaId) return NextResponse.json({ error: 'Falta la característica.' }, { status: 400 });
 
+      // SELECT * y no COLS_CARACT: acá solo se leen columnas viejas, y así el camino sigue
+      // funcionando en un entorno donde la migración 72 todavía no se aplicó.
       const [rows] = await pool.query(
-        `SELECT ${COLS_CARACT} FROM checklist_comercial_caracteristicas WHERE id = ? AND item_id = ?`,
+        `SELECT * FROM checklist_comercial_caracteristicas WHERE id = ? AND item_id = ?`,
         [caracteristicaId, item.id],
       ) as any;
       const c = (rows as any[])[0];
       if (!c) return NextResponse.json({ error: 'Característica no encontrada.' }, { status: 404 });
 
-      const valorOfertadoTexto = body.valorOfertadoTexto != null ? String(body.valorOfertadoTexto).slice(0, 300) : null;
-      const valorOfertadoNumero = body.valorOfertadoNumero != null && body.valorOfertadoNumero !== ''
-        ? Number(body.valorOfertadoNumero) : null;
-      const unidadOfertadaOriginal = body.unidadOfertadaOriginal ? String(body.unidadOfertadaOriginal).slice(0, 40) : null;
+      // Si el request no trae valores (caso "solo adjuntar un respaldo" o "solo fijar el
+      // veredicto"), se conserva lo que ya estaba en vez de borrarlo.
+      const traeValor = 'valorOfertadoTexto' in body || 'valorOfertadoNumero' in body;
+      const valorOfertadoTexto = traeValor
+        ? (body.valorOfertadoTexto != null ? String(body.valorOfertadoTexto).slice(0, 1000) : null)
+        : (c.valor_ofertado_texto ?? null);
+      const valorOfertadoNumero = traeValor
+        ? (body.valorOfertadoNumero != null && body.valorOfertadoNumero !== '' ? Number(body.valorOfertadoNumero) : null)
+        : (c.valor_ofertado_numero != null ? Number(c.valor_ofertado_numero) : null);
+      const unidadOfertadaOriginal = traeValor
+        ? (body.unidadOfertadaOriginal ? String(body.unidadOfertadaOriginal).slice(0, 40) : null)
+        : (c.unidad_ofertada_original ?? null);
 
       // Paso 1: determinista (conversión de unidades, sin IA). Paso 2 (fallback): IA barata,
       // solo si el paso 1 no pudo resolver (unidad desconocida o requisito no numérico).
@@ -342,8 +390,19 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         unidadRequerida: c.unidad_requerida, valorOfertadoNumero, unidadOfertadaOriginal,
       });
 
+      // El asesor puede fijar el veredicto de su puño y letra al responder: hay requisitos que
+      // ninguna IA puede resolver mirando un texto (una capacitación que se compromete a dictar,
+      // una garantía que se ofrece por escrito). Si lo manda, manda — no se consulta a la IA.
+      // Para el asistente el campo se ignora: él declara lo ofertado, el veredicto lo decide el
+      // sistema o el asesor, que es lo que sostiene la doble firma del checklist.
+      const veredictoPedido = String(body.veredicto || '').toUpperCase();
+      const veredictoManual = ['CUMPLE', 'NO_CUMPLE', 'CUMPLE_CON_COMPLEMENTO'].includes(veredictoPedido)
+        && (await esAsesor(userId, rol)) ? veredictoPedido : null;
+
       let veredicto: string; let convertido: number | null; let confianza: number;
-      if (det) {
+      if (veredictoManual) {
+        veredicto = veredictoManual; convertido = null; confianza = 100;
+      } else if (det) {
         veredicto = det.veredicto; convertido = det.valorConvertidoNumero; confianza = 100;
       } else {
         const ia = await evaluarCaracteristicaConIA({
@@ -354,15 +413,31 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         veredicto = ia.veredicto; convertido = null; confianza = ia.confianza;
       }
 
+      // Respaldo de ESTA casilla (el certificado de la capacitación, la garantía firmada) —
+      // distinto de los documentos de la línea completa. `quitarAdjunto` lo borra; si no viene
+      // ninguno de los dos, el que ya estaba se conserva.
+      const quitarAdjunto = body.quitarAdjunto === true;
+      const adjuntoUrl = quitarAdjunto ? null : (body.adjuntoUrl ? String(body.adjuntoUrl).slice(0, 500) : null);
+      const adjuntoNombre = quitarAdjunto ? null : (body.adjuntoNombre ? String(body.adjuntoNombre).slice(0, 300) : null);
+      const tocaAdjunto = quitarAdjunto || !!adjuntoUrl;
+
       // Camino A: el asistente ES la fuente (no un tercero ambiguo como una ficha) — nunca queda
-      // pendiente_confirmacion_proveedor, a diferencia del camino B.
+      // pendiente_confirmacion_proveedor, a diferencia del camino B. `respuesta_manual = 1` es lo
+      // que impide que la próxima comparación contra ficha pise esta respuesta (migration-72).
+      const m72 = await migracion72Aplicada();
       await pool.query(
         `UPDATE checklist_comercial_caracteristicas
             SET valor_ofertado_texto = ?, valor_ofertado_numero = ?, unidad_ofertada_original = ?,
                 valor_convertido_numero = ?, veredicto = ?, pendiente_confirmacion_proveedor = 0,
-                confianza = ?, origen = 'interrogatorio'
+                confianza = ?, origen = 'manual'
+                ${m72 ? `, respuesta_manual = 1` : ''}
+                ${m72 && tocaAdjunto ? `, adjunto_url = ?, adjunto_nombre = ?` : ''}
           WHERE id = ?`,
-        [valorOfertadoTexto, valorOfertadoNumero, unidadOfertadaOriginal, convertido, veredicto, confianza, caracteristicaId],
+        [
+          valorOfertadoTexto, valorOfertadoNumero, unidadOfertadaOriginal, convertido, veredicto, confianza,
+          ...(m72 && tocaAdjunto ? [adjuntoUrl, adjuntoNombre] : []),
+          caracteristicaId,
+        ],
       );
 
       await intentarAutoTransicion(item, negocio.id, userId, nombreActor);
@@ -388,10 +463,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       const c = (rows as any[])[0];
       if (!c) return NextResponse.json({ error: 'Característica no encontrada.' }, { status: 404 });
 
+      // respuesta_manual = 1: un veredicto que el asesor puso a mano no se vuelve a discutir con
+      // la IA en la próxima comparación contra ficha (migration-72).
       await pool.query(
         `UPDATE checklist_comercial_caracteristicas
             SET veredicto = ?, veredicto_ia = COALESCE(veredicto_ia, ?), pendiente_confirmacion_proveedor = 0,
                 corregido_por = ?, corregido_por_nombre = ?, corregido_at = ?, comentario_correccion = ?
+                ${(await migracion72Aplicada()) ? `, respuesta_manual = 1` : ''}
           WHERE id = ?`,
         [nuevoVeredicto, c.veredicto, userId, nombreActor, ahoraChileSQL(), String(body.comentario || '').trim().slice(0, 2000) || null, caracteristicaId],
       );

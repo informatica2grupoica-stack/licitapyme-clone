@@ -16,7 +16,7 @@
 // igual desde un lugar que ya tenía el item cargado (la pestaña) que desde uno que no (Documentos).
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, Check, HelpCircle, Upload, RefreshCw, Undo2, FileText, Wrench, Trash2, Eye } from 'lucide-react';
+import { X, Loader2, Check, HelpCircle, Upload, RefreshCw, Undo2, FileText, Wrench, Trash2, Eye, Paperclip, Copy } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
@@ -42,6 +42,11 @@ interface Caracteristica {
   fundamento_cita: string | null;
   confianza: number | null;
   origen: 'interrogatorio' | 'ficha' | 'manual';
+  /** true = lo contestó/corrigió una persona. La IA ya no lo pisa al re-comparar (migration-72). */
+  respuesta_manual?: boolean;
+  /** Respaldo de ESTA casilla (certificado de capacitación, garantía), no de la línea completa. */
+  adjunto_url?: string | null;
+  adjunto_nombre?: string | null;
 }
 
 interface ItemHeader {
@@ -180,7 +185,10 @@ export function ModalAuditorLineaTecnica({
     const d = await r.json();
     if (!r.ok) { toast.error(d.error || 'No se pudo comparar la ficha'); return false; }
     setCaracteristicas(d.caracteristicas || []);
-    if (avisar) toast.success('Ficha comparada');
+    // Las casillas contestadas a mano quedan fuera de la comparación (migration-72): se avisa
+    // para que no parezca que la IA "no las miró" — es a propósito, y son intocables.
+    if (avisar) toast.success('Ficha comparada', d.respetadas
+      ? `${d.respetadas} respuesta(s) manual(es) quedaron intactas.` : undefined);
     onCambio?.();
     return true;
   }, [base, toast, onCambio]);
@@ -253,6 +261,25 @@ export function ModalAuditorLineaTecnica({
     if (!r.ok) { toast.error(d.error || 'No se pudo guardar la respuesta'); return; }
     setCaracteristicas(d.caracteristicas || []);
     onCambio?.();
+  };
+
+  // Respaldo de UNA casilla: el certificado de la capacitación, la carta de garantía. Sube al
+  // mismo repositorio de documentos de la licitación que "Subir ficha" y queda colgado de esa
+  // característica — distinto de los documentos de la línea completa, que prueban el conjunto.
+  const adjuntarACaracteristica = async (caracteristicaId: number, file: File) => {
+    const fd = new FormData();
+    fd.append('licitacionCodigo', licitacionCodigo);
+    fd.append('files', file);
+    const rSubida = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
+    const dSubida = await rSubida.json();
+    if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || 'No se pudo subir el respaldo'); return; }
+    const doc = dSubida.documentos[0];
+    await responder(caracteristicaId, { adjuntoUrl: doc.url, adjuntoNombre: doc.nombre });
+    toast.success('Respaldo adjuntado', doc.nombre);
+  };
+
+  const quitarAdjunto = async (caracteristicaId: number) => {
+    await responder(caracteristicaId, { quitarAdjunto: true });
   };
 
   const corregir = async (caracteristicaId: number, veredicto: string) => {
@@ -347,7 +374,10 @@ export function ModalAuditorLineaTecnica({
                     </div>
                     <div className="divide-y divide-zinc-100">
                       {caracteristicas.map(c => (
-                        <FilaComparacion key={c.id} c={c} puedeAprobar={puedeAprobar} bloqueado={bloqueado} onResponder={responder} onCorregir={corregir} />
+                        <FilaComparacion key={c.id} c={c} puedeAprobar={puedeAprobar} bloqueado={bloqueado}
+                          onResponder={responder} onCorregir={corregir}
+                          onAdjuntar={adjuntarACaracteristica} onQuitarAdjunto={quitarAdjunto}
+                          onVerAdjunto={doc => setVisorDoc(doc)} />
                       ))}
                     </div>
                   </div>
@@ -433,34 +463,90 @@ export function ModalAuditorLineaTecnica({
 
 // Una fila = un ítem en las DOS listas a la vez ("lo que pide" / "lo que subió"), no una tarjeta
 // con etiquetas sueltas — así se lee como una comparación real, no como un formulario.
-function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir }: {
+//
+// Al desplegarla se puede contestar la casilla A MANO. Eso importa en los requisitos que ninguna
+// ficha técnica responde — una capacitación que se compromete a dictar, una garantía que se
+// ofrece por escrito: se pega el texto (botón "Usar lo exigido" para no transcribirlo), se
+// adjunta el respaldo de ESA casilla si lo hay, y el asesor puede fijar el veredicto de su puño
+// y letra. Lo contestado así queda marcado como manual y la IA ya no lo pisa (migration-72).
+function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, onAdjuntar, onQuitarAdjunto, onVerAdjunto }: {
   c: Caracteristica;
   puedeAprobar: boolean;
   bloqueado: boolean;
   onResponder: (id: number, extra: Record<string, unknown>) => Promise<void>;
   onCorregir: (id: number, veredicto: string) => Promise<void>;
+  onAdjuntar: (id: number, file: File) => Promise<void>;
+  onQuitarAdjunto: (id: number) => Promise<void>;
+  onVerAdjunto: (doc: VisorDoc) => void;
 }) {
   const [abierto, setAbierto] = useState(false);
   const [respondiendo, setRespondiendo] = useState(false);
   const [valorNumero, setValorNumero] = useState('');
   const [unidad, setUnidad] = useState(c.unidad_requerida || '');
   const [valorTexto, setValorTexto] = useState('');
+  const [veredictoManual, setVeredictoManual] = useState<'' | Veredicto>('');
   const [guardando, setGuardando] = useState(false);
+  const [subiendo, setSubiendo] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const est = c.veredicto ? VEREDICTO_STYLE[c.veredicto] : { bg: 'bg-zinc-100', text: 'text-zinc-400', label: 'Sin evaluar' };
   const esNumerica = c.valor_requerido_numero != null;
+  const exigido = requeridoDe(c);
+
+  // El editor arranca con lo que YA está guardado, no en blanco: corregir una respuesta era
+  // reescribirla entera, y en un texto largo (una capacitación) eso es rehacer el trabajo.
+  const abrirEditor = () => {
+    setValorNumero(c.valor_ofertado_numero != null ? String(c.valor_ofertado_numero) : '');
+    setUnidad(c.unidad_ofertada_original || c.unidad_requerida || '');
+    setValorTexto(c.valor_ofertado_texto || '');
+    setVeredictoManual('');
+    setRespondiendo(true);
+  };
+
+  // "Ofrezco exactamente lo que piden" es el caso más común en requisitos de servicio: en vez de
+  // transcribir el párrafo de las bases, se copia de un clic. Después se puede editar.
+  const usarLoExigido = () => {
+    if (esNumerica) {
+      setValorNumero(String(c.valor_requerido_numero ?? ''));
+      setUnidad(c.unidad_requerida || '');
+    } else {
+      setValorTexto(c.valor_requerido_texto || exigido);
+    }
+  };
+
+  const copiarExigido = async () => {
+    try {
+      await navigator.clipboard.writeText(exigido);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 1500);
+    } catch { /* sin portapapeles (http o permisos): "Usar lo exigido" sigue sirviendo */ }
+  };
 
   const guardar = async () => {
-    if (!valorNumero.trim() && !valorTexto.trim()) return;
+    if (!valorNumero.trim() && !valorTexto.trim() && !veredictoManual) return;
     setGuardando(true);
     try {
       await onResponder(c.id, {
         valorOfertadoNumero: valorNumero.trim() ? Number(valorNumero) : null,
         unidadOfertadaOriginal: unidad.trim() || null,
         valorOfertadoTexto: valorTexto.trim() || null,
+        // Solo el asesor puede fijarlo; el backend lo ignora para el resto (misma regla que
+        // "corregir"), así que mandarlo de más nunca salta la doble firma del checklist.
+        ...(veredictoManual ? { veredicto: veredictoManual } : {}),
       });
       setRespondiendo(false);
     } finally {
       setGuardando(false);
+    }
+  };
+
+  const subirRespaldo = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setSubiendo(true);
+    try { await onAdjuntar(c.id, files[0]); }
+    finally {
+      setSubiendo(false);
+      if (fileRef.current) fileRef.current.value = '';
     }
   };
 
@@ -472,15 +558,24 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir }
       >
         <div className="min-w-0">
           <p className="text-[10px] text-zinc-400 leading-snug">{c.descripcion}</p>
-          <p className="text-[12.5px] font-medium text-zinc-800 leading-snug mt-0.5 break-words">{requeridoDe(c)}</p>
+          <p className="text-[12.5px] font-medium text-zinc-800 leading-snug mt-0.5 break-words">{exigido}</p>
         </div>
         <div className="min-w-0">
-          <p className="text-[12.5px] text-zinc-700 leading-snug break-words">{ofertadoDe(c)}</p>
+          <p className="text-[12.5px] text-zinc-700 leading-snug break-words whitespace-pre-wrap">{ofertadoDe(c)}</p>
           {c.pendiente_confirmacion_proveedor && (
             <p className="text-[10px] text-amber-600 flex items-center gap-1 mt-0.5"><HelpCircle size={10} /> Por confirmar</p>
           )}
+          {c.adjunto_url && (
+            <p className="text-[10px] text-violet-600 flex items-center gap-1 mt-0.5 truncate">
+              <Paperclip size={10} className="flex-shrink-0" /> {c.adjunto_nombre || 'Respaldo adjunto'}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          {c.respuesta_manual && (
+            <span title="Contestada a mano — la IA ya no la modifica"
+              className="text-[10px] font-semibold text-zinc-400 bg-zinc-100 px-1.5 py-0.5 rounded whitespace-nowrap">a mano</span>
+          )}
           <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap ${est.bg} ${est.text}`}>{est.label}</span>
         </div>
       </button>
@@ -490,30 +585,84 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir }
           {c.fundamento_cita && <p className="text-[10.5px] text-zinc-400 mb-2">Fuente: {c.fundamento_cita}</p>}
 
           {respondiendo ? (
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {esNumerica ? (
-                <>
-                  <input type="text" inputMode="decimal" autoFocus value={valorNumero} onChange={e => setValorNumero(e.target.value)}
-                    placeholder="Valor ofertado" className="w-28 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
-                  <input type="text" value={unidad} onChange={e => setUnidad(e.target.value)}
-                    placeholder="Unidad" className="w-20 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
-                </>
-              ) : (
-                <input type="text" autoFocus value={valorTexto} onChange={e => setValorTexto(e.target.value)}
-                  placeholder="Descripción de lo ofertado" className="flex-1 min-w-[10rem] px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {esNumerica ? (
+                  <>
+                    <input type="text" inputMode="decimal" autoFocus value={valorNumero} onChange={e => setValorNumero(e.target.value)}
+                      placeholder="Valor ofertado" className="w-28 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                    <input type="text" value={unidad} onChange={e => setUnidad(e.target.value)}
+                      placeholder="Unidad" className="w-20 px-2 py-1 text-[12px] border border-zinc-200 rounded focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                  </>
+                ) : (
+                  <textarea autoFocus rows={3} value={valorTexto} onChange={e => setValorTexto(e.target.value)}
+                    placeholder="Escribe o pega lo que se ofrece (por ejemplo: la capacitación que se dictará, dónde y a cuántas personas)"
+                    className="w-full px-2 py-1.5 text-[12px] leading-snug border border-zinc-200 rounded resize-y focus:outline-none focus:ring-1 focus:ring-violet-300" />
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button type="button" onClick={usarLoExigido} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
+                  Usar lo exigido
+                </button>
+                <button type="button" onClick={copiarExigido} className="text-[11px] text-zinc-400 hover:text-zinc-600 inline-flex items-center gap-1">
+                  <Copy size={11} /> {copiado ? 'Copiado' : 'Copiar lo exigido'}
+                </button>
+              </div>
+
+              {/* El veredicto a mano es del asesor: hay requisitos que ninguna IA puede resolver
+                  leyendo un texto ("la capacitación se dictará en dependencias municipales"). Si
+                  se deja en "que lo evalúe el sistema", sigue el camino de siempre. */}
+              {puedeAprobar && (
+                <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                  <span className="text-zinc-400">Resultado:</span>
+                  {([['', 'Que lo evalúe el sistema'], ['CUMPLE', 'Cumple'], ['NO_CUMPLE', 'No cumple'], ['CUMPLE_CON_COMPLEMENTO', 'Con complemento']] as const).map(([v, label]) => (
+                    <button key={v || 'auto'} type="button" onClick={() => setVeredictoManual(v as '' | Veredicto)}
+                      className={`px-1.5 py-0.5 rounded font-semibold ${veredictoManual === v ? 'bg-violet-600 text-white' : 'text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
               )}
-              <button onClick={guardar} disabled={guardando} className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-semibold rounded disabled:opacity-50">
-                {guardando ? <Loader2 size={11} className="animate-spin" /> : 'Guardar'}
-              </button>
-              <button onClick={() => setRespondiendo(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
+
+              <div className="flex items-center gap-1.5">
+                <button onClick={guardar} disabled={guardando} className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-semibold rounded disabled:opacity-50">
+                  {guardando ? <Loader2 size={11} className="animate-spin" /> : 'Guardar'}
+                </button>
+                <button onClick={() => setRespondiendo(false)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-2 flex-wrap">
               {!bloqueado && (
-                <button onClick={() => setRespondiendo(true)} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
+                <button onClick={abrirEditor} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
                   {c.veredicto ? 'Corregir respuesta' : 'Responder'}
                 </button>
               )}
+
+              {/* Respaldo de ESTA casilla (certificado, carta de garantía), no de la línea entera:
+                  el archivo prueba este requisito puntual y viaja con él. */}
+              {!bloqueado && (
+                <>
+                  <input ref={fileRef} type="file" className="hidden" onChange={e => subirRespaldo(e.target.files)} />
+                  <button onClick={() => fileRef.current?.click()} disabled={subiendo}
+                    className="text-[11px] text-zinc-400 hover:text-zinc-700 inline-flex items-center gap-1 disabled:opacity-50">
+                    {subiendo ? <Loader2 size={11} className="animate-spin" /> : <Paperclip size={11} />}
+                    {c.adjunto_url ? 'Cambiar respaldo' : 'Adjuntar respaldo'}
+                  </button>
+                </>
+              )}
+              {c.adjunto_url && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-zinc-500 bg-zinc-100 rounded px-1.5 py-0.5 max-w-[16rem]">
+                  <span className="truncate">{c.adjunto_nombre || 'Respaldo'}</span>
+                  <button onClick={() => onVerAdjunto({ nombre: c.adjunto_nombre || 'Respaldo', url: c.adjunto_url! })}
+                    title="Ver respaldo" className="text-zinc-400 hover:text-zinc-700"><Eye size={11} /></button>
+                  {!bloqueado && (
+                    <button onClick={() => onQuitarAdjunto(c.id)} title="Quitar respaldo" className="text-zinc-400 hover:text-rose-600"><X size={11} /></button>
+                  )}
+                </span>
+              )}
+
               {puedeAprobar && (
                 <div className="flex items-center gap-1">
                   {(['CUMPLE', 'NO_CUMPLE', 'CUMPLE_CON_COMPLEMENTO'] as const).filter(v => v !== c.veredicto).map(v => (

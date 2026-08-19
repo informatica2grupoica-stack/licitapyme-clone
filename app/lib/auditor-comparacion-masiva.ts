@@ -38,11 +38,6 @@ import {
   segmentarPorItems, mapearBloquesALineas, caracteristicasDeBloque, type BloqueDocumento,
 } from '@/app/lib/auditor-segmentacion';
 
-const COLS_CARACT = `id, item_id, negocio_id, clave_caracteristica, orden, descripcion, tipo,
-  valor_requerido_texto, valor_requerido_numero, valor_requerido_numero_max, unidad_requerida,
-  valor_ofertado_texto, valor_ofertado_numero, unidad_ofertada_original, valor_convertido_numero,
-  veredicto, pendiente_confirmacion_proveedor, fundamento_documento, fundamento_cita, confianza, origen`;
-
 /** Cuántas líneas se procesan a la vez. La cadena GLM aguanta bien este paralelismo y baja el
  *  tiempo total de ~40 min (secuencial, 88 líneas) a pocos minutos, sin gatillar 429. */
 const CONCURRENCIA = 4;
@@ -372,6 +367,14 @@ async function procesarLinea(
 
   if (!existentes.length) return { ...base, fuenteRequisitos: fuente, error: 'Sin características clasificables' };
 
+  // Lo contestado a mano (o corregido por el asesor) no se vuelve a comparar: una corrida masiva
+  // sobre 88 líneas borraría de una pasada todo el trabajo manual acumulado. Ver migration-72.
+  const manuales = existentes.filter(c => c.respuesta_manual);
+  existentes = existentes.filter(c => !c.respuesta_manual);
+  if (!existentes.length)
+    return { ...base, total: manuales.length, cumplen: manuales.filter(c => c.veredicto === 'CUMPLE').length,
+             noCumplen: manuales.filter(c => c.veredicto === 'NO_CUMPLE').length, fuenteRequisitos: fuente };
+
   // ── c) Comparar contra el bloque de la ficha (o el documento entero si no se pudo segmentar) ─
   const textoAComparar = fuentes.bloqueFicha
     ? fuentes.bloqueFicha.texto
@@ -390,7 +393,10 @@ async function procesarLinea(
     textoAComparar, nombreCitado,
   );
 
-  let cumplen = 0, noCumplen = 0;
+  // Los contadores parten con lo que ya estaba resuelto a mano: si no, el resumen de la corrida
+  // diría "0 de 34 cumple" en una línea que en realidad está lista, solo que la resolvió una persona.
+  let cumplen = manuales.filter(c => c.veredicto === 'CUMPLE').length;
+  let noCumplen = manuales.filter(c => c.veredicto === 'NO_CUMPLE').length;
   for (const c of existentes) {
     const v = veredictos.get(c.id);
     if (!v) continue;
@@ -430,12 +436,14 @@ async function procesarLinea(
 
   await autoTransicionar(ctx, item, fuentes.bloqueFicha?.titulo || null);
 
-  return { ...base, total: existentes.length, cumplen, noCumplen, fuenteRequisitos: fuente };
+  return { ...base, total: existentes.length + manuales.length, cumplen, noCumplen, fuenteRequisitos: fuente };
 }
 
+// SELECT * (y no una lista fija de columnas) a propósito: así `respuesta_manual` llega cuando la migración 72
+// está aplicada y simplemente falta (undefined, o sea falsy) cuando no, sin romper el SELECT.
 async function leerCaracteristicas(itemId: number): Promise<any[]> {
   const [rows] = await pool.query(
-    `SELECT ${COLS_CARACT} FROM checklist_comercial_caracteristicas WHERE item_id = ? ORDER BY orden, id`,
+    `SELECT * FROM checklist_comercial_caracteristicas WHERE item_id = ? ORDER BY orden, id`,
     [itemId],
   ) as any;
   return rows as any[];
