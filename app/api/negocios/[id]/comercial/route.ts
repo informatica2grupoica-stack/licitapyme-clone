@@ -17,7 +17,7 @@ import { puedeVerNegocioAsignado, permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import {
   generarItemsDesdeViabilidad, resumirChecklist, transicion, tieneInformacionComercial,
-  esPorLinea, modalidadDudosa, estadoDeBloque, type EstadoItem,
+  esPorLinea, modalidadDudosa, estadoDeBloque, lineasDelInforme, type EstadoItem,
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
 import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
@@ -30,6 +30,7 @@ import {
 } from '@/app/lib/auditor-tecnico';
 
 import { decidirGeneracion, type DocumentoCandidato, type BloqueGenerable } from '@/app/lib/auditor-generacion';
+import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -679,6 +680,30 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         });
       }
     }
+    // Si lo que cambió fue un PRECIO, las alertas del costeo quedaron obsoletas: se recalculan acá
+    // mismo. BUG REAL (19-ago-2026, 3489-29-LP26): se calculaban solo al SUBIR el costeo y quedaban
+    // congeladas, así que tras corregir el precio ofertado la alerta seguía citando la cifra vieja
+    // — mostraba dos montos que ya no existían en ninguna parte. Ver motor-comercial-recalculo.ts.
+    if (item.tipo === 'precio') {
+      try {
+        const informe = await leerInforme(negocio.licitacion_codigo);
+        const itemsActuales = await leerItems(negocio.id);
+        await recalcularAlertasCosteo({
+          negocioId: negocio.id,
+          lineasPublicadas: informe ? lineasDelInforme(informe) : [],
+          lineasExcluidas: new Set(
+            itemsActuales
+              .filter((i: any) => i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.ofertamos === false && i.linea_numero != null)
+              .map((i: any) => i.linea_numero as number),
+          ),
+        });
+      } catch (e) {
+        // Recalcular es una mejora del diagnóstico, no parte de guardar el precio: si falla, el
+        // precio igual quedó guardado y las alertas se refrescan en la próxima subida de costeo.
+        console.warn('[comercial][PATCH] no se pudieron recalcular las alertas del costeo:', String(e));
+      }
+    }
+
     publicarCambio('checklist_comercial');
 
     const items = await leerItems(negocio.id);
