@@ -96,10 +96,23 @@ export function rellenarHuecos(texto: string, resueltos: Map<number, string>): s
     (bloqueOriginal, aStr, bStr) => {
       const a = parseInt(aStr, 10), b = bStr ? parseInt(bStr, 10) : a;
       const partes: string[] = [];
+      let repuestaAlguna = false;
       for (let p = a; p <= b; p++) {
-        if (resueltos.has(p)) partes.push(`[[PÁGINA ${p} — OCR local, calidad menor]]\n${resueltos.get(p)}`);
+        if (resueltos.has(p)) {
+          partes.push(`[[PÁGINA ${p} — OCR local, calidad menor]]\n${resueltos.get(p)}`);
+          repuestaAlguna = true;
+        } else {
+          // BUG REAL (encontrado por su propio test, 19-ago-2026): las páginas del rango que NO se
+          // pudieron reponer no se volvían a escribir. Reponer 1 página de un hueco "41-68"
+          // reemplazaba el bloque entero por esa sola y las otras 27 desaparecían del texto SIN
+          // dejar rastro — el documento quedaba peor que antes de repararlo, y `ocrTieneHuecos()`
+          // pasaba a devolver false, así que nadie volvía a intentarlo. Es exactamente el fallo
+          // silencioso que este mecanismo existe para evitar. El comentario de arriba ya describía
+          // el comportamiento correcto; faltaba escribirlo.
+          partes.push(`[[PÁGINA ${p}]]\n[OCR_NO_DISPONIBLE: no se pudo recuperar esta página — se repondrá]`);
+        }
       }
-      return partes.length ? partes.join('\n\n') : bloqueOriginal;
+      return repuestaAlguna ? partes.join('\n\n') : bloqueOriginal;
     },
   );
 }
@@ -424,7 +437,8 @@ export async function extraerTextoPdfPorUrlConGlmOcr(
   let salida = partes.join('\n\n');
   if (huecos > 0) console.warn(`[glm-ocr] ⚠️ ${huecos}/${ventanas.length} ventana(s) quedaron sin OCR (marcadas para reintento).`);
   if (totalPaginas > MAX_PAGINAS_OCR && salida) {
-    salida += `\n\n[NOTA: documento de ${totalPaginas} págs — OCR aplicado a las primeras ${MAX_PAGINAS_OCR}.]`;
+    // Mismo criterio que el resto del pipeline: hueco reponible, no una nota inerte.
+    salida += `\n\n[[PÁGINA ${MAX_PAGINAS_OCR + 1}-${totalPaginas}]]\n[${MARCA_HUECO}: documento de ${totalPaginas} págs, cortacircuito en ${MAX_PAGINAS_OCR} — se repondrá]`;
   }
   return salida;
 }

@@ -99,7 +99,10 @@ export function hayTablaDeCriterios(texto: string): boolean {
   return porNombre.length >= 5;
 }
 
-const RE_NOTA_CORTE = /\[NOTA:[^\]]*?(?:FALTA EL TEXTO DE LAS PÁGINAS|OCR (?:local )?aplicado)[^\]]*\]/i;
+// Dos formas de "acá falta texto", según de dónde venga: el HUECO reponible que dejan todos los
+// motores de OCR (`OCR_NO_DISPONIBLE`, ver tesseract-ocr.ts y zai-ocr.ts) y la nota antigua de
+// corte, que sigue viva en los textos ya guardados en `documentos_cache` de antes del cambio.
+const RE_NOTA_CORTE = /\[OCR_NO_DISPONIBLE[^\]]*\]|\[NOTA:[^\]]*?(?:FALTA EL TEXTO DE LAS PÁGINAS|OCR (?:local )?aplicado)[^\]]*\]/i;
 
 export function analizarRemisionACriterios(textoBases: string): RemisionCriterios {
   const texto = textoBases || '';

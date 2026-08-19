@@ -54,7 +54,12 @@ export async function extraerConOCRSpace(buffer: Buffer, fileName: string): Prom
 // primeras N páginas en bloques pequeños y SECUENCIALES (respeta la cuota).
 // En las bases chilenas, presupuesto/criterios/garantías casi siempre están en el primer tercio.
 
-const OCR_MAX_PAGINAS = 45; // tope de páginas a OCR-ear (presupuesto/criterios suelen ir < pág 40)
+// Mismo cambio y misma razón que OCR_LOCAL_MAX_PAGINAS en tesseract-ocr.ts (regla del usuario,
+// 19-ago-2026: el OCR lee el 100% del documento, siempre). Era 45 con el argumento de que
+// "presupuesto/criterios suelen ir antes de la pág. 40" — un supuesto que la práctica desmintió:
+// en 2981-214-LE26 la tabla de criterios estaba en la 47, dentro de un anexo al final. Cortacircuito
+// alto, y lo que quede fuera se marca como HUECO reponible, nunca se pierde en silencio.
+const OCR_MAX_PAGINAS = Number(process.env.OCR_BLOQUES_MAX_PAGINAS ?? 500);
 const OCR_BLOQUE      = 2;  // páginas por bloque: ≤1MB, requisito del plan gratuito de OCR.space
 
 // OCR de un bloque pequeño. Motor principal: OCR.space (gratis con OCRSPACE_API_KEY,
@@ -118,7 +123,9 @@ async function ocrPdfPorBloques(buffer: Buffer, totalPages: number): Promise<str
   }
 
   if (totalPages > OCR_MAX_PAGINAS && partes.length > 0) {
-    partes.push(`\n[NOTA: documento de ${totalPages} págs — OCR aplicado a las primeras ${OCR_MAX_PAGINAS}.]`);
+    // Igual que en tesseract-ocr.ts: hueco reponible con el formato que entiende `paginasConHueco`,
+    // no una nota suelta que nadie puede accionar.
+    partes.push(`[[PÁGINA ${OCR_MAX_PAGINAS + 1}-${totalPages}]]\n[OCR_NO_DISPONIBLE: documento de ${totalPages} págs, cortacircuito en ${OCR_MAX_PAGINAS} — se repondrá]`);
   }
   return partes.join('\n\n');
 }
@@ -181,7 +188,9 @@ async function ocrPdfGrandePorChunksGlm(buffer: Buffer, totalPaginas: number, no
   for (const u of urlsTemp) borrarDocumentoR2(u).catch(() => {});
 
   if (totalPaginas > MAX_PAGINAS_OCR && partes.length) {
-    partes.push(`\n[NOTA: documento de ${totalPaginas} págs — OCR aplicado a las primeras ${MAX_PAGINAS_OCR}.]`);
+    // Igual que los otros dos caminos de OCR: lo que queda fuera del cortacircuito se escribe como
+    // HUECO reponible, no como una nota que nadie puede accionar.
+    partes.push(`[[PÁGINA ${MAX_PAGINAS_OCR + 1}-${totalPaginas}]]\n[OCR_NO_DISPONIBLE: documento de ${totalPaginas} págs, cortacircuito en ${MAX_PAGINAS_OCR} — se repondrá]`);
   }
   return partes.join('\n\n');
 }
