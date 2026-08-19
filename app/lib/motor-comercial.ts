@@ -293,11 +293,19 @@ export function calcularAlertasMotorComercial(args: {
   const totalCosteo = filasOfertadas.reduce((s, f) => s + (f.precioTotalNeto ?? 0), 0);
   const totalCosto = filasOfertadas.reduce((s, f) => s + (f.costoTotalNeto ?? 0), 0);
 
+  // El texto decía "el ANEXO económico dice $X", pero este chequeo NO abre ningún documento:
+  // `totalAnexoEconomico` es la suma de los precios que el asistente cargó A MANO en el checklist
+  // (ver totalAnexoEconomico en la ruta del costeo). El usuario lo reportó el 19-ago-2026 sobre
+  // 3489-29-LP26: la alerta salía ANTES de cargar ningún anexo y lo mandó a buscar un documento
+  // que no existía. El nombre del código se conserva (hay filas guardadas con él), pero el mensaje
+  // ahora dice de dónde sale de verdad cada cifra y qué hacer.
   if (args.totalAnexoEconomico != null && Math.round((args.totalAnexoEconomico - totalCosteo) * 100) !== 0) {
     alertas.push({
       codigo: 'DISCORDANCIA_COSTEO_ANEXO',
-      descripcion: 'Discordancia de información',
-      detalle: `El anexo económico dice ${fmtCLP(args.totalAnexoEconomico)} pero el costeo suma ${fmtCLP(totalCosteo)}. Hay diferencias entre lo costeado y lo ofertado.`,
+      descripcion: 'El precio cargado no calza con el costeo',
+      detalle: `El precio que cargaste en el checklist suma ${fmtCLP(args.totalAnexoEconomico)}, `
+        + `pero el costeo subido suma ${fmtCLP(totalCosteo)} de precio de venta. `
+        + 'Corrige el precio del checklist o vuelve a subir el costeo — todavía no interviene ningún anexo.',
     });
   }
 
@@ -407,10 +415,29 @@ export function lineaDeFila(f: FilaCosteo): number | null {
   return f.lineaPublicada ?? f.item;
 }
 
+/**
+ * ¿El costeo dice EXPLÍCITAMENTE a qué línea pertenece cada fila?
+ *
+ * Solo es true cuando la línea viene de una fuente inequívoca: el nombre de hoja ("LINEA4") o una
+ * columna "Línea". Si no, `lineaDeFila` cae a `item`, que es la POSICIÓN del producto dentro de la
+ * hoja — un costeo de suma alzada con 86 productos aparenta tener 86 "líneas".
+ *
+ * RIESGO QUE CIERRA (19-ago-2026, auditoría de 3489-29-LP26): en una licitación POR LÍNEA cuyo
+ * costeo venga en una sola hoja plana, usar `item` como número de línea le asignaría a la línea 3
+ * el precio del tercer producto de la lista, que puede no tener ninguna relación. Eso precarga un
+ * precio equivocado en el checklist — y el precio es lo que se evalúa. Ante la duda, no se precarga
+ * nada y lo carga el humano.
+ */
+export function costeoTieneLineasExplicitas(filas: FilaCosteo[]): boolean {
+  return filas.some(f => f.lineaPublicada != null);
+}
+
 /** Total del costeo para UNA línea — suma TODOS sus sub-ítems (una línea puede traer varios
  *  productos, cada uno su propia fila). Antes la auto-precarga tomaba una sola fila por línea
  *  con una clave equivocada (`item`, que se repite 1,2,3… en cada hoja) — ver costeo/route.ts. */
 export function totalPrecioDeLinea(filas: FilaCosteo[], linea: number): number | null {
+  // Sin líneas explícitas en el costeo no se adivina cuál es cuál — ver costeoTieneLineasExplicitas.
+  if (!costeoTieneLineasExplicitas(filas)) return null;
   const deLaLinea = filas.filter(f => lineaDeFila(f) === linea);
   if (!deLaLinea.length) return null;
   const total = deLaLinea.reduce((s, f) => s + (f.precioTotalNeto ?? 0), 0);

@@ -7,7 +7,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  lineaDeHoja, calcularAlertasMotorComercial, lineaDeFila, totalPrecioDeLinea, type FilaCosteo,
+  lineaDeHoja, calcularAlertasMotorComercial, lineaDeFila, totalPrecioDeLinea,
+  costeoTieneLineasExplicitas, type FilaCosteo,
 } from '../motor-comercial';
 
 function fila(over: Partial<FilaCosteo>): FilaCosteo {
@@ -312,4 +313,29 @@ test('parsearCosteo: sin ninguna hoja oficial, se sigue leyendo por encabezado',
   const r = await parsearCosteo(buf);
   assert.equal(r.length, 1);
   assert.equal(totalesDeCosteo(r).totalPrecioNeto, 999);
+});
+
+// RIESGO CERRADO (19-ago-2026, auditoría de 3489-29-LP26): `lineaDeFila` cae a `item` cuando el
+// costeo no dice a qué línea pertenece cada fila. En suma alzada eso hace que 86 productos
+// aparenten ser 86 "líneas"; en una licitación POR LÍNEA con el costeo en una sola hoja plana, le
+// asignaría a la línea 3 el precio del tercer producto de la lista. El precio es lo que se evalúa,
+// así que ante la duda no se precarga nada.
+test('totalPrecioDeLinea: sin líneas explícitas en el costeo, no adivina', () => {
+  const planas = [
+    fila({ hoja: 'Costeo', item: 1, precioTotalNeto: 1000, lineaPublicada: null }),
+    fila({ hoja: 'Costeo', item: 2, precioTotalNeto: 2000, lineaPublicada: null }),
+    fila({ hoja: 'Costeo', item: 3, precioTotalNeto: 3000, lineaPublicada: null }),
+  ];
+  assert.equal(costeoTieneLineasExplicitas(planas), false);
+  assert.equal(totalPrecioDeLinea(planas, 3), null, 'no puede afirmar que el ítem 3 sea la línea 3');
+
+  // Con la línea explícita (hoja LINEAn o columna "Línea") sí se puede sumar.
+  const porLinea = [
+    fila({ hoja: 'LINEA3', item: 1, precioTotalNeto: 500, lineaPublicada: 3 }),
+    fila({ hoja: 'LINEA3', item: 2, precioTotalNeto: 700, lineaPublicada: 3 }),
+    fila({ hoja: 'LINEA4', item: 1, precioTotalNeto: 900, lineaPublicada: 4 }),
+  ];
+  assert.equal(costeoTieneLineasExplicitas(porLinea), true);
+  assert.equal(totalPrecioDeLinea(porLinea, 3), 1200, 'suma los dos sub-ítems de la línea 3');
+  assert.equal(totalPrecioDeLinea(porLinea, 4), 900);
 });
