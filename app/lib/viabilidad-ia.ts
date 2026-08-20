@@ -472,7 +472,11 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         ],
         temperature: 0.15,
         stream: false,
-        max_tokens: 32_000,
+        // 19-ago-2026: configurable. Con 32.000 fijos, una licitación con manifiesto largo (125
+        // ítems en 4928-23-LP26) termina en finish=length y el JSON llega sin los últimos bloques
+        // del esquema — veredicto, tarjeta_decision, lineas_a_atacar. El default no cambia; sube
+        // VIABILIDAD_MAX_TOKENS cuando el modelo lo soporte y el informe se esté cortando.
+        max_tokens: Math.max(8_000, Number(process.env.VIABILIDAD_MAX_TOKENS) || 32_000),
         response_format: { type: 'json_object' },
       }, {
         timeoutMs: timeoutMsCompleto,

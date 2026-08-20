@@ -156,7 +156,15 @@ const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   // seguidos). Más caro ($1.4/$4.4 por M vs $0.6/$2.2 de 4.7) pero contexto de 1M y soporte
   // nativo de salida estructurada — vale la pena pagarlo solo en el caso extremo, no de entrada.
   zai_alt3: { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL_FALLBACK3 || 'glm-5.2', sinThinking: true },
-  deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: 'deepseek-chat', sinThinking: false },
+  // 19-ago-2026: `deepseek-chat` y `deepseek-reasoner` fueron RETIRADOS por DeepSeek el 24-jul-2026
+  // — las llamadas a esos ids ya no enrutan a ningún modelo, así que este último rung de la cadena
+  // llevaba semanas fallando en silencio. La familia viva es deepseek-v4-flash / deepseek-v4-pro.
+  // Se deja configurable para poder probar otro sin tocar código (DEEPSEEK_TEXT_MODEL).
+  // sinThinking: en V4 el razonamiento viene ENCENDIDO por defecto y con esfuerzo "high"; el
+  // chain-of-thought sale por `reasoning_content` y se come el presupuesto de max_tokens, así que
+  // una viabilidad terminaba con finish=length y `content` VACÍO (visto en 4928-23-LP26: 32.000
+  // tokens de salida, 0 caracteres útiles). V4 acepta el mismo `thinking:{type:'disabled'}` de GLM.
+  deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: process.env.DEEPSEEK_TEXT_MODEL || 'deepseek-v4-flash', sinThinking: true },
   gemini:   { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: modeloGeminiSeguro(process.env.GEMINI_MODEL, 'gemini-2.5-flash'), sinThinking: false },
 };
 export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();
@@ -250,7 +258,18 @@ function tarifaModelo(model: string): { precIn: number; precOut: number } {
     if (m.includes('glm-4.7'))  return env('GLM_PRICE_IN_USD_PER_M_47',     'GLM_PRICE_OUT_USD_PER_M_47',     0.60, 2.20);
     return env('GLM_PRICE_IN_USD_PER_M', 'GLM_PRICE_OUT_USD_PER_M', 0.43, 1.74);   // GLM desconocido
   }
-  return { precIn: 0.27, precOut: 1.10 }; // DeepSeek y otros
+  // DeepSeek V4 (24-abr-2026): Flash 0.14/0.28, Pro 0.435/0.87 por 1M con el descuento vigente.
+  // Los 0.27/1.10 de antes eran de deepseek-chat, que ya no existe — dejarlos haría que el costo
+  // reportado de una corrida con V4 fuera el doble del real.
+  if (m.includes('deepseek')) {
+    const env = (i: string, o: string, di: number, dobj: number) => ({
+      precIn:  Number(process.env[i] ?? di),
+      precOut: Number(process.env[o] ?? dobj),
+    });
+    if (m.includes('pro')) return env('DEEPSEEK_PRICE_IN_USD_PER_M_PRO', 'DEEPSEEK_PRICE_OUT_USD_PER_M_PRO', 0.435, 0.87);
+    return env('DEEPSEEK_PRICE_IN_USD_PER_M', 'DEEPSEEK_PRICE_OUT_USD_PER_M', 0.14, 0.28);
+  }
+  return { precIn: 0.27, precOut: 1.10 }; // otros
 }
 
 // Telemetría SIEMPRE visible de cada llamada de texto: modelo, tiempo, tokens y costo real.
