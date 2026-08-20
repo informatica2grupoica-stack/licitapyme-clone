@@ -192,7 +192,15 @@ function cfgTextoRespaldos(activo: ProveedorTexto): ProveedorTexto[] {
     if (chain.some((c) => c.keyEnv === cfg.keyEnv && c.model === cfg.model)) return; // duplicado
     chain.push(cfg);
   };
-  if (activo.keyEnv === 'ZAI_API_KEY') { add(PROVEEDORES_TEXTO.zai_alt); add(PROVEEDORES_TEXTO.zai_alt2); add(PROVEEDORES_TEXTO.zai_alt3); } // 1-3) GLM liviano/alterno/premium, misma cuenta
+  // ESCALERA GLM COMPLETA (misma cuenta Z.AI). Se agregan los CUATRO modelos configurados,
+  // incluido el principal `zai`: cuando la llamada fuerza otro modelo con `modeloPreferido` (p.ej.
+  // glm-5.2 por prompt grande), el principal deja de ser el activo y antes quedaba FUERA de la
+  // cadena — se perdía un eslabón perfectamente bueno. `add` ya descarta el activo y los repetidos,
+  // así que duplicar modelos en las env (caso real: GLM_TEXT_MODEL_FALLBACK y _FALLBACK3 ambos en
+  // "glm-5.2", que dejó la cadena en UN solo respaldo) ya no encoge la escalera en silencio.
+  if (activo.keyEnv === 'ZAI_API_KEY') {
+    add(PROVEEDORES_TEXTO.zai); add(PROVEEDORES_TEXTO.zai_alt); add(PROVEEDORES_TEXTO.zai_alt2); add(PROVEEDORES_TEXTO.zai_alt3);
+  }
   add(PROVEEDORES_TEXTO.deepseek);                                     // 4) DeepSeek (último recurso)
   if (geminiHabilitado()) add(PROVEEDORES_TEXTO.gemini);              // 5) Gemini (solo si habilitado)
   return chain;
@@ -345,16 +353,43 @@ async function intentarProveedor(cfg: ProveedorTexto, params: any, reqOpts: any,
 }
 
 // Intenta una CADENA de respaldos en orden; devuelve el primero que responda.
-async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any): Promise<any> {
+//
+// PRESUPUESTO DE TIEMPO (deadlineMs): con una escalera de 4-5 modelos y 240s de timeout cada uno,
+// el peor caso son ~20 minutos colgado — más de lo que aguanta cualquier request o cron que llame
+// a esto. Con `deadlineMs`, cada eslabón recibe el MENOR entre su timeout normal y lo que queda
+// del presupuesto, y la cadena corta apenas se agota (mejor un error a tiempo que uno mucho más
+// tarde). Sin `deadlineMs` el comportamiento es el de siempre.
+//
+// timeoutMsOtroProveedor (20-ago-2026, medido en vivo con 2422-144-LE26): cuando el PRIMARIO ya
+// se agotó (240s) y los respaldos son OTRO MODELO DEL MISMO PROVEEDOR (misma cuenta Z.AI), darles
+// otros 240s completos cada uno es apostar a que un hermano del mismo modelo que ya no respondió
+// vaya a responder — si Z.AI está saturado o caído, no lo hace, y esos 240s×N solo le quitan
+// presupuesto al ÚLTIMO eslabón (DeepSeek, un proveedor de verdad distinto, con más chance real
+// de estar arriba). Por eso los eslabones DEL MISMO proveedor que el activo usan un timeout más
+// corto (`reqOpts.timeout`, pensado para respaldos GLM normales); el primer eslabón de OTRO
+// proveedor (keyEnv distinto — típicamente DeepSeek) usa el presupuesto COMPLETO que quede, sin
+// acortar: es la última apuesta y merece el margen entero.
+async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any, finLimite?: number, keyEnvActivo?: string): Promise<any> {
   let ultimo: any;
   for (const cfg of chain) {
-    try { return await intentarProveedor(cfg, params, reqOpts, true); }
+    let opts = reqOpts;
+    if (finLimite) {
+      const queda = finLimite - Date.now();
+      if (queda <= 15_000) {
+        console.warn(`[ia] presupuesto de tiempo agotado — no se alcanza a probar ${chain.slice(chain.indexOf(cfg)).map(c => c.model).join(' → ')}.`);
+        break;
+      }
+      const esOtroProveedor = keyEnvActivo != null && cfg.keyEnv !== keyEnvActivo;
+      const propio = reqOpts?.timeout ?? queda;
+      opts = { ...(reqOpts || {}), timeout: esOtroProveedor ? queda : Math.min(propio, queda) };
+    }
+    try { return await intentarProveedor(cfg, params, opts, true); }
     catch (e: any) {
       ultimo = e;
       console.warn(`[ia] respaldo ${cfg.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 60)})${chain.indexOf(cfg) < chain.length - 1 ? ', siguiente...' : ''}`);
     }
   }
-  throw ultimo;
+  throw ultimo ?? new Error('cadena de respaldo agotada sin respuesta');
 }
 
 // opts.modeloPreferido: fuerza un modelo GLM específico como PRINCIPAL de esta llamada (misma
@@ -370,7 +405,7 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
 // reales medidos: 4-93s); si no responde, mejor pasar pronto al respaldo que esperar el mismo
 // margen generoso que se le da a los modelos de última instancia. Si no se pasa, usa opts.timeoutMs
 // para el principal también (comportamiento previo, sin cambios para callers que no lo usan).
-export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string } = {}) {
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string; deepSeekUltimoRecurso?: boolean; deadlineMs?: number } = {}) {
   const activo = opts.modeloPreferido ? { ...PROVEEDORES_TEXTO.zai, model: opts.modeloPreferido } : cfgTexto();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
   const timeoutPrimario = opts.timeoutMsPrimario ?? opts.timeoutMs;
@@ -383,10 +418,19 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeo
   // opts.soloGlm: excluye DeepSeek/Gemini de la cadena — solo se cae a OTRO modelo GLM (zai_alt).
   // Usado por la viabilidad (llamarGlmJSON): el usuario quiere DeepSeek reservado EXCLUSIVAMENTE
   // para el chatbot de documentos, nunca para el análisis de viabilidad.
-  if (opts.soloGlm) respaldos = respaldos.filter((r) => r.keyEnv === 'ZAI_API_KEY');
+  if (opts.soloGlm) {
+    const glm = respaldos.filter((r) => r.keyEnv === 'ZAI_API_KEY');
+    // opts.deepSeekUltimoRecurso (20-ago-2026, pedido explícito del usuario tras quedarse sin
+    // análisis en 2422-144-LE26: "si fallan todos que lo termine deepseek v4 flash"): DeepSeek
+    // vuelve a la cadena de la viabilidad, pero SOLO como último eslabón, después de que TODOS
+    // los GLM se hayan agotado. Sigue sin competirle a GLM: no se llega ahí si alguno responde.
+    const ds = PROVEEDORES_TEXTO.deepseek;
+    respaldos = (opts.deepSeekUltimoRecurso && process.env[ds.keyEnv]) ? [...glm, ds] : glm;
+  }
 
   // Breaker: si el principal ya se declaró sin saldo y hay cadena, vamos directo al respaldo.
-  if (textoPrincipalSinSaldo && respaldos.length) return intentarCadena(respaldos, params, reqOpts);
+  const finLimite = opts.deadlineMs ? Date.now() + opts.deadlineMs : undefined;
+  if (textoPrincipalSinSaldo && respaldos.length) return intentarCadena(respaldos, params, reqOpts, finLimite, activo.keyEnv);
 
   try {
     if (dbg) console.log(`[ia-dbg] chat PRINCIPAL → ${activo.model} (${activo.baseURL})${timeoutPrimario ? ` timeout=${timeoutPrimario}ms` : ''}`);
@@ -399,7 +443,7 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeo
     }
     if (respaldos.length) {
       console.warn(`[ia] ${activo.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 80)}), respaldo → ${respaldos.map((r) => r.model).join(' → ')}`);
-      return intentarCadena(respaldos, params, reqOpts); // cada respaldo también reintenta transitorios
+      return intentarCadena(respaldos, params, reqOpts, finLimite, activo.keyEnv); // cada respaldo también reintenta transitorios
     }
     throw e;
   }

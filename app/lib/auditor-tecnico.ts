@@ -92,8 +92,11 @@ function normalizarClasificada(c: any): CaracteristicaClasificada | null {
     descripcion: descripcion.slice(0, 500),
     tipo,
     valorRequeridoTexto: c?.valor_requerido_texto ? String(c.valor_requerido_texto).slice(0, 300) : null,
-    valorRequeridoNumero: Number.isFinite(Number(c?.valor_requerido_numero)) ? Number(c.valor_requerido_numero) : null,
-    valorRequeridoNumeroMax: Number.isFinite(Number(c?.valor_requerido_numero_max)) ? Number(c.valor_requerido_numero_max) : null,
+    // c?.valor_requerido_numero != null primero: Number(null) da 0, así que sin este chequeo un
+    // requisito categórico (sin número) quedaba guardado como 0 en vez de null — ver la guardia en
+    // evaluarCaracteristicaDeterminista().
+    valorRequeridoNumero: c?.valor_requerido_numero != null && Number.isFinite(Number(c.valor_requerido_numero)) ? Number(c.valor_requerido_numero) : null,
+    valorRequeridoNumeroMax: c?.valor_requerido_numero_max != null && Number.isFinite(Number(c.valor_requerido_numero_max)) ? Number(c.valor_requerido_numero_max) : null,
     unidadRequerida: c?.unidad_requerida ? String(c.unidad_requerida).slice(0, 40) : null,
     fundamentoCita: c?.fundamento_cita ? String(c.fundamento_cita).slice(0, 500) : null,
     confianza: normalizarConfianza(c?.confianza),
@@ -165,7 +168,9 @@ ${fichaTexto.slice(0, 40_000)}`;
     const veredictoValido = veredictoRaw === 'CUMPLE' || veredictoRaw === 'NO_CUMPLE' || veredictoRaw === 'CUMPLE_CON_COMPLEMENTO';
     resultado.set(id, {
       valorOfertadoTexto: v?.valor_ofertado_texto ? String(v.valor_ofertado_texto).slice(0, 300) : null,
-      valorOfertadoNumero: Number.isFinite(Number(v?.valor_ofertado_numero)) ? Number(v.valor_ofertado_numero) : null,
+      // Mismo cuidado que en normalizarClasificada(): v?.valor_ofertado_numero != null antes de
+      // Number(), para no convertir "la ficha no trae número" en un 0 real.
+      valorOfertadoNumero: v?.valor_ofertado_numero != null && Number.isFinite(Number(v.valor_ofertado_numero)) ? Number(v.valor_ofertado_numero) : null,
       unidadOfertadaOriginal: v?.unidad_ofertada_original ? String(v.unidad_ofertada_original).slice(0, 40) : null,
       valorConvertidoNumero: null,   // el caller la completa con evaluarCaracteristicaDeterminista si corresponde
       veredicto: veredictoValido ? (veredictoRaw as VeredictoTecnico) : null,

@@ -490,7 +490,12 @@ function FilaComparacion({ c, puedeAprobar, bloqueado, onResponder, onCorregir, 
   const [copiado, setCopiado] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const est = c.veredicto ? VEREDICTO_STYLE[c.veredicto] : { bg: 'bg-zinc-100', text: 'text-zinc-400', label: 'Sin evaluar' };
-  const esNumerica = c.valor_requerido_numero != null;
+  // Mismo criterio "texto manda" de requeridoDe(): el clasificador (IA) a veces guarda 0 en vez de
+  // null para exigencias que en realidad son texto (una capacitación, una certificación). Sin este
+  // chequeo, esas características mostraban el campo numérico + "Unidad" en vez del cuadro de
+  // texto, "Usar lo exigido" copiaba "0", y lo que el usuario tipeaba ahí se perdía al guardar
+  // (Number("texto libre") = NaN → se serializa como null).
+  const esNumerica = !(c.valor_requerido_texto && c.valor_requerido_texto.trim()) && !!c.valor_requerido_numero;
   const exigido = requeridoDe(c);
 
   // El editor arranca con lo que YA está guardado, no en blanco: corregir una respuesta era

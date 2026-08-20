@@ -171,7 +171,11 @@ export function evaluarCaracteristicaDeterminista(args: {
   unidadRequerida: string | null; valorOfertadoNumero: number | null; unidadOfertadaOriginal: string | null;
 }): { veredicto: VeredictoTecnico; valorConvertidoNumero: number | null } | null {
   const { tipo, valorRequeridoNumero, valorRequeridoNumeroMax, unidadRequerida, valorOfertadoNumero, unidadOfertadaOriginal } = args;
-  if (valorOfertadoNumero == null || valorRequeridoNumero == null) return null;
+  // 0 es el valor que el clasificador (IA) guarda cuando en realidad NO hay dato numérico (debería
+  // ser null pero Number(null)=0 se cuela — ver ModalAuditorLineaTecnica.tsx). Sin esta guardia,
+  // una característica puramente cualitativa ("Cabina: ROPS/FOPS...", sin unidad) queda con
+  // exigido=0 y ofertado=0, y EXACTO da 0===0 → "Cumple" SIN haber comparado nada contra la ficha.
+  if (!valorOfertadoNumero || !valorRequeridoNumero) return null;
 
   let convertido = valorOfertadoNumero;
   if (unidadRequerida) {

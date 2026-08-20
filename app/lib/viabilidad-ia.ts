@@ -465,6 +465,15 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
     const t0 = Date.now();
     try {
       const timeoutMsCompleto = Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000);
+      // TIMEOUT PROPIO DE LOS RESPALDOS GLM (20-ago-2026, medido en vivo con 2422-144-LE26): un
+      // respaldo GLM (misma cuenta Z.AI que el primario) que recibe el margen COMPLETO (240s) es
+      // apostar a que un hermano del mismo modelo que ya no respondió sí lo haga — si Z.AI está
+      // saturado/caído (como en esa corrida: primario Y los 2 respaldos GLM agotaron sus 240s
+      // completos sin responder NADA), esos 240s×2 se comen TODO el presupuesto de la cadena y
+      // DeepSeek —el único proveedor realmente distinto, con chance real de estar arriba— nunca
+      // llega a intentarse. Más corto (no cero: sigue siendo un intento legítimo si el problema
+      // era puntual de ESE modelo, no de la cuenta completa) deja presupuesto real para DeepSeek.
+      const timeoutMsRespaldoGlm = Math.max(30_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS_RESPALDO_GLM) || 75_000);
       completion = await crearChatIA({
         messages: [
           { role: 'system', content: systemPrompt },
@@ -479,7 +488,7 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         max_tokens: Math.max(8_000, Number(process.env.VIABILIDAD_MAX_TOKENS) || 32_000),
         response_format: { type: 'json_object' },
       }, {
-        timeoutMs: timeoutMsCompleto,
+        timeoutMs: timeoutMsRespaldoGlm,
         // 13-ago-2026 (pedido del usuario, medido en vivo con 1211839-58-LE26: flashx colgado
         // gastó 690s de los cuales la mayoría fue esperar su propio timeout antes de caer al
         // respaldo). El modelo PRINCIPAL (flashx, pensado para ser el rápido) tiene un margen
@@ -490,6 +499,20 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         // de contexto grande (modeloGrande) — ese SÍ necesita el margen completo, no el corto.
         timeoutMsPrimario: modeloGrande ? timeoutMsCompleto : Math.max(60_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO) || 130_000),
         soloGlm: true,
+        // ÚLTIMO RECURSO DEEPSEEK (20-ago-2026, pedido explícito del usuario tras 2422-144-LE26:
+        // glm-5.2 y glm-4.7 se agotaron por timeout y la licitación quedó SIN análisis). La
+        // preferencia sigue siendo GLM —DeepSeek solo se toca cuando la escalera GLM completa se
+        // agotó—, pero es mejor terminar el informe con deepseek-v4-flash que devolver un error.
+        // Se apaga con VIABILIDAD_RESPALDO_DEEPSEEK=0.
+        deepSeekUltimoRecurso: process.env.VIABILIDAD_RESPALDO_DEEPSEEK !== '0',
+        // Tope de tiempo para la CADENA completa. OJO: por debajo del tope duro del JOB
+        // (VIABILIDAD_JOB_TIMEOUT_MS en la ruta API, 600s por defecto — ver
+        // app/api/licitacion-viabilidad-ia/[codigo]/route.ts) a propósito: si este deadline fuera
+        // igual o mayor, la cadena podría seguir "intentando" justo cuando el job YA se marcó
+        // error por tope duro, y el usuario vería "falló" aunque el análisis real llegara segundos
+        // después. Con margen de 120s (para guardar el informe, regenerar el costeo, etc.), un
+        // resultado real siempre llega ANTES de que el job se dé por vencido.
+        deadlineMs: Math.max(180_000, Number(process.env.VIABILIDAD_LLM_DEADLINE_MS) || 480_000),
         ...(modeloGrande ? { modeloPreferido: modeloGrande } : {}),
       });
     } catch (e: any) {
@@ -803,6 +826,48 @@ function veredictoModalidadDeterminista(
   return null;
 }
 
+// TEXTO "VERTICAL" (una palabra por línea) — recompactado SOLO para el prompt.
+//
+// Caso real 2422-144-LE26 (20-ago-2026): "BASES_ADMINISTRATIVAS.pdf" salió de pdf-text con
+// 11.030 líneas y 6 caracteres de promedio por línea — cada palabra del documento en su propia
+// línea. Eso hace dos daños: (a) infla los tokens del prompt muchísimo (cada salto de línea es un
+// token y además parte las palabras en más piezas), que fue lo que llevó el prompt a 202.728
+// chars y dejó a glm-5.2 y glm-4.7 en timeout sin poder analizar la licitación; y (b) le entrega
+// la prosa despedazada al modelo, que ahí se pierde cláusulas enteras (en este caso "La licitación
+// se realizará por líneas… cada oferente podrá ofertar por una o más de las siguientes líneas",
+// justo el dato que define si el costeo va por línea o global).
+//
+// Se rearma pegando las palabras de cada página en párrafos. Los marcadores [[PÁGINA N]] quedan
+// intactos y en su propia línea: las citas del informe se apoyan en ellos.
+//
+// OJO — esto es SOLO para el prompt. Los detectores deterministas y el parser de planilla siguen
+// leyendo el texto ORIGINAL a propósito: varios de ellos (parsearItemizadoPdf, las tablas de
+// Word) se apoyan justamente en que cada celda venga en su propia línea. Compactar ahí rompería
+// la lectura del itemizado.
+const RE_MARCA_PAGINA = /^\[\[P[ÁA]GINA[^\]]*\]\]$/i;
+export function compactarTextoVertical(texto: string): string {
+  const lineas = texto.split(/\r?\n/);
+  if (lineas.length < 400) return texto;
+  const utiles = lineas.filter(l => l.trim() && !RE_MARCA_PAGINA.test(l.trim()));
+  if (utiles.length < 300) return texto;
+  const promedio = utiles.reduce((a, l) => a + l.trim().length, 0) / utiles.length;
+  if (promedio > 12) return texto; // texto normal (párrafos o tablas): no se toca
+
+  const out: string[] = [];
+  let buffer: string[] = [];
+  const volcar = () => { if (buffer.length) { out.push(buffer.join(' ')); buffer = []; } };
+  for (const cruda of lineas) {
+    const l = cruda.trim();
+    if (!l) continue;
+    if (RE_MARCA_PAGINA.test(l)) { volcar(); out.push(l); continue; }
+    buffer.push(l);
+    // Corta el párrafo en el punto final: deja el texto en frases legibles en vez de un muro.
+    if (/[.:;]$/.test(l)) volcar();
+  }
+  volcar();
+  return out.join('\n');
+}
+
 // Arma el bloque de documentos para el ANÁLISIS con recorte por jerarquía: los que DECIDEN
 // (aclaraciones/bases/técnicas por prioridadDoc ≤ 3, y la planilla del parser) van ENTEROS; los
 // anexos/formularios de relleno se recortan a MAX_CHARS_DOC_RELLENO; tope global MAX_CHARS_DOCS_ANALISIS.
@@ -810,7 +875,10 @@ function recortarDocsParaAnalisis(leidos: DocLeido[], docFuentePlanilla?: string
   let recortadoDocs = 0;
   const partes = leidos.map(d => {
     const protegido = prioridadDoc(d.nombre, d.categoria) <= 3 || d.nombre === docFuentePlanilla;
-    let txt = d.texto;
+    let txt = compactarTextoVertical(d.texto);
+    if (txt.length !== d.texto.length) {
+      console.log(`[viabilidad-ia] "${d.nombre}": texto vertical (una palabra por línea) recompactado para el prompt: ${d.texto.length} → ${txt.length} chars.`);
+    }
     if (!protegido && txt.length > MAX_CHARS_DOC_RELLENO) {
       txt = txt.slice(0, MAX_CHARS_DOC_RELLENO) + '\n[...anexo/relleno recortado para el análisis...]';
       recortadoDocs++;
