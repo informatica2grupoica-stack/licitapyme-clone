@@ -449,14 +449,19 @@ const UMBRAL_PROMPT_GRANDE_CHARS = Math.max(50_000, Number(process.env.VIABILIDA
 async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<any> {
   const MAX_INTENTOS_JSON = 2; // 1 reintento si el modelo respondió pero el JSON salió roto
   const promptTotalChars = systemPrompt.length + userPrompt.length;
-  // Prompt grande → saltar DIRECTO al modelo de contexto grande (evita pagar el timeout completo
-  // de los eslabones livianos, que ya sabemos que van a fallar con un prompt así). Se le da el
-  // margen COMPLETO (timeoutMs, no timeoutMsPrimario) porque, a diferencia de flashx, este NO es
-  // rápido — 201s medidos en vivo, muy por sobre el margen corto pensado para el primario normal.
-  const modeloGrande = promptTotalChars > UMBRAL_PROMPT_GRANDE_CHARS
-    ? (process.env.GLM_TEXT_MODEL_FALLBACK3 || 'glm-5.2') : null;
-  if (modeloGrande) {
-    console.log(`[viabilidad-ia] prompt grande (${promptTotalChars} chars) → saltando directo a ${modeloGrande} (evita agotar el timeout en los modelos más livianos, que con este tamaño van a fallar igual).`);
+  // 20-ago-2026 (pedido explícito del usuario tras 3459-24-LE26): YA NO se salta directo a un
+  // modelo "grande" cuando el prompt supera UMBRAL_PROMPT_GRANDE_CHARS. Ese salto (a glm-5.2, vía
+  // GLM_TEXT_MODEL_FALLBACK3) dejaba afuera a los eslabones intermedios de la escalera —incluido
+  // glm-4.5-air, que el usuario quiere que SIEMPRE se intente— y le daba al primario un margen
+  // completo (240s) en vez del corto. Ahora, sea grande o no el prompt, se usa SIEMPRE la escalera
+  // completa y en orden (flashx → GLM_TEXT_MODEL_FALLBACK → _FALLBACK2 → _FALLBACK3 → deepseek),
+  // cada eslabón con su propio margen corto (ver timeoutMsRespaldoGlm más abajo): si uno da timeout,
+  // pasa DE INMEDIATO al siguiente, sin esperar el margen completo. Esto ya es seguro desde que
+  // timeoutMsRespaldoGlm (75s) capa lo que cuesta probar un eslabón que también falla — el problema
+  // original que motivó el salto directo (497s quemados en 4928-23-LP26 antes de esa fecha) ya no
+  // aplica. UMBRAL_PROMPT_GRANDE_CHARS queda sin uso activo (solo por si se necesita reactivar).
+  if (promptTotalChars > UMBRAL_PROMPT_GRANDE_CHARS) {
+    console.log(`[viabilidad-ia] prompt grande (${promptTotalChars} chars) — se usa la escalera completa en orden, sin saltos.`);
   }
   let ultimoErr = '';
   for (let intento = 0; intento < MAX_INTENTOS_JSON; intento++) {
@@ -464,7 +469,6 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
     let completion: any;
     const t0 = Date.now();
     try {
-      const timeoutMsCompleto = Math.max(120_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS) || 240_000);
       // TIMEOUT PROPIO DE LOS RESPALDOS GLM (20-ago-2026, medido en vivo con 2422-144-LE26): un
       // respaldo GLM (misma cuenta Z.AI que el primario) que recibe el margen COMPLETO (240s) es
       // apostar a que un hermano del mismo modelo que ya no respondió sí lo haga — si Z.AI está
@@ -495,9 +499,9 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         // más corto — casos reales exitosos tardaron 4-93s; si no responde en ese margen, mejor
         // pasar pronto a la cadena de respaldo (que sí conserva el margen completo, 240s por
         // defecto, para los modelos de última instancia). Configurable con
-        // VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO. Con prompt grande, el "principal" YA ES el modelo
-        // de contexto grande (modeloGrande) — ese SÍ necesita el margen completo, no el corto.
-        timeoutMsPrimario: modeloGrande ? timeoutMsCompleto : Math.max(60_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO) || 130_000),
+        // VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO. Mismo margen corto aunque el prompt sea grande
+        // (20-ago-2026: ya no se fuerza un modelo "grande" como principal — ver nota arriba).
+        timeoutMsPrimario: Math.max(60_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO) || 130_000),
         soloGlm: true,
         // ÚLTIMO RECURSO DEEPSEEK (20-ago-2026, pedido explícito del usuario tras 2422-144-LE26:
         // glm-5.2 y glm-4.7 se agotaron por timeout y la licitación quedó SIN análisis). La
@@ -513,7 +517,6 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         // después. Con margen de 120s (para guardar el informe, regenerar el costeo, etc.), un
         // resultado real siempre llega ANTES de que el job se dé por vencido.
         deadlineMs: Math.max(180_000, Number(process.env.VIABILIDAD_LLM_DEADLINE_MS) || 480_000),
-        ...(modeloGrande ? { modeloPreferido: modeloGrande } : {}),
       });
     } catch (e: any) {
       // La CADENA completa (primario + los 2 respaldos GLM) ya se agotó dentro de crearChatIA —
