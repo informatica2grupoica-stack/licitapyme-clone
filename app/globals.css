@@ -156,6 +156,30 @@
   46%,100% { opacity: 0; transform: translate(-50%, -50%) scale(0.6) rotate(0deg); }
 }
 
+/* ── PuenteLoader: animación de "mandar licitaciones al puente" ──────────────
+   Las licitaciones cruzan desde la orilla del radar (gris) hasta la de los
+   perfiles (índigo), en fila y con un leve arco al pasar por el centro. Tres
+   tarjetas escalonadas dan sensación de flujo continuo: no se sabe cuánto
+   tarda el POST (hidrata cada código desde la BD), así que el loop se repite. */
+@keyframes puenteCruza {
+  0%       { opacity: 0; transform: translate(14px, 4px) rotate(-6deg); }
+  10%      { opacity: 1; transform: translate(22px, 0)    rotate(-4deg); }
+  50%      { opacity: 1; transform: translate(72px, -5px) rotate(3deg); }
+  88%      { opacity: 1; transform: translate(122px, 0)   rotate(0deg); }
+  100%     { opacity: 0; transform: translate(134px, 4px) rotate(0deg); }
+}
+/* La orilla de destino "recibe": late justo cuando llega cada tarjeta. */
+@keyframes puenteRecibe {
+  0%, 78%  { transform: scaleY(1);    opacity: .9; }
+  88%      { transform: scaleY(1.18); opacity: 1; }
+  100%     { transform: scaleY(1);    opacity: .9; }
+}
+/* Los cables del puente respiran: da vida sin distraer del movimiento. */
+@keyframes puenteCable {
+  0%, 100% { stroke-dashoffset: 0; opacity: .55; }
+  50%      { stroke-dashoffset: -12; opacity: .95; }
+}
+
 /* ── Utility classes ─────────────────────────────────────────────────────── */
 @layer components {
   .fade-in        { animation: fadeIn       0.2s ease-out both; }
@@ -249,6 +273,31 @@
   .docsplit-snip {
     position: absolute; top: 50%; left: 50%; width: 26px; height: 26px;
     color: #7c3aed; z-index: 3; animation: docsplitSnip 3.2s ease-in-out infinite;
+  }
+
+  /* PuenteLoader — ver PuenteLoader.tsx. El puente se dibuja en SVG (estático) y las
+     tarjetas que lo cruzan son divs animados encima: más predecible entre navegadores
+     que animar nodos SVG. */
+  .puente { position: relative; width: 160px; height: 96px; }
+  .puente-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .puente-carta {
+    position: absolute; top: 37px; left: 0; width: 11px; height: 14px;
+    border-radius: 3px; background: #fff; border: 1.5px solid #c7d2fe;
+    box-shadow: 0 3px 8px rgba(79, 70, 229, 0.18);
+    animation: puenteCruza 2.6s ease-in-out infinite;
+  }
+  .puente-carta-2 { animation-delay: 0.55s; }
+  .puente-carta-3 { animation-delay: 1.10s; }
+  .puente-destino { transform-origin: bottom center; animation: puenteRecibe 2.6s ease-in-out infinite; }
+  .puente-cable   { stroke-dasharray: 4 4; animation: puenteCable 2.6s linear infinite; }
+
+  /* Respeta a quien pidió menos movimiento: se queda el puente quieto y las tarjetas
+     visibles en el tablero, sin animación. */
+  @media (prefers-reduced-motion: reduce) {
+    .puente-carta, .puente-destino, .puente-cable { animation: none; }
+    .puente-carta   { opacity: 1; transform: translate(40px, 0); }
+    .puente-carta-2 { transform: translate(72px, 0); }
+    .puente-carta-3 { transform: translate(104px, 0); }
   }
 
   /* Skeleton shimmer */

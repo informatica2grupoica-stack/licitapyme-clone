@@ -81,16 +81,19 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //   entrega_proyectos → entrar al circuito de Entrega de Proyectos (Frente F.1): recibe el aviso
 //                       de proyecto ganado y debe acusar recibo. El responsable del negocio y los
 //                       admin están dentro siempre; este permiso suma a los demás.
+//   repartir_puente → usar el Puente del Radar: empujar licitaciones a la bandeja y repartirlas
+//                       entre varios perfiles (equitativo, por carga, por categoría, por monto...).
+//                       Es el permiso del "asesor": reparte trabajo sin ser admin.
 //   viabilidad_automatica → piloto (2026-08): al asignarle una licitación a este perfil, el cron
 //                       de sistema la analiza sola (sin esperar el botón "Analizar"). Ver
 //                       app/api/cron/viabilidad-perfil/route.ts. Empieza con un solo perfil
 //                       (el "Asesor") para validar que no dispare falsos positivos de costo/calidad
 //                       antes de ofrecerlo a todos.
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica';
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
-  aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true,
+  aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true, repartir_puente: true,
 };
 
 /** Lee los permisos efectivos de un usuario por id+rol. Admin → todos. Tolera columna ausente. */

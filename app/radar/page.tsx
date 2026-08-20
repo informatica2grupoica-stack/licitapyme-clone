@@ -17,11 +17,13 @@ import {
   Sparkles, Filter, ChevronDown, FileText, Download, MapPin,
   ArrowUpDown, Eye, EyeOff, AlertCircle, Flame, SlidersHorizontal,
   CheckSquare, Square, UserPlus, Undo2, UserCheck,
-  Ban, MinusCircle, History,
+  Ban, MinusCircle, History, Shuffle,
 } from 'lucide-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { Resaltar } from '@/app/components/Resaltar';
+import { PuenteLoader } from '@/app/components/ui/PuenteLoader';
+import { createPortal } from 'react-dom';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 interface PalabraClave {
@@ -72,6 +74,7 @@ interface Alerta {
   asignado_a?: number | null;
   asignado_nombre?: string | null;
   descartada?: boolean;
+  en_puente?: boolean;      // ya está en el puente esperando reparto
 }
 
 interface Usuario  { id: number; nombre: string | null; email: string; empresa: string | null; rol?: string; }
@@ -440,6 +443,12 @@ function LicitacionListItem({
               ✓
             </span>
           )}
+          {alerta.en_puente && !alerta.asignada && (
+            <span title="Esperando reparto en el puente del radar"
+              className="inline-flex items-center gap-0.5 text-[9px] font-bold text-indigo-700 bg-indigo-100 px-1.5 py-0.5 rounded-full border border-indigo-200">
+              <Shuffle size={8} /> Puente
+            </span>
+          )}
         </div>
 
         <div className="flex-shrink-0 flex items-center gap-2">
@@ -564,6 +573,12 @@ function LicitacionCard({
                 </span>
               );
             })()}
+            {alerta.en_puente && !alerta.asignada && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200"
+                title="Esperando reparto en el puente del radar">
+                <Shuffle size={10} /> En el puente
+              </span>
+            )}
             {alerta.descartada && (
               <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-300">
                 <EyeOff size={10} /> Descartada
@@ -1429,6 +1444,53 @@ export default function RadarPage() {
     finally { setAccionMasiva(false); }
   }, [asignarUna, alertas, sel, usuarios, toast, limpiarSel, cerrarAsignar]);
 
+  // ── Puente del radar ─────────────────────────────────────────────────────────
+  // Empujar la selección a la bandeja de reparto. No asigna ni descarta nada: solo las deja
+  // esperando a que el asesor decida cómo repartirlas entre los perfiles.
+  const puedeUsarPuente = usuario?.rol === 'admin' || !!usuario?.permisos?.repartir_puente;
+
+  // Cuántas esperan reparto: alimenta el acceso directo del encabezado, para que desde el radar
+  // se vea que el puente tiene cosas y cómo llegar a él sin buscar en el menú.
+  const [totalPuente, setTotalPuente] = useState(0);
+  // Cuántas se están mandando ahora mismo (null = no hay envío en curso). Alimenta el overlay
+  // con la animación del puente: un lote grande hidrata código por código contra la BD y
+  // puede tardar varios segundos — dejar el botón mudo se siente como que se colgó.
+  const [enviandoAlPuente, setEnviandoAlPuente] = useState<number | null>(null);
+  useEffect(() => {
+    if (!puedeUsarPuente) return;
+    fetch('/api/puente?resumen=1').then(r => r.json())
+      .then(d => { if (d.success) setTotalPuente(d.total || 0); })
+      .catch(() => { /* el acceso igual se muestra, solo sin número */ });
+  }, [puedeUsarPuente]);
+
+  const enviarAlPuente = useCallback(async () => {
+    const objetivo = alertas.filter(a => sel.has(a.id) && !a.asignada && !a.en_puente);
+    if (objetivo.length === 0) {
+      toast.warning('Nada que empujar', 'Las seleccionadas ya están asignadas o ya están en el puente');
+      return;
+    }
+    setAccionMasiva(true);
+    // Bajo 5 no se muestra la animación: alcanzaría a parpadear y molesta más de lo que ayuda.
+    if (objetivo.length >= 5) setEnviandoAlPuente(objetivo.length);
+    try {
+      const d = await fetch('/api/puente', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigos: objetivo.map(a => a.licitacion_codigo) }),
+      }).then(r => r.json());
+      if (!d.success) { toast.error('No se pudo enviar al puente', d.error); return; }
+
+      const codigos = new Set(objetivo.map(a => a.licitacion_codigo));
+      setAlertas(prev => prev.map(a => codigos.has(a.licitacion_codigo) ? { ...a, en_puente: true } : a));
+      limpiarSel();
+      setTotalPuente(d.totalEnPuente ?? (totalPuente + (d.agregadas || 0)));
+      const omitidas = (d.omitidasAsignadas?.length || 0) + (d.sinDatos?.length || 0);
+      toast.success(
+        `${d.agregadas} licitación(es) al puente`,
+        `${d.totalEnPuente} esperando reparto${omitidas > 0 ? ` · ${omitidas} omitida(s)` : ''} — ábrelas con el botón "Puente" de arriba`);
+    } catch { toast.error('Error de conexión'); }
+    finally { setAccionMasiva(false); setEnviandoAlPuente(null); }
+  }, [alertas, sel, toast, limpiarSel, totalPuente]);
+
   // ── Derivados por alerta (UNA vez por carga, no por render/filtro) ────────────
   // tipo / estado efectivo / días al cierre se usaban en el filtro, los conteos y el
   // orden — recalculándose decenas de veces por alerta. Aquí quedan precalculados.
@@ -1786,6 +1848,30 @@ export default function RadarPage() {
                   </>
                 )}
               </div>
+            )}
+
+            {/* Acceso directo al puente: el radar es donde se empujan las licitaciones, así que
+                el camino de vuelta tiene que estar acá y no solo en el menú lateral. */}
+            {puedeUsarPuente && (
+              <Link
+                href="/puente"
+                title={totalPuente > 0
+                  ? `${totalPuente} licitación(es) esperando reparto en el puente — ábrelo para repartirlas entre los perfiles`
+                  : 'Puente del radar: selecciona licitaciones, mándalas "Al puente" y repártelas entre varios perfiles'}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all ${
+                  totalPuente > 0
+                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm shadow-indigo-600/30 hover:-translate-y-px'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Shuffle size={14} />
+                <span className="hidden sm:inline">Puente</span>
+                {totalPuente > 0 && (
+                  <span className="bg-white/20 text-white text-[11px] font-bold px-1.5 py-0.5 rounded-full tabular-nums">
+                    {totalPuente}
+                  </span>
+                )}
+              </Link>
             )}
 
             {(usuario?.rol === 'admin' || usuario?.permisos?.exportar) && (
@@ -2188,6 +2274,13 @@ export default function RadarPage() {
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-700 text-[12px] font-bold rounded-lg hover:bg-indigo-50 disabled:opacity-60">
                           <UserPlus size={13} /> Asignar
                         </button>
+                        {puedeUsarPuente && (
+                          <button onClick={enviarAlPuente} disabled={accionMasiva}
+                            title="Mandarlas al puente para repartirlas entre VARIOS perfiles (equitativo, por carga, por categoría, por monto). No asigna nada todavía."
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white text-indigo-700 text-[12px] font-bold rounded-lg hover:bg-indigo-50 disabled:opacity-60">
+                            <Shuffle size={13} /> Al puente
+                          </button>
+                        )}
                         <button onClick={() => descartarCodigos(alertas.filter(a => sel.has(a.id)).map(a => a.licitacion_codigo), true)} disabled={accionMasiva}
                           title="Descartar TODAS las seleccionadas del radar (reversible desde el corte 'Descartadas')"
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-500 text-white text-[12px] font-bold rounded-lg hover:bg-indigo-400 disabled:opacity-60">
@@ -2478,6 +2571,21 @@ export default function RadarPage() {
           onConfirm={confirmarAsignar}
           usuarioActualId={usuario?.id}
         />
+      )}
+
+      {/* Overlay mientras se empuja el lote al puente. No se puede cerrar a mano: se va solo
+          cuando el fetch resuelve (éxito o error), en el finally de enviarAlPuente. */}
+      {enviandoAlPuente != null && createPortal(
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
+          <div className="bg-white rounded-2xl shadow-2xl px-9 py-8 modal-in">
+            <PuenteLoader
+              total={enviandoAlPuente}
+              titulo="Cruzando al puente…"
+              subtitulo="Quedan esperando reparto. Todavía no se asigna ninguna a un perfil."
+            />
+          </div>
+        </div>,
+        document.body,
       )}
     </AppLayout>
   );

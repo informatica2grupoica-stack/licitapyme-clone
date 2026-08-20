@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
     // (resumen/ventaja/recomendación) vía JSON_EXTRACT (guardado con JSON_VALID por si
     // alguna fila trae JSON malformado). Aislado en allSettled: si la BD no soporta
     // funciones JSON, el radar sigue mostrando el semáforo/score sin el popover.
-    const [asigRes, descRes, docsRes, countRes, resumenRes] = await Promise.allSettled([
+    const [asigRes, descRes, docsRes, countRes, resumenRes, puenteRes] = await Promise.allSettled([
       pool.query(
         `SELECT n.licitacion_codigo, n.asignado_a, u.nombre AS asignado_nombre, u.email AS asignado_email
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a WHERE n.activo = TRUE`),
@@ -153,6 +153,9 @@ export async function GET(request: NextRequest) {
                 CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.ventaja_competitiva')) END AS ventaja_competitiva,
                 CASE WHEN JSON_VALID(informe_ejecutivo) THEN JSON_UNQUOTE(JSON_EXTRACT(informe_ejecutivo,'$.recomendacion')) END AS recomendacion
          FROM viabilidad_licitacion`),
+      // Puente del radar: las que ya están esperando reparto se marcan en la tarjeta para no
+      // empujarlas dos veces (migración 73 — tolerante si aún no está aplicada).
+      pool.query(`SELECT licitacion_codigo FROM puente_radar`),
     ]);
 
     const lista = rows as any[];
@@ -167,6 +170,10 @@ export async function GET(request: NextRequest) {
     const setDocs = new Set<string>();
     if (docsRes.status === 'fulfilled') {
       for (const r of ((docsRes.value as any)[0] as any[])) setDocs.add(r.licitacion_codigo);
+    }
+    const setPuente = new Set<string>();
+    if (puenteRes.status === 'fulfilled') {
+      for (const r of ((puenteRes.value as any)[0] as any[])) setPuente.add(r.licitacion_codigo);
     }
     // Mapa código → resumen recortado (solo los 3 campos del popover).
     const mapResumen = new Map<string, any>();
@@ -188,6 +195,7 @@ export async function GET(request: NextRequest) {
       a.asignado_nombre = m ? (m.asignado_nombre || m.asignado_email || null) : null;
       a.descartada = setDesc.has(a.licitacion_codigo);
       a.tiene_documentos = setDocs.has(a.licitacion_codigo) ? 1 : 0;
+      a.en_puente = setPuente.has(a.licitacion_codigo);
       // viabilidad_informe recortado: mantiene el popover funcionando sin el JSON pesado.
       a.viabilidad_informe = mapResumen.get(a.licitacion_codigo) ?? null;
     }

@@ -2,13 +2,10 @@
 // Lista y crea asignaciones de licitaciones
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { registrarActividad } from '@/app/lib/actividad';
 import { tienePermiso } from '@/app/lib/api-auth';
+import { asignarLicitacion } from '@/app/lib/asignar-licitacion';
+import { resumirCarga, type FilaCarga } from '@/app/lib/carga-perfiles';
 import { respuestaDesdeCache, enriquecer } from '@/app/lib/adjudicacion';
-import { registrarEvento } from '@/app/lib/historial';
-import { publicarCambio } from '@/app/lib/sse-bus';
-import { textoLimpioDeLicitacion } from '@/app/lib/texto-limpio';
-import { enviarCorreoAsignacion } from '@/app/lib/email';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 
 function getUser(req: NextRequest) {
@@ -162,29 +159,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Carga de trabajo por usuario. `total` = SOLO las VIGENTES = las que realmente se
-    // están trabajando: su cierre NO ha pasado Y no están en un estado resuelto (postulada/
-    // descartada/adjudicada/...). Así un perfil sin licitaciones activas queda en 0 aunque
-    // tenga históricas cerradas. `descartadas`/`vencidas`/`resueltas` van aparte como detalle.
-    // El desglose es POR ESTADO DEL PIPELINE (Asignado, En proceso, ...) sobre las vigentes.
-    const RESUELTOS_CARGA = new Set(['POSTULADA', 'DESCARTADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA']);
-    const ahora = Date.now();
-    const mapCarga = new Map<number, any>();
-    for (const r of cargaRows as any[]) {
-      let e = mapCarga.get(r.usuario_id);
-      if (!e) { e = { usuario_id: r.usuario_id, nombre: r.nombre, email: r.email, total: 0, descartadas: 0, vencidas: 0, resueltas: 0, porEstado: {} as Record<string, number> }; mapCarga.set(r.usuario_id, e); }
-      const estado = r.estado_pipeline || 'ASIGNADO';
-      if (estado === 'DESCARTADA') { e.descartadas++; continue; }
-      // Resuelta (postulada/adjudicada/...) → no cuenta como carga vigente.
-      if (RESUELTOS_CARGA.has(estado)) { e.resueltas++; continue; }
-      // Vencida (cierre ya pasó) → tampoco es carga vigente (se resuelve por el modal de vencidas).
-      const cierreMs = r.licitacion_cierre ? new Date(r.licitacion_cierre).getTime() : NaN;
-      if (!Number.isNaN(cierreMs) && cierreMs < ahora) { e.vencidas++; continue; }
-      // VIGENTE: cuenta y desglosa por estado del pipeline.
-      e.total++;
-      e.porEstado[estado] = (e.porEstado[estado] || 0) + 1;
-    }
-    const carga = Array.from(mapCarga.values()).sort((a, b) => b.total - a.total);
+    // Carga de trabajo vigente por perfil. La REGLA (qué cuenta y qué no) vive en
+    // app/lib/carga-perfiles.ts porque el Puente del Radar reparte nivelando este mismo
+    // número: dos definiciones distintas = repartos torcidos sin que nadie lo note.
+    const carga = resumirCarga(cargaRows as FilaCarga[]);
 
     return NextResponse.json({ success: true, negocios, usuarios, carga });
   } catch (error) {
@@ -193,184 +171,38 @@ export async function GET(request: NextRequest) {
 }
 
 // POST — asignar licitación a usuario (solo admin)
+// La lógica vive en app/lib/asignacion.ts: el Puente del Radar hace lo mismo en lote y no
+// puede haber dos copias de estas reglas (mover en vez de duplicar, marcar la alerta leída,
+// avisar por campana/correo, bajar los documentos). Esta ruta solo valida y traduce.
 export async function POST(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
   if (!userId || rol !== 'admin')
     return NextResponse.json({ error: 'Solo el admin puede asignar licitaciones' }, { status: 403 });
 
   try {
-    const {
-      licitacion_codigo, asignado_a, etiqueta_ids = [],
-      licitacion_nombre, licitacion_organismo, licitacion_monto,
-      licitacion_cierre, licitacion_estado, licitacion_tipo,
-      licitacion_region, licitacion_descripcion,
-    } = await request.json();
-
+    const body = await request.json();
+    const { licitacion_codigo, asignado_a } = body;
     if (!licitacion_codigo || !asignado_a)
       return NextResponse.json({ error: 'licitacion_codigo y asignado_a son requeridos' }, { status: 400 });
 
-    // TEXTO LIMPIO: el nombre/organismo llegan desde el CLIENTE, y hay rutas del front que los
-    // traen con el acento ya destruido (U+FFFD: "Adquisici<?>n"). Medido el 2026-07-30: 88 de 731
-    // filas de negocios.licitacion_nombre y 27 de licitacion_organismo estaban así, mientras que
-    // alertas_licitaciones (0 de 12.312) y licitaciones_cache (0 de 21.227) estaban impecables.
-    // En vez de parchar las 7 páginas que hacen este POST, se prefiere SIEMPRE el texto de la BD
-    // cuando el que llega viene roto: la base es la fuente limpia y esto cubre cualquier ruta,
-    // incluidas las que se agreguen después.
-    const { nombre: nombreLimpio, organismo: organismoLimpio } =
-      await textoLimpioDeLicitacion(licitacion_codigo, licitacion_nombre, licitacion_organismo);
+    const r = await asignarLicitacion({
+      licitacion_codigo,
+      asignado_a: Number(asignado_a),
+      asignado_por: userId,
+      etiqueta_ids: Array.isArray(body.etiqueta_ids) ? body.etiqueta_ids : [],
+      licitacion_nombre: body.licitacion_nombre ?? null,
+      licitacion_organismo: body.licitacion_organismo ?? null,
+      licitacion_monto: body.licitacion_monto ?? null,
+      licitacion_cierre: body.licitacion_cierre ?? null,
+      licitacion_estado: body.licitacion_estado ?? null,
+      licitacion_tipo: body.licitacion_tipo ?? null,
+      licitacion_region: body.licitacion_region ?? null,
+      licitacion_descripcion: body.licitacion_descripcion ?? null,
+      origen: 'radar',
+    });
 
-    // ¿Ya estaba asignada a alguien distinto? → es una REASIGNACIÓN.
-    let prevAsignado: number | null = null;
-    try {
-      const [prev] = await pool.query(
-        `SELECT asignado_a FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`,
-        [licitacion_codigo]);
-      prevAsignado = (prev as any[])[0]?.asignado_a ?? null;
-    } catch { /* tabla nueva */ }
-    const reasignacion = prevAsignado != null && Number(prevAsignado) !== Number(asignado_a);
-
-    // REGLA: una licitación pertenece a UN SOLO perfil. Antes de asignar, desactivamos
-    // cualquier OTRA asignación activa del mismo código (perfil distinto). Así, aunque la
-    // clave única sea compuesta (asignado_a, licitacion_codigo), nunca quedan dos filas
-    // activas para el mismo código → no se duplica; reasignar = MOVER.
-    try {
-      await pool.query(
-        `UPDATE negocios SET activo = FALSE
-         WHERE licitacion_codigo = ? AND asignado_a <> ? AND activo = TRUE`,
-        [licitacion_codigo, asignado_a]);
-    } catch { /* tabla nueva / sin filas: seguir */ }
-
-    const [result] = await pool.query(
-      `INSERT INTO negocios (
-         licitacion_codigo, licitacion_nombre, licitacion_organismo, licitacion_monto,
-         licitacion_cierre, licitacion_estado, licitacion_tipo, licitacion_region,
-         licitacion_descripcion, asignado_a, asignado_por
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         licitacion_nombre = COALESCE(VALUES(licitacion_nombre), licitacion_nombre),
-         licitacion_estado = COALESCE(VALUES(licitacion_estado), licitacion_estado),
-         asignado_a = VALUES(asignado_a),
-         asignado_por = VALUES(asignado_por),
-         activo = TRUE`,
-      [
-        licitacion_codigo,
-        nombreLimpio, organismoLimpio,
-        licitacion_monto || null,
-        licitacion_cierre ? new Date(licitacion_cierre) : null,
-        licitacion_estado || null, licitacion_tipo || null,
-        licitacion_region || null, licitacion_descripcion || null,
-        asignado_a, userId,
-      ]
-    );
-
-    const negocioId = (result as any).insertId || null;
-
-    // Fecha de cierre de preguntas: se pide a MP de inmediato (fire-and-forget) para que la
-    // alerta del slider "Destacadas" no tenga que esperar el refresco en background de 2h.
-    // Reusa refrescarEstadoCodigo (ya hace esta misma llamada y de paso persiste la fecha).
-    import('@/app/lib/refrescar-estados')
-      .then(({ refrescarEstadoCodigo }) => refrescarEstadoCodigo(licitacion_codigo, licitacion_estado || null))
-      .catch(() => { /* best-effort: el refresco periódico lo cubre igual */ });
-
-    // Asignar cuenta como REVISAR: marcar la alerta como leída para TODOS los perfiles
-    // (se puede asignar sin abrir la licitación; ya pasó a trabajo, nadie necesita
-    // "revisarla" en el radar → baja el contador de no leídas). Best-effort.
-    pool.query(
-      `UPDATE alertas_licitaciones SET leida = TRUE WHERE licitacion_codigo = ? AND leida = FALSE`,
-      [licitacion_codigo],
-    ).catch(() => { /* nunca bloquear la asignación */ });
-
-    // Si tenemos el id (INSERT) asignar etiquetas
-    if (negocioId && etiqueta_ids.length > 0) {
-      for (const eId of etiqueta_ids) {
-        await pool.query(
-          `INSERT IGNORE INTO negocios_etiquetas (negocio_id, etiqueta_id) VALUES (?, ?)`,
-          [negocioId, eId]
-        );
-      }
-    }
-
-    // Tiempo real: un negocio nuevo entra al pipeline → repintar los tableros abiertos.
-    publicarCambio('negocio');
-
-    // Notificar al asignado: historial + tiempo real (SSE) + correo. Best-effort.
-    try {
-      const [uRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [asignado_a]);
-      const u = (uRows as any[])[0];
-      const destino = u?.nombre || u?.email || `usuario ${asignado_a}`;
-      const [aRows] = await pool.query(`SELECT nombre, email FROM usuarios WHERE id = ?`, [userId]);
-      const actor = (aRows as any[])[0];
-      const actorNombre = actor?.nombre || actor?.email || 'Un administrador';
-
-      // Log de actividad antiguo (se mantiene).
-      registrarActividad({
-        usuarioId: userId, accion: 'asignacion',
-        entidadTipo: 'negocio', entidadId: String(negocioId || licitacion_codigo),
-        descripcion: `${reasignacion ? 'Reasignó' : 'Asignó'} la licitación ${licitacion_codigo} a ${destino}`,
-        metadata: { licitacion_codigo, licitacion_nombre: licitacion_nombre || null, asignado_a, asignado_a_nombre: destino, reasignacion },
-      });
-
-      // Historial nuevo + push en tiempo real al destinatario (campana).
-      await registrarEvento({
-        tipo: reasignacion ? 'REASIGNACION' : 'ASIGNACION',
-        licitacionCodigo: licitacion_codigo, licitacionNombre: licitacion_nombre || null,
-        usuarioId: Number(asignado_a), usuarioNombre: destino,
-        actorId: userId, actorNombre,
-        mensaje: `${actorNombre} te ${reasignacion ? 'reasignó' : 'asignó'} la licitación ${licitacion_nombre || licitacion_codigo}`,
-        metadata: { licitacion_codigo, reasignacion },
-      });
-
-      // Correo (fire-and-forget: no demora la respuesta).
-      if (u?.email) {
-        enviarCorreoAsignacion({
-          to: u.email, nombre: u.nombre, codigo: licitacion_codigo,
-          licitacionNombre: licitacion_nombre || null, organismo: licitacion_organismo || null,
-          monto: licitacion_monto || null, cierre: licitacion_cierre || null,
-          actorNombre, reasignacion,
-        }).catch(() => { /* registrado dentro de la función */ });
-      }
-    } catch { /* nunca bloquear la asignación por un fallo de notificación */ }
-
-    // ── Descarga automática de documentos AL ASIGNAR ───────────────────────────
-    // Estrategia elegida: en vez de bajar TODAS las que pasan el prefiltro (muchas se
-    // descartan aunque pasen), se bajan SOLO las que realmente se van a trabajar = las
-    // asignadas. Requiere IP chilena → corre en el notebook. Fire-and-forget: no bloquea
-    // la respuesta de asignación. Salta si la licitación ya tiene documentos.
-    // Kill-switch: DESCARGA_AL_ASIGNAR=false.
-    if (process.env.DESCARGA_AL_ASIGNAR !== 'false') {
-      (async () => {
-        try {
-          const [dc] = await pool.query(
-            `SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? LIMIT 1`, [licitacion_codigo]);
-          const yaTeniaDocs = (dc as any[]).length > 0;
-
-          if (!yaTeniaDocs) {
-            const { descargarDocumentosLicitacion } = await import('@/app/lib/mp-descarga-orquestador');
-            const res = await descargarDocumentosLicitacion(licitacion_codigo);
-            if (!res.exito) return;   // sin documentos no hay nada que analizar — lo reintenta el cron de descargas
-            // PRE-OCR: calienta la caché de texto (OCR incluido) tras la descarga, para que el
-            // análisis de más abajo (o un "Analizar" manual) encuentre el texto ya en BD.
-            // Flag: PRE_OCR_AL_ASIGNAR=false lo desactiva.
-            if (process.env.PRE_OCR_AL_ASIGNAR !== 'false') {
-              try {
-                const { calentarCacheDocumentos } = await import('@/app/lib/viabilidad-ia');
-                await calentarCacheDocumentos(licitacion_codigo);
-              } catch (e) { console.warn(`[negocios] pre-OCR al asignar ${licitacion_codigo}:`, String(e)); }
-            }
-          }
-
-          // VIABILIDAD AUTOMÁTICA AL ASIGNAR (20-ago-2026, pedido del usuario): para los perfiles
-          // con permiso `viabilidad_automatica`, el análisis ya no espera al botón "Analizar" ni al
-          // cron de las :35 (que podía tardar hasta 4 horas en llegarle). Corre acá mismo, en cuanto
-          // los documentos están listos. Encola y no espera: el análisis dura minutos y la respuesta
-          // de la asignación no puede quedar colgada de eso. Kill-switch: VIABILIDAD_AL_ASIGNAR=false.
-          const { encolarViabilidadAlAsignar } = await import('@/app/lib/viabilidad-al-asignar');
-          await encolarViabilidadAlAsignar(licitacion_codigo, Number(asignado_a));
-        } catch (e) { console.error('[negocios] auto-descarga al asignar falló:', String(e)); }
-      })();
-    }
-
-    return NextResponse.json({ success: true, id: negocioId });
+    if (!r.ok) return NextResponse.json({ error: r.error || 'No se pudo asignar' }, { status: 500 });
+    return NextResponse.json({ success: true, id: r.id });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

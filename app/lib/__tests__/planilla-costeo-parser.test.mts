@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerSeccionesLineaProducto,
   detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea,
+  detectarOfertaSubconjuntoItems,
   parsearPlanillaCosteo, extraerTablaProductoCantidad,
 } from '../planilla-costeo-parser';
 
@@ -153,6 +154,29 @@ test('evaluación por línea NO es evidencia de adjudicación repartida (regresi
 test('participación parcial SÍ dispara con lenguaje de oferta/omisión por línea', () => {
   const docs = [{ texto: 'Los oferentes podrán ofertar en una o más líneas, según su conveniencia comercial.' }];
   assert.ok(detectarParticipacionParcialPorLinea(docs), 'debe reconocer "podrán ofertar en una o más líneas" como participación parcial');
+});
+
+// Caso real 2422-144-LE26 (20-ago-2026, detectado por CA leyendo las bases): el Artículo Nº3 dice
+// "La licitación se realizará por líneas […] cada oferente podrá ofertar por una o más DE LAS
+// SIGUIENTES líneas: 1. Materiales de ferretería… 2. Herramientas…". Los tres detectores fallaban
+// por el conector "de las siguientes" entre "o más" y "líneas": TODOS los patrones lo esperaban
+// pegado ("una o más líneas"). Sin ninguna señal determinista, el override forzó GLOBAL con el
+// texto "sin evidencia objetiva de que se pueda ganar solo una parte" y la licitación quedó como
+// suma alzada, cuando las bases dicen lo contrario en su artículo más explícito.
+test('"ofertar por una o más DE LAS SIGUIENTES líneas" es por-línea (regresión 2422-144-LE26)', () => {
+  // Con saltos de línea entre palabras, tal como quedó el texto extraído del PDF real.
+  const docs = [{ texto: 'La\nlicitación\nse\nrealizará\npor\nlíneas,\nbajo\nla\nmodalidad\nde\nadjudicación\nsimple,\nen\ndonde\ncada\noferente\npodrá\nofertar\npor\nuna\no\nmás\nde\nlas\nsiguientes\nlíneas:\n1.\nMateriales\nde\nferretería.\n2.\nHerramientas.' }];
+  assert.ok(detectarLenguajePorLinea(docs), 'lenguaje por línea debe disparar');
+  assert.ok(detectarParticipacionParcialPorLinea(docs), 'participación parcial debe disparar: se puede ofertar a un subconjunto');
+  assert.ok(detectarOfertaSubconjuntoItems(docs), 'oferta por subconjunto debe disparar');
+});
+
+// El conector no puede volverse un comodín: "una o más" seguido de otra cosa que no sean
+// ítems/líneas no debe disparar (evita que el arreglo de arriba abra falsos positivos).
+test('"una o más" sin ítems/líneas detrás NO dispara', () => {
+  const docs = [{ texto: 'El oferente podrá ofertar por una o más de las siguientes formas de pago señaladas.' }];
+  assert.equal(detectarParticipacionParcialPorLinea(docs), null, 'no debe disparar sin "líneas"/"ítems"');
+  assert.equal(detectarOfertaSubconjuntoItems(docs), null, 'no debe disparar sin "líneas"/"ítems"');
 });
 
 // Caso real 2446-167-LP26: 8 archivos separados, uno por línea.

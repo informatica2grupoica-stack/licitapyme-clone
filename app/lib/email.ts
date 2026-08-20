@@ -232,6 +232,71 @@ function plantillaDigest(p: DigestEmail, appUrl: string): string {
   });
 }
 
+// ─── Digest de reparto del Puente del Radar ──────────────────────────────────
+// Cuando el asesor reparte una tanda del puente, a cada perfil le pueden tocar 10 licitaciones
+// de una. Diez correos de asignación seguidos son ruido que nadie lee (y diez envíos SMTP en
+// ráfaga): en su lugar va UNO solo con la lista completa. Reusa el layout y las tarjetas del
+// digest de radar para no inventar un tercer estilo de correo.
+export interface RepartoEmail {
+  to: string;
+  nombre?: string | null;
+  licitaciones: LicitacionDigest[];
+  total: number;              // total repartidas al perfil (puede ser > licitaciones.length)
+  actorNombre?: string | null;
+}
+
+function plantillaReparto(p: RepartoEmail, appUrl: string): string {
+  const base = appUrl ? appUrl.replace(/\/$/, '') : '';
+  const urlNegocios = base ? `${base}/negocios` : '';
+  const tarjeta = (l: LicitacionDigest) => {
+    const url = base ? `${base}/licitacion/${encodeURIComponent(l.codigo)}` : '';
+    const meta = [l.organismo, fmtMonto(l.monto), fmtFecha(l.cierre) ? `Cierre: ${fmtFecha(l.cierre)}` : null]
+      .filter(Boolean).map(v => esc(String(v))).join(' · ');
+    return `
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${C_INDIGO};border-radius:8px;margin-bottom:8px;">
+        <tr><td style="padding:13px 16px;">
+          <div style="font-size:14.5px;font-weight:700;line-height:1.4;">
+            ${url ? `<a href="${url}" style="color:#0f172a;text-decoration:none;">` : ''}${esc(l.nombre || l.codigo)}${url ? '</a>' : ''}
+          </div>
+          <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(l.codigo)}</div>
+          ${meta ? `<div style="margin-top:5px;color:#6b7280;font-size:12px;">${meta}</div>` : ''}
+        </td></tr>
+      </table>`;
+  };
+  const extra = p.total > p.licitaciones.length
+    ? `<p style="margin:6px 0 0;color:#6b7280;font-size:13px;">y ${p.total - p.licitaciones.length} más en tus negocios.</p>` : '';
+  const quien = p.actorNombre ? `${esc(p.actorNombre)} te asignó` : 'Te asignaron';
+  const cuerpo = `
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}: ${quien} <strong>${p.total} licitación${p.total !== 1 ? 'es' : ''}</strong> para trabajar.</p>
+    ${p.licitaciones.map(tarjeta).join('')}
+    ${extra}`;
+  return layoutEmail({
+    titulo: `${p.total} licitación${p.total !== 1 ? 'es' : ''} nueva${p.total !== 1 ? 's' : ''} para ti`,
+    cuerpo,
+    cta: urlNegocios ? { label: 'Ver mis licitaciones', url: urlNegocios } : undefined,
+  });
+}
+
+/** Un solo correo por perfil con TODO lo que le tocó en el reparto. Devuelve true si se envió. */
+export async function enviarDigestReparto(p: RepartoEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — digest de reparto omitido'); return false; }
+  if (!p.to || p.licitaciones.length === 0) return false;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || '';
+  try {
+    await t.sendMail({
+      from: FROM(),
+      to: p.to,
+      subject: `${p.total} licitación${p.total !== 1 ? 'es' : ''} nueva${p.total !== 1 ? 's' : ''} asignada${p.total !== 1 ? 's' : ''}`,
+      html: plantillaReparto(p, appUrl),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío digest de reparto SMTP falló:', String(e));
+    return false;
+  }
+}
+
 // ─── Correo de cambios en una licitación asignada ─────────────────────────────
 export interface CambioEmail {
   to: string;

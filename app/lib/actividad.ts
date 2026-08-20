@@ -34,6 +34,9 @@ export type AccionActividad =
   | 'anexo_relleno'   // generó un anexo de oferente rellenado (automático + respuestas manuales)
   | 'anexo_separado'  // separó un .docx con varios anexos pegados en un archivo por anexo
   | 'feedback_anexo'  // corrigió una casilla mal resuelta del Anexo Creator (feedback loop)
+  | 'puente_agregar'  // empujó licitaciones del radar al puente (bandeja de reparto)
+  | 'puente_quitar'   // sacó licitaciones del puente (vuelven al radar)
+  | 'puente_repartir' // repartió una tanda del puente entre varios perfiles
   | 'eliminacion';    // dio de baja un negocio (activo = FALSE)
 
 // Pestañas del detalle de la licitación que se registran como 'ver_seccion'.
@@ -51,7 +54,7 @@ export const LABEL_SECCION: Record<SeccionActividad, string> = {
 export interface EventoActividad {
   usuarioId: number | null;
   accion: AccionActividad;
-  entidadTipo?: 'licitacion' | 'negocio' | 'radar' | null;
+  entidadTipo?: 'licitacion' | 'negocio' | 'radar' | 'puente' | null;
   entidadId?: string | null;
   descripcion?: string | null;
   metadata?: unknown;

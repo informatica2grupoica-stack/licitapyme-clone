@@ -432,7 +432,7 @@ export function detectarLenguajePorLinea(docs: { texto: string }[]): string | nu
   // que el verbo "evaluar" de arriba no cubre porque usan otro verbo — "la evaluación... SE
   // REALIZARÁ por la línea de insumo licitado", "se ASIGNARÁ PUNTAJE por la línea", "se
   // CONSIDERARÁ LA NOTA por cada línea" (Criterios de Evaluación, numeral 4.4).
-  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+)?(?:una\s+o\s+m[aá]s|por)\s+l[ií]neas?|se\s+evaluar[aá]n?\s+por\s+l[ií]neas?(?:\s+de\s+producto)?|se\s+evaluar[aá]\s+cada\s+l[ií]nea(?:\s+de\s+manera\s+individual)?|cada\s+l[ií]nea\s+(?:se\s+evaluar[aá]|ser[aá]\s+evaluada)\s+de\s+manera\s+individual|se\s+evaluar[aá]n?\s+(?:[uú]nicamente\s+)?las\s+l[ií]neas\s+que|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas|evaluaci[oó]n[\s\S]{0,60}?se\s+realizar[aá]\s+por\s+(?:la\s+)?l[ií]nea|se\s+asignar[aá]\s+puntaje\s+por\s+(?:la\s+)?l[ií]nea|(?:se\s+)?considerar[aá]\s+la\s+nota\s+por\s+cada\s+l[ií]nea/i;
+  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+|por\s+)?(?:una\s+o\s+m[aá]s|por)\s+(?:de\s+(?:las?|los)\s+)?(?:siguientes\s+)?l[ií]neas?|se\s+evaluar[aá]n?\s+por\s+l[ií]neas?(?:\s+de\s+producto)?|se\s+evaluar[aá]\s+cada\s+l[ií]nea(?:\s+de\s+manera\s+individual)?|cada\s+l[ií]nea\s+(?:se\s+evaluar[aá]|ser[aá]\s+evaluada)\s+de\s+manera\s+individual|se\s+evaluar[aá]n?\s+(?:[uú]nicamente\s+)?las\s+l[ií]neas\s+que|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas|evaluaci[oó]n[\s\S]{0,60}?se\s+realizar[aá]\s+por\s+(?:la\s+)?l[ií]nea|se\s+asignar[aá]\s+puntaje\s+por\s+(?:la\s+)?l[ií]nea|(?:se\s+)?considerar[aá]\s+la\s+nota\s+por\s+cada\s+l[ií]nea/i;
   for (const d of docs) {
     if (!d.texto) continue;
     const m = d.texto.match(re);
@@ -456,7 +456,7 @@ export function detectarLenguajePorLinea(docs: { texto: string }[]): string | nu
 export function detectarParticipacionParcialPorLinea(docs: { texto: string }[]): string | null {
   // Incluye el orden invertido "en más de una línea" (caso real 1389488-29-LE26: "los oferentes
   // podrán ofertar en más de una línea de servicio"), que "una o más" no cubre.
-  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+)?(?:una\s+o\s+m[aá]s|m[aá]s\s+de\s+(?:un|una)|por)\s+l[ií]neas?|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas/i;
+  const re = /ofertar\s+(?:por\s+)?(?:la\s+)?l[ií]nea\s+de\s+producto|(?:pudiendo\s+(?:los\s+)?(?:proponentes|oferentes)?\s*)?(?:podr[aá]n?\s+|pueden\s+)?ofertar\s+(?:en\s+|por\s+)?(?:una\s+o\s+m[aá]s|m[aá]s\s+de\s+(?:un|una)|por)\s+(?:de\s+(?:las?|los)\s+)?(?:siguientes\s+)?l[ií]neas?|omitir\s+l[ií]neas\s+de\s+producto|completar\s+seg[uú]n\s+la\s+l[ií]nea|l[ií]nea\s+a\s+la\s+cual\s+postula|s[oó]lo\s+deber[aá]\s+completar\s+los\s+campos\s+en\s+aquellas\s+l[ií]neas|(?:campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas\s+(?:deber[aá]\s+)?mantener|mantener\w*\s+en\s+blanco\s+(?:los\s+campos\s+de\s+)?las\s+dem[aá]s\s+l[ií]neas/i;
   for (const d of docs) {
     if (!d.texto) continue;
     const m = d.texto.match(re);
@@ -486,7 +486,7 @@ export function detectarOfertaSubconjuntoItems(docs: { texto: string }[]): strin
     // "Si la licitación fuere por ítem [y un proveedor ofertare a dos o más ítems]"
     /(?:si\s+)?la\s+licitaci[oó]n\s+(?:fuere|es|ser[aá])\s+por\s+[ií]tem/i,
     // "ofertar/presentar oferta a|por|en {uno|una|dos} o más {ítems|líneas}"
-    /ofert\w+\s+(?:a|por|en)\s+(?:uno|una|dos)\s+o\s+m[aá]s\s+(?:[ií]tems?|l[ií]neas?)/i,
+    /ofert\w+\s+(?:a|por|en)\s+(?:uno|una|dos)\s+o\s+m[aá]s\s+(?:de\s+(?:las?|los)\s+)?(?:siguientes\s+)?(?:[ií]tems?|l[ií]neas?)/i,
     // "podrán/pueden ofertar a|por|en {una|varias} [o más] {líneas|ítems}"
     /(?:podr[aá]n?|puede[n]?|pudiendo)\s+(?:\w+\s+){0,4}ofertar\s+(?:a|por|en)\s+(?:uno|una|varios|varias)\s+(?:o\s+m[aá]s\s+)?(?:[ií]tems?|l[ií]neas?)/i,
     // "ofertar a|por {una|varias|algunas} [o más] {líneas|ítems}"
@@ -1044,6 +1044,157 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
   return { estructura: 'plana', lineas: [1], categorias: [], items, numeracion: analizarNumeracion(items), fuenteDoc: doc.nombre };
 }
 
+// ITEMIZADO APLANADO DE PDF, EN SECCIONES ("Anexo N°1 … / Anexo N°2 …") — último recurso.
+//
+// Caso real 2422-144-LE26 (Municipalidad de Puente Alto, materiales + herramientas): las Bases
+// Técnicas traen DOS itemizados, "Anexo N°1 Materiales de ferretería…" y "Anexo N°2 Herramientas
+// y útiles…", que el Formulario N°4 de oferta económica cotiza como "LINEA 1:" y "LINEA 2:". El
+// extractor de PDF aplana esas tablas a texto plano SIN pipes ni comas ("1 COPLA PPR 20 MM   25"),
+// así que `celdasDe` no las ve y `parsearDoc` devolvía null: el manifiesto quedaba en manos de la
+// IA, que listó los 151 ítems del Anexo N°1, se saltó entero el Anexo N°2 y marcó todo línea=1
+// → el Excel salió en UNA sola hoja "Costeo" pese a que la modalidad era por_linea.
+//
+// Qué reconoce (todo anclado al CORRELATIVO ESPERADO dentro de cada sección, que es lo que
+// distingue una fila de ítem de una línea cualquiera de prosa que empiece con un número):
+//   ① "1 COPLA PPR 20 MM   25"                        → n° + descripción + cantidad al final
+//   ② "9 MEZCLADOR 1400W  …  1 UNIDAD"                → n° + descripción + cantidad + unidad
+//   ③ "7 PODADORA TELESCÓPICA 8''" … "2 UNIDAD"       → ficha: n° + nombre, descripción larga
+//                                                       en medio, y cantidad+unidad más abajo
+// La LÍNEA de cada ítem es el ORDINAL de su sección (1ª sección con ítems → LINEA1), no el número
+// del anexo: así "Anexo N°3 / Anexo N°7" también salen como LINEA1/LINEA2.
+const RE_SECCION_ANEXO = /^\s*anexo\s*n?\s*[°º]?\s*(\d{1,2})\b/i;
+// Cantidad + unidad en su propia línea: "2 UNIDAD", "3 cajas", "10 unidades". La unidad se
+// acepta en singular o plural — un "3 cajas" no reconocido desincroniza el correlativo y el
+// listado se corta a la mitad (pasó con la LÍNEA 2 de 2422-144-LE26: 41 de 75 ítems).
+const UNIDAD_SUELTA = /^(\d{1,4})\s+(unidad|und|un|c\/u|mts?|ml|m2|m3|kg|kilos?|grs?|lts?|litros?|metros?|gl|glb|par|jgo|juego|caja|cja|rollo|saco|set|pack|global|servicio|docena|bolsa|kit|tira|pliego|hoja|bidon|tambor)(?:e?s)?\.?$/i;
+// Cierre GENÉRICO de ficha: "<n> <palabra en minúsculas>" cuando ya hay un ítem abierto con
+// nombre — en esa posición una sola palabra suelta después de un número es la unidad de medida
+// ("3 cajas", "2 juegos"), no prosa: la prosa trae varias palabras.
+const CANTIDAD_UNIDAD_LIBRE = /^(\d{1,4})\s+([a-zá-úñ]{2,12})\.?$/;
+
+function parsearItemizadoPdf(doc: DocTexto): PlanillaParseResult | null {
+  type Seccion = { items: ItemPlanilla[]; esperado: number; pendiente: ItemPlanilla | null; faltaNombre: number };
+  const nuevaSeccion = (): Seccion => ({ items: [], esperado: 1, pendiente: null, faltaNombre: 0 });
+  const secciones: Seccion[] = [nuevaSeccion()];
+  let sec = secciones[0];
+
+  const descValida = (d: string) =>
+    d.length >= 3 && d.length <= 120 && /[a-záéíóúñ]/i.test(d) && !PALABRAS_NO_ITEM.test(d);
+
+  // Cierra la ficha abierta (③): sin cantidad si nunca apareció su "N UNIDAD".
+  const cerrarPendiente = (cantidad: number | null, unidad: string) => {
+    if (!sec.pendiente) return;
+    sec.pendiente.cantidad = cantidad;
+    sec.pendiente.unidad = unidad;
+    if (descValida(sec.pendiente.descripcion)) sec.items.push(sec.pendiente);
+    sec.pendiente = null;
+    sec.faltaNombre = 0;
+  };
+
+  for (const cruda of doc.texto.split(/\r?\n/)) {
+    const t = limpiarCelda(cruda);
+    if (!t || /^\[\[P[ÁA]GINA/i.test(t)) continue;
+
+    // ¿Encabezado de sección? ("Anexo N°2", "LÍNEA 2:", "LOTE 3 -")
+    if (RE_SECCION_ANEXO.test(t) || detectarLinea(t) != null) {
+      cerrarPendiente(null, '');
+      // Solo abre sección nueva si la actual ya juntó ítems (evita cadenas de anexos vacíos).
+      if (sec.items.length) { sec = nuevaSeccion(); secciones.push(sec); }
+      else { sec.esperado = 1; }
+      continue;
+    }
+
+    // ① n° + descripción + cantidad al final (dos o más espacios separan la columna).
+    let m = t.match(/^(\d{1,3})\s+(.{3,120}?)\s{2,}(\d{1,4})$/);
+    // ② n° + descripción + cantidad + unidad, todo en una línea.
+    const m2 = m ? null : t.match(/^(\d{1,3})\s+(.{3,120}?)\s+(\d{1,4})\s+([A-Za-zÁÉÍÓÚÑ\/]{1,10})\.?$/);
+    if (m2 && UNIDAD_SUELTA.test(`1 ${m2[4]}`)) m = m2;
+
+    if (m && parseInt(m[1], 10) === sec.esperado) {
+      const desc = limpiarCelda(m[2]);
+      if (descValida(desc)) {
+        cerrarPendiente(null, '');
+        sec.items.push({
+          linea: 1, categoria: null, numero: sec.esperado,
+          descripcion: desc, unidad: m === m2 ? m2![4].toUpperCase() : '',
+          cantidad: parseInt(m[3], 10),
+        });
+        sec.esperado++;
+        continue;
+      }
+    }
+
+    // ③ cierre de ficha: la cantidad y la unidad vienen solas en su propia línea.
+    const mu = sec.pendiente
+      ? (t.match(UNIDAD_SUELTA) || (descValida(sec.pendiente.descripcion) ? t.match(CANTIDAD_UNIDAD_LIBRE) : null))
+      : null;
+    if (mu) { cerrarPendiente(parseInt(mu[1], 10), mu[2].toUpperCase()); continue; }
+
+    // ④ FILA PARTIDA en varias líneas (muy común cuando el nombre no cabe en la columna):
+    // el n° va solo ("26"), el nombre en las 1-4 líneas siguientes y la cantidad sola al final
+    // ("  20"). Una línea que es SOLO un número cierra la ficha abierta (es su cantidad) o, si no
+    // hay ninguna abierta y calza con el correlativo esperado, abre una a la espera del nombre.
+    const mn = t.match(/^(\d{1,4})$/);
+    if (mn) {
+      if (sec.pendiente) { cerrarPendiente(parseInt(mn[1], 10), ''); continue; }
+      if (parseInt(mn[1], 10) === sec.esperado) {
+        sec.pendiente = { linea: 1, categoria: null, numero: sec.esperado, descripcion: '', unidad: '', cantidad: null };
+        sec.faltaNombre = 4;
+        sec.esperado++;
+        continue;
+      }
+    }
+    // Continuación del nombre de una ficha abierta sin nombre (④).
+    if (sec.pendiente && sec.faltaNombre > 0 && /[a-záéíóúñ]/i.test(t)) {
+      sec.pendiente.descripcion = limpiarCelda(`${sec.pendiente.descripcion} ${t}`).slice(0, 120);
+      sec.faltaNombre--;
+      continue;
+    }
+
+    // ③ apertura de ficha: "7 PODADORA TELESCÓPICA 8''" con el correlativo esperado.
+    const mf = t.match(/^(\d{1,3})\s+(\S.{2,120})$/);
+    if (mf && parseInt(mf[1], 10) === sec.esperado) {
+      const desc = limpiarCelda(mf[2]);
+      if (descValida(desc)) {
+        cerrarPendiente(null, '');
+        sec.pendiente = { linea: 1, categoria: null, numero: sec.esperado, descripcion: desc, unidad: '', cantidad: null };
+        sec.esperado++;
+      }
+    }
+  }
+  cerrarPendiente(null, '');
+
+  // Solo cuentan las secciones que trajeron un LISTADO A COTIZAR: ≥2 ítems y la mayoría CON
+  // cantidad. El gate por sección (no solo global) descarta los "ecos" del mismo listado que
+  // traen las bases — índices, resúmenes de compra, fichas técnicas sin cantidad — que si no
+  // se colarían como una LÍNEA 2 duplicada (caso real 867990-45-LP26: el listado de equipos
+  // aparecía dos veces en la misma Resolución, la segunda sin cantidades).
+  const conItems = secciones.filter(s =>
+    s.items.length >= 2 && s.items.filter(i => i.cantidad != null && i.cantidad > 0).length >= s.items.length * 0.5);
+  if (!conItems.length) return null;
+  const items: ItemPlanilla[] = [];
+  conItems.forEach((s, i) => { for (const it of s.items) { it.linea = i + 1; items.push(it); } });
+
+  if (items.length < 8) return null;
+  // Gate de cotización: un itemizado real trae CANTIDADES (evita colar prosa numerada).
+  const conCantidad = items.filter(i => i.cantidad != null && i.cantidad > 0).length;
+  if (conCantidad < Math.max(3, Math.ceil(items.length * 0.25))) return null;
+
+  // Cada sección se numera desde 1 de forma INDEPENDIENTE: eso es un reinicio de correlativo
+  // aunque la secuencia concatenada (1..151 | 1..25) parezca casi creciente y `analizarNumeracion`
+  // la leería como continua. Con ≥2 secciones así, son listados separados → por línea.
+  const porLinea = conItems.length >= 2;
+  if (!porLinea) for (const it of items) it.linea = 1;
+  return {
+    estructura: porLinea ? 'por_linea' : 'plana',
+    lineas: porLinea ? conItems.map((_, i) => i + 1) : [1],
+    categorias: [],
+    items,
+    numeracion: porLinea ? 'reinicia' : analizarNumeracion(items),
+    fuenteDoc: doc.nombre,
+  };
+}
+
 function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
   const lineas = doc.texto.split(/\r?\n/);
   const items: ItemPlanilla[] = [];
@@ -1359,6 +1510,19 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
     if (!r) continue;
     const mejorScore = (m: PlanillaParseResult) => m.items.length * 100 + m.lineas.length * 10 + m.categorias.length;
     if (!mejor || mejorScore(r) > mejorScore(mejor)) mejor = r;
+  }
+  if (mejor) return mejor;
+
+  // ÚLTIMO RECURSO: itemizados que el extractor de PDF/Word aplanó a texto suelto. Va aparte y
+  // DESPUÉS del bucle normal a propósito: es el parser más laxo (se guía por el correlativo, no
+  // por una estructura de tabla), así que nunca debe desplazar a un documento que sí se pudo leer
+  // como planilla — solo cubre el caso en que NINGÚN documento dio nada.
+  for (const doc of docs) {
+    if (!doc.texto || doc.texto.length < 40) continue;
+    if (!esCandidato(doc)) continue;
+    const r = parsearItemizadoPdf(doc);
+    if (!r) continue;
+    if (!mejor || r.items.length > mejor.items.length) mejor = r;
   }
   return mejor;
 }

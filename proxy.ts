@@ -41,6 +41,7 @@ const EXTERNO_PAGINAS_OK = ['/negocios', '/licitacion/', '/perfil'];
 const EXTERNO_API_BLOQUEADAS = [
   '/api/dashboard', '/api/alertas', '/api/radar', '/api/analizadas',
   '/api/search', '/api/palabras-clave', '/api/prefiltro', '/api/favorites',
+  '/api/puente',  // reparto de trabajo del equipo: nada que hacer para un externo
 ];
 
 export async function proxy(request: NextRequest) {

@@ -8,7 +8,7 @@ import {
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
   PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart, PackageCheck, Library, Star, FolderOpen,
-  Receipt,
+  Receipt, Shuffle,
 } from 'lucide-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
@@ -67,6 +67,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: 'Buscador',   href: '/',          icon: <Search size={17} />, exact: true, adminOnly: true },
       { label: 'Radar',      href: '/radar',      icon: <Radar size={17} />, adminOnly: true },
+      // Puente: la bandeja de reparto. La ve el admin y quien tenga el permiso `repartir_puente`
+      // (el asesor), igual criterio que Aprobaciones — reparte trabajo sin ser administrador.
+      { label: 'Puente',     href: '/puente',     icon: <Shuffle size={17} />, adminOnly: true },
       { label: 'Analizadas', href: '/analizadas', icon: <Layers size={17} />, adminOnly: true },
     ],
   },
@@ -271,6 +274,21 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     return suscribirRealtime(ev => { if (ev.tipo === 'cambio') cargar(); });
   }, [puedeAprobar]);
 
+  // Badge del "Puente": cuántas licitaciones esperan reparto. Igual que Aprobaciones, solo se
+  // consulta si el perfil puede usarlo.
+  const puedeRepartir = usuario?.rol === 'admin' || !!usuario?.permisos?.repartir_puente;
+  const [totalPuente, setTotalPuente] = useState(0);
+  useEffect(() => {
+    if (!puedeRepartir) return;
+    const cargar = () => {
+      fetch('/api/puente?resumen=1').then(r => r.json()).then(d => {
+        if (d.success) setTotalPuente(d.total || 0);
+      }).catch(() => {});
+    };
+    cargar();
+    return suscribirRealtime(ev => { if (ev.tipo === 'cambio') cargar(); });
+  }, [puedeRepartir]);
+
   // Contadores de "Entregas": pendientes (badge) y total (para saber si mostrar el ítem a alguien
   // sin permiso que igual tiene una entrega por ser el responsable del negocio ganado).
   const [entregas, setEntregas] = useState<{ total: number; pendientes: number }>({ total: 0, pendientes: 0 });
@@ -297,6 +315,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (!i.adminOnly || usuario?.rol === 'admin') return true;
       if (i.href === '/radar' && usuario?.permisos?.acceso_radar) return true;
       if (i.href === '/aprobaciones' && puedeAprobar) return true;
+      if (i.href === '/puente' && puedeRepartir) return true;
       if (i.href === '/entregas' && puedeVerEntregas) return true;
       return false;
     }),
@@ -307,6 +326,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
         return { ...i, badge: totalAprobacionesPendientes > 0 ? totalAprobacionesPendientes : undefined };
       if (i.href === '/entregas')
         return { ...i, badge: entregas.pendientes > 0 ? entregas.pendientes : undefined };
+      if (i.href === '/puente')
+        return { ...i, badge: totalPuente > 0 ? totalPuente : undefined };
       return i;
     }),
   })).filter(g => g.items.length > 0);
