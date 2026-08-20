@@ -342,19 +342,30 @@ export async function POST(request: NextRequest) {
         try {
           const [dc] = await pool.query(
             `SELECT 1 FROM documentos_cache WHERE licitacion_codigo = ? LIMIT 1`, [licitacion_codigo]);
-          if ((dc as any[]).length) return; // ya tiene documentos → nada que bajar
-          const { descargarDocumentosLicitacion } = await import('@/app/lib/mp-descarga-orquestador');
-          const res = await descargarDocumentosLicitacion(licitacion_codigo);
-          // Solo PRE-OCR: calienta la caché de texto (OCR incluido) tras la descarga, para que
-          // el posterior "Analizar" MANUAL encuentre el texto ya en BD y sea rápido. NO se corre
-          // la viabilidad aquí: el análisis/viabilidad es una acción MANUAL (botón "Analizar").
-          // Flag: PRE_OCR_AL_ASIGNAR=false lo desactiva.
-          if (res.exito && process.env.PRE_OCR_AL_ASIGNAR !== 'false') {
-            try {
-              const { calentarCacheDocumentos } = await import('@/app/lib/viabilidad-ia');
-              await calentarCacheDocumentos(licitacion_codigo);
-            } catch (e) { console.warn(`[negocios] pre-OCR al asignar ${licitacion_codigo}:`, String(e)); }
+          const yaTeniaDocs = (dc as any[]).length > 0;
+
+          if (!yaTeniaDocs) {
+            const { descargarDocumentosLicitacion } = await import('@/app/lib/mp-descarga-orquestador');
+            const res = await descargarDocumentosLicitacion(licitacion_codigo);
+            if (!res.exito) return;   // sin documentos no hay nada que analizar — lo reintenta el cron de descargas
+            // PRE-OCR: calienta la caché de texto (OCR incluido) tras la descarga, para que el
+            // análisis de más abajo (o un "Analizar" manual) encuentre el texto ya en BD.
+            // Flag: PRE_OCR_AL_ASIGNAR=false lo desactiva.
+            if (process.env.PRE_OCR_AL_ASIGNAR !== 'false') {
+              try {
+                const { calentarCacheDocumentos } = await import('@/app/lib/viabilidad-ia');
+                await calentarCacheDocumentos(licitacion_codigo);
+              } catch (e) { console.warn(`[negocios] pre-OCR al asignar ${licitacion_codigo}:`, String(e)); }
+            }
           }
+
+          // VIABILIDAD AUTOMÁTICA AL ASIGNAR (20-ago-2026, pedido del usuario): para los perfiles
+          // con permiso `viabilidad_automatica`, el análisis ya no espera al botón "Analizar" ni al
+          // cron de las :35 (que podía tardar hasta 4 horas en llegarle). Corre acá mismo, en cuanto
+          // los documentos están listos. Encola y no espera: el análisis dura minutos y la respuesta
+          // de la asignación no puede quedar colgada de eso. Kill-switch: VIABILIDAD_AL_ASIGNAR=false.
+          const { encolarViabilidadAlAsignar } = await import('@/app/lib/viabilidad-al-asignar');
+          await encolarViabilidadAlAsignar(licitacion_codigo, Number(asignado_a));
         } catch (e) { console.error('[negocios] auto-descarga al asignar falló:', String(e)); }
       })();
     }
