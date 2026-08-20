@@ -139,3 +139,38 @@ export function motivoCriteriosNoConfiables(r: RemisionCriterios): string {
     : '';
   return `${base}${corte} Hay que abrir el anexo y cargar los criterios a mano antes de decidir.`;
 }
+
+// ─── SECCIÓN "CRITERIOS DE EVALUACIÓN" — recorte para lectura enfocada ─────────────────────
+// CASO REAL QUE LO ORIGINA (1079650-47-LE26, 20-ago-2026, Hospital Traumatológico de Concepción):
+// a diferencia del caso de arriba (tabla en un ANEXO que falta), acá la tabla de ponderaciones SÍ
+// está en el CUERPO de las bases ("20. CRITERIOS DE EVALUACIÓN", 6 criterios: Precio 45%, Plazo de
+// entrega 20%, Garantía 20%, Comportamiento Contractual Anterior 5%, Programas de integridad,
+// Cumplimiento de requisitos formales 5%) — pero la página quedó marcada "[[PÁGINA 15 — OCR local,
+// calidad menor]]" (Tesseract, no GLM-OCR) y el texto salió muy destrozado (fórmulas ilegibles,
+// "N*" en vez de "N°", palabras partidas a mitad por saltos de columna: "Comportami | máximo.
+// ento"). El modelo del análisis principal, con 133.000 caracteres de bases delante, se distrajo y
+// citó el Formulario 2 (el que LLENA EL OFERENTE, sin ponderaciones) en vez de esta tabla —
+// devolvió 3 de los 6 criterios reales, con ponderacion_nominal=0 y una alerta "no se encontró
+// tabla de ponderaciones" que es falsa: sí está, solo que el modelo no la leyó bien.
+//
+// hayTablaDeCriterios() ya sabe DETECTAR que la tabla existe. Esta función RECORTA esa sección
+// (desde su encabezado hasta el siguiente título numerado en MAYÚSCULAS, o un tope de 6.500
+// caracteres) para que un extractor enfocado por IA (extraerPonderacionesCriteriosIA en
+// viabilidad-ia.ts) la lea SOLA, sin competir por atención con el resto de las bases — mismo
+// patrón que extraerSeccionesLineaProducto/extraerItemsLineasProductoIA para productos por línea.
+// Devuelve null si no encuentra el encabezado.
+export function extraerSeccionCriteriosEvaluacion(docs: { texto: string }[]): string | null {
+  const reInicio = /\d{1,2}[.\-]?\s*CRITERIOS?\s+DE\s+EVALUACI[OÓ]N\b/i;
+  const reFin = /\n\s*\d{1,2}\.\s*[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{5,60}\n/;
+  for (const d of docs) {
+    if (!d.texto) continue;
+    const m = reInicio.exec(d.texto);
+    if (!m) continue;
+    const desde = m.index;
+    const resto = d.texto.slice(desde + m[0].length);
+    const finM = reFin.exec(resto);
+    const hasta = desde + m[0].length + (finM ? finM.index : 6000);
+    return d.texto.slice(desde, Math.min(hasta, desde + 6500));
+  }
+  return null;
+}

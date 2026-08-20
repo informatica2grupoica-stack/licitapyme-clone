@@ -338,6 +338,17 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
     // línea/lote" pegado a "adjudicar". Es evidencia decisiva por sí sola: si el propio texto dice
     // que SE PUEDE repartir entre más de un oferente, no es adjudicación global a un solo ganador.
     /adjudicar\s+a\s+m[aá]s\s+de\s+un\s+(?:oferente|proveedor|adjudicatario)\b/i,
+    // 20-ago-2026 (caso real 1079650-47-LE26, Hospital Traumatológico de Concepción): dos frases
+    // reales, ninguna cazada por los patrones de arriba.
+    // (a) Campo formal "c) Tipo de licitación: Pública-Adjudicación Múltiple-Licitación Pública
+    // Entre 100 y 1000 UTM (LE)" — el campo formal es "TIPO DE LICITACIÓN", no "TIPO DE
+    // ADJUDICACIÓN" (el patrón de la línea de arriba exige literalmente "tipo de adjudicación").
+    /tipo\s+de\s+licitaci[oó]n\s*:?[\s\S]{0,40}?adjudicaci[oó]n\s+m[uú]ltiple\b/i,
+    // (b) Prosa de la sección "DE LA ADJUDICACIÓN": "el Servicio adjudicará bajo la modalidad de
+    // Adjudicación Múltiple aceptando la oferta que obtenga el mayor puntaje en la evaluación" —
+    // el patrón "modalidad...será de adjudicación múltiple" (línea de arriba) exige el verbo SER;
+    // acá el verbo es ADJUDICAR y la preposición es "bajo la modalidad de", no "será de".
+    /bajo\s+la\s+modalidad\s+de\s+adjudicaci[oó]n\s+m[uú]ltiple\b/i,
   ];
   for (const d of docs) {
     if (!d.texto) continue;
@@ -642,14 +653,32 @@ export function detectarPresupuestoPorLinea(docs: { texto: string }[]): string |
 // positivos de una tabla suelta).
 export function extraerPresupuestoPorLineaTabla(docs: { texto: string }[]): Map<number, number> | null {
   const mapa = new Map<number, number>();
-  const re = /l[ií]nea\s*n[°ºo]?\s*(\d{1,3})\s*<\/td>\s*<td[^>]*>\s*\d+\s*<\/td>\s*<td[^>]*>\s*[^<]*?<\/td>\s*<td[^>]*>\s*\$?\s*([\d][\d.,]*)\s*<\/td>/gi;
+  const reTabla = /l[ií]nea\s*n[°ºo]?\s*(\d{1,3})\s*<\/td>\s*<td[^>]*>\s*\d+\s*<\/td>\s*<td[^>]*>\s*[^<]*?<\/td>\s*<td[^>]*>\s*\$?\s*([\d][\d.,]*)\s*<\/td>/gi;
+  // 20-ago-2026 (caso real 1079650-47-LE26): PROSA "Monto disponible Item N°X $ Y.- (IVA
+  // incluido)" — una línea de texto corrido por ítem, no una tabla HTML (el guard `<tr>` de
+  // arriba la descarta entera). La palabra "Item/Ítem" viene MAL OCR-eada distinto en cada
+  // línea del mismo documento (9 líneas reales: "Item", "tem", "¡tem", "Ítem", "ltem", "ítem" —
+  // 6 variantes), así que no se intenta reconocerla: cualquier run corto no numérico entre
+  // "disponible" y "N°X" sirve. El símbolo "$" también sale mal en 2 de las 9 líneas (OCR lo lee
+  // como "S" mayúscula) — se acepta como alternativa (no "s" minúscula, para no enganchar
+  // palabras sueltas de la prosa circundante).
+  const reProsa = /monto\s+(?:disponible|m[aá]ximo|asignado)\s+[^\n\d]{0,10}n[°ºo*]\s*(\d{1,3})[^\d$S\n]{0,10}[$S]\s*([\d][\d.,]*)/gi;
   for (const d of docs) {
-    if (!d.texto || !/<tr[\s>]/i.test(d.texto)) continue;
-    re.lastIndex = 0;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(d.texto)) !== null) {
-      const linea = parseInt(m[1], 10);
-      const monto = parseInt(m[2].replace(/[.,]/g, ''), 10);
+    if (!d.texto) continue;
+    if (/<tr[\s>]/i.test(d.texto)) {
+      reTabla.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = reTabla.exec(d.texto)) !== null) {
+        const linea = parseInt(m[1], 10);
+        const monto = parseInt(m[2].replace(/[.,]/g, ''), 10);
+        if (linea > 0 && monto > 0 && !mapa.has(linea)) mapa.set(linea, monto);
+      }
+    }
+    reProsa.lastIndex = 0;
+    let m2: RegExpExecArray | null;
+    while ((m2 = reProsa.exec(d.texto)) !== null) {
+      const linea = parseInt(m2[1], 10);
+      const monto = parseInt(m2[2].replace(/[.,]/g, ''), 10);
       if (linea > 0 && monto > 0 && !mapa.has(linea)) mapa.set(linea, monto);
     }
   }

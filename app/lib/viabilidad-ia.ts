@@ -29,7 +29,7 @@ export { esFilaDeCriterioNoProducto };
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
-import { analizarRemisionACriterios, hayTablaDeCriterios, motivoCriteriosNoConfiables } from '@/app/lib/criterios-en-anexo';
+import { analizarRemisionACriterios, hayTablaDeCriterios, motivoCriteriosNoConfiables, extraerSeccionCriteriosEvaluacion } from '@/app/lib/criterios-en-anexo';
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // Fallback ante el 503 "high demand": `gemini-2.5-flash` se satura seguido en requests
@@ -421,6 +421,49 @@ Devuelve SOLO JSON válido: {"lineas":[{"linea":1,"items":[{"descripcion":"...",
     }
   }
   return manifiesto;
+}
+
+// EXTRACCIÓN DEDICADA de la tabla de PONDERACIONES DE CRITERIOS DE EVALUACIÓN, para cuando la
+// tabla SÍ está en el cuerpo de las bases (a diferencia de criterios-en-anexo.ts, que cubre el
+// caso de un anexo AUSENTE) pero el modelo del análisis principal no la leyó bien — caso real
+// 1079650-47-LE26: página marcada "[[PÁGINA 15 — OCR local, calidad menor]]" (Tesseract), texto
+// muy destrozado, y con 133.000 caracteres de bases delante el modelo se distrajo y citó el
+// formulario del OFERENTE (sin %) en vez de esta tabla. Mismo patrón que
+// extraerItemsLineasProductoIA arriba: enfocar la lectura SOLO en la sección recortada
+// (extraerSeccionCriteriosEvaluacion) hace mucho más fácil que el modelo la lea bien, aunque el
+// OCR esté sucio. Usa GLM (crearChatIA), no Gemini —Gemini está retirado, ver nota en gemini.ts—.
+async function extraerPonderacionesCriteriosIA(
+  seccionTexto: string,
+): Promise<{ nombre: string; ponderacion_pct: number }[]> {
+  const sys = `Eres un extractor de tablas de ponderación de criterios de evaluación de licitaciones públicas chilenas.
+Te doy la sección "CRITERIOS DE EVALUACIÓN" de unas bases, extraída de un PDF por OCR de baja calidad: puede traer fórmulas ilegibles, palabras partidas por saltos de columna o de página, y "N*" en vez de "N°". A pesar del ruido, el nombre de cada criterio numerado (1, 2, 3…) y su ponderación en % SIGUEN presentes en el texto.
+TU ÚNICA TAREA: listar cada criterio numerado con su nombre corto y su ponderación en %. Reglas ESTRICTAS:
+- Usa el nombre del encabezado numerado ("1) Precio", "2) Plazo de entrega", etc.) para "nombre", no una frase suelta de alrededor.
+- La ponderación de un criterio suele aparecer DOS VECES (junto al nombre y de nuevo en la frase "la ponderación asignada a este ítem es de: NN%") — es EL MISMO número, no lo sumes ni lo dupliques.
+- Si un criterio numerado no muestra su % en ninguna parte del texto, OMÍTELO — no inventes un número.
+- NO inventes criterios que no estén en el texto. NO agregues el criterio "genérico" de requisitos administrativos si no aparece numerado como los demás.
+Devuelve SOLO JSON válido: {"criterios":[{"nombre":"Precio","ponderacion_pct":45}, ...]}.`;
+  const user = `Extrae los criterios y su ponderación de esta sección de bases:\n\n${seccionTexto}`;
+  try {
+    const completion = await crearChatIA({
+      messages: [
+        { role: 'system', content: sys },
+        { role: 'user', content: user },
+      ],
+      temperature: 0.1, stream: false, max_tokens: 2_000,
+      response_format: { type: 'json_object' },
+    }, { timeoutMs: 60_000, soloGlm: true });
+    const txt = String(completion.choices?.[0]?.message?.content ?? '');
+    const parsed = parseJsonIA<any>(txt);
+    const arr = Array.isArray(parsed?.criterios) ? parsed.criterios : [];
+    return arr
+      .map((c: any) => ({ nombre: _str(c?.nombre).trim(), ponderacion_pct: Number(c?.ponderacion_pct) }))
+      .filter((c: { nombre: string; ponderacion_pct: number }) =>
+        c.nombre.length >= 2 && Number.isFinite(c.ponderacion_pct) && c.ponderacion_pct > 0 && c.ponderacion_pct <= 100);
+  } catch (e) {
+    console.warn('[viabilidad-ia-v3] extraerPonderacionesCriteriosIA falló:', String(e).slice(0, 140));
+    return [];
+  }
 }
 
 // GLM (Z.AI) con JSON forzado y reparación de truncado. El manifiesto va al final del
@@ -1844,6 +1887,29 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   // GLOBAL/POR_LINEAS del v3): el listado de ítems MANDA sobre el LLM cuando es concluyente.
   const p3 = parsed as any;
 
+  // BACKFILL DEL PRESUPUESTO TOTAL cuando el modelo lo dejó en 0/vacío: si las bases traen un
+  // desglose de presupuesto por línea (tabla HTML o prosa — mismo extractor que rellena
+  // presupuesto_linea más abajo), su suma ES el presupuesto total (viene "IVA incluido" en ambos
+  // formatos soportados). Caso real 1079650-47-LE26: presupuesto.bruto/neto quedaron en 0 pese a
+  // que las bases declaran "Monto total: $7.559.999" y el desglose de las 9 líneas que lo forman —
+  // el modelo solo miró la portada de la API MP (que no trae presupuesto para esta licitación) y
+  // no cruzó con el texto de las bases. Nunca pisa un bruto que el modelo SÍ trajo.
+  try {
+    const presB = p3.presupuesto && typeof p3.presupuesto === 'object' ? p3.presupuesto : (p3.presupuesto = {});
+    const brutoActual = _num(presB.bruto);
+    if (brutoActual == null || brutoActual <= 0) {
+      const tabla = extraerPresupuestoPorLineaTabla(leidos.map(d => ({ texto: d.texto })));
+      if (tabla && tabla.size >= 2) {
+        const brutoSuma = [...tabla.values()].reduce((a, b) => a + b, 0);
+        if (brutoSuma > 0) {
+          presB.bruto = brutoSuma;
+          if (!presB.fuente) presB.fuente = `suma de ${tabla.size} línea(s) presupuestadas detectadas en las bases`;
+          console.log(`[viabilidad-ia-v3] ${codigo}: presupuesto.bruto rellenado desde la suma de ${tabla.size} línea(s) presupuestadas: $${brutoSuma.toLocaleString('es-CL')}.`);
+        }
+      }
+    }
+  } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: backfill de presupuesto total falló:`, String(e).slice(0, 140)); }
+
   // NORMALIZACIÓN DETERMINISTA DEL PRESUPUESTO NETO. El neto es un DERIVADO del bruto (regla del
   // prompt: "Normaliza a NETO ÷1,19 si con IVA"), NO un dato que el modelo deba calcular: a veces
   // se equivoca en la aritmética (ej. dividió por 11,9 y dejó el neto 10× chico), y un neto falso
@@ -2264,6 +2330,80 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     }
   } catch (e) {
     console.warn(`[viabilidad-ia-v3] ${codigo}: chequeo de criterios-en-anexo falló, se omite:`, String(e).slice(0, 140));
+  }
+
+  // RECUPERACIÓN DETERMINISTA — TABLA DE PONDERACIONES QUE SÍ ESTÁ EN LAS BASES pero el modelo no
+  // la leyó (caso OPUESTO al de arriba: acá no falta ningún anexo). Caso real 1079650-47-LE26: la
+  // tabla "20. CRITERIOS DE EVALUACIÓN" está en el cuerpo de las bases con 6 criterios (Precio 45%,
+  // Plazo de entrega 20%, Garantía 20%, Comportamiento Contractual 5%, Programas de integridad,
+  // Cumplimiento de requisitos formales 5%), pero la página quedó con OCR local de baja calidad
+  // (Tesseract) y muy destrozada — el modelo, con 133.000 caracteres de bases delante, se distrajo
+  // y citó el Formulario 2 (el que llena el OFERENTE, sin %) en vez de esta tabla: devolvió 3 de
+  // los 6 criterios reales, todos con ponderacion_nominal=0, y una alerta "no se encontró tabla de
+  // ponderaciones" que es falsa.
+  //
+  // Solo se activa cuando: (a) NO es el caso de arriba (no remite a un anexo ausente — sería
+  // contradictorio); (b) hayTablaDeCriterios confirma que SÍ hay una distribución real en el texto;
+  // (c) los criterios que emitió el modelo están efectivamente inservibles (todos en 0). Ahí se
+  // recorta la sección (extraerSeccionCriteriosEvaluacion) y se lee con un extractor ENFOCADO
+  // (extraerPonderacionesCriteriosIA) — solo se aplica si el resultado tiene ≥3 criterios y su suma
+  // ronda 100 (mismo criterio de confianza que hayTablaDeCriterios). Preserva del informe del
+  // modelo lo que sí sirve (forma_aplicacion, clase, fuente) por coincidencia de nombre; para
+  // criterios que el modelo nunca emitió, rellena con valores neutros — quien revise sabrá que
+  // vinieron de una recuperación automática por el texto del alertas[].
+  try {
+    const textoBasesCriterios = leidos.filter(d => /BASES/i.test(String(d.categoria || ''))).map(d => d.texto).join('\n\n');
+    const remiteAAnexo = analizarRemisionACriterios(textoBasesCriterios).remite;
+    const tablaPresente = hayTablaDeCriterios(leidos.map(d => d.texto).join('\n\n'));
+    const criteriosLLM: any[] = Array.isArray(p3?.criterios_evaluacion?.criterios) ? p3.criterios_evaluacion.criterios : [];
+    const todosEnCero = tablaPresente && (criteriosLLM.length === 0 || criteriosLLM.every((c: any) => !(Number(c?.ponderacion_nominal) > 0)));
+    if (!remiteAAnexo && todosEnCero) {
+      const docsBases = leidos.filter(d => /BASES/i.test(String(d.categoria || ''))).map(d => ({ texto: d.texto }));
+      const seccion = extraerSeccionCriteriosEvaluacion(docsBases.length ? docsBases : leidos.map(d => ({ texto: d.texto })));
+      if (seccion) {
+        const extraidos = await extraerPonderacionesCriteriosIA(seccion);
+        const suma = extraidos.reduce((a, c) => a + c.ponderacion_pct, 0);
+        if (extraidos.length >= 3 && Math.abs(suma - 100) <= 5) {
+          console.log(`[viabilidad-ia-v3] ${codigo}: tabla de ponderaciones SÍ está en las bases pero el modelo la leyó en 0 — extracción enfocada recuperó ${extraidos.length} criterios (suma ${suma}%).`);
+          const porNombre = new Map(criteriosLLM.map((c: any) => [_str(c?.nombre).toLowerCase(), c]));
+          const nuevos = extraidos.map(e => {
+            const clave = e.nombre.toLowerCase();
+            const prev = porNombre.get(clave)
+              ?? [...porNombre.values()].find((c: any) => {
+                const n = _str(c?.nombre).toLowerCase();
+                return n.length >= 3 && (n.includes(clave) || clave.includes(n));
+              });
+            return {
+              clase: 'POR_TRAMOS', subfactores: [],
+              tramo_max_puntaje: { descripcion: '', borde_comodo: '' },
+              rango_admisibilidad: { min: '', max: '' },
+              medio_verificacion: '', forma_aplicacion: '',
+              ...(prev || {}),
+              nombre: e.nombre,
+              ponderacion_nominal: e.ponderacion_pct,
+              ponderacion_efectiva: e.ponderacion_pct,
+              fuente: prev?.fuente || 'sección "CRITERIOS DE EVALUACIÓN" de las bases (extracción enfocada — la página venía con OCR local de baja calidad)',
+            };
+          });
+          p3.criterios_evaluacion = {
+            ...(p3.criterios_evaluacion || {}),
+            criterios: nuevos,
+            fuente_datos: 'bases',
+            suma_ponderaciones_real: Math.round(suma),
+            suma_valida: true,
+            forma_aplicacion_completa: false,
+            alertas: [
+              ...(p3.criterios_evaluacion?.alertas || []).filter((a: string) => !/no se encontr[oó] tabla de ponderaciones/i.test(a)),
+              'Ponderaciones recuperadas con una lectura enfocada de la sección "CRITERIOS DE EVALUACIÓN" (la página venía con OCR local de baja calidad) — verificar contra las bases antes de decidir.',
+            ],
+          };
+        } else if (extraidos.length > 0) {
+          console.warn(`[viabilidad-ia-v3] ${codigo}: extracción enfocada de criterios devolvió ${extraidos.length} criterios pero la suma (${suma}%) no cuadra — se descarta, se deja el 0 original.`);
+        }
+      }
+    }
+  } catch (e) {
+    console.warn(`[viabilidad-ia-v3] ${codigo}: recuperación enfocada de criterios falló, se omite:`, String(e).slice(0, 140));
   }
 
   // VALIDADOR POST-FASE 2 (Frente A.2) — revisor automático por código, sin IA. Corre sobre el

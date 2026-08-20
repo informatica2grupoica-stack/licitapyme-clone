@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import {
   analizarRemisionACriterios, hayTablaDeCriterios,
   criteriosNoConfiables, motivoCriteriosNoConfiables,
+  extraerSeccionCriteriosEvaluacion,
 } from '../criterios-en-anexo';
 
 // Texto REAL de las bases de 2981-214-LE26 (PDI), tal como quedó tras el OCR: el cuerpo remite al
@@ -122,4 +123,49 @@ test('texto vacío o sin criterios no rompe ni dispara', () => {
     assert.equal(r.remite, false);
     assert.equal(criteriosNoConfiables(r), false);
   }
+});
+
+// ── extraerSeccionCriteriosEvaluacion (1079650-47-LE26, 20-ago-2026) ──────────────────────────
+// Caso OPUESTO al de 2981-214-LE26 de arriba: acá la tabla NO está en un anexo ausente, está en
+// el CUERPO de las bases — pero la página venía con OCR local de baja calidad (Tesseract) y muy
+// destrozada, y el modelo del análisis principal citó otro documento en vez de leerla. Esta
+// función es la materia prima del extractor enfocado que la recupera (ver
+// extraerPonderacionesCriteriosIA en viabilidad-ia.ts). Fragmento real y garbled tal como quedó
+// en documentos_cache.
+const SECCION_1079650_REAL = `20. CRITERIOS DE EVALUACIÓN
+CRITERIO FÓRMULA DE CÁLCULO NO
+A MENOR PRECIO, MAYOR PUNTAJE.
+1) Precio 45%
+El oferente deberá completar el Formulario N*2 indicando el precio
+La ponderación asignada a este Ítem es de: 45%.
+2) Plazo de
+trega
+eng Para efectos de cálculo del puntaje...
+La ponderación asignada a este ltem es de: 20%
+3) Garantía Para efectos del cálculo del puntaje se considerará la mínima 20%
+La ponderación asignada a este Ítem es de: 20%
+4) Comportami | máximo.
+ento 5%
+Contractual
+Anterior
+21. RESOLUCION DE EMPATES
+En caso de empate...`;
+
+test('extraerSeccionCriteriosEvaluacion: recorta desde el encabezado numerado hasta la siguiente sección (1079650-47-LE26)', () => {
+  const seccion = extraerSeccionCriteriosEvaluacion([{ texto: `...texto previo de las bases...\n${SECCION_1079650_REAL}\n...texto posterior irrelevante...` }]);
+  assert.ok(seccion, 'debe encontrar el encabezado "CRITERIOS DE EVALUACIÓN"');
+  assert.match(seccion!, /^20\. CRITERIOS DE EVALUACIÓN/);
+  assert.match(seccion!, /Precio 45%/);
+  assert.doesNotMatch(seccion!, /texto posterior irrelevante/, 'no debe arrastrar contenido después de la siguiente sección numerada');
+});
+
+test('extraerSeccionCriteriosEvaluacion: sin el encabezado, devuelve null', () => {
+  assert.equal(extraerSeccionCriteriosEvaluacion([{ texto: 'Bases sin ninguna mención de criterios de evaluación.' }]), null);
+});
+
+test('extraerSeccionCriteriosEvaluacion: con tope de 6.500 caracteres si no encuentra el fin de sección', () => {
+  const texto = '20. CRITERIOS DE EVALUACIÓN\n' + 'x'.repeat(10_000);
+  const seccion = extraerSeccionCriteriosEvaluacion([{ texto }]);
+  assert.ok(seccion);
+  assert.ok(seccion!.length <= 6500);
 });

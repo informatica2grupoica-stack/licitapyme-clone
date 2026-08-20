@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerSeccionesLineaProducto,
   detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea,
-  detectarOfertaSubconjuntoItems,
+  detectarOfertaSubconjuntoItems, extraerPresupuestoPorLineaTabla,
   parsearPlanillaCosteo, extraerTablaProductoCantidad,
 } from '../planilla-costeo-parser';
 
@@ -377,6 +377,26 @@ test('detectarTipoAdjudicacionMultiple: "adjudicar a más de un oferente" sin "d
   assert.ok(detectarTipoAdjudicacionMultiple(docs));
 });
 
+// Caso real 1079650-47-LE26 (Hospital Traumatológico de Concepción): campo formal "c) Tipo de
+// licitación: Pública-Adjudicación Múltiple-Licitación Pública Entre 100 y 1000 UTM (LE)" — el
+// campo se llama "TIPO DE LICITACIÓN", no "TIPO DE ADJUDICACIÓN" (patrón ya existente en la línea
+// 334), así que ningún patrón previo la cazaba y el veredicto cayó al default GLOBAL pese a que la
+// propia IA citó la frase como fuente.
+test('detectarTipoAdjudicacionMultiple: "Tipo de licitación: Pública-Adjudicación Múltiple" (1079650-47-LE26)', () => {
+  const docs = [{ texto: 'c) Tipo de licitación: Pública-Adjudicación Múltiple-Licitación Pública Entre 100 y 1000 UTM (LE)\nd) Tipo de convocatoria: ABIERTO' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
+// Mismo caso, sección "22. DE LA ADJUDICACION": "el Servicio adjudicará bajo la modalidad de
+// Adjudicación Múltiple aceptando la oferta que obtenga el mayor puntaje en la evaluación" — el
+// patrón "modalidad...será de adjudicación múltiple" exige el verbo SER; acá el verbo es ADJUDICAR
+// y la preposición es "bajo la modalidad de", no "será de". El salto de línea real del PDF entre
+// "de" y "Adjudicación" queda cubierto por \s+.
+test('detectarTipoAdjudicacionMultiple: "adjudicará bajo la modalidad de Adjudicación Múltiple" (1079650-47-LE26)', () => {
+  const docs = [{ texto: 'Finalizado el proceso de evaluación de las Ofertas, el Servicio adjudicará bajo la modalidad de\nAdjudicación Múltiple aceptando la oferta que obtenga el mayor puntaje en la evaluación' }];
+  assert.ok(detectarTipoAdjudicacionMultiple(docs));
+});
+
 // Caso real 2713-110-LE26: tabla "LINEAS | PARTIDA | UNIDAD | CANTIDAD | Presupuesto disponible
 // por línea" con filas numeradas y su monto, agrupadas por categoría (OPERACIONAL/ADMINISTRATIVO)
 // vía <td colspan>. La palabra "línea" NO se repite por fila (solo una vez, en el encabezado de
@@ -403,4 +423,37 @@ test('detectarPresupuestoPorLinea: tabla genérica sin frase-ancla no dispara (e
       '<tr><td>2</td><td>Mesa</td><td>1</td><td>$20.000</td></tr></table>',
   }];
   assert.equal(detectarPresupuestoPorLinea(docs), null, 'sin la frase "presupuesto...por línea" en el documento, no debe disparar solo por tener una tabla numerada con montos');
+});
+
+// Caso real 1079650-47-LE26 (Hospital Traumatológico de Concepción): la Resolución lista el
+// presupuesto de cada ítem como PROSA corrida ("Monto disponible Item N°X $ Y.- (IVA incluido)"),
+// no como tabla HTML — el manifiesto de la IA traía presupuesto_linea=0 en las 9 líneas pese a que
+// el documento sí trae el monto exacto de cada una. La palabra "Item/Ítem" sale OCR-eada distinta
+// en CADA línea del mismo documento real (Item/tem/¡tem/Ítem/ltem/ítem) y el símbolo "$" sale como
+// "S" en 2 de las 9 — este test fija el caso real completo, con esos mismos errores de OCR.
+test('extraerPresupuestoPorLineaTabla: reconoce prosa "Monto disponible Item N°X $ Y" con OCR inconsistente (1079650-47-LE26)', () => {
+  const docs = [{
+    texto: 'Monto total: $ 7.559.999.-IVA Incluido.\n' +
+      'Monto disponible Item N*1 $ 640.001.- (IVA incluido)\n' +
+      'Monto disponible tem N*2 $ 1.239.999.- (IVA incluido)\n' +
+      'Monto disponible ¡tem N*3 $ 1.049.997.- (IVA incluido)\n' +
+      'Monto disponible Ítem N*4 S 899.999.- (IVA incluido)\n' +
+      'Monto disponible ltem N*5 $ 350.000.- (IVA incluido)\n' +
+      'Monto disponible ltem N*6 $ 1.750.002.- (IVA incluido)\n' +
+      'Monto disponible Ítem N*7 S 179.999.- (IVA incluido)\n' +
+      'Monto disponible ¡tem N*8 $ 1.150.001.- (IVA incluido)\n' +
+      'Monto disponible ítem N*9 $ 300.000.- (IVA incluido)\n',
+  }];
+  const mapa = extraerPresupuestoPorLineaTabla(docs);
+  assert.ok(mapa, 'debe reconocer las 9 líneas presupuestadas');
+  assert.equal(mapa!.size, 9);
+  assert.equal(mapa!.get(1), 640001);
+  assert.equal(mapa!.get(4), 899999, 'ítem 4 usa "S" en vez de "$" (error de OCR)');
+  assert.equal(mapa!.get(7), 179999, 'ítem 7 usa "S" en vez de "$" (error de OCR)');
+  assert.equal(mapa!.get(9), 300000);
+});
+
+test('extraerPresupuestoPorLineaTabla: sin la frase-ancla "monto disponible/máximo/asignado" no dispara', () => {
+  const docs = [{ texto: 'El monto del contrato N°1 es $500.000 y el del contrato N°2 es $600.000, ambos referenciales.' }];
+  assert.equal(extraerPresupuestoPorLineaTabla(docs), null);
 });
