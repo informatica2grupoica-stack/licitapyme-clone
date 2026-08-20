@@ -146,6 +146,37 @@ export async function procesarLicitacionCompleta(
       await marcarFallo(codigo, 'VIABILIDAD', 'calcularYGuardarViabilidad devolvió null');
       return { ok: false, viabilidad: null, error: 'No se pudo calcular la viabilidad.' };
     }
+
+    // 4. INFORME v3 — lo que de verdad usa el sistema hoy (20-ago-2026, pedido del usuario).
+    //
+    // Hasta acá el pipeline terminaba en el paso 3 y guardaba SOLO el informe híbrido (v2): score,
+    // semáforo y un resumen ejecutivo corto. Eso dejaba a todo lo automático (los dos cron y la
+    // viabilidad al asignar) generando una generación anterior a la que produce el botón
+    // "Analizar" — sin manifiesto de productos, sin criterios con ponderación, sin modalidad ni
+    // tarjeta de decisión. Y como el front lee `_informe_ia_v3 ?? _informe_ia`, la diferencia no
+    // se veía: la pantalla mostraba el informe viejo sin avisar que faltaba la mitad. Sin v3
+    // tampoco hay costeo, ni ítems volcados al negocio, ni líneas para el Auditor Técnico.
+    //
+    // El paso 3 NO se elimina: es determinista y barato, y de él sale el `desglose` (presupuesto,
+    // líneas, penalizaciones) que la sección de viabilidad muestra y que v3 no calcula — v3 lo
+    // enriquece (guardarViabilidadIAV3 sincroniza la modalidad sobre ese mismo desglose).
+    //
+    // Va DESPUÉS y aislado en su propio try: si la llamada IA falla o se pasa de tiempo, lo del
+    // paso 3 ya quedó guardado y la licitación no se marca como rota por eso.
+    // Kill-switch: VIABILIDAD_V3_EN_PIPELINE=false vuelve al comportamiento anterior.
+    if (process.env.VIABILIDAD_V3_EN_PIPELINE !== 'false') {
+      try {
+        const { analizarYGuardarViabilidadIA } = await import('@/app/lib/viabilidad-ia');
+        const t0 = Date.now();
+        const v3 = await analizarYGuardarViabilidadIA(codigo);
+        const segs = ((Date.now() - t0) / 1000).toFixed(1);
+        if (v3) console.log(`[pipeline] ${codigo}: informe v3 listo en ${segs}s (score ${v3.score_0_100 ?? '?'}).`);
+        else console.warn(`[pipeline] ${codigo}: v3 no devolvió informe tras ${segs}s — queda el híbrido del paso 3.`);
+      } catch (e) {
+        console.warn(`[pipeline] ${codigo}: informe v3 falló (queda el híbrido del paso 3):`, String(e).slice(0, 200));
+      }
+    }
+
     await limpiarFallo(codigo); // corrió completo → si estaba marcada como rota, ya no lo está
     return { ok: true, viabilidad };
   } catch (e: any) {
