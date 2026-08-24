@@ -119,6 +119,7 @@ interface DocumentoLocal {
   fecha?: string;
   categoria?: string;
   subcategoria?: string;
+  origen_manual?: boolean;
 }
 
 interface AnalisisIA {
@@ -1154,6 +1155,7 @@ function DetalleContent() {
           size:      d.size_bytes || d.size,
           categoria: d.categoria ?? undefined,
           subcategoria: d.subcategoria ?? undefined,
+          origen_manual: !!d.origen_manual,
           ya_descargado: true,
         })));
       }
