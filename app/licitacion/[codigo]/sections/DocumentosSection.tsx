@@ -1507,12 +1507,16 @@ export function DocumentosSection({
           </div>
         )}
 
-        {/* Contenido */}
+        {/* Contenido — las cajas (con su botón de subida manual) se muestran SIEMPRE, incluso sin
+            un solo documento todavía: es el único lugar para subir el primer documento a mano
+            sin tener que esperar la descarga automática. Antes esta sección entera quedaba oculta
+            con documentosCache.length === 0, dejando sin botón de subida a cualquier licitación
+            recién creada (reportado 24-ago-2026). */}
         {cargandoDocs ? (
           <div className="flex items-center justify-center py-8 gap-2 text-sm text-slate-500">
             <Loader2 size={16} className="animate-spin text-indigo-500" /> Cargando documentos...
           </div>
-        ) : documentosCache.length > 0 ? (
+        ) : (
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1521,7 +1525,7 @@ export function DocumentosSection({
                   {docsLicitacion.length} documento{docsLicitacion.length !== 1 ? 's' : ''} de la licitación
                 </p>
               </div>
-              {onReClasificar && !clasificando && (
+              {onReClasificar && !clasificando && documentosCache.length > 0 && (
                 <button
                   onClick={onReClasificar}
                   className="flex items-center gap-1 text-[11px] text-violet-600 hover:text-violet-800 font-semibold transition-colors"
@@ -1530,6 +1534,13 @@ export function DocumentosSection({
                 </button>
               )}
             </div>
+
+            {documentosCache.length === 0 && (
+              <p className="text-[11.5px] text-slate-400 -mt-1">
+                Aún no hay documentos. Haz clic en <strong className="text-slate-500">Descargar Bases Automáticamente</strong>,
+                {' '}o sube uno a mano con el ícono <Upload size={10} className="inline -mt-0.5" /> de la caja que corresponda.
+              </p>
+            )}
 
             <DocumentosGrid
               documentos={docsLicitacion as DocLicitacion[]}
@@ -1542,16 +1553,6 @@ export function DocumentosSection({
               onEnviarAuditor={isAdmin && negocioId ? setEnviandoDoc : undefined}
               modo="licitacion"
             />
-          </div>
-        ) : (
-          <div className="text-center py-8">
-            <div className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-3">
-              <FileText size={20} className="text-slate-300" />
-            </div>
-            <p className="text-sm font-semibold text-slate-600">Sin documentos aún</p>
-            <p className="text-xs text-slate-400 mt-1">
-              Haz clic en <strong>Descargar Bases Automáticamente</strong> para obtenerlos desde Mercado Público
-            </p>
           </div>
         )}
       </div>
