@@ -297,8 +297,15 @@ async function decidirGeneracionDeBloques(negocio: any) {
     .filter((i: any) => i.bloque === b)
     .map((i: any) => ({ estado: i.estado, ofertamos: i.ofertamos }));
 
+  // ¿El bloque COMERCIAL ya tiene algo APROBADO y con valor cargado? (ver el comentario en
+  // decidirGeneracion) — si sí, no hace falta exigir además un costeo para generar el anexo.
+  const hayDatosAuditorComercial = items.some((i: any) =>
+    i.bloque === 'COMERCIAL' && i.ofertamos !== false && i.estado === 'APROBADO'
+    && (i.valor_texto || i.valor_numero != null),
+  );
+
   return {
-    COMERCIAL: decidirGeneracion({ bloque: 'COMERCIAL', items: porBloque('COMERCIAL'), hayCosteoVigente, documentos }),
+    COMERCIAL: decidirGeneracion({ bloque: 'COMERCIAL', items: porBloque('COMERCIAL'), hayCosteoVigente, hayDatosAuditorComercial, documentos }),
     TECNICO: decidirGeneracion({ bloque: 'TECNICO', items: porBloque('TECNICO'), hayCosteoVigente, documentos }),
   };
 }

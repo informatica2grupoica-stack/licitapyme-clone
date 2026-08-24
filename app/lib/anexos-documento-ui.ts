@@ -28,7 +28,7 @@ export type SegmentoUI =
   // `etiqueta` — de dónde salió este valor (ver ResueltoAuto) — viaja hasta el frontend para que
   // el botón "corregir" (feedback loop, ver anexos-feedback.ts) sepa a qué TIPO de casilla
   // enseñarle la regla cuando el usuario diga que este valor está mal.
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
   | { t: 'input'; id: string; largo?: number }
   | { t: 'salto' };
 
@@ -48,7 +48,7 @@ export type BloqueUI<T> = BloqueParrafoUI | BloqueTablaUI<T>;
 // por BLANCO INLINE (una corrida de ____ dentro de una oración, que puede haber varias en el
 // mismo párrafo). Las claves son exactamente las que ya usan los ids de los pendientes, para
 // que lo que se escriba en pantalla vuelva al backend apuntando al mismo lugar.
-export interface ResueltoAuto { tipo: 'auto'; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string }
+export interface ResueltoAuto { tipo: 'auto'; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
 export interface ResueltoInput { tipo: 'pendiente'; id: string }
 export type Resuelto = ResueltoAuto | ResueltoInput;
 

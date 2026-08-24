@@ -11,6 +11,7 @@ import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { ocsParaExperiencia } from '@/app/lib/ordenes-compra';
+import type { DatosAuditorAnexo, LineaTecnicaAuditor, ItemComercialAuditor } from '@/app/lib/anexos-auditor-fuente';
 
 export interface DocumentoBase {
   bufferOriginal: Buffer;
@@ -367,5 +368,74 @@ export async function obtenerExperienciaOcParaAnexo(empresaId: number): Promise<
   } catch (e) {
     console.error(`[anexos-datos] no se pudieron leer las OC de experiencia de la empresa ${empresaId}:`, String(e).slice(0, 200));
     return '';
+  }
+}
+
+// ── AUDITOR: ficha técnica/comercial ya aprobada, fuente para los anexos técnico y económico ────
+// (21-ago-2026, pedido explícito del usuario). SOLO trae ítems con estado = 'APROBADO' — es
+// exactamente el mismo candado que ya usa decidirGeneracion() en auditor-generacion.ts para
+// habilitar el botón "Generar anexo", pero acá filtra a nivel de FILA (no de bloque completo):
+// si un asesor observó un ítem puntual y el resto del bloque sigue aprobado, ese ítem puntual
+// simplemente no aparece como fuente — el resolutor (anexos-auditor-fuente.ts) no se entera de
+// que existió, así que no hay forma de que se cuele en el anexo.
+export async function obtenerDatosAuditorParaAnexo(codigo: string): Promise<DatosAuditorAnexo> {
+  const vacio: DatosAuditorAnexo = { lineasTecnicas: [], itemsComerciales: [] };
+  try {
+    const [negRows] = await pool.query(
+      `SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`,
+      [codigo],
+    ) as any;
+    const negocioId = (negRows as any[])[0]?.id;
+    if (!negocioId) return vacio;
+
+    const [itemRows] = await pool.query(
+      `SELECT id, bloque, tipo, titulo, linea_numero, descripcion, valor_texto, valor_numero
+         FROM checklist_comercial
+        WHERE negocio_id = ? AND bloque IN ('TECNICO', 'COMERCIAL') AND estado = 'APROBADO'`,
+      [negocioId],
+    ) as any;
+    const items = itemRows as any[];
+    if (!items.length) return vacio;
+
+    const lineasTecnicasPorId = new Map<number, LineaTecnicaAuditor>();
+    const itemsComerciales: ItemComercialAuditor[] = [];
+    for (const it of items) {
+      if (it.bloque === 'TECNICO' && it.tipo === 'linea_tecnica') {
+        lineasTecnicasPorId.set(it.id, {
+          lineaNumero: it.linea_numero, titulo: it.titulo, caracteristicas: [],
+        });
+      } else if (it.bloque === 'COMERCIAL') {
+        itemsComerciales.push({
+          lineaNumero: it.linea_numero, titulo: it.titulo, tipo: it.tipo,
+          descripcion: it.descripcion, valorTexto: it.valor_texto, valorNumero: it.valor_numero,
+        });
+      }
+    }
+    if (!lineasTecnicasPorId.size) return { lineasTecnicas: [], itemsComerciales };
+
+    const [caractRows] = await pool.query(
+      `SELECT item_id, descripcion, valor_ofertado_texto, valor_ofertado_numero, unidad_requerida,
+              veredicto, pendiente_confirmacion_proveedor
+         FROM checklist_comercial_caracteristicas
+        WHERE item_id IN (?)`,
+      [Array.from(lineasTecnicasPorId.keys())],
+    ) as any;
+    for (const c of caractRows as any[]) {
+      const linea = lineasTecnicasPorId.get(c.item_id);
+      if (!linea) continue;
+      linea.caracteristicas.push({
+        descripcion: c.descripcion,
+        valorOfertadoTexto: c.valor_ofertado_texto,
+        valorOfertadoNumero: c.valor_ofertado_numero != null ? Number(c.valor_ofertado_numero) : null,
+        unidadRequerida: c.unidad_requerida,
+        veredicto: c.veredicto,
+        pendienteConfirmacionProveedor: !!c.pendiente_confirmacion_proveedor,
+      });
+    }
+
+    return { lineasTecnicas: Array.from(lineasTecnicasPorId.values()), itemsComerciales };
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudieron leer los datos del Auditor de ${codigo}:`, String(e).slice(0, 200));
+    return vacio;
   }
 }

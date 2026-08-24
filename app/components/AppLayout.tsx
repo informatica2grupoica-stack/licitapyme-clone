@@ -8,13 +8,14 @@ import {
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
   PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart, PackageCheck, Library, Star, FolderOpen,
-  Receipt, Shuffle,
+  Receipt, Shuffle, Sun, Moon,
 } from 'lucide-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
+import { useTheme } from '@/app/lib/theme-context';
 import { EntregaPendienteModal } from '@/app/components/EntregaPendienteModal';
 import { CierreVencidoModal } from '@/app/components/CierreVencidoModal';
 import { AprobacionPendienteModal } from '@/app/components/AprobacionPendienteModal';
@@ -156,10 +157,10 @@ function UserMenu({ dark = false, angosto = false }: { dark?: boolean; angosto?:
       </Tooltip>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-2 w-[230px] bg-white border border-slate-200 rounded-xl shadow-xl py-1 z-50">
-          <p className="px-3 py-1.5 text-[11px] text-slate-400 font-medium truncate">{usuario.email}</p>
-          <div className="h-px bg-slate-100 my-1" />
-          <Link href="/perfil" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+        <div className="absolute bottom-full left-0 mb-2 w-[230px] bg-white dark:bg-[#1c1f26] border border-slate-200 dark:border-white/[0.08] rounded-xl shadow-xl py-1 z-50">
+          <p className="px-3 py-1.5 text-[11px] text-slate-400 dark:text-slate-500 font-medium truncate">{usuario.email}</p>
+          <div className="h-px bg-slate-100 dark:bg-white/[0.07] my-1" />
+          <Link href="/perfil" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
             <User size={15} className="text-slate-400" /> Mi perfil
           </Link>
           {/* Favoritos y Mis documentos: herramientas personales (licitaciones marcadas, archivos
@@ -167,28 +168,28 @@ function UserMenu({ dark = false, angosto = false }: { dark?: boolean; angosto?:
               Ocultas para "externo" porque dependen del buscador/radar, al que no tiene acceso. */}
           {usuario.rol !== 'externo' && (
             <>
-              <Link href="/favoritos" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+              <Link href="/favoritos" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
                 <Star size={15} className="text-slate-400" /> Favoritos
               </Link>
-              <Link href="/documentos" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+              <Link href="/documentos" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
                 <FolderOpen size={15} className="text-slate-400" /> Mis documentos
               </Link>
             </>
           )}
           {usuario.rol === 'admin' && (
             <>
-              <Link href="/admin/usuarios" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+              <Link href="/admin/usuarios" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
                 <Users size={15} className="text-slate-400" /> Administrar usuarios
               </Link>
-              <Link href="/admin/etiquetas" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50 transition-colors">
+              <Link href="/admin/etiquetas" onClick={() => setOpen(false)} className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors">
                 <Tag size={15} className="text-slate-400" /> Líneas de negocio
               </Link>
             </>
           )}
-          <div className="h-px bg-slate-100 my-1" />
+          <div className="h-px bg-slate-100 dark:bg-white/[0.07] my-1" />
           <button
             onClick={() => { setOpen(false); logout(); }}
-            className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors w-full text-left"
+            className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors w-full text-left"
           >
             <LogOut size={15} /> Cerrar sesión
           </button>
@@ -520,7 +521,7 @@ function NotificacionesBell() {
     <div ref={ref} className="relative">
       <button
         onClick={handleOpen}
-        className="relative p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+        className="relative p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-white/[0.08] transition-colors"
         aria-label="Notificaciones"
       >
         <Bell size={18} />
@@ -532,28 +533,28 @@ function NotificacionesBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-[350px] bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-            <p className="text-[13px] font-bold text-slate-800">Notificaciones</p>
-            <Link href="/alertas" onClick={() => setOpen(false)} className="text-[12px] font-semibold text-indigo-600 hover:text-indigo-700">
+        <div className="absolute right-0 top-full mt-2 w-[350px] bg-white dark:bg-[#1c1f26] border border-slate-200 dark:border-white/[0.08] rounded-xl shadow-xl z-50 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 dark:border-white/[0.07]">
+            <p className="text-[13px] font-bold text-slate-800 dark:text-slate-100">Notificaciones</p>
+            <Link href="/alertas" onClick={() => setOpen(false)} className="text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300">
               Ver historial
             </Link>
           </div>
           <div className="overflow-y-auto max-h-[360px]">
             {eventos.length === 0 ? (
-              <p className="text-[13px] text-slate-400 text-center py-8">Sin notificaciones</p>
+              <p className="text-[13px] text-slate-400 dark:text-slate-500 text-center py-8">Sin notificaciones</p>
             ) : (
               eventos.map((e, i) => {
                 const content = (
-                  <div className="flex items-start gap-2.5 px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${e.leido ? 'bg-slate-100 text-slate-400' : 'bg-indigo-50 text-indigo-600'}`}>
+                  <div className="flex items-start gap-2.5 px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/[0.05] transition-colors cursor-pointer">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5 ${e.leido ? 'bg-slate-100 text-slate-400 dark:bg-white/[0.06] dark:text-slate-500' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400'}`}>
                       <Briefcase size={15} />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className={`text-[12px] leading-snug line-clamp-2 ${e.leido ? 'font-medium text-slate-600' : 'font-semibold text-slate-800'}`}>
+                      <p className={`text-[12px] leading-snug line-clamp-2 ${e.leido ? 'font-medium text-slate-600 dark:text-slate-400' : 'font-semibold text-slate-800 dark:text-slate-100'}`}>
                         {e.mensaje}
                       </p>
-                      <p className="text-[10px] text-slate-400 mt-0.5">{tiempoRel(e.created_at)}</p>
+                      <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{tiempoRel(e.created_at)}</p>
                     </div>
                   </div>
                 );
@@ -569,6 +570,22 @@ function NotificacionesBell() {
   );
 }
 
+function ThemeToggle() {
+  const { tema, alternar } = useTheme();
+  const oscuro = tema === 'oscuro';
+  return (
+    <Tooltip label={oscuro ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}>
+      <button
+        onClick={alternar}
+        className="relative p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-white/[0.08] transition-colors"
+        aria-label={oscuro ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+      >
+        {oscuro ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
+    </Tooltip>
+  );
+}
+
 function TopBar({ breadcrumb, onOpenMobile }: { breadcrumb?: BreadcrumbItem[]; onOpenMobile: () => void }) {
   const { usuario } = useSession();
   const hora = new Date().getHours();
@@ -576,10 +593,10 @@ function TopBar({ breadcrumb, onOpenMobile }: { breadcrumb?: BreadcrumbItem[]; o
   const nombre = usuario?.nombre?.split(' ')[0] || usuario?.email?.split('@')[0] || '';
 
   return (
-    <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-slate-200/70 px-4 sm:px-6 h-14 flex items-center gap-3 flex-shrink-0">
+    <header className="sticky top-0 z-30 bg-white/85 dark:bg-[#14161c]/85 backdrop-blur-md border-b border-slate-200/70 dark:border-white/[0.07] px-4 sm:px-6 h-14 flex items-center gap-3 flex-shrink-0 transition-colors">
       <button
         onClick={onOpenMobile}
-        className="lg:hidden p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+        className="lg:hidden p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-white/[0.08] transition-colors"
         aria-label="Abrir menú"
       >
         <MenuIcon size={18} />
@@ -590,27 +607,25 @@ function TopBar({ breadcrumb, onOpenMobile }: { breadcrumb?: BreadcrumbItem[]; o
           <nav className="flex items-center gap-1 text-[13px]">
             {breadcrumb.map((item, i) => (
               <span key={i} className="flex items-center gap-1">
-                {i > 0 && <ChevronRight size={12} className="text-slate-300 flex-shrink-0" />}
+                {i > 0 && <ChevronRight size={12} className="text-slate-300 dark:text-slate-600 flex-shrink-0" />}
                 {item.href
-                  ? <Link href={item.href} className="text-slate-400 hover:text-slate-700 transition-colors">{item.label}</Link>
-                  : <span className="text-slate-800 font-semibold truncate">{item.label}</span>}
+                  ? <Link href={item.href} className="text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-200 transition-colors">{item.label}</Link>
+                  : <span className="text-slate-800 dark:text-slate-100 font-semibold truncate">{item.label}</span>}
               </span>
             ))}
           </nav>
         ) : (
-          <p className="text-[13px] font-semibold text-slate-700">{saludo}{nombre ? `, ${nombre}` : ''}</p>
+          <p className="text-[13px] font-semibold text-slate-700 dark:text-slate-200">{saludo}{nombre ? `, ${nombre}` : ''}</p>
         )}
       </div>
 
       <div className="flex items-center gap-1.5 flex-shrink-0">
-        <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/70 text-emerald-700 text-[11px] font-semibold">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> API activa
-        </div>
         <NotificacionesBell />
+        <ThemeToggle />
         <Link
           href="/perfil"
           title="Mi perfil"
-          className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+          className="p-2 rounded-lg text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:text-slate-400 dark:hover:text-slate-100 dark:hover:bg-white/[0.08] transition-colors"
           aria-label="Perfil"
         >
           <Settings size={18} />
@@ -640,7 +655,7 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
   }, [usuario?.rol, router]);
 
   return (
-    <div className="flex h-screen bg-slate-50 overflow-hidden">
+    <div className="flex h-screen bg-[var(--color-surface-2)] overflow-hidden transition-colors">
       <Sidebar mobileOpen={mobileOpen} onCloseMobile={() => setMobileOpen(false)} />
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <TopBar breadcrumb={breadcrumb} onOpenMobile={() => setMobileOpen(true)} />

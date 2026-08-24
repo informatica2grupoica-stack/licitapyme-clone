@@ -37,6 +37,10 @@ import {
 } from '@/app/lib/anexos-ia-motor';
 import { repasarConIA, repasoActivado } from '@/app/lib/anexos-repaso-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
+import {
+  resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor,
+  type DatosAuditorAnexo,
+} from '@/app/lib/anexos-auditor-fuente';
 import { calcularTotalesPorSeccion, calcularTotalesAlPie, resolverTablaResumen, tituloDeTabla, encabezadosLibres, type TituloCercano } from '@/app/lib/anexos-totales-seccion';
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
@@ -52,7 +56,7 @@ export type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 const fmtNumeroCL = (n: number) => new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n);
 
 export interface CampoCompletado {
-  etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra';
+  etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor';
   formulario?: string; // a qué "FORMULARIO N°X" pertenece, para agruparlo igual que los pendientes
   // Índice de párrafo de la celda de origen (candidatosCelda) — no lo usa el modal, solo las
   // herramientas de medición (scripts/anexos-golden.mts) para alinear contra el humano por celda.
@@ -78,14 +82,14 @@ export interface SeccionInfo { tipo: string; decision: string; textoEncabezado: 
 // en el backend porque lo arma construirTablaUI, no la réplica de párrafo.
 export type SegmentoCeldaUI =
   | { t: 'texto'; v: string }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
   | { t: 'input'; id: string };
 
 export interface CeldaTablaUI {
   texto: string;                                   // texto ya existente en el Word (columna, dato fijo)
   // `etiqueta` — de dónde viene este valor (ver ResolucionMostrada) — viaja hasta el frontend para
   // que el botón "corregir" (ver anexos-feedback.ts) sepa a qué TIPO de casilla enseñarle la regla.
-  auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string };   // se completó sola — se muestra el valor, sin input
+  auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string };   // se completó sola — se muestra el valor, sin input
   input?: { id: string };                          // blanco real pendiente — el mismo id que usa generarAnexoFinal
   // BUG REAL (3713-7-LE26): una celda con texto propio que además trae un blanco INLINE adentro
   // ("SI ____ NO ____ declaro...", "Plazo de entrega ……… días hábiles") nunca calzaba con
@@ -106,7 +110,7 @@ function formularioDe(indiceParrafo: number, formularios: FormularioDetectado[])
 }
 
 export interface CampoResuelto {
-  c: CandidatoCelda; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra';
+  c: CandidatoCelda; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor';
   // true si viene de camposConDosPuntos ("Etiqueta:" con el valor en la misma línea) — ese
   // párrafo YA tiene texto (la etiqueta misma), así que se escribe con rellenarFinDeParrafo
   // (agrega al final), nunca con rellenarCeldaVacia (que exige la celda vacía y revienta si no).
@@ -189,6 +193,7 @@ async function resolverTodo(
   parrafos: Parrafo[],
   itemsCosteo: ItemCosteoPrecio[] | undefined,
   basesTexto: string | undefined,
+  datosAuditor: DatosAuditorAnexo | undefined,
   tituloAnexos: string[] | undefined,
   postulaComoUTP: boolean,
   tripletesFecha: Map<string, RolFechaTriplete>,
@@ -295,14 +300,35 @@ async function resolverTodo(
     }
   }
 
+  // AUDITOR (checklist_comercial ya aprobado): fuente PRIMERA para técnico/comercial — ya pasó
+  // por Aprobaciones, así que es más autoritativa que el Costeo, y hoy es la ÚNICA fuente para el
+  // anexo técnico (ver anexos-auditor-fuente.ts). Corre ANTES del Costeo: lo que el Auditor ya
+  // resolvió no llega siquiera al paso de abajo.
+  let pendientesTrasAuditor = pendientes;
+  if (datosAuditor && (datosAuditor.lineasTecnicas.length || datosAuditor.itemsComerciales.length)) {
+    const etiquetasPendientes = pendientes.map(c => c.etiqueta);
+    const matchesAuditor = [
+      ...resolverTablaConAuditor(etiquetasPendientes, datosAuditor),
+      ...resolverPreciosConAuditor(etiquetasPendientes, datosAuditor),
+      ...resolverCamposSueltosConAuditor(etiquetasPendientes, datosAuditor),
+    ];
+    const mapaAuditor = new Map(matchesAuditor.map(m => [m.etiqueta, m]));
+    pendientesTrasAuditor = [];
+    for (const c of pendientes) {
+      const m = mapaAuditor.get(c.etiqueta);
+      if (m) { matcheados.push({ c, campo: 'auditor_tecnico_comercial', valor: m.valor, via: 'auditor' }); pendientesConMotivo.delete(c.indice); }
+      else pendientesTrasAuditor.push(c);
+    }
+  }
+
   // Precios del Motor Comercial: no es un dato de la ficha de empresa, sale del .xlsx del
-  // costeo (ver anexos-precios-ia.ts) — se cruza sobre lo que el motor dejó pendiente.
-  let pendientesTrasPrecio = pendientes;
+  // costeo (ver anexos-precios-ia.ts) — se cruza sobre lo que el Auditor dejó pendiente.
+  let pendientesTrasPrecio = pendientesTrasAuditor;
   if (itemsCosteo && itemsCosteo.length > 0) {
-    const matchesPrecio = await matchearPreciosConIA(pendientes.map(c => c.etiqueta), itemsCosteo);
+    const matchesPrecio = await matchearPreciosConIA(pendientesTrasAuditor.map(c => c.etiqueta), itemsCosteo);
     const mapaPrecio = new Map(matchesPrecio.map(m => [m.etiqueta, m]));
     pendientesTrasPrecio = [];
-    for (const c of pendientes) {
+    for (const c of pendientesTrasAuditor) {
       const m = mapaPrecio.get(c.etiqueta);
       if (m) { matcheados.push({ c, campo: 'precio_unitario_costeo', valor: fmtNumeroCL(m.precioUnitario), via: 'costeo' }); pendientesConMotivo.delete(c.indice); }
       else pendientesTrasPrecio.push(c);
@@ -621,11 +647,12 @@ export interface AnalisisAnexo {
 }
 
 type ResolucionMostrada =
-  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' }
+  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor' }
   | { tipo: 'pendiente'; etiqueta: string; id: string };
 
 export async function analizarAnexoParaUI(
   bufferOriginal: Buffer, empresa: EmpresaCampos, itemsCosteo?: ItemCosteoPrecio[], basesTexto?: string,
+  datosAuditor?: DatosAuditorAnexo,
   // El usuario dijo explícitamente "sí, este anexo nos corresponde" (ej. esta vez SÍ postulamos en
   // UTP) — se ignora el aviso del documento y se autocompleta normal.
   forzarAplica = false,
@@ -668,7 +695,7 @@ export async function analizarAnexoParaUI(
       ? Promise.resolve(todoPendientePorNoAplicar(analisis.candidatosCelda, analisis.blancosInline, avisoNoAplica.motivo))
       : resolverTodo(
         analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
-        empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
+        empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto, datosAuditor,
         formularios.map(f => f.titulo), forzarAplica, analisis.tripletesFecha, analisis.alternativasExcluyentes,
         analisis.secciones.some(s => s.tipo === 'UTP' && s.decision === 'OMITIR'),
         experienciaOcTexto,
@@ -849,6 +876,7 @@ export async function generarAnexoFinal(
   respuestas: Record<string, string>,
   itemsCosteo?: ItemCosteoPrecio[],
   basesTexto?: string,
+  datosAuditor?: DatosAuditorAnexo,
   // Ver el mismo parámetro en analizarAnexoParaUI — candidatos de experiencia desde OC reales.
   experienciaOcTexto = '',
 ): Promise<ResultadoGeneracion> {
@@ -878,7 +906,7 @@ export async function generarAnexoFinal(
     ? todoPendientePorNoAplicar(analisis.candidatosCelda, analisis.blancosInline, avisoNoAplica.motivo)
     : await resolverTodo(
       analisis.candidatosCelda, analisis.camposConDosPuntos, analisis.blancosInline,
-      empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto,
+      empresa, analisis.indicesSoloManual, analisis.parrafos, itemsCosteo, basesTexto, datosAuditor,
       formularios.map(f => f.titulo), respuestas.anexoAplica === '1', analisis.tripletesFecha, analisis.alternativasExcluyentes,
       analisis.secciones.some(s => s.tipo === 'UTP' && s.decision === 'OMITIR'),
       experienciaOcTexto,

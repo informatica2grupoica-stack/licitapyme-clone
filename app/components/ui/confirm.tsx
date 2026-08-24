@@ -82,36 +82,36 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
         >
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => cerrar(false)} />
 
-          <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl modal-in overflow-hidden">
+          <div className="relative w-full max-w-sm bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl modal-in overflow-hidden">
             <div className="px-5 pt-5 pb-4">
               <div className="flex items-start gap-3">
                 <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${
-                  opciones.peligro ? 'bg-red-50 text-red-600' : 'bg-indigo-50 text-indigo-600'
+                  opciones.peligro ? 'bg-red-50 text-red-600 dark:bg-red-500/15 dark:text-red-400' : 'bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-400'
                 }`}>
                   {opciones.peligro ? <AlertTriangle size={19} /> : <HelpCircle size={19} />}
                 </div>
                 <div className="min-w-0 pt-0.5">
-                  <h2 id="confirm-titulo" className="text-[15px] font-bold text-slate-900 leading-snug">
+                  <h2 id="confirm-titulo" className="text-[15px] font-bold text-slate-900 dark:text-zinc-100 leading-snug">
                     {opciones.titulo}
                   </h2>
                   {opciones.mensaje && (
-                    <p className="text-[13px] text-slate-500 mt-1 leading-relaxed">{opciones.mensaje}</p>
+                    <p className="text-[13px] text-slate-500 dark:text-zinc-400 mt-1 leading-relaxed">{opciones.mensaje}</p>
                   )}
                 </div>
               </div>
             </div>
 
-            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+            <div className="px-5 py-3.5 bg-slate-50 dark:bg-white/[0.03] border-t border-slate-100 dark:border-white/10 flex items-center justify-end gap-2">
               <button
                 onClick={() => cerrar(false)}
-                className="px-4 py-2 text-[13px] font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 rounded-lg transition-colors"
+                className="px-4 py-2 text-[13px] font-semibold text-slate-600 hover:text-slate-800 hover:bg-slate-200/60 dark:text-zinc-400 dark:hover:text-zinc-100 dark:hover:bg-white/10 rounded-lg transition-colors"
               >
                 {opciones.cancelarLabel || 'Cancelar'}
               </button>
               <button
                 ref={confirmarBtnRef}
                 onClick={() => cerrar(true)}
-                className={`px-4 py-2 text-[13px] font-semibold text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                className={`px-4 py-2 text-[13px] font-semibold text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 dark:focus:ring-offset-zinc-900 ${
                   opciones.peligro
                     ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
                     : 'bg-indigo-600 hover:bg-indigo-700 focus:ring-indigo-500'

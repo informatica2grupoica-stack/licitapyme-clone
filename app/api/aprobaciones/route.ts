@@ -64,7 +64,7 @@ export async function construirBandeja() {
        FROM negocios n
        JOIN checklist_comercial c ON c.negocio_id = n.id AND c.bloque IN ('TECNICO','COMERCIAL')
        LEFT JOIN usuarios u ON u.id = n.asignado_a
-      WHERE n.activo = TRUE
+      WHERE n.activo = TRUE AND n.oculto_aprobaciones = 0
       ORDER BY n.id, c.bloque, c.orden`,
   ) as any;
 
@@ -222,17 +222,77 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json().catch(() => ({}));
     const negocioId = Number(body.negocioId);
     const accion = String(body.accion || '');
-    if (!negocioId || !['APROBAR_BLOQUE', 'RECHAZAR_BLOQUE', 'APROBAR_CON_MODIFICACION'].includes(accion))
+    if (!negocioId || !['APROBAR_BLOQUE', 'RECHAZAR_BLOQUE', 'APROBAR_CON_MODIFICACION', 'OCULTAR_NEGOCIO', 'APROBAR_TODO'].includes(accion))
       return NextResponse.json({ error: 'Petición inválida' }, { status: 400 });
 
     const negocio = await cargarNegocio(String(negocioId));
     if (!negocio) return NextResponse.json({ error: 'Negocio no encontrado' }, { status: 404 });
-    if (await yaCongelado(negocioId))
-      return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
     const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
     const ahora = ahoraChileSQL();
     const lic = { licitacionCodigo: negocio.licitacion_codigo, licitacionNombre: negocio.licitacion_nombre };
+
+    // ── Sacar el negocio de esta bandeja — SOLO admin, y a propósito ANTES del guard de
+    // congelamiento: no toca checklist_comercial ni activo, así que da lo mismo si ya se
+    // postuló. Reemplaza el DELETE de /api/negocios/[id] que se usaba antes acá por error: ese
+    // hace activo = FALSE y saca el negocio de TODA la app (Negocios, Postuladas, el tablero del
+    // asignado…), no solo de esta bandeja. Ver docs/migration-74-aprobaciones-ocultar.sql.
+    if (accion === 'OCULTAR_NEGOCIO') {
+      if (rol !== 'admin')
+        return NextResponse.json({ error: 'Solo un administrador puede sacar un negocio de la bandeja.' }, { status: 403 });
+      await pool.query(
+        `UPDATE negocios SET oculto_aprobaciones = 1, oculto_aprobaciones_por = ?, oculto_aprobaciones_at = ? WHERE id = ?`,
+        [userId, ahora, negocioId],
+      );
+      publicarCambio('checklist_comercial');
+      return NextResponse.json({ success: true, ...(await construirBandeja()) });
+    }
+
+    if (await yaCongelado(negocioId))
+      return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
+
+    // ── Aprobar TODO de un clic: los dos bloques (técnico y comercial) que tengan algo cargado,
+    // en una sola acción — pedido explícito del admin: la bandeja separaba en dos botones lo que
+    // en la práctica se revisa y visa junto. Silenciosamente no hace nada en el bloque que no
+    // tenga CARGADO (p.ej. ya aprobado, o esperando al asistente en OBSERVADO): esos siguen
+    // necesitando su propio "Rechazar"/re-carga, "aprobar todo" no los fuerza.
+    if (accion === 'APROBAR_TODO') {
+      let totalAprobados = 0;
+      const bloquesAprobados: BloqueAprobable[] = [];
+      for (const bloqueActual of BLOQUES_CON_APROBACION_CA) {
+        const [rows] = await pool.query(
+          `SELECT ${COLS} FROM checklist_comercial WHERE negocio_id = ? AND bloque = ? AND estado = 'CARGADO'`,
+          [negocioId, bloqueActual],
+        ) as any;
+        const items = rows as any[];
+        if (!items.length) continue;
+        for (const item of items) {
+          await pool.query(
+            `UPDATE checklist_comercial SET estado = 'APROBADO', observacion = NULL,
+                    aprobado_por = ?, aprobado_por_nombre = ?, aprobado_at = ? WHERE id = ?`,
+            [userId, nombreActor, ahora, item.id],
+          );
+          await bitacora(item.id, negocioId, 'APROBAR_BLOQUE', item.estado, 'APROBADO', null, userId, nombreActor);
+        }
+        totalAprobados += items.length;
+        bloquesAprobados.push(bloqueActual);
+      }
+      if (!totalAprobados)
+        return NextResponse.json({ error: 'No hay nada por aprobar en este negocio.' }, { status: 400 });
+
+      if (negocio.asignado_a && Number(negocio.asignado_a) !== Number(userId)) {
+        const nombresBloques = bloquesAprobados.map(b => b === 'TECNICO' ? 'técnico' : 'comercial').join(' y ');
+        await registrarEvento({
+          tipo: 'COMERCIAL_APROBADO', ...lic,
+          usuarioId: negocio.asignado_a, usuarioNombre: negocio.asignado_nombre,
+          actorId: userId, actorNombre: nombreActor,
+          mensaje: `${nombreActor} aprobó el bloque ${nombresBloques} completo`,
+          metadata: { negocioId, bloques: bloquesAprobados },
+        });
+      }
+      publicarCambio('checklist_comercial');
+      return NextResponse.json({ success: true, ...(await construirBandeja()) });
+    }
 
     // ── Corregir y aprobar UN ítem puntual (redirige aquí desde el link "Ver detalle" de la
     // bandeja hacia el negocio; este endpoint queda disponible igual para uso directo). ──────

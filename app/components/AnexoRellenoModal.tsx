@@ -13,7 +13,7 @@ import { useToast } from '@/app/components/ui/toast';
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
-interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; formulario?: string; indice?: number }
+interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; formulario?: string; indice?: number }
 interface PendienteCelda { id: string; etiqueta: string; formulario?: string; categoria?: string; motivo?: string }
 interface PendienteInline {
   id: string; contexto: string; formulario?: string;
@@ -22,10 +22,10 @@ interface PendienteInline {
 }
 type SegmentoCeldaUI =
   | { t: 'texto'; v: string }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
   | { t: 'input'; id: string };
 interface CeldaTablaUI {
-  texto: string; auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string }; input?: { id: string };
+  texto: string; auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }; input?: { id: string };
   // Blanco inline DENTRO de una celda con texto propio ("SI ____ NO ____ declaro...") — ver el
   // mismo campo en anexos-rellenar.ts.
   segmentosInline?: SegmentoCeldaUI[];
@@ -44,7 +44,7 @@ interface SeccionEscaneada { titulo: string; campos: CampoSeccionEscaneada[]; oc
 type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
 type SegmentoUI =
   | { t: 'texto'; v: string; negrita?: boolean; subrayado?: boolean }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
   | { t: 'input'; id: string; largo?: number }
   | { t: 'salto' };
 interface BloqueParrafoUI {
@@ -86,7 +86,7 @@ interface Analisis {
 function CampoAuto({
   valor, via, etiqueta, codigo, onCorregido, prefijo,
 }: {
-  valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra'; etiqueta?: string; codigo: string;
+  valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string; codigo: string;
   onCorregido: () => void; prefijo?: string;
 }) {
   const toast = useToast();
@@ -97,7 +97,10 @@ function CampoAuto({
   // mismo color de aviso que 'bases' (ámbar, no verde) a propósito: es un dato real, pero la
   // pertinencia frente a lo que ESTA licitación pide de experiencia la tiene que confirmar un
   // humano (ver el instructivo interno, punto 8 — "no basta con que exista una OC").
-  const colorClase = via === 'costeo' ? 'text-cyan-700' : via === 'bases' || via === 'ordenes_compra' ? 'text-amber-700' : 'text-emerald-700';
+  // 'auditor' (21-ago-2026): sale del Auditor Técnico/Comercial YA APROBADO por el asesor — mismo
+  // verde que 'ia' pero con su propia marca, es la fuente más autoritativa que hay (pasó por
+  // Aprobaciones), no un dato adivinado.
+  const colorClase = via === 'costeo' ? 'text-cyan-700' : via === 'bases' || via === 'ordenes_compra' ? 'text-amber-700' : via === 'auditor' ? 'text-violet-700' : 'text-emerald-700';
 
   const guardarCorreccion = async () => {
     const corregido = valorNuevo.trim();
@@ -155,6 +158,7 @@ function CampoAuto({
       title={
         !etiqueta ? undefined
           : via === 'costeo' ? 'Precio cruzado con el costeo subido — clic para corregir'
+          : via === 'auditor' ? 'Sacado del Auditor Técnico/Comercial ya aprobado por el asesor — clic para corregir'
           : via === 'bases' ? 'Sacado del texto de las Bases — clic para corregir'
           : via === 'ordenes_compra' ? 'Candidato de una Orden de Compra real nuestra — verifica que sea pertinente antes de presentar, clic para corregir'
           : 'Completado por IA — clic para corregir'
@@ -163,6 +167,7 @@ function CampoAuto({
     >
       {prefijo ? `${prefijo} ${valor}` : valor}
       {via === 'costeo' && <span className="shrink-0 text-[9px] font-bold align-super">$</span>}
+      {via === 'auditor' && <span className="shrink-0 text-[9px] font-bold align-super">auditor</span>}
       {via === 'bases' && <span className="shrink-0 text-[9px] font-bold align-super">bases</span>}
       {via === 'ordenes_compra' && <span className="shrink-0 text-[9px] font-bold align-super">OC</span>}
       {etiqueta && <Pencil size={9} className="shrink-0 opacity-0 group-hover/campo:opacity-60 transition-opacity" />}

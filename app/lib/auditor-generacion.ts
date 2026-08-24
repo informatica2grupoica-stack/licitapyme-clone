@@ -72,12 +72,20 @@ export function decidirGeneracion(args: {
   items: ItemBloque[];
   /** ¿Hay una versión de costeo vigente cargada? Solo se exige para el bloque COMERCIAL. */
   hayCosteoVigente: boolean;
+  /**
+   * ¿El bloque COMERCIAL del Auditor ya trae datos aprobados con qué llenar el anexo (precio,
+   * plazo)? (21-ago-2026) El precio que vive en un ítem APROBADO ya es el número que bendijo el
+   * asesor — exigir ADEMÁS un costeo cargado es pedir dos veces lo mismo. El Costeo sigue siendo
+   * válido como fuente (y tiene prioridad si el Auditor no alcanza a cubrir alguna casilla), pero
+   * deja de ser un requisito duro para habilitar el botón.
+   */
+  hayDatosAuditorComercial?: boolean;
   /** Documentos Word de la licitación, ya clasificados por anexos-dividir.ts. */
   documentos: DocumentoCandidato[];
   /** El costeo cambió después de la aprobación — ver `congelado` más abajo. */
   costeoCambiadoTrasAprobar?: boolean;
 }): DecisionGeneracion {
-  const { bloque, items, hayCosteoVigente, documentos } = args;
+  const { bloque, items, hayCosteoVigente, hayDatosAuditorComercial, documentos } = args;
   const etiqueta = ETIQUETA[bloque];
   const vacia = { documentoSugerido: null, alternativas: [] as DocumentoCandidato[] };
 
@@ -89,9 +97,11 @@ export function decidirGeneracion(args: {
     return { puede: false, motivo: `Este bloque no tiene puntos que generen el anexo ${etiqueta}.`, ...vacia };
   }
 
-  // 1. Costeo cargado — solo el económico depende de él.
-  if (bloque === 'COMERCIAL' && !hayCosteoVigente) {
-    return { puede: false, motivo: 'Falta cargar el costeo. El anexo económico se llena con los precios del costeo, no a mano.', ...vacia };
+  // 1. Alguna fuente de precios — el Costeo O el propio Auditor ya aprobado. Antes exigía SIEMPRE
+  //    el Costeo; ahora basta con cualquiera de los dos, y el Auditor manda si ambos existen (ver
+  //    anexos-auditor-fuente.ts).
+  if (bloque === 'COMERCIAL' && !hayCosteoVigente && !hayDatosAuditorComercial) {
+    return { puede: false, motivo: 'Falta el costeo o el precio aprobado en el Auditor. El anexo económico necesita alguno de los dos para saber qué precio poner.', ...vacia };
   }
 
   // 2. Aprobación del asesor. Un anexo económico generado desde un costeo sin visar es

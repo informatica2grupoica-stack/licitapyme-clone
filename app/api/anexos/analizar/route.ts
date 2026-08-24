@@ -5,7 +5,7 @@
 // al abrir la pantalla de relleno).
 import { NextRequest, NextResponse } from 'next/server';
 import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
-import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo } from '@/app/lib/anexos-datos';
+import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo, obtenerDatosAuditorParaAnexo } from '@/app/lib/anexos-datos';
 import { analizarAnexoParaUI } from '@/app/lib/anexos-rellenar';
 import { logCobertura } from '@/app/lib/anexos-cobertura';
 
@@ -31,16 +31,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo, basesTexto, experienciaOcTexto] = await Promise.all([
+    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo, basesTexto, datosAuditor, experienciaOcTexto] = await Promise.all([
       cargarDocumentoYEmpresa(codigo, documentoId, empresaId),
       obtenerItemsCosteoParaAnexo(codigo),
       obtenerTextoBasesParaAnexo(codigo),
+      obtenerDatosAuditorParaAnexo(codigo),
       obtenerExperienciaOcParaAnexo(Number(empresaId)),
     ]);
     // El usuario respondió que sí nos corresponde presentar este anexo pese al aviso del propio
     // documento (ej. esta licitación SÍ se postula en UTP) — ver detectarAvisoNoAplica.
     const forzarAplica = searchParams.get('aplica') === '1';
-    const analisis = await analizarAnexoParaUI(bufferOriginal, empresa, itemsCosteo, basesTexto, forzarAplica, experienciaOcTexto);
+    const analisis = await analizarAnexoParaUI(bufferOriginal, empresa, itemsCosteo, basesTexto, datosAuditor, forzarAplica, experienciaOcTexto);
 
     // AUTODIAGNÓSTICO (ver anexos-cobertura.ts): el análisis ya trae `cobertura` calculada. Acá solo
     // se deja en el log del servidor, y SOLO si hay algo que mirar — así, en los logs del VPS, un

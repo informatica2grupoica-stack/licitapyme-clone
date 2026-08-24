@@ -131,20 +131,20 @@ export function Select({
         aria-haspopup="listbox" aria-expanded={open}
         className={`flex items-center gap-1.5 px-3 py-2 border rounded-lg text-[13px] outline-none transition-colors w-full
           focus-visible:ring-2 focus-visible:ring-indigo-500/25
-          ${disabled ? 'opacity-50 cursor-not-allowed border-slate-200 text-slate-400'
-            : 'border-slate-200 text-slate-700 hover:border-slate-400 bg-white'} ${buttonClassName}`}>
-        {icon && <span className="text-slate-400 flex-shrink-0">{icon}</span>}
+          ${disabled ? 'opacity-50 cursor-not-allowed border-slate-200 text-slate-400 dark:border-zinc-800 dark:text-zinc-600'
+            : 'border-slate-200 text-slate-700 hover:border-slate-400 bg-white dark:border-zinc-700 dark:text-zinc-200 dark:hover:border-zinc-500 dark:bg-zinc-900'} ${buttonClassName}`}>
+        {icon && <span className="text-slate-400 dark:text-zinc-500 flex-shrink-0">{icon}</span>}
         {sel?.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: sel.color }} />}
-        <span className={`flex-1 text-left truncate ${sel ? '' : 'text-slate-400'}`}>{sel?.label ?? placeholder}</span>
-        <ChevronDown size={12} className={`flex-shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        <span className={`flex-1 text-left truncate ${sel ? '' : 'text-slate-400 dark:text-zinc-500'}`}>{sel?.label ?? placeholder}</span>
+        <ChevronDown size={12} className={`flex-shrink-0 text-slate-400 dark:text-zinc-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {montado && open && coords && createPortal(
         <div ref={dropRef} role="listbox"
-          className="fixed z-[200] overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg p-1 scale-in"
+          className="fixed z-[200] overflow-auto bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg shadow-lg p-1 scale-in"
           style={{ left: coords.left, top: coords.top, width: coords.width, maxHeight: coords.maxHeight }}>
           <div ref={listRef}>
             {options.length === 0 ? (
-              <p className="text-xs text-slate-400 px-2 py-1.5">Sin opciones</p>
+              <p className="text-xs text-slate-400 dark:text-zinc-500 px-2 py-1.5">Sin opciones</p>
             ) : options.map((o, i) => {
               const on = o.value === value;
               return (
@@ -153,14 +153,14 @@ export function Select({
                   onClick={() => elegir(o.value)}
                   onMouseEnter={() => setFoco(i)}
                   className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-[13px] text-left transition-colors
-                    ${i === foco ? 'bg-slate-100' : ''} ${on ? 'font-semibold' : ''}`}>
+                    ${i === foco ? 'bg-slate-100 dark:bg-white/10' : ''} ${on ? 'font-semibold' : ''}`}>
                   {o.color && <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: o.color }} />}
-                  <span className="text-slate-700 flex-1 min-w-0">
+                  <span className="text-slate-700 dark:text-zinc-200 flex-1 min-w-0">
                     <span className="block truncate">{o.label}</span>
-                    {o.description && <span className="block text-[11px] font-normal text-slate-400 truncate">{o.description}</span>}
+                    {o.description && <span className="block text-[11px] font-normal text-slate-400 dark:text-zinc-500 truncate">{o.description}</span>}
                   </span>
-                  {o.count != null && <span className="text-[11px] font-semibold text-slate-400 tabular-nums">{o.count}</span>}
-                  {on && <Check size={13} className="text-indigo-600 flex-shrink-0" />}
+                  {o.count != null && <span className="text-[11px] font-semibold text-slate-400 dark:text-zinc-500 tabular-nums">{o.count}</span>}
+                  {on && <Check size={13} className="text-indigo-600 dark:text-indigo-400 flex-shrink-0" />}
                 </button>
               );
             })}

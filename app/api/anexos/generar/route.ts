@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
-import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo } from '@/app/lib/anexos-datos';
+import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo, obtenerDatosAuditorParaAnexo } from '@/app/lib/anexos-datos';
 import { generarAnexoFinal } from '@/app/lib/anexos-rellenar';
 import { verificarTotalEconomico, montoDesdeTexto, type VerificacionTotal } from '@/app/lib/auditor-verificacion-total';
 import { abrirDocx, verificarXmlBienFormado } from '@/app/lib/anexos-docx';
@@ -112,10 +112,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo, basesTexto, experienciaOcTexto] = await Promise.all([
+    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo, basesTexto, datosAuditor, experienciaOcTexto] = await Promise.all([
       cargarDocumentoYEmpresa(codigo, documentoId, empresaId),
       obtenerItemsCosteoParaAnexo(codigo),
       obtenerTextoBasesParaAnexo(codigo),
+      obtenerDatosAuditorParaAnexo(codigo),
       obtenerExperienciaOcParaAnexo(Number(empresaId)),
     ]);
 
@@ -126,7 +127,7 @@ export async function POST(request: NextRequest) {
     // mensaje mandaría a buscar un bug nuestro donde no lo hay.
     const entradaValida = verificarXmlBienFormado((await abrirDocx(bufferOriginal)).xml).valido;
 
-    const resultado = await generarAnexoFinal(bufferOriginal, empresa, respuestas, itemsCosteo, basesTexto, experienciaOcTexto);
+    const resultado = await generarAnexoFinal(bufferOriginal, empresa, respuestas, itemsCosteo, basesTexto, datosAuditor, experienciaOcTexto);
 
     if (!resultado.integridad.parrafosIguales) {
       return NextResponse.json(
