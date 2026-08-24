@@ -2440,6 +2440,14 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     score_0_100: score, semaforo, area_negocio: area, confianza_global: confianza,
     // Puente al costeo (shape v2) — no se muestra en la pantalla v3, alimenta el Excel de costeo.
     manifiesto_productos: manifiesto,
+    // TRAZA DE FUENTES del listado de productos: de qué documento salió, qué otros documentos se
+    // leyeron y en qué NO coinciden. Que quede escrito de dónde viene cada dato es lo que impide
+    // "inventar": si las fuentes se contradicen, V-15 lo levanta en vez de elegir una en silencio.
+    _fuentes_manifiesto: planilla ? {
+      elegida: planilla.fuenteDoc,
+      candidatos: planilla.candidatos ?? [],
+      discrepancias: planilla.discrepancias ?? [],
+    } : null,
     modalidad: { tipo: tipoCosteo },
     estructura_costeo: estructuraCosteo,
     documentos_leidos: leidos.map(d => d.nombre),

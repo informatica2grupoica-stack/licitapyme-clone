@@ -36,22 +36,54 @@ export class MercadoPublicoClient {
 
   /**
    * Versión con timeout explícito — usar en el cron para enrichment masivo.
-   * Si la llamada supera `timeoutMs`, retorna null sin lanzar excepción.
+   * Si tras los reintentos sigue fallando, retorna null sin lanzar excepción.
+   *
+   * REINTENTA CON BACKOFF ante el RATE-LIMIT de la API (HTTP 429 / cuerpo con Código 10500,
+   * "Hemos detectado que existen peticiones simultáneas"). Antes devolvía null en silencio ante
+   * cualquier fallo, y para quien llama eso es indistinguible de "no está adjudicada".
+   *
+   * Caso real 1114-12-LE26 (24-ago-2026): el barrido de las ~58 postuladas disparaba las consultas
+   * de a 4 en paralelo, MP respondía 429 a buena parte del lote, y esas licitaciones se daban por
+   * no adjudicadas. Esta ganó $40.378.376 y el aviso nunca salió. Verificado en vivo: el mismo
+   * código consultado solo responde correcto, en lote devuelve 429.
    */
-  async obtenerPorCodigoRapido(codigo: string, timeoutMs = 8_000): Promise<Licitacion | null> {
-    try {
-      const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
-      const res = await globalThis.fetch(url, {
-        headers: { Accept: 'application/json' },
-        signal:  AbortSignal.timeout(timeoutMs),
-      });
-      if (!res.ok) return null;
-      const data: LicitacionAPIResponse = await res.json();
-      if (!data.Listado?.length) return null;
-      return this.normalizar(data.Listado[0]);
-    } catch {
-      return null; // timeout o error de red → silencioso
+  async obtenerPorCodigoRapido(
+    codigo: string,
+    timeoutMs = 8_000,
+    intentos = 3,
+    // Se avisa al llamador POR QUÉ se rindió. Sin esto, un barrido no puede distinguir "esta
+    // licitación no existe" de "MP me está frenando" y sigue golpeando de balde — que es
+    // justamente lo que hay que evitar (ver el freno en procesar-postuladas.ts).
+    onFallo?: (motivo: 'rate-limit' | 'red' | 'http') => void,
+  ): Promise<Licitacion | null> {
+    const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
+    let ultimoMotivo = 'sin respuesta';
+    let clase: 'rate-limit' | 'red' | 'http' = 'red';
+    for (let i = 0; i < intentos; i++) {
+      // Backoff creciente: 0 · 1.2s · 2.4s. El rate-limit de MP es por ráfaga, no por cuota
+      // diaria, así que esperar un momento suele bastar para que la siguiente pase.
+      if (i > 0) await new Promise(r => setTimeout(r, 1200 * i));
+      try {
+        const res = await globalThis.fetch(url, {
+          headers: { Accept: 'application/json' },
+          signal:  AbortSignal.timeout(timeoutMs),
+        });
+        if (res.status === 429) { ultimoMotivo = 'rate-limit (HTTP 429)'; clase = 'rate-limit'; continue; }
+        if (!res.ok) { ultimoMotivo = `HTTP ${res.status}`; clase = 'http'; continue; }
+        const data: LicitacionAPIResponse & { Codigo?: number } = await res.json();
+        // 200 con cuerpo de error: 10500 = rate-limit, reintentable.
+        if (data.Codigo === 10500) { ultimoMotivo = 'rate-limit (Código 10500)'; clase = 'rate-limit'; continue; }
+        // Listado vacío SIN señal de rate-limit sí es "no existe": no tiene sentido reintentar.
+        if (!data.Listado?.length) return null;
+        return this.normalizar(data.Listado[0]);
+      } catch {
+        ultimoMotivo = 'timeout o error de red';
+        clase = 'red';
+      }
     }
+    console.warn(`[MP API] "${codigo}": ${ultimoMotivo} tras ${intentos} intentos — NO se pudo determinar el estado.`);
+    onFallo?.(clase);
+    return null;
   }
 
   /**

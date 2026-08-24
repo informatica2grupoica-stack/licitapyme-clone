@@ -58,6 +58,12 @@ interface InformeIA {
   multas?: { estructura?: string; costo_por_dia?: string; costo_maximo?: string; umbral_termino?: string; fuente?: string };
   linea_tiempo?: { hitos?: Hito[]; frontera_inicio_computo?: { descripcion?: string; base_computo?: string; fuente?: string }; caso_cadena?: string; plazo_ofertable_puntaje?: string; plazo_operativo_real_dias_habiles?: number | null; colchon_dias_habiles?: number | null; colchon_dias_corridos?: number | null; ventana_importacion?: boolean; alertas?: string[] };
   manifiesto_productos?: Producto[];
+  // Traza de qué documentos aportaron listado de productos y en qué no coinciden (ver TrazaFuentes).
+  _fuentes_manifiesto?: {
+    elegida?: string;
+    candidatos?: { fuenteDoc: string; autoridad: number; items: number; elegido: boolean }[];
+    discrepancias?: string[];
+  } | null;
   lineas_a_atacar?: LineaAtacar[];
   pendientes_fase3?: string[];
   veredicto?: { nivel?: string; gana_probable?: string; estado_veredicto?: string; motivos_revision?: string[]; acciones_AC?: string[]; advertencias?: string[] };
@@ -494,6 +500,34 @@ const CRIT_ICON: Record<string, { ic: string; txt: string }> = {
 // duro conviviendo con GANABLE, etc. Antes quedaban solo en el JSON (_validador) y en la consola —
 // nadie los veía salvo revisando la base de datos a mano. Se muestra colapsado si no hay errores
 // (severidad 'error'), solo avisos; expandido si hay al menos un error.
+// TRAZA DE FUENTES del listado de productos: de qué documento salió y qué otros documentos se
+// leyeron. Que esté a la vista es lo que permite pillar al ojo un listado sacado de la fuente
+// equivocada — caso real 1414396-21-LP26, donde la Resolución Exenta (que además del anexo
+// económico trae la tabla de distribución de entrega) aportaba 5 productos que no existían.
+function TrazaFuentes({ fuentes }: { fuentes?: { elegida?: string; candidatos?: { fuenteDoc: string; items: number; elegido: boolean }[]; discrepancias?: string[] } | null }) {
+  const candidatos = fuentes?.candidatos || [];
+  if (!fuentes?.elegida || candidatos.length === 0) return null;
+  const hayDiscrepancia = (fuentes.discrepancias || []).length > 0;
+  return (
+    <div className="pt-2 mt-2 border-t border-slate-100 space-y-1">
+      <p className="text-[10.5px] text-slate-500">
+        Listado tomado de <span className="font-semibold text-slate-700">{fuentes.elegida}</span>
+        {candidatos.length > 1 && ` · se leyeron ${candidatos.length} documentos con tabla de productos`}
+      </p>
+      {hayDiscrepancia && (
+        <div className="flex items-start gap-1.5 text-[10.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+          <AlertTriangle size={11} className="flex-shrink-0 mt-px" />
+          <span>
+            Las fuentes no coinciden:{' '}
+            {candidatos.map(c => `${c.fuenteDoc} (${c.items})`).join(' · ')}. Se prefirió el anexo económico
+            por ser el documento que se llena para cotizar. Conviene contrastarlo antes de ofertar.
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface HallazgoValidador { regla: string; severidad: 'error' | 'aviso'; mensaje: string }
 function PanelValidador({ validador }: { validador?: { ok?: boolean; hallazgos?: HallazgoValidador[] } | null }) {
   const hallazgos = validador?.hallazgos || [];
@@ -600,31 +634,75 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
   // Caso real 5240-77-LP26: 3 líneas, cada una con su anexo de requerimientos (37/32/N filas);
   // el manifiesto traía 9 filas con basura, ganaba por largo, y la ficha técnica desaparecía —
   // el usuario veía "productos que no son" y sin detalle. Se indexa por línea y se rellena.
-  const _fichaPorLinea = new Map<string, string[]>();
+  // Se guardan TODAS las fichas de la línea (no solo la última) porque una línea puede agrupar
+  // varios productos (rowspan de presupuesto compartido, caso real 2920-30-LE26: 6 líneas/117
+  // productos): con un único valor por línea, cada `.set()` pisaba al anterior y el manifiesto
+  // terminaba mostrando la ficha del ÚLTIMO producto de la línea repetida en TODOS los productos
+  // de esa misma línea (bug reportado por el usuario: especificación repetida e incorrecta).
+  // El emparejamiento primario es por DESCRIPCIÓN, no por línea: el `linea` del manifiesto no es
+  // confiable como clave. El parser de planilla asigna `linea: 1` a TODAS las filas cuando el
+  // listado es plano (por diseño, ver planilla-costeo-parser.ts), así que en licitaciones sin
+  // lotes la clave de línea colapsa a '1' y deja de discriminar. Caso real 1414396-21-LP26
+  // (mobiliario SLEP): 29 productos con línea real L1..L29 en productos.items, contra 34 filas de
+  // manifiesto todas con linea=1 — con lookup por línea, los 34 ítems heredaban la ficha del
+  // primer producto (un armario metálico), aunque fueran colchonetas, sillas o mesas.
+  const _normDesc = (s: any) => _norm(String(s ?? '')).replace(/[^a-z0-9]+/g, ' ').trim();
+  const _fichaPorDescripcion = new Map<string, string[]>();
+  const _fichaPorLinea = new Map<string, string[][]>();
   for (const it of _prod) {
     const cs = Array.isArray(it?.caracteristicas) ? it.caracteristicas.filter(Boolean).map(String) : [];
     if (!cs.length) continue;
+    const d = _normDesc(it.descripcion ?? it.nombre ?? it.descripcion_exacta);
+    if (d && !_fichaPorDescripcion.has(d)) _fichaPorDescripcion.set(d, cs);
     // La línea viene como "L1" (productos.items) o 1 (manifiesto): se normaliza al número.
     const k = String(it.linea ?? '').replace(/\D/g, '');
-    if (k) _fichaPorLinea.set(k, cs);
+    if (!k) continue;
+    if (!_fichaPorLinea.has(k)) _fichaPorLinea.set(k, []);
+    _fichaPorLinea.get(k)!.push(cs);
   }
-  const itemsCosteo = _fuenteItems.map((p: any, i: number) => ({
-    linea: p.linea ?? i + 1,
-    descripcion: p.descripcion ?? p.nombre ?? p.descripcion_exacta ?? '',
-    modelo: p.modelo ?? p.marca_modelo_referencia ?? p.marca_modelo ?? '',
-    cantidad: p.cantidad,
-    unidad_medida: p.unidad_medida,
-    unidad_inferida: p.unidad_inferida,
-    ruta: p.ruta,
-    marca_exclusiva: p.marca_exclusiva,
-    // v3.3: riqueza del módulo PRODUCTOS (si la fuente es productos.items; el manifiesto no la trae).
-    clasificacion: p.clasificacion ?? p.tipo ?? '',
-    caracteristicas: Array.isArray(p.caracteristicas) && p.caracteristicas.length
-      ? p.caracteristicas
-      : (_fichaPorLinea.get(String(p.linea ?? '').replace(/\D/g, '')) ?? []),
-    libertad_de_oferta: p.libertad_de_oferta ?? false,
-    admite_equivalente: p.admite_equivalente,
-  }));
+  // El respaldo por línea SOLO se usa si esa línea no está saturada: si bajo una misma línea caen
+  // más ítems a mostrar que fichas disponibles, la clave no discrimina y asignar por posición
+  // repetiría una ficha ajena. En ese caso se prefiere dejar la ficha vacía antes que mostrar la
+  // especificación de otro producto (es el síntoma que reportó el usuario).
+  const _itemsPorLinea = new Map<string, number>();
+  for (const p of _fuenteItems) {
+    if (Array.isArray(p?.caracteristicas) && p.caracteristicas.length) continue;
+    const k = String(p?.linea ?? '').replace(/\D/g, '');
+    if (k) _itemsPorLinea.set(k, (_itemsPorLinea.get(k) ?? 0) + 1);
+  }
+  const _posicionPorLinea = new Map<string, number>();
+  const itemsCosteo = _fuenteItems.map((p: any, i: number) => {
+    const propias = Array.isArray(p.caracteristicas) && p.caracteristicas.length ? p.caracteristicas : null;
+    let caracteristicas: string[] = propias ?? [];
+    if (!propias) {
+      const porDesc = _fichaPorDescripcion.get(_normDesc(p.descripcion ?? p.nombre ?? p.descripcion_exacta));
+      if (porDesc) caracteristicas = porDesc;
+      else {
+        const k = String(p.linea ?? '').replace(/\D/g, '');
+        const fichas = k ? _fichaPorLinea.get(k) : undefined;
+        if (fichas && fichas.length && (_itemsPorLinea.get(k) ?? 0) <= fichas.length) {
+          const pos = _posicionPorLinea.get(k) ?? 0;
+          caracteristicas = fichas[Math.min(pos, fichas.length - 1)] ?? [];
+          _posicionPorLinea.set(k, pos + 1);
+        }
+      }
+    }
+    return {
+      linea: p.linea ?? i + 1,
+      descripcion: p.descripcion ?? p.nombre ?? p.descripcion_exacta ?? '',
+      modelo: p.modelo ?? p.marca_modelo_referencia ?? p.marca_modelo ?? '',
+      cantidad: p.cantidad,
+      unidad_medida: p.unidad_medida,
+      unidad_inferida: p.unidad_inferida,
+      ruta: p.ruta,
+      marca_exclusiva: p.marca_exclusiva,
+      // v3.3: riqueza del módulo PRODUCTOS (si la fuente es productos.items; el manifiesto no la trae).
+      clasificacion: p.clasificacion ?? p.tipo ?? '',
+      caracteristicas,
+      libertad_de_oferta: p.libertad_de_oferta ?? false,
+      admite_equivalente: p.admite_equivalente,
+    };
+  });
   const entregablesWord: string[] = Array.isArray(cost.entregables_word) ? cost.entregables_word : [];
   const lin = informe.lineas_a_atacar || {};
   const acc = informe.acciones_y_advertencias || {};
@@ -996,6 +1074,7 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
             </table>
           </div>
           {itemsCosteo.some(p => p.unidad_inferida) && <p className="text-[10.5px] text-slate-400 pt-1">* unidad de medida inferida (no especificada en las bases)</p>}
+          <TrazaFuentes fuentes={informe._fuentes_manifiesto} />
         </Seccion>
       )}
 

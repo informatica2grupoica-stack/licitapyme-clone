@@ -120,6 +120,44 @@ test('V-14: veredicto bien formado NO dispara', () => {
   assert.ok(!halla('V-14', r.hallazgos));
 });
 
+// ── V-15: regla anti-invento — las fuentes documentales deben concordar ───────────────────
+// Caso real 1414396-21-LP26: Anexo Económico 29 ítems vs. Resolución Exenta 34 (5 filas coladas
+// de la tabla de distribución de entrega). Se elige la fuente autoritativa, pero la discrepancia
+// se levanta igual: que dos documentos no calcen amerita que alguien lo mire.
+test('V-15: fuentes que no coinciden en el listado de productos disparan aviso', () => {
+  const inf = {
+    ...base,
+    _fuentes_manifiesto: {
+      elegida: 'Anexo_Económico.xlsx',
+      candidatos: [
+        { fuenteDoc: 'Anexo_Económico.xlsx', autoridad: 0, items: 29, elegido: true },
+        { fuenteDoc: 'Rex._N°1897_de_2026_C.pdf', autoridad: 2, items: 34, elegido: false },
+      ],
+      discrepancias: ['"Rex._N°1897_de_2026_C.pdf" lista 34 ítems y la fuente elegida "Anexo_Económico.xlsx" lista 29'],
+    },
+  };
+  const r = validarInformeViabilidad(inf, 50);
+  assert.ok(halla('V-15', r.hallazgos), 'debe avisar que las fuentes no calzan');
+  assert.match(r.hallazgos.find(h => h.regla === 'V-15')!.mensaje, /Anexo_Económico\.xlsx/,
+    'el aviso debe nombrar la fuente elegida para que se pueda contrastar');
+});
+
+test('V-15: fuentes que concuerdan NO disparan', () => {
+  const inf = {
+    ...base,
+    _fuentes_manifiesto: {
+      elegida: 'Anexo_Económico.xlsx',
+      candidatos: [{ fuenteDoc: 'Anexo_Económico.xlsx', autoridad: 0, items: 29, elegido: true }],
+      discrepancias: [],
+    },
+  };
+  assert.ok(!halla('V-15', validarInformeViabilidad(inf, 50).hallazgos));
+});
+
+test('V-15: sin traza de fuentes (informes viejos) NO dispara', () => {
+  assert.ok(!halla('V-15', validarInformeViabilidad({ ...base }, 50).hallazgos));
+});
+
 // ─── Frente A.2 (28-jul-2026): circuito FAIL → auto-corrección / re-análisis / revisión humana ───
 // OJO: `base` tiene objetos anidados (veredicto, tarjeta_decision, etc.) que un spread {...base}
 // NO clona (siguen siendo la MISMA referencia). Como estos tests SÍ mutan `inf` (a diferencia de
@@ -198,6 +236,22 @@ test('escalarARevisionHumana: V-08 (aviso, nunca error) igual dispara la escalad
   const disparadas = escalarARevisionHumana(inf, r.hallazgos);
   assert.ok(disparadas.includes('V-08'));
   assert.equal(inf.veredicto.estado_veredicto, 'REVISION_HUMANA');
+});
+
+test('escalarARevisionHumana: V-15 (fuentes contradictorias) manda a revisión humana', () => {
+  const inf = infFresco({
+    _fuentes_manifiesto: {
+      elegida: 'Anexo_Económico.xlsx',
+      candidatos: [{ fuenteDoc: 'Anexo_Económico.xlsx', autoridad: 0, items: 29, elegido: true }],
+      discrepancias: ['"Rex.pdf" lista 34 ítems y la fuente elegida "Anexo_Económico.xlsx" lista 29'],
+    },
+  });
+  const r = validarInformeViabilidad(inf, 50);
+  const disparadas = escalarARevisionHumana(inf, r.hallazgos);
+  assert.ok(disparadas.includes('V-15'), 'contradicción entre documentos = la mira una persona');
+  assert.equal(inf.veredicto.estado_veredicto, 'REVISION_HUMANA');
+  assert.ok(inf.veredicto.motivos_revision.some((m: string) => m.startsWith('V-15:')),
+    'el motivo debe citar la regla para que se sepa qué revisar');
 });
 
 test('escalarARevisionHumana: sin hallazgos de las 5 reglas, no toca el informe', () => {

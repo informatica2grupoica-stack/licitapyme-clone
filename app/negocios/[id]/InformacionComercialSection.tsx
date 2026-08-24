@@ -30,7 +30,9 @@ import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
 import { FilaLineaTecnica } from './FilaLineaTecnica';
 import { MotorComercialCard } from './MotorComercialCard';
 import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
-import { tieneAnexosAuditor } from '@/app/lib/checklist-comercial';
+import {
+  tieneAnexosAuditor, CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado,
+} from '@/app/lib/checklist-comercial';
 import {
   ShieldCheck, Building2, Check, X, Upload, Loader2, AlertTriangle, Copy,
   FileText, DollarSign, Wrench, ClipboardCheck, RefreshCw, Undo2, Sparkles,
@@ -55,6 +57,7 @@ interface Item {
   id: number;
   bloque: 'ADMINISTRATIVO' | 'TECNICO' | 'COMERCIAL';
   tipo: 'documento' | 'dato' | 'precio' | 'linea_tecnica';
+  clave_origen: string | null;
   titulo: string;
   descripcion: string | null;
   criticidad: string;
@@ -123,6 +126,17 @@ const BLOQUES = [
   { key: 'TECNICO',        label: 'Técnico',        icon: Wrench,     hint: 'Respaldo de los criterios con que nos evalúan' },
   { key: 'COMERCIAL',      label: 'Comercial',      icon: DollarSign, hint: 'Precio y plazo ofertados' },
 ] as const;
+
+/**
+ * ¿Esta fila va abajo, en "Alertas de cumplimiento", o dentro de su bloque?
+ * Regla: arriba solo lo que se prepara y se adjunta (anexos, formularios, precios, líneas
+ * técnicas) más el plazo ofertado, que se compromete junto al precio. Todo lo demás tipo 'dato'
+ * (cotizar el 100%, garantías post-adjudicación, criterios sin documento propio, bloqueantes)
+ * es una condición a tener presente y baja al final.
+ */
+function esAlerta(i: { tipo: string; clave_origen?: string | null }): boolean {
+  return i.tipo === 'dato' && i.clave_origen !== CLAVE_ITEM_PLAZO;
+}
 
 const CRIT_STYLE: Record<string, { bg: string; text: string; label: string }> = {
   ADMISIBILIDAD_DURA:    { bg: 'bg-rose-100',    text: 'text-rose-700',    label: 'Admisibilidad' },
@@ -583,9 +597,17 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         bloqueado={!!congelado}
       />
 
+      {/* El plazo comprometido es tipo 'dato' pero NO es una alerta: es lo que se oferta junto
+          con el precio, y el asistente lo llena en el mismo momento. Vivía abajo, entre las
+          alertas, separado del precio que lo acompaña (pedido 24-ago-2026). */}
       {/* ── Los tres bloques ─────────────────────────────────────────────────── */}
+      {/* tipo 'dato' (alertas de cumplimiento sin documento propio: cotizar 100%, suscripción de
+          contrato, bloqueantes sueltos, plazo comprometido…) se saca de acá y se agrupa aparte,
+          debajo de todo — ver la sección "Alertas de cumplimiento". Antes vivían mezcladas con
+          los anexos reales a subir, en la misma lista, y no había forma de distinguir "esto hay
+          que adjuntarlo" de "esto solo hay que tenerlo presente" (pedido 24-ago-2026). */}
       {BLOQUES.map(b => {
-        const delBloque = items.filter(i => i.bloque === b.key);
+        const delBloque = items.filter(i => i.bloque === b.key && !esAlerta(i));
         if (delBloque.length === 0) return null;
         const Icono = b.icon;
         const bloqueadoPorEmpresa = b.key === 'ADMINISTRATIVO' && sinEmpresa;
@@ -734,6 +756,48 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
           </div>
         );
       })}
+
+      {/* ── Alertas de cumplimiento: condiciones sin documento propio ───────────
+          Todo lo tipo 'dato' de cualquier bloque (cotizar 100%, contrato, plazo comprometido,
+          bloqueantes sueltos) va acá, debajo de lo económico. No se borran ni se ocultan: el
+          asistente las confirma (sin necesidad de adjuntar nada) y el asesor las visa igual que
+          el resto — así queda registro de que se leyeron y se tuvieron en cuenta, o de que la
+          licitación quedó fuera por no cumplirlas. */}
+      {(() => {
+        // Mismo criterio de "¿ya toca mostrar esto?" que cada bloque de origen: una alerta que
+        // nació del informe administrativo no debe aparecer antes de que la licitación entre a
+        // Anexos, aunque ya esté generada.
+        const bloqueVisible = (bq: Item['bloque']) => (bq !== 'ADMINISTRATIVO' && bq !== 'TECNICO') || tieneAnexosAuditor(estadoPipeline);
+        const alertas = items.filter(i => esAlerta(i) && bloqueVisible(i.bloque));
+        if (alertas.length === 0) return null;
+        return (
+          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">
+              <AlertTriangle size={14} className="text-zinc-400" />
+              <h3 className="text-[13px] font-bold text-zinc-800">Alertas de cumplimiento</h3>
+              <span className="text-[10.5px] text-zinc-400">Condiciones a tener en cuenta — sin documento que subir</span>
+              <span className="ml-auto text-[11px] font-bold text-zinc-400">
+                {alertas.filter(i => i.estado === 'APROBADO').length}/{alertas.length}
+              </span>
+            </div>
+            <div className="divide-y divide-zinc-100">
+              {alertas.map(item => (
+                <FilaItem
+                  key={item.id}
+                  item={item}
+                  licitacionCodigo={licitacionCodigo}
+                  puedeAprobar={puedeAprobar}
+                  bloqueado={false}
+                  ocupado={ocupado === item.id}
+                  onAccion={accionar}
+                  onVer={setVisorDoc}
+                  toast={toast}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {items.length === 0 && !sinViabilidad && (
         <div className="bg-white rounded-xl border border-zinc-200 p-10 text-center">
@@ -1050,6 +1114,11 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
   }, [item.cargado_at]);
 
   const crit = CRIT_STYLE[item.criticidad] || CRIT_STYLE.INFORMATIVO;
+  const avisoPlazo = (() => {
+    if (item.clave_origen !== CLAVE_ITEM_PLAZO || !item.valor_texto) return null;
+    const v = validarPlazoOfertado(item.valor_texto, rangoPlazoDeDescripcion(item.descripcion));
+    return v.nivel === 'ok' ? null : v;
+  })();
   const est = ESTADO_STYLE[item.estado];
   const noOfertada = item.tipo === 'precio' && item.ofertamos === false;
 
@@ -1061,8 +1130,18 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
       extra.valorNumero = n;
       extra.ofertamos = true;
     } else {
-      if (!valorTexto.trim() && item.documentos.length === 0) { toast.error('Escribe el dato o adjunta el documento'); return; }
-      extra.valorTexto = valorTexto.trim();
+      // 'dato' es una alerta de cumplimiento, no un documento: basta con que el asistente la haya
+      // visto y la mande a visar — no todas tienen un valor propio que anotar (ej. "Cotizar el
+      // 100% de los ítems" no tiene "dato" que escribir, solo hay que tenerlo presente).
+      if (item.tipo === 'documento' && !valorTexto.trim() && item.documentos.length === 0) { toast.error('Escribe el dato o adjunta el documento'); return; }
+      // El plazo NO puede pasarse del máximo que declaran las bases: fuera de rango la oferta se
+      // cae entera, y hasta ahora se guardaba y se aprobaba sin que nadie lo cruzara.
+      if (item.clave_origen === CLAVE_ITEM_PLAZO) {
+        const v = validarPlazoOfertado(valorTexto, rangoPlazoDeDescripcion(item.descripcion));
+        if (v.nivel === 'error') { toast.error(v.mensaje || 'El plazo está fuera del rango admisible'); return; }
+        if (v.nivel === 'aviso' && v.mensaje) toast.warning(v.mensaje);
+      }
+      extra.valorTexto = valorTexto.trim() || null;
     }
     if (await onAccion(item.id, 'CARGAR', extra)) setEditando(false);
   };
@@ -1152,6 +1231,14 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
             </div>
           )}
 
+          {/* Plazo fuera de rango YA guardado (o aprobado antes de que existiera este cruce):
+              se marca en rojo en la fila, no solo al escribirlo. */}
+          {avisoPlazo && (
+            <p className={`mt-1.5 text-[11.5px] font-semibold flex items-start gap-1 ${avisoPlazo.nivel === 'error' ? 'text-rose-600' : 'text-amber-600'}`}>
+              <AlertTriangle size={12} className="flex-shrink-0 mt-px" /> {avisoPlazo.mensaje}
+            </p>
+          )}
+
           {/* Documentos adjuntos — puede haber varios; cada uno con Ver (visor inline) y Descargar */}
           {item.documentos.length > 0 && !editando && (
             <div className="mt-1.5 space-y-1">
@@ -1224,7 +1311,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
                   // de argumentar por qué un punto no aplica. Es lo mismo que ya se guarda en
                   // valor_texto; solo faltaba decirlo.
                   placeholder={item.tipo === 'dato'
-                    ? 'Escribe el dato comprometido…'
+                    ? 'Escribe el dato comprometido (opcional) — o guarda para confirmar que quedó tomado en cuenta'
                     : 'Adjunta el documento, o explica acá por qué no aplica o no lo tienes'}
                   rows={2}
                   className="w-full px-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200 resize-none"
@@ -1235,7 +1322,9 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
                   className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50">
                   {ocupado ? <Loader2 size={12} className="animate-spin" /> : 'Guardar y enviar a visar'}
                 </button>
-                {item.tipo !== 'precio' && (
+                {/* 'dato' es una alerta, no un documento: sin botón de adjuntar, para que no
+                    parezca que hace falta subir algo cuando basta con confirmarla. */}
+                {item.tipo === 'documento' && (
                   <>
                     <input ref={fileRef} type="file" multiple className="hidden" onChange={e => subirArchivo(e.target.files)} />
                     <button onClick={() => fileRef.current?.click()} disabled={subiendo}
@@ -1309,7 +1398,12 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
             {puedeAprobar && item.estado === 'CARGADO' && (
               <>
                 <button
-                  onClick={() => onAccion(item.id, 'APROBAR')}
+                  onClick={() => {
+                    // Un plazo sobre el máximo no se puede visar: aprobarlo es firmar una oferta
+                    // inadmisible (pasó en 2724-35-LP26 con 31 días contra un tope de 30).
+                    if (avisoPlazo?.nivel === 'error') { toast.error(avisoPlazo.mensaje || 'Plazo fuera de rango'); return; }
+                    onAccion(item.id, 'APROBAR');
+                  }}
                   disabled={ocupado}
                   className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50 transition-colors"
                 >

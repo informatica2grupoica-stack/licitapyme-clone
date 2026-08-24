@@ -191,6 +191,13 @@ export function nucleosCoinciden(a: string, b: string): boolean {
   //  · el más corto debe cubrir una porción real del más largo (≥45%) — no basta con que quepa.
   const corto = a.length <= b.length ? a : b;
   const largo = a.length <= b.length ? b : a;
+  // Prefijo: el título largo empieza EXACTAMENTE con el corto y lo único que agrega es una
+  // precisión del mismo documento ("Garantía de fiel cumplimiento" ⊂ "Garantía de fiel
+  // cumplimiento de contrato (Póliza/Certificado de fianza)" — caso real 2724-35-LP26, que
+  // quedaba fuera por un pelo: 0.44 de cobertura contra el mínimo de 0.45). Empezar igual es
+  // una señal mucho más fuerte que caber en cualquier parte, así que se acepta con cobertura
+  // menor, pero exigiendo un núcleo más largo (≥20) para no fundir genéricos.
+  if (corto.length >= 20 && largo.startsWith(corto)) return true;
   return corto.length >= 15 && largo.includes(corto) && corto.length / largo.length >= 0.45;
 }
 
@@ -216,6 +223,26 @@ function creaRegistroAdmin() {
       registrados.push({ numero: numeroDeFormatoEn(titulo), nucleo: nucleoDeTitulo(titulo) });
     },
   };
+}
+
+// ── Dedupe CONTRA LO YA PERSISTIDO (el hueco que el registroAdmin de arriba no cubre) ───────────
+// registroAdmin solo compara los ítems generados EN ESTA corrida entre sí. Pero clave_origen de
+// un ítem 'anexo:...' es el slug del título que redactó la IA, y sincronizar() (route.ts) inserta
+// con INSERT IGNORE contra el UNIQUE(negocio_id, clave_origen) — si un re-análisis redacta el
+// MISMO Anexo N°X con otras palabras ("Anexo N°6: Programa de integridad" vs "Anexo N°6 - Programa
+// Integridad"), el slug cambia, el UNIQUE no lo pesca, y se inserta un duplicado real (caso
+// reportado 24-ago-2026, confirmado contra producción: 83 grupos duplicados en 183 negocios,
+// todos por esta única causa). Se filtra ANTES de intentar insertar, con el mismo criterio fuzzy
+// (número explícito manda; si no hay, núcleo del título) — sin tocar clave_origen ni migrar datos
+// existentes, así no hay riesgo de que una fila vieja con formato de clave distinto se vea como
+// "nueva" y dispare el problema inverso.
+export function excluirYaExistentes(nuevos: ItemGenerado[], titulosExistentesAdmin: string[]): ItemGenerado[] {
+  const existentes: EntradaAdmin[] = titulosExistentesAdmin.map(t => ({ numero: numeroDeFormatoEn(t), nucleo: nucleoDeTitulo(t) }));
+  return nuevos.filter(it => {
+    if (it.bloque !== 'ADMINISTRATIVO' || !it.claveOrigen.startsWith('anexo:')) return true;
+    const candidato: EntradaAdmin = { numero: numeroDeFormatoEn(it.titulo), nucleo: nucleoDeTitulo(it.titulo) };
+    return !existentes.some(e => coincidenEntradas(candidato, e));
+  });
 }
 
 /** ¿La licitación se cotiza línea por línea? (eje "cómo se cotiza", no "a quién se adjudica"). */
@@ -269,7 +296,19 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
   const adm = informe?.requisitos_admisibilidad || {};
   const capaC = informe?.capa_c_admisibilidad || {};
   let orden = 0;
-  const push = (it: Omit<ItemGenerado, 'orden'>) => { items.push({ ...it, orden: orden++ }); };
+  const push = (it: Omit<ItemGenerado, 'orden'>) => {
+    const completo: ItemGenerado = { ...it, orden: orden++ };
+    items.push(completo);
+    // Índice de los ANEXOS/FORMATOS reales ya creados (documento a adjuntar, bloque
+    // administrativo). Lo usan los bloqueantes de más abajo para pegar su advertencia sobre el
+    // anexo que citan en vez de crear una fila suelta que parece otro anexo más.
+    if (completo.bloque === 'ADMINISTRATIVO' && completo.tipo === 'documento') {
+      const n = numeroDeFormatoEn(completo.titulo);
+      if (n && !anexosPorNumero.has(n)) anexosPorNumero.set(n, completo);
+    }
+    return completo;
+  };
+  const anexosPorNumero = new Map<string, ItemGenerado>();
   const registroAdmin = creaRegistroAdmin();
 
   // ── BLOQUE ADMINISTRATIVO ─────────────────────────────────────────────────────
@@ -316,13 +355,16 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
       cond: !!adm.fiel_cumplimiento?.exige,
       clave: 'garantia_fiel_cumplimiento', titulo: 'Garantía de fiel cumplimiento',
       desc: [adm.fiel_cumplimiento?.forma && `Forma: ${adm.fiel_cumplimiento.forma}`, adm.fiel_cumplimiento?.plazo_entrega && `Plazo: ${adm.fiel_cumplimiento.plazo_entrega}`].filter(Boolean).join(' · ') || null,
-      fuente: adm.fiel_cumplimiento?.fuente || null, tipo: 'documento',
+      // Alerta, no documento a subir con la oferta: la garantía de fiel cumplimiento se entrega
+      // DESPUÉS de adjudicar (plazo propio, ver descripción). Mientras se prepara el sobre no hay
+      // nada que adjuntar, así que vive abajo, en "Alertas de cumplimiento" (pedido 24-ago-2026).
+      fuente: adm.fiel_cumplimiento?.fuente || null, tipo: 'dato',
     },
     {
       cond: !!(adm.boleta?.aplica ?? capaC.boleta_aplica),
       clave: 'boleta_garantia', titulo: 'Boleta de garantía',
       desc: adm.boleta?.detalle || (capaC.umbral_utm ? `Umbral: ${capaC.umbral_utm} UTM` : null),
-      fuente: adm.boleta?.fuente || null, tipo: 'documento',
+      fuente: adm.boleta?.fuente || null, tipo: 'dato',   // misma razón que fiel cumplimiento
     },
     {
       cond: !!(adm.firma_puno_y_letra?.exigida ?? capaC.firma_puno_y_letra),
@@ -375,6 +417,23 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     const claveLocal = slug(titulo);
     if (!titulo || clavesBloqueantes.has(claveLocal)) continue;
     clavesBloqueantes.add(claveLocal);
+    // Si el bloqueante CITA un Anexo/Formato que ya existe como documento a subir, la advertencia
+    // se pega a ESE anexo en vez de abrir una fila propia: como fila suelta se leía como "otro
+    // anexo más", y encima aparecía abajo, entre las alertas, lejos del documento del que habla
+    // (caso real 2724-35-LP26: los bloqueantes de los Anexos N°3 y N°7 — pedido 24-ago-2026).
+    // No se pierde nada: el texto íntegro queda en la descripción del anexo, que ya es
+    // ADMISIBILIDAD_DURA.
+    const numeroCitado = numeroDeFormatoEn(titulo);
+    const anexoCitado = numeroCitado ? anexosPorNumero.get(numeroCitado) : undefined;
+    if (anexoCitado) {
+      const efecto = (typeof b === 'object' && b?.efecto) || '';
+      const aviso = [titulo, efecto].filter(Boolean).join(' — ');
+      if (!(anexoCitado.descripcion || '').includes(titulo)) {
+        anexoCitado.descripcion = [anexoCitado.descripcion, `⚠ ${aviso}`].filter(Boolean).join(' · ').slice(0, 1000);
+      }
+      anexoCitado.criticidad = 'ADMISIBILIDAD_DURA';
+      continue;
+    }
     push({
       bloque: 'ADMINISTRATIVO', tipo: 'dato', titulo: titulo.slice(0, 280),
       descripcion: (typeof b === 'object' && b?.efecto) || null, criticidad: 'ADMISIBILIDAD_DURA',
@@ -431,8 +490,20 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     const pond = num(c?.ponderacion_efectiva) ?? num(c?.ponderacion) ?? num(c?.ponderacion_nominal);
     const esPlazo = RE_PLAZO.test(nombre);
     const desc = c?.forma_aplicacion || c?.medio_verificacion || null;
+    // Un criterio que ES un Anexo/Formato ("Anexo N°5: Experiencia") es un documento a llenar y
+    // subir: va al bloque ADMINISTRATIVO con el resto de los anexos, y se dedupea contra ellos
+    // (la IA lo suele listar por los dos lados). El resto de los criterios (requisitos formales,
+    // garantía del producto, mantenciones, programa de integridad, comportamiento contractual…)
+    // no tiene documento propio: son condiciones que hay que respaldar, así que bajan a "Alertas
+    // de cumplimiento" — regla de oro: arriba SOLO anexos y formularios (pedido 24-ago-2026).
+    const criterioEsAnexo = numeroDeFormatoEn(nombre) != null;
+    if (criterioEsAnexo) {
+      if (registroAdmin.esDuplicado(nombre)) continue;
+      registroAdmin.registrar(nombre);
+    }
     push({
-      bloque: bloqueDeCriterio(nombre), tipo: esPlazo ? 'dato' : 'documento',
+      bloque: criterioEsAnexo ? 'ADMINISTRATIVO' : bloqueDeCriterio(nombre),
+      tipo: criterioEsAnexo ? 'documento' : 'dato',
       titulo: nombre.slice(0, 280),
       descripcion: esPlazo ? [desc, textoRango].filter(Boolean).join(' · ') || null : desc,
       // Si el plazo además tiene rango excluyente, manda la admisibilidad: no basta con
@@ -440,7 +511,7 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
       criticidad: esPlazo && hayRango ? 'ADMISIBILIDAD_DURA' : 'PUNTAJE_CONDICIONANTE',
       ponderacion: pond, fuenteCita: c?.fuente || rango?.fuente || null, origen: 'viabilidad',
       claveOrigen: esPlazo ? CLAVE_PLAZO : `criterio:${slug(nombre)}`,
-      generable: false, lineaNumero: null,
+      generable: criterioEsAnexo, lineaNumero: null,
     });
   }
 
@@ -562,4 +633,85 @@ export function transicion(actual: EstadoItem, accion: 'CARGAR' | 'APROBAR' | 'O
     case 'REABRIR': return actual === 'APROBADO' ? 'PENDIENTE' : null;
     default: return null;
   }
+}
+
+// ═══ PLAZO DE ENTREGA: nunca por sobre el máximo ════════════════════════════════
+// El plazo se ofertó a mano y nadie lo cruzaba contra el rango que las bases declaran
+// inadmisible: en 2724-35-LP26 se cargó "31 dias habiles" con el máximo en 30, y el asesor lo
+// aprobó igual — la oferta se cae por eso. El rango ya viaja en la descripción del ítem (lo
+// escribe generarItemsDesdeViabilidad más arriba), así que se lee de ahí: no hay columna nueva
+// ni migración, y sirve también para las filas ya guardadas.
+export const CLAVE_ITEM_PLAZO = 'comercial:plazo_entrega';
+
+export interface RangoPlazo { min: number | null; max: number | null; inadmisibleFuera: boolean }
+
+/** "31 dias habiles" → 31 · "hasta 30 días" → 30 · "" → null. Toma el PRIMER número del texto. */
+export function diasDeTexto(texto: string | null | undefined): number | null {
+  const m = /(\d{1,4})/.exec(String(texto || ''));
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Lee "Rango admisible: 1 día hábil a 30 días hábiles. Fuera de rango la oferta es inadmisible." */
+export function rangoPlazoDeDescripcion(desc: string | null | undefined): RangoPlazo | null {
+  const t = String(desc || '');
+  const m = /Rango admisible:\s*(.+?)\s+a\s+([^.·]+)/i.exec(t);
+  if (!m) return null;
+  const min = diasDeTexto(m[1]);
+  const max = diasDeTexto(m[2]);
+  if (min == null && max == null) return null;
+  return { min, max, inadmisibleFuera: /fuera de rango/i.test(t) };
+}
+
+export interface VeredictoPlazo { nivel: 'ok' | 'aviso' | 'error'; mensaje: string | null }
+
+/**
+ * Veredicto del plazo comprometido contra el rango de las bases.
+ *  · sobre el máximo → 'error' cuando las bases lo declaran inadmisible (se bloquea la carga);
+ *    'aviso' si el informe no dijo que fuera excluyente.
+ *  · bajo el mínimo → siempre 'aviso': entregar antes suele aceptarse, pero hay que mirarlo.
+ */
+export function validarPlazoOfertado(texto: string | null | undefined, rango: RangoPlazo | null): VeredictoPlazo {
+  const dias = diasDeTexto(texto);
+  if (!rango || dias == null) return { nivel: 'ok', mensaje: null };
+  if (rango.max != null && dias > rango.max) {
+    return {
+      nivel: rango.inadmisibleFuera ? 'error' : 'aviso',
+      mensaje: `El plazo máximo que aceptan las bases es ${rango.max} y estás ofertando ${dias}.`
+        + (rango.inadmisibleFuera ? ' Fuera de rango la oferta es inadmisible: baja el plazo antes de cargarlo.' : ''),
+    };
+  }
+  if (rango.min != null && dias < rango.min) {
+    return { nivel: 'aviso', mensaje: `Estás ofertando ${dias} y el mínimo declarado es ${rango.min}. Revísalo con el asesor antes de comprometerlo.` };
+  }
+  return { nivel: 'ok', mensaje: null };
+}
+
+// ═══ RE-CLASIFICAR LO YA GUARDADO ═══════════════════════════════════════════════
+// sincronizar() es INSERT IGNORE puro: nunca pisa una fila existente, y está bien — el estado y
+// los valores que cargó el asistente son sagrados. Pero `bloque` y `tipo` NO son datos del
+// usuario: son la decisión de DÓNDE se muestra la fila. Cuando esa decisión cambia (24-ago-2026:
+// arriba solo anexos y formularios; garantías, criterios sin documento y bloqueantes abajo), las
+// filas viejas se quedaban en el lugar equivocado hasta borrarlas a mano. Esto las mueve, y solo
+// eso: no toca estado, valor, documentos ni firmas.
+export function reubicacionDeItemGuardado(
+  row: { clave_origen: string | null; titulo: string; bloque: BloqueChecklist; tipo: TipoItem },
+): { bloque: BloqueChecklist; tipo: TipoItem } | null {
+  const clave = String(row.clave_origen || '');
+  const esAnexoNumerado = numeroDeFormatoEn(row.titulo) != null;
+  let destino: { bloque: BloqueChecklist; tipo: TipoItem } | null = null;
+
+  if (clave === 'adm:garantia_fiel_cumplimiento' || clave === 'adm:boleta_garantia') {
+    destino = { bloque: 'ADMINISTRATIVO', tipo: 'dato' };
+  } else if (clave.startsWith('criterio:')) {
+    destino = esAnexoNumerado
+      ? { bloque: 'ADMINISTRATIVO', tipo: 'documento' }
+      : { bloque: row.bloque, tipo: 'dato' };
+  } else if (clave === CLAVE_ITEM_PLAZO) {
+    destino = { bloque: 'COMERCIAL', tipo: 'dato' };
+  }
+
+  if (!destino || (destino.bloque === row.bloque && destino.tipo === row.tipo)) return null;
+  return destino;
 }

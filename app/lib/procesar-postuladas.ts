@@ -41,8 +41,15 @@ const IN_POSTULADA = ESTADOS_POSTULADA.map(() => '?').join(', ');
 const ESTADOS_RESUELTAS = [...idsEquivalentes('ADJUDICADA'), ...idsEquivalentes('PERDIDA')];
 const IN_RESUELTAS = ESTADOS_RESUELTAS.map(() => '?').join(', ');
 
-const CODIGO_CONCURRENCIA = 4;      // detalles de MP consultados en paralelo
-const PRESUPUESTO_MS       = 25_000; // tope de tiempo del paso principal (margen bajo maxDuration del cron)
+// MP rechaza las ráfagas con HTTP 429 "peticiones simultáneas" (verificado en vivo el
+// 24-ago-2026: en lote de 4 en paralelo devolvía 429 a buena parte de las ~58 postuladas, y cada
+// 429 era una licitación que se daba por NO adjudicada). Se consulta DE A UNA, con pausa entre
+// consultas, en lotes rotativos — y si MP igual nos frena, el freno de más abajo corta la corrida.
+const CODIGO_CONCURRENCIA = 1;      // MP rechaza las "peticiones simultáneas": de a una
+const PAUSA_ENTRE_CONSULTAS_MS = 400; // ritmo entre consultas (evita el 429 por ráfaga)
+const MAX_CODIGOS_POR_CORRIDA = 30;   // lote por corrida; la rotación cubre el resto en la siguiente
+// 30 códigos × ~0.8s ≈ 25s. 30s + 15s de la 2ª pasada = 45s, bajo el maxDuration=60 del endpoint.
+const PRESUPUESTO_MS       = 30_000; // tope de tiempo del paso principal
 const PRESUPUESTO_RECONFIRMAR_MS = 15_000; // tope de la 2ª pasada (conjunto chico, no compite por tiempo)
 const TIMEOUT_DETALLE_MS   = 8_000;  // timeout por llamada a MP
 
@@ -61,10 +68,11 @@ function fmtCLP(n: number | null | undefined): string {
 }
 
 export async function procesarPostuladas(
-  opts: { promover?: boolean; soloCerradas?: boolean; presupuestoMs?: number } = {},
+  opts: { promover?: boolean; soloCerradas?: boolean; presupuestoMs?: number; maxCodigos?: number } = {},
 ): Promise<{
   codigos: number; procesados: number; sinPresupuesto: number;
   adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number;
+  rateLimit: number;   // consultas que MP rechazó por ráfaga (si es >0, algo quedó sin revisar)
 }> {
   // promover: si mueve la postulada a ADJUDICADA/PERDIDA (saca de Postuladas). El usuario pidió
   //   que las adjudicadas SE QUEDEN en Postuladas → el cron de 2h llama con promover:false y solo
@@ -77,9 +85,15 @@ export async function procesarPostuladas(
   const promover     = opts.promover     ?? true;
   const soloCerradas = opts.soloCerradas ?? true;
   const presupuestoMs = opts.presupuestoMs ?? PRESUPUESTO_MS;
+  // maxCodigos: tope de códigos POR CORRIDA. Con el cron corriendo cada 5 minutos, barrer las ~58
+  // postuladas COMPLETAS en cada pasada gatilla el 429 de MP por ráfaga (verificado 24-ago-2026).
+  // Un lote chico + la rotación por `consultado_en` (los más rancios primero) cubre igual a todas
+  // en pocos minutos, sin pasarse del límite: 30 códigos cada 5 min = las 58 revisadas cada ~10
+  // min, contra 1 hora que tardaba antes.
+  const maxCodigos = opts.maxCodigos ?? MAX_CODIGOS_POR_CORRIDA;
   // `codigos` = candidatos totales · `procesados` = los que alcanzaron a consultarse ·
   // `sinPresupuesto` = los que quedaron fuera por tiempo (van primeros en la próxima corrida).
-  const stats = { codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0 };
+  const stats = { codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, rateLimit: 0 };
   const inicio = Date.now();
 
   let filas: FilaPostulada[] = [];
@@ -108,8 +122,18 @@ export async function procesarPostuladas(
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN (${IN_POSTULADA})
          ${soloCerradas ? 'AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < ?' : ''}
-       ORDER BY (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
-      soloCerradas ? [...ESTADOS_POSTULADA, ahoraChileSQL()] : ESTADOS_POSTULADA,
+       ORDER BY
+         -- PRIORIDAD 1: las que YA deberían estar resolviéndose. La ficha de MP trae la fecha en
+         -- que el organismo piensa adjudicar; pasada esa fecha, la licitación puede cambiar a
+         -- "Adjudicada" en cualquier momento y es donde el minuto de latencia importa. Las que
+         -- aún no llegan a su fecha estimada no van a cambiar hoy: se revisan igual, pero después.
+         -- (Caso 1114-12-LE26: estimada 24-ago 15:00, adjudicada ese mismo día.)
+         (c.fecha_estimada_adjudicacion IS NOT NULL AND c.fecha_estimada_adjudicacion > ?) ASC,
+         -- PRIORIDAD 2: rotación por antigüedad de consulta (nunca consultadas primero).
+         (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
+      soloCerradas
+        ? [...ESTADOS_POSTULADA, ahoraChileSQL(), ahoraChileSQL()]
+        : [...ESTADOS_POSTULADA, ahoraChileSQL()],
     ) as any[];
     filas = rows as FilaPostulada[];
   } catch (e) {
@@ -126,19 +150,43 @@ export async function procesarPostuladas(
     arr.push(f);
     porCodigo.set(f.licitacion_codigo, arr);
   }
-  const codigos = Array.from(porCodigo.keys());
+  // Tope por corrida. Como `filas` ya viene ordenada por `consultado_en` (los nunca consultados
+  // primero, después los más rancios), recortar aquí toma justo los que más lo necesitan y deja
+  // el resto de primeros en la próxima corrida — 5 minutos después, no una hora.
+  const codigosTodos = Array.from(porCodigo.keys());
+  const codigos = maxCodigos > 0 ? codigosTodos.slice(0, maxCodigos) : codigosTodos;
+  if (codigos.length < codigosTodos.length) {
+    console.log(`[procesar-postuladas] lote de ${codigos.length}/${codigosTodos.length} (rotación por consultado_en); el resto en la próxima corrida.`);
+  }
 
   const client = getMercadoPublicoClient();
+
+  // FRENO ANTE RATE-LIMIT. Si MP nos está frenando, seguir consultando no solo es inútil: cada
+  // consulta rechazada es una licitación que se da por NO adjudicada (el fallo se ve igual que un
+  // "no"). Ante varios rechazos SEGUIDOS se corta la corrida completa. Lo que quedó sin revisar
+  // conserva su `consultado_en` viejo, así que la rotación lo pone de PRIMERO 5 minutos después
+  // — no se pierde nada, solo se posterga hasta que MP nos deje de frenar.
+  const CORTE_POR_RATE_LIMIT = 3;
+  let rateLimitSeguidos = 0;
+  let frenado = false;
 
   // Procesa UN código: 1 llamada a MP → resultado (promoción) y/o apertura.
   const procesarCodigo = async (codigo: string) => {
     // Sin presupuesto → salta. Gracias al ORDER BY por `consultado_en`, estas quedan de PRIMERAS
     // en la próxima corrida (antes se saltaban siempre las mismas y no se revisaban nunca).
-    if (Date.now() - inicio > presupuestoMs) { stats.sinPresupuesto++; return; }
+    if (frenado || Date.now() - inicio > presupuestoMs) { stats.sinPresupuesto++; return; }
     const negocios = porCodigo.get(codigo) || [];
     stats.procesados++;
     try {
-      const lic = await client.obtenerPorCodigoRapido(codigo, TIMEOUT_DETALLE_MS);
+      const lic = await client.obtenerPorCodigoRapido(codigo, TIMEOUT_DETALLE_MS, 3, motivo => {
+        if (motivo !== 'rate-limit') { rateLimitSeguidos = 0; return; }
+        stats.rateLimit++;
+        if (++rateLimitSeguidos >= CORTE_POR_RATE_LIMIT && !frenado) {
+          frenado = true;
+          console.warn(`[procesar-postuladas] MP nos está frenando (${rateLimitSeguidos} rate-limits seguidos) → se corta la corrida. Lo pendiente va primero en la próxima.`);
+        }
+      });
+      if (lic) rateLimitSeguidos = 0;   // una respuesta buena reinicia la racha
       if (!lic) return;
 
       const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
@@ -203,12 +251,19 @@ export async function procesarPostuladas(
     }
   };
 
-  // Concurrencia limitada (no golpear MP en ráfaga).
+  // Concurrencia limitada + RITMO entre llamadas: MP no limita por cuota diaria sino por ráfaga
+  // ("peticiones simultáneas", HTTP 429). Bajar la concurrencia no alcanzaba por sí solo — un
+  // barrido de ~58 códigos sin pausa igual gatillaba 429 en más de 10 (medido 24-ago-2026), y
+  // cada 429 es una licitación que se da por no adjudicada. La pausa corta entre consultas es lo
+  // que mantiene el barrido completo bajo el límite.
   let i = 0;
-  const workers = Array.from({ length: Math.min(CODIGO_CONCURRENCIA, codigos.length) }, async () => {
+  const workers = Array.from({ length: Math.min(CODIGO_CONCURRENCIA, codigos.length) }, async (_, w) => {
+    // Arranque escalonado para que los workers no salgan todos en el mismo milisegundo.
+    if (w > 0) await new Promise(r => setTimeout(r, w * PAUSA_ENTRE_CONSULTAS_MS));
     while (i < codigos.length) {
       const idx = i++;
       await procesarCodigo(codigos[idx]);
+      await new Promise(r => setTimeout(r, PAUSA_ENTRE_CONSULTAS_MS));
     }
   });
   await Promise.all(workers);

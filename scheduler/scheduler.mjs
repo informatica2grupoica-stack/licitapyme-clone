@@ -10,7 +10,8 @@
 //   Prefiltro              +1h       → 01,05,09,13,17,21  (1 hora DESPUÉS del intake)
 //   Viabilidad             +1h30     → 01:30,05:30,...    (30 min DESPUÉS del prefiltro)
 //   Descarga docs Negocios cada 2h   → reintenta las asignadas que quedaron sin docs
-//   Estados asignadas+Postuladas  cada 1h (:15) → ganada/perdida/apertura, máx 1h de atraso
+//   Resultado + aperturas  cada 5 min → ganada/perdida casi en el momento en que MP lo publica
+//   Ofertas competencia + preguntas  cada 1h (:15) → scraping del portal (caro, no urgente)
 //   Órdenes de compra      1×/día 07:40 → busca la OC de las licitaciones que ya ofertamos
 //
 // Robustez:
@@ -77,6 +78,22 @@ async function loop(nombre, path, { lote, maxPasadas = 30, body = {} } = {}) {
   console.log(`[scheduler] ✔ ${nombre} listo (${pasada} pasada/s) — ${ahora()}`);
 }
 
+// Evita que dos corridas del MISMO job se pisen. node-cron dispara según el reloj, sin mirar si
+// la corrida anterior terminó: con cadencias cortas (cada 5 min) una corrida lenta se apilaría
+// sobre la siguiente y se multiplicarían las llamadas a Mercado Público. Si la anterior sigue
+// viva, esta se salta — la próxima sale en 5 minutos igual, no se pierde nada.
+const enCurso = new Set();
+async function sinSolapar(nombre, fn) {
+  if (enCurso.has(nombre)) {
+    console.log(`[scheduler] ⏭ ${nombre} omitido: la corrida anterior sigue en curso — ${ahora()}`);
+    return;
+  }
+  enCurso.add(nombre);
+  try { await fn(); }
+  catch (e) { console.error(`[scheduler] ${nombre} falló:`, String(e).slice(0, 300)); }
+  finally { enCurso.delete(nombre); }
+}
+
 // ── Jobs ──────────────────────────────────────────────────────────────────────
 // alertas/enriquecer no exponen `pendientes` (corren una sola pasada); prefiltro y
 // docs-negocios sí son resumibles y se loopean hasta vaciar la cola.
@@ -94,20 +111,27 @@ async function jobViabilidad() { await loop('viabilidad',       '/api/cron/viabi
 // en el mismo instante; universo chico → lote/pasadas bajos.
 async function jobViabilidadPerfil() { await loop('viabilidad (perfil piloto)', '/api/cron/viabilidad-perfil', { lote: 2, maxPasadas: 3 }); }
 
-// Postuladas: refresca el RESULTADO (adjudicación → cache + promoción), detecta APERTURAS y
-// trae el foro de PREGUNTAS Y RESPUESTAS. Así Postuladas y las fichas de licitación —que leen
-// solo cache— quedan al día sin cargar nada al entrar.
-async function jobPostuladas() {
+// ── RESULTADO (ganamos/perdimos) Y APERTURA: lo más rápido posible ────────────────────────
+// Mercado Público solo avisa "Adjudicada"; quién ganó hay que ir a buscarlo. Mientras no se
+// consulte, la licitación se queda en POSTULADA y nadie se entera del resultado.
+//
+// Esto vivía junto a 'ofertas competencia' y 'preguntas' en un único job horario, y esa mezcla
+// era el cuello de botella: lo barato y urgente (1 llamada a la API por licitación) quedaba
+// atado al ritmo de lo caro y lento (scraping del portal, decenas de pasadas). Caso real
+// 1114-12-LE26 (24-ago-2026): MP la pasó a Adjudicada durante la mañana, la última consulta
+// había sido a las 06:53 y el resultado —GANADA, $40.378.376— quedó sin avisar durante horas.
+// Ahora corre solo, cada 5 minutos: el aviso de ganada/perdida sale casi en el momento.
+async function jobResultados() {
   // Estados MP de las asignadas que NO llegaron a marcarse POSTULADA (ASIGNADO/EN_PROCESO/
-  // POSIBLE_ADJ/ANEXOS). Antes vivía dentro del intake de 4h — medido en producción, es la vía
-  // que MÁS "ganada/perdida" detecta (más que 'resultado postuladas' de abajo), así que quedaba
-  // como el verdadero cuello de botella de latencia. Va PRIMERO por prioridad.
+  // POSIBLE_ADJ/ANEXOS). Medido en producción, es la vía que MÁS "ganada/perdida" detecta.
   await loop('estados asignadas',    '/api/cron/estados-asignadas', { maxPasadas: 1 });
   await loop('resultado postuladas', '/api/cron/procesar-postuladas', { maxPasadas: 1 });
   await loop('aperturas',            '/api/cron/aperturas', { lote: 40, maxPasadas: 20 });
-  // F.2: entra a las aperturas recién detectadas y lee la tabla de ofertas. VA DESPUÉS de
-  // 'aperturas' a propósito: se alimenta de lo que ésa acaba de marcar como aperturada, así
-  // una apertura detectada a las 10:15 se lee en la MISMA pasada y no una hora más tarde.
+}
+
+// Lo caro y no urgente: scraping del portal. Sigue en ritmo horario.
+// 'ofertas competencia' se alimenta de lo que 'aperturas' marcó en jobResultados.
+async function jobPostuladasLento() {
   await loop('ofertas competencia',  '/api/cron/ofertas-competencia', { lote: 10, maxPasadas: 10, body: { docs: 20 } });
   await loop('preguntas y respuestas', '/api/cron/preguntas', { lote: 20, maxPasadas: 15 });
 }
@@ -134,7 +158,11 @@ cron.schedule('0 */4 * * *',    jobIntake,     opts);   // 00,04,08,12,16,20
 cron.schedule('30 */4 * * *',   jobEnriquecer, opts);   // +30 min
 cron.schedule('0 1-23/4 * * *', jobPrefiltro,  opts);   // 01,05,09,13,17,21 (1h después del intake)
 cron.schedule('0 */2 * * *',    jobDocsNeg,    opts);   // cada 2h: reintenta descargas de asignadas
-cron.schedule('15 * * * *',     jobPostuladas, opts);   // cada 1h (+15min): estados asignadas + resultado + aperturas + preguntas
+// CADA 5 MINUTOS: resultado de adjudicación (ganamos/perdimos) + aperturas. Es 1 llamada a la
+// API de MP por licitación postulada (~60 hoy) y no toca la IA, así que el costo es despreciable
+// frente al valor de enterarse al toque. sinSolapar() evita que se apilen corridas.
+cron.schedule('*/5 * * * *',    () => sinSolapar('resultados', jobResultados), opts);
+cron.schedule('15 * * * *',     () => sinSolapar('postuladas-lento', jobPostuladasLento), opts); // cada 1h: scraping del portal
 cron.schedule('30 1-23/4 * * *', jobViabilidad, opts);  // 01:30,05:30,... (30 min DESPUÉS del prefiltro)
 cron.schedule('35 1-23/4 * * *', jobViabilidadPerfil, opts); // 01:35,05:35,... (5 min DESPUÉS del cron de sistema)
 // 07:40: temprano, para que el aviso de "salió la orden de compra" esté cuando se abre la app, y

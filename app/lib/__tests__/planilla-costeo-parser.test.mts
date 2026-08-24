@@ -140,6 +140,108 @@ test('parsearPlanillaCosteo: tabla HTML (GLM-OCR) con cantidad de miles chilena 
   assert.equal(cable!.unidad, 'MTS');
 });
 
+// ── Prioridad del anexo económico DEDICADO sobre el documento ómnibus ─────────────────────
+// Caso real 1414396-21-LP26 (24-ago-2026, reporte del usuario "por qué me das 34 productos si
+// son 29"): la Resolución Exenta contiene el anexo económico Y el ANEXO N°6 de DISTRIBUCIÓN DE
+// ENTREGA (que repite productos por establecimiento). Con "más ítems gana" la Resolución (34)
+// le ganaba al Anexo_Económico.xlsx (29, la lista real a cotizar): 5 filas fantasma y, de yapa,
+// "Mueble Estante 30 Espacios" (cant. 2) leído como cantidad=30.
+// Tabla CSV estilo planilla (el parser exige un mínimo de 8 filas para aceptar un documento).
+// `col` es el nombre de la columna de producto: los ómnibus (resolución/bases) la titulan
+// "Descripción", que además es lo que los hace pasar el filtro esCandidato() por contenido.
+const tablaCsv = (filas: [string, number][], col: 'Producto' | 'Descripción' = 'Producto') => [
+  `N°,${col},Cantidad,Precio Neto Unitario,Total Neto`,
+  ...filas.map(([d, c], i) => `${i + 1},${d},${c}," 100.000 "," 100.000 "`),
+].join('\n');
+
+const CATALOGO: [string, number][] = [
+  ['Armario Metálico 5 Niveles con Ruedas', 13], ['Colchoneta de Muda', 8],
+  ['Mesa Biblioteca', 6], ['Mueble Estante 30 Espacios', 2],
+  ['Silla ISO tapiz negro', 182], ['Kardex', 5],
+  ['Mesa de Picnic', 10], ['Sillón para Lactancia', 2],
+  ['Estante para Cartulinas', 1], ['Locker Metálicos 1 cuerpo - 4 puertas', 6],
+];
+
+test('parsearPlanillaCosteo: el anexo económico dedicado gana al ómnibus con MÁS filas (regresión 1414396-21-LP26)', () => {
+  // El ómnibus repite el catálogo, parte mal "Mueble Estante 30 Espacios" (lee el 30 del NOMBRE
+  // como cantidad) y le suma filas de la tabla de distribución por establecimiento.
+  const omnibus = tablaCsv([
+    ...CATALOGO.map(([d, c]) => [d.replace('30 Espacios', 'Espacios'), d.includes('30 Espacios') ? 30 : c] as [string, number]),
+    ['Colchoneta de Muda', 4], ['Mesa Biblioteca', 6], ['Gabinete Base 3 Puertas', 1],
+  ], 'Descripción');
+  const resultado = parsearPlanillaCosteo([
+    { nombre: 'Rex._N°1897_de_2026_C.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto: omnibus },
+    { nombre: 'Anexo_Económico.xlsx', categoria: 'ANEXOS_OFERENTE', texto: tablaCsv(CATALOGO), metodo: 'excel' },
+  ]);
+  assert.ok(resultado, 'debe parsear algo');
+  assert.equal(resultado!.items.length, 10, 'debe quedarse con los 10 del anexo, no con los 13 del ómnibus');
+  const estante = resultado!.items.find(i => /Mueble Estante/.test(i.descripcion));
+  assert.equal(estante!.cantidad, 2, 'el "30" es parte del NOMBRE (30 Espacios), no la cantidad');
+  assert.ok(!resultado!.items.some(i => /Gabinete/.test(i.descripcion)), 'no debe colarse la fila de distribución');
+});
+
+test('parsearPlanillaCosteo: registra TODAS las fuentes leídas y sus discrepancias (traza anti-invento)', () => {
+  const resultado = parsearPlanillaCosteo([
+    { nombre: 'Rex._N°1897_de_2026_C.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto: tablaCsv([...CATALOGO, ['Gabinete Base 3 Puertas', 1]], 'Descripción') },
+    { nombre: 'Anexo_Económico.xlsx', categoria: 'ANEXOS_OFERENTE', texto: tablaCsv(CATALOGO), metodo: 'excel' },
+  ]);
+  assert.equal(resultado!.candidatos!.length, 2, 'ningún documento legible se descarta en silencio');
+  assert.ok(resultado!.candidatos!.find(c => /Rex/.test(c.fuenteDoc) && !c.elegido), 'la fuente no elegida queda registrada');
+  assert.ok(resultado!.candidatos!.find(c => /Anexo_Económico/.test(c.fuenteDoc) && c.elegido), 'y cuál se eligió');
+  assert.equal(resultado!.discrepancias!.length, 1, 'la diferencia 11 vs 10 queda escrita, no se tapa');
+  assert.match(resultado!.discrepancias![0], /11 ítems/);
+});
+
+test('parsearPlanillaCosteo: fuentes que concuerdan no generan discrepancias', () => {
+  const resultado = parsearPlanillaCosteo([
+    { nombre: 'Bases_Administrativas.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto: tablaCsv(CATALOGO) },
+    { nombre: 'Anexo_Económico.xlsx', categoria: 'ANEXOS_OFERENTE', texto: tablaCsv(CATALOGO), metodo: 'excel' },
+  ]);
+  assert.equal(resultado!.discrepancias!.length, 0, 'mismo conteo en ambas fuentes = nada que levantar');
+});
+
+// ── Muchas licitaciones NO traen anexo económico con ítems: la lista vive en las bases ─────
+// La prioridad por autoridad NO puede volverse una dependencia del anexo económico. Cuando no
+// existe (o existe pero en blanco), la lista debe salir de las bases sin fricción.
+test('parsearPlanillaCosteo: SIN anexo económico, la lista sale de las bases', () => {
+  const resultado = parsearPlanillaCosteo([
+    { nombre: 'Bases_Técnicas.pdf', categoria: 'BASES_TECNICAS', texto: tablaCsv(CATALOGO, 'Descripción') },
+  ]);
+  assert.ok(resultado, 'sin anexo económico igual debe entregar la lista');
+  assert.equal(resultado!.items.length, 10);
+  assert.equal(resultado!.discrepancias!.length, 0, 'una sola fuente no puede contradecirse');
+});
+
+test('parsearPlanillaCosteo: bases técnicas (autoridad 1) le ganan al ómnibus contaminado (autoridad 2)', () => {
+  // Mismo patrón del bug, pero sin anexo económico en juego: el ómnibus trae 3 filas de más.
+  const resultado = parsearPlanillaCosteo([
+    { nombre: 'Rex._N°1897_de_2026_C.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto: tablaCsv([...CATALOGO, ['Colchoneta de Muda', 4], ['Mesa Biblioteca', 6], ['Gabinete Base 3 Puertas', 1]], 'Descripción') },
+    { nombre: 'Bases_Técnicas.pdf', categoria: 'BASES_TECNICAS', texto: tablaCsv(CATALOGO, 'Descripción') },
+  ]);
+  assert.equal(resultado!.items.length, 10, 'la tabla de las bases manda sobre la resolución ómnibus');
+  assert.equal(resultado!.discrepancias!.length, 1, 'y la diferencia queda registrada igual');
+});
+
+test('parsearPlanillaCosteo: anexo económico en BLANCO no bloquea la lista de las bases', () => {
+  // Plantilla sin desglose (solo encabezado y totales): no llega al mínimo de filas del parser,
+  // así que ni siquiera es candidata — las bases entregan la lista sin competencia.
+  const resultado = parsearPlanillaCosteo([
+    { nombre: 'Anexo_Económico.xlsx', categoria: 'ANEXOS_OFERENTE', metodo: 'excel', texto: 'Anexo Económico\nN°,Producto,Cantidad\n,,\nTotal Neto, - \nIVA (19%), - ' },
+    { nombre: 'Bases_Técnicas.pdf', categoria: 'BASES_TECNICAS', texto: tablaCsv(CATALOGO, 'Descripción') },
+  ]);
+  assert.equal(resultado!.items.length, 10, 'un anexo vacío nunca puede dejar la licitación sin productos');
+  assert.equal(resultado!.fuenteDoc, 'Bases_Técnicas.pdf');
+});
+
+test('parsearPlanillaCosteo: anexo económico TRUNCADO no desplaza al que sí leyó (guardarraíl del 50%)', () => {
+  const resultado = parsearPlanillaCosteo([
+    { nombre: 'Bases_Administrativas.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto: tablaCsv([...CATALOGO, ...CATALOGO]) },
+    { nombre: 'Anexo_Económico.xlsx', categoria: 'ANEXOS_OFERENTE', texto: tablaCsv(CATALOGO.slice(0, 8)), metodo: 'excel' },
+  ]);
+  assert.ok(resultado, 'debe parsear algo');
+  assert.equal(resultado!.items.length, 20, 'con 8 de 20 ítems el anexo está truncado: gana el que más leyó');
+});
+
 // Caso real 1250623-4-LE26 (21-jul-2026, detectado por CA leyendo las bases a mano): "se evaluará
 // por línea de producto" es sobre el PUNTAJE, no sobre quién gana — esta licitación se adjudica a
 // UN SOLO oferente (Art. 13º/15º de sus bases). detectarLenguajePorLinea() SÍ debe seguir

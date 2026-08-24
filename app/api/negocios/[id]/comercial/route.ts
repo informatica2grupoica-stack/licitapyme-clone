@@ -17,7 +17,8 @@ import { puedeVerNegocioAsignado, permisosDeUsuario } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import {
   generarItemsDesdeViabilidad, resumirChecklist, transicion, tieneInformacionComercial,
-  esPorLinea, modalidadDudosa, estadoDeBloque, lineasDelInforme, type EstadoItem,
+  esPorLinea, modalidadDudosa, estadoDeBloque, lineasDelInforme, excluirYaExistentes, type EstadoItem,
+  CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado, reubicacionDeItemGuardado,
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
 import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
@@ -185,8 +186,18 @@ export { agregarDocumentos, bitacora };
  * nunca pisa lo que el asesor ya aprobó.
  */
 async function sincronizar(negocioId: number, codigo: string, informe: any): Promise<number> {
-  const items = generarItemsDesdeViabilidad(informe);
+  let items = generarItemsDesdeViabilidad(informe);
   if (!items.length) return 0;
+
+  // Cierra el hueco que el INSERT IGNORE de abajo no cubre: un re-análisis puede redactar el
+  // MISMO Anexo/Formato N°X con otras palabras, y como clave_origen es el slug de ESE texto, el
+  // UNIQUE(negocio_id, clave_origen) no lo detecta como repetido — ver excluirYaExistentes().
+  const [existentesRows] = await pool.query(
+    `SELECT titulo FROM checklist_comercial WHERE negocio_id = ? AND bloque = 'ADMINISTRATIVO'`,
+    [negocioId],
+  );
+  items = excluirYaExistentes(items, (existentesRows as Array<{ titulo: string }>).map(r => r.titulo));
+
   let nuevos = 0;
   for (const it of items) {
     const [r] = await pool.query(
@@ -202,7 +213,28 @@ async function sincronizar(negocioId: number, codigo: string, informe: any): Pro
     ) as any;
     if ((r as any).affectedRows) nuevos++;
   }
+
+  await reubicarExistentes(negocioId);
   return nuevos;
+}
+
+/** Mueve al bloque/sección correctos las filas insertadas con la clasificación vieja — ver
+ *  reubicacionDeItemGuardado(). Solo bloque/tipo: estado, valores y firmas quedan intactos. */
+async function reubicarExistentes(negocioId: number): Promise<void> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, clave_origen, titulo, bloque, tipo FROM checklist_comercial WHERE negocio_id = ?`,
+      [negocioId],
+    );
+    for (const row of rows as any[]) {
+      const destino = reubicacionDeItemGuardado(row);
+      if (!destino) continue;
+      await pool.query(`UPDATE checklist_comercial SET bloque = ?, tipo = ? WHERE id = ?`,
+        [destino.bloque, destino.tipo, row.id]);
+    }
+  } catch {
+    /* nunca romper la sincronización por un reacomodo visual */
+  }
 }
 
 /** ¿El informe de viabilidad se guardó DESPUÉS de la última vez que se materializó el checklist?
@@ -553,6 +585,17 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       const items = await leerItems(negocio.id);
       publicarCambio('checklist_comercial');
       return NextResponse.json({ success: true, items, resumen: resumirChecklist(items) });
+    }
+
+    // ── El plazo ofertado no puede pasarse del máximo admisible ────────────────────────────
+    // Se valida acá y no solo en la pantalla: fuera de rango la oferta entera es inadmisible, así
+    // que ni cargarlo ni visarlo debe ser posible por ninguna vía (caso real 2724-35-LP26: 31
+    // días cargados y aprobados contra un tope de 30).
+    if ((accion === 'CARGAR' || accion === 'APROBAR') && item.clave_origen === CLAVE_ITEM_PLAZO) {
+      const texto = accion === 'CARGAR' ? String(body.valorTexto ?? '') : String(item.valor_texto || '');
+      const v = validarPlazoOfertado(texto, rangoPlazoDeDescripcion(item.descripcion));
+      if (v.nivel === 'error')
+        return NextResponse.json({ error: v.mensaje }, { status: 400 });
     }
 
     const nuevo = transicion(anterior, accion);

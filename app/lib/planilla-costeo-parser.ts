@@ -39,6 +39,17 @@ export interface PlanillaParseResult {
   items: ItemPlanilla[];
   numeracion: PatronNumeracion;
   fuenteDoc: string;
+  // Traza de TODAS las fuentes leídas (no solo la elegida) y en qué se contradicen. Las rellena
+  // parsearPlanillaCosteo sobre el resultado ganador; los parsers individuales no las tocan.
+  candidatos?: FuenteCandidata[];
+  discrepancias?: string[];
+}
+
+export interface FuenteCandidata {
+  fuenteDoc: string;
+  autoridad: number;   // AUTORIDAD_FUENTE: 0 anexo económico · 1 bases técnicas · 2 ómnibus
+  items: number;
+  elegido: boolean;
 }
 
 interface DocTexto { nombre: string; categoria?: string | null; texto: string; metodo?: string | null }
@@ -1529,18 +1540,73 @@ export function extraerTablaProductoCantidad(docs: DocTexto[]): ItemPlanilla[] {
 
 // Recorre los documentos candidatos y devuelve el MEJOR resultado (más ítems; a igualdad,
 // el que detecte líneas y luego categorías). Si ninguno califica → null.
+// ─── AUTORIDAD DE LA FUENTE ───────────────────────────────────────────────────────────────
+// REGLA: se leen TODOS los documentos de la licitación y se elige por AUTORIDAD del documento,
+// NUNCA por cantidad de filas. El volumen solo desempata DENTRO del mismo nivel de autoridad.
+//
+// Por qué: "más ítems gana" premia la CONTAMINACIÓN. Un documento ómnibus (resolución exenta,
+// bases administrativas) CONTIENE el anexo económico más otras tablas, así que siempre empata o
+// supera en filas al anexo dedicado — la regla garantizaba que perdiera el documento bueno.
+// Caso real 1414396-21-LP26 (mobiliario SLEP, 24-ago-2026): el Anexo_Económico.xlsx daba los 29
+// productos correctos, pero la Resolución Exenta daba 34 y ganaba. Sus 5 filas de más venían del
+// ANEXO N°6 de DISTRIBUCIÓN DE ENTREGA (Comuna|Dirección|Unidad Educativa|Producto|Cantidad),
+// que repite productos por establecimiento; además partía "Mueble Estante 30 Espacios" (cant. 2)
+// leyendo el "30" del NOMBRE como si fuera la cantidad.
+export const AUTORIDAD_FUENTE = {
+  ANEXO_ECONOMICO: 0,   // la planilla que el oferente LLENA para cotizar: lista canónica
+  BASES_TECNICAS: 1,    // tabla de productos de las ETT/especificaciones
+  OMNIBUS: 2,           // resolución exenta / bases administrativas: contienen todo mezclado
+} as const;
+
+function autoridadDe(doc: DocTexto): number {
+  const n = normalizar(doc.nombre);
+  if (/anexo.?econom|oferta.?econ|economic|itemiz|presupuesto.?ofert|formulario.?ofert/.test(n)) {
+    return AUTORIDAD_FUENTE.ANEXO_ECONOMICO;
+  }
+  if (/ett|tecnic|especif/.test(n)) return AUTORIDAD_FUENTE.BASES_TECNICAS;
+  return AUTORIDAD_FUENTE.OMNIBUS;
+}
+
 export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | null {
-  let mejor: PlanillaParseResult | null = null;
+  const mejorScore = (m: PlanillaParseResult) => m.items.length * 100 + m.lineas.length * 10 + m.categorias.length;
+  // Se parsean TODOS los candidatos y se conservan TODOS: ninguno se descarta en silencio.
+  // Lo que no se elige queda registrado como fuente alternativa para poder contrastar.
+  const candidatos: { r: PlanillaParseResult; autoridad: number; doc: DocTexto }[] = [];
   for (const doc of docs) {
     if (!doc.texto || doc.texto.length < 40) continue;
     if (!esCandidato(doc)) continue;
     // Orden: tablas HTML (GLM-OCR de escaneados) → catálogo valor unitario → parser tabular normal.
     const r = parsearTablasHtml(doc) || parsearCatalogoValorUnitario(doc) || parsearDoc(doc);
     if (!r) continue;
-    const mejorScore = (m: PlanillaParseResult) => m.items.length * 100 + m.lineas.length * 10 + m.categorias.length;
-    if (!mejor || mejorScore(r) > mejorScore(mejor)) mejor = r;
+    candidatos.push({ r, autoridad: autoridadDe(doc), doc });
   }
-  if (mejor) return mejor;
+
+  if (candidatos.length) {
+    // Guardarraíl del 50%: una fuente autoritativa manda SALVO que haya leído menos de la mitad
+    // de filas que la que más leyó — ahí viene truncada, ilegible o es una plantilla en blanco,
+    // y no se le hace caso. Evita que un anexo roto silencie al documento que sí se pudo leer.
+    const maxItems = Math.max(...candidatos.map(c => c.r.items.length));
+    const elegibles = candidatos.filter(c => c.r.items.length >= maxItems * 0.5);
+    const orden = (elegibles.length ? elegibles : candidatos).slice().sort((a, b) =>
+      a.autoridad - b.autoridad || mejorScore(b.r) - mejorScore(a.r));
+    const ganador = orden[0];
+
+    // TRAZA ANTI-INVENTO: qué se leyó, de dónde, y en qué NO coinciden las fuentes entre sí.
+    // No se corrige nada a mano ni se "rellena" con criterio propio: si los documentos se
+    // contradicen, queda escrito para que lo revise una persona (regla V-15 del validador).
+    ganador.r.candidatos = candidatos.map(c => ({
+      fuenteDoc: c.r.fuenteDoc || c.doc.nombre,
+      autoridad: c.autoridad,
+      items: c.r.items.length,
+      elegido: c === ganador,
+    }));
+    ganador.r.discrepancias = candidatos
+      .filter(c => c !== ganador && c.r.items.length !== ganador.r.items.length)
+      .map(c => `"${c.r.fuenteDoc || c.doc.nombre}" lista ${c.r.items.length} ítems y la fuente elegida `
+        + `"${ganador.r.fuenteDoc || ganador.doc.nombre}" lista ${ganador.r.items.length}`);
+    return ganador.r;
+  }
+  let mejor: PlanillaParseResult | null = null;
 
   // ÚLTIMO RECURSO: itemizados que el extractor de PDF/Word aplanó a texto suelto. Va aparte y
   // DESPUÉS del bucle normal a propósito: es el parser más laxo (se guía por el correlativo, no

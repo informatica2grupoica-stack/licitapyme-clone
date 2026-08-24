@@ -266,7 +266,32 @@ function v14_enumsBienFormados(inf: any, push: (h: HallazgoValidador) => void): 
   }
 }
 
-// Set completo de reglas V-01..V-14. Se agrega una nueva simplemente empujando una función más
+// V-15 — LAS FUENTES SE CONTRADICEN sobre qué productos se cotizan. Se leen TODOS los documentos
+// de la licitación y cada uno que traiga una tabla de productos queda registrado en
+// `_fuentes_manifiesto`. Si dos documentos no coinciden en cuántos ítems hay, NO se elige uno en
+// silencio: se avisa. Es la regla anti-invento — el sistema prefiere decir "estas fuentes no
+// calzan, revísalo" antes que mostrar una lista que parece correcta y no lo es.
+//
+// Caso real 1414396-21-LP26 (24-ago-2026, reporte del usuario "por qué me das 34 productos si son
+// 29"): el Anexo_Económico.xlsx traía los 29 reales y la Resolución Exenta 34 (5 filas coladas de
+// la tabla de DISTRIBUCIÓN DE ENTREGA, que repite productos por establecimiento). El parser ahora
+// elige por autoridad del documento y acierta los 29, pero la discrepancia igual se levanta: que
+// dos documentos de la misma licitación no calcen es en sí mismo un dato que amerita una mirada.
+function v15_fuentesManifiestoConcuerdan(inf: any, push: (h: HallazgoValidador) => void): void {
+  const fuentes = inf?._fuentes_manifiesto;
+  if (!fuentes || !Array.isArray(fuentes.discrepancias) || fuentes.discrepancias.length === 0) return;
+  const n = Array.isArray(fuentes.candidatos) ? fuentes.candidatos.length : 0;
+  push({
+    regla: 'V-15',
+    severidad: 'aviso',
+    mensaje: `Los documentos no coinciden en el listado de productos (${n} fuentes leídas). `
+      + `Se tomó "${fuentes.elegida}" por ser la más autoritativa. Diferencias: `
+      + `${fuentes.discrepancias.slice(0, 4).join(' · ')}. `
+      + `Contrastar con el anexo económico antes de cotizar.`,
+  });
+}
+
+// Set completo de reglas V-01..V-15. Se agrega una nueva simplemente empujando una función más
 // (misma firma) a este array — no requiere tocar el resto del pipeline.
 type ReglaFn = (inf: any, push: (h: HallazgoValidador) => void, score: number) => void;
 const REGLAS: ReglaFn[] = [
@@ -284,6 +309,7 @@ const REGLAS: ReglaFn[] = [
   v12_manifiestoNoColapsadoPorLinea,
   v13_adjudicacionCitaMultipleNoGlobal,
   v14_enumsBienFormados,
+  v15_fuentesManifiestoConcuerdan,
 ];
 
 // Corre TODAS las reglas sobre un informe v3 ya ensamblado (post-overrides deterministas).
@@ -404,7 +430,9 @@ export function autocorregirHallazgos(inf: any, hallazgos: HallazgoValidador[], 
 // severidad: varias de estas son 'aviso' por diseño, nunca 'error', y aun así ameritan revisión),
 // se marca el informe y se cita la regla en veredicto.motivos_revision (mismo campo/convención que
 // ya usa el reintento de V-12/V-09 en viabilidad-ia.ts). Devuelve las reglas que dispararon.
-const REGLAS_A_REVISION_HUMANA = new Set(['V-01', 'V-03', 'V-08', 'V-10', 'V-11']);
+// V-15 entra acá (y no en auto-corrección) a propósito: cuando dos documentos de la licitación se
+// contradicen sobre qué se cotiza, NO hay arreglo honesto por código — hay que abrir los papeles.
+const REGLAS_A_REVISION_HUMANA = new Set(['V-01', 'V-03', 'V-08', 'V-10', 'V-11', 'V-15']);
 
 export function escalarARevisionHumana(inf: any, hallazgos: HallazgoValidador[]): string[] {
   const disparadas = hallazgos.filter(h => REGLAS_A_REVISION_HUMANA.has(h.regla));

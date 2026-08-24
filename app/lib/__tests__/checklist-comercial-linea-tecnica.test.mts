@@ -114,10 +114,12 @@ test('generarItemsDesdeViabilidad: "Anexo N°1", "Anexo N°2", "Anexo N°3" (sin
   assert.equal(admin.length, 3, `deberían quedar 3 anexos distintos (salieron: ${admin.map(i => i.titulo).join(' | ')})`);
 });
 
-// Un "bloqueante" (advertencia/riesgo) puede CITAR el número de un anexo como contexto sin SER
-// ese anexo ("No firmar Anexo N°8" no es el Anexo N°8, es la advertencia de qué pasa si falta).
-// El dedupe por N° de formato no debe fusionarlos con el documento real, o se pierde la advertencia.
-test('generarItemsDesdeViabilidad: un bloqueante que cita "Anexo N°8" no se fusiona con el Anexo N°8 real', () => {
+// Un "bloqueante" que CITA un anexo ("No firmar Anexo N°8") es la advertencia de qué pasa si ese
+// anexo falta, no otro documento. Como fila propia se leía como "un anexo más" y encima caía abajo
+// entre las alertas, lejos del anexo del que habla (reportado 24-ago-2026 en 2724-35-LP26, con los
+// Anexos N°3 y N°7). Ahora la advertencia se pega a la descripción del anexo real: una sola fila,
+// sin perder el texto — que es lo que este test cuida.
+test('generarItemsDesdeViabilidad: un bloqueante que cita "Anexo N°8" se pega a ese anexo sin perderse', () => {
   const informe = {
     modalidad: { tipo: 'suma_alzada' },
     requisitos_admisibilidad: {
@@ -129,7 +131,8 @@ test('generarItemsDesdeViabilidad: un bloqueante que cita "Anexo N°8" no se fus
   };
   const items = generarItemsDesdeViabilidad(informe);
   const admin = items.filter(i => i.bloque === 'ADMINISTRATIVO');
-  assert.equal(admin.length, 2, `el documento y la advertencia son dos ítems distintos (salieron: ${admin.map(i => i.titulo).join(' | ')})`);
+  assert.equal(admin.length, 1, `la advertencia no abre fila propia (salieron: ${admin.map(i => i.titulo).join(' | ')})`);
+  assert.match(admin[0].descripcion || '', /No firmar Anexo N°8/);
 });
 
 // Encontrado en el dry-run de limpieza (24-ago-2026, caso real 608-145-LP26): un regex que solo
