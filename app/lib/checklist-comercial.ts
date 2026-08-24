@@ -127,6 +127,97 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) && n !== 0 ? n : null;
 }
 
+// ── Dedupe de documentos/exigencias ADMINISTRATIVAS entre fuentes que se solapan ────────────────
+// El informe describe el mismo requisito por varios caminos que NO se cruzan entre sí: la lista
+// libre de "anexos propios a crear" (orden_anexos_propios), el campo legado documentos_infaltables
+// (v2.1, mismo rol, redactado distinto — ver más abajo), y los booleanos estructurados de
+// garantías/contrato/cotizar_100/etc. Cada fuente titula el mismo Formato N°X con palabras en
+// otro orden ("Formato N°1: Identificación del Oferente" vs "Identificación del Oferente (Formato
+// N°1)"), así que comparar la clave_origen EXACTA (lo que había antes, solo en 2 de las 4 fuentes)
+// no los pesca. Caso real reportado 24-ago-2026: 7 Formatos + Garantía de Fiel Cumplimiento
+// duplicados en el bloque ADMINISTRATIVO de una sola licitación.
+//
+// Se dedupe por dos señales:
+//  (a) el identificador de Formato/Anexo/Formulario citado en el título, si AMBOS lo traen — la
+//      señal más fuerte, sobrevive a cualquier redacción distinta. Es un VETO en ambos sentidos:
+//      mismo identificador → son el mismo documento (aunque el resto del texto no se parezca);
+//      identificadores EXPLÍCITOS pero DISTINTOS → NUNCA son el mismo documento, aunque el resto
+//      del texto sea idéntico (caso real: "Anexo N°2 (Declaración Jurada Simple UTP)" y
+//      "Anexo N°3 (Declaración Jurada Simple UTP)" — mismo texto, dos anexos distintos). El
+//      identificador incluye el sub-índice completo ("6.1" ≠ "6.2" ≠ "6" — caso real: 7 Anexos
+//      N°6.1 a N°6.7, cada uno con las especificaciones de un equipo médico distinto, que un
+//      regex que solo miraba el dígito base ("6") fundía en uno solo).
+//  (b) si NINGUNO de los dos trae identificador (o solo uno lo trae), el título SIN esa
+//      anotación, comparado por contención — mismo criterio que ya usa clasificacion.ts para
+//      resolver nombres que la IA no citó letra por letra.
+// La PALABRA (Formato/Anexo/Formulario) es parte del identificador, no solo el número: en las
+// bases chilenas "Anexo" y "Formulario"/"Formato" suelen ser series de numeración
+// INDEPENDIENTES — casos reales: "Formulario N°1: Identificación del Oferente" (persona) y
+// "Anexo N°1: Programa de Integridad" (otro tema por completo) comparten el "1" pero NO son el
+// mismo documento; ignorar la palabra los fundía por puro accidente de numeración.
+const RE_NUM_FORMATO = /(formato|anexo|formulario)\s*n?[°ºo]?\s*[.]?\s*(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b/i;
+const RE_STRIP_FORMATO = /\(?\s*(?:formato|anexo|formulario)\s*n?[°ºo]?\s*[.]?\s*\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?\s*\)?\s*:?\s*/gi;
+
+// Exportadas: el script de limpieza de duplicados ya materializados (checklist_comercial viejo,
+// insertado antes de este fix) reusa exactamente este criterio — ver scripts/limpiar-checklist-duplicados.mjs.
+export function numeroDeFormatoEn(texto: string): string | null {
+  const m = RE_NUM_FORMATO.exec(String(texto || ''));
+  if (!m) return null;
+  const palabra = m[1].toLowerCase();
+  const numero = m[2].replace(/[.\-\s]/g, '').toLowerCase();   // "6.1"/"6 . 1" → "61"; "5-A" → "5a"
+  return `${palabra}:${numero}`;
+}
+export function nucleoDeTitulo(texto: string): string {
+  // NO usar slug() acá: su fallback '|| sin_nombre' convertiría CUALQUIER título que sea SOLO
+  // "Anexo N°1" (sin texto propio, todo el título es la anotación de número) en el mismo string
+  // 'sin_nombre' que "Anexo N°2", "Anexo N°3"... — colapsando anexos DISTINTOS en un solo grupo.
+  // Vacío real (sin núcleo propio) debe devolver '' para que nucleosCoinciden() lo descarte.
+  const restante = String(texto || '')
+    .replace(RE_STRIP_FORMATO, ' ')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return restante;
+}
+export function nucleosCoinciden(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // Contención, pero con dos guardas — sin ellas, un núcleo genérico de una sola palabra
+  // ("garantia") hacía match con CUALQUIER frase que la mencionara, aunque describiera un
+  // instrumento de garantía DISTINTO (caso real 2905-36-LR26: "Formulario N°4: Garantía" se
+  // fusionaba con "Garantía de seriedad de la oferta" Y "Garantía de fiel cumplimiento" — dos
+  // garantías distintas — solo porque las tres contienen la palabra "garantia"):
+  //  · el más corto debe ser sustancial (≥15 chars) — descarta palabras sueltas genéricas.
+  //  · el más corto debe cubrir una porción real del más largo (≥45%) — no basta con que quepa.
+  const corto = a.length <= b.length ? a : b;
+  const largo = a.length <= b.length ? b : a;
+  return corto.length >= 15 && largo.includes(corto) && corto.length / largo.length >= 0.45;
+}
+
+interface EntradaAdmin { numero: string | null; nucleo: string }
+
+function coincidenEntradas(a: EntradaAdmin, b: EntradaAdmin): boolean {
+  // Ambos citan un identificador explícito → ese identificador manda, sea igual o distinto
+  // (nunca cae al núcleo: dos anexos con el MISMO texto genérico pero número distinto no son
+  // el mismo documento).
+  if (a.numero != null && b.numero != null) return a.numero === b.numero;
+  return nucleosCoinciden(a.nucleo, b.nucleo);
+}
+
+/** Registro compartido por TODA una corrida de generarItemsDesdeViabilidad — ver arriba. */
+function creaRegistroAdmin() {
+  const registrados: EntradaAdmin[] = [];
+  return {
+    esDuplicado(titulo: string): boolean {
+      const candidato: EntradaAdmin = { numero: numeroDeFormatoEn(titulo), nucleo: nucleoDeTitulo(titulo) };
+      return registrados.some(r => coincidenEntradas(candidato, r));
+    },
+    registrar(titulo: string): void {
+      registrados.push({ numero: numeroDeFormatoEn(titulo), nucleo: nucleoDeTitulo(titulo) });
+    },
+  };
+}
+
 /** ¿La licitación se cotiza línea por línea? (eje "cómo se cotiza", no "a quién se adjudica"). */
 export function esPorLinea(informe: any): boolean {
   return String(informe?.modalidad?.tipo || '').toLowerCase() === 'por_linea';
@@ -179,13 +270,15 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
   const capaC = informe?.capa_c_admisibilidad || {};
   let orden = 0;
   const push = (it: Omit<ItemGenerado, 'orden'>) => { items.push({ ...it, orden: orden++ }); };
+  const registroAdmin = creaRegistroAdmin();
 
   // ── BLOQUE ADMINISTRATIVO ─────────────────────────────────────────────────────
   // 1) Anexos propios que la IA mandó crear (v3) — el orden de trabajo de la Fase 4.
   const anexos: any[] = Array.isArray(adm.orden_anexos_propios) ? adm.orden_anexos_propios : [];
   for (const a of anexos) {
     const titulo = String(a?.que_crear || '').trim();
-    if (!titulo) continue;
+    if (!titulo || registroAdmin.esDuplicado(titulo)) continue;
+    registroAdmin.registrar(titulo);
     push({
       bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: titulo.slice(0, 280),
       descripcion: [a?.que_debe_contener, a?.por_que].filter(Boolean).join(' — ') || null,
@@ -201,14 +294,13 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
   const infaltables: any[] = Array.isArray(informe?.documentos_infaltables) ? informe.documentos_infaltables : [];
   for (const d of infaltables) {
     const titulo = String(d?.exige || '').trim();
-    if (!titulo) continue;
-    const clave = `anexo:${slug(titulo)}`;
-    if (items.some(i => i.claveOrigen === clave)) continue;   // ya vino por orden_anexos_propios
+    if (!titulo || registroAdmin.esDuplicado(titulo)) continue;   // ya vino por otra fuente
+    registroAdmin.registrar(titulo);
     push({
       bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: titulo.slice(0, 280),
       descripcion: d?.cubre || null, criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null,
       fuenteCita: d?.fuente || null, origen: 'viabilidad',
-      claveOrigen: clave, generable: true, lineaNumero: null,
+      claveOrigen: `anexo:${slug(titulo)}`, generable: true, lineaNumero: null,
     });
   }
 
@@ -252,7 +344,11 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     },
   ];
   for (const e of exigencias) {
-    if (!e.cond) continue;
+    // registroAdmin también, aunque estas 6 tengan clave fija propia (`adm:...`): la IA puede
+    // haber listado la MISMA garantía dentro de orden_anexos_propios con otra redacción, y sin
+    // este chequeo esta rama la duplicaba siempre — nunca comparaba contra lo ya generado.
+    if (!e.cond || registroAdmin.esDuplicado(e.titulo)) continue;
+    registroAdmin.registrar(e.titulo);
     push({
       bloque: 'ADMINISTRATIVO', tipo: e.tipo, titulo: e.titulo, descripcion: e.desc,
       criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null, fuenteCita: e.fuente,
@@ -265,16 +361,25 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     ...(Array.isArray(adm.bloqueantes) ? adm.bloqueantes : []),
     ...(Array.isArray(capaC.bloqueantes) ? capaC.bloqueantes : []),
   ];
+  // OJO: los bloqueantes NO se cruzan contra registroAdmin (a diferencia de las 3 fuentes de
+  // arriba). Un bloqueante suele CITAR el número de un anexo como contexto de la advertencia
+  // ("No firmar Anexo N°8", "Incumplir características críticas en Anexo N°4 es causal de
+  // inadmisibilidad") sin SER ese anexo — es un riesgo/consecuencia, no el documento en sí. El
+  // match por N° de formato los fusionaba con el documento real y se perdía la advertencia
+  // (caso real: varios negocios el 24-ago-2026). Solo se dedupea contra sí mismo, exacto — el
+  // problema que este loop resuelve es que adm.bloqueantes y capaC.bloqueantes pueden repetir la
+  // MISMA frase literal.
+  const clavesBloqueantes = new Set<string>();
   for (const b of bloqueantes) {
     const titulo = String(typeof b === 'string' ? b : (b?.item || b?.titulo || '')).trim();
-    if (!titulo) continue;
-    const clave = `bloqueante:${slug(titulo)}`;
-    if (items.some(i => i.claveOrigen === clave)) continue;
+    const claveLocal = slug(titulo);
+    if (!titulo || clavesBloqueantes.has(claveLocal)) continue;
+    clavesBloqueantes.add(claveLocal);
     push({
       bloque: 'ADMINISTRATIVO', tipo: 'dato', titulo: titulo.slice(0, 280),
       descripcion: (typeof b === 'object' && b?.efecto) || null, criticidad: 'ADMISIBILIDAD_DURA',
       ponderacion: null, fuenteCita: (typeof b === 'object' && b?.fuente) || null,
-      origen: 'viabilidad', claveOrigen: clave, generable: false, lineaNumero: null,
+      origen: 'viabilidad', claveOrigen: `bloqueante:${slug(titulo)}`, generable: false, lineaNumero: null,
     });
   }
 
