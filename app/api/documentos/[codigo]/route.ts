@@ -77,21 +77,22 @@ export async function DELETE(
       return NextResponse.json({ error: 'Falta la URL o el nombre del documento' }, { status: 400 });
 
     // Buscar el documento — SOLO si es propio (protege los oficiales de MP), o si el usuario lo
-    // subió a mano directamente en una caja oficial (origen_manual, ver POST /guardar).
+    // subió a mano directamente en una caja oficial (tabla documentos_origen_manual, migration-75,
+    // ver POST /guardar).
     let doc: any;
     try {
       const [rows] = await pool.query(
-        `SELECT id, documento_url_local, categoria, origen_manual
-           FROM documentos_cache
-          WHERE licitacion_codigo = ?
-            AND (documento_url_local = ? OR documento_nombre = ?)
+        `SELECT dc.id, dc.documento_url_local, dc.categoria, (om.documento_id IS NOT NULL) AS origen_manual
+           FROM documentos_cache dc
+           LEFT JOIN documentos_origen_manual om ON om.documento_id = dc.id
+          WHERE dc.licitacion_codigo = ?
+            AND (dc.documento_url_local = ? OR dc.documento_nombre = ?)
           LIMIT 1`,
         [codigoDec, url || '', nombre || '']
       );
       doc = (rows as any[])[0];
-    } catch (e: any) {
-      if (!String(e).toLowerCase().includes('unknown column')) throw e;
-      // Fallback: columna 'origen_manual' no existe aún (migración 75 pendiente).
+    } catch {
+      // Fallback: tabla 'documentos_origen_manual' no existe aún (migración 75 pendiente).
       const [rows] = await pool.query(
         `SELECT id, documento_url_local, categoria
            FROM documentos_cache
@@ -119,6 +120,8 @@ export async function DELETE(
     try { await borrarDocumentoR2(doc.documento_url_local); }
     catch (e) { console.warn(`[documentos:DELETE] R2 ${codigoDec}:`, String(e)); }
     await pool.query(`DELETE FROM documentos_cache WHERE id = ?`, [doc.id]);
+    // Limpia la marca en la tabla aparte (best-effort: si no existe la tabla, no hay nada que limpiar).
+    try { await pool.query(`DELETE FROM documentos_origen_manual WHERE documento_id = ?`, [doc.id]); } catch {}
 
     // Bitácora: borró un documento propio de esta licitación (best-effort).
     registrarActividad({
@@ -158,13 +161,14 @@ export async function PATCH(
     let doc: any;
     try {
       const [rows] = await pool.query(
-        `SELECT id, documento_nombre, categoria, origen_manual FROM documentos_cache
-          WHERE licitacion_codigo = ? AND (documento_url_local = ? OR documento_nombre = ?) LIMIT 1`,
+        `SELECT dc.id, dc.documento_nombre, dc.categoria, (om.documento_id IS NOT NULL) AS origen_manual
+           FROM documentos_cache dc
+           LEFT JOIN documentos_origen_manual om ON om.documento_id = dc.id
+          WHERE dc.licitacion_codigo = ? AND (dc.documento_url_local = ? OR dc.documento_nombre = ?) LIMIT 1`,
         [codigoDec, url || '', nombre || '']);
       doc = (rows as any[])[0];
-    } catch (e: any) {
-      if (!String(e).toLowerCase().includes('unknown column')) throw e;
-      // Fallback: columna 'origen_manual' no existe aún (migración 75 pendiente).
+    } catch {
+      // Fallback: tabla 'documentos_origen_manual' no existe aún (migración 75 pendiente).
       const [rows] = await pool.query(
         `SELECT id, documento_nombre, categoria FROM documentos_cache
           WHERE licitacion_codigo = ? AND (documento_url_local = ? OR documento_nombre = ?) LIMIT 1`,

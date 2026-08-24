@@ -14,16 +14,20 @@ export async function GET(
   try {
     let rows: unknown[];
     try {
+      // origen_manual viene de una tabla aparte (documentos_origen_manual, migration-75), no de
+      // una columna en documentos_cache — ver el porqué en esa migración.
       [rows] = await pool.query(
-        `SELECT id, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, origen_manual, created_at
-         FROM documentos_cache
-         WHERE licitacion_codigo = ?
-         ORDER BY created_at ASC`,
+        `SELECT dc.id, dc.documento_nombre, dc.documento_url_local, dc.size_bytes, dc.categoria, dc.subcategoria,
+                (om.documento_id IS NOT NULL) AS origen_manual, dc.created_at
+         FROM documentos_cache dc
+         LEFT JOIN documentos_origen_manual om ON om.documento_id = dc.id
+         WHERE dc.licitacion_codigo = ?
+         ORDER BY dc.created_at ASC`,
         [codigo]
       ) as any[];
     } catch {
       try {
-        // columna 'origen_manual' no existe aún (migración 75 pendiente) — fallback sin ella
+        // tabla 'documentos_origen_manual' no existe aún (migración 75 pendiente) — fallback sin ella
         [rows] = await pool.query(
           `SELECT id, documento_nombre, documento_url_local, size_bytes, categoria, subcategoria, created_at
            FROM documentos_cache
