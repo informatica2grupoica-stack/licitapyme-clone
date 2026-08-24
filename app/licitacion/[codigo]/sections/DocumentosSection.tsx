@@ -31,8 +31,14 @@ type DocLicitacion = DocumentoAdjunto & { categoria?: string; origen_manual?: bo
 // ANEXOS_OFERENTE, y la idea es que esto funcione con cualquier licitación, no solo el caso
 // prolijo. Los documentos propios (generados/subidos) quedan afuera porque este botón solo se
 // conecta en la grilla de "Documentos y Bases" (docsLicitacion), nunca en la de Propios.
+//
+// PDF (24-ago-2026): además de Word, un PDF ESCANEADO también es candidato — en una licitación
+// pública el documento que se sube tiene que ser el MISMO oficial, así que para PDF el motor
+// (anexos-pdf-rellenar.ts) escribe encima del original en vez de convertirlo a Word. El botón es
+// el mismo (Wand2); qué endpoint llama al hacer clic se decide en DocumentosSection según la
+// extensión — ver el wrapper de onRellenarAnexo más abajo.
 function esAnexoRellenable(doc: DocLicitacion): boolean {
-  return /\.docx?$/i.test(doc.nombre || '') && doc.id != null;
+  return /\.(docx?|pdf)$/i.test(doc.nombre || '') && doc.id != null;
 }
 
 // "Separar anexos" ADEMÁS acepta PDF (14-ago-2026, pedido explícito del usuario: "sacar los
@@ -1313,6 +1319,38 @@ export function DocumentosSection({
   const [iaDoc, setIaDoc] = useState<{ nombre: string; url: string } | null>(null);
   // Anexo de oferente abierto en la pantalla de relleno (modal). null = cerrado.
   const [anexoDoc, setAnexoDoc] = useState<AnexoDoc | null>(null);
+  // Nombre del PDF que se está rellenando ahora mismo (null = ninguno) — evita doble clic
+  // mientras corre el OCR (puede tardar 10-30s), sin necesidad de un modal propio todavía.
+  const [generandoPdf, setGenerandoPdf] = useState<string | null>(null);
+  // El botón de rellenar (Wand2) es el mismo para Word y PDF — acá se decide a qué motor va cada
+  // clic. PDF: en una licitación pública el documento que se sube tiene que ser el MISMO oficial,
+  // así que /api/anexos/rellenar-pdf escribe encima del original (sin pantalla de revisión
+  // todavía — el resultado queda en "Documentos para MP" para revisar a mano antes de subirlo).
+  // Word: sigue el camino de siempre, abre el modal de relleno con revisión campo por campo.
+  const handleRellenarAnexo = async (doc: AnexoDoc) => {
+    if (!/\.pdf$/i.test(doc.nombre)) { setAnexoDoc(doc); return; }
+    if (!empresaId) { toast.error('Falta la empresa asignada a esta licitación'); return; }
+    if (generandoPdf) return;
+    setGenerandoPdf(doc.nombre);
+    toast.info('Rellenando el PDF…', 'Puede tardar hasta medio minuto (lee el documento con OCR).');
+    try {
+      const r = await fetch('/api/anexos/rellenar-pdf', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: codigoDecoded, documentoId: doc.id, empresaId }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo rellenar el PDF'); return; }
+      toast.success(
+        `PDF rellenado — ${d.completados}/${d.totalDetectados} casillas`,
+        'Revísalo en «Documentos para MP» antes de subirlo a Mercado Público — todavía no hay pantalla de revisión.',
+      );
+      fetchDocumentos();
+    } catch (e: any) {
+      toast.error('Error de red al rellenar el PDF', e?.message);
+    } finally {
+      setGenerandoPdf(null);
+    }
+  };
   // Documento elegido para mandar al Auditor Técnico — abre el selector de punto (SelectorPuntoAuditor).
   const [enviandoDoc, setEnviandoDoc] = useState<{ nombre: string; url: string } | null>(null);
   // Si el punto elegido es una LÍNEA TÉCNICA (ficha de producto), no basta con "adjuntar y
@@ -1548,7 +1586,7 @@ export function DocumentosSection({
               onView={verYRegistrar}
               onOpenIA={setIaDoc}
               onRefrescar={fetchDocumentos}
-              onRellenarAnexo={isAdmin ? setAnexoDoc : undefined}
+              onRellenarAnexo={isAdmin ? handleRellenarAnexo : undefined}
               onSepararAnexo={isAdmin ? true : undefined}
               onEnviarAuditor={isAdmin && negocioId ? setEnviandoDoc : undefined}
               modo="licitacion"

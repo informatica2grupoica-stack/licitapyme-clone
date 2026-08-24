@@ -112,21 +112,20 @@ export async function cargarDocumentoBaseParaSeparar(codigo: string, documentoId
   return { bufferOriginal: bufferDescargado, nombreOriginal: nombre };
 }
 
-export async function cargarDocumentoYEmpresa(
-  codigo: string,
-  documentoId: string,
-  empresaId: string,
-): Promise<DocumentoYEmpresa> {
-  const { bufferOriginal, nombreOriginal } = await cargarDocumentoBase(codigo, documentoId);
-
-  // `empresaId` viaja como parámetro del cliente (query string en /analizar, body en /generar) sin
-  // ningún cruce contra la licitación — auditoría 12-ago-2026: a diferencia de `documentoId` (que
-  // SÍ está scopeado arriba con `AND licitacion_codigo = ?`), nada impedía pedir el anexo de ESTA
-  // licitación con los datos de CUALQUIER otra empresa activa del sistema. Las dos rutas son
-  // admin-only, así que no es una fuga entre tenants (un admin ya puede ver cualquier empresa),
-  // pero sí un guardarraíl de negocio real: sin esto, un `empresaId` viejo/equivocado en el cliente
-  // genera en silencio un anexo legal con la razón social/RUT de OTRA empresa. Mismo criterio de
-  // "activo, el más reciente" que ya usa el guardarraíl de congelamiento en /api/anexos/generar.
+// `empresaId` viaja como parámetro del cliente (query string en /analizar, body en /generar) sin
+// ningún cruce contra la licitación — auditoría 12-ago-2026: a diferencia de `documentoId` (que
+// SÍ está scopeado arriba con `AND licitacion_codigo = ?`), nada impedía pedir el anexo de ESTA
+// licitación con los datos de CUALQUIER otra empresa activa del sistema. Las dos rutas son
+// admin-only, así que no es una fuga entre tenants (un admin ya puede ver cualquier empresa),
+// pero sí un guardarraíl de negocio real: sin esto, un `empresaId` viejo/equivocado en el cliente
+// genera en silencio un anexo legal con la razón social/RUT de OTRA empresa. Mismo criterio de
+// "activo, el más reciente" que ya usa el guardarraíl de congelamiento en /api/anexos/generar.
+//
+// Extraído a su propio helper (antes vivía inline en cargarDocumentoYEmpresa) para que el relleno
+// de PDF escaneado (cargarDocumentoPdfYEmpresa, anexos-pdf-rellenar.ts) lo reuse tal cual: la
+// ficha de empresa enriquecida (ciudad/comuna, fecha_hoy, datos de la licitación) es la MISMA sea
+// cual sea el formato del documento que se está rellenando.
+export async function cargarEmpresaEnriquecida(codigo: string, empresaId: string): Promise<EmpresaCampos> {
   const [negocioRows] = await pool.query(
     `SELECT empresa_id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`,
     [codigo],
@@ -148,8 +147,8 @@ export async function cargarDocumentoYEmpresa(
   const empresaCruda = (empRows as any[])[0] as EmpresaCampos | undefined;
   if (!empresaCruda) throw new Error('Empresa no encontrada');
   // Ciudad/comuna (extraídas de la dirección), región completa y fecha de hoy — ver
-  // anexos-derivados.ts. Se agregan ACÁ, en el único puente que usan las dos rutas
-  // (analizar/generar), para que ninguna pueda quedarse con el registro crudo por olvido.
+  // anexos-derivados.ts. Se agregan ACÁ, en el único puente que usan las rutas de relleno
+  // (analizar/generar/PDF), para que ninguna pueda quedarse con el registro crudo por olvido.
   // Los datos de LA LICITACIÓN (código, organismo, monto, fechas — ver obtenerLicitacionParaAnexo)
   // se fusionan en el mismo punto, por la misma razón.
   //
@@ -163,8 +162,43 @@ export async function cargarDocumentoYEmpresa(
   // sin cierre disponible (MP lento/caído, o licitación sin fecha), se degrada al reloj real, igual
   // que siempre.
   const { campos: datosLicitacion, fechaCierre } = await obtenerLicitacionParaAnexo(codigo);
-  const empresa = { ...conCamposDerivados(empresaCruda, fechaCierre ?? undefined), ...datosLicitacion };
+  return { ...conCamposDerivados(empresaCruda, fechaCierre ?? undefined), ...datosLicitacion };
+}
 
+export async function cargarDocumentoYEmpresa(
+  codigo: string,
+  documentoId: string,
+  empresaId: string,
+): Promise<DocumentoYEmpresa> {
+  const { bufferOriginal, nombreOriginal } = await cargarDocumentoBase(codigo, documentoId);
+  const empresa = await cargarEmpresaEnriquecida(codigo, empresaId);
+  return { bufferOriginal, nombreOriginal, empresa };
+}
+
+// Carga el PDF crudo (sin conversión, sin OCR) de la licitación — para el relleno de PDF
+// ESCANEADO (anexos-pdf-rellenar.ts), que escribe directo sobre el documento original y por eso
+// nunca pasa por LibreOffice (a diferencia de cargarDocumentoBaseParaSeparar). Rechaza cualquier
+// archivo que no sea .pdf: para .doc/.docx ya existe el camino de siempre (cargarDocumentoYEmpresa).
+export async function cargarDocumentoPdfYEmpresa(
+  codigo: string,
+  documentoId: string,
+  empresaId: string,
+): Promise<DocumentoYEmpresa> {
+  const [docRows] = await pool.query(
+    `SELECT documento_nombre, documento_url_local
+       FROM documentos_cache WHERE id = ? AND licitacion_codigo = ? LIMIT 1`,
+    [documentoId, codigo],
+  );
+  const doc = (docRows as any[])[0];
+  if (!doc) throw new Error('Documento no encontrado en esta licitación');
+  const nombreOriginal: string = doc.documento_nombre || '';
+  if (!/\.pdf$/i.test(nombreOriginal)) throw new Error('Solo se soporta PDF en este camino, este documento no lo es');
+
+  const resDoc = await fetch(doc.documento_url_local);
+  if (!resDoc.ok) throw new Error(`No se pudo bajar el documento original (HTTP ${resDoc.status})`);
+  const bufferOriginal = Buffer.from(await resDoc.arrayBuffer());
+
+  const empresa = await cargarEmpresaEnriquecida(codigo, empresaId);
   return { bufferOriginal, nombreOriginal, empresa };
 }
 
