@@ -603,3 +603,58 @@ export async function enviarAvisoOrdenesCompra(p: OrdenCompraEmail): Promise<boo
     return false;
   }
 }
+
+// ── Resultado de licitación (ganada / perdida / apertura) ──────────────────────────────────
+// Antes estos 3 eventos SOLO empujaban a la campana (historial_eventos) del perfil asignado —
+// nadie recibía correo, y los admins no se enteraban salvo que fueran ellos el asignado. Ver
+// app/lib/avisar-resultado-licitacion.ts, que llama esto además de registrarEvento().
+export type TipoResultadoLicitacion = 'ganada' | 'perdida' | 'apertura';
+
+interface ResultadoLicitacionEmail {
+  to: string; nombre?: string | null; tipo: TipoResultadoLicitacion;
+  codigo: string; licitacionNombre?: string | null; organismo?: string | null; monto?: number | null;
+}
+
+const TITULOS_RESULTADO: Record<TipoResultadoLicitacion, { asunto: string; titulo: string; acento: string }> = {
+  ganada:   { asunto: '🏆 ¡Adjudicada!',        titulo: '🏆 ¡Adjudicada!',              acento: '#059669' },
+  perdida:  { asunto: '📄 Resultado publicado', titulo: '📄 Resultado publicado',       acento: '#6b7280' },
+  apertura: { asunto: '📂 Apertura realizada',  titulo: '📂 Apertura realizada',        acento: C_INDIGO },
+};
+
+function plantillaResultadoLicitacion(p: ResultadoLicitacionEmail, appUrl: string): string {
+  const url = appUrl ? `${appUrl.replace(/\/$/, '')}/licitacion/${encodeURIComponent(p.codigo)}` : '';
+  const t = TITULOS_RESULTADO[p.tipo];
+  const frase = p.tipo === 'ganada'
+    ? `Ganamos esta licitación${p.monto ? ` · ${fmtMonto(p.monto)}` : ''}.`
+    : p.tipo === 'perdida'
+      ? 'Mercado Público publicó el resultado: se adjudicó a terceros.'
+      : 'Ya se abrió y se pueden revisar las ofertas de la competencia.';
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">${esc(frase)}</p>
+    ${cardLicitacion({ codigo: p.codigo, nombre: p.licitacionNombre, organismo: p.organismo, monto: p.tipo === 'ganada' ? p.monto : null })}`;
+  return layoutEmail({
+    titulo: t.titulo,
+    cuerpo,
+    cta: url ? { label: 'Ver la licitación', url } : undefined,
+  });
+}
+
+/** Envía el aviso de ganada/perdida/apertura a UN destinatario. Devuelve true si se envió. */
+export async function enviarAvisoResultadoLicitacion(p: ResultadoLicitacionEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — aviso de resultado omitido'); return false; }
+  if (!p.to) return false;
+  try {
+    await t.sendMail({
+      from: FROM(),
+      to: p.to,
+      subject: `${TITULOS_RESULTADO[p.tipo].asunto}: ${p.licitacionNombre || p.codigo}`,
+      html: plantillaResultadoLicitacion(p, process.env.NEXT_PUBLIC_APP_URL || ''),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío de aviso de resultado falló:', String(e));
+    return false;
+  }
+}

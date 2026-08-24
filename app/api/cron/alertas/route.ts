@@ -24,7 +24,7 @@ import { matchearEInsertar } from '@/app/lib/radar-matching';
 import { enviarDigestRadar } from '@/app/lib/email';
 import { avisarCierresProximos } from '@/app/lib/cierres-proximos';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
-import { refrescarEstadosAsignadas, refrescarEstadosRadar, marcarCerradasPorFecha } from '@/app/lib/refrescar-estados';
+import { refrescarEstadosRadar, marcarCerradasPorFecha } from '@/app/lib/refrescar-estados';
 
 // PISO del aviso "cierra pronto" (campana + correo por perfil), en horas. La regla
 // principal es proporcional (65% del plazo publicación→cierre, ver cierres-proximos.ts);
@@ -296,7 +296,6 @@ export async function GET(request: NextRequest) {
     postAdjudicadas:        0,   // postuladas auto-promovidas a ADJUDICADA (ganamos)
     postPerdidas:           0,   // postuladas auto-promovidas a PERDIDA (a terceros)
     cerradasPorFecha:       0,   // filas marcadas Cerrada por fecha (barrido determinista, sin API)
-    estadosActualizados:    0,   // asignadas con licitacion_estado refrescado desde la API (Capa 2)
     estadosRadar:           0,   // radar (no asignadas) refrescadas desde la API (rodante)
     errores:                0,
     duracionMs:             0,
@@ -605,25 +604,10 @@ export async function GET(request: NextRequest) {
       console.error('[Cron] barrido cerradas por fecha falló (no crítico):', String(e));
     }
 
-    // ── Paso 9b: Estado AUTORITATIVO de MP para ASIGNADAS (Capa 2) ─────────────────────
-    // Por cada asignada viva, 1 llamada a MP; si el estado real es DEFINITIVO (Cerrada/Desierta/
-    // Adjudicada/Revocada/Suspendida) y difiere del cacheado, actualiza licitacion_estado en
-    // negocios Y alertas → el badge se ve real en detalle, lista, radar y buscador. Best-effort.
-    {
-      const restante = MAX_DURATION_MS - elapsed();
-      if (restante < PRESUPUESTO_MIN_MS) {
-        console.warn(`[Cron] ⏭ Estados MP asignadas omitido — sin presupuesto (${restante}ms)`);
-      } else {
-        try {
-          const re = await refrescarEstadosAsignadas({ presupuestoMs: restante });
-          stats.estadosActualizados = re.actualizadas;
-          if (re.actualizadas > 0)
-            console.log(`[Cron] 🔄 Estados MP asignadas: ${re.actualizadas} actualizadas (${re.codigos} códigos)`);
-        } catch (e) {
-          console.error('[Cron] refrescar estados asignadas falló (no crítico):', String(e));
-        }
-      }
-    }
+    // ── Paso 9b: Estado AUTORITATIVO de MP para ASIGNADAS (Capa 2) — MOVIDO a su propio cron
+    // horario (ago-2026): /api/cron/estados-asignadas, ver ese archivo para el porqué (era la vía
+    // que más tardaba en avisar "Adjudicada" al correr solo cada 4h junto al intake). Este paso
+    // ya NO corre aquí para no duplicar las mismas llamadas a MP dos veces en la misma ventana.
 
     // ── Paso 9c: Estado desde la API para el RADAR completo (rodante, acotado) ────────
     // Lote por corrida (recientes primero) para capturar Revocada/Desierta/Adjudicada en TODO el

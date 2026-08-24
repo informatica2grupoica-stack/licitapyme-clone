@@ -9,6 +9,9 @@ import { registrarActividad, userIdFromHeaders } from '@/app/lib/actividad';
 // borrables/renombrables por igual. Las 3 de anexos separados (ver anexos-dividir.ts
 // `clasificarAnexo` + POST /api/anexos/separar) quedan en "Documentos y Bases", no en
 // DOCUMENTOS_PROPIOS, pero son igual de nuestras — mismo Set espejado en DocumentosSection.tsx.
+// Además de esta lista fija por categoría, un documento con origen_manual=1 (subido a mano
+// directo en una caja oficial, ver POST /api/documentos/guardar) es borrable/renombrable igual,
+// sea cual sea su categoría — se resuelve por fila, no aquí.
 const CATS_PROPIAS = new Set(['DOCUMENTOS_PROPIOS', 'ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS']);
 
 export async function GET(
@@ -73,22 +76,39 @@ export async function DELETE(
     if (!url && !nombre)
       return NextResponse.json({ error: 'Falta la URL o el nombre del documento' }, { status: 400 });
 
-    // Buscar el documento — SOLO si es propio (protege los oficiales de MP).
-    const [rows] = await pool.query(
-      `SELECT id, documento_url_local, categoria
-         FROM documentos_cache
-        WHERE licitacion_codigo = ?
-          AND (documento_url_local = ? OR documento_nombre = ?)
-        LIMIT 1`,
-      [codigoDec, url || '', nombre || '']
-    );
-    const doc = (rows as any[])[0];
+    // Buscar el documento — SOLO si es propio (protege los oficiales de MP), o si el usuario lo
+    // subió a mano directamente en una caja oficial (origen_manual, ver POST /guardar).
+    let doc: any;
+    try {
+      const [rows] = await pool.query(
+        `SELECT id, documento_url_local, categoria, origen_manual
+           FROM documentos_cache
+          WHERE licitacion_codigo = ?
+            AND (documento_url_local = ? OR documento_nombre = ?)
+          LIMIT 1`,
+        [codigoDec, url || '', nombre || '']
+      );
+      doc = (rows as any[])[0];
+    } catch (e: any) {
+      if (!String(e).toLowerCase().includes('unknown column')) throw e;
+      // Fallback: columna 'origen_manual' no existe aún (migración 75 pendiente).
+      const [rows] = await pool.query(
+        `SELECT id, documento_url_local, categoria
+           FROM documentos_cache
+          WHERE licitacion_codigo = ?
+            AND (documento_url_local = ? OR documento_nombre = ?)
+          LIMIT 1`,
+        [codigoDec, url || '', nombre || '']
+      );
+      doc = (rows as any[])[0];
+    }
     if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
 
-    // Se pueden borrar los propios; el costeo con precios (COSTEO_ADMIN) solo el admin.
+    // Se pueden borrar los propios; el costeo con precios (COSTEO_ADMIN) solo el admin;
+    // y cualquier documento subido a mano por el usuario (origen_manual), sea cual sea su caja.
     const cat = (doc.categoria || '').toUpperCase();
     const esAdmin = request.headers.get('x-user-rol') === 'admin';
-    const borrable = CATS_PROPIAS.has(cat) || (cat === 'COSTEO_ADMIN' && esAdmin);
+    const borrable = CATS_PROPIAS.has(cat) || (cat === 'COSTEO_ADMIN' && esAdmin) || !!doc.origen_manual;
     if (!borrable)
       return NextResponse.json(
         { error: 'Solo se pueden eliminar documentos propios; los oficiales de Mercado Público están protegidos.' },
@@ -135,13 +155,24 @@ export async function PATCH(
     if ((!url && !nombre) || !nuevoNombre)
       return NextResponse.json({ error: 'Falta identificar el documento o el nuevo nombre' }, { status: 400 });
 
-    const [rows] = await pool.query(
-      `SELECT id, documento_nombre, categoria FROM documentos_cache
-        WHERE licitacion_codigo = ? AND (documento_url_local = ? OR documento_nombre = ?) LIMIT 1`,
-      [codigoDec, url || '', nombre || '']);
-    const doc = (rows as any[])[0];
+    let doc: any;
+    try {
+      const [rows] = await pool.query(
+        `SELECT id, documento_nombre, categoria, origen_manual FROM documentos_cache
+          WHERE licitacion_codigo = ? AND (documento_url_local = ? OR documento_nombre = ?) LIMIT 1`,
+        [codigoDec, url || '', nombre || '']);
+      doc = (rows as any[])[0];
+    } catch (e: any) {
+      if (!String(e).toLowerCase().includes('unknown column')) throw e;
+      // Fallback: columna 'origen_manual' no existe aún (migración 75 pendiente).
+      const [rows] = await pool.query(
+        `SELECT id, documento_nombre, categoria FROM documentos_cache
+          WHERE licitacion_codigo = ? AND (documento_url_local = ? OR documento_nombre = ?) LIMIT 1`,
+        [codigoDec, url || '', nombre || '']);
+      doc = (rows as any[])[0];
+    }
     if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 });
-    if (!CATS_PROPIAS.has((doc.categoria || '').toUpperCase()))
+    if (!CATS_PROPIAS.has((doc.categoria || '').toUpperCase()) && !doc.origen_manual)
       return NextResponse.json({ error: 'Solo se pueden renombrar documentos propios.' }, { status: 403 });
 
     // Conserva la extensión original si el nuevo nombre no la trae.

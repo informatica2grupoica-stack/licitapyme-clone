@@ -27,10 +27,12 @@
 import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { registrarEvento } from '@/app/lib/historial';
+import { ahoraChileSQL } from '@/app/lib/tz';
 import { construirDesdeLicitacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
 import { abrirEntregaSiCorresponde } from '@/app/lib/entrega-proyecto';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { idsEquivalentes, normalizarEstado } from '@/app/lib/pipeline';
+import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
 
 // IDs (vigente + legados) que cuentan como "postulada" / "adjudicada" / "perdida" — ver misma
 // nota en detectar-aperturas.ts.
@@ -50,6 +52,7 @@ interface FilaPostulada {
   licitacion_nombre: string | null;
   asignado_a: number;
   usuario_nombre: string | null;
+  usuario_email: string | null;
 }
 
 function fmtCLP(n: number | null | undefined): string {
@@ -90,18 +93,23 @@ export async function procesarPostuladas(
     // consultadas primero (NULL), después las más antiguas— hace que el presupuesto ROTE: lo que
     // no alcanzó hoy queda de primero mañana. Con eso la cobertura es completa aunque cada corrida
     // solo alcance a mirar una parte.
+    // OJO ZONA HORARIA: NO comparar contra NOW() del servidor MySQL de Bluehost — corre en OTRA
+    // zona (verificado en vivo: 2h atrasado respecto a Chile), así que una licitación recién
+    // se consideraba "cerrada" (elegible para revisar) hasta 2h después de que cerró de verdad
+    // en Chile. Se pasa la hora de pared chilena como parámetro (mismo patrón que el resto del
+    // código, ver app/lib/tz.ts).
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a,
-              u.nombre AS usuario_nombre
+              u.nombre AS usuario_nombre, u.email AS usuario_email
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
        LEFT JOIN adjudicacion_cache c
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN (${IN_POSTULADA})
-         ${soloCerradas ? 'AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < NOW()' : ''}
+         ${soloCerradas ? 'AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < ?' : ''}
        ORDER BY (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
-      ESTADOS_POSTULADA,
+      soloCerradas ? [...ESTADOS_POSTULADA, ahoraChileSQL()] : ESTADOS_POSTULADA,
     ) as any[];
     filas = rows as FilaPostulada[];
   } catch (e) {
@@ -181,6 +189,12 @@ export async function procesarPostuladas(
               monto_nuestro: adj.montoNuestro, url_acta: adj.adjudicacion?.urlActa ?? null,
             },
           });
+          // Correo (asignado+admins) + WhatsApp (admins). Best-effort, no bloquea el cron.
+          await avisarResultadoLicitacion({
+            tipo: adj.ganamos ? 'ganada' : 'perdida',
+            codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
+            asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
+          });
         }
       }
     } catch (e) {
@@ -221,7 +235,7 @@ async function reconfirmarResueltasSinCache(
   try {
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a, n.estado_pipeline,
-              u.nombre AS usuario_nombre
+              u.nombre AS usuario_nombre, u.email AS usuario_email
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
        LEFT JOIN adjudicacion_cache c
@@ -285,6 +299,11 @@ async function reconfirmarResueltasSinCache(
             monto_nuestro: adj.montoNuestro, url_acta: adj.adjudicacion?.urlActa ?? null,
             corregido_desde: n.estado_pipeline,
           },
+        });
+        await avisarResultadoLicitacion({
+          tipo: adj.ganamos ? 'ganada' : 'perdida',
+          codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
+          asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
         });
       }
     } catch (e) {

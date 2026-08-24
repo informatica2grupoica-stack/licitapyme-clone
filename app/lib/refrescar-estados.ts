@@ -21,6 +21,10 @@ import { CODIGO_ESTADO_MP, codigoEstadoMP } from '@/app/lib/estado-mp';
 import { registrarActividad } from '@/app/lib/actividad';
 import { registrarEvento } from '@/app/lib/historial';
 import { enviarCorreoCambio } from '@/app/lib/email';
+import { ahoraChileSQL } from '@/app/lib/tz';
+import { construirDesdeLicitacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
+import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
+import type { Licitacion } from '@/app/types/mercado-publico.types';
 
 const CODIGO_CONCURRENCIA = 4;       // detalles de MP consultados en paralelo
 const PRESUPUESTO_MS       = 25_000; // tope de tiempo del paso (margen bajo maxDuration del cron)
@@ -81,6 +85,9 @@ function normNombre(s: string | number | null | undefined): string {
   return (s ?? '').toString().normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 }
 
+const fmtCLP = (n: number) =>
+  new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+
 // Nombre canónico del estado DEFINITIVO de la licitación (uno de los 5 terminales), o null si sigue
 // publicada / no es terminal. Por NOMBRE primero (robusto ante códigos MP variables), luego por código.
 function estadoDefinitivoCanonico(lic: { EstadoNombre?: string; CodigoEstado?: number | null }): string | null {
@@ -101,19 +108,27 @@ function estadoDefinitivoCanonico(lic: { EstadoNombre?: string; CodigoEstado?: n
 // (Revocada/Desierta/Adjudicada) se refrescan desde la API por separado, y esos SÍ notifican (asignadas).
 export async function marcarCerradasPorFecha(): Promise<{ negocios: number; radar: number }> {
   // Publicada, código '5', o sin estado; con cierre en el pasado.
+  //
+  // OJO ZONA HORARIA: NO comparar contra NOW() del servidor MySQL de Bluehost — corre en OTRA
+  // zona (verificado: 2h atrasado respecto a Chile) y con eso una licitación recién se
+  // considera "cerrada" hasta 2h después de que cerró de verdad. Se pasa la hora de pared
+  // chilena como parámetro (mismo patrón que el resto del código, ver app/lib/tz.ts).
   const pub = `(licitacion_estado IS NULL OR licitacion_estado IN ('Publicada','5'))`;
-  const venc = `licitacion_cierre IS NOT NULL AND licitacion_cierre < NOW()`;
+  const venc = `licitacion_cierre IS NOT NULL AND licitacion_cierre < ?`;
+  const ahora = ahoraChileSQL();
   let negocios = 0, radar = 0;
   try {
     // OJO: NO se toca updated_at (evita falsear el semáforo de frescura del negocio).
     const [rn] = await pool.query(
       `UPDATE negocios SET licitacion_estado = 'Cerrada' WHERE activo = TRUE AND ${pub} AND ${venc}`,
+      [ahora],
     ) as any[];
     negocios = (rn as any)?.affectedRows ?? 0;
   } catch (e) { console.error('[refrescar-estados] barrido negocios falló:', String(e)); }
   try {
     const [rr] = await pool.query(
       `UPDATE alertas_licitaciones SET licitacion_estado = 'Cerrada' WHERE ${pub} AND ${venc}`,
+      [ahora],
     ) as any[];
     radar = (rr as any)?.affectedRows ?? 0;
   } catch (e) { console.error('[refrescar-estados] barrido radar falló:', String(e)); }
@@ -194,7 +209,7 @@ async function persistirCambioFechaCierre(codigo: string, fechaCierreRaw: string
 // notificar: si dispara campana/correo/historial cuando hay transición. true para asignadas en vivo
 // (cron/on-demand); false para BACKFILL inicial (evita inundar de correos por cambios históricos) y
 // para el barrido del radar (no hay a quién avisar de 10k licitaciones no asignadas).
-async function persistirYNotificar(codigo: string, nombre: string, notificar = true): Promise<boolean> {
+async function persistirYNotificar(codigo: string, nombre: string, notificar = true, lic?: Licitacion): Promise<boolean> {
   const [res] = await pool.query(
     `UPDATE negocios SET licitacion_estado = ?, updated_at = NOW()
      WHERE licitacion_codigo = ? AND activo = TRUE
@@ -213,14 +228,23 @@ async function persistirYNotificar(codigo: string, nombre: string, notificar = t
 
   // Solo notificamos si cambió un NEGOCIO (hay a quién avisar); el radar puro no notifica.
   if (cambioNegocio && notificar) {
-    await notificarCambioEstado(codigo, nombre).catch(e =>
+    await notificarCambioEstado(codigo, nombre, lic).catch(e =>
       console.error(`[refrescar-estados] notificar "${codigo}" falló:`, String(e)));
   }
   return cambioNegocio || cambioRadar;
 }
 
 // Bitácora + campana + correo cuando MP cambia el estado a uno terminal. Best-effort.
-async function notificarCambioEstado(codigo: string, nombre: string): Promise<void> {
+//
+// CASO ESPECIAL 'Adjudicada' (agregado ago-2026, auditoría de latencia): esta ruta cubre TODOS
+// los negocios activos que NO llegaron a marcarse 'POSTULADA' en nuestro pipeline (ASIGNADO,
+// EN_PROCESO, POSIBLE_ADJ, ANEXOS) — medido en producción, es la vía que más "Adjudicada" detecta
+// (118 vs 68 de procesar-postuladas.ts en el histórico), pero antes NO distinguía ganamos/perdimos
+// (MP no lo dice directo, hay que cruzar RUT) y por eso tampoco mandaba correo (solo estaba en
+// ESTADOS_CON_CORREO Cerrada/Revocada/Desierta). Con `lic` ya disponible (misma llamada a MP,
+// sin costo extra) se reusa adjudicacion.ts para saber si ganamos y se dispara el MISMO aviso
+// (campana+correo, ver avisar-resultado-licitacion.ts) que procesar-postuladas.ts.
+async function notificarCambioEstado(codigo: string, nombre: string, lic?: Licitacion): Promise<void> {
   // Negocios activos del código (asignado + email + nombre de la licitación).
   const [nrows] = await pool.query(
     `SELECT n.licitacion_nombre, n.asignado_a, u.nombre AS usuario_nombre, u.email AS usuario_email
@@ -246,6 +270,39 @@ async function notificarCambioEstado(codigo: string, nombre: string): Promise<vo
     return;
   }
   const licNombre = negs[0]?.licitacion_nombre || codigo;
+
+  // 'Adjudicada': MP no dice directo si ganamos o perdimos (hay que cruzar RUT contra nuestras
+  // empresas) — reusa la misma lógica y el MISMO aviso (campana+correo) que procesar-postuladas.ts,
+  // en vez del genérico de abajo (que además nunca incluyó 'Adjudicada' en ESTADOS_CON_CORREO).
+  if (nombre === 'Adjudicada' && lic) {
+    try {
+      const adj = await enriquecer(construirDesdeLicitacion(lic, codigo));
+      await guardarCache(codigo, adj);
+      const mensaje = adj.ganamos
+        ? `🏆 ¡Adjudicada! Ganaste ${licNombre}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
+        : `Resultado publicado: ${licNombre} se adjudicó a terceros`;
+      for (const n of negs) {
+        if (!n.asignado_a) continue;
+        await registrarEvento({
+          tipo: 'RESULTADO_ADJUDICACION',
+          licitacionCodigo: codigo, licitacionNombre: licNombre,
+          usuarioId: n.asignado_a, usuarioNombre: n.usuario_nombre,
+          actorId: null, actorNombre: 'Mercado Público',
+          mensaje,
+          metadata: { licitacion_codigo: codigo, resultado: adj.ganamos ? 'ganada' : 'perdida', monto_nuestro: adj.montoNuestro },
+        }).catch(() => {});
+        await avisarResultadoLicitacion({
+          tipo: adj.ganamos ? 'ganada' : 'perdida',
+          codigo, nombre: licNombre, monto: adj.montoNuestro ?? null,
+          asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
+        });
+      }
+      return;
+    } catch (e) {
+      console.error(`[refrescar-estados] resultado adjudicación "${codigo}" falló, sigue aviso genérico:`, String(e));
+      // Sigue al flujo genérico de abajo como respaldo (al menos campana, sin distinguir ganamos/perdimos).
+    }
+  }
 
   // Admins (siempre reciben campana; y correo en los estados con correo).
   const [arows] = await pool.query(
@@ -413,7 +470,7 @@ export async function refrescarEstadosAsignadas(
       if (normNombre(fila.estado_cache) === normNombre(nombre)) return;
 
       // Persistir (negocios + alertas) y notificar UNA vez si fue transición real.
-      const cambio = await persistirYNotificar(codigo, nombre, notificar);
+      const cambio = await persistirYNotificar(codigo, nombre, notificar, lic);
       if (cambio) {
         stats.actualizadas++;
         console.log(`[refrescar-estados] ${codigo}: ${fila.estado_cache ?? '—'} → ${nombre}`);
@@ -455,7 +512,7 @@ export async function refrescarEstadoCodigo(
     const nombre = estadoDefinitivoCanonico(lic);
     if (!nombre) return null;
     if (normNombre(estadoCache) === normNombre(nombre)) return null;
-    const cambio = await persistirYNotificar(codigo, nombre);
+    const cambio = await persistirYNotificar(codigo, nombre, true, lic);
     if (cambio) console.log(`[refrescar-estados] on-demand ${codigo}: ${estadoCache ?? '—'} → ${nombre}`);
     // Devuelve el nombre aunque no haya "cambio" nuevo (otra corrida pudo escribirlo): el detalle
     // igual debe reflejar el estado terminal actual.

@@ -10,6 +10,7 @@
 //   Prefiltro              +1h       → 01,05,09,13,17,21  (1 hora DESPUÉS del intake)
 //   Viabilidad             +1h30     → 01:30,05:30,...    (30 min DESPUÉS del prefiltro)
 //   Descarga docs Negocios cada 2h   → reintenta las asignadas que quedaron sin docs
+//   Estados asignadas+Postuladas  cada 1h (:15) → ganada/perdida/apertura, máx 1h de atraso
 //   Órdenes de compra      1×/día 07:40 → busca la OC de las licitaciones que ya ofertamos
 //
 // Robustez:
@@ -97,6 +98,11 @@ async function jobViabilidadPerfil() { await loop('viabilidad (perfil piloto)', 
 // trae el foro de PREGUNTAS Y RESPUESTAS. Así Postuladas y las fichas de licitación —que leen
 // solo cache— quedan al día sin cargar nada al entrar.
 async function jobPostuladas() {
+  // Estados MP de las asignadas que NO llegaron a marcarse POSTULADA (ASIGNADO/EN_PROCESO/
+  // POSIBLE_ADJ/ANEXOS). Antes vivía dentro del intake de 4h — medido en producción, es la vía
+  // que MÁS "ganada/perdida" detecta (más que 'resultado postuladas' de abajo), así que quedaba
+  // como el verdadero cuello de botella de latencia. Va PRIMERO por prioridad.
+  await loop('estados asignadas',    '/api/cron/estados-asignadas', { maxPasadas: 1 });
   await loop('resultado postuladas', '/api/cron/procesar-postuladas', { maxPasadas: 1 });
   await loop('aperturas',            '/api/cron/aperturas', { lote: 40, maxPasadas: 20 });
   // F.2: entra a las aperturas recién detectadas y lee la tabla de ofertas. VA DESPUÉS de
@@ -128,7 +134,7 @@ cron.schedule('0 */4 * * *',    jobIntake,     opts);   // 00,04,08,12,16,20
 cron.schedule('30 */4 * * *',   jobEnriquecer, opts);   // +30 min
 cron.schedule('0 1-23/4 * * *', jobPrefiltro,  opts);   // 01,05,09,13,17,21 (1h después del intake)
 cron.schedule('0 */2 * * *',    jobDocsNeg,    opts);   // cada 2h: reintenta descargas de asignadas
-cron.schedule('15 * * * *',     jobPostuladas, opts);   // cada 1h (+15min): resultado + aperturas + preguntas
+cron.schedule('15 * * * *',     jobPostuladas, opts);   // cada 1h (+15min): estados asignadas + resultado + aperturas + preguntas
 cron.schedule('30 1-23/4 * * *', jobViabilidad, opts);  // 01:30,05:30,... (30 min DESPUÉS del prefiltro)
 cron.schedule('35 1-23/4 * * *', jobViabilidadPerfil, opts); // 01:35,05:35,... (5 min DESPUÉS del cron de sistema)
 // 07:40: temprano, para que el aviso de "salió la orden de compra" esté cuando se abre la app, y
@@ -138,7 +144,7 @@ cron.schedule('40 7 * * *',     jobOrdenesCompra, opts);
 cron.schedule('45 7 * * *',     jobComprasObuma, opts);
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · estados-asignadas+postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.

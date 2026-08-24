@@ -40,6 +40,22 @@ export function mimeDeNombre(nombre: string, fallback = 'application/octet-strea
   return MIME_POR_EXT[ext] || fallback;
 }
 
+// Content-Disposition con el nombre REAL del documento (no la key de R2, que lleva un timestamp
+// de prefijo para no pisar versiones). Sin esto, un <a download="nombre.pdf"> a una URL de OTRO
+// origen (R2 vive en su propio dominio) IGNORA el atributo `download` — es una regla del propio
+// HTML, solo aplica same-origin — y el navegador cae al último segmento de la URL como nombre de
+// archivo, o sea la key completa con el timestamp pegado al principio. `inline` (no `attachment`)
+// para no romper la previsualización de PDF/imagen en el visor; el nombre igual se usa cuando el
+// usuario guarda esa vista o el navegador la descarga. RFC 5987 (filename*=UTF-8''...) para que
+// tildes/ñ viajen bien — el header debe ser ASCII puro, por eso el `filename=` es una versión
+// transliterada de respaldo para navegadores viejos que no leen filename*.
+export function contentDispositionInline(nombre: string): string {
+  const ascii = nombre
+    .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^\x20-\x7E]/g, '_').replace(/"/g, "'");
+  return `inline; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(nombre)}`;
+}
+
 export async function subirDocumentoR2(
   licitacionCodigo: string,
   documentoNombre: string,
@@ -62,10 +78,9 @@ export async function subirDocumentoR2(
     Key: key,
     Body: buffer,
     ContentType: mimeFinal,
-    // inline → el navegador previsualiza (PDF/imagen) en vez de descargar.
-    // SIN filename: los headers HTTP deben ser ASCII y el nombre puede traer tildes/ñ
-    // (ej. "Vehículos"), lo que hace que R2 rechace el PutObject. El nombre ya va en la key.
-    ContentDisposition: 'inline',
+    // inline → el navegador previsualiza (PDF/imagen) en vez de descargar. Con nombre real
+    // (ver contentDispositionInline) para que la descarga no salga con el timestamp de la key.
+    ContentDisposition: contentDispositionInline(documentoNombre),
   }));
   
   const publicBase = process.env.R2_PUBLIC_URL || `https://pub-${process.env.R2_ACCOUNT_ID}.r2.dev`;
@@ -81,7 +96,10 @@ export async function subirDocumentoR2(
 // de la URL pública (los docs se sirven como ${publicBase}/${key}).
 export async function borrarDocumentoR2(publicUrl: string): Promise<void> {
   let key = '';
-  try { key = new URL(publicUrl).pathname.replace(/^\/+/, ''); } catch { return; }
+  // decodeURIComponent: el pathname de la URL viene percent-encoded (así se sirve por HTTP),
+  // pero la Key real en R2 son los caracteres UTF-8 tal cual (ej. "Ñandú", no "%C3%91and%C3%BA").
+  // Sin decodificar, el DeleteObject apunta a una key que no existe y el archivo queda huérfano.
+  try { key = decodeURIComponent(new URL(publicUrl).pathname.replace(/^\/+/, '')); } catch { return; }
   if (!key) return;
   await r2Client.send(new DeleteObjectCommand({ Bucket: process.env.R2_BUCKET_NAME, Key: key }));
 }

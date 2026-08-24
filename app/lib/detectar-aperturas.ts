@@ -17,6 +17,8 @@ import pool from '@/app/lib/db';
 import { registrarEvento } from '@/app/lib/historial';
 import { detectarAperturaPortal } from '@/app/lib/mp-apertura';
 import { idsEquivalentes } from '@/app/lib/pipeline';
+import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
+import { ahoraChileSQL } from '@/app/lib/tz';
 
 // IDs (vigente + legados) que cuentan como "postulada" en estas queries — sin esto, un registro
 // con id legado (ej. '7POSTULADO_JV') quedaba invisible sin error (auditoría ago-2026).
@@ -90,7 +92,7 @@ async function marcarYAvisar(codigo: string, aperturada: boolean, evidencia: str
   // Transición → aperturada: avisar a cada perfil que la postuló.
   try {
     const [rows] = await pool.query(
-      `SELECT n.asignado_a, n.licitacion_nombre, u.nombre AS usuario_nombre
+      `SELECT n.asignado_a, n.licitacion_nombre, u.nombre AS usuario_nombre, u.email AS usuario_email
        FROM negocios n JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
        WHERE n.activo = TRUE AND n.estado_pipeline IN (${IN_POSTULADA}) AND n.licitacion_codigo = ?`,
       [...ESTADOS_POSTULADA, codigo],
@@ -103,6 +105,12 @@ async function marcarYAvisar(codigo: string, aperturada: boolean, evidencia: str
         actorId: null, actorNombre: 'Mercado Público',
         mensaje: `📂 Apertura realizada: ${n.licitacion_nombre || codigo} — ya puedes revisar las ofertas`,
         metadata: { licitacion_codigo: codigo, evidencia },
+      });
+      // Correo (asignado+admins) + WhatsApp (admins). Best-effort, no bloquea el cron.
+      await avisarResultadoLicitacion({
+        tipo: 'apertura',
+        codigo, nombre: n.licitacion_nombre,
+        asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
       });
     }
   } catch (e) { console.error(`[detectar-aperturas] aviso ${codigo} falló:`, String(e)); }
@@ -161,9 +169,9 @@ export async function contarPendientesApertura(): Promise<number> {
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN (${IN_POSTULADA})
          AND n.licitacion_cierre IS NOT NULL
-         AND n.licitacion_cierre < NOW()
+         AND n.licitacion_cierre < ?
          AND (la.aperturada IS NULL OR la.aperturada = 0)`,
-      ESTADOS_POSTULADA,
+      [...ESTADOS_POSTULADA, ahoraChileSQL()],
     ) as any[];
     return Number((rows as any[])[0]?.n) || 0;
   } catch (e) {
@@ -191,12 +199,12 @@ export async function detectarAperturas(lote = 40): Promise<{
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN (${IN_POSTULADA})
          AND n.licitacion_cierre IS NOT NULL
-         AND n.licitacion_cierre < NOW()
+         AND n.licitacion_cierre < ?
          AND (la.aperturada IS NULL OR la.aperturada = 0)
        GROUP BY n.licitacion_codigo
        ORDER BY cierre DESC
        LIMIT ${Math.max(1, Math.min(lote, 200))}`,
-      ESTADOS_POSTULADA,
+      [...ESTADOS_POSTULADA, ahoraChileSQL()],
     ) as any[];
     codigos = (rows as any[]).map(r => r.codigo as string);
   } catch (e) {

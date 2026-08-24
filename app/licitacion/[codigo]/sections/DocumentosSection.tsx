@@ -20,12 +20,18 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { registrarVerDocumento } from '@/app/lib/actividad-cliente';
 
+// Documento de la licitación con los campos que solo existen en documentos_cache (no en la
+// API de MP): categoria (caja donde vive) y origen_manual (lo subió el usuario a mano
+// directamente en esa caja, a diferencia de lo descargado de Mercado Público — ver
+// CATS_BORRABLES más abajo, que ahora también respeta esta marca para habilitar "Eliminar").
+type DocLicitacion = DocumentoAdjunto & { categoria?: string; origen_manual?: boolean | number };
+
 // Cualquier Word (.doc o .docx) descargado de la licitación es candidato a rellenar — SIN
 // filtrar por categoría: el clasificador de MP a veces mete un anexo real fuera de
 // ANEXOS_OFERENTE, y la idea es que esto funcione con cualquier licitación, no solo el caso
 // prolijo. Los documentos propios (generados/subidos) quedan afuera porque este botón solo se
 // conecta en la grilla de "Documentos y Bases" (docsLicitacion), nunca en la de Propios.
-function esAnexoRellenable(doc: DocumentoAdjunto & { categoria?: string }): boolean {
+function esAnexoRellenable(doc: DocLicitacion): boolean {
   return /\.docx?$/i.test(doc.nombre || '') && doc.id != null;
 }
 
@@ -35,7 +41,7 @@ function esAnexoRellenable(doc: DocumentoAdjunto & { categoria?: string }): bool
 // A propósito NO se reusa para "rellenar": un PDF convertido es una aproximación de LibreOffice,
 // no la estructura Word real que publicó el organismo — mandarlo al auto-relleno arriesgaría
 // escribir sobre algo que no es lo que se va a presentar.
-function esAnexoSeparable(doc: DocumentoAdjunto & { categoria?: string }): boolean {
+function esAnexoSeparable(doc: DocLicitacion): boolean {
   return /\.(docx?|pdf)$/i.test(doc.nombre || '') && doc.id != null;
 }
 
@@ -123,13 +129,13 @@ function DocItem({
   onSepararAnexo,
   onEnviarAuditor,
 }: {
-  doc: DocumentoAdjunto & { categoria?: string };
+  doc: DocLicitacion;
   codigoDecoded: string;
   onDragStart: (e: React.DragEvent, doc: DocumentoAdjunto) => void;
   isDragging: boolean;
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
-  onDelete?: (doc: DocumentoAdjunto & { categoria?: string }) => void;
+  onDelete?: (doc: DocLicitacion) => void;
   onRellenarAnexo?: (doc: AnexoDoc) => void;
   // Separa un .docx que trae varios anexos pegados (ver anexos-dividir.ts) en un archivo por
   // anexo — paso independiente del relleno, útil para organizar ANTES de llenar nada.
@@ -141,7 +147,11 @@ function DocItem({
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
 }) {
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
-  const esPropio = CATS_BORRABLES.has((doc.categoria || '').toUpperCase());
+  // Borrable si su categoría es de las nuestras (generadas por la app) O si el usuario lo
+  // subió a mano directamente en una caja oficial (origen_manual) — en ese caso la caja
+  // puede ser "Bases Administrativas" y aun así debe poder eliminarlo, a diferencia de un
+  // documento real descargado de Mercado Público que cae en la misma caja.
+  const esPropio = CATS_BORRABLES.has((doc.categoria || '').toUpperCase()) || !!doc.origen_manual;
   const rellenable = onRellenarAnexo && esAnexoRellenable(doc);
   const separable = onSepararAnexo && esAnexoSeparable(doc);
   return (
@@ -268,7 +278,7 @@ function CajaDroppable({
 }: {
   caja: CajaConfig;
   codigoDecoded: string;
-  docs: (DocumentoAdjunto & { categoria?: string })[];
+  docs: DocLicitacion[];
   isDragOver: boolean;
   isDraggingActive: boolean;
   draggingDoc: DocumentoAdjunto | null;
@@ -279,14 +289,16 @@ function CajaDroppable({
   onDrop: (e: React.DragEvent, key: string) => void;
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
-  onUpload: (file: File, categoria: string) => void;
-  onDelete: (doc: DocumentoAdjunto & { categoria?: string }) => void;
+  onUpload: (files: FileList | File[], categoria: string) => void;
+  onDelete: (doc: DocLicitacion) => void;
   onRellenarAnexo?: (doc: AnexoDoc) => void;
   onSepararAnexo?: (doc: AnexoDoc) => void;
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
   subiendo: string | null; // key de la caja que está subiendo un archivo
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
+  const subiendoAqui = subiendo === caja.key;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   return (
     <div
@@ -306,8 +318,29 @@ function CajaDroppable({
         <span className="flex-1 text-[11.5px] font-bold text-slate-700 truncate">
           {caja.label}
         </span>
-        {/* La subida de archivos propios ya NO va por caja: solo se sube a "Documentos para MP"
-            (apartado Documentos Propios). Aquí solo se reorganizan por arrastre los docs bajados. */}
+        {/* Subida manual directa a esta caja — evita tener que "mover" un documento después.
+            Se marca origen_manual en el backend para que quede borrable y protegida de que
+            una re-clasificación IA la reasigne (ver handleUpload). */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = e.target.files;
+            if (files && files.length) onUpload(files, caja.key);
+            e.target.value = '';
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={subiendoAqui}
+          title="Subir documento(s) a esta caja"
+          className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 rounded transition-colors disabled:opacity-50 flex-shrink-0"
+        >
+          {subiendoAqui ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+        </button>
         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${caja.colorCount}`}>
           {docs.length}
         </span>
@@ -359,7 +392,7 @@ function DocumentosGrid({
   onEnviarAuditor,
   modo,
 }: {
-  documentos: (DocumentoAdjunto & { categoria?: string })[];
+  documentos: DocLicitacion[];
   codigoDecoded: string;
   onView: (doc: VisorDoc) => void;
   onOpenIA: (doc: { nombre: string; url: string }) => void;
@@ -376,8 +409,8 @@ function DocumentosGrid({
   modo?: 'licitacion' | 'propios';
 }) {
   // Agrupa los documentos por su categoría real (sin pre-crear cajas vacías).
-  const buildGrupos = (docs: (DocumentoAdjunto & { categoria?: string })[]) => {
-    const g: Record<string, (DocumentoAdjunto & { categoria?: string })[]> = { SIN_CATEGORIA: [] };
+  const buildGrupos = (docs: DocLicitacion[]) => {
+    const g: Record<string, DocLicitacion[]> = { SIN_CATEGORIA: [] };
     for (const doc of docs) {
       const cat = doc.categoria || 'SIN_CATEGORIA';
       if (!g[cat]) g[cat] = [];
@@ -400,7 +433,7 @@ function DocumentosGrid({
 
   // Elimina un documento PROPIO (solo esa categoría). Confirma, llama al DELETE del
   // backend (borra de R2 + caché) y actualiza el estado local de forma optimista.
-  const handleDelete = async (doc: DocumentoAdjunto & { categoria?: string }) => {
+  const handleDelete = async (doc: DocLicitacion) => {
     const ok = await confirmar({
       titulo: '¿Eliminar documento?',
       mensaje: `"${doc.nombre}" se eliminará de forma permanente. Esta acción no se puede deshacer.`,
@@ -480,53 +513,63 @@ function DocumentosGrid({
     }
   };
 
-  // Sube un documento propio a la caja indicada: presign → PUT directo a R2 → guardar
-  // en documentos_cache con su categoría (así la IA lo incluye en análisis posteriores).
-  const handleUpload = async (file: File, categoria: string) => {
+  // Sube uno o varios documentos manualmente a la caja indicada (oficial de la licitación,
+  // p.ej. Bases Administrativas): presign → PUT directo a R2 → guardar en documentos_cache con
+  // esa categoría. Se manda origenManual:true para que el backend marque el documento como
+  // borrable/renombrable (origen_manual) y protegido de que una re-clasificación IA lo mueva de
+  // caja (categoria_manual) — mismo criterio que usa el drag&drop entre cajas oficiales.
+  const handleUpload = async (files: FileList | File[], categoria: string) => {
+    const lista = Array.from(files);
+    if (lista.length === 0) return;
     setSubiendo(categoria);
     setErrorSubida(null);
-    try {
-      if (file.size > 100 * 1024 * 1024) throw new Error('El archivo supera los 100 MB.');
-      const pres = await fetch('/api/documentos/presign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          licitacionCodigo: codigoDecoded,
-          filename: file.name,
-          contentType: file.type || 'application/octet-stream',
-          size: file.size,
-        }),
-      });
-      const presData = await pres.json();
-      if (!pres.ok || !presData.uploadUrl) throw new Error(presData.error || 'No se pudo preparar la subida');
+    const errores: string[] = [];
+    let exitosos = 0;
+    for (const file of lista) {
+      try {
+        if (file.size > 100 * 1024 * 1024) throw new Error(`"${file.name}" supera los 100 MB.`);
+        const pres = await fetch('/api/documentos/presign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            licitacionCodigo: codigoDecoded,
+            filename: file.name,
+            contentType: file.type || 'application/octet-stream',
+            size: file.size,
+          }),
+        });
+        const presData = await pres.json();
+        if (!pres.ok || !presData.uploadUrl) throw new Error(presData.error || `No se pudo preparar la subida de "${file.name}"`);
 
-      const put = await fetch(presData.uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
-        body: file,
-      });
-      if (!put.ok) throw new Error(`Error subiendo a R2 (HTTP ${put.status})`);
+        const put = await fetch(presData.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file,
+        });
+        if (!put.ok) throw new Error(`Error subiendo "${file.name}" (HTTP ${put.status})`);
 
-      const save = await fetch('/api/documentos/guardar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          licitacionCodigo: codigoDecoded,
-          documentoNombre: file.name,
-          url: presData.publicUrl,
-          size: file.size,
-          categoria,
-        }),
-      });
-      const saveData = await save.json();
-      if (!save.ok || !saveData.success) throw new Error(saveData.error || 'No se pudo registrar el documento');
-
-      onRefrescar();
-    } catch (e: any) {
-      setErrorSubida(e.message || 'Error al subir el documento');
-    } finally {
-      setSubiendo(null);
+        const save = await fetch('/api/documentos/guardar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            licitacionCodigo: codigoDecoded,
+            documentoNombre: file.name,
+            url: presData.publicUrl,
+            size: file.size,
+            categoria,
+            origenManual: true,
+          }),
+        });
+        const saveData = await save.json();
+        if (!save.ok || !saveData.success) throw new Error(saveData.error || `No se pudo registrar "${file.name}"`);
+        exitosos++;
+      } catch (e: any) {
+        errores.push(e.message || file.name);
+      }
     }
+    setSubiendo(null);
+    if (errores.length > 0) setErrorSubida(errores.join(' · '));
+    if (exitosos > 0) onRefrescar();
   };
 
   // Re-sincronizar cuando cambian los docs desde el padre
@@ -1357,7 +1400,7 @@ export function DocumentosSection({
       <SectionHeader
         icon={<FolderOpen size={18} />}
         title="Documentos y Bases"
-        subtitle="Arrastra los documentos entre cajas para reclasificarlos"
+        subtitle="Arrastra los documentos entre cajas, o sube uno nuevo directo con el ícono de cada caja"
         badge={(
           <>
             {!cargandoDocs && documentosCache.length > 0 && (
@@ -1489,7 +1532,7 @@ export function DocumentosSection({
             </div>
 
             <DocumentosGrid
-              documentos={docsLicitacion as (DocumentoAdjunto & { categoria?: string })[]}
+              documentos={docsLicitacion as DocLicitacion[]}
               codigoDecoded={codigoDecoded}
               onView={verYRegistrar}
               onOpenIA={setIaDoc}

@@ -28,6 +28,12 @@ export async function POST(request: NextRequest) {
     const publicBase = process.env.R2_PUBLIC_URL || `https://pub-${process.env.R2_ACCOUNT_ID}.r2.dev`;
     const publicUrl = `${publicBase}/${key}`;
 
+    // OJO: el nombre de descarga correcto (sin el timestamp de la key) se fija DESPUÉS, en
+    // POST /api/documentos/guardar (server-side, vía CopyObject) — no aquí. Incluir
+    // ContentDisposition en ESTE PutObjectCommand lo metería en la firma SigV4, y el navegador
+    // tendría que mandar ese header exacto en el PUT o R2 rechaza la subida entera por firma
+    // inválida (además de depender de que el CORS del bucket permita ese header, que no
+    // controlamos desde el código). Ver app/lib/r2.ts (contentDispositionInline) para el detalle.
     const command = new PutObjectCommand({
       Bucket: process.env.R2_BUCKET_NAME,
       Key: key,

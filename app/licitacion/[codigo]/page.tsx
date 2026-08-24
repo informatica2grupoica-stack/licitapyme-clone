@@ -187,6 +187,7 @@ export default function LicitacionDetallePage() {
             size:      d.size_bytes || d.size,
             categoria: d.categoria ?? null,
             subcategoria: d.subcategoria ?? null,
+            origen_manual: !!d.origen_manual,
             ya_descargado: true,
           })));
         }
