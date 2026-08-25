@@ -62,12 +62,99 @@ const RE_TRAMO_PORCENTAJE =
 // cuelan desde un PDF de bases: filas de la tabla de CRITERIOS DE EVALUACIÓN y RÓTULOS de los
 // formularios/anexos administrativos. Determinista a propósito: no depende de que el LLM se
 // acuerde de la instrucción del prompt.
+// ─── CRITERIO CON ACRÓNIMO PEGADO ────────────────────────────────────────────────────────
+// (25-ago-2026, auditoría de los 252 informes de agosto — caso 2296-45-LE26.) Las tablas de
+// criterios suelen nombrar cada criterio con su sigla al lado: "OFERTA ECONÓMICA(OE)", "PLAZO DE
+// ENTREGA(PE)", "COMPORTAMIENTO CONTRACTUAL ANTERIOR(CCA)", "PRESENCIA LOCAL DE PROVEEDORES(PLP)".
+// RE_PONDERACION_CRITERIO no los cazaba (exige "Oferta <tipo>" a secas), así que los 4 entraron al
+// manifiesto como productos — con las "cantidades" 1,2,3,4, que eran el correlativo de la tabla.
+//
+// El discriminador NO es "termina en paréntesis" (una marca real también: "Notebook 15\" (HP)"),
+// sino que la sigla sean las INICIALES de las propias palabras de la frase. "OFERTA ECONÓMICA(OE)"
+// → O,E ✓. "Notebook 15 pulgadas (HP)" → iniciales N,P ≠ HP ✗, se conserva.
+// SEGUNDO CANDADO, y no es opcional. La primera versión de esta regla se conformaba con que la
+// sigla fuera las iniciales de la frase, y eso borra PRODUCTOS REALES: al correrla sobre los
+// documentos de las 348 licitaciones con listado aparecieron "Desfibrilador Externo Automático(DEA)"
+// y "Mascara de alto flujo (MAF)" — equipamiento médico legítimo cuyas iniciales calzan igual de
+// bien que las de un criterio. Borrar un producto real del costeo es PEOR que mostrar uno de más:
+// el de más se ve y se saca, el que falta no se nota hasta que la oferta ya salió incompleta.
+// Por eso la frase debe además hablar de EVALUACIÓN. Lista cerrada: son los nombres que usan las
+// tablas de criterios, y ninguno nombra un bien.
+const RE_VOCABULARIO_DE_CRITERIO =
+  /\b(oferta|comportamiento\s+contractual|presencia\s+local|plazo\s+de\s+entrega|precio\s+ofertado|experiencia\s+del\s+(oferente|proponente)|criterio)\b/i;
+const RE_SIGLA_FINAL = /^(.+?)\s*\(([A-ZÁÉÍÓÚÑ]{2,5})\)\s*$/;
+const PALABRAS_VACIAS = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'y', 'e', 'o', 'u', 'a', 'en', 'por']);
+function esCriterioConSigla(d: string): boolean {
+  const m = d.match(RE_SIGLA_FINAL);
+  if (!m) return false;
+  const iniciales = m[1]
+    .split(/\s+/)
+    .map(w => w.replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, ''))
+    .filter(w => w && !PALABRAS_VACIAS.has(w.toLowerCase()))
+    .map(w => w[0].toUpperCase())
+    .join('');
+  if (iniciales.length < 2 || iniciales !== m[2].toUpperCase()) return false;
+  return RE_VOCABULARIO_DE_CRITERIO.test(m[1]);
+}
+
+// ─── CAMPO CON LÍNEA DE PUNTOS PARA RELLENAR ─────────────────────────────────────────────
+// (25-ago-2026, caso 2409-49-LP26.) El formulario de oferta trae renglones a completar a mano:
+// "PLAZO DE INSTALACION ………………DÍAS HABILES. (lunes a viernes)". Se repetía una vez por cada una
+// de las 13 líneas del lote, inflando el manifiesto con 13 filas que nadie cotiza. Misma familia
+// que los rótulos con dos puntos: es un espacio en blanco, no un bien.
+// Se exigen 4+ puntos seguidos (o 2+ ellipsis, o 3+ guiones bajos) para no tocar una descripción
+// que el OCR haya truncado con un "..." normal.
+const RE_LINEA_PARA_RELLENAR = /\.{4,}|…{2,}|…\s*…|_{3,}/;
+
+// ─── NOTA AL PIE DE LA TABLA ─────────────────────────────────────────────────────────────
+// (25-ago-2026, caso 2409-49-LP26, paneles interactivos por colegio.) Debajo del cuadro de oferta
+// las bases cuelgan advertencias marcadas con asterisco: "* EL PLAZO DE INSTALACIÓN NO PODRÁ SER
+// SUPERIOR A 25 DÍAS HÁBILES, DE LO CONTRARIO LA OFERTA SERÁ DECLARADA FUERA DE BASES". El parser
+// las lee como una fila más. El asterisco inicial ES la marca tipográfica de "esto es una nota,
+// no una fila de la tabla" — por eso alcanza con mirar el primer carácter.
+const RE_NOTA_AL_PIE = /^\(?\*+\)?\s*\S/;
+
+// ─── RÓTULO COMPUESTO ────────────────────────────────────────────────────────────────────
+// Mismo caso: "Nombre Oferente o Representante Legal" es el pie de firma del formulario. No lo
+// cazaba RE_ROTULO_IDENTIFICACION, que es una lista de rótulos EXACTOS y no cubre las infinitas
+// combinaciones ("Nombre y firma del proponente", "RUT y razón social", "Firma Representante
+// Legal"). En vez de seguir alargando esa lista, se invierte la pregunta: ¿la frase está hecha
+// SOLO de palabras que nombran datos del que firma? Si sí, es un rótulo. Un producto siempre
+// aporta al menos una palabra de fuera de este vocabulario ("Panel", "Monitor", "Cemento").
+const PALABRAS_DE_ROTULO = new Set([
+  'nombre', 'nombres', 'apellido', 'apellidos', 'completo', 'completa',
+  'oferente', 'oferentes', 'proponente', 'proponentes', 'adjudicatario', 'postulante',
+  'representante', 'legal', 'firma', 'firmas', 'timbre', 'rut', 'run', 'cedula', 'identidad',
+  'razon', 'social', 'giro', 'comercial', 'empresa', 'contacto',
+  'domicilio', 'direccion', 'comuna', 'ciudad', 'region', 'pais',
+  'telefono', 'fono', 'celular', 'email', 'mail', 'correo', 'electronico',
+  'cargo', 'profesion', 'nacionalidad', 'fecha', 'lugar', 'declaracion',
+]);
+const CONECTORES_DE_ROTULO = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'y', 'e', 'o', 'u', 'a', 'en', 'para']);
+function esRotuloCompuesto(d: string): boolean {
+  if (d.length > 60) return false;
+  const palabras = d.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .split(/[^a-z0-9]+/).filter(Boolean);
+  if (palabras.length < 2 || palabras.length > 7) return false;
+  let deRotulo = 0;
+  for (const w of palabras) {
+    if (CONECTORES_DE_ROTULO.has(w)) continue;
+    if (!PALABRAS_DE_ROTULO.has(w)) return false;  // una palabra de fuera basta para salvarla
+    deRotulo++;
+  }
+  return deRotulo >= 2;
+}
+
 export function esFilaNoProducto(descripcion: string): boolean {
   const d = (descripcion || '').trim();
   if (!d) return false;
   if (RE_PONDERACION_CRITERIO.test(d) || RE_TRAMO_PUNTAJE.test(d) || RE_RANKING_LUGAR.test(d) || RE_SIN_INFORMACION.test(d)) return true;
   if (RE_ORACION_SOBRE_EL_OFERENTE.test(d) || RE_VERBO_DE_CUMPLIMIENTO.test(d) || RE_NO_PRESENTA_INFO.test(d)) return true;
   if (RE_TRAMO_PORCENTAJE.test(d)) return true;
+  if (RE_LINEA_PARA_RELLENAR.test(d)) return true;
+  if (esCriterioConSigla(d)) return true;
+  if (RE_NOTA_AL_PIE.test(d)) return true;
+  if (esRotuloCompuesto(d)) return true;
   if (d.length <= 60 && (RE_ROTULO_CON_DOSPUNTOS.test(d) || RE_ROTULO_IDENTIFICACION.test(d))) return true;
   return false;
 }

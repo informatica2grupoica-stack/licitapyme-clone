@@ -2421,6 +2421,21 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   // auto-corregible, se vuelve a validar sobre el informe YA corregido (para que _validador refleje
   // la realidad post-fix, no la de antes), y recién ahí se decide si algo sigue necesitando
   // revisión humana.
+  // EL MANIFIESTO ENTRA AL INFORME **ANTES** DE VALIDAR (25-ago-2026). No es cosmético: hasta hoy
+  // `manifiesto_productos` se agregaba recién en el objeto de retorno, de modo que cuando corría el
+  // validador el campo NO EXISTÍA todavía. Cualquier regla que mirara el manifiesto veía un array
+  // vacío y se iba sin hacer nada — así nació V-16 muerta: habría cazado los 16 rótulos de
+  // 2981-225-LE26 en un informe ya guardado, pero jamás durante el análisis que los produce.
+  //
+  // Por qué no basta con validar `productos.items` (que sí está en p3, y es lo que miran V-09/V-12):
+  // el manifiesto NO siempre viene del LLM. Cuando el parser de planilla le gana (que es
+  // exactamente lo que pasó en 2981-225-LE26), `productos.items` está impecable y la contaminación
+  // vive solo en el manifiesto. Validar la entrada del LLM no vería nada.
+  //
+  // p3 es el MISMO objeto que `parsed`, así que asignarlo acá también lo deja en el `...parsed` del
+  // retorno; el retorno usa `p3.manifiesto_productos` para devolver la versión YA autocorregida.
+  p3.manifiesto_productos = manifiesto;
+
   let _validador = validarInformeViabilidad(p3, score);
   const _correcciones = autocorregirHallazgos(p3, _validador.hallazgos, score);
   if (_correcciones.length > 0) {
@@ -2444,7 +2459,10 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     _validador,
     score_0_100: score, semaforo, area_negocio: area, confianza_global: confianza,
     // Puente al costeo (shape v2) — no se muestra en la pantalla v3, alimenta el Excel de costeo.
-    manifiesto_productos: manifiesto,
+    // Se devuelve `p3.manifiesto_productos` y NO la variable `manifiesto`: el validador pudo haberlo
+    // limpiado (V-16 saca las filas que no son productos), y esa corrección se perdería si acá se
+    // reasignara el array original.
+    manifiesto_productos: p3.manifiesto_productos,
     // TRAZA DE FUENTES del listado de productos: de qué documento salió, qué otros documentos se
     // leyeron y en qué NO coinciden. Que quede escrito de dónde viene cada dato es lo que impide
     // "inventar": si las fuentes se contradicen, V-15 lo levanta en vez de elegir una en silencio.

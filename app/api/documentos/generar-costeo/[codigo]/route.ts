@@ -10,6 +10,7 @@ import { subirDocumentoR2 } from '@/app/lib/r2';
 import { generarCosteoExcel, adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
 import type { ViabilidadIAResult } from '@/app/lib/viabilidad-ia';
 import { parsearPlanillaCosteo, extraerPresupuestoPorLineaTabla } from '@/app/lib/planilla-costeo-parser';
+import { esFilaNoProducto } from '@/app/lib/fila-no-producto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -54,7 +55,18 @@ async function refrescarManifiestoDesdePlanilla(codigo: string, informe: Viabili
 
   const fuentes = docs.filter(d =>
     (d.categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS' && !/^COSTEO_/i.test(d.nombre));
-  const planilla = parsearPlanillaCosteo(fuentes);
+  const planillaCruda = parsearPlanillaCosteo(fuentes);
+  // El filtro va ANTES del gate de comparación, no después: el gate decide si la planilla le gana
+  // al manifiesto guardado por CANTIDAD de ítems, y contar las filas basura infla ese número. Una
+  // planilla de 22 filas (14 productos + 8 rótulos) le ganaría a un manifiesto sano de 20 y luego
+  // escribiría solo 14 — perdiendo 6 productos reales. Se compara ya limpio contra ya limpio.
+  const planilla = planillaCruda && {
+    ...planillaCruda,
+    items: planillaCruda.items.filter(it => !esFilaNoProducto(it.descripcion)),
+  };
+  if (planillaCruda && planilla && planilla.items.length < planillaCruda.items.length) {
+    console.warn(`[generar-costeo] ${codigo}: ${planillaCruda.items.length - planilla.items.length} fila(s) del parser NO son productos — excluidas antes de comparar con el manifiesto guardado.`);
+  }
   const actuales = Array.isArray(informe.manifiesto_productos) ? informe.manifiesto_productos.length : 0;
   // Sin planilla mejor que lo guardado: NO forzamos por_categoria (las categorías que hubiera
   // puesto la IA no parten el costeo).
@@ -63,6 +75,16 @@ async function refrescarManifiestoDesdePlanilla(codigo: string, informe: Viabili
   } else {
     // Solo el parser (rubros A/B/C reales) habilita las pestañas por categoría.
     informe.estructura_costeo = planilla.estructura === 'por_categoria' ? 'por_categoria' : null;
+    // FILTRO ANTES DE PISAR EL MANIFIESTO GUARDADO (25-ago-2026). Este endpoint vuelve a correr el
+    // parser al REGENERAR el costeo, y hasta hoy escribía `planilla.items` crudo encima del
+    // manifiesto — sin pasar por V-16, que solo corre durante el ANÁLISIS. Efecto real (caso
+    // 2409-49-LP26, paneles interactivos): el manifiesto se dejaba en 14 productos, el usuario
+    // apretaba "regenerar costeo" y volvían las 16 filas de "PLAZO DE INSTALACION ………DÍAS
+    // HABILES" y el pie de firma. Indistinguible de "el fix no sirvió".
+    // El Excel salía bien igual (adaptarViabilidadACosteo filtra al generar), pero el manifiesto
+    // GUARDADO —que es lo que se ve en pantalla y lo que leen el auditor y el checklist— quedaba
+    // sucio de nuevo. Cualquier ruta que ESCRIBA el manifiesto tiene que filtrar, no solo las que
+    // lo leen.
     informe.manifiesto_productos = planilla.items.map(it => ({
       linea: it.linea || 1,
       categoria: it.categoria,

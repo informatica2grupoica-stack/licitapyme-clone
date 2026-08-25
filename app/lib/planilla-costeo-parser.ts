@@ -962,7 +962,9 @@ function parsearCatalogoValorUnitario(doc: DocTexto): PlanillaParseResult | null
   // Dedupe por NÚMERO DE LÍNEA (1..N, el identificador canónico del ítem), NO por código: la
   // tabla suele venir repetida (resumen + anexo) y el OCR desalinea número↔código entre copias,
   // así que dedupear por código descartaba ítems válidos cuyo código ya se había visto pareado con
-  // otro número. Cantidad = 1 (catálogo de precios unitarios; el Excel necesita una cantidad base).
+  // otro número. CANTIDAD = null: el documento NO la trae (es un catálogo de precios unitarios), y
+  // el parser no inventa datos — la celda del Excel queda vacía para que la llene quien cotiza.
+  // Lo mismo la UNIDAD. Ver el comentario "REGLA: NO SE INVENTAN DATOS" en el modo catálogo.
   const porNumero = new Map<number, ItemPlanilla>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(t)) !== null) {
@@ -971,7 +973,7 @@ function parsearCatalogoValorUnitario(doc: DocTexto): PlanillaParseResult | null
     if (desc.length < 3 || !/[a-záéíóúñ]/i.test(desc)) continue;
     if (PALABRAS_NO_ITEM.test(desc)) continue;
     if (!porNumero.has(numero)) {
-      porNumero.set(numero, { linea: 1, categoria: null, numero, descripcion: desc, unidad: 'Unidad', cantidad: 1 });
+      porNumero.set(numero, { linea: 1, categoria: null, numero, descripcion: desc, unidad: '', cantidad: null });
     }
   }
   const items = [...porNumero.values()].sort((a, b) => (a.numero ?? 0) - (b.numero ?? 0));
@@ -1044,7 +1046,7 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
     if (numero == null && cantidad == null) {
       const soloDescripcion = celdas.every((c, i) => i === col!.desc || i === col!.unidad || !limpiarCelda(c));
       if (soloDescripcion && desc.length <= 90) {
-        catalogo.push({ linea: 1, categoria: null, numero: null, descripcion: desc, unidad: unidad || 'Unidad', cantidad: 1 });
+        catalogo.push({ linea: 1, categoria: null, numero: null, descripcion: desc, unidad, cantidad: null });
       }
       continue;
     }
@@ -1063,8 +1065,25 @@ function parsearTablasHtml(doc: DocTexto): PlanillaParseResult | null {
 
   // MODO CATÁLOGO: hubo header de planilla ("Bienes o Servicios Requeridos | Cantidad | …") pero
   // casi ninguna fila trajo correlativo/cantidad → es un catálogo de suministro (contrato marco de
-  // ferretería/construcción): cada fila ES un producto a costear con cantidad base 1. Se exige un
-  // volumen alto (≥15 tras dedupe) para no confundir notas sueltas con un catálogo real.
+  // ferretería/construcción): cada fila ES un producto a costear. Se exige un volumen alto (≥15
+  // tras dedupe) para no confundir notas sueltas con un catálogo real.
+  //
+  // ═══ REGLA: NO SE INVENTAN DATOS ═══════════════════════════════════════════════════════════
+  // (25-ago-2026, regla explícita del usuario a raíz del caso 2981-225-LE26.)
+  // Este modo ANTES rellenaba `cantidad: 1` y `unidad: 'Unidad'` en cada fila, con el argumento de
+  // que "el Excel necesita una cantidad base". Eso tenía DOS consecuencias, y las dos son graves:
+  //
+  //   1. Le mentía al que cotiza. Una cantidad de 1 se ve igual que una cantidad leída del
+  //      documento — no hay forma de distinguir el dato real del relleno, y el total del Excel
+  //      sale calculado sobre un número que nadie escribió nunca.
+  //   2. Rompía los guardarraíles de más abajo. El GATE DE COTIZACIÓN descarta formularios
+  //      justamente porque NO traen cantidades; al fabricarlas, el parser pasaba su propio gate
+  //      con las cantidades que él mismo acababa de poner. Así los 16 rótulos de los anexos en
+  //      blanco de 2981-225-LE26 llegaron al manifiesto como si fueran productos.
+  //
+  // Un dato inventado no solo es un dato falso: además desactiva las defensas que dependen de su
+  // ausencia. Si el documento no lo dice, va NULL/vacío y la celda del Excel queda en blanco para
+  // que la llene un humano. Vale para cantidad, unidad y cualquier campo que se agregue después.
   if (vistoHeader && items.length < 8 && catalogo.length >= 15) {
     const vistos = new Set<string>();
     const itemsCat = catalogo.filter(i => {

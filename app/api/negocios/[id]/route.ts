@@ -339,6 +339,16 @@ export async function PATCH(request: NextRequest, { params }: Params) {
             && normalizarEstado(neg.estado_pipeline) !== 'POSTULADA') {
           const nombreActor = request.headers.get('x-user-nombre') || 'Usuario';
           congelarAuditorSiCorresponde(Number(id), neg.licitacion_codigo, userId, nombreActor).catch(() => {});
+
+          // Sella la FECHA DE POSTULACIÓN (migración 76). Solo la primera vez: si se revierte
+          // y se vuelve a postular, se conserva la original. Tolerante: si la migración aún no
+          // corrió, la columna no existe y el cambio de estado NO debe fallar por eso.
+          try {
+            await pool.query(
+              `UPDATE negocios SET postulada_en = ? WHERE id = ? AND postulada_en IS NULL`,
+              [ahora, id],
+            );
+          } catch { /* columna inexistente → sin fecha, la UI muestra "—" */ }
         }
       } catch (colErr: any) {
         if (String(colErr).toLowerCase().includes('unknown column')) {

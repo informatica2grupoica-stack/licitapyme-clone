@@ -188,3 +188,237 @@ test('productos reales con % o palabras de rótulo NO se descartan', () => {
     assert.equal(esFilaNoProducto(d), false, `se descartó un producto real: "${d}"`);
   }
 });
+
+
+// ─── REGLA: EL PARSER NO INVENTA DATOS (25-ago-2026) ──────────────────────────────────────
+// El MODO CATÁLOGO rellenaba `cantidad: 1` y `unidad: 'Unidad'` cuando el documento no las traía.
+// Además de mentirle a quien cotiza, eso DESACTIVABA el GATE DE COTIZACIÓN aguas abajo (que
+// descarta formularios precisamente porque no traen cantidades) — así entraron los 16 rótulos de
+// 2981-225-LE26. Si el documento no lo dice, va null/vacío.
+test('modo catálogo: no inventa cantidad ni unidad cuando el documento no las trae', async () => {
+  const { parsearPlanillaCosteo } = await import('../planilla-costeo-parser');
+  // Catálogo de suministro real: header de planilla + 16 productos con la columna Cantidad VACÍA
+  // (caso 2731-21-LE26, "Solicitud de Compra" municipal de ferretería). El modo catálogo vive en el
+  // parser de TABLAS HTML, que es lo que emite GLM-OCR para PDF escaneados — de ahí el formato.
+  const filas = [
+    'Martillo carpintero 16 oz mango fibra', 'Destornillador paleta 6 x 150 mm',
+    'Alicate universal 8 pulgadas aislado', 'Serrucho costilla 12 pulgadas',
+    'Huincha de medir 5 metros con traba', 'Nivel de aluminio 60 cm tres burbujas',
+    'Brocha 3 pulgadas cerda natural', 'Rodillo de pintura 22 cm con mango',
+    'Tornillo autoperforante 8 x 1 pulgada', 'Tarugo plastico 8 mm',
+    'Silicona transparente pomo 280 ml', 'Cinta aisladora negra 18 mm',
+    'Guante cabritilla talla L', 'Lente de seguridad claro antiempanante',
+    'Disco de corte metal 4 1/2 pulgadas', 'Escalera tijera aluminio 5 peldanos',
+  ];
+  const texto = '<table border=1>'
+    + '<tr><td>Bienes o Servicios Requeridos</td><td>Cantidad</td><td>Unidad</td></tr>'
+    + filas.map(f => `<tr><td>${f}</td><td></td><td></td></tr>`).join('')
+    + '</table>';
+  // El nombre debe pasar esCandidato() — "listado" es una de las palabras que lo habilitan.
+  const r = parsearPlanillaCosteo([{ nombre: 'listado-suministro.pdf', categoria: null, texto, metodo: 'pdf-glm-ocr' }]);
+  assert.ok(r, 'el catálogo legítimo debe seguir parseándose (el gate anti-formulario no lo toca)');
+  assert.ok(r!.items.length >= 15, `se esperaban >=15 ítems, llegaron ${r!.items.length}`);
+  for (const it of r!.items) {
+    assert.equal(it.cantidad, null, `cantidad inventada en "${it.descripcion}": ${it.cantidad}`);
+    assert.equal(it.unidad, '', `unidad inventada en "${it.descripcion}": "${it.unidad}"`);
+  }
+});
+
+// El mismo parser, alimentado con un ANEXO EN BLANCO en vez de un catálogo: misma firma
+// estructural (celdas vacías), resultado opuesto. Es el caso 2981-225-LE26 en miniatura.
+test('modo catálogo: un anexo en blanco con la MISMA firma estructural se rechaza', async () => {
+  const { parsearPlanillaCosteo } = await import('../planilla-costeo-parser');
+  const rotulos = [
+    'Nombre:', 'Domicilio:', 'Teléfono:', 'E-mail:', 'Razón social:', 'GIRO:',
+    'FIRMA:', 'FECHA DECLARACIÓN:', 'NOMBRE COMPLETO:', 'Cargo:', 'Comuna:', 'Ciudad:',
+    'Más de 40%', 'Más de 25% hasta 40%', 'Más de 10% hasta 25%', '1% a 10%',
+  ];
+  const texto = '<table border=1>'
+    + '<tr><td>Bienes o Servicios Requeridos</td><td>Cantidad</td><td>Unidad</td></tr>'
+    + rotulos.map(f => `<tr><td>${f}</td><td></td><td></td></tr>`).join('')
+    + '</table>';
+  const r = parsearPlanillaCosteo([{ nombre: 'listado-anexos.pdf', categoria: null, texto, metodo: 'pdf-glm-ocr' }]);
+  assert.equal(r, null, 'un anexo en blanco NO puede pasar por catálogo de productos');
+});
+
+
+// ─── REGLA V-16 DEL VALIDADOR (25-ago-2026) ───────────────────────────────────────────────
+// El punto único por donde pasan todas las rutas que escriben un manifiesto. Nace de que el mismo
+// error volvió cuatro veces con cuatro disfraces y cada vez se arregló solo en el parser culpable.
+test('V-16 caza filas que no son productos y autocorregir las saca del manifiesto', async () => {
+  const { validarInformeViabilidad, autocorregirHallazgos } = await import('../validador-viabilidad');
+  const inf: any = {
+    manifiesto_productos: [
+      { descripcion: 'Juegos infantiles tipo calistenia alto tráfico', cantidad: 5 },
+      { descripcion: 'OFERTA ECONÓMICA(OE)', cantidad: 1 },
+      { descripcion: 'PLAZO DE ENTREGA(PE)', cantidad: 2 },
+      { descripcion: 'COMPORTAMIENTO CONTRACTUAL ANTERIOR(CCA)', cantidad: 3 },
+      { descripcion: 'PRESENCIA LOCAL DE PROVEEDORES(PLP)', cantidad: 4 },
+    ],
+  };
+  const res = validarInformeViabilidad(inf, 60);
+  const v16 = res.hallazgos.filter(h => h.regla === 'V-16');
+  assert.equal(v16.length, 1, 'V-16 debió disparar exactamente una vez');
+  assert.equal(v16[0].severidad, 'error');
+  autocorregirHallazgos(inf, res.hallazgos, 60);
+  assert.equal(inf.manifiesto_productos.length, 1, 'debía quedar solo el producto real');
+  assert.match(inf.manifiesto_productos[0].descripcion, /Juegos infantiles/);
+});
+
+test('V-16 detecta el manifiesto DEGENERADO (una fila replicada) y NO lo autocorrige', async () => {
+  const { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } = await import('../validador-viabilidad');
+  // Caso real 1057536-107-LE26: 58 filas, todas el mismo pedazo de frase cortado por el OCR.
+  const inf: any = {
+    manifiesto_productos: Array.from({ length: 12 }, () => ({ descripcion: 'S Y 14HRS', cantidad: 3, unidad_medida: 'HR' })),
+    veredicto: { nivel: 'VIABLE', estado_veredicto: 'DEFINITIVO' },
+  };
+  const res = validarInformeViabilidad(inf, 60);
+  const v16 = res.hallazgos.filter(h => h.regla === 'V-16');
+  assert.equal(v16.length, 1);
+  assert.match(v16[0].mensaje, /DEGENERADO/);
+  autocorregirHallazgos(inf, res.hallazgos, 60);
+  assert.equal(inf.manifiesto_productos.length, 12, 'no hay dato bueno que rescatar: no se toca');
+  const escaladas = escalarARevisionHumana(inf, res.hallazgos);
+  assert.ok(escaladas.includes('V-16'), 'debe escalar a revisión humana');
+  assert.equal(inf.veredicto.estado_veredicto, 'REVISION_HUMANA');
+});
+
+test('V-16 no dispara sobre un manifiesto sano', async () => {
+  const { validarInformeViabilidad } = await import('../validador-viabilidad');
+  const inf: any = {
+    manifiesto_productos: [
+      { descripcion: 'Adoquines', cantidad: 17900 },
+      { descripcion: 'Solera', cantidad: 572 },
+      { descripcion: 'Cemento', cantidad: 250 },
+      { descripcion: 'Arena', cantidad: 23 },
+      { descripcion: 'Notebook 15 pulgadas (HP)', cantidad: 4 },
+      { descripcion: 'TAC de Cerebro, sin MC', cantidad: 10 },
+    ],
+  };
+  const res = validarInformeViabilidad(inf, 60);
+  assert.equal(res.hallazgos.filter(h => h.regla === 'V-16').length, 0);
+});
+
+
+// Contraprueba del detector de manifiesto degenerado: el MISMO producto repetido en varios lotes
+// con cantidades distintas es un listado legítimo, no un error de extracción.
+// Caso real 1422051-24-LE26 (riego): "Válvulas de solenoide" en 7 de 10 líneas, 50/200/80/100/…
+test('V-16 NO marca degenerado un producto repetido en varios lotes con cantidades distintas', async () => {
+  const { validarInformeViabilidad } = await import('../validador-viabilidad');
+  const inf: any = {
+    manifiesto_productos: [
+      { descripcion: 'Equipo de riego para invernadero', cantidad: 5, linea: 1 },
+      { descripcion: 'Válvulas de solenoide', cantidad: 50, linea: 2 },
+      { descripcion: 'Equipo de riego para invernadero', cantidad: 50, linea: 3 },
+      { descripcion: 'Equipo de riego para invernadero', cantidad: 50, linea: 4 },
+      { descripcion: 'Válvulas de solenoide', cantidad: 200, linea: 5 },
+      { descripcion: 'Válvulas de solenoide', cantidad: 80, linea: 6 },
+      { descripcion: 'Válvulas de solenoide', cantidad: 100, linea: 7 },
+      { descripcion: 'Válvulas de solenoide', cantidad: 100, linea: 8 },
+      { descripcion: 'Válvulas de solenoide', cantidad: 40, linea: 9 },
+      { descripcion: 'Válvulas de solenoide', cantidad: 40, linea: 10 },
+    ],
+  };
+  const res = validarInformeViabilidad(inf, 60);
+  assert.equal(res.hallazgos.filter(h => h.regla === 'V-16').length, 0);
+});
+
+
+// ─── FALSOS POSITIVOS DE LA REGLA DE SIGLAS (25-ago-2026) ─────────────────────────────────
+// La primera versión de la regla se conformaba con que la sigla fueran las iniciales de la frase.
+// Al correrla sobre los documentos reales de las 348 licitaciones con listado, borró equipamiento
+// médico legítimo — y alcanzó a removerlo de dos informes guardados antes de que se detectara.
+// Borrar un producto real es PEOR que mostrar uno de más: el de más se ve y se saca, el que falta
+// no se nota hasta que la oferta salió incompleta. De ahí el segundo candado (vocabulario de
+// evaluación). Estos son los casos reales que lo motivaron.
+test('la regla de siglas NO borra productos reales cuya sigla calza con sus iniciales', () => {
+  const productosReales = [
+    'Desfibrilador Externo Automático(DEA)',      // D-E-A calza, pero es un equipo médico
+    'Desfibrilador externo automático (DEA)',
+    'Mascara de alto flujo (MAF)',                // M-A-F calza
+    'Monitor de Signos Vitales (MSV)',
+    'Test de Desarrollo Psicomotor (TDP)',
+    'Bomba de Infusión Volumétrica (BIV)',
+  ];
+  for (const d of productosReales) {
+    assert.equal(esFilaNoProducto(d), false, `se borró un producto real: "${d}"`);
+  }
+});
+
+test('la regla de siglas SÍ descarta criterios de evaluación con sigla', () => {
+  const criterios = [
+    'OFERTA ECONÓMICA(OE)', 'PLAZO DE ENTREGA(PE)',
+    'COMPORTAMIENTO CONTRACTUAL ANTERIOR(CCA)', 'PRESENCIA LOCAL DE PROVEEDORES(PLP)',
+  ];
+  for (const d of criterios) {
+    assert.equal(esFilaNoProducto(d), true, `no se detectó el criterio: "${d}"`);
+  }
+});
+
+
+// ─── INVARIANTE DE ORDEN EN EL PIPELINE (25-ago-2026) ─────────────────────────────────────
+// Este test mira el CÓDIGO FUENTE, cosa rara, y tiene una razón concreta: V-16 nació muerta.
+// `manifiesto_productos` se agregaba recién en el objeto de retorno de analizarViabilidadIAV3, así
+// que cuando corría el validador el campo no existía y toda regla que lo mirara veía [] y se iba
+// sin hacer nada. La regla pasaba sus tests unitarios, pasaba sobre informes guardados, y aun así
+// NUNCA se habría disparado durante el análisis que produce el problema.
+//
+// Un fallo así no se nota: no hay excepción, no hay log, el informe sale "válido". Por eso el
+// invariante se verifica sobre el texto del módulo — es la única forma barata de que mover esa
+// asignación rompa algo visible en vez de apagar el guardarraíl en silencio.
+test('el manifiesto entra a p3 ANTES de que corra el validador (si no, V-16 queda muerta)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const ruta = fileURLToPath(new URL('../viabilidad-ia.ts', import.meta.url));
+  const src = readFileSync(ruta, 'utf8');
+
+  const iAsigna = src.indexOf('p3.manifiesto_productos = manifiesto');
+  const iValida = src.indexOf('validarInformeViabilidad(p3');
+  assert.notEqual(iAsigna, -1, 'falta "p3.manifiesto_productos = manifiesto" — V-16 no vería el manifiesto');
+  assert.notEqual(iValida, -1, 'no se encontró la llamada a validarInformeViabilidad(p3, …)');
+  assert.ok(iAsigna < iValida,
+    'el manifiesto debe asignarse a p3 ANTES de validarInformeViabilidad: si no, V-16 valida un manifiesto vacío y no caza nada');
+
+  // Y el retorno debe devolver el manifiesto YA autocorregido, no el array original.
+  assert.match(src, /manifiesto_productos:\s*p3\.manifiesto_productos/,
+    'el retorno debe usar p3.manifiesto_productos (el corregido por el validador), no la variable `manifiesto`');
+});
+
+
+// ─── INVARIANTE ARQUITECTÓNICO: TODA RUTA QUE **ESCRIBE** EL MANIFIESTO DEBE FILTRAR ──────
+// (25-ago-2026.) V-16 corre durante el ANÁLISIS. Pero el manifiesto se escribe desde más de un
+// lado, y el segundo se descubrió de casualidad: `app/api/documentos/generar-costeo/[codigo]`
+// vuelve a correr el parser al REGENERAR el costeo y pisaba `manifiesto_productos` con las filas
+// crudas — sin pasar por V-16. Efecto real en 2409-49-LP26: se dejaba el manifiesto en 14
+// productos, el usuario apretaba "regenerar costeo" y volvían las 16 filas de "PLAZO DE
+// INSTALACION". Indistinguible de "el fix no sirvió".
+//
+// Filtrar al LEER no alcanza: el manifiesto guardado es lo que ven el auditor técnico, el
+// checklist comercial y la ficha del negocio. Este test recorre app/ y exige que todo archivo que
+// asigne `manifiesto_productos` importe el filtro (o el validador, que lo aplica por dentro).
+test('todo archivo que ESCRIBE manifiesto_productos filtra las filas que no son productos', async () => {
+  const { readFileSync, readdirSync, statSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const { join, sep } = await import('node:path');
+  const raiz = fileURLToPath(new URL('../../../app', import.meta.url));
+
+  const archivos: string[] = [];
+  (function recorrer(dir: string) {
+    for (const e of readdirSync(dir)) {
+      const p = join(dir, e);
+      if (statSync(p).isDirectory()) { if (e !== 'node_modules' && e !== '__tests__') recorrer(p); }
+      else if (/\.(ts|tsx)$/.test(e)) archivos.push(p);
+    }
+  })(raiz);
+
+  const infractores: string[] = [];
+  for (const f of archivos) {
+    const src = readFileSync(f, 'utf8');
+    // Asignación real al campo (no lectura, no declaración de tipo, no comentario).
+    if (!/^\s*(?!\/\/|\*)[\w.\[\]]*\bmanifiesto_productos\s*=[^=]/m.test(src)) continue;
+    const filtra = /esFilaNoProducto/.test(src) || /autocorregirHallazgos/.test(src);
+    if (!filtra) infractores.push(f.slice(raiz.length + 1).split(sep).join('/'));
+  }
+  assert.deepEqual(infractores, [],
+    `estos archivos escriben manifiesto_productos sin filtrar filas que no son productos: ${infractores.join(', ')}`);
+});

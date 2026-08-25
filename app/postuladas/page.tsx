@@ -68,6 +68,7 @@ interface Negocio {
   usuario_email?: string;
   aperturada?: number;                 // 1 si el poller del portal ya detectó la apertura
   apertura_detectada_en?: string | null;
+  postulada_en?: string | null;        // cuándo se postuló (migración 76); null si es anterior a ella
   etiquetas?: { id: number; nombre: string; color: string }[];  // líneas de negocio (ya viene de /api/negocios)
 }
 interface EmpresaOpc { id: number; razon_social: string; }
@@ -202,6 +203,27 @@ function AperturaChip({ aperturada }: { aperturada: boolean }) {
     <span className="inline-flex items-center gap-1 text-[10.5px] px-2 py-0.5 rounded-full font-medium border bg-slate-100 text-slate-400 border-slate-200"
       title="Aún sin acto de apertura en Mercado Público">
       <DoorClosed size={11} /> Sin apertura
+    </span>
+  );
+}
+
+// ── Chip de FECHA DE POSTULACIÓN ──────────────────────────────────
+// Cuándo se postuló (se sella al pasar a POSTULADA, migración 76). Las postuladas
+// anteriores a la migración no tienen el dato: se muestra "—" en vez de inventar una fecha.
+function FechaPostulacionChip({ iso }: { iso?: string | null }) {
+  const d = iso ? dayjs(iso) : null;
+  if (!d || !d.isValid()) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[11px] font-medium border rounded-full px-2 py-0.5 bg-slate-50 border-slate-200 text-slate-400"
+        title="No hay registro de la fecha de postulación (anterior al registro automático)">
+        <Send size={11} /> Postulada —
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[11px] font-semibold border rounded-full px-2 py-0.5 bg-indigo-50 border-indigo-200 text-indigo-700"
+      title={`Se postuló el ${d.format('DD/MM/YYYY')} a las ${d.format('HH:mm')}`}>
+      <Send size={11} /> Postulada {d.format('DD/MM/YYYY')}
     </span>
   );
 }
@@ -519,6 +541,7 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
 
         {/* Estado + fecha de decisión (lo que se ordena) */}
         <div className="hidden sm:flex flex-col items-end gap-1 flex-shrink-0">
+          <FechaPostulacionChip iso={n.postulada_en} />
           {!cargandoAdj && <FechaAdjChip adj={adj} />}
           <div className="flex items-center gap-1.5">
             {n.aperturada ? <AperturaChip aperturada /> : null}
@@ -555,6 +578,7 @@ function PostuladaCard({ n, adj, cargandoAdj, docsIniciales, index, isAdmin, emp
 
       {/* En móvil, la fecha de decisión no cabe en la fila → se muestra bajo el título */}
       <div className="sm:hidden flex items-center gap-2 flex-wrap px-4 pb-2 -mt-1">
+        <FechaPostulacionChip iso={n.postulada_en} />
         {!cargandoAdj && <FechaAdjChip adj={adj} />}
         {!cargandoAdj && <ResultadoBadge r={r} pulso={r === 'ganada'} />}
       </div>
@@ -1061,6 +1085,8 @@ export default function PostuladasPage() {
           'Apertura detectada (hora)': hora(n.apertura_detectada_en),
           'Apertura técnica (ficha)': fecha(a?.fechaAperturaTecnica),
           'Estado gestión':     getEstadoPipeline(n.estado_pipeline || '')?.label || n.estado_pipeline || '',
+          'Postulada (fecha)':  fecha(n.postulada_en),
+          'Postulada (hora)':   hora(n.postulada_en),
           'Cierre (fecha)': fecha(n.licitacion_cierre),
           'Cierre (hora)': hora(n.licitacion_cierre),
           // Cuándo se decide: la fecha real del acta si ya se adjudicó, si no la estimada de la ficha.
@@ -1091,7 +1117,8 @@ export default function PostuladasPage() {
       ws['!cols'] = [
         { wch: 18 }, { wch: 48 }, { wch: 30 }, { wch: 8 },  { wch: 22 },  // código…región
         { wch: 14 }, { wch: 14 }, { wch: 11 }, { wch: 18 }, { wch: 20 },  // estado MP…apertura técnica
-        { wch: 16 }, { wch: 18 }, { wch: 12 }, { wch: 18 }, { wch: 16 },  // gestión, cierre, fechas
+        { wch: 16 }, { wch: 18 }, { wch: 12 },                            // gestión, postulada (fecha/hora)
+        { wch: 18 }, { wch: 12 }, { wch: 18 }, { wch: 16 },                // cierre, fechas de decisión
         { wch: 16 }, { wch: 16 }, { wch: 22 }, { wch: 22 },               // montos
         { wch: 12 }, { wch: 12 }, { wch: 40 }, { wch: 12 }, { wch: 18 },  // líneas, adjudicatarios
         { wch: 24 }, { wch: 22 }, { wch: 12 }, { wch: 60 }, { wch: 60 },  // empresa…URLs

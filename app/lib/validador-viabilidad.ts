@@ -11,6 +11,8 @@
 // NO reemplaza al golden set (que mide precisión contra casos conocidos): el validador detecta
 // INCONSISTENCIAS INTERNAS del informe, sin necesitar saber la respuesta correcta.
 
+import { esFilaNoProducto } from '@/app/lib/fila-no-producto';
+
 export interface HallazgoValidador {
   regla: string;       // "V-01"
   severidad: 'error' | 'aviso'; // error = dato incoherente que puede llevar a mal ofertar; aviso = revisar
@@ -291,7 +293,75 @@ function v15_fuentesManifiestoConcuerdan(inf: any, push: (h: HallazgoValidador) 
   });
 }
 
-// Set completo de reglas V-01..V-15. Se agrega una nueva simplemente empujando una función más
+// V-16 — EL MANIFIESTO DE PRODUCTOS SOLO PUEDE CONTENER PRODUCTOS.
+// (25-ago-2026.) Esta regla existe porque el mismo error volvió tres veces con tres disfraces
+// distintos, y cada vez se arregló SOLO en el parser que lo había producido:
+//   · 2345-128-LP26 — 20 de 30 "productos" eran la tabla de criterios de evaluación.
+//   · 2981-225-LE26 — 16 de 16 eran los campos en blanco de los anexos ("Nombre:", "FIRMA:").
+//   · 2296-45-LE26  — 4 criterios con su sigla pegada ("OFERTA ECONÓMICA(OE)"), y las
+//                     "cantidades" 1,2,3,4 eran el correlativo de la tabla de criterios.
+//   · 2409-49-LP26  — el renglón "PLAZO DE INSTALACION ……… DÍAS HABILES", repetido por lote.
+// Arreglar cada parser por separado no impide el cuarto disfraz. Esta regla se pone DESPUÉS, en
+// la salida: no le importa de qué parser vino ni qué documento lo trajo — mira el manifiesto ya
+// armado y exige que cada fila sea un bien o servicio. Es el punto único por donde pasan TODAS
+// las rutas que escriben un manifiesto, hoy y las que se agreguen mañana.
+//
+// Detecta DOS familias:
+//  (a) filas que no son productos → error, y `autocorregirHallazgos` las saca solo.
+//  (b) manifiesto DEGENERADO: la misma descripción repetida en la mayoría de las filas. Caso real
+//      1057536-107-LE26: 58 filas, todas "S Y 14HRS" (un pedazo de frase que el OCR cortó y el
+//      parser replicó). No se autocorrige —no hay dato bueno que rescatar— sino que escala a
+//      revisión humana: el listado hay que sacarlo de nuevo del documento.
+function v16_manifiestoSoloProductos(inf: any, push: (h: HallazgoValidador) => void): void {
+  const man: any[] = Array.isArray(inf?.manifiesto_productos) ? inf.manifiesto_productos : [];
+  if (!man.length) return; // el manifiesto vacío ya lo cubre V-09
+
+  // (a) filas que no son productos
+  const basura = man.filter(p => esFilaNoProducto(String(p?.descripcion || '')));
+  if (basura.length) {
+    push({
+      regla: 'V-16',
+      severidad: 'error',
+      mensaje: `${basura.length}/${man.length} fila(s) del manifiesto NO son productos a cotizar `
+        + `(rótulos de formulario, tramos de criterio o filas de la tabla de evaluación): `
+        + `${basura.slice(0, 5).map(b => `"${String(b.descripcion).slice(0, 45)}"`).join(', ')}`
+        + `${basura.length > 5 ? ` y ${basura.length - 5} más` : ''}. `
+        + `Se excluyen del costeo automáticamente; si quedan pocas o ninguna fila real, revisar el documento fuente.`,
+    });
+  }
+
+  // (b) manifiesto degenerado — una MISMA FILA ocupa la mayoría del manifiesto.
+  // La clave incluye descripción + cantidad + línea, y eso no es un detalle: repetir la misma
+  // DESCRIPCIÓN es perfectamente legítimo cuando el mismo producto se pide en varios lotes con
+  // cantidades distintas. Caso real 1422051-24-LE26: "Válvulas de solenoide" en 7 de 10 líneas,
+  // con 50/200/80/100/100/40/40 unidades — un listado por lote correcto, que la primera versión de
+  // esta regla (que solo miraba la descripción) marcaba como degenerado. Lo que delata un error de
+  // extracción es la fila IDÉNTICA en todo: misma descripción, misma cantidad, misma línea —
+  // como las 58 filas "S Y 14HRS" c=3 u=HR L1 de 1057536-107-LE26.
+  if (man.length >= 5) {
+    const porDesc = new Map<string, number>();
+    for (const p of man) {
+      const desc = String(p?.descripcion || '').toLowerCase().normalize('NFD')
+        .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+      const k = `${desc}|${p?.cantidad ?? ''}|${p?.linea ?? ''}`;
+      if (desc) porDesc.set(k, (porDesc.get(k) || 0) + 1);
+    }
+    let peorDesc = ''; let peorN = 0;
+    for (const [k, n] of porDesc) if (n > peorN) { peorN = n; peorDesc = k; }
+    if (peorN >= man.length * 0.6 && peorN >= 5) {
+      push({
+        regla: 'V-16',
+        severidad: 'error',
+        mensaje: `Manifiesto DEGENERADO: la fila "${peorDesc.split('|')[0].slice(0, 50)}" (misma cantidad y línea) se repite en `
+          + `${peorN} de ${man.length} filas (${Math.round(peorN / man.length * 100)}%). `
+          + `Eso no es un listado de productos sino una fila replicada por un error de extracción `
+          + `— el costeo saldría con ${man.length} veces el mismo ítem. Re-extraer el listado del documento fuente.`,
+      });
+    }
+  }
+}
+
+// Set completo de reglas V-01..V-16. Se agrega una nueva simplemente empujando una función más
 // (misma firma) a este array — no requiere tocar el resto del pipeline.
 type ReglaFn = (inf: any, push: (h: HallazgoValidador) => void, score: number) => void;
 const REGLAS: ReglaFn[] = [
@@ -310,6 +380,7 @@ const REGLAS: ReglaFn[] = [
   v13_adjudicacionCitaMultipleNoGlobal,
   v14_enumsBienFormados,
   v15_fuentesManifiestoConcuerdan,
+  v16_manifiestoSoloProductos,
 ];
 
 // Corre TODAS las reglas sobre un informe v3 ya ensamblado (post-overrides deterministas).
@@ -360,6 +431,20 @@ export function autocorregirHallazgos(inf: any, hallazgos: HallazgoValidador[], 
     if (inf.tarjeta_decision.veredicto !== esperado) {
       inf.tarjeta_decision.veredicto = esperado;
       aplicadas.push({ regla: 'V-02', detalle: `tarjeta_decision.veredicto corregido a ${esperado} (score=${score})` });
+    }
+  }
+
+  // V-16 — filas que no son productos en el manifiesto: se SACAN. El dato correcto ya se conoce
+  // (las que sobreviven al filtro), así que califica para autocorrección y no para revisión humana.
+  // Ojo: si el manifiesto queda VACÍO no se toca — prefiero dejarlo sucio y que V-09 lo cace, antes
+  // que borrar la única lista que hay y que el costeo salga en blanco sin explicación. El adaptador
+  // del Excel filtra igual al generar, y ahí sí cae a productos.items.
+  if (tiene('V-16') && Array.isArray(inf?.manifiesto_productos)) {
+    const antes = inf.manifiesto_productos.length;
+    const limpio = inf.manifiesto_productos.filter((p: any) => !esFilaNoProducto(String(p?.descripcion || '')));
+    if (limpio.length && limpio.length < antes) {
+      inf.manifiesto_productos = limpio;
+      aplicadas.push({ regla: 'V-16', detalle: `${antes - limpio.length} fila(s) que no eran productos removidas del manifiesto (quedan ${limpio.length})` });
     }
   }
 
@@ -432,7 +517,12 @@ export function autocorregirHallazgos(inf: any, hallazgos: HallazgoValidador[], 
 // ya usa el reintento de V-12/V-09 en viabilidad-ia.ts). Devuelve las reglas que dispararon.
 // V-15 entra acá (y no en auto-corrección) a propósito: cuando dos documentos de la licitación se
 // contradicen sobre qué se cotiza, NO hay arreglo honesto por código — hay que abrir los papeles.
-const REGLAS_A_REVISION_HUMANA = new Set(['V-01', 'V-03', 'V-08', 'V-10', 'V-11', 'V-15']);
+// V-16 escala a revisión humana PESE a tener autocorrección: la autocorrección solo resuelve la
+// familia (a) (sacar filas que no son productos). La familia (b) —manifiesto degenerado, una misma
+// fila replicada por un error de extracción— no tiene arreglo automático posible: no hay dato bueno
+// que rescatar, hay que volver al documento. Y aun en el caso (a), que el manifiesto viniera
+// contaminado significa que el listado se leyó de un documento equivocado: vale que alguien mire.
+const REGLAS_A_REVISION_HUMANA = new Set(['V-01', 'V-03', 'V-08', 'V-10', 'V-11', 'V-15', 'V-16']);
 
 export function escalarARevisionHumana(inf: any, hallazgos: HallazgoValidador[]): string[] {
   const disparadas = hallazgos.filter(h => REGLAS_A_REVISION_HUMANA.has(h.regla));

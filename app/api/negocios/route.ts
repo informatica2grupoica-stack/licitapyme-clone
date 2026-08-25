@@ -110,7 +110,7 @@ export async function GET(request: NextRequest) {
     const codigos = negocios.map(n => n.licitacion_codigo).filter(Boolean);
     if (codigos.length) {
       const ph = codigos.map(() => '?').join(',');
-      const [docsRes, viabRes, aperturaRes, adjRes] = await Promise.allSettled([
+      const [docsRes, viabRes, aperturaRes, adjRes, postRes] = await Promise.allSettled([
         pool.query(`SELECT DISTINCT licitacion_codigo FROM documentos_cache WHERE licitacion_codigo IN (${ph})`, codigos),
         pool.query(`SELECT licitacion_codigo, semaforo, score_total FROM viabilidad_licitacion WHERE licitacion_codigo IN (${ph})`, codigos),
         // Estado de apertura detectado por el poller del portal (migración 41). Tolerante:
@@ -120,6 +120,11 @@ export async function GET(request: NextRequest) {
         // el apartado Postuladas: por línea, con RUT del adjudicado. De aquí sale si GANAMOS
         // nosotros (adj_ganamos) o si se adjudicó a terceros (perdida). Migración 35; tolerante.
         pool.query(`SELECT * FROM adjudicacion_cache WHERE licitacion_codigo IN (${ph})`, codigos),
+        // Fecha en que se POSTULÓ (migración 76). Va aparte del SELECT principal a propósito:
+        // si la migración todavía no corrió, la columna no existe y esta consulta falla sola
+        // (allSettled) sin tumbar la lista entera de negocios.
+        pool.query(`SELECT id, postulada_en FROM negocios WHERE id IN (${negocios.map(() => '?').join(',')})`,
+          negocios.map(n => n.id)),
       ]);
       if (docsRes.status === 'fulfilled') {
         const setDocs = new Set(((docsRes.value as any)[0] as any[]).map(r => r.licitacion_codigo));
@@ -156,6 +161,10 @@ export async function GET(request: NextRequest) {
           n.adj_ganamos       = adj.ganamos ? 1 : 0;
           n.adj_monto_nuestro = adj.montoNuestro ?? null;
         }
+      }
+      if (postRes.status === 'fulfilled') {
+        const mapPost = new Map(((postRes.value as any)[0] as any[]).map(r => [r.id, r.postulada_en]));
+        for (const n of negocios) n.postulada_en = mapPost.get(n.id) ?? null;
       }
     }
 
