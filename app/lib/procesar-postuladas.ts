@@ -41,16 +41,29 @@ const IN_POSTULADA = ESTADOS_POSTULADA.map(() => '?').join(', ');
 const ESTADOS_RESUELTAS = [...idsEquivalentes('ADJUDICADA'), ...idsEquivalentes('PERDIDA')];
 const IN_RESUELTAS = ESTADOS_RESUELTAS.map(() => '?').join(', ');
 
-// MP rechaza las ráfagas con HTTP 429 "peticiones simultáneas" (verificado en vivo el
-// 24-ago-2026: en lote de 4 en paralelo devolvía 429 a buena parte de las ~58 postuladas, y cada
-// 429 era una licitación que se daba por NO adjudicada). Se consulta DE A UNA, con pausa entre
-// consultas, en lotes rotativos — y si MP igual nos frena, el freno de más abajo corta la corrida.
-const CODIGO_CONCURRENCIA = 1;      // MP rechaza las "peticiones simultáneas": de a una
-const PAUSA_ENTRE_CONSULTAS_MS = 400; // ritmo entre consultas (evita el 429 por ráfaga)
-const MAX_CODIGOS_POR_CORRIDA = 30;   // lote por corrida; la rotación cubre el resto en la siguiente
-// 30 códigos × ~0.8s ≈ 25s. 30s + 15s de la 2ª pasada = 45s, bajo el maxDuration=60 del endpoint.
-const PRESUPUESTO_MS       = 30_000; // tope de tiempo del paso principal
-const PRESUPUESTO_RECONFIRMAR_MS = 15_000; // tope de la 2ª pasada (conjunto chico, no compite por tiempo)
+// ─── RITMO CALIBRADO CONTRA LA API DE MP (medido en vivo, 24-ago-2026) ────────────────────
+// No es una estimación: se midió el % de rechazo (HTTP 429 / Código 10500) por configuración.
+//
+//   ritmo neto        concurrencia   rechazo
+//   1 cada 1.0s       1              31%
+//   1 cada 1.5s       1              19%
+//   1 cada 2.0s       1               0%   ← techo real
+//   1 cada 2.0s       4 (en ráfagas)  19%
+//
+// Dos conclusiones que mandan sobre el diseño:
+//  (a) El techo es ~1 consulta cada 2 segundos (~30/min). Más rápido, MP rechaza.
+//  (b) A IGUAL ritmo neto, ir en paralelo EMPEORA (4 en ráfaga rechaza 19%, de a una 0%). O sea
+//      "de a una" no es una elección conservadora nuestra: es lo único que MP acepta. Subir la
+//      concurrencia no acelera nada, solo cambia consultas buenas por rechazos — y cada rechazo
+//      era una licitación dada por NO adjudicada (así se perdió el resultado de 1114-12-LE26).
+const CODIGO_CONCURRENCIA = 1;         // medido: en paralelo MP rechaza aunque el ritmo neto sea igual
+const PAUSA_ENTRE_CONSULTAS_MS = 2_000; // medido: 2s = 0% de rechazo; 1.5s ya rechaza
+const MAX_CODIGOS_POR_CORRIDA = 15;     // lo que entra en el presupuesto a este ritmo (~2.1s c/u)
+// 15 códigos × ~2.1s ≈ 32s. Medido: con 40s+15s la corrida llegó a 61.9s y se pasaba del
+// maxDuration=60 del endpoint (el chequeo de presupuesto corta ENTRE consultas, así que la última
+// siempre se pasa un poco). Con 32s+10s la corrida real queda ~45s, con margen.
+const PRESUPUESTO_MS       = 32_000; // tope de tiempo del paso principal
+const PRESUPUESTO_RECONFIRMAR_MS = 10_000; // tope de la 2ª pasada (conjunto chico, no compite por tiempo)
 const TIMEOUT_DETALLE_MS   = 8_000;  // timeout por llamada a MP
 
 interface FilaPostulada {
@@ -85,11 +98,11 @@ export async function procesarPostuladas(
   const promover     = opts.promover     ?? true;
   const soloCerradas = opts.soloCerradas ?? true;
   const presupuestoMs = opts.presupuestoMs ?? PRESUPUESTO_MS;
-  // maxCodigos: tope de códigos POR CORRIDA. Con el cron corriendo cada 5 minutos, barrer las ~58
-  // postuladas COMPLETAS en cada pasada gatilla el 429 de MP por ráfaga (verificado 24-ago-2026).
-  // Un lote chico + la rotación por `consultado_en` (los más rancios primero) cubre igual a todas
-  // en pocos minutos, sin pasarse del límite: 30 códigos cada 5 min = las 58 revisadas cada ~10
-  // min, contra 1 hora que tardaba antes.
+  // maxCodigos: tope de códigos POR CORRIDA. Al ritmo que MP acepta (1 cada 2s) un barrido de las
+  // ~56 postuladas tarda ~2 min, más de lo que dura una corrida. En vez de forzarlo, se toma un
+  // lote y la rotación por `consultado_en` cubre el resto en la corrida siguiente — 5 minutos
+  // después, no una hora. Con el orden por fecha estimada de adjudicación, las que de verdad
+  // pueden cambiar hoy entran en TODAS las corridas.
   const maxCodigos = opts.maxCodigos ?? MAX_CODIGOS_POR_CORRIDA;
   // `codigos` = candidatos totales · `procesados` = los que alcanzaron a consultarse ·
   // `sinPresupuesto` = los que quedaron fuera por tiempo (van primeros en la próxima corrida).
