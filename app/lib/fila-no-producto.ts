@@ -227,13 +227,28 @@ export const esFilaDeCriterioNoProducto = esFilaNoProducto;
 export function planillaReconoceElListado(planilla: string[], modelo: string[]): { reconoce: boolean; solape: number; minimo: number } {
   const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD')
     .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  // Se compara por PALABRAS, no por substring: las dos lecturas salen de OCR distintos del mismo
+  // documento y se separan por detalles ("similar a stihl" vs "similar stihl", "4 depósitos" vs
+  // "4 DEPOSITOS"). Un `includes` cuenta eso como desencuentro y bloquea planillas buenas. Basta
+  // con que dos tercios de las palabras del ítem del modelo aparezcan en alguna fila de la
+  // planilla: la basura de verdad (nombres de funcionarios, "S Y 14HRS", códigos EQUIP-01) no
+  // comparte vocabulario con los productos, así que sigue cayendo.
+  const palabras = (s: string) => norm(s).split(' ').filter(w => w.length > 2);
   // Con muy pocos ítems del modelo, el solape no es una medida confiable (un solo desencuentro
   // de redacción lo hunde) — se deja pasar y decidan los otros gates.
   if (modelo.length < 4) return { reconoce: true, solape: 1, minimo: 0 };
-  const enPlanilla = planilla.map(norm).filter(Boolean);
+  const enPlanilla = planilla.map(p => new Set(palabras(p))).filter(s => s.size > 0);
   const reconocidos = modelo.filter(m => {
-    const d = norm(m);
-    return !!d && enPlanilla.some(p => p === d || p.includes(d) || d.includes(p));
+    const ws = palabras(m);
+    if (!ws.length) return false;
+    return enPlanilla.some(p => {
+      const comunes = ws.filter(w => p.has(w)).length;
+      // Bidireccional: cada lado abrevia por su cuenta. La planilla suele traer el rótulo corto
+      // ("COIHUE") y el modelo la descripción completa ("COIHUE (Nothofagus dombeyi) 30-60 cm"),
+      // y también al revés. Se mide contra el lado MÁS CORTO: si uno está contenido en el otro,
+      // están hablando del mismo producto.
+      return comunes / Math.min(ws.length, p.size) >= 0.66;
+    });
   }).length;
   const solape = reconocidos / modelo.length;
   const minimo = planilla.length > modelo.length * 2 ? 0.34 : 0.5;
