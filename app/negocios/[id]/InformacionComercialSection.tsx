@@ -1322,15 +1322,17 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
                   className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50">
                   {ocupado ? <Loader2 size={12} className="animate-spin" /> : 'Guardar y enviar a visar'}
                 </button>
-                {/* 'dato' es una alerta, no un documento: sin botón de adjuntar, para que no
-                    parezca que hace falta subir algo cuando basta con confirmarla. */}
-                {item.tipo === 'documento' && (
+                {/* El adjunto también existe en las alertas: varias piden evidencia real
+                    (certificado de Tesorería, F30, documentación de experiencia, programa de
+                    integridad) aunque no sean un anexo de las bases. Sigue siendo OPCIONAL — un
+                    'dato' se puede confirmar sin subir nada, y guardar() no lo exige. */}
+                {item.tipo !== 'precio' && (
                   <>
                     <input ref={fileRef} type="file" multiple className="hidden" onChange={e => subirArchivo(e.target.files)} />
                     <button onClick={() => fileRef.current?.click()} disabled={subiendo}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-zinc-200 text-zinc-600 hover:bg-zinc-50 text-[11.5px] font-semibold rounded-lg disabled:opacity-50">
                       {subiendo ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-                      {item.documentos.length > 0 ? 'Adjuntar más' : 'Adjuntar'}
+                      {item.documentos.length > 0 ? 'Adjuntar más' : item.tipo === 'dato' ? 'Adjuntar (opcional)' : 'Adjuntar'}
                     </button>
                   </>
                 )}

@@ -103,6 +103,18 @@ export function tieneAnexosAuditor(estadoPipeline?: string | null): boolean {
 const RE_PRECIO = /\b(precio|econ[oó]mic|oferta\s+econ|valor\s+ofertad|monto\s+ofertad)/i;
 const RE_PLAZO  = /\b(plazo\s+de\s+entrega|tiempo\s+de\s+entrega|plazo\s+ofertad|d[ií]as\s+de\s+entrega)/i;
 
+// ¿El título nombra un ANEXO/FORMATO/FORMULARIO? Esa es la línea que separa el bloque
+// ADMINISTRATIVO ("los papeles que hay que llenar y subir con la oferta") de las alertas de
+// cumplimiento del final. Todo lo demás que el informe lista como exigencia administrativa
+// —programa de integridad, certificado de Tesorería y F30, documentación de experiencia,
+// garantías— es evidencia o condición a tener presente, no un anexo de las bases: arriba solo
+// van anexos y formularios (pedido 24 y 25-ago-2026). Se acepta sin número ("Formulario de datos
+// del oferente"): la palabra basta.
+const RE_ES_ANEXO = /\b(anexo|anexos|formato|formatos|formulario|formularios)\b/i;
+export function tituloEsAnexo(titulo: string): boolean {
+  return RE_ES_ANEXO.test(String(titulo || ''));
+}
+
 function bloqueDeCriterio(nombre: string): BloqueChecklist {
   if (RE_PRECIO.test(nombre) || RE_PLAZO.test(nombre)) return 'COMERCIAL';
   return 'TECNICO';
@@ -319,7 +331,8 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     if (!titulo || registroAdmin.esDuplicado(titulo)) continue;
     registroAdmin.registrar(titulo);
     push({
-      bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: titulo.slice(0, 280),
+      bloque: 'ADMINISTRATIVO', tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
+      titulo: titulo.slice(0, 280),
       descripcion: [a?.que_debe_contener, a?.por_que].filter(Boolean).join(' — ') || null,
       criticidad: critDe(a?.criticidad), ponderacion: null,
       fuenteCita: a?.fuente || null, origen: 'viabilidad',
@@ -336,7 +349,8 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     if (!titulo || registroAdmin.esDuplicado(titulo)) continue;   // ya vino por otra fuente
     registroAdmin.registrar(titulo);
     push({
-      bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: titulo.slice(0, 280),
+      bloque: 'ADMINISTRATIVO', tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
+      titulo: titulo.slice(0, 280),
       descripcion: d?.cubre || null, criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null,
       fuenteCita: d?.fuente || null, origen: 'viabilidad',
       claveOrigen: `anexo:${slug(titulo)}`, generable: true, lineaNumero: null,
@@ -496,7 +510,7 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     // garantía del producto, mantenciones, programa de integridad, comportamiento contractual…)
     // no tiene documento propio: son condiciones que hay que respaldar, así que bajan a "Alertas
     // de cumplimiento" — regla de oro: arriba SOLO anexos y formularios (pedido 24-ago-2026).
-    const criterioEsAnexo = numeroDeFormatoEn(nombre) != null;
+    const criterioEsAnexo = tituloEsAnexo(nombre);
     if (criterioEsAnexo) {
       if (registroAdmin.esDuplicado(nombre)) continue;
       registroAdmin.registrar(nombre);
@@ -699,15 +713,19 @@ export function reubicacionDeItemGuardado(
   row: { clave_origen: string | null; titulo: string; bloque: BloqueChecklist; tipo: TipoItem },
 ): { bloque: BloqueChecklist; tipo: TipoItem } | null {
   const clave = String(row.clave_origen || '');
-  const esAnexoNumerado = numeroDeFormatoEn(row.titulo) != null;
+  const esAnexo = tituloEsAnexo(row.titulo);
   let destino: { bloque: BloqueChecklist; tipo: TipoItem } | null = null;
 
   if (clave === 'adm:garantia_fiel_cumplimiento' || clave === 'adm:boleta_garantia') {
     destino = { bloque: 'ADMINISTRATIVO', tipo: 'dato' };
   } else if (clave.startsWith('criterio:')) {
-    destino = esAnexoNumerado
+    destino = esAnexo
       ? { bloque: 'ADMINISTRATIVO', tipo: 'documento' }
       : { bloque: row.bloque, tipo: 'dato' };
+  } else if (clave.startsWith('anexo:')) {
+    // Lo que se insertó como "anexo" pero no nombra ningún anexo (programa de integridad,
+    // certificado de Tesorería, documentación de experiencia…) baja a las alertas.
+    destino = { bloque: 'ADMINISTRATIVO', tipo: esAnexo ? 'documento' : 'dato' };
   } else if (clave === CLAVE_ITEM_PLAZO) {
     destino = { bloque: 'COMERCIAL', tipo: 'dato' };
   }

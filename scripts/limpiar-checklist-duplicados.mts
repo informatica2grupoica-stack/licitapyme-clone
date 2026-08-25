@@ -24,6 +24,15 @@ import { readFileSync } from 'node:fs';
 import { numeroDeFormatoEn, nucleoDeTitulo, nucleosCoinciden } from '../app/lib/checklist-comercial.js';
 
 const APLICAR = process.argv.includes('--aplicar');
+// Los grupos "en conflicto" (evidencia cargada en MÁS de una fila del mismo anexo) se dejaban
+// siempre para revisión manual, y así quedaron a la vista duplicados que nadie limpiaba nunca
+// —el Anexo N°1 aprobado dos veces en 2724-35-LP26, los Anexos N°11 y N°12 en 3489-29-LP26
+// (reportado 25-ago-2026). Con --fusionar se resuelven solos: gana la fila con el estado más
+// avanzado (sus firmas se conservan tal cual, jamás se inventa una aprobación) y ABSORBE los
+// documentos, el valor y la observación de las otras antes de borrarlas. Nada de evidencia se
+// pierde: los adjuntos se reasignan, no se borran.
+const FUSIONAR = process.argv.includes('--fusionar');
+const RANK_ESTADO: Record<string, number> = { APROBADO: 3, CARGADO: 2, OBSERVADO: 1, PENDIENTE: 0 };
 
 const env: Record<string, string> = {};
 for (const line of readFileSync('.env.local', 'utf8').split('\n')) {
@@ -87,6 +96,7 @@ async function main() {
   let filasBorrables = 0;
   let gruposConConflicto = 0;
   const idsABorrar: number[] = [];
+  const fusiones: Array<{ ganadora: Fila; perdedoras: Fila[] }> = [];
   const reporte: any[] = [];
 
   for (const [negocioId, items] of porNegocio) {
@@ -112,6 +122,24 @@ async function main() {
       if (g.length < 2) continue;
       gruposEncontrados++;
       const conEvidencia = g.filter(f => tieneEvidencia(f, nDocsPorItem.get(f.id)));
+      if (conEvidencia.length > 1 && FUSIONAR) {
+        // Estado primero (no se degrada una aprobación), después cantidad de adjuntos, y a
+        // igualdad la más antigua — que es la que el equipo viene trabajando.
+        const ganadora = [...g].sort((a, b) =>
+          (RANK_ESTADO[b.estado] ?? 0) - (RANK_ESTADO[a.estado] ?? 0)
+          || (nDocsPorItem.get(b.id) || 0) - (nDocsPorItem.get(a.id) || 0)
+          || a.id - b.id)[0];
+        const perdedoras = g.filter(f => f.id !== ganadora.id);
+        fusiones.push({ ganadora, perdedoras });
+        filasBorrables += perdedoras.length;
+        idsABorrar.push(...perdedoras.map(f => f.id));
+        reporte.push({
+          negocioId, codigo: g[0].licitacion_codigo, tipo: 'FUSION',
+          conserva: { id: ganadora.id, titulo: ganadora.titulo, estado: ganadora.estado },
+          borra: perdedoras.map(f => ({ id: f.id, titulo: f.titulo, estado: f.estado, docs: nDocsPorItem.get(f.id) || 0 })),
+        });
+        continue;
+      }
       if (conEvidencia.length > 1) {
         gruposConConflicto++;
         reporte.push({ negocioId, codigo: g[0].licitacion_codigo, tipo: 'CONFLICTO', filas: g.map(f => ({ id: f.id, titulo: f.titulo, estado: f.estado })) });
@@ -140,6 +168,10 @@ async function main() {
       console.log(`\n[SEGURO] negocio=${r.negocioId} (${r.codigo})`);
       console.log(`  conserva #${r.conserva.id}: "${r.conserva.titulo}"`);
       for (const b of r.borra) console.log(`  borra    #${b.id}: "${b.titulo}"`);
+    } else if (r.tipo === 'FUSION') {
+      console.log(`\n[FUSIÓN] negocio=${r.negocioId} (${r.codigo})`);
+      console.log(`  conserva #${r.conserva.id} [${r.conserva.estado}]: "${r.conserva.titulo}"`);
+      for (const b of r.borra) console.log(`  absorbe  #${b.id} [${b.estado}, ${b.docs} doc(s)] y la borra: "${b.titulo}"`);
     } else {
       console.log(`\n[CONFLICTO] negocio=${r.negocioId} (${r.codigo}) — requiere revisión manual:`);
       for (const f of r.filas) console.log(`  #${f.id} [${f.estado}]: "${f.titulo}"`);
@@ -147,9 +179,26 @@ async function main() {
   }
 
   if (!APLICAR) {
-    console.log(`\n(DRY RUN — no se borró nada. Correr con --aplicar para borrar las ${filasBorrables} filas seguras.)\n`);
+    console.log(`\n(DRY RUN — no se borró nada. Correr con --aplicar para aplicar sobre ${filasBorrables} fila(s).${FUSIONAR ? '' : ' Agregar --fusionar para resolver también los grupos en conflicto.'})\n`);
   } else if (idsABorrar.length) {
-    await pool.query(`DELETE FROM checklist_comercial_documentos WHERE item_id IN (?)`, [idsABorrar]).catch(() => {});
+    // Primero se rescata TODO lo de las filas que van a desaparecer: adjuntos reasignados a la
+    // ganadora, y valor/observación solo si la ganadora no tenía nada propio.
+    for (const { ganadora, perdedoras } of fusiones) {
+      const ids = perdedoras.map(f => f.id);
+      await pool.query(`UPDATE checklist_comercial_documentos SET item_id = ? WHERE item_id IN (?)`, [ganadora.id, ids]).catch(() => {});
+      const conValor = perdedoras.find(f => f.valor_texto != null || f.valor_numero != null);
+      if (ganadora.valor_texto == null && ganadora.valor_numero == null && conValor) {
+        await pool.query(`UPDATE checklist_comercial SET valor_texto = ?, valor_numero = ? WHERE id = ?`,
+          [conValor.valor_texto, conValor.valor_numero, ganadora.id]);
+      }
+      const conObs = perdedoras.find(f => f.observacion != null);
+      if (ganadora.observacion == null && conObs) {
+        await pool.query(`UPDATE checklist_comercial SET observacion = ? WHERE id = ?`, [conObs.observacion, ganadora.id]);
+      }
+    }
+    const idsFusionados = new Set(fusiones.flatMap(f => f.perdedoras.map(p => p.id)));
+    const soloBorrar = idsABorrar.filter(id => !idsFusionados.has(id));
+    if (soloBorrar.length) await pool.query(`DELETE FROM checklist_comercial_documentos WHERE item_id IN (?)`, [soloBorrar]).catch(() => {});
     const [res] = await pool.query(`DELETE FROM checklist_comercial WHERE id IN (?)`, [idsABorrar]) as any;
     console.log(`\nBorradas ${res.affectedRows} filas duplicadas.\n`);
   } else {

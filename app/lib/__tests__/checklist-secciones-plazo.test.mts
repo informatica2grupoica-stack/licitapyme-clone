@@ -112,3 +112,40 @@ test('las filas ya guardadas con la clasificación vieja se reubican (y solo esa
   assert.equal(reubicacionDeItemGuardado({ clave_origen: CLAVE_ITEM_PLAZO, titulo: 'Plazo de entrega', bloque: 'COMERCIAL', tipo: 'dato' }), null);
   assert.equal(reubicacionDeItemGuardado({ clave_origen: 'anexo:anexo_n1', titulo: 'Anexo N°1', bloque: 'ADMINISTRATIVO', tipo: 'documento' }), null);
 });
+
+// 25-ago-2026 (3489-29-LP26 y otras): el informe lista como "anexo propio" o "documento
+// infaltable" cosas que NO son un anexo de las bases —programa de integridad, certificado de
+// Tesorería y F30, documentación de experiencia—. Arriba van SOLO anexos y formularios.
+test('lo que no nombra un anexo baja a alertas aunque venga como anexo propio o infaltable', () => {
+  const items = generarItemsDesdeViabilidad({
+    modalidad: { tipo: 'suma_alzada' },
+    requisitos_admisibilidad: {
+      orden_anexos_propios: [
+        { que_crear: 'Anexo N°2: Declaración jurada' },
+        { que_crear: 'Formulario de datos del oferente' },          // sin número, pero es formulario
+        { que_crear: 'Programa de Integridad y Ética Empresarial' },
+        { que_crear: 'Documentación de experiencia (órdenes de compra, facturas)' },
+      ],
+    },
+    documentos_infaltables: [
+      { exige: 'Certificado de Tesorería y F30 (solo si adjudica L1-L2)' },
+    ],
+  });
+  const tipoDe = (t: string) => items.find(i => i.titulo.startsWith(t))?.tipo;
+  assert.equal(tipoDe('Anexo N°2'), 'documento');
+  assert.equal(tipoDe('Formulario de datos'), 'documento');
+  assert.equal(tipoDe('Programa de Integridad'), 'dato');
+  assert.equal(tipoDe('Documentación de experiencia'), 'dato');
+  assert.equal(tipoDe('Certificado de Tesorería'), 'dato');
+  // Todos siguen en el bloque administrativo: lo que cambia es la sección donde se muestran.
+  assert.ok(items.every(i => i.bloque !== 'ADMINISTRATIVO' || i.titulo.length > 0));
+});
+
+test('reubicación: un "anexo:" guardado que no nombra ningún anexo baja a alertas', async () => {
+  const { reubicacionDeItemGuardado } = await import('../checklist-comercial');
+  assert.deepEqual(
+    reubicacionDeItemGuardado({ clave_origen: 'anexo:programa_de_integridad', titulo: 'Programa de Integridad y Ética Empresarial', bloque: 'ADMINISTRATIVO', tipo: 'documento' }),
+    { bloque: 'ADMINISTRATIVO', tipo: 'dato' });
+  assert.equal(
+    reubicacionDeItemGuardado({ clave_origen: 'anexo:anexo_n2', titulo: 'Anexo N°2: Declaración jurada', bloque: 'ADMINISTRATIVO', tipo: 'documento' }), null);
+});
