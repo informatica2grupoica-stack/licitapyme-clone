@@ -32,6 +32,7 @@ import { MotorComercialCard } from './MotorComercialCard';
 import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
 import {
   tieneAnexosAuditor, CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado,
+  esAlertaDeCumplimiento,
 } from '@/app/lib/checklist-comercial';
 import {
   ShieldCheck, Building2, Check, X, Upload, Loader2, AlertTriangle, Copy,
@@ -134,9 +135,7 @@ const BLOQUES = [
  * (cotizar el 100%, garantías post-adjudicación, criterios sin documento propio, bloqueantes)
  * es una condición a tener presente y baja al final.
  */
-function esAlerta(i: { tipo: string; clave_origen?: string | null }): boolean {
-  return i.tipo === 'dato' && i.clave_origen !== CLAVE_ITEM_PLAZO;
-}
+const esAlerta = esAlertaDeCumplimiento;
 
 const CRIT_STYLE: Record<string, { bg: string; text: string; label: string }> = {
   ADMISIBILIDAD_DURA:    { bg: 'bg-rose-100',    text: 'text-rose-700',    label: 'Admisibilidad' },

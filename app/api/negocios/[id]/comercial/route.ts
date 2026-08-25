@@ -19,6 +19,7 @@ import {
   generarItemsDesdeViabilidad, resumirChecklist, transicion, tieneInformacionComercial,
   esPorLinea, modalidadDudosa, estadoDeBloque, lineasDelInforme, excluirYaExistentes, type EstadoItem,
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado, reubicacionDeItemGuardado,
+  itemsDesdeArchivosDeAnexo, esAlertaDeCumplimiento, planDeReconciliacion, type FilaReconciliable,
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
 import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
@@ -189,6 +190,22 @@ async function sincronizar(negocioId: number, codigo: string, informe: any): Pro
   let items = generarItemsDesdeViabilidad(informe);
   if (!items.length) return 0;
 
+  // Los ARCHIVOS de anexo que bajaron de Mercado Público también mandan: si existe el archivo,
+  // existe la casilla, aunque el informe no lo haya listado (986278-14-LE26 traía 5 anexos y el
+  // Auditor mostraba 4 — faltaba el N°3 de UTP). Se excluye DOCUMENTOS_PROPIOS: ahí caen los
+  // archivos que generó la app o subió el equipo, no los anexos de las bases.
+  try {
+    const [anexoRows] = await pool.query(
+      `SELECT documento_nombre FROM documentos_cache
+        WHERE licitacion_codigo = ?
+          AND categoria IN ('ANEXOS_OFERENTE', 'ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS')`,
+      [codigo],
+    ) as any;
+    items = items.concat(itemsDesdeArchivosDeAnexo(
+      (anexoRows as Array<{ documento_nombre: string }>).map(r => r.documento_nombre), items,
+    ));
+  } catch { /* si la consulta falla, el checklist igual se arma con lo del informe */ }
+
   // Cierra el hueco que el INSERT IGNORE de abajo no cubre: un re-análisis puede redactar el
   // MISMO Anexo/Formato N°X con otras palabras, y como clave_origen es el slug de ESE texto, el
   // UNIQUE(negocio_id, clave_origen) no lo detecta como repetido — ver excluirYaExistentes().
@@ -215,7 +232,45 @@ async function sincronizar(negocioId: number, codigo: string, informe: any): Pro
   }
 
   await reubicarExistentes(negocioId);
+  await reconciliarExistentes(negocioId);
   return nuevos;
+}
+
+/**
+ * Fusiona duplicados y bloqueantes-que-citan-un-anexo YA guardados — ver planDeReconciliacion().
+ * Solo borra filas vírgenes; si alguien las trabajó, las deja como están.
+ */
+async function reconciliarExistentes(negocioId: number): Promise<void> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT c.id, c.bloque, c.tipo, c.titulo, c.descripcion, c.clave_origen, c.ponderacion,
+              c.estado, c.valor_texto, c.valor_numero, c.observacion, c.cargado_por, c.aprobado_por,
+              (SELECT COUNT(*) FROM checklist_comercial_documentos d WHERE d.item_id = c.id) AS n_docs
+         FROM checklist_comercial c WHERE c.negocio_id = ?`,
+      [negocioId],
+    ) as any;
+    const filas: FilaReconciliable[] = (rows as any[]).map(r => ({
+      id: r.id, bloque: r.bloque, tipo: r.tipo, titulo: r.titulo, descripcion: r.descripcion,
+      clave_origen: r.clave_origen, ponderacion: r.ponderacion == null ? null : Number(r.ponderacion),
+      virgen: r.estado === 'PENDIENTE' && Number(r.n_docs) === 0 && r.valor_texto == null
+        && r.valor_numero == null && r.observacion == null && r.cargado_por == null && r.aprobado_por == null,
+    }));
+    const plan = planDeReconciliacion(filas);
+    for (const cambio of plan.absorber) {
+      if (cambio.descripcion !== undefined) {
+        await pool.query(`UPDATE checklist_comercial SET descripcion = ? WHERE id = ?`, [cambio.descripcion, cambio.id]);
+      }
+      if (cambio.ponderacion !== undefined) {
+        await pool.query(`UPDATE checklist_comercial SET ponderacion = ? WHERE id = ?`, [cambio.ponderacion, cambio.id]);
+      }
+    }
+    if (plan.borrar.length) {
+      await pool.query(`DELETE FROM checklist_comercial_documentos WHERE item_id IN (?)`, [plan.borrar]).catch(() => {});
+      await pool.query(`DELETE FROM checklist_comercial WHERE id IN (?)`, [plan.borrar]);
+    }
+  } catch (e) {
+    console.error('[checklist] reconciliación de duplicados falló (no bloquea):', String(e).slice(0, 200));
+  }
 }
 
 /** Mueve al bloque/sección correctos las filas insertadas con la clasificación vieja — ver
@@ -325,8 +380,11 @@ async function decidirGeneracionDeBloques(negocio: any) {
   const hayCosteoVigente = (costeoRows as any[]).length > 0;
 
   const items = await leerItems(negocio.id);
+  // Sin las alertas de cumplimiento: viven en su propia sección y no son parte del bloque que
+  // genera el anexo (ver esAlertaDeCumplimiento). Con ellas dentro, el mensaje decía "faltan 31
+  // puntos" mientras el encabezado del bloque mostraba 28.
   const porBloque = (b: BloqueGenerable) => items
-    .filter((i: any) => i.bloque === b)
+    .filter((i: any) => i.bloque === b && !esAlertaDeCumplimiento(i))
     .map((i: any) => ({ estado: i.estado, ofertamos: i.ofertamos }));
 
   // ¿El bloque COMERCIAL ya tiene algo APROBADO y con valor cargado? (ver el comentario en

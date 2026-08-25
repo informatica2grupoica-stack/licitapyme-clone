@@ -149,3 +149,101 @@ test('reubicación: un "anexo:" guardado que no nombra ningún anexo baja a aler
   assert.equal(
     reubicacionDeItemGuardado({ clave_origen: 'anexo:anexo_n2', titulo: 'Anexo N°2: Declaración jurada', bloque: 'ADMINISTRATIVO', tipo: 'documento' }), null);
 });
+
+// 25-ago-2026 (986278-14-LE26): la licitación traía 5 anexos descargados y el Auditor mostraba 4
+// —el informe no listó el "ANEXO_N°3_DECLARACION_JURADA_SIMPLE_UTP.docx"—. El archivo manda.
+test('un anexo que existe como archivo pero no está en el informe se agrega igual', async () => {
+  const { itemsDesdeArchivosDeAnexo, tituloDesdeNombreDeArchivo } = await import('../checklist-comercial');
+  const yaGenerados = generarItemsDesdeViabilidad({
+    modalidad: { tipo: 'suma_alzada' },
+    requisitos_admisibilidad: {
+      orden_anexos_propios: [
+        { que_crear: 'Anexo N°1 Declaración Jurada firmada (ante Notario si L1-L2)' },
+        { que_crear: 'Anexo N°2 Declaración Jurada Empresas Controladoras' },
+        { que_crear: 'Anexo N°4 Económico (Excel) completado por línea' },
+        { que_crear: 'Anexo N°5 Oferta Técnica (Fichas técnicas en formato del oferente)' },
+      ],
+    },
+  });
+  const extra = itemsDesdeArchivosDeAnexo([
+    'ANEXO_N°1_DECLARACION_JURADA.docx',
+    'ANEXO_N°2_DECLARACION_JURADA_EMPRESAS_CONTROLADORAS.docx',
+    'ANEXO_N°3_DECLARACION_JURADA_SIMPLE_UTP.docx',
+    'ANEXO_N°_4_ECONOMICO_Y_PLAZO_DE_ENTREGA_Y_GARANTIA.xlsx',
+    'ANEXO_N°5_OFERTA_TÉCNICA_(EN_FORMATO_DEL_OFERENTE).docx',
+    'RES_1196_APRUEBA_BASES.pdf',                    // no es anexo → se ignora
+  ], yaGenerados);
+  assert.equal(extra.length, 1, `solo debía faltar el N°3 (salieron: ${extra.map(i => i.titulo).join(' | ')})`);
+  assert.match(extra[0].titulo, /Anexo N°3/);
+  assert.equal(extra[0].bloque, 'ADMINISTRATIVO');
+  assert.equal(extra[0].tipo, 'documento');
+  assert.equal(extra[0].claveOrigen.startsWith('anexo:archivo:'), true);
+  assert.equal(tituloDesdeNombreDeArchivo('ANEXO_N°3_DECLARACION_JURADA_SIMPLE_UTP.docx'),
+    'Anexo N°3 Declaracion Jurada Simple UTP');
+});
+
+// Reconciliación de filas YA guardadas (986278-14-LE26, 25-ago-2026).
+test('reconciliación: el bloqueante que cita un anexo se pega a ese anexo y desaparece', async () => {
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Anexo N°1 Declaración Jurada firmada', descripcion: 'Declaración de inhabilidades', clave_origen: 'anexo:anexo_n_1', ponderacion: null, virgen: true },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'dato', titulo: 'Firma de Anexo N°1 autorizada ante Notario (Líneas 1 y 2)', descripcion: null, clave_origen: 'bloqueante:firma_de_anexo_n_1', ponderacion: null, virgen: true },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, [2]);
+  assert.equal(plan.absorber.length, 1);
+  assert.equal(plan.absorber[0].id, 1);
+  assert.match(plan.absorber[0].descripcion!, /autorizada ante Notario/);
+});
+
+test('reconciliación: el criterio que repite un requisito le pasa su ponderación y se va', async () => {
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 10, bloque: 'ADMINISTRATIVO', tipo: 'dato', titulo: 'Programa de Integridad y Ética Empresarial', descripcion: 'Evidencia del programa', clave_origen: 'anexo:programa_de_integridad_y_etica_empresarial', ponderacion: null, virgen: true },
+    { id: 11, bloque: 'TECNICO', tipo: 'dato', titulo: 'PROGRAMA DE INTEGRIDAD Y ÉTICA EMPRESARIAL', descripcion: 'Presenta evidencia=100 pts', clave_origen: 'criterio:programa_de_integridad_y_etica_empresarial', ponderacion: 5, virgen: true },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, [11]);
+  assert.equal(plan.absorber.length, 1);
+  assert.equal(plan.absorber[0].ponderacion, 5);
+  assert.match(plan.absorber[0].descripcion!, /Se evalúa: Presenta evidencia/);
+});
+
+test('reconciliación: si la fila duplicada tiene evidencia, no se borra nada', async () => {
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 10, bloque: 'ADMINISTRATIVO', tipo: 'dato', titulo: 'Programa de Integridad y Ética Empresarial', descripcion: null, clave_origen: 'anexo:programa', ponderacion: null, virgen: true },
+    { id: 11, bloque: 'TECNICO', tipo: 'dato', titulo: 'PROGRAMA DE INTEGRIDAD Y ÉTICA EMPRESARIAL', descripcion: null, clave_origen: 'criterio:programa', ponderacion: 5, virgen: false },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, []);
+  assert.equal(plan.absorber[0].ponderacion, 5);   // la ponderación sí se rescata
+});
+
+test('reconciliación: criterios que no repiten nada quedan intactos', async () => {
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 20, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Anexo N°4 Económico', descripcion: null, clave_origen: 'anexo:anexo_n_4', ponderacion: null, virgen: true },
+    { id: 21, bloque: 'TECNICO', tipo: 'dato', titulo: 'GARANTÍA TÉCNICA', descripcion: null, clave_origen: 'criterio:garantia_tecnica', ponderacion: 10, virgen: true },
+    { id: 22, bloque: 'TECNICO', tipo: 'dato', titulo: 'EXPERIENCIA DEL PROVEEDOR EN EL RUBRO', descripcion: null, clave_origen: 'criterio:experiencia', ponderacion: 15, virgen: true },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, []);
+  assert.deepEqual(plan.absorber, []);
+});
+
+test('el criterio que repite un anexo propio no crea una segunda fila (misma corrida)', () => {
+  const items = generarItemsDesdeViabilidad({
+    modalidad: { tipo: 'suma_alzada' },
+    requisitos_admisibilidad: {
+      orden_anexos_propios: [{ que_crear: 'Programa de Integridad y Ética Empresarial', que_debe_contener: 'Evidencia del programa' }],
+    },
+    criterios_evaluacion: {
+      criterios: [{ nombre: 'PROGRAMA DE INTEGRIDAD Y ÉTICA EMPRESARIAL', ponderacion: 5, forma_aplicacion: 'Presenta evidencia=100 pts' }],
+    },
+  });
+  const integridad = items.filter(i => /integridad/i.test(i.titulo));
+  assert.equal(integridad.length, 1, `una sola casilla (salieron: ${integridad.map(i => i.titulo).join(' | ')})`);
+  assert.equal(integridad[0].ponderacion, 5);
+  assert.match(integridad[0].descripcion || '', /Se evalúa/);
+});

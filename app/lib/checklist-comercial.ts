@@ -23,7 +23,9 @@ export interface ItemGenerado {
   criticidad:  Criticidad;
   ponderacion: number | null;
   fuenteCita:  string | null;
-  origen:      'viabilidad' | 'modalidad' | 'manual';
+  // 'documentos' = la casilla nació de un ARCHIVO de anexo de la licitación, no del informe
+  // (ver itemsDesdeArchivosDeAnexo). La columna es VARCHAR(20), no un ENUM: no hay migración.
+  origen:      'viabilidad' | 'modalidad' | 'manual' | 'documentos';
   claveOrigen: string;
   generable:   boolean;
   lineaNumero: number | null;
@@ -225,14 +227,20 @@ function coincidenEntradas(a: EntradaAdmin, b: EntradaAdmin): boolean {
 
 /** Registro compartido por TODA una corrida de generarItemsDesdeViabilidad — ver arriba. */
 function creaRegistroAdmin() {
-  const registrados: EntradaAdmin[] = [];
+  const registrados: Array<EntradaAdmin & { item?: ItemGenerado }> = [];
+  const entrada = (titulo: string): EntradaAdmin => ({ numero: numeroDeFormatoEn(titulo), nucleo: nucleoDeTitulo(titulo) });
   return {
     esDuplicado(titulo: string): boolean {
-      const candidato: EntradaAdmin = { numero: numeroDeFormatoEn(titulo), nucleo: nucleoDeTitulo(titulo) };
+      const candidato = entrada(titulo);
       return registrados.some(r => coincidenEntradas(candidato, r));
     },
-    registrar(titulo: string): void {
-      registrados.push({ numero: numeroDeFormatoEn(titulo), nucleo: nucleoDeTitulo(titulo) });
+    /** El ítem YA generado que representa este mismo requisito, si existe. */
+    buscar(titulo: string): ItemGenerado | undefined {
+      const candidato = entrada(titulo);
+      return registrados.find(r => coincidenEntradas(candidato, r))?.item;
+    },
+    registrar(titulo: string, item?: ItemGenerado): void {
+      registrados.push({ ...entrada(titulo), item });
     },
   };
 }
@@ -329,8 +337,7 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
   for (const a of anexos) {
     const titulo = String(a?.que_crear || '').trim();
     if (!titulo || registroAdmin.esDuplicado(titulo)) continue;
-    registroAdmin.registrar(titulo);
-    push({
+    registroAdmin.registrar(titulo, push({
       bloque: 'ADMINISTRATIVO', tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
       titulo: titulo.slice(0, 280),
       descripcion: [a?.que_debe_contener, a?.por_que].filter(Boolean).join(' — ') || null,
@@ -339,7 +346,7 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
       claveOrigen: `anexo:${slug(titulo)}`,
       generable: true,          // candidato a generarse desde la app (Fase 2)
       lineaNumero: null,
-    });
+    }));
   }
 
   // 2) Documentos infaltables (v2.1) — mismo rol que los anexos propios en el informe viejo.
@@ -347,14 +354,13 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
   for (const d of infaltables) {
     const titulo = String(d?.exige || '').trim();
     if (!titulo || registroAdmin.esDuplicado(titulo)) continue;   // ya vino por otra fuente
-    registroAdmin.registrar(titulo);
-    push({
+    registroAdmin.registrar(titulo, push({
       bloque: 'ADMINISTRATIVO', tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
       titulo: titulo.slice(0, 280),
       descripcion: d?.cubre || null, criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null,
       fuenteCita: d?.fuente || null, origen: 'viabilidad',
       claveOrigen: `anexo:${slug(titulo)}`, generable: true, lineaNumero: null,
-    });
+    }));
   }
 
   // 3) Garantías y formalidades que las bases exigen. Solo se crean si APLICAN: un checklist
@@ -404,12 +410,11 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     // haber listado la MISMA garantía dentro de orden_anexos_propios con otra redacción, y sin
     // este chequeo esta rama la duplicaba siempre — nunca comparaba contra lo ya generado.
     if (!e.cond || registroAdmin.esDuplicado(e.titulo)) continue;
-    registroAdmin.registrar(e.titulo);
-    push({
+    registroAdmin.registrar(e.titulo, push({
       bloque: 'ADMINISTRATIVO', tipo: e.tipo, titulo: e.titulo, descripcion: e.desc,
       criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null, fuenteCita: e.fuente,
       origen: 'viabilidad', claveOrigen: `adm:${e.clave}`, generable: false, lineaNumero: null,
-    });
+    }));
   }
 
   // 4) Bloqueantes sueltos que la IA detectó y no calzan en ninguna casilla fija.
@@ -511,10 +516,21 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     // no tiene documento propio: son condiciones que hay que respaldar, así que bajan a "Alertas
     // de cumplimiento" — regla de oro: arriba SOLO anexos y formularios (pedido 24-ago-2026).
     const criterioEsAnexo = tituloEsAnexo(nombre);
-    if (criterioEsAnexo) {
-      if (registroAdmin.esDuplicado(nombre)) continue;
-      registroAdmin.registrar(nombre);
+    // El MISMO requisito suele venir por dos lados: como documento a presentar y como criterio
+    // con el que se puntúa ("Programa de Integridad y Ética Empresarial" en la lista de anexos +
+    // "PROGRAMA DE INTEGRIDAD Y ÉTICA EMPRESARIAL 5%" en los criterios — 986278-14-LE26). Son una
+    // sola casilla: se enriquece la que ya existe con la ponderación y la forma de evaluación en
+    // vez de abrir una segunda fila que pide lo mismo.
+    const yaExiste = registroAdmin.buscar(nombre);
+    if (yaExiste) {
+      if (yaExiste.ponderacion == null && pond != null) yaExiste.ponderacion = pond;
+      if (desc && !(yaExiste.descripcion || '').includes(desc)) {
+        yaExiste.descripcion = [yaExiste.descripcion, `Se evalúa: ${desc}`].filter(Boolean).join(' · ').slice(0, 1000);
+      }
+      if (!yaExiste.fuenteCita && c?.fuente) yaExiste.fuenteCita = c.fuente;
+      continue;
     }
+    if (criterioEsAnexo) registroAdmin.registrar(nombre);
     push({
       bloque: criterioEsAnexo ? 'ADMINISTRATIVO' : bloqueDeCriterio(nombre),
       tipo: criterioEsAnexo ? 'documento' : 'dato',
@@ -577,6 +593,16 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
   return items;
 }
 
+/**
+ * ¿Esta fila se muestra abajo, en "Alertas de cumplimiento", en vez de dentro de su bloque?
+ * Fuente única de la regla: la usan la pantalla del Auditor, el estado por bloque y el decisor
+ * de generación de anexos, para que los tres cuenten exactamente lo mismo.
+ * El plazo es tipo 'dato' pero NO es alerta: se compromete junto al precio, en el bloque comercial.
+ */
+export function esAlertaDeCumplimiento(i: { tipo: string; clave_origen?: string | null }): boolean {
+  return i.tipo === 'dato' && i.clave_origen !== CLAVE_ITEM_PLAZO;
+}
+
 // ═══ RESUMEN Y GATE ═════════════════════════════════════════════════════════════
 
 export interface ResumenChecklist {
@@ -623,8 +649,15 @@ export const BLOQUES_CON_APROBACION_CA = ['TECNICO', 'COMERCIAL'] as const;
 export type BloqueAprobable = typeof BLOQUES_CON_APROBACION_CA[number];
 
 /** Estado agregado de UN bloque de UN negocio, a partir de sus ítems vivos. */
-export function estadoDeBloque(items: Array<Pick<ItemChecklist, 'estado' | 'tipo' | 'ofertamos'>>): EstadoBloque {
-  const vivos = items.filter(i => !(i.tipo === 'precio' && i.ofertamos === false));
+export function estadoDeBloque(
+  items: Array<Pick<ItemChecklist, 'estado' | 'tipo' | 'ofertamos'> & { clave_origen?: string | null }>,
+): EstadoBloque {
+  // Las alertas de cumplimiento NO cuentan para el estado del bloque: se muestran en su propia
+  // sección al final y se visan aparte. Contarlas acá dejaba el bloque técnico eternamente
+  // "pendiente" por condiciones que no tienen nada que ver con las líneas técnicas, y descuadraba
+  // el mensaje del generador contra el contador del encabezado ("Faltan 31" vs "0/28",
+  // 986278-14-LE26, 25-ago-2026). Siguen contando en el resumen general y en el semáforo.
+  const vivos = items.filter(i => !(i.tipo === 'precio' && i.ofertamos === false) && !esAlertaDeCumplimiento(i));
   if (vivos.length === 0) return 'SIN_ITEMS';
   if (vivos.some(i => i.estado === 'CARGADO')) return 'POR_APROBAR';   // prioridad: hay algo que revisar
   if (vivos.some(i => i.estado === 'OBSERVADO')) return 'OBSERVADO';   // rebotado, esperando al asistente
@@ -732,4 +765,146 @@ export function reubicacionDeItemGuardado(
 
   if (!destino || (destino.bloque === row.bloque && destino.tipo === row.tipo)) return null;
   return destino;
+}
+
+// ═══ ANEXOS QUE EXISTEN COMO ARCHIVO ════════════════════════════════════════════
+// El checklist se armaba SOLO con lo que la IA listó en el informe de viabilidad, y cuando el
+// informe se saltaba un anexo, ese anexo no existía para nadie — aunque el archivo estuviera
+// descargado y a la vista en la pestaña de documentos. Caso real 25-ago-2026 (986278-14-LE26):
+// la licitación trae 5 anexos de oferente y el Auditor mostraba 4; faltaba el
+// "ANEXO_N°3_DECLARACION_JURADA_SIMPLE_UTP.docx". El archivo descargado de Mercado Público es un
+// hecho, no una interpretación: si existe, hay una casilla. Se cruza con lo que ya generó el
+// informe (mismo dedupe por N° de formato / núcleo) para no duplicar el que sí venía.
+const RE_EXT_DOC = /\.(docx?|xlsx?|pdf|odt|rtf)$/i;
+
+/** "ANEXO_N°3_DECLARACION_JURADA_SIMPLE_UTP.docx" → "Anexo N°3 Declaracion Jurada Simple Utp" */
+export function tituloDesdeNombreDeArchivo(nombre: string): string {
+  const base = String(nombre || '').replace(RE_EXT_DOC, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return base
+    .split(' ')
+    .map(p => (/^[A-ZÁÉÍÓÚÑ°º\d.,()/-]+$/.test(p) && p.length > 3
+      // Nombre en MAYÚSCULAS (como los baja MP): se pasa a Capitalizado para que se lea. Las
+      // partes cortas (N°3, UTP, IVA) se dejan tal cual — son siglas o numeración.
+      ? p.charAt(0) + p.slice(1).toLowerCase()
+      : p))
+    .join(' ')
+    .slice(0, 280);
+}
+
+/**
+ * Una casilla por cada archivo de anexo de la licitación que todavía no tenga la suya.
+ * `yaGenerados` son los ítems que salieron del informe en esta misma corrida; el filtro contra lo
+ * ya PERSISTIDO lo sigue haciendo excluirYaExistentes() en sincronizar().
+ */
+export function itemsDesdeArchivosDeAnexo(
+  nombresArchivo: string[], yaGenerados: ItemGenerado[], ordenInicial = 900,
+): ItemGenerado[] {
+  const registro = creaRegistroAdmin();
+  for (const it of yaGenerados) {
+    if (it.bloque === 'ADMINISTRATIVO') registro.registrar(it.titulo);
+  }
+  const out: ItemGenerado[] = [];
+  let orden = ordenInicial;
+  for (const nombre of nombresArchivo) {
+    const titulo = tituloDesdeNombreDeArchivo(nombre);
+    // Solo archivos que de verdad son un anexo/formulario: en esas cajas también caen bases y
+    // documentos del proceso mal clasificados a mano.
+    if (!titulo || !tituloEsAnexo(titulo) || registro.esDuplicado(titulo)) continue;
+    registro.registrar(titulo);
+    out.push({
+      bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo,
+      descripcion: `Anexo de la licitación (${nombre}). El informe no lo listó: revisar en las bases si aplica a esta oferta.`,
+      criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null, fuenteCita: nombre,
+      origen: 'documentos', claveOrigen: `anexo:archivo:${slug(titulo)}`,
+      generable: true, lineaNumero: null, orden: orden++,
+    });
+  }
+  return out;
+}
+
+// ═══ RECONCILIAR LO YA GUARDADO ════════════════════════════════════════════════
+// sincronizar() nunca borra ni edita filas existentes, y por eso las decisiones nuevas solo
+// aplicaban a negocios nuevos. Dos casos reales quedaron a la vista en 986278-14-LE26 (25-ago-2026):
+//  · "Firma de Anexo N°1 autorizada ante Notario" — un BLOQUEANTE que cita el Anexo N°1 y se veía
+//    abajo como si fuera otro anexo. Su lugar es la descripción del Anexo N°1.
+//  · "Programa de Integridad y Ética Empresarial" (documento) + "PROGRAMA DE INTEGRIDAD Y ÉTICA
+//    EMPRESARIAL 5%" (criterio) — el mismo requisito pidiéndose dos veces.
+// Esto arma el plan para arreglarlos sobre filas ya guardadas, con una regla estricta: la fila
+// absorbida solo se BORRA si está virgen (nadie la cargó, aprobó, observó ni le subió nada). Si
+// alguien la trabajó, se deja intacta y no se toca nada — mejor un duplicado visible que perder
+// evidencia.
+export interface FilaReconciliable {
+  id: number;
+  bloque: BloqueChecklist;
+  tipo: TipoItem;
+  titulo: string;
+  descripcion: string | null;
+  clave_origen: string | null;
+  ponderacion: number | null;
+  /** ¿Nadie la tocó todavía? (PENDIENTE, sin documentos, sin valor, sin observación, sin firmas) */
+  virgen: boolean;
+}
+
+export interface PlanReconciliacion {
+  /** Ediciones sobre la fila que se conserva. */
+  absorber: Array<{ id: number; descripcion?: string; ponderacion?: number }>;
+  /** Filas duplicadas/absorbidas que se pueden borrar sin perder nada. */
+  borrar: number[];
+}
+
+export function planDeReconciliacion(filas: FilaReconciliable[]): PlanReconciliacion {
+  const plan: PlanReconciliacion = { absorber: [], borrar: [] };
+  const edicionesPorId = new Map<number, { descripcion?: string; ponderacion?: number }>();
+  const anexos = filas.filter(f => f.bloque === 'ADMINISTRATIVO' && f.tipo === 'documento');
+
+  const editar = (destino: FilaReconciliable, texto: string | null, ponderacion: number | null) => {
+    const previo = edicionesPorId.get(destino.id) || {};
+    const descActual = previo.descripcion ?? destino.descripcion ?? '';
+    if (texto && !descActual.includes(texto)) {
+      previo.descripcion = [descActual, texto].filter(Boolean).join(' · ').slice(0, 1000);
+    }
+    if (ponderacion != null && destino.ponderacion == null && previo.ponderacion == null) {
+      previo.ponderacion = ponderacion;
+    }
+    if (previo.descripcion !== undefined || previo.ponderacion !== undefined) edicionesPorId.set(destino.id, previo);
+  };
+
+  for (const f of filas) {
+    const clave = String(f.clave_origen || '');
+
+    // 1) Bloqueante que cita un anexo que existe como documento → se pega a ese anexo.
+    if (clave.startsWith('bloqueante:')) {
+      const numero = numeroDeFormatoEn(f.titulo);
+      const destino = numero ? anexos.find(a => numeroDeFormatoEn(a.titulo) === numero) : undefined;
+      if (destino && destino.id !== f.id) {
+        editar(destino, `⚠ ${f.titulo}`, null);
+        if (f.virgen) plan.borrar.push(f.id);
+      }
+      continue;
+    }
+
+    // 2) Criterio de evaluación que repite un requisito ya listado como documento o alerta.
+    if (clave.startsWith('criterio:')) {
+      const destino = filas.find(o =>
+        o.id !== f.id && !String(o.clave_origen || '').startsWith('criterio:')
+        && !String(o.clave_origen || '').startsWith('bloqueante:')
+        && coincidenEntradas(
+          { numero: numeroDeFormatoEn(f.titulo), nucleo: nucleoDeTitulo(f.titulo) },
+          { numero: numeroDeFormatoEn(o.titulo), nucleo: nucleoDeTitulo(o.titulo) },
+        ));
+      if (destino) {
+        // La fórmula de puntaje del criterio se traslada al destino: si no, al fusionar se perdía
+        // CÓMO se evalúa ese requisito, que es justo lo que el asesor necesita leer.
+        editar(destino, f.descripcion ? `Se evalúa: ${f.descripcion}` : null, f.ponderacion);
+        if (f.virgen) plan.borrar.push(f.id);
+      }
+    }
+  }
+
+  // No se edita una fila que en la misma pasada se va a borrar.
+  const aBorrar = new Set(plan.borrar);
+  for (const [id, cambios] of edicionesPorId) {
+    if (!aBorrar.has(id)) plan.absorber.push({ id, ...cambios });
+  }
+  return plan;
 }

@@ -24,7 +24,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import {
-  estadoDeBloque, resumirChecklist, transicion, BLOQUES_CON_APROBACION_CA,
+  estadoDeBloque, resumirChecklist, transicion, BLOQUES_CON_APROBACION_CA, esAlertaDeCumplimiento,
   type BloqueAprobable, type EstadoItem,
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
@@ -47,6 +47,7 @@ function horasHastaCierre(fechaCierre: string | null): number | null {
 interface FilaChecklist {
   bloque: BloqueAprobable; tipo: string; estado: EstadoItem; ofertamos: number | boolean | null;
   valor_numero: number | null; valor_texto: string | null; titulo: string; id: number;
+  clave_origen: string | null;
 }
 
 /**
@@ -60,7 +61,8 @@ export async function construirBandeja() {
   const [rows] = await pool.query(
     `SELECT n.id AS negocio_id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
             n.licitacion_cierre, n.asignado_a, u.nombre AS asignado_nombre,
-            c.id, c.bloque, c.tipo, c.estado, c.ofertamos, c.valor_numero, c.valor_texto, c.titulo
+            c.id, c.bloque, c.tipo, c.estado, c.ofertamos, c.valor_numero, c.valor_texto, c.titulo,
+            c.clave_origen
        FROM negocios n
        JOIN checklist_comercial c ON c.negocio_id = n.id AND c.bloque IN ('TECNICO','COMERCIAL')
        LEFT JOIN usuarios u ON u.id = n.asignado_a
@@ -119,11 +121,16 @@ export async function construirBandeja() {
     let bloqueantesPendientes = 0;
 
     for (const bloque of BLOQUES_CON_APROBACION_CA) {
-      const itemsBloque = items.filter(i => i.bloque === bloque).map(i => ({
+      const delBloque = items.filter(i => i.bloque === bloque).map(i => ({
         ...i, ofertamos: i.ofertamos === null ? null : !!i.ofertamos,
       }));
+      // Los bloqueantes pendientes se cuentan sobre TODO el bloque (las alertas de cumplimiento
+      // también son admisibilidad y el asesor tiene que verlas), pero el estado y el avance del
+      // BLOQUE se calculan sin ellas: se visan en su propia sección, no como parte del bloque
+      // técnico/comercial (misma regla que la pantalla del Auditor — esAlertaDeCumplimiento).
+      bloqueantesPendientes += resumirChecklist(delBloque as any).bloqueantesPendientes;
+      const itemsBloque = delBloque.filter(i => !esAlertaDeCumplimiento(i));
       const resumen = resumirChecklist(itemsBloque as any);
-      bloqueantesPendientes += resumen.bloqueantesPendientes;
       bloques[bloque] = {
         estado: estadoDeBloque(itemsBloque as any),
         total: resumen.total, aprobados: resumen.aprobados,
