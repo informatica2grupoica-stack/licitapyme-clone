@@ -12,7 +12,7 @@
 import path from 'path';
 import ExcelJS from 'exceljs';
 import type { ManifiestoLinea, ViabilidadIAResult } from '@/app/lib/viabilidad-ia';
-import { esFilaDeCriterioNoProducto } from '@/app/lib/planilla-costeo-parser';
+import { esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
 
 export type ModalidadCosteo = 'suma_alzada' | 'por_linea' | 'por_categoria';
 
@@ -384,7 +384,7 @@ export function adaptarViabilidadACosteo(
   informe: ViabilidadIAResult,
 ): DatosCosteo {
   // ÚLTIMA BARRERA antes del Excel: filas de la tabla de CRITERIOS DE EVALUACIÓN que se colaron
-  // en el manifiesto como si fueran productos (ver esFilaDeCriterioNoProducto).
+  // en el manifiesto como si fueran productos (ver esFilaNoProducto).
   //
   // BUG REAL (17-ago-2026, caso 2345-128-LP26): el filtro se había puesto SOLO en el análisis
   // (analizarViabilidadIAV3, que es quien ESCRIBE el manifiesto). Pero regenerar el costeo NO
@@ -399,13 +399,44 @@ export function adaptarViabilidadACosteo(
   // pueden usar tanto el análisis como este adaptador, sin importación circular.
   const manifiestoCrudo = Array.isArray(informe.manifiesto_productos)
     ? informe.manifiesto_productos : [];
-  const descartados = manifiestoCrudo.filter(p => esFilaDeCriterioNoProducto(p?.descripcion || ''));
-  const manifiesto = descartados.length
-    ? manifiestoCrudo.filter(p => !esFilaDeCriterioNoProducto(p?.descripcion || ''))
+  const descartados = manifiestoCrudo.filter(p => esFilaNoProducto(p?.descripcion || ''));
+  let manifiesto = descartados.length
+    ? manifiestoCrudo.filter(p => !esFilaNoProducto(p?.descripcion || ''))
     : manifiestoCrudo;
   if (descartados.length) {
-    console.warn(`[costeo] ${codigo}: ${descartados.length}/${manifiestoCrudo.length} fila(s) del manifiesto guardado NO son productos (tabla de criterios de evaluación) — se excluyen del Excel:`,
+    console.warn(`[costeo] ${codigo}: ${descartados.length}/${manifiestoCrudo.length} fila(s) del manifiesto guardado NO son productos (rótulos de formulario / tabla de criterios) — se excluyen del Excel:`,
       descartados.slice(0, 6).map(d => `"${String(d.descripcion).slice(0, 50)}"`).join(', '));
+  }
+
+  // FALLBACK CUANDO EL MANIFIESTO QUEDA VACÍO (25-ago-2026, caso 2981-225-LE26: sus 16 filas eran
+  // 16/16 rótulos de anexos). Sin esto el Excel saldría EN BLANCO — que para el usuario es peor que
+  // el bug original, porque no hay nada que corregir a mano. El listado del LLM (`productos.items`)
+  // sigue vivo en el informe y en estos casos es justamente el correcto: el manifiesto lo había
+  // pisado el parser. Se mapea con los MISMOS alias de campo que usa el análisis, para que el Excel
+  // salga idéntico venga del shape que venga.
+  if (!manifiesto.length && descartados.length) {
+    const itemsLLM: any[] = Array.isArray((informe as any).productos?.items) ? (informe as any).productos.items
+      : Array.isArray((informe as any).costeo?.items) ? (informe as any).costeo.items : [];
+    const rescatados = itemsLLM
+      .map((it: any) => ({
+        linea: Number(String(it?.linea ?? 1).replace(/\D/g, '')) || 1,
+        categoria: it?.categoria ?? null,
+        descripcion: String(it?.nombre || it?.descripcion_exacta || it?.descripcion || '').trim(),
+        modelo: String(it?.marca_modelo_referencia || it?.marca_modelo || '').trim(),
+        cantidad: Number(it?.cantidad) || null,
+        unidad_medida: String(it?.unidad_medida || '').trim(),
+        unidad_inferida: !!it?.unidad_inferida,
+        presupuesto_linea: Number(it?.presupuesto_linea) || null,
+        tipo: String(it?.clasificacion || it?.tipo || 'generico'),
+        ruta: String(it?.ruta || ''),
+      }))
+      .filter(it => it.descripcion && !esFilaNoProducto(it.descripcion));
+    if (rescatados.length) {
+      console.warn(`[costeo] ${codigo}: el manifiesto quedó VACÍO tras el filtro (era 100% rótulos) — se cae a los ${rescatados.length} ítem(s) de productos.items del informe.`);
+      manifiesto = rescatados as typeof manifiesto;
+    } else {
+      console.error(`[costeo] ${codigo}: manifiesto vacío tras el filtro y sin productos.items de respaldo — el Excel saldrá sin ítems.`);
+    }
   }
 
   // La ESTRUCTURA del Excel:

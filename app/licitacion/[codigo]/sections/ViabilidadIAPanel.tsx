@@ -11,6 +11,7 @@ import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldC
 import { useSession } from '@/app/lib/session-context';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 import { registrarVerCita } from '@/app/lib/actividad-cliente';
+import { esFilaNoProducto } from '@/app/lib/fila-no-producto';
 
 // Copia local del tipo de app/lib/viabilidad-ia.ts (server-only por gemini.ts/node:async_hooks —
 // ver [[project_gemini_server_only_boundary]] — no se puede importar directo en un Client Component).
@@ -621,7 +622,13 @@ function VistaV3({ informe, feedbackPanel }: { informe: any; feedbackPanel?: Rea
   // la del LLM), así que se muestra esa; se cae a `productos.items`/`costeo.items` (LLM) si no hay
   // manifiesto. Se normalizan los nombres de campo entre shapes (nombre/descripcion/descripcion_exacta,
   // marca_modelo_referencia/modelo/marca_modelo).
-  const _manif: any[] = Array.isArray(informe.manifiesto_productos) ? informe.manifiesto_productos : [];
+  // SANEO EN LECTURA (25-ago-2026, caso 2981-225-LE26). Regenerar/ver NO vuelve a analizar: se lee
+  // el manifiesto YA GUARDADO. Un informe viejo puede traer rótulos de formulario ("Nombre:",
+  // "FIRMA:") o tramos de criterio ("Más de 40%") como si fueran productos — se filtran acá igual
+  // que en el Excel (adaptarViabilidadACosteo), para que pantalla y costeo muestren SIEMPRE lo
+  // mismo sin depender de un re-análisis.
+  const _manif: any[] = (Array.isArray(informe.manifiesto_productos) ? informe.manifiesto_productos : [])
+    .filter((p: any) => !esFilaNoProducto(String(p?.descripcion ?? p?.nombre ?? '')));
   const _prod: any[] = Array.isArray(cost.items) ? cost.items : [];
   // Mostramos la lista MÁS COMPLETA (mirror del Excel de costeo). En empate preferimos la de
   // productos/costeo del informe, que en v3.3 trae la ficha técnica (caracteristicas[]) y la
@@ -1400,7 +1407,10 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
     ? crit.suma_ponderaciones_real
     : criterios.reduce((s, c) => s + (Number(c.ponderacion) || 0), 0);
   const sumaValida = crit?.suma_valida != null ? crit.suma_valida : (criterios.length === 0 || Math.round(sumaCriterios) === 100);
-  const nProd = informe?.manifiesto_productos?.length ?? 0;
+  // Mismo saneo en lectura que en la vista de Productos y en el Excel: un informe guardado puede
+  // traer rótulos de formulario/tramos de criterio como si fueran productos (caso 2981-225-LE26).
+  const manifLimpio = (informe?.manifiesto_productos ?? []).filter(p => !esFilaNoProducto(p?.descripcion || ''));
+  const nProd = manifLimpio.length;
   const lt = informe?.linea_tiempo;
   const enRevision = v?.estado_veredicto === 'REVISION_HUMANA';
   // Resumen del veredicto: el esquema v2.0 no trae "por_que"; lo componemos con los
@@ -1836,12 +1846,12 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
             // Numeración REAL de ítems: 1..N secuencial. El campo `linea` es el LOTE de
             // adjudicación (1 para todos en suma_alzada) — solo lo mostramos como badge
             // cuando hay ≥2 lotes distintos (por_linea), para no repetir "1." en cada fila.
-            const lotes = new Set(informe.manifiesto_productos!.map(p => p.linea));
+            const lotes = new Set(manifLimpio.map(p => p.linea));
             const multiLote = lotes.size >= 2;
             return (
             <Seccion icon={<Package size={14} className="text-violet-500" />} titulo="Productos (manifiesto)" badge={`${nProd} ítems`}>
               <div className="space-y-1">
-                {informe.manifiesto_productos!.map((p, i) => (
+                {manifLimpio.map((p, i) => (
                   <div key={i} className="flex gap-2 text-[13px] border-b border-slate-100 last:border-0 py-1">
                     <span className="text-slate-400 w-6 flex-shrink-0">{i + 1}.</span>
                     {multiLote && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 flex-shrink-0">L{p.linea}</span>}
@@ -1852,7 +1862,7 @@ export function ViabilidadIAPanel({ codigo, onTambienAnalizar, onComplete }: { c
                     {p.ruta && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 flex-shrink-0">Ruta {p.ruta}</span>}
                   </div>
                 ))}
-                {informe.manifiesto_productos!.some(p => p.unidad_inferida) && <p className="text-[10px] text-slate-400 pt-1">* unidad de medida inferida (no especificada en las bases)</p>}
+                {manifLimpio.some(p => p.unidad_inferida) && <p className="text-[10px] text-slate-400 pt-1">* unidad de medida inferida (no especificada en las bases)</p>}
               </div>
             </Seccion>
             );

@@ -20,12 +20,12 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla, extraerTablaProductoCantidad, esFilaDeCriterioNoProducto } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla, extraerTablaProductoCantidad, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
 
 // Re-export para no romper a quien lo importaba desde acá (el filtro vive ahora en
 // planilla-costeo-parser.ts, módulo PURO sin dependencias, para que generar-costeo.ts también
 // pueda usarlo sin crear una importación circular — ver el comentario de la función).
-export { esFilaDeCriterioNoProducto };
+export { esFilaNoProducto };
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
@@ -2142,9 +2142,9 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   // inflado por criterios la planilla (que SÍ es fiel) perdía la comparación y nunca reemplazaba.
   {
     const antes = manifiesto.length;
-    const descartados = manifiesto.filter(m => esFilaDeCriterioNoProducto(m.descripcion));
+    const descartados = manifiesto.filter(m => esFilaNoProducto(m.descripcion));
     if (descartados.length) {
-      manifiesto = manifiesto.filter(m => !esFilaDeCriterioNoProducto(m.descripcion));
+      manifiesto = manifiesto.filter(m => !esFilaNoProducto(m.descripcion));
       console.warn(`[viabilidad-ia-v3] ${codigo}: ${descartados.length}/${antes} "producto(s)" descartado(s) por ser filas de la tabla de CRITERIOS DE EVALUACIÓN, no ítems a cotizar —`,
         descartados.slice(0, 8).map(d => `"${d.descripcion.slice(0, 60)}"`).join(', '));
     }
@@ -2189,8 +2189,13 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   //  (a) sus descripciones deben ser mayoritariamente reales (con letras, no correlativos), y
   //  (b) si la modalidad final es POR LÍNEA y el LLM trae ≥2 líneas pero la planilla las perdió
   //      (todo línea 1), el reemplazo destruiría las hojas del costeo → se conserva el del LLM.
+  // (c) [25-ago-2026, caso 2981-225-LE26] sus filas deben ser PRODUCTOS. Si el parser arrastró
+  //     rótulos de formulario ("Nombre:", "FIRMA:") o tramos de criterio ("Más de 40%"), no es una
+  //     planilla de cotización sino un anexo administrativo: no puede pisar al LLM. El umbral es
+  //     bajo a propósito — una planilla real no trae NINGUNA de estas filas.
   const planillaSana = !!planilla
-    && planilla.items.filter(i => /[a-záéíóúñ]/i.test(i.descripcion)).length >= planilla.items.length * 0.7;
+    && planilla.items.filter(i => /[a-záéíóúñ]/i.test(i.descripcion)).length >= planilla.items.length * 0.7
+    && planilla.items.filter(i => esFilaNoProducto(i.descripcion)).length < planilla.items.length * 0.1;
   const planillaDegradaLineas = !!planilla
     && tipoCosteo === 'por_linea'
     && new Set(planilla.items.map(i => i.linea || 1)).size < 2

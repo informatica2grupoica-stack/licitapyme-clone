@@ -13,7 +13,7 @@
 // BD — no ejemplos inventados.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { esFilaDeCriterioNoProducto } from '../viabilidad-ia';
+import { esFilaNoProducto } from '../viabilidad-ia';
 import { adaptarViabilidadACosteo } from '../generar-costeo';
 
 // Los 10 productos REALES de 2345-128-LP26 — ninguno debe descartarse jamás.
@@ -62,13 +62,13 @@ const FILAS_DE_CRITERIOS = [
 
 test('los 10 productos REALES de 2345-128-LP26 sobreviven al filtro (cero falsos positivos)', () => {
   for (const d of PRODUCTOS_REALES) {
-    assert.equal(esFilaDeCriterioNoProducto(d), false, `se descartó un producto real: "${d}"`);
+    assert.equal(esFilaNoProducto(d), false, `se descartó un producto real: "${d}"`);
   }
 });
 
 test('las 20 filas de la tabla de CRITERIOS de 2345-128-LP26 se descartan todas', () => {
   for (const d of FILAS_DE_CRITERIOS) {
-    assert.equal(esFilaDeCriterioNoProducto(d), true, `no se detectó como criterio: "${d}"`);
+    assert.equal(esFilaNoProducto(d), true, `no se detectó como criterio: "${d}"`);
   }
 });
 
@@ -86,15 +86,15 @@ test('productos de otros rubros con nombres "riesgosos" NO se descartan', () => 
     'El Alamo — banca de plaza modelo 3',      // empieza con "El" pero no "El oferente"
   ];
   for (const d of noDebenDescartarse) {
-    assert.equal(esFilaDeCriterioNoProducto(d), false, `se descartó un producto real: "${d}"`);
+    assert.equal(esFilaNoProducto(d), false, `se descartó un producto real: "${d}"`);
   }
 });
 
 test('descripción vacía o solo espacios no revienta ni se marca como criterio', () => {
-  assert.equal(esFilaDeCriterioNoProducto(''), false);
-  assert.equal(esFilaDeCriterioNoProducto('   '), false);
-  assert.equal(esFilaDeCriterioNoProducto(null as any), false);
-  assert.equal(esFilaDeCriterioNoProducto(undefined as any), false);
+  assert.equal(esFilaNoProducto(''), false);
+  assert.equal(esFilaNoProducto('   '), false);
+  assert.equal(esFilaNoProducto(null as any), false);
+  assert.equal(esFilaNoProducto(undefined as any), false);
 });
 
 // BUG REAL (17-ago-2026): el filtro estaba SOLO en el análisis (que ESCRIBE el manifiesto), pero
@@ -144,4 +144,47 @@ test('adaptarViabilidadACosteo no toca un manifiesto que ya viene limpio', () =>
   };
   const items = adaptarViabilidadACosteo('X-1-LP26', informe).grupos.flatMap(g => g.items);
   assert.equal(items.length, PRODUCTOS_REALES.length);
+});
+
+
+// ─── CASO REAL 2981-225-LE26 (25-ago-2026, PDI — 165 botiquines IFAK) ──────────────────────
+// El manifiesto guardado traía 16 "productos" que eran los campos en blanco de los ANEXOS
+// administrativos del PDF de bases, más los tramos del criterio de inclusión. El único producto
+// real (el botiquín, cantidad 165) quedó sepultado: la vista de Productos mostraba 16 rótulos y
+// el Excel de costeo se generaba con esas 16 filas.
+const ROTULOS_2981 = [
+  'Nombre:', 'Domicilio:', 'Teléfono:', 'E-mail:',
+  'Más de 40%', 'Más de 25% hasta 40%', 'Más de 10% hasta 25%', '1% a 10%',
+  'Nombre del Oferente:', 'Razón social:', 'FIRMA:', 'FECHA DECLARACIÓN:',
+  'NOMBRE / RAZON SOCIAL', 'GIRO:', 'E-MAIL', 'NOMBRE COMPLETO:',
+];
+
+test('las 16 filas basura de 2981-225-LE26 (rótulos de formulario + tramos %) se descartan todas', () => {
+  for (const d of ROTULOS_2981) {
+    assert.equal(esFilaNoProducto(d), true, `no se detectó como rótulo/tramo: "${d}"`);
+  }
+});
+
+test('el ÚNICO producto real de 2981-225-LE26 sobrevive', () => {
+  assert.equal(esFilaNoProducto(
+    'BOTIQUINES TACTICOS PARA CONTROL DE TRAUMAS Y/O HEMORRAGIAS TIPO IFAK PARA EQUIPOS FRONTERA INTERNA',
+  ), false);
+});
+
+// Guardarraíl del filtro de rótulos: productos reales que contienen porcentajes, dos puntos en
+// medio, o palabras que también son rótulos ("Fecha", "Firma") — ninguno debe perderse.
+test('productos reales con % o palabras de rótulo NO se descartan', () => {
+  const noDebenDescartarse = [
+    'Alcohol gel 70%',
+    'Cloro al 5% bidón 5 litros',
+    'Guantes de nitrilo: caja de 100 unidades',   // dos puntos EN MEDIO, no al final
+    'Fechador automático de goma',                // empieza con "Fecha"+dor
+    'Firmador digital token USB',                 // empieza con "Firma"+dor
+    'Detergente concentrado 40% activo',
+    'Papel higiénico hoja doble 500 mts',
+    'Ciudadela — set de mesas escolares',         // empieza con "Ciudad"+ela
+  ];
+  for (const d of noDebenDescartarse) {
+    assert.equal(esFilaNoProducto(d), false, `se descartó un producto real: "${d}"`);
+  }
 });
