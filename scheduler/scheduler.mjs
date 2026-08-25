@@ -125,7 +125,14 @@ async function jobResultados() {
   // Estados MP de las asignadas que NO llegaron a marcarse POSTULADA (ASIGNADO/EN_PROCESO/
   // POSIBLE_ADJ/ANEXOS). Medido en producción, es la vía que MÁS "ganada/perdida" detecta.
   await loop('estados asignadas',    '/api/cron/estados-asignadas', { maxPasadas: 1 });
-  await loop('resultado postuladas', '/api/cron/procesar-postuladas', { maxPasadas: 1 });
+  // La cola son TODAS las que no tienen veredicto de MP (~56 hoy) y una llamada alcanza a mirar
+  // ~14 (MP acepta 1 consulta cada 2s y el endpoint dura 60s). El endpoint devuelve `pendientes`,
+  // así que el loop corta SOLO cuando la cola queda vacía; las pasadas de más no cuestan nada.
+  // Medido en régimen estable: las 56 en 5 pasadas / 239s, dentro de la ventana de 300s.
+  // maxPasadas 6 da margen para que la cola crezca un poco sin quedar corta. Si algún día pasa de
+  // ~80 postuladas la vuelta no cabrá en 5 min: degrada solo (la rotación deja lo que faltó de
+  // primero en el ciclo siguiente), pero ahí conviene subir la cadencia o pedir más cuota a MP.
+  await loop('resultado postuladas', '/api/cron/procesar-postuladas', { maxPasadas: 6 });
   await loop('aperturas',            '/api/cron/aperturas', { lote: 40, maxPasadas: 20 });
 }
 

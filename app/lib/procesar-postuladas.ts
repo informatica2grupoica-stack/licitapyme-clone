@@ -65,8 +65,13 @@ const MAX_CODIGOS_POR_CORRIDA = 15;     // lo que entra en el presupuesto a este
 const PRESUPUESTO_MS       = 32_000; // tope de tiempo del paso principal
 const PRESUPUESTO_RECONFIRMAR_MS = 10_000; // tope de la 2ª pasada (conjunto chico, no compite por tiempo)
 const TIMEOUT_DETALLE_MS   = 8_000;  // timeout por llamada a MP
+// Ventana de frescura: una licitación consultada hace menos de esto ya dio su vuelta en el ciclo
+// actual. Va por debajo de la cadencia del cron (5 min) para que cada ciclo empiece con la cola
+// llena y no arrastre la del ciclo anterior.
+const VENTANA_FRESCURA_MIN = 4;
 
 interface FilaPostulada {
+  rancio?: number;   // 1 = sin consultar en la ventana actual (ver VENTANA_FRESCURA_MIN)
   id: number;
   licitacion_codigo: string;
   licitacion_nombre: string | null;
@@ -86,6 +91,8 @@ export async function procesarPostuladas(
   codigos: number; procesados: number; sinPresupuesto: number;
   adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number;
   rateLimit: number;   // consultas que MP rechazó por ráfaga (si es >0, algo quedó sin revisar)
+  lote: number;        // códigos tomados en ESTA corrida (tope MAX_CODIGOS_POR_CORRIDA)
+  restantes: number;   // los que quedan de la cola total sin revisar → el scheduler vuelve a llamar
 }> {
   // promover: si mueve la postulada a ADJUDICADA/PERDIDA (saca de Postuladas). El usuario pidió
   //   que las adjudicadas SE QUEDEN en Postuladas → el cron de 2h llama con promover:false y solo
@@ -98,15 +105,14 @@ export async function procesarPostuladas(
   const promover     = opts.promover     ?? true;
   const soloCerradas = opts.soloCerradas ?? true;
   const presupuestoMs = opts.presupuestoMs ?? PRESUPUESTO_MS;
-  // maxCodigos: tope de códigos POR CORRIDA. Al ritmo que MP acepta (1 cada 2s) un barrido de las
-  // ~56 postuladas tarda ~2 min, más de lo que dura una corrida. En vez de forzarlo, se toma un
-  // lote y la rotación por `consultado_en` cubre el resto en la corrida siguiente — 5 minutos
-  // después, no una hora. Con el orden por fecha estimada de adjudicación, las que de verdad
-  // pueden cambiar hoy entran en TODAS las corridas.
+  // maxCodigos: tope de códigos POR LLAMADA (no por ventana). Al ritmo que MP acepta (1 cada 2s)
+  // barrer las ~56 postuladas tarda ~2 min, más que el maxDuration del endpoint. Por eso cada
+  // llamada toma un lote y devuelve `restantes`; el scheduler vuelve a llamar hasta vaciar la
+  // cola, así una vuelta COMPLETA entra dentro de la misma ventana de 5 minutos.
   const maxCodigos = opts.maxCodigos ?? MAX_CODIGOS_POR_CORRIDA;
   // `codigos` = candidatos totales · `procesados` = los que alcanzaron a consultarse ·
   // `sinPresupuesto` = los que quedaron fuera por tiempo (van primeros en la próxima corrida).
-  const stats = { codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, rateLimit: 0 };
+  const stats = { codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, rateLimit: 0, lote: 0, restantes: 0 };
   const inicio = Date.now();
 
   let filas: FilaPostulada[] = [];
@@ -125,28 +131,34 @@ export async function procesarPostuladas(
     // se consideraba "cerrada" (elegible para revisar) hasta 2h después de que cerró de verdad
     // en Chile. Se pasa la hora de pared chilena como parámetro (mismo patrón que el resto del
     // código, ver app/lib/tz.ts).
+    //
+    // LA COLA SON LAS QUE NO TIENEN VEREDICTO DE MP (`es_adjudicada` 0 o sin fila de cache). Son
+    // exactamente las que pueden cambiar: mientras MP no diga "Adjudicada", cualquiera puede
+    // hacerlo en cualquier momento. Apenas MP da su veredicto, la licitación sale sola de la cola
+    // y deja de gastar consultas — el conjunto se autolimpia.
+    //
+    // NO se prioriza por `fecha_estimada_adjudicacion`: se midió contra 182 adjudicaciones reales
+    // y esa fecha NO es confiable — solo el 20% se adjudicó dentro de 1 día de lo estimado y el
+    // 57% se adjudicó ANTES. Ordenar por ella postergaba justo las que más se adelantan. Manda la
+    // rotación pura por antigüedad de consulta: todas pasan, ninguna se queda atrás.
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a,
-              u.nombre AS usuario_nombre, u.email AS usuario_email
+              u.nombre AS usuario_nombre, u.email AS usuario_email,
+              -- "rancio" = no se consultó en la ventana actual, así que todavía le falta la vuelta.
+              -- La comparación va EN SQL a propósito: consultado_en se escribe con NOW() del
+              -- servidor MySQL (que corre en otra zona), así que compararlo en JS contra Date.now()
+              -- daría un desfase. Alimenta "restantes", que es lo que corta el loop del scheduler.
+              (c.consultado_en IS NULL OR c.consultado_en < DATE_SUB(NOW(), INTERVAL ? MINUTE)) AS rancio
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
        LEFT JOIN adjudicacion_cache c
          ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN (${IN_POSTULADA})
+         AND (c.es_adjudicada IS NULL OR c.es_adjudicada = 0)
          ${soloCerradas ? 'AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < ?' : ''}
-       ORDER BY
-         -- PRIORIDAD 1: las que YA deberían estar resolviéndose. La ficha de MP trae la fecha en
-         -- que el organismo piensa adjudicar; pasada esa fecha, la licitación puede cambiar a
-         -- "Adjudicada" en cualquier momento y es donde el minuto de latencia importa. Las que
-         -- aún no llegan a su fecha estimada no van a cambiar hoy: se revisan igual, pero después.
-         -- (Caso 1114-12-LE26: estimada 24-ago 15:00, adjudicada ese mismo día.)
-         (c.fecha_estimada_adjudicacion IS NOT NULL AND c.fecha_estimada_adjudicacion > ?) ASC,
-         -- PRIORIDAD 2: rotación por antigüedad de consulta (nunca consultadas primero).
-         (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
-      soloCerradas
-        ? [...ESTADOS_POSTULADA, ahoraChileSQL(), ahoraChileSQL()]
-        : [...ESTADOS_POSTULADA, ahoraChileSQL()],
+       ORDER BY (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
+      soloCerradas ? [VENTANA_FRESCURA_MIN, ...ESTADOS_POSTULADA, ahoraChileSQL()] : [VENTANA_FRESCURA_MIN, ...ESTADOS_POSTULADA],
     ) as any[];
     filas = rows as FilaPostulada[];
   } catch (e) {
@@ -281,7 +293,15 @@ export async function procesarPostuladas(
   });
   await Promise.all(workers);
 
-  stats.codigos = codigos.length;
+  // `codigos` = la cola TOTAL sin veredicto de MP (no solo el lote de esta corrida). `restantes`
+  // es lo que quedó sin mirar: el scheduler vuelve a llamar hasta vaciarlo, así una vuelta
+  // completa a toda la cola entra dentro de la MISMA ventana de 5 minutos.
+  stats.codigos = codigosTodos.length;
+  stats.lote = codigos.length;
+  // Los que seguían sin consultar al empezar ESTA pasada, menos los que se alcanzaron a mirar.
+  // Cuando llega a 0, la cola entera se revisó dentro de la ventana y el scheduler deja de llamar.
+  const rancios = codigosTodos.filter(c => (porCodigo.get(c) || []).some(f => Number((f as any).rancio) === 1));
+  stats.restantes = Math.max(0, rancios.length - stats.procesados);
 
   // ── 2ª pasada: reconfirmar ADJUDICADA/PERDIDA cuyo cache aún no lo confirma ────────────
   if (promover) await reconfirmarResueltasSinCache(client, stats);

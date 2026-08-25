@@ -56,13 +56,16 @@ export async function POST(req: NextRequest) {
     try { congelamiento = await congelarPendientes(20); }
     catch (e) { console.error('[cron postuladas] reconciliar congelamiento falló:', String(e).slice(0, 200)); }
 
-    // Ahora SÍ expone cola: `sinPresupuesto` son los códigos que no alcanzaron a consultarse por
-    // tiempo. El scheduler loopea hasta vaciarla (y el orden por `consultado_en` garantiza que
-    // cada pasada tome los que faltan, no los mismos de siempre).
+    // La cola son TODAS las que no tienen veredicto de MP. Una llamada solo alcanza a mirar un
+    // lote (MP acepta ~1 consulta cada 2s), así que se expone `restantes` y el scheduler vuelve a
+    // llamar hasta vaciarla — el orden por `consultado_en` garantiza que cada pasada tome las que
+    // faltan, no las mismas. Antes se exponía `sinPresupuesto`, que solo contaba lo que quedaba
+    // DENTRO del lote: con un lote más chico que la cola, daba `completado:true` con decenas de
+    // licitaciones sin revisar y el loop del scheduler paraba de más.
     return NextResponse.json({
       success: true, ...r, contactosReparados: contactos.reparados,
       congelamientoReconciliado: congelamiento.congelados,
-      completado: r.sinPresupuesto === 0, pendientes: r.sinPresupuesto,
+      completado: r.restantes === 0, pendientes: r.restantes,
       duracionMs: Date.now() - t0,
     });
   } catch (e: any) {
