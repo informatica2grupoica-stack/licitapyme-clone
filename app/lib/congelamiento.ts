@@ -20,6 +20,17 @@ export interface PaqueteTraspaso {
   } | null;
 }
 
+// Estados en los que la oferta YA SALIÓ: mientras el negocio esté en alguno de ellos, el Auditor
+// es registro histórico y no se toca. Si el negocio RETROCEDE (la licitación se reabrió, se retiró
+// la oferta, se corrigió el estado por error), el congelamiento deja de aplicar y el equipo puede
+// volver a trabajar — la fila del congelamiento NO se borra: el paquete de traspaso sigue ahí, y
+// si se vuelve a postular el bloqueo vuelve solo. Reportado 25-ago-2026: 986278-14-LE26 se postuló,
+// se reabrió, y el Auditor quedó de solo lectura para siempre.
+export const ESTADOS_OFERTA_ENVIADA = [
+  'POSTULADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA',
+  '7POSTULADO_JV', '7POSTULADO_CG', 'ADJ_JV', 'ADJ_CG', '8POSIBLE_ADJ', '9PERDIDA',
+];
+
 /**
  * ¿Este negocio ya congeló su Auditor Técnico? Es el guard que bloquea edición tras postular
  * (spec §12.1, solo lectura). FAIL-CLOSED por diseño: si la consulta falla, LANZA en vez de
@@ -30,15 +41,28 @@ export interface PaqueteTraspaso {
  * congelarPendientes) lo atrapan explícitamente ellos mismos.
  */
 export async function yaCongelado(negocioId: number): Promise<boolean> {
-  const [rows] = await pool.query(`SELECT 1 FROM checklist_comercial_congelamiento WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  const [rows] = await pool.query(
+    `SELECT 1
+       FROM checklist_comercial_congelamiento c
+       JOIN negocios n ON n.id = c.negocio_id
+      WHERE c.negocio_id = ? AND n.estado_pipeline IN (?)
+      LIMIT 1`,
+    [negocioId, ESTADOS_OFERTA_ENVIADA],
+  ) as any;
   return (rows as any[]).length > 0;
 }
 
 export async function leerCongelamiento(negocioId: number): Promise<{ congeladoAt: string; congeladoPorNombre: string | null; paquete: PaqueteTraspaso } | null> {
   try {
     const [rows] = await pool.query(
-      `SELECT congelado_at, congelado_por_nombre, paquete_traspaso FROM checklist_comercial_congelamiento WHERE negocio_id = ? LIMIT 1`,
-      [negocioId],
+      // Mismo criterio que yaCongelado(): si el negocio ya no está postulado, el banner de
+      // "solo lectura" no debe aparecer aunque el paquete histórico siga guardado.
+      `SELECT c.congelado_at, c.congelado_por_nombre, c.paquete_traspaso
+         FROM checklist_comercial_congelamiento c
+         JOIN negocios n ON n.id = c.negocio_id
+        WHERE c.negocio_id = ? AND n.estado_pipeline IN (?)
+        LIMIT 1`,
+      [negocioId, ESTADOS_OFERTA_ENVIADA],
     ) as any;
     const row = (rows as any[])[0];
     if (!row) return null;
@@ -161,7 +185,7 @@ export async function repararContactosFaltantes(limite = 20): Promise<{ revisado
            OR JSON_TYPE(JSON_EXTRACT(c.paquete_traspaso, '$.contactosCliente')) = 'NULL'
         ORDER BY c.congelado_at DESC
         LIMIT ?`,
-      [limite],
+      [ESTADOS_OFERTA_ENVIADA, limite],
     ) as any;
     filas = rows as any[];
   } catch (e) {
@@ -222,9 +246,7 @@ export async function congelarPendientes(limite = 20): Promise<{ revisados: numb
          FROM negocios n
          LEFT JOIN checklist_comercial_congelamiento c ON c.negocio_id = n.id
         WHERE c.negocio_id IS NULL
-          AND n.estado_pipeline IN ('POSTULADA', 'ADJUDICADA', 'POSIBLE_ADJ', 'PERDIDA',
-                                     '7POSTULADO_JV', '7POSTULADO_CG', 'ADJ_JV', 'ADJ_CG',
-                                     '8POSIBLE_ADJ', '9PERDIDA')
+          AND n.estado_pipeline IN (?)
           AND EXISTS (SELECT 1 FROM checklist_comercial cc WHERE cc.negocio_id = n.id)
         ORDER BY n.id DESC
         LIMIT ?`,

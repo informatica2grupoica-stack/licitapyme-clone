@@ -20,7 +20,7 @@
 //   npx tsx scripts/limpiar-checklist-duplicados.mts            (dry run)
 //   npx tsx scripts/limpiar-checklist-duplicados.mts --aplicar  (borra los duplicados seguros)
 import mysql from 'mysql2/promise';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { numeroDeFormatoEn, nucleoDeTitulo, nucleosCoinciden } from '../app/lib/checklist-comercial.js';
 
 const APLICAR = process.argv.includes('--aplicar');
@@ -34,10 +34,22 @@ const APLICAR = process.argv.includes('--aplicar');
 const FUSIONAR = process.argv.includes('--fusionar');
 const RANK_ESTADO: Record<string, number> = { APROBADO: 3, CARGADO: 2, OBSERVADO: 1, PENDIENTE: 0 };
 
-const env: Record<string, string> = {};
-for (const line of readFileSync('.env.local', 'utf8').split('\n')) {
-  const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-  if (m) env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
+// Las credenciales salen del primer archivo que exista (.env.local en el PC de desarrollo, .env
+// en el VPS) y, si no hay ninguno, de las variables ya inyectadas al proceso — que es como corre
+// dentro de Docker (env_file en docker-compose.yml). Antes exigía .env.local sí o sí y en el
+// servidor reventaba antes de llegar a conectarse.
+const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+for (const archivo of ['.env.local', '.env']) {
+  if (!existsSync(archivo)) continue;
+  for (const line of readFileSync(archivo, 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+    if (m && !env[m[1]]) env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
+  }
+  break;
+}
+if (!env.DB_HOST) {
+  console.error('\nNo encontré credenciales de base de datos (.env.local, .env ni variables de entorno).\n');
+  process.exit(1);
 }
 const pool = mysql.createPool({
   host: env.DB_HOST, user: env.DB_USER, password: env.DB_PASSWORD,
