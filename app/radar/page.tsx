@@ -95,6 +95,10 @@ const ESTADOS_ACTIVOS_DEFAULT = ['Publicada'];
 // al volver de una licitación el radar conserve el estado y pinte al instante.
 const SS_FILTROS = 'radar:filtros:v1';
 const SS_ALERTAS = 'radar:alertas:v1';
+// La selección múltiple y el modo de vista también se persisten: entrar al detalle de
+// una licitación y volver no debe borrar los checks ni devolver la vista a tarjetas.
+const SS_SEL     = 'radar:seleccion:v1';
+const SS_VISTA   = 'radar:vista:v1';
 
 const RANGOS_MONTO = [
   { key: '',       label: 'Cualquier monto' },
@@ -1014,7 +1018,8 @@ export default function RadarPage() {
   // El panel arranca PLEGADO: la barra de mando + chips activos ya dicen qué está filtrando.
   const [filtrosOpen,   setFiltrosOpen]   = useState(false);
   const [exportando,    setExportando]    = useState(false);
-  const [vistaRadar,    setVistaRadar]    = useState<'tarjetas' | 'lista'>('tarjetas');
+  // La vista principal es la LISTA (una línea por licitación); tarjetas es la alternativa.
+  const [vistaRadar,    setVistaRadar]    = useState<'tarjetas' | 'lista'>('lista');
   // Explicador "¿Cómo funciona el radar?" (colapsado por defecto).
   const [ayudaOpen,     setAyudaOpen]     = useState(false);
   // Input del buscador con DEBOUNCE (250 ms): escribir ya no re-filtra ~2.000 alertas
@@ -1132,6 +1137,20 @@ export default function RadarPage() {
       const raw = sessionStorage.getItem(SS_FILTROS);
       if (raw) setFiltros(prev => ({ ...prev, ...JSON.parse(raw) }));
     } catch { /* sin persistencia */ }
+
+    // 1b) Modo de vista y selección múltiple → sobreviven a ir al detalle y volver.
+    try {
+      const v = sessionStorage.getItem(SS_VISTA);
+      if (v === 'lista' || v === 'tarjetas') setVistaRadar(v);
+    } catch { /* sin persistencia */ }
+    try {
+      const raw = sessionStorage.getItem(SS_SEL);
+      if (raw) {
+        const ids = JSON.parse(raw);
+        if (Array.isArray(ids) && ids.length) setSel(new Set(ids.filter((n: unknown) => typeof n === 'number')));
+      }
+    } catch { /* sin persistencia */ }
+
     setHidratado(true);
 
     // 2) Alertas cacheadas → pintan al instante; luego refrescamos en segundo plano.
@@ -1159,6 +1178,17 @@ export default function RadarPage() {
     if (!hidratado) return;
     try { sessionStorage.setItem(SS_FILTROS, JSON.stringify(filtros)); } catch { /* cuota llena */ }
   }, [filtros, hidratado]);
+
+  // Persistir selección múltiple y modo de vista (mismo criterio que los filtros).
+  useEffect(() => {
+    if (!hidratado) return;
+    try { sessionStorage.setItem(SS_SEL, JSON.stringify(Array.from(sel))); } catch { /* cuota llena */ }
+  }, [sel, hidratado]);
+
+  useEffect(() => {
+    if (!hidratado) return;
+    try { sessionStorage.setItem(SS_VISTA, vistaRadar); } catch { /* cuota llena */ }
+  }, [vistaRadar, hidratado]);
 
   // Si el usuario filtra por "Ya vencidos", cargamos el histórico automáticamente (si no está).
   useEffect(() => {

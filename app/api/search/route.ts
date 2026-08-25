@@ -10,9 +10,9 @@ import { leerCache, enriquecerYCachear } from '@/app/lib/licitaciones-cache';
 const cache = new Map<string, { data: SearchResponse; timestamp: number }>();
 const CACHE_DURATION = 3 * 60 * 1000; // 3 minutos
 
-// Cache del pool de licitaciones crudas (7 días) — compartido entre páginas del mismo día
+// Cache del pool GLOBAL de licitaciones crudas — compartido entre páginas y búsquedas
 const rawPool = new Map<string, { data: Licitacion[]; timestamp: number }>();
-const RAW_POOL_DURATION = 30 * 60 * 1000; // 30 minutos — datos de 7 días no cambian tan rápido
+const RAW_POOL_DURATION = 30 * 60 * 1000; // 30 minutos — el universo de MP no cambia tan rápido
 
 // Cache de enriquecimiento por licitación individual — evita re-llamar ?codigo= cuando
 // la misma licitación aparece en distintas páginas o distintas búsquedas del mismo usuario
@@ -29,6 +29,11 @@ setInterval(() => {
 
 // Usar API REAL
 const USE_MOCK = false;
+
+// Ventana de "recientes" que se suma a las activas para armar el pool global del buscador.
+// Mismo criterio que el cron del radar: `estado=activas` no incluye las que ya cerraron
+// hace pocos días ni siempre las publicadas en las últimas horas.
+const DIAS_RECIENTES = 15;
 
 // Datos mock (fallback)
 const MOCK_LICITACIONES: Licitacion[] = getMockLicitaciones();
@@ -199,7 +204,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           }
         } else {
           // Búsqueda por texto normal — usar pool cacheado si está disponible
-          const poolKey = 'pool_7d';
+          const poolKey = 'pool_global';
           const cachedPool = rawPool.get(poolKey);
           let licitaciones: Licitacion[];
 
@@ -207,10 +212,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             licitaciones = cachedPool.data;
             console.log(`⚡ Pool cacheado: ${licitaciones.length} licitaciones`);
           } else {
-            console.log(`📅 Consultando licitaciones de los últimos 7 días...`);
-            licitaciones = await client.obtenerUltimosDias(7);
+            // Buscador GLOBAL: el universo es TODO Mercado Público, no solo lo que
+            // tenemos en el radar. Se arma con las dos únicas llamadas que la API
+            // permite (las mismas que usa el cron del radar):
+            //   • estado=activas  → todas las licitaciones abiertas hoy (miles)
+            //   • últimos N días   → las recién publicadas/cerradas que "activas" no trae
+            console.log(`🌍 Consultando TODO Mercado Público (activas + últimos ${DIAS_RECIENTES} días)...`);
+            const [activas, recientes] = await Promise.all([
+              client.obtenerActivasHoy(),
+              client.obtenerUltimosDias(DIAS_RECIENTES),
+            ]);
+            const unicas = new Map<string, Licitacion>();
+            for (const lic of [...activas, ...recientes]) {
+              if (lic?.Codigo && !unicas.has(lic.Codigo)) unicas.set(lic.Codigo, lic);
+            }
+            licitaciones = Array.from(unicas.values());
             rawPool.set(poolKey, { data: licitaciones, timestamp: Date.now() });
-            console.log(`✅ Pool actualizado: ${licitaciones.length} licitaciones`);
+            console.log(`✅ Pool global: ${licitaciones.length} licitaciones (${activas.length} activas + ${recientes.length} recientes)`);
           }
 
           if (licitaciones.length === 0) {
@@ -231,7 +249,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
               resultados_por_pagina,
               ...filters
             });
-            searchResult.meta.fuente_datos = 'API Mercado Público';
+            searchResult.meta.fuente_datos = 'API Mercado Público (búsqueda global)';
             searchResult.meta.total_licitaciones_procesadas = licitaciones.length;
 
             // ── Enriquecer resultados de esta página con datos completos ──
