@@ -125,6 +125,8 @@ const PALABRAS_DE_ROTULO = new Set([
   'nombre', 'nombres', 'apellido', 'apellidos', 'completo', 'completa',
   'oferente', 'oferentes', 'proponente', 'proponentes', 'adjudicatario', 'postulante',
   'representante', 'legal', 'firma', 'firmas', 'timbre', 'rut', 'run', 'cedula', 'identidad',
+  // "Apoderado UTP" (caso 1057922-23-LE26): el pie de firma del anexo de unión temporal.
+  'apoderado', 'apoderados', 'utp', 'union', 'temporal',
   'razon', 'social', 'giro', 'comercial', 'empresa', 'contacto',
   'domicilio', 'direccion', 'comuna', 'ciudad', 'region', 'pais',
   'telefono', 'fono', 'celular', 'email', 'mail', 'correo', 'electronico',
@@ -145,6 +147,46 @@ function esRotuloCompuesto(d: string): boolean {
   return deRotulo >= 2;
 }
 
+// ─── HITO DEL CRONOGRAMA DEL PROCESO ─────────────────────────────────────────────────────
+// (25-ago-2026, caso 1057922-23-LE26.) La tabla de ETAPAS Y PLAZOS de las bases está numerada
+// 1..N igual que un itemizado, así que un parser guiado por el correlativo la lee como si fueran
+// productos: "Apertura de las Ofertas" (cantidad 8), "Recepción de las Ofertas", "Cierre Período
+// de consultas". Son momentos del proceso licitatorio, no bienes. Se exige la combinación
+// ACCIÓN + OBJETO-DEL-PROCESO para no tocar un producto que apenas comparta una palabra
+// (una "Caja de recepción" o un "Cierre hermético" no traen "ofertas"/"consultas" al lado).
+const RE_HITO_PROCESO =
+  /\b(apertura|recepci[óo]n|cierre|inicio|publicaci[óo]n|entrega|per[íi]odo|plazo|acto|fecha)\b[\s\S]{0,20}\b(de\s+)?(las\s+|los\s+)?(ofertas?|propuestas?|consultas?|respuestas?|antecedentes|licitaci[óo]n|adjudicaci[óo]n)\b/i;
+
+// ─── REFERENCIA NORMATIVA CITADA ─────────────────────────────────────────────────────────
+// (Mismo caso.) Las bases citan la normativa aplicable en listas numeradas: "3. Decreto 63 Exento
+// que Aprueba Norma Técnica N°226…", "2. Ley 19.886 de Compras Públicas". Se ancla al INICIO de la
+// frase (tolerando el correlativo "3." que arrastra el parser) para no borrar un producto que
+// mencione una norma como especificación ("Casco certificado según norma NCh 461").
+// Cada forma exige su ancla (un número, "exento/supremo", "de la ley"): "Reglamento" o "Decreto"
+// a secas son palabras que un producto real puede usar ("Reglamento de sala impreso y enmarcado").
+const RE_REFERENCIA_NORMATIVA = new RegExp(
+  '^(\\d{1,3}[.)-]\\s*)?(' + [
+    'decreto\\s+(n[°º]?\\s*)?\\d|decreto\\s+(exento|supremo|afecto)',
+    'd\\.?s\\.?\\s*n?[°º]?\\s*\\d',
+    'dfl\\s*n?[°º]?\\s*\\d',
+    'ley\\s+(n[°º]?\\s*)?\\d',
+    'resoluci[óo]n\\s+(exenta|afecta)',
+    'norma\\s+t[ée]cnica\\s+n[°º]?\\s*\\d',
+    'reglamento\\s+(de\\s+la\\s+ley|n[°º]?\\s*\\d)',
+    'circular\\s+n[°º]?\\s*\\d',
+    'oficio\\s+(ord|n[°º]?\\s*\\d)',
+  ].join('|') + ')', 'i');
+
+// ─── FRAGMENTO DE PROSA DE LAS BASES ─────────────────────────────────────────────────────
+// (Mismo caso.) "de estas Bases, hasta la Recepción Conforme del mismo." es la COLA de un párrafo
+// que el extractor de PDF partió en dos; entró al manifiesto con cantidad 14. Un nombre de
+// producto jamás empieza con una preposición o conjunción en minúscula — es siempre una frase
+// nominal. Se pide además vocabulario del expediente para que un fragmento con arranque raro pero
+// contenido de producto no se pierda: la señal sola de "empieza en minúscula" es demasiado ancha.
+const RE_ARRANQUE_DE_PROSA = /^(de|del|en|con|por|sin|hasta|desde|para|que|se|lo|al)\s+[a-záéíóúñ]/;
+const RE_VOCABULARIO_DE_BASES =
+  /\b(bases|oferta|ofertas|licitaci[óo]n|contrato|contratante|adjudicaci[óo]n|orden\s+de\s+compra|recepci[óo]n\s+conforme|mandante|art[íi]culo|numeral)\b/i;
+
 export function esFilaNoProducto(descripcion: string): boolean {
   const d = (descripcion || '').trim();
   if (!d) return false;
@@ -156,7 +198,44 @@ export function esFilaNoProducto(descripcion: string): boolean {
   if (RE_NOTA_AL_PIE.test(d)) return true;
   if (esRotuloCompuesto(d)) return true;
   if (d.length <= 60 && (RE_ROTULO_CON_DOSPUNTOS.test(d) || RE_ROTULO_IDENTIFICACION.test(d))) return true;
+  if (RE_HITO_PROCESO.test(d)) return true;
+  if (RE_REFERENCIA_NORMATIVA.test(d)) return true;
+  if (RE_ARRANQUE_DE_PROSA.test(d) && RE_VOCABULARIO_DE_BASES.test(d)) return true;
   return false;
 }
 /** @deprecated nombre histórico — el filtro ya no cubre solo criterios. Usar esFilaNoProducto. */
 export const esFilaDeCriterioNoProducto = esFilaNoProducto;
+
+// ─── ¿LA PLANILLA Y EL MODELO ESTÁN LEYENDO EL MISMO LISTADO? ─────────────────────────────
+// (25-ago-2026, caso 1057922-23-LE26.) Red de seguridad GENÉRICA detrás de esFilaNoProducto.
+// Ese filtro persigue FORMAS conocidas de basura (rótulos, criterios, cronograma…) y siempre
+// aparece una forma nueva: van cuatro. Esta regla no mira vocabulario — compara las dos lecturas
+// del MISMO expediente. El parser de planillas y el modelo leen los mismos documentos; si lo que
+// el parser trae no contiene la mayoría de lo que el modelo listó, el parser está leyendo OTRA
+// COSA (prosa de las bases, un anexo administrativo, una tabla que no es el listado a cotizar) y
+// no puede pisar el manifiesto.
+//
+// El caso real: el parser laxo de itemizados barrió un PDF de bases de 3.300 líneas y devolvió 13
+// filas —membrete de la portada, cronograma del proceso, un decreto citado— de las que solo 4 eran
+// productos que el modelo también había visto. Con 13 > 9 le ganaba por largo y sepultaba el
+// listado correcto.
+//
+// El umbral es doble a propósito. Un CATÁLOGO real (ferretería, 750 filas contra 20 que el modelo
+// resumió) baja el solape de forma legítima, porque el modelo trunca listas largas: cuando la
+// planilla es más del doble de larga, se exige solo que reconozca un tercio. En rangos comparables
+// —donde no hay excusa para no coincidir— se exige la mitad.
+export function planillaReconoceElListado(planilla: string[], modelo: string[]): { reconoce: boolean; solape: number; minimo: number } {
+  const norm = (s: string) => String(s || '').toLowerCase().normalize('NFD')
+    .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  // Con muy pocos ítems del modelo, el solape no es una medida confiable (un solo desencuentro
+  // de redacción lo hunde) — se deja pasar y decidan los otros gates.
+  if (modelo.length < 4) return { reconoce: true, solape: 1, minimo: 0 };
+  const enPlanilla = planilla.map(norm).filter(Boolean);
+  const reconocidos = modelo.filter(m => {
+    const d = norm(m);
+    return !!d && enPlanilla.some(p => p === d || p.includes(d) || d.includes(p));
+  }).length;
+  const solape = reconocidos / modelo.length;
+  const minimo = planilla.length > modelo.length * 2 ? 0.34 : 0.5;
+  return { reconoce: solape >= minimo, solape, minimo };
+}

@@ -65,7 +65,15 @@ export async function cargarDocumentoBase(codigo: string, documentoId: string): 
 // estructura del documento, no una plantilla Word real con sus casillas — separarlo en fragmentos
 // es razonablemente seguro, pero mandarlo al motor de auto-relleno arriesgaría escribir sobre una
 // estructura que no es la que el organismo publicó de verdad.
-export async function cargarDocumentoBaseParaSeparar(codigo: string, documentoId: string): Promise<DocumentoBase> {
+export type DocumentoParaSeparar =
+  | ({ tipo: 'docx' } & DocumentoBase)
+  // PDF ESCANEADO: se devuelve el archivo TAL CUAL, sin pasar por LibreOffice. Sus anexos se
+  // separan por geometría y OCR (anexos-pdf-secciones.ts + anexos-pdf-dividir.ts), recortando el
+  // PDF original en vez de reconstruirlo en Word — que es además lo correcto para presentar en el
+  // portal: el archivo que se sube sigue siendo el que publicó el organismo.
+  | ({ tipo: 'pdf_escaneado' } & DocumentoBase);
+
+export async function cargarDocumentoParaSeparar(codigo: string, documentoId: string): Promise<DocumentoParaSeparar> {
   const [docRows] = await pool.query(
     `SELECT documento_nombre, documento_url_local, metodo_extraccion
        FROM documentos_cache WHERE id = ? AND licitacion_codigo = ? LIMIT 1`,
@@ -82,34 +90,34 @@ export async function cargarDocumentoBaseParaSeparar(codigo: string, documentoId
     throw new Error('Solo se soportan documentos Word (.doc/.docx) o PDF, este no lo es');
   }
 
-  if (esPdf) {
-    // PDF ESCANEADO (imagen, sin capa de texto real): LibreOffice no hace OCR, así que convertiría
-    // a un .docx vacío o con basura — separarlo "con éxito" en ese estado sería peor que avisar
-    // que no se puede. `metodo_extraccion` YA sabe si este PDF necesitó OCR para leerse (lo cachea
-    // el análisis de viabilidad/lectura previo) — 'pdf-text' es el ÚNICO método que confirma texto
-    // real, seguro de convertir. Sin ese dato cacheado (documento nunca analizado), se avisa igual
-    // en vez de arriesgar un .docx vacío disfrazado de "separado con éxito".
-    const metodo = doc.metodo_extraccion || null;
-    if (metodo !== 'pdf-text') {
-      throw new Error(
-        metodo
-          ? `Este PDF está escaneado (se leyó con OCR: ${metodo}) — LibreOffice no puede convertir una imagen a texto editable, así que no se pueden extraer sus anexos en Word.`
-          : 'Este PDF todavía no se analizó (falta el texto extraído en caché) — analiza la licitación primero para confirmar si es un PDF de texto real o uno escaneado.',
-      );
-    }
-  }
-
   const resDoc = await fetch(doc.documento_url_local);
   if (!resDoc.ok) throw new Error(`No se pudo bajar el documento original (HTTP ${resDoc.status})`);
   const bufferDescargado = Buffer.from(await resDoc.arrayBuffer());
 
   if (esDocLegado) {
-    return { bufferOriginal: await convertirDocADocx(bufferDescargado), nombreOriginal: nombre.replace(/\.doc$/i, '.docx') };
+    return { tipo: 'docx', bufferOriginal: await convertirDocADocx(bufferDescargado), nombreOriginal: nombre.replace(/\.doc$/i, '.docx') };
   }
   if (esPdf) {
-    return { bufferOriginal: await convertirPdfADocx(bufferDescargado), nombreOriginal: nombre.replace(/\.pdf$/i, '.docx') };
+    // ¿Este PDF tiene texto real o es un escaneo? `metodo_extraccion` lo sabe (lo cachea el
+    // análisis de lectura previo) y 'pdf-text' es el ÚNICO método que confirma texto real. Antes,
+    // cualquier otra respuesta era un error duro: LibreOffice no hace OCR y habría convertido la
+    // imagen a un .docx vacío, así que avisar era mejor que separar "con éxito" pura basura.
+    //
+    // Ya no hace falta rendirse (25-ago-2026, caso 545774-35-LE26 de San Miguel, que publica sus
+    // 7 formatos pegados al final del decreto escaneado): un PDF sin texto se separa por su
+    // GEOMETRÍA, recortando el original. Se sigue prefiriendo la vía Word cuando hay texto real,
+    // porque un .docx editable es más cómodo de completar que un PDF; el recorte es para cuando
+    // esa vía no existe.
+    //
+    // Sin dato cacheado (documento nunca analizado) se toma el camino del escaneo: es el que
+    // funciona en los dos casos — sobre un PDF de texto la geometría igual encuentra las tablas —
+    // mientras que mandarlo a LibreOffice sin saber arriesga el .docx vacío de siempre.
+    if (doc.metodo_extraccion === 'pdf-text') {
+      return { tipo: 'docx', bufferOriginal: await convertirPdfADocx(bufferDescargado), nombreOriginal: nombre.replace(/\.pdf$/i, '.docx') };
+    }
+    return { tipo: 'pdf_escaneado', bufferOriginal: bufferDescargado, nombreOriginal: nombre };
   }
-  return { bufferOriginal: bufferDescargado, nombreOriginal: nombre };
+  return { tipo: 'docx', bufferOriginal: bufferDescargado, nombreOriginal: nombre };
 }
 
 // `empresaId` viaja como parámetro del cliente (query string en /analizar, body en /generar) sin

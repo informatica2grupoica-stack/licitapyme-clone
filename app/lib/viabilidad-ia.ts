@@ -26,6 +26,7 @@ import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUni
 // planilla-costeo-parser.ts, módulo PURO sin dependencias, para que generar-costeo.ts también
 // pueda usarlo sin crear una importación circular — ver el comentario de la función).
 export { esFilaNoProducto };
+import { planillaReconoceElListado } from '@/app/lib/fila-no-producto';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
@@ -2200,7 +2201,21 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     && tipoCosteo === 'por_linea'
     && new Set(planilla.items.map(i => i.linea || 1)).size < 2
     && new Set(manifiesto.map(m => m.linea)).size >= 2;
-  if (planilla && planillaSana && !planillaDegradaLineas
+  // (d) [25-ago-2026, caso 1057922-23-LE26] LA PLANILLA TIENE QUE RECONOCER LO QUE EL MODELO YA
+  // IDENTIFICÓ. Es la red de seguridad genérica detrás de (a)-(c): esos filtros persiguen FORMAS
+  // conocidas de basura (rótulos, criterios, cronograma) y siempre aparece una forma nueva — van
+  // cuatro. Este gate no mira vocabulario: compara las dos lecturas del MISMO expediente. Ver
+  // planillaReconoceElListado (fila-no-producto.ts) para el caso real y los umbrales.
+  const solape = planilla
+    ? planillaReconoceElListado(planilla.items.map(i => i.descripcion), manifiesto.map(m => m.descripcion))
+    : { reconoce: true, solape: 1, minimo: 0 };
+  if (planilla && !solape.reconoce) {
+    console.warn(`[viabilidad-ia-v3] ${codigo}: la planilla "${planilla.fuenteDoc}" (${planilla.items.length} filas) NO reconoce el listado del modelo `
+      + `(solape ${Math.round(solape.solape * 100)}% de ${manifiesto.length} ítems, mínimo ${Math.round(solape.minimo * 100)}%) — no se usa para el manifiesto; `
+      + `está leyendo otra cosa (prosa de las bases, un anexo administrativo o una tabla que no es el listado a cotizar).`);
+  }
+  const planillaReconoceAlLLM = solape.reconoce;
+  if (planilla && planillaSana && !planillaDegradaLineas && planillaReconoceAlLLM
       && planilla.items.length >= manifiesto.length && planilla.items.length >= 8) {
     manifiesto = planilla.items.map(it => ({
       linea: it.linea || 1, categoria: it.categoria, descripcion: it.descripcion, modelo: '',

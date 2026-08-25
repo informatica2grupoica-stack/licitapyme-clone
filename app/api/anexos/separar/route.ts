@@ -12,27 +12,41 @@
 // sube a Documentos Propios: ahí el resultado es el anexo YA LISTO para presentar).
 //
 // PDF (14-ago-2026, pedido explícito del usuario: "sacar los anexos de un PDF y dejarlos en Word,
-// sin tocar el PDF"): cargarDocumentoBaseParaSeparar (a diferencia de cargarDocumentoBase, que
-// usan /analizar y /generar) también acepta .pdf — lo convierte a .docx con LibreOffice
-// (conversor-doc/) antes de dividir, y rechaza con un mensaje claro los PDF escaneados (LibreOffice
-// no hace OCR, convertiría a un .docx vacío). El PDF original NUNCA se toca ni se sube de nuevo —
-// solo se generan los fragmentos .docx, igual que con cualquier .docx que ya traía varios anexos.
+// sin tocar el PDF"): cargarDocumentoParaSeparar (a diferencia de cargarDocumentoBase, que usan
+// /analizar y /generar) también acepta .pdf — si TIENE TEXTO REAL lo convierte a .docx con
+// LibreOffice (conversor-doc/) antes de dividir. El PDF original NUNCA se toca ni se sube de nuevo
+// — solo se generan los fragmentos, igual que con cualquier .docx que ya traía varios anexos.
+//
+// PDF ESCANEADO (25-ago-2026, caso real 545774-35-LE26 de la Municipalidad de San Miguel): antes
+// se rechazaba con un mensaje claro, porque LibreOffice no hace OCR y habría convertido la imagen
+// a un .docx vacío. Pero ese caso NO es raro: hay organismos que publican sus formatos pegados al
+// final del mismo decreto escaneado que aprueba las bases, y ahí no existe ningún archivo Word que
+// bajar. Ahora esos se separan por su GEOMETRÍA (anexos-pdf-secciones.ts localiza cada
+// "FORMATO N°X" y anexos-pdf-dividir.ts recorta el PDF original), y el resultado son PDF, no
+// .docx: en una licitación pública lo que se sube al portal tiene que ser el documento oficial del
+// organismo, así que recortarlo es correcto y reconstruirlo en Word no lo sería.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
-import { cargarDocumentoBaseParaSeparar } from '@/app/lib/anexos-datos';
+import { cargarDocumentoParaSeparar } from '@/app/lib/anexos-datos';
 import { abrirDocx, verificarXmlBienFormado, normalizarParaIds } from '@/app/lib/anexos-docx';
-import { dividirPorFormularios } from '@/app/lib/anexos-dividir';
+import { dividirPorFormularios, clasificarAnexo } from '@/app/lib/anexos-dividir';
+import { detectarSeccionesPdfEscaneado } from '@/app/lib/anexos-pdf-secciones';
+import { dividirPdfEnFormatos } from '@/app/lib/anexos-pdf-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-// 120s (antes 60s): un PDF puede tardar hasta 90s en convertirse a .docx con LibreOffice (ver
-// convertirPdfADocx) — 60s cortaba la conversión antes de que pudiera terminar en el caso grande.
-export const maxDuration = 120;
+// 240s (antes 120s): un PDF de texto puede tardar hasta 90s en convertirse a .docx con LibreOffice
+// (ver convertirPdfADocx), y uno ESCANEADO necesita OCR para ubicar sus formatos — medido sobre el
+// decreto de 36 páginas de 545774-35-LE26: 70s. (Eran 210s leyendo las 36 páginas completas; el
+// prefiltro por píxeles de anexos-pdf-secciones.ts descarta las 22 que no pueden contener el
+// título de un formato, y solo se pasan por OCR las 14 restantes.)
+export const maxDuration = 240;
 
 const CONTENT_TYPE_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const CONTENT_TYPE_PDF = 'application/pdf';
 
 // Categoría de "Documentos y Bases" (NUNCA Documentos Propios — pedido explícito del usuario
 // 13-ago-2026, así queda visible junto al resto de la licitación, no escondido en la sección de
@@ -66,7 +80,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { bufferOriginal, nombreOriginal } = await cargarDocumentoBaseParaSeparar(codigo, documentoId);
+    const documento = await cargarDocumentoParaSeparar(codigo, documentoId);
+    const { bufferOriginal, nombreOriginal } = documento;
+
+    if (documento.tipo === 'pdf_escaneado') {
+      return await separarPdfEscaneado(codigo, usuario.id, bufferOriginal, nombreOriginal);
+    }
+
     const { xml: xmlCrudo } = await abrirDocx(bufferOriginal);
     // BUG REAL (13-ago-2026, caso 1211839-58-LE26): un .docx convertido por el conversor de
     // producción (LibreOffice) puede no traer w14:paraId en sus párrafos (mismo caso ya conocido
@@ -152,4 +172,61 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 400 });
   }
+}
+
+/**
+ * Camino del PDF ESCANEADO: se localizan los formatos por geometría + OCR y se RECORTA el PDF
+ * original en uno por formato (ver la cabecera de este archivo para el porqué de recortar en vez
+ * de reconstruir en Word).
+ *
+ * Se mantiene idéntico al camino .docx en todo lo que le importa al resto del sistema: cada
+ * fragmento cae en su caja de "Documentos y Bases" según `clasificarAnexo` —el MISMO clasificador,
+ * no una copia— y nunca en Documentos Propios; y si no hay más de un formato, no se sube nada.
+ */
+async function separarPdfEscaneado(
+  codigo: string, usuarioId: number, bufferOriginal: Buffer, nombreOriginal: string,
+) {
+  const secciones = await detectarSeccionesPdfEscaneado(bufferOriginal);
+  if (secciones.length < 2) {
+    console.log(`[anexos-separar] ${codigo}: "${nombreOriginal}" (PDF escaneado) — ${secciones.length} formato(s) detectado(s), no se divide.`);
+    return NextResponse.json({
+      success: true,
+      separado: false,
+      archivos: [],
+      mensaje: `"${nombreOriginal}" es un PDF escaneado y no se encontraron formatos numerados ("FORMATO N°1", "ANEXO N°2"…) adentro — no hay nada que separar.`,
+    });
+  }
+
+  const partes = await dividirPdfEnFormatos(bufferOriginal, secciones);
+  const archivos: { nombre: string; categoria: string; titulo: string; url: string }[] = [];
+
+  for (const parte of partes) {
+    const categoria = clasificarAnexo(parte.seccion.titulo, parte.seccion.texto);
+    const categoriaCaja = CATEGORIA_POR_CLASIFICACION[categoria] || 'ANEXOS_OFERENTE';
+    const url = await subirDocumentoR2(codigo, parte.nombreArchivo, parte.buffer, CONTENT_TYPE_PDF);
+    await pool.query(
+      `INSERT INTO documentos_cache
+         (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, categoria_manual, usuario_id)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+       ON DUPLICATE KEY UPDATE
+         documento_url_local = VALUES(documento_url_local),
+         size_bytes          = VALUES(size_bytes),
+         categoria           = VALUES(categoria),
+         updated_at          = CURRENT_TIMESTAMP`,
+      [codigo, parte.nombreArchivo, url, parte.buffer.length, CONTENT_TYPE_PDF, categoriaCaja, usuarioId],
+    );
+    archivos.push({ nombre: parte.nombreArchivo, categoria, titulo: parte.seccion.titulo, url });
+  }
+
+  registrarActividad({
+    usuarioId, accion: 'anexo_separado',
+    entidadTipo: 'licitacion', entidadId: codigo,
+    descripcion: `Separó el PDF escaneado "${nombreOriginal}" en ${archivos.length} formatos independientes (recorte del original)`,
+    metadata: {
+      licitacion_codigo: codigo, documento: nombreOriginal, escaneado: true,
+      archivos: archivos.map(a => ({ nombre: a.nombre, categoria: a.categoria })),
+    },
+  });
+
+  return NextResponse.json({ success: true, separado: true, archivos });
 }

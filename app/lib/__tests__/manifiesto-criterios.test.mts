@@ -14,6 +14,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { esFilaNoProducto } from '../viabilidad-ia';
+import { planillaReconoceElListado } from '../fila-no-producto';
 import { adaptarViabilidadACosteo } from '../generar-costeo';
 
 // Los 10 productos REALES de 2345-128-LP26 — ninguno debe descartarse jamás.
@@ -421,4 +422,129 @@ test('todo archivo que ESCRIBE manifiesto_productos filtra las filas que no son 
   }
   assert.deepEqual(infractores, [],
     `estos archivos escriben manifiesto_productos sin filtrar filas que no son productos: ${infractores.join(', ')}`);
+});
+
+
+// ─── UN PARSER QUE BARRE EL PLIEGO ENTERO (25-ago-2026, 1057922-23-LE26) ──────────────────
+// CASO REAL reportado por el usuario ("los productos de la viabilidad no son los correctos; lo
+// re-analicé y sigue igual"): CESFAM con SAR Rahue Alto. Las bases venían como UN PDF de 3.300
+// líneas en pdf-text, con la tabla de equipamiento (9 productos) en las páginas 2-3 y el resto
+// prosa administrativa. El parser laxo de itemizados —guiado SOLO por el correlativo esperado, sin
+// estructura de tabla— leyó los ítems 2, 3 y 4 de la tabla real y después fue a buscar el "5", el
+// "7" y el "8" a cientos de líneas de distancia: cazó el membrete de la portada ("DIRECCIÓN DEPTO.
+// ASESORÍA JURÍDICA A.2/Folio DSF5997", con un número de página suelto como cantidad), el
+// cronograma del proceso ("Apertura de las Ofertas"), un decreto citado y la cola de un párrafo
+// partido. Trece filas que además GANARON por largo al listado correcto de 9 del modelo.
+//
+// Endurecer el parser se probó y se DESCARTÓ con datos: podar por contigüidad limpiaba este caso
+// pero borraba productos reales en otras doce licitaciones (nueve materiales de construcción en
+// 3390-19-LE26, diez cajas de implantes en 2258-113-LR26, cinco camas clínicas en 1114608-4-LP26),
+// porque hay listados legítimos donde cada ítem viene seguido de su ficha técnica y por tanto queda
+// tan espaciado como un enganche lejano. Borrar un producto real es peor que mostrar uno de más.
+// El guardarraíl vive entonces en el CONSUMIDOR: la planilla solo pisa al modelo si reconoce lo
+// que el modelo ya identificó.
+test('la planilla que leyó otra cosa NO puede pisar el listado del modelo', () => {
+  // Las 13 descripciones REALES que el parser sacó de las bases de 1057922-23-LE26, contra los 9
+  // productos REALES que el modelo listó. Copiadas de la BD, no inventadas.
+  const planilla = [
+    'DIRECCI”N DEPTO. ASESORÕA JURÕDICA A.2/Folio DSF5997',
+    'Carro aseo c/estrujamopas NO 5 $790.000.-',
+    'Carro yegua NO 3 $371.000.-',
+    'Escalera 2 peldaños plegable NO 5 $225.000.-',
+    'Pallet NO 14 $1.261.000.-',
+    '3. Decreto 63 Exento que Aprueba Norma Técnica N°226 que establece Obligatoriedad de Implementar un Sistema de Registro',
+    'Apertura de las Ofertas',
+    'de estas Bases, hasta la Recepción Conforme del mismo.',
+    'Apoderado UTP',
+    'HERRAMIENTAS MANUALES',
+    'INSTRUMENTOS DE MEDICIÓN Y TRAZADO',
+    'ELEMENTOS DE SUJECIÓN Y ACABADO',
+    'Contenedores de color gris.',
+  ];
+  const modelo = ['Set herramientas', 'Carro aseo c/estrujamopas', 'Carro yegua', 'Escalera 2 peldaños plegable',
+    'Pallet', 'Romana', 'Termohigrómetro', 'Set contenedores', 'Fullspace'];
+  const r = planillaReconoceElListado(planilla, modelo);
+  assert.equal(r.reconoce, false,
+    `la planilla basura habría pisado el manifiesto correcto (solape ${Math.round(r.solape * 100)}%)`);
+});
+
+test('una planilla FIEL sí puede pisar al modelo (el gate no bloquea lo bueno)', () => {
+  // Prueba negativa: el parser leyó la planilla de verdad y trae el detalle completo; el modelo
+  // había resumido. Ahí la planilla DEBE ganar — es el caso para el que existe el reemplazo.
+  const modelo = ['Chaleco Balístico con funda', 'Cascos balísticos', 'Bastón Retráctil', 'Cinturón Táctico', 'Lentes balísticos'];
+  const planilla = [...modelo, 'Funda Chaleco Balístico con logo institucional', 'Botiquín control de hemorragias',
+    'Gas pimienta con funda', 'Esposas de seguridad', 'Linterna con funda'];
+  assert.equal(planillaReconoceElListado(planilla, modelo).reconoce, true);
+});
+
+test('un CATÁLOGO largo puede pisar al modelo aunque el modelo haya truncado la lista', () => {
+  // El modelo trunca listas largas: de 300 filas de ferretería lista 20. El solape cae de forma
+  // legítima, y por eso el umbral baja a un tercio cuando la planilla más que dobla al modelo.
+  const catalogo = Array.from({ length: 300 }, (_, i) => `Artículo de ferretería ${i + 1}`);
+  const modelo = [...catalogo.slice(0, 8), 'Kit de herramientas surtido', 'Set de brocas', 'Caja organizadora'];
+  assert.equal(planillaReconoceElListado(catalogo, modelo).reconoce, true,
+    'un catálogo real no debe quedar bloqueado por el resumen del modelo');
+});
+
+test('con muy pocos ítems del modelo el gate no opina (el solape no es medida confiable)', () => {
+  assert.equal(planillaReconoceElListado(['Cemento', 'Arena'], ['Grava', 'Ripio']).reconoce, true);
+});
+
+test('el filtro descarta cronograma, normativa citada y prosa de las bases', () => {
+  const basura = [
+    'Apertura de las Ofertas',
+    'Recepción de las Ofertas',
+    'Cierre Período de consultas',
+    'Cierre de presentación de las ofertas.',
+    'Publicación de Respuestas',
+    '3. Decreto 63 Exento que Aprueba Norma Técnica N°226 que establece Obligatoriedad de Implementar un Sistema de Registro',
+    'Ley N° 19.886 de Bases sobre Contratos Administrativos de Suministro',
+    'Resolución Exenta N°13609',
+    'de estas Bases, hasta la Recepción Conforme del mismo.',
+    'Apoderado UTP',
+  ];
+  for (const d of basura) {
+    assert.equal(esFilaNoProducto(d), true, `no se detectó como no-producto: "${d}"`);
+  }
+});
+
+test('los filtros de cronograma/normativa/prosa NO borran productos reales', () => {
+  // Productos que comparten vocabulario con las reglas nuevas — todos deben sobrevivir.
+  const productosReales = [
+    'Caja de recepción de muestras',
+    'Cierre hermético para contenedor',
+    'Casco certificado según norma NCh 461',
+    'Panel de entrega de comandas',
+    'Reglamento de sala impreso y enmarcado',   // arranca con "reglamento" pero es un bien
+    'Termohigrómetro digital',
+    'Set contenedores',
+    'Pallet',
+    'Escalera 2 peldaños plegable',
+    'Carro aseo c/estrujamopas',
+    'Fullspace',
+    'Romana',
+  ];
+  for (const d of productosReales) {
+    assert.equal(esFilaNoProducto(d), false, `se borró un producto real: "${d}"`);
+  }
+});
+
+// ─── INVARIANTE: LA PLANILLA DEBE RECONOCER LO QUE EL MODELO YA IDENTIFICÓ ────────────────
+// (25-ago-2026.) Los gates (a)-(c) persiguen FORMAS conocidas de basura y siempre aparece una
+// nueva — este caso fue la cuarta. El gate (d) no mira vocabulario: compara las dos lecturas del
+// mismo expediente. Si el parser no encuentra la mayoría de lo que el modelo listó, no está
+// leyendo el mismo listado y no puede pisarlo. Se verifica sobre el fuente por la misma razón que
+// el invariante de orden de más arriba: si alguien lo saca, el informe sigue saliendo "válido".
+test('el gate del parser exige solape con el listado del modelo', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const src = readFileSync(fileURLToPath(new URL('../viabilidad-ia.ts', import.meta.url)), 'utf8');
+  assert.match(src, /planillaReconoceAlLLM/,
+    'falta el gate de solape planilla↔modelo: sin él, un parser que leyó otra cosa vuelve a pisar el manifiesto correcto');
+  assert.match(src, /planillaReconoceElListado\(/,
+    'el gate debe usar planillaReconoceElListado, la regla compartida y testeada');
+  const iCalc = src.indexOf('const planillaReconoceAlLLM = solape.reconoce');
+  const iUso = src.indexOf('planillaSana && !planillaDegradaLineas && planillaReconoceAlLLM');
+  assert.ok(iCalc !== -1 && iUso !== -1 && iCalc < iUso,
+    'planillaReconoceAlLLM debe calcularse antes del gate y estar en la condición que reemplaza el manifiesto');
 });
