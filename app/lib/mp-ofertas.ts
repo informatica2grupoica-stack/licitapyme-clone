@@ -328,7 +328,7 @@ export async function leerOfertasApertura(codigo: string): Promise<LecturaApertu
   const referer = ficha.referer;
 
   const vacio = (diag: string): LecturaApertura =>
-    ({ ofertas: [], documentos: [], paginas, cookies, referer, diagnostico: diag });
+    ({ ofertas: [], documentos: [], paginas, cookies, referer, diagnostico: diag, truncada: false });
 
   // ── 1) Ficha → OpeningFrame ────────────────────────────────────────────────
   const frameUrl = [...ficha.html.matchAll(/(?:href|src)=["']([^"']*OpeningFrame\.aspx\?[^"']*enc=[^"']+)["']/gi)]
@@ -400,23 +400,36 @@ export async function leerOfertasApertura(codigo: string): Promise<LecturaApertu
       } catch { /* url basura */ }
     }
   }
+  };
+
+  parsearResumen(resumen.html);
+
+  // ── 4b) Páginas 2..N del Resumen de ofertas ────────────────────────────────
+  // Cada salto se hace contra el HTML de la página anterior (el __VIEWSTATE es de esa página).
+  let truncada = false;
+  let htmlPagina = resumen.html;
+  const pagsOferentes = paginasDeOferentes(resumen.html);
+  for (const p of pagsOferentes) {
+    if (Date.now() - inicio > PRESUPUESTO_MS) { notas.push('presupuesto agotado en oferentes'); truncada = true; break; }
+    const sig = await postearNavegacion(
+      resumenUrl, htmlPagina, cookies, resumenUrl, 'WucPagerGrid$btn_GoToPage', String(p));
+    cookies = sig.cookies;
+    if (!sig.html) { notas.push(`pág ${p} de oferentes ilegible`); truncada = true; break; }
+    paginas++;
+    htmlPagina = sig.html;
+    parsearResumen(sig.html);
+  }
+  if (pagsOferentes.length) notas.push(`${pagsOferentes.length + 1} pág de oferentes`);
 
   // ── 5) Entrar a cada página de anexos y listar sus archivos ────────────────
   const documentos: DocumentoOferta[] = [];
   const visto = new Set<string>();
-  let pagsAnexo = 0, sinLink = 0;
+  const vistoDoc = new Set<string>();
+  let pagsAnexo = 0, sinLink = 0, pagsExtra = 0;
 
-  for (const ax of pendientesAnexo) {
-    if (pagsAnexo >= MAX_PAGINAS_ANEXO) { notas.push(`tope ${MAX_PAGINAS_ANEXO} pág anexos`); break; }
-    if (Date.now() - inicio > PRESUPUESTO_MS) { notas.push('presupuesto agotado en anexos'); break; }
-    if (visto.has(ax.url)) continue;
-    visto.add(ax.url);
-
-    const r = await traer(ax.url, cookies, resumenUrl); cookies = r.cookies;
-    if (!r.html) { notas.push(`anexo ilegible (${ROTULO_CATEGORIA[ax.categoria]})`); continue; }
-    pagsAnexo++; paginas++;
-
-    for (const tr of r.html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+  /** Extrae las filas-archivo de UNA página de la grilla de anexos. */
+  const filasDeAnexo = (html: string, ax: { rut: string; categoria: CategoriaAnexo; url: string }, pagina: number) => {
+    for (const tr of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
       const bruto = tr[1];
       const celdas = [...bruto.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => limpiar(c[1]));
       // Una fila de archivo se reconoce por traer un nombre CON EXTENSIÓN: encabezados,
@@ -439,7 +452,14 @@ export async function leerOfertasApertura(codigo: string): Promise<LecturaApertu
           || '');
       if (!href) sinLink++;
 
+      // La clave en base es (licitación, proveedor, categoría, nombre): si el mismo nombre
+      // apareciera dos veces, la segunda pisaría a la primera. Se queda la primera.
+      const claveDoc = `${ax.rut}|${ax.categoria}|${nombre}`;
+      if (vistoDoc.has(claveDoc)) continue;
+      vistoDoc.add(claveDoc);
+
       documentos.push({
+        pagina,
         proveedorRut: ax.rut,
         categoria: ax.categoria,
         nombre: nombre.slice(0, 400),
@@ -451,6 +471,34 @@ export async function leerOfertasApertura(codigo: string): Promise<LecturaApertu
           : href ? (() => { try { return new URL(desescapar(href), ax.url).href; } catch { return ''; } })() : '',
       });
     }
+  };
+
+  for (const ax of pendientesAnexo) {
+    if (pagsAnexo >= MAX_PAGINAS_ANEXO) { notas.push(`tope ${MAX_PAGINAS_ANEXO} pág anexos`); truncada = true; break; }
+    if (Date.now() - inicio > PRESUPUESTO_MS) { notas.push('presupuesto agotado en anexos'); truncada = true; break; }
+    if (visto.has(ax.url)) continue;
+    visto.add(ax.url);
+
+    const r = await traer(ax.url, cookies, resumenUrl); cookies = r.cookies;
+    if (!r.html) { notas.push(`anexo ilegible (${ROTULO_CATEGORIA[ax.categoria]})`); truncada = true; continue; }
+    pagsAnexo++; paginas++;
+    filasDeAnexo(r.html, ax, 1);
+
+    // La grilla de anexos muestra 6 archivos por página y pagina el resto:
+    //     <a href="javascript:__doPostBack('DWNL$grdId','Page$2')">2</a>
+    // Sin recorrerlas, un oferente con 15 anexos aparecía con 6 y los otros 9 no existían para
+    // el sistema — nadie los echaba de menos porque el conteo "6 documentos" se veía normal.
+    let htmlAnexo = r.html;
+    for (const p of paginasDeAnexo(r.html)) {
+      if (pagsAnexo >= MAX_PAGINAS_ANEXO) { notas.push(`tope ${MAX_PAGINAS_ANEXO} pág anexos`); truncada = true; break; }
+      if (Date.now() - inicio > PRESUPUESTO_MS) { notas.push('presupuesto agotado en anexos'); truncada = true; break; }
+      const sig = await postearNavegacion(ax.url, htmlAnexo, cookies, ax.url, 'DWNL$grdId', `Page$${p}`);
+      cookies = sig.cookies;
+      if (!sig.html) { notas.push(`pág ${p} de ${ROTULO_CATEGORIA[ax.categoria]} ilegible`); truncada = true; break; }
+      pagsAnexo++; paginas++; pagsExtra++;
+      htmlAnexo = sig.html;
+      filasDeAnexo(sig.html, ax, p);
+    }
   }
 
   const diagnostico = [
@@ -459,12 +507,14 @@ export async function leerOfertasApertura(codigo: string): Promise<LecturaApertu
     `${sinRut} grupos sin RUT válido`,
     `${pendientesAnexo.length} anexos`,
     `${pagsAnexo} pág anexos`,
+    ...(pagsExtra ? [`${pagsExtra} pág extra por paginación`] : []),
     `${documentos.length} docs`,
     ...(sinLink ? [`${sinLink} sin link`] : []),
+    ...(truncada ? ['LECTURA INCOMPLETA'] : []),
     ...notas,
   ].join(' · ').slice(0, 400);
 
-  return { ofertas, documentos, diagnostico, paginas, cookies, referer };
+  return { ofertas, documentos, diagnostico, paginas, cookies, referer, truncada };
 }
 
 /**
@@ -474,23 +524,34 @@ export async function leerOfertasApertura(codigo: string): Promise<LecturaApertu
  * que el servidor responda la página de error de validación en vez del archivo— y se hace POST
  * del formulario agregando las coordenadas del click (`control.x` / `control.y`), que es lo que
  * ASP.NET usa para saber qué ImageButton se apretó.
+ *
+ * `numeroPagina` NO es opcional por gusto: los controles de la grilla se llaman ctl02..ctl07 en
+ * TODAS las páginas. Si el archivo está en la página 3 y se hace click sin navegar hasta ella,
+ * ASP.NET entrega el archivo homólogo de la página 1 — descarga silenciosa del PDF equivocado,
+ * que es peor que un error. Por eso primero se pagina y recién ahí se aprieta el botón.
  */
 export async function descargarAnexoPorPostback(
-  paginaUrl: string, control: string, cookies: string, referer: string,
+  paginaUrl: string, control: string, cookies: string, referer: string, numeroPagina = 1,
 ): Promise<{ buffer: Buffer; contentType: string; nombre: string | null } | null> {
   try {
     const pagina = await traer(paginaUrl, cookies, referer);
     if (!pagina.html) return null;
-    const html = pagina.html;
+    let html = pagina.html;
+    let cookiesPag = pagina.cookies;
+
+    // Caminar 1 → 2 → … → N encadenando viewstates (ASP.NET no acepta saltos con uno viejo).
+    for (let p = 2; p <= Math.min(numeroPagina, MAX_PAGINAS_GRILLA); p++) {
+      const sig = await postearNavegacion(paginaUrl, html, cookiesPag, paginaUrl, 'DWNL$grdId', `Page$${p}`);
+      cookiesPag = sig.cookies;
+      if (!sig.html) return null;      // sin la página correcta, mejor fallar que bajar otro archivo
+      html = sig.html;
+    }
+    // Si el control que se va a apretar no está en esta página, el postback traería otra cosa.
+    if (!html.includes(`name="${control}"`)) return null;
 
     const accion = html.match(/<form[^>]+action=["']([^"']+)["']/i)?.[1] || paginaUrl;
-    const cuerpo = new URLSearchParams();
     // Todos los hidden del formulario (__VIEWSTATE, __VIEWSTATEGENERATOR, __EVENTVALIDATION…).
-    for (const m of html.matchAll(/<input[^>]*type="hidden"[^>]*>/gi)) {
-      const name = m[0].match(/name="([^"]+)"/i)?.[1];
-      if (!name) continue;
-      cuerpo.set(name, desescapar(m[0].match(/value="([^"]*)"/i)?.[1] ?? ''));
-    }
+    const cuerpo = hiddenDelFormulario(html);
     cuerpo.set(`${control}.x`, '8');
     cuerpo.set(`${control}.y`, '8');
 
@@ -500,7 +561,7 @@ export async function descargarAnexoPorPostback(
         'User-Agent': MP_UA,
         'Content-Type': 'application/x-www-form-urlencoded',
         'Referer': paginaUrl,
-        ...(pagina.cookies ? { Cookie: pagina.cookies } : {}),
+        ...(cookiesPag ? { Cookie: cookiesPag } : {}),
       },
       body: cuerpo.toString(),
       redirect: 'follow',

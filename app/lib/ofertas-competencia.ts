@@ -24,7 +24,11 @@ const IN_POSTULADA = ESTADOS_POSTULADA.map(() => '?').join(', ');
 
 const CONCURRENCIA     = 2;        // la apertura es más pesada que la ficha: sé gentil con MP
 const PRESUPUESTO_MS   = 260_000;  // margen bajo maxDuration=300
-const MAX_DOCS_CORRIDA = 20;
+// El freno real de la descarga es el TIEMPO, no el conteo: desde que se recorren todas las
+// páginas de la grilla, una licitación puede tener 200 anexos y bajarlos de a 20 la dejaba
+// semanas atrás. El tope alto lo acota el presupuesto de abajo.
+const MAX_DOCS_CORRIDA = 60;
+const PRESUPUESTO_DESCARGA_MS = 100_000;   // cabe en el maxDuration=120 de la ruta de la UI
 
 // ── RUTs propios: para marcar cuál de las ofertas es la NUESTRA ───────────────
 let cacheRuts: { ruts: Set<string>; at: number } | null = null;
@@ -92,16 +96,19 @@ async function guardarDocumentos(codigo: string, docs: DocumentoOferta[]): Promi
         // entre lecturas, así que la URL se ACTUALIZA en cada pasada en vez de duplicar la fila.
         `INSERT INTO oferta_competencia_documento
            (licitacion_codigo, proveedor_rut, categoria, nombre, tipo_mp, descripcion, tamano_kb,
-            url_contenedor, url_mp, detectado_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            url_contenedor, url_mp, pagina_grilla, detectado_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON DUPLICATE KEY UPDATE
            tipo_mp        = COALESCE(VALUES(tipo_mp), tipo_mp),
            descripcion    = COALESCE(VALUES(descripcion), descripcion),
            tamano_kb      = COALESCE(VALUES(tamano_kb), tamano_kb),
            url_contenedor = VALUES(url_contenedor),
-           url_mp         = VALUES(url_mp)`,
+           url_mp         = VALUES(url_mp),
+           -- La página se re-escribe siempre: si MP reordena la grilla, el número viejo apuntaría
+           -- al archivo equivocado (ver migration-77).
+           pagina_grilla  = VALUES(pagina_grilla)`,
         [codigo, d.proveedorRut, d.categoria, d.nombre, d.tipoMp, d.descripcion, d.tamanoKb,
-         d.urlContenedor, d.url, ahoraChileSQL()],
+         d.urlContenedor, d.url, d.pagina || 1, ahoraChileSQL()],
       );
       n++;
     } catch (e) {
@@ -111,16 +118,26 @@ async function guardarDocumentos(codigo: string, docs: DocumentoOferta[]): Promi
   return n;
 }
 
-async function marcarLectura(codigo: string, encontradas: number, diagnostico: string): Promise<void> {
+/**
+ * `truncada` = la lectura se cortó por tope o presupuesto. En ese caso NO se estampa
+ * ofertas_leidas_en: el poller solo toma las que tienen esa fecha en NULL, así que darla por
+ * leída congelaría para siempre una apertura a la que le faltan oferentes o anexos. El contador
+ * de intentos (< 6) es el que evita que reintente en bucle.
+ */
+async function marcarLectura(
+  codigo: string, encontradas: number, diagnostico: string, truncada = false,
+): Promise<void> {
   try {
     await pool.query(
       `UPDATE licitacion_apertura
-          SET ofertas_leidas_en   = ?,
+          SET ofertas_leidas_en   = ${truncada ? 'NULL' : '?'},
               ofertas_encontradas = ?,
               ofertas_intentos    = ofertas_intentos + 1,
               ofertas_diagnostico = ?
         WHERE licitacion_codigo = ?`,
-      [ahoraChileSQL(), encontradas, diagnostico, codigo],
+      truncada
+        ? [encontradas, diagnostico, codigo]
+        : [ahoraChileSQL(), encontradas, diagnostico, codigo],
     );
   } catch (e) {
     console.error(`[ofertas] no se pudo marcar la lectura de ${codigo}:`, String(e).slice(0, 200));
@@ -183,7 +200,7 @@ export async function leerYGuardarOfertas(codigo: string): Promise<ResultadoLect
 
   const guardadas = await guardarOfertas(codigo, lectura.ofertas);
   const docs = await guardarDocumentos(codigo, lectura.documentos);
-  await marcarLectura(codigo, guardadas, lectura.diagnostico);
+  await marcarLectura(codigo, guardadas, lectura.diagnostico, lectura.truncada);
 
   // La apertura nos incluye a NOSOTROS. Lo que cuenta como competencia es el resto: avisar
   // "1 competidor" cuando ese uno somos nosotros sería mentirle al usuario.
@@ -282,6 +299,7 @@ export async function descargarDocumentosOferta(
   filtro: { codigo?: string; rut?: string } = {},
 ): Promise<{ descargados: number; fallidos: number }> {
   const stats = { descargados: 0, fallidos: 0 };
+  const inicio = Date.now();
   let filas: any[] = [];
   try {
     // El filtro permite que la UI baje AHORA los anexos del oferente que se está mirando, sin
@@ -292,7 +310,8 @@ export async function descargarDocumentosOferta(
     if (filtro.rut)    { where.push('proveedor_rut = ?');     params.push(filtro.rut); }
 
     const [rows] = await pool.query(
-      `SELECT id, licitacion_codigo, proveedor_rut, categoria, nombre, url_mp, url_contenedor
+      `SELECT id, licitacion_codigo, proveedor_rut, categoria, nombre, url_mp, url_contenedor,
+              pagina_grilla
          FROM oferta_competencia_documento
         WHERE ${where.join(' AND ')}
         ORDER BY detectado_at ASC
@@ -314,6 +333,7 @@ export async function descargarDocumentosOferta(
   }
 
   for (const [codigo, docs] of porCodigo) {
+    if (Date.now() - inicio > PRESUPUESTO_DESCARGA_MS) break;   // lo que quede sigue pendiente
     const lectura = await leerOfertasApertura(codigo);
     if (!lectura) { stats.fallidos += docs.length; continue; }
     const vigentes = new Map(
@@ -321,10 +341,15 @@ export async function descargarDocumentosOferta(
     );
 
     for (const d of docs) {
+      if (Date.now() - inicio > PRESUPUESTO_DESCARGA_MS) break;
       const clave = `${d.proveedor_rut}|${d.categoria}|${d.nombre}`;
       const fresco = vigentes.get(clave);
       const url = fresco?.url || String(d.url_mp || '');
       const contenedor = fresco?.urlContenedor || String(d.url_contenedor || '');
+      // La página manda desde la lectura FRESCA; la guardada es el respaldo (1 en las filas
+      // anteriores a migration-77). Apretar el botón sin estar en la página correcta baja el
+      // archivo homólogo de la primera página, no el que se pidió.
+      const pagina = fresco?.pagina || Number(d.pagina_grilla) || 1;
 
       // Dos mecanismos de descarga según cómo el portal exponga el archivo:
       //  · `postback:<control>` → ImageButton de ASP.NET: POST del formulario de la página
@@ -332,7 +357,7 @@ export async function descargarDocumentosOferta(
       //  · URL directa → GET de toda la vida.
       const bin = url.startsWith('postback:')
         ? (contenedor
-            ? await descargarAnexoPorPostback(contenedor, url.slice('postback:'.length), lectura.cookies, lectura.referer)
+            ? await descargarAnexoPorPostback(contenedor, url.slice('postback:'.length), lectura.cookies, lectura.referer, pagina)
             : null)
         : url ? await descargarDocumentoOferta(url, lectura.cookies, lectura.referer) : null;
       if (!bin) {
