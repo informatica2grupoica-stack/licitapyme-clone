@@ -173,6 +173,8 @@ export interface Oportunidad {
   
   // Scores y métricas de relevancia
   score?: number;
+  /** Campos donde calzó la búsqueda: 'titulo' | 'descripcion' | 'items' | 'categoria' */
+  match_fuentes?: string[];
   semantic_score?: number;
   final_score?: number;
   rerank_score?: number;

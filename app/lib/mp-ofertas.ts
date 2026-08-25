@@ -59,6 +59,11 @@ export interface DocumentoOferta {
   tamanoKb: number | null;
   urlContenedor: string;
   url: string;                 // '' si MP no expone link directo (postback)
+  // Página de la grilla de anexos donde vive el archivo (1 = la que se ve al entrar).
+  // NO es decorativo: el nombre del ImageButton (`DWNL$grdId$ctl03$search`) se REINICIA en cada
+  // página, así que sin este número la descarga de un archivo de la página 2 traería el tercer
+  // archivo de la página 1. Ver descargarAnexoPorPostback().
+  pagina: number;
 }
 
 export interface LecturaApertura {
@@ -68,6 +73,9 @@ export interface LecturaApertura {
   paginas: number;
   cookies: string;
   referer: string;
+  // true = la lectura se cortó por tope/presupuesto y QUEDÓ INCOMPLETA. El llamador no debe
+  // marcarla como "leída": una apertura a medias que se da por cerrada nunca se completa sola.
+  truncada: boolean;
 }
 
 // ── Normalizadores ───────────────────────────────────────────────────────────
@@ -170,8 +178,11 @@ function categoriaDeControl(sufijo: string, title: string): CategoriaAnexo {
 
 // ── Navegación ───────────────────────────────────────────────────────────────
 
-const MAX_PAGINAS_ANEXO = 60;
-const PRESUPUESTO_MS    = 150_000;
+// Tope de páginas de anexo A RECORRER (contando las páginas 2, 3… de cada grilla). Con 13
+// oferentes × 3 categorías × hasta 3 páginas cada una se llega a ~120: 60 dejaba la mitad afuera.
+const MAX_PAGINAS_ANEXO = 160;
+const PRESUPUESTO_MS    = 210_000;   // el llamador corta a 260 s y el cron a 300
+const MAX_PAGINAS_GRILLA = 30;       // freno duro por grilla: un pager corrupto no debe dar vueltas
 
 async function traer(url: string, cookies: string, referer: string): Promise<{ html: string; cookies: string }> {
   const res = await fetchMPConReintentos(url, {
@@ -189,6 +200,78 @@ async function traer(url: string, cookies: string, referer: string): Promise<{ h
   const nuevas = combinarCookies(cookies, extraerCookies(res));
   if (!res.ok) return { html: '', cookies: nuevas };
   return { html: await res.text(), cookies: nuevas };
+}
+
+/** Los hidden del formulario (__VIEWSTATE, __EVENTVALIDATION, WucPagerGrid$hid*, …). */
+function hiddenDelFormulario(html: string): URLSearchParams {
+  const cuerpo = new URLSearchParams();
+  for (const m of html.matchAll(/<input[^>]*type="hidden"[^>]*>/gi)) {
+    const name = m[0].match(/name="([^"]+)"/i)?.[1];
+    if (!name) continue;
+    cuerpo.set(name, desescapar(m[0].match(/value="([^"]*)"/i)?.[1] ?? ''));
+  }
+  return cuerpo;
+}
+
+/**
+ * Ejecuta un __doPostBack de NAVEGACIÓN (cambio de página de una grilla) y devuelve el HTML
+ * resultante. Es un POST del formulario completo con el __VIEWSTATE de la página que se tiene
+ * en la mano: ASP.NET no acepta un viewstate de otra página, por eso se encadena
+ * (pág 1 → pág 2 → pág 3) en vez de pedir cada página contra el HTML original.
+ */
+async function postearNavegacion(
+  url: string, html: string, cookies: string, referer: string, target: string, argumento: string,
+): Promise<{ html: string; cookies: string }> {
+  const accion = html.match(/<form[^>]+action=["']([^"']+)["']/i)?.[1] || url;
+  const cuerpo = hiddenDelFormulario(html);
+  cuerpo.set('__EVENTTARGET', target);
+  cuerpo.set('__EVENTARGUMENT', argumento);
+  try {
+    const res = await fetchMPConReintentos(new URL(desescapar(accion), url).href, {
+      method: 'POST',
+      headers: {
+        'User-Agent': MP_UA,
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'es-CL,es;q=0.9',
+        'Referer': referer,
+        ...(cookies ? { Cookie: cookies } : {}),
+      },
+      body: cuerpo.toString(),
+      redirect: 'follow',
+      signal: AbortSignal.timeout(45_000),
+    });
+    const nuevas = combinarCookies(cookies, extraerCookies(res));
+    if (!res.ok) return { html: '', cookies: nuevas };
+    return { html: await res.text(), cookies: nuevas };
+  } catch {
+    return { html: '', cookies };
+  }
+}
+
+/**
+ * Números de página de la grilla de anexos (GridView estándar):
+ *     <a href="javascript:__doPostBack('DWNL$grdId','Page$2')">2</a>
+ * Devuelve solo las páginas DISTINTAS de la actual, ordenadas.
+ */
+function paginasDeAnexo(html: string): number[] {
+  const n = new Set<number>();
+  for (const m of html.matchAll(/Page\$(\d+)/g)) n.add(Number(m[1]));
+  return [...n].filter(p => p > 1 && p <= MAX_PAGINAS_GRILLA).sort((a, b) => a - b);
+}
+
+/**
+ * Números de página del Resumen de ofertas. Su pager NO es el del GridView: es un control propio
+ * de MP que llama a fnMovePage(N,"WucPagerGrid") y postea contra WucPagerGrid$btn_GoToPage.
+ *
+ * Verificado en vivo (25-ago-2026): con 13 oferentes, SupplySummary muestra 10 y deja el resto en
+ * la página 2. Leer solo la primera página era la razón por la que TODAS las licitaciones grandes
+ * quedaban con exactamente 10 competidores guardados.
+ */
+function paginasDeOferentes(html: string): number[] {
+  const n = new Set<number>();
+  for (const m of html.matchAll(/fnMovePage\(\s*(\d+)\s*,\s*(?:&quot;|["'])WucPagerGrid/gi)) n.add(Number(m[1]));
+  return [...n].filter(p => p > 1 && p <= MAX_PAGINAS_GRILLA).sort((a, b) => a - b);
 }
 
 /**
@@ -278,10 +361,16 @@ export async function leerOfertasApertura(codigo: string): Promise<LecturaApertu
   const ofertas: OfertaLeida[] = [];
   const pendientesAnexo: { rut: string; categoria: CategoriaAnexo; url: string }[] = [];
   let sinRut = 0;
+  const rutsVistos = new Set<string>();
 
-  for (const { segmento } of segmentosPorOferente(resumen.html)) {
+  const parsearResumen = (html: string) => {
+  for (const { segmento } of segmentosPorOferente(html)) {
     const rut = normalizarRut(valorControl(segmento, '_GvLblRutProvider'));
     if (!rut) { sinRut++; continue; }
+    // La misma tabla puede volver a parsearse (página 2 que repite un oferente por un pager
+    // inestable): sin este freno se duplicarían sus anexos y el conteo de competidores.
+    if (rutsVistos.has(rut)) continue;
+    rutsVistos.add(rut);
 
     const nombre = valorControl(segmento, '_GvLblProvider') || rut;
     const total  = valorControl(segmento, 'TotalOferta');
