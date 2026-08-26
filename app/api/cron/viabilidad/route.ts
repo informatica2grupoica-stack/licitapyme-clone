@@ -57,12 +57,9 @@ const GATE_PREFILTRO =
  * postular, pero igual sirven para el histórico).
  * Si prefiltro_licitacion no existe (migración 21 pendiente) → fallback sin gate.
  *
- * OJO CON EL CHARSET: `documentos_cache.licitacion_codigo` es utf8/utf8_unicode_ci mientras que
- * el resto de las tablas es utf8mb4. Hay que convertir el lado utf8mb4 HACIA ABAJO
- * (`CONVERT(... USING utf8)`), no al revés: así la comparación puede usar el índice de
- * documentos_cache. Medido contra la base real: convertir hacia abajo 158 ms · dejar que MySQL
- * coercione o convertir hacia arriba ~1.900 ms (fuerza scan completo). Misma respuesta, 10× más
- * lento.
+ * (26-ago-2026: ya NO hace falta convertir el charset acá. `documentos_cache.licitacion_codigo`
+ * estuvo en utf8/utf8_unicode_ci mientras el resto era utf8mb4 — la migración-78 unificó toda la
+ * base a utf8mb4_general_ci, así que la comparación directa ya usa el índice sin coerción.)
  */
 // Corta el reintento infinito: una licitación que falla siempre (documentos ilegibles, PDF
 // corrupto, modelo que no logra el JSON) volvería a salir en TODAS las pasadas y el cron la
@@ -86,7 +83,7 @@ async function pendientes(limit?: number, incluirVencidas = false): Promise<stri
        FROM alertas_licitaciones al
       WHERE EXISTS (
               SELECT 1 FROM documentos_cache dc
-               WHERE dc.licitacion_codigo = CONVERT(al.licitacion_codigo USING utf8) COLLATE utf8_unicode_ci)
+               WHERE dc.licitacion_codigo = al.licitacion_codigo)
         AND NOT EXISTS (
               SELECT 1 FROM viabilidad_licitacion v
                WHERE v.licitacion_codigo = al.licitacion_codigo)

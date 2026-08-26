@@ -548,3 +548,55 @@ test('el gate del parser exige solape con el listado del modelo', async () => {
   assert.ok(iCalc !== -1 && iUso !== -1 && iCalc < iUso,
     'planillaReconoceAlLLM debe calcularse antes del gate y estar en la condición que reemplaza el manifiesto');
 });
+
+// ─── TRAZA DE FUENTES: SE ESCRIBE SIEMPRE, NO SOLO CUANDO HAY PLANILLA ────────────────────
+// (26-ago-2026, auditoría técnica.) Antes era `_fuentes_manifiesto: planilla ? {...} : null` —
+// como el 70% de las licitaciones no tiene una planilla parseable, la traza cubría el 3% de los
+// informes reales (16 de 515 medidos). V-15, la regla que debía escalar a revisión humana cuando
+// las fuentes se contradicen, casi nunca tenía con qué opinar: no es que fallara, es que la
+// mayoría de las veces no había dato para juzgar.
+test('_fuentes_manifiesto se escribe SIEMPRE, no condicionado a que exista planilla', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const src = readFileSync(fileURLToPath(new URL('../viabilidad-ia.ts', import.meta.url)), 'utf8');
+  assert.doesNotMatch(src, /_fuentes_manifiesto:\s*planilla\s*\?/,
+    'la traza volvió a condicionarse a "hay planilla" — eso es la regresión exacta que dejaba el 70% de los informes sin traza');
+  assert.match(src, /_fuentes_manifiesto:\s*\{[\s\S]{0,40}origen:\s*origenManifiesto/,
+    'la traza debe ser siempre un objeto con `origen`, no un null condicional');
+});
+
+// El origen se declara en las 4 fuentes reales que puede tener el manifiesto final: el modelo
+// (por defecto), la tabla canónica de bases técnicas, la planilla, y la extracción dedicada de
+// secciones "LÍNEA DE PRODUCTO". Si se agrega una fuente nueva sin marcar el origen, la traza
+// vuelve a mentir sobre de dónde salió el dato.
+test('las 4 fuentes reales del manifiesto marcan su origen', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const src = readFileSync(fileURLToPath(new URL('../viabilidad-ia.ts', import.meta.url)), 'utf8');
+  assert.match(src, /origenManifiesto:\s*'modelo'\s*\|\s*'tabla_canonica'\s*\|\s*'planilla'\s*\|\s*'extraccion_lineas_producto'/,
+    'falta declarar el tipo con las 4 fuentes reales');
+  assert.match(src, /manifiesto = canonica\.map[\s\S]{0,300}origenManifiesto = 'tabla_canonica'/,
+    'la tabla canónica reemplaza el manifiesto pero no marca su origen');
+  assert.match(src, /origenManifiesto = 'planilla'/, 'la planilla no marca su origen al ganar');
+  assert.match(src, /manifiesto = extra;\s*\n\s*origenManifiesto = 'extraccion_lineas_producto'/,
+    'la extracción dedicada de líneas no marca su origen');
+});
+
+// EL BUG QUE ESTO DESTAPÓ: `planilla` (la variable) queda con el resultado del PARSEO exista o
+// no gane — los gates (sana/degradaLineas/reconoceAlLLM/largo) pueden rechazarla y el manifiesto
+// final seguir siendo el del modelo. La traza vieja decía `elegida: planilla.fuenteDoc` con solo
+// mirar "¿se parseó algo?", así que en una planilla RECHAZADA la traza mentía diciendo que había
+// ganado. `planillaGanaManifiesto` es la condición real (la misma que decide si se reemplaza el
+// manifiesto) y debe ser lo que gobierna qué queda como `elegida`.
+test('la traza no confunde "se parseó una planilla" con "la planilla ganó" (bug real corregido)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const src = readFileSync(fileURLToPath(new URL('../viabilidad-ia.ts', import.meta.url)), 'utf8');
+  assert.match(src, /const planillaGanaManifiesto = !!\(planilla && planillaSana/,
+    'falta nombrar la condición completa — sin esto la traza no puede distinguir "se leyó" de "ganó"');
+  assert.match(src, /elegida:\s*origenManifiesto === 'planilla' \? planilla!\.fuenteDoc/,
+    '`elegida` debe depender de origenManifiesto (si la planilla REALMENTE ganó), no de que `planilla` exista');
+  // Y cuando se leyó pero NO ganó, el motivo del rechazo queda trazado — no silencioso.
+  assert.match(src, /planillaRechazada:\s*\(planilla && !planillaGanaManifiesto\)/,
+    'falta registrar por qué se rechazó una planilla que sí se pudo leer');
+});

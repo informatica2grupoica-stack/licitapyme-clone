@@ -160,12 +160,11 @@ export async function refrescarAperturas(
 export async function contarPendientesApertura(): Promise<number> {
   try {
     const [rows] = await pool.query(
-      // COLLATE obligatorio: negocios.licitacion_codigo es general_ci y licitacion_apertura
-      // unicode_ci. Sin él, MySQL lanza "Illegal mix of collations", el catch de abajo lo
-      // convertía en 0 y el cron creía que no había NADA pendiente → nunca detectó una apertura.
+      // (26-ago-2026: ya no hace falta el COLLATE — migración-78 unificó negocios y
+      // licitacion_apertura a utf8mb4_general_ci.)
       `SELECT COUNT(DISTINCT n.licitacion_codigo) AS n
        FROM negocios n
-       LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo COLLATE utf8mb4_unicode_ci
+       LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN (${IN_POSTULADA})
          AND n.licitacion_cierre IS NOT NULL
@@ -191,11 +190,9 @@ export async function detectarAperturas(lote = 40): Promise<{
   let codigos: string[] = [];
   try {
     const [rows] = await pool.query(
-      // COLLATE: ver la nota de contarPendientesApertura. Sin él la lista salía vacía y el
-      // cron no verificaba ninguna.
       `SELECT DISTINCT n.licitacion_codigo AS codigo, MAX(n.licitacion_cierre) AS cierre
        FROM negocios n
-       LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo COLLATE utf8mb4_unicode_ci
+       LEFT JOIN licitacion_apertura la ON la.licitacion_codigo = n.licitacion_codigo
        WHERE n.activo = TRUE
          AND n.estado_pipeline IN (${IN_POSTULADA})
          AND n.licitacion_cierre IS NOT NULL

@@ -27,6 +27,7 @@ import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUni
 // pueda usarlo sin crear una importación circular — ver el comentario de la función).
 export { esFilaNoProducto };
 import { planillaReconoceElListado } from '@/app/lib/fila-no-producto';
+import { evaluarCoberturaLectura, resumirCobertura, esFormatoLegible, esDocumentoCritico } from '@/app/lib/lectura-documentos';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { cargarReglasLectura, bloqueReglasLectura, cargarReglasAprendidas, bloqueReglasAprendidas, cargarReglasLecturaConFirma, bloqueReglasLecturaSimilares, calcularFirmaDocumentos, firmasSimilares } from '@/app/lib/viabilidad-feedback';
 import { validarInformeViabilidad, autocorregirHallazgos, escalarARevisionHumana } from '@/app/lib/validador-viabilidad';
@@ -270,18 +271,64 @@ async function cargarDocumentos(codigo: string): Promise<DocLeido[]> {
       console.log(texto.length >= 50
         ? `[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" leído en ${segs}s → ${texto.length} chars (método=${metodo}).`
         : `[viabilidad-ia] ${codigo}: [${pos}/${docs.length}] "${d.documento_nombre}" NO se pudo leer (${segs}s, método=${metodo}) — queda sin texto.`);
-      // Persistir el texto leído para no volver a hacer OCR la próxima vez (best-effort).
+      // Persistir SIEMPRE el resultado de la lectura — el éxito con su texto, y el FALLO con su
+      // método. (26-ago-2026.) Antes esto solo se guardaba cuando había ≥50 chars: un documento
+      // que no se pudo leer quedaba con metodo_extraccion=NULL, indistinguible de uno que nunca
+      // se intentó. Así se acumularon 1.889 fallos invisibles en 375 licitaciones que igual
+      // entregaron informe. Dejar escrito "se intentó y salió pdf-sin-texto" es lo que permite
+      // detectarlo, contarlo y avisar en vez de seguir de largo.
       if (texto.length >= 50) {
         pool.query(
           `UPDATE documentos_cache SET texto_extraido = ?, metodo_extraccion = ?, texto_extraido_at = NOW()
            WHERE licitacion_codigo = ? AND documento_nombre = ?`,
           [texto, metodo, codigo, d.documento_nombre],
         ).catch(() => { /* columna puede no existir aún */ });
+      } else {
+        pool.query(
+          `UPDATE documentos_cache SET metodo_extraccion = ?, texto_extraido_at = NOW()
+           WHERE licitacion_codigo = ? AND documento_nombre = ?`,
+          [metodo || 'error', codigo, d.documento_nombre],
+        ).catch(() => { /* best-effort: el aviso al usuario no depende de esto */ });
       }
       return { nombre: d.documento_nombre, categoria: d.categoria, texto, metodo, ok: texto.length >= 50 } as DocLeido;
     }));
     out.push(...res);
   }
+  // ─── SEGUNDA PASADA sobre los CRÍTICOS que no se pudieron leer ───────────────────────────
+  // (26-ago-2026.) Un documento crítico sin texto invalida el informe entero, así que antes de
+  // gastar una llamada de IA se reintenta acá mismo — dentro del análisis, no en un re-análisis
+  // posterior, que costaría IA de nuevo. El reintento fuerza el OCR: la primera pasada puede
+  // haberlo salteado por `noRequiereOCR` (que decide por el NOMBRE del archivo y se equivoca
+  // cuando unas bases vienen escaneadas con un nombre que parece de plano).
+  // Leer es barato comparado con analizar: Word y Excel salen en décimas de segundo y sin gastar
+  // cuota. Al medir los 1.889 fallos históricos, 9 de cada 10 se leyeron a la primera al
+  // reintentarlos — eran recuperables y nadie los volvió a mirar.
+  const aReintentar = out.filter(d => !d.ok && esFormatoLegible(d.nombre) && esDocumentoCritico(d.categoria, d.nombre));
+  if (aReintentar.length) {
+    console.warn(`[viabilidad-ia] ${codigo}: ${aReintentar.length} documento(s) CRÍTICOS sin texto — segunda pasada forzando OCR…`);
+    const porNombre = new Map(docs.map(d => [d.documento_nombre, d.documento_url_local]));
+    for (const doc of aReintentar) {
+      const url = porNombre.get(doc.nombre);
+      if (!url) continue;
+      const t0 = Date.now();
+      const r = await descargarYExtraerTexto(url, doc.nombre, {}).catch(() => null);
+      const texto = (r?.texto || '').replace(/\s+\n/g, '\n').trim();
+      const segs = ((Date.now() - t0) / 1000).toFixed(1);
+      if (texto.length >= 50) {
+        doc.texto = texto; doc.metodo = r?.metodo || 'reintento'; doc.ok = true;
+        console.log(`[viabilidad-ia] ${codigo}: ✔ recuperado en 2ª pasada "${doc.nombre}" → ${texto.length} chars (${doc.metodo}, ${segs}s).`);
+        pool.query(
+          `UPDATE documentos_cache SET texto_extraido = ?, metodo_extraccion = ?, texto_extraido_at = NOW()
+           WHERE licitacion_codigo = ? AND documento_nombre = ?`,
+          [texto, doc.metodo, codigo, doc.nombre],
+        ).catch(() => { /* best-effort */ });
+      } else {
+        doc.metodo = r?.metodo || 'error';
+        console.error(`[viabilidad-ia] ${codigo}: ✘ "${doc.nombre}" NO se pudo leer ni en 2ª pasada (${doc.metodo}, ${segs}s) — el informe quedará marcado como incompleto.`);
+      }
+    }
+  }
+
   if (VIAB_DEBUG) {
     console.log(`[viab-dbg] ${codigo}: ${out.length} documento(s) en documentos_cache:`);
     for (const d of out) {
@@ -1787,6 +1834,20 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   const docs = await cargarDocumentos(codigo);
   const leidos = docs.filter(d => d.ok);
   if (leidos.length === 0) return null;
+
+  // ─── PORTERO DE LECTURA ──────────────────────────────────────────────────────────────────
+  // (26-ago-2026.) Se mide la cobertura ANTES de gastar la primera llamada de IA. Analizar un
+  // expediente incompleto cuesta exactamente lo mismo que analizarlo completo, y el informe que
+  // sale de ahí no sirve: si faltaron las bases, el veredicto es una adivinanza con formato de
+  // certeza. La cobertura viaja al informe SIEMPRE (esté completa o no) para que el validador la
+  // pueda mirar y el usuario la pueda ver.
+  const cobertura = evaluarCoberturaLectura(docs.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
+  console.log(`[viabilidad-ia] ${codigo}: lectura — ${resumirCobertura(cobertura)}`);
+  if (!cobertura.completa) {
+    console.error(`[viabilidad-ia] ${codigo}: ⚠ EXPEDIENTE INCOMPLETO — el informe se marcará para revisión humana. `
+      + `Sin leer: ${cobertura.criticosFaltantes.join(', ')}`);
+  }
+
   const ctx = await cargarContexto(codigo);
 
   // FUENTES OFICIALES para las señales deterministas: NUNCA nuestros propios archivos. El Excel
@@ -2136,6 +2197,14 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     cantidad: _num(it.cantidad), unidad_medida: _str(it.unidad_medida), unidad_inferida: _bool(it.unidad_inferida),
     presupuesto_linea: _num(it.presupuesto_linea), tipo: _str(it.clasificacion || it.tipo) || 'generico', ruta: _str(it.ruta),
   }));
+  // ORIGEN del manifiesto — de dónde salió la versión FINAL, no solo si se intentó una fuente.
+  // (26-ago-2026.) Nace en 'modelo' (lo que trajo el LLM) y cambia en el ÚNICO lugar donde
+  // `manifiesto` se REEMPLAZA por otra fuente completa (no los que solo filtran/completan el que
+  // ya había). Viaja siempre en `_fuentes_manifiesto`, exista o no una planilla: antes esa traza
+  // solo se escribía cuando había planilla, y como el 70% de las licitaciones no la tiene, la
+  // traza cubría el 3% de los informes — la red de seguridad (V-15) que debía avisar cuando las
+  // fuentes se contradicen casi nunca tenía con qué avisar.
+  let origenManifiesto: 'modelo' | 'tabla_canonica' | 'planilla' | 'extraccion_lineas_producto' = 'modelo';
   // Filtro determinista de filas de la tabla de CRITERIOS coladas como productos — ver
   // esFilaDeCriterioNoProducto arriba (caso real 2345-128-LP26: 20 de 30 "productos" eran
   // ponderaciones/tramos/rankings/declaraciones juradas). Va ANTES del gate de la planilla a
@@ -2178,6 +2247,7 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
           cantidad: c.cantidad, unidad_medida: '', unidad_inferida: true,
           presupuesto_linea: null, tipo: 'generico', ruta: '',
         }));
+        origenManifiesto = 'tabla_canonica';
       } else if (canonica.length !== manifiesto.length) {
         console.log(`[viabilidad-ia-v3] ${codigo}: tabla canónica de bases = ${canonica.length} ítems vs manifiesto = ${manifiesto.length} (cobertura ${Math.round(cobertura * 100)}%) — se conserva el manifiesto (puede tener desglose que la tabla resume).`);
       }
@@ -2215,15 +2285,21 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
       + `está leyendo otra cosa (prosa de las bases, un anexo administrativo o una tabla que no es el listado a cotizar).`);
   }
   const planillaReconoceAlLLM = solape.reconoce;
-  if (planilla && planillaSana && !planillaDegradaLineas && planillaReconoceAlLLM
-      && planilla.items.length >= manifiesto.length && planilla.items.length >= 8) {
-    manifiesto = planilla.items.map(it => ({
+  // Se nombra la condición completa (antes vivía solo dentro del if) porque la traza de fuentes
+  // la necesita DESPUÉS para saber si la planilla realmente ganó: `planilla` queda con el
+  // resultado del parseo exista o no gane, así que `_fuentes_manifiesto.elegida` no puede
+  // asumir "hubo planilla ⇒ ganó la planilla" — antes de este fix decía exactamente eso.
+  const planillaGanaManifiesto = !!(planilla && planillaSana && !planillaDegradaLineas && planillaReconoceAlLLM
+      && planilla.items.length >= manifiesto.length && planilla.items.length >= 8);
+  if (planillaGanaManifiesto) {
+    manifiesto = planilla!.items.map(it => ({
       linea: it.linea || 1, categoria: it.categoria, descripcion: it.descripcion, modelo: '',
       cantidad: it.cantidad, unidad_medida: it.unidad, unidad_inferida: !it.unidad,
       presupuesto_linea: null, tipo: 'generico', ruta: '',
     }));
-    if (planilla.estructura === 'por_categoria') estructuraCosteo = 'por_categoria';
-    console.log(`[viabilidad-ia-v3] ${codigo}: manifiesto desde planilla "${planilla.fuenteDoc}" — ${planilla.items.length} ítems (${planilla.estructura}).`);
+    origenManifiesto = 'planilla';
+    if (planilla!.estructura === 'por_categoria') estructuraCosteo = 'por_categoria';
+    console.log(`[viabilidad-ia-v3] ${codigo}: manifiesto desde planilla "${planilla!.fuenteDoc}" — ${planilla!.items.length} ítems (${planilla!.estructura}).`);
   }
 
   // EXTRACCIÓN DEDICADA para bases técnicas "LÍNEA DE PRODUCTO N°X": el parser tabular no puede
@@ -2239,6 +2315,7 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
         if (extra.length > manifiesto.length && extra.length >= secciones.length * 2) {
           console.log(`[viabilidad-ia-v3] ${codigo}: extracción dedicada "LÍNEA DE PRODUCTO" → ${extra.length} ítems (antes ${manifiesto.length}), ${secciones.length} líneas.`);
           manifiesto = extra;
+          origenManifiesto = 'extraccion_lineas_producto';
         }
       }
     } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: extracción dedicada falló:`, String(e).slice(0, 140)); }
@@ -2478,18 +2555,40 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     // limpiado (V-16 saca las filas que no son productos), y esa corrección se perdería si acá se
     // reasignara el array original.
     manifiesto_productos: p3.manifiesto_productos,
-    // TRAZA DE FUENTES del listado de productos: de qué documento salió, qué otros documentos se
-    // leyeron y en qué NO coinciden. Que quede escrito de dónde viene cada dato es lo que impide
-    // "inventar": si las fuentes se contradicen, V-15 lo levanta en vez de elegir una en silencio.
-    _fuentes_manifiesto: planilla ? {
-      elegida: planilla.fuenteDoc,
-      candidatos: planilla.candidatos ?? [],
-      discrepancias: planilla.discrepancias ?? [],
-    } : null,
+    // TRAZA DE FUENTES del listado de productos — SE ESCRIBE SIEMPRE, no solo cuando hay planilla.
+    // (26-ago-2026: antes era `planilla ? {...} : null`, y como el 70% de las licitaciones no
+    // tiene planilla parseable, la traza cubría el 3% de los informes reales — V-15, la regla que
+    // debía escalar a revisión humana cuando las fuentes se contradicen, casi nunca tenía con qué
+    // opinar.) `origen` dice de qué salió la versión FINAL del manifiesto (modelo/tabla_canonica/
+    // planilla/extraccion_lineas_producto); `planillaConsiderada` queda aparte porque una planilla
+    // puede haberse LEÍDO sin haber GANADO — antes esto se confundía y la traza podía decir
+    // "elegida: X" con X en realidad rechazado.
+    _fuentes_manifiesto: {
+      origen: origenManifiesto,
+      elegida: origenManifiesto === 'planilla' ? planilla!.fuenteDoc
+        : origenManifiesto === 'tabla_canonica' ? 'tabla canónica de las bases técnicas'
+        : origenManifiesto === 'extraccion_lineas_producto' ? 'extracción dedicada de secciones "LÍNEA DE PRODUCTO"'
+        : 'listado directo del modelo (sin planilla que lo reemplazara)',
+      candidatos: planilla?.candidatos ?? [],
+      discrepancias: planilla?.discrepancias ?? [],
+      // Se leyó una planilla pero NO ganó: por qué, para que quede trazado en vez de silencioso.
+      planillaRechazada: (planilla && !planillaGanaManifiesto) ? {
+        fuenteDoc: planilla.fuenteDoc,
+        items: planilla.items.length,
+        motivo: !planillaSana ? 'trae filas que no son productos (rótulos, criterios, prosa)'
+          : planillaDegradaLineas ? 'perdería las líneas del costeo por línea'
+          : !planillaReconoceAlLLM ? `no reconoce el listado del modelo (solape ${Math.round(solape.solape * 100)}%, mínimo ${Math.round(solape.minimo * 100)}%)`
+          : `trae menos ítems (${planilla.items.length}) que el modelo (${manifiesto.length})`,
+      } : null,
+    },
     modalidad: { tipo: tipoCosteo },
     estructura_costeo: estructuraCosteo,
     documentos_leidos: leidos.map(d => d.nombre),
     documentos_no_leidos: docs.filter(d => !d.ok).map(d => `${d.nombre} (${d.metodo})`),
+    // COBERTURA DE LECTURA — se escribe SIEMPRE, completa o no. Es lo que permite al validador
+    // (V-16) mandar a revisión humana un informe hecho sin las bases, y al usuario ver en pantalla
+    // sobre qué se analizó. Que la lectura salió completa es un dato tan valioso como el aviso.
+    _cobertura_lectura: cobertura,
     docs_hash: await calcularDocsHash(codigo),
   };
 }

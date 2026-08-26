@@ -52,7 +52,7 @@ const RE_ROTULO_CON_DOSPUNTOS = /:\s*$/;
 // recuadro de datos del oferente). Lista cerrada de datos de la EMPRESA/PERSONA que firma —
 // ninguno puede ser jamás un bien o servicio a cotizar.
 const RE_ROTULO_IDENTIFICACION =
-  /^(nombre(\s+(completo|del\s+(oferente|proponente|representante)))?|raz[óo]n\s+social|nombre\s*\/\s*raz[óo]n\s+social|rut|r\.u\.t\.?|c[ée]dula(\s+de\s+identidad)?|giro(\s+comercial)?|domicilio|direcci[óo]n|comuna|ciudad|regi[óo]n|tel[ée]fono|fono|celular|e\s*-?\s*mail|correo(\s+electr[óo]nico)?|firma(\s+y\s+timbre)?|timbre|fecha(\s+declaraci[óo]n)?|lugar\s+y\s+fecha|cargo|profesi[óo]n|nacionalidad|representante\s+legal)\s*$/i;
+  /^(nombre(\s+(completo|del\s+(oferente|proponente|representante)))?|raz[óo]n\s+social|nombre\s*(\/|o)\s*raz[óo]n\s+social|rut|r\.u\.t\.?|c[ée]dula(\s+de\s+identidad)?|giro(\s+comercial)?|domicilio|direcci[óo]n|comuna|ciudad|regi[óo]n|tel[ée]fono|fono|celular|e\s*-?\s*mail|correo(\s+electr[óo]nico)?|firma(\s+y\s+timbre)?|timbre|fecha(\s+declaraci[óo]n)?|lugar\s+y\s+fecha|cargo|profesi[óo]n|nacionalidad|representante\s+legal)\s*$/i;
 // Tramos de un criterio expresados en PORCENTAJE — la otra mitad de las filas basura del caso
 // 2981-225-LE26. RE_TRAMO_PUNTAJE solo cubría tramos numéricos secos ("Entre 10 y 14").
 const RE_TRAMO_PORCENTAJE =

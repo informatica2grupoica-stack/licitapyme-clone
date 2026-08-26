@@ -559,3 +559,78 @@ test('extraerPresupuestoPorLineaTabla: sin la frase-ancla "monto disponible/máx
   const docs = [{ texto: 'El monto del contrato N°1 es $500.000 y el del contrato N°2 es $600.000, ambos referenciales.' }];
   assert.equal(extraerPresupuestoPorLineaTabla(docs), null);
 });
+
+// ── TABLAS DE WORD: separadas por TABULACIONES ───────────────────────────────────────────
+// (25-ago-2026, caso real 2328-41-LE26.) celdasDe solo entendía pipes y CSV con comas, así que
+// el parser era CIEGO a todo cuadro económico en .doc/.docx — justo donde vive el listado
+// canónico (el formulario que el oferente llena para cotizar). En esa licitación el
+// "Formulario_oferta_económica" traía las 18 herramientas con cantidad y unidad y no se leyó
+// ninguna; ganó por volumen un xlsx de útiles escolares que ni correspondía a esa licitación.
+const docWord = (texto: string) =>
+  [{ nombre: 'Formulario_oferta_económica_E-44.doc', categoria: 'ANEXOS_OFERENTE', texto, metodo: 'word-doc' }];
+
+test('tabla de Word tabulada: se lee el cuadro económico con cantidad y unidad (regresión 2328-41-LE26)', () => {
+  const r = parsearPlanillaCosteo(docWord(
+    'FORMULARIO Nº 2\n\n'
+    + 'Cantidad\tEspecificaciones del producto o servicio solicitado\tUnidad\tCosto Unitario neto\n'
+    + '1\tEXTRACTOR DE SOLDADURA Herramienta para la extraccion de soldadura\tUnidad\t \n'
+    + '2\tINTERRUPTOR TERMOMAGNETICO Proteccion contra sobrecargas termicas\tUnidad\t \n'
+    + '1\tSET DE LLAVES TORX Conjunto de llaves Torx cortas con organizador\tSet\t \n'
+    + '3\tTEMPORIZADOR Equipo de control y conmutacion temporizada\tUnidad\t \n'
+    + '1\tESTACION NEUMATICA Estacion de compresor silencioso con mesa\tUnidad\t \n'
+    + '1\tFUENTE DE PODER regulable para laboratorio de electronica\tUnidad\t \n'
+    + '1\tGENERADOR DE FUNCIONES para simulacion de circuitos\tUnidad\t \n'
+    + '1\tKIT FOTOVOLTAICO PANEL con estructura y controlador\tUnidad\t \n'
+    + '1\tENTRENADOR ANALOGO DIGITAL para simulacion de circuitos\tUnidad\t \n'));
+  assert.ok(r, 'el parser no leyó una tabla de Word separada por tabulaciones');
+  assert.equal(r!.items.length, 9);
+  assert.match(r!.items[0].descripcion, /EXTRACTOR DE SOLDADURA/);
+  assert.equal(r!.items[1].cantidad, 2, 'no tomó la cantidad de la columna tabulada');
+  assert.equal(r!.items[2].unidad, 'Set', 'no tomó la unidad de la columna tabulada');
+});
+
+// El reverso: un anexo administrativo en Word está lleno de líneas tabuladas que son un
+// FORMULARIO EN BLANCO. Una plantilla vacía no puede convertirse en un listado de productos.
+test('formulario en blanco tabulado NO se lee como planilla (rótulos sin contenido)', () => {
+  const r = parsearPlanillaCosteo([{ nombre: 'ANEXOS.doc', categoria: 'ANEXOS_OFERENTE', metodo: 'word-doc', texto:
+    'ANEXO N°1 IDENTIFICACIÓN DEL OFERENTE\n'
+    + 'NOMBRE OFERENTE\t\t\n' + 'RUT OFERENTE\t\t\n' + 'DIRECCIÓN\t\t\n'
+    + 'REPRESENTANTE LEGAL\t\t\n' + 'TELEFONO\t\t\n' + 'CORREO ELECTRÓNICO\t\t\n'
+    + ' \t \t \t \t \t \tNombre o Razón Social\t\n' + 'Rut\tDomicilio / Comuna\t\n' }]);
+  assert.ok(!r || r.items.length === 0,
+    `un formulario en blanco se leyó como planilla de ${r?.items.length} productos`);
+});
+
+// Checklist de antecedentes: tiene forma de tabla y hasta una columna numerada, pero sus filas
+// son DOCUMENTOS que el oferente debe adjuntar, no productos a cotizar (caso 2258-128-LR26).
+test('checklist de antecedentes NO entra al listado de productos (regresión 2258-128-LR26)', () => {
+  const r = parsearPlanillaCosteo([{ nombre: 'Anexos_word.doc', categoria: 'ANEXOS_OFERENTE', metodo: 'word-doc', texto:
+    'N°\tCRITERIO\tANTECEDENTE PARA PRESENTAR\tDOCUMENTO ADJUNTO (SÍ / NO)\tOBSERVACIONES\t\n'
+    + '1\tCertificación\tCertificados vigentes (ISP, ISO, GMP, FDA u otros aplicables)\t\t\t\n'
+    + '2\tIdentificación\tFicha técnica en español con imágenes claras y completas\t\t\t\n'
+    + '3\tRegistro sanitario\tResolución ISP del fabricante o distribuidor\t\t\t\n' }]);
+  const descs = (r?.items || []).map(i => i.descripcion).join(' | ');
+  assert.ok(!/Ficha t[eé]cnica|Resoluci[oó]n ISP|Certificados vigentes/i.test(descs),
+    `entraron antecedentes a adjuntar como si fueran productos: ${descs}`);
+});
+
+// Filas que el extractor de Word parte en dos líneas: descripción en una, cantidad sola en la
+// siguiente. Cada mitad es ilegible por separado y la fila se perdía entera (2791-24-LE26).
+test('fila partida en dos líneas se reúne y conserva su cantidad (regresión 2791-24-LE26)', () => {
+  const r = parsearPlanillaCosteo(docWord(
+    'N°\tDescripción\tCantidad\tPrecio\n'
+    + '1\tTUBO LED T8 18W 120CM - BLANCO FRÍO\t370\t\n'
+    + '2\tPERFIL RECTANGULAR 30X20X3MMx6mts\t20\t\n'
+    + '3\tFoco Panel Led 24w Redondo 30cm Sobrepuesto Luz Fria\t115\t\n'
+    + '4\tAlargador 6 Toma(s) 3 m Gris\t5\t\n'
+    + '5\tTuberia electrica metalica EMT 3 metros 20mm\t70\t\n'
+    + '6\tCinta Teflon Agua Jumbo 34 Taumm 50mts\t12\t\n'
+    + '7\tCaja Tornillo 6 x 2 CRS 100 unidades\t10\t\n'
+    + '8\tSALIDA DE CAJA PARA CONDUIT EMT 20MM\t20\t\n'
+    + '9\tTerciado Estructural Pino 18 mm 122x244 cm\n'
+    + '\t6\t\t\n'));
+  assert.ok(r, 'no se leyó la tabla');
+  const terciado = r!.items.find(i => /Terciado Estructural/i.test(i.descripcion));
+  assert.ok(terciado, `se perdió la fila partida en dos líneas: ${r!.items.map(i => i.descripcion).join(' | ')}`);
+  assert.equal(terciado!.cantidad, 6, 'la fila se reunió pero sin la cantidad de la línea siguiente');
+});

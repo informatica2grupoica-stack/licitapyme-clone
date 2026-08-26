@@ -361,7 +361,32 @@ function v16_manifiestoSoloProductos(inf: any, push: (h: HallazgoValidador) => v
   }
 }
 
-// Set completo de reglas V-01..V-16. Se agrega una nueva simplemente empujando una función más
+// ─── V-17: ¿se leyó el expediente completo? ───────────────────────────────────────────────
+// (26-ago-2026, auditoría.) La regla más básica y la que faltaba: un informe construido sin las
+// bases no es un informe. Se midieron 375 licitaciones cuyo análisis se hizo sobre un expediente
+// incompleto —240 sin sus bases administrativas— y que igual entregaron veredicto con la misma
+// cara de confianza que uno completo. Ninguna regla miraba eso porque el dato no se guardaba.
+//
+// Ahora `_cobertura_lectura` viaja siempre en el informe (ver lectura-documentos.ts) y esta regla
+// lo convierte en una decisión visible. Es ERROR, no aviso: no hay grado de confianza posible
+// sobre un documento que nadie leyó.
+function v17_expedienteCompleto(inf: any, push: (h: HallazgoValidador) => void): void {
+  const c = inf?._cobertura_lectura;
+  if (!c || typeof c !== 'object') return;           // informes viejos: sin dato, no se opina
+  const criticos: string[] = Array.isArray(c.criticosFaltantes) ? c.criticosFaltantes : [];
+  if (criticos.length === 0) return;
+  const pct = Math.round((Number(c.cobertura) || 0) * 100);
+  push({
+    regla: 'V-17',
+    severidad: 'error',
+    mensaje: `El análisis se hizo con el expediente INCOMPLETO: ${c.leidos}/${c.legibles} documentos legibles leídos (${pct}%). `
+      + `No se pudo leer ${criticos.length} documento(s) que deciden el resultado: ${criticos.slice(0, 4).join(', ')}`
+      + `${criticos.length > 4 ? ` y ${criticos.length - 4} más` : ''}. `
+      + `El veredicto no puede considerarse definitivo hasta leerlos.`,
+  });
+}
+
+// Set completo de reglas V-01..V-17. Se agrega una nueva simplemente empujando una función más
 // (misma firma) a este array — no requiere tocar el resto del pipeline.
 type ReglaFn = (inf: any, push: (h: HallazgoValidador) => void, score: number) => void;
 const REGLAS: ReglaFn[] = [
@@ -381,6 +406,7 @@ const REGLAS: ReglaFn[] = [
   v14_enumsBienFormados,
   v15_fuentesManifiestoConcuerdan,
   v16_manifiestoSoloProductos,
+  v17_expedienteCompleto,
 ];
 
 // Corre TODAS las reglas sobre un informe v3 ya ensamblado (post-overrides deterministas).
@@ -522,7 +548,7 @@ export function autocorregirHallazgos(inf: any, hallazgos: HallazgoValidador[], 
 // fila replicada por un error de extracción— no tiene arreglo automático posible: no hay dato bueno
 // que rescatar, hay que volver al documento. Y aun en el caso (a), que el manifiesto viniera
 // contaminado significa que el listado se leyó de un documento equivocado: vale que alguien mire.
-const REGLAS_A_REVISION_HUMANA = new Set(['V-01', 'V-03', 'V-08', 'V-10', 'V-11', 'V-15', 'V-16']);
+const REGLAS_A_REVISION_HUMANA = new Set(['V-01', 'V-03', 'V-08', 'V-10', 'V-11', 'V-15', 'V-16', 'V-17']);
 
 export function escalarARevisionHumana(inf: any, hallazgos: HallazgoValidador[]): string[] {
   const disparadas = hallazgos.filter(h => REGLAS_A_REVISION_HUMANA.has(h.regla));

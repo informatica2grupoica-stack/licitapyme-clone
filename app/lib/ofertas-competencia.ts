@@ -218,12 +218,12 @@ export async function leerYGuardarOfertas(codigo: string): Promise<ResultadoLect
 export async function contarPendientesOfertas(): Promise<number> {
   try {
     const [rows] = await pool.query(
-      // COLLATE obligatorio: negocios es general_ci y licitacion_apertura unicode_ci. Sin él,
-      // "Illegal mix of collations" → el catch devolvía 0 y el cron creía estar al día.
+      // (26-ago-2026: ya no hace falta el COLLATE — migración-78 unificó negocios y
+      // licitacion_apertura a utf8mb4_general_ci.)
       `SELECT COUNT(DISTINCT la.licitacion_codigo) AS n
          FROM licitacion_apertura la
          JOIN negocios n
-           ON n.licitacion_codigo COLLATE utf8mb4_unicode_ci = la.licitacion_codigo
+           ON n.licitacion_codigo = la.licitacion_codigo
           AND n.activo = TRUE AND n.estado_pipeline IN (${IN_POSTULADA})
         WHERE la.aperturada = 1
           AND la.ofertas_leidas_en IS NULL
@@ -249,7 +249,7 @@ export async function procesarOfertasPendientes(lote = 10): Promise<{
       `SELECT DISTINCT la.licitacion_codigo AS codigo, la.detectada_en
          FROM licitacion_apertura la
          JOIN negocios n
-           ON n.licitacion_codigo COLLATE utf8mb4_unicode_ci = la.licitacion_codigo
+           ON n.licitacion_codigo = la.licitacion_codigo
           AND n.activo = TRUE AND n.estado_pipeline IN (${IN_POSTULADA})
         WHERE la.aperturada = 1
           AND la.ofertas_leidas_en IS NULL

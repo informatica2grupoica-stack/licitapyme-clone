@@ -92,6 +92,26 @@ function celdasDe(line: string): string[] | null {
     return partes.length ? partes : null;
   }
   if ((line.match(/,/g) || []).length >= 3) return csvSplit(line);
+  // TABULACIONES: así queda una tabla de Word al extraerse a texto — una celda por tab. Sin esto
+  // el parser era CIEGO a todo cuadro económico en .doc/.docx, que es donde vive el listado
+  // canónico (el formulario que el oferente llena para cotizar). Caso real 2328-41-LE26: el
+  // "Formulario_oferta_económica_E-44-2026.doc" traía las 18 herramientas con su cantidad y
+  // unidad, y el parser no leyó ninguna; ganó por volumen un xlsx de útiles escolares que ni
+  // siquiera correspondía a esa licitación, y sus 35 filas sepultaron el listado real.
+  // Se exigen >=2 tabs (3 celdas) por el mismo criterio que las comas: un tab suelto es sangría
+  // o separación de un párrafo, no una tabla.
+  if ((line.match(/	/g) || []).length >= 2) {
+    const partes = line.split(/	/).map(limpiarCelda);
+    while (partes.length && partes[partes.length - 1] === '') partes.pop();
+    // Una fila de tabla REAL trae varias celdas con contenido (cantidad + descripción + unidad).
+    // Los anexos administrativos en Word están llenos de líneas tabuladas que son un formulario
+    // EN BLANCO —"NOMBRE OFERENTE		", "	 	 	 	 	 	Rut	"— y una plantilla vacía no
+    // puede convertirse en un listado de productos. Por eso se exigen 2 celdas con texto, no solo
+    // 3 posiciones: sin este piso, tres licitaciones pasaban de "sin planilla" a una planilla de
+    // rótulos ("NOMBRE o RAZÓN SOCIAL", "Ficha técnica en español") con cantidades leídas de otra
+    // columna.
+    if (partes.length >= 3 && partes.filter(c => c !== '').length >= 2) return partes;
+  }
   return null;
 }
 
@@ -127,6 +147,14 @@ function esHeaderEspecificaciones(celdas: string[]): boolean {
   if (/cumple/.test(n) && /si\s*\/?\s*no/.test(n)) return true;
   if (/caracteristicas?\s+tecnicas?/.test(n) && !/cantidad/.test(n)) return true;
   if (/criterios?\s+de\s+evaluacion/.test(n)) return true;
+  // CHECKLIST DE ANTECEDENTES: "N° | CRITERIO | ANTECEDENTE PARA PRESENTAR | DOCUMENTO ADJUNTO
+  // (SÍ/NO) | OBSERVACIONES". Sus filas son DOCUMENTOS que el oferente debe adjuntar (ficha
+  // técnica, resolución ISP, certificados), no productos a cotizar. Aparecen en los anexos en
+  // Word, que antes eran ilegibles y ahora sí se leen.
+  if (/documento\s+adjunto/.test(n) || /antecedentes?\s+para\s+presentar/.test(n)) return true;
+  // TABLA DE EXPERIENCIA del oferente: tiene una columna "Cantidad" que la hace pasar por planilla,
+  // pero sus filas son CONTRATOS ANTERIORES, no el listado a comprar.
+  if (/nombre\s+de\s+la\s+instituci[oó]n/.test(n) && /id\s+licitaci[oó]n|orden\s+de\s+compra/.test(n)) return true;
   return false;
 }
 
@@ -1270,8 +1298,31 @@ function parsearItemizadoPdf(doc: DocTexto): PlanillaParseResult | null {
   };
 }
 
+// Reúne las filas que el extractor de Word PARTIÓ en dos líneas: la descripción queda en una
+// ("133<tab>Terciado Estructural Pino 18 mm 122x244 cm") y la cantidad sola en la siguiente
+// ("<tab>6<tab><tab>"). Cada mitad por separado es ilegible —una no tiene cantidad, la otra no
+// tiene descripción— y la fila se pierde entera. Caso real 2791-24-LE26: 12 productos (paneles
+// LED, alargadores, sanitarios, tornillos) desaparecían de un listado de 133.
+// Solo actúa cuando la línea siguiente es EXCLUSIVAMENTE un número entre tabulaciones y la actual
+// no termina ya en su propia cantidad: cualquier otra cosa se deja intacta.
+const RE_SOLO_CANTIDAD = /^\t[\t ]*(\d{1,6}(?:[.,]\d{1,3})?)[\t ]*$/;
+const RE_YA_TERMINA_EN_CANTIDAD = /\t[\t ]*\d[\d.,]*[\t ]*$/;
+function reunirFilasPartidas(lineas: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < lineas.length; i++) {
+    const act = lineas[i];
+    const sig = lineas[i + 1];
+    if (sig !== undefined && act.includes('\t') && !RE_YA_TERMINA_EN_CANTIDAD.test(act)) {
+      const m = sig.match(RE_SOLO_CANTIDAD);
+      if (m) { out.push(`${act.replace(/\t+$/, '')}\t${m[1]}`); i++; continue; }
+    }
+    out.push(act);
+  }
+  return out;
+}
+
 function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
-  const lineas = doc.texto.split(/\r?\n/);
+  const lineas = reunirFilasPartidas(doc.texto.split(/\r?\n/));
   const items: ItemPlanilla[] = [];
   const lineasOrden: number[] = [];
   const catsOrden: string[] = [];

@@ -61,9 +61,11 @@ interface InformeIA {
   manifiesto_productos?: Producto[];
   // Traza de qué documentos aportaron listado de productos y en qué no coinciden (ver TrazaFuentes).
   _fuentes_manifiesto?: {
+    origen?: string;
     elegida?: string;
     candidatos?: { fuenteDoc: string; autoridad: number; items: number; elegido: boolean }[];
     discrepancias?: string[];
+    planillaRechazada?: { fuenteDoc: string; items: number; motivo: string } | null;
   } | null;
   lineas_a_atacar?: LineaAtacar[];
   pendientes_fase3?: string[];
@@ -505,10 +507,21 @@ const CRIT_ICON: Record<string, { ic: string; txt: string }> = {
 // leyeron. Que esté a la vista es lo que permite pillar al ojo un listado sacado de la fuente
 // equivocada — caso real 1414396-21-LP26, donde la Resolución Exenta (que además del anexo
 // económico trae la tabla de distribución de entrega) aportaba 5 productos que no existían.
-function TrazaFuentes({ fuentes }: { fuentes?: { elegida?: string; candidatos?: { fuenteDoc: string; items: number; elegido: boolean }[]; discrepancias?: string[] } | null }) {
+function TrazaFuentes({ fuentes }: { fuentes?: { origen?: string; elegida?: string; candidatos?: { fuenteDoc: string; items: number; elegido: boolean }[]; discrepancias?: string[] } | null }) {
   const candidatos = fuentes?.candidatos || [];
   if (!fuentes?.elegida || candidatos.length === 0) return null;
   const hayDiscrepancia = (fuentes.discrepancias || []).length > 0;
+  // (26-ago-2026) La traza ahora también existe cuando el manifiesto NO vino de la planilla —
+  // la tabla canónica de las bases o la extracción dedicada de líneas pueden haber ganado en su
+  // lugar. El texto de "se prefirió el anexo económico" solo aplica cuando la fuente elegida
+  // ES una planilla; para las otras dos se explica qué ganó y por qué, sin asumirlo.
+  const motivoPreferencia = fuentes.origen === 'planilla'
+    ? 'Se prefirió el anexo económico por ser el documento que se llena para cotizar.'
+    : fuentes.origen === 'tabla_canonica'
+    ? 'Se prefirió la tabla de las bases técnicas: el listado de un documento traía ruido (criterios, requisitos) que la tabla no tiene.'
+    : fuentes.origen === 'extraccion_lineas_producto'
+    ? 'Se prefirió una lectura dedicada de las secciones "LÍNEA DE PRODUCTO": el resumen general condensaba cada línea a un solo ítem.'
+    : 'Se conservó el listado del modelo.';
   return (
     <div className="pt-2 mt-2 border-t border-slate-100 space-y-1">
       <p className="text-[10.5px] text-slate-500">
@@ -520,8 +533,8 @@ function TrazaFuentes({ fuentes }: { fuentes?: { elegida?: string; candidatos?: 
           <AlertTriangle size={11} className="flex-shrink-0 mt-px" />
           <span>
             Las fuentes no coinciden:{' '}
-            {candidatos.map(c => `${c.fuenteDoc} (${c.items})`).join(' · ')}. Se prefirió el anexo económico
-            por ser el documento que se llena para cotizar. Conviene contrastarlo antes de ofertar.
+            {candidatos.map(c => `${c.fuenteDoc} (${c.items})`).join(' · ')}. {motivoPreferencia}{' '}
+            Conviene contrastarlo antes de ofertar.
           </span>
         </div>
       )}

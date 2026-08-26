@@ -60,13 +60,11 @@ export async function GET(request: NextRequest) {
 
   try {
     // ── 1) Negocios activos + joins tolerantes (empresa, apertura, adjudicación) ──────────
-    // OJO con el COLLATE: negocios.licitacion_codigo es utf8mb4_general_ci y las otras dos
-    // tablas son utf8mb4_unicode_ci. Sin forzarlo, el JOIN muere con "Illegal mix of
-    // collations", q() lo capturaba mudo y TODO el tablero caía al fallback de abajo: apertura
-    // siempre 0 y el resultado derivado del estado_pipeline en vez del acta de MP (se veía
-    // "5 adjudicadas" cuando MP había adjudicado 28). Se colacciona el lado de `negocios` a
-    // unicode_ci —y no al revés— para que los índices de ap/ac sigan siendo usables.
-    // El arreglo de fondo es alinear el esquema: migration-24 paso 2.
+    // (26-ago-2026: el COLLATE forzado que vivía acá ya no hace falta — migración-78 unificó
+    // negocios/licitacion_apertura/adjudicacion_cache a utf8mb4_general_ci. Antes, sin
+    // forzarlo, el JOIN moría con "Illegal mix of collations", q() lo capturaba mudo y TODO el
+    // tablero caía al fallback: apertura siempre 0 y el resultado derivado del estado_pipeline
+    // en vez del acta de MP — se veía "5 adjudicadas" cuando MP había adjudicado 28.)
     const base = await q<any>(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo,
               n.licitacion_monto, n.licitacion_cierre, n.licitacion_estado, n.licitacion_tipo,
@@ -80,8 +78,8 @@ export async function GET(request: NextRequest) {
        FROM negocios n
        LEFT JOIN usuarios u            ON u.id = n.asignado_a
        LEFT JOIN empresas e            ON e.id = n.empresa_id
-       LEFT JOIN licitacion_apertura ap ON ap.licitacion_codigo = n.licitacion_codigo COLLATE utf8mb4_unicode_ci
-       LEFT JOIN adjudicacion_cache ac  ON ac.licitacion_codigo = n.licitacion_codigo COLLATE utf8mb4_unicode_ci
+       LEFT JOIN licitacion_apertura ap ON ap.licitacion_codigo = n.licitacion_codigo
+       LEFT JOIN adjudicacion_cache ac  ON ac.licitacion_codigo = n.licitacion_codigo
        WHERE n.activo = TRUE`,
     );
 

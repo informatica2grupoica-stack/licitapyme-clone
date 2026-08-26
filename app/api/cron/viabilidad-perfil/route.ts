@@ -77,7 +77,7 @@ async function pendientes(limit?: number, incluirVencidas = false): Promise<stri
         ${GATE_PERMISO}
         AND EXISTS (
               SELECT 1 FROM documentos_cache dc
-               WHERE dc.licitacion_codigo = CONVERT(n.licitacion_codigo USING utf8) COLLATE utf8_unicode_ci)
+               WHERE dc.licitacion_codigo = n.licitacion_codigo)
         AND NOT EXISTS (
               SELECT 1 FROM viabilidad_licitacion v
                WHERE v.licitacion_codigo = n.licitacion_codigo)
