@@ -47,6 +47,11 @@ export interface ProductoOfertadoLinea {
   /** Foto del producto, como data: URI — sacada de la ficha del proveedor (ver
    *  ficha-imagen-extraer.ts) o subida a mano. null/undefined = todavía no hay foto. */
   imagenDataUri?: string | null;
+  /** true = una persona confirmó que ESTA foto corresponde al producto (o la subió ella misma).
+   *  Independiente de `confirmado` (migration-81): probado contra fichas reales, la extracción
+   *  automática a veces trae la imagen equivocada, así que confirmar el texto no confirma la
+   *  foto y viceversa. */
+  imagenConfirmada?: boolean;
 }
 
 export interface LineaFicha {
@@ -178,6 +183,7 @@ function tablaLinea(l: LineaFicha): string {
   return `<section class="linea">
     <h2>${l.linea != null ? `Línea ${l.linea} — ` : ''}${esc(l.titulo)}</h2>
     ${cabeceraCantidad ? `<p class="cant">${esc(cabeceraCantidad)}</p>` : ''}
+    ${imagenProducto(l.productoOfertado)}
     ${tablaProductoOfertado(l.productoOfertado)}
     ${l.especificaciones.length === 0
       ? '<p class="sin">Sin especificaciones técnicas registradas para esta línea.</p>'
@@ -188,6 +194,30 @@ function tablaLinea(l: LineaFicha): string {
           <tbody>${filas}</tbody>
         </table>`}
   </section>`;
+}
+
+/**
+ * Foto del producto — mismo lugar donde la trae la ficha de un proveedor típico: bajo el título,
+ * antes de la tabla de especificaciones (ver el ejemplo que originó esto: Tecnomaq).
+ *
+ * OJO, VERIFICADO CON FICHAS REALES (27-ago-2026): la extracción automática (ver
+ * ficha-imagen-extraer.ts) elige "la imagen más grande de la página", y eso a veces NO es la foto
+ * del producto — en una prueba contra 15 fichas de proveedor ya cargadas, 2 de 4 casos revisados
+ * a mano trajeron una textura decorativa de marketing o una franja de logos de certificación en
+ * vez del equipo. Por eso, mientras nadie la haya confirmado (mismo `confirmado` que ya gatea
+ * marca/modelo/fabricante), se imprime con un aviso en vez del pie neutro "Imagen referencial" —
+ * mismo criterio que tablaProductoOfertado(): no se oculta el dato leído automáticamente, pero
+ * tampoco se presenta como si fuera definitivo.
+ */
+export function imagenProducto(p: ProductoOfertadoLinea | null | undefined): string {
+  if (!p?.imagenDataUri) return '';
+  const pie = p.imagenConfirmada
+    ? 'Imagen referencial'
+    : '⚠ Imagen leída automáticamente de la ficha del proveedor — confirmar que corresponde al equipo antes de presentar.';
+  return `<div class="foto-producto">
+    <img src="${p.imagenDataUri}" alt="" />
+    <p class="foto-ref${p.imagenConfirmada ? '' : ' sin-confirmar'}">${esc(pie)}</p>
+  </div>`;
 }
 
 /**
@@ -267,6 +297,10 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   section.linea h2 { font-size: 11.5px; margin: 0 0 2px; padding: 5px 8px; background: #f4f4f5;
                      border-left: 3px solid #0f766e; }
   p.cant { margin: 0 0 5px 8px; color: #71717a; font-size: 9.5px; }
+  .foto-producto { text-align: center; margin: 4px 0 8px; page-break-inside: avoid; }
+  .foto-producto img { max-height: 150px; max-width: 60%; object-fit: contain; }
+  .foto-producto .foto-ref { margin: 3px 0 0; color: #a1a1aa; font-size: 8.5px; font-style: italic; }
+  .foto-producto .foto-ref.sin-confirmar { color: #b45309; font-weight: 600; font-style: normal; }
   table.oferta { border-collapse: collapse; margin: 0 0 4px 8px; }
   table.oferta th { text-align: left; color: #52525b; font-weight: 600; padding: 2px 10px 2px 0;
                     font-size: 9.5px; white-space: nowrap; }

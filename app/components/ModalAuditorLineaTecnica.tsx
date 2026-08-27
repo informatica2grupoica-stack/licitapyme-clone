@@ -16,7 +16,7 @@
 // igual desde un lugar que ya tenía el item cargado (la pestaña) que desde uno que no (Documentos).
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, Check, HelpCircle, Upload, RefreshCw, Undo2, FileText, Wrench, Trash2, Eye, Paperclip, Copy } from 'lucide-react';
+import { X, Loader2, Check, HelpCircle, Upload, RefreshCw, Undo2, FileText, Wrench, Trash2, Eye, Paperclip, Copy, Image as ImageIcon } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
@@ -57,6 +57,10 @@ interface ItemHeader {
 interface ProductoOfertado {
   marca: string | null; modelo: string | null; fabricante: string | null;
   paisFabricacion: string | null; anioFabricacion: string | null; garantiaMeses: number | null;
+  imagenUrl: string | null;
+  /** true = una persona confirmó que la foto corresponde al producto, o la subió ella misma.
+   *  INDEPENDIENTE de confirmadoPor (marca/modelo) — ver migration-81. */
+  imagenConfirmada: boolean;
   origen: 'ficha' | 'manual'; fuenteDocumento: string | null; confirmadoPor: number | null;
 }
 
@@ -128,7 +132,11 @@ export function ModalAuditorLineaTecnica({
   const [subiendoFicha, setSubiendoFicha] = useState(false);
   const [reiniciando, setReiniciando] = useState(false);
   const [progreso, setProgreso] = useState<string | null>(null);
+  const [confirmandoImagen, setConfirmandoImagen] = useState(false);
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
+  const [quitandoImagen, setQuitandoImagen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const imgFileRef = useRef<HTMLInputElement>(null);
   const autoEjecutado = useRef(false);
 
   const cargarTodo = useCallback(async () => {
@@ -241,6 +249,65 @@ export function ModalAuditorLineaTecnica({
     } finally {
       setSubiendoFicha(false);
       if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  // Confirmar la foto que quedó de la extracción automática (o de una confirmación anterior).
+  // Probado contra fichas reales: a veces la extracción trae la imagen equivocada, así que esto
+  // es una decisión aparte de confirmar marca/modelo — ver migration-81.
+  const confirmarImagen = async () => {
+    setConfirmandoImagen(true);
+    try {
+      const r = await fetch(base, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'confirmar_imagen_producto' }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d.error || 'No se pudo confirmar la foto'); return; }
+      setProducto(d.productoOfertado ?? null);
+      toast.success('Foto confirmada');
+      onCambio?.();
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally { setConfirmandoImagen(false); }
+  };
+
+  // Quita la foto (la extracción trajo la equivocada y no hay con qué reemplazarla todavía).
+  const quitarImagen = async () => {
+    setQuitandoImagen(true);
+    try {
+      const r = await fetch(base, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'quitar_imagen_producto' }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d.error || 'No se pudo quitar la foto'); return; }
+      setProducto(d.productoOfertado ?? null);
+      toast.success('Foto quitada');
+      onCambio?.();
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally { setQuitandoImagen(false); }
+  };
+
+  // Reemplaza por una foto subida a mano — queda CONFIRMADA de una: subirla ya es la revisión.
+  const subirImagen = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setSubiendoImagen(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', files[0]);
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/${itemId}/producto-imagen`, { method: 'POST', body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d.error || 'No se pudo subir la foto'); return; }
+      setProducto(d.productoOfertado ?? null);
+      toast.success('Foto reemplazada');
+      onCambio?.();
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally {
+      setSubiendoImagen(false);
+      if (imgFileRef.current) imgFileRef.current.value = '';
     }
   };
 
@@ -437,6 +504,56 @@ export function ModalAuditorLineaTecnica({
                   </div>
                 ) : (
                   <p className="text-[12px] text-zinc-400">Sin datos todavía. Se completa solo al subir la ficha, o "Completar" a mano.</p>
+                )}
+
+                {/* FOTO DEL PRODUCTO — sacada automáticamente de la ficha del proveedor al comparar
+                    (ver ficha-imagen-extraer.ts) o subida a mano. Confirmación APARTE de marca/
+                    modelo (migration-81): probado contra fichas reales, la extracción automática a
+                    veces trae la imagen equivocada (una foto decorativa, una franja de logos), así
+                    que hasta que alguien la revise se avisa en vez de darla por buena. */}
+                {producto?.imagenUrl && (
+                  <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70 flex items-start gap-2.5">
+                    <img src={producto.imagenUrl} alt="Foto del producto" className="w-16 h-16 object-contain rounded-lg border border-zinc-200 bg-white flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      {producto.imagenConfirmada ? (
+                        <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">foto confirmada</span>
+                      ) : (
+                        <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                          foto leída automáticamente — revisar antes de confirmar
+                        </span>
+                      )}
+                      {!bloqueado && (
+                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                          {!producto.imagenConfirmada && (
+                            <button onClick={confirmarImagen} disabled={confirmandoImagen}
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                              {confirmandoImagen ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Es la foto correcta
+                            </button>
+                          )}
+                          <button onClick={() => imgFileRef.current?.click()} disabled={subiendoImagen}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                            {subiendoImagen ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />} Reemplazar
+                          </button>
+                          <button onClick={quitarImagen} disabled={quitandoImagen}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-400 hover:text-rose-600 hover:bg-rose-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                            {quitandoImagen ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />} Quitar
+                          </button>
+                          <input ref={imgFileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                            onChange={e => subirImagen(e.target.files)} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {!producto?.imagenUrl && !bloqueado && (
+                  <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70">
+                    <button onClick={() => imgFileRef.current?.click()} disabled={subiendoImagen}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                      {subiendoImagen ? <Loader2 size={11} className="animate-spin" /> : <ImageIcon size={11} />} Subir foto del producto
+                    </button>
+                    <input ref={imgFileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                      onChange={e => subirImagen(e.target.files)} />
+                  </div>
                 )}
               </div>
 

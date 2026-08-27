@@ -8,7 +8,9 @@
 -- es donde queda guardada esa foto, ya subida a R2 (mismo patrón que empresas.logo_url/firma_url).
 --
 -- Aplicar con `node scripts/aplicar-migration-80.mjs` (o a mano en phpMyAdmin).
--- Idempotente: ADD COLUMN IF NOT EXISTS.
+-- Esta versión de MySQL (Bluehost) NO soporta "ADD COLUMN IF NOT EXISTS" (verificado con
+-- migration-51/migration-59): el script aplicador ya comprueba antes si la columna existe, así
+-- que este ALTER plano es seguro — solo corre cuando de verdad falta.
 
 ALTER TABLE linea_producto_ofertado
-  ADD COLUMN IF NOT EXISTS imagen_url VARCHAR(500) NULL AFTER garantia_meses;
+  ADD COLUMN imagen_url VARCHAR(500) NULL AFTER garantia_meses;

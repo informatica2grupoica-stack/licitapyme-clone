@@ -73,7 +73,10 @@ export async function extraerImagenProducto(buffer: Buffer): Promise<ImagenExtra
 
     let structuredText: import('mupdf').StructuredText;
     try {
-      structuredText = page.toStructuredText();
+      // Sin 'preserve-images' toStructuredText() no reporta bloques de imagen — walk() nunca
+      // llama a onImageBlock y esto siempre devolvería null, en silencio. Detectado con un PDF
+      // real de prueba (mupdf.js no lo documenta con claridad, hay que pasarlo explícito).
+      structuredText = page.toStructuredText('preserve-images');
     } catch {
       continue;
     }

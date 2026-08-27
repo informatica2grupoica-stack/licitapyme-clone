@@ -6,6 +6,9 @@
 //   GET   → detalle completo de las características de la línea (nivel 3 de la UI)
 //   POST  → { accion: 'validar' }                         Agente 1: clasifica caracteristicas[]
 //           { accion: 'comparar_ficha', documentoUrl, documentoNombre }  Agente 2 (camino B)
+//           { accion: 'confirmar_producto', marca, modelo, ... }  confirma/corrige marca/modelo
+//           { accion: 'confirmar_imagen_producto' }        confirma la foto tal como quedó
+//           { accion: 'quitar_imagen_producto' }           descarta la foto (la extracción falló)
 //   PATCH → { accion: 'responder', caracteristicaId, ... } camino A (interrogatorio)
 //           { accion: 'corregir', caracteristicaId, veredicto, comentario }  solo asesor
 //   DELETE ?caracteristicaId=  → borra una fila agregada por error
@@ -29,7 +32,10 @@ import {
 } from '@/app/lib/auditor-tecnico';
 import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
 import { extraerProductoOfertado } from '@/app/lib/producto-ofertado';
-import { guardarProductoLeidoDeFicha, leerProductoOfertado, confirmarProductoOfertado } from '@/app/lib/producto-ofertado-db';
+import {
+  guardarProductoLeidoDeFicha, leerProductoOfertado, confirmarProductoOfertado,
+  confirmarImagenProducto, quitarImagenProducto,
+} from '@/app/lib/producto-ofertado-db';
 import { extraerImagenProducto } from '@/app/lib/ficha-imagen-extraer';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 
@@ -75,7 +81,7 @@ async function migracion72Aplicada(): Promise<boolean> {
 }
 
 /** El item debe pertenecer al negocio Y ser una cabecera de línea técnica (no cualquier punto). */
-async function cargarItemLineaTecnica(negocioId: number, itemId: number) {
+export async function cargarItemLineaTecnica(negocioId: number, itemId: number) {
   const [rows] = await pool.query(
     `SELECT ${COLS} FROM checklist_comercial WHERE id = ? AND negocio_id = ? AND tipo = 'linea_tecnica' LIMIT 1`,
     [itemId, negocioId],
@@ -216,6 +222,30 @@ export async function POST(request: NextRequest, { params }: Params) {
       publicarCambio('checklist_comercial');
       const productoOfertado = await leerProductoOfertado(item.id);
       return NextResponse.json({ success: true, productoOfertado });
+    }
+
+    // ── Confirmar la foto tal como quedó (la extracción automática la trajo bien) ───────────
+    // Decisión INDEPENDIENTE de confirmar_producto: probado contra fichas reales, la extracción
+    // a veces trae la imagen equivocada (ver ficha-imagen-extraer.ts) — confirmar el texto no
+    // confirma la foto. Ver migration-81.
+    if (accion === 'confirmar_imagen_producto') {
+      if (await yaCongelado(negocio.id, rol))
+        return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
+      const actual = await leerProductoOfertado(item.id);
+      if (!actual?.imagenUrl)
+        return NextResponse.json({ error: 'No hay ninguna foto que confirmar.' }, { status: 400 });
+      await confirmarImagenProducto({ itemId: item.id, negocioId: negocio.id, imagenUrl: actual.imagenUrl });
+      publicarCambio('checklist_comercial');
+      return NextResponse.json({ success: true, productoOfertado: await leerProductoOfertado(item.id) });
+    }
+
+    // ── Quitar la foto (la extracción trajo la equivocada y no hay con qué reemplazarla) ────
+    if (accion === 'quitar_imagen_producto') {
+      if (await yaCongelado(negocio.id, rol))
+        return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
+      await quitarImagenProducto(item.id);
+      publicarCambio('checklist_comercial');
+      return NextResponse.json({ success: true, productoOfertado: await leerProductoOfertado(item.id) });
     }
 
     // ── Reiniciar: borra TODAS las características de la línea (ficha equivocada, prueba con

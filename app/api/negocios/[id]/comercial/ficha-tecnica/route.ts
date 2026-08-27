@@ -148,6 +148,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         marca: p.marca, modelo: p.modelo, fabricante: p.fabricante,
         paisFabricacion: p.paisFabricacion, anioFabricacion: p.anioFabricacion,
         garantiaMeses: p.garantiaMeses, confirmado: p.confirmadoPor != null,
+        imagenDataUri: await comoDataUri(p.imagenUrl), imagenConfirmada: p.imagenConfirmada,
       });
     }));
 

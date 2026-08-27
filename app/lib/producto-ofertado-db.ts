@@ -42,6 +42,13 @@ export async function guardarProductoLeidoDeFicha(args: {
        pais_fabricacion = COALESCE(VALUES(pais_fabricacion), pais_fabricacion),
        anio_fabricacion = COALESCE(VALUES(anio_fabricacion), anio_fabricacion),
        imagen_url = COALESCE(VALUES(imagen_url), imagen_url),
+       -- Si la nueva ficha trae una foto DISTINTA de la que había, la confirmación anterior ya
+       -- no aplica a esta imagen — vuelve a quedar pendiente de revisión (ver migration-81). Si
+       -- no trajo foto nueva (COALESCE se quedó con la de antes), no se toca.
+       imagen_confirmada = CASE
+         WHEN VALUES(imagen_url) IS NOT NULL AND VALUES(imagen_url) <> imagen_url THEN 0
+         ELSE imagen_confirmada
+       END,
        fuente_documento = VALUES(fuente_documento), actualizado_en = VALUES(actualizado_en)`,
     [
       itemId, negocioId, producto.marca, producto.modelo, producto.fabricante,
@@ -78,9 +85,37 @@ export async function confirmarProductoOfertado(args: {
   );
 }
 
+/**
+ * Confirma (o reemplaza) la foto del producto — decisión INDEPENDIENTE de confirmar marca/modelo
+ * (ver migration-81): una persona puede revisar la foto sin haber tocado el resto, o viceversa.
+ * `imagenUrl` es la que queda en firme: la ya extraída (si solo se está confirmando que está bien)
+ * o una recién subida a mano (ver .../[itemId]/producto-imagen/route.ts).
+ */
+export async function confirmarImagenProducto(args: {
+  itemId: number; negocioId: number; imagenUrl: string,
+}): Promise<void> {
+  const { itemId, negocioId, imagenUrl } = args;
+  await pool.query(
+    `INSERT INTO linea_producto_ofertado (item_id, negocio_id, imagen_url, imagen_confirmada, origen, actualizado_en)
+     VALUES (?, ?, ?, 1, 'manual', ?)
+     ON DUPLICATE KEY UPDATE
+       imagen_url = VALUES(imagen_url), imagen_confirmada = 1, actualizado_en = VALUES(actualizado_en)`,
+    [itemId, negocioId, imagenUrl, ahoraChileSQL()],
+  );
+}
+
+/** Descarta la foto actual (la extracción trajo la equivocada y no hay con qué reemplazarla). */
+export async function quitarImagenProducto(itemId: number): Promise<void> {
+  await pool.query(
+    `UPDATE linea_producto_ofertado SET imagen_url = NULL, imagen_confirmada = 0, actualizado_en = ? WHERE item_id = ?`,
+    [ahoraChileSQL(), itemId],
+  );
+}
+
 export interface ProductoOfertadoGuardado extends ProductoOfertado {
   garantiaMeses: number | null;
   imagenUrl: string | null;
+  imagenConfirmada: boolean;
   origen: 'ficha' | 'manual';
   fuenteDocumento: string | null;
   confirmadoPor: number | null;
@@ -89,7 +124,7 @@ export interface ProductoOfertadoGuardado extends ProductoOfertado {
 export async function leerProductoOfertado(itemId: number): Promise<ProductoOfertadoGuardado | null> {
   const [rows] = await pool.query(
     `SELECT marca, modelo, fabricante, pais_fabricacion, anio_fabricacion, garantia_meses,
-            imagen_url, origen, fuente_documento, confirmado_por
+            imagen_url, imagen_confirmada, origen, fuente_documento, confirmado_por
        FROM linea_producto_ofertado WHERE item_id = ?`, [itemId],
   ) as any;
   const r = (rows as any[])[0];
@@ -97,7 +132,8 @@ export async function leerProductoOfertado(itemId: number): Promise<ProductoOfer
   return {
     marca: r.marca, modelo: r.modelo, fabricante: r.fabricante,
     paisFabricacion: r.pais_fabricacion, anioFabricacion: r.anio_fabricacion,
-    garantiaMeses: r.garantia_meses, imagenUrl: r.imagen_url ?? null, origen: r.origen,
+    garantiaMeses: r.garantia_meses, imagenUrl: r.imagen_url ?? null,
+    imagenConfirmada: !!r.imagen_confirmada, origen: r.origen,
     fuenteDocumento: r.fuente_documento, confirmadoPor: r.confirmado_por,
   };
 }

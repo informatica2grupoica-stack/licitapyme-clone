@@ -5,7 +5,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   textoRequisito, textoOfertado, especificacionesSinCompletar, construirFichaTecnicaHtml,
-  type EspecificacionFicha, type LineaFicha, type EmpresaFicha,
+  imagenProducto,
+  type EspecificacionFicha, type LineaFicha, type EmpresaFicha, type ProductoOfertadoLinea,
 } from '../ficha-tecnica';
 
 const spec = (o: Partial<EspecificacionFicha>): EspecificacionFicha => ({
@@ -256,4 +257,40 @@ test('un objeto productoOfertado sin ningún dato no imprime tabla', () => {
     generadoPor: null, fechaTexto: '26 de agosto de 2026',
   });
   assert.ok(!h.includes('table class="oferta"'));
+});
+
+// ─── FOTO DEL PRODUCTO — con o sin confirmar por una persona ──────────────────────────────────
+// Verificado con fichas reales (27-ago-2026): la extracción automática a veces trae la imagen
+// EQUIVOCADA (una textura decorativa, una franja de logos de certificación) en vez del producto.
+// Por eso, mientras nadie la confirme, la ficha tiene que avisarlo — no imprimirla como si fuera
+// segura, mismo criterio que ya existía para marca/modelo/fabricante.
+const producto = (o: Partial<ProductoOfertadoLinea>): ProductoOfertadoLinea => ({
+  marca: null, modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null,
+  garantiaMeses: null, ...o,
+});
+
+test('sin imagenDataUri, no imprime nada', () => {
+  assert.equal(imagenProducto(producto({})), '');
+  assert.equal(imagenProducto(null), '');
+  assert.equal(imagenProducto(undefined), '');
+});
+
+test('imagen SIN confirmar: sale con el aviso de revisar, no como "Imagen referencial" a secas', () => {
+  const html = imagenProducto(producto({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: false }));
+  assert.ok(html.includes('data:image/png;base64,AAA'));
+  assert.ok(/confirmar que corresponde al equipo/i.test(html));
+  assert.ok(!html.includes('>Imagen referencial<'));
+});
+
+test('imagen CONFIRMADA por una persona: sale con el pie neutro, sin el aviso', () => {
+  const html = imagenProducto(producto({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: true }));
+  assert.ok(html.includes('>Imagen referencial<'));
+  assert.ok(!/confirmar que corresponde al equipo/i.test(html));
+});
+
+// El texto (marca/modelo) y la foto se confirman POR SEPARADO (migration-81): confirmar uno no
+// confirma el otro. Texto confirmado + foto sin confirmar debe seguir avisando de la foto.
+test('confirmar el texto NO confirma la foto: el aviso de la imagen se mantiene', () => {
+  const html = imagenProducto(producto({ imagenDataUri: 'data:image/png;base64,AAA', confirmado: true, imagenConfirmada: false }));
+  assert.ok(/confirmar que corresponde al equipo/i.test(html));
 });
