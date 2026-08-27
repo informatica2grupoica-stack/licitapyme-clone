@@ -309,7 +309,10 @@ test('línea con UN producto: no imprime subtítulo (mismo look de siempre)', ()
     generadoPor: null, fechaTexto: '27 de agosto de 2026',
   });
   assert.ok(h.includes('Tecnomaq'));
-  assert.ok(!h.includes('producto-nombre'));
+  // OJO: "producto-nombre" también aparece SIEMPRE en el <style> (la clase CSS existe se use o
+  // no) — mismo gotcha que "sin-confirmar" en otros tests de este archivo. Hay que comprobar el
+  // elemento renderizado, no el nombre de la clase suelto.
+  assert.ok(!h.includes('<p class="producto-nombre"'));
 });
 
 test('línea-PAQUETE con 2 productos: imprime AMBOS con su propio subtítulo', () => {

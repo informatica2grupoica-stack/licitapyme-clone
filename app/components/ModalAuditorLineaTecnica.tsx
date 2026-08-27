@@ -64,6 +64,20 @@ interface ProductoOfertado {
   origen: 'ficha' | 'manual'; fuenteDocumento: string | null; confirmadoPor: number | null;
 }
 
+/**
+ * Un producto DE ESTA LÍNEA (índice 0..N-1) — normalmente uno solo. Más de uno cuando la línea
+ * real junta varios productos bajo el mismo precio (migración 82, caso real 2446-240-LE26:
+ * "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer" en la misma línea) — antes solo se podía
+ * cargar marca/modelo/foto de UNO, y el resto quedaba completamente afuera de la ficha.
+ */
+interface ProductoDeLinea {
+  index: number;
+  /** Nombre de este producto según el informe — null si la línea es de un solo producto (no hace
+   *  falta repetir el título de la línea) o si no hay informe. */
+  nombre: string | null;
+  ofertado: ProductoOfertado | null;
+}
+
 const fmtFecha = (s: string | null) => {
   if (!s) return '';
   try { return new Date(s.replace(' ', 'T')).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
@@ -123,8 +137,9 @@ export function ModalAuditorLineaTecnica({
   const [comercial, setComercial] = useState<ComercialLigado>({ precio: null, plazo: null });
   const [caracteristicas, setCaracteristicas] = useState<Caracteristica[]>([]);
   const [documentos, setDocumentos] = useState<Array<{ id: number; url: string; nombre: string }>>([]);
-  const [producto, setProducto] = useState<ProductoOfertado | null>(null);
-  const [editandoProducto, setEditandoProducto] = useState(false);
+  // Uno por línea normal, varios si es una línea-paquete (migración 82) — ver ProductoDeLinea.
+  const [productos, setProductos] = useState<ProductoDeLinea[]>([]);
+  const [editandoIndex, setEditandoIndex] = useState<number | null>(null);
   const [confirmandoProducto, setConfirmandoProducto] = useState(false);
   const [formProducto, setFormProducto] = useState({ marca: '', modelo: '', fabricante: '', paisFabricacion: '', anioFabricacion: '' });
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
@@ -132,11 +147,14 @@ export function ModalAuditorLineaTecnica({
   const [subiendoFicha, setSubiendoFicha] = useState(false);
   const [reiniciando, setReiniciando] = useState(false);
   const [progreso, setProgreso] = useState<string | null>(null);
-  const [confirmandoImagen, setConfirmandoImagen] = useState(false);
-  const [subiendoImagen, setSubiendoImagen] = useState(false);
-  const [quitandoImagen, setQuitandoImagen] = useState(false);
+  // Ocupado por ÍNDICE de producto: cada tarjeta tiene sus propios botones y no deben bloquearse
+  // entre sí (confirmar la foto del producto 0 no debe deshabilitar el botón del producto 1).
+  const [confirmandoImagenIndex, setConfirmandoImagenIndex] = useState<number | null>(null);
+  const [subiendoImagenIndex, setSubiendoImagenIndex] = useState<number | null>(null);
+  const [quitandoImagenIndex, setQuitandoImagenIndex] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const imgFileRef = useRef<HTMLInputElement>(null);
+  const imgTargetIndex = useRef(0);
   const autoEjecutado = useRef(false);
 
   const cargarTodo = useCallback(async () => {
@@ -165,7 +183,7 @@ export function ModalAuditorLineaTecnica({
     }
     if (dCaract.success) {
       setCaracteristicas(dCaract.caracteristicas || []);
-      setProducto(dCaract.productoOfertado ?? null);
+      setProductos(dCaract.productos || []);
     }
   }, [negocioId, itemId, base]);
 
@@ -254,59 +272,64 @@ export function ModalAuditorLineaTecnica({
 
   // Confirmar la foto que quedó de la extracción automática (o de una confirmación anterior).
   // Probado contra fichas reales: a veces la extracción trae la imagen equivocada, así que esto
-  // es una decisión aparte de confirmar marca/modelo — ver migration-81.
-  const confirmarImagen = async () => {
-    setConfirmandoImagen(true);
+  // es una decisión aparte de confirmar marca/modelo — ver migration-81. `productoIndex` es 0
+  // salvo que la línea sea un paquete de varios productos (migración 82).
+  const confirmarImagen = async (productoIndex: number) => {
+    setConfirmandoImagenIndex(productoIndex);
     try {
       const r = await fetch(base, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'confirmar_imagen_producto' }),
+        body: JSON.stringify({ accion: 'confirmar_imagen_producto', productoIndex }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d.error || 'No se pudo confirmar la foto'); return; }
-      setProducto(d.productoOfertado ?? null);
+      setProductos(d.productos || []);
       toast.success('Foto confirmada');
       onCambio?.();
     } catch (e) {
       toast.error('Error de red', String(e));
-    } finally { setConfirmandoImagen(false); }
+    } finally { setConfirmandoImagenIndex(null); }
   };
 
   // Quita la foto (la extracción trajo la equivocada y no hay con qué reemplazarla todavía).
-  const quitarImagen = async () => {
-    setQuitandoImagen(true);
+  const quitarImagen = async (productoIndex: number) => {
+    setQuitandoImagenIndex(productoIndex);
     try {
       const r = await fetch(base, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'quitar_imagen_producto' }),
+        body: JSON.stringify({ accion: 'quitar_imagen_producto', productoIndex }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d.error || 'No se pudo quitar la foto'); return; }
-      setProducto(d.productoOfertado ?? null);
+      setProductos(d.productos || []);
       toast.success('Foto quitada');
       onCambio?.();
     } catch (e) {
       toast.error('Error de red', String(e));
-    } finally { setQuitandoImagen(false); }
+    } finally { setQuitandoImagenIndex(null); }
   };
 
   // Reemplaza por una foto subida a mano — queda CONFIRMADA de una: subirla ya es la revisión.
+  // `imgTargetIndex` se fija justo antes de abrir el selector de archivos (ver el botón), porque
+  // el <input type="file"> es uno solo compartido por todas las tarjetas de producto.
   const subirImagen = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    setSubiendoImagen(true);
+    const productoIndex = imgTargetIndex.current;
+    setSubiendoImagenIndex(productoIndex);
     try {
       const fd = new FormData();
       fd.append('file', files[0]);
+      fd.append('productoIndex', String(productoIndex));
       const r = await fetch(`/api/negocios/${negocioId}/comercial/${itemId}/producto-imagen`, { method: 'POST', body: fd });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d.error || 'No se pudo subir la foto'); return; }
-      setProducto(d.productoOfertado ?? null);
+      setProductos(d.productos || []);
       toast.success('Foto reemplazada');
       onCambio?.();
     } catch (e) {
       toast.error('Error de red', String(e));
     } finally {
-      setSubiendoImagen(false);
+      setSubiendoImagenIndex(null);
       if (imgFileRef.current) imgFileRef.current.value = '';
     }
   };
@@ -421,141 +444,152 @@ export function ModalAuditorLineaTecnica({
                 </div>
               )}
 
-              {/* MARCA / MODELO / FABRICANTE del producto que ofertamos — lo pide la tabla
+              {/* MARCA / MODELO / FABRICANTE / FOTO de cada producto de la línea — lo pide la tabla
                   "Información de la oferta" de los formularios técnicos, y hasta ahora no existía
                   en ninguna parte del sistema (no es un dato de la empresa: es del producto).
                   Se intenta leer solo al subir una ficha (producto-ofertado.ts); acá se confirma o
-                  se corrige a mano — lo que escribe una persona siempre manda sobre lo leído. */}
-              <div className="mb-3 rounded-lg border border-zinc-100 bg-zinc-50/60 p-3">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide">Producto que ofertamos</p>
-                  {!editandoProducto && !bloqueado && (
-                    <button
-                      onClick={() => {
-                        setFormProducto({
-                          marca: producto?.marca || '', modelo: producto?.modelo || '',
-                          fabricante: producto?.fabricante || '', paisFabricacion: producto?.paisFabricacion || '',
-                          anioFabricacion: producto?.anioFabricacion || '',
-                        });
-                        setEditandoProducto(true);
-                      }}
-                      className="text-[11px] font-semibold text-violet-600 hover:text-violet-800"
-                    >
-                      {producto ? 'Corregir' : 'Completar'}
-                    </button>
-                  )}
-                </div>
-
-                {editandoProducto ? (
-                  <div className="space-y-1.5">
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <input value={formProducto.marca} onChange={e => setFormProducto(f => ({ ...f, marca: e.target.value }))}
-                        placeholder="Marca" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
-                      <input value={formProducto.modelo} onChange={e => setFormProducto(f => ({ ...f, modelo: e.target.value }))}
-                        placeholder="Modelo" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
-                      <input value={formProducto.fabricante} onChange={e => setFormProducto(f => ({ ...f, fabricante: e.target.value }))}
-                        placeholder="Fabricante" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
-                      <input value={formProducto.paisFabricacion} onChange={e => setFormProducto(f => ({ ...f, paisFabricacion: e.target.value }))}
-                        placeholder="País de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
-                      <input value={formProducto.anioFabricacion} onChange={e => setFormProducto(f => ({ ...f, anioFabricacion: e.target.value }))}
-                        placeholder="Año de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={async () => {
-                          setConfirmandoProducto(true);
-                          try {
-                            const r = await fetch(base, {
-                              method: 'POST', headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ accion: 'confirmar_producto', ...formProducto }),
+                  se corrige a mano — lo que escribe una persona siempre manda sobre lo leído.
+                  NORMALMENTE hay UN producto; una tarjeta por cada uno si la línea es un paquete de
+                  varios (migración 82, caso real 2446-240-LE26: Hidrolavadora + Vacuolavadora bajo
+                  la misma línea de precio) — antes solo alcanzaba para el primero. */}
+              {productos.map(p => {
+                const producto = p.ofertado;
+                const editando = editandoIndex === p.index;
+                return (
+                  <div key={p.index} className="mb-3 rounded-lg border border-zinc-100 bg-zinc-50/60 p-3">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide">
+                        {productos.length > 1 && p.nombre ? p.nombre : 'Producto que ofertamos'}
+                      </p>
+                      {!editando && !bloqueado && (
+                        <button
+                          onClick={() => {
+                            setFormProducto({
+                              marca: producto?.marca || '', modelo: producto?.modelo || '',
+                              fabricante: producto?.fabricante || '', paisFabricacion: producto?.paisFabricacion || '',
+                              anioFabricacion: producto?.anioFabricacion || '',
                             });
-                            const d = await r.json().catch(() => ({}));
-                            if (!r.ok) { toast.error(d.error || 'No se pudo guardar'); return; }
-                            setProducto(d.productoOfertado ?? null);
-                            setEditandoProducto(false);
-                            toast.success('Producto confirmado');
-                            onCambio?.();
-                          } catch (e) {
-                            toast.error('Error de red', String(e));
-                          } finally { setConfirmandoProducto(false); }
-                        }}
-                        disabled={confirmandoProducto}
-                        className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50"
-                      >
-                        {confirmandoProducto ? <Loader2 size={11} className="animate-spin inline" /> : 'Confirmar'}
-                      </button>
-                      <button onClick={() => setEditandoProducto(false)} className="text-[11.5px] text-zinc-400 hover:text-zinc-600 px-1">Cancelar</button>
+                            setEditandoIndex(p.index);
+                          }}
+                          className="text-[11px] font-semibold text-violet-600 hover:text-violet-800"
+                        >
+                          {producto ? 'Corregir' : 'Completar'}
+                        </button>
+                      )}
                     </div>
-                  </div>
-                ) : producto && (producto.marca || producto.modelo || producto.fabricante) ? (
-                  <div className="flex items-center gap-2 flex-wrap text-[12px]">
-                    {producto.marca && <span><b>Marca:</b> {producto.marca}</span>}
-                    {producto.modelo && <span><b>Modelo:</b> {producto.modelo}</span>}
-                    {producto.fabricante && producto.fabricante !== producto.marca && <span><b>Fabricante:</b> {producto.fabricante}</span>}
-                    {producto.paisFabricacion && <span><b>País:</b> {producto.paisFabricacion}</span>}
-                    {producto.origen === 'ficha' && (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700" title={producto.fuenteDocumento || ''}>
-                        leído de la ficha — sin confirmar
-                      </span>
-                    )}
-                    {producto.origen === 'manual' && (
-                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">confirmado</span>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-[12px] text-zinc-400">Sin datos todavía. Se completa solo al subir la ficha, o "Completar" a mano.</p>
-                )}
 
-                {/* FOTO DEL PRODUCTO — sacada automáticamente de la ficha del proveedor al comparar
-                    (ver ficha-imagen-extraer.ts) o subida a mano. Confirmación APARTE de marca/
-                    modelo (migration-81): probado contra fichas reales, la extracción automática a
-                    veces trae la imagen equivocada (una foto decorativa, una franja de logos), así
-                    que hasta que alguien la revise se avisa en vez de darla por buena. */}
-                {producto?.imagenUrl && (
-                  <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70 flex items-start gap-2.5">
-                    <img src={producto.imagenUrl} alt="Foto del producto" className="w-16 h-16 object-contain rounded-lg border border-zinc-200 bg-white flex-shrink-0" />
-                    <div className="min-w-0 flex-1">
-                      {producto.imagenConfirmada ? (
-                        <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">foto confirmada</span>
-                      ) : (
-                        <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
-                          foto leída automáticamente — revisar antes de confirmar
-                        </span>
-                      )}
-                      {!bloqueado && (
-                        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                          {!producto.imagenConfirmada && (
-                            <button onClick={confirmarImagen} disabled={confirmandoImagen}
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
-                              {confirmandoImagen ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Es la foto correcta
-                            </button>
-                          )}
-                          <button onClick={() => imgFileRef.current?.click()} disabled={subiendoImagen}
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
-                            {subiendoImagen ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />} Reemplazar
-                          </button>
-                          <button onClick={quitarImagen} disabled={quitandoImagen}
-                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-400 hover:text-rose-600 hover:bg-rose-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
-                            {quitandoImagen ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />} Quitar
-                          </button>
-                          <input ref={imgFileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
-                            onChange={e => subirImagen(e.target.files)} />
+                    {editando ? (
+                      <div className="space-y-1.5">
+                        <div className="grid grid-cols-2 gap-1.5">
+                          <input value={formProducto.marca} onChange={e => setFormProducto(f => ({ ...f, marca: e.target.value }))}
+                            placeholder="Marca" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          <input value={formProducto.modelo} onChange={e => setFormProducto(f => ({ ...f, modelo: e.target.value }))}
+                            placeholder="Modelo" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          <input value={formProducto.fabricante} onChange={e => setFormProducto(f => ({ ...f, fabricante: e.target.value }))}
+                            placeholder="Fabricante" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          <input value={formProducto.paisFabricacion} onChange={e => setFormProducto(f => ({ ...f, paisFabricacion: e.target.value }))}
+                            placeholder="País de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                          <input value={formProducto.anioFabricacion} onChange={e => setFormProducto(f => ({ ...f, anioFabricacion: e.target.value }))}
+                            placeholder="Año de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
                         </div>
-                      )}
-                    </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={async () => {
+                              setConfirmandoProducto(true);
+                              try {
+                                const r = await fetch(base, {
+                                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ accion: 'confirmar_producto', productoIndex: p.index, ...formProducto }),
+                                });
+                                const d = await r.json().catch(() => ({}));
+                                if (!r.ok) { toast.error(d.error || 'No se pudo guardar'); return; }
+                                setProductos(d.productos || []);
+                                setEditandoIndex(null);
+                                toast.success('Producto confirmado');
+                                onCambio?.();
+                              } catch (e) {
+                                toast.error('Error de red', String(e));
+                              } finally { setConfirmandoProducto(false); }
+                            }}
+                            disabled={confirmandoProducto}
+                            className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50"
+                          >
+                            {confirmandoProducto ? <Loader2 size={11} className="animate-spin inline" /> : 'Confirmar'}
+                          </button>
+                          <button onClick={() => setEditandoIndex(null)} className="text-[11.5px] text-zinc-400 hover:text-zinc-600 px-1">Cancelar</button>
+                        </div>
+                      </div>
+                    ) : producto && (producto.marca || producto.modelo || producto.fabricante) ? (
+                      <div className="flex items-center gap-2 flex-wrap text-[12px]">
+                        {producto.marca && <span><b>Marca:</b> {producto.marca}</span>}
+                        {producto.modelo && <span><b>Modelo:</b> {producto.modelo}</span>}
+                        {producto.fabricante && producto.fabricante !== producto.marca && <span><b>Fabricante:</b> {producto.fabricante}</span>}
+                        {producto.paisFabricacion && <span><b>País:</b> {producto.paisFabricacion}</span>}
+                        {producto.origen === 'ficha' && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700" title={producto.fuenteDocumento || ''}>
+                            leído de la ficha — sin confirmar
+                          </span>
+                        )}
+                        {producto.origen === 'manual' && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">confirmado</span>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[12px] text-zinc-400">Sin datos todavía. Se completa solo al subir la ficha, o "Completar" a mano.</p>
+                    )}
+
+                    {/* FOTO DEL PRODUCTO — sacada automáticamente de la ficha del proveedor al comparar
+                        (ver ficha-imagen-extraer.ts) o subida a mano. Confirmación APARTE de marca/
+                        modelo (migration-81): probado contra fichas reales, la extracción automática a
+                        veces trae la imagen equivocada (una foto decorativa, una franja de logos), así
+                        que hasta que alguien la revise se avisa en vez de darla por buena. */}
+                    {producto?.imagenUrl && (
+                      <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70 flex items-start gap-2.5">
+                        <img src={producto.imagenUrl} alt="Foto del producto" className="w-16 h-16 object-contain rounded-lg border border-zinc-200 bg-white flex-shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          {producto.imagenConfirmada ? (
+                            <span className="inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">foto confirmada</span>
+                          ) : (
+                            <span className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                              foto leída automáticamente — revisar antes de confirmar
+                            </span>
+                          )}
+                          {!bloqueado && (
+                            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                              {!producto.imagenConfirmada && (
+                                <button onClick={() => confirmarImagen(p.index)} disabled={confirmandoImagenIndex === p.index}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                                  {confirmandoImagenIndex === p.index ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />} Es la foto correcta
+                                </button>
+                              )}
+                              <button onClick={() => { imgTargetIndex.current = p.index; imgFileRef.current?.click(); }} disabled={subiendoImagenIndex === p.index}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                                {subiendoImagenIndex === p.index ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />} Reemplazar
+                              </button>
+                              <button onClick={() => quitarImagen(p.index)} disabled={quitandoImagenIndex === p.index}
+                                className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-400 hover:text-rose-600 hover:bg-rose-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                                {quitandoImagenIndex === p.index ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />} Quitar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {!producto?.imagenUrl && !bloqueado && (
+                      <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70">
+                        <button onClick={() => { imgTargetIndex.current = p.index; imgFileRef.current?.click(); }} disabled={subiendoImagenIndex === p.index}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
+                          {subiendoImagenIndex === p.index ? <Loader2 size={11} className="animate-spin" /> : <ImageIcon size={11} />} Subir foto del producto
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-                {!producto?.imagenUrl && !bloqueado && (
-                  <div className="mt-2.5 pt-2.5 border-t border-zinc-200/70">
-                    <button onClick={() => imgFileRef.current?.click()} disabled={subiendoImagen}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 px-1.5 py-0.5 rounded-lg disabled:opacity-50">
-                      {subiendoImagen ? <Loader2 size={11} className="animate-spin" /> : <ImageIcon size={11} />} Subir foto del producto
-                    </button>
-                    <input ref={imgFileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
-                      onChange={e => subirImagen(e.target.files)} />
-                  </div>
-                )}
-              </div>
+                );
+              })}
+              {/* Un solo <input file> compartido por todas las tarjetas — imgTargetIndex dice a cuál
+                  producto corresponde el archivo elegido (se fija justo antes de abrir el selector). */}
+              <input ref={imgFileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+                onChange={e => subirImagen(e.target.files)} />
 
               <div>
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
