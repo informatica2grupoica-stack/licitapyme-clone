@@ -17,9 +17,12 @@ import type { ProductoOfertado } from '@/app/lib/producto-ofertado';
  */
 export async function guardarProductoLeidoDeFicha(args: {
   itemId: number; negocioId: number; producto: ProductoOfertado; fuenteDocumento: string;
+  /** URL en R2 de la foto sacada de la ficha (ver ficha-imagen-extraer.ts), o null si no se
+   *  encontró/no se pudo extraer — nunca bloquea guardar el resto del producto. */
+  imagenUrl?: string | null;
 }): Promise<void> {
-  const { itemId, negocioId, producto, fuenteDocumento } = args;
-  const hayDato = Object.values(producto).some(v => v != null && String(v).trim() !== '');
+  const { itemId, negocioId, producto, fuenteDocumento, imagenUrl } = args;
+  const hayDato = Object.values(producto).some(v => v != null && String(v).trim() !== '') || !!imagenUrl;
   if (!hayDato) return;
 
   const [existente] = await pool.query(
@@ -30,19 +33,20 @@ export async function guardarProductoLeidoDeFicha(args: {
   await pool.query(
     `INSERT INTO linea_producto_ofertado
        (item_id, negocio_id, marca, modelo, fabricante, pais_fabricacion, anio_fabricacion,
-        origen, fuente_documento, actualizado_en)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'ficha', ?, ?)
+        imagen_url, origen, fuente_documento, actualizado_en)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ficha', ?, ?)
      ON DUPLICATE KEY UPDATE
        marca = COALESCE(VALUES(marca), marca),
        modelo = COALESCE(VALUES(modelo), modelo),
        fabricante = COALESCE(VALUES(fabricante), fabricante),
        pais_fabricacion = COALESCE(VALUES(pais_fabricacion), pais_fabricacion),
        anio_fabricacion = COALESCE(VALUES(anio_fabricacion), anio_fabricacion),
+       imagen_url = COALESCE(VALUES(imagen_url), imagen_url),
        fuente_documento = VALUES(fuente_documento), actualizado_en = VALUES(actualizado_en)`,
     [
       itemId, negocioId, producto.marca, producto.modelo, producto.fabricante,
-      producto.paisFabricacion, producto.anioFabricacion, fuenteDocumento.slice(0, 300),
-      ahoraChileSQL(),
+      producto.paisFabricacion, producto.anioFabricacion, imagenUrl || null,
+      fuenteDocumento.slice(0, 300), ahoraChileSQL(),
     ],
   );
 }
@@ -76,6 +80,7 @@ export async function confirmarProductoOfertado(args: {
 
 export interface ProductoOfertadoGuardado extends ProductoOfertado {
   garantiaMeses: number | null;
+  imagenUrl: string | null;
   origen: 'ficha' | 'manual';
   fuenteDocumento: string | null;
   confirmadoPor: number | null;
@@ -84,7 +89,7 @@ export interface ProductoOfertadoGuardado extends ProductoOfertado {
 export async function leerProductoOfertado(itemId: number): Promise<ProductoOfertadoGuardado | null> {
   const [rows] = await pool.query(
     `SELECT marca, modelo, fabricante, pais_fabricacion, anio_fabricacion, garantia_meses,
-            origen, fuente_documento, confirmado_por
+            imagen_url, origen, fuente_documento, confirmado_por
        FROM linea_producto_ofertado WHERE item_id = ?`, [itemId],
   ) as any;
   const r = (rows as any[])[0];
@@ -92,7 +97,7 @@ export async function leerProductoOfertado(itemId: number): Promise<ProductoOfer
   return {
     marca: r.marca, modelo: r.modelo, fabricante: r.fabricante,
     paisFabricacion: r.pais_fabricacion, anioFabricacion: r.anio_fabricacion,
-    garantiaMeses: r.garantia_meses, origen: r.origen,
+    garantiaMeses: r.garantia_meses, imagenUrl: r.imagen_url ?? null, origen: r.origen,
     fuenteDocumento: r.fuente_documento, confirmadoPor: r.confirmado_por,
   };
 }

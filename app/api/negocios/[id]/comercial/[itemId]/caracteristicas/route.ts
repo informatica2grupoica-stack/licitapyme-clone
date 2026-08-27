@@ -30,6 +30,8 @@ import {
 import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
 import { extraerProductoOfertado } from '@/app/lib/producto-ofertado';
 import { guardarProductoLeidoDeFicha, leerProductoOfertado, confirmarProductoOfertado } from '@/app/lib/producto-ofertado-db';
+import { extraerImagenProducto } from '@/app/lib/ficha-imagen-extraer';
+import { subirDocumentoR2 } from '@/app/lib/r2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -203,7 +205,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     // en nuestra ficha, así que tiene que poder corregirse aunque la lectura automática (subir
     // ficha) se haya equivocado o no haya encontrado nada.
     if (accion === 'confirmar_producto') {
-      if (await yaCongelado(negocio.id))
+      if (await yaCongelado(negocio.id, rol))
         return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
       const limpio = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t.slice(0, 160) : null; };
       await confirmarProductoOfertado({
@@ -221,7 +223,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     // se hubiera validado, para "Validar línea" / "Subir ficha" desde cero sin arrastrar datos
     // viejos mezclados con los nuevos.
     if (accion === 'reiniciar') {
-      if (await yaCongelado(negocio.id))
+      if (await yaCongelado(negocio.id, rol))
         return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
       const [delRows] = await pool.query(`DELETE FROM checklist_comercial_caracteristicas WHERE item_id = ?`, [item.id]) as any;
@@ -348,7 +350,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       // confirmó a mano (guardarProductoLeidoDeFicha se abstiene en ese caso).
       try {
         const producto = extraerProductoOfertado(extraido.texto, documentoNombre);
-        await guardarProductoLeidoDeFicha({ itemId: item.id, negocioId: negocio.id, producto, fuenteDocumento: documentoNombre });
+        const imagenUrl = await extraerFotoProductoSiEsPdf(documentoUrl, documentoNombre, negocio.licitacion_codigo, item.id);
+        await guardarProductoLeidoDeFicha({ itemId: item.id, negocioId: negocio.id, producto, fuenteDocumento: documentoNombre, imagenUrl });
       } catch (e) {
         // No puede tumbar la comparación: las características ya se guardaron arriba.
         console.error('[comercial][caracteristicas] no se pudo leer marca/modelo de la ficha:', String(e));
@@ -364,6 +367,31 @@ export async function POST(request: NextRequest, { params }: Params) {
   } catch (error) {
     console.error('[comercial][caracteristicas][POST]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+/**
+ * Foto del producto sacada de la ficha del proveedor, para NUESTRA ficha técnica (ver
+ * ficha-imagen-extraer.ts). Solo tiene sentido para PDF (Word no trae imágenes incrustadas de la
+ * misma forma y este proyecto no las necesita ahí). Best-effort: cualquier fallo devuelve null y
+ * no interrumpe el resto de la comparación — la foto es un plus, no un dato crítico como el
+ * veredicto de cumplimiento.
+ */
+async function extraerFotoProductoSiEsPdf(
+  documentoUrl: string, documentoNombre: string, licitacionCodigo: string, itemId: number,
+): Promise<string | null> {
+  if (!/\.pdf(\?|$)/i.test(documentoUrl) && !/\.pdf$/i.test(documentoNombre)) return null;
+  try {
+    const res = await fetch(documentoUrl);
+    if (!res.ok) return null;
+    const buffer = Buffer.from(await res.arrayBuffer());
+    if (!buffer.length) return null;
+    const imagen = await extraerImagenProducto(buffer);
+    if (!imagen) return null;
+    return await subirDocumentoR2(licitacionCodigo, `producto_linea${itemId}.png`, imagen.png, 'image/png');
+  } catch (e) {
+    console.error('[comercial][caracteristicas] no se pudo extraer la foto del producto:', String(e));
+    return null;
   }
 }
 

@@ -101,7 +101,9 @@ export async function POST(request: NextRequest) {
       [codigo],
     ) as any;
     const negocio = (rows as any[])[0];
-    if (negocio && (await yaCongelado(negocio.id))) {
+    // Ya se validó esAdmin() arriba: pasar 'admin' deja que también el creador de anexos
+    // permita reemplazar/generar sobre negocios postulados cuando quien pide es el admin de pruebas.
+    if (negocio && (await yaCongelado(negocio.id, 'admin'))) {
       return NextResponse.json(
         { error: 'Este negocio ya se postuló y su Auditor Técnico quedó congelado — ya no se pueden generar más anexos.' },
         { status: 409 },

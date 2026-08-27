@@ -83,9 +83,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   const { id } = await params;
   const auth = await autorizar(request, id);
   if ('error' in auth) return auth.error;
-  const { userId, negocio } = auth;
+  const { userId, rol, negocio } = auth;
 
-  if (await yaCongelado(negocio.id))
+  if (await yaCongelado(negocio.id, rol))
     return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
   const body = await request.json().catch(() => ({}));

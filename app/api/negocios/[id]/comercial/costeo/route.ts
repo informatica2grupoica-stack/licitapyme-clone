@@ -92,7 +92,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-    if (await yaCongelado(negocio.id))
+    if (await yaCongelado(negocio.id, rol))
       return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));
@@ -219,7 +219,7 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-    if (await yaCongelado(negocio.id))
+    if (await yaCongelado(negocio.id, rol))
       return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));

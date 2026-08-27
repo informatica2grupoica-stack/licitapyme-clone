@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
                 n.licitacion_cierre,
                 COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline
          FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
-         WHERE n.activo = TRUE ${filtroCarga}`, pCarga),
+         WHERE n.activo = TRUE AND u.activo = TRUE ${filtroCarga}`, pCarga),
       verOtros
         ? pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`)
         : Promise.resolve([[]] as any),

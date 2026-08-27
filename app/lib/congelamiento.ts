@@ -39,8 +39,16 @@ export const ESTADOS_OFERTA_ENVIADA = [
  * esto como guard de escritura ya están dentro de un try/catch que responde 500 y no escribe
  * nada; los llamadores internos que sí deben tolerar el fallo (congelarAuditorSiCorresponde,
  * congelarPendientes) lo atrapan explícitamente ellos mismos.
+ *
+ * BYPASS DE PRUEBAS (27-ago-2026, pedido explícito): el admin necesita hacer pruebas del Auditor
+ * sobre negocios YA POSTULADOS —justamente para no tocar los que los asistentes están cargando en
+ * vivo—. Si `rol === 'admin'` nunca se considera congelado: el resto del equipo (asistente/asesor)
+ * sigue viendo el bloqueo tal cual. El paquete ya congelado en `checklist_comercial_congelamiento`
+ * (lo que alimenta Compras) NO se toca acá — solo se reescribe una vez, al postular— así que estas
+ * pruebas no corrompen el registro histórico, solo permiten seguir editando el checklist en vivo.
  */
-export async function yaCongelado(negocioId: number): Promise<boolean> {
+export async function yaCongelado(negocioId: number, rol?: string | null): Promise<boolean> {
+  if (rol === 'admin') return false;
   const [rows] = await pool.query(
     `SELECT 1
        FROM checklist_comercial_congelamiento c
@@ -52,7 +60,10 @@ export async function yaCongelado(negocioId: number): Promise<boolean> {
   return (rows as any[]).length > 0;
 }
 
-export async function leerCongelamiento(negocioId: number): Promise<{ congeladoAt: string; congeladoPorNombre: string | null; paquete: PaqueteTraspaso } | null> {
+export async function leerCongelamiento(negocioId: number, rol?: string | null): Promise<{ congeladoAt: string; congeladoPorNombre: string | null; paquete: PaqueteTraspaso } | null> {
+  // Mismo bypass de pruebas que yaCongelado(): si el admin no ve el banner de "solo lectura",
+  // la UI tampoco le deshabilita los botones (InformacionComercialSection usa `congelado` para eso).
+  if (rol === 'admin') return null;
   try {
     const [rows] = await pool.query(
       // Mismo criterio que yaCongelado(): si el negocio ya no está postulado, el banner de

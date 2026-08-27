@@ -44,6 +44,9 @@ export interface ProductoOfertadoLinea {
   /** true = una persona lo confirmó; false/undefined = todavía es lo que se leyó de la ficha, sin
    *  revisar. Se usa para decidir si el dato se imprime tal cual o con un aviso al lado. */
   confirmado?: boolean;
+  /** Foto del producto, como data: URI — sacada de la ficha del proveedor (ver
+   *  ficha-imagen-extraer.ts) o subida a mano. null/undefined = todavía no hay foto. */
+  imagenDataUri?: string | null;
 }
 
 export interface LineaFicha {

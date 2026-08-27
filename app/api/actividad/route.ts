@@ -100,14 +100,14 @@ export async function GET(request: NextRequest) {
     );
 
     const [usuarios] = await pool.query(
-      `SELECT id, nombre, email FROM usuarios ORDER BY nombre ASC`,
+      `SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`,
     );
 
     return NextResponse.json({ success: true, actividad: rows, usuarios });
   } catch (error: any) {
     // Tabla aún no creada (migración 18 pendiente) → responder vacío, sin romper la página.
     if (error?.code === 'ER_NO_SUCH_TABLE') {
-      const [usuarios] = await pool.query(`SELECT id, nombre, email FROM usuarios ORDER BY nombre ASC`);
+      const [usuarios] = await pool.query(`SELECT id, nombre, email FROM usuarios WHERE activo = TRUE ORDER BY nombre ASC`);
       return NextResponse.json({ success: true, actividad: [], usuarios, migracionPendiente: true });
     }
     return NextResponse.json({ error: String(error) }, { status: 500 });

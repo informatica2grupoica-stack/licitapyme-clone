@@ -71,7 +71,7 @@ export async function cargaDeEquipo(): Promise<CargaPerfil[]> {
               n.licitacion_cierre,
               COALESCE(n.estado_pipeline, 'ASIGNADO') AS estado_pipeline
        FROM negocios n JOIN usuarios u ON u.id = n.asignado_a
-       WHERE n.activo = TRUE`);
+       WHERE n.activo = TRUE AND u.activo = TRUE`);
     return resumirCarga(rows as FilaCarga[]);
   } catch {
     return [];

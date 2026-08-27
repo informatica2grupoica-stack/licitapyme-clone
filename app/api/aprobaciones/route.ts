@@ -255,7 +255,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: true, ...(await construirBandeja()) });
     }
 
-    if (await yaCongelado(negocioId))
+    if (await yaCongelado(negocioId, rol))
       return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
     // ── Aprobar TODO de un clic: los dos bloques (técnico y comercial) que tengan algo cargado,

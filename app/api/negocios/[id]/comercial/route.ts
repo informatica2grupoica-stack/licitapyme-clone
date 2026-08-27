@@ -100,7 +100,7 @@ export async function asesores(): Promise<Array<{ id: number; nombre: string }>>
   } catch {
     // Sin columna `permisos` (migración 28 pendiente) o sin `activo`: caer a los admin.
     try {
-      const [rows] = await pool.query(`SELECT id, nombre FROM usuarios WHERE rol = 'admin'`) as any;
+      const [rows] = await pool.query(`SELECT id, nombre FROM usuarios WHERE rol = 'admin' AND activo = TRUE`) as any;
       return rows as any[];
     } catch { return []; }
   }
@@ -481,7 +481,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     } catch { /* migración 54 pendiente */ }
 
     const { semaforo, causales, horasRestantes } = semaforoDelNegocio(negocio, items);
-    const congelamiento = await leerCongelamiento(negocio.id);
+    const congelamiento = await leerCongelamiento(negocio.id, rol);
     const generacion = await decidirGeneracionDeBloques(negocio);
 
     return NextResponse.json({
@@ -530,7 +530,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
-    if (await yaCongelado(negocio.id))
+    if (await yaCongelado(negocio.id, rol))
       return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));
@@ -584,7 +584,8 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (!(await puedeVerNegocioAsignado(userId, rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
     // Congelado (spec §12.1): registro histórico inmutable, no reabrible — nada se escribe.
-    if (await yaCongelado(negocio.id))
+    // Admin puede saltarse el bloqueo para hacer pruebas (27-ago-2026, ver congelamiento.ts).
+    if (await yaCongelado(negocio.id, rol))
       return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado como registro histórico, de solo lectura.' }, { status: 409 });
 
     const body = await request.json().catch(() => ({}));
