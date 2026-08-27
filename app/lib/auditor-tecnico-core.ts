@@ -143,7 +143,10 @@ function fusionarProductosDeLinea(linea: number, productos: any[]): LineaTecnica
   };
 }
 
-export function lineasTecnicasDelInforme(informe: any): LineaTecnica[] {
+/** Agrupa los ítems crudos del informe por línea real, SIN fusionar — cada línea puede traer 1 o
+ *  varios productos (ver fusionarProductosDeLinea). Compartido por lineasTecnicasDelInforme() y
+ *  productosCrudosDeLinea(): ambas necesitan el mismo agrupamiento, solo difieren en si fusionan. */
+function agruparCrudoPorLinea(informe: any): Map<number, any[]> {
   const crudo: any[] =
     (Array.isArray(informe?.productos?.items) && informe.productos.items) ||
     (Array.isArray(informe?.manifiesto_productos) && informe.manifiesto_productos) ||
@@ -155,8 +158,31 @@ export function lineasTecnicasDelInforme(informe: any): LineaTecnica[] {
     if (!porLinea.has(linea)) porLinea.set(linea, []);
     porLinea.get(linea)!.push(it);
   });
-  const out = Array.from(porLinea.entries()).map(([linea, productos]) => fusionarProductosDeLinea(linea, productos));
+  return porLinea;
+}
+
+export function lineasTecnicasDelInforme(informe: any): LineaTecnica[] {
+  const out = Array.from(agruparCrudoPorLinea(informe).entries())
+    .map(([linea, productos]) => fusionarProductosDeLinea(linea, productos));
   return out.sort((a, b) => a.linea - b.linea);
+}
+
+/**
+ * Los productos de UNA línea, SIN fusionar — para la ficha técnica PROPIA (ver ficha-tecnica.ts) y
+ * el bloque "Producto que ofertamos" del Auditor: cuando una línea real junta varios productos
+ * (caso real 2446-240-LE26: "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer" bajo la misma línea
+ * de precio), cada uno necesita SU PROPIA marca/modelo/foto — fusionarlos en un solo nombre (como
+ * hace lineasTecnicasDelInforme, para el checklist de cumplimiento) perdería esa distinción.
+ * Solo nombre/cantidad/unidad: las características fusionadas (con o sin prefijo de producto) ya
+ * las da lineasTecnicasDelInforme y no hace falta duplicarlas acá.
+ */
+export function productosCrudosDeLinea(informe: any, linea: number): Array<{ nombre: string; cantidad: number | null; unidadMedida: string | null }> {
+  const productos = agruparCrudoPorLinea(informe).get(linea) || [];
+  return productos.map((it: any) => ({
+    nombre: String(it?.nombre || it?.descripcion_exacta || it?.descripcion || '').trim() || `Línea ${linea}`,
+    cantidad: Number.isFinite(Number(it?.cantidad)) ? Number(it.cantidad) : null,
+    unidadMedida: it?.unidad_medida ? String(it.unidad_medida) : null,
+  }));
 }
 
 // ─── Conversión de unidades determinista (sin IA) ───────────────────────────────────────────────

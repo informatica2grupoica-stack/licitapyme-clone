@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  lineasTecnicasDelInforme, evaluarCaracteristicaDeterminista, resumenLinea, slugCaracteristica,
+  lineasTecnicasDelInforme, productosCrudosDeLinea, evaluarCaracteristicaDeterminista, resumenLinea, slugCaracteristica,
 } from '../auditor-tecnico';
 import { causalesDeBloqueo } from '../semaforo-auditor';
 
@@ -97,6 +97,39 @@ test('con un solo producto por línea, cantidad y unidad siguen presentes (sin c
   const [l1] = lineasTecnicasDelInforme(informe);
   assert.equal(l1.cantidad, 3);
   assert.equal(l1.unidadMedida, 'un');
+});
+
+// ─── productosCrudosDeLinea: para la ficha técnica PROPIA (migración 82) ──────────────────────
+// A diferencia de lineasTecnicasDelInforme (que FUSIONA en un solo nombre para el checklist de
+// cumplimiento), esto devuelve cada producto POR SEPARADO — caso real 2446-240-LE26: la "Línea 1"
+// es "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer", cada una con su propia marca/modelo/foto.
+test('productosCrudosDeLinea: un solo producto por línea devuelve un array de 1', () => {
+  const informe = { productos: { items: [
+    { linea: 1, nombre: 'Barredora vial', cantidad: 3, unidad_medida: 'un' },
+  ] } };
+  const productos = productosCrudosDeLinea(informe, 1);
+  assert.equal(productos.length, 1);
+  assert.equal(productos[0].nombre, 'Barredora vial');
+  assert.equal(productos[0].cantidad, 3);
+  assert.equal(productos[0].unidadMedida, 'un');
+});
+
+test('productosCrudosDeLinea: una línea-paquete devuelve CADA producto SIN fusionar (caso real 2446-240-LE26)', () => {
+  const informe = { productos: { items: [
+    { linea: 'L1', nombre: 'Hidrolavadora peatonal equivalente a modelo H300 de Tecnomaq + 2 (Dos) plato de lavado 22" inoxidable', cantidad: 2, unidad_medida: 'Unidad' },
+    { linea: 'L1', nombre: 'Vacuolavadora de empuje equivalente a modelo DB51 Dimer + 3 Rodillos + 3 Squeegee', cantidad: 3, unidad_medida: 'Unidad' },
+  ] } };
+  const productos = productosCrudosDeLinea(informe, 1);
+  assert.equal(productos.length, 2, 'los 2 productos deben sobrevivir SIN fusionarse');
+  assert.match(productos[0].nombre, /Hidrolavadora/);
+  assert.match(productos[1].nombre, /Vacuolavadora/);
+  assert.equal(productos[0].cantidad, 2);
+  assert.equal(productos[1].cantidad, 3, 'cada producto conserva SU PROPIA cantidad, no la de la línea fusionada');
+});
+
+test('productosCrudosDeLinea: línea sin productos en el informe devuelve array vacío (fallback a 1 genérico lo maneja el llamador)', () => {
+  const informe = { productos: { items: [{ linea: 1, nombre: 'A' }] } };
+  assert.deepEqual(productosCrudosDeLinea(informe, 99), []);
 });
 
 test('evaluarCaracteristicaDeterminista: PISO cumple con mismo valor/unidad', () => {

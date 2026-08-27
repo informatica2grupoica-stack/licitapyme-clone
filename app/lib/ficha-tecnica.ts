@@ -35,6 +35,10 @@ export interface EspecificacionFicha {
 }
 
 export interface ProductoOfertadoLinea {
+  /** Nombre de ESTE producto dentro de una línea-paquete (migración 82, caso real 2446-240-LE26:
+   *  "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer" bajo la misma línea de precio). null en el
+   *  caso normal de un solo producto por línea — ahí no hace falta repetir el título de la línea. */
+  nombre?: string | null;
   marca: string | null;
   modelo: string | null;
   fabricante: string | null;
@@ -60,10 +64,11 @@ export interface LineaFicha {
   cantidad: number | null;
   unidad: string | null;
   especificaciones: EspecificacionFicha[];
-  /** Marca/modelo/fabricante de ESTE producto — null si todavía no se cargó nada (ver
-   *  producto-ofertado.ts). No confundir con marcaModeloReferencia del informe, que es lo que
+  /** Marca/modelo/fabricante/foto de cada producto de ESTA línea — normalmente uno solo; más de
+   *  uno cuando la línea real es un paquete (migración 82). Vacío o ausente si no se cargó nada
+   *  (ver producto-ofertado.ts). No confundir con marcaModeloReferencia del informe, que es lo que
    *  PIDEN las bases, no lo que ofertamos. */
-  productoOfertado?: ProductoOfertadoLinea | null;
+  productosOfertados?: ProductoOfertadoLinea[];
 }
 
 export interface EmpresaFicha {
@@ -180,11 +185,19 @@ function tablaLinea(l: LineaFicha): string {
     l.unidad || '',
   ].filter(Boolean).join(' ');
 
+  // Un producto (lo normal): sus datos van tal cual, como siempre. Varios productos (línea-paquete,
+  // migración 82): cada uno con su propio subtítulo, foto y tabla "Información de la oferta" —
+  // sin el subtítulo repetido no habría forma de saber cuál marca/modelo es de cuál producto.
+  const productos = l.productosOfertados || [];
+  const bloquesProducto = productos.map(p => `
+    ${productos.length > 1 && p.nombre ? `<p class="producto-nombre">${esc(p.nombre)}</p>` : ''}
+    ${imagenProducto(p)}
+    ${tablaProductoOfertado(p)}`).join('');
+
   return `<section class="linea">
     <h2>${l.linea != null ? `Línea ${l.linea} — ` : ''}${esc(l.titulo)}</h2>
     ${cabeceraCantidad ? `<p class="cant">${esc(cabeceraCantidad)}</p>` : ''}
-    ${imagenProducto(l.productoOfertado)}
-    ${tablaProductoOfertado(l.productoOfertado)}
+    ${bloquesProducto}
     ${l.especificaciones.length === 0
       ? '<p class="sin">Sin especificaciones técnicas registradas para esta línea.</p>'
       : `<table class="specs">
@@ -297,6 +310,9 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   section.linea h2 { font-size: 11.5px; margin: 0 0 2px; padding: 5px 8px; background: #f4f4f5;
                      border-left: 3px solid #0f766e; }
   p.cant { margin: 0 0 5px 8px; color: #71717a; font-size: 9.5px; }
+  /* Subtítulo de CADA producto dentro de una línea-paquete (varios productos, migración 82) —
+     sin esto no se distingue de cuál producto es la marca/modelo/foto que sigue. */
+  p.producto-nombre { margin: 10px 0 4px 8px; font-weight: 700; font-size: 10.5px; color: #18181b; }
   .foto-producto { text-align: center; margin: 4px 0 8px; page-break-inside: avoid; }
   .foto-producto img { max-height: 150px; max-width: 60%; object-fit: contain; }
   .foto-producto .foto-ref { margin: 3px 0 0; color: #a1a1aa; font-size: 8.5px; font-style: italic; }

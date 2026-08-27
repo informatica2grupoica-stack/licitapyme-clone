@@ -193,7 +193,7 @@ test('la casilla "Ofertado" existe en las dos formas de tabla', () => {
 test('sin producto ofertado no se imprime la tabla de oferta', () => {
   const h = construirFichaTecnicaHtml({
     licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{ linea: 1, titulo: 'Romana', cantidad: null, unidad: null, especificaciones: [], productoOfertado: null }],
+    lineas: [{ linea: 1, titulo: 'Romana', cantidad: null, unidad: null, especificaciones: [], productosOfertados: [] }],
     generadoPor: null, fechaTexto: '26 de agosto de 2026',
   });
   assert.ok(!h.includes('table class="oferta"'));
@@ -204,10 +204,10 @@ test('con producto ofertado, imprime marca/modelo/fabricante', () => {
     licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
     lineas: [{
       linea: 8, titulo: 'Set contenedores', cantidad: null, unidad: null, especificaciones: [],
-      productoOfertado: {
+      productosOfertados: [{
         marca: 'Konica Minolta', modelo: 'LS-150', fabricante: 'Konica Minolta',
         paisFabricacion: 'Japón', anioFabricacion: null, garantiaMeses: 12, confirmado: true,
-      },
+      }],
     }],
     generadoPor: null, fechaTexto: '26 de agosto de 2026',
   });
@@ -224,7 +224,7 @@ test('sin confirmar, avisa que hay que revisarlo antes de presentar', () => {
     licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
     lineas: [{
       linea: 8, titulo: 'Set contenedores', cantidad: null, unidad: null, especificaciones: [],
-      productoOfertado: { marca: 'Konica Minolta', modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null, confirmado: false },
+      productosOfertados: [{ marca: 'Konica Minolta', modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null, confirmado: false }],
     }],
     generadoPor: null, fechaTexto: '26 de agosto de 2026',
   });
@@ -237,7 +237,7 @@ test('confirmado por una persona, NO muestra el aviso', () => {
     licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
     lineas: [{
       linea: 8, titulo: 'Set contenedores', cantidad: null, unidad: null, especificaciones: [],
-      productoOfertado: { marca: 'Konica Minolta', modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null, confirmado: true },
+      productosOfertados: [{ marca: 'Konica Minolta', modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null, confirmado: true }],
     }],
     generadoPor: null, fechaTexto: '26 de agosto de 2026',
   });
@@ -252,7 +252,7 @@ test('un objeto productoOfertado sin ningún dato no imprime tabla', () => {
     licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
     lineas: [{
       linea: 8, titulo: 'Set contenedores', cantidad: null, unidad: null, especificaciones: [],
-      productoOfertado: { marca: null, modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null },
+      productosOfertados: [{ marca: null, modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null }],
     }],
     generadoPor: null, fechaTexto: '26 de agosto de 2026',
   });
@@ -293,4 +293,40 @@ test('imagen CONFIRMADA por una persona: sale con el pie neutro, sin el aviso', 
 test('confirmar el texto NO confirma la foto: el aviso de la imagen se mantiene', () => {
   const html = imagenProducto(producto({ imagenDataUri: 'data:image/png;base64,AAA', confirmado: true, imagenConfirmada: false }));
   assert.ok(/confirmar que corresponde al equipo/i.test(html));
+});
+
+// ─── LÍNEA-PAQUETE: varios productos bajo la misma línea (migración 82) ───────────────────────
+// Caso real 2446-240-LE26: "Línea 1" junta una Hidrolavadora H300 y una Vacuolavadora DB51 Dimer,
+// cada una con su propia marca/modelo/foto. Antes de esto solo se imprimía UNA — la otra quedaba
+// completamente afuera de la ficha, aunque el usuario la hubiera cargado.
+test('línea con UN producto: no imprime subtítulo (mismo look de siempre)', () => {
+  const h = construirFichaTecnicaHtml({
+    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
+    lineas: [{
+      linea: 1, titulo: 'Hidrolavadora', cantidad: null, unidad: null, especificaciones: [],
+      productosOfertados: [{ nombre: 'Hidrolavadora H300', marca: 'Tecnomaq', modelo: 'H300', fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null }],
+    }],
+    generadoPor: null, fechaTexto: '27 de agosto de 2026',
+  });
+  assert.ok(h.includes('Tecnomaq'));
+  assert.ok(!h.includes('producto-nombre'));
+});
+
+test('línea-PAQUETE con 2 productos: imprime AMBOS con su propio subtítulo', () => {
+  const h = construirFichaTecnicaHtml({
+    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
+    lineas: [{
+      linea: 1, titulo: '2 productos: Hidrolavadora H300, Vacuolavadora DB51 Dimer',
+      cantidad: null, unidad: null, especificaciones: [],
+      productosOfertados: [
+        { nombre: 'Hidrolavadora H300', marca: 'Tecnomaq', modelo: 'H300', fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null },
+        { nombre: 'Vacuolavadora DB51 Dimer', marca: 'Dimer', modelo: 'DB51', fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null },
+      ],
+    }],
+    generadoPor: null, fechaTexto: '27 de agosto de 2026',
+  });
+  assert.ok(h.includes('Tecnomaq'), 'debe imprimir la marca del primer producto');
+  assert.ok(h.includes('Dimer'), 'debe imprimir la marca del SEGUNDO producto — antes se perdía');
+  assert.ok(h.includes('>Hidrolavadora H300<'), 'subtítulo del primer producto');
+  assert.ok(h.includes('>Vacuolavadora DB51 Dimer<'), 'subtítulo del segundo producto');
 });

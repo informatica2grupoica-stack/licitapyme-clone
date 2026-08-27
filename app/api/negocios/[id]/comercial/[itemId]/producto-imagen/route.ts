@@ -12,9 +12,9 @@ import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { subirDocumentoR2 } from '@/app/lib/r2';
-import { confirmarImagenProducto, leerProductoOfertado } from '@/app/lib/producto-ofertado-db';
+import { confirmarImagenProducto } from '@/app/lib/producto-ofertado-db';
 import { cargarNegocio } from '../../route';
-import { cargarItemLineaTecnica } from '../caracteristicas/route';
+import { cargarItemLineaTecnica, productosDeItem } from '../caracteristicas/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -53,15 +53,19 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'La foto debe ser PNG, JPG o WEBP.' }, { status: 400 });
     if (file.size > TAMANO_MAX)
       return NextResponse.json({ error: 'La foto es demasiado grande (máximo 8 MB).' }, { status: 400 });
+    // 0 por defecto: la línea normal de un solo producto. Una línea-paquete (migración 82) manda
+    // el índice del producto al que le está subiendo la foto.
+    const productoIndexRaw = Number(formData.get('productoIndex'));
+    const productoIndex = Number.isInteger(productoIndexRaw) && productoIndexRaw >= 0 ? productoIndexRaw : 0;
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const nombre = `producto_linea${item.id}_manual.${(file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`;
+    const nombre = `producto_linea${item.id}_${productoIndex}_manual.${(file.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`;
     const url = await subirDocumentoR2(negocio.licitacion_codigo, nombre, buffer, file.type);
 
-    await confirmarImagenProducto({ itemId: item.id, negocioId: negocio.id, imagenUrl: url });
+    await confirmarImagenProducto({ itemId: item.id, negocioId: negocio.id, productoIndex, imagenUrl: url });
     publicarCambio('checklist_comercial');
 
-    return NextResponse.json({ success: true, productoOfertado: await leerProductoOfertado(item.id) });
+    return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo) });
   } catch (error) {
     console.error('[comercial][producto-imagen][POST]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });

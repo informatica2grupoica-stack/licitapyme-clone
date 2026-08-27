@@ -6,9 +6,10 @@
 //   GET   → detalle completo de las características de la línea (nivel 3 de la UI)
 //   POST  → { accion: 'validar' }                         Agente 1: clasifica caracteristicas[]
 //           { accion: 'comparar_ficha', documentoUrl, documentoNombre }  Agente 2 (camino B)
-//           { accion: 'confirmar_producto', marca, modelo, ... }  confirma/corrige marca/modelo
-//           { accion: 'confirmar_imagen_producto' }        confirma la foto tal como quedó
-//           { accion: 'quitar_imagen_producto' }           descarta la foto (la extracción falló)
+//           { accion: 'confirmar_producto', productoIndex, marca, modelo, ... }  confirma/corrige
+//           { accion: 'confirmar_imagen_producto', productoIndex }  confirma la foto tal como quedó
+//           { accion: 'quitar_imagen_producto', productoIndex }     descarta la foto
+//           (productoIndex es 0 salvo que la línea sea un paquete de varios productos — migración 82)
 //   PATCH → { accion: 'responder', caracteristicaId, ... } camino A (interrogatorio)
 //           { accion: 'corregir', caracteristicaId, veredicto, comentario }  solo asesor
 //   DELETE ?caracteristicaId=  → borra una fila agregada por error
@@ -32,9 +33,10 @@ import {
 } from '@/app/lib/auditor-tecnico';
 import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
 import { extraerProductoOfertado } from '@/app/lib/producto-ofertado';
+import { productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
 import {
-  guardarProductoLeidoDeFicha, leerProductoOfertado, confirmarProductoOfertado,
-  confirmarImagenProducto, quitarImagenProducto,
+  guardarProductoLeidoDeFicha, leerProductoOfertado, leerProductosDeLinea, confirmarProductoOfertado,
+  confirmarImagenProducto, quitarImagenProducto, type ProductoDeLinea,
 } from '@/app/lib/producto-ofertado-db';
 import { extraerImagenProducto } from '@/app/lib/ficha-imagen-extraer';
 import { subirDocumentoR2 } from '@/app/lib/r2';
@@ -87,6 +89,22 @@ export async function cargarItemLineaTecnica(negocioId: number, itemId: number) 
     [itemId, negocioId],
   ) as any;
   return (rows as any[])[0] || null;
+}
+
+/**
+ * Los productos de esta línea (1 en el caso normal, N si la línea real es un paquete — ver
+ * migration-82 / productosCrudosDeLinea). Se resuelve del informe cada vez en vez de guardarse:
+ * si el informe se reprocesa, los nombres no quedan pisados a mano en linea_producto_ofertado.
+ */
+export async function productosDeItem(item: { id: number; linea_numero: number | null }, licitacionCodigo: string): Promise<ProductoDeLinea[]> {
+  let nombres: string[] = [];
+  if (item.linea_numero != null) {
+    try {
+      const informe = await leerInforme(licitacionCodigo);
+      if (informe) nombres = productosCrudosDeLinea(informe, item.linea_numero).map(p => p.nombre);
+    } catch { /* sin informe → 1 producto sin nombre, mismo comportamiento que antes */ }
+  }
+  return leerProductosDeLinea(item.id, nombres);
 }
 
 async function leerCaracteristicas(itemId: number) {
@@ -177,8 +195,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!item) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 });
 
     const caracteristicas = await leerCaracteristicas(item.id);
-    const productoOfertado = await leerProductoOfertado(item.id).catch(() => null);
-    return NextResponse.json({ success: true, caracteristicas, productoOfertado });
+    const productos = await productosDeItem(item, negocio.licitacion_codigo).catch(() => []);
+    return NextResponse.json({ success: true, caracteristicas, productos });
   } catch (error) {
     console.error('[comercial][caracteristicas][GET]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -213,15 +231,17 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (accion === 'confirmar_producto') {
       if (await yaCongelado(negocio.id, rol))
         return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
+      // 0 por defecto: mismo comportamiento de siempre para una línea de un solo producto. Una
+      // línea-paquete (ver migration-82) manda el índice del producto que está corrigiendo.
+      const productoIndex = Number.isInteger(body.productoIndex) ? Number(body.productoIndex) : 0;
       const limpio = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t.slice(0, 160) : null; };
       await confirmarProductoOfertado({
-        itemId: item.id, negocioId: negocio.id, usuarioId: userId,
+        itemId: item.id, negocioId: negocio.id, productoIndex, usuarioId: userId,
         marca: limpio(body.marca), modelo: limpio(body.modelo), fabricante: limpio(body.fabricante),
         paisFabricacion: limpio(body.paisFabricacion), anioFabricacion: limpio(body.anioFabricacion),
       });
       publicarCambio('checklist_comercial');
-      const productoOfertado = await leerProductoOfertado(item.id);
-      return NextResponse.json({ success: true, productoOfertado });
+      return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo) });
     }
 
     // ── Confirmar la foto tal como quedó (la extracción automática la trajo bien) ───────────
@@ -231,21 +251,23 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (accion === 'confirmar_imagen_producto') {
       if (await yaCongelado(negocio.id, rol))
         return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
-      const actual = await leerProductoOfertado(item.id);
+      const productoIndex = Number.isInteger(body.productoIndex) ? Number(body.productoIndex) : 0;
+      const actual = await leerProductoOfertado(item.id, productoIndex);
       if (!actual?.imagenUrl)
         return NextResponse.json({ error: 'No hay ninguna foto que confirmar.' }, { status: 400 });
-      await confirmarImagenProducto({ itemId: item.id, negocioId: negocio.id, imagenUrl: actual.imagenUrl });
+      await confirmarImagenProducto({ itemId: item.id, negocioId: negocio.id, productoIndex, imagenUrl: actual.imagenUrl });
       publicarCambio('checklist_comercial');
-      return NextResponse.json({ success: true, productoOfertado: await leerProductoOfertado(item.id) });
+      return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo) });
     }
 
     // ── Quitar la foto (la extracción trajo la equivocada y no hay con qué reemplazarla) ────
     if (accion === 'quitar_imagen_producto') {
       if (await yaCongelado(negocio.id, rol))
         return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
-      await quitarImagenProducto(item.id);
+      const productoIndex = Number.isInteger(body.productoIndex) ? Number(body.productoIndex) : 0;
+      await quitarImagenProducto(item.id, productoIndex);
       publicarCambio('checklist_comercial');
-      return NextResponse.json({ success: true, productoOfertado: await leerProductoOfertado(item.id) });
+      return NextResponse.json({ success: true, productos: await productosDeItem(item, negocio.licitacion_codigo) });
     }
 
     // ── Reiniciar: borra TODAS las características de la línea (ficha equivocada, prueba con
@@ -381,7 +403,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       try {
         const producto = extraerProductoOfertado(extraido.texto, documentoNombre);
         const imagenUrl = await extraerFotoProductoSiEsPdf(documentoUrl, documentoNombre, negocio.licitacion_codigo, item.id);
-        await guardarProductoLeidoDeFicha({ itemId: item.id, negocioId: negocio.id, producto, fuenteDocumento: documentoNombre, imagenUrl });
+        // productoIndex 0: la extracción lee la ficha completa sin saber a cuál de los N
+        // productos de una línea-paquete corresponde (ver migration-82) — llena el primer slot,
+        // el resto se completa a mano desde la pantalla.
+        await guardarProductoLeidoDeFicha({ itemId: item.id, negocioId: negocio.id, productoIndex: 0, producto, fuenteDocumento: documentoNombre, imagenUrl });
       } catch (e) {
         // No puede tumbar la comparación: las características ya se guardaron arriba.
         console.error('[comercial][caracteristicas] no se pudo leer marca/modelo de la ficha:', String(e));

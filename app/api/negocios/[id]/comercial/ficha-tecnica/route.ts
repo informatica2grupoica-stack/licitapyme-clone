@@ -15,8 +15,8 @@ import { subirDocumentoR2 } from '@/app/lib/r2';
 import { generarInformePdf } from '@/app/lib/generar-informe';
 import { leerLineasOfertadas } from '@/app/lib/lineas-oferta';
 import { cargarNegocio, nombreDe, leerInforme } from '../route';
-import { lineasTecnicasDelInforme } from '@/app/lib/auditor-tecnico-core';
-import { leerProductoOfertado } from '@/app/lib/producto-ofertado-db';
+import { lineasTecnicasDelInforme, productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
+import { leerProductosDeLinea } from '@/app/lib/producto-ofertado-db';
 import {
   construirFichaTecnicaHtml, especificacionesSinCompletar,
   type LineaFicha, type EspecificacionFicha, type EmpresaFicha, type ProductoOfertadoLinea,
@@ -139,17 +139,23 @@ export async function POST(request: NextRequest, { params }: Params) {
       for (const l of lineasTecnicasDelInforme(informeFicha)) delInforme.set(l.linea, l.caracteristicas);
     }
 
-    // Marca/modelo/fabricante por línea (producto-ofertado.ts / migración 79) — una consulta
-    // para todas, igual que el resto de los datos de esta ficha.
-    const productoPorItem = new Map<number, ProductoOfertadoLinea>();
+    // Marca/modelo/fabricante/foto por PRODUCTO de cada línea (producto-ofertado.ts / migración
+    // 79, 82) — una línea normal trae un solo producto; una línea-paquete (caso real
+    // 2446-240-LE26: "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer" en la misma línea de
+    // precio) trae varios, cada uno con su propia identidad.
+    const productosPorItem = new Map<number, ProductoOfertadoLinea[]>();
     await Promise.all(items.map(async i => {
-      const p = await leerProductoOfertado(i.id).catch(() => null);
-      if (p) productoPorItem.set(i.id, {
-        marca: p.marca, modelo: p.modelo, fabricante: p.fabricante,
-        paisFabricacion: p.paisFabricacion, anioFabricacion: p.anioFabricacion,
-        garantiaMeses: p.garantiaMeses, confirmado: p.confirmadoPor != null,
-        imagenDataUri: await comoDataUri(p.imagenUrl), imagenConfirmada: p.imagenConfirmada,
-      });
+      const nombres = i.linea_numero != null && informeFicha
+        ? productosCrudosDeLinea(informeFicha, i.linea_numero).map(p => p.nombre)
+        : [];
+      const productos = await leerProductosDeLinea(i.id, nombres).catch(() => []);
+      productosPorItem.set(i.id, await Promise.all(productos.map(async ({ nombre, ofertado }) => ({
+        nombre,
+        marca: ofertado?.marca ?? null, modelo: ofertado?.modelo ?? null, fabricante: ofertado?.fabricante ?? null,
+        paisFabricacion: ofertado?.paisFabricacion ?? null, anioFabricacion: ofertado?.anioFabricacion ?? null,
+        garantiaMeses: ofertado?.garantiaMeses ?? null, confirmado: ofertado?.confirmadoPor != null,
+        imagenDataUri: await comoDataUri(ofertado?.imagenUrl ?? null), imagenConfirmada: ofertado?.imagenConfirmada ?? false,
+      }))));
     }));
 
     const lineas: LineaFicha[] = items.map(i => {
@@ -171,7 +177,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         cantidad: m ? Number(String(m[1]).replace(/\./g, '').replace(',', '.')) || null : null,
         unidad: m?.[2] || null,
         especificaciones,
-        productoOfertado: productoPorItem.get(i.id) ?? null,
+        productosOfertados: productosPorItem.get(i.id) ?? [],
       };
     });
 

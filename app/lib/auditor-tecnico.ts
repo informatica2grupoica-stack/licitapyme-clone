@@ -34,7 +34,7 @@ export type {
   CaracteristicaClasificada, VeredictoCaracteristica, ResumenLinea,
 } from '@/app/lib/auditor-tecnico-core';
 export {
-  lineasTecnicasDelInforme, evaluarCaracteristicaDeterminista, resumenLinea, slugCaracteristica,
+  lineasTecnicasDelInforme, productosCrudosDeLinea, evaluarCaracteristicaDeterminista, resumenLinea, slugCaracteristica,
 } from '@/app/lib/auditor-tecnico-core';
 
 // ─── Agente 1: clasificación de características (interrogatorio y ficha comparten esta base) ──
