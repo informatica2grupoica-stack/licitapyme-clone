@@ -26,6 +26,8 @@ type EstadoItem = 'PENDIENTE' | 'CARGADO' | 'APROBADO' | 'OBSERVADO';
 
 interface Caracteristica {
   id: number;
+  /** A cuál producto de la línea pertenece (0 en el caso normal de 1 solo producto — migración 83). */
+  producto_index: number;
   descripcion: string;
   tipo: 'PISO' | 'TECHO' | 'EXACTO' | 'RANGO';
   valor_requerido_texto: string | null;
@@ -156,6 +158,9 @@ export function ModalAuditorLineaTecnica({
   const imgFileRef = useRef<HTMLInputElement>(null);
   const imgTargetIndex = useRef(0);
   const autoEjecutado = useRef(false);
+  // Id del documento que se está volviendo a comparar (ver el botón junto a "Ver documento") —
+  // null cuando ninguno está en curso.
+  const [recomparandoId, setRecomparandoId] = useState<number | null>(null);
 
   const cargarTodo = useCallback(async () => {
     const [rHeader, rCaract] = await Promise.all([
@@ -615,6 +620,36 @@ export function ModalAuditorLineaTecnica({
 
                 {caracteristicas.length === 0 ? (
                   <p className="text-[12px] text-zinc-400 py-3">Sin características clasificadas todavía. Pulsa "Validar" o sube la ficha del producto.</p>
+                ) : productos.length > 1 ? (
+                  // Línea-paquete (migración 83): una tabla POR PRODUCTO, con su propio subtítulo
+                  // — sin esto no había forma de saber cuál fila de "lo que pide" era de cuál
+                  // producto (caso real 2446-240-LE26: Hidrolavadora vs. Vacuolavadora mezcladas).
+                  <div className="space-y-3">
+                    {productos.map(p => {
+                      const delGrupo = caracteristicas.filter(c => c.producto_index === p.index);
+                      if (!delGrupo.length) return null;
+                      return (
+                        <div key={p.index} className="border border-zinc-100 rounded-lg overflow-hidden">
+                          <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-bold text-zinc-600">
+                            {p.nombre || `Producto ${p.index + 1}`}
+                          </div>
+                          <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
+                            <span>Lo que pide el producto</span>
+                            <span>Lo que subió el asistente</span>
+                            <span>Resultado</span>
+                          </div>
+                          <div className="divide-y divide-zinc-100">
+                            {delGrupo.map(c => (
+                              <FilaComparacion key={c.id} c={c} puedeAprobar={puedeAprobar} bloqueado={bloqueado}
+                                onResponder={responder} onCorregir={corregir}
+                                onAdjuntar={adjuntarACaracteristica} onQuitarAdjunto={quitarAdjunto}
+                                onVerAdjunto={doc => setVisorDoc(doc)} />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 ) : (
                   <div className="border border-zinc-100 rounded-lg overflow-hidden">
                     <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_auto] gap-x-3 px-3 py-2 bg-zinc-50 text-[10px] font-bold text-zinc-400 uppercase tracking-wide">
@@ -667,6 +702,24 @@ export function ModalAuditorLineaTecnica({
                     <div key={doc.id} className="flex items-center gap-2 px-3 py-2.5 bg-zinc-50 rounded-lg border border-zinc-100">
                       <FileText size={15} className="text-zinc-400 flex-shrink-0" />
                       <span className="text-[12.5px] text-zinc-600 truncate flex-1" title={doc.nombre}>{doc.nombre}</span>
+                      {/* Reusa el documento YA subido — sin esto, la única forma de repetir la
+                          comparación era resubir el mismo archivo desde el computador, y cada
+                          resubida quedaba como una copia nueva en esta misma lista (detectado
+                          27-ago-2026: 6 copias del mismo PDF acá). */}
+                      {!bloqueado && (
+                        <button
+                          onClick={async () => {
+                            setRecomparandoId(doc.id);
+                            try { await compararFicha(doc.url, doc.nombre); }
+                            finally { setRecomparandoId(null); }
+                          }}
+                          disabled={recomparandoId != null}
+                          title="Volver a comparar con este documento"
+                          className="p-1 text-zinc-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors flex-shrink-0 disabled:opacity-50"
+                        >
+                          {recomparandoId === doc.id ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                        </button>
+                      )}
                       <button onClick={() => setVisorDoc({ nombre: doc.nombre, url: doc.url })} title="Ver documento"
                         className="p-1 text-zinc-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors flex-shrink-0">
                         <Eye size={14} />

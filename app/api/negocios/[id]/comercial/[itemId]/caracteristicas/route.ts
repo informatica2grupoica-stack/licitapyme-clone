@@ -28,8 +28,9 @@ import { transicion } from '@/app/lib/checklist-comercial';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import {
-  lineasTecnicasDelInforme, clasificarCaracteristicasLinea, compararFichaProveedor,
+  clasificarCaracteristicasLinea, compararFichaProveedor,
   evaluarCaracteristicaDeterminista, evaluarCaracteristicaConIA, slugCaracteristica,
+  type VeredictoCaracteristica,
 } from '@/app/lib/auditor-tecnico';
 import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
 import { extraerProductoOfertado } from '@/app/lib/producto-ofertado';
@@ -53,7 +54,7 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-const COLS_CARACT = `id, item_id, negocio_id, clave_caracteristica, orden, descripcion, tipo,
+const COLS_CARACT = `id, item_id, producto_index, negocio_id, clave_caracteristica, orden, descripcion, tipo,
   valor_requerido_texto, valor_requerido_numero, valor_requerido_numero_max, unidad_requerida,
   valor_ofertado_texto, valor_ofertado_numero, unidad_ofertada_original, valor_convertido_numero,
   veredicto, pendiente_confirmacion_proveedor, fundamento_documento, fundamento_cita, confianza,
@@ -108,16 +109,35 @@ export async function productosDeItem(item: { id: number; linea_numero: number |
   return leerProductosDeLinea(item.id, nombres);
 }
 
+// La migración 83 (producto_index, ver docs/migration-83-caracteristicas-por-producto.sql) puede
+// no estar aplicada todavía en un entorno — mismo patrón tolerante que migracion72Aplicada().
+let m83: boolean | null = null;
+async function migracion83Aplicada(): Promise<boolean> {
+  if (m83 !== null) return m83;
+  try {
+    const [rows] = await pool.query<Array<{ n: number }> & RowDataPacket[]>(
+      `SELECT COUNT(*) AS n FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'checklist_comercial_caracteristicas'
+          AND COLUMN_NAME = 'producto_index'`,
+    );
+    m83 = Number(rows[0]?.n || 0) === 1;
+  } catch { m83 = false; }
+  return m83;
+}
+
 async function leerCaracteristicas(itemId: number) {
-  const cols = (await migracion72Aplicada())
-    ? COLS_CARACT
-    : COLS_CARACT.replace(/,\s*respuesta_manual, adjunto_url, adjunto_nombre/, '');
+  const sinM72 = (c: string) => c.replace(/,\s*respuesta_manual, adjunto_url, adjunto_nombre/, '');
+  const sinM83 = (c: string) => c.replace(/,\s*producto_index/, '');
+  let cols = COLS_CARACT;
+  if (!(await migracion72Aplicada())) cols = sinM72(cols);
+  if (!(await migracion83Aplicada())) cols = sinM83(cols);
   const [rows] = await pool.query(
     `SELECT ${cols} FROM checklist_comercial_caracteristicas WHERE item_id = ? ORDER BY orden, id`,
     [itemId],
   ) as any;
   return (rows as any[]).map(r => ({
     ...r,
+    producto_index: r.producto_index ?? 0,
     pendiente_confirmacion_proveedor: !!r.pendiente_confirmacion_proveedor,
     respuesta_manual: !!r.respuesta_manual,
     adjunto_url: r.adjunto_url ?? null,
@@ -295,32 +315,48 @@ export async function POST(request: NextRequest, { params }: Params) {
     }
 
     // ── Agente 1: clasifica caracteristicas[] del informe en PISO/TECHO/EXACTO/RANGO ──────────
+    // LÍNEA-PAQUETE (2+ productos, migración 83): se clasifica UNA VEZ POR PRODUCTO, con SOLO las
+    // características de ese producto (sin las del resto mezcladas) — así cada fila queda
+    // etiquetada con su producto_index desde que nace, y la pantalla puede separar la tabla.
+    // Línea normal (1 producto): productosCrudosDeLinea() devuelve el mismo LineaTecnica que antes
+    // devolvía lineasTecnicasDelInforme() para esa línea — comportamiento idéntico al de siempre.
     if (accion === 'validar') {
       const informe = await leerInforme(negocio.licitacion_codigo);
       if (!informe) return NextResponse.json({ error: 'Esta licitación aún no tiene informe de viabilidad.' }, { status: 400 });
 
-      const linea = lineasTecnicasDelInforme(informe).find(l => l.linea === item.linea_numero);
-      if (!linea || linea.caracteristicas.length === 0)
+      const productos = item.linea_numero != null ? productosCrudosDeLinea(informe, item.linea_numero) : [];
+      const aClasificar = productos
+        .map((producto, productoIndex) => ({ producto, productoIndex }))
+        .filter(({ producto }) => producto.caracteristicas.length > 0);
+      if (!aClasificar.length)
         return NextResponse.json({ error: 'El informe no trae características técnicas para esta línea.' }, { status: 400 });
 
-      const clasificadas = await clasificarCaracteristicasLinea(linea, { licitacionCodigo: negocio.licitacion_codigo });
+      // En paralelo: con varios productos, clasificar uno por uno (secuencial) puede sumar
+      // minutos y pasarse del límite de la petición HTTP (mismo problema que resolvió el trabajo
+      // de fondo de la comparación masiva — ver auditor-comparacion-masiva.ts).
+      const resultados = await Promise.all(aClasificar.map(({ producto, productoIndex }) =>
+        clasificarCaracteristicasLinea(producto, { licitacionCodigo: negocio.licitacion_codigo })
+          .then(clasificadas => ({ productoIndex, clasificadas }))));
+
       let nuevas = 0;
-      let orden = 0;
-      for (const c of clasificadas) {
-        const clave = slugCaracteristica(c.descripcion);
-        const [r] = await pool.query(
-          `INSERT IGNORE INTO checklist_comercial_caracteristicas
-             (item_id, negocio_id, clave_caracteristica, orden, descripcion, tipo,
-              valor_requerido_texto, valor_requerido_numero, valor_requerido_numero_max, unidad_requerida,
-              fundamento_documento, fundamento_cita, confianza, origen)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Bases técnicas', ?, ?, 'interrogatorio')`,
-          [
-            item.id, negocio.id, clave, orden++, c.descripcion, c.tipo,
-            c.valorRequeridoTexto, c.valorRequeridoNumero, c.valorRequeridoNumeroMax, c.unidadRequerida,
-            c.fundamentoCita, c.confianza,
-          ],
-        ) as any;
-        if ((r as any).affectedRows) nuevas++;
+      for (const { productoIndex, clasificadas } of resultados) {
+        let orden = 0;
+        for (const c of clasificadas) {
+          const clave = slugCaracteristica(c.descripcion);
+          const [r] = await pool.query(
+            `INSERT IGNORE INTO checklist_comercial_caracteristicas
+               (item_id, producto_index, negocio_id, clave_caracteristica, orden, descripcion, tipo,
+                valor_requerido_texto, valor_requerido_numero, valor_requerido_numero_max, unidad_requerida,
+                fundamento_documento, fundamento_cita, confianza, origen)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Bases técnicas', ?, ?, 'interrogatorio')`,
+            [
+              item.id, productoIndex, negocio.id, clave, orden++, c.descripcion, c.tipo,
+              c.valorRequeridoTexto, c.valorRequeridoNumero, c.valorRequeridoNumeroMax, c.unidadRequerida,
+              c.fundamentoCita, c.confianza,
+            ],
+          ) as any;
+          if ((r as any).affectedRows) nuevas++;
+        }
       }
 
       await intentarAutoTransicion(item, negocio.id, userId, nombreActor);
@@ -355,14 +391,36 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (!extraido?.texto || extraido.texto.trim().length < 30)
         return NextResponse.json({ error: 'No se pudo leer texto de la ficha técnica.' }, { status: 400 });
 
-      const veredictos = await compararFichaProveedor(
-        existentes.map(c => ({
-          id: c.id, descripcion: c.descripcion, tipo: c.tipo,
-          valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
-          unidadRequerida: c.unidad_requerida, valorRequeridoTexto: c.valor_requerido_texto,
-        })),
-        extraido.texto, documentoNombre,
-      );
+      // Reparte la ficha por producto UNA sola vez — el mismo resultado alimenta tanto la
+      // comparación de características (acá abajo) como marca/modelo/foto (procesarProductosDeLaFicha).
+      const { segmentos, bufferPdf } = await prepararSegmentosDeLaFicha({
+        licitacionCodigo: negocio.licitacion_codigo, lineaNumero: item.linea_numero,
+        documentoUrl, documentoNombre, textoCompleto: extraido.texto,
+      });
+      const segmentosPorIndice = new Map(segmentos.map(s => [s.productoIndex, s]));
+
+      // Cada producto se compara contra SU PROPIO trozo de la ficha (línea-paquete, migración 83)
+      // — sin esto, la Vacuolavadora se comparaba contra el texto completo (Hidrolavadora incluida)
+      // y podía "cumplir" con datos que en realidad eran de otro equipo.
+      const gruposPorProducto = new Map<number, typeof existentes>();
+      for (const c of existentes) {
+        const idx = c.producto_index ?? 0;
+        if (!gruposPorProducto.has(idx)) gruposPorProducto.set(idx, []);
+        gruposPorProducto.get(idx)!.push(c);
+      }
+      const veredictos = new Map<number, VeredictoCaracteristica>();
+      await Promise.all(Array.from(gruposPorProducto.entries()).map(async ([idx, items]) => {
+        const textoProducto = segmentosPorIndice.get(idx)?.texto || extraido.texto;
+        const parcial = await compararFichaProveedor(
+          items.map(c => ({
+            id: c.id, descripcion: c.descripcion, tipo: c.tipo,
+            valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
+            unidadRequerida: c.unidad_requerida, valorRequeridoTexto: c.valor_requerido_texto,
+          })),
+          textoProducto, documentoNombre,
+        );
+        for (const [id, v] of parcial) veredictos.set(id, v);
+      }));
 
       for (const c of existentes) {
         const v = veredictos.get(c.id);
@@ -396,17 +454,14 @@ export async function POST(request: NextRequest, { params }: Params) {
       // otro punto del checklist (DocumentViewerModal), en vez de un visor aparte solo para esto.
       await agregarDocumentos(item.id, negocio.id, [{ url: documentoUrl, nombre: documentoNombre }], userId, nombreActor);
 
-      // Marca/modelo/fabricante/foto — el mismo texto (y PDF) de la ficha que se acaba de leer
-      // para comparar las especificaciones ya tiene esto adentro casi siempre (caso real: la
-      // ficha del LS-150 dice "SENSING.KONICAMINOLTA.COM", de ahí sale "Konica Minolta"). Es
-      // determinista y no pide otra llamada de IA — ver producto-ofertado.ts. Nunca pisa un dato
-      // que el asistente ya confirmó a mano (guardarProductoLeidoDeFicha se abstiene en ese caso).
-      // Una línea-paquete (2+ productos, migración 82) reparte la ficha por página primero — ver
-      // procesarProductosDeLaFicha().
+      // Marca/modelo/fabricante/foto — el mismo reparto por producto (segmentos, arriba) ya
+      // separó el texto (y sabe las páginas) de cada uno. Es determinista y no pide otra llamada
+      // de IA — ver producto-ofertado.ts. Nunca pisa un dato que el asistente ya confirmó a mano
+      // (guardarProductoLeidoDeFicha se abstiene en ese caso).
       try {
         await procesarProductosDeLaFicha({
           itemId: item.id, negocioId: negocio.id, licitacionCodigo: negocio.licitacion_codigo,
-          lineaNumero: item.linea_numero, documentoUrl, documentoNombre, textoCompleto: extraido.texto,
+          documentoNombre, segmentos, bufferPdf,
         });
       } catch (e) {
         // No puede tumbar la comparación: las características ya se guardaron arriba.
@@ -426,28 +481,36 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 }
 
+/** Un trozo de la ficha ya asignado a UN producto de la línea — ver prepararSegmentosDeLaFicha(). */
+interface SegmentoProducto {
+  productoIndex: number;
+  /** Texto a usar para clasificar/comparar/leer marca-modelo de ESTE producto. Vacío = no se
+   *  encontró nada suyo (línea-paquete sin sección propia detectada; el llamador decide qué hacer). */
+  texto: string;
+  /** Páginas (0-based) para acotar la foto — ver extraerImagenProducto(). undefined = el
+   *  documento completo (línea normal de 1 producto, o no se pudo segmentar). */
+  paginas: number[] | undefined;
+}
+
 /**
- * Marca/modelo/foto de TODOS los productos de la línea, a partir de la ficha del proveedor.
+ * Reparte la ficha del proveedor por producto UNA sola vez — el resultado alimenta tanto la
+ * comparación de características (compararFichaProveedor, por grupo) como marca/modelo/foto
+ * (procesarProductosDeLaFicha), para no descargar el PDF ni segmentarlo dos veces.
  *
- * LÍNEA NORMAL (1 producto): igual que siempre — el documento completo a producto_index 0.
+ * LÍNEA NORMAL (1 producto): un solo segmento, el documento completo — mismo comportamiento de
+ * siempre.
  *
- * LÍNEA-PAQUETE (2+ productos, migración 82, caso real 2446-240-LE26): la ficha del proveedor
- * suele ser un catálogo de varias páginas, una por producto (ver ficha-segmentar-productos.ts).
- * Se reparte por página ANTES de leer marca/modelo/foto, así cada producto se lee de SU trozo —
- * evita que la Vacuolavadora se quede con el modelo o la foto de la Hidrolavadora (o viceversa).
- * Si la ficha no tiene esa estructura y no se pudo repartir ninguna página, se cae al
- * comportamiento de siempre: el documento completo entero a producto_index 0, el resto de los
- * productos se completa a mano.
- *
- * Solo tiene sentido para PDF (Word no trae imágenes incrustadas de la misma forma y este
- * proyecto no las necesita ahí). Best-effort en la foto: un fallo ahí no debe tumbar marca/modelo,
- * que es determinista y no depende de mupdf.
+ * LÍNEA-PAQUETE (2+ productos, migración 82/83, caso real 2446-240-LE26): la ficha del proveedor
+ * suele ser un catálogo de varias páginas, una por producto (ver ficha-segmentar-productos.ts). Si
+ * no se pudo repartir ninguna página para el primer producto, cae al documento completo (mejor
+ * que nada); el resto de los productos sin sección propia queda con texto vacío — no hay de dónde
+ * sacarlo automáticamente, se completa a mano.
  */
-async function procesarProductosDeLaFicha(args: {
-  itemId: number; negocioId: number; licitacionCodigo: string; lineaNumero: number | null;
+async function prepararSegmentosDeLaFicha(args: {
+  licitacionCodigo: string; lineaNumero: number | null;
   documentoUrl: string; documentoNombre: string; textoCompleto: string;
-}): Promise<void> {
-  const { itemId, negocioId, licitacionCodigo, lineaNumero, documentoUrl, documentoNombre, textoCompleto } = args;
+}): Promise<{ segmentos: SegmentoProducto[]; bufferPdf: Buffer | null }> {
+  const { licitacionCodigo, lineaNumero, documentoUrl, documentoNombre, textoCompleto } = args;
 
   let nombresProductos: string[] = [];
   if (lineaNumero != null) {
@@ -462,36 +525,51 @@ async function procesarProductosDeLaFicha(args: {
     try {
       const res = await fetch(documentoUrl);
       if (res.ok) bufferPdf = Buffer.from(await res.arrayBuffer());
-    } catch { /* sin buffer no hay foto ni segmentación — sigue solo con marca/modelo del texto ya leído */ }
+    } catch { /* sin buffer no hay foto ni segmentación — sigue solo con el texto completo */ }
   }
 
-  const guardarUno = async (productoIndex: number, texto: string, paginas: number[] | undefined) => {
-    if (!texto.trim()) return;
-    const producto = extraerProductoOfertado(texto, documentoNombre);
+  if (nombresProductos.length > 1 && bufferPdf) {
+    const partes = await segmentarFichaPorProducto(bufferPdf, nombresProductos);
+    return {
+      bufferPdf,
+      segmentos: partes.map(parte => ({
+        productoIndex: parte.productoIndex,
+        texto: parte.paginas.length ? parte.texto : (parte.productoIndex === 0 ? textoCompleto : ''),
+        paginas: parte.paginas.length ? parte.paginas : undefined,
+      })),
+    };
+  }
+
+  return { bufferPdf, segmentos: [{ productoIndex: 0, texto: textoCompleto, paginas: undefined }] };
+}
+
+/**
+ * Marca/modelo/foto de TODOS los productos de la línea, a partir de los segmentos ya repartidos
+ * (ver prepararSegmentosDeLaFicha). Es determinista y no pide otra llamada de IA — ver
+ * producto-ofertado.ts. Nunca pisa un dato que el asistente ya confirmó a mano
+ * (guardarProductoLeidoDeFicha se abstiene en ese caso). Best-effort en la foto: un fallo ahí no
+ * debe tumbar marca/modelo, que no depende de mupdf.
+ */
+async function procesarProductosDeLaFicha(args: {
+  itemId: number; negocioId: number; licitacionCodigo: string; documentoNombre: string;
+  segmentos: SegmentoProducto[]; bufferPdf: Buffer | null;
+}): Promise<void> {
+  const { itemId, negocioId, licitacionCodigo, documentoNombre, segmentos, bufferPdf } = args;
+
+  await Promise.all(segmentos.map(async seg => {
+    if (!seg.texto.trim()) return;
+    const producto = extraerProductoOfertado(seg.texto, documentoNombre);
     let imagenUrl: string | null = null;
     if (bufferPdf) {
       try {
-        const imagen = await extraerImagenProducto(bufferPdf, paginas);
-        if (imagen) imagenUrl = await subirDocumentoR2(licitacionCodigo, `producto_linea${itemId}_${productoIndex}.png`, imagen.png, 'image/png');
+        const imagen = await extraerImagenProducto(bufferPdf, seg.paginas);
+        if (imagen) imagenUrl = await subirDocumentoR2(licitacionCodigo, `producto_linea${itemId}_${seg.productoIndex}.png`, imagen.png, 'image/png');
       } catch (e) {
         console.error('[comercial][caracteristicas] no se pudo extraer la foto del producto:', String(e));
       }
     }
-    await guardarProductoLeidoDeFicha({ itemId, negocioId, productoIndex, producto, fuenteDocumento: documentoNombre, imagenUrl });
-  };
-
-  if (nombresProductos.length > 1 && bufferPdf) {
-    const segmentos = await segmentarFichaPorProducto(bufferPdf, nombresProductos);
-    await Promise.all(segmentos.map(seg => {
-      if (seg.paginas.length) return guardarUno(seg.productoIndex, seg.texto, seg.paginas);
-      // No se encontró la sección de ESTE producto: para el primero, mejor el documento completo
-      // que nada (comportamiento de siempre); el resto queda para completar a mano.
-      if (seg.productoIndex === 0) return guardarUno(0, textoCompleto, undefined);
-      return Promise.resolve();
-    }));
-  } else {
-    await guardarUno(0, textoCompleto, undefined);
-  }
+    await guardarProductoLeidoDeFicha({ itemId, negocioId, productoIndex: seg.productoIndex, producto, fuenteDocumento: documentoNombre, imagenUrl });
+  }));
 }
 
 // ═══ PATCH — responder (camino A) / corregir (asesor) ═══════════════════════════

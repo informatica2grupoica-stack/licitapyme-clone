@@ -168,21 +168,21 @@ export function lineasTecnicasDelInforme(informe: any): LineaTecnica[] {
 }
 
 /**
- * Los productos de UNA línea, SIN fusionar — para la ficha técnica PROPIA (ver ficha-tecnica.ts) y
- * el bloque "Producto que ofertamos" del Auditor: cuando una línea real junta varios productos
- * (caso real 2446-240-LE26: "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer" bajo la misma línea
- * de precio), cada uno necesita SU PROPIA marca/modelo/foto — fusionarlos en un solo nombre (como
- * hace lineasTecnicasDelInforme, para el checklist de cumplimiento) perdería esa distinción.
- * Solo nombre/cantidad/unidad: las características fusionadas (con o sin prefijo de producto) ya
- * las da lineasTecnicasDelInforme y no hace falta duplicarlas acá.
+ * Los productos de UNA línea, SIN fusionar — cada uno como un LineaTecnica completo (nombre,
+ * características, clasificación, marca/modelo de referencia). Para:
+ *   · la ficha técnica PROPIA (ficha-tecnica.ts) y el bloque "Producto que ofertamos" del Auditor
+ *     — cada producto necesita SU PROPIA marca/modelo/foto.
+ *   · clasificar (Agente 1) y comparar (Agente 2) las características de CADA producto por
+ *     separado (migración 83, caso real 2446-240-LE26) — sin esto, una línea de 2+ productos
+ *     clasificaba TODO junto y no había forma de saber qué característica era de cuál producto.
+ *
+ * Se arma reusando fusionarProductosDeLinea() en su rama de UN SOLO producto (`productos.length
+ * === 1`) — es exactamente esa normalización, aplicada a cada producto por separado en vez de al
+ * grupo completo. `.linea` en cada resultado es la línea REAL compartida (no un índice distinto).
  */
-export function productosCrudosDeLinea(informe: any, linea: number): Array<{ nombre: string; cantidad: number | null; unidadMedida: string | null }> {
+export function productosCrudosDeLinea(informe: any, linea: number): LineaTecnica[] {
   const productos = agruparCrudoPorLinea(informe).get(linea) || [];
-  return productos.map((it: any) => ({
-    nombre: String(it?.nombre || it?.descripcion_exacta || it?.descripcion || '').trim() || `Línea ${linea}`,
-    cantidad: Number.isFinite(Number(it?.cantidad)) ? Number(it.cantidad) : null,
-    unidadMedida: it?.unidad_medida ? String(it.unidad_medida) : null,
-  }));
+  return productos.map((it: any) => fusionarProductosDeLinea(linea, [it]));
 }
 
 // ─── Conversión de unidades determinista (sin IA) ───────────────────────────────────────────────

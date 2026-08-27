@@ -116,8 +116,8 @@ test('productosCrudosDeLinea: un solo producto por línea devuelve un array de 1
 
 test('productosCrudosDeLinea: una línea-paquete devuelve CADA producto SIN fusionar (caso real 2446-240-LE26)', () => {
   const informe = { productos: { items: [
-    { linea: 'L1', nombre: 'Hidrolavadora peatonal equivalente a modelo H300 de Tecnomaq + 2 (Dos) plato de lavado 22" inoxidable', cantidad: 2, unidad_medida: 'Unidad' },
-    { linea: 'L1', nombre: 'Vacuolavadora de empuje equivalente a modelo DB51 Dimer + 3 Rodillos + 3 Squeegee', cantidad: 3, unidad_medida: 'Unidad' },
+    { linea: 'L1', nombre: 'Hidrolavadora peatonal equivalente a modelo H300 de Tecnomaq + 2 (Dos) plato de lavado 22" inoxidable', cantidad: 2, unidad_medida: 'Unidad', caracteristicas: ['Presión 285 bar', 'Peso 165 kg'] },
+    { linea: 'L1', nombre: 'Vacuolavadora de empuje equivalente a modelo DB51 Dimer + 3 Rodillos + 3 Squeegee', cantidad: 3, unidad_medida: 'Unidad', caracteristicas: ['Motor 550W'] },
   ] } };
   const productos = productosCrudosDeLinea(informe, 1);
   assert.equal(productos.length, 2, 'los 2 productos deben sobrevivir SIN fusionarse');
@@ -125,6 +125,10 @@ test('productosCrudosDeLinea: una línea-paquete devuelve CADA producto SIN fusi
   assert.match(productos[1].nombre, /Vacuolavadora/);
   assert.equal(productos[0].cantidad, 2);
   assert.equal(productos[1].cantidad, 3, 'cada producto conserva SU PROPIA cantidad, no la de la línea fusionada');
+  // Migración 83: cada producto trae SUS PROPIAS características, sin el prefijo del nombre que
+  // usa lineasTecnicasDelInforme() — así se puede clasificar cada una por separado.
+  assert.deepEqual(productos[0].caracteristicas, ['Presión 285 bar', 'Peso 165 kg']);
+  assert.deepEqual(productos[1].caracteristicas, ['Motor 550W']);
 });
 
 test('productosCrudosDeLinea: línea sin productos en el informe devuelve array vacío (fallback a 1 genérico lo maneja el llamador)', () => {
