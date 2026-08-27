@@ -181,12 +181,32 @@ async function marcarJobListo(
  */
 async function bloquesDeBasesTecnicas(licitacionCodigo: string): Promise<BloqueDocumento[]> {
   try {
+    // DÓNDE VIVEN DE VERDAD LAS ESPECIFICACIONES (medido el 26-ago-2026 sobre la base completa).
+    //
+    // Esto miraba solo BASES_TECNICAS y ANEXOS_TECNICOS. Suena correcto y es casi inútil:
+    // ANEXOS_TECNICOS existe en 9 licitaciones y BASES_TECNICAS en 576, mientras que
+    // BASES_ADMINISTRATIVAS cubre 1.229 y DOCUMENTOS_PROCESO 808. En Chile las specs viajan muy
+    // seguido dentro de las bases administrativas o de la resolución que las aprueba.
+    //
+    // CASO REAL 986278-14-LE26: cero documentos en BASES_TECNICAS. Las especificaciones estaban en
+    // RES_1196_APRUEBA_BASES...pdf (145.593 caracteres YA extraídos, y es el PDF que el propio
+    // informe cita como fuente de cada criterio), clasificado DOCUMENTOS_PROCESO — o sea el
+    // auditor no lo abría nunca y las líneas sin características en el informe quedaban con
+    // "No se encontraron especificaciones exigidas para esta línea".
+    //
+    // Ampliar la búsqueda no relaja nada: mapearBloquesALineas solo acepta un bloque si su título
+    // se parece al de la línea por sobre UMBRAL_PARECIDO, así que sumar documentos agrega
+    // CANDIDATOS, no falsos positivos. El ORDER BY deja los técnicos primero para que, ante un
+    // empate de score, gane el documento específicamente técnico.
     const [rows] = await pool.query(
       `SELECT documento_nombre, texto_extraido
          FROM documentos_cache
         WHERE licitacion_codigo = ?
-          AND categoria IN ('BASES_TECNICAS', 'ANEXOS_TECNICOS')
-          AND texto_extraido IS NOT NULL AND CHAR_LENGTH(texto_extraido) > 200`,
+          AND categoria IN ('BASES_TECNICAS', 'ANEXOS_TECNICOS',
+                            'BASES_ADMINISTRATIVAS', 'DOCUMENTOS_PROCESO')
+          AND texto_extraido IS NOT NULL AND CHAR_LENGTH(texto_extraido) > 200
+        ORDER BY FIELD(categoria, 'BASES_TECNICAS', 'ANEXOS_TECNICOS',
+                                  'BASES_ADMINISTRATIVAS', 'DOCUMENTOS_PROCESO')`,
       [licitacionCodigo],
     ) as any;
     const out: BloqueDocumento[] = [];
@@ -207,6 +227,19 @@ interface Contexto {
   nombreActor: string;
   documentoUrl: string;
   documentoNombre: string;
+  /**
+   * A QUÉ LÍNEAS PERTENECE ESTA FICHA (26-ago-2026, pedido del usuario sobre 986278-14-LE26).
+   *
+   * Una ficha técnica casi nunca cubre la licitación entera: el proveedor manda la ficha de LA
+   * línea que cotiza. Sin esta lista, el motor intentaba comparar el documento contra TODAS las
+   * líneas, y como el fallback usa el texto completo cuando ningún bloque calza por nombre,
+   * terminaba "comparando" la ficha de herramientas contra Cámara de frío, Ciclo Rankine y
+   * Caldera — y dejándolas en "0 de 2 cumple", que se lee como un incumplimiento real cuando en
+   * verdad ese documento nunca habló de esas líneas. Además se paga IA por cada una.
+   *
+   * `null`/vacío = comparar contra todo lo ofertado, que es el comportamiento anterior.
+   */
+  lineasObjetivo?: number[] | null;
 }
 
 /**
@@ -216,13 +249,27 @@ interface Contexto {
 export async function iniciarComparacionMasiva(
   ctx: Contexto, informe: any, onFin?: () => void,
 ): Promise<{ runId: string } | { error: string }> {
+  const objetivo = (ctx.lineasObjetivo || []).filter(n => Number.isFinite(n));
   const [itemRows] = await pool.query(
+    // Dos filtros, por dos motivos distintos:
+    //  · `ofertamos`: las líneas fuera de la oferta (selector de líneas, migración 78) no se
+    //    comparan — cada línea cuesta llamadas de IA reales y pagar por auditar algo a lo que no
+    //    se postula es gasto puro. `ofertamos IS NULL` = sin decisión → se auditan todas
+    //    (mismo criterio fail-open que usa el costeo).
+    //  · `linea_numero IN (...)`: a qué línea(s) corresponde ESTE documento — ver lineasObjetivo.
     `SELECT id, linea_numero, titulo, estado FROM checklist_comercial
-      WHERE negocio_id = ? AND tipo = 'linea_tecnica' ORDER BY linea_numero`,
-    [ctx.negocioId],
+      WHERE negocio_id = ? AND tipo = 'linea_tecnica' AND (ofertamos IS NULL OR ofertamos = 1)
+        ${objetivo.length ? 'AND linea_numero IN (?)' : ''}
+      ORDER BY linea_numero`,
+    objetivo.length ? [ctx.negocioId, objetivo] : [ctx.negocioId],
   ) as any;
   const items = itemRows as any[];
-  if (!items.length) return { error: 'Este negocio no tiene líneas técnicas que auditar.' };
+  if (!items.length)
+    return {
+      error: objetivo.length
+        ? `No hay líneas técnicas ${objetivo.length === 1 ? `para la línea ${objetivo[0]}` : `para las líneas ${objetivo.join(', ')}`} en este negocio.`
+        : 'Este negocio no tiene líneas técnicas que auditar.',
+    };
 
   const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await marcarProcesando(ctx.negocioId, runId, ctx.documentoNombre, items.length, 'leyendo documento');
@@ -249,7 +296,7 @@ export async function iniciarComparacionMasiva(
   return { runId };
 }
 
-function mensajeDeError(e: unknown): string {
+export function mensajeDeError(e: unknown): string {
   const msg = String((e as any)?.message ?? e);
   if (msg.includes('429') || /quota/i.test(msg)) return 'El servicio de IA quedó sin cuota (429). Reintenta más tarde.';
   if (msg.includes('503') || /saturad/i.test(msg)) return 'El servicio de IA está saturado. Reintenta en unos minutos.';
@@ -318,7 +365,7 @@ async function correr(ctx: Contexto, runId: string, items: any[], informe: any):
 }
 
 /** "Línea 12 — SILLA DE RUEDAS" → "SILLA DE RUEDAS". El prefijo lo pone el checklist. */
-function nombreDeItem(titulo: string): string {
+export function nombreDeItem(titulo: string): string {
   return String(titulo || '').replace(/^L[íi]nea\s+\d+\s*[—–-]\s*/i, '').trim();
 }
 

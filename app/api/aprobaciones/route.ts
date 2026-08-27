@@ -271,7 +271,12 @@ export async function PATCH(request: NextRequest) {
           `SELECT ${COLS} FROM checklist_comercial WHERE negocio_id = ? AND bloque = ? AND estado = 'CARGADO'`,
           [negocioId, bloqueActual],
         ) as any;
-        const items = rows as any[];
+        // Las alertas de cumplimiento quedan FUERA del visado en bloque: desde el 26-ago-2026 son
+        // un acuse de lectura del asistente (acción ACUSAR), no algo que el asesor audite. Ya se
+        // excluían del ESTADO del bloque (más arriba), pero "aprobar todo" igual las barría si
+        // habían quedado en CARGADO con el flujo viejo — y las dejaba firmadas por un asesor que
+        // nunca las miró.
+        const items = (rows as any[]).filter(i => !esAlertaDeCumplimiento(i));
         if (!items.length) continue;
         for (const item of items) {
           await pool.query(
@@ -351,7 +356,8 @@ export async function PATCH(request: NextRequest) {
       `SELECT ${COLS} FROM checklist_comercial WHERE negocio_id = ? AND bloque = ? AND estado = 'CARGADO'`,
       [negocioId, bloque],
     ) as any;
-    const items = rows as any[];
+    // Mismo motivo que en APROBAR_TODO: las alertas de cumplimiento no las visa el asesor.
+    const items = (rows as any[]).filter(i => !esAlertaDeCumplimiento(i));
     if (!items.length) {
       return NextResponse.json({
         error: `No hay nada cargado en el bloque ${bloque === 'TECNICO' ? 'técnico' : 'comercial'} para ${accion === 'APROBAR_BLOQUE' ? 'aprobar' : 'rechazar'}.`,

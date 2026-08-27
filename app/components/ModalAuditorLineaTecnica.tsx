@@ -54,6 +54,12 @@ interface ItemHeader {
   aprobado_por_nombre: string | null; aprobado_at: string | null;
 }
 
+interface ProductoOfertado {
+  marca: string | null; modelo: string | null; fabricante: string | null;
+  paisFabricacion: string | null; anioFabricacion: string | null; garantiaMeses: number | null;
+  origen: 'ficha' | 'manual'; fuenteDocumento: string | null; confirmadoPor: number | null;
+}
+
 const fmtFecha = (s: string | null) => {
   if (!s) return '';
   try { return new Date(s.replace(' ', 'T')).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); }
@@ -113,6 +119,10 @@ export function ModalAuditorLineaTecnica({
   const [comercial, setComercial] = useState<ComercialLigado>({ precio: null, plazo: null });
   const [caracteristicas, setCaracteristicas] = useState<Caracteristica[]>([]);
   const [documentos, setDocumentos] = useState<Array<{ id: number; url: string; nombre: string }>>([]);
+  const [producto, setProducto] = useState<ProductoOfertado | null>(null);
+  const [editandoProducto, setEditandoProducto] = useState(false);
+  const [confirmandoProducto, setConfirmandoProducto] = useState(false);
+  const [formProducto, setFormProducto] = useState({ marca: '', modelo: '', fabricante: '', paisFabricacion: '', anioFabricacion: '' });
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
   const [validando, setValidando] = useState(false);
   const [subiendoFicha, setSubiendoFicha] = useState(false);
@@ -145,7 +155,10 @@ export function ModalAuditorLineaTecnica({
         plazo: plazo ? { valorTexto: plazo.valor_texto, estado: plazo.estado } : null,
       });
     }
-    if (dCaract.success) setCaracteristicas(dCaract.caracteristicas || []);
+    if (dCaract.success) {
+      setCaracteristicas(dCaract.caracteristicas || []);
+      setProducto(dCaract.productoOfertado ?? null);
+    }
   }, [negocioId, itemId, base]);
 
   useEffect(() => {
@@ -340,6 +353,92 @@ export function ModalAuditorLineaTecnica({
                   <Loader2 size={13} className="animate-spin flex-shrink-0" /> {progreso}
                 </div>
               )}
+
+              {/* MARCA / MODELO / FABRICANTE del producto que ofertamos — lo pide la tabla
+                  "Información de la oferta" de los formularios técnicos, y hasta ahora no existía
+                  en ninguna parte del sistema (no es un dato de la empresa: es del producto).
+                  Se intenta leer solo al subir una ficha (producto-ofertado.ts); acá se confirma o
+                  se corrige a mano — lo que escribe una persona siempre manda sobre lo leído. */}
+              <div className="mb-3 rounded-lg border border-zinc-100 bg-zinc-50/60 p-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-[11px] font-bold text-zinc-500 uppercase tracking-wide">Producto que ofertamos</p>
+                  {!editandoProducto && !bloqueado && (
+                    <button
+                      onClick={() => {
+                        setFormProducto({
+                          marca: producto?.marca || '', modelo: producto?.modelo || '',
+                          fabricante: producto?.fabricante || '', paisFabricacion: producto?.paisFabricacion || '',
+                          anioFabricacion: producto?.anioFabricacion || '',
+                        });
+                        setEditandoProducto(true);
+                      }}
+                      className="text-[11px] font-semibold text-violet-600 hover:text-violet-800"
+                    >
+                      {producto ? 'Corregir' : 'Completar'}
+                    </button>
+                  )}
+                </div>
+
+                {editandoProducto ? (
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <input value={formProducto.marca} onChange={e => setFormProducto(f => ({ ...f, marca: e.target.value }))}
+                        placeholder="Marca" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                      <input value={formProducto.modelo} onChange={e => setFormProducto(f => ({ ...f, modelo: e.target.value }))}
+                        placeholder="Modelo" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                      <input value={formProducto.fabricante} onChange={e => setFormProducto(f => ({ ...f, fabricante: e.target.value }))}
+                        placeholder="Fabricante" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                      <input value={formProducto.paisFabricacion} onChange={e => setFormProducto(f => ({ ...f, paisFabricacion: e.target.value }))}
+                        placeholder="País de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                      <input value={formProducto.anioFabricacion} onChange={e => setFormProducto(f => ({ ...f, anioFabricacion: e.target.value }))}
+                        placeholder="Año de fabricación" className="px-2 py-1 text-[12px] border border-zinc-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-violet-200" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          setConfirmandoProducto(true);
+                          try {
+                            const r = await fetch(base, {
+                              method: 'POST', headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ accion: 'confirmar_producto', ...formProducto }),
+                            });
+                            const d = await r.json().catch(() => ({}));
+                            if (!r.ok) { toast.error(d.error || 'No se pudo guardar'); return; }
+                            setProducto(d.productoOfertado ?? null);
+                            setEditandoProducto(false);
+                            toast.success('Producto confirmado');
+                            onCambio?.();
+                          } catch (e) {
+                            toast.error('Error de red', String(e));
+                          } finally { setConfirmandoProducto(false); }
+                        }}
+                        disabled={confirmandoProducto}
+                        className="px-2.5 py-1 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg disabled:opacity-50"
+                      >
+                        {confirmandoProducto ? <Loader2 size={11} className="animate-spin inline" /> : 'Confirmar'}
+                      </button>
+                      <button onClick={() => setEditandoProducto(false)} className="text-[11.5px] text-zinc-400 hover:text-zinc-600 px-1">Cancelar</button>
+                    </div>
+                  </div>
+                ) : producto && (producto.marca || producto.modelo || producto.fabricante) ? (
+                  <div className="flex items-center gap-2 flex-wrap text-[12px]">
+                    {producto.marca && <span><b>Marca:</b> {producto.marca}</span>}
+                    {producto.modelo && <span><b>Modelo:</b> {producto.modelo}</span>}
+                    {producto.fabricante && producto.fabricante !== producto.marca && <span><b>Fabricante:</b> {producto.fabricante}</span>}
+                    {producto.paisFabricacion && <span><b>País:</b> {producto.paisFabricacion}</span>}
+                    {producto.origen === 'ficha' && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700" title={producto.fuenteDocumento || ''}>
+                        leído de la ficha — sin confirmar
+                      </span>
+                    )}
+                    {producto.origen === 'manual' && (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-700">confirmado</span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-[12px] text-zinc-400">Sin datos todavía. Se completa solo al subir la ficha, o "Completar" a mano.</p>
+                )}
+              </div>
 
               <div>
                 <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">

@@ -1,11 +1,13 @@
-// Aplica migration-78: tabla negocio_lineas_oferta (selector de líneas a ofertar).
+// Aplica migration-79: tabla linea_producto_ofertado (datos del producto que ofertamos (marca, modelo, fabricante)).
 //
-// POR QUÉ (26-ago-2026): en una licitación por línea casi nunca se postula a todas, y el sistema
-// no tenía dónde guardar esa decisión. Ver docs/migration-78-lineas-a-ofertar.sql.
+// POR QUÉ (26-ago-2026): los formularios técnicos de los organismos abren con una tabla
+// "INFORMACIÓN DE LA OFERTA" que pide Marca / Modelo / Fabricante / País-Año del producto que
+// ofertamos, y ese dato no existía en NINGUNA parte del sistema (la empresa no lo tiene porque es
+// del producto; el costeo tampoco). Ver docs/migration-79-datos-producto-ofertado.sql.
 //
-// Idempotente: CREATE TABLE IF NOT EXISTS + verificación final. Sin backfill (no existe rastro
-// real de qué líneas se ofertaron antes, y no se inventan datos).
-// Uso: node scripts/aplicar-migration-78.mjs
+// Idempotente: CREATE TABLE IF NOT EXISTS + verificación final. Sin backfill: el dato no está en
+// ningún lado y no se inventa.
+// Uso: node scripts/aplicar-migration-79.mjs
 import mysql from 'mysql2/promise';
 import { readFileSync, existsSync } from 'node:fs';
 
@@ -21,7 +23,7 @@ for (const archivo of ['.env.local', '.env']) {
 }
 if (!env.DB_HOST) {
   console.error('\n  Falta DB_HOST. Corre el script desde la carpeta del proyecto (con .env/.env.local),');
-  console.error('  o dentro del contenedor:  docker compose exec app node scripts/aplicar-migration-78.mjs\n');
+  console.error('  o dentro del contenedor:  docker compose exec app node scripts/aplicar-migration-79.mjs\n');
   process.exit(1);
 }
 
@@ -31,7 +33,7 @@ const pool = mysql.createPool({
   multipleStatements: true,
 });
 
-const TABLA = 'negocio_lineas_oferta';
+const TABLA = 'linea_producto_ofertado';
 const existe = async () => {
   const [[r]] = await pool.query(
     `SELECT COUNT(*) n FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA=? AND TABLE_NAME=?`,
@@ -43,9 +45,9 @@ try {
   if (await existe()) {
     console.log(`\n  Ya aplicada (${TABLA} existe). Nada que hacer.`);
   } else {
-    console.log(`\n  Aplicando migration-78 (creando ${TABLA})...`);
+    console.log(`\n  Aplicando migration-79 (creando ${TABLA})...`);
     const t = performance.now();
-    await pool.query(readFileSync('docs/migration-78-lineas-a-ofertar.sql', 'utf8'));
+    await pool.query(readFileSync('docs/migration-79-datos-producto-ofertado.sql', 'utf8'));
     console.log(`    OK en ${Math.round(performance.now() - t)} ms`);
   }
   const ok = await existe();

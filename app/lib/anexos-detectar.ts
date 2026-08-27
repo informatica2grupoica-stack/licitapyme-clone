@@ -1896,6 +1896,18 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   const todasLasLineasFirma = detectarLineasFirma(parrafos, indicesConBordeSuperiorDeCeldaVisible(xml))
     .filter(f => !indicesTapadosPorCuadro.has(f.indice))
     .filter(f => !indicesYaClaimedosPorCandidato.has(f.indice));
+  // BLOQUES DE FIRMA AMBIGUOS — no se estampan (esRayaFirmaPropia los descarta a propósito, ver
+  // arriba: "no se adivina cuál raya es cuál"), pero hasta hoy desaparecían del todo: ni firma, ni
+  // aviso. Caso real (26-ago-2026, auditoría, 1057480-41-LP26 ANEXO_N°7): "FIRMA Y TIMBRE
+  // REPRESENTANTE LEGAL … FIRMA Y TIMBRE EVALUADOR" en el mismo párrafo, con el propio documento
+  // advirtiendo "EN CASO CONTRARIO SU PROPUESTA SERÁ DECLARADA INADMISIBLE" — el usuario vio "0
+  // casillas pendientes" dos veces, con dos semanas de diferencia, sin ninguna pista de que ahí
+  // faltaba firmar. Se distingue del caso legítimo (un bloque que SOLO nombra al evaluador, sin
+  // mención nuestra — ahí no hay nada que nos toque firmar y no corresponde avisar): un bloque
+  // AMBIGUO menciona a las DOS partes a la vez, que es justo la condición que hace que
+  // esRayaFirmaPropia devuelva false por su primera rama.
+  const bloquesFirmaAmbiguos = todasLasLineasFirma.filter(f =>
+    RE_FIRMA_CONTRAPARTE.test(f.contexto) && RE_FIRMA_NUESTRA.test(f.contexto));
   // El MISMO bloque de firma puede ser visto por dos patrones a la vez: el caso C de
   // detectarLineasFirma (leyenda sin raya → devuelve el párrafo VACÍO de ARRIBA, donde se firmaría a
   // mano) y el patrón 5 (la leyenda misma, "FIRMA REPRESENTANTE LEGAL:", terminada en dos puntos).
@@ -1982,7 +1994,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     .filter(c => !indicesTituloMergeado.has(c.indice));
 
   return {
-    parrafos, secciones, blancosInline, lineasFirma, indicesSoloManual,
+    parrafos, secciones, blancosInline, lineasFirma, indicesSoloManual, bloquesFirmaAmbiguos,
     // Los datos que viven DENTRO de un bloque de firma que nombra a su firmante quedan resueltos
     // acá mismo (`campoFijo`), sin pasar por la IA — ver asignarCamposDeBloqueFirma.
     candidatosCelda: asignarCamposDeBloqueFirma(candidatosCelda, lineasFirma),

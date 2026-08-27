@@ -35,14 +35,68 @@ test('lineasTecnicasDelInforme: sin productos.items, cae a manifiesto_productos 
   assert.deepEqual(lineas[0].caracteristicas, [], 'el shape aplanado (manifiesto_productos) no trae caracteristicas');
 });
 
-test('lineasTecnicasDelInforme: dedup por número de línea (no repite si el informe repite la línea por sub-ítem)', () => {
+// (26-ago-2026, auditoría técnica, caso real 986278-14-LE26.) ANTES esta regla se llamaba "dedup"
+// y DESCARTABA el segundo ítem asumiendo que era un "sub-ítem repetido" del mismo producto — pero
+// una línea de licitación puede ser un PAQUETE de productos genuinamente distintos que comparten
+// número de línea (la Línea 7 real: 11 herramientas de ferretería). Ahora se FUSIONAN, no se
+// descartan: ambos nombres y ambas características sobreviven.
+test('varios productos con la MISMA línea real se fusionan (no se descarta ninguno)', () => {
   const informe = { productos: { items: [
     { linea: 1, nombre: 'A', caracteristicas: ['x'] },
-    { linea: 1, nombre: 'A (sub-ítem)', caracteristicas: ['y'] },
-    { linea: 2, nombre: 'B', caracteristicas: ['z'] },
+    { linea: 1, nombre: 'B', caracteristicas: ['y'] },
+    { linea: 2, nombre: 'C', caracteristicas: ['z'] },
   ] } };
   const lineas = lineasTecnicasDelInforme(informe);
-  assert.equal(lineas.length, 2);
+  assert.equal(lineas.length, 2, 'sigue habiendo 2 líneas REALES, no 3');
+  assert.match(lineas[0].nombre, /A/);
+  assert.match(lineas[0].nombre, /B/, 'el segundo producto no debe perderse del nombre');
+  assert.deepEqual(lineas[0].caracteristicas, ['A: x', 'B: y'],
+    'cada característica debe quedar trazada a SU producto — sin esto el Camino B no sabe a cuál aplica');
+});
+
+// El bug original no era de conteo, era de NUMERACIÓN: `Number("L5")` da NaN y el fallback caía al
+// ÍNDICE del array, no al número real dentro del string. Caso real: 28 "líneas" (1 por producto)
+// en vez de las 7 líneas reales de las bases — la "Línea 7" del checklist mostraba un producto
+// que en realidad era el 7° del array (línea real L5), mientras los 11 productos reales de la
+// línea 7 quedaban dispersos como líneas 18 a 28.
+test('el número de línea se extrae del string "L5"/"L7", no de la posición en el array (regresión 986278-14-LE26)', () => {
+  const informe = { productos: { items: [
+    { linea: 'L1', nombre: 'Cámara de frío', caracteristicas: [] },
+    { linea: 'L5', nombre: 'Termómetro', caracteristicas: [] },
+    { linea: 'L5', nombre: 'Anemómetro', caracteristicas: [] },
+    { linea: 'L7', nombre: 'Juego de dados', caracteristicas: [] },
+    { linea: 'L7', nombre: 'Esmeril angular', caracteristicas: [] },
+  ] } };
+  const lineas = lineasTecnicasDelInforme(informe);
+  assert.deepEqual(lineas.map(l => l.linea), [1, 5, 7], 'deben ser las líneas REALES (1,5,7), no la posición (1,2,3,4,5)');
+  const l7 = lineas.find(l => l.linea === 7)!;
+  assert.match(l7.nombre, /Juego de dados/);
+  assert.match(l7.nombre, /Esmeril angular/);
+});
+
+// clasificacion/admiteEquivalente del paquete deben tomar el criterio MÁS EXIGENTE, no el del
+// primer producto ni un promedio — perder que UN producto del paquete exige algo específico
+// sería más grave que tratar de más a los genéricos del mismo paquete.
+test('un paquete con productos mixtos (específico + genérico) hereda el criterio más exigente', () => {
+  const informe = { productos: { items: [
+    { linea: 7, nombre: 'Genérico', clasificacion: 'generico', admite_equivalente: true, caracteristicas: [] },
+    { linea: 7, nombre: 'Específico', clasificacion: 'especifico', admite_equivalente: false, caracteristicas: [] },
+  ] } };
+  const [l7] = lineasTecnicasDelInforme(informe);
+  assert.equal(l7.clasificacion, 'especifico', 'un solo producto específico basta para que la línea entera lo sea');
+  assert.equal(l7.admiteEquivalente, false, 'un solo producto que NO admite equivalente basta para que la línea entera no lo admita');
+});
+
+// Cuando hay UN solo producto por línea (el caso normal, sin paquete) el comportamiento no debe
+// cambiar en nada — cantidad/unidad siguen viniendo del producto, no se pierden por el camino de
+// fusión que solo aplica a paquetes de 2+.
+test('con un solo producto por línea, cantidad y unidad siguen presentes (sin cambios)', () => {
+  const informe = { productos: { items: [
+    { linea: 1, nombre: 'Barredora', cantidad: 3, unidad_medida: 'un', caracteristicas: [] },
+  ] } };
+  const [l1] = lineasTecnicasDelInforme(informe);
+  assert.equal(l1.cantidad, 3);
+  assert.equal(l1.unidadMedida, 'un');
 });
 
 test('evaluarCaracteristicaDeterminista: PISO cumple con mismo valor/unidad', () => {

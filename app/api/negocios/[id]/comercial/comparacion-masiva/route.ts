@@ -93,6 +93,14 @@ export async function POST(request: NextRequest, { params }: Params) {
   const documentoNombre = String(body.documentoNombre || 'documento');
   if (!documentoUrl) return NextResponse.json({ error: 'Falta el documento.' }, { status: 400 });
 
+  // A qué línea(s) corresponde esta ficha. Lo dice quien la sube, porque el documento en sí no
+  // siempre lo declara y adivinarlo por parecido de nombres es justo lo que producía comparaciones
+  // cruzadas ("0 de 2 cumple" en Cámara de frío con una ficha de herramientas). Vacío = todo lo
+  // ofertado, el comportamiento de siempre.
+  const lineasObjetivo = Array.isArray(body.lineas)
+    ? body.lineas.map((n: any) => Number(n)).filter((n: number) => Number.isFinite(n))
+    : [];
+
   // Ya hay una corrida viva: no es un error, el front sigue con su polling sobre la que corre.
   const previo = await leerJobComparacion(negocio.id);
   if (previo?.estado === 'procesando' && Number(previo.edad_seg) <= JOB_HUERFANO_SEG)
@@ -106,7 +114,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const arranque = await iniciarComparacionMasiva(
     {
       negocioId: negocio.id, licitacionCodigo: negocio.licitacion_codigo,
-      userId: userId!, nombreActor, documentoUrl, documentoNombre,
+      userId: userId!, nombreActor, documentoUrl, documentoNombre, lineasObjetivo,
     },
     informe,
     () => publicarCambio('checklist_comercial'),   // al terminar, los tableros abiertos se refrescan solos

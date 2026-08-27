@@ -20,12 +20,14 @@ import {
   esPorLinea, modalidadDudosa, estadoDeBloque, lineasDelInforme, excluirYaExistentes, type EstadoItem,
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado, reubicacionDeItemGuardado,
   itemsDesdeArchivosDeAnexo, esAlertaDeCumplimiento, planDeReconciliacion, type FilaReconciliable,
+  ACCIONES_ITEM, type AccionItem,
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
 import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
 import { revisarDeltaForo } from '@/app/lib/control-foro';
 import { leerCongelamiento, yaCongelado } from '@/app/lib/congelamiento';
 import { agregarDocumentos, bitacora } from '@/app/lib/checklist-comercial-db';
+import { leerLineasOfertadas, lineasExcluidasDeNegocio } from '@/app/lib/lineas-oferta';
 
 import { decidirGeneracion, type DocumentoCandidato, type BloqueGenerable } from '@/app/lib/auditor-generacion';
 import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
@@ -187,7 +189,10 @@ export { agregarDocumentos, bitacora };
  * nunca pisa lo que el asesor ya aprobó.
  */
 async function sincronizar(negocioId: number, codigo: string, informe: any): Promise<number> {
-  let items = generarItemsDesdeViabilidad(informe);
+  // Si ya se decidió a qué líneas se oferta (selector de líneas, migración 78), no se genera
+  // trabajo para las demás. Sin decisión devuelve null y se materializa todo, igual que antes.
+  const lineasOfertadas = await leerLineasOfertadas(negocioId);
+  let items = generarItemsDesdeViabilidad(informe, lineasOfertadas);
   if (!items.length) return 0;
 
   // Los ARCHIVOS de anexo que bajaron de Mercado Público también mandan: si existe el archivo,
@@ -584,9 +589,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
     const body = await request.json().catch(() => ({}));
     const itemId = Number(body.itemId);
-    const accion = String(body.accion || '') as 'CARGAR' | 'APROBAR' | 'OBSERVAR' | 'REABRIR' | 'ELIMINAR_DOCUMENTO';
-    if (!itemId || !['CARGAR', 'APROBAR', 'OBSERVAR', 'REABRIR', 'ELIMINAR_DOCUMENTO'].includes(accion))
-      return NextResponse.json({ error: 'Petición inválida' }, { status: 400 });
+    // ACUSAR/DESACUSAR son el acuse de lectura de las alertas de cumplimiento: no pasan por
+    // transicion() (que solo modela la doble firma) y se resuelven antes, más abajo.
+    const accion = String(body.accion || '') as AccionItem;
+    // La lista blanca vive en checklist-comercial.ts (módulo puro) para que un test pueda
+    // comprobar que todo lo que la pantalla manda está permitido — ver ACCIONES_ITEM.
+    if (!itemId || !ACCIONES_ITEM.includes(accion as AccionItem))
+      return NextResponse.json({ error: `Petición inválida (acción "${accion}" no reconocida).` }, { status: 400 });
 
     const [rows] = await pool.query(
       `SELECT ${COLS} FROM checklist_comercial WHERE id = ? AND negocio_id = ? LIMIT 1`,
@@ -631,6 +640,45 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Solo el asesor puede visar los puntos.' }, { status: 403 });
 
     const anterior = item.estado as EstadoItem;
+
+    // ── ACUSE DE LECTURA de una alerta de cumplimiento ────────────────────────────────────────
+    // Las "Alertas de cumplimiento" no son documentos que alguien entregue: son condiciones de las
+    // bases que hay que TENER PRESENTES (cotizar el 100%, no despachar con cobro adicional, la
+    // garantía que se exige recién al adjudicar). No hay nada que el asesor pueda auditar ahí, y
+    // hacerlas pasar por la doble firma llenaba su cola de trabajo con 14 filas por licitación que
+    // solo podía aprobar a ciegas.
+    //
+    // El asistente marca que las LEYÓ y queda la firma de quién y cuándo — así no hay excusa de
+    // "no lo vi", que es exactamente para lo que sirven. Se guarda como APROBADO porque es el
+    // estado que en todo el sistema significa "este punto ya no está pendiente" (avance, semáforo,
+    // bloqueantes); pero `aprobado_por` queda en NULL a propósito: NADIE lo aprobó, y escribir ahí
+    // al asistente haría que la fila dijera "Aprobó Fulano" sin que ningún asesor la haya visto.
+    // La firma va en `cargado_por`, que la pantalla muestra como "Visto por".
+    if (accion === 'ACUSAR' || accion === 'DESACUSAR') {
+      if (!esAlertaDeCumplimiento(item))
+        return NextResponse.json(
+          { error: 'El acuse de lectura es solo para las alertas de cumplimiento; este punto se carga y se visa.' },
+          { status: 400 });
+
+      const visto = accion === 'ACUSAR';
+      const ahoraAcuse = ahoraChileSQL();
+      await pool.query(
+        `UPDATE checklist_comercial
+            SET estado = ?, observacion = NULL,
+                cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
+                aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL
+          WHERE id = ?`,
+        visto
+          ? ['APROBADO', userId, nombreActor, ahoraAcuse, itemId]
+          : ['PENDIENTE', null, null, null, itemId],
+      );
+      await bitacora(itemId, negocio.id, accion, anterior, visto ? 'APROBADO' : 'PENDIENTE',
+        visto ? 'Marcó que leyó esta condición' : 'Deshizo el acuse de lectura', userId, nombreActor);
+      // A propósito NO se avisa a los asesores: el punto entero es que esto no llega a su cola.
+      publicarCambio('checklist_comercial');
+      const itemsTrasAcuse = await leerItems(negocio.id);
+      return NextResponse.json({ success: true, items: itemsTrasAcuse, resumen: resumirChecklist(itemsTrasAcuse) });
+    }
 
     // ── Marcar/desmarcar una línea que NO se oferta. No es una transición de estado: es
     // decidir que ese punto no entra en la oferta, así que sale del cálculo de avance.
@@ -748,15 +796,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (item.tipo === 'precio') {
       try {
         const informe = await leerInforme(negocio.licitacion_codigo);
-        const itemsActuales = await leerItems(negocio.id);
+        const lineasPublicadas = informe ? lineasDelInforme(informe) : [];
         await recalcularAlertasCosteo({
           negocioId: negocio.id,
-          lineasPublicadas: informe ? lineasDelInforme(informe) : [],
-          lineasExcluidas: new Set(
-            itemsActuales
-              .filter((i: any) => i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.ofertamos === false && i.linea_numero != null)
-              .map((i: any) => i.linea_numero as number),
-          ),
+          lineasPublicadas,
+          lineasExcluidas: await lineasExcluidasDeNegocio(negocio.id, lineasPublicadas.map(l => l.linea)),
         });
       } catch (e) {
         // Recalcular es una mejora del diagnóstico, no parte de guardar el precio: si falla, el

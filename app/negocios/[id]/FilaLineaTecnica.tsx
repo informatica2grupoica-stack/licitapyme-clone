@@ -23,20 +23,24 @@ interface ItemLineaTecnica {
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
-export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprobar, bloqueado, ocupado, onAccion }: {
+export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprobar, bloqueado, ocupado, fueraDeLaOferta = false, onAccion }: {
   item: ItemLineaTecnica;
   negocioId: number;
   licitacionCodigo: string;
   puedeAprobar: boolean;
   bloqueado: boolean;
   ocupado: boolean;
+  /** La línea quedó fuera del selector de líneas a ofertar: se muestra, pero atenuada y sin
+   *  contar para el avance. NO se oculta — si ya traía características comparadas o aprobadas,
+   *  esconderla haría desaparecer de la vista trabajo que sigue existiendo en la base. */
+  fueraDeLaOferta?: boolean;
   onAccion: (itemId: number, accion: string, extra?: Record<string, unknown>) => Promise<boolean>;
 }) {
   const [modalAbierto, setModalAbierto] = useState(false);
   const resumen = item.resumen_tecnico;
 
   return (
-    <div className={`px-4 py-3 ${item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''}`}>
+    <div className={`px-4 py-3 ${item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''} ${fueraDeLaOferta ? 'opacity-55' : ''}`}>
       <div className="flex items-start gap-3">
         <div className="pt-0.5">
           {item.estado === 'APROBADO'
@@ -49,6 +53,11 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
           <p className="text-[13px] font-semibold text-zinc-800 leading-snug flex items-center gap-1.5">
             <Wrench size={12} className="text-zinc-400 flex-shrink-0" />
             {item.titulo}
+            {fueraDeLaOferta && (
+              <span className="flex-shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-600">
+                Fuera de la oferta
+              </span>
+            )}
           </p>
           <div className="mt-1">
             {resumen && resumen.total > 0 ? (

@@ -30,6 +30,48 @@ export interface DocumentoCandidato {
   url?: string;
 }
 
+/**
+ * Etiquetas que muestran lo que DISTINGUE a cada documento candidato, no lo que comparten.
+ *
+ * BUG REAL (26-ago-2026, 1057922-23-LE26): la pantalla mostraba `nombre.slice(0, 40)` y los 7
+ * anexos técnicos de esa licitación se llaman
+ * `FORMULARIO_N3_ESPECIFICACIONES_TÉCNICAS_<PRODUCTO>.docx`. El prefijo común mide EXACTAMENTE 40
+ * caracteres, así que los 7 botones salían idénticos: se mostraba justo la parte que todos
+ * comparten y se escondía la única que los diferencia. Elegir era imposible.
+ *
+ * Se recorta el prefijo común a todos, pero solo hasta un separador (_ - espacio) para no cortar
+ * a mitad de palabra, y solo si a TODOS les queda algo que mostrar — si a alguno lo dejara vacío
+ * (su nombre es el prefijo de los demás), se devuelven los nombres completos: mejor largo que
+ * ambiguo.
+ */
+export function etiquetasDistinguibles(nombres: string[]): string[] {
+  const limpio = (n: string) => String(n || '').replace(/\.(docx?|pdf|xlsx?)$/i, '');
+  const base = nombres.map(limpio);
+  if (base.length <= 1) return base.map(bonito);
+
+  // Prefijo común carácter a carácter, recortado al último separador para no partir una palabra.
+  let corte = base[0].length;
+  for (const n of base.slice(1)) {
+    let i = 0;
+    while (i < corte && i < n.length && base[0][i] === n[i]) i++;
+    corte = i;
+  }
+  const sep = Math.max(base[0].lastIndexOf('_', corte), base[0].lastIndexOf('-', corte),
+                       base[0].lastIndexOf(' ', corte));
+  const recorte = sep > 0 ? sep + 1 : 0;
+  const cortos = base.map(n => n.slice(recorte).trim());
+  return cortos.every(c => c.length > 0) ? cortos.map(bonito) : base.map(bonito);
+}
+
+/** `SET_CONTENEDORES` → `Set contenedores`. Los nombres vienen en MAYÚSCULAS con guiones bajos. */
+function bonito(n: string): string {
+  const texto = n.replace(/_+/g, ' ').replace(/\s+/g, ' ').trim();
+  const legible = texto === texto.toUpperCase()
+    ? texto.charAt(0) + texto.slice(1).toLowerCase()
+    : texto;
+  return legible.length > 46 ? `${legible.slice(0, 46)}…` : legible;
+}
+
 export interface ItemBloque {
   /** 'PENDIENTE' | 'CARGADO' | 'APROBADO' | 'OBSERVADO' */
   estado: string | null;

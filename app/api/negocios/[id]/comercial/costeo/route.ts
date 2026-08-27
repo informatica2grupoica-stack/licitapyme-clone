@@ -26,6 +26,7 @@ import { esPorLinea, lineasDelInforme } from '@/app/lib/checklist-comercial';
 import { parsearCosteo, calcularAlertasMotorComercial, totalesDeCosteo, totalPrecioDeLinea, type AlertaMotorComercial } from '@/app/lib/motor-comercial';
 import { cargarNegocio, leerInforme, leerItems, nombreDe, asesores } from '../route';
 import { yaCongelado } from '@/app/lib/congelamiento';
+import { lineasExcluidasDeNegocio } from '@/app/lib/lineas-oferta';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -115,14 +116,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     const { totalCostoNeto, totalPrecioNeto } = totalesDeCosteo(filas);
 
     // Se necesita ANTES de calcular alertas (no solo para la auto-precarga de más abajo): una
-    // línea que el asistente ya marcó "no ofertamos" no debe contar ni para el total ni para
-    // "sobre presupuesto", aunque el costeo la traiga cotizada.
+    // línea que no ofertamos no debe contar ni para el total ni para "sobre presupuesto", aunque
+    // el costeo la traiga cotizada. Antes esto miraba SOLO las filas del checklist marcadas
+    // "no ofertamos"; ahora la fuente principal es el selector de líneas (migración 78), porque
+    // una línea descartada ahí ya ni siquiera genera fila de precio que mirar.
     const items = await leerItems(negocio.id);
-    const lineasExcluidas = new Set(
-      items
-        .filter((i: any) => i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.ofertamos === false && i.linea_numero != null)
-        .map((i: any) => i.linea_numero as number),
-    );
+    const lineasExcluidas = await lineasExcluidasDeNegocio(negocio.id, lineasPublicadas.map(l => l.linea));
 
     const alertas: AlertaMotorComercial[] = calcularAlertasMotorComercial({
       filas, totalAnexoEconomico: totalAnexo, presupuestoPublicado, lineasPublicadas, lineasExcluidas,
@@ -152,7 +151,15 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     // Auto-precarga SOLO de ítems 'precio' todavía en PENDIENTE (spec §7.5) — ver cabecera del
     // archivo para por qué no se toca nada que ya tenga un valor cargado.
-    const itemsPrecio = items.filter((i: any) => i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.estado === 'PENDIENTE');
+    //
+    // Y NUNCA sobre una línea que quedó fuera de la oferta: el UPDATE de abajo escribe
+    // `ofertamos = 1` (correcto para lo que sí se oferta, porque precargar un precio ES
+    // comprometerse con esa línea), así que sin este filtro subir un costeo REVERTIRÍA en
+    // silencio la decisión del selector — y encima dejaría la línea CARGADA, lista para que
+    // alguien la visara. Aplica sobre todo a los negocios viejos, donde las filas de las líneas
+    // descartadas ya existen; en uno nuevo el selector directamente no las genera.
+    const itemsPrecio = items.filter((i: any) =>
+      i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.estado === 'PENDIENTE' && i.ofertamos !== false);
     if (esPorLinea(informe)) {
       // Suma TODOS los sub-ítems de la línea (totalPrecioDeLinea), no una fila suelta con la
       // clave equivocada — una línea real puede traer varios productos en su misma hoja.

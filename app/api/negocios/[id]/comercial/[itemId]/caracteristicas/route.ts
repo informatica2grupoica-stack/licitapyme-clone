@@ -28,6 +28,8 @@ import {
   evaluarCaracteristicaDeterminista, evaluarCaracteristicaConIA, slugCaracteristica,
 } from '@/app/lib/auditor-tecnico';
 import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
+import { extraerProductoOfertado } from '@/app/lib/producto-ofertado';
+import { guardarProductoLeidoDeFicha, leerProductoOfertado, confirmarProductoOfertado } from '@/app/lib/producto-ofertado-db';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -167,7 +169,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!item) return NextResponse.json({ error: 'Línea no encontrada' }, { status: 404 });
 
     const caracteristicas = await leerCaracteristicas(item.id);
-    return NextResponse.json({ success: true, caracteristicas });
+    const productoOfertado = await leerProductoOfertado(item.id).catch(() => null);
+    return NextResponse.json({ success: true, caracteristicas, productoOfertado });
   } catch (error) {
     console.error('[comercial][caracteristicas][GET]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });
@@ -194,6 +197,24 @@ export async function POST(request: NextRequest, { params }: Params) {
     const body = await request.json().catch(() => ({}));
     const accion = String(body.accion || '');
     const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
+
+    // ── Confirmar/corregir marca, modelo, fabricante, país/año del producto ofertado ────────
+    // Lo que escribe una persona acá SIEMPRE manda: es lo que se imprime en el Formulario N°3 y
+    // en nuestra ficha, así que tiene que poder corregirse aunque la lectura automática (subir
+    // ficha) se haya equivocado o no haya encontrado nada.
+    if (accion === 'confirmar_producto') {
+      if (await yaCongelado(negocio.id))
+        return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
+      const limpio = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t.slice(0, 160) : null; };
+      await confirmarProductoOfertado({
+        itemId: item.id, negocioId: negocio.id, usuarioId: userId,
+        marca: limpio(body.marca), modelo: limpio(body.modelo), fabricante: limpio(body.fabricante),
+        paisFabricacion: limpio(body.paisFabricacion), anioFabricacion: limpio(body.anioFabricacion),
+      });
+      publicarCambio('checklist_comercial');
+      const productoOfertado = await leerProductoOfertado(item.id);
+      return NextResponse.json({ success: true, productoOfertado });
+    }
 
     // ── Reiniciar: borra TODAS las características de la línea (ficha equivocada, prueba con
     // datos de otra licitación, etc.) y la devuelve a PENDIENTE — vuelve a quedar como si nunca
@@ -319,6 +340,19 @@ export async function POST(request: NextRequest, { params }: Params) {
       // Deja la ficha como evidencia adjunta de la línea — mismo "Ver documento" que cualquier
       // otro punto del checklist (DocumentViewerModal), en vez de un visor aparte solo para esto.
       await agregarDocumentos(item.id, negocio.id, [{ url: documentoUrl, nombre: documentoNombre }], userId, nombreActor);
+
+      // Marca/modelo/fabricante — el mismo texto de la ficha que se acaba de leer para comparar
+      // las especificaciones ya tiene esto adentro casi siempre (caso real: la ficha del LS-150
+      // dice "SENSING.KONICAMINOLTA.COM", de ahí sale "Konica Minolta"). Es determinista y no pide
+      // otra llamada de IA — ver producto-ofertado.ts. Nunca pisa un dato que el asistente ya
+      // confirmó a mano (guardarProductoLeidoDeFicha se abstiene en ese caso).
+      try {
+        const producto = extraerProductoOfertado(extraido.texto, documentoNombre);
+        await guardarProductoLeidoDeFicha({ itemId: item.id, negocioId: negocio.id, producto, fuenteDocumento: documentoNombre });
+      } catch (e) {
+        // No puede tumbar la comparación: las características ya se guardaron arriba.
+        console.error('[comercial][caracteristicas] no se pudo leer marca/modelo de la ficha:', String(e));
+      }
 
       await intentarAutoTransicion(item, negocio.id, userId, nombreActor);
       publicarCambio('checklist_comercial');

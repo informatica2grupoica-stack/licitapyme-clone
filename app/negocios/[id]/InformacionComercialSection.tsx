@@ -24,7 +24,7 @@ import { useRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
-import type { DecisionGeneracion, DocumentoCandidato } from '@/app/lib/auditor-generacion';
+import { etiquetasDistinguibles, type DecisionGeneracion, type DocumentoCandidato } from '@/app/lib/auditor-generacion';
 import { SelectorDocumentoAnexo } from '@/app/components/SelectorDocumentoAnexo';
 import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
 import { FilaLineaTecnica } from './FilaLineaTecnica';
@@ -82,6 +82,12 @@ interface Item {
 interface Resumen {
   total: number; aprobados: number; porAprobar: number; pendientes: number;
   observados: number; bloqueantesPendientes: number; listoParaPostular: boolean; avance: number;
+}
+
+/** "Línea 12 — SILLA DE RUEDAS" → "SILLA DE RUEDAS", recortado para que quepa en el desplegable. */
+function nombreCortoLinea(titulo: string): string {
+  const sinPrefijo = String(titulo || '').replace(/^L[íi]nea\s+\d+\s*[—–-]\s*/i, '').trim();
+  return sinPrefijo.length > 38 ? `${sinPrefijo.slice(0, 38)}…` : sinPrefijo;
 }
 
 /** "$0.42 USD · 63 llamadas". Se muestra con 2 decimales: bajo eso el número no dice nada útil. */
@@ -259,6 +265,12 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   // POST solo la arranca y esta pantalla sigue el avance por polling. Sobrevive a un F5.
   const [jobMasivo, setJobMasivo] = useState<JobMasivo | null>(null);
   const [subiendoMasivo, setSubiendoMasivo] = useState(false);
+  // A qué línea corresponde la ficha que se va a subir. '' = todas las ofertadas (comportamiento
+  // de siempre). Una ficha casi nunca cubre la licitación entera: el proveedor manda la de SU
+  // línea, y compararla contra las demás produce "0 de N cumple" en líneas que ese documento
+  // nunca mencionó — se lee como un incumplimiento real y encima se paga IA por cada una.
+  const [lineaFicha, setLineaFicha] = useState<string>('');
+  const [generandoFicha, setGenerandoFicha] = useState(false);
   const [verLineaId, setVerLineaId] = useState<number | null>(null);
   const fileMasivoRef = useRef<HTMLInputElement>(null);
   const comparandoMasivo = subiendoMasivo || jobMasivo?.estado === 'procesando';
@@ -288,7 +300,10 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
       const r = await fetch(`/api/negocios/${negocioId}/comercial/comparacion-masiva`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ documentoUrl: doc.url, documentoNombre: doc.nombre }),
+        body: JSON.stringify({
+          documentoUrl: doc.url, documentoNombre: doc.nombre,
+          lineas: lineaFicha ? [Number(lineaFicha)] : [],
+        }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d.error || 'No se pudo comparar el documento'); return; }
@@ -299,6 +314,36 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       setSubiendoMasivo(false);
       if (fileMasivoRef.current) fileMasivoRef.current.value = '';
     }
+  };
+
+  /**
+   * Genera NUESTRA ficha técnica desde las exigencias que el Auditor ya tiene clasificadas.
+   * Es a la vez el documento que se presenta y la referencia contra la cual leer la ficha que
+   * manda el proveedor. Ver app/lib/ficha-tecnica.ts.
+   */
+  const generarFichaPropia = async () => {
+    setGenerandoFicha(true);
+    try {
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/ficha-tecnica`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lineas: lineaFicha ? [Number(lineaFicha)] : [] }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d?.success) { toast.error(d.error || 'No se pudo generar la ficha'); return; }
+      // El aviso de casillas en blanco NO es cosmético: son las que hay que completar a mano antes
+      // de presentar, y es justo lo que se pierde de vista si el PDF se abre y se da por listo.
+      if (d.sinCompletar > 0) {
+        toast.warning(
+          `Ficha lista con ${d.lineas} línea(s)`,
+          `${d.sinCompletar} casilla(s) de "Ofertado" quedaron en blanco: complétalas antes de presentar.`,
+        );
+      } else {
+        toast.success(`Ficha lista con ${d.lineas} línea(s)`, 'Todas las casillas vienen completas.');
+      }
+      setVisorDoc({ nombre: d.nombre, url: d.url });
+    } catch (e: any) {
+      toast.error('Error de red', String(e));
+    } finally { setGenerandoFicha(false); }
   };
 
   /** Cierra la tabla de resultados: borra el job para que no reaparezca en el próximo render. */
@@ -473,7 +518,11 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
   // Agregado del bloque TECNICO: no vive en el backend (es una suma en caliente de los
   // resumen_tecnico que ya trae cada línea), así que sincronizar() sigue sin tocar IA.
-  const lineasTecnicas = items.filter(i => i.tipo === 'linea_tecnica');
+  // Las líneas que quedaron FUERA de la oferta (selector de líneas a ofertar, migración 78) no
+  // cuentan para el avance: no tener aprobada la línea 2 cuando no se postula a la línea 2 no es
+  // una tarea pendiente. La fila igual se muestra abajo, atenuada — si ya traía trabajo cargado,
+  // esconderla haría desaparecer de la vista algo que sigue existiendo en la base.
+  const lineasTecnicas = items.filter(i => i.tipo === 'linea_tecnica' && i.ofertamos !== false);
   const resumenTecnicoGlobal = lineasTecnicas.reduce((acc, i) => {
     acc.totalLineas++;
     if (i.estado === 'APROBADO') acc.aprobadas++;
@@ -672,10 +721,44 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <input ref={fileMasivoRef} type="file" className="hidden" onChange={e => compararDocumentoMasivo(e.target.files)} />
+                  {/* De qué línea es la ficha. Solo aparece si hay más de una: con una sola no hay
+                      nada que elegir. Por defecto "todas", que es como se comportaba antes. */}
+                  {lineasTecnicas.length > 1 && (
+                    <select
+                      value={lineaFicha}
+                      onChange={e => setLineaFicha(e.target.value)}
+                      disabled={comparandoMasivo}
+                      title="¿De qué línea es la ficha que vas a subir?"
+                      className="max-w-[240px] rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-600 disabled:opacity-50"
+                    >
+                      <option value="">Ficha de todas las líneas</option>
+                      {lineasTecnicas.map(l => (
+                        <option key={l.id} value={l.linea_numero ?? ''}>
+                          Ficha de la línea {l.linea_numero} — {nombreCortoLinea(l.titulo)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {/* NUESTRA ficha primero, la del proveedor después: ese es el orden que pidió el
+                      usuario. Tener la propia armada es lo que convierte la comparación en algo
+                      contrastable en vez de una lectura a ciegas del PDF que mandó el proveedor. */}
+                  <button
+                    onClick={generarFichaPropia}
+                    disabled={generandoFicha}
+                    title={lineaFicha
+                      ? `Arma nuestra ficha técnica de la línea ${lineaFicha}, con el logo y la firma de la empresa`
+                      : 'Arma nuestra ficha técnica con las líneas que ofertamos, con el logo y la firma de la empresa'}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 px-2.5 py-1 text-[11px] font-semibold text-teal-700 transition-colors hover:bg-teal-50 disabled:opacity-50"
+                  >
+                    {generandoFicha ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+                    {generandoFicha ? 'Armando ficha…' : 'Generar nuestra ficha'}
+                  </button>
                   <button
                     onClick={() => fileMasivoRef.current?.click()}
                     disabled={comparandoMasivo}
-                    title="Un solo documento con las especificaciones de varias líneas — se compara contra cada una automáticamente"
+                    title={lineaFicha
+                      ? `La ficha se comparará SOLO contra la línea ${lineaFicha}`
+                      : 'Un solo documento con las especificaciones de varias líneas — se compara contra cada una'}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg border border-violet-200 transition-colors disabled:opacity-50"
                   >
                     {comparandoMasivo ? <Loader2 size={12} className="animate-spin" /> : <FileStack size={12} />}
@@ -708,10 +791,14 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
             <div className="divide-y divide-zinc-100">
               {delBloque.map(item => {
                 if (b.key === 'TECNICO' && item.tipo === 'linea_tecnica' && soloExcepcionesTecnico && item.estado === 'APROBADO') return null;
+                // "Mostrar solo pendientes" también esconde las líneas fuera de la oferta: no son
+                // pendientes de nadie.
+                if (item.tipo === 'linea_tecnica' && item.ofertamos === false && soloExcepcionesTecnico) return null;
                 return item.tipo === 'linea_tecnica' ? (
                   <FilaLineaTecnica
                     key={item.id}
                     item={item}
+                    fueraDeLaOferta={item.ofertamos === false}
                     negocioId={negocioId}
                     licitacionCodigo={licitacionCodigo}
                     puedeAprobar={puedeAprobar}
@@ -759,9 +846,12 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       {/* ── Alertas de cumplimiento: condiciones sin documento propio ───────────
           Todo lo tipo 'dato' de cualquier bloque (cotizar 100%, contrato, plazo comprometido,
           bloqueantes sueltos) va acá, debajo de lo económico. No se borran ni se ocultan: el
-          asistente las confirma (sin necesidad de adjuntar nada) y el asesor las visa igual que
-          el resto — así queda registro de que se leyeron y se tuvieron en cuenta, o de que la
-          licitación quedó fuera por no cumplirlas. */}
+          asistente marca que las LEYÓ y ahí termina el trámite.
+          POR QUÉ NO PASAN POR EL ASESOR (feedback del usuario, 26-ago-2026): no hay nada que
+          auditar en "no despachar con cobro adicional" o "cotizar el 100%" — no es un entregable,
+          es algo que hay que tener presente. Hacerlas pasar por la doble firma llenaba la cola del
+          asesor con 14 filas por licitación que solo podía aprobar a ciegas. El check deja la
+          firma de quién y cuándo, que es para lo que sirve: que nadie pueda decir "no lo vi". */}
       {(() => {
         // Mismo criterio de "¿ya toca mostrar esto?" que cada bloque de origen: una alerta que
         // nació del informe administrativo no debe aparecer antes de que la licitación entre a
@@ -774,9 +864,9 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
             <div className="px-4 py-3 border-b border-zinc-100 flex items-center gap-2">
               <AlertTriangle size={14} className="text-zinc-400" />
               <h3 className="text-[13px] font-bold text-zinc-800">Alertas de cumplimiento</h3>
-              <span className="text-[10.5px] text-zinc-400">Condiciones a tener en cuenta — sin documento que subir</span>
+              <span className="text-[10.5px] text-zinc-400">Condiciones a tener en cuenta — el asistente confirma que las leyó</span>
               <span className="ml-auto text-[11px] font-bold text-zinc-400">
-                {alertas.filter(i => i.estado === 'APROBADO').length}/{alertas.length}
+                {alertas.filter(i => i.estado === 'APROBADO').length}/{alertas.length} vistas
               </span>
             </div>
             <div className="divide-y divide-zinc-100">
@@ -786,8 +876,9 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                   item={item}
                   licitacionCodigo={licitacionCodigo}
                   puedeAprobar={puedeAprobar}
-                  bloqueado={false}
+                  bloqueado={congelado != null}
                   ocupado={ocupado === item.id}
+                  modoAcuse
                   onAccion={accionar}
                   onVer={setVisorDoc}
                   toast={toast}
@@ -1058,16 +1149,21 @@ function GenerarAnexoDeBloque({ decision, etiqueta, onGenerar }: {
     );
   }
   const docs = [decision.documentoSugerido!, ...decision.alternativas];
+  // Etiquetas por lo que DISTINGUE a cada documento. Antes se cortaba el nombre a 40 caracteres y
+  // en una licitación con 7 "FORMULARIO_N3_ESPECIFICACIONES_TÉCNICAS_<producto>" —cuyo prefijo
+  // común mide justo 40— los 7 botones salían idénticos. Ver etiquetasDistinguibles().
+  const etiquetas = etiquetasDistinguibles(docs.map(d => d.nombre));
   return (
     <div className="px-4 py-2.5 bg-violet-50 border-b border-violet-100">
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[11.5px] text-violet-900"><b>Anexo {etiqueta} listo para generar.</b> {decision.motivo}</span>
       </div>
       <div className="flex items-center gap-2 flex-wrap mt-2">
-        {docs.map(d => (
+        {docs.map((d, i) => (
           <button key={d.id} onClick={() => onGenerar(d)}
+            title={d.nombre}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-[11.5px] font-semibold rounded-lg transition-colors">
-            <Sparkles size={12} /> {docs.length > 1 ? d.nombre.slice(0, 40) : `Generar anexo ${etiqueta}`}
+            <Sparkles size={12} /> {docs.length > 1 ? etiquetas[i] : `Generar anexo ${etiqueta}`}
           </button>
         ))}
       </div>
@@ -1078,12 +1174,16 @@ function GenerarAnexoDeBloque({ decision, etiqueta, onGenerar }: {
   );
 }
 
-function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, onAccion, onVer, onGenerar, toast }: {
+function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, modoAcuse = false, onAccion, onVer, onGenerar, toast }: {
   item: Item;
   licitacionCodigo: string;
   puedeAprobar: boolean;
   bloqueado: boolean;
   ocupado: boolean;
+  /** Alerta de cumplimiento: no es un documento que alguien entregue ni algo que el asesor pueda
+   *  auditar, es una condición de las bases que hay que tener presente. El asistente marca que la
+   *  LEYÓ y ahí termina — no entra en la cola del asesor. Ver la acción ACUSAR en el route. */
+  modoAcuse?: boolean;
   onAccion: (itemId: number, accion: string, extra?: Record<string, unknown>) => Promise<boolean>;
   onVer: (doc: VisorDoc) => void;
   onGenerar?: (item: Item) => void;
@@ -1281,11 +1381,17 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
             </div>
           )}
 
-          {/* Firmas */}
+          {/* Firmas. En una alerta de cumplimiento la firma NO dice "cargó" ni "aprobó": nadie
+              entregó ni visó nada, alguien declaró que lo leyó. Decirlo con las palabras del
+              flujo normal haría creer que un asesor lo revisó. */}
           {(item.cargado_por_nombre || item.aprobado_por_nombre) && (
             <p className="text-[10px] text-zinc-400 mt-1.5">
-              {item.cargado_por_nombre && <>Cargó {item.cargado_por_nombre} · {fmtFecha(item.cargado_at)}</>}
-              {item.aprobado_por_nombre && <> · Aprobó {item.aprobado_por_nombre} · {fmtFecha(item.aprobado_at)}</>}
+              {modoAcuse
+                ? item.cargado_por_nombre && <>Visto por {item.cargado_por_nombre} · {fmtFecha(item.cargado_at)}</>
+                : <>
+                    {item.cargado_por_nombre && <>Cargó {item.cargado_por_nombre} · {fmtFecha(item.cargado_at)}</>}
+                    {item.aprobado_por_nombre && <> · Aprobó {item.aprobado_por_nombre} · {fmtFecha(item.aprobado_at)}</>}
+                  </>}
             </p>
           )}
 
@@ -1372,7 +1478,31 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, on
         </div>
 
         {/* ── Acciones ─────────────────────────────────────────────────────── */}
-        {!editando && !observando && (
+        {!editando && !observando && modoAcuse && (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {item.estado === 'APROBADO' ? (
+              <button
+                onClick={() => onAccion(item.id, 'DESACUSAR')}
+                disabled={ocupado || bloqueado}
+                title="Deshacer: volver a marcarlo como no leído"
+                className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-[11.5px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"
+              >
+                {ocupado ? <Loader2 size={11} className="animate-spin" /> : <Check size={12} />} Visto
+              </button>
+            ) : (
+              <button
+                onClick={() => onAccion(item.id, 'ACUSAR')}
+                disabled={ocupado || bloqueado}
+                title="Confirmo que leí esta condición y la voy a tener en cuenta"
+                className="inline-flex items-center gap-1 rounded-lg border border-zinc-200 px-2.5 py-1 text-[11.5px] font-semibold text-zinc-600 transition-colors hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 disabled:opacity-50"
+              >
+                {ocupado ? <Loader2 size={11} className="animate-spin" /> : <Check size={12} />} Marcar como visto
+              </button>
+            )}
+          </div>
+        )}
+
+        {!editando && !observando && !modoAcuse && (
           <div className="flex items-center gap-1.5 flex-shrink-0">
             {/* Asistente: cargar / corregir */}
             {!bloqueado && item.estado !== 'APROBADO' && (

@@ -838,7 +838,14 @@ export async function analizarAnexoParaUI(
     cobertura: diagnosticarCobertura({
       textoPlano: analisis.parrafos.map(p => p.texto).join('\n'),
       parrafosConTexto: analisis.parrafos.filter(p => p.texto && !p.vacio).length,
+      // + bloquesFirmaAmbiguos: firmas que el motor identificó pero NUNCA estampa (leyenda nombra
+      // a las dos partes a la vez, no se adivina cuál raya es cuál — ver su comentario en
+      // anexos-detectar.ts). Se suman como DETECTADAS y no como resueltas a propósito: antes eran
+      // invisibles para este diagnóstico entero, así que un anexo con 16 casillas bien resueltas y
+      // una firma obligatoria sin estampar salía "ok" (26-ago-2026, auditoría, caso real
+      // 1057480-41-LP26/ANEXO_N°7 — advierte "SU PROPUESTA SERÁ DECLARADA INADMISIBLE").
       casillasDetectadas: completadosAuto.length + pendientesCelda.length + pendientesInline.length
+        + analisis.bloquesFirmaAmbiguos.length
         + tablas.reduce((acc, t) => acc + t.filas.reduce((m, f) => m + f.filter(c => c.auto || c.input).length, 0), 0),
       casillasResueltas: completadosAuto.length
         + tablas.reduce((acc, t) => acc + t.filas.reduce((m, f) => m + f.filter(c => c.auto).length, 0), 0),
@@ -918,6 +925,15 @@ export async function generarAnexoFinal(
   let xml = xmlNormalizado;
   let respondidos = 0;
   const avisos: string[] = [];
+
+  // FIRMA AMBIGUA sin estampar (26-ago-2026, auditoría): el motor no adivina cuál raya es del
+  // oferente cuando la leyenda nombra a las dos partes a la vez — decisión correcta, pero antes
+  // desaparecía en silencio. Se avisa acá, en el MISMO canal que ya llega al usuario (avisos →
+  // actividad_usuario → pantalla), sin tocar la decisión de no estampar.
+  for (const b of analisis.bloquesFirmaAmbiguos) {
+    avisos.push(`El pie de firma "${b.contexto.slice(0, 90)}" nombra a dos firmantes a la vez — no se pudo `
+      + 'determinar cuál raya es la del oferente, así que quedó SIN completar. Revísalo a mano antes de presentar.');
+  }
 
   // 1) Blancos inline PRIMERO — mismo orden y misma razón que antes: este paso solo EDITA texto
   //    de runs que ya existían, nunca agrega/quita un <w:t>, así que el índice de aparición no

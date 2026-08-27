@@ -69,32 +69,93 @@ export function normalizarConfianza(raw: unknown): number {
  * Lee informe.productos.items (shape rico, v3.3) con respaldo a manifiesto_productos/costeo.items
  * (shape aplanado, sin caracteristicas — en ese caso la línea sale sin nada que clasificar).
  */
+// Extrae el número de línea de "L5"/"5"/"Línea 5" — el manifiesto de viabilidad guarda `linea`
+// como texto con el prefijo "L" ("L1".."L7"). MISMA lógica que `_lineaNum` en viabilidad-ia.ts,
+// duplicada acá a propósito (no importada) por el boundary server/cliente de arriba: traer
+// viabilidad-ia.ts arrastra toda la cadena hasta gemini.ts/node:async_hooks para reusar una
+// función de una línea.
+//
+// BUG REAL (26-ago-2026, auditoría técnica, caso real 986278-14-LE26): antes era
+// `Number(it?.linea ?? it?.numero ?? i + 1) || i + 1`. `Number("L5")` da NaN, y `NaN || i+1` cae
+// SIEMPRE al índice del array — nunca al número real dentro del string. Una licitación por línea
+// donde una línea trae varios productos (L7 con 11 herramientas, caso real) generaba una "línea
+// técnica" DISTINTA por cada producto, numeradas 1..28 por POSICIÓN en vez de 1..7 por línea real:
+// la "Línea 7" del checklist mostraba un producto de la línea real 5 (el 7° del array), mientras
+// los 11 productos reales de la línea 7 quedaban dispersos como "líneas" 18 a 28.
+// Exportada porque el lado COMERCIAL (lineasDelInforme en checklist-comercial.ts) tenía
+// EXACTAMENTE el mismo bug y necesita numerar igual: si el técnico dice "Línea 7" y el comercial
+// dice "Línea 22" para lo mismo, el selector de líneas a ofertar filtra bien un bloque y mal el otro.
+export function numeroDeLinea(v: unknown): number | null {
+  if (v == null) return null;
+  const m = String(v).match(/\d+/);
+  return m ? Number(m[0]) : null;
+}
+
+// FUSIÓN DE VARIOS PRODUCTOS QUE COMPARTEN LÍNEA REAL — una línea de licitación puede ser un
+// PAQUETE (caso real 986278-14-LE26: la Línea 7 es "Equipos y Herramientas Ferretería General",
+// 11 productos distintos — juego de dados, llaves Allen, esmeril, taladro… — todos bajo la misma
+// línea). El manifiesto de viabilidad ya los trae correctamente etiquetados con el mismo `linea`;
+// lo que antes se leía como "duplicado a descartar" (ver el bug de numeroDeLinea de arriba) en
+// realidad son productos DISTINTOS que hay que conservar TODOS, no solo el primero.
+//
+// `caracteristicas` viene SIN prefijo de producto ("Cuadrante de 1/2\" entre 14mm y 32mm" no dice
+// a cuál de los 11 productos pertenece) — concatenar los arrays a secas perdería esa trazabilidad
+// y el Camino B (comparación contra la ficha del proveedor) no podría saber a qué producto del
+// paquete aplica cada especificación. Cada característica se antepone con el nombre de SU
+// producto ("Juego de dados con chicharra: Cuadrante de 1/2\" entre 14mm y 32mm").
+//
+// clasificacion/admiteEquivalente se combinan por el criterio MÁS EXIGENTE del grupo, no por
+// mayoría ni por el primero: si UN SOLO producto del paquete es 'especifico' o no admite
+// equivalente, perder esa restricción para toda la línea sería más grave que ser conservador con
+// los productos genéricos del mismo paquete.
+function fusionarProductosDeLinea(linea: number, productos: any[]): LineaTecnica {
+  if (productos.length === 1) {
+    const it = productos[0];
+    return {
+      linea,
+      nombre: String(it?.nombre || it?.descripcion_exacta || it?.descripcion || `Línea ${linea}`).slice(0, 280),
+      clasificacion: it?.clasificacion === 'generico' ? 'generico' : it?.clasificacion === 'especifico' ? 'especifico' : null,
+      marcaModeloReferencia: it?.marca_modelo_referencia ? String(it.marca_modelo_referencia).slice(0, 200) : null,
+      admiteEquivalente: typeof it?.admite_equivalente === 'boolean' ? it.admite_equivalente : null,
+      caracteristicas: Array.isArray(it?.caracteristicas) ? it.caracteristicas.map((c: any) => String(c || '').trim()).filter(Boolean) : [],
+      cantidad: Number.isFinite(Number(it?.cantidad)) ? Number(it.cantidad) : null,
+      unidadMedida: it?.unidad_medida ? String(it.unidad_medida) : null,
+    };
+  }
+  const nombreDe = (it: any) => String(it?.nombre || it?.descripcion_exacta || it?.descripcion || '').trim();
+  const nombres = productos.map(nombreDe).filter(Boolean);
+  const caracteristicas = productos.flatMap((it) => {
+    const nombre = nombreDe(it);
+    const cs = Array.isArray(it?.caracteristicas) ? it.caracteristicas.map((c: any) => String(c || '').trim()).filter(Boolean) : [];
+    return cs.map((c: string) => (nombre ? `${nombre}: ${c}` : c));
+  });
+  return {
+    linea,
+    nombre: `${productos.length} productos: ${nombres.join(', ')}`.slice(0, 280),
+    clasificacion: productos.some(it => it?.clasificacion === 'especifico') ? 'especifico'
+      : productos.some(it => it?.clasificacion === 'generico') ? 'generico' : null,
+    marcaModeloReferencia: productos.map(it => it?.marca_modelo_referencia).filter(Boolean).join('; ').slice(0, 200) || null,
+    admiteEquivalente: productos.some(it => it?.admite_equivalente === false) ? false
+      : productos.some(it => it?.admite_equivalente === true) ? true : null,
+    caracteristicas,
+    cantidad: null,       // sumar cantidades de productos distintos con unidades distintas no tiene sentido
+    unidadMedida: null,
+  };
+}
+
 export function lineasTecnicasDelInforme(informe: any): LineaTecnica[] {
   const crudo: any[] =
     (Array.isArray(informe?.productos?.items) && informe.productos.items) ||
     (Array.isArray(informe?.manifiesto_productos) && informe.manifiesto_productos) ||
     (Array.isArray(informe?.costeo?.items) && informe.costeo.items) || [];
 
-  const vistas = new Set<number>();
-  const out: LineaTecnica[] = [];
+  const porLinea = new Map<number, any[]>();
   crudo.forEach((it: any, i: number) => {
-    const linea = Number(it?.linea ?? it?.numero ?? i + 1) || i + 1;
-    if (vistas.has(linea)) return;   // el informe a veces repite la línea por sub-ítem
-    vistas.add(linea);
-    const caracteristicas = Array.isArray(it?.caracteristicas)
-      ? it.caracteristicas.map((c: any) => String(c || '').trim()).filter(Boolean)
-      : [];
-    out.push({
-      linea,
-      nombre: String(it?.nombre || it?.descripcion_exacta || it?.descripcion || `Línea ${linea}`).slice(0, 280),
-      clasificacion: it?.clasificacion === 'generico' ? 'generico' : it?.clasificacion === 'especifico' ? 'especifico' : null,
-      marcaModeloReferencia: it?.marca_modelo_referencia ? String(it.marca_modelo_referencia).slice(0, 200) : null,
-      admiteEquivalente: typeof it?.admite_equivalente === 'boolean' ? it.admite_equivalente : null,
-      caracteristicas,
-      cantidad: Number.isFinite(Number(it?.cantidad)) ? Number(it.cantidad) : null,
-      unidadMedida: it?.unidad_medida ? String(it.unidad_medida) : null,
-    });
+    const linea = numeroDeLinea(it?.linea) ?? numeroDeLinea(it?.numero) ?? i + 1;
+    if (!porLinea.has(linea)) porLinea.set(linea, []);
+    porLinea.get(linea)!.push(it);
   });
+  const out = Array.from(porLinea.entries()).map(([linea, productos]) => fusionarProductosDeLinea(linea, productos));
   return out.sort((a, b) => a.linea - b.linea);
 }
 
@@ -161,6 +222,46 @@ function factorConversion(origen: string, destino: string): number | null {
   const infoD = UNIDADES[d];
   if (!infoO || !infoD || infoO.familia !== infoD.familia) return null;
   return infoO.factor / infoD.factor;
+}
+
+// ─── Tolerancias: "al menos ±2,5%" es un TECHO, no un piso ──────────────────────────────────────
+//
+// BUG REAL (26-ago-2026, 611669-17-LE26 "LUMINANCÍMETROS"): las bases pedían
+// "Precisión: al menos +/-2,5%" y el clasificador lo guardó como PISO con valor 2,5. Pero la
+// precisión es una TOLERANCIA: ±2% es MEJOR que ±2,5%, no peor. Con tipo=PISO el evaluador
+// determinista hace `2 >= 2,5` → NO_CUMPLE, o sea marca incumplimiento en un equipo que sí cumple
+// y de sobra.
+//
+// En ese caso concreto zafó de casualidad: el valor ofertado venía como texto largo
+// ("+/-2% +/- 2 dígitos…"), no se pudo convertir a número, el determinista devolvió null y resolvió
+// la IA, que razonó bien. Si la ficha hubiera dicho "±2%" a secas, el veredicto habría salido
+// invertido — y en una evaluación técnica eso cuesta puntos o la admisibilidad.
+//
+// La señal es doble y se exigen LAS DOS, para no dar vuelta requisitos que sí son un piso:
+//   1) la característica habla de una magnitud de ERROR (precisión, exactitud, tolerancia,
+//      desviación, incertidumbre, repetibilidad), y
+//   2) el valor aparece como ± / +/- , que es como se escribe una tolerancia.
+// "Resolución de al menos 100 gr" no lleva ± y sigue siendo PISO, que es lo correcto.
+
+const RE_MAGNITUD_DE_ERROR =
+  /\b(precisi[oó]n|exactitud|tolerancia|desviaci[oó]n|incertidumbre|repetibilidad|error)\b/i;
+const RE_SIMBOLO_TOLERANCIA = /(±|\+\/-|\+-)/;
+
+/**
+ * Corrige el tipo cuando el requisito es una tolerancia mal clasificada como PISO.
+ *
+ * Se aplica DESPUÉS de la clasificación (venga de la IA o de donde venga) y solo da vuelta
+ * PISO→TECHO: nunca toca TECHO, EXACTO ni RANGO. Es una regla determinista sobre el texto de las
+ * bases, no una interpretación — por eso vive acá y no en el prompt, donde no se podría testear.
+ */
+export function corregirTipoDeTolerancia(
+  descripcion: string, tipo: TipoRequisitoTecnico, valorRequeridoTexto?: string | null,
+): TipoRequisitoTecnico {
+  if (tipo !== 'PISO') return tipo;
+  const texto = `${descripcion || ''} ${valorRequeridoTexto || ''}`;
+  if (!RE_MAGNITUD_DE_ERROR.test(texto)) return tipo;
+  if (!RE_SIMBOLO_TOLERANCIA.test(texto)) return tipo;
+  return 'TECHO';
 }
 
 /** Camino A, paso 1: intento determinista (mismas unidades, o conversión por tabla estática de

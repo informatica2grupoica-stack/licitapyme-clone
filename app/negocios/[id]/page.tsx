@@ -31,6 +31,7 @@ import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publi
 import { RecorridoNegocio } from './RecorridoNegocio';
 import { GestionAside } from './GestionAside';
 import { InformacionComercialSection } from './InformacionComercialSection';
+import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
 import {
@@ -1465,6 +1466,14 @@ function DetalleContent() {
                 </button>
               ))}
             </div>
+
+            {/* SELECTOR DE LÍNEAS A OFERTAR — arriba de TODAS las secciones a propósito: la
+                decisión la consumen el Auditor Técnico, el costeo y el Motor Comercial, así que
+                tiene que verse se esté donde se esté dentro del negocio. Se pinta solo en
+                licitaciones por línea; en suma alzada el componente no renderiza nada. */}
+            {/* No hace falta pasar un onGuardado que recargue el checklist: el PUT publica
+                `publicarCambio('negocio')` y la sección comercial ya escucha con useRealtime. */}
+            <SelectorLineasOferta negocioId={negocio.id} />
 
             {/* Sections */}
             {seccion === 'resumen' && (

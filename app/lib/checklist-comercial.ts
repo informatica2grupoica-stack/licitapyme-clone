@@ -8,7 +8,7 @@
 // clave_origen es la huella ESTABLE de cada punto: al resincronizar tras un re-análisis se agregan
 // los puntos nuevos sin duplicar ni pisar lo que el asesor ya aprobó.
 
-import { lineasTecnicasDelInforme } from '@/app/lib/auditor-tecnico-core';
+import { lineasTecnicasDelInforme, numeroDeLinea } from '@/app/lib/auditor-tecnico-core';
 
 export type BloqueChecklist = 'ADMINISTRATIVO' | 'TECNICO' | 'COMERCIAL';
 export type TipoItem = 'documento' | 'dato' | 'precio' | 'linea_tecnica';
@@ -193,6 +193,48 @@ export function nucleoDeTitulo(texto: string): string {
     .replace(/^_+|_+$/g, '');
   return restante;
 }
+// Distancia de edición (Levenshtein), sin dependencias — solo se usa para UNA palabra a la vez
+// (ver contieneConTolerancia), nunca sobre el título completo: aplicada a strings largos
+// confundiría documentos genuinamente distintos, que es justo lo que las guardas de abajo evitan.
+function distanciaEdicion(a: string, b: string): number {
+  if (a === b) return 0;
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const curr = [i];
+    for (let j = 1; j <= n; j++) {
+      curr.push(a[i - 1] === b[j - 1] ? prev[j - 1] : 1 + Math.min(prev[j - 1], prev[j], curr[j - 1]));
+    }
+    prev = curr;
+  }
+  return prev[n];
+}
+
+// TOLERANCIA A UN TYPO real del modelo, un carácter en UNA palabra (26-ago-2026, auditoría técnica
+// — caso real negocio 453: "Garantía de fiel cumplimiento (Póiza)" del 12-ago vs "Garantía de
+// fiel cumplimiento (Póliza/Instrumento Financiero)" del 13-ago, dos análisis del MISMO documento).
+// A "Póiza" le falta una "l" — un solo carácter — y eso basta para que ni el prefijo ni el
+// substring de nucleosCoinciden calcen, aunque el 97% del título sea idéntico: se compara por
+// SUBSTRING exacto, no por distancia de edición.
+//
+// Se compara PALABRA POR PALABRA (no el string entero) a propósito: aplicar distancia de edición
+// al título completo arriesga fundir "garantía de seriedad" con "garantía de fiel cumplimiento"
+// (el mismo caso 2905-36-LR26 que ya motivó las guardas de arriba) con solo permitir un puñado de
+// sustituciones. Palabra por palabra, cada palabra de contenido del núcleo corto tiene que
+// aparecer en el núcleo largo IGUAL o a distancia ≤1 — y solo se tolera en palabras de ≥6
+// caracteres (una palabra corta como "iva"/"con" a distancia 1 podría ser cualquier otra cosa).
+function contieneConTolerancia(largo: string, corto: string): boolean {
+  const palabrasCorto = corto.split('_').filter(Boolean);
+  const palabrasLargo = largo.split('_').filter(Boolean);
+  // El umbral de largo mira la MÁS LARGA de las dos palabras comparadas, no solo la del núcleo
+  // corto: "poiza" (el typo, 5 letras) contra "poliza" (6 letras) debe tolerarse igual que si
+  // fuera al revés — exigir 6+ solo del lado corto bloqueaba justo la palabra con el error.
+  return palabrasCorto.every(pc => palabrasLargo.some(pl =>
+    pl === pc || (Math.max(pc.length, pl.length) >= 6 && Math.abs(pl.length - pc.length) <= 1 && distanciaEdicion(pc, pl) <= 1)));
+}
+
 export function nucleosCoinciden(a: string, b: string): boolean {
   if (!a || !b) return false;
   if (a === b) return true;
@@ -212,7 +254,10 @@ export function nucleosCoinciden(a: string, b: string): boolean {
   // una señal mucho más fuerte que caber en cualquier parte, así que se acepta con cobertura
   // menor, pero exigiendo un núcleo más largo (≥20) para no fundir genéricos.
   if (corto.length >= 20 && largo.startsWith(corto)) return true;
-  return corto.length >= 15 && largo.includes(corto) && corto.length / largo.length >= 0.45;
+  if (corto.length >= 15 && largo.includes(corto) && corto.length / largo.length >= 0.45) return true;
+  // Último recurso: mismas guardas de largo/cobertura que el substring exacto de arriba, pero
+  // tolerando 1 typo por palabra — ver contieneConTolerancia.
+  return corto.length >= 15 && corto.length / largo.length >= 0.45 && contieneConTolerancia(largo, corto);
 }
 
 interface EntradaAdmin { numero: string | null; nucleo: string }
@@ -283,11 +328,20 @@ export function lineasDelInforme(informe: any): Array<{ linea: number; descripci
     (Array.isArray(informe?.productos?.items) && informe.productos.items) ||
     (Array.isArray(informe?.costeo?.items) && informe.costeo.items) || [];
 
+  // MISMO BUG QUE EL LADO TÉCNICO (arreglado 26-ago-2026, caso real 986278-14-LE26): antes era
+  // `Number(it?.linea ?? it?.numero ?? i + 1) || i + 1`. El manifiesto guarda la línea como texto
+  // con prefijo ("L7"), `Number("L7")` da NaN y `NaN || i+1` cae SIEMPRE al índice del array — así
+  // que una licitación de 7 líneas con 28 productos generaba 28 precios numerados por POSICIÓN.
+  // Se reusa numeroDeLinea() de auditor-tecnico-core para que ambos bloques numeren IGUAL: el
+  // selector de líneas a ofertar filtra por número, y dos numeraciones distintas lo romperían.
   const vistas = new Set<number>();
   const out: Array<{ linea: number; descripcion: string; cantidad: number | null; unidad: string | null; presupuestoLinea: number | null }> = [];
   crudo.forEach((it, i) => {
-    const linea = Number(it?.linea ?? it?.numero ?? i + 1) || i + 1;
-    if (vistas.has(linea)) return;   // el manifiesto a veces repite la línea por sub-ítem
+    const linea = numeroDeLinea(it?.linea) ?? numeroDeLinea(it?.numero) ?? i + 1;
+    // A diferencia del técnico (que FUSIONA los productos de una línea-paquete para poder auditar
+    // cada especificación), acá el dedupe es correcto tal cual: una línea se cotiza con UN precio,
+    // y el presupuesto_linea viene repetido idéntico en cada sub-ítem.
+    if (vistas.has(linea)) return;
     vistas.add(linea);
     out.push({
       linea,
@@ -311,7 +365,7 @@ export function lineasDelInforme(informe: any): Array<{ linea: number; descripci
  * Tolera v2 y v3: los campos cambiaron de sitio entre versiones (requisitos_admisibilidad vs
  * capa_c_admisibilidad, orden_anexos_propios vs documentos_infaltables) y aquí se leen ambos.
  */
-export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
+export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: number[] | null): ItemGenerado[] {
   const items: ItemGenerado[] = [];
   const adm = informe?.requisitos_admisibilidad || {};
   const capaC = informe?.capa_c_admisibilidad || {};
@@ -590,7 +644,28 @@ export function generarItemsDesdeViabilidad(informe: any): ItemGenerado[] {
     });
   }
 
-  return items;
+  return filtrarPorLineasOfertadas(items, lineasOfertadas);
+}
+
+/**
+ * SELECTOR DE LÍNEAS A OFERTAR (migración 78) — en una licitación por línea casi nunca se postula
+ * a todas, y hasta ahora el checklist creaba trabajo para TODAS: una fila `linea_tecnica` por cada
+ * línea del informe (caso real 986278-14-LE26: se oferta solo la Línea 7 y salían las 7) y un
+ * precio por cada línea. Con la decisión guardada, el trabajo se genera solo para lo que se oferta.
+ *
+ * Se filtra en UN solo lugar, por `lineaNumero`, en vez de meter la condición dentro de cada
+ * bloque: así cualquier tipo de ítem por línea que se agregue después queda cubierto solo por
+ * traer su número de línea, sin que nadie tenga que acordarse de repetir el filtro.
+ *
+ * FAIL-OPEN a propósito: sin decisión guardada (undefined/null) — y también con una lista vacía,
+ * que solo puede venir de un bug o de datos corruptos — se genera TODO, igual que antes de esta
+ * migración. Olvidarse de contestar el banner nunca puede hacer desaparecer trabajo del checklist.
+ * Los ítems sin línea (anexos administrativos, plazo, precio total) nunca se filtran.
+ */
+export function filtrarPorLineasOfertadas(items: ItemGenerado[], lineasOfertadas?: number[] | null): ItemGenerado[] {
+  if (!lineasOfertadas || lineasOfertadas.length === 0) return items;
+  const ofertadas = new Set(lineasOfertadas);
+  return items.filter(it => it.lineaNumero == null || ofertadas.has(it.lineaNumero));
 }
 
 /**
@@ -619,7 +694,13 @@ export interface ResumenChecklist {
 export function resumirChecklist(items: Array<Pick<ItemChecklist, 'estado' | 'criticidad' | 'tipo' | 'ofertamos'>>): ResumenChecklist {
   // En por-línea, una línea que decidimos NO ofertar no cuenta para el avance: descartarla es
   // una decisión válida, no una tarea pendiente.
-  const vivos = items.filter(i => !(i.tipo === 'precio' && i.ofertamos === false));
+  //
+  // Antes esto miraba SOLO `tipo === 'precio'`, porque `ofertamos` nacía en el costeo y ahí solo
+  // se marcaban precios. Desde el selector de líneas a ofertar (migración 78) la decisión se
+  // proyecta sobre TODAS las filas con línea — incluidas las `linea_tecnica` —, así que la regla
+  // se generaliza: si una fila está marcada "no ofertamos", no cuenta, sea del tipo que sea.
+  // Sin esto, descartar la línea 2 dejaba su línea técnica contada como pendiente para siempre.
+  const vivos = items.filter(i => i.ofertamos !== false);
   const aprobados  = vivos.filter(i => i.estado === 'APROBADO').length;
   const porAprobar = vivos.filter(i => i.estado === 'CARGADO').length;
   const observados = vivos.filter(i => i.estado === 'OBSERVADO').length;
@@ -657,7 +738,12 @@ export function estadoDeBloque(
   // "pendiente" por condiciones que no tienen nada que ver con las líneas técnicas, y descuadraba
   // el mensaje del generador contra el contador del encabezado ("Faltan 31" vs "0/28",
   // 986278-14-LE26, 25-ago-2026). Siguen contando en el resumen general y en el semáforo.
-  const vivos = items.filter(i => !(i.tipo === 'precio' && i.ofertamos === false) && !esAlertaDeCumplimiento(i));
+  //
+  // El `ofertamos === false` se generaliza a CUALQUIER tipo por el mismo motivo que en
+  // resumirChecklist: desde el selector de líneas (migración 78) la marca llega también a las
+  // `linea_tecnica`, y mirando solo los precios el bloque TÉCNICO quedaba "pendiente" para
+  // siempre por una línea a la que ni siquiera nos presentamos.
+  const vivos = items.filter(i => i.ofertamos !== false && !esAlertaDeCumplimiento(i));
   if (vivos.length === 0) return 'SIN_ITEMS';
   if (vivos.some(i => i.estado === 'CARGADO')) return 'POR_APROBAR';   // prioridad: hay algo que revisar
   if (vivos.some(i => i.estado === 'OBSERVADO')) return 'OBSERVADO';   // rebotado, esperando al asistente
@@ -669,6 +755,23 @@ export function estadoDeBloque(
  * Transiciones válidas de la máquina de estados. Devuelve el estado destino o null si la
  * acción no aplica. El control de QUIÉN puede hacer cada acción va en la ruta API.
  */
+/**
+ * Acciones que el PATCH de /comercial acepta sobre un ítem.
+ *
+ * VIVE ACÁ, EXPORTADA, POR UN BUG REAL (26-ago-2026): la lista blanca estaba escrita a mano dentro
+ * del route, así que al agregar ACUSAR/DESACUSAR (el acuse de lectura de las alertas) el servidor
+ * las rechazaba con un "Petición inválida" que no decía qué faltaba — el botón se veía perfecto y
+ * no hacía nada. Con la lista en un módulo puro, un test puede comprobar que todo lo que la
+ * pantalla manda está acá. Ver checklist-acciones.test.mts.
+ *
+ * OJO: no todas pasan por transicion(). ELIMINAR_DOCUMENTO y ACUSAR/DESACUSAR se resuelven antes,
+ * con su propia lógica; transicion() modela solo la doble firma.
+ */
+export const ACCIONES_ITEM = [
+  'CARGAR', 'APROBAR', 'OBSERVAR', 'REABRIR', 'ELIMINAR_DOCUMENTO', 'ACUSAR', 'DESACUSAR',
+] as const;
+export type AccionItem = typeof ACCIONES_ITEM[number];
+
 export function transicion(actual: EstadoItem, accion: 'CARGAR' | 'APROBAR' | 'OBSERVAR' | 'REABRIR'): EstadoItem | null {
   switch (accion) {
     // Cargar siempre deja el punto listo para visar, incluso si venía OBSERVADO (es el rebote

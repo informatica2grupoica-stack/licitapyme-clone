@@ -1525,3 +1525,71 @@ test('los encabezados reales de sección siguen detectándose (contraparte del f
     assert.equal(secciones[0].decision, 'OMITIR');
   }
 });
+
+// ─── BLOQUE DE FIRMA AMBIGUO — se avisa en vez de desaparecer en silencio ─────────────────
+// (26-ago-2026, auditoría técnica.) esRayaFirmaPropia hace bien en no adivinar cuál raya es
+// nuestra cuando la leyenda nombra al oferente Y al evaluador en el mismo párrafo — pero hasta
+// hoy ese bloque desaparecía por completo: ni firma, ni rastro. Caso real reproducido con
+// documento real (1057480-41-LP26, ANEXO_N°7 "Servicio Post Venta"): el pie decía "FIRMA Y TIMBRE
+// REPRESENTANTE LEGAL … FIRMA Y TIMBRE EVALUADOR (OFERENTE)" y el propio documento advertía
+// "ESTE FORMULARIO DEBERA ADJUNTARLO OBLIGATORIAMENTE, EN CASO CONTRARIO SU PROPUESTA SERÁ
+// DECLARADA INADMISIBLE". El usuario vio "0 casillas pendientes" dos veces, dos semanas aparte.
+test('bloque de firma que nombra a oferente Y evaluador a la vez queda registrado como ambiguo (regresión 1057480-41-LP26/ANEXO_N°7)', () => {
+  const xml = NS
+    + p('_'.repeat(35) + '                        ' + '_'.repeat(30))
+    + p('FIRMA Y TIMBRE REPRESENTANTE LEGAL                     FIRMA Y TIMBRE EVALUADOR')
+    + p('(OFERENTE)')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+
+  assert.equal(analisis.lineasFirma.length, 0,
+    'sigue sin adivinar cuál raya es nuestra — eso no debe cambiar');
+  assert.equal(analisis.bloquesFirmaAmbiguos.length, 1,
+    'el bloque debe quedar registrado como ambiguo para poder avisar, no desaparecer');
+  assert.match(analisis.bloquesFirmaAmbiguos[0].contexto, /REPRESENTANTE LEGAL/);
+  assert.match(analisis.bloquesFirmaAmbiguos[0].contexto, /EVALUADOR/);
+});
+
+// El reverso: un bloque que SOLO nombra al evaluador (nada nuestro que firmar ahí — p.ej. una
+// pauta de evaluación exclusiva del comprador) NO debe generar un aviso falso.
+test('bloque de firma SOLO del evaluador no genera un aviso ambiguo (sin falso positivo)', () => {
+  const xml = NS
+    + p('_'.repeat(40))
+    + p('FIRMA Y TIMBRE EVALUADOR')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+
+  assert.equal(analisis.bloquesFirmaAmbiguos.length, 0,
+    'nada nuestro que firmar acá — no debe registrarse como bloque ambiguo');
+});
+
+// Y el caso normal (solo la nuestra, sin mención del evaluador) sigue resolviéndose como firma
+// de verdad, no como ambiguo — el fix no debe volverse más conservador de lo necesario.
+test('bloque de firma solo nuestra sigue yendo a lineasFirma, no a ambiguos', () => {
+  const xml = NS
+    + p('_'.repeat(40))
+    + p('FIRMA Y TIMBRE REPRESENTANTE LEGAL')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+
+  assert.equal(analisis.lineasFirma.length, 1, 'un bloque sin mención del evaluador debe resolverse normal');
+  assert.equal(analisis.bloquesFirmaAmbiguos.length, 0);
+});
+
+// El aviso tiene que LLEGAR al usuario, no solo calcularse. anexos-rellenar.ts no tiene test file
+// propio (es un módulo grande de orquestación, difícil de fixturar completo); se fija por fuente
+// el punto exacto que conecta el dato con el canal que sí llega a pantalla (avisos →
+// actividad_usuario → /api/anexos/generar), mismo patrón que ya usa este proyecto para lógica de
+// pipeline no cubierta por tests funcionales.
+test('el bloque de firma ambiguo llega a "avisos", el canal que SÍ ve el usuario', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const src = readFileSync(fileURLToPath(new URL('../anexos-rellenar.ts', import.meta.url)), 'utf8');
+  assert.match(src, /for \(const b of analisis\.bloquesFirmaAmbiguos\)/,
+    'generarAnexoFinal debe recorrer bloquesFirmaAmbiguos, si no el aviso se calcula pero no se usa');
+  assert.match(src, /avisos\.push\(`El pie de firma/,
+    'el bloque ambiguo debe empujarse a avisos, el mismo array que ya llega a actividad_usuario');
+});

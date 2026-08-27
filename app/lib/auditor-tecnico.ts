@@ -26,6 +26,7 @@ import {
   type LineaTecnica,
   type CaracteristicaClasificada,
   type VeredictoCaracteristica,
+  corregirTipoDeTolerancia,
 } from '@/app/lib/auditor-tecnico-core';
 
 export type {
@@ -87,7 +88,11 @@ function normalizarClasificada(c: any): CaracteristicaClasificada | null {
   const descripcion = String(c?.descripcion || '').trim();
   if (!descripcion) return null;
   const tipoRaw = String(c?.tipo || '').toUpperCase();
-  const tipo: TipoRequisitoTecnico = (['PISO', 'TECHO', 'EXACTO', 'RANGO'].includes(tipoRaw) ? tipoRaw : 'EXACTO') as TipoRequisitoTecnico;
+  const tipoIA: TipoRequisitoTecnico = (['PISO', 'TECHO', 'EXACTO', 'RANGO'].includes(tipoRaw) ? tipoRaw : 'EXACTO') as TipoRequisitoTecnico;
+  // Guardarraíl determinista sobre lo que dijo la IA: una tolerancia ("Precisión: al menos ±2,5%")
+  // es un TECHO, y clasificarla como PISO invierte el veredicto. Ver corregirTipoDeTolerancia.
+  const tipo = corregirTipoDeTolerancia(
+    descripcion, tipoIA, c?.valor_requerido_texto ? String(c.valor_requerido_texto) : null);
   return {
     descripcion: descripcion.slice(0, 500),
     tipo,
