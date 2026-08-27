@@ -33,7 +33,14 @@ function logExclusion(regla: string, detalle: string): void {
   console.debug(`[anexos-detectar] excluido por "${regla}": ${detalle}`);
 }
 
-const CONTEXTO_REPRESENTANTE = /(representante\s+legal|rep\.?\s*legal)/i;
+// BUG REAL (27-ago-2026, 611669-17-LE26, ANEXO N°1-A): el encabezado "ANTECEDENTE(S)
+// REPRESENTANTE(S) DE LA PERSONA JURIDICA" no dice "representante LEGAL" — dice solo
+// "representante(s)". El patrón exigía la palabra "legal" pegada, así que este encabezado NO
+// contaba como contexto de representante y contextoDeRolCercano() seguía buscando más atrás,
+// hasta encontrar (falso positivo, ver CONTEXTO_TERCERO_AJENO) el encabezado de la tabla de
+// participantes UTP varias filas antes — "NOMBRE COMPLETO" del representante terminó prefijado
+// con el título de una tabla ajena, sin ningún campo que lo reconociera.
+const CONTEXTO_REPRESENTANTE = /(representante(?:s)?\s*(?:\(s\))?\s+legal|rep\.?\s*legal|representante(?:s)?\s*(?:\(s\))?\s+de\s+la\s+persona\s+jur[ií]dica)/i;
 const CONTEXTO_BANCARIO = /(banco|cuenta\s+(bancaria|corriente|vista)|entidad\s+bancaria|titular)/i;
 const CONTEXTO_MISMA_PERSONA = /(encargado|contacto|administrador(\s+de\s+contrato)?|coordinador|responsable|ejecutivo|apoderado|coordinaci[óo]n|coordinador[ao])/i;
 const CONTEXTO_TERCERO_AJENO = /(u\.?t\.?p\.?|uni[óo]n\s+temporal|integrante|socio|accionista|mandante|contraparte|inspector|i\.?t\.?o\.?|participante|capacitaci[óo]n|asistente|testigo|notario|proveedor\s+asociado|subcontrat)/i;
@@ -727,8 +734,35 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
     for (let s = 0; s < encabezados.length; s++) {
       const iEncabezado = encabezados[s];
       const finSegmento = s + 1 < encabezados.length ? encabezados[s + 1] : filas.length;
+
+      // BUG REAL (27-ago-2026, 611669-17-LE26, ANEXO N°1-A): un ÚNICO `<w:tbl>` físico de Word
+      // puede contener VARIAS sub-secciones semánticamente distintas separadas por filas
+      // divisorias de UNA sola celda (gridSpan a todo el ancho: "ANTECEDENTE(S) REPRESENTANTE(S)
+      // DE LA PERSONA JURIDICA", "DATOS BANCARIOS PARA PAGO DE FACTURAS"). Antes de este fix, ese
+      // divisor se descartaba EN SILENCIO (lo saca el filtro `celdas.length >= 2` un poco más
+      // abajo) sin terminar el segmento — así que el encabezado de la tabla de participantes UTP
+      // ("NOMBRE O RAZÓN SOCIAL DE LA PERSONA JURÍDICA O NATURAL MIEMBRO DE LA UTP") seguía
+      // "pegado" a TODO lo que venía después en la misma tabla física: la sección del
+      // representante legal y la sección bancaria, dos sub-tablas de formulario [etiqueta][valor]
+      // sin ningún encabezado propio. Resultado real: "NOMBRE COMPLETO" del representante llegaba
+      // a la IA como "NOMBRE COMPLETO — NOMBRE O RAZÓN SOCIAL DE LA PERSONA JURÍDICA O NATURAL
+      // MIEMBRO DE LA UTP" — una etiqueta que no describe nada real — y quedaba sin poder
+      // resolverse, aunque representante_nombre/representante_rut SÍ estaban en la ficha.
+      //
+      // La señal es la misma que ya usa el resto del archivo para reconocer un encabezado real
+      // ("todas sus columnas nombradas", ver el comentario de más abajo): una fila que NO PUEDE
+      // ser un dato de ESTE encabezado —tiene menos de 2 celdas físicas, no puede traer ninguna
+      // columna nombrada— termina el segmento ahí mismo. Nunca al revés: no se inventa un
+      // encabezado nuevo para lo que sigue, solo se deja de reclamar esas filas para el
+      // encabezado VIEJO, así el patrón 1 (formulario simple, sin encabezado) las puede resolver
+      // solo, con su propia etiqueta ("NOMBRE COMPLETO" a secas) intacta.
+      let finSegmentoReal = finSegmento;
+      for (let i = iEncabezado + 1; i < finSegmento; i++) {
+        if (filasInfo[i].numCeldas < 2) { finSegmentoReal = i; break; }
+      }
+
       const primeraFila = filas[iEncabezado];
-      const restoFilas = filas.slice(iEncabezado + 1, finSegmento);
+      const restoFilas = filas.slice(iEncabezado + 1, finSegmentoReal);
       if (!restoFilas.length) continue;
       const celdasEncabezado = extraerCeldasDeFila(primeraFila[1], 0, new Map());
       const nombresColumna = celdasEncabezado.map(c => c.texto);
@@ -905,7 +939,19 @@ function indicesEnCeldasDeDatosDeTabla(xml: string): Set<number> {
     for (let s = 0; s < encabezados.length; s++) {
       const iEncabezado = encabezados[s];
       const finSegmento = s + 1 < encabezados.length ? encabezados[s + 1] : filas.length;
-      const restoFilas = filas.slice(iEncabezado + 1, finSegmento);
+      // MISMO corte que detectarCandidatosTabla (ver su comentario extenso, bug real
+      // 611669-17-LE26): sin esto, este set marca como "ya cubierto por la tabla" TODA la cola de
+      // la tabla física —incluidas sub-secciones separadas por un divisor de una sola celda—, así
+      // que el patrón 1 las excluye (`!indicesTabla.has`) creyendo que el patrón de tabla ya las
+      // resolvió, cuando en realidad NINGUNO de los dos las reclama: la casilla desaparece
+      // entera, ni resuelta ni pendiente, sin que nadie pueda verla para llenarla a mano. Las dos
+      // funciones tienen que cortar en el MISMO punto exacto o uno "libera" filas que el otro
+      // sigue creyendo suyas.
+      let finSegmentoReal = finSegmento;
+      for (let i = iEncabezado + 1; i < finSegmento; i++) {
+        if (filasInfo[i].numCeldas < 2) { finSegmentoReal = i; break; }
+      }
+      const restoFilas = filas.slice(iEncabezado + 1, finSegmentoReal);
       for (const fila of restoFilas) {
         const offsetFila = offsetTabla + fila.index! + fila[0].indexOf(fila[1]);
         const celdas = extraerCeldasDeFila(fila[1], offsetFila, offsetsIndices);

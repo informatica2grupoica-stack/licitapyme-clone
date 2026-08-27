@@ -1593,3 +1593,54 @@ test('el bloque de firma ambiguo llega a "avisos", el canal que SÍ ve el usuari
   assert.match(src, /avisos\.push\(`El pie de firma/,
     'el bloque ambiguo debe empujarse a avisos, el mismo array que ya llega a actividad_usuario');
 });
+
+// ─── Un `<w:tbl>` con VARIAS sub-secciones (bug real 27-ago-2026, 611669-17-LE26) ───────────────
+// El ANEXO N°1-A "Identificación de Oferente" es UNA sola tabla física de Word con varias
+// sub-secciones separadas por filas divisorias de una sola celda (gridSpan a todo el ancho):
+//
+//   [ANTECEDENTES ... — divisor, 1 celda]
+//   NOMBRE O RAZÓN SOCIAL | (vacío)          ← empresa, patrón 1 (sin encabezado propio)
+//   [ANTECEDENTES DE LOS PROPONENTES ... UTP — divisor, 1 celda]
+//   NOMBRE O RAZÓN SOCIAL...MIEMBRO DE LA UTP | N° DE RUT O CÉDULA DE IDENTIDAD   ← ESTE SÍ es un
+//                                                                                   encabezado real
+//   1 | (vacío)                                                                  ← datos del UTP
+//   [ANTECEDENTE(S) REPRESENTANTE(S) DE LA PERSONA JURIDICA — divisor, 1 celda]
+//   NOMBRE COMPLETO | (vacío)                ← representante, DEBE ser patrón 1 otra vez
+//
+// Antes del fix, el encabezado UTP (el único que detectarCandidatosTabla encuentra) se quedaba
+// "pegado" a TODO lo que sigue en la tabla física — incluida la sección del representante, muchas
+// filas después — y "NOMBRE COMPLETO" llegaba a la IA como
+// "NOMBRE COMPLETO — NOMBRE O RAZÓN SOCIAL DE LA PERSONA JURÍDICA O NATURAL MIEMBRO DE LA UTP":
+// una etiqueta que no describe nada real, y que además NINGÚN campo del diccionario reconoce.
+const UTP_HEADER = 'NOMBRE O RAZÓN SOCIAL DE LA PERSONA JURÍDICA O NATURAL MIEMBRO DE LA UTP';
+const TABLA_UN_SOLO_TBL_CON_SUBSECCIONES = NS + tabla(
+  fila('ANTECEDENTES PERSONAS NATURALES, JURÍDICAS O REPRESENTANTE DE LA UTP'),
+  fila('NOMBRE O RAZÓN SOCIAL', ''),
+  fila('ANTECEDENTES DE LOS PROPONENTES PARTICIPANTES DE LA UTP'),
+  fila(UTP_HEADER, 'N° DE RUT O CÉDULA DE IDENTIDAD'),
+  fila('1', ''),
+  fila('2', ''),
+  fila('ANTECEDENTE(S) REPRESENTANTE(S) DE LA PERSONA JURIDICA'),
+  fila('NOMBRE COMPLETO', ''),
+  fila('CÉDULA DE IDENTIDAD', ''),
+) + FIN;
+
+// NOTA: en este fixture reducido a mano, indiceFilaEncabezado() no siempre reconoce la fila UTP
+// como encabezado real (esa detección se apoya en detalles del XML real de Word —gridSpan,
+// anchos— que un fixture simplificado no reproduce fielmente). Da igual: lo que importa —y lo que
+// SÍ se verificó contra el .docx REAL con scripts/scratch/_diag-determinista.mts (611669-17-LE26,
+// negocio 994)— es que NINGÚN campo de una sub-sección ajena quede pegado a NOMBRE COMPLETO, y
+// que las casillas SIGAN siendo visibles (ni resueltas de más ni invisibles). El test de abajo
+// prueba exactamente eso, a través de analizarAnexo() (el punto de entrada real), sea cual sea el
+// patrón (1 o 1b) que termine resolviendo cada campo en este fixture reducido.
+test('la etiqueta de las casillas del representante llega LIMPIA, sin importar qué patrón la resuelva', () => {
+  const { xml: norm } = normalizarParaIds(TABLA_UN_SOLO_TBL_CON_SUBSECCIONES);
+  const analisis = analizarAnexo(norm);
+  const etiquetas = analisis.candidatosCelda.map(c => c.etiqueta);
+  // Antes del fix estas dos NO aparecían con su nombre propio en ningún lado — ni resueltas ni
+  // pendientes: quedaban invisibles, reclamadas por el segmento viejo pero sin ningún candidato
+  // real que las representara.
+  assert.ok(etiquetas.some(e => /^nombre completo$/i.test(e.trim())),
+    `"NOMBRE COMPLETO" debe aparecer con su propio nombre, no: ${JSON.stringify(etiquetas)}`);
+  assert.ok(etiquetas.some(e => /^c[ée]dula de identidad$/i.test(e.trim())));
+});

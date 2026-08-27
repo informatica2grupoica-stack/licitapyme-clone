@@ -696,3 +696,25 @@ test('el RUT de una tabla de identificación con "Nombre o Razón Social" sigue 
   const r = resolverDeterminista({ candidatos, blancosInline: [], parrafos, empresa: EMPRESA });
   assert.equal(valorAuto(r.celda, 7), EMPRESA.rut);
 });
+
+// BUG REAL (611669-17-LE26, ANEXO N°1-A, 27-ago-2026): "N° DE RUT O CÉDULA DE IDENTIDAD" quedaba
+// pendiente pese a tener el RUT de la empresa en la ficha — el "N°" del organismo va con un "DE"
+// en medio ("N° DE RUT", no "N° RUT") que el patrón del diccionario no aceptaba.
+test('diccionario: "N° DE RUT O CÉDULA DE IDENTIDAD" resuelve a RUT (regresión 611669-17-LE26)', () => {
+  assert.equal(campoDeEtiquetaInequivoca('N° DE RUT O CÉDULA DE IDENTIDAD'), 'rut');
+  assert.equal(campoDeEtiquetaInequivoca('N° de Cédula de Identidad o RUT'), 'rut');
+  // Sin el "de" también debe seguir andando — no se rompió el caso que ya funcionaba.
+  assert.equal(campoDeEtiquetaInequivoca('N° RUT O CÉDULA DE IDENTIDAD'), 'rut');
+});
+
+// BUG REAL (611669-17-LE26, ANEXO N°1-B, 27-ago-2026): fórmula notarial estándar de toda
+// declaración jurada chilena — "comparece ___" es el nombre de quien declara, y no tenía regla
+// propia en REGLAS_PREVIAS pese a que las casillas hermanas de la misma oración (C.I., domicilio)
+// ya resolvían bien.
+test('declaración jurada: "comparece ___" es el nombre de quien declara (regresión 611669-17-LE26)', () => {
+  const o = 'En Santiago, a 27 días del mes de agosto de 2026, comparece ';
+  assert.equal(campoDeBlancoInline(blanco(o + '____________________, de nacionalidad chilena', o.length, { largo: 20 })), 'representante_nombre');
+  // Las casillas hermanas de la misma oración, para que el fixture no mienta sobre el caso real.
+  const ci = o + 'Lidia Valenzuela Soto, de nacionalidad chilena, C.I. N° ';
+  assert.equal(campoDeBlancoInline(blanco(ci + '____________________, con domicilio en ', ci.length, { largo: 10 })), 'representante_rut');
+});

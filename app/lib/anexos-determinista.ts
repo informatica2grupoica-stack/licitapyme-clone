@@ -184,8 +184,15 @@ const DICCIONARIO: Entrada[] = [
     /^r\s*u\s*t\s*o\s*c\s*i$/, /^rut o cedula(?: de identidad)?$/,
     // Mismas dos formas al revés y con la cédula escrita completa (FORMULARIO N°1 de
     // 1063538-204-LE26: "RUT o Cédula de Identidad" en el bloque de datos del oferente).
-    /^(?:n[°º]?\s*)?cedula de identidad o rut$/, /^c\s*i\s*o\s*r\s*u\s*t$/,
-    /^(?:n[°º]?\s*)?rut o cedula de identidad$/,
+    //
+    // BUG REAL (27-ago-2026, 611669-17-LE26, ANEXO N°1-A): "N° DE RUT O CÉDULA DE IDENTIDAD"
+    // quedaba pendiente pese a que el RUT de la empresa ya estaba en la ficha. El "N°" de acá NO
+    // va pegado a "RUT" — el organismo escribe "N° DE RUT", con un "DE" en el medio ("N° de
+    // fojas", "N° de folio" es la misma construcción en otros documentos chilenos) — y el patrón
+    // solo aceptaba `(?:n[°º]?\s*)?` seguido DIRECTO de "rut"/"cedula", sin ese "de" opcional.
+    // Verificado contra la etiqueta real tal cual la normaliza normalizarEtiqueta().
+    /^(?:n[°º]?\s*(?:de\s+)?)?cedula de identidad o rut$/, /^c\s*i\s*o\s*r\s*u\s*t$/,
+    /^(?:n[°º]?\s*(?:de\s+)?)?rut o cedula de identidad$/,
     /^rut\/cedula(?: de identidad)?$/, /^cedula(?: de identidad)?\/rut$/,
   ] },
   { campo: 'giro', patrones: [
@@ -496,6 +503,14 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // Nombre de quien declara.
   { re: /\byo,?\s*$/i, campo: 'representante_nombre' },
   { re: /\b(?:don|dona|doña|sr|sra|senor|señor)\.?,?\s*$/i, campo: 'representante_nombre' },
+  // "En Santiago, a __ días del mes de __ de 2026, comparece ___, de nacionalidad ___, C.I.
+  // N°___, con domicilio en ___, quien bajo juramento expone…" — fórmula notarial estándar de
+  // toda declaración jurada chilena. BUG REAL (27-ago-2026, 611669-17-LE26, ANEXO N°1-B): las dos
+  // casillas HERMANAS de esta misma oración ("C.I. N°" y "con domicilio en") ya resolvían bien,
+  // pero "comparece" —el nombre de quien declara— no tenía regla propia y quedaba pendiente pese
+  // a tener representante_nombre en la ficha. Sin "quien" al final: "comparece quien suscribe" es
+  // una fórmula distinta que no nombra a nadie todavía.
+  { re: /\bcomparece\s*$/i, campo: 'representante_nombre' },
   { re: /\bnombre\s+(?:completo\s+)?(?:del\s+)?(?:representante|apoderado|declarante)?\s*:?\s*$/i, campo: 'representante_nombre' },
   // Cédula de la persona — distinta del RUT de la empresa aunque compartan la oración.
   { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run)\s*(?:n[°º.]*|numero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
