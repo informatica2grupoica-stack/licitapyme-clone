@@ -41,8 +41,14 @@ export interface ImagenExtraida {
  * Busca la foto del producto en un PDF y la devuelve como PNG. `null` si el PDF no se pudo abrir
  * o si ninguna imagen incrustada calzó con el rango esperado (nunca lanza: esto es un plus visual,
  * no debe romper el flujo de comparar la ficha si falla).
+ *
+ * `paginas` (0-based) acota la búsqueda a esas páginas nomás — lo usa
+ * ficha-segmentar-productos.ts cuando la ficha trae VARIOS productos y ya se sabe en qué páginas
+ * está cada uno: mirar solo "sus" páginas evita agarrar la foto de OTRO producto de la misma
+ * ficha. Sin este parámetro, revisa las primeras páginas del documento completo (comportamiento
+ * de siempre, para fichas de un solo producto).
  */
-export async function extraerImagenProducto(buffer: Buffer): Promise<ImagenExtraida | null> {
+export async function extraerImagenProducto(buffer: Buffer, paginas?: number[]): Promise<ImagenExtraida | null> {
   let mupdf: typeof import('mupdf');
   try {
     mupdf = await import('mupdf');
@@ -58,9 +64,9 @@ export async function extraerImagenProducto(buffer: Buffer): Promise<ImagenExtra
   }
 
   let mejor: { area: number; image: import('mupdf').Image; pagina: number } | null = null;
-  const totalPaginas = Math.min(doc.countPages(), MAX_PAGINAS_REVISADAS);
+  const aRevisar = paginas ?? Array.from({ length: Math.min(doc.countPages(), MAX_PAGINAS_REVISADAS) }, (_, i) => i);
 
-  for (let i = 0; i < totalPaginas; i++) {
+  for (const i of aRevisar) {
     let page: import('mupdf').Page;
     try {
       page = doc.loadPage(i);

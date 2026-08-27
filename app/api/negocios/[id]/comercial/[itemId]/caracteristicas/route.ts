@@ -39,6 +39,7 @@ import {
   confirmarImagenProducto, quitarImagenProducto, type ProductoDeLinea,
 } from '@/app/lib/producto-ofertado-db';
 import { extraerImagenProducto } from '@/app/lib/ficha-imagen-extraer';
+import { segmentarFichaPorProducto } from '@/app/lib/ficha-segmentar-productos';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 
 export const runtime = 'nodejs';
@@ -395,18 +396,18 @@ export async function POST(request: NextRequest, { params }: Params) {
       // otro punto del checklist (DocumentViewerModal), en vez de un visor aparte solo para esto.
       await agregarDocumentos(item.id, negocio.id, [{ url: documentoUrl, nombre: documentoNombre }], userId, nombreActor);
 
-      // Marca/modelo/fabricante — el mismo texto de la ficha que se acaba de leer para comparar
-      // las especificaciones ya tiene esto adentro casi siempre (caso real: la ficha del LS-150
-      // dice "SENSING.KONICAMINOLTA.COM", de ahí sale "Konica Minolta"). Es determinista y no pide
-      // otra llamada de IA — ver producto-ofertado.ts. Nunca pisa un dato que el asistente ya
-      // confirmó a mano (guardarProductoLeidoDeFicha se abstiene en ese caso).
+      // Marca/modelo/fabricante/foto — el mismo texto (y PDF) de la ficha que se acaba de leer
+      // para comparar las especificaciones ya tiene esto adentro casi siempre (caso real: la
+      // ficha del LS-150 dice "SENSING.KONICAMINOLTA.COM", de ahí sale "Konica Minolta"). Es
+      // determinista y no pide otra llamada de IA — ver producto-ofertado.ts. Nunca pisa un dato
+      // que el asistente ya confirmó a mano (guardarProductoLeidoDeFicha se abstiene en ese caso).
+      // Una línea-paquete (2+ productos, migración 82) reparte la ficha por página primero — ver
+      // procesarProductosDeLaFicha().
       try {
-        const producto = extraerProductoOfertado(extraido.texto, documentoNombre);
-        const imagenUrl = await extraerFotoProductoSiEsPdf(documentoUrl, documentoNombre, negocio.licitacion_codigo, item.id);
-        // productoIndex 0: la extracción lee la ficha completa sin saber a cuál de los N
-        // productos de una línea-paquete corresponde (ver migration-82) — llena el primer slot,
-        // el resto se completa a mano desde la pantalla.
-        await guardarProductoLeidoDeFicha({ itemId: item.id, negocioId: negocio.id, productoIndex: 0, producto, fuenteDocumento: documentoNombre, imagenUrl });
+        await procesarProductosDeLaFicha({
+          itemId: item.id, negocioId: negocio.id, licitacionCodigo: negocio.licitacion_codigo,
+          lineaNumero: item.linea_numero, documentoUrl, documentoNombre, textoCompleto: extraido.texto,
+        });
       } catch (e) {
         // No puede tumbar la comparación: las características ya se guardaron arriba.
         console.error('[comercial][caracteristicas] no se pudo leer marca/modelo de la ficha:', String(e));
@@ -426,27 +427,70 @@ export async function POST(request: NextRequest, { params }: Params) {
 }
 
 /**
- * Foto del producto sacada de la ficha del proveedor, para NUESTRA ficha técnica (ver
- * ficha-imagen-extraer.ts). Solo tiene sentido para PDF (Word no trae imágenes incrustadas de la
- * misma forma y este proyecto no las necesita ahí). Best-effort: cualquier fallo devuelve null y
- * no interrumpe el resto de la comparación — la foto es un plus, no un dato crítico como el
- * veredicto de cumplimiento.
+ * Marca/modelo/foto de TODOS los productos de la línea, a partir de la ficha del proveedor.
+ *
+ * LÍNEA NORMAL (1 producto): igual que siempre — el documento completo a producto_index 0.
+ *
+ * LÍNEA-PAQUETE (2+ productos, migración 82, caso real 2446-240-LE26): la ficha del proveedor
+ * suele ser un catálogo de varias páginas, una por producto (ver ficha-segmentar-productos.ts).
+ * Se reparte por página ANTES de leer marca/modelo/foto, así cada producto se lee de SU trozo —
+ * evita que la Vacuolavadora se quede con el modelo o la foto de la Hidrolavadora (o viceversa).
+ * Si la ficha no tiene esa estructura y no se pudo repartir ninguna página, se cae al
+ * comportamiento de siempre: el documento completo entero a producto_index 0, el resto de los
+ * productos se completa a mano.
+ *
+ * Solo tiene sentido para PDF (Word no trae imágenes incrustadas de la misma forma y este
+ * proyecto no las necesita ahí). Best-effort en la foto: un fallo ahí no debe tumbar marca/modelo,
+ * que es determinista y no depende de mupdf.
  */
-async function extraerFotoProductoSiEsPdf(
-  documentoUrl: string, documentoNombre: string, licitacionCodigo: string, itemId: number,
-): Promise<string | null> {
-  if (!/\.pdf(\?|$)/i.test(documentoUrl) && !/\.pdf$/i.test(documentoNombre)) return null;
-  try {
-    const res = await fetch(documentoUrl);
-    if (!res.ok) return null;
-    const buffer = Buffer.from(await res.arrayBuffer());
-    if (!buffer.length) return null;
-    const imagen = await extraerImagenProducto(buffer);
-    if (!imagen) return null;
-    return await subirDocumentoR2(licitacionCodigo, `producto_linea${itemId}.png`, imagen.png, 'image/png');
-  } catch (e) {
-    console.error('[comercial][caracteristicas] no se pudo extraer la foto del producto:', String(e));
-    return null;
+async function procesarProductosDeLaFicha(args: {
+  itemId: number; negocioId: number; licitacionCodigo: string; lineaNumero: number | null;
+  documentoUrl: string; documentoNombre: string; textoCompleto: string;
+}): Promise<void> {
+  const { itemId, negocioId, licitacionCodigo, lineaNumero, documentoUrl, documentoNombre, textoCompleto } = args;
+
+  let nombresProductos: string[] = [];
+  if (lineaNumero != null) {
+    try {
+      const informe = await leerInforme(licitacionCodigo);
+      if (informe) nombresProductos = productosCrudosDeLinea(informe, lineaNumero).map(p => p.nombre);
+    } catch { /* sin informe: se trata como 1 solo producto, comportamiento de siempre */ }
+  }
+
+  let bufferPdf: Buffer | null = null;
+  if (/\.pdf(\?|$)/i.test(documentoUrl) || /\.pdf$/i.test(documentoNombre)) {
+    try {
+      const res = await fetch(documentoUrl);
+      if (res.ok) bufferPdf = Buffer.from(await res.arrayBuffer());
+    } catch { /* sin buffer no hay foto ni segmentación — sigue solo con marca/modelo del texto ya leído */ }
+  }
+
+  const guardarUno = async (productoIndex: number, texto: string, paginas: number[] | undefined) => {
+    if (!texto.trim()) return;
+    const producto = extraerProductoOfertado(texto, documentoNombre);
+    let imagenUrl: string | null = null;
+    if (bufferPdf) {
+      try {
+        const imagen = await extraerImagenProducto(bufferPdf, paginas);
+        if (imagen) imagenUrl = await subirDocumentoR2(licitacionCodigo, `producto_linea${itemId}_${productoIndex}.png`, imagen.png, 'image/png');
+      } catch (e) {
+        console.error('[comercial][caracteristicas] no se pudo extraer la foto del producto:', String(e));
+      }
+    }
+    await guardarProductoLeidoDeFicha({ itemId, negocioId, productoIndex, producto, fuenteDocumento: documentoNombre, imagenUrl });
+  };
+
+  if (nombresProductos.length > 1 && bufferPdf) {
+    const segmentos = await segmentarFichaPorProducto(bufferPdf, nombresProductos);
+    await Promise.all(segmentos.map(seg => {
+      if (seg.paginas.length) return guardarUno(seg.productoIndex, seg.texto, seg.paginas);
+      // No se encontró la sección de ESTE producto: para el primero, mejor el documento completo
+      // que nada (comportamiento de siempre); el resto queda para completar a mano.
+      if (seg.productoIndex === 0) return guardarUno(0, textoCompleto, undefined);
+      return Promise.resolve();
+    }));
+  } else {
+    await guardarUno(0, textoCompleto, undefined);
   }
 }
 
