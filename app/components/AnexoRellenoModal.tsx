@@ -304,24 +304,94 @@ function TablaReal({
   );
 }
 
+// Zona de destino para arrastrar la firma/timbre: envuelve el párrafo donde el motor detectó la
+// leyenda ("FIRMA DEL PROPONENTE…", "FIRMA Y TIMBRE…"). Reemplaza el estampado automático — ver
+// BloqueFirmaTimbre. `valorActual` es la clave `firma:N` de `respuestas` ('ambas'|'firma'|'timbre'
+// o vacío/'ninguna' si nunca se soltó nada ahí). Un mismo lugar acepta firma Y timbre por separado
+// (dos soltadas), y cada una se puede quitar sin afectar la otra.
+function ZonaFirma({
+  indice, pideTimbre, firma, valorActual, onChange, children,
+}: {
+  indice: number; pideTimbre: boolean; firma: Analisis['firma']; valorActual: string;
+  onChange: (id: string, v: string) => void; children: React.ReactNode;
+}) {
+  const [sobre, setSobre] = useState(false);
+  const id = `firma:${indice}`;
+  const tieneFirma = valorActual === 'firma' || valorActual === 'ambas';
+  const tieneTimbre = valorActual === 'timbre' || valorActual === 'ambas';
+
+  const soltar = (tipo: string) => {
+    if (tipo !== 'firma' && tipo !== 'timbre') return;
+    const siguiente = tipo === 'firma'
+      ? (tieneTimbre ? 'ambas' : 'firma')
+      : (tieneFirma ? 'ambas' : 'timbre');
+    onChange(id, siguiente);
+  };
+  const quitar = (tipo: 'firma' | 'timbre') => {
+    const siguiente = tipo === 'firma' ? (tieneTimbre ? 'timbre' : 'ninguna') : (tieneFirma ? 'firma' : 'ninguna');
+    onChange(id, siguiente);
+  };
+
+  return (
+    <div
+      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setSobre(true); }}
+      onDragLeave={() => setSobre(false)}
+      onDrop={e => { e.preventDefault(); setSobre(false); soltar(e.dataTransfer.getData('text/plain')); }}
+      className={`my-1 rounded-lg border-2 border-dashed px-2 py-1.5 transition-colors ${
+        sobre ? 'border-indigo-500 bg-indigo-50'
+          : tieneFirma || tieneTimbre ? 'border-emerald-300 bg-emerald-50/40'
+          : 'border-slate-300 bg-slate-50/70'
+      }`}
+    >
+      {children}
+      <div className="flex items-center gap-2 mt-1 flex-wrap">
+        <span className="text-[10.5px] text-slate-400">
+          {tieneFirma || tieneTimbre ? 'Colocado aquí:' : `Suelta aquí la firma${pideTimbre ? ' y/o el timbre' : ''}`}
+        </span>
+        {tieneFirma && firma.firmaUrl && (
+          <span className="inline-flex items-center gap-1 bg-white border border-emerald-300 rounded px-1 py-0.5">
+            <img src={firma.firmaUrl} alt="Firma colocada" className="h-5 object-contain" />
+            <button type="button" onClick={() => quitar('firma')} title="Quitar la firma de aquí" className="text-slate-400 hover:text-rose-600">
+              <X size={10} />
+            </button>
+          </span>
+        )}
+        {tieneTimbre && firma.timbreUrl && (
+          <span className="inline-flex items-center gap-1 bg-white border border-emerald-300 rounded px-1 py-0.5">
+            <img src={firma.timbreUrl} alt="Timbre colocado" className="h-5 object-contain" />
+            <button type="button" onClick={() => quitar('timbre')} title="Quitar el timbre de aquí" className="text-slate-400 hover:text-rose-600">
+              <X size={10} />
+            </button>
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Un párrafo de la réplica — se lee igual que la línea correspondiente en el Word: misma
 // alineación, misma sangría, mismo marcador de lista, y los trozos de texto con su negrita o
 // subrayado. Los blancos van INTERCALADOS en el texto: un valor ya resuelto se ve destacado en
 // su lugar, y uno pendiente es un input angosto (tamaño según el largo real del "____" en el
 // Word) justo donde va — no una tarjeta aparte más abajo.
-function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false }: {
+function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false, firma }: {
   b: BloqueParrafoUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
   motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void;
   // Panel IZQUIERDO: el documento como VINO, sin nada completado — misma estructura de bloques que
   // el de la derecha (por eso reusa este mismo componente y no otro), así los dos paneles tienen
   // exactamente los mismos párrafos en el mismo orden y el scroll sincronizado calza de verdad.
   modoOriginal?: boolean;
+  // Solo se pasa en el panel derecho (completado): habilita la zona de arrastrar firma/timbre
+  // cuando este párrafo es uno de los lugares detectados (`firma.lugares`).
+  firma?: Analisis['firma'];
 }) {
   const alineacionClase: Record<Alineacion, string> = {
     izquierda: 'text-left', centro: 'text-center', derecha: 'text-right', justificado: 'text-justify',
   };
-  if (b.segmentos.length === 0 && !b.marcador) return <div className="h-2.5" aria-hidden="true" />;
-  return (
+  const lugar = !modoOriginal ? firma?.lugares?.find(l => l.id === `firma:${b.indice}`) : undefined;
+  const contenido = b.segmentos.length === 0 && !b.marcador ? (
+    <div className="h-2.5" aria-hidden="true" />
+  ) : (
     <p
       className={`text-[12.5px] leading-relaxed text-slate-800 ${alineacionClase[b.alineacion]}`}
       style={b.sangriaPx ? { paddingLeft: b.sangriaPx } : undefined}
@@ -358,21 +428,28 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregi
       })}
     </p>
   );
+  if (!lugar) return contenido;
+  return (
+    <ZonaFirma indice={b.indice} pideTimbre={lugar.pideTimbre} firma={firma!} valorActual={respuestas[lugar.id] || 'ninguna'} onChange={onChange}>
+      {contenido}
+    </ZonaFirma>
+  );
 }
 
 // El documento completo, en orden — un párrafo/tabla tras otro tal como está en el Word, con los
 // blancos ya resueltos o por llenar en su lugar. Reemplaza la vieja grilla de tarjetas: pedido
 // explícito del usuario (4-ago-2026) — "tiene que ser tal cual el mismo texto, la misma
 // estructura", no una lista de campos.
-function DocumentoReplica({ documento, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false }: {
+function DocumentoReplica({ documento, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false, firma }: {
   documento: BloqueUI[]; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
   motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void; modoOriginal?: boolean;
+  firma?: Analisis['firma'];
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl px-5 py-4">
       {documento.map((bloque, i) => bloque.tipo === 'tabla'
         ? <div key={i} className="my-2.5"><TablaReal tabla={bloque.tabla} respuestas={respuestas} onChange={onChange} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} /></div>
-        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} />)}
+        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} firma={firma} />)}
     </div>
   );
 }
@@ -530,49 +607,63 @@ function SeccionesEscaneadas({ secciones }: { secciones: SeccionEscaneada[] }) {
   );
 }
 
-// ── Firma y timbre: informativo, SIN opciones que elegir ─────────────────────────────────────
-// Antes esto eran 4 botones (firma+timbre / solo firma / solo timbre / ninguna) más 3 de posición
-// (izq./centro/der.). Se quitaron (13-ago-2026, pedido explícito del usuario: "eso el programa lo
-// debe de detectar automático y ponerlo, no dejar que yo seleccione"). No se perdió ninguna
-// decisión: QUÉ estampar ya lo decidía solo el backend según lo que pida la leyenda del anexo y lo
-// que haya en la ficha (ver porDefectoEnLugar en anexos-rellenar.ts) — los botones solo dejaban
-// pisar esa decisión a mano, y venían premarcados con ella. La POSICIÓN también se calcula sola
-// ahora: el layout "texto a la izquierda, firma+timbre a la derecha" se arma con una tabulación
-// derecha medida del ancho real de la página (ver columnaDerecha en anexos-docx.ts), así que
-// elegir izq./centro/der. a mano dejó de tener sentido. El backend sigue aceptando las claves
-// `firma:N`/`firmaPos:N` por si alguna vez hay que reponer el control manual; simplemente ya nadie
-// las manda. Lo que SÍ se conserva acá es lo útil: ver qué imagen es cuál antes de generar.
+// ── Firma y timbre: arrastrar y soltar, SIN estampado automático ─────────────────────────────
+// Historia: primero 4 botones (firma+timbre / solo firma / solo timbre / ninguna) + 3 de posición.
+// Se quitaron el 13-ago-2026 (pedido del usuario: "que el programa lo detecte automático y lo
+// ponga, no dejar que yo seleccione") y el backend pasó a estampar solo con `porDefectoEnLugar`.
+// REVERTIDO el 29-ago-2026 (pedido explícito, en sentido contrario): "no pongas la firma
+// automática, la vamos a poner arrastrándola con el mouse donde queremos". La imagen ya NO se
+// estampa nunca sin acción explícita — arrastrar esta miniatura sobre el lugar resaltado en el
+// documento (a la derecha) es la única forma de que quede. La POSICIÓN dentro de ESE lugar (texto
+// a la izquierda, imagen a la derecha si hay nombre/RUT debajo) se sigue calculando sola — ver
+// columnaDerecha en anexos-docx.ts — eso nunca fue lo que el usuario quiso elegir a mano.
 function BloqueFirmaTimbre({ firma }: { firma: Analisis['firma'] }) {
-  const irá = firma.disponible || (firma.timbreDetectado && firma.timbreDisponible);
-  const detalle = !irá
-    ? 'No hay firma ni timbre cargados en la ficha de la empresa — el documento se genera sin ellos.'
-    : firma.disponible && firma.timbreDetectado && firma.timbreDisponible
-      ? 'Se estampan la firma y el timbre automáticamente donde el anexo los pide.'
-      : firma.disponible
-        ? 'Se estampa la firma automáticamente donde el anexo la pide.'
-        : 'Se estampa el timbre automáticamente donde el anexo lo pide.';
+  const [arrastrando, setArrastrando] = useState<'firma' | 'timbre' | null>(null);
+  const hayAlgunaImagen = !!firma.firmaUrl || !!firma.timbreUrl;
 
   return (
     <div className="border border-slate-200 rounded-xl p-3 space-y-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[12.5px] font-semibold text-slate-700">Firma y timbre</p>
-        <div className="flex items-center gap-3">
-          {firma.firmaUrl && (
-            <figure className="text-center">
-              <img src={firma.firmaUrl} alt="Firma escaneada" className="h-9 max-w-[120px] object-contain" />
-              <figcaption className="text-[10px] text-slate-400">firma</figcaption>
-            </figure>
-          )}
-          {firma.timbreUrl && (
-            <figure className="text-center">
-              <img src={firma.timbreUrl} alt="Timbre de la empresa" className="h-9 max-w-[120px] object-contain" />
-              <figcaption className="text-[10px] text-slate-400">timbre</figcaption>
-            </figure>
-          )}
-        </div>
-      </div>
+      <p className="text-[12.5px] font-semibold text-slate-700">Firma y timbre</p>
 
-      <p className="text-[11.5px] text-slate-500 leading-snug">{detalle}</p>
+      {!hayAlgunaImagen ? (
+        <p className="text-[11.5px] text-slate-500 leading-snug">
+          No hay firma ni timbre cargados en la ficha de la empresa — súbelos en <strong>/empresas</strong> para poder arrastrarlos.
+        </p>
+      ) : (
+        <>
+          <div className="flex items-center gap-3">
+            {firma.firmaUrl && (
+              <figure
+                className="text-center cursor-grab active:cursor-grabbing"
+                draggable
+                onDragStart={e => { e.dataTransfer.setData('text/plain', 'firma'); e.dataTransfer.effectAllowed = 'copy'; setArrastrando('firma'); }}
+                onDragEnd={() => setArrastrando(null)}
+                title="Arrastra la firma sobre el lugar resaltado en el documento"
+              >
+                <img src={firma.firmaUrl} alt="Firma escaneada" className="h-9 max-w-[120px] object-contain pointer-events-none" draggable={false} />
+                <figcaption className="text-[10px] text-slate-400">firma</figcaption>
+              </figure>
+            )}
+            {firma.timbreUrl && (
+              <figure
+                className="text-center cursor-grab active:cursor-grabbing"
+                draggable
+                onDragStart={e => { e.dataTransfer.setData('text/plain', 'timbre'); e.dataTransfer.effectAllowed = 'copy'; setArrastrando('timbre'); }}
+                onDragEnd={() => setArrastrando(null)}
+                title="Arrastra el timbre sobre el lugar resaltado en el documento"
+              >
+                <img src={firma.timbreUrl} alt="Timbre de la empresa" className="h-9 max-w-[120px] object-contain pointer-events-none" draggable={false} />
+                <figcaption className="text-[10px] text-slate-400">timbre</figcaption>
+              </figure>
+            )}
+          </div>
+          <p className="text-[11.5px] text-slate-500 leading-snug">
+            {arrastrando
+              ? 'Suéltala sobre el recuadro punteado del documento, más abajo.'
+              : 'Arrástralas sobre el lugar marcado en el documento (más abajo) para colocarlas — no se estampan solas.'}
+          </p>
+        </>
+      )}
     </div>
   );
 }
@@ -848,8 +939,8 @@ export function AnexoRellenoModal({
                 <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
                   <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
                   <p className="text-[12.5px] text-amber-800">
-                    Este documento tiene línea de firma, pero la empresa no tiene una firma escaneada cargada — la línea queda en blanco.
-                    Súbela en <strong>/empresas</strong> (sección "Firma escaneada") para que se inserte sola la próxima vez.
+                    Este documento tiene línea de firma, pero la empresa no tiene una firma escaneada cargada — no hay nada que arrastrar.
+                    Súbela en <strong>/empresas</strong> (sección "Firma escaneada") para poder colocarla.
                   </p>
                 </div>
               )}
@@ -857,8 +948,8 @@ export function AnexoRellenoModal({
                 <div className="flex items-start gap-2.5 px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl">
                   <AlertTriangle size={14} className="text-amber-500 flex-shrink-0 mt-0.5" />
                   <p className="text-[12.5px] text-amber-800">
-                    Este documento pide <strong>firma y timbre</strong>, pero esta empresa no tiene un timbre cargado — solo se estampa la firma.
-                    Súbelo en <strong>/empresas</strong> (sección "Timbre digital") para que se inserte solo la próxima vez.
+                    Este documento pide <strong>firma y timbre</strong>, pero esta empresa no tiene un timbre cargado — solo puedes arrastrar la firma.
+                    Súbelo en <strong>/empresas</strong> (sección "Timbre digital") para poder colocarlo también.
                   </p>
                 </div>
               )}
@@ -897,7 +988,7 @@ export function AnexoRellenoModal({
               {analisis.documento.length > 0 ? (
                 <DocumentoReplica
                   documento={analisis.documento} respuestas={respuestas} onChange={setRespuesta} motivoPorId={motivoPorId}
-                  codigo={codigo} onCorregido={recargarAnalisis}
+                  codigo={codigo} onCorregido={recargarAnalisis} firma={analisis.firma}
                 />
               ) : (
                 <div className="flex items-center gap-2 text-[12.5px] text-slate-400 py-6 justify-center">

@@ -810,12 +810,9 @@ export async function analizarAnexoParaUI(
       porDefecto: porDefectoEnLugar(!!l.pideTimbre, !!empresa.firma_url, !!empresa.timbre_url, !avisoNoAplica),
     })),
   };
-  if (!avisoNoAplica && firma.detectada && firma.disponible) {
-    completadosAuto.push({ etiqueta: 'Firma', campo: 'firma_url', valor: '(imagen de la firma guardada)', via: 'ia' });
-  }
-  if (!avisoNoAplica && firma.timbreDetectado && firma.timbreDisponible) {
-    completadosAuto.push({ etiqueta: 'Timbre', campo: 'timbre_url', valor: '(imagen del timbre guardado)', via: 'ia' });
-  }
+  // Firma/timbre YA NO cuentan como "completado automático" (29-ago-2026, pedido explícito del
+  // usuario): el usuario las arrastra a mano sobre el lugar detectado en el modal — ver
+  // `firma.lugares` más arriba y el default 'ninguna' en el paso 3 de `generarAnexoFinal`.
 
   // Mismo criterio que pendientesCelda unas líneas arriba: lo que ya se muestra DENTRO de una
   // celda de tabla (ver `tablas`, vista réplica) no se repite además en la lista/grilla de "se
@@ -1074,15 +1071,18 @@ export async function generarAnexoFinal(
   //    el TIMBRE al lado cuando la leyenda lo pide ("FIRMA Y TIMBRE REPRESENTANTE LEGAL", que es
   //    como viene redactado en la mayoría de los anexos de servicios de salud) y la ficha lo tiene.
   //    El timbre va con `conservar: true` para que se sume a la firma en vez de reemplazarla.
-  //    Qué va en CADA lugar lo decide el usuario desde el modal (claves `firma:N` y `firmaPos:N`
-  //    dentro de `respuestas`, el mismo canal que las casillas de texto). Sin elección explícita se
-  //    aplica el mismo criterio automático de siempre — ver porDefectoEnLugar.
+  //    Qué va en CADA lugar lo decide el usuario desde el modal, arrastrando la firma/timbre sobre
+  //    el lugar detectado (claves `firma:N` y `firmaPos:N` dentro de `respuestas`, el mismo canal
+  //    que las casillas de texto). CAMBIO 29-ago-2026 (pedido explícito del usuario, revierte la
+  //    automatización del 13-ago): sin elección explícita NO se estampa nada — antes el default sin
+  //    elegir era `porDefectoEnLugar` (el mismo criterio automático de siempre); ahora es `ninguna`.
+  //    `porDefectoEnLugar` queda solo para el hint informativo `lugares[].porDefecto` que ve el modal.
   if (analisis.lineasFirma.length > 0) {
     const decisiones = analisis.lineasFirma.map(linea => {
       const elegido = respuestas[`firma:${linea.indice}`] as QueEstampar | undefined;
       const que: QueEstampar = elegido && ['ambas', 'firma', 'timbre', 'ninguna'].includes(elegido)
         ? elegido
-        : porDefectoEnLugar(!!linea.pideTimbre, !!empresa.firma_url, !!empresa.timbre_url, !avisoNoAplica);
+        : 'ninguna';
       const pos = respuestas[`firmaPos:${linea.indice}`] as PosicionFirma | undefined;
       // Sin elección manual, la imagen heredaría el alineado (o falta de él) del párrafo VACÍO
       // donde se estampa — que casi nunca trae `<w:jc>` propio (default = izquierda). Si la
