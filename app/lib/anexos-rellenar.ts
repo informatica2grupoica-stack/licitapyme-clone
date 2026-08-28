@@ -498,7 +498,9 @@ function aplicarTotalesPorSeccion(
 
 // Descarga una imagen de identidad de la empresa (firma escaneada o timbre) desde su URL pública
 // (R2) y detecta su extensión real por Content-Type. null si falla o no hay nada cargado.
-async function descargarFirma(firmaUrl: string): Promise<{ buffer: Buffer; extension: string } | null> {
+// Exportada: la reusa anexos-pdf-firma.ts (flujo de firma libre sobre PDF) para bajar la MISMA
+// imagen con el mismo criterio de extensión — no duplicar el detector de Content-Type.
+export async function descargarFirma(firmaUrl: string): Promise<{ buffer: Buffer; extension: string } | null> {
   try {
     const res = await fetch(firmaUrl);
     if (!res.ok) return null;

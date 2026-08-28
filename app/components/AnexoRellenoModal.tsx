@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, ChevronDown, ShieldAlert, ListChecks, Pencil, Check } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
+import { AnexoFirmarPdf } from '@/app/components/AnexoFirmarPdf';
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
@@ -304,94 +305,32 @@ function TablaReal({
   );
 }
 
-// Zona de destino para arrastrar la firma/timbre: envuelve el párrafo donde el motor detectó la
-// leyenda ("FIRMA DEL PROPONENTE…", "FIRMA Y TIMBRE…"). Reemplaza el estampado automático — ver
-// BloqueFirmaTimbre. `valorActual` es la clave `firma:N` de `respuestas` ('ambas'|'firma'|'timbre'
-// o vacío/'ninguna' si nunca se soltó nada ahí). Un mismo lugar acepta firma Y timbre por separado
-// (dos soltadas), y cada una se puede quitar sin afectar la otra.
-function ZonaFirma({
-  indice, pideTimbre, firma, valorActual, onChange, children,
-}: {
-  indice: number; pideTimbre: boolean; firma: Analisis['firma']; valorActual: string;
-  onChange: (id: string, v: string) => void; children: React.ReactNode;
-}) {
-  const [sobre, setSobre] = useState(false);
-  const id = `firma:${indice}`;
-  const tieneFirma = valorActual === 'firma' || valorActual === 'ambas';
-  const tieneTimbre = valorActual === 'timbre' || valorActual === 'ambas';
-
-  const soltar = (tipo: string) => {
-    if (tipo !== 'firma' && tipo !== 'timbre') return;
-    const siguiente = tipo === 'firma'
-      ? (tieneTimbre ? 'ambas' : 'firma')
-      : (tieneFirma ? 'ambas' : 'timbre');
-    onChange(id, siguiente);
-  };
-  const quitar = (tipo: 'firma' | 'timbre') => {
-    const siguiente = tipo === 'firma' ? (tieneTimbre ? 'timbre' : 'ninguna') : (tieneFirma ? 'firma' : 'ninguna');
-    onChange(id, siguiente);
-  };
-
-  return (
-    <div
-      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setSobre(true); }}
-      onDragLeave={() => setSobre(false)}
-      onDrop={e => { e.preventDefault(); setSobre(false); soltar(e.dataTransfer.getData('text/plain')); }}
-      className={`my-1 rounded-lg border-2 border-dashed px-2 py-1.5 transition-colors ${
-        sobre ? 'border-indigo-500 bg-indigo-50'
-          : tieneFirma || tieneTimbre ? 'border-emerald-300 bg-emerald-50/40'
-          : 'border-slate-300 bg-slate-50/70'
-      }`}
-    >
-      {children}
-      <div className="flex items-center gap-2 mt-1 flex-wrap">
-        <span className="text-[10.5px] text-slate-400">
-          {tieneFirma || tieneTimbre ? 'Colocado aquí:' : `Suelta aquí la firma${pideTimbre ? ' y/o el timbre' : ''}`}
-        </span>
-        {tieneFirma && firma.firmaUrl && (
-          <span className="inline-flex items-center gap-1 bg-white border border-emerald-300 rounded px-1 py-0.5">
-            <img src={firma.firmaUrl} alt="Firma colocada" className="h-5 object-contain" />
-            <button type="button" onClick={() => quitar('firma')} title="Quitar la firma de aquí" className="text-slate-400 hover:text-rose-600">
-              <X size={10} />
-            </button>
-          </span>
-        )}
-        {tieneTimbre && firma.timbreUrl && (
-          <span className="inline-flex items-center gap-1 bg-white border border-emerald-300 rounded px-1 py-0.5">
-            <img src={firma.timbreUrl} alt="Timbre colocado" className="h-5 object-contain" />
-            <button type="button" onClick={() => quitar('timbre')} title="Quitar el timbre de aquí" className="text-slate-400 hover:text-rose-600">
-              <X size={10} />
-            </button>
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // Un párrafo de la réplica — se lee igual que la línea correspondiente en el Word: misma
 // alineación, misma sangría, mismo marcador de lista, y los trozos de texto con su negrita o
 // subrayado. Los blancos van INTERCALADOS en el texto: un valor ya resuelto se ve destacado en
 // su lugar, y uno pendiente es un input angosto (tamaño según el largo real del "____" en el
 // Word) justo donde va — no una tarjeta aparte más abajo.
-function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false, firma }: {
+//
+// La firma/timbre NUNCA se posicionan acá (ver AnexoFirmarPdf): un .docx es texto que fluye, sin
+// coordenadas de píxel, así que no hay forma de "soltarla donde uno quiere" con precisión real
+// sobre esta réplica. Hubo una versión (29-ago-2026, misma sesión) que dejaba soltarla sobre el
+// lugar detectado dentro de esta vista — se retiró antes de llegar a producción: el pedido real
+// del usuario ("moverla por toda la hoja, como ecert Chile") solo se puede cumplir sobre un PDF
+// con página fija, y tener DOS mecanismos de arrastre (uno acá que no hace nada al generar, otro
+// en el paso de firma que sí) es peor que tener uno solo.
+function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false }: {
   b: BloqueParrafoUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
   motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void;
   // Panel IZQUIERDO: el documento como VINO, sin nada completado — misma estructura de bloques que
   // el de la derecha (por eso reusa este mismo componente y no otro), así los dos paneles tienen
   // exactamente los mismos párrafos en el mismo orden y el scroll sincronizado calza de verdad.
   modoOriginal?: boolean;
-  // Solo se pasa en el panel derecho (completado): habilita la zona de arrastrar firma/timbre
-  // cuando este párrafo es uno de los lugares detectados (`firma.lugares`).
-  firma?: Analisis['firma'];
 }) {
   const alineacionClase: Record<Alineacion, string> = {
     izquierda: 'text-left', centro: 'text-center', derecha: 'text-right', justificado: 'text-justify',
   };
-  const lugar = !modoOriginal ? firma?.lugares?.find(l => l.id === `firma:${b.indice}`) : undefined;
-  const contenido = b.segmentos.length === 0 && !b.marcador ? (
-    <div className="h-2.5" aria-hidden="true" />
-  ) : (
+  if (b.segmentos.length === 0 && !b.marcador) return <div className="h-2.5" aria-hidden="true" />;
+  return (
     <p
       className={`text-[12.5px] leading-relaxed text-slate-800 ${alineacionClase[b.alineacion]}`}
       style={b.sangriaPx ? { paddingLeft: b.sangriaPx } : undefined}
@@ -428,28 +367,21 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregi
       })}
     </p>
   );
-  if (!lugar) return contenido;
-  return (
-    <ZonaFirma indice={b.indice} pideTimbre={lugar.pideTimbre} firma={firma!} valorActual={respuestas[lugar.id] || 'ninguna'} onChange={onChange}>
-      {contenido}
-    </ZonaFirma>
-  );
 }
 
 // El documento completo, en orden — un párrafo/tabla tras otro tal como está en el Word, con los
 // blancos ya resueltos o por llenar en su lugar. Reemplaza la vieja grilla de tarjetas: pedido
 // explícito del usuario (4-ago-2026) — "tiene que ser tal cual el mismo texto, la misma
 // estructura", no una lista de campos.
-function DocumentoReplica({ documento, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false, firma }: {
+function DocumentoReplica({ documento, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false }: {
   documento: BloqueUI[]; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
   motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void; modoOriginal?: boolean;
-  firma?: Analisis['firma'];
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl px-5 py-4">
       {documento.map((bloque, i) => bloque.tipo === 'tabla'
         ? <div key={i} className="my-2.5"><TablaReal tabla={bloque.tabla} respuestas={respuestas} onChange={onChange} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} /></div>
-        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} firma={firma} />)}
+        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} />)}
     </div>
   );
 }
@@ -607,63 +539,25 @@ function SeccionesEscaneadas({ secciones }: { secciones: SeccionEscaneada[] }) {
   );
 }
 
-// ── Firma y timbre: arrastrar y soltar, SIN estampado automático ─────────────────────────────
+// ── Firma y timbre: aviso, la posición se elige en el paso siguiente (sobre el PDF) ──────────
 // Historia: primero 4 botones (firma+timbre / solo firma / solo timbre / ninguna) + 3 de posición.
 // Se quitaron el 13-ago-2026 (pedido del usuario: "que el programa lo detecte automático y lo
 // ponga, no dejar que yo seleccione") y el backend pasó a estampar solo con `porDefectoEnLugar`.
-// REVERTIDO el 29-ago-2026 (pedido explícito, en sentido contrario): "no pongas la firma
-// automática, la vamos a poner arrastrándola con el mouse donde queremos". La imagen ya NO se
-// estampa nunca sin acción explícita — arrastrar esta miniatura sobre el lugar resaltado en el
-// documento (a la derecha) es la única forma de que quede. La POSICIÓN dentro de ESE lugar (texto
-// a la izquierda, imagen a la derecha si hay nombre/RUT debajo) se sigue calculando sola — ver
-// columnaDerecha en anexos-docx.ts — eso nunca fue lo que el usuario quiso elegir a mano.
+// El 29-ago-2026 (pedido explícito, en sentido contrario: "moverla por toda la hoja, como ecert
+// Chile") se intentó primero arrastrar sobre esta MISMA réplica del Word — se retiró en la misma
+// sesión: un .docx no tiene coordenadas de píxel, así que "donde la suelto, ahí queda" con
+// precisión real solo se puede lograr sobre un PDF de página fija. Ver AnexoFirmarPdf — ese
+// componente (no este panel) es donde de verdad se arrastra la firma/timbre.
 function BloqueFirmaTimbre({ firma }: { firma: Analisis['firma'] }) {
-  const [arrastrando, setArrastrando] = useState<'firma' | 'timbre' | null>(null);
   const hayAlgunaImagen = !!firma.firmaUrl || !!firma.timbreUrl;
-
   return (
-    <div className="border border-slate-200 rounded-xl p-3 space-y-2.5">
+    <div className="border border-slate-200 rounded-xl p-3 space-y-1.5">
       <p className="text-[12.5px] font-semibold text-slate-700">Firma y timbre</p>
-
-      {!hayAlgunaImagen ? (
-        <p className="text-[11.5px] text-slate-500 leading-snug">
-          No hay firma ni timbre cargados en la ficha de la empresa — súbelos en <strong>/empresas</strong> para poder arrastrarlos.
-        </p>
-      ) : (
-        <>
-          <div className="flex items-center gap-3">
-            {firma.firmaUrl && (
-              <figure
-                className="text-center cursor-grab active:cursor-grabbing"
-                draggable
-                onDragStart={e => { e.dataTransfer.setData('text/plain', 'firma'); e.dataTransfer.effectAllowed = 'copy'; setArrastrando('firma'); }}
-                onDragEnd={() => setArrastrando(null)}
-                title="Arrastra la firma sobre el lugar resaltado en el documento"
-              >
-                <img src={firma.firmaUrl} alt="Firma escaneada" className="h-9 max-w-[120px] object-contain pointer-events-none" draggable={false} />
-                <figcaption className="text-[10px] text-slate-400">firma</figcaption>
-              </figure>
-            )}
-            {firma.timbreUrl && (
-              <figure
-                className="text-center cursor-grab active:cursor-grabbing"
-                draggable
-                onDragStart={e => { e.dataTransfer.setData('text/plain', 'timbre'); e.dataTransfer.effectAllowed = 'copy'; setArrastrando('timbre'); }}
-                onDragEnd={() => setArrastrando(null)}
-                title="Arrastra el timbre sobre el lugar resaltado en el documento"
-              >
-                <img src={firma.timbreUrl} alt="Timbre de la empresa" className="h-9 max-w-[120px] object-contain pointer-events-none" draggable={false} />
-                <figcaption className="text-[10px] text-slate-400">timbre</figcaption>
-              </figure>
-            )}
-          </div>
-          <p className="text-[11.5px] text-slate-500 leading-snug">
-            {arrastrando
-              ? 'Suéltala sobre el recuadro punteado del documento, más abajo.'
-              : 'Arrástralas sobre el lugar marcado en el documento (más abajo) para colocarlas — no se estampan solas.'}
-          </p>
-        </>
-      )}
+      <p className="text-[11.5px] text-slate-500 leading-snug">
+        {hayAlgunaImagen
+          ? 'Este documento pide firma/timbre. Vas a poder ubicarlas exactamente donde quieras en el paso siguiente, sobre el PDF ya generado.'
+          : <>No hay firma ni timbre cargados en la ficha de la empresa — súbelos en <strong>/empresas</strong> para poder colocarlas.</>}
+      </p>
     </div>
   );
 }
@@ -686,6 +580,13 @@ export function AnexoRellenoModal({
   const [analisis, setAnalisis] = useState<Analisis | null>(null);
   const [respuestas, setRespuestas] = useState<Record<string, string>>({});
   const [generando, setGenerando] = useState(false);
+  // Paso de firma libre sobre PDF (ver AnexoFirmarPdf) — solo existe cuando el documento tiene
+  // al menos un lugar de firma/timbre detectado. `pdfParaFirmar` se pide recién al pulsar
+  // "Continuar", nunca antes: convertir a PDF cuesta una llamada al conversor y no tiene sentido
+  // pagarla si el usuario todavía está corrigiendo campos de texto.
+  const [paso, setPaso] = useState<'formulario' | 'firma'>('formulario');
+  const [pdfParaFirmar, setPdfParaFirmar] = useState<ArrayBuffer | null>(null);
+  const [cargandoPdf, setCargandoPdf] = useState(false);
   // Scroll acoplado entre los dos paneles (original ↔ completado). Se sincroniza por PROPORCIÓN
   // (cuánto del alto total llevás recorrido), no por píxeles: los dos paneles tienen los mismos
   // bloques pero no exactamente el mismo alto — un input o un valor largo ocupan un poco más que la
@@ -716,7 +617,7 @@ export function AnexoRellenoModal({
   // generación tome la misma decisión que la pantalla mostró.
   const [forzarAplica, setForzarAplica] = useState(false);
 
-  useEffect(() => { setForzarAplica(false); }, [doc]);
+  useEffect(() => { setForzarAplica(false); setPaso('formulario'); setPdfParaFirmar(null); }, [doc]);
 
   useEffect(() => {
     if (!doc) return;
@@ -789,6 +690,22 @@ export function AnexoRellenoModal({
     }
   };
 
+  // Compartido entre el camino .docx directo y el camino PDF firmado: mismo toast, mismo aviso de
+  // firma/timbre que no se pudo descargar, mismo cierre del modal.
+  const avisarYCerrar = (data: any) => {
+    const resumenCampos = `${data.completados} campo${data.completados !== 1 ? 's' : ''} automático${data.completados !== 1 ? 's' : ''} · ${data.respondidos} manual${data.respondidos !== 1 ? 'es' : ''}`;
+    toast.success(
+      data.dividido ? `${data.archivos?.length || 0} formularios generados` : 'Anexo generado',
+      `${resumenCampos} — disponible${data.dividido ? 's' : ''} en Documentos para MP`,
+    );
+    const avisos: string[] = Array.isArray(data.avisos) ? data.avisos : [];
+    if (avisos.length > 0) toast.warning('Revisa antes de enviar', avisos.join(' '));
+    onGenerado(data.archivos || []);
+    onClose();
+  };
+
+  // Camino de siempre: el documento no tiene ningún lugar de firma/timbre detectado, así que no
+  // hay nada que posicionar — se genera el .docx directo, sin pasar por el paso de firma sobre PDF.
   const handleGenerar = async () => {
     setGenerando(true);
     try {
@@ -799,18 +716,7 @@ export function AnexoRellenoModal({
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo generar el documento');
-      const resumenCampos = `${data.completados} campo${data.completados !== 1 ? 's' : ''} automático${data.completados !== 1 ? 's' : ''} · ${data.respondidos} manual${data.respondidos !== 1 ? 'es' : ''}`;
-      toast.success(
-        data.dividido ? `${data.archivos?.length || 0} formularios generados` : 'Anexo generado',
-        `${resumenCampos} — disponible${data.dividido ? 's' : ''} en Documentos para MP`,
-      );
-      // La firma/timbre estaban cargadas y el documento las pedía, pero la descarga falló al
-      // generar — el archivo SÍ se subió, solo que sin esa imagen. Avisar en vez de dejar que se
-      // descubra recién al abrir el Word (auditoría ago-2026).
-      const avisos: string[] = Array.isArray(data.avisos) ? data.avisos : [];
-      if (avisos.length > 0) toast.warning('Revisa antes de enviar', avisos.join(' '));
-      onGenerado(data.archivos || []);
-      onClose();
+      avisarYCerrar(data);
     } catch (e: any) {
       toast.error('No se pudo generar el anexo', e.message);
     } finally {
@@ -818,24 +724,48 @@ export function AnexoRellenoModal({
     }
   };
 
-  const setRespuesta = (id: string, v: string) => setRespuestas(prev => ({ ...prev, [id]: v }));
-
-  // Auto-scroll al arrastrar la firma/timbre: en un anexo largo, la línea de firma casi siempre
-  // queda al final, fuera de lo visible al empezar a arrastrar desde el panel de arriba — sin esto
-  // era literalmente imposible soltarla ahí (pedido explícito del usuario, 29-ago-2026: "el
-  // documento es muy largo, no llego abajo"). Acerca el cursor a cualquiera de los dos bordes del
-  // panel derecho (el único que puede tener la zona de destino) y se desplaza solo, más rápido
-  // cuanto más cerca del borde — mismo mecanismo que un editor tipo Trello/Notion.
-  const MARGEN_AUTOSCROLL = 70;
-  const autoScrollAlArrastrar = (e: React.DragEvent<HTMLDivElement>) => {
-    const el = panelRellenoRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const distanciaArriba = e.clientY - rect.top;
-    const distanciaAbajo = rect.bottom - e.clientY;
-    if (distanciaArriba < MARGEN_AUTOSCROLL) el.scrollTop -= (MARGEN_AUTOSCROLL - distanciaArriba) * 0.4;
-    else if (distanciaAbajo < MARGEN_AUTOSCROLL) el.scrollTop += (MARGEN_AUTOSCROLL - distanciaAbajo) * 0.4;
+  // El documento SÍ tiene firma/timbre que posicionar: en vez de generar directo, se pide la
+  // vista previa en PDF (texto ya puesto, sin firma) y se pasa al paso de firma libre.
+  const handleContinuarAFirma = async () => {
+    setCargandoPdf(true);
+    try {
+      const r = await fetch('/api/anexos/vista-previa-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo, documentoId: doc.id, empresaId, respuestas }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.error || 'No se pudo preparar el PDF para firmar');
+      }
+      setPdfParaFirmar(await r.arrayBuffer());
+      setPaso('firma');
+    } catch (e: any) {
+      toast.error('No se pudo pasar al paso de firma', e.message);
+    } finally {
+      setCargandoPdf(false);
+    }
   };
+
+  const handleGenerarFirmado = async (estampas: { tipo: 'firma' | 'timbre'; pagina: number; xPct: number; yPct: number; anchoPct: number }[]) => {
+    setGenerando(true);
+    try {
+      const r = await fetch('/api/anexos/generar-firmado', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo, documentoId: doc.id, empresaId, respuestas, estampas }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo generar el documento firmado');
+      avisarYCerrar(data);
+    } catch (e: any) {
+      toast.error('No se pudo generar el anexo firmado', e.message);
+    } finally {
+      setGenerando(false);
+    }
+  };
+
+  const setRespuesta = (id: string, v: string) => setRespuestas(prev => ({ ...prev, [id]: v }));
 
   return createPortal(
     <div
@@ -873,6 +803,17 @@ export function AnexoRellenoModal({
           </button>
         </div>
 
+        {paso === 'firma' && pdfParaFirmar ? (
+          <AnexoFirmarPdf
+            pdfBytes={pdfParaFirmar}
+            firmaUrl={analisis?.firma.firmaUrl ?? null}
+            timbreUrl={analisis?.firma.timbreUrl ?? null}
+            generando={generando}
+            onConfirmar={handleGenerarFirmado}
+            onVolver={() => setPaso('formulario')}
+          />
+        ) : (
+        <>
         {/* Cuerpo: documento ORIGINAL a la izquierda, documento COMPLETADO a la derecha */}
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
           {/* Panel izquierdo: el anexo TAL COMO VINO. Antes era un <iframe> al visor de Office
@@ -923,7 +864,6 @@ export function AnexoRellenoModal({
         <div
           ref={panelRellenoRef}
           onScroll={() => sincronizarScroll(panelRellenoRef, panelOriginalRef)}
-          onDragOver={autoScrollAlArrastrar}
           className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
         >
           {cargando && (
@@ -1006,7 +946,7 @@ export function AnexoRellenoModal({
               {analisis.documento.length > 0 ? (
                 <DocumentoReplica
                   documento={analisis.documento} respuestas={respuestas} onChange={setRespuesta} motivoPorId={motivoPorId}
-                  codigo={codigo} onCorregido={recargarAnalisis} firma={analisis.firma}
+                  codigo={codigo} onCorregido={recargarAnalisis}
                 />
               ) : (
                 <div className="flex items-center gap-2 text-[12.5px] text-slate-400 py-6 justify-center">
@@ -1018,25 +958,40 @@ export function AnexoRellenoModal({
         </div>
 
         {/* Pie */}
-        {!cargando && !error && analisis && (analisis.completadosAuto.length > 0 || totalPendientes > 0) && (
+        {!cargando && !error && analisis && (analisis.completadosAuto.length > 0 || totalPendientes > 0 || analisis.firma.lugares.length > 0) && (
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 bg-slate-50 flex-shrink-0">
             <p className="text-[11px] text-slate-400">
               {totalPendientes > 0 ? `${totalRespondidas}/${totalPendientes} respondidos (opcional)` : 'Listo para generar'}
             </p>
-            <button
-              type="button"
-              onClick={handleGenerar}
-              disabled={generando}
-              className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
-            >
-              {generando
-                ? <><Loader2 size={13} className="animate-spin" /> Generando…</>
-                : <><Wand2 size={13} /> Generar documento</>}
-            </button>
+            {analisis.firma.lugares.length > 0 ? (
+              <button
+                type="button"
+                onClick={handleContinuarAFirma}
+                disabled={generando || cargandoPdf}
+                className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
+              >
+                {cargandoPdf
+                  ? <><Loader2 size={13} className="animate-spin" /> Preparando PDF…</>
+                  : <><Wand2 size={13} /> Continuar a firma</>}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleGenerar}
+                disabled={generando}
+                className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
+              >
+                {generando
+                  ? <><Loader2 size={13} className="animate-spin" /> Generando…</>
+                  : <><Wand2 size={13} /> Generar documento</>}
+              </button>
+            )}
           </div>
         )}
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>,
     document.body,

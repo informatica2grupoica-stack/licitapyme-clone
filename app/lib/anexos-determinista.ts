@@ -637,7 +637,9 @@ const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
   { re: /n(?:u|ú)mero\s+de\s+run|\brun\b|c(?:e|é)dula/i, campo: 'representante_rut' },
   { re: /nombre\s+o\s+raz(?:o|ó)n\s+social|raz(?:o|ó)n\s+social|nombre\s+persona\s+(?:natural|jur(?:i|í)dica)/i, campo: 'razon_social' },
   { re: /insertar\s+rut|^\s*rut\s*$/i, campo: 'rut' },
-  { re: /id\s+de\s+mercado\s+p(?:u|ú)blico|id\s+licitaci(?:o|ó)n/i, campo: 'licitacion_codigo' },
+  // "id licitación" (sin "de") y "id DE licitación" son la misma pregunta — BUG REAL (28-ago-2026,
+  // ANEXO N°2B, 2928-17-LE26): "indique ID de licitación" no calzaba por la "de" de más.
+  { re: /id\s+de\s+mercado\s+p(?:u|ú)blico|id\s+(?:de\s+)?licitaci(?:o|ó)n/i, campo: 'licitacion_codigo' },
   { re: /nombre\s+(?:de\s+la\s+)?licitaci(?:o|ó)n/i, campo: 'licitacion_nombre' },
   { re: /^\s*fecha\s*$/i, campo: 'fecha_hoy' },
   // El marcador ESCRIBE el formato en vez de la palabra "fecha": "<día/mes/año>", "<dd/mm/aaaa>",
@@ -655,6 +657,14 @@ const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
   // La comuna del organismo SOLO aplica en la localidad de firma ("En ____, a 12 de agosto"), y
   // ese caso ya lo resuelve RE_LOCALIDAD_FIRMA ANTES de llegar acá (ver campoDeBlancoInline). Un
   // marcador que dice "comuna" a secas, en medio de una frase, es la comuna del OFERENTE.
+  // BUG REAL (28-ago-2026, ANEXO N°2B, 2928-17-LE26): "indique dirección, comuna y región" pide
+  // los TRES datos en UN solo blanco. Sin esta regla compuesta, "comuna" (la siguiente, más abajo)
+  // ganaba por orden y la casilla salía con SOLO la comuna ("Concepción") en vez de la dirección
+  // completa — un dato incompleto sin ningún aviso, peor que dejarlo pendiente. `direccion` ya
+  // trae la comuna metida al final ("Barros Arana N°492 Of.78, Concepción" — ver comunaDeDireccion
+  // más abajo), así que responde las tres preguntas con un solo valor real. Va ANTES que las reglas
+  // sueltas de ciudad/comuna a propósito: tiene que ganarles cuando las dos aparecen juntas.
+  { re: /(?:domicilio|direcci(?:o|ó)n)\b[\s\S]{0,40}?\b(?:comuna|regi(?:o|ó)n|ciudad)\b/i, campo: 'direccion' },
   { re: /\bciudad\b/i, campo: 'ciudad' },
   { re: /\bcomuna\b/i, campo: 'comuna' },
   // "localidad" sigue siendo la del organismo: es la palabra de la fórmula de cierre ("En la
@@ -703,9 +713,19 @@ const esBloqueDeTercero = (texto: string) => RE_BLOQUE_TERCERO.test(texto.replac
 /** Campo que pide un blanco a mitad de oración, por lo que el documento dice ANTES de él. */
 export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
   if (b.textoMarcador) {
-    if (RE_MARCADOR_INSTRUCCION.test(b.textoMarcador)) return null;
+    // BUG REAL (28-ago-2026, ANEXO N°2B, 2928-17-LE26): "indique dirección, comuna y región",
+    // "indique ID de licitación" — el verbo de instrucción bloqueaba el marcador ANTES de mirar
+    // si de verdad nombraba un dato conocido, así que "indique" + [dato real] quedaba tan
+    // pendiente como "[indicar en esta casilla el número o nombre del documento…]", que sí es
+    // genuinamente libre. En el español burocrático chileno "indique"/"señale" casi siempre
+    // significa "escriba aquí", no "redacte usted el contenido" — la señal real de que es libre
+    // es que NO calce con ningún campo conocido. Se prueba REGLAS_MARCADOR primero (con el
+    // marcador tal cual, instrucción incluida — las reglas no necesitan que se les pele el verbo)
+    // y el bloqueo por instrucción queda de red de seguridad, solo para lo que de verdad no
+    // matchea nada.
     const m = REGLAS_MARCADOR.find(r => r.re.test(b.textoMarcador!));
     if (m) return m.campo;
+    if (RE_MARCADOR_INSTRUCCION.test(b.textoMarcador)) return null;
   }
   const parrafo = b.parrafoCompleto ?? b.contexto ?? '';
   const pos = b.posEnParrafo ?? b.posEnTexto ?? 0;

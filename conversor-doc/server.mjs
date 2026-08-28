@@ -12,11 +12,21 @@
 // el CALLER (anexos-doc-legacy.ts) es responsable de no mandar un PDF escaneado acá, este
 // servicio no tiene forma de saberlo por sí solo.
 //
-// Un solo endpoint, sin framework (no hace falta express para esto):
-//   POST /convertir   body = bytes crudos, Content-Type: application/msword (.doc) o
-//                      application/pdf (.pdf), header x-conversor-secret = CONVERSOR_SECRET
-//                      → 200 con los bytes del .docx (Content-Type OOXML)
-//   GET  /salud        → 200 "ok" (para healthcheck de docker-compose)
+// DOCX → PDF (29-ago-2026, pedido explícito del usuario: firmar con precisión real requiere una
+// página FIJA como imagen — un .docx es texto que fluye, no tiene coordenadas de píxel. El flujo:
+// generar el anexo con el texto ya puesto (sin firma/timbre) → convertir ESE .docx a PDF acá →
+// el usuario arrastra la firma/timbre sobre el PDF real en el navegador → se "quema" con pdf-lib
+// en el servidor de la app (no acá, este microservicio solo convierte formatos, nunca edita
+// contenido). Mismo comando de LibreOffice que ya existía, la extensión de SALIDA es la única
+// diferencia — por eso queda como una ruta nueva en vez de una rama más de la que ya hay.
+//
+// Endpoints, sin framework (no hace falta express para esto):
+//   POST /convertir       body = bytes crudos, Content-Type: application/msword (.doc) o
+//                         application/pdf (.pdf), header x-conversor-secret = CONVERSOR_SECRET
+//                         → 200 con los bytes del .docx (Content-Type OOXML)
+//   POST /convertir-pdf   body = bytes crudos de un .docx (Content-Type OOXML), mismo secreto
+//                         → 200 con los bytes del .pdf
+//   GET  /salud            → 200 "ok" (para healthcheck de docker-compose)
 import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -47,7 +57,7 @@ async function leerBody(req) {
   return Buffer.concat(chunks);
 }
 
-async function convertirADocx(bufferEntrada, extensionEntrada) {
+async function convertirArchivo(bufferEntrada, extensionEntrada, formatoSalida) {
   const id = randomUUID();
   const dir = await mkdtemp(join(tmpdir(), `conv-${id}-`));
   const perfilLO = join(tmpdir(), `lo-profile-${id}`); // perfil aislado: evita choques si dos conversiones caen a la vez
@@ -58,12 +68,12 @@ async function convertirADocx(bufferEntrada, extensionEntrada) {
     await execFileAsync('soffice', [
       '--headless', '--norestore',
       `-env:UserInstallation=file://${perfilLO}`,
-      '--convert-to', 'docx',
+      '--convert-to', formatoSalida,
       '--outdir', dir,
       entrada,
     ], { timeout: TIMEOUT_MS });
 
-    const salida = join(dir, 'entrada.docx');
+    const salida = join(dir, `entrada.${formatoSalida}`);
     return await readFile(salida);
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {});
@@ -78,7 +88,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method !== 'POST' || req.url !== '/convertir') {
+  if (req.method !== 'POST' || (req.url !== '/convertir' && req.url !== '/convertir-pdf')) {
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('No encontrado');
     return;
@@ -90,6 +100,8 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  const aPdf = req.url === '/convertir-pdf';
+
   try {
     const bufferEntrada = await leerBody(req);
     if (bufferEntrada.length === 0) {
@@ -97,16 +109,16 @@ const server = http.createServer(async (req, res) => {
       res.end('Cuerpo vacío');
       return;
     }
-    // Content-Type decide la extensión del temporal — de eso depende que LibreOffice detecte
-    // bien el formato de origen. 'application/msword' es el default histórico (así llamaba el
-    // único caller que existía antes del soporte PDF) — nunca romper esa compatibilidad.
-    const contentType = String(req.headers['content-type'] || '').toLowerCase();
-    const extensionEntrada = contentType.includes('pdf') ? 'pdf' : 'doc';
-    console.log(`[conversor-doc] Convirtiendo ${bufferEntrada.length} bytes (.${extensionEntrada})…`);
-    const bufferDocx = await convertirADocx(bufferEntrada, extensionEntrada);
-    console.log(`[conversor-doc] OK → ${bufferDocx.length} bytes`);
-    res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
-    res.end(bufferDocx);
+    // /convertir-pdf SIEMPRE recibe un .docx de entrada (el anexo ya generado con el texto
+    // puesto) — no hace falta mirar el Content-Type para decidir la extensión de entrada, a
+    // diferencia de /convertir que sí acepta dos orígenes distintos (.doc/.pdf).
+    const extensionEntrada = aPdf ? 'docx' : (String(req.headers['content-type'] || '').toLowerCase().includes('pdf') ? 'pdf' : 'doc');
+    const formatoSalida = aPdf ? 'pdf' : 'docx';
+    console.log(`[conversor-doc] Convirtiendo ${bufferEntrada.length} bytes (.${extensionEntrada} → .${formatoSalida})…`);
+    const bufferSalida = await convertirArchivo(bufferEntrada, extensionEntrada, formatoSalida);
+    console.log(`[conversor-doc] OK → ${bufferSalida.length} bytes`);
+    res.writeHead(200, { 'Content-Type': aPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+    res.end(bufferSalida);
   } catch (error) {
     console.error('[conversor-doc] Falló la conversión:', error?.message || error);
     res.writeHead(500, { 'Content-Type': 'text/plain' });

@@ -1,7 +1,10 @@
 # conversor-doc/Dockerfile — microservicio interno del VPS: convierte .doc (Word 97-2003,
-# binario OLE) o .pdf a .docx (OOXML moderno) con LibreOffice headless. Contenedor aparte (no se
-# instala LibreOffice en la imagen de "app") para no inflar esa imagen ni su tiempo de build —
-# vive en la misma red interna de docker-compose, la app lo llama por su nombre de servicio.
+# binario OLE) o .pdf a .docx (OOXML moderno), y .docx a .pdf (29-ago-2026, paso previo a firmar
+# con posición libre — ver /convertir-pdf en server.mjs), con LibreOffice headless. Contenedor
+# aparte (no se instala LibreOffice en la imagen de "app") para no inflar esa imagen ni su tiempo
+# de build — vive en la misma red interna de docker-compose, la app lo llama por su nombre de
+# servicio. libreoffice-writer YA trae el exportador de PDF (es una función nativa de Writer, no
+# un paquete aparte), así que /convertir-pdf no necesita nada nuevo acá.
 FROM node:20-bookworm-slim
 
 WORKDIR /app

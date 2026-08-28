@@ -163,6 +163,27 @@ test('marcador que es una INSTRUCCIÓN al oferente nunca se autocompleta', () =>
   assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: m })), null);
 });
 
+// REGRESIÓN 2928-17-LE26 (ANEXO N°2B): "indique" es la forma burocrática chilena de "escriba
+// aquí" — antes bloqueaba el marcador ANTES de mirar si nombraba un dato conocido, así que
+// "indique dirección" quedaba tan pendiente como una instrucción genuinamente libre. Ahora se
+// prueba primero contra los campos conocidos; el bloqueo por instrucción queda de red de
+// seguridad solo para lo que de verdad no calza con nada (el test de arriba lo sigue protegiendo).
+test('REGRESIÓN 2928-17-LE26: "indique" + un dato conocido SÍ se autocompleta — el verbo no es la señal, es no calzar con nada', () => {
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: 'indique dirección, comuna y región' })), 'direccion');
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: 'indique ID de licitación' })), 'licitacion_codigo');
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: 'RUN representante legal' })), 'representante_rut');
+});
+
+// REGRESIÓN 2928-17-LE26: "dirección, comuna y región" en un solo blanco — sin esta regla
+// compuesta, "comuna" (que aparece más abajo en la lista) ganaba por orden y la casilla quedaba con
+// SOLO la comuna ("Concepción") en vez de la dirección completa, sin ningún aviso de que faltaba
+// el resto. `direccion` ya trae la comuna al final, así que un solo valor responde las tres partes.
+test('REGRESIÓN 2928-17-LE26: "dirección, comuna y región" junto resuelve a la dirección completa, no solo a la comuna', () => {
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: 'dirección, comuna y región' })), 'direccion');
+  // Sin la palabra "dirección"/"domicilio" al lado, "comuna" sola sigue siendo solo la comuna.
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: 'comuna' })), 'comuna');
+});
+
 // ── Motor completo + guardarraíl anti-invención ──────────────────────────────────────────────
 test('resolverDeterminista: resuelve la tabla de identificación entera sin llamar a nadie', () => {
   const parrafos = [parrafo(0, 'ANEXO N°1 — IDENTIFICACIÓN DEL OFERENTE'), parrafo(1, ''), parrafo(2, ''), parrafo(3, '')];
