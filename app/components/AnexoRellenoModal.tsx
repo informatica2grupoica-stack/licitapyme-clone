@@ -691,17 +691,34 @@ export function AnexoRellenoModal({
   };
 
   // Compartido entre el camino .docx directo y el camino PDF firmado: mismo toast, mismo aviso de
-  // firma/timbre que no se pudo descargar, mismo cierre del modal.
+  // firma/timbre que no se pudo descargar, mismo cierre del modal. El camino firmado no manda
+  // completados/respondidos (no regenera el texto, ver generar-firmado/route.ts) — se omite esa
+  // parte del mensaje en vez de mostrar "undefined campos".
   const avisarYCerrar = (data: any) => {
-    const resumenCampos = `${data.completados} campo${data.completados !== 1 ? 's' : ''} automático${data.completados !== 1 ? 's' : ''} · ${data.respondidos} manual${data.respondidos !== 1 ? 'es' : ''}`;
+    const resumenCampos = typeof data.completados === 'number' && typeof data.respondidos === 'number'
+      ? `${data.completados} campo${data.completados !== 1 ? 's' : ''} automático${data.completados !== 1 ? 's' : ''} · ${data.respondidos} manual${data.respondidos !== 1 ? 'es' : ''} — `
+      : '';
     toast.success(
       data.dividido ? `${data.archivos?.length || 0} formularios generados` : 'Anexo generado',
-      `${resumenCampos} — disponible${data.dividido ? 's' : ''} en Documentos para MP`,
+      `${resumenCampos}disponible${data.dividido ? 's' : ''} en Documentos para MP`,
     );
     const avisos: string[] = Array.isArray(data.avisos) ? data.avisos : [];
     if (avisos.length > 0) toast.warning('Revisa antes de enviar', avisos.join(' '));
     onGenerado(data.archivos || []);
     onClose();
+  };
+
+  // btoa espera una cadena "binaria" (un char por byte) — se arma leyendo el ArrayBuffer en
+  // trozos para no romper con call stack overflow en PDFs grandes (String.fromCharCode con un
+  // array gigante de una sola vez puede reventar el límite de argumentos del motor JS).
+  const arrayBufferABase64 = (buf: ArrayBuffer): string => {
+    const bytes = new Uint8Array(buf);
+    let binario = '';
+    const TAMANO_TROZO = 0x8000;
+    for (let i = 0; i < bytes.length; i += TAMANO_TROZO) {
+      binario += String.fromCharCode(...bytes.subarray(i, i + TAMANO_TROZO));
+    }
+    return btoa(binario);
   };
 
   // Camino de siempre: el documento no tiene ningún lugar de firma/timbre detectado, así que no
@@ -748,12 +765,19 @@ export function AnexoRellenoModal({
   };
 
   const handleGenerarFirmado = async (estampas: { tipo: 'firma' | 'timbre'; pagina: number; xPct: number; yPct: number; anchoPct: number }[]) => {
+    if (!pdfParaFirmar) return;
     setGenerando(true);
     try {
+      // Se manda el MISMO PDF que el usuario tenía delante al posicionar (nunca se regenera del
+      // lado del servidor) — BUG REAL (29-ago-2026, reportado con video): regenerar el .docx→PDF
+      // una segunda vez para el paso final no garantiza la MISMA paginación que la vista previa, y
+      // el porcentaje guardado terminaba apuntando a otro lugar de la página ("no tiene
+      // coherencia"). Ver el comentario largo en generar-firmado/route.ts.
+      const pdfBase64 = arrayBufferABase64(pdfParaFirmar);
       const r = await fetch('/api/anexos/generar-firmado', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codigo, documentoId: doc.id, empresaId, respuestas, estampas }),
+        body: JSON.stringify({ codigo, documentoId: doc.id, empresaId, pdfBase64, estampas }),
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo generar el documento firmado');

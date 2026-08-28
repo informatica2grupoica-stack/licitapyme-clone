@@ -1,29 +1,37 @@
 // app/api/anexos/generar-firmado/route.ts
-// POST /api/anexos/generar-firmado { codigo, documentoId, empresaId, respuestas, estampas }
-// Repite el mismo trabajo que /api/anexos/vista-previa-pdf (texto puesto, SIN firma, convertido a
-// PDF) y además QUEMA cada estampa en su posición exacta (ver anexos-pdf-firma.ts) — el resultado
-// es el PDF FIRMADO que se sube a R2 como archivo final, en vez del .docx que sube
-// /api/anexos/generar. Solo se usa cuando el documento tiene al menos un lugar de firma/timbre
-// (`analisis.firma.lugares.length > 0`); un anexo sin firma sigue el camino de siempre.
+// POST /api/anexos/generar-firmado { codigo, documentoId, empresaId, pdfBase64, estampas }
+// QUEMA cada estampa en su posición exacta (ver anexos-pdf-firma.ts) sobre el PDF que manda el
+// cliente — el resultado es el PDF FIRMADO que se sube a R2 como archivo final, en vez del .docx
+// que sube /api/anexos/generar. Solo se usa cuando el documento tiene al menos un lugar de firma/
+// timbre (`analisis.firma.lugares.length > 0`); un anexo sin firma sigue el camino de siempre.
+//
+// BUG REAL (29-ago-2026, reportado con video: la firma quedaba en un lugar totalmente distinto al
+// que el usuario había arrastrado — "no tiene coherencia"). La primera versión de esta ruta
+// REGENERABA el .docx→PDF desde cero (mismo camino que /vista-previa-pdf) en vez de reusar el PDF
+// que el usuario tenía delante al posicionar. Dos llamadas INDEPENDIENTES a generarAnexoFinal +
+// convertirDocxAPdf no garantizan el mismo resultado byte a byte: cualquier variación entre medio
+// (una consulta a Mercado Público que responde distinto, un timing distinto en la conversión de
+// LibreOffice) puede correr la paginación — el mismo `yPct` termina apuntando a un lugar distinto
+// de la página. La única forma de garantizar "donde lo soltaste, ahí queda" es estampar sobre el
+// PDF EXACTO que el usuario vio — nunca sobre una copia regenerada, por más idéntica que debiera
+// ser en teoría. `pdfBase64` es ese mismo PDF, tal cual lo devolvió /vista-previa-pdf.
 //
 // `estampas: { tipo: 'firma'|'timbre', pagina: number, xPct: number, yPct: number, anchoPct: number }[]`
 // — puede venir vacío (el usuario no arrastró nada): el PDF sale igual, sin ninguna imagen, que es
-// el mismo comportamiento por defecto que ya tiene el .docx (nunca se estampa sola, ver
-// anexos-rellenar.ts paso 3).
+// el mismo comportamiento por defecto que ya tiene el .docx (nunca se estampa sola).
 //
-// NO reparte en varios archivos si el documento traía formularios pegados (dividirPorFormularios)
-// — este camino asume el .docx YA viene separado (con "Separar anexos"), que es como se usa hoy en
-// la práctica: un formulario a la vez.
+// NO verifica el total económico contra el costeo (guardarraíl que sí tiene /api/anexos/generar):
+// ese chequeo necesita re-parsear el .docx recién generado, y este camino a propósito no regenera
+// nada. En la práctica los documentos que llegan acá (declaraciones/formularios con firma) no
+// traen casillas de total — si algún día un anexo económico también necesita firma libre sobre
+// PDF, ese guardarraíl hay que traerlo de vuelta con cuidado de no reintroducir este mismo bug.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
-import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo, obtenerDatosAuditorParaAnexo } from '@/app/lib/anexos-datos';
-import { generarAnexoFinal, descargarFirma } from '@/app/lib/anexos-rellenar';
-import { abrirDocx, verificarXmlBienFormado } from '@/app/lib/anexos-docx';
-import { convertirDocxAPdf } from '@/app/lib/anexos-doc-legacy';
+import { cargarDocumentoYEmpresa } from '@/app/lib/anexos-datos';
+import { descargarFirma } from '@/app/lib/anexos-rellenar';
 import { estamparPdf, type EstampaPdf } from '@/app/lib/anexos-pdf-firma';
-import { verificarTotalEconomico, montoDesdeTexto, type VerificacionTotal } from '@/app/lib/auditor-verificacion-total';
 import { registrarActividad } from '@/app/lib/actividad';
 import { yaCongelado } from '@/app/lib/congelamiento';
 
@@ -32,24 +40,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 const CONTENT_TYPE_PDF = 'application/pdf';
-
-async function verificarTotalContraCosteo(
-  codigo: string, totalesEscritos: { etiqueta: string; valor: string }[],
-): Promise<VerificacionTotal | null> {
-  if (!totalesEscritos?.length) return null;
-  const [rows] = await pool.query(
-    `SELECT c.total_precio_neto FROM checklist_comercial_costeo c
-       JOIN negocios n ON n.id = c.negocio_id
-      WHERE n.licitacion_codigo = ? AND n.activo = TRUE AND c.vigente = 1
-      LIMIT 1`,
-    [codigo],
-  ) as any;
-  const totalCosteoNeto = (rows as any[])[0]?.total_precio_neto;
-  if (totalCosteoNeto == null) return null;
-  const neto = totalesEscritos.find(t => /neto/i.test(t.etiqueta) && !/iva/i.test(t.etiqueta));
-  const totalEnAnexo = neto ? montoDesdeTexto(neto.valor) : Math.max(...totalesEscritos.map(t => montoDesdeTexto(t.valor)));
-  return verificarTotalEconomico({ totalEnAnexo, totalCosteoNeto: Number(totalCosteoNeto) });
-}
+const ES_PDF = (b: Buffer) => b.length >= 5 && b.subarray(0, 5).toString('latin1') === '%PDF-';
 
 function validarEstampas(input: unknown): EstampaPdf[] {
   if (!Array.isArray(input)) return [];
@@ -74,12 +65,20 @@ export async function POST(request: NextRequest) {
   const codigo = body?.codigo;
   const documentoId = body?.documentoId;
   const empresaId = body?.empresaId;
-  const respuestas: Record<string, string> = { ...(body?.respuestas || {}) };
-  for (const k of Object.keys(respuestas)) if (k.startsWith('firma:') || k.startsWith('firmaPos:')) delete respuestas[k];
+  const pdfBase64: string | undefined = body?.pdfBase64;
   const estampas = validarEstampas(body?.estampas);
 
-  if (!codigo || !documentoId || !empresaId) {
-    return NextResponse.json({ error: 'Faltan parámetros: codigo, documentoId, empresaId' }, { status: 400 });
+  if (!codigo || !documentoId || !empresaId || !pdfBase64) {
+    return NextResponse.json({ error: 'Faltan parámetros: codigo, documentoId, empresaId, pdfBase64' }, { status: 400 });
+  }
+  let pdfSinFirma: Buffer;
+  try {
+    pdfSinFirma = Buffer.from(pdfBase64, 'base64');
+  } catch {
+    return NextResponse.json({ error: 'El PDF recibido no se pudo decodificar' }, { status: 400 });
+  }
+  if (!ES_PDF(pdfSinFirma)) {
+    return NextResponse.json({ error: 'El PDF recibido no es válido — vuelve al paso anterior e inténtalo de nuevo.' }, { status: 400 });
   }
   if (!(await puedeVerLicitacion(request, codigo))) {
     return NextResponse.json({ error: 'Sin acceso a esta licitación' }, { status: 403 });
@@ -105,39 +104,13 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const [{ bufferOriginal, nombreOriginal, empresa }, itemsCosteo, basesTexto, datosAuditor, experienciaOcTexto] = await Promise.all([
-      cargarDocumentoYEmpresa(codigo, documentoId, empresaId),
-      obtenerItemsCosteoParaAnexo(codigo),
-      obtenerTextoBasesParaAnexo(codigo),
-      obtenerDatosAuditorParaAnexo(codigo),
-      obtenerExperienciaOcParaAnexo(Number(empresaId)),
-    ]);
+    // Solo para el nombre de archivo y las URLs de firma/timbre — el documento en sí (con el texto
+    // ya puesto) es `pdfSinFirma`, no se vuelve a generar nada a partir de bufferOriginal.
+    const { nombreOriginal, empresa } = await cargarDocumentoYEmpresa(codigo, documentoId, empresaId);
 
-    const resultado = await generarAnexoFinal(bufferOriginal, empresa, respuestas, itemsCosteo, basesTexto, datosAuditor, experienciaOcTexto);
-    if (!resultado.integridad.parrafosIguales) {
-      return NextResponse.json(
-        { error: 'Verificación de integridad falló: el documento generado no calza con el original. No se subió.' },
-        { status: 500 },
-      );
-    }
-
-    const verificacion = await verificarTotalContraCosteo(codigo, resultado.totalesEscritos);
-    if (verificacion && !verificacion.calza) {
-      return NextResponse.json({ error: verificacion.mensaje, totalNoCalza: true }, { status: 409 });
-    }
-
-    const chequeo = verificarXmlBienFormado((await abrirDocx(resultado.buffer)).xml);
-    if (!chequeo.valido) {
-      return NextResponse.json({ error: `El documento quedó mal formado (${chequeo.error}). No se subió nada.` }, { status: 500 });
-    }
-
-    const pdfSinFirma = await convertirDocxAPdf(resultado.buffer);
-
-    // Se bajan las imágenes SOLO si alguna estampa las pide — mismo criterio de no gastar una
-    // descarga de más que ya usa generarAnexoFinal para el camino .docx.
     const usaFirma = estampas.some(e => e.tipo === 'firma');
     const usaTimbre = estampas.some(e => e.tipo === 'timbre');
-    const avisos = [...resultado.avisos];
+    const avisos: string[] = [];
     const [firma, timbre] = await Promise.all([
       usaFirma && empresa.firma_url ? descargarFirma(empresa.firma_url) : Promise.resolve(null),
       usaTimbre && empresa.timbre_url ? descargarFirma(empresa.timbre_url) : Promise.resolve(null),
@@ -166,18 +139,12 @@ export async function POST(request: NextRequest) {
     registrarActividad({
       usuarioId: usuario.id, accion: 'anexo_relleno',
       entidadTipo: 'licitacion', entidadId: codigo,
-      descripcion: `Rellenó y firmó el anexo "${nombreOriginal}" (${resultado.completados} automáticos, ${resultado.respondidos} manuales, ${estampas.length} imagen(es) colocada(s))`
+      descripcion: `Rellenó y firmó el anexo "${nombreOriginal}" (${estampas.length} imagen(es) colocada(s))`
         + (avisos.length > 0 ? ` — AVISO: ${avisos.join(' ')}` : ''),
-      metadata: {
-        licitacion_codigo: codigo, documento: nombreOriginal, archivo: nombreArchivo,
-        completados: resultado.completados, respondidos: resultado.respondidos, estampas: estampas.length, avisos,
-      },
+      metadata: { licitacion_codigo: codigo, documento: nombreOriginal, archivo: nombreArchivo, estampas: estampas.length, avisos },
     });
 
-    return NextResponse.json({
-      success: true, archivos: [{ nombre: nombreArchivo, url }], dividido: false,
-      completados: resultado.completados, respondidos: resultado.respondidos, avisos,
-    });
+    return NextResponse.json({ success: true, archivos: [{ nombre: nombreArchivo, url }], dividido: false, avisos });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || String(error) }, { status: 400 });
   }
