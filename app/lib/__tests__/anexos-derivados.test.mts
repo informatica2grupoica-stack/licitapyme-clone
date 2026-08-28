@@ -84,3 +84,13 @@ test('fecha_hoy: se basa en la fecha que se pase como "ahora" (la fecha de cierr
   assert.equal(fecha_hoy_mes, '09');
   assert.equal(fecha_hoy_anio, '2026');
 });
+
+// Política fija de la empresa, igual que el Programa de Integridad (respuesta del usuario a la
+// auditoría del 28-ago-2026: "nacionalidad siempre es chilena").
+test('conCamposDerivados: la nacionalidad se resuelve como política fija, pero la ficha manda', () => {
+  const base = { razon_social: 'Comercial Los Robles SpA', direccion: 'Av. Alemania 0671, Temuco' } as any;
+  assert.equal(conCamposDerivados(base).nacionalidad, 'Chilena');
+  // Si algún día existe la columna en `empresas` (un representante extranjero), ese dato manda —
+  // por eso se resuelve con `||` y no a la fuerza.
+  assert.equal(conCamposDerivados({ ...base, nacionalidad: 'Argentina' }).nacionalidad, 'Argentina');
+});

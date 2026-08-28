@@ -119,6 +119,17 @@ function socioUnicoDe(representanteNombre: string | null | undefined): { nombre:
 // no depende de la licitación ni de la ficha — se responde "SÍ" siempre que se pregunte.
 const PROGRAMA_INTEGRIDAD_RESPUESTA = 'SÍ';
 
+// NACIONALIDAD (28-ago-2026, respuesta del usuario a la auditoría: "nacionalidad siempre es
+// chilena"). Medida por el auditor en 21 licitaciones de organismos distintos: es de las casillas
+// más repetidas de las declaraciones juradas ("de nacionalidad ___", "NACIONALIDAD") y no había
+// ninguna columna que la respondiera, así que quedaba SIEMPRE en blanco.
+//
+// Va como política fija y no como columna nueva por la misma razón que el Programa de Integridad:
+// no depende de la licitación ni varía entre anexos. Pero se resuelve con `??`, no a la fuerza —
+// si algún día se agrega la columna `nacionalidad` a `empresas` (un representante extranjero, una
+// segunda empresa), el dato REAL de la ficha manda sobre esta política sin tocar nada más.
+const NACIONALIDAD_POR_DEFECTO = 'Chilena';
+
 // Toma el registro tal cual sale de la tabla `empresas` y devuelve el mismo registro CON los
 // campos derivados resueltos. No pisa nada que ya venga con dato propio.
 export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): EmpresaCampos {
@@ -137,6 +148,7 @@ export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): 
     representante_nombres: nombres, representante_apellidos: apellidos,
     socio_nombre: socio.nombre, socio_participacion: socio.participacion,
     programa_integridad_respuesta: PROGRAMA_INTEGRIDAD_RESPUESTA,
+    nacionalidad: (empresa as { nacionalidad?: string | null }).nacionalidad || NACIONALIDAD_POR_DEFECTO,
     fecha_hoy: fechaLargaChile(ahora),
     // Las tres partes por separado, para los pies de firma "Fecha: ____ /____ /____" (tres casillas
     // independientes, el formato más común de los anexos chilenos). Misma hora de Chile que

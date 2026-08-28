@@ -45,7 +45,7 @@ import { calcularTotalesPorSeccion, calcularTotalesAlPie, resolverTablaResumen, 
 import { detectarFormularios, type FormularioDetectado } from '@/app/lib/anexos-dividir';
 import { construirDocumentoUI, leerNumeracion, type BloqueUI, type Resuelto } from '@/app/lib/anexos-documento-ui';
 import { analizarSeccionesEscaneadas, type SeccionEscaneada } from '@/app/lib/anexos-imagen-escaneada';
-import { cargarReglasAprendidasAnexo } from '@/app/lib/anexos-feedback';
+import { cargarReglasAprendidasAnexo, cargarOverridesAprendidosAnexo } from '@/app/lib/anexos-feedback';
 import { diagnosticarCobertura, type DiagnosticoCobertura } from '@/app/lib/anexos-cobertura';
 import type { ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 
@@ -132,6 +132,7 @@ interface ResultadoResolucion {
   inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[];
   alertasInadmisibilidad: AlertaInadmisibilidad[];
   checklistPendientes: string[];
+  faltantesFicha: { campo: string; nombre: string; etiqueta: string; origen: 'ficha' | 'licitacion' }[];
 }
 
 // Anexo que el documento declara que NO nos corresponde presentar (ver detectarAvisoNoAplica):
@@ -149,6 +150,7 @@ function todoPendientePorNoAplicar(
     inlinePendientes: blancosInline.map(b => ({ b, categoria: 'no_aplica_al_oferente', motivo })),
     alertasInadmisibilidad: [],
     checklistPendientes: [],
+    faltantesFicha: [],
   };
 }
 
@@ -236,9 +238,17 @@ async function resolverTodo(
   // Reglas del feedback loop (ver anexos-feedback.ts): correcciones que el usuario ya hizo antes
   // sobre casillas parecidas, por TIPO de etiqueta. Resiliente — si falla la consulta, el análisis
   // sigue igual sin reglas (nunca bloquea el relleno).
-  const reglasAprendidas = await cargarReglasAprendidasAnexo().catch(() => []);
+  // Las correcciones del experto viajan en DOS formas, a propósito: `reglasAprendidas` es texto
+  // para el prompt del respaldo IA (apagado por defecto), y `overridesAprendidos` es el par
+  // (etiqueta → campo) que sí entiende el motor determinista — el que está encendido. Antes solo
+  // existía la primera, así que el lápiz de corrección no cambiaba ningún anexo (auditoría
+  // 28-ago-2026). Las dos son resilientes: si la consulta falla, el análisis sigue sin ellas.
+  const [reglasAprendidas, overridesAprendidos] = await Promise.all([
+    cargarReglasAprendidasAnexo().catch(() => []),
+    cargarOverridesAprendidosAnexo().catch(() => []),
+  ]);
 
-  const { celda, inline, alertasInadmisibilidad, checklistPendientes } = await resolverAnexoConIA({
+  const { celda, inline, alertasInadmisibilidad, checklistPendientes, faltantesFicha } = await resolverAnexoConIA({
     candidatos: [...elegibles, ...camposConDosPuntos],
     blancosInline: blancosParaIA,
     parrafos,
@@ -248,6 +258,7 @@ async function resolverTodo(
     postulaComoUTP,
     haySeccionUtpOmitida,
     reglasAprendidas,
+    overridesAprendidos,
     omitirAlertas,
   });
 
@@ -412,6 +423,7 @@ async function resolverTodo(
   return {
     matcheados, pendientes: pendientesFinal, pendientesConMotivo, inlineAuto,
     inlinePendientes: inlinePendientesFinal, alertasInadmisibilidad, checklistPendientes,
+    faltantesFicha: faltantesFicha || [],
   };
 }
 
@@ -644,6 +656,13 @@ export interface AnalisisAnexo {
   // Ver anexos-cobertura.ts. No cambia nada del análisis; es la red que convierte un fallo
   // silencioso ("no hay nada que llenar") en un aviso.
   cobertura: DiagnosticoCobertura;
+  /**
+   * Campos de la ficha de la empresa que ESTE anexo pide y están vacíos. Es lo que hay que
+   * completar UNA vez para que el documento salga entero a la primera — ver `faltantesFicha` en
+   * anexos-determinista.ts. La pantalla lo muestra ARRIBA del botón de generar, a propósito:
+   * descubrir el hueco después, con el .docx ya generado, obliga a rehacer el anexo entero.
+   */
+  faltantesFicha: { campo: string; nombre: string; etiqueta: string; origen: 'ficha' | 'licitacion' }[];
 }
 
 type ResolucionMostrada =
@@ -835,6 +854,7 @@ export async function analizarAnexoParaUI(
     checklistPendientes,
     avisoNoAplica,
     seccionesEscaneadas,
+    faltantesFicha: resolucion.faltantesFicha,
     cobertura: diagnosticarCobertura({
       textoPlano: analisis.parrafos.map(p => p.texto).join('\n'),
       parrafosConTexto: analisis.parrafos.filter(p => p.texto && !p.vacio).length,
@@ -940,9 +960,13 @@ export async function generarAnexoFinal(
   //    se corre para el paso 2.
   let completadosInline = 0;
   const porRun = new Map<number, { pos: number; largo: number; valor: string }[]>();
+  // Texto que el DETECTOR vio en cada run — se le pasa a rellenarRunPorIndice para que verifique
+  // que está escribiendo donde cree. Ver el cinturón de seguridad en anexos-docx.ts.
+  const textoEsperadoPorRun = new Map<number, string>();
   const anotar = (b: CandidatoInline, valor: string) => {
     if (!porRun.has(b.indiceRun)) porRun.set(b.indiceRun, []);
     porRun.get(b.indiceRun)!.push({ pos: b.posEnTexto, largo: b.largo, valor });
+    if (b.textoRunOriginal != null) textoEsperadoPorRun.set(b.indiceRun, b.textoRunOriginal);
   };
   for (const a of inlineAuto) {
     anotar(a.b, a.valor);
@@ -955,7 +979,19 @@ export async function generarAnexoFinal(
     respondidos++;
   }
   for (const [indiceRun, ediciones] of porRun) {
-    xml = rellenarRunPorIndice(xml, indiceRun, ediciones);
+    try {
+      xml = rellenarRunPorIndice(xml, indiceRun, ediciones, textoEsperadoPorRun.get(indiceRun));
+    } catch (error) {
+      // Una escritura que no se puede hacer con seguridad se salta y se avisa — nunca tumba el
+      // resto del documento, y nunca se escribe "por si acaso" en un run que no es el que
+      // corresponde. Mismo criterio que ya usan las celdas y la firma más abajo.
+      console.error(`[anexos-rellenar] No se pudo escribir el run ${indiceRun}:`, String(error).slice(0, 200));
+      completadosInline -= ediciones.length;
+      avisos.push(
+        `${ediciones.length} casilla(s) de este párrafo no se pudieron completar automáticamente `
+        + '(el texto del documento no calzó con lo analizado) — revísalas a mano en el documento generado.',
+      );
+    }
   }
 
   // 2) Celdas de tabla: IA → costeo → lo que escribió el humano.
@@ -976,6 +1012,29 @@ export async function generarAnexoFinal(
   // necesitar la excepción para detectarlo.
   const paraIdsCeldaEscritos = new Set<string>();
   for (const m of [...matcheados, ...matcheadosExtra]) {
+    // LO QUE ESCRIBIÓ EL HUMANO MANDA (auditoría 28-ago-2026). `analizar` y `generar` son dos
+    // requests separados y no comparten estado, así que una casilla puede quedar PENDIENTE en la
+    // pantalla (el usuario la ve vacía y la escribe) y resolverse AUTOMÁTICA al generar — pasa con
+    // las capas que consultan un modelo (precios contra el costeo, especificaciones desde las
+    // bases, experiencia desde las OC), que no devuelven lo mismo en las dos llamadas. Cuando eso
+    // ocurría, la casilla salía por `matcheados`, nunca llegaba al bucle de respuestas de abajo, y
+    // el valor tecleado se descartaba SIN UN AVISO: el usuario veía en el documento un número que
+    // él no puso, en la casilla donde sí había escrito otro. Se antepone acá, en el único punto que
+    // ve las dos cosas a la vez.
+    const escritoPorElHumano = respuestas[`celda:${m.c.indice}`];
+    if (escritoPorElHumano && escritoPorElHumano.trim() && escritoPorElHumano.trim() !== m.valor) {
+      if (!m.dosPuntos && paraIdsCeldaEscritos.has(m.c.paraId)) continue;
+      try {
+        xml = m.dosPuntos ? rellenarFinDeParrafo(xml, m.c.paraId, escritoPorElHumano.trim()) : rellenarCeldaVacia(xml, m.c.paraId, escritoPorElHumano.trim());
+        if (!m.dosPuntos) paraIdsCeldaEscritos.add(m.c.paraId);
+        respondidos++;
+        avisos.push(`"${m.c.etiqueta}" se resolvió sola al generar, pero se respetó lo que escribiste ("${escritoPorElHumano.trim().slice(0, 40)}").`);
+      } catch (error) {
+        console.error(`[anexos-rellenar] No se pudo escribir la respuesta del humano en "${m.c.etiqueta}" (paraId ${m.c.paraId}):`, String(error).slice(0, 200));
+        avisos.push(`No se pudo escribir lo que ingresaste en "${m.c.etiqueta}" — revísalo a mano en el documento generado.`);
+      }
+      continue;
+    }
     if (!m.dosPuntos && paraIdsCeldaEscritos.has(m.c.paraId)) {
       avisos.push(`Campo duplicado detectado ("${m.c.etiqueta}") — se dejó pendiente para revisar a mano en vez de arriesgar el documento.`);
       continue;

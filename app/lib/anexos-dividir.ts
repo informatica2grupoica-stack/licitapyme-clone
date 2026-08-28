@@ -443,13 +443,26 @@ function sufijoDeArchivo(titulo: string): string {
 export type CategoriaAnexo = 'administrativo' | 'tecnico' | 'economico' | 'sin_clasificar';
 
 const PALABRAS_ADMINISTRATIVO = [
-  'declaracion jurada', 'identificacion del oferente', 'identificacion del proponente',
-  'antecedentes legales', 'antecedentes administrativos', 'representante legal', 'domicilio',
+  'declaracion jurada', 'declaracion simple', 'identificacion del oferente', 'identificacion del proponente',
+  'antecedentes legales', 'antecedentes administrativos', 'oferta administrativa', 'anexo administrativo',
+  'formulario administrativo', 'representante legal', 'domicilio',
   'boleta de garantia', 'garantia de seriedad', 'garantia de fiel cumplimiento', 'toma de razon',
   'pacto de integridad', 'inhabilidad', 'union temporal de proveedores', 'utp', 'plazo de entrega',
   'experiencia del oferente', 'vigencia de la oferta', 'certificado de antecedentes',
   'no tener deudas', 'discapacidad', 'responsabilidad penal', 'persona juridica', 'persona natural',
   'constitucion de la sociedad', 'poder del representante',
+  // Datos bancarios y de pago del oferente: es tramite administrativo puro, y aparecia seguido en
+  // la lista de sin clasificar ("AUTORIZACION PAGOS A TRAVES DE BANCOS", "FICHA PARA TRANSFERENCIA
+  // ELECTRONICA" - casos reales 1019-96-LE26 y 1057489-246-LE26).
+  'transferencia electronica', 'pagos a traves de banco', 'cuenta corriente', 'datos bancarios',
+  'registro de multa', 'aceptacion de condiciones',
+  // Segunda ronda de la misma auditoria (bajo el sin_clasificar de 14% a 6%; estos son los que
+  // quedaban con un rotulo igual de explicito). "programa de integridad" es la forma que usan la
+  // mitad de los organismos donde el resto dice "pacto de integridad" (3764-45-LE26, 4928-23-LP26),
+  // y "aceptacion de bases" es un anexo de tramite que aparecia en tres licitaciones distintas.
+  'programa de integridad', 'etica empresarial', 'aceptacion de bases', 'conocimiento de ley',
+  'identificacion del proveedor', 'identificacion del contratista', 'experiencia en el rubro',
+  'declaracion de aceptacion',
 ];
 const PALABRAS_TECNICO = [
   'especificaciones tecnicas', 'ficha tecnica', 'propuesta tecnica', 'oferta tecnica',
@@ -457,36 +470,100 @@ const PALABRAS_TECNICO = [
   'capacidad tecnica', 'equipo de trabajo', 'personal tecnico', 'cronograma', 'plan de trabajo',
   'metodologia', 'garantia tecnica del producto', 'ficha de producto', 'catalogo tecnico',
   'memoria tecnica', 'hoja de datos de seguridad', 'certificacion iso',
+  // Postventa y soporte del equipo ofertado: son compromisos TECNICOS del bien, no del papeleo.
+  // Aparecian repetidos en la lista de sin clasificar (2905-35-LP26, 2013-11-LE26, 1181235-10-LE26).
+  'servicio post venta', 'servicio postventa', 'servicio tecnico', 'asistencia en terreno',
+  'garantia tecnica', 'soporte tecnico', 'bienes ofertados', 'equipo ofertado',
+  'requerimientos tecnicos', 'requisitos tecnicos', 'reporte tecnico', 'informe tecnico',
+  'mantenimiento preventivo', 'programa de capacitacion', 'acta de recepcion conforme',
+  'acta de verificacion', 'caracteristicas tecnicas',
 ];
 const PALABRAS_ECONOMICO = [
   'oferta economica', 'propuesta economica', 'precio unitario', 'presupuesto detallado',
   'cotizacion', 'valor total', 'monto total', 'estructura de costos', 'forma de pago',
   'precio neto', 'anexo economico', 'cuadro de precios', 'lista de precios', 'iva incluido',
+  'valor neto', 'valor unitario', 'precio total', 'formulario economico',
 ];
 
 function normalizarParaClasificar(s: string): string {
   return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
-function contarCoincidencias(base: string, palabras: string[]): number {
-  return palabras.reduce((n, p) => n + (base.includes(p) ? 1 : 0), 0);
+/**
+ * Un patrón que tolera el PLURAL de cada palabra de la frase. "pacto de integridad" pasa a calzar
+ * también con "pactos de integridad" — que es como lo rotula uno de cada tres organismos, y hacía
+ * que un anexo tipiquísimo (3141-5-LE26, "FORMULARIO N° 5 PACTOS DE INTEGRIDAD") no calzara con
+ * nada. Una "s" opcional solo puede ampliar a la forma plural: nunca hace calzar otra frase.
+ */
+function armarPatron(frase: string): RegExp {
+  return new RegExp(frase.split(' ').map(p => `${p}s?`).join('\\s+'));
+}
+const PATRONES: Record<'administrativo' | 'tecnico' | 'economico', RegExp[]> = {
+  administrativo: PALABRAS_ADMINISTRATIVO.map(armarPatron),
+  tecnico: PALABRAS_TECNICO.map(armarPatron),
+  economico: PALABRAS_ECONOMICO.map(armarPatron),
+};
+
+function contarCoincidencias(base: string, patrones: RegExp[]): number {
+  return patrones.reduce((n, re) => n + (re.test(base) ? 1 : 0), 0);
 }
 
-// `titulo` pesa igual que el resto del texto — a propósito no se le da más peso, porque un
-// título como "ANEXO N°3" (sin descripción) no aporta nada y el cuerpo del formulario es la
-// única señal real disponible en ese caso.
-export function clasificarAnexo(titulo: string, textoPlano: string): CategoriaAnexo {
-  const base = normalizarParaClasificar(`${titulo} ${textoPlano}`);
-  const puntajes: [CategoriaAnexo, number][] = [
-    ['administrativo', contarCoincidencias(base, PALABRAS_ADMINISTRATIVO)],
-    ['tecnico', contarCoincidencias(base, PALABRAS_TECNICO)],
-    ['economico', contarCoincidencias(base, PALABRAS_ECONOMICO)],
+function puntajesDe(texto: string): [CategoriaAnexo, number][] {
+  const base = normalizarParaClasificar(texto);
+  return [
+    ['administrativo', contarCoincidencias(base, PATRONES.administrativo)],
+    ['tecnico', contarCoincidencias(base, PATRONES.tecnico)],
+    ['economico', contarCoincidencias(base, PATRONES.economico)],
   ];
-  puntajes.sort((a, b) => b[1] - a[1]);
-  const [mejorCategoria, mejorPuntaje] = puntajes[0];
-  const [, segundoPuntaje] = puntajes[1];
-  if (mejorPuntaje === 0 || mejorPuntaje === segundoPuntaje) return 'sin_clasificar';
-  return mejorCategoria;
+}
+
+/** El ganador CLARO de un conteo, o null si nadie destaca (empate, o cero coincidencias). */
+function ganadorClaro(puntajes: [CategoriaAnexo, number][]): CategoriaAnexo | null {
+  const orden = [...puntajes].sort((a, b) => b[1] - a[1]);
+  const [categoria, mejor] = orden[0];
+  const [, segundo] = orden[1];
+  return mejor === 0 || mejor === segundo ? null : categoria;
+}
+
+/**
+ * Categoría de un anexo, a partir de su TÍTULO y del texto del propio formulario.
+ *
+ * MEDIDO (auditoría 28-ago-2026, 617 anexos separados de licitaciones reales): el 14% caía en
+ * "sin_clasificar" y terminaba en la caja genérica "Anexos Oferente". Revisados uno por uno, casi
+ * ninguno era ambiguo de verdad — el organismo los había rotulado con todas sus letras: "ANEXO
+ * N° 2 OFERTA ECONOMICA", "ANEXO N°6: ESPECIFICACIONES TÉCNICAS", "ANEXO N° 1 OFERTA
+ * ADMINISTRATIVA". La causa era el EMPATE: el cuerpo de CUALQUIER formulario —incluido el
+ * económico— arrastra el machote administrativo ("representante legal", "domicilio", "declaración
+ * jurada"), así que igualaba al título y no ganaba nadie.
+ *
+ * Por eso el título decide PRIMERO cuando dice algo. Antes pesaba igual que el resto del texto,
+ * con el argumento de que un título como "ANEXO N°3" no aporta nada — cierto, pero eso es razón
+ * para ignorar un título MUDO, no uno que nombra la categoría. Cuando el título no decide (mudo, o
+ * nombra dos categorías a la vez como "ANEXOS ADMINISTRATIVOS Y TÉCNICOS"), se cae al conteo
+ * completo de siempre.
+ *
+ * Sigue sin adivinar: si ni el título ni el texto dejan un ganador claro, "sin_clasificar".
+ */
+export function clasificarAnexo(titulo: string, textoPlano: string): CategoriaAnexo {
+  return ganadorClaro(puntajesDe(titulo))
+    ?? ganadorClaro(puntajesDe(`${titulo} ${textoPlano}`))
+    ?? categoriaPorLetraDelOrganismo(titulo)
+    ?? 'sin_clasificar';
+}
+
+// Hay organismos que codifican la categoría en la propia numeración del formulario: "FORMULARIO
+// A-1"/"A-2"/"A-3" son los Administrativos, "T-1" a "T-6" los Técnicos, "E-1"/"E-2" los Económicos
+// (caso real 1057536-107-LE26, CESFAM Frutillar — la misma "CUARTA forma" que ya reconoce
+// RE_ENCABEZADO_FORMULARIO arriba para DETECTAR el encabezado; acá se aprovecha además para
+// clasificarlo). Estos formularios suelen no tener ninguna palabra clave en el título ni en el
+// cuerpo, así que sin esto quedaban en la caja genérica pese a venir etiquetados de origen.
+//
+// Va ÚLTIMO, como red antes de rendirse: si el título o el texto ya dijeron algo, mandan ellos —
+// la letra es una convención de ese organismo, no una regla del país.
+const RE_LETRA_DE_CATEGORIA = /^(?:FORMULARIO|ANEXO|FORMATO)\s*([ATE])\s*-\s*\d+/i;
+function categoriaPorLetraDelOrganismo(titulo: string): CategoriaAnexo | null {
+  const letra = titulo.trim().match(RE_LETRA_DE_CATEGORIA)?.[1]?.toUpperCase();
+  return letra === 'A' ? 'administrativo' : letra === 'T' ? 'tecnico' : letra === 'E' ? 'economico' : null;
 }
 
 // "ANEXO N°1: DECLARACIÓN JURADA DE REQUISITOS PARA OFERTAR" → "ANEXO_N1_DECLARACION_JURADA...".

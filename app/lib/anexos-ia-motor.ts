@@ -109,6 +109,9 @@ export interface EmpresaCampos {
   // SÍ/NO de "¿cuenta con...?" — una casilla que pide DESCRIBIR el programa (en qué consiste, qué
   // políticas incluye) sigue siendo decision_del_usuario, ese texto no es un booleano fijo.
   programa_integridad_respuesta?: string | null;
+  // Política fija de la empresa, igual que la anterior — ver NACIONALIDAD_POR_DEFECTO en
+  // anexos-derivados.ts. Si algún día existe la columna en `empresas`, ese valor manda.
+  nacionalidad?: string | null;
   // Datos de ESTA LICITACIÓN (tampoco son columnas de `empresas` — se resuelven en
   // anexos-datos.ts llamando a Mercado Público por el código de la licitación que se está
   // rellenando, ver obtenerLicitacionParaAnexo). Van en el MISMO objeto que la ficha de empresa
@@ -175,7 +178,7 @@ const CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA: (keyof EmpresaCampos)[] = [
   'representante_nombres', 'representante_apellidos',
   'email1', 'telefono1',
   'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra', 'fecha_hoy_dia_mes',
-  'socio_nombre', 'socio_participacion', 'programa_integridad_respuesta',
+  'socio_nombre', 'socio_participacion', 'programa_integridad_respuesta', 'nacionalidad',
 ];
 
 const CAMPOS_PERMITIDOS_POR_CATEGORIA: Record<string, (keyof EmpresaCampos)[]> = {
@@ -230,12 +233,23 @@ export interface EntradaMotor {
   // casillas mal resueltas antes, destiladas por TIPO de etiqueta (no por documento). Se inyectan
   // en el prompt de cada lote con prioridad máxima.
   reglasAprendidas?: string[];
+  // Las MISMAS correcciones del experto, pero traducidas a (etiqueta → campo de la ficha) para que
+  // las pueda aplicar el motor DETERMINISTA — que es el que está encendido por defecto. Sin esto,
+  // `reglasAprendidas` solo llegaba al prompt del Paso 2, apagado desde el 17-ago-2026: las
+  // correcciones se guardaban y no cambiaban ningún anexo (auditoría 28-ago-2026).
+  overridesAprendidos?: { etiqueta: string; campo: string }[];
   // No correr el barrido de riesgos sobre las bases (Paso 1). Lo usa `generarAnexoFinal`, que
   // descarta ese resultado — ver el comentario de `omitirAlertas` en anexos-rellenar.ts.
   omitirAlertas?: boolean;
 }
 
 export interface ResultadoMotor {
+  /**
+   * Campos de la ficha de la empresa que este documento pide y están vacíos — ver
+   * `faltantesFicha` en anexos-determinista.ts. Viaja hasta la pantalla para que se puedan
+   * completar ANTES de generar el anexo, no después de abrirlo y ver el hueco.
+   */
+  faltantesFicha?: { campo: string; nombre: string; etiqueta: string; origen: 'ficha' | 'licitacion' }[];
   celda: Map<number, Resolucion>;         // key = CandidatoCelda.indice
   inline: Map<string, Resolucion>;        // key = `${indiceRun}:${posEnTexto}`
   alertasInadmisibilidad: AlertaInadmisibilidad[];
@@ -348,6 +362,7 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   socio_nombre: 'Nombre del Socio/Accionista — por política de la empresa, el representante legal (socio único). Casilla "Nombre Socio/Accionista".',
   socio_participacion: 'Porcentaje de Derechos o Participación del socio — siempre "100%" (socio único). Casilla "Porcentaje de Derechos"/"% de Participación".',
   programa_integridad_respuesta: '"SÍ" — respuesta fija a "¿Cuenta con Programa de Integridad/Compliance?" o equivalente (código de ética, Directiva N°31 ChileCompra). Política de la empresa: SIEMPRE se responde que sí.',
+  nacionalidad: 'Nacionalidad del oferente / del representante legal. Política fija de la empresa: siempre "Chilena".',
   licitacion_codigo: 'Código/ID de ESTA licitación en Mercado Público',
   licitacion_nombre: 'Nombre/título de ESTA licitación',
   licitacion_organismo: 'Nombre del organismo comprador (la institución que licita, no el oferente)',
@@ -897,7 +912,7 @@ export async function identificarCamposDeSeccionEscaneada(
 
 // ── Orquestador ────────────────────────────────────────────────────────────────────────────
 export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<ResultadoMotor> {
-  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP, haySeccionUtpOmitida, reglasAprendidas, omitirAlertas } = entrada;
+  const { candidatos, blancosInline, parrafos, empresa, basesTexto, tituloAnexos, postulaComoUTP, haySeccionUtpOmitida, reglasAprendidas, overridesAprendidos, omitirAlertas } = entrada;
 
   const camposConDato = (Object.keys(empresa) as (keyof EmpresaCampos)[])
     // firma_url/timbre_url son URLs de imágenes, no texto que se escriba en una casilla — si se le
@@ -912,7 +927,7 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
     : await resolverAlertasInadmisibilidad(basesTexto || '', tituloAnexos || []);
 
   if (!camposConDato.length || (!candidatos.length && !blancosInline.length)) {
-    return { celda, inline, alertasInadmisibilidad, checklistPendientes: alertasInadmisibilidad.filter(a => !a.disponible).map(a => a.riesgo) };
+    return { celda, inline, faltantesFicha: [], alertasInadmisibilidad, checklistPendientes: alertasInadmisibilidad.filter(a => !a.disponible).map(a => a.riesgo) };
   }
 
   // ── PASO 1: motor DETERMINISTA (anexos-determinista.ts) ──────────────────────────────────
@@ -921,7 +936,7 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
   // declaración jurada corrida y las reglas fijas de política. Lo que resuelve acá NUNCA se le
   // pregunta a nadie: la respuesta no depende de ningún juicio, no varía entre corridas y no se
   // cae por un 429 del proveedor.
-  const det = resolverDeterminista({ candidatos, blancosInline, parrafos, empresa });
+  const det = resolverDeterminista({ candidatos, blancosInline, parrafos, empresa, overridesAprendidos });
   for (const [i, r] of det.celda) celda.set(i, r);
   for (const [k, r] of det.inline) inline.set(k, r);
 
@@ -945,7 +960,7 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
     const checklist = [...celda.values(), ...inline.values()]
       .filter((r): r is ResolucionPendiente => r.tipo === 'pendiente' && r.categoria === 'decision_del_usuario')
       .map(r => r.motivo);
-    return { celda, inline, alertasInadmisibilidad, checklistPendientes: [...new Set(checklist)] };
+    return { celda, inline, faltantesFicha: det.faltantesFicha, alertasInadmisibilidad, checklistPendientes: [...new Set(checklist)] };
   }
 
   // BUG REAL (1426039-8-LE26, 10-ago-2026): `candidatos` llega como [...candidatosCelda (patrón 1),
@@ -994,5 +1009,5 @@ export async function resolverAnexoConIA(entrada: EntradaMotor): Promise<Resulta
     }
   }
 
-  return { celda, inline, alertasInadmisibilidad, checklistPendientes: [...checklistSet] };
+  return { celda, inline, faltantesFicha: det.faltantesFicha, alertasInadmisibilidad, checklistPendientes: [...checklistSet] };
 }

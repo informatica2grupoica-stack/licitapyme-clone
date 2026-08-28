@@ -70,6 +70,7 @@ interface Analisis {
   ordenFormularios?: string[]; // títulos en el orden del documento
   alertasInadmisibilidad?: AlertaInadmisibilidad[];
   checklistPendientes?: string[];
+  faltantesFicha?: { campo: string; nombre: string; etiqueta: string; origen: 'ficha' | 'licitacion' }[];
   seccionesEscaneadas?: SeccionEscaneada[];
 }
 
@@ -114,7 +115,15 @@ function CampoAuto({
       });
       const data = await r.json().catch(() => ({}));
       if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo guardar la corrección');
-      toast.success('Corrección guardada', 'La IA va a aplicar esto en este y en futuros anexos con una casilla parecida.');
+      // El backend responde si la corrección se pudo traducir a un campo de la ficha (`aplicable`).
+      // Solo esas se aplican solas de aquí en adelante; el resto queda anotada pero la casilla hay
+      // que seguir corrigiéndola a mano. Decirlo es el punto: hasta el 28-ago-2026 este mensaje
+      // prometía el aprendizaje SIEMPRE, y en realidad no ocurría nunca (ver anexos-feedback.ts).
+      if (data.aplicable) {
+        toast.success('Corrección aprendida', 'De ahora en adelante una casilla con este nombre se va a llenar sola con ese dato de la ficha.');
+      } else {
+        toast.success('Corrección guardada', 'Quedó anotada, pero ese valor no es un dato de la ficha de la empresa: esta casilla se sigue completando a mano.');
+      }
       setEditando(false);
       onCorregido();
     } catch (e: any) {
@@ -388,6 +397,69 @@ function AlertasInadmisibilidad({ alertas }: { alertas: AlertaInadmisibilidad[] 
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// FALTA EN LA FICHA — lo primero que hay que arreglar, y lo único que se arregla UNA sola vez.
+//
+// Estas son casillas que el motor SÍ reconoció (sabe exactamente qué dato piden), pero cuyo dato
+// está vacío en la ficha de la empresa. Antes del 28-ago-2026 no existía esta distinción: se
+// mezclaban con las casillas que el motor no entiende, bajo el motivo "la etiqueta no corresponde
+// a ningún dato de la ficha" — que decía justo lo contrario de lo que pasaba. El hueco se
+// descubría al abrir el .docx ya generado, y había que rehacer el anexo entero.
+//
+// Va ARRIBA de todo y antes del botón a propósito: completar la ficha una vez arregla esta
+// casilla en ESTE anexo y en todos los que vengan, sin volver a generar nada.
+function FaltaEnLaFicha({ campos }: { campos: { campo: string; nombre: string; etiqueta: string; origen: 'ficha' | 'licitacion' }[] }) {
+  // Dos causas distintas con dos soluciones distintas, así que se muestran por separado: los datos
+  // de la FICHA se completan una vez en /empresas; los de la LICITACIÓN los trae Mercado Público en
+  // cada análisis y, si faltan, es que MP no respondió — ahí lo que corresponde es reintentar, no
+  // ir a llenar un campo que no existe en esa pantalla.
+  const deFicha = campos.filter(c => c.origen !== 'licitacion');
+  const deLicitacion = campos.filter(c => c.origen === 'licitacion');
+  if (!campos.length) return null;
+
+  const Lista = ({ items }: { items: typeof campos }) => (
+    <ul className="space-y-0.5 pl-1">
+      {items.map(c => (
+        <li key={c.campo} className="text-[11.5px] text-amber-900 leading-snug">
+          <span className="font-semibold">{c.nombre}</span>
+          {c.etiqueta && <span className="text-amber-700"> — lo pide la casilla “{c.etiqueta.slice(0, 60)}”</span>}
+        </li>
+      ))}
+    </ul>
+  );
+
+  return (
+    <div className="space-y-2">
+      {deFicha.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5">
+          <p className="flex items-center gap-1.5 text-[12px] font-bold text-amber-800 mb-1">
+            <AlertTriangle size={13} className="flex-shrink-0" />
+            {deFicha.length === 1 ? 'Falta 1 dato en la ficha de la empresa' : `Faltan ${deFicha.length} datos en la ficha de la empresa`}
+          </p>
+          <p className="text-[11.5px] text-amber-700 mb-1.5 leading-snug">
+            Este anexo los pide y el motor sabe exactamente dónde van. Complétalos en{' '}
+            <a href="/empresas" target="_blank" rel="noreferrer" className="font-semibold underline">Empresas</a>{' '}
+            y vuelve a abrir esta pantalla: se llenan solos, acá y en todos los anexos que vengan.
+          </p>
+          <Lista items={deFicha} />
+        </div>
+      )}
+      {deLicitacion.length > 0 && (
+        <div className="rounded-lg border border-orange-300 bg-orange-50 px-3 py-2.5">
+          <p className="flex items-center gap-1.5 text-[12px] font-bold text-orange-800 mb-1">
+            <AlertTriangle size={13} className="flex-shrink-0" />
+            No se pudieron leer {deLicitacion.length} dato(s) de la licitación desde Mercado Público
+          </p>
+          <p className="text-[11.5px] text-orange-700 mb-1.5 leading-snug">
+            Estos NO se completan en Empresas: los trae Mercado Público cada vez que se abre el anexo.
+            Cierra esta pantalla y vuelve a abrirla para reintentar antes de generar.
+          </p>
+          <Lista items={deLicitacion} />
+        </div>
+      )}
     </div>
   );
 }
@@ -760,6 +832,9 @@ export function AnexoRellenoModal({
 
           {!cargando && !error && analisis && (
             <>
+              {analisis.faltantesFicha && analisis.faltantesFicha.length > 0 && (
+                <FaltaEnLaFicha campos={analisis.faltantesFicha} />
+              )}
               {analisis.alertasInadmisibilidad && analisis.alertasInadmisibilidad.length > 0 && (
                 <AlertasInadmisibilidad alertas={analisis.alertasInadmisibilidad} />
               )}

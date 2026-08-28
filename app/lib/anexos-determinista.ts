@@ -32,6 +32,16 @@ export interface EntradaDeterminista {
   blancosInline: CandidatoInline[];
   parrafos: Parrafo[];
   empresa: EmpresaCampos;
+  /**
+   * Correcciones que el experto ya hizo con el lápiz de la pantalla, traducidas a (etiqueta →
+   * campo de la ficha) — ver anexos-feedback.ts. Se aplican por ENCIMA del diccionario: si el
+   * equipo corrigió una etiqueta a mano, esa decisión manda sobre la regla general.
+   *
+   * Antes del 28-ago-2026 estas correcciones solo existían como texto dentro de un prompt que está
+   * apagado por defecto, así que no cambiaban ningún anexo. Acá sí: mismo guardarraíl de siempre,
+   * el valor sale de `empresa[campo]` y nunca del texto que se guardó (que es de otra empresa).
+   */
+  overridesAprendidos?: { etiqueta: string; campo: string }[];
 }
 
 export interface ResultadoDeterminista {
@@ -40,6 +50,13 @@ export interface ResultadoDeterminista {
   /** Lo que el diccionario no cubrió — va al respaldo IA si está habilitado, si no, al humano. */
   celdaSinResolver: CandidatoCelda[];
   inlineSinResolver: CandidatoInline[];
+  /**
+   * Campos de la ficha de la empresa que ESTE documento pide y que están vacíos. Es la lista de
+   * "llena esto UNA vez y el anexo sale completo a la primera" — la única forma de arreglarlo
+   * ANTES de generar en vez de descubrir el hueco al abrir el .docx. `campo` → etiqueta donde se
+   * pidió (la primera, para poder mostrar de dónde salió).
+   */
+  faltantesFicha: { campo: string; nombre: string; etiqueta: string; origen: 'ficha' | 'licitacion' }[];
 }
 
 // ── Normalización ────────────────────────────────────────────────────────────────────────────
@@ -71,6 +88,10 @@ function sinParentesisEnvolvente(s: string): string {
 const RE_TIPO_DE_PERSONA_AL_FINAL =
   /\s*(?:o\s+|de\s+la\s+|de\s+|para\s+)?personas?\s+(?:natural(?:es)?|juridicas?)(?:\s*(?:o|y|\/)\s*(?:personas?\s+)?(?:natural(?:es)?|juridicas?))?(?:\s+segun\s+corresponda)?$/;
 
+// Ver el uso en normalizarEtiqueta: son las etiquetas que quedan SIN SENTIDO si se les saca el
+// remate "persona natural/jurídica", porque preguntan justamente por esa clasificación.
+const PALABRAS_QUE_NECESITAN_EL_REMATE = new Set(['tipo', 'naturaleza', 'calidad', 'clase', 'condicion', 'categoria']);
+
 export function normalizarEtiqueta(s: string): string {
   return sinParentesisEnvolvente(s || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')   // sin tildes
@@ -97,7 +118,17 @@ export function normalizarEtiqueta(s: string): string {
       // Solo se saca si queda etiqueta después: "PERSONA NATURAL" pelada NO es una casilla con
       // aclaración, es el título de un bloque (lo maneja detectarSecciones, no este diccionario).
       const antes = String(resto[resto.length - 1]).slice(0, resto[resto.length - 2] as number).trim();
-      return antes ? '' : coincidencia;
+      if (!antes) return coincidencia;
+      // BUG REAL (auditoría 28-ago-2026, medido en 11 licitaciones de 700 documentos): en
+      // "TIPO DE PERSONA JURÍDICA" el remate NO es una aclaración de a quién describe la casilla —
+      // ES el dato que se pide. Sacarlo dejaba la etiqueta en "tipo", que no calza con nada, y la
+      // entrada del diccionario para `tipo_persona_juridica` (/^tipo de (persona|sociedad|empresa)…/)
+      // era código MUERTO: no había forma de que se ejecutara. La señal que los separa es lo que
+      // queda antes: una palabra que solo describe UNA CLASIFICACIÓN ("tipo", "naturaleza",
+      // "calidad") no es el nombre de ningún dato por sí sola, así que ahí el remate se conserva.
+      // En cambio "Razón social o nombre persona natural" o "RUT persona natural" sí dejan el
+      // nombre de un dato ("razon social o nombre", "rut") y siguen limpiándose como hasta ahora.
+      return PALABRAS_QUE_NECESITAN_EL_REMATE.has(antes) ? coincidencia : '';
     })
     .trim();
 }
@@ -148,6 +179,12 @@ const DICCIONARIO: Entrada[] = [
     /^nombre (?:completo )?(?:del? (?:proponente|oferente)) o razon social$/,
     /^(?:identificacion|individualizacion) del (?:oferente|proponente|contribuyente)$/,
     /^empresa$/, /^empresa oferente$/, /^nombre de fantasia$/,
+    // "Mi representada ______" / "Mi representada es ______" — fórmula estándar con la que el
+    // representante legal nombra a SU empresa en una declaración jurada. Medida por la auditoría
+    // del 28-ago-2026 en 20 licitaciones de organismos distintos (24 casillas), todas quedando en
+    // blanco. Es inequívoca: "mi representada" solo puede ser la empresa que se representa, nunca
+    // una persona (para eso los anexos dicen "mi representante" o "el suscrito").
+    /^mi representada$/, /^mi representada es$/, /^la empresa que represento$/,
     // "NOMBRE OFERENTE O RAZÓN SOCIAL:" (caso real 2296-48-LE26, FORMATOS Nº3/Nº4/Nº6 — la
     // etiqueta más repetida de ese pliego): el patrón de arriba exige "nombre O razon social"
     // seguidos, sin nada en medio; acá el organismo intercala a QUIÉN se refiere. Es la misma
@@ -242,6 +279,13 @@ const DICCIONARIO: Entrada[] = [
   // detectarTripletesFecha antes de llegar acá) → fecha larga con la que se firma la oferta.
   { campo: 'fecha_hoy', patrones: [/^fecha$/, /^fecha de (?:la )?(?:oferta|presentacion|propuesta|declaracion)$/] },
   { campo: 'tipo_persona_juridica', patrones: [/^tipo de (?:persona|sociedad|empresa)(?: juridica)?$/, /^naturaleza juridica$/] },
+  // NACIONALIDAD: politica fija de la empresa ("Chilena") — ver NACIONALIDAD_POR_DEFECTO en
+  // anexos-derivados.ts. Medida por el auditor del 28-ago-2026 en 21 licitaciones, siempre en
+  // blanco. Es inequivoca: en un anexo de oferente la nacionalidad que se pide es la nuestra.
+  { campo: 'nacionalidad' as Campo, patrones: [
+    /^nacionalidad$/, /^nacionalidad del? (?:oferente|proponente|representante(?: legal)?|declarante|empresa|suscrito)$/,
+    /^pais de origen$/,
+  ] },
 
   // ── Constitución ──
   { campo: 'fecha_escritura', patrones: [/^fecha (?:de (?:la )?)?escritura(?: publica)?(?: de constitucion)?$/] },
@@ -491,6 +535,15 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // A quién se representa → la EMPRESA (nunca la persona, aunque venga tras "representante").
   { re: /\ben\s+represent(?:acion|ación)\s+(?:legal\s+)?de(?:\s+la)?(?:\s+(?:empresa|sociedad|razon\s+social))?\s*$/i, campo: 'razon_social' },
   { re: /\b(?:para|por)\s+(?:y\s+en\s+nombre\s+de|cuenta\s+de)\s*$/i, campo: 'razon_social' },
+  // "Mi representada ______" / "mi representada es ______" — fórmula estándar con la que el
+  // representante legal nombra a SU empresa dentro de una declaración jurada. Medida por el
+  // auditor del 28-ago-2026 en 20 licitaciones de organismos distintos (24 casillas), todas
+  // quedando en blanco. El diccionario de CELDAS ya la reconoce, pero acá el blanco es INLINE y
+  // ese camino usa esta otra lista — por eso seguía sin resolverse. Es inequívoca: "mi
+  // representada" solo puede ser la empresa representada; para la persona los anexos escriben
+  // "el suscrito" o "el compareciente".
+  { re: /\bmi\s+representada\s*,?\s*(?:es\s*)?:?\s*$/i, campo: 'razon_social' },
+  { re: /\bla\s+empresa\s+que\s+represento\s*,?\s*(?:es\s*)?:?\s*$/i, campo: 'razon_social' },
   // "Yo, Lidia Valenzuela, representante legal de ______" — a quien se representa es la EMPRESA, no
   // otra persona. Detectado por la auditoría del 18-ago-2026 sobre 1057480-41-LP26. El "de" final es
   // obligatorio y es lo que lo separa del caso vecino: "nombre del representante legal ___" (sin
@@ -511,6 +564,11 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // a tener representante_nombre en la ficha. Sin "quien" al final: "comparece quien suscribe" es
   // una fórmula distinta que no nombra a nadie todavía.
   { re: /\bcomparece\s*$/i, campo: 'representante_nombre' },
+  // "…, de nacionalidad ______, cédula de identidad N°…" — la casilla que sigue al nombre en esa
+  // misma fórmula notarial. Medida por el auditor del 28-ago-2026 en 10 licitaciones (16
+  // casillas), siempre en blanco: sus hermanas de la oración (nombre, C.I., domicilio) resolvían
+  // bien y esta no tenía ningún campo que la respondiera. Ver NACIONALIDAD_POR_DEFECTO.
+  { re: /\b(?:de\s+)?nacionalidad\s*:?\s*$/i, campo: 'nacionalidad' as Campo },
   { re: /\bnombre\s+(?:completo\s+)?(?:del\s+)?(?:representante|apoderado|declarante)?\s*:?\s*$/i, campo: 'representante_nombre' },
   // Cédula de la persona — distinta del RUT de la empresa aunque compartan la oración.
   { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run)\s*(?:n[°º.]*|numero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
@@ -687,6 +745,36 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
   return rotuloDespues ? campoDeEtiquetaInequivoca(rotuloDespues) : null;
 }
 
+// Nombre de cada campo de la ficha tal como lo ve el usuario en la pantalla de Empresas — para
+// que el aviso diga "Falta Razón social en la ficha" y no "falta razon_social". Lo que no esté
+// acá cae a una versión legible del nombre técnico, que igual se entiende.
+const NOMBRE_HUMANO_CAMPO: Record<string, string> = {
+  razon_social: 'Razón social', rut: 'RUT', direccion: 'Dirección', region: 'Región', giro: 'Giro',
+  tipo_persona_juridica: 'Tipo de persona jurídica', fecha_sociedad: 'Fecha de la sociedad',
+  fecha_escritura: 'Fecha de escritura', notaria: 'Notaría', numero_repertorio: 'N° de repertorio',
+  fojas_numero_anio: 'Fojas / número / año',
+  representante_nombre: 'Nombre del representante legal', representante_rut: 'RUT del representante legal',
+  representante_cargo: 'Cargo del representante legal', representante_profesion: 'Profesión u oficio del representante',
+  email1: 'Email de contacto', telefono1: 'Teléfono de contacto',
+  banco_tipo_cuenta: 'Tipo de cuenta bancaria', banco_numero: 'N° de cuenta bancaria',
+  banco_nombre: 'Banco', banco_email: 'Email para el banco',
+  banco_titular_nombre: 'Titular de la cuenta', banco_titular_rut: 'RUT del titular de la cuenta',
+  // Estos NO son de la ficha — los trae la API de Mercado Público (ver esDatoDeLaLicitacion).
+  licitacion_codigo: 'Código de la licitación', licitacion_nombre: 'Nombre de la licitación',
+  licitacion_organismo: 'Organismo comprador', licitacion_organismo_rut: 'RUT del organismo',
+  licitacion_comuna: 'Comuna del organismo', licitacion_region: 'Región del organismo',
+  licitacion_unidad_compradora: 'Unidad compradora',
+};
+/** Los `licitacion_*` no son de la ficha: los trae la API de Mercado Público en cada análisis. */
+export function esDatoDeLaLicitacion(campo: string | Campo): boolean {
+  return String(campo).startsWith('licitacion_');
+}
+
+export function nombreHumanoDeCampo(campo: string | Campo): string {
+  const c = String(campo);
+  return NOMBRE_HUMANO_CAMPO[c] ?? c.replace(/_/g, ' ');
+}
+
 // ── Guardarraíl anti-invención ───────────────────────────────────────────────────────────────
 // Se conserva del diseño anterior: si el campo elegido no tiene un valor real en la ficha, la
 // casilla queda PENDIENTE. Es peor un dato equivocado en una declaración jurada que uno vacío.
@@ -760,8 +848,29 @@ export function direccionSinComuna(empresa: EmpresaCampos): string | null {
   return recortada || direccion;
 }
 
+/**
+ * Índice (etiqueta normalizada → campo) de las correcciones del experto. Se descartan las que
+ * nombran un campo que no existe en la ficha: una corrección vieja sobre una columna que ya no
+ * está no puede reactivarse como un campo fantasma.
+ */
+function indexarOverrides(
+  overrides: { etiqueta: string; campo: string }[] | undefined, empresa: EmpresaCampos,
+): Map<string, Campo> {
+  const mapa = new Map<string, Campo>();
+  for (const o of overrides || []) {
+    if (!(o.campo in empresa)) continue;
+    const clave = normalizarEtiqueta(o.etiqueta);
+    if (!clave) continue;
+    if (!mapa.has(clave)) mapa.set(clave, o.campo as Campo); // el más reciente gana (vienen ordenados)
+  }
+  return mapa;
+}
+
 export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDeterminista {
   const { candidatos, blancosInline, parrafos, empresa } = entrada;
+  const overrides = indexarOverrides(entrada.overridesAprendidos, empresa);
+  const campoAprendido = (etiqueta: string): Campo | null =>
+    (overrides.size ? overrides.get(normalizarEtiqueta(etiqueta || '')) ?? null : null);
   const celda = new Map<number, Resolucion>();
   const inline = new Map<string, Resolucion>();
   const celdaSinResolver: CandidatoCelda[] = [];
@@ -769,12 +878,40 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
 
   const bloques = construirBloques(candidatos, parrafos);
 
-  const anotar = (campo: Campo | null, etiqueta: string, set: (r: Resolucion) => void): boolean => {
-    if (!campo || SOLO_TRIPLETE.has(campo)) return false;
+  // Tres respuestas, no dos (28-ago-2026 — la causa raíz de "no me llena los campos"):
+  //
+  //   'auto'   el campo se reconoció Y la ficha tiene el dato → se escribe.
+  //   'falta'  el campo se reconoció PERO la ficha no tiene el dato → pendiente ACCIONABLE.
+  //   'no'     no se reconoció la etiqueta → sigue a las capas de abajo.
+  //
+  // Antes 'falta' y 'no' eran el MISMO `return false`, y ahí se perdía la única información que le
+  // sirve al usuario. La casilla caía en `celdaSinResolver` y `clasificarPendiente` la rotulaba
+  // "La etiqueta no corresponde a ningún dato de la ficha de la empresa ni de la licitación" —
+  // literalmente lo contrario de lo que pasaba: el motor SÍ sabía qué dato pedía esa casilla, lo
+  // que faltaba era el dato en la ficha. Con ese mensaje no había forma de saber que bastaba con
+  // completar la ficha, así que el hueco se descubría recién al abrir el .docx ya generado.
+  const faltantesFicha = new Map<string, string>();   // campo → etiqueta donde se pidió
+  const anotar = (campo: Campo | null, etiqueta: string, set: (r: Resolucion) => void): 'auto' | 'falta' | 'no' => {
+    if (!campo || SOLO_TRIPLETE.has(campo)) return 'no';
     const valor = valorDe(empresa, campo);
-    if (!valor) return false;
+    if (!valor) {
+      if (!faltantesFicha.has(String(campo))) faltantesFicha.set(String(campo), etiqueta);
+      // El motivo tiene que decir QUÉ HACER, y eso depende de DE DÓNDE sale el dato. Los campos
+      // `licitacion_*` no viven en la ficha de la empresa: los trae la API de Mercado Público al
+      // abrir el anexo (ver obtenerLicitacionParaAnexo en anexos-datos.ts). Mandar a completarlos
+      // en /empresas sería mandar a llenar un campo que no existe en esa pantalla — y cuando
+      // faltan, la causa real es que MP no respondió, que se arregla reintentando.
+      set({
+        tipo: 'pendiente', categoria: CATEGORIA_DE_CAMPO(campo),
+        motivo: esDatoDeLaLicitacion(campo)
+          ? `No se pudo leer "${nombreHumanoDeCampo(campo)}" desde Mercado Público. Cierra y vuelve a abrir esta pantalla para reintentarlo.`
+          : `Falta "${nombreHumanoDeCampo(campo)}" en la ficha de la empresa. Complétalo en Empresas y esta casilla se llena sola.`,
+        campo: String(campo),
+      } as Resolucion);
+      return 'falta';
+    }
     set({ tipo: 'auto', valor, categoria: CATEGORIA_DE_CAMPO(campo), evidencia: etiqueta, campo: String(campo) });
-    return true;
+    return 'auto';
   };
 
   for (const c of candidatos) {
@@ -802,6 +939,13 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
       // con el párrafo más cercano primero, separado por " · ".
       || esBloqueDesignadoPorNosotros(encabezadoDeSeccionMasCercano(parrafos, c.indice))
     );
+    // 0b. Corrección aprendida del experto (lápiz de la pantalla, ver anexos-feedback.ts). Va
+    //     ANTES del diccionario —el experto está corrigiendo justamente lo que el diccionario dijo—
+    //     y DESPUÉS de campoFijo, que es estructura del documento y no admite discusión. Nunca
+    //     dentro del bloque de un TERCERO: la corrección se aprendió por el TEXTO de la etiqueta y
+    //     no sabe en qué bloque cayó esta vez; rellenar ahí pondría nuestros datos en la firma de
+    //     otra persona.
+    if (!campo && !esTercero) campo = campoAprendido(propia) ?? campoAprendido(c.etiqueta);
     // 1. Diccionario de etiquetas inequívocas, sobre la etiqueta propia y sobre la compuesta
     //    ("IDENTIFICACIÓN DEL REPRESENTANTE LEGAL — NOMBRE" resuelve por la compuesta).
     if (!campo && !esTercero) campo = campoDeEtiquetaInequivoca(propia) ?? campoDeEtiquetaInequivoca(c.etiqueta.replace(/\s+—\s+/g, ' '));
@@ -842,13 +986,21 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
       campo = 'programa_integridad_respuesta' as Campo;
     }
 
-    if (anotar(campo, propia, r => celda.set(c.indice, r))) continue;
+    // 'falta' ya dejó el pendiente accionable en el mapa: no se manda a las capas de abajo, porque
+    // el dato que pide esta casilla ya está identificado — lo que hay que hacer es llenar la ficha,
+    // no seguir adivinando otro campo.
+    if (anotar(campo, propia, r => celda.set(c.indice, r)) !== 'no') continue;
     celdaSinResolver.push(c);
   }
 
   // Se resuelven TODOS los campos antes de escribir ninguno: la dirección necesita saber si el
   // MISMO párrafo pide además la comuna por separado (ver direccionSinComuna).
-  const camposInline = blancosInline.map(b => ({ b, campo: campoDeBlancoInline(b) }));
+  // Mismo orden de prioridad que en las celdas: la corrección aprendida del experto manda sobre el
+  // diccionario. Acá la "etiqueta" es el marcador (`<RAZÓN SOCIAL>`) o el texto que rodea al
+  // blanco — nunca el placeholder vacío, que `esEtiquetaAprendible` ya dejó fuera al guardar.
+  const camposInline = blancosInline.map(b => ({
+    b, campo: campoAprendido(b.textoMarcador || b.contexto || '') ?? campoDeBlancoInline(b),
+  }));
   const parrafosQuePidenComunaAparte = new Set(
     camposInline.filter(x => x.campo === 'comuna' || x.campo === 'ciudad').map(x => x.b.indiceParrafo),
   );
@@ -869,9 +1021,15 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
         continue;
       }
     }
-    if (anotar(campo, etiqueta, r => inline.set(clave, r))) continue;
+    if (anotar(campo, etiqueta, r => inline.set(clave, r)) !== 'no') continue;
     inlineSinResolver.push(b);
   }
 
-  return { celda, inline, celdaSinResolver, inlineSinResolver };
+  return {
+    celda, inline, celdaSinResolver, inlineSinResolver,
+    faltantesFicha: [...faltantesFicha.entries()].map(([campo, etiqueta]) => ({
+      campo, nombre: nombreHumanoDeCampo(campo), etiqueta,
+      origen: esDatoDeLaLicitacion(campo) ? 'licitacion' as const : 'ficha' as const,
+    })),
+  };
 }

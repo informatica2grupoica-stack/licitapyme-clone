@@ -16,7 +16,13 @@ function getUser(req: NextRequest) {
 const CAMPOS = [
   'razon_social', 'rut', 'direccion', 'region', 'giro', 'tipo_persona_juridica',
   'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
-  'representante_nombre', 'representante_rut', 'representante_cargo',
+  // `representante_profesion` (28-ago-2026): la columna existe desde migration-69 y el motor de
+  // anexos la lee, pero no estaba en esta lista NI en el formulario — o sea, nada en el sistema
+  // podia escribirla. Quedaba null para siempre y la casilla "Profesion u oficio" salia en blanco
+  // en todos los anexos (10 licitaciones medidas por el auditor). Es la PROFESION del
+  // representante ("Ingeniero Constructor"), distinta de su CARGO en la empresa ("Gerente
+  // General"): hay anexos que piden las dos en el mismo bloque.
+  'representante_nombre', 'representante_rut', 'representante_cargo', 'representante_profesion',
   'email1', 'telefono1', 'email2', 'telefono2',
   'banco_tipo_cuenta', 'banco_numero', 'banco_nombre', 'banco_email',
   'banco_titular_nombre', 'banco_titular_rut',

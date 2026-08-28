@@ -985,19 +985,51 @@ export interface CandidatoInline {
   parrafoCompleto: string; posEnParrafo: number;
 }
 
+// BUG REAL (28-ago-2026, reportado por el usuario como "cuando pide 3 veces el correo lo pone una
+// sola vez"; medido después en 67 casillas de 1.216, sobre 179 documentos): `indiceRun` tenía DOS
+// definiciones distintas que no calzaban entre sí.
+//
+//   · Acá se contaban los <w:t> RECORRIENDO PÁRRAFOS. Ese regex de párrafo es no-greedy y NO
+//     soporta <w:p> ANIDADOS — y los hay: un cuadro de texto (<w:txbxContent>) trae sus propios
+//     párrafos DENTRO del párrafo ancla. El match del párrafo externo se corta en el `</w:p>` del
+//     interno, así que todos los <w:t> que venían después, hasta el cierre real, NO SE CONTABAN.
+//   · `rellenarRunPorIndice` (anexos-docx.ts), que es quien ESCRIBE, cuenta los <w:t> de TODO el
+//     documento de corrido.
+//
+// Desde el primer cuadro de texto los dos índices quedaban corridos, y de ahí en adelante cada
+// escritura caía en un run EQUIVOCADO: el marcador original quedaba intacto (nadie lo tocó) y el
+// dato se escribía encima de otro texto cualquiera. En 1491-16-LE26 eso dejó literalmente
+// "Santiago Osvaldo López Palavecino o>" en medio de un párrafo ajeno. No era una casilla sin
+// llenar: era el dato escrito en el lugar incorrecto, que es bastante peor.
+//
+// El arreglo es que exista UNA sola definición: `indiceRun` ES la posición del <w:t> en la lista
+// global del documento, con el MISMO regex que usa quien escribe. Los párrafos se siguen usando
+// para el contexto y para `indiceParrafo`, pero ya no para numerar los runs.
 export function detectarBlancosInline(xml: string): CandidatoInline[] {
   const out: CandidatoInline[] = [];
-  let indiceRunGlobal = 0;
+  // La lista que MANDA: mismo patrón, carácter por carácter, que rellenarRunPorIndice.
+  const runsGlobales = [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)];
   const parrafos = [...xml.matchAll(/<w:p\b[^>]*>([\s\S]*?)<\/w:p>/g)];
+  // Puntero que avanza junto con los párrafos: los dos arreglos vienen en orden de documento y
+  // matchAll nunca devuelve matches solapados, así que alcanza con recorrerlos una sola vez.
+  let puntero = 0;
 
   parrafos.forEach((parMatch, indiceParrafo) => {
+    const desde = parMatch.index ?? 0;
+    const hasta = desde + parMatch[0].length;
+    while (puntero < runsGlobales.length && (runsGlobales[puntero].index ?? 0) < desde) puntero++;
+    const indicesDeEsteParrafo: number[] = [];
+    for (let i = puntero; i < runsGlobales.length && (runsGlobales[i].index ?? 0) < hasta; i++) indicesDeEsteParrafo.push(i);
+
     // DECODIFICADO (ver decodificarXml): las posiciones que se calculan acá son las mismas que
     // usa rellenarRunPorIndice para escribir, y ese también decodifica antes de editar.
-    const runsDelParrafo = [...parMatch[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => decodificarXml(m[1]));
+    const runsDelParrafo = indicesDeEsteParrafo.map(i => decodificarXml(runsGlobales[i][1]));
     const textoParrafoCompleto = runsDelParrafo.join('');
     let offsetAcumulado = 0;
+    let posicionEnParrafo = 0;
 
     for (const texto of runsDelParrafo) {
+      const indiceRunGlobal = indicesDeEsteParrafo[posicionEnParrafo++];
       for (const b of listarBlancosInline(texto)) {
         const posGlobalEnParrafo = offsetAcumulado + b.posEnTexto;
         const previo = textoParrafoCompleto.slice(0, posGlobalEnParrafo);
@@ -1024,7 +1056,6 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
         });
       }
       offsetAcumulado += texto.length;
-      indiceRunGlobal++;
     }
   });
   return out;

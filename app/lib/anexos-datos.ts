@@ -173,6 +173,34 @@ export async function cargarEmpresaEnriquecida(codigo: string, empresaId: string
   return { ...conCamposDerivados(empresaCruda, fechaCierre ?? undefined), ...datosLicitacion };
 }
 
+/**
+ * La ficha de la empresa asignada a esta licitación, SIN los datos de la licitación (que salen de
+ * la API de Mercado Público y cuestan una llamada de red). La usa el feedback loop
+ * (/api/anexos/feedback) para deducir QUÉ campo corrigió el experto — ver
+ * `campoDeLaFichaConEsteValor` en anexos-feedback.ts. null si la licitación no tiene negocio
+ * activo con empresa: ahí simplemente no se aprende un override, la corrección se guarda igual.
+ */
+export async function cargarFichaEmpresaDeLicitacion(codigo: string): Promise<EmpresaCampos | null> {
+  const [negocioRows] = await pool.query(
+    `SELECT empresa_id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`,
+    [codigo],
+  );
+  const empresaId = (negocioRows as any[])[0]?.empresa_id;
+  if (empresaId == null) return null;
+
+  const [empRows] = await pool.query(
+    `SELECT razon_social, rut, direccion, region, giro, tipo_persona_juridica, fecha_sociedad,
+            fecha_escritura, notaria, numero_repertorio, fojas_numero_anio,
+            representante_nombre, representante_rut, representante_cargo, representante_profesion,
+            email1, telefono1, banco_tipo_cuenta, banco_numero, banco_nombre, banco_email,
+            banco_titular_nombre, banco_titular_rut, firma_url, timbre_url
+       FROM empresas WHERE id = ? AND activo = TRUE LIMIT 1`,
+    [empresaId],
+  );
+  const empresaCruda = (empRows as any[])[0] as EmpresaCampos | undefined;
+  return empresaCruda ? conCamposDerivados(empresaCruda) : null;
+}
+
 export async function cargarDocumentoYEmpresa(
   codigo: string,
   documentoId: string,

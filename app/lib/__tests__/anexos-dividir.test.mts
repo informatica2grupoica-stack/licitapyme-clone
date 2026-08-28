@@ -448,3 +448,57 @@ test('detectarFormularios: un título entre comillas que aparece una sola vez S�
   assert.equal(formularios[0].titulo, 'FORMATO Nº1-B IDENTIFICACIÓN DEL OFERENTE (SÓLO PARA UNIÓN TEMPORAL DE PROVEEDORES)');
   assert.equal(formularios[1].titulo, 'FORMATO Nº2 IDENTIFICACIÓN DE SOCIOS');
 });
+
+// ── Clasificación: los casos reales que caían en la caja genérica (auditoría 28-ago-2026) ──────
+// Medido sobre 617 anexos separados de licitaciones reales: 14% quedaba "sin_clasificar". Casi
+// ninguno era ambiguo — el título lo decía con todas sus letras y el machote administrativo del
+// cuerpo lo empataba. Cada test de acá es un título real de esa lista.
+test('clasificarAnexo: el título decide aunque el cuerpo traiga el machote administrativo', () => {
+  // Cuerpo típico de CUALQUIER formulario: nombra representante legal, domicilio y declaración
+  // jurada. Antes empataba con el título y ganaba nadie.
+  const machote = 'Yo, representante legal, con domicilio en ..., declaro jurada y expresamente que';
+  assert.equal(clasificarAnexo('ANEXO N° 2 OFERTA ECONOMICA', machote), 'economico');
+  assert.equal(clasificarAnexo('ANEXO N°6: ESPECIFICACIONES TÉCNICAS', machote), 'tecnico');
+  assert.equal(clasificarAnexo('ANEXO N° 1 “OFERTA ADMINISTRATIVA”', machote), 'administrativo');
+  assert.equal(clasificarAnexo('ANEXO N° 2 OFERTA TÉCNICA', machote), 'tecnico');
+});
+
+test('clasificarAnexo: tolera el plural del rótulo del organismo (3141-5-LE26)', () => {
+  assert.equal(clasificarAnexo('FORMULARIO N° 5 PACTOS DE INTEGRIDAD', ''), 'administrativo');
+  assert.equal(clasificarAnexo('FORMULARIO N° 5 PACTO DE INTEGRIDAD', ''), 'administrativo');
+});
+
+test('clasificarAnexo: postventa y soporte del equipo son técnicos, no papeleo', () => {
+  assert.equal(clasificarAnexo('ANEXO N° 10 SERVICIO POST VENTA', ''), 'tecnico');
+  assert.equal(clasificarAnexo('FORMULARIO N°6 ASISTENCIA EN TERRENO', ''), 'tecnico');
+  assert.equal(clasificarAnexo('FORMULARIO N°5 GARANTÍA TÉCNICA', ''), 'tecnico');
+});
+
+test('clasificarAnexo: los datos bancarios del oferente son administrativos', () => {
+  assert.equal(clasificarAnexo('ANEXO N° 7 AUTORIZACIÓN PAGOS A TRAVÉS DE BANCOS', ''), 'administrativo');
+  assert.equal(clasificarAnexo('Anexo Nº8: FICHA PARA TRANSFERENCIA ELECTRÓNICA.', ''), 'administrativo');
+});
+
+test('clasificarAnexo: un título que nombra DOS categorías no decide solo, cae al cuerpo', () => {
+  // Cuando el título nombra las dos categorías, empata a propósito y manda el texto del
+  // formulario — que es la única señal que queda para decidir.
+  assert.equal(
+    clasificarAnexo('ANEXO ADMINISTRATIVO Y ANEXO TÉCNICO',
+      'Cronograma, plan de trabajo, metodología y personal técnico del equipo de trabajo propuesto'),
+    'tecnico',
+  );
+});
+
+test('clasificarAnexo: sigue sin adivinar cuando de verdad no hay señal', () => {
+  assert.equal(clasificarAnexo('ANEXO N° 10', 'Complete los siguientes datos y adjunte'), 'sin_clasificar');
+});
+
+test('clasificarAnexo: la letra del organismo clasifica cuando no hay ninguna palabra clave (1057536-107-LE26)', () => {
+  // Ese organismo numera A=Administrativos, T=Técnicos, E=Económicos y no repite la palabra en
+  // ningún lado — antes los 12 formularios caían en la caja genérica.
+  assert.equal(clasificarAnexo('FORMULARIO A-2', ''), 'administrativo');
+  assert.equal(clasificarAnexo('FORMULARIO T-4', ''), 'tecnico');
+  assert.equal(clasificarAnexo('FORMULARIO E-1', ''), 'economico');
+  // Es la ÚLTIMA red: si el título dice la categoría, manda el título aunque la letra diga otra.
+  assert.equal(clasificarAnexo('FORMULARIO A-3 OFERTA ECONÓMICA', ''), 'economico');
+});

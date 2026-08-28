@@ -11,16 +11,26 @@
 // server.mjs). Un PDF ESCANEADO (imagen, sin capa de texto real) convierte a un .docx vacío o con
 // basura — LibreOffice no hace OCR — así que el caller (anexos-datos.ts) es responsable de NO
 // mandar acá un PDF que necesitó OCR para leerse (ver metodo_extraccion en documentos_cache).
-async function convertir(buffer: Buffer, contentType: string, timeoutMs: number, etiqueta: string): Promise<Buffer> {
-  const url = process.env.DOC_CONVERSOR_URL;
-  const secreto = process.env.DOC_CONVERSOR_SECRET;
-  if (!url || !secreto) {
-    throw new Error(
-      `Este documento viene en formato ${etiqueta} y el conversor a .docx no está configurado ` +
-      '(falta DOC_CONVERSOR_URL/DOC_CONVERSOR_SECRET). Conviértelo a .docx manualmente mientras tanto.',
-    );
-  }
+// REINTENTOS (auditoría 28-ago-2026): este puente es un ÚNICO punto de falla para 866 archivos
+// .doc de la base (uno de cada diez documentos Word de licitación). Un tropiezo suyo no degrada
+// nada: el anexo entero no se puede ni abrir. Y varios de sus modos de falla son TRANSITORIOS —
+// LibreOffice arranca en frío la primera conversión tras un rato inactivo, el contenedor puede
+// estar reiniciándose (502/503/504), o la red interna de compose parpadea.
+//
+// Se reintenta SOLO lo transitorio. Un 4xx significa que el conversor miró el archivo y lo
+// rechazó: reintentarlo da exactamente el mismo resultado y solo hace esperar al usuario.
+const INTENTOS = 3;
+const ESPERA_BASE_MS = 1_500;
 
+function esTransitorio(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+const esperar = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+async function unIntento(
+  url: string, secreto: string, buffer: Buffer, contentType: string, timeoutMs: number, etiqueta: string,
+): Promise<{ ok: true; buffer: Buffer } | { ok: false; motivo: string; transitorio: boolean }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -32,15 +42,63 @@ async function convertir(buffer: Buffer, contentType: string, timeoutMs: number,
     });
     if (!res.ok) {
       const texto = await res.text().catch(() => '');
-      throw new Error(`El conversor de ${etiqueta} respondió ${res.status}: ${texto.slice(0, 200)}`);
+      return {
+        ok: false, transitorio: esTransitorio(res.status),
+        motivo: `el conversor respondió ${res.status}${texto ? `: ${texto.slice(0, 200)}` : ''}`,
+      };
     }
-    return Buffer.from(await res.arrayBuffer());
+    const convertido = Buffer.from(await res.arrayBuffer());
+    // Un .docx es un ZIP: siempre empieza con "PK". Si el conversor devuelve 200 con un cuerpo que
+    // no lo es (una página de error de un proxy intermedio, un cuerpo vacío), dejarlo pasar
+    // convierte un fallo del conversor en un "el documento está corrupto" varias capas más arriba,
+    // donde ya no hay forma de saber de dónde salió.
+    if (convertido.length < 4 || convertido[0] !== 0x50 || convertido[1] !== 0x4b) {
+      return { ok: false, transitorio: true, motivo: `el conversor devolvió ${convertido.length} byte(s) que no son un .docx válido` };
+    }
+    return { ok: true, buffer: convertido };
   } catch (error: any) {
-    if (error?.name === 'AbortError') throw new Error(`El conversor de ${etiqueta} no respondió a tiempo`);
-    throw error;
+    // Timeout y errores de red son los dos casos transitorios clásicos: LibreOffice en frío tarda
+    // más que de costumbre, o el contenedor todavía no termina de levantar.
+    const esTimeout = error?.name === 'AbortError';
+    return {
+      ok: false, transitorio: true,
+      motivo: esTimeout ? 'el conversor no respondió a tiempo' : `no se pudo llegar al conversor (${String(error?.message || error).slice(0, 120)})`,
+    };
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function convertir(buffer: Buffer, contentType: string, timeoutMs: number, etiqueta: string): Promise<Buffer> {
+  const url = process.env.DOC_CONVERSOR_URL;
+  const secreto = process.env.DOC_CONVERSOR_SECRET;
+  if (!url || !secreto) {
+    throw new Error(
+      `Este documento viene en formato ${etiqueta} y el conversor a .docx no está configurado ` +
+      '(falta DOC_CONVERSOR_URL/DOC_CONVERSOR_SECRET). Conviértelo a .docx manualmente mientras tanto.',
+    );
+  }
+
+  let ultimoMotivo = '';
+  for (let intento = 1; intento <= INTENTOS; intento++) {
+    const r = await unIntento(url, secreto, buffer, contentType, timeoutMs, etiqueta);
+    if (r.ok) {
+      if (intento > 1) console.warn(`[anexos-doc-legacy] La conversión de ${etiqueta} funcionó recién en el intento ${intento}.`);
+      return r.buffer;
+    }
+    ultimoMotivo = r.motivo;
+    if (!r.transitorio) break; // el conversor rechazó ESTE archivo: reintentar da lo mismo
+    if (intento < INTENTOS) {
+      console.warn(`[anexos-doc-legacy] Conversión de ${etiqueta} fallida (intento ${intento}/${INTENTOS}) — ${r.motivo}. Reintentando…`);
+      await esperar(ESPERA_BASE_MS * intento);
+    }
+  }
+  // El mensaje dice QUÉ falló y QUÉ hacer: sin esto, todos los modos de falla del conversor
+  // llegaban a la pantalla como una frase técnica distinta y ninguna accionable.
+  throw new Error(
+    `No se pudo convertir este documento ${etiqueta} a .docx después de ${INTENTOS} intento(s) — ${ultimoMotivo}. `
+    + 'Es un problema del conversor, no del anexo: reintenta en un momento, o súbelo convertido a .docx a mano si es urgente.',
+  );
 }
 
 export async function convertirDocADocx(bufferDoc: Buffer): Promise<Buffer> {

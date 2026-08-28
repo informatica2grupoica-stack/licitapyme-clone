@@ -696,11 +696,31 @@ export function rellenarRunPorIndice(
   xml: string,
   indiceRun: number,
   ediciones: { pos: number; largo: number; valor: string }[],
+  // El texto que el DETECTOR vio en este run (CandidatoInline.textoRunOriginal). Opcional para no
+  // romper llamadores viejos, pero cuando viene es el cinturón de seguridad de todo el módulo.
+  textoRunEsperado?: string,
 ): string {
   const matches = [...xml.matchAll(/<w:t([^>]*)>([^<]*)<\/w:t>/g)];
   const m = matches[indiceRun];
   if (!m) throw new Error(`No se encontró el run de índice ${indiceRun}`);
   const [entero, attrs, textoCrudo] = m;
+
+  // CINTURÓN DE SEGURIDAD (28-ago-2026). `indiceRun` es un número que viaja desde la detección
+  // hasta acá, y si las dos puntas numeran distinto el resultado NO es una casilla vacía: es el
+  // dato escrito ENCIMA de otro texto del documento, sin que nadie se entere. Eso pasó de verdad
+  // (ver detectarBlancosInline en anexos-detectar.ts: los <w:p> anidados de un cuadro de texto
+  // corrían el conteo) y dejó "Santiago Osvaldo López Palavecino o>" en medio de un párrafo ajeno.
+  //
+  // El bug de origen ya está arreglado; esto es para que la clase entera de fallo no pueda
+  // repetirse en silencio: si el run que hay en este índice no es el que vio el detector, se
+  // aborta la escritura. El llamador lo convierte en un aviso y la casilla queda para llenar a
+  // mano — mil veces preferible a un documento legal con datos en el lugar equivocado.
+  if (textoRunEsperado != null && decodificarXml(textoCrudo) !== textoRunEsperado) {
+    throw new Error(
+      `El run ${indiceRun} no es el que se detectó (se esperaba "${textoRunEsperado.slice(0, 40)}" `
+      + `y hay "${decodificarXml(textoCrudo).slice(0, 40)}") — no se escribe nada ahí.`,
+    );
+  }
   // Se edita sobre el texto DECODIFICADO — las posiciones de las ediciones vienen de
   // detectarBlancosInline, que también lee decodificado. Sin esto, un párrafo con entidades tenía
   // los offsets corridos y el resultado quedaba doble-escapado (ver decodificarXml).

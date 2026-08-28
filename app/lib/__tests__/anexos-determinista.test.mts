@@ -185,8 +185,14 @@ test('guardarraíl: campo reconocido pero SIN valor en la ficha queda pendiente,
     candidatos: [celda(1, 'Notaría'), celda(2, 'N° de cuenta')],
     blancosInline: [], parrafos: [parrafo(0, 'x')], empresa: EMPRESA,
   });
-  assert.equal(r.celda.size, 0);
-  assert.equal(r.celdaSinResolver.length, 2);
+  // Lo que este test protege es que NO se invente nada: ninguna de las dos casillas se autocompleta.
+  assert.equal([...r.celda.values()].filter(v => v.tipo === 'auto').length, 0);
+  // Desde el 28-ago-2026 quedan como pendiente EXPLÍCITO (con el motivo "falta X en la ficha") en
+  // vez de caer al cajón de "no reconocí la etiqueta" — ver los tests de "falta en ficha" abajo.
+  // El motor sabe qué dato pide cada una, así que no tiene sentido mandarlas a adivinar más abajo.
+  assert.equal(r.celda.size, 2);
+  assert.equal(r.celdaSinResolver.length, 0);
+  assert.deepEqual(r.faltantesFicha.map(f => f.campo).sort(), ['banco_numero', 'notaria']);
 });
 
 test('campoFijo (estructura del documento) manda sobre cualquier otra capa', () => {
@@ -717,4 +723,178 @@ test('declaración jurada: "comparece ___" es el nombre de quien declara (regres
   // Las casillas hermanas de la misma oración, para que el fixture no mienta sobre el caso real.
   const ci = o + 'Lidia Valenzuela Soto, de nacionalidad chilena, C.I. N° ';
   assert.equal(campoDeBlancoInline(blanco(ci + '____________________, con domicilio en ', ci.length, { largo: 10 })), 'representante_rut');
+});
+
+// ── Correcciones aprendidas del experto (lápiz de la pantalla) ────────────────────────────────
+// HALLAZGO DE LA AUDITORÍA (28-ago-2026): estas correcciones existían solo como texto dentro del
+// prompt del respaldo IA, que está APAGADO por defecto — así que ninguna de las 10 correcciones
+// guardadas cambió jamás un anexo, mientras la pantalla prometía lo contrario. Ahora llegan al
+// motor determinista como pares (etiqueta → campo). Estos tests fijan las tres reglas del
+// override: que se aplique, dónde manda, y dónde NO puede tocar.
+test('override aprendido: una etiqueta que el diccionario no conoce se llena con el campo corregido', () => {
+  const parrafos = [parrafo(0, 'INDIVIDUALIZACIÓN DEL PROVEEDOR'), parrafo(1, 'Denominación mercantil'), parrafo(2, '')];
+  const sin = resolverDeterminista({ candidatos: [celda(1, 'Denominación mercantil')], blancosInline: [], parrafos, empresa: EMPRESA });
+  assert.equal(valorAuto(sin.celda, 1), null, 'sin la corrección, el diccionario no la conoce');
+
+  const con = resolverDeterminista({
+    candidatos: [celda(1, 'Denominación mercantil')], blancosInline: [], parrafos, empresa: EMPRESA,
+    overridesAprendidos: [{ etiqueta: 'Denominación mercantil', campo: 'razon_social' }],
+  });
+  assert.equal(valorAuto(con.celda, 1), 'Comercial Los Robles SpA');
+  assert.equal(con.celdaSinResolver.length, 0);
+});
+
+test('override aprendido: manda sobre el diccionario, que es justo lo que el experto corrigió', () => {
+  const parrafos = [parrafo(0, 'DATOS DEL CONTACTO'), parrafo(1, 'Nombre o Razón Social'), parrafo(2, '')];
+  const c = [celda(1, 'Nombre o Razón Social')];
+  const normal = resolverDeterminista({ candidatos: c, blancosInline: [], parrafos, empresa: EMPRESA });
+  assert.equal(valorAuto(normal.celda, 1), 'Comercial Los Robles SpA', 'el diccionario dice razón social');
+
+  const corregido = resolverDeterminista({
+    candidatos: c, blancosInline: [], parrafos, empresa: EMPRESA,
+    overridesAprendidos: [{ etiqueta: 'nombre o razon social', campo: 'representante_nombre' }],
+  });
+  assert.equal(valorAuto(corregido.celda, 1), 'Lidia Valenzuela Soto', 'la corrección del experto pesa más');
+});
+
+test('override aprendido: NUNCA rellena dentro del bloque de un tercero', () => {
+  // El bloque de quien CERTIFICA no se llena con datos nuestros bajo ninguna capa — que la
+  // corrección se haya aprendido por el TEXTO de la etiqueta no le da permiso de entrar acá.
+  const parrafos = [
+    parrafo(0, 'CERTIFICA LA INSTITUCIÓN CONTRATANTE'),
+    parrafo(1, 'Nombre'), parrafo(2, ''), parrafo(3, 'Cargo'), parrafo(4, ''), parrafo(5, 'Institución'), parrafo(6, ''),
+  ];
+  const r = resolverDeterminista({
+    candidatos: [celda(1, 'Nombre'), celda(3, 'Cargo'), celda(5, 'Institución')],
+    blancosInline: [], parrafos, empresa: EMPRESA,
+    overridesAprendidos: [{ etiqueta: 'Nombre', campo: 'representante_nombre' }],
+  });
+  assert.equal(valorAuto(r.celda, 1), null);
+});
+
+test('override aprendido: un campo que ya no existe en la ficha se ignora, no revienta', () => {
+  const parrafos = [parrafo(0, 'Campo raro'), parrafo(1, '')];
+  const r = resolverDeterminista({
+    candidatos: [celda(0, 'Campo raro')], blancosInline: [], parrafos, empresa: EMPRESA,
+    overridesAprendidos: [{ etiqueta: 'Campo raro', campo: 'columna_que_ya_no_existe' }],
+  });
+  assert.equal(valorAuto(r.celda, 0), null);
+  assert.equal(r.celdaSinResolver.length, 1);
+});
+
+test('override aprendido: también aplica a un marcador inline', () => {
+  const o = 'Yo, ';
+  const b = blanco(o + '<<DENOMINACIÓN MERCANTIL>>, declaro', o.length, { largo: 26, textoMarcador: 'DENOMINACIÓN MERCANTIL' });
+  const r = resolverDeterminista({
+    candidatos: [], blancosInline: [b], parrafos: [parrafo(1, b.parrafoCompleto!)], empresa: EMPRESA,
+    overridesAprendidos: [{ etiqueta: 'DENOMINACIÓN MERCANTIL', campo: 'razon_social' }],
+  });
+  assert.equal(valorAuto(r.inline, '1:4'), 'Comercial Los Robles SpA');
+});
+
+// ── Hallazgos medidos por el auditor sobre 700 documentos reales (28-ago-2026) ────────────────
+// BUG REAL, 11 licitaciones: la regla que limpia el remate "persona natural/jurídica" de una
+// etiqueta ("Razón social o nombre persona natural" → "razon social") se comía la etiqueta ENTERA
+// cuando esa clasificación ES el dato pedido. "TIPO DE PERSONA JURÍDICA" quedaba en "tipo", que no
+// calza con nada — y la entrada del diccionario para `tipo_persona_juridica` era código muerto:
+// no existía ninguna etiqueta capaz de llegar hasta ella.
+test('normalizarEtiqueta: no se come la etiqueta cuando el "tipo de persona" ES el dato pedido', () => {
+  assert.equal(normalizarEtiqueta('TIPO DE PERSONA JURÍDICA'), 'tipo de persona juridica');
+  assert.equal(campoDeEtiquetaInequivoca('TIPO DE PERSONA JURÍDICA'), 'tipo_persona_juridica');
+  assert.equal(campoDeEtiquetaInequivoca('Naturaleza jurídica'), 'tipo_persona_juridica');
+  // Y el caso que motivó la limpieza sigue funcionando igual: ahí el remate SÍ es una aclaración.
+  assert.equal(normalizarEtiqueta('Razón social o nombre persona natural'), 'razon social o nombre');
+  assert.equal(campoDeEtiquetaInequivoca('RUT persona natural o jurídica'), 'rut');
+});
+
+// Medido en 20 licitaciones de organismos distintos: la fórmula con la que el representante legal
+// nombra a su empresa en una declaración jurada, siempre en blanco.
+test('diccionario: "Mi representada" es la razón social, nunca una persona', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Mi representada'), 'razon_social');
+  assert.equal(campoDeEtiquetaInequivoca('La empresa que represento'), 'razon_social');
+  // Lo que importa es que NO se confunda con la persona: en una declaración jurada, poner ahí el
+  // nombre del representante en vez de la razón social cambia quién declara.
+  assert.notEqual(campoDeEtiquetaInequivoca('Mi representada'), 'representante_nombre');
+});
+
+test('inline: "Mi representada ___" es la razón social (medido en 20 licitaciones)', () => {
+  const o = 'Mi representada ';
+  assert.equal(campoDeBlancoInline(blanco(o + '_______________, declara bajo juramento', o.length, { largo: 15 })), 'razon_social');
+  const o2 = 'Declaro que mi representada, ';
+  assert.equal(campoDeBlancoInline(blanco(o2 + '_______________, no ha sido condenada', o2.length, { largo: 15 })), 'razon_social');
+});
+
+// ── Nacionalidad: política fija de la empresa (28-ago-2026) ───────────────────────────────────
+// Medida por el auditor en 21 licitaciones (celda) + 10 (inline): es de las casillas más
+// repetidas de las declaraciones juradas chilenas y no había ningún campo que la respondiera.
+test('nacionalidad: la casilla se llena sola, en celda y en la fórmula notarial inline', () => {
+  const empresa = { ...EMPRESA, nacionalidad: 'Chilena' } as EmpresaCampos;
+  assert.equal(campoDeEtiquetaInequivoca('NACIONALIDAD'), 'nacionalidad');
+  assert.equal(campoDeEtiquetaInequivoca('Nacionalidad del representante legal'), 'nacionalidad');
+
+  const parrafos = [parrafo(0, 'ANTECEDENTES DEL OFERENTE'), parrafo(1, 'NACIONALIDAD'), parrafo(2, '')];
+  const r = resolverDeterminista({ candidatos: [celda(1, 'NACIONALIDAD')], blancosInline: [], parrafos, empresa });
+  assert.equal(valorAuto(r.celda, 1), 'Chilena');
+
+  const o = 'comparece Lidia Valenzuela Soto, de nacionalidad ';
+  assert.equal(campoDeBlancoInline(blanco(o + '__________, cédula de identidad N°', o.length, { largo: 10 })), 'nacionalidad');
+});
+
+test('nacionalidad: sin dato en la ficha, la casilla queda pendiente — no se inventa', () => {
+  // El valor lo pone conCamposDerivados (política fija). Este motor nunca inventa: si por lo que
+  // sea llega una ficha sin el campo, la casilla se muestra vacía para llenarla a mano.
+  const parrafos = [parrafo(0, 'NACIONALIDAD'), parrafo(1, '')];
+  const r = resolverDeterminista({ candidatos: [celda(0, 'NACIONALIDAD')], blancosInline: [], parrafos, empresa: EMPRESA });
+  assert.equal(valorAuto(r.celda, 0), null);
+});
+
+// ── "Falta el dato en la ficha" ≠ "no reconozco la etiqueta" (28-ago-2026) ────────────────────
+// CAUSA RAÍZ de "no me llena los campos": `anotar` devolvía el MISMO `false` en los dos casos, así
+// que una casilla cuyo campo el motor conocía perfectamente terminaba rotulada "la etiqueta no
+// corresponde a ningún dato de la ficha" — lo contrario de lo que pasaba. El hueco se descubría al
+// abrir el .docx ya generado y había que rehacer el anexo.
+test('falta en ficha: la casilla queda pendiente con el motivo ACCIONABLE, no como etiqueta desconocida', () => {
+  const sinNotaria = { ...EMPRESA, notaria: null } as EmpresaCampos;
+  const parrafos = [parrafo(0, 'ANTECEDENTES LEGALES'), parrafo(1, 'Notaría'), parrafo(2, '')];
+  const r = resolverDeterminista({ candidatos: [celda(1, 'Notaría')], blancosInline: [], parrafos, empresa: sinNotaria });
+
+  const res = r.celda.get(1);
+  assert.equal(res?.tipo, 'pendiente');
+  assert.match(res?.tipo === 'pendiente' ? res.motivo : '', /Falta "Notaría" en la ficha de la empresa/);
+  // Y NO cae al cajón de "no la entendí": el motor sabe exactamente qué dato pide.
+  assert.equal(r.celdaSinResolver.length, 0);
+});
+
+test('falta en ficha: se listan los campos a completar, sin repetir, con nombre legible', () => {
+  const pelada = { ...EMPRESA, notaria: null, banco_nombre: null } as EmpresaCampos;
+  const parrafos = [
+    parrafo(0, 'Notaría'), parrafo(1, ''), parrafo(2, 'Banco'), parrafo(3, ''),
+    parrafo(4, 'Notaria en que se otorgó'), parrafo(5, ''),
+  ];
+  const r = resolverDeterminista({
+    candidatos: [celda(0, 'Notaría'), celda(2, 'Banco'), celda(4, 'Notaría')],
+    blancosInline: [], parrafos, empresa: pelada,
+  });
+  const nombres = r.faltantesFicha.map(f => f.nombre).sort();
+  assert.deepEqual(nombres, ['Banco', 'Notaría'], 'un campo aparece UNA vez aunque lo pidan dos casillas');
+});
+
+test('falta en ficha: con la ficha completa no se avisa nada', () => {
+  const parrafos = [parrafo(0, 'Razón social'), parrafo(1, '')];
+  const r = resolverDeterminista({ candidatos: [celda(0, 'Razón social')], blancosInline: [], parrafos, empresa: EMPRESA });
+  assert.equal(r.faltantesFicha.length, 0);
+  assert.equal(valorAuto(r.celda, 0), 'Comercial Los Robles SpA');
+});
+
+test('falta en ficha: un dato de la LICITACIÓN no manda a llenar la ficha (viene de Mercado Público)', () => {
+  // Los `licitacion_*` no existen en la pantalla de Empresas: los trae la API de MP en cada
+  // análisis. Si faltan, la causa es que MP no respondió y lo que corresponde es reintentar —
+  // decir "complétalo en Empresas" mandaría a buscar un campo que no está en ningún formulario.
+  const sinLicitacion = { ...EMPRESA, licitacion_codigo: null } as EmpresaCampos;
+  const parrafos = [parrafo(0, 'ID Licitación Pública'), parrafo(1, '')];
+  const r = resolverDeterminista({ candidatos: [celda(0, 'ID Licitación Pública')], blancosInline: [], parrafos, empresa: sinLicitacion });
+
+  const res = r.celda.get(0);
+  assert.match(res?.tipo === 'pendiente' ? res.motivo : '', /Mercado Público/);
+  assert.equal(r.faltantesFicha[0]?.origen, 'licitacion');
 });

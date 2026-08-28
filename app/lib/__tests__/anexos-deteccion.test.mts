@@ -10,7 +10,7 @@ import {
   normalizarParaIds, listarParrafos, rellenarFinDeParrafo, rellenarCeldaVacia, parrafoEstaVacio,
   unificarRunsDeMarcadores, rellenarRunPorIndice, verificarParrafos, verificarXmlBienFormado,
 } from '../anexos-docx';
-import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, detectarAlternativasExcluyentes, esEtiquetaDeCampo } from '../anexos-detectar';
+import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, detectarBlancosInline, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, detectarAlternativasExcluyentes, esEtiquetaDeCampo } from '../anexos-detectar';
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
 import { esCandidatoDePrecioUnitario } from '../anexos-precios-columnas';
 import { calcularTotalesAlPie, pareceFilaDePie, calcularTotalesPorSeccion, resolverTablaResumen } from '../anexos-totales-seccion';
@@ -1643,4 +1643,67 @@ test('la etiqueta de las casillas del representante llega LIMPIA, sin importar q
   assert.ok(etiquetas.some(e => /^nombre completo$/i.test(e.trim())),
     `"NOMBRE COMPLETO" debe aparecer con su propio nombre, no: ${JSON.stringify(etiquetas)}`);
   assert.ok(etiquetas.some(e => /^c[ée]dula de identidad$/i.test(e.trim())));
+});
+
+// ── indiceRun: UNA sola definición (28-ago-2026) ──────────────────────────────────────────────
+// BUG REAL reportado por el usuario ("cuando pide 3 veces el correo lo pone una sola vez"), medido
+// después en 67 casillas de 1.216 sobre 179 documentos reales. `detectarBlancosInline` numeraba
+// los runs recorriendo párrafos con un regex no-greedy que NO soporta <w:p> anidados — y un cuadro
+// de texto (<w:txbxContent>) trae párrafos adentro del párrafo ancla. Desde el primer cuadro de
+// texto el índice quedaba corrido respecto del que usa quien ESCRIBE (rellenarRunPorIndice), así
+// que el dato terminaba escrito encima de un run ajeno.
+//
+// Los marcadores van escapados (&lt;…&gt;) igual que en un .docx real: dentro de <w:t> un "<"
+// literal rompería el XML, y el pipeline los decodifica antes de mirarlos.
+const runsDecodificados = (xml: string) =>
+  [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>'));
+
+test('detectarBlancosInline: el indiceRun apunta al run REAL aunque haya cuadros de texto anidados', () => {
+  const t = (s: string) => `<w:r><w:t xml:space="preserve">${s}</w:t></w:r>`;
+  // Párrafo ancla que ENVUELVE a otros dos párrafos (el caso del cuadro de texto), y después un
+  // párrafo normal con el marcador que hay que llenar.
+  const xml = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>'
+    + `<w:p w14:paraId="00000001">${t('ancla antes')}`
+    + `<w:drawing><w:txbxContent><w:p w14:paraId="00000002">${t('dentro del cuadro uno')}</w:p>`
+    + `<w:p w14:paraId="00000003">${t('dentro del cuadro dos')}</w:p></w:txbxContent></w:drawing>`
+    + `${t('ancla despues')}</w:p>`
+    + `<w:p w14:paraId="00000004">${t('Yo, &lt;NOMBRE DEL OFERENTE&gt;, declaro')}</w:p>`
+    + '</w:body></w:document>';
+
+  const blancos = detectarBlancosInline(xml);
+  const marcador = blancos.find(b => (b.textoMarcador || '').includes('NOMBRE DEL OFERENTE'));
+  assert.ok(marcador, 'el marcador tiene que detectarse');
+
+  // EL CONTRATO: el run apuntado, en la enumeración GLOBAL de <w:t> (la misma que usa
+  // rellenarRunPorIndice para escribir), tiene que ser el que de verdad contiene el marcador.
+  const runs = runsDecodificados(xml);
+  assert.equal(runs[marcador!.indiceRun], 'Yo, <NOMBRE DEL OFERENTE>, declaro');
+  // Y la posición dentro de ese run tiene que caer justo sobre el marcador, no al lado.
+  assert.equal(
+    runs[marcador!.indiceRun].slice(marcador!.posEnTexto, marcador!.posEnTexto + marcador!.largo),
+    '<NOMBRE DEL OFERENTE>',
+  );
+});
+
+test('detectarBlancosInline: el contrato vale para TODOS los blancos de un documento con cuadros', () => {
+  const t = (s: string) => `<w:r><w:t xml:space="preserve">${s}</w:t></w:r>`;
+  const xml = '<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body>'
+    + `<w:p w14:paraId="00000001">${t('En &lt;CIUDAD&gt;, a &lt;FECHA DE HOY&gt;')}`
+    + `<w:drawing><w:txbxContent><w:p w14:paraId="00000002">${t('cuadro')}</w:p></w:txbxContent></w:drawing>`
+    + `${t('cola del ancla')}</w:p>`
+    + `<w:p w14:paraId="00000003">${t('RUT &lt;RUT DEL OFERENTE&gt; y correo &lt;CORREO ELECTRONICO&gt;')}</w:p>`
+    + `<w:p w14:paraId="00000004">${t('firma ____________')}</w:p>`
+    + '</w:body></w:document>';
+
+  const runs = runsDecodificados(xml);
+  const blancos = detectarBlancosInline(xml);
+  assert.ok(blancos.length >= 5, `se esperaban al menos 5 blancos, hubo ${blancos.length}`);
+  for (const b of blancos) {
+    const run = runs[b.indiceRun];
+    assert.ok(run != null, `indiceRun ${b.indiceRun} fuera de rango`);
+    const fragmento = run.slice(b.posEnTexto, b.posEnTexto + b.largo);
+    // Lo apuntado tiene que ser un blanco de verdad (marcador o raya), nunca texto corriente.
+    assert.match(fragmento, /^(<[^<>]+>|_{4,})$/,
+      `el run ${b.indiceRun} no tiene un blanco en la posición ${b.posEnTexto}, tiene "${fragmento}"`);
+  }
 });

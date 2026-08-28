@@ -30,6 +30,7 @@ interface Empresa {
   representante_nombre?: string | null;
   representante_rut?: string | null;
   representante_cargo?: string | null;
+  representante_profesion?: string | null;
   email1?: string | null;
   telefono1?: string | null;
   email2?: string | null;
@@ -311,6 +312,10 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
               <Campo label="Nombre" value={f.representante_nombre || ''} onChange={set('representante_nombre')} />
               <Campo label="RUT" value={f.representante_rut || ''} onChange={set('representante_rut')} />
               <Campo label="Cargo" value={f.representante_cargo || ''} onChange={set('representante_cargo')} />
+              {/* Profesion u oficio: es un dato DISTINTO del cargo y hay anexos que piden los dos
+                  en el mismo bloque ("Cargo: Gerente General / Profesion: Ingeniero Constructor").
+                  El motor de anexos ya lo usaba, pero no habia donde escribirlo. */}
+              <Campo label="Profesion u oficio" value={f.representante_profesion || ''} onChange={set('representante_profesion')} />
             </div>
           </section>
 
