@@ -255,7 +255,9 @@ const DICCIONARIO: Entrada[] = [
   { campo: 'direccion_numero', patrones: [/^n[°º]$/, /^numero$/, /^nro$/, /^numero de (?:la )?(?:calle|direccion|domicilio)$/] },
   { campo: 'comuna', patrones: [/^comuna$/, new RegExp(`^comuna${OFERENTE}$`)] },
   { campo: 'ciudad', patrones: [/^ciudad$/, new RegExp(`^ciudad${OFERENTE}$`), /^localidad$/] },
-  { campo: 'region', patrones: [/^region$/, /^region y comuna$/, /^ciudad y region$/, /^region\/comuna$/] },
+  // REGRESIÓN 2928-17-LE26: "Comuna y región" (orden invertido de "región y comuna", que ya
+  // estaba cubierto) quedaba sin diccionario — misma casilla combinada, mismo campo.
+  { campo: 'region', patrones: [/^region$/, /^region y comuna$/, /^comuna y region$/, /^ciudad y region$/, /^region\/comuna$/] },
   { campo: 'telefono1', patrones: [
     new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|fijo))?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
     /^telefono\/celular$/, /^fono contacto$/, /^numero de (?:telefono|contacto)$/,
@@ -681,7 +683,18 @@ const RE_MARCADOR_INSTRUCCION = /\b(?:indicar|indique|marcar|marque|senalar|señ
 // que certifica, no nosotros) se llenó con el correo de la propia empresa. Ampliado a cualquier
 // frase que hable de EXTENDER/EMITIR un certificado o de haber RECIBIDO el servicio — el lenguaje
 // que usa el organismo que certifica, nunca el que usa el oferente para hablar de sí mismo.
-const RE_BLOQUE_TERCERO = /\b(instituci(?:o|ó)n|cliente|mandante|contraparte|quien\s+certifica|emisor\s+del\s+certificado|contratante|entidad\s+que\s+certifica|extiende\s+el\s+certificado|persona\s+que\s+extiende|certificad[oa]\s+por|recibi[oó]\s+el\s+servicio|organismo\s+que\s+recibi[oó]|qui[eé]n\s+emite)\b/i;
+//
+// BUG REAL 3 (2928-17-LE26, ANEXO N°1A "IDENTIFICACIÓN PERSONA JURÍDICA"): "contraparte" a secas
+// también matchea "ANTECEDENTES CONTRAPARTE TÉCNICA DEL OFERENTE" — el nombre estándar chileno del
+// enlace técnico que EL PROPIO oferente designa para el contrato (misma familia que "coordinador
+// técnico", ver RE_BLOQUE_DESIGNADO_POR_NOSOTROS más abajo), no un tercero que certifica algo. Y
+// como `esTercero` se prueba contra las etiquetas de TODO el bloque (construirBloques agrupa toda
+// casilla contigua), una sola sección "contraparte técnica" en una tabla de identificación densa
+// apagaba la resolución de las 14 casillas de la tabla entera — "Nombre o Razón Social", "RUT",
+// "Domicilio legal"… ninguna es del tercero, pero todas comparten bloque con la que sí lo parecía.
+// Se excluye solo "contraparte técnica", que ya tiene su propio manejo correcto; "contraparte" sin
+// calificar (ej. "la contraparte del cliente anterior") sigue marcando tercero como siempre.
+const RE_BLOQUE_TERCERO = /\b(instituci(?:o|ó)n|cliente|mandante|contraparte(?!\s+t[eé]cnica)|quien\s+certifica|emisor\s+del\s+certificado|contratante|entidad\s+que\s+certifica|extiende\s+el\s+certificado|persona\s+que\s+extiende|certificad[oa]\s+por|recibi[oó]\s+el\s+servicio|organismo\s+que\s+recibi[oó]|qui[eé]n\s+emite)\b/i;
 // El guion bajo es \w para el motor de regex, así que "___Institución" no tiene frontera de
 // palabra ANTES de la I (\w seguido de \w no es \b) y el \b de arriba nunca dispara. Se prueba
 // sobre el texto con las rayas de relleno ya convertidas a espacio, nunca sobre el crudo.

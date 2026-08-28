@@ -60,6 +60,11 @@ test('diccionario: la etiqueta que ya nombra al representante no depende del con
   assert.equal(campoDeEtiquetaInequivoca('Cargo del representante'), 'representante_cargo');
 });
 
+test('REGRESIÓN 2928-17-LE26: "Comuna y región" resuelve igual que "Región y comuna" (orden invertido)', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Región y comuna'), 'region');
+  assert.equal(campoDeEtiquetaInequivoca('Comuna y región'), 'region');
+});
+
 test('diccionario: es CONSERVADOR — las etiquetas ambiguas NO entran (las decide el bloque)', () => {
   for (const e of ['Nombre', 'NOMBRE', 'Firma', 'Observaciones']) {
     assert.equal(campoDeEtiquetaInequivoca(e), null, e);
@@ -169,6 +174,41 @@ test('resolverDeterminista: resuelve la tabla de identificación entera sin llam
   assert.equal(valorAuto(r.celda, 2), '76.902.659-2');
   assert.equal(valorAuto(r.celda, 3), 'Lidia Valenzuela Soto');
   assert.equal(r.celdaSinResolver.length, 0);
+});
+
+test('REGRESIÓN 2928-17-LE26: "contraparte técnica del oferente" no contamina el resto del bloque', () => {
+  // Misma tabla de identificación densa del caso real: "Razón Social" y "RUT" del oferente
+  // conviven, a menos de GAP=4 párrafos, con la sección "ANTECEDENTES CONTRAPARTE TÉCNICA DEL
+  // OFERENTE" — el enlace técnico que el propio oferente designa, no un tercero. Antes del fix,
+  // "contraparte" a secas en RE_BLOQUE_TERCERO se probaba contra las etiquetas de TODO el bloque
+  // (construirBloques las agrupa por cercanía), así que una sola mención de "contraparte" apagaba
+  // la resolución de las 14 casillas de la tabla entera, no solo la de esa sección.
+  // "RUT de la Empresa" (no el "RUT" pelado) para no acoplar este test a la regla de coherencia
+  // de titular del RUT pelado (1b, otro mecanismo, ya cubierto en sus propios tests). El párrafo 3
+  // es el encabezado REAL de la sección (como en el documento real): es lo que
+  // `esBloqueDesignadoPorNosotros`/`encabezadoDeSeccionMasCercano` usa para dejarla pendiente —
+  // sin él, "Nombre completo" pelado se resolvería igual por la capa de contexto de persona, y el
+  // test no distinguiría si el guardarraíl correcto sigue funcionando.
+  const parrafos = [
+    parrafo(0, 'ANEXO N°1A — IDENTIFICACIÓN PERSONA JURÍDICA'),
+    parrafo(1, ''), parrafo(2, ''),
+    parrafo(3, 'ANTECEDENTES CONTRAPARTE TÉCNICA DEL OFERENTE'),
+  ];
+  const r = resolverDeterminista({
+    candidatos: [
+      celda(1, 'Nombre o Razón Social'), celda(2, 'RUT de la Empresa'),
+      celda(4, 'ANTECEDENTES CONTRAPARTE TÉCNICA DEL OFERENTE — Nombre completo'),
+      celda(6, 'ANTECEDENTES CONTRAPARTE TÉCNICA DEL OFERENTE — Teléfono de contacto'),
+    ],
+    blancosInline: [], parrafos, empresa: EMPRESA,
+  });
+  // Las casillas del OFERENTE, ajenas a la sección de la contraparte, se resuelven igual que siempre.
+  assert.equal(valorAuto(r.celda, 1), 'Comercial Los Robles SpA');
+  assert.equal(valorAuto(r.celda, 2), '76.902.659-2');
+  // La contraparte técnica sigue sin autocompletarse — la designa el asistente, no la ficha.
+  assert.equal(r.celda.get(4), undefined);
+  assert.equal(r.celda.get(6), undefined);
+  assert.equal(r.celdaSinResolver.length, 2);
 });
 
 test('resolverDeterminista: la categoría acompaña al campo (la UI agrupa por ella)', () => {
