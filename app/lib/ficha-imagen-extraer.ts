@@ -100,9 +100,8 @@ export async function extraerImagenProducto(buffer: Buffer, paginas?: number[]):
   if (!mejor) return null;
   const elegida = mejor as { area: number; image: import('mupdf').Image; pagina: number };
   try {
-    const pixmap = elegida.image.toPixmap();
     return {
-      png: Buffer.from(pixmap.asPNG()),
+      png: aplanarSobreBlanco(mupdf, elegida.image),
       anchoPx: elegida.image.getWidth(),
       altoPx: elegida.image.getHeight(),
       pagina: elegida.pagina,
@@ -110,4 +109,70 @@ export async function extraerImagenProducto(buffer: Buffer, paginas?: number[]):
   } catch {
     return null;
   }
+}
+
+/**
+ * PNG de la imagen COMPUESTA SOBRE BLANCO, sin canal alfa.
+ *
+ * BUG REAL (27-ago-2026, caso 2446-240-LE26): las fotos de producto de un catálogo suelen venir
+ * recortadas, con la transparencia en una MÁSCARA APARTE (`image.getMask()`) en vez de en el
+ * propio mapa de píxeles. `toPixmap()` NO aplica esa máscara: devuelve el RGB crudo —que en el
+ * fondo recortado es NEGRO— con alfa 255 en todas partes. Resultado: la hidrolavadora salía
+ * dentro de un cuadrado negro en la ficha, y como el PNG "tenía" alfa opaco no había forma de
+ * arreglarlo con CSS.
+ *
+ * Acá se lee la máscara (o el alfa propio del pixmap, si lo trae) y se mezcla contra blanco, que
+ * es el fondo del documento. Sale un PNG opaco, listo para imprimir. Si no hay transparencia por
+ * ningún lado, se devuelve el PNG tal cual — sin trabajo de más.
+ */
+function aplanarSobreBlanco(mupdf: typeof import('mupdf'), image: import('mupdf').Image): Buffer {
+  const base = image.toPixmap();
+  const ancho = base.getWidth(), alto = base.getHeight();
+  const compsBase = base.getNumberOfComponents();
+  const strideBase = base.getStride();
+  const tieneAlfaPropio = base.getAlpha() === 1;
+
+  // La máscara puede venir a otra resolución que la foto: se muestrea proporcionalmente.
+  let mascara: { px: Buffer; ancho: number; alto: number; stride: number; comps: number } | null = null;
+  try {
+    const m = image.getMask();
+    if (m) {
+      const mp = m.toPixmap();
+      mascara = {
+        px: Buffer.from(mp.getPixels()), ancho: mp.getWidth(), alto: mp.getHeight(),
+        stride: mp.getStride(), comps: mp.getNumberOfComponents(),
+      };
+    }
+  } catch { /* sin máscara legible: se sigue con el alfa propio, o sin transparencia */ }
+
+  // Los píxeles se copian ANTES de crear nada más: mupdf reusa la memoria WASM y cualquier
+  // operación posterior puede invalidar el typed array que devolvió getPixels().
+  const pxBase = Buffer.from(base.getPixels());
+  if (!mascara && !tieneAlfaPropio) return Buffer.from(base.asPNG());
+
+  const salida = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, [0, 0, ancho, alto], false);
+  salida.clear(255);   // blanco: el fondo del documento
+  const strideOut = salida.getStride();
+  const pxOut = salida.getPixels();
+
+  for (let y = 0; y < alto; y++) {
+    for (let x = 0; x < ancho; x++) {
+      const iBase = y * strideBase + x * compsBase;
+      let alfa = 255;
+      if (mascara) {
+        const mx = Math.min(mascara.ancho - 1, Math.floor((x * mascara.ancho) / ancho));
+        const my = Math.min(mascara.alto - 1, Math.floor((y * mascara.alto) / alto));
+        alfa = mascara.px[my * mascara.stride + mx * mascara.comps];
+      } else if (tieneAlfaPropio) {
+        alfa = pxBase[iBase + compsBase - 1];
+      }
+      const iOut = y * strideOut + x * 3;
+      for (let c = 0; c < 3; c++) {
+        // El pixmap base puede ser gris (1 comp) o RGB (3): con gris el mismo valor va a los tres.
+        const canal = pxBase[iBase + (compsBase >= 3 ? c : 0)];
+        pxOut[iOut + c] = Math.round((canal * alfa + 255 * (255 - alfa)) / 255);
+      }
+    }
+  }
+  return Buffer.from(salida.asPNG());
 }

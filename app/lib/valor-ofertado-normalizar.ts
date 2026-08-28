@@ -69,6 +69,18 @@ export function normalizarNumeroIngles(n: string): string {
 const RE_ES_MILES_INGLES = /^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/;
 /** Decimal anglosajón suelto y corto: "0.001". Parte entera de hasta 3 dígitos, sin comas. */
 const RE_ES_DECIMAL_INGLES = /^\d{1,3}\.\d{1,6}$/;
+/**
+ * Punto seguido de EXACTAMENTE 3 dígitos con parte entera distinta de cero: "3.600", "1.500".
+ * Es la forma CHILENA de escribir miles — y también la inglesa de escribir 3 decimales. Ambiguo,
+ * así que se deja intacto (mismo criterio que el resto del módulo: ante la duda, no se toca).
+ *
+ * BUG REAL (27-ago-2026, caso 2446-240-LE26): sin esta excepción, RE_ES_DECIMAL_INGLES cazaba
+ * "3.600" —las RPM del motor, tres mil seiscientos— y la ficha que se presenta al organismo
+ * imprimía "3,600", que en Chile se lee 3,6: un error de tres órdenes de magnitud en un dato
+ * técnico evaluado. "0.001" NO cae acá porque su parte entera es 0, y un cero antes del separador
+ * de miles no existe.
+ */
+const RE_MILES_CHILENO_AMBIGUO = /^[1-9]\d{0,2}\.\d{3}$/;
 
 /** Palabras donde un punto NO es un decimal (normas, versiones, modelos). */
 const RE_CONTEXTO_TECNICO = /\b(din|iso|iec|nch|astm|usb|hdmi|rs|ip|v\.?\d|clase|class|parte|part|norma|modelo|model|serie)\b/i;
@@ -92,7 +104,9 @@ export function normalizarValorParaDocumento(texto: string | null | undefined): 
   const esTecnico = RE_CONTEXTO_TECNICO.test(t);
   t = t.replace(RE_NUMERO, n => {
     if (RE_ES_MILES_INGLES.test(n)) return normalizarNumeroIngles(n);
-    if (!esTecnico && RE_ES_DECIMAL_INGLES.test(n)) return n.replace('.', ',');
+    if (!esTecnico && RE_ES_DECIMAL_INGLES.test(n) && !RE_MILES_CHILENO_AMBIGUO.test(n)) {
+      return n.replace('.', ',');
+    }
     return n;                                   // ante la duda, intacto
   });
 

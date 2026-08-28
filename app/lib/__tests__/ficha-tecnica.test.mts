@@ -6,13 +6,19 @@ import assert from 'node:assert/strict';
 import {
   textoRequisito, textoOfertado, especificacionesSinCompletar, construirFichaTecnicaHtml,
   imagenProducto,
-  type EspecificacionFicha, type LineaFicha, type EmpresaFicha, type ProductoOfertadoLinea,
+  type EspecificacionFicha, type LineaFicha, type EmpresaFicha, type ProductoFicha,
 } from '../ficha-tecnica';
 
 const spec = (o: Partial<EspecificacionFicha>): EspecificacionFicha => ({
   descripcion: 'Potencia', tipo: null, valorRequeridoTexto: null, valorRequeridoNumero: null,
   valorRequeridoNumeroMax: null, unidadRequerida: null, valorOfertadoTexto: null,
   valorOfertadoNumero: null, unidadOfertada: null, ...o,
+});
+
+/** Un producto de ficha con lo mínimo; se sobreescribe lo que cada test necesite. */
+const prod = (o: Partial<ProductoFicha>): ProductoFicha => ({
+  nombre: 'Producto', marca: null, modelo: null, fabricante: null, paisFabricacion: null,
+  anioFabricacion: null, garantiaMeses: null, especificaciones: [], cantidad: null, unidad: null, ...o,
 });
 
 // ─── EL REQUISITO SE TRANSCRIBE, NO SE REESCRIBE ──────────────────────────────────────────────
@@ -43,15 +49,14 @@ test('sin ningún dato el requisito queda vacío, no con un texto de relleno', (
   assert.equal(textoRequisito(spec({})), '');
 });
 
-// ─── LO OFERTADO NUNCA SE INVENTA ─────────────────────────────────────────────────────────────
-// Es LA regla de este documento: una ficha que se autocompleta con valores plausibles es
-// justamente lo que no se puede presentar a un organismo público.
+// ─── NO INVENTAR: lo ofertado sale vacío mientras no exista ───────────────────────────────────
 test('sin dato ofertado la casilla va vacía', () => {
-  assert.equal(textoOfertado(spec({ valorRequeridoNumero: 1200, unidadRequerida: 'W' })), '');
+  assert.equal(textoOfertado(spec({})), '');
 });
 
+// El error que convertiría el documento en una declaración falsa ante un organismo público.
 test('el valor exigido NO se copia como si fuera lo ofertado', () => {
-  const e = spec({ tipo: 'PISO', valorRequeridoNumero: 1200, unidadRequerida: 'W', valorRequeridoTexto: 'Mínimo 1.200 W' });
+  const e = spec({ valorRequeridoTexto: 'Mínimo 1.200 W', valorRequeridoNumero: 1200, unidadRequerida: 'W' });
   assert.equal(textoOfertado(e), '');
   assert.notEqual(textoOfertado(e), textoRequisito(e));
 });
@@ -63,11 +68,26 @@ test('con dato ofertado se muestra con su unidad original', () => {
 
 test('se cuentan las casillas en blanco para poder avisar antes de presentar', () => {
   const lineas: LineaFicha[] = [{
-    linea: 7, titulo: 'Esmeril angular', cantidad: 2, unidad: 'un',
-    especificaciones: [
-      spec({ valorOfertadoNumero: 1500, unidadOfertada: 'W' }),
-      spec({ descripcion: 'Disco' }),
-      spec({ descripcion: 'Peso' }),
+    linea: 7, titulo: 'Esmeril angular',
+    productos: [prod({
+      nombre: 'Esmeril angular',
+      especificaciones: [
+        spec({ valorOfertadoNumero: 1500, unidadOfertada: 'W' }),
+        spec({ descripcion: 'Disco' }),
+        spec({ descripcion: 'Peso' }),
+      ],
+    })],
+  }];
+  assert.equal(especificacionesSinCompletar(lineas), 2);
+});
+
+// Con varios productos se suman las casillas de TODOS — antes se contaban solo las de la línea.
+test('las casillas en blanco se cuentan sumando todos los productos de la línea', () => {
+  const lineas: LineaFicha[] = [{
+    linea: 1, titulo: '2 productos',
+    productos: [
+      prod({ nombre: 'A', especificaciones: [spec({ descripcion: 'X' })] }),
+      prod({ nombre: 'B', especificaciones: [spec({ descripcion: 'Y' }), spec({ descripcion: 'Z', valorOfertadoTexto: 'sí' })] }),
     ],
   }];
   assert.equal(especificacionesSinCompletar(lineas), 2);
@@ -84,16 +104,24 @@ const EMPRESA: EmpresaFicha = {
   timbreDataUri: null,
 };
 
+const ficha = (lineas: LineaFicha[]) => construirFichaTecnicaHtml({
+  licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
+  lineas, generadoPor: null, fechaTexto: '27 de agosto de 2026',
+});
+
 const html = () => construirFichaTecnicaHtml({
   licitacionCodigo: '986278-14-LE26',
   licitacionNombre: 'PROYECTO EQUIPAMIENTO Y MOBILIARIO',
   organismo: 'Servicio de Salud', empresa: EMPRESA,
   lineas: [{
-    linea: 7, titulo: 'Esmeril angular', cantidad: 2, unidad: 'un',
-    especificaciones: [
-      spec({ descripcion: 'Potencia', valorRequeridoTexto: 'Mínimo 1.200 W', valorOfertadoNumero: 1500, unidadOfertada: 'W' }),
-      spec({ descripcion: 'Disco' }),
-    ],
+    linea: 7, titulo: 'Esmeril angular',
+    productos: [prod({
+      nombre: 'Esmeril angular', marca: 'Bosch', modelo: 'GWS-1400', cantidad: 2, unidad: 'un',
+      especificaciones: [
+        spec({ descripcion: 'Potencia', valorRequeridoTexto: 'Mínimo 1.200 W', valorOfertadoNumero: 1500, unidadOfertada: 'W' }),
+        spec({ descripcion: 'Disco' }),
+      ],
+    })],
   }],
   generadoPor: 'Alexis Tobar', fechaTexto: '26 de agosto de 2026',
 });
@@ -107,15 +135,24 @@ test('la ficha lleva los datos de la empresa, el logo y la firma', () => {
   assert.ok(h.includes('Santiago Osvaldo López Palavecino'));
 });
 
-test('la ficha muestra la línea, lo exigido y lo ofertado', () => {
+// FORMATO (pedido explícito con el ejemplo de Tecnomaq): nombre del producto grande, marca/modelo
+// debajo, y la tabla con lo que OFERTAMOS. Lo exigido por las bases no va en el documento que se
+// presenta — eso es la planilla de auditoría, y vive en el modal del Auditor Técnico.
+test('la ficha titula con el producto, su marca/modelo y lo ofertado', () => {
   const h = html();
-  assert.ok(h.includes('Línea 7 — Esmeril angular'));
-  assert.ok(h.includes('Mínimo 1.200 W'));
+  assert.ok(h.includes('Esmeril angular'));
+  assert.ok(h.includes('Bosch GWS-1400'), 'marca y modelo van como subtítulo de la ficha');
+  assert.ok(h.includes('Cantidad: 2 un'));
   assert.ok(h.includes('1500 W'));
+  assert.ok(/Ficha técnica 01/i.test(h), 'cada producto se numera como una ficha');
+});
+
+test('lo EXIGIDO por las bases no se imprime en el documento que se presenta', () => {
+  assert.ok(!html().includes('Mínimo 1.200 W'));
 });
 
 test('la casilla sin completar se marca para que se vea que falta', () => {
-  assert.ok(html().includes('of vacia'));
+  assert.ok(html().includes('class="vacia"'));
 });
 
 // El HTML va a chromium con setContent y sin red: una URL externa saldría como imagen rota y el
@@ -125,138 +162,66 @@ test('no quedan referencias a imágenes externas', () => {
 });
 
 test('el contenido se escapa: un título con < > no rompe el documento', () => {
-  const h = construirFichaTecnicaHtml({
-    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{ linea: 1, titulo: 'Cable <2mm> & "especial"', cantidad: null, unidad: null, especificaciones: [] }],
-    generadoPor: null, fechaTexto: '26 de agosto de 2026',
-  });
+  const h = ficha([{ linea: 1, titulo: 'L', productos: [prod({ nombre: 'Cable <2mm> & "especial"' })] }]);
   assert.ok(h.includes('Cable &lt;2mm&gt; &amp; &quot;especial&quot;'));
   assert.ok(!h.includes('<2mm>'));
 });
 
-test('una línea sin especificaciones lo dice, no finge una tabla vacía', () => {
-  const h = construirFichaTecnicaHtml({
-    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{ linea: 3, titulo: 'Caldera', cantidad: null, unidad: null, especificaciones: [] }],
-    generadoPor: null, fechaTexto: '26 de agosto de 2026',
-  });
+test('un producto sin especificaciones lo dice, no finge una tabla vacía', () => {
+  const h = ficha([{ linea: 3, titulo: 'Caldera', productos: [prod({ nombre: 'Caldera' })] }]);
   assert.ok(h.includes('Sin especificaciones técnicas registradas'));
 });
 
-// ─── DOS FORMAS DE TABLA SEGÚN LO QUE SE SEPA ─────────────────────────────────────────────────
 // Antes de que alguien valide una línea, las exigencias vienen del informe como texto suelto, sin
-// clasificar. Ahí la especificación completa ES la exigencia: separarla en "Característica" +
-// "Exigido" dejaría una columna entera en blanco en todas las filas, que se lee como si faltara un
-// dato. Caso real que lo destapó: 1057922-23-LE26, 9 líneas y 139 especificaciones sin clasificar.
-const fichaCon = (especificaciones: ReturnType<typeof spec>[]) => construirFichaTecnicaHtml({
-  licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-  lineas: [{ linea: 6, titulo: 'Romana', cantidad: null, unidad: null, especificaciones }],
-  generadoPor: null, fechaTexto: '26 de agosto de 2026',
-});
-
-test('sin clasificar: tabla de 3 columnas, la especificación completa en una sola', () => {
-  const h = fichaCon([
-    spec({ descripcion: 'Peso máximo soportado: al menos 1 [Ton]' }),
-    spec({ descripcion: 'Resolución: 100 [gr]' }),
-  ]);
-  assert.ok(h.includes('Especificación exigida en las bases'));
-  assert.ok(!h.includes('<th>Exigido en las bases</th>'), 'no debe quedar la columna que iría vacía');
+// clasificar: la especificación completa ES la descripción. La tabla de 2 columnas funciona igual
+// en ese caso — la frase entera va en la columna izquierda. Caso real que lo destapó:
+// 1057922-23-LE26, 9 líneas y 139 especificaciones sin clasificar.
+test('sin clasificar: la especificación completa va en la columna de la izquierda', () => {
+  const h = ficha([{
+    linea: 6, titulo: 'Romana',
+    productos: [prod({ nombre: 'Romana', especificaciones: [
+      spec({ descripcion: 'Peso máximo soportado: al menos 1 [Ton]' }),
+      spec({ descripcion: 'Resolución: 100 [gr]' }),
+    ] })],
+  }]);
   assert.ok(h.includes('Peso máximo soportado: al menos 1 [Ton]'));
   assert.ok(h.includes('Resolución: 100 [gr]'));
 });
 
-test('clasificada: vuelve la tabla de 4 columnas con el exigido aparte', () => {
-  const h = fichaCon([spec({ descripcion: 'Potencia', valorRequeridoTexto: 'Mínimo 1.200 W' })]);
-  assert.ok(h.includes('<th>Exigido en las bases</th>'));
-  assert.ok(h.includes('Mínimo 1.200 W'));
-  assert.ok(!h.includes('Especificación exigida en las bases'));
+// ─── "INFORMACIÓN DE LA OFERTA" — fabricante/país/año/garantía ────────────────────────────────
+// Marca y modelo NO van acá: ya son el subtítulo de la ficha, repetirlos sería ruido.
+test('sin fabricante/país/año/garantía no se imprime la sección', () => {
+  const h = ficha([{ linea: 1, titulo: 'Romana', productos: [prod({ nombre: 'Romana', marca: 'Acme' })] }]);
+  assert.ok(!/Información de la oferta/i.test(h));
 });
 
-test('basta UNA especificación clasificada en la línea para usar las 4 columnas', () => {
-  const h = fichaCon([
-    spec({ descripcion: 'Potencia', valorRequeridoTexto: 'Mínimo 1.200 W' }),
-    spec({ descripcion: 'Estructura metálica o material equivalente' }),
-  ]);
-  assert.ok(h.includes('<th>Exigido en las bases</th>'));
-  assert.ok(h.includes('Estructura metálica o material equivalente'));
-});
-
-test('la casilla "Ofertado" existe en las dos formas de tabla', () => {
-  assert.ok(fichaCon([spec({ descripcion: 'A' })]).includes('of vacia'));
-  assert.ok(fichaCon([spec({ descripcion: 'A', valorRequeridoTexto: 'Mínimo 1' })]).includes('of vacia'));
-});
-
-// ─── TABLA "INFORMACIÓN DE LA OFERTA" — marca/modelo/fabricante/país/año/garantía ─────────────
-// Es el mismo dato que se captura al subir la ficha del proveedor (producto-ofertado.ts) y que se
-// confirma en el modal de comparación. Se imprime por línea, no una vez por documento: en una
-// licitación por línea cada línea es un producto distinto.
-test('sin producto ofertado no se imprime la tabla de oferta', () => {
-  const h = construirFichaTecnicaHtml({
-    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{ linea: 1, titulo: 'Romana', cantidad: null, unidad: null, especificaciones: [], productosOfertados: [] }],
-    generadoPor: null, fechaTexto: '26 de agosto de 2026',
-  });
-  assert.ok(!h.includes('table class="oferta"'));
-});
-
-test('con producto ofertado, imprime marca/modelo/fabricante', () => {
-  const h = construirFichaTecnicaHtml({
-    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{
-      linea: 8, titulo: 'Set contenedores', cantidad: null, unidad: null, especificaciones: [],
-      productosOfertados: [{
-        marca: 'Konica Minolta', modelo: 'LS-150', fabricante: 'Konica Minolta',
-        paisFabricacion: 'Japón', anioFabricacion: null, garantiaMeses: 12, confirmado: true,
-      }],
-    }],
-    generadoPor: null, fechaTexto: '26 de agosto de 2026',
-  });
+test('con fabricante/país/garantía, se imprime la sección', () => {
+  const h = ficha([{
+    linea: 8, titulo: 'Set',
+    productos: [prod({ nombre: 'Set', fabricante: 'Konica Minolta', paisFabricacion: 'Japón', garantiaMeses: 12 })],
+  }]);
+  assert.ok(/Información de la oferta/i.test(h));
   assert.ok(h.includes('Konica Minolta'));
-  assert.ok(h.includes('LS-150'));
   assert.ok(h.includes('Japón'));
   assert.ok(h.includes('12 meses'));
 });
 
 // Un dato leído automáticamente y no confirmado por una persona sale con aviso: presentarlo sin
 // revisar es un riesgo, no un detalle cosmético.
-test('sin confirmar, avisa que hay que revisarlo antes de presentar', () => {
-  const h = construirFichaTecnicaHtml({
-    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{
-      linea: 8, titulo: 'Set contenedores', cantidad: null, unidad: null, especificaciones: [],
-      productosOfertados: [{ marca: 'Konica Minolta', modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null, confirmado: false }],
-    }],
-    generadoPor: null, fechaTexto: '26 de agosto de 2026',
-  });
-  assert.ok(h.includes('sin-confirmar'));
+test('marca/modelo sin confirmar avisa que hay que revisarlo antes de presentar', () => {
+  const h = ficha([{
+    linea: 8, titulo: 'Set',
+    productos: [prod({ nombre: 'Set', marca: 'Konica Minolta', confirmado: false })],
+  }]);
   assert.ok(/revisar antes de presentar/i.test(h));
 });
 
-test('confirmado por una persona, NO muestra el aviso', () => {
-  const h = construirFichaTecnicaHtml({
-    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{
-      linea: 8, titulo: 'Set contenedores', cantidad: null, unidad: null, especificaciones: [],
-      productosOfertados: [{ marca: 'Konica Minolta', modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null, confirmado: true }],
-    }],
-    generadoPor: null, fechaTexto: '26 de agosto de 2026',
-  });
-  // OJO: "sin-confirmar" también aparece SIEMPRE en el <style> (la clase CSS existe se use o no) —
-  // hay que comprobar el TEXTO visible del aviso, no el nombre de la clase.
+test('marca/modelo confirmados por una persona NO muestran el aviso', () => {
+  const h = ficha([{
+    linea: 8, titulo: 'Set',
+    productos: [prod({ nombre: 'Set', marca: 'Konica Minolta', confirmado: true })],
+  }]);
   assert.ok(!/revisar antes de presentar/i.test(h));
-});
-
-// Sin ningún campo con dato, tampoco se imprime la tabla vacía.
-test('un objeto productoOfertado sin ningún dato no imprime tabla', () => {
-  const h = construirFichaTecnicaHtml({
-    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{
-      linea: 8, titulo: 'Set contenedores', cantidad: null, unidad: null, especificaciones: [],
-      productosOfertados: [{ marca: null, modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null }],
-    }],
-    generadoPor: null, fechaTexto: '26 de agosto de 2026',
-  });
-  assert.ok(!h.includes('table class="oferta"'));
 });
 
 // ─── FOTO DEL PRODUCTO — con o sin confirmar por una persona ──────────────────────────────────
@@ -264,72 +229,79 @@ test('un objeto productoOfertado sin ningún dato no imprime tabla', () => {
 // EQUIVOCADA (una textura decorativa, una franja de logos de certificación) en vez del producto.
 // Por eso, mientras nadie la confirme, la ficha tiene que avisarlo — no imprimirla como si fuera
 // segura, mismo criterio que ya existía para marca/modelo/fabricante.
-const producto = (o: Partial<ProductoOfertadoLinea>): ProductoOfertadoLinea => ({
-  marca: null, modelo: null, fabricante: null, paisFabricacion: null, anioFabricacion: null,
-  garantiaMeses: null, ...o,
-});
-
 test('sin imagenDataUri, no imprime nada', () => {
-  assert.equal(imagenProducto(producto({})), '');
+  assert.equal(imagenProducto(prod({})), '');
   assert.equal(imagenProducto(null), '');
   assert.equal(imagenProducto(undefined), '');
 });
 
 test('imagen SIN confirmar: sale con el aviso de revisar, no como "Imagen referencial" a secas', () => {
-  const html = imagenProducto(producto({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: false }));
-  assert.ok(html.includes('data:image/png;base64,AAA'));
-  assert.ok(/confirmar que corresponde al equipo/i.test(html));
-  assert.ok(!html.includes('>Imagen referencial<'));
+  const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: false }));
+  assert.ok(h.includes('data:image/png;base64,AAA'));
+  assert.ok(/confirmar que corresponde al equipo/i.test(h));
+  assert.ok(!h.includes('>Imagen referencial<'));
 });
 
 test('imagen CONFIRMADA por una persona: sale con el pie neutro, sin el aviso', () => {
-  const html = imagenProducto(producto({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: true }));
-  assert.ok(html.includes('>Imagen referencial<'));
-  assert.ok(!/confirmar que corresponde al equipo/i.test(html));
+  const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: true }));
+  assert.ok(h.includes('>Imagen referencial<'));
+  assert.ok(!/confirmar que corresponde al equipo/i.test(h));
 });
 
-// El texto (marca/modelo) y la foto se confirman POR SEPARADO (migration-81): confirmar uno no
+// El texto (marca/modelo) y la foto se confirman POR SEPARADO (migración 81): confirmar uno no
 // confirma el otro. Texto confirmado + foto sin confirmar debe seguir avisando de la foto.
 test('confirmar el texto NO confirma la foto: el aviso de la imagen se mantiene', () => {
-  const html = imagenProducto(producto({ imagenDataUri: 'data:image/png;base64,AAA', confirmado: true, imagenConfirmada: false }));
-  assert.ok(/confirmar que corresponde al equipo/i.test(html));
+  const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', confirmado: true, imagenConfirmada: false }));
+  assert.ok(/confirmar que corresponde al equipo/i.test(h));
 });
 
-// ─── LÍNEA-PAQUETE: varios productos bajo la misma línea (migración 82) ───────────────────────
-// Caso real 2446-240-LE26: "Línea 1" junta una Hidrolavadora H300 y una Vacuolavadora DB51 Dimer,
-// cada una con su propia marca/modelo/foto. Antes de esto solo se imprimía UNA — la otra quedaba
-// completamente afuera de la ficha, aunque el usuario la hubiera cargado.
-test('línea con UN producto: no imprime subtítulo (mismo look de siempre)', () => {
-  const h = construirFichaTecnicaHtml({
-    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{
-      linea: 1, titulo: 'Hidrolavadora', cantidad: null, unidad: null, especificaciones: [],
-      productosOfertados: [{ nombre: 'Hidrolavadora H300', marca: 'Tecnomaq', modelo: 'H300', fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null }],
-    }],
-    generadoPor: null, fechaTexto: '27 de agosto de 2026',
-  });
-  assert.ok(h.includes('Tecnomaq'));
-  // OJO: "producto-nombre" también aparece SIEMPRE en el <style> (la clase CSS existe se use o
-  // no) — mismo gotcha que "sin-confirmar" en otros tests de este archivo. Hay que comprobar el
-  // elemento renderizado, no el nombre de la clase suelto.
-  assert.ok(!h.includes('<p class="producto-nombre"'));
+// ─── LÍNEA-PAQUETE: UNA FICHA POR PRODUCTO, cada una con LO SUYO ──────────────────────────────
+// Caso real 2446-240-LE26: la "Línea 1" junta una Hidrolavadora H300 y una Vacuolavadora DB51
+// Dimer. El bug que esto cierra: salían las DOS fotos juntas arriba y después una sola tabla con
+// las 31 características de ambos equipos revueltas, sin forma de saber cuál era de cuál.
+const LINEA_PAQUETE: LineaFicha[] = [{
+  linea: 1, titulo: '2 productos: Hidrolavadora + Vacuolavadora',
+  productos: [
+    prod({
+      nombre: 'Hidrolavadora peatonal H300', marca: 'Tecnomaq', modelo: 'H300',
+      imagenDataUri: 'data:image/png;base64,HIDRO', imagenConfirmada: true,
+      especificaciones: [spec({ descripcion: 'Presión de servicio', valorOfertadoTexto: '285 bar' })],
+    }),
+    prod({
+      nombre: 'Vacuolavadora de empuje DB51', marca: 'Dimer', modelo: 'DB51',
+      imagenDataUri: 'data:image/png;base64,VACUO', imagenConfirmada: true,
+      especificaciones: [spec({ descripcion: 'Motor del cepillo', valorOfertadoTexto: '550 W' })],
+    }),
+  ],
+}];
+
+test('cada producto es su PROPIA ficha numerada, con su nombre y su marca/modelo', () => {
+  const h = ficha(LINEA_PAQUETE);
+  assert.ok(/Ficha técnica 01/i.test(h));
+  assert.ok(/Ficha técnica 02/i.test(h));
+  assert.ok(h.includes('Hidrolavadora peatonal H300'));
+  assert.ok(h.includes('Vacuolavadora de empuje DB51'));
+  assert.ok(h.includes('Tecnomaq H300'));
+  assert.ok(h.includes('Dimer DB51'), 'la marca del SEGUNDO producto también se imprime');
 });
 
-test('línea-PAQUETE con 2 productos: imprime AMBOS con su propio subtítulo', () => {
-  const h = construirFichaTecnicaHtml({
-    licitacionCodigo: 'X', licitacionNombre: null, organismo: null, empresa: EMPRESA,
-    lineas: [{
-      linea: 1, titulo: '2 productos: Hidrolavadora H300, Vacuolavadora DB51 Dimer',
-      cantidad: null, unidad: null, especificaciones: [],
-      productosOfertados: [
-        { nombre: 'Hidrolavadora H300', marca: 'Tecnomaq', modelo: 'H300', fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null },
-        { nombre: 'Vacuolavadora DB51 Dimer', marca: 'Dimer', modelo: 'DB51', fabricante: null, paisFabricacion: null, anioFabricacion: null, garantiaMeses: null },
-      ],
-    }],
-    generadoPor: null, fechaTexto: '27 de agosto de 2026',
-  });
-  assert.ok(h.includes('Tecnomaq'), 'debe imprimir la marca del primer producto');
-  assert.ok(h.includes('Dimer'), 'debe imprimir la marca del SEGUNDO producto — antes se perdía');
-  assert.ok(h.includes('>Hidrolavadora H300<'), 'subtítulo del primer producto');
-  assert.ok(h.includes('>Vacuolavadora DB51 Dimer<'), 'subtítulo del segundo producto');
+test('cada ficha lleva SU foto y SUS especificaciones, en ese orden', () => {
+  const h = ficha(LINEA_PAQUETE);
+  const iHidro = h.indexOf('Hidrolavadora peatonal H300');
+  const iFotoHidro = h.indexOf('base64,HIDRO');
+  const iSpecHidro = h.indexOf('Presión de servicio');
+  const iVacuo = h.indexOf('Vacuolavadora de empuje DB51');
+  const iFotoVacuo = h.indexOf('base64,VACUO');
+  const iSpecVacuo = h.indexOf('Motor del cepillo');
+
+  // Todo lo de la Hidrolavadora ANTES de que empiece la Vacuolavadora — el orden que se rompía:
+  // antes salían las dos fotos juntas y después las características de ambos mezcladas.
+  assert.ok(iHidro < iFotoHidro, 'la foto va después del nombre');
+  assert.ok(iFotoHidro < iSpecHidro, 'las especificaciones van después de la foto');
+  assert.ok(iSpecHidro < iVacuo, 'las specs de la Hidrolavadora terminan ANTES del segundo producto');
+  assert.ok(iVacuo < iFotoVacuo && iFotoVacuo < iSpecVacuo, 'el segundo producto repite el mismo orden');
+});
+
+test('cada ficha arranca en su propia página (una ficha por hoja, como el formato de referencia)', () => {
+  assert.ok(ficha(LINEA_PAQUETE).includes('page-break-before: always'));
 });

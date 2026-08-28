@@ -6,19 +6,22 @@
 // deja dos huecos: (1) el Anexo de oferta técnica que hay que PRESENTAR se armaba a mano, y (2) no
 // había una referencia propia contra la cual leer lo que manda el proveedor.
 //
-// Este módulo da vuelta el orden: primero se genera NUESTRA ficha desde las exigencias ya
-// clasificadas (checklist_comercial_caracteristicas: descripción, tipo PISO/TECHO/EXACTO/RANGO,
-// valor exigido, unidad), y esa ficha es a la vez el entregable y la vara de comparación. Donde la
-// ficha del proveedor difiera, se corrige a mano — pero la diferencia se ve, que es el punto.
+// FORMATO (27-ago-2026, pedido explícito del usuario con un ejemplo real de Tecnomaq): UNA FICHA
+// POR PRODUCTO, cada una en su propia página, con el nombre grande, la marca/modelo debajo, la
+// foto centrada con el pie "Imagen referencial" y la tabla de especificaciones de DOS columnas
+// (característica | lo que ofertamos). Antes se imprimía una sola tabla por LÍNEA con todo
+// mezclado: en una línea-paquete (2+ productos, ver migración 82/83) salían las dos fotos juntas
+// arriba y después las 31 características de ambos equipos revueltas, sin forma de saber cuál era
+// de cuál — exactamente lo que el usuario reportó.
 //
-// NO INVENTA NADA. Una columna "ofertado" sin dato se imprime vacía, con su casilla para completar:
-// una ficha que se rellena sola con valores plausibles es exactamente lo que no se puede presentar
-// a un organismo público. Ver [[feedback_datos_reales_nunca_inventados]] en el criterio del
+// NO INVENTA NADA. Una casilla de valor ofertado sin dato se imprime VACÍA con fondo ámbar: una
+// ficha que se rellena sola con valores plausibles es exactamente lo que no se puede presentar a
+// un organismo público. Ver [[feedback_datos_reales_nunca_inventados]] en el criterio del
 // proyecto: el vacío honesto siempre antes que el dato inventado.
 //
 // El PDF lo produce generarInformePdf (HTML → chromium → A4), el mismo motor del Informe Técnico.
-// Las imágenes (logo, firma, timbre) viajan como data: URI porque ese motor carga el HTML con
-// setContent y sin recursos externos.
+// Las imágenes (logo, firma, timbre, fotos de producto) viajan como data: URI porque ese motor
+// carga el HTML con setContent y sin recursos externos.
 
 import { normalizarValorParaDocumento } from '@/app/lib/valor-ofertado-normalizar';
 
@@ -34,41 +37,45 @@ export interface EspecificacionFicha {
   unidadOfertada: string | null;
 }
 
-export interface ProductoOfertadoLinea {
-  /** Nombre de ESTE producto dentro de una línea-paquete (migración 82, caso real 2446-240-LE26:
-   *  "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer" bajo la misma línea de precio). null en el
-   *  caso normal de un solo producto por línea — ahí no hace falta repetir el título de la línea. */
-  nombre?: string | null;
+/**
+ * UN producto ofertado, con TODO lo suyo: identidad (marca/modelo/foto) y SUS especificaciones.
+ *
+ * Una línea normal trae un solo producto. Una línea-paquete (migración 82/83, caso real
+ * 2446-240-LE26: "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer" bajo la misma línea de precio)
+ * trae varios, y cada uno se imprime como su propia ficha — con sus propias características, que
+ * es lo que `producto_index` distingue en checklist_comercial_caracteristicas.
+ */
+export interface ProductoFicha {
+  /** Título grande de la ficha. En una línea de un solo producto es el título de la línea. */
+  nombre: string;
   marca: string | null;
   modelo: string | null;
   fabricante: string | null;
   paisFabricacion: string | null;
   anioFabricacion: string | null;
   garantiaMeses: number | null;
-  /** true = una persona lo confirmó; false/undefined = todavía es lo que se leyó de la ficha, sin
-   *  revisar. Se usa para decidir si el dato se imprime tal cual o con un aviso al lado. */
+  /** true = una persona confirmó marca/modelo; false/undefined = todavía es lo que se leyó de la
+   *  ficha del proveedor, sin revisar. Decide si el dato se imprime tal cual o con un aviso. */
   confirmado?: boolean;
   /** Foto del producto, como data: URI — sacada de la ficha del proveedor (ver
    *  ficha-imagen-extraer.ts) o subida a mano. null/undefined = todavía no hay foto. */
   imagenDataUri?: string | null;
   /** true = una persona confirmó que ESTA foto corresponde al producto (o la subió ella misma).
-   *  Independiente de `confirmado` (migration-81): probado contra fichas reales, la extracción
+   *  Independiente de `confirmado` (migración 81): probado contra fichas reales, la extracción
    *  automática a veces trae la imagen equivocada, así que confirmar el texto no confirma la
    *  foto y viceversa. */
   imagenConfirmada?: boolean;
+  especificaciones: EspecificacionFicha[];
+  cantidad: number | null;
+  unidad: string | null;
 }
 
 export interface LineaFicha {
   linea: number | null;
+  /** Título de la línea de la licitación — se usa como trazabilidad ("Línea 1") y, cuando la línea
+   *  trae un solo producto, como nombre de su ficha. */
   titulo: string;
-  cantidad: number | null;
-  unidad: string | null;
-  especificaciones: EspecificacionFicha[];
-  /** Marca/modelo/fabricante/foto de cada producto de ESTA línea — normalmente uno solo; más de
-   *  uno cuando la línea real es un paquete (migración 82). Vacío o ausente si no se cargó nada
-   *  (ver producto-ofertado.ts). No confundir con marcaModeloReferencia del informe, que es lo que
-   *  PIDEN las bases, no lo que ofertamos. */
-  productosOfertados?: ProductoOfertadoLinea[];
+  productos: ProductoFicha[];
 }
 
 export interface EmpresaFicha {
@@ -110,6 +117,11 @@ const num = (n: number | null): string =>
  * el organismo escribió, y reescribirlo con nuestras palabras en un documento que se presenta a
  * evaluación es arriesgado. El armado por tipo/número es el respaldo para cuando solo quedó el
  * dato numérico clasificado.
+ *
+ * NO se imprime en la ficha que se presenta (ver el formato Tecnomaq arriba: ahí va lo que se
+ * OFERTA, no lo que se pidió). Se mantiene porque es la única definición del proyecto de cómo se
+ * lee un requisito PISO/TECHO/EXACTO/RANGO, y la usa quien necesite mostrar la exigencia —
+ * incluidos los tests que fijan ese comportamiento.
  */
 export function textoRequisito(e: EspecificacionFicha): string {
   if (e.valorRequeridoTexto && e.valorRequeridoTexto.trim()) return e.valorRequeridoTexto.trim();
@@ -146,83 +158,28 @@ export function textoOfertado(e: EspecificacionFicha): string {
 
 /** Cuántas casillas quedaron sin completar — el aviso que la pantalla muestra antes de presentar. */
 export function especificacionesSinCompletar(lineas: LineaFicha[]): number {
-  return lineas.reduce((n, l) => n + l.especificaciones.filter(e => !textoOfertado(e)).length, 0);
+  return lineas.reduce((n, l) =>
+    n + l.productos.reduce((m, p) => m + p.especificaciones.filter(e => !textoOfertado(e)).length, 0), 0);
 }
 
-function tablaLinea(l: LineaFicha): string {
-  // DOS FORMAS DE LA MISMA TABLA, según lo que se sepa de la línea:
-  //
-  //  · CLASIFICADA (alguien ya validó la línea): 4 columnas, con el valor exigido en su propia
-  //    columna — "Potencia" | "Mínimo 1.200 W".
-  //  · SIN CLASIFICAR (lo habitual antes de validar: el texto viene del informe tal como lo dicen
-  //    las bases): 3 columnas. La especificación completa ES la exigencia, así que separarla en
-  //    dos dejaría una columna entera en blanco en TODAS las filas — se lee como si faltara un
-  //    dato, cuando en realidad no falta nada.
-  //
-  // Se decide por línea y no por documento: en una misma ficha puede haber una línea ya validada
-  // y otra que no.
-  const clasificada = l.especificaciones.some(e => textoRequisito(e));
-
-  const filas = l.especificaciones.map((e, i) => {
-    const ofertado = textoOfertado(e);
-    const celdaOfertado = `<td class="of${ofertado ? '' : ' vacia'}">${ofertado ? esc(ofertado) : ''}</td>`;
-    return clasificada
-      ? `<tr>
-      <td class="n">${i + 1}</td>
-      <td>${esc(e.descripcion)}</td>
-      <td class="req">${esc(textoRequisito(e))}</td>
-      ${celdaOfertado}
-    </tr>`
-      : `<tr>
-      <td class="n">${i + 1}</td>
-      <td>${esc(e.descripcion)}</td>
-      ${celdaOfertado}
-    </tr>`;
-  }).join('');
-
-  const cabeceraCantidad = [
-    l.cantidad != null ? `Cantidad: ${num(l.cantidad)}` : '',
-    l.unidad || '',
-  ].filter(Boolean).join(' ');
-
-  // Un producto (lo normal): sus datos van tal cual, como siempre. Varios productos (línea-paquete,
-  // migración 82): cada uno con su propio subtítulo, foto y tabla "Información de la oferta" —
-  // sin el subtítulo repetido no habría forma de saber cuál marca/modelo es de cuál producto.
-  const productos = l.productosOfertados || [];
-  const bloquesProducto = productos.map(p => `
-    ${productos.length > 1 && p.nombre ? `<p class="producto-nombre">${esc(p.nombre)}</p>` : ''}
-    ${imagenProducto(p)}
-    ${tablaProductoOfertado(p)}`).join('');
-
-  return `<section class="linea">
-    <h2>${l.linea != null ? `Línea ${l.linea} — ` : ''}${esc(l.titulo)}</h2>
-    ${cabeceraCantidad ? `<p class="cant">${esc(cabeceraCantidad)}</p>` : ''}
-    ${bloquesProducto}
-    ${l.especificaciones.length === 0
-      ? '<p class="sin">Sin especificaciones técnicas registradas para esta línea.</p>'
-      : `<table class="specs">
-          <thead><tr><th class="n">#</th>${clasificada
-            ? '<th>Característica</th><th>Exigido en las bases</th>'
-            : '<th>Especificación exigida en las bases</th>'}<th>Ofertado</th></tr></thead>
-          <tbody>${filas}</tbody>
-        </table>`}
-  </section>`;
+/** Todos los productos del documento, en orden, con la línea a la que pertenece cada uno. */
+function productosEnOrden(lineas: LineaFicha[]): Array<{ linea: LineaFicha; producto: ProductoFicha }> {
+  return lineas.flatMap(linea => linea.productos.map(producto => ({ linea, producto })));
 }
 
 /**
- * Foto del producto — mismo lugar donde la trae la ficha de un proveedor típico: bajo el título,
- * antes de la tabla de especificaciones (ver el ejemplo que originó esto: Tecnomaq).
+ * Foto del producto — centrada bajo el título, como en la ficha de proveedor que originó el
+ * formato (Tecnomaq).
  *
  * OJO, VERIFICADO CON FICHAS REALES (27-ago-2026): la extracción automática (ver
  * ficha-imagen-extraer.ts) elige "la imagen más grande de la página", y eso a veces NO es la foto
  * del producto — en una prueba contra 15 fichas de proveedor ya cargadas, 2 de 4 casos revisados
  * a mano trajeron una textura decorativa de marketing o una franja de logos de certificación en
- * vez del equipo. Por eso, mientras nadie la haya confirmado (mismo `confirmado` que ya gatea
- * marca/modelo/fabricante), se imprime con un aviso en vez del pie neutro "Imagen referencial" —
- * mismo criterio que tablaProductoOfertado(): no se oculta el dato leído automáticamente, pero
- * tampoco se presenta como si fuera definitivo.
+ * vez del equipo. Por eso, mientras nadie la haya confirmado, se imprime con un aviso en vez del
+ * pie neutro "Imagen referencial": no se oculta lo que leyó la máquina, pero tampoco se presenta
+ * como si fuera definitivo.
  */
-export function imagenProducto(p: ProductoOfertadoLinea | null | undefined): string {
+export function imagenProducto(p: ProductoFicha | null | undefined): string {
   if (!p?.imagenDataUri) return '';
   const pie = p.imagenConfirmada
     ? 'Imagen referencial'
@@ -234,26 +191,66 @@ export function imagenProducto(p: ProductoOfertadoLinea | null | undefined): str
 }
 
 /**
- * "Información de la oferta" — marca/modelo/fabricante/país/año/garantía del producto de ESTA
- * línea. Es exactamente lo que piden los formularios técnicos del organismo (ver
- * project_formulario_n3_matriz_cumplimiento_ago2026), y hasta ahora no había dónde imprimirlo.
+ * "Información de la oferta" — fabricante/país/año/garantía. Es lo que piden los formularios
+ * técnicos del organismo (ver project_formulario_n3_matriz_cumplimiento_ago2026). Marca y modelo
+ * NO van acá: ya son el subtítulo de la ficha, y repetirlos sería ruido.
  *
- * Si NO hay dato cargado, no se muestra ninguna tabla — no tiene sentido imprimir 5 filas vacías
- * cuando nadie subió todavía la ficha del proveedor. Si hay ALGÚN dato pero no está confirmado por
- * una persona, se avisa con una nota: presentar sin revisar lo que leyó una máquina es un riesgo.
+ * Si NO hay ningún dato, no se imprime la sección — no tiene sentido mostrar filas vacías cuando
+ * nadie subió todavía la ficha del proveedor. Si hay algún dato pero no está confirmado por una
+ * persona, se avisa: presentar sin revisar lo que leyó una máquina es un riesgo.
  */
-function tablaProductoOfertado(p: ProductoOfertadoLinea | null | undefined): string {
-  if (!p) return '';
+function seccionInformacionOferta(p: ProductoFicha): string {
   const filas = ([
-    ['Marca', p.marca], ['Modelo', p.modelo], ['Fabricante', p.fabricante],
-    ['País de fabricación', p.paisFabricacion], ['Año de fabricación', p.anioFabricacion],
+    ['Fabricante', p.fabricante],
+    ['País de fabricación', p.paisFabricacion],
+    ['Año de fabricación', p.anioFabricacion],
     ['Garantía técnica', p.garantiaMeses != null ? `${p.garantiaMeses} meses` : null],
   ] as Array<[string, string | null]>).filter(([, v]) => v && String(v).trim());
   if (!filas.length) return '';
-  return `<table class="oferta">
+  return `<h3 class="sec">Información de la oferta</h3>
+    <table class="specs">
       <tbody>${filas.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</tbody>
-    </table>
-    ${p.confirmado ? '' : '<p class="sin-confirmar">⚠ Dato leído automáticamente de la ficha del proveedor — revisar antes de presentar.</p>'}`;
+    </table>`;
+}
+
+/**
+ * UNA ficha, la de un producto: número, nombre, marca/modelo, foto, especificaciones.
+ *
+ * La tabla de especificaciones es de DOS columnas —característica | lo que ofertamos—, como la
+ * ficha de proveedor que se tomó de modelo. Lo EXIGIDO por las bases no se imprime acá: este es el
+ * documento que se presenta (declara lo que ofrecemos), no la planilla de auditoría — esa vive en
+ * el modal del Auditor Técnico, con las dos columnas enfrentadas.
+ */
+function fichaDeProducto(p: ProductoFicha, linea: LineaFicha, numero: number): string {
+  const marcaModelo = [p.marca, p.modelo].filter(Boolean).join(' ');
+  const cantidad = [
+    p.cantidad != null ? `Cantidad: ${num(p.cantidad)}` : '',
+    p.unidad || '',
+  ].filter(Boolean).join(' ');
+
+  const filas = p.especificaciones.map(e => {
+    const ofertado = textoOfertado(e);
+    return `<tr>
+      <th>${esc(e.descripcion)}</th>
+      <td class="${ofertado ? '' : 'vacia'}">${ofertado ? esc(ofertado) : ''}</td>
+    </tr>`;
+  }).join('');
+
+  return `<section class="ficha">
+    <p class="ficha-num">${linea.linea != null ? `Línea ${linea.linea} · ` : ''}Ficha técnica ${String(numero).padStart(2, '0')}</p>
+    <h2 class="prod-nombre">${esc(p.nombre)}</h2>
+    ${marcaModelo ? `<p class="prod-modelo">${esc(marcaModelo)}</p>` : ''}
+    ${cantidad ? `<p class="prod-cant">${esc(cantidad)}</p>` : ''}
+    ${p.confirmado === false && marcaModelo
+      ? '<p class="sin-confirmar">⚠ Marca/modelo leídos automáticamente de la ficha del proveedor — revisar antes de presentar.</p>'
+      : ''}
+    ${imagenProducto(p)}
+    <h3 class="sec">Especificaciones técnicas</h3>
+    ${p.especificaciones.length === 0
+      ? '<p class="sin">Sin especificaciones técnicas registradas para este producto.</p>'
+      : `<table class="specs"><tbody>${filas}</tbody></table>`}
+    ${seccionInformacionOferta(p)}
+  </section>`;
 }
 
 export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
@@ -289,6 +286,10 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
     ${e.timbreDataUri ? `<div class="timbre-col"><img class="timbre-img" src="${e.timbreDataUri}" alt="" /></div>` : ''}
   </div>`;
 
+  const fichas = productosEnOrden(d.lineas)
+    .map(({ linea, producto }, i) => fichaDeProducto(producto, linea, i + 1))
+    .join('');
+
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8" />
 <title>Ficha Técnica — ${esc(d.licitacionCodigo)}</title>
 <style>
@@ -296,43 +297,51 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #18181b;
          font-size: 10.5px; line-height: 1.45; margin: 0; }
   header { display: flex; align-items: flex-start; gap: 14px; border-bottom: 2px solid #0f766e;
-           padding-bottom: 10px; margin-bottom: 14px; }
+           padding-bottom: 10px; margin-bottom: 12px; }
   header .logo { max-height: 56px; max-width: 190px; object-fit: contain; }
   header .tit { flex: 1; }
   header h1 { font-size: 15px; margin: 0 0 2px; letter-spacing: .2px; }
   header .sub { color: #52525b; font-size: 10px; margin: 0; }
   header .cod { color: #0f766e; font-weight: 700; font-size: 10px; margin: 3px 0 0; }
-  table.kv { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+  table.kv { border-collapse: collapse; width: 100%; margin-bottom: 18px; }
   table.kv th { text-align: left; width: 110px; color: #52525b; font-weight: 600;
                 padding: 3px 8px 3px 0; vertical-align: top; font-size: 10px; }
   table.kv td { padding: 3px 0; }
-  section.linea { margin-bottom: 16px; page-break-inside: avoid; }
-  section.linea h2 { font-size: 11.5px; margin: 0 0 2px; padding: 5px 8px; background: #f4f4f5;
-                     border-left: 3px solid #0f766e; }
-  p.cant { margin: 0 0 5px 8px; color: #71717a; font-size: 9.5px; }
-  /* Subtítulo de CADA producto dentro de una línea-paquete (varios productos, migración 82) —
-     sin esto no se distingue de cuál producto es la marca/modelo/foto que sigue. */
-  p.producto-nombre { margin: 10px 0 4px 8px; font-weight: 700; font-size: 10.5px; color: #18181b; }
-  .foto-producto { text-align: center; margin: 4px 0 8px; page-break-inside: avoid; }
-  .foto-producto img { max-height: 150px; max-width: 60%; object-fit: contain; }
-  .foto-producto .foto-ref { margin: 3px 0 0; color: #a1a1aa; font-size: 8.5px; font-style: italic; }
+
+  /* ── UNA FICHA POR PRODUCTO, cada una en su propia página (formato Tecnomaq) ──────────────
+     La primera comparte página con el encabezado y los datos de la empresa; el resto arranca
+     en página nueva, para que ningún producto quede partido entre dos hojas. */
+  section.ficha { page-break-inside: avoid; }
+  section.ficha + section.ficha { page-break-before: always; padding-top: 4px; }
+  .ficha-num { margin: 0 0 2px; font-size: 9.5px; font-weight: 700; color: #71717a;
+               text-transform: uppercase; letter-spacing: .6px;
+               border-bottom: 2px solid #0f766e; padding-bottom: 5px; }
+  .prod-nombre { font-size: 15.5px; font-weight: 800; margin: 9px 0 1px; line-height: 1.25;
+                 text-transform: uppercase; letter-spacing: .1px; }
+  .prod-modelo { font-size: 12px; font-weight: 800; color: #0f766e; margin: 0;
+                 text-transform: uppercase; letter-spacing: .3px; }
+  .prod-cant { margin: 3px 0 0; color: #71717a; font-size: 9.5px; }
+  h3.sec { font-size: 11px; font-weight: 800; color: #0f766e; text-transform: uppercase;
+           letter-spacing: .5px; margin: 14px 0 6px; }
+  p.sin { margin: 0 0 5px; color: #a1a1aa; font-style: italic; }
+  p.sin-confirmar { margin: 5px 0 0; color: #b45309; font-size: 9px; font-weight: 600; }
+
+  /* Foto centrada + pie, igual que la ficha de proveedor que se tomó de modelo. */
+  .foto-producto { text-align: center; margin: 12px 0 4px; page-break-inside: avoid; }
+  .foto-producto img { max-height: 170px; max-width: 62%; object-fit: contain; }
+  .foto-producto .foto-ref { margin: 5px 0 0; color: #a1a1aa; font-size: 8.5px; font-style: italic; }
   .foto-producto .foto-ref.sin-confirmar { color: #b45309; font-weight: 600; font-style: normal; }
-  table.oferta { border-collapse: collapse; margin: 0 0 4px 8px; }
-  table.oferta th { text-align: left; color: #52525b; font-weight: 600; padding: 2px 10px 2px 0;
-                    font-size: 9.5px; white-space: nowrap; }
-  table.oferta td { padding: 2px 0; font-weight: 600; }
-  p.sin-confirmar { margin: 0 0 6px 8px; color: #b45309; font-size: 9px; font-weight: 600; }
-  p.sin { margin: 0 0 5px 8px; color: #a1a1aa; font-style: italic; }
+
+  /* Especificaciones: DOS columnas (característica | lo ofertado), filas alternadas. */
   table.specs { border-collapse: collapse; width: 100%; }
-  table.specs th, table.specs td { border: 1px solid #e4e4e7; padding: 4px 6px; vertical-align: top; }
-  table.specs thead th { background: #fafafa; font-size: 9.5px; text-transform: uppercase;
-                         letter-spacing: .3px; color: #52525b; }
-  table.specs td.n, table.specs th.n { width: 22px; text-align: center; color: #a1a1aa; }
-  table.specs td.req { width: 27%; }
-  table.specs td.of  { width: 27%; }
+  table.specs th, table.specs td { border: 1px solid #e4e4e7; padding: 5px 8px; vertical-align: top; }
+  table.specs th { text-align: left; width: 42%; font-weight: 700; background: #fafafa; }
+  table.specs tr:nth-child(even) th { background: #f4f4f5; }
+  table.specs tr:nth-child(even) td { background: #fafafa; }
   /* Casilla sin dato: se imprime VACÍA y con fondo, para que se vea que falta completarla.
      Nunca se rellena con un valor plausible. */
-  table.specs td.of.vacia { background: #fffbeb; min-height: 16px; }
+  table.specs td.vacia { background: #fffbeb; }
+
   /* Firma y timbre en COLUMNAS SEPARADAS, en flujo normal. Nada de position:absolute acá: la
      primera versión los superponía a propósito y en el papel quedaron ilegibles. */
   .firma { margin-top: 30px; page-break-inside: avoid; display: flex; align-items: flex-end; gap: 34px; }
@@ -346,7 +355,7 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   .firma-nombre { margin: 0; font-weight: 700; }
   .firma-dato { margin: 0; color: #52525b; font-size: 9.5px; }
   footer { margin-top: 22px; border-top: 1px solid #e4e4e7; padding-top: 6px;
-           color: #a1a1aa; font-size: 8.5px; }
+           color: #a1a1aa; font-size: 8.5px; font-style: italic; }
 </style></head><body>
 <header>
   ${e.logoDataUri ? `<img class="logo" src="${e.logoDataUri}" alt="" />` : ''}
@@ -362,14 +371,14 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
     .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}
 </table>
 
-${d.lineas.map(tablaLinea).join('')}
+${fichas}
 
 ${bloqueFirma}
 
 <footer>
   Documento generado por LICITANK el ${esc(d.fechaTexto)}${d.generadoPor ? ` · ${esc(d.generadoPor)}` : ''}.
-  Las columnas "Exigido en las bases" se transcriben del análisis de las bases de la licitación
-  ${esc(d.licitacionCodigo)}; las casillas de "Ofertado" que aparezcan en blanco deben completarse
+  Las fotografías son referenciales y no contractuales; corresponden al modelo ofertado o a una
+  unidad equivalente. Las casillas de valor ofertado que aparezcan en blanco deben completarse
   antes de presentar.
 </footer>
 </body></html>`;

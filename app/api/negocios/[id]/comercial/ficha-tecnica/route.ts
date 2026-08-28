@@ -15,11 +15,11 @@ import { subirDocumentoR2 } from '@/app/lib/r2';
 import { generarInformePdf } from '@/app/lib/generar-informe';
 import { leerLineasOfertadas } from '@/app/lib/lineas-oferta';
 import { cargarNegocio, nombreDe, leerInforme } from '../route';
-import { lineasTecnicasDelInforme, productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
+import { productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
 import { leerProductosDeLinea } from '@/app/lib/producto-ofertado-db';
 import {
   construirFichaTecnicaHtml, especificacionesSinCompletar,
-  type LineaFicha, type EspecificacionFicha, type EmpresaFicha, type ProductoOfertadoLinea,
+  type LineaFicha, type EspecificacionFicha, type EmpresaFicha, type ProductoFicha,
 } from '@/app/lib/ficha-tecnica';
 
 export const runtime = 'nodejs';
@@ -84,20 +84,39 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!items.length)
       return NextResponse.json({ error: 'No hay líneas técnicas para incluir en la ficha.' }, { status: 400 });
 
-    // Las especificaciones, de una sola consulta para todas las líneas.
-    const [carRows] = await pool.query(
-      `SELECT item_id, descripcion, tipo, valor_requerido_texto, valor_requerido_numero,
+    // Las especificaciones, de una sola consulta para todas las líneas, agrupadas por PRODUCTO
+    // (`producto_index`, migración 83) — no por línea: una línea-paquete tiene las de cada equipo
+    // y mezclarlas es justo lo que hacía ilegible el documento.
+    //
+    // Tolerante a que la migración 83 no esté aplicada todavía (mismo patrón degradado del resto
+    // del proyecto): sin esa columna, todo cae a producto_index 0, o sea el comportamiento previo.
+    const colsCaract = `item_id, descripcion, tipo, valor_requerido_texto, valor_requerido_numero,
               valor_requerido_numero_max, unidad_requerida, valor_ofertado_texto,
-              valor_ofertado_numero, unidad_ofertada_original
-         FROM checklist_comercial_caracteristicas
-        WHERE negocio_id = ? AND item_id IN (?)
-        ORDER BY item_id, orden, id`,
-      [negocio.id, items.map(i => i.id)],
-    ) as any;
-    const porItem = new Map<number, EspecificacionFicha[]>();
-    for (const r of carRows as any[]) {
-      if (!porItem.has(r.item_id)) porItem.set(r.item_id, []);
-      porItem.get(r.item_id)!.push({
+              valor_ofertado_numero, unidad_ofertada_original`;
+    const leerCaract = async (conIndice: boolean) => {
+      const [rows] = await pool.query(
+        `SELECT ${conIndice ? 'producto_index, ' : ''}${colsCaract}
+           FROM checklist_comercial_caracteristicas
+          WHERE negocio_id = ? AND item_id IN (?)
+          ORDER BY item_id, ${conIndice ? 'producto_index, ' : ''}orden, id`,
+        [negocio.id, items.map(i => i.id)],
+      ) as any;
+      return rows as any[];
+    };
+    let carRows: any[];
+    try {
+      carRows = await leerCaract(true);
+    } catch (e: any) {
+      if (e?.code !== 'ER_BAD_FIELD_ERROR') throw e;
+      carRows = await leerCaract(false);
+    }
+
+    // clave "itemId:productoIndex" → sus especificaciones.
+    const porItemProducto = new Map<string, EspecificacionFicha[]>();
+    for (const r of carRows) {
+      const clave = `${r.item_id}:${r.producto_index ?? 0}`;
+      if (!porItemProducto.has(clave)) porItemProducto.set(clave, []);
+      porItemProducto.get(clave)!.push({
         descripcion: String(r.descripcion || ''),
         tipo: r.tipo ?? null,
         valorRequeridoTexto: r.valor_requerido_texto ?? null,
@@ -130,56 +149,66 @@ export async function POST(request: NextRequest, { params }: Params) {
     // NINGUNA especificación — justo el documento que se quería tener ANTES de cargar la ficha del
     // proveedor, o sea el caso normal de uso.
     //
-    // Las exigencias ya están en el informe (`lineasTecnicasDelInforme` → `caracteristicas`),
-    // solo que como texto suelto sin clasificar en PISO/TECHO/EXACTO/RANGO. Para la ficha alcanza:
+    // Las exigencias ya están en el informe, y desde la migración 83 `productosCrudosDeLinea` las
+    // devuelve POR PRODUCTO — así el respaldo también queda repartido, no amontonado en el primero.
+    // Vienen como texto suelto sin clasificar en PISO/TECHO/EXACTO/RANGO; para la ficha alcanza:
     // la columna es texto y se transcribe tal cual, una fila por especificación.
     const informeFicha = await leerInforme(negocio.licitacion_codigo);
-    const delInforme = new Map<number, string[]>();
-    if (informeFicha) {
-      for (const l of lineasTecnicasDelInforme(informeFicha)) delInforme.set(l.linea, l.caracteristicas);
-    }
 
-    // Marca/modelo/fabricante/foto por PRODUCTO de cada línea (producto-ofertado.ts / migración
-    // 79, 82) — una línea normal trae un solo producto; una línea-paquete (caso real
-    // 2446-240-LE26: "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer" en la misma línea de
-    // precio) trae varios, cada uno con su propia identidad.
-    const productosPorItem = new Map<number, ProductoOfertadoLinea[]>();
+    // Un producto de la ficha = identidad (marca/modelo/foto, migración 79/82) + SUS
+    // especificaciones (migración 83). Una línea normal trae uno solo; una línea-paquete (caso
+    // real 2446-240-LE26: "Hidrolavadora H300" + "Vacuolavadora DB51 Dimer" en la misma línea de
+    // precio) trae varios, y cada uno se imprime como su propia ficha.
+    const productosPorItem = new Map<number, ProductoFicha[]>();
     await Promise.all(items.map(async i => {
-      const nombres = i.linea_numero != null && informeFicha
-        ? productosCrudosDeLinea(informeFicha, i.linea_numero).map(p => p.nombre)
+      const crudos = i.linea_numero != null && informeFicha
+        ? productosCrudosDeLinea(informeFicha, i.linea_numero)
         : [];
-      const productos = await leerProductosDeLinea(i.id, nombres).catch(() => []);
-      productosPorItem.set(i.id, await Promise.all(productos.map(async ({ nombre, ofertado }) => ({
-        nombre,
-        marca: ofertado?.marca ?? null, modelo: ofertado?.modelo ?? null, fabricante: ofertado?.fabricante ?? null,
-        paisFabricacion: ofertado?.paisFabricacion ?? null, anioFabricacion: ofertado?.anioFabricacion ?? null,
-        garantiaMeses: ofertado?.garantiaMeses ?? null, confirmado: ofertado?.confirmadoPor != null,
-        imagenDataUri: await comoDataUri(ofertado?.imagenUrl ?? null), imagenConfirmada: ofertado?.imagenConfirmada ?? false,
-      }))));
-    }));
+      const tituloLinea = String(i.titulo).replace(/^L[íi]nea\s+\d+\s*[—–-]\s*/i, '').trim();
+      const guardados = await leerProductosDeLinea(i.id, crudos.map(p => p.nombre)).catch(() => []);
 
-    const lineas: LineaFicha[] = items.map(i => {
+      // Cantidad/unidad de respaldo: para una línea de UN producto se leen del punto de precio de
+      // esa línea (el informe no siempre las trae en el producto). Con varios productos manda la
+      // del producto: sumarlas o repetirlas sería inventar.
       const desc = i.linea_numero != null ? descPorLinea.get(i.linea_numero) || '' : '';
       const m = /Cantidad:\s*([\d.,]+)\s*(\S+)?/i.exec(desc);
-      const guardadas = porItem.get(i.id) || [];
-      const especificaciones = guardadas.length
-        ? guardadas
-        : (i.linea_numero != null ? delInforme.get(i.linea_numero) || [] : []).map(texto => ({
-            // El texto del informe ES la exigencia completa; no se parte ni se reinterpreta.
-            descripcion: texto, tipo: null,
-            valorRequeridoTexto: null, valorRequeridoNumero: null, valorRequeridoNumeroMax: null,
-            unidadRequerida: null, valorOfertadoTexto: null, valorOfertadoNumero: null,
-            unidadOfertada: null,
-          } as EspecificacionFicha));
-      return {
-        linea: i.linea_numero,
-        titulo: String(i.titulo).replace(/^L[íi]nea\s+\d+\s*[—–-]\s*/i, '').trim(),
-        cantidad: m ? Number(String(m[1]).replace(/\./g, '').replace(',', '.')) || null : null,
-        unidad: m?.[2] || null,
-        especificaciones,
-        productosOfertados: productosPorItem.get(i.id) ?? [],
-      };
-    });
+      const cantidadLinea = m ? Number(String(m[1]).replace(/\./g, '').replace(',', '.')) || null : null;
+      const unidadLinea = m?.[2] || null;
+
+      productosPorItem.set(i.id, await Promise.all(guardados.map(async ({ index, nombre, ofertado }) => {
+        const crudo = crudos[index];
+        const guardadas = porItemProducto.get(`${i.id}:${index}`) || [];
+        const especificaciones: EspecificacionFicha[] = guardadas.length
+          ? guardadas
+          : (crudo?.caracteristicas || []).map(texto => ({
+              // El texto del informe ES la exigencia completa; no se parte ni se reinterpreta.
+              descripcion: texto, tipo: null,
+              valorRequeridoTexto: null, valorRequeridoNumero: null, valorRequeridoNumeroMax: null,
+              unidadRequerida: null, valorOfertadoTexto: null, valorOfertadoNumero: null,
+              unidadOfertada: null,
+            }));
+        const unico = guardados.length === 1;
+        return {
+          // Con un solo producto el nombre de la ficha es el título de la línea (el de siempre);
+          // con varios, el nombre propio de cada uno.
+          nombre: (unico ? tituloLinea : nombre) || nombre || tituloLinea,
+          marca: ofertado?.marca ?? null, modelo: ofertado?.modelo ?? null, fabricante: ofertado?.fabricante ?? null,
+          paisFabricacion: ofertado?.paisFabricacion ?? null, anioFabricacion: ofertado?.anioFabricacion ?? null,
+          garantiaMeses: ofertado?.garantiaMeses ?? null, confirmado: ofertado?.confirmadoPor != null,
+          imagenDataUri: await comoDataUri(ofertado?.imagenUrl ?? null),
+          imagenConfirmada: ofertado?.imagenConfirmada ?? false,
+          especificaciones,
+          cantidad: crudo?.cantidad ?? (unico ? cantidadLinea : null),
+          unidad: crudo?.unidadMedida ?? (unico ? unidadLinea : null),
+        };
+      })));
+    }));
+
+    const lineas: LineaFicha[] = items.map(i => ({
+      linea: i.linea_numero,
+      titulo: String(i.titulo).replace(/^L[íi]nea\s+\d+\s*[—–-]\s*/i, '').trim(),
+      productos: productosPorItem.get(i.id) ?? [],
+    }));
 
     const [empRows] = await pool.query(
       `SELECT razon_social, rut, giro, direccion, email1, telefono1, representante_nombre,
