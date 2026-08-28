@@ -25,7 +25,7 @@
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
   insertarImagenEnParrafo, rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
-  eliminarRespaldoVmlDuplicado, marcarKeepNext, type Parrafo,
+  eliminarRespaldoVmlDuplicado, marcarKeepNext, agregarTextoBajoLineaFirma, type Parrafo,
 } from '@/app/lib/anexos-docx';
 import {
   analizarAnexo, extraerTablasCrudo,
@@ -1109,7 +1109,31 @@ export async function generarAnexoFinal(
     if (usaTimbre && empresa.timbre_url && !timbre) avisos.push('No se pudo descargar el timbre guardado — el documento se generó SIN timbre.');
 
     for (const { linea, que, alineacion } of decisiones) {
+      // linea.pideNombre/pideRut: la leyenda dice "Nombre y Firma..." o "Nombre, RUT y Firma..."
+      // (no solo "Firma"). Cada dato que la leyenda pide y SÍ está en la ficha se escribe debajo de
+      // la línea — sin el dato correspondiente no se escribe nada de esa línea (no se inventa).
+      // BUG REAL (1426039-8-LE26, 10-ago-2026): "Nombre, RUT y Firma Representante Legal" solo
+      // entregaba el nombre — el RUT que la leyenda pedía explícito no salía en ningún lugar.
+      //
+      // SIEMPRE se escribe, sin importar `que` (BUG REAL 2, 29-ago-2026, ANEXO N°2B): antes este
+      // texto viajaba como `nombreDebajo` de `insertarImagenEnParrafo`, atado a estampar la
+      // imagen en el MISMO paso — desde que la firma se posiciona aparte sobre PDF (ver
+      // anexos-pdf-firma.ts), `que` es siempre 'ninguna' acá, así que ese texto dejó de escribirse
+      // por completo. Es contenido de la declaración (quién firma), no del estampado de la imagen
+      // — no tiene por qué depender de si la imagen se pone ahora, después, o nunca.
+      const lineasDebajo = [
+        linea.pideNombre && empresa.representante_nombre ? empresa.representante_nombre : null,
+        linea.pideRut && empresa.representante_rut ? empresa.representante_rut : null,
+      ].filter((l): l is string => l != null);
+      if (lineasDebajo.length) {
+        xml = agregarTextoBajoLineaFirma(xml, linea.paraId, lineasDebajo);
+        xml = marcarKeepNext(xml, linea.paraId);
+        if (linea.paraIdLeyenda) xml = marcarKeepNext(xml, linea.paraIdLeyenda);
+        if (linea.paraIdsRayaAntes) for (const id of linea.paraIdsRayaAntes) xml = marcarKeepNext(xml, id);
+      }
+
       if (que === 'ninguna') continue;
+      // De acá para abajo, SOLO la imagen — el texto (si correspondía) ya quedó escrito arriba.
       // La PRIMERA imagen que entra al párrafo es la que limpia la raya; la segunda se suma con
       // `conservar` para no borrarla. Si solo va el timbre, entonces es él el que entra primero.
       // `linea.sinRaya` (patrón 5, "Etiqueta:" sola — ver analizarAnexo) fuerza `conservar` desde
@@ -1117,34 +1141,12 @@ export async function generarAnexoFinal(
       // párrafo (la etiqueta "FIRMA REPRESENTANTE LEGAL:" tiene que sobrevivir intacta).
       let primera = true;
       let estampoAlgo = false;
-      // linea.pideNombre/pideRut: la leyenda dice "Nombre y Firma..." o "Nombre, RUT y Firma..."
-      // (no solo "Firma") — ver el comentario de nombreDebajo en insertarImagenEnParrafo. Cada
-      // dato que la leyenda pide y SÍ está en la ficha se agrega junto a la imagen; sin el dato
-      // correspondiente no se escribe nada de esa línea (no se inventa), la imagen se estampa
-      // igual. BUG REAL (1426039-8-LE26, 10-ago-2026): "Nombre, RUT y Firma Representante Legal"
-      // solo entregaba el nombre — el RUT que la leyenda pedía explícito no salía en ningún lugar
-      // del documento. Se calcula una sola vez acá (no adentro del bloque de la firma) porque el
-      // timbre necesita saber si hubo texto para decidir su propio layout (ver columnaDerecha).
-      const lineasDebajo = [
-        linea.pideNombre && empresa.representante_nombre ? empresa.representante_nombre : null,
-        linea.pideRut && empresa.representante_rut ? empresa.representante_rut : null,
-      ].filter((l): l is string => l != null);
-      const nombreDebajo = lineasDebajo.length ? lineasDebajo : undefined;
-      // `columnaDerecha`: pedido explícito del usuario (13-ago-2026, caso 1063538-204-LE26) — con
-      // nombre y/o RUT de por medio, el layout apilado (imagen arriba, nombre y RUT cada uno en su
-      // línea debajo) dejaba el bloque de firma innecesariamente alto y, con el timbre sumado,
-      // arriesgaba partir la página a la mitad del bloque. En vez de eso: texto a la izquierda,
-      // firma+timbre lado a lado a la derecha, todo en una sola línea — ver columnaDerecha en
-      // insertarImagenEnParrafo. Nunca se combina con `saltoAntesDeFirma` (raya-borde-de-celda,
-      // patrón flotante aparte) ni tiene sentido sin nombre/RUT (no habría texto que poner a la
-      // izquierda del tab).
-      const columnaDerecha = !!nombreDebajo && !linea.saltoAntesDeFirma;
       if (firma && (que === 'ambas' || que === 'firma')) {
         // linea.saltoAntesDeFirma: SOLO la raya-borde-de-celda lo pide (leyenda larga que envuelve
         // 2+ líneas visuales) — ver el comentario en insertarImagenEnParrafo. El sinRaya "clásico"
         // (patrón 5, leyenda corta de una línea) no lo activa, mismo comportamiento de siempre.
         xml = await insertarImagenEnParrafo(zip, xml, linea.paraId, firma.buffer, firma.extension, {
-          etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya, nombreDebajo, columnaDerecha,
+          etiqueta: 'firma', alineacion, conservar: !!linea.sinRaya,
           saltoAntesDeImagen: !!linea.saltoAntesDeFirma,
           // Misma condición que saltoAntesDeFirma (raya-borde-de-celda): ahí, y SOLO ahí, la
           // línea es un borde real que el contenido en línea nunca puede superar — se necesita
@@ -1157,7 +1159,7 @@ export async function generarAnexoFinal(
       if (timbre && (que === 'ambas' || que === 'timbre')) {
         xml = await insertarImagenEnParrafo(
           zip, xml, linea.paraId, timbre.buffer, timbre.extension,
-          { etiqueta: 'timbre', anchoCm: 2.8, conservar: !primera || !!linea.sinRaya, alineacion, columnaDerecha },
+          { etiqueta: 'timbre', anchoCm: 2.8, conservar: !primera || !!linea.sinRaya, alineacion },
         );
         estampoAlgo = true;
       }
@@ -1167,9 +1169,6 @@ export async function generarAnexoFinal(
       if (estampoAlgo) {
         xml = marcarKeepNext(xml, linea.paraId);
         if (linea.paraIdLeyenda) xml = marcarKeepNext(xml, linea.paraIdLeyenda);
-        // La "raya negra" de algunos anexos NO es texto: son varios párrafos vacíos con borde
-        // inferior (ver LineaFirma.paraIdsRayaAntes) — sin encadenarlos también, Word podía cortar
-        // ENTRE la raya y la leyenda, dejando la línea sola al fondo de una página (3713-7-LE26).
         if (linea.paraIdsRayaAntes) for (const id of linea.paraIdsRayaAntes) xml = marcarKeepNext(xml, id);
       }
     }

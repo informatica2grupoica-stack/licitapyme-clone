@@ -1537,7 +1537,13 @@ const RE_CAPTION_ROL_FIRMA = /^\(?\s*(oferente|proponente|evaluador|proveedor|co
 // corta, sin verbos ni conectores) descarta una declaración como "el que suscribe firma en señal
 // de aceptación", que es justo lo que el ancla al inicio protegía.
 const RE_LEYENDA_FIRMA_SOLA = /\bfirma[ns]?\b/i;
-const LARGO_MAX_LEYENDA_FIRMA = 90;
+// BUG REAL (29-ago-2026, ANEXO N°2B, 2928-17-LE26): este documento alinea "Nombre:"/"Rut:" a DOS
+// columnas rellenando con espacios en vez de tabulaciones o tabla — "Rut:" + su padding llega a 92
+// caracteres, apenas por encima del tope de 90. El tope existe para no confundir una leyenda REAL
+// (corta) con una oración cualquiera (larga) que caiga cerca de la raya; una etiqueta corta
+// PADDEADA a dos columnas puede acercarse a ese límite sin ser texto corrido — se sube a 110 para
+// darle margen a ese patrón sin abrir la puerta a un párrafo de verdad largo.
+const LARGO_MAX_LEYENDA_FIRMA = 110;
 const RE_PIDE_TIMBRE = /timbre/i;
 // "Nombre" aparte de "Firma" en la MISMA leyenda ("Nombre y Firma...") — no calza con RE_LEYENDA_
 // FIRMA_SOLA (esa exige la palabra "firma") a propósito: una leyenda puede pedir nombre sin pedir
@@ -1595,18 +1601,27 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
     if (esRayaLarga(p.texto)) {
       const siguiente1 = parrafos[i + 1]?.texto || '';
       const siguiente2 = parrafos[i + 2]?.texto || '';
+      // BUG REAL (29-ago-2026, ANEXO N°2B, 2928-17-LE26): "Firma Oferente N°1" (i+1), "Nombre:"
+      // (i+2), "Rut:" (i+3) — TRES párrafos, no dos. Con el lookahead viejo (2), "Nombre:" sí se
+      // veía pero "Rut:" quedaba justo un párrafo afuera de la ventana: `pideRut` salía `false`
+      // pese a que la línea de firma real pide claramente las dos cosas. Se extiende a un tercer
+      // párrafo — mismos filtros de siempre (largo acotado, sin blanco propio), así que no cambia
+      // el criterio de qué cuenta como leyenda, solo hasta dónde se mira.
+      const siguiente3 = parrafos[i + 3]?.texto || '';
       // La leyenda se lee ENTERA, no solo su primera línea. BUG REAL (3909-9-LE26, ANEXO N°1): el
       // pie es "NOMBRE Y FIRMA" / "REPRESENTANTE LEGAL" en DOS párrafos — quedándose con el primero
       // (el único que trae la palabra "firma"), el contexto no decía de quién era la firma y
       // esRayaFirmaPropia la descartaba por precaución: un anexo que se autocompleta entero salía
-      // sin firmar. Juntar las dos líneas también hace más conservador el caso opuesto — si la
-      // segunda nombra al evaluador, ahora sí se ve y el bloque se excluye.
-      const partes = [siguiente1, siguiente2].filter(t => t && t.length <= LARGO_MAX_LEYENDA_FIRMA && !RE_TIENE_BLANCO_PROPIO.test(t));
+      // sin firmar. Juntar las líneas también hace más conservador el caso opuesto — si alguna
+      // nombra al evaluador, ahora sí se ve y el bloque se excluye.
+      const paginas = [siguiente1, siguiente2, siguiente3];
+      const partes = paginas.filter(t => t && t.length <= LARGO_MAX_LEYENDA_FIRMA && !RE_TIENE_BLANCO_PROPIO.test(t));
       const contexto = partes.some(t => RE_LEYENDA_FIRMA.test(t)) ? partes.join(' ').trim() : '';
       if (contexto) {
         agregar(p, contexto, parrafos[i + 1]);
         if (parrafos[i + 1]) leyendasConRaya.add(parrafos[i + 1].indice);
         if (partes.length > 1 && parrafos[i + 2]) leyendasConRaya.add(parrafos[i + 2].indice);
+        if (partes.length > 2 && parrafos[i + 3]) leyendasConRaya.add(parrafos[i + 3].indice);
         continue;
       }
     }

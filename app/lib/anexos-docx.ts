@@ -479,7 +479,13 @@ const RE_LETRA = /[A-Za-zÀ-ÿ]/;
 // deja de importar. Un verbo de instrucción pegado adelante ("indique", "señale") se pela antes de
 // probar — es ruido de redacción, no parte del nombre del campo.
 const RE_INSTRUCCION_LEVE_ANTES = /^(?:indique|indicar|se[ñn]ale|se[ñn]alar|escriba|ingrese|complete|completar|anote|detalle)\s+/i;
-const RE_BASE_CAMPO_ENTRE_PARENTESIS = /^(nombres?(\s+completos?)?|apellidos?|run|r\.?\s*u\.?\s*t\.?|c[ée]dula(\s+de\s+identidad)?|raz[óo]n\s+social|domicilio|direcci[óo]n|comuna|ciudad|regi[óo]n|cargo|giro|fecha|correo(\s+electr[óo]nico)?|e-?mail|tel[ée]fono|fono|celular|representante(\s+legal)?)\b/i;
+// BUG REAL 2 (mismo documento, mismo día): "indique ID de licitación" seguía invisible incluso
+// DESPUÉS del fix de arriba — esta lista (la DETECCIÓN) nunca tuvo "id" siquiera, así que el
+// marcador ni llegaba a candidato; el fix que sí se hizo ese día fue en la capa de RESOLUCIÓN
+// (REGLAS_MARCADOR, anexos-determinista.ts), un piso más abajo, que nunca se ejecuta si acá no pasa.
+// "id" solo (sin calificar) NO se agrega — es demasiado genérico para un match "empieza por"; se
+// exige la frase completa igual que en REGLAS_MARCADOR.
+const RE_BASE_CAMPO_ENTRE_PARENTESIS = /^(nombres?(\s+completos?)?|apellidos?|run|r\.?\s*u\.?\s*t\.?|c[ée]dula(\s+de\s+identidad)?|raz[óo]n\s+social|domicilio|direcci[óo]n|comuna|ciudad|regi[óo]n|cargo|giro|fecha|correo(\s+electr[óo]nico)?|e-?mail|tel[ée]fono|fono|celular|representante(\s+legal)?|id\s+(?:de\s+)?(?:licitaci[oó]n|mercado\s+p[uú]blico))\b/i;
 function esCampoEntreParentesis(dentro: string): boolean {
   return RE_BASE_CAMPO_ENTRE_PARENTESIS.test(dentro.replace(RE_INSTRUCCION_LEVE_ANTES, ''));
 }
@@ -948,6 +954,34 @@ function conTabDerecha(cuerpo: string, posicionTwips: number): string {
 // rellenarCeldaVacia: nunca se agrega/quita un <w:p>, solo se reemplaza lo que hay adentro (acá,
 // la raya de subrayado por el dibujo). anchoCm fijo con alto proporcional a la imagen real (o
 // 0.4:1 si no se pudo leer sus dimensiones — proporción típica de una firma escaneada).
+// BUG REAL (29-ago-2026, ANEXO N°2B, 2928-17-LE26): "Nombre"/"RUT" del representante legal dejaron
+// de aparecer en el pie de firma. Antes salían como `nombreDebajo` de `insertarImagenEnParrafo` —
+// texto pegado a la MISMA llamada que estampaba la imagen. Desde que la firma se posiciona aparte
+// sobre un PDF (ver anexos-pdf-firma.ts) el .docx NUNCA estampa la imagen (`que` es siempre
+// 'ninguna' en generarAnexoFinal), así que ese texto tampoco se escribía nunca — quedó atado a un
+// estampado que ya no ocurre. Esta función hace SOLO la mitad de texto (mismo `<w:br/>` por línea,
+// nunca un `<w:p>` nuevo), para llamarla SIEMPRE que la leyenda pida nombre/RUT y la ficha los
+// tenga, sin importar si además se va a estampar una imagen ahí. La raya/línea de firma se deja
+// intacta a propósito: el usuario todavía necesita verla para saber dónde arrastrar la firma en el
+// paso de PDF.
+export function agregarTextoBajoLineaFirma(xml: string, paraId: string, lineas: string[]): string {
+  const lineasConTexto = lineas.filter(l => l && l.trim());
+  if (!lineasConTexto.length) return xml;
+  const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);
+  const m = xml.match(re);
+  if (!m) return xml; // agregado informativo: si el párrafo no aparece, no vale la pena reventar la generación por esto
+  const [entero, apertura, cuerpo, cierre] = m;
+  // Mismo criterio que rellenarFinDeParrafo: hereda el formato (fuente/tamaño) del ÚLTIMO run del
+  // párrafo — sin esto el texto nuevo sale en la fuente por defecto de Word (serif), distinta a la
+  // del resto del documento (BUG REAL visto al verificar: la raya usa "Century Gothic" y el nombre
+  // agregado salía en Times New Roman, un salto de estilo visible a simple vista).
+  const runs = [...cuerpo.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)];
+  const rPrMatch = runs.length ? runs[runs.length - 1][0].match(/<w:rPr>[\s\S]*?<\/w:rPr>/) : null;
+  const rPr = rPrMatch ? rPrMatch[0] : '';
+  const runsTexto = lineasConTexto.map(l => `<w:r>${rPr}<w:br/><w:t xml:space="preserve">${xmlEscape(l)}</w:t></w:r>`).join('');
+  return xml.slice(0, m.index) + apertura + cuerpo + runsTexto + cierre + xml.slice((m.index ?? 0) + entero.length);
+}
+
 export async function insertarImagenEnParrafo(
   zip: JSZip,
   xml: string,

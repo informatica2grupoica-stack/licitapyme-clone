@@ -235,7 +235,17 @@ export function AnexoFirmarPdf({
             key={i}
             className="relative bg-white shadow-md"
             style={{ width: dim.ancho, height: dim.alto }}
-            onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }}
+            onDragOver={e => {
+              e.preventDefault();
+              // BUG REAL (29-ago-2026, reportado con video: la firma ya colocada se "cancelaba" y
+              // volvía a su lugar al intentar re-arrastrarla). El drop de una NUEVA imagen declara
+              // `effectAllowed:'copy'` (Miniatura) y el de MOVER una ya puesta declara 'move'
+              // (EstampaColocadaUI) — acá se fijaba `dropEffect` siempre en 'copy', y cuando no
+              // calza con el `effectAllowed` del origen el navegador muestra el cursor "prohibido"
+              // y CANCELA el drop sin disparar `onDrop`: el estado nunca cambiaba, así que la
+              // imagen se quedaba exactamente donde estaba (no es que "volviera", nunca se movió).
+              e.dataTransfer.dropEffect = e.dataTransfer.effectAllowed === 'move' ? 'move' : 'copy';
+            }}
             onDrop={e => soltarEnPagina(e, i)}
           >
             <canvas ref={el => { canvasRefs.current[i] = el; }} className="absolute inset-0 pointer-events-none" />
