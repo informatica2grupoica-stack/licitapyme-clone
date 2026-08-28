@@ -463,10 +463,26 @@ const RE_LETRA = /[A-Za-zÀ-ÿ]/;
 // en prosa legal chilena normal), "(...)" es MUY común para incisos legítimos — "(en adelante, 'el
 // Oferente')", "(Ley N° 19.886)", "(IVA incluido)", enumeraciones "(a)", "(b)" — así que aceptar
 // CUALQUIER paréntesis con una letra adentro (el único filtro que basta para los otros tres
-// delimitadores) inundaría cada documento de falsos positivos. Se reconoce SOLO cuando el
-// contenido, de punta a punta, es un nombre de campo real — como mucho con un calificador corto
-// pegado ("razón social empresa", "RUT del representante") — nunca por descarte de lo que NO es.
-const RE_CAMPO_ENTRE_PARENTESIS = /^(nombres?|apellidos?|r\.?\s*u\.?\s*t\.?|c[ée]dula(\s+de\s+identidad)?|raz[óo]n\s+social|domicilio|direcci[óo]n|comuna|ciudad|regi[óo]n|cargo|giro|fecha|correo(\s+electr[óo]nico)?|e-?mail|tel[ée]fono|fono|celular|representante(\s+legal)?)(\s+(de\s+la\s+|del\s+)?(empresa|oferente|adjudicatario|representante(\s+legal)?))?$/i;
+// delimitadores) inundaría cada documento de falsos positivos. Se reconoce cuando el contenido
+// EMPIEZA por un nombre de campo real (nunca por descarte de lo que NO es) — lo que venga después
+// no se exige con una gramática fija, porque ahí es donde vive la variación real entre organismos.
+//
+// BUG REAL (28-ago-2026, ANEXO N°2B "DECLARACIÓN JURADA... UTP", 2928-17-LE26): la versión anterior
+// exigía un MATCH COMPLETO contra una gramática rígida ("razón social" + opcionalmente " de la
+// empresa", nada más) — y CADA UNO de los 6 marcadores de este documento real le agrega una palabra
+// que esa gramática no esperaba: "nombre COMPLETO representante legal", "RUN representante legal"
+// (RUN no estaba en la lista), "razón social DE LAS empresa QUE REPRESENTA", "RUT empresaS"
+// (plural), "indique dirección, comuna y región" (verbo + tres campos). Con match completo, los 6
+// fallaban y el documento entero salía "sin marcas de relleno" — 0 candidatos, ni uno solo
+// pendiente. Con "empieza por", los 6 matchean por su primera palabra (nombre/run/razón social/
+// rut/dirección) y el resto de la frase, que es exactamente donde cada organismo redacta distinto,
+// deja de importar. Un verbo de instrucción pegado adelante ("indique", "señale") se pela antes de
+// probar — es ruido de redacción, no parte del nombre del campo.
+const RE_INSTRUCCION_LEVE_ANTES = /^(?:indique|indicar|se[ñn]ale|se[ñn]alar|escriba|ingrese|complete|completar|anote|detalle)\s+/i;
+const RE_BASE_CAMPO_ENTRE_PARENTESIS = /^(nombres?(\s+completos?)?|apellidos?|run|r\.?\s*u\.?\s*t\.?|c[ée]dula(\s+de\s+identidad)?|raz[óo]n\s+social|domicilio|direcci[óo]n|comuna|ciudad|regi[óo]n|cargo|giro|fecha|correo(\s+electr[óo]nico)?|e-?mail|tel[ée]fono|fono|celular|representante(\s+legal)?)\b/i;
+function esCampoEntreParentesis(dentro: string): boolean {
+  return RE_BASE_CAMPO_ENTRE_PARENTESIS.test(dentro.replace(RE_INSTRUCCION_LEVE_ANTES, ''));
+}
 
 const RE_MARCADORES: { re: RegExp; valido: (dentro: string) => boolean }[] = [
   { re: /<<([^<>]{2,200}?)>>/g, valido: (d) => RE_LETRA.test(d) },      // <<NOMBRE PERSONA NATURAL O PERSONA JURIDICA>>
@@ -487,7 +503,7 @@ const RE_MARCADORES: { re: RegExp; valido: (dentro: string) => boolean }[] = [
   // (comuna), (ciudad), declaro bajo juramento que:"): el organismo usa PARÉNTESIS en vez de
   // "[...]" para decir qué va en cada casilla — antes esa frase entera (7 marcadores) era
   // invisible: cero blancos detectados, ni auto ni pendiente, nada.
-  { re: /\(([^()]{2,60}?)\)/g, valido: (d) => RE_CAMPO_ENTRE_PARENTESIS.test(d.trim()) },
+  { re: /\(([^()]{2,60}?)\)/g, valido: (d) => esCampoEntreParentesis(d.trim()) },
 ];
 
 // Blancos "de raya": guiones bajos (lo de siempre) y líneas de puntos/elipsis. El umbral de los

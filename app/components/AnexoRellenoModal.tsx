@@ -820,6 +820,23 @@ export function AnexoRellenoModal({
 
   const setRespuesta = (id: string, v: string) => setRespuestas(prev => ({ ...prev, [id]: v }));
 
+  // Auto-scroll al arrastrar la firma/timbre: en un anexo largo, la línea de firma casi siempre
+  // queda al final, fuera de lo visible al empezar a arrastrar desde el panel de arriba — sin esto
+  // era literalmente imposible soltarla ahí (pedido explícito del usuario, 29-ago-2026: "el
+  // documento es muy largo, no llego abajo"). Acerca el cursor a cualquiera de los dos bordes del
+  // panel derecho (el único que puede tener la zona de destino) y se desplaza solo, más rápido
+  // cuanto más cerca del borde — mismo mecanismo que un editor tipo Trello/Notion.
+  const MARGEN_AUTOSCROLL = 70;
+  const autoScrollAlArrastrar = (e: React.DragEvent<HTMLDivElement>) => {
+    const el = panelRellenoRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const distanciaArriba = e.clientY - rect.top;
+    const distanciaAbajo = rect.bottom - e.clientY;
+    if (distanciaArriba < MARGEN_AUTOSCROLL) el.scrollTop -= (MARGEN_AUTOSCROLL - distanciaArriba) * 0.4;
+    else if (distanciaAbajo < MARGEN_AUTOSCROLL) el.scrollTop += (MARGEN_AUTOSCROLL - distanciaAbajo) * 0.4;
+  };
+
   return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2"
@@ -906,6 +923,7 @@ export function AnexoRellenoModal({
         <div
           ref={panelRellenoRef}
           onScroll={() => sincronizarScroll(panelRellenoRef, panelOriginalRef)}
+          onDragOver={autoScrollAlArrastrar}
           className="flex-1 overflow-y-auto px-4 py-4 space-y-4"
         >
           {cargando && (

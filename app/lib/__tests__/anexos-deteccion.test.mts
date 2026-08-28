@@ -951,6 +951,27 @@ test('marcadores entre paréntesis: "(nombre)"/"(RUT)"/"(razón social empresa)"
     `marcadores detectados: ${JSON.stringify(marcadores)}`);
 });
 
+// BUG REAL (28-ago-2026, ANEXO N°2B "DECLARACIÓN JURADA... UTP", 2928-17-LE26): el test de arriba
+// ya cubría "(nombre)"/"(RUT)" a secas, pero esta declaración real los redacta con una palabra de
+// más en cada uno — "nombre COMPLETO representante legal" (no solo "nombre"), "RUN representante
+// legal" (RUN, no RUT — el organismo también usa el término correcto para persona natural), "razón
+// social DE LAS empresa QUE REPRESENTA" (no el calificador corto esperado), "RUT empresaS" (plural)
+// y "indique dirección, comuna y región" (verbo de instrucción + tres campos a la vez). El match
+// COMPLETO contra una gramática rígida fallaba en los 6, y el documento entero salía "sin marcas de
+// relleno" — 0 candidatos, ni uno pendiente. Ahora basta con que EMPIECE por el nombre del campo.
+test('marcadores entre paréntesis: redacción real más verbosa también se detecta (regresión 2928-17-LE26, ANEXO N°2B)', () => {
+  const xml = NS + p('Yo, (nombre completo representante legal), RUN (RUN representante legal), con domicilio '
+    + 'en (indique dirección, comuna y región) en representación de las empresa (razón social de las '
+    + 'empresa que representa), RUT (RUT empresas) del mismo domicilio, declaro bajo juramento que:') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(unificarRunsDeMarcadores(norm));
+  const marcadores = a.blancosInline.map(b => b.textoMarcador);
+  assert.deepEqual(marcadores, [
+    'nombre completo representante legal', 'RUN representante legal', 'indique dirección, comuna y región',
+    'razón social de las empresa que representa', 'RUT empresas',
+  ], `marcadores detectados: ${JSON.stringify(marcadores)}`);
+});
+
 // El paréntesis es MUY común en prosa legal chilena para incisos que NO son casillas a llenar —
 // a diferencia de "[...]"/"<<...>>" (raros ahí), blanket-matching cualquier "(...)" inundaría el
 // documento de falsos positivos. Ninguna de estas frases reales debe generar un solo marcador.
