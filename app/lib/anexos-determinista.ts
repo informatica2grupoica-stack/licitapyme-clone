@@ -252,6 +252,14 @@ const DICCIONARIO: Entrada[] = [
     /^domicilio comercial(?: que acredita| declarado)?$/,
   ] },
   { campo: 'direccion_calle', patrones: [/^calle(?: y numero)?$/, /^nombre de (?:la )?calle$/, /^avenida\/calle$/] },
+  // "DPTO./OF:" — la cuarta columna del domicilio partido ("Calle | N° | DPTO./OF. | Comuna"),
+  // medida en 3 licitaciones por el auditor del 31-ago-2026. Ver oficinaDeDireccion en
+  // anexos-derivados.ts: si la dirección de la ficha no trae marca de oficina, el campo llega
+  // vacío y la casilla queda pendiente (aviso accionable), nunca con el número de la calle.
+  { campo: 'direccion_oficina' as Campo, patrones: [
+    /^(?:dpto|depto|departamento)\s*\/\s*(?:of|ofic|oficina)$/, /^(?:of|ofic|oficina)\s*\/\s*(?:dpto|depto|departamento)$/,
+    /^oficina$/, /^(?:dpto|depto|departamento)$/, /^of$/, /^n[°º]?\s*(?:de\s+)?oficina$/,
+  ] },
   { campo: 'direccion_numero', patrones: [/^n[°º]$/, /^numero$/, /^nro$/, /^numero de (?:la )?(?:calle|direccion|domicilio)$/] },
   { campo: 'comuna', patrones: [/^comuna$/, new RegExp(`^comuna${OFERENTE}$`)] },
   { campo: 'ciudad', patrones: [/^ciudad$/, new RegExp(`^ciudad${OFERENTE}$`), /^localidad$/] },
@@ -268,6 +276,10 @@ const DICCIONARIO: Entrada[] = [
     // el organismo lo sigue imprimiendo junto al teléfono en la misma casilla. El dato que se
     // escribe ahí es el teléfono. Una casilla de FAX SOLA sigue quedando pendiente: no tenemos fax.
     /^telefono\s*\/?\s*fax$/, /^fono\s*\/?\s*fax$/,
+    // "N° teléfono" — el "N°" va PEGADO al dato, sin el "de" que sí exige `n[°º]? de telefono`
+    // de arriba (misma construcción que "N° DE RUT" vs "N° RUT"). Medido por el auditor de
+    // generalización del 31-ago-2026 en 3 licitaciones de organismos distintos.
+    /^n[°º]?\s*telefono$/, /^n[°º]?\s*(?:de\s+)?fono$/,
   ] },
   { campo: 'email1', patrones: [
     // El GUION cuenta como separador ("E-mail", de las etiquetas más frecuentes que existe).
@@ -290,7 +302,14 @@ const DICCIONARIO: Entrada[] = [
   ] },
 
   // ── Constitución ──
-  { campo: 'fecha_escritura', patrones: [/^fecha (?:de (?:la )?)?escritura(?: publica)?(?: de constitucion)?$/] },
+  // "Fecha de constitución" (auditor de generalización 31-ago-2026, 4 licitaciones): el dato que se
+  // escribe ahí es la FECHA sola, que es exactamente `fecha_escritura` ("20 de Agosto de 2018").
+  // NO es `fecha_sociedad`, que en la ficha es el párrafo descriptivo completo (fecha + tipo de
+  // sociedad + notaría) y en una casilla de fecha saldría desbordado.
+  { campo: 'fecha_escritura', patrones: [
+    /^fecha (?:de (?:la )?)?escritura(?: publica)?(?: de constitucion)?$/,
+    /^fecha de constitucion(?: de la (?:empresa|sociedad))?$/, /^fecha de la constitucion$/,
+  ] },
   { campo: 'fecha_sociedad', patrones: [/^(?:datos de )?(?:la )?constitucion(?: de la sociedad)?$/, /^antecedentes de constitucion$/] },
   { campo: 'notaria', patrones: [/^notaria$/, /^notario$/, /^notaria (?:en que se firmo|de)$/] },
   { campo: 'numero_repertorio', patrones: [/^(?:numero de )?repertorio(?: n[°º]?)?$/] },
@@ -303,6 +322,13 @@ const DICCIONARIO: Entrada[] = [
     /^nombre y apellidos? del representante(?: legal)?$/,
     /^(?:identificacion|individualizacion) del (?:representante(?: legal)?|apoderado)$/,
     /^representante legal de la empresa$/, /^nombre del firmante$/, /^quien suscribe$/,
+    // "Nombre Contacto" / "Persona de contacto" (auditor 31-ago-2026, 3 licitaciones). Regla ya
+    // documentada del usuario (ver CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA en anexos-ia-motor.ts):
+    // en esta operación el oferente, el representante legal y el contacto son SIEMPRE la misma
+    // persona. Ojo: "Contacto" A SECAS queda FUERA a propósito — no dice si pide nombre, teléfono
+    // o correo, y adivinar ahí es exactamente lo que la capa 1 no debe hacer.
+    /^nombre (?:del? )?contacto$/, /^persona de contacto$/, /^nombre de la persona de contacto$/,
+    /^nombre y apellidos? del? contacto$/, /^contacto (?:comercial )?nombre$/,
   ] },
   { campo: 'representante_nombres', patrones: [/^nombres$/, /^nombres? de pila$/] },
   { campo: 'representante_apellidos', patrones: [/^apellidos$/, /^apellido paterno y materno$/] },
@@ -310,6 +336,14 @@ const DICCIONARIO: Entrada[] = [
     new RegExp(`^(?:rut|r\\s*u\\s*t|run|cedula(?:\\s+de\\s+identidad)?|c\\s*i)${REPRE}$`),
     /^cedula de identidad(?: n[°º]?)?$/, /^c i n[°º]?$/, /^run$/, /^numero de (?:cedula|run)$/,
     /^rut representante$/, /^(?:n[°º]?\s*(?:de\s+)?)?cedula (?:nacional )?de identidad(?: nacional)?$/,
+    // "RUT Socio" → el RUT del representante legal, porque por política de la empresa el socio
+    // único ES el representante legal (mismo criterio que socio_nombre/socio_participacion, ya
+    // documentado en el instructivo interno y en el prompt de anexos-ia-motor.ts). No se crea un
+    // campo `socio_rut`: es literalmente el mismo dato.
+    // Ojo: esto resuelve la etiqueta de UN socio. Una GRILLA numerada de socios ("1 — Rut Socio",
+    // "2 — Rut Socio"…) la ataja esFilaDeSocioPosterior más abajo, que bloquea todas menos la
+    // fila 1 — si no, el mismo RUT se repetiría en las 12 filas.
+    /^rut (?:del? )?(?:socio|accionista)(?:\/accionista)?$/, /^rut socio\/accionista$/,
   ] },
   // La PROFESIÓN u OFICIO no es el CARGO: un anexo puede pedir las dos en el mismo bloque
   // ("Cargo: Gerente" / "Profesión u oficio: Empresaria"). Ver migration-69.
@@ -352,8 +386,48 @@ const DICCIONARIO: Entrada[] = [
   { campo: 'socio_participacion', patrones: [
     /^porcentaje de (?:derechos|participacion)(?: o participacion)?$/, /^% de (?:participacion|derechos)$/,
     /^participacion(?: societaria| accionaria)?$/,
+    // "% de Participación EN LA SOCIEDAD" (auditor 31-ago-2026, 4 licitaciones): mismo dato, el
+    // organismo agrega dónde se participa. `porcentaje` escrito en palabra es la otra mitad del par.
+    /^(?:%|porcentaje) de (?:participacion|derechos) en la sociedad$/,
   ] },
 ];
+
+// ── Grilla NUMERADA de socios: solo la fila 1 ────────────────────────────────────────────────
+// Una tabla de socios trae una fila por socio, y el detector rotula cada celda con el texto de su
+// fila más el de su columna ("1 — Rut Socio", "2 — % de Participación en la Sociedad"; ver
+// `${filaContexto} — ${nombreColumna}` en anexos-detectar.ts).
+//
+// El guardarraíl `soloManual` de anexos-detectar.ts —el que evita rellenar las 8 filas de una tabla
+// de asistentes con el RUT de la empresa— NO se activa acá: solo cubre filas SIN ningún texto
+// propio, y estas sí lo tienen (el número). Sin esta función, agregar "Rut Socio" al diccionario
+// habría escrito el MISMO RUT del representante en las 12 filas de la grilla: un registro
+// societario inventado dentro de una declaración jurada.
+//
+// La política de la empresa (instructivo interno, punto 4) es socio ÚNICO al 100% = el
+// representante legal. Eso justifica exactamente UNA fila: la primera. Las demás quedan pendientes,
+// que es la respuesta honesta — no tenemos más socios que declarar.
+//
+// El alcance está acotado a propósito a los campos de socio: en cualquier OTRA grilla numerada
+// (integrantes de una UTP, productos, asistentes) la fila 1 tampoco somos nosotros.
+// Es un BLOQUEO, no una resolución: la fila 1 no necesita ayuda porque `etiquetaPropia` ya recorta
+// el "1 — " y el diccionario resuelve la columna sola. El problema es exactamente el contrario —
+// que las filas 2, 3 … 12 se resuelven IGUAL de bien y quedan todas con el mismo RUT.
+// (Encontrado por el test end-to-end de esta misma tanda: la versión anterior de esta regla llegaba
+// tarde, después de que el diccionario ya había resuelto por la etiqueta propia.)
+const CAMPOS_DE_SOCIO = new Set<string>(['socio_nombre', 'socio_participacion', 'representante_rut']);
+const RE_FILA_NUMERADA = /^\s*(\d{1,3})\s*[—–-]\s*(.+)$/;
+
+/** ¿Es la fila 2+ de una grilla numerada de SOCIOS? Entonces no hay dato honesto que ofrecer. */
+export function esFilaDeSocioPosterior(etiqueta: string): boolean {
+  const m = RE_FILA_NUMERADA.exec(etiqueta || '');
+  if (!m || Number(m[1]) === 1) return false;
+  const columna = m[2];
+  const campo = campoDeEtiquetaInequivoca(columna);
+  if (!campo || !CAMPOS_DE_SOCIO.has(String(campo))) return false;
+  // `representante_rut` también lo devuelve "Cédula de identidad" (una grilla de terceros): el
+  // bloqueo solo aplica cuando la columna habla de SOCIOS, que es donde nace el dato duplicado.
+  return campo !== 'representante_rut' || /\b(socio|accionista)\b/i.test(columna);
+}
 
 /** Etiqueta que ya dice a quién describe → campo, sin mirar el contexto. `null` si es ambigua. */
 export function campoDeEtiquetaInequivoca(etiqueta: string): Campo | null {
@@ -405,6 +479,12 @@ const RE_PELADA_NOMBRE = ETIQUETAS_PELADAS[0].re;
 // la EMPRESA y nunca llega a esta capa. Ver el paso 1b de resolverDeterminista.
 const RE_PELADA_RUT = /^(?:rut|r u t|rol unico tributario|cedula|c i|run)(?: n[°º]?)?$/;
 
+// Subcampos del domicilio escritos PELADOS: por sí solos no dicen que hablan de una dirección
+// ("N°" es también el número de fila de cualquier tabla). Ver la capa 1c de resolverDeterminista.
+const RE_SUBCAMPO_DOMICILIO_PELADO = /^(?:n[°º]|numero|nro|of|oficina|dpto|depto|departamento)$/;
+// La señal de que el bloque SÍ habla de un domicilio: alguna hermana o el contexto lo nombra.
+const RE_HERMANA_DOMICILIO = /\b(?:direccion|domicilio|calle|avenida|comuna|ciudad|villa|poblacion)\b/;
+
 const RE_CTX_PERSONA = /\b(representante(\s+legal)?|apoderado|declarante|firmante|don|dona|suscribe|persona natural|encargado|administrador de contrato|contacto)\b/;
 
 // BUG REAL (18-ago-2026, FORMULARIO N°1 de 1063538-204-LE26): el bloque "COORDINADOR TÉCNICO" trae
@@ -431,6 +511,13 @@ export function esBloqueDesignadoPorNosotros(texto: string): boolean {
 // "CONTACTO DEL PROPONENTE:"). Se distingue de una etiqueta de campo ("Nombre completo") porque esta
 // última va en minúsculas o Capitalizada.
 const RE_ENCABEZADO_SECCION = /^[^a-z]{4,60}$/;
+
+// El mismo criterio (línea sin una sola minúscula) pero SIN el tope de 60 caracteres, para cortar
+// bloques: los encabezados de sección reales son largos ("2.REPRESENTANTE LEGAL O APODERADO (EN
+// CASO DE SER EL OFERENTE PERSONA JURÍDICA O UTP)." son 86). El tope de 60 de arriba existe para
+// BUSCAR el encabezado más cercano hacia atrás sin barrer prosa; acá se prueba un párrafo puntual
+// que ya se sabe que está entre dos casillas, así que puede ser más largo sin riesgo.
+const RE_ENCABEZADO_QUE_CORTA = /^[^a-z]{4,140}$/;
 
 /**
  * El encabezado de sección más cercano HACIA ARRIBA de una casilla.
@@ -484,8 +571,35 @@ function construirBloques(candidatos: CandidatoCelda[], parrafos: Parrafo[]): Ma
     });
     actual = [];
   };
+  // BUG REAL (2495-17-B226, FORMULARIO ADMI-1, reportado por el usuario: "en el oferente me pones
+  // el RUT del representante legal"): el bloque de la SECCIÓN 1 (datos del oferente: Nombre o Razón
+  // Social / RUT / Dirección / Teléfono / Email) se comía la SECCIÓN 2 (representante legal: Nombre
+  // / Profesión / RUT / …). Entre la última casilla de una y la primera de la otra hay exactamente
+  // 4 párrafos y el corte por distancia es `> GAP`, así que no cortaba por un párrafo.
+  //
+  // Con las dos secciones en un mismo bloque, la capa 1b ("coherencia de titular para el RUT
+  // pelado") encontraba como hermana el "Nombre" pelado del REPRESENTANTE y concluía que el RUT
+  // del OFERENTE era el de la persona. Resultado: el RUT del representante en la casilla de la
+  // empresa, dentro de una declaración jurada de identificación. La distancia nunca va a ser un
+  // criterio confiable acá — lo que separa dos secciones es su ENCABEZADO, no cuántos párrafos hay.
+  //
+  // El encabezado que corta NO se puede confundir con una etiqueta de campo: las etiquetas también
+  // vienen en mayúsculas en muchos pliegos ("RAZÓN SOCIAL", "R.U.T."), y cortar en cada una dejaría
+  // a cada casilla en su propio bloque, apagando la capa 2 entera. Por eso se descarta explícitamente
+  // el párrafo que ES la etiqueta de la casilla siguiente: lo que queda es un título de sección.
+  const cortaBloque = (desde: number, hasta: number, siguiente: CandidatoCelda): boolean => {
+    const etiquetaSiguiente = normalizarEtiqueta(etiquetaPropia(siguiente.etiqueta));
+    for (let i = desde + 1; i < hasta; i++) {
+      const t = (parrafos[i]?.texto || '').trim();
+      if (!t) continue;
+      if (normalizarEtiqueta(t) === etiquetaSiguiente) continue;   // es su propia etiqueta
+      if (RE_ENCABEZADO_QUE_CORTA.test(t)) return true;
+    }
+    return false;
+  };
   for (const c of orden) {
-    if (actual.length && c.indice - actual[actual.length - 1].indice > GAP) cerrar();
+    const previo = actual[actual.length - 1];
+    if (previo && (c.indice - previo.indice > GAP || cortaBloque(previo.indice, c.indice, c))) cerrar();
     actual.push(c);
   }
   cerrar();
@@ -545,6 +659,11 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // representada" solo puede ser la empresa representada; para la persona los anexos escriben
   // "el suscrito" o "el compareciente".
   { re: /\bmi\s+representada\s*,?\s*(?:es\s*)?:?\s*$/i, campo: 'razon_social' },
+  // "1.-Representar a: ______" (2495-17-B226, FORMULARIO ADMI-3, dentro de "DECLARO:"): el que
+  // firma es el representante legal y lo que declara representar es su empresa. Misma familia que
+  // las dos reglas de arriba, distinta redacción. El guardarraíl de bloque de TERCERO sigue
+  // aplicando antes, así que un "representar a" dentro de la firma de un tercero no entra.
+  { re: /\brepresentar\s+a\s*:?\s*$/i, campo: 'razon_social' },
   { re: /\bla\s+empresa\s+que\s+represento\s*,?\s*(?:es\s*)?:?\s*$/i, campo: 'razon_social' },
   // "Yo, Lidia Valenzuela, representante legal de ______" — a quien se representa es la EMPRESA, no
   // otra persona. Detectado por la auditoría del 18-ago-2026 sobre 1057480-41-LP26. El "de" final es
@@ -608,6 +727,39 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // detectado por la auditoría): el organismo escribe la INSTRUCCIÓN de qué va antes del blanco.
   { re: /\bnombre\s+(?:completo\s+)?o\s+raz(?:o|ó)n\s+social(?:\s+de(?:\s+la)?)?(?:\s+(?:empresa|sociedad))?(?:\s+(?:participante|oferente|proponente|postulante))?\s*:?\s*$/i, campo: 'razon_social' },
   { re: /(?:^|,)\s*(?:la\s+)?empresa\s*,?\s*$/i, campo: 'razon_social' },
+
+  // ── Formas medidas en el muestreo de 1.500 documentos (31-ago-2026) ──
+  //
+  // "Don (ña) ______" / "a don(a) ______": el organismo cubre los dos géneros con un paréntesis
+  // pegado a la palabra. La regla de "don/doña" que ya existía exige que la palabra sea la ÚLTIMA
+  // antes del blanco, así que el "(ña)" la desactivaba por completo (5 licitaciones, 20 casillas).
+  { re: /\b(?:don|do[ñn]a|sr|sra)\s*\(\s*(?:[ñn]a|a|esa)\s*\)\s*\.?,?\s*$/i, campo: 'representante_nombre' },
+
+  // "FECHA ______" sin los dos puntos (33 licitaciones, 126 casillas — la forma más repetida de
+  // todas). El match de etiqueta de campoDeBlancoInline exige que termine en ":", así que la misma
+  // palabra sin el signo no llegaba nunca al diccionario.
+  //
+  // El anclaje a INICIO de segmento es lo que la hace segura, y no es teórico: "Ordinario N° 123
+  // DE FECHA ______" (8 licitaciones) es la fecha de un oficio del organismo, NO la nuestra —
+  // escribir ahí la fecha de hoy sería un dato falso dentro de una declaración jurada. Con el
+  // ancla, "de fecha" nunca entra porque viene precedido de "de".
+  { re: /(?:^|[.;·|\t])\s*fecha\s*:?\s*$/i, campo: 'fecha_hoy' },
+
+  // "…, profesión u oficio ______ RUT ……" (2495-17-B226, en los DOS formularios del pliego): el
+  // dato está en la ficha (`representante_profesion` = "Ingeniero Constructor") y quedaba en blanco
+  // solo porque acá la etiqueta viene SIN dos puntos, y el camino de etiqueta de campoDeBlancoInline
+  // exige que termine en ":".
+  { re: /\bprofesi(?:o|ó)n\s*(?:u|o)\s*oficio\s*:?\s*$/i, campo: 'representante_profesion' as Campo },
+  { re: /\bprofesi(?:o|ó)n\s+del?\s+(?:representante(?:\s+legal)?|apoderado|declarante)\s*:?\s*$/i, campo: 'representante_profesion' as Campo },
+
+  // "Correo electrónico para notificaciones. ______" (2495-17-B226): la MISMA etiqueta ya está en el
+  // diccionario, pero termina en PUNTO en vez de dos puntos y por eso no llegaba nunca.
+  { re: /\bcorreo\s+electr(?:o|ó)nico\s+para\s+(?:notificaciones|efectos\s+de(?:\s+esta)?\s+licitaci(?:o|ó)n)\s*[.:]?\s*$/i, campo: 'email1' },
+
+  // "…consta en escritura pública de fecha ______" (3 licitaciones): acá la fecha SÍ es un dato de
+  // la ficha, pero es la de la constitución de la sociedad, no la de hoy. Va después de la regla
+  // de arriba y no choca con ella (aquella exige inicio de segmento; esta, la frase completa).
+  { re: /\bescritura\s+p(?:u|ú)blica\s+de\s+fecha\s*$/i, campo: 'fecha_escritura' },
 ];
 
 // CAPA 5 — Localidad de firma. "En ______ a ___ de ___" cae hoy en firma_fecha → null, y el dato
@@ -711,6 +863,114 @@ const RE_BLOQUE_TERCERO = /\b(instituci(?:o|ó)n|cliente|mandante|contraparte(?!
 const esBloqueDeTercero = (texto: string) => RE_BLOQUE_TERCERO.test(texto.replace(/_+/g, ' '));
 
 /** Campo que pide un blanco a mitad de oración, por lo que el documento dice ANTES de él. */
+// ── La FECHA DE FIRMA, pieza por pieza ────────────────────────────────────────────────────────
+// HALLAZGO del muestreo de 1.500 documentos reales (31-ago-2026, pedido del usuario: "la fecha
+// está en distintas formas siempre"). Medido sobre los blancos que el motor NO resolvía:
+//
+//     en ⎵ , a            27 licitaciones      santiago,            22 licitaciones
+//     en ⎵ , a ⎵ de       26 licitaciones      santiago, ⎵ de       19 licitaciones
+//     en ⎵ a              18 licitaciones      fecha: ⎵ /           15 licitaciones
+//     en ⎵ a ⎵ dias del mes de   12            fecha: ⎵ / ⎵ /       13 licitaciones
+//
+// Es SIEMPRE la misma frase de cierre de una declaración jurada, escrita de cuatro formas:
+//   · "En <Ciudad>, a <día> de <mes> de <año>"        (la ciudad también es un blanco)
+//   · "<Ciudad>, <día> de <mes> de <año>"             (la ciudad viene IMPRESA por el organismo)
+//   · "En <Ciudad>, a <día> días del mes de <mes> de <año>"
+//   · "Fecha: <día> / <mes> / <año>"                  (números, no palabras)
+//
+// La ciudad ya la resolvía RE_LOCALIDAD_FIRMA; las TRES piezas de la fecha, no. Y `detectarTripletes
+// Fecha` (anexos-detectar.ts) tampoco las alcanza en estas variantes — por eso llegan hasta acá.
+//
+// Se mira `antes` Y `despues` a propósito: "de" solo no distingue el mes del año ("12 de ___ de
+// 2026" vs "12 de agosto de ___"), y equivocarse ahí escribe el año donde va el mes. Lo que
+// desambigua es qué VIENE DESPUÉS del blanco, no qué viene antes.
+const MES_PALABRA = '(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)';
+const HUECO = '(?:_{2,}|\\.{3,}|…+)';
+// El nexo entre el día y el mes. El mismo pliego usa las DOS formas en formularios distintos
+// (2495-17-B226: "a ___ días del mes de ___" en ADMI-1 y "a ___ del mes de ___" en ADMI-3), así que
+// el "días" es opcional. La alternativa LARGA va primero: con `de` adelante, el motor de regex
+// consume el "de" de "del", falla, y aunque backtrackea, dejarlo explícito evita la duda al leerlo.
+const NEXO_DIA_MES = '(?:(?:d[ií]as?\\s+)?del\\s+mes\\s+de|de)';
+
+// DÍA. Tres separadores REALES entre la ciudad y el día, medidos en 2495-17-B226 (Coyhaique) y en
+// el muestreo grande — la primera versión solo cubría el primero y dejaba los otros dos afuera:
+//   · coma:      "Coyhaique, ___ de septiembre"
+//   · dos puntos: "Coyhaique: ___de…………del 2026"   ← FORMULARIO ADMI-2/ADMI-4 de Coyhaique
+//   · sin nada:  "En …………… a ___ días del mes de"  ← la ciudad es un blanco, no hay coma
+// Se exige que DESPUÉS venga "de" + un mes (palabra, número u otro hueco): sin eso, cualquier
+// "…de la empresa X, a ___" entraría acá.
+const RE_ANTES_DIA = new RegExp(
+  `(?:^|[.;])\\s*(?:en\\s+)?[^,;:]{2,45}\\s*[,:]\\s*a?\\s*$` +
+  `|(?:^|[.;])\\s*en\\s+[^,;:]{2,45}\\s+a\\s*$`, 'i');
+// El espacio después de "de" es OPCIONAL a propósito: el organismo escribe "......de……………" pegado
+// (2495-17-B226). Lo que sigue tiene que ser igual un mes, un hueco o un número, así que aflojar el
+// espacio no abre la puerta a nada ("deficiente ___" no calza: tras "de" viene "ficiente").
+const RE_DESPUES_DIA = new RegExp(`^\\s*${NEXO_DIA_MES}\\s*(?:${MES_PALABRA}|${HUECO}|\\d{1,2}\\b)`, 'i');
+// MES en PALABRA: "…12 de ___ de 2026" / "…12 días del mes de ___ de 2026". Antes tiene que venir
+// un día (número o hueco) y después el año.
+const RE_ANTES_MES_PALABRA = new RegExp(`(?:\\d{1,2}|${HUECO})\\s*${NEXO_DIA_MES}\\s*$`, 'i');
+const RE_DESPUES_MES_PALABRA = new RegExp(`^\\s*del?\\s+(?:\\d{2,4}|${HUECO}|20\\s*${HUECO})`, 'i');
+// AÑO: "…de agosto de ___". Antes viene el mes (palabra o hueco) + "de".
+//
+// Lo que lo distingue del MES no es cómo termina la frase, sino que DESPUÉS ya no venga más fecha.
+// La primera versión exigía que el año cerrara el párrafo (`/^\s*[.\-,;)]*\s*$/`) y por eso perdía
+// el caso más común de una declaración jurada, donde la frase SIGUE: "…de …………., comparece don…"
+// (2495-17-B226). Ahora el año es "lo que queda cuando ya no hay un 'de <año>' detrás", y el orden
+// de las pruebas (mes ANTES que año) es lo que hace que esto sea correcto y no una puerta abierta.
+const RE_ANTES_ANIO = new RegExp(`(?:${MES_PALABRA}|${HUECO})\\s*del?\\s*(?:20)?\\s*$`, 'i');
+// Forma con BARRAS: "Fecha: ___ / ___ / ___" — acá el mes va en NÚMERO, no en palabra.
+const RE_BARRAS_DIA = /(?:fecha|fecha\s+de\s+(?:presentacion|la\s+oferta))\s*:?\s*$/i;
+const RE_DESPUES_BARRA = /^\s*[/\-]/;
+const RE_ANTES_BARRAS_MES = new RegExp(`(?:\\d{1,2}|${HUECO})\\s*[/\\-]\\s*$`, 'i');
+const RE_ANTES_BARRAS_ANIO = new RegExp(`(?:\\d{1,2}|${HUECO})\\s*[/\\-]\\s*(?:\\d{1,2}|${HUECO})\\s*[/\\-]\\s*$`, 'i');
+
+// ── El CÓDIGO de la licitación partido en tres ────────────────────────────────────────────────
+// Caso real 2495-17-B226 (FORMULARIO ADMI-1): "…de la licitación pública ID N°____-____-______".
+// El organismo imprime los guiones, así que no hay una casilla donde quepa "2495-17-B226" entero:
+// son TRES blancos y cada uno lleva su tramo. Misma idea que la fecha partida en día/mes/año.
+//
+// Cuál de los tres es se deduce contando los guiones que hay entre el rótulo "ID" y el blanco: 0
+// guiones = primer tramo, 1 = segundo, 2 = tercero. Se exige que entre medio solo haya huecos,
+// guiones y espacios — así una frase cualquiera con un guion no se cuela.
+const RE_SOLO_HUECOS_Y_GUIONES = /^[\s.…_-]*$/;
+
+/** Qué tramo del código de licitación es este blanco. `null` si no está en esa fórmula. */
+export function campoDeCodigoEnPartes(antes: string, despues: string): Campo | null {
+  // Tiene que haber un guion impreso cerca: sin eso es un "ID N° ____" de UNA sola casilla, que ya
+  // resuelve el diccionario con `licitacion_codigo` entero y no hay que partir nada.
+  if (!/-/.test(despues.slice(0, 40)) && !/-/.test(antes.slice(-40))) return null;
+  // El rótulo más cercano al blanco: `[\s\S]*` es codicioso, así que corta en el ÚLTIMO "ID".
+  const m = antes.match(/[\s\S]*\b(?:id|c(?:o|ó)digo)\b/i);
+  if (!m) return null;
+  // Entre el rótulo y el blanco el organismo escribe "N°" ("ID N°____-____"). Sin sacarlo, la
+  // comprobación de "solo huecos y guiones" fallaba y la regla no disparaba nunca.
+  const cola = antes.slice(m[0].length).replace(/^\s*n[°º.]?\s*/i, '');
+  if (!RE_SOLO_HUECOS_Y_GUIONES.test(cola)) return null;
+  const guiones = (cola.match(/-/g) || []).length;
+  if (guiones === 0) return 'licitacion_codigo_p1' as Campo;
+  if (guiones === 1) return 'licitacion_codigo_p2' as Campo;
+  if (guiones === 2) return 'licitacion_codigo_p3' as Campo;
+  return null;
+}
+
+/** Qué pieza de la fecha de firma es este blanco, mirando lo que lo rodea. `null` si no es una. */
+export function campoDeFechaEnFormula(antes: string, despues: string): Campo | null {
+  // Las barras se prueban PRIMERO y de más específica a menos: "12 / 08 / ___" también calza con
+  // el patrón del mes si se prueba al revés, y el año terminaría con el número del mes.
+  if (RE_ANTES_BARRAS_ANIO.test(antes)) return 'fecha_hoy_anio' as Campo;
+  if (RE_ANTES_BARRAS_MES.test(antes)) return 'fecha_hoy_mes' as Campo;
+  if (RE_BARRAS_DIA.test(antes) && RE_DESPUES_BARRA.test(despues)) return 'fecha_hoy_dia' as Campo;
+
+  // El MES va ANTES que el AÑO y el orden es parte de la regla, no un detalle: los dos tienen el
+  // mismo `antes` cuando el día todavía está en blanco ("……… de ⟦?⟧"). Lo único que los separa es
+  // que al mes le sigue un "de <año>" y al año no. Probar el mes primero y el año como "lo que
+  // queda" resuelve los dos sin ambigüedad; al revés, el año se llevaría también al mes.
+  if (RE_ANTES_MES_PALABRA.test(antes) && RE_DESPUES_MES_PALABRA.test(despues)) return 'fecha_hoy_mes_palabra' as Campo;
+  if (RE_ANTES_ANIO.test(antes) && !RE_DESPUES_MES_PALABRA.test(despues)) return 'fecha_hoy_anio' as Campo;
+  if (RE_ANTES_DIA.test(antes) && RE_DESPUES_DIA.test(despues)) return 'fecha_hoy_dia' as Campo;
+  return null;
+}
+
 export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
   if (b.textoMarcador) {
     // BUG REAL (28-ago-2026, ANEXO N°2B, 2928-17-LE26): "indique dirección, comuna y región",
@@ -736,6 +996,17 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
 
   // Localidad de firma: "En ______ a 12 de agosto de 2026".
   if (RE_LOCALIDAD_FIRMA.test(antes) && RE_SIGUE_FECHA.test(despues)) return 'licitacion_comuna';
+
+  // FÓRMULA DE FECHA DE FIRMA, pieza por pieza. Ver campoDeFechaEnFormula: es el hallazgo más
+  // grande del muestreo de 1.500 documentos (31-ago-2026) y va ANTES de REGLAS_PREVIAS y de la
+  // etiqueta con dos puntos porque las dos resuelven de menos acá: "Fecha: ___ / ___ / ___" caía
+  // en la etiqueta "Fecha:" y devolvía la fecha COMPLETA para la primera de tres casillas.
+  const enFormula = campoDeFechaEnFormula(antes, despues);
+  if (enFormula) return enFormula;
+
+  // "ID N°____-____-______": tres blancos, un tramo del código en cada uno.
+  const tramo = campoDeCodigoEnPartes(antes, despues);
+  if (tramo) return tramo;
 
   const regla = REGLAS_PREVIAS.find(r => r.re.test(antes));
   if (regla) return regla.campo;
@@ -821,6 +1092,13 @@ function valorDe(empresa: EmpresaCampos, campo: Campo): string | null {
 // Las tres partes sueltas de la fecha solo tienen sentido dentro de un triplete, que ya se resuelve
 // entero y determinista antes de llegar acá (detectarTripletesFecha). Si alguna regla las propone
 // para una celda suelta, queda un número huérfano en el documento sin nada que lo explique.
+//
+// LA ÚNICA EXCEPCIÓN (31-ago-2026) es campoDeFechaEnFormula: ese camino no "propone" la pieza a
+// partir de una etiqueta, la DEDUCE de la frase completa mirando lo que hay antes Y después del
+// blanco ("…a ___ de agosto de 2026"). Ahí el triplete existe, solo que escrito en prosa en vez de
+// en tres celdas, así que el número nunca queda huérfano. Sin esta excepción el bloque de fecha
+// resolvía el campo y `anotar` lo tiraba igual: medido, el 60+ licitaciones de mejora se quedaba
+// en +0,4%.
 const SOLO_TRIPLETE = new Set<Campo>(['fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra'] as Campo[]);
 
 // ── Clasificación del PENDIENTE ──────────────────────────────────────────────────────────────
@@ -831,6 +1109,9 @@ const RE_TITULO = /^(?:antecedentes|identificacion|datos|propuesta|oferta|declar
 const RE_ESPECIFICO = /\b(precio|valor|monto|total|neto|iva|cantidad|unidad|plazo|dias|marca|modelo|especificacion|caracteristica|cumple|catalogo|item|producto|servicio|garantia|dimension|codigo del producto)\b/;
 const RE_DECISION = /\b(marque|marcar|con una x|describa|describ|indique|senale|detalle|explique|justifique|seleccione)\b/;
 const RE_TERCERO = /\b(cliente|mandante|contraparte|quien certifica|emisor del certificado|contratante)\b/;
+// La etiqueta propia de la casilla es SOLO la palabra de la columna — anclada a los dos extremos a
+// propósito: "SI" es una casilla para marcar, "SI CORRESPONDE" o "no aplica al oferente" no.
+const RE_CASILLA_MARCAR = /^(?:si|no|si\s*\/\s*no|cumple|no cumple|aplica|no aplica|acompana|adjunta)$/;
 
 export function clasificarPendiente(etiqueta: string): { categoria: CategoriaCampo; motivo: string } {
   const n = normalizarEtiqueta(etiquetaPropia(etiqueta));
@@ -845,6 +1126,18 @@ export function clasificarPendiente(etiqueta: string): { categoria: CategoriaCam
   }
   if (RE_ESPECIFICO.test(n)) {
     return { categoria: 'especifico_licitacion', motivo: 'Dato específico de esta oferta (precio, cantidad, plazo o especificación técnica) — se intenta cruzar contra el costeo y las bases; si tampoco aparece ahí, hay que escribirlo a mano.' };
+  }
+  // Columna de MARCAR ("ANTECEDENTE FORMAL | SI | NO", "Cumple | No cumple"). La etiqueta propia de
+  // la casilla es literalmente "SI" o "NO", así que no calza con ninguna regla de arriba y caía al
+  // fallback callado `no_aplica_al_oferente` — que la pantalla NO muestra.
+  //
+  // BUG REAL (31-ago-2026, 1954-1-LE26 ANEXO N°5, encontrado con el banco de 17 licitaciones): ese
+  // anexo es un checklist de 6 antecedentes (escritura de constitución, certificado de vigencia,
+  // RUT de la persona jurídica…) con dos casillas SI/NO cada uno. Las 12 se detectaban y NINGUNA
+  // llegaba a la pantalla: el anexo se habría subido con el checklist entero en blanco y sin un
+  // solo aviso. Es una decisión del oferente (qué documentos adjunta), nunca un dato de la ficha.
+  if (RE_CASILLA_MARCAR.test(n)) {
+    return { categoria: 'decision_del_usuario', motivo: 'Casilla para marcar (SÍ/NO): la decide el oferente según los documentos que adjunte.' };
   }
   if (RE_TITULO.test(n) && n.split(' ').length <= 5) {
     return { categoria: 'no_aplica_al_oferente', motivo: 'Es un encabezado o título de sección — anuncia lo que viene abajo, no pide un dato.' };
@@ -924,8 +1217,9 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
   // que faltaba era el dato en la ficha. Con ese mensaje no había forma de saber que bastaba con
   // completar la ficha, así que el hueco se descubría recién al abrir el .docx ya generado.
   const faltantesFicha = new Map<string, string>();   // campo → etiqueta donde se pidió
-  const anotar = (campo: Campo | null, etiqueta: string, set: (r: Resolucion) => void): 'auto' | 'falta' | 'no' => {
-    if (!campo || SOLO_TRIPLETE.has(campo)) return 'no';
+  const anotar = (campo: Campo | null, etiqueta: string, set: (r: Resolucion) => void,
+                  desdeFormulaDeFecha = false): 'auto' | 'falta' | 'no' => {
+    if (!campo || (SOLO_TRIPLETE.has(campo) && !desdeFormulaDeFecha)) return 'no';
     const valor = valorDe(empresa, campo);
     if (!valor) {
       if (!faltantesFicha.has(String(campo))) faltantesFicha.set(String(campo), etiqueta);
@@ -963,6 +1257,11 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // la persona la designa el asistente para esta licitación. Ver esBloqueDesignadoPorNosotros.
     // Solo se mira el CONTEXTO del bloque, nunca la etiqueta propia: "Nombre completo" es idéntico
     // en los dos bloques y es el encabezado lo único que los distingue.
+    // Fila 2+ de una grilla numerada de SOCIOS ("2 — Rut Socio"): se corta acá, antes de cualquier
+    // capa. Tiene que ir primero porque `etiquetaPropia` ya recortó el "2 — " y el diccionario
+    // resolvería la columna igual de bien que en la fila 1 — repitiendo el mismo RUT en las 12
+    // filas. Ver esFilaDeSocioPosterior.
+    if (esFilaDeSocioPosterior(c.etiqueta)) { celdaSinResolver.push(c); continue; }
     const esTercero = !campo && (
       esBloqueDeTercero(`${propia} ${bloque?.contexto ?? ''} ${(bloque?.etiquetas ?? []).join(' ')}`)
       // SOLO el encabezado MÁS CERCANO, no los 3 párrafos de contexto: en este mismo formulario el
@@ -1006,6 +1305,24 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
         : null;
       if (titularDelNombre === 'representante_nombre') campo = 'representante_rut';
     }
+    // 1c. Los SUBCAMPOS del domicilio pelados ("N°", "Oficina") solo significan eso DENTRO de un
+    //     bloque de dirección.
+    //
+    // BUG REAL (2495-17-B226, encontrado revisando el documento generado): la tabla de socios
+    // tiene una columna "Nº" que es el NÚMERO DE FILA, y la casilla salía con "492 Of.78" — el
+    // número de la calle de la empresa, metido en la fila de totales de un registro societario.
+    // "N°" como encabezado de columna es de lo más común que existe (numerar filas), así que la
+    // entrada del diccionario `^n[°º]$` no puede resolver sola.
+    //
+    // Las formas EXPLÍCITAS ("Número de la calle", "N° del domicilio") no pasan por acá: ya dicen
+    // de qué son y siguen resolviendo como siempre. Lo que se exige contexto es lo pelado.
+    if (campo && RE_SUBCAMPO_DOMICILIO_PELADO.test(normalizarEtiqueta(propia))
+        && (campo === 'direccion_numero' || campo === ('direccion_oficina' as Campo))) {
+      const enBloqueDeDireccion = (bloque?.etiquetas ?? []).some(h => RE_HERMANA_DOMICILIO.test(h))
+        || RE_HERMANA_DOMICILIO.test(bloque?.contexto ?? '');
+      if (!enBloqueDeDireccion) campo = null;
+    }
+
     // 2. Etiqueta pelada, desambiguada por el bloque.
     if (!campo && !esTercero && bloque) {
       campo = resolverPeladaPorBloque(c.etiqueta, bloque.etiquetas, bloque.contexto, RE_CTX_PERSONA.test(bloque.contexto));
@@ -1014,8 +1331,22 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // La etiqueta manda sobre el contexto: si nombra un dato concreto y distinto (una fecha, una
     // ciudad, un RUT), no es la casilla de la pregunta de integridad por más que el bloque entero
     // hable de eso — ver RE_ETIQUETA_PIDE_OTRO_DATO.
+    // BUG REAL (2495-17-B226, FORMULARIO ADMI-4, 31-ago-2026): el documento generado salía con
+    // "DATOS DEL PROPONENTE: SÍ" — un "SÍ" pegado al ENCABEZADO de la tabla de identificación,
+    // dentro de un formulario que en su conjunto habla de Programa de Integridad. Mientras tanto,
+    // las tres opciones reales ("Marque con X según corresponda") quedaban sin tocar.
+    //
+    // Es el MISMO patrón del bug de "contraparte" (2928-17-LE26): la condición se prueba contra el
+    // BLOQUE ENTERO y no contra la casilla puntual, así que cualquier casilla del formulario hereda
+    // el tema del formulario. Acá el guardarraíl no puede ser "etiqueta en mayúsculas = no", porque
+    // una casilla legítima se rotula "PROGRAMA DE INTEGRIDAD:" y también va en mayúsculas.
+    //
+    // La regla exacta: si la etiqueta ES un encabezado de sección, tiene que nombrar la integridad
+    // ELLA MISMA — el contexto de alrededor no se la presta. Una pregunta escrita en prosa
+    // ("¿Cuenta la empresa con un programa…?") no es encabezado y sigue resolviéndose por contexto.
+    const etiquetaEsEncabezado = RE_ENCABEZADO_SECCION.test(String(propia).trim());
     if (!campo && !RE_ETIQUETA_PIDE_OTRO_DATO.test(normalizarEtiqueta(propia))
-        && esPreguntaDeIntegridad(`${c.etiqueta} ${bloque?.contexto ?? ''}`)) {
+        && esPreguntaDeIntegridad(etiquetaEsEncabezado ? propia : `${c.etiqueta} ${bloque?.contexto ?? ''}`)) {
       campo = 'programa_integridad_respuesta' as Campo;
     }
 
@@ -1031,14 +1362,20 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
   // Mismo orden de prioridad que en las celdas: la corrección aprendida del experto manda sobre el
   // diccionario. Acá la "etiqueta" es el marcador (`<RAZÓN SOCIAL>`) o el texto que rodea al
   // blanco — nunca el placeholder vacío, que `esEtiquetaAprendible` ya dejó fuera al guardar.
-  const camposInline = blancosInline.map(b => ({
-    b, campo: campoAprendido(b.textoMarcador || b.contexto || '') ?? campoDeBlancoInline(b),
-  }));
+  const camposInline = blancosInline.map(b => {
+    const aprendido = campoAprendido(b.textoMarcador || b.contexto || '');
+    const campo = aprendido ?? campoDeBlancoInline(b);
+    // En el camino INLINE las tres piezas sueltas de la fecha solo las puede devolver
+    // campoDeFechaEnFormula: ninguna otra regla de acá (marcador, previa, diccionario) las
+    // propone — todas devuelven `fecha_hoy` entera. Por eso el flag se deduce del propio campo en
+    // vez de arrastrar un segundo valor de retorno por todo campoDeBlancoInline.
+    return { b, campo, desdeFormulaDeFecha: !aprendido && !!campo && SOLO_TRIPLETE.has(campo) };
+  });
   const parrafosQuePidenComunaAparte = new Set(
     camposInline.filter(x => x.campo === 'comuna' || x.campo === 'ciudad').map(x => x.b.indiceParrafo),
   );
 
-  for (const { b, campo } of camposInline) {
+  for (const { b, campo, desdeFormulaDeFecha } of camposInline) {
     const clave = `${b.indiceRun}:${b.posEnTexto}`;
     const etiqueta = (b.textoMarcador || b.contexto || '').slice(0, 120);
     // "con domicilio en <domicilio>, <comuna>, <ciudad>" → el campo `direccion` de la ficha YA trae
@@ -1054,7 +1391,7 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
         continue;
       }
     }
-    if (anotar(campo, etiqueta, r => inline.set(clave, r)) !== 'no') continue;
+    if (anotar(campo, etiqueta, r => inline.set(clave, r), desdeFormulaDeFecha) !== 'no') continue;
     inlineSinResolver.push(b);
   }
 

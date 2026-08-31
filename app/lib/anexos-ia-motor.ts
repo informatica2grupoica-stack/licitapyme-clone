@@ -82,6 +82,13 @@ export interface EmpresaCampos {
   // que permita separar sin adivinar — ver calleYNumeroDeDireccion en anexos-derivados.ts.
   direccion_calle?: string | null;
   direccion_numero?: string | null;
+  // Oficina/departamento del domicilio, suelto de `direccion` (31-ago-2026, medido por el auditor
+  // de generalización en 3 licitaciones): varios formularios de identificación parten el domicilio
+  // en "Calle | N° | DPTO./OF. | Comuna". Sin este campo, la casilla de oficina quedaba pendiente
+  // aunque el dato ya está en la ficha ("Barros Arana N°492 Of.78, Concepción" → "78"). `null` si
+  // la dirección no trae una marca de oficina/depto explícita — misma regla anti-invención que
+  // calleYNumeroDeDireccion: sin marca clara, pendiente, nunca un corte adivinado.
+  direccion_oficina?: string | null;
   comuna?: string | null;
   ciudad?: string | null;
   // Nombres/Apellidos del representante legal, sueltos de `representante_nombre` (10-ago-2026,
@@ -121,6 +128,14 @@ export interface EmpresaCampos {
   // un objeto paralelo. 100% determinista, igual que fecha_hoy — la IA nunca los inventa, solo
   // elige NOMBRARLOS cuando una casilla los pide.
   licitacion_codigo?: string | null;
+  // El código PARTIDO en sus tres tramos (31-ago-2026, caso real 2495-17-B226, FORMULARIO ADMI-1):
+  // varios organismos imprimen los guiones y dejan tres blancos —"ID N° ____-____-______"— así que
+  // no hay dónde escribir "2495-17-B226" entero. Es el mismo caso que la fecha partida en día/mes/
+  // año. Se derivan por split del código real, nunca se inventan: si el código no viene o no tiene
+  // exactamente tres tramos, los tres quedan en null y las casillas siguen pendientes.
+  licitacion_codigo_p1?: string | null;
+  licitacion_codigo_p2?: string | null;
+  licitacion_codigo_p3?: string | null;
   licitacion_nombre?: string | null;
   licitacion_organismo?: string | null;
   licitacion_organismo_rut?: string | null;
@@ -171,7 +186,7 @@ const CATEGORIAS_PERFIL: CategoriaCampo[] = [
 // viniera. Lo bancario y los datos de licitación siguen aparte a propósito: ahí sí hay dos titulares
 // distintos posibles (la cuenta puede estar a nombre de otro) y dos fuentes de datos distintas.
 const CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA: (keyof EmpresaCampos)[] = [
-  'razon_social', 'rut', 'direccion', 'direccion_calle', 'direccion_numero', 'comuna', 'ciudad',
+  'razon_social', 'rut', 'direccion', 'direccion_calle', 'direccion_numero', 'direccion_oficina', 'comuna', 'ciudad',
   'region', 'giro', 'tipo_persona_juridica',
   'fecha_sociedad', 'fecha_escritura', 'notaria', 'numero_repertorio', 'fojas_numero_anio',
   'representante_nombre', 'representante_rut', 'representante_cargo',
@@ -329,6 +344,7 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   direccion: 'Dirección comercial COMPLETA (calle + número + comuna) — úsalo SOLO si la casilla pide "Domicilio"/"Dirección" en UNA sola casilla. Si la casilla dice "Calle", "N°"/"Número", "Comuna" o "Ciudad" por separado, usa el campo específico de abajo, nunca este entero.',
   direccion_calle: 'Solo el NOMBRE DE LA CALLE del domicilio comercial (sin número) — casilla "Calle".',
   direccion_numero: 'Solo el NÚMERO/N° del domicilio comercial (sin el nombre de la calle) — casilla "N°"/"Número".',
+  direccion_oficina: 'Solo la OFICINA/DEPARTAMENTO del domicilio comercial (sin calle ni número) — casilla "Of.", "Oficina", "Dpto.", "Depto.".',
   comuna: 'Comuna del domicilio comercial — casilla "Comuna".',
   ciudad: 'Ciudad del domicilio comercial — casilla "Ciudad".',
   region: 'Región CON la comuna al final, ej. "Región del Bío Bío, Concepción" — úsalo SOLO si la casilla junta "Región y comuna" o "Ciudad, Región" en una sola casilla. Si la casilla pide solo "Comuna" o solo "Ciudad", usa esos campos, no este.',
@@ -442,7 +458,11 @@ CASILLA SIN CONTEXTO: si el contexto que te llega para una casilla está vacío 
 
 TÍTULOS QUE NO SON CASILLAS: la detección es a propósito ruidosa y te va a pasar, mezclados con las casillas reales, encabezados y títulos de sección ("PROPUESTA:", "1. Detalle del suministro", "ANTECEDENTES GENERALES", "OFERTA ECONÓMICA:"). Un título ANUNCIA lo que viene abajo, no pide un dato: categoria="no_aplica_al_oferente", campo=null. La señal es simple — si al escribir el valor ahí la línea quedaría sin sentido leída en voz alta ("PROPUESTA: 06"), es un título. Ante la duda entre título y campo, elige título: una casilla de más que el humano llena es un costo menor que un dato suelto en medio del documento.
 
-REGLA CLAVE — UNA SOLA PERSONA: el oferente, el representante legal, el encargado de la propuesta, el contacto para la licitación y el administrador de contrato son SIEMPRE la misma persona de la ficha. Si un bloque pide "Nombre completo", "Cargo", "Cédula de identidad", "Teléfono" o "Correo" bajo cualquiera de esos títulos (incluida una declaración jurada corrida: "Yo, don ___, cédula de identidad N° ___, en representación de ___"), se llena con los datos del representante legal / de la empresa según el dato pedido — no lo dejes pendiente por dudar de quién es. CONSISTENCIA DENTRO DEL MISMO BLOQUE (no negociable): si dentro de ese mismo bloque de contacto ya resolviste el TELÉFONO/CELULAR con telefono1, el E-MAIL/CORREO del bloque se resuelve con email1 exactamente con el mismo criterio — nunca trates el teléfono y el correo de la misma persona/bloque de forma distinta, uno pendiente y el otro no.
+REGLA CLAVE — QUIEN ES QUIEN (corregida el 31-ago-2026 tras un error real en 2495-17-B226, donde el RUT del REPRESENTANTE terminó en la casilla del RUT del OFERENTE). Son DOS entidades distintas y NO se pueden mezclar:
+  · El OFERENTE es la EMPRESA. Sus datos propios son razon_social, rut (de la empresa), direccion, giro, tipo_persona_juridica, fecha_escritura, notaria.
+  · El REPRESENTANTE LEGAL es una PERSONA. Sus datos propios son representante_nombre, representante_rut (su cedula de identidad), representante_cargo, representante_profesion.
+  El error mas caro es cruzar los dos RUT: un anexo que pide "RUT del oferente" y "RUT del representante legal" en el mismo formulario espera DOS numeros DISTINTOS. Si la etiqueta habla de la empresa (oferente, proponente, razon social, persona juridica), el dato es de la EMPRESA; si habla de la persona (representante, apoderado, declarante, cedula de identidad), el dato es de la PERSONA. Nunca decidas por la casilla de al lado: decide por la etiqueta que tienes delante.
+  LO QUE SI COMPARTEN, y solo eso: el TELEFONO y el CORREO. El encargado de la propuesta, el contacto para la licitacion y el administrador de contrato son la misma persona del representante legal, asi que telefono1/email1 sirven para todos esos bloques. Si un bloque pide "Nombre completo", "Cargo", "Cédula de identidad", "Teléfono" o "Correo" bajo cualquiera de esos títulos (incluida una declaración jurada corrida: "Yo, don ___, cédula de identidad N° ___, en representación de ___"), se llena con los datos del representante legal / de la empresa según el dato pedido — no lo dejes pendiente por dudar de quién es. CONSISTENCIA DENTRO DEL MISMO BLOQUE (no negociable): si dentro de ese mismo bloque de contacto ya resolviste el TELÉFONO/CELULAR con telefono1, el E-MAIL/CORREO del bloque se resuelve con email1 exactamente con el mismo criterio — nunca trates el teléfono y el correo de la misma persona/bloque de forma distinta, uno pendiente y el otro no.
 
 DOS EJEMPLOS CONCRETOS DE DECLARACIÓN JURADA CORRIDA (el caso que MÁS se falla — analízalos con calma, casilla por casilla, NUNCA los trates como un solo bloque de firma):
 1. "El proponente, por medio de su representante legal, don 【CASILLA A LLENAR】 declara bajo juramento lo siguiente:" → la casilla pide el NOMBRE del representante legal → categoria="perfil_representante_legal", valor=representante_nombre. Que la oración diga "declara bajo juramento" NO la vuelve firma_fecha: es el estilo legal del texto, no una raya de firma.
@@ -833,7 +853,13 @@ export async function resolverAlertasInadmisibilidad(basesTexto: string, tituloA
       messages: [{ role: 'system', content: SYS_BASES }, { role: 'user', content: user }],
       temperature: 0.1, stream: false, max_tokens: 2_000,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 90_000 });
+      // Mismo modelo que el resto del motor de anexos (31-ago-2026). Esta llamada era una de las
+      // TRES del camino de anexos que quedaron sin fijar modelo, así que caía en el principal
+      // (`glm-4.7-flashx`) — el que se cuelga. Medido en vivo durante la auditoría de este día:
+      // 43 s colgado y después "Request timed out", con 90 s de espera máxima antes de que la
+      // cadena de respaldo se active. El usuario lo reportó como "a veces se cuelga". Fijar
+      // glm-4.7 lo saca del camino; la cadena (4.5-air → 4.7 → 5.2) sigue disponible si este falla.
+    }, { timeoutMs: 90_000, modeloPreferido: 'glm-4.7', soloGlm: true });
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};
     const arr = Array.isArray(parsed.alertas) ? parsed.alertas : [];
@@ -889,7 +915,8 @@ export async function identificarCamposDeSeccionEscaneada(
       messages: [{ role: 'system', content: sys }, { role: 'user', content: user }],
       temperature: 0.1, stream: false, max_tokens: 1_500,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 60_000 });
+      // Ver el comentario de resolverAlertasInadmisibilidad: misma corrección, misma razón.
+    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};
     const arr = Array.isArray(parsed.campos) ? parsed.campos : [];

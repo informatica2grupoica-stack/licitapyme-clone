@@ -2,7 +2,7 @@
 //   npx tsx --test app/lib/__tests__/anexos-derivados.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { conCamposDerivados } from '../anexos-derivados';
+import { conCamposDerivados, camposDelCodigoLicitacion } from '../anexos-derivados';
 import type { EmpresaCampos } from '../anexos-ia-motor';
 
 const empresaBase: EmpresaCampos = {
@@ -93,4 +93,56 @@ test('conCamposDerivados: la nacionalidad se resuelve como política fija, pero 
   // Si algún día existe la columna en `empresas` (un representante extranjero), ese dato manda —
   // por eso se resuelve con `||` y no a la fuerza.
   assert.equal(conCamposDerivados({ ...base, nacionalidad: 'Argentina' }).nacionalidad, 'Argentina');
+});
+
+// ── Oficina/departamento del domicilio (31-ago-2026) ───────────────────────────────────────────
+// Medido por el auditor de generalización sobre 502 formularios reales: los organismos que parten
+// el domicilio en columnas ("Calle | N° | DPTO./OF. | Comuna") dejaban esa casilla siempre
+// pendiente aunque el dato ya venía dentro de `direccion`.
+test('direccion_oficina: saca la oficina pegada al número ("Of.78")', () => {
+  const e = { direccion: 'Barros Arana N°492 Of.78, Concepción' } as any;
+  assert.equal(conCamposDerivados(e).direccion_oficina, '78');
+});
+
+test('direccion_oficina: también cuando la oficina es un SEGMENTO propio, no el primero', () => {
+  // A diferencia de la calle (siempre en el primer segmento), la oficina aparece indistintamente
+  // pegada a la calle o separada por coma. El ÚLTIMO segmento nunca se mira: ahí va la comuna.
+  const e = { direccion: 'Av. Providencia 1234, Oficina 45, Santiago' } as any;
+  assert.equal(conCamposDerivados(e).direccion_oficina, '45');
+});
+
+test('direccion_oficina: "Depto"/"Dpto." son la misma marca', () => {
+  assert.equal(conCamposDerivados({ direccion: 'Av. Alemania 0671 Depto 22, Temuco' } as any).direccion_oficina, '22');
+  assert.equal(conCamposDerivados({ direccion: 'Calle Larga 55 Dpto. 3B, Osorno' } as any).direccion_oficina, '3B');
+});
+
+// BUG REAL encontrado escribiendo esta regla: con las alternativas ordenadas de más corta a más
+// larga, `of` matcheaba DENTRO de "Oficina" y la marca capturaba "icina" en vez del número. El
+// orden (larga → corta) y el `\b` de cierre son los dos necesarios; sin test, esto pasa inadvertido
+// porque igual devuelve un string y "parece" que funcionó.
+test('direccion_oficina: "Oficina" completa no se parte en "icina"', () => {
+  const e = { direccion: 'Av. Providencia 1234, Oficina 45, Santiago' } as any;
+  assert.notEqual(conCamposDerivados(e).direccion_oficina, 'icina');
+});
+
+test('direccion_oficina: sin marca explícita queda null, nunca el número de la calle', () => {
+  // Misma regla anti-invención que calleYNumeroDeDireccion: mejor pendiente que un dato inventado.
+  assert.equal(conCamposDerivados({ direccion: 'Los Olivos 900, Valdivia' } as any).direccion_oficina, null);
+  assert.equal(conCamposDerivados({ direccion: 'Camino El Oliveto N° 575 N° 6, Talagante' } as any).direccion_oficina, null);
+});
+
+// ── Tramos del código de licitación (31-ago-2026, caso real 2495-17-B226) ──────────────────────
+test('camposDelCodigoLicitacion: parte el código en sus tres tramos', () => {
+  const r = camposDelCodigoLicitacion('2495-17-B226');
+  assert.equal(r.licitacion_codigo_p1, '2495');
+  assert.equal(r.licitacion_codigo_p2, '17');
+  assert.equal(r.licitacion_codigo_p3, 'B226');
+});
+
+test('camposDelCodigoLicitacion: sin código, o con otra forma, los tres quedan null', () => {
+  // Anti-invención: un código que no tiene exactamente tres tramos no se rellena a medias.
+  for (const malo of [null, '', '2495-17', '2495-17-B226-X', '2495--B226']) {
+    const r = camposDelCodigoLicitacion(malo as any);
+    assert.deepEqual([r.licitacion_codigo_p1, r.licitacion_codigo_p2, r.licitacion_codigo_p3], [null, null, null], String(malo));
+  }
 });

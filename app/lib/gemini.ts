@@ -177,6 +177,16 @@ export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerC
 export function geminiHabilitado(): boolean {
   return process.env.GEMINI_HABILITADO === '1' && Boolean(process.env.GEMINI_API_KEY);
 }
+
+// 31-ago-2026 (pedido del usuario tras 2408-165-LE26 / 1079650-68-LE26: "de última opción, si
+// fallan todas, que entre a Gemini"): Gemini vuelve SOLO como último eslabón de la cadena de
+// TEXTO. Deliberadamente NO se reactiva `GEMINI_HABILITADO`, que además prendería el OCR de
+// Gemini (document-extraction.ts, clasificacion.ts) — ese camino se retiró a propósito el
+// 6-jul-2026 en favor de GLM-OCR/Tesseract y el usuario no pidió tocarlo. Basta con que exista
+// GEMINI_API_KEY; se apaga con GEMINI_TEXTO_HABILITADO=0 sin tener que borrar la key.
+export function geminiTextoHabilitado(): boolean {
+  return process.env.GEMINI_TEXTO_HABILITADO !== '0' && Boolean(process.env.GEMINI_API_KEY);
+}
 function cfgTexto(): ProveedorTexto { return PROVEEDORES_TEXTO[IA_TEXT_PROVIDER] ?? PROVEEDORES_TEXTO.zai; }
 // CADENA de RESPALDO (ordenada, deduplicada) para cuando el modelo activo se cuelga/cae.
 // Filosofía: NO salir de GLM si se puede. Si el activo es GLM (zai), el 1er respaldo es
@@ -202,7 +212,7 @@ function cfgTextoRespaldos(activo: ProveedorTexto): ProveedorTexto[] {
     add(PROVEEDORES_TEXTO.zai); add(PROVEEDORES_TEXTO.zai_alt); add(PROVEEDORES_TEXTO.zai_alt2); add(PROVEEDORES_TEXTO.zai_alt3);
   }
   add(PROVEEDORES_TEXTO.deepseek);                                     // 4) DeepSeek (último recurso)
-  if (geminiHabilitado()) add(PROVEEDORES_TEXTO.gemini);              // 5) Gemini (solo si habilitado)
+  if (geminiTextoHabilitado()) add(PROVEEDORES_TEXTO.gemini);          // 5) Gemini (último recurso de TEXTO)
   return chain;
 }
 
@@ -276,6 +286,17 @@ function tarifaModelo(model: string): { precIn: number; precOut: number } {
     });
     if (m.includes('pro')) return env('DEEPSEEK_PRICE_IN_USD_PER_M_PRO', 'DEEPSEEK_PRICE_OUT_USD_PER_M_PRO', 0.435, 0.87);
     return env('DEEPSEEK_PRICE_IN_USD_PER_M', 'DEEPSEEK_PRICE_OUT_USD_PER_M', 0.14, 0.28);
+  }
+  // Gemini (31-ago-2026, al reincorporarlo como último eslabón de texto): sin esta rama caía en
+  // el "otros" de abajo (0.27/1.10, tarifa vieja de deepseek-chat) y el costo reportado de una
+  // corrida rescatada por Gemini habría sido inventado. Tarifas de Google AI, USD por 1M.
+  if (m.includes('gemini')) {
+    const env = (i: string, o: string, di: number, dobj: number) => ({
+      precIn:  Number(process.env[i] ?? di),
+      precOut: Number(process.env[o] ?? dobj),
+    });
+    if (m.includes('lite')) return env('GEMINI_PRICE_IN_USD_PER_M_LITE', 'GEMINI_PRICE_OUT_USD_PER_M_LITE', 0.10, 0.40);
+    return env('GEMINI_PRICE_IN_USD_PER_M', 'GEMINI_PRICE_OUT_USD_PER_M', 0.30, 2.50);
   }
   return { precIn: 0.27, precOut: 1.10 }; // otros
 }
@@ -369,8 +390,24 @@ async function intentarProveedor(cfg: ProveedorTexto, params: any, reqOpts: any,
 // corto (`reqOpts.timeout`, pensado para respaldos GLM normales); el primer eslabón de OTRO
 // proveedor (keyEnv distinto — típicamente DeepSeek) usa el presupuesto COMPLETO que quede, sin
 // acortar: es la última apuesta y merece el margen entero.
-async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any, finLimite?: number, keyEnvActivo?: string): Promise<any> {
+// 31-ago-2026 (caso real 2408-165-LE26 y 1079650-68-LE26): el usuario vio
+// "GLM no respondió: 402 Insufficient Balance" y concluyó que TODAS las versiones de GLM estaban
+// caídas. No era eso: los 4 modelos GLM respondían 200 con saldo intacto — el 402 era de DeepSeek,
+// el ÚLTIMO eslabón de la cadena, cuya cuenta sí estaba sin saldo. Como esta función lanzaba
+// SOLO el error del último eslabón (`ultimo`), el motivo real por el que cayeron los 4 GLM de
+// arriba (timeout, 429, JSON roto...) se perdía por completo y el único síntoma visible apuntaba
+// al proveedor equivocado. Ahora se acumula el motivo de CADA eslabón y se lanza un error
+// agregado que los nombra a todos, en orden.
+function motivoBreve(e: any): string {
+  const st = Number(e?.status ?? 0);
+  if (esTimeoutIA(e)) return 'timeout';
+  const txt = String(e?.error?.message ?? e?.message ?? e).replace(/\s+/g, ' ').slice(0, 70);
+  return st ? `${st} ${txt}` : txt;
+}
+
+async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any, finLimite?: number, keyEnvActivo?: string, motivosPrevios: string[] = []): Promise<any> {
   let ultimo: any;
+  const motivos: string[] = [...motivosPrevios];
   for (const cfg of chain) {
     let opts = reqOpts;
     if (finLimite) {
@@ -386,10 +423,15 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
     try { return await intentarProveedor(cfg, params, opts, true); }
     catch (e: any) {
       ultimo = e;
+      motivos.push(`${cfg.model}: ${motivoBreve(e)}`);
       console.warn(`[ia] respaldo ${cfg.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 60)})${chain.indexOf(cfg) < chain.length - 1 ? ', siguiente...' : ''}`);
     }
   }
-  throw ultimo ?? new Error('cadena de respaldo agotada sin respuesta');
+  // El agregado es lo que ve el usuario y lo que queda en viabilidad_jobs.error: nombra cada
+  // eslabón con su motivo, para no volver a culpar al proveedor equivocado. `cause` conserva el
+  // error original del último eslabón para quien necesite inspeccionarlo (status, code, etc.).
+  const detalle = motivos.length ? motivos.join(' | ') : 'cadena de respaldo agotada sin respuesta';
+  throw Object.assign(new Error(detalle), { cause: ultimo, status: ultimo?.status, cadenaMotivos: motivos });
 }
 
 // opts.modeloPreferido: fuerza un modelo GLM específico como PRINCIPAL de esta llamada (misma
@@ -405,7 +447,7 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
 // reales medidos: 4-93s); si no responde, mejor pasar pronto al respaldo que esperar el mismo
 // margen generoso que se le da a los modelos de última instancia. Si no se pasa, usa opts.timeoutMs
 // para el principal también (comportamiento previo, sin cambios para callers que no lo usan).
-export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string; deepSeekUltimoRecurso?: boolean; deadlineMs?: number } = {}) {
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number } = {}) {
   const activo = opts.modeloPreferido ? { ...PROVEEDORES_TEXTO.zai, model: opts.modeloPreferido } : cfgTexto();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
   const timeoutPrimario = opts.timeoutMsPrimario ?? opts.timeoutMs;
@@ -426,11 +468,18 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeo
     // los GLM se hayan agotado. Sigue sin competirle a GLM: no se llega ahí si alguno responde.
     const ds = PROVEEDORES_TEXTO.deepseek;
     respaldos = (opts.deepSeekUltimoRecurso && process.env[ds.keyEnv]) ? [...glm, ds] : glm;
+    // opts.geminiUltimoRecurso (31-ago-2026, pedido del usuario): DESPUÉS de DeepSeek, un
+    // proveedor más —y de otra empresa— antes de darse por vencido. Motivo concreto: DeepSeek
+    // quedó sin saldo (402) y, siendo el último eslabón, la viabilidad murió ahí aunque el
+    // problema no fuera de GLM. Con Gemini detrás, que un proveedor se quede sin crédito ya no
+    // deja la corrida sin informe. `soloGlm` sigue significando lo que decía: GLM manda y nadie
+    // le compite — a estos dos solo se llega con la escalera GLM entera agotada.
+    if (opts.geminiUltimoRecurso && geminiTextoHabilitado()) respaldos = [...respaldos, PROVEEDORES_TEXTO.gemini];
   }
 
   // Breaker: si el principal ya se declaró sin saldo y hay cadena, vamos directo al respaldo.
   const finLimite = opts.deadlineMs ? Date.now() + opts.deadlineMs : undefined;
-  if (textoPrincipalSinSaldo && respaldos.length) return intentarCadena(respaldos, params, reqOpts, finLimite, activo.keyEnv);
+  if (textoPrincipalSinSaldo && respaldos.length) return intentarCadena(respaldos, params, reqOpts, finLimite, activo.keyEnv, [`${activo.model}: sin saldo (breaker)`]);
 
   try {
     if (dbg) console.log(`[ia-dbg] chat PRINCIPAL → ${activo.model} (${activo.baseURL})${timeoutPrimario ? ` timeout=${timeoutPrimario}ms` : ''}`);
@@ -443,7 +492,7 @@ export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeo
     }
     if (respaldos.length) {
       console.warn(`[ia] ${activo.model} falló (${String(e?.status ?? e?.message ?? e).slice(0, 80)}), respaldo → ${respaldos.map((r) => r.model).join(' → ')}`);
-      return intentarCadena(respaldos, params, reqOpts, finLimite, activo.keyEnv); // cada respaldo también reintenta transitorios
+      return intentarCadena(respaldos, params, reqOpts, finLimite, activo.keyEnv, [`${activo.model}: ${motivoBreve(e)}`]); // cada respaldo también reintenta transitorios
     }
     throw e;
   }

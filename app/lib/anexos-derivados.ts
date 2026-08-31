@@ -73,6 +73,34 @@ function calleYNumeroDeDireccion(direccion: string | null | undefined): { calle:
   return { calle, numero };
 }
 
+// Oficina / departamento, suelto de `direccion` (31-ago-2026, medido por el auditor de
+// generalización sobre 502 formularios reales): los formularios de identificación que parten el
+// domicilio en columnas ("Calle | N° | DPTO./OF. | Comuna") dejaban la casilla de oficina siempre
+// pendiente, aunque el dato ya viene dentro de `direccion` ("Barros Arana N°492 Of.78, Concepción").
+//
+// Mismo criterio anti-invención que calleYNumeroDeDireccion: solo se corta cuando la dirección trae
+// una marca EXPLÍCITA de oficina/departamento. Si no la trae, `null` y la casilla queda pendiente —
+// jamás se ofrece el número de la calle como si fuera la oficina.
+// Las alternativas van de MÁS LARGA a más corta y con `\b` de cierre, las dos cosas a propósito:
+// con el orden al revés, `of` matcheaba DENTRO de "Oficina" y la marca quedaba capturando "icina"
+// en vez del número (verificado con "Av. X 123, Oficina 45", que es de las formas más comunes que
+// existe). `piso` queda FUERA: un piso no es una oficina, es otro dato.
+const RE_MARCA_OFICINA = /\b(?:oficina|departamento|depto|dpto|ofic|of)\b\.?\s*:?\s*(?:n[°ºo]?\.?\s*)?([\w-]+)/i;
+
+// A diferencia de calleYNumeroDeDireccion (que solo mira el PRIMER segmento, donde por definición
+// vive la calle), la oficina aparece indistintamente pegada a la calle ("Barros Arana N°492 Of.78")
+// o como segmento propio ("Av. Providencia 1234, Oficina 45"). Se miran todos los segmentos MENOS
+// el último, que es la comuna (ver comunaDeDireccion) y nunca trae la oficina.
+function oficinaDeDireccion(direccion: string | null | undefined): string | null {
+  const partes = (direccion || '').split(',').map(s => s.trim()).filter(Boolean);
+  const buscables = partes.length > 1 ? partes.slice(0, -1) : partes;
+  for (const parte of buscables) {
+    const m = RE_MARCA_OFICINA.exec(parte);
+    if (m?.[1]?.trim()) return m[1].trim();
+  }
+  return null;
+}
+
 // Nombres y apellidos, sueltos de `representante_nombre` — pedido explícito del usuario (10-ago-
 // 2026, caso real 1426039-8-LE26, ANEXO N°6): una tabla "Nombres | Apellidos" como DOS casillas
 // separadas no tenía ningún campo propio que ofrecerle a cada una, así que el motor repetía el
@@ -132,6 +160,29 @@ const NACIONALIDAD_POR_DEFECTO = 'Chilena';
 
 // Toma el registro tal cual sale de la tabla `empresas` y devuelve el mismo registro CON los
 // campos derivados resueltos. No pisa nada que ya venga con dato propio.
+// El código de la licitación partido en sus tres tramos ("2495-17-B226" → "2495" / "17" / "B226"),
+// para los formularios que imprimen los guiones y dejan tres blancos (2495-17-B226, FORMULARIO
+// ADMI-1: "de la licitación pública ID N°____-____-______"). `null` en los tres si no hay código o
+// si no tiene exactamente tres tramos — nunca se rellena de a pedazos algo que no calza.
+// Se exporta como bloque de campos (y no como tupla) porque hay DOS puntos donde hace falta y en
+// uno de ellos el código todavía no existe: `cargarEmpresaEnriquecida` (anexos-datos.ts) llama a
+// conCamposDerivados con la ficha CRUDA —sin los `licitacion_*`, que llegan de la API de Mercado
+// Público— y recién después fusiona los dos objetos. Si esto viviera solo acá adentro, los tres
+// tramos se calcularían siempre sobre un código vacío y quedarían en null para siempre (fue
+// exactamente lo que pasó al escribirlo: la regla identificaba los tres blancos y los tres decían
+// "falta el dato").
+export function camposDelCodigoLicitacion(codigo: string | null | undefined): {
+  licitacion_codigo_p1: string | null; licitacion_codigo_p2: string | null; licitacion_codigo_p3: string | null;
+} {
+  const partes = String(codigo || '').trim().split('-');
+  const ok = partes.length === 3 && partes.every(p => p.trim().length > 0);
+  return {
+    licitacion_codigo_p1: ok ? partes[0].trim() : null,
+    licitacion_codigo_p2: ok ? partes[1].trim() : null,
+    licitacion_codigo_p3: ok ? partes[2].trim() : null,
+  };
+}
+
 export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): EmpresaCampos {
   const comuna = comunaDeDireccion(empresa.direccion);
   const { calle, numero } = calleYNumeroDeDireccion(empresa.direccion);
@@ -145,6 +196,8 @@ export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): 
     // etiquetas, igual de válido para cualquiera de las dos.
     comuna, ciudad: comuna,
     direccion_calle: calle, direccion_numero: numero,
+    direccion_oficina: oficinaDeDireccion(empresa.direccion),
+    ...camposDelCodigoLicitacion(empresa.licitacion_codigo),
     representante_nombres: nombres, representante_apellidos: apellidos,
     socio_nombre: socio.nombre, socio_participacion: socio.participacion,
     programa_integridad_respuesta: PROGRAMA_INTEGRIDAD_RESPUESTA,

@@ -4,7 +4,7 @@
 // (analizar/generar) de tener que duplicar la misma consulta y el mismo fetch.
 import pool from '@/app/lib/db';
 import type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
-import { conCamposDerivados, fechaLargaChile } from '@/app/lib/anexos-derivados';
+import { conCamposDerivados, fechaLargaChile, camposDelCodigoLicitacion } from '@/app/lib/anexos-derivados';
 import { convertirDocADocx, convertirPdfADocx } from '@/app/lib/anexos-doc-legacy';
 import { parsearCosteo, itemsPrecioDeCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
@@ -170,7 +170,11 @@ export async function cargarEmpresaEnriquecida(codigo: string, empresaId: string
   // sin cierre disponible (MP lento/caído, o licitación sin fecha), se degrada al reloj real, igual
   // que siempre.
   const { campos: datosLicitacion, fechaCierre } = await obtenerLicitacionParaAnexo(codigo);
-  return { ...conCamposDerivados(empresaCruda, fechaCierre ?? undefined), ...datosLicitacion };
+  const fusionada = { ...conCamposDerivados(empresaCruda, fechaCierre ?? undefined), ...datosLicitacion };
+  // Los tramos del código ("2495-17-B226" → "2495"/"17"/"B226") se derivan DESPUÉS del merge, no
+  // dentro de conCamposDerivados: acá arriba la ficha cruda todavía no tiene `licitacion_codigo`
+  // (llega en `datosLicitacion`, desde la API de MP), así que calcularlos antes daba siempre null.
+  return { ...fusionada, ...camposDelCodigoLicitacion(fusionada.licitacion_codigo) };
 }
 
 /**

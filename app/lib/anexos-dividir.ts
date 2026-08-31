@@ -67,13 +67,23 @@ export interface FormularioDetectado { titulo: string; indiceInicio: number; ind
 // documentos: "las Bases Administrativas, Bases Técnicas, Formatos, y demás antecedentes"):
 // después de la palabra el regex exige N+dígito o comillas+letra, y la "S" del plural no calza
 // con ninguno de los dos.
-export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$|^(?:FORMULARIO|ANEXO|FORMATO)\s*["“‘'][A-Z]["”’']\s*$|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]-\d+\s*$/i;
+// SEXTA forma (31-ago-2026, caso real 2495-17-B226, Municipalidad de Coyhaique — reportado por el
+// usuario como "no me deja separar, ni en local ni en el VPS"): la CATEGORÍA es una palabra, no una
+// sola letra — "FORMULARIO ADMI- 1", "FORMULARIO ADMI-2:", "FORMULARIO ADMI- 3", "FORMULARIO
+// ADMI-4". Es la CUARTA forma con tres variaciones que ninguna versión previa toleraba: la
+// categoría tiene 4 letras (el patrón exigía exactamente UNA), el espacio puede ir DESPUÉS del
+// guion ("ADMI- 1", que es como se escribe en 3 de los 4) y el título puede rematar en ":".
+// El documento traía los 4 formularios pegados y se detectaban 0, así que la pantalla respondía
+// "no trae más de un anexo pegado" — la respuesta indistinguible de un documento que de verdad no
+// tiene nada que separar (es justo el fallo silencioso que anexos-cobertura.ts existe para cazar).
+// El tope de 8 letras y el anclaje a línea COMPLETA (^…$) son lo que evita que esto se coma prosa.
+export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$|^(?:FORMULARIO|ANEXO|FORMATO)\s*["“‘'][A-Z]["”’']\s*$|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]{1,8}\s*-\s*\d+\s*:?\s*$/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
 // Solo la forma "FORMULARIO/ANEXO N°X" al INICIO (sin la alternativa "(ANEXO X)" al final) — se usa
 // como fallback cuando la línea completa es demasiado larga para el chequeo normal de arriba. Ver
 // RE_ENCABEZADO_PEGADO_SIN_ESPACIO más abajo para el caso real que motiva esto.
-const RE_ENCABEZADO_PREFIJO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:\s*-\s*[A-Za-z])?|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]-\d+/i;
+const RE_ENCABEZADO_PREFIJO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:\s*-\s*[A-Za-z])?|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]{1,8}\s*-\s*\d+/i;
 
 // BUG REAL (13-ago-2026, caso 1211839-58-LE26, "FORMULARIOS.doc"): el conversor de producción
 // (LibreOffice headless, microservicio conversor-doc/) fusiona el párrafo del encabezado con el
@@ -228,7 +238,7 @@ function listarBloquesCrudos(xml: string): BloqueCrudo[] {
 // saber cuál es cuál sin abrirlos). Se usa como GUARDA para no tocar el caso ya-descriptivo
 // ("ANEXO N°1: IDENTIFICACIÓN", "ANEXO N°2 ECONOMICO") — ahí no hace falta ni conviene mirar el
 // párrafo siguiente (ver buscarSubtituloTrasEncabezadoPelado, que solo se llama cuando esto matchea).
-const RE_ENCABEZADO_PELADO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Za-z])?\.?$|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]-\d+\.?$/i;
+const RE_ENCABEZADO_PELADO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Za-z])?\.?$|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]{1,8}\s*-\s*\d+\s*:?\.?$/i;
 
 // El nombre real de la licitación se repite ENTRE COMILLAS al pie de cada formulario ("SERVICIO
 // DE ARRIENDO…") — nunca es el título de la sección, así que corta la búsqueda del subtítulo ahí.
@@ -427,7 +437,12 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
 function sufijoDeArchivo(titulo: string): string {
   const m = titulo.match(/(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)/i)
     ?? titulo.match(/\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)\s*\)\s*$/i);
-  const base = m ? `N${m[1]}` : titulo.slice(0, 20);
+  // Rotulación por CATEGORÍA sin "N°" ("FORMULARIO A-1", "FORMULARIO ADMI- 1"): sin esto el nombre
+  // caía al recorte genérico de 20 caracteres y salía "FORMULARIO_ADMI-_1" en vez de "ADMI-1". Es
+  // el mismo regex que el encabezado — la regla del módulo es que las cuatro formas se agreguen a
+  // la vez, si no el encabezado se detecta pero el archivo sale con nombre feo.
+  const cat = !m ? titulo.match(/(?:FORMULARIO|ANEXO|FORMATO)\s*([A-Z]{1,8})\s*-\s*(\d+)/i) : null;
+  const base = m ? `N${m[1]}` : cat ? `${cat[1].toUpperCase()}-${cat[2]}` : titulo.slice(0, 20);
   return base.replace(/[^\w-]/g, '_');
 }
 

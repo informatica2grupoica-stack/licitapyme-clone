@@ -600,6 +600,12 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         // agotó—, pero es mejor terminar el informe con deepseek-v4-flash que devolver un error.
         // Se apaga con VIABILIDAD_RESPALDO_DEEPSEEK=0.
         deepSeekUltimoRecurso: process.env.VIABILIDAD_RESPALDO_DEEPSEEK !== '0',
+        // ESLABÓN FINAL GEMINI (31-ago-2026, pedido del usuario tras 2408-165-LE26 y
+        // 1079650-68-LE26): DeepSeek —hasta ahora el último de la fila— estaba sin saldo, así que
+        // la cadena moría con su 402 y la licitación quedaba sin análisis. Gemini va DETRÁS de
+        // DeepSeek: es el tercer proveedor distinto, con cuota propia, y solo se toca cuando los 4
+        // GLM y DeepSeek ya fallaron. Se apaga con VIABILIDAD_RESPALDO_GEMINI=0.
+        geminiUltimoRecurso: process.env.VIABILIDAD_RESPALDO_GEMINI !== '0',
         // Tope de tiempo para la CADENA completa. OJO: por debajo del tope duro del JOB
         // (VIABILIDAD_JOB_TIMEOUT_MS en la ruta API, 600s por defecto — ver
         // app/api/licitacion-viabilidad-ia/[codigo]/route.ts) a propósito: si este deadline fuera
@@ -613,7 +619,13 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
       // La CADENA completa (primario + los 2 respaldos GLM) ya se agotó dentro de crearChatIA —
       // reintentar el mismo bloque de nuevo no va a cambiar el resultado, solo suma minutos
       // muertos y gasto. Se propaga de inmediato en vez de darle otra vuelta completa.
-      throw new Error(`GLM no respondió: ${String(e?.message ?? e).slice(0, 200)}`);
+      // 31-ago-2026: el rótulo decía "GLM no respondió" para CUALQUIER fallo de la cadena, incluido
+      // el de DeepSeek (último eslabón, otro proveedor). En 2408-165-LE26 y 1079650-68-LE26 eso hizo
+      // leer un "402 Insufficient Balance" de la cuenta DeepSeek como si los 4 modelos GLM estuvieran
+      // sin saldo, cuando GLM respondía normal. El mensaje de crearChatIA ya viene desglosado por
+      // eslabón (ver intentarCadena en gemini.ts), así que acá solo se nombra la cadena, no un
+      // proveedor. 320 chars: el desglose de 5 eslabones no entra en 200.
+      throw new Error(`La cadena de IA no respondió — ${String(e?.message ?? e).slice(0, 320)}`);
     }
     const finish = completion.choices?.[0]?.finish_reason;
     // ── Telemetría SIEMPRE visible: tiempo + tokens + costo estimado ─────────────

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   resolverDeterminista, campoDeEtiquetaInequivoca, resolverPeladaPorBloque,
   campoDeBlancoInline, clasificarPendiente, normalizarEtiqueta, direccionSinComuna,
-  esBloqueDesignadoPorNosotros, encabezadoDeSeccionMasCercano,
+  esBloqueDesignadoPorNosotros, encabezadoDeSeccionMasCercano, esFilaDeSocioPosterior, campoDeFechaEnFormula, campoDeCodigoEnPartes,
 } from '../anexos-determinista';
 import type { EmpresaCampos, Resolucion } from '../anexos-ia-motor';
 import type { CandidatoCelda, CandidatoInline } from '../anexos-detectar';
@@ -958,4 +958,275 @@ test('falta en ficha: un dato de la LICITACIÓN no manda a llenar la ficha (vien
   const res = r.celda.get(0);
   assert.match(res?.tipo === 'pendiente' ? res.motivo : '', /Mercado Público/);
   assert.equal(r.faltantesFicha[0]?.origen, 'licitacion');
+});
+
+// ════ Brechas del diccionario medidas por el auditor de generalización (31-ago-2026) ════
+// Sobre 502 formularios reales de 82 licitaciones. Cada una se repetía en 3+ licitaciones de
+// organismos DISTINTOS: son formas de rotular, no rarezas de un pliego.
+
+test('diccionario: "N° teléfono" (el N° pegado, sin "de") es el teléfono', () => {
+  // Misma construcción que "N° DE RUT" vs "N° RUT": el organismo antepone el N° al nombre del dato.
+  assert.equal(campoDeEtiquetaInequivoca('N° teléfono'), 'telefono1');
+  assert.equal(campoDeEtiquetaInequivoca('Nº Teléfono'), 'telefono1');
+});
+
+test('diccionario: "Fecha de constitución" es la fecha de escritura, no el párrafo de la sociedad', () => {
+  // `fecha_sociedad` en la ficha es el texto descriptivo completo (fecha + tipo + notaría) y
+  // desbordaría una casilla de fecha; `fecha_escritura` es la fecha sola.
+  assert.equal(campoDeEtiquetaInequivoca('Fecha de constitución'), 'fecha_escritura');
+  assert.equal(campoDeEtiquetaInequivoca('Fecha de constitución de la sociedad'), 'fecha_escritura');
+});
+
+test('diccionario: "Nombre Contacto" es el representante legal, pero "Contacto" a secas NO', () => {
+  // Regla documentada del usuario: oferente, representante legal y contacto son la misma persona.
+  // "Contacto" pelado queda fuera a propósito: no dice si pide nombre, teléfono o correo.
+  assert.equal(campoDeEtiquetaInequivoca('Nombre Contacto'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Persona de contacto'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Contacto'), null);
+});
+
+test('diccionario: "DPTO./OF" es la oficina del domicilio', () => {
+  assert.equal(campoDeEtiquetaInequivoca('DPTO./OF:'), 'direccion_oficina');
+  assert.equal(campoDeEtiquetaInequivoca('Oficina'), 'direccion_oficina');
+});
+
+test('diccionario: "RUT Socio" es el RUT del representante legal (socio único)', () => {
+  // No se inventa un campo `socio_rut`: por política de la empresa el socio único ES el
+  // representante legal, así que es literalmente el mismo dato (igual que socio_nombre).
+  assert.equal(campoDeEtiquetaInequivoca('Rut Socio'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('RUT del Socio'), 'representante_rut');
+});
+
+test('diccionario: "% de Participación en la Sociedad" es la participación del socio', () => {
+  assert.equal(campoDeEtiquetaInequivoca('% de Participación en la Sociedad'), 'socio_participacion');
+  assert.equal(campoDeEtiquetaInequivoca('Porcentaje de participación en la sociedad'), 'socio_participacion');
+});
+
+// ── Grilla NUMERADA de socios: SOLO la fila 1 ──────────────────────────────────────────────────
+// El riesgo real que ataja esta regla: sin ella, agregar "Rut Socio" al diccionario escribía el
+// MISMO RUT del representante en las 12 filas de la grilla — un registro societario inventado
+// dentro de una declaración jurada. El guardarraíl `soloManual` de anexos-detectar.ts no cubre este
+// caso porque solo aplica a filas SIN texto propio, y acá la fila trae su número.
+test('grilla de socios: la fila 1 no se bloquea y las demás sí', () => {
+  for (const fila of ['1 — Rut Socio', '1 — Nombre Socio', '1 — % de Participación en la Sociedad']) {
+    assert.equal(esFilaDeSocioPosterior(fila), false, `${fila} es el socio único: sí se llena`);
+  }
+  for (const fila of ['2 — Rut Socio', '3 — Nombre Socio', '12 — % de Participación en la Sociedad']) {
+    assert.equal(esFilaDeSocioPosterior(fila), true, `${fila} debe quedar pendiente: no hay más socios que declarar`);
+  }
+});
+
+test('grilla numerada: el bloqueo es SOLO de columnas de socio, no de cualquier grilla', () => {
+  // Una grilla de integrantes de UTP, de productos o de asistentes ya la cubren otros guardarraíles
+  // (soloManual, bloque de tercero): este bloqueo acotado no debe pisarlos ni ampliarse solo.
+  assert.equal(esFilaDeSocioPosterior('2 — RUT Integrante UTP'), false);
+  assert.equal(esFilaDeSocioPosterior('2 — Cédula de identidad'), false);
+  assert.equal(esFilaDeSocioPosterior('2 — Producto'), false);
+  assert.equal(esFilaDeSocioPosterior('Rut Socio'), false, 'sin número de fila no es una grilla');
+});
+
+test('grilla de socios: end-to-end, 3 filas y solo la primera sale con dato', () => {
+  const parrafos = [parrafo(0, '1'), parrafo(1, ''), parrafo(2, '2'), parrafo(3, ''), parrafo(4, '3'), parrafo(5, '')];
+  const r = resolverDeterminista({
+    candidatos: [celda(1, '1 — Rut Socio'), celda(3, '2 — Rut Socio'), celda(5, '3 — Rut Socio')],
+    blancosInline: [], parrafos, empresa: EMPRESA,
+  });
+  assert.equal(valorAuto(r.celda, 1), '6.736.698-0');
+  assert.equal(valorAuto(r.celda, 3), null);
+  assert.equal(valorAuto(r.celda, 5), null);
+});
+
+// ════ La FECHA DE FIRMA en todas sus formas (muestreo de 1.500 documentos, 31-ago-2026) ════
+// Pedido explícito del usuario: "la fecha está en distintas formas siempre". Medido: las cuatro
+// formas de abajo suman más de 60 licitaciones de organismos distintos y NINGUNA se resolvía.
+// El blanco se marca con "|" y se parte el párrafo ahí — igual que hace campoDeBlancoInline.
+const enFormula = (plantilla: string) => {
+  const pos = plantilla.indexOf('|');
+  return campoDeFechaEnFormula(plantilla.slice(0, pos), plantilla.slice(pos + 1));
+};
+
+test('fecha de firma: "En <Ciudad>, a ___ de ___ de ___" — las tres piezas', () => {
+  assert.equal(enFormula('En Concepción, a | de agosto de 2026'), 'fecha_hoy_dia');
+  assert.equal(enFormula('En Concepción, a 12 de | de 2026'), 'fecha_hoy_mes_palabra');
+  assert.equal(enFormula('En Concepción, a 12 de agosto de |'), 'fecha_hoy_anio');
+});
+
+test('fecha de firma: la ciudad viene IMPRESA por el organismo ("Santiago, ___ de ___ de ___")', () => {
+  assert.equal(enFormula('Santiago, | de agosto de 2026'), 'fecha_hoy_dia');
+  assert.equal(enFormula('Santiago, 12 de | de 2026'), 'fecha_hoy_mes_palabra');
+  assert.equal(enFormula('Santiago, 12 de agosto de |'), 'fecha_hoy_anio');
+});
+
+test('fecha de firma: variante "a ___ días del mes de ___"', () => {
+  assert.equal(enFormula('En Temuco, a | días del mes de agosto de 2026'), 'fecha_hoy_dia');
+  assert.equal(enFormula('En Temuco, a 12 días del mes de | de 2026'), 'fecha_hoy_mes_palabra');
+});
+
+test('fecha de firma: forma con BARRAS pide el mes en NÚMERO, no en palabra', () => {
+  // "Fecha: __ / __ / __" son tres casillas y el mes va como "08", no como "agosto". Antes de esto
+  // la primera casilla resolvía por la etiqueta "Fecha:" y recibía la fecha COMPLETA.
+  assert.equal(enFormula('Fecha: | / __ / __'), 'fecha_hoy_dia');
+  assert.equal(enFormula('Fecha: 12 / | / __'), 'fecha_hoy_mes');
+  assert.equal(enFormula('Fecha: 12 / 08 / |'), 'fecha_hoy_anio');
+});
+
+test('fecha de firma: el blanco todavía sin llenar tampoco confunde mes con año', () => {
+  // En un documento en blanco el día y el mes son rayas, no números — el desambiguador no puede
+  // depender de que ya haya cifras escritas.
+  assert.equal(enFormula('En Concepción, a ____ de | de 2026'), 'fecha_hoy_mes_palabra');
+  assert.equal(enFormula('En Concepción, a ____ de ______ de |'), 'fecha_hoy_anio');
+});
+
+test('fecha de firma: NO se activa donde la fecha es de otro (guardarraíl)', () => {
+  // "Ordinario N° 123 DE FECHA ___" es la fecha de un oficio del ORGANISMO (8 licitaciones):
+  // escribir ahí la fecha de hoy sería un dato falso dentro de una declaración jurada.
+  assert.equal(campoDeBlancoInline(blanco('Ordinario N° 123 de fecha ________', 26)), null);
+  // "…de la empresa Los Robles, a ___" tiene la misma forma que la fórmula de fecha, pero lo que
+  // sigue no es un mes: por eso la regla mira SIEMPRE lo que viene después del blanco.
+  assert.equal(enFormula('en representación de la empresa Los Robles, a | firmar'), null);
+  assert.equal(enFormula('las bases de la licitación de |'), null);
+});
+
+test('inline: "FECHA ______" sin dos puntos (33 licitaciones, la forma más repetida)', () => {
+  assert.equal(campoDeBlancoInline(blanco('Fecha ________', 6)), 'fecha_hoy');
+});
+
+test('inline: "Don (ña) ______" — el paréntesis de género no debe apagar la regla', () => {
+  assert.equal(campoDeBlancoInline(blanco('a don (ña) ________', 11)), 'representante_nombre');
+  assert.equal(campoDeBlancoInline(blanco('a don ________', 6)), 'representante_nombre');
+});
+
+test('inline: "consta en escritura pública de fecha ___" es la constitución, no hoy', () => {
+  assert.equal(campoDeBlancoInline(blanco('consta en escritura pública de fecha ________', 37)), 'fecha_escritura');
+});
+
+test('fecha de firma: el guardarraíl del triplete NO debe tirar lo que la fórmula ya verificó', () => {
+  // Regresión real de esta misma tanda: las reglas de fecha resolvían bien el campo y `anotar` lo
+  // descartaba igual (SOLO_TRIPLETE), así que la mejora medida se quedó en +0,4% hasta abrir la
+  // excepción. La fórmula SÍ prueba el contexto completo (antes y después), a diferencia de una
+  // celda suelta rotulada "día", que sigue bloqueada.
+  const r = resolverDeterminista({
+    // El helper `blanco` usa largo 5, así que las rayas miden 5: el texto que sigue al blanco es
+    // parte de lo que la regla evalúa, y una raya de otro largo desalinea el `despues`.
+    candidatos: [], parrafos: [parrafo(0, 'En Concepción, a ____ de _____ de 2026')],
+    blancosInline: [blanco('En Concepción, a ____ de _____ de 2026', 17), blanco('En Concepción, a ____ de _____ de 2026', 25)],
+    empresa: EMPRESA,
+  });
+  // Se mira el CAMPO de la resolución, no el valor: cuando SOLO_TRIPLETE bloqueaba, `anotar`
+  // devolvía 'no' y no se guardaba NADA en el mapa. Que la entrada exista con su campo es
+  // exactamente la prueba de que ya no se descarta. (El valor sale vacío porque la EMPRESA de este
+  // archivo es una fixture literal, sin pasar por conCamposDerivados — eso lo cubren sus tests.)
+  const campos = [...r.inline.values()].map(v => (v as { campo?: string }).campo);
+  assert.ok(campos.includes('fecha_hoy_dia'), `el día de la fórmula llega a la resolución (campos: ${campos})`);
+  assert.ok(campos.includes('fecha_hoy_mes_palabra'), `el mes de la fórmula llega a la resolución (campos: ${campos})`);
+});
+
+test('fecha de firma: una CELDA suelta rotulada "día" sigue bloqueada', () => {
+  // La excepción es solo para la fórmula en prosa: un número huérfano en una celda sin contexto
+  // sigue siendo peor que dejarla pendiente.
+  const r = resolverDeterminista({
+    candidatos: [celda(1, 'Día')], blancosInline: [],
+    parrafos: [parrafo(0, 'Día'), parrafo(1, '')], empresa: EMPRESA,
+  });
+  assert.equal(valorAuto(r.celda, 1), null);
+});
+
+// ════ El CÓDIGO de la licitación partido en tres (2495-17-B226, FORMULARIO ADMI-1) ════
+const enCodigo = (plantilla: string) => {
+  const pos = plantilla.indexOf('|');
+  return campoDeCodigoEnPartes(plantilla.slice(0, pos), plantilla.slice(pos + 1));
+};
+
+test('código en partes: "ID N°___-___-___" son tres tramos, uno por blanco', () => {
+  assert.equal(enCodigo('de la licitación pública ID N°|………….-………..-…………….,'), 'licitacion_codigo_p1');
+  assert.equal(enCodigo('de la licitación pública ID N°………….-|………..-…………….,'), 'licitacion_codigo_p2');
+  assert.equal(enCodigo('de la licitación pública ID N°………….-………..-|…………….,'), 'licitacion_codigo_p3');
+});
+
+test('código en partes: un "ID N° ___" de UNA casilla no se parte', () => {
+  // Sin guion impreso alrededor el código entra entero: lo resuelve el diccionario con
+  // `licitacion_codigo`, y partirlo dejaría solo "2495" en una casilla que espera todo.
+  assert.equal(enCodigo('ID de la licitación: |'), null);
+  assert.equal(enCodigo('Código licitación |'), null);
+});
+
+test('código en partes: no se activa lejos del rótulo ni con texto en medio', () => {
+  // Entre el rótulo "ID" y el blanco solo puede haber huecos, guiones y espacios: cualquier
+  // palabra en medio significa que ese guion es de otra cosa.
+  assert.equal(enCodigo('el ID del proyecto se llama Plan-Verde |'), null);
+  assert.equal(enCodigo('plazo de entrega de 10-15 días |'), null);
+});
+
+test('inline: "Representar a: ___" es la empresa que se representa', () => {
+  // 2495-17-B226, FORMULARIO ADMI-3: "DECLARO: 1.-Representar a: ______". Misma familia que
+  // "en representación de" y "mi representada", que ya estaban.
+  assert.equal(campoDeBlancoInline(blanco('1.-Representar a: .....', 18)), 'razon_social');
+});
+
+// ════ 2495-17-B226 — bugs encontrados revisando el documento generado con el usuario ════
+
+test('bloque: un ENCABEZADO de sección corta el bloque (el RUT del oferente no es el del representante)', () => {
+  // BUG REAL reportado por el usuario: en "1.DATOS DEL PROPONENTE" salía el RUT del representante.
+  // Entre la última casilla del oferente y la primera del representante hay 4 párrafos, y el corte
+  // por distancia es `> 4`: las dos secciones caían en un mismo bloque, y la capa 1b veía como
+  // hermana el "Nombre" pelado del REPRESENTANTE. Lo que separa dos secciones es su encabezado.
+  const parrafos = [
+    parrafo(0, '1.DATOS DEL PROPONENTE'), parrafo(1, 'Nombre o Razón Social'), parrafo(2, ''),
+    parrafo(3, 'RUT'), parrafo(4, ''),
+    parrafo(5, '2.REPRESENTANTE LEGAL O APODERADO (EN CASO DE SER EL OFERENTE PERSONA JURÍDICA O UTP).'),
+    parrafo(6, 'Nombre'), parrafo(7, ''), parrafo(8, 'RUT'), parrafo(9, ''),
+  ];
+  const r = resolverDeterminista({
+    candidatos: [celda(2, 'Nombre o Razón Social'), celda(4, 'RUT'), celda(7, 'Nombre'), celda(9, 'RUT')],
+    blancosInline: [], parrafos, empresa: EMPRESA,
+  });
+  assert.equal(valorAuto(r.celda, 2), 'Comercial Los Robles SpA');
+  assert.equal(valorAuto(r.celda, 4), '76.902.659-2', 'el RUT de la SECCIÓN 1 es el de la EMPRESA');
+  assert.equal(valorAuto(r.celda, 7), 'Lidia Valenzuela Soto');
+  assert.equal(valorAuto(r.celda, 9), '6.736.698-0', 'el RUT de la SECCIÓN 2 es el del REPRESENTANTE');
+});
+
+test('bloque: una ETIQUETA en mayúsculas NO corta el bloque (si no, la capa 2 se apaga entera)', () => {
+  // Muchos pliegos escriben las etiquetas de campo en mayúsculas. Cortar en cada una dejaría a
+  // cada casilla en su propio bloque y la desambiguación por bloque dejaría de existir.
+  const parrafos = [
+    parrafo(0, 'REPRESENTANTE LEGAL'), parrafo(1, 'NOMBRE'), parrafo(2, ''), parrafo(3, 'RUT'), parrafo(4, ''),
+  ];
+  const r = resolverDeterminista({
+    candidatos: [celda(2, 'NOMBRE'), celda(4, 'RUT')], blancosInline: [], parrafos, empresa: EMPRESA,
+  });
+  assert.equal(valorAuto(r.celda, 2), 'Lidia Valenzuela Soto');
+  assert.equal(valorAuto(r.celda, 4), '6.736.698-0', 'el bloque siguió entero y el RUT es de la persona');
+});
+
+test('domicilio: "Nº" pelado solo es el número de la calle DENTRO de un bloque de dirección', () => {
+  // BUG REAL: la tabla de socios tiene una columna "Nº" que numera las filas, y la casilla salía
+  // con "492 Of.78" — el número de la calle de la empresa metido en un registro societario.
+  const enSocios = resolverDeterminista({
+    candidatos: [celda(2, 'Total % — Nº')], blancosInline: [],
+    parrafos: [parrafo(0, 'Declaro que los siguientes son los socios vigentes'), parrafo(1, 'Total %'), parrafo(2, '')],
+    empresa: { ...EMPRESA, direccion: 'Av. Alemania N°0671, Temuco', direccion_numero: '0671' } as EmpresaCampos,
+  });
+  assert.equal(valorAuto(enSocios.celda, 2), null);
+
+  // Y en un bloque que SÍ es una dirección, sigue funcionando como siempre.
+  const enDireccion = resolverDeterminista({
+    candidatos: [celda(2, 'Calle'), celda(4, 'N°')], blancosInline: [],
+    parrafos: [parrafo(0, 'Domicilio'), parrafo(1, 'Calle'), parrafo(2, ''), parrafo(3, 'N°'), parrafo(4, '')],
+    // `direccion_numero` se pasa explícito: la EMPRESA de este archivo es una fixture literal y no
+    // pasa por conCamposDerivados, que es quien normalmente lo deriva de `direccion`.
+    empresa: { ...EMPRESA, direccion: 'Av. Alemania N°0671, Temuco', direccion_numero: '0671' } as EmpresaCampos,
+  });
+  assert.equal(valorAuto(enDireccion.celda, 4), '0671');
+});
+
+test('clasificar: una columna SI/NO es una casilla para MARCAR, no un encabezado invisible', () => {
+  // BUG REAL (1954-1-LE26, ANEXO N°5): un checklist de 6 antecedentes con dos casillas SI/NO cada
+  // uno daba 12 casillas detectadas y CERO mostradas en pantalla — el anexo se habría subido con el
+  // checklist entero en blanco, sin un solo aviso.
+  for (const e of ['Escritura Pública de Constitución — SI', 'RUT de la persona jurídica — NO', 'Cumple', 'No cumple']) {
+    assert.equal(clasificarPendiente(e).categoria, 'decision_del_usuario', e);
+  }
+  // Anclado a los dos extremos: "SI CORRESPONDE" es una acotación, no una casilla para marcar.
+  assert.notEqual(clasificarPendiente('Nombre (si corresponde)').categoria, 'decision_del_usuario');
 });

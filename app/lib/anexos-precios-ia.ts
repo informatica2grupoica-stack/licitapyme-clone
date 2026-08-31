@@ -132,7 +132,10 @@ ${items.map((it, i) => `${i + 1}: ${it.descripcion}${it.unidad ? `, unidad ${it.
       messages: [{ role: 'system', content: SYS }, { role: 'user', content: user }],
       temperature: 0, stream: false, max_tokens: 4_000,
       response_format: { type: 'json_object' },
-    }, { timeoutMs: 60_000 });
+      // Mismo modelo que el resto del motor de anexos (31-ago-2026): sin fijarlo caía en
+      // `glm-4.7-flashx`, medido colgándose 43 s antes de dar timeout. Ver el comentario largo en
+      // resolverAlertasInadmisibilidad (anexos-ia-motor.ts).
+    }, { timeoutMs: 60_000, modeloPreferido: 'glm-4.7', soloGlm: true });
 
     const txt = String(completion.choices?.[0]?.message?.content ?? '');
     const parsed: any = parseJsonIA(txt) || {};

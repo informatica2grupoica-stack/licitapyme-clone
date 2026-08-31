@@ -137,7 +137,11 @@ function mensajeErrorAnalisis(codigo: string, error: unknown): string {
   console.error(`[licitacion-viabilidad-ia] ${codigo}: Error de fondo — ${msg}`, (error as any)?.stack ? `\n${(error as any).stack}` : '');
   if (msg.includes('429') || msg.toLowerCase().includes('quota')) return 'El servicio de IA quedó sin cuota (429). Reintenta más tarde.';
   if (msg.includes('saturad') || msg.includes('503')) return 'El servicio de IA está saturado en este momento. Reintenta en unos minutos.';
-  return `No se pudo completar el análisis. Reintenta en unos minutos. (${msg.slice(0, 160)})`;
+  // 380 (antes 160): el detalle de la cadena de IA viene desglosado por eslabón
+  // ("flashx: timeout | glm-4.7: timeout | deepseek-v4-flash: 402 Insufficient Balance") y con 160
+  // chars se cortaba justo antes del eslabón que de verdad explica el fallo. Sigue por debajo de
+  // los 500 que admite viabilidad_jobs.error.
+  return `No se pudo completar el análisis. Reintenta en unos minutos. (${msg.slice(0, 380)})`;
 }
 
 // Lee el informe IA ya guardado (o null) sin volver a llamar al modelo.
