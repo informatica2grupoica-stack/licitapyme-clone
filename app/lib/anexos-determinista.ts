@@ -485,25 +485,32 @@ const RE_SUBCAMPO_DOMICILIO_PELADO = /^(?:n[°º]|numero|nro|of|oficina|dpto|dep
 // La señal de que el bloque SÍ habla de un domicilio: alguna hermana o el contexto lo nombra.
 const RE_HERMANA_DOMICILIO = /\b(?:direccion|domicilio|calle|avenida|comuna|ciudad|villa|poblacion)\b/;
 
-const RE_CTX_PERSONA = /\b(representante(\s+legal)?|apoderado|declarante|firmante|don|dona|suscribe|persona natural|encargado|administrador de contrato|contacto)\b/;
+// "contraparte"/"coordinador" se suman el 31-ago-2026: ese bloque ahora SIEMPRE se llena (ver
+// RE_BLOQUE_DESIGNADO_POR_NOSOTROS), y su "Nombre completo" es el de una PERSONA. Sin esto ganaba
+// RE_CTX_EMPRESA (el encabezado dice "del OFERENTE") y la casilla del nombre salía con la razón
+// social — una empresa donde el organismo espera a quién llamar por teléfono.
+const RE_CTX_PERSONA = /\b(representante(\s+legal)?|apoderado|declarante|firmante|don|dona|suscribe|persona natural|encargado|administrador de contrato|contacto|contraparte|coordinador)\b/;
 
-// BUG REAL (18-ago-2026, FORMULARIO N°1 de 1063538-204-LE26): el bloque "COORDINADOR TÉCNICO" trae
-// las etiquetas peladas "Nombre completo", "Cargo o función", "Correo electrónico" — las mismas del
-// bloque del representante legal que viene justo arriba. La capa 2 las resolvió por contexto
-// (RE_CTX_PERSONA matchea "encargado"/"contacto") y escribió los datos del REPRESENTANTE en el
-// coordinador. Regla del usuario, explícita: "en el coordinador técnico no se pone nada, eso lo
-// llena el asistente" — es una persona que se designa PARA ESA licitación (con su teléfono directo,
-// su cargo real en el proyecto), no un dato de la ficha de la empresa. Escribir ahí a la
-// representante legal es un dato equivocado en un documento que el organismo usa para contactar.
+// BUG REAL (18-ago-2026, FORMULARIO N°1 de 1063538-204-LE26): "jefe de proyecto" / "supervisor del
+// contrato" / "administrador del contrato" son roles que el organismo designa para EJECUTAR el
+// contrato — no son la empresa ni su representante legal, así que la ficha no tiene ese dato.
+// Escribir ahí al representante legal es un dato equivocado en un documento que el organismo usa
+// para contactar a esa persona puntual.
 //
 // Va como bloqueo DURO (misma familia que esBloqueDeTercero): ninguna capa por debajo de campoFijo
 // rellena dentro de un bloque así. La casilla queda pendiente, que es exactamente lo que se busca.
-const RE_BLOQUE_DESIGNADO_POR_NOSOTROS = /\b(coordinador|contraparte\s+tecnica|jefe\s+de\s+proyecto|supervisor\s+del\s+contrato|administrador\s+del\s+contrato)\b/;
+//
+// "coordinador"/"contraparte técnica" NO están acá: tuvieron el mismo bloqueo hasta el 31-ago-2026,
+// pero el usuario decidió que a secas también se llenan con los datos del oferente (antes solo se
+// llenaba cuando el documento decía explícitamente "...del oferente"). Confiar en que se
+// desambigüen la ficha era peor que dejarlas en blanco.
+const RE_BLOQUE_DESIGNADO_POR_NOSOTROS = /\b(jefe\s+de\s+proyecto|supervisor\s+del\s+contrato|administrador\s+del\s+contrato)\b/;
 
 /** ¿Este bloque describe a alguien que el asistente designa para ESTA licitación, y no a la empresa
  *  ni a su representante legal? Ver RE_BLOQUE_DESIGNADO_POR_NOSOTROS. */
 export function esBloqueDesignadoPorNosotros(texto: string): boolean {
-  return RE_BLOQUE_DESIGNADO_POR_NOSOTROS.test(normalizarEtiqueta(texto));
+  const n = normalizarEtiqueta(texto);
+  return RE_BLOQUE_DESIGNADO_POR_NOSOTROS.test(n);
 }
 
 // Un ENCABEZADO DE SECCIÓN dentro de una tabla de identificación: línea corta, en mayúsculas y casi
@@ -1252,9 +1259,10 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // algo del oferente es la firma de OTRA persona, no la nuestra — "Cargo" ahí es inequívoco
     // como etiqueta pero describe al cargo de esa otra persona. Ninguna capa por debajo de
     // campoFijo puede rellenar con datos de la empresa dentro de este bloque.
-    // El bloque del COORDINADOR TÉCNICO (y equivalentes) se trata igual que el de un tercero: sus
-    // etiquetas son las mismas que las del representante legal ("Nombre completo", "Cargo"), pero
-    // la persona la designa el asistente para esta licitación. Ver esBloqueDesignadoPorNosotros.
+    // El bloque de JEFE DE PROYECTO / SUPERVISOR o ADMINISTRADOR DEL CONTRATO se trata igual que el
+    // de un tercero: sus etiquetas son las mismas que las del representante legal ("Nombre
+    // completo", "Cargo"), pero la persona la designa el asistente para esta licitación. Ver
+    // esBloqueDesignadoPorNosotros ("coordinador"/"contraparte técnica" ya no entran acá: se llenan).
     // Solo se mira el CONTEXTO del bloque, nunca la etiqueta propia: "Nombre completo" es idéntico
     // en los dos bloques y es el encabezado lo único que los distingue.
     // Fila 2+ de una grilla numerada de SOCIOS ("2 — Rut Socio"): se corta acá, antes de cualquier

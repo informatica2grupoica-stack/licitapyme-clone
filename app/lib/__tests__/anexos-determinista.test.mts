@@ -224,12 +224,19 @@ test('REGRESIÓN 2928-17-LE26: "contraparte técnica del oferente" no contamina 
     blancosInline: [], parrafos, empresa: EMPRESA,
   });
   // Las casillas del OFERENTE, ajenas a la sección de la contraparte, se resuelven igual que siempre.
+  // ESTO es lo que el test protege desde el 28-ago-2026 y sigue igual de vigente: una mención de
+  // "contraparte" NO puede apagar las casillas del resto de la tabla.
   assert.equal(valorAuto(r.celda, 1), 'Comercial Los Robles SpA');
   assert.equal(valorAuto(r.celda, 2), '76.902.659-2');
-  // La contraparte técnica sigue sin autocompletarse — la designa el asistente, no la ficha.
-  assert.equal(r.celda.get(4), undefined);
-  assert.equal(r.celda.get(6), undefined);
-  assert.equal(r.celdaSinResolver.length, 2);
+  // CAMBIO DE CRITERIO DEL USUARIO (31-ago-2026, sobre este mismo documento): "donde dice
+  // contraparte DEL OFERENTE va lo del oferente". Antes estas dos quedaban pendientes porque la
+  // regla previa ("en el coordinador técnico no se pone nada, eso lo llena el asistente") se
+  // aplicaba a cualquier contraparte. Extendido después el mismo día: "coordinador"/"contraparte
+  // técnica" a secas también se llenan (ver test de esBloqueDesignadoPorNosotros más abajo). El
+  // nombre es el de la PERSONA, no la razón social.
+  assert.equal(valorAuto(r.celda, 4), 'Lidia Valenzuela Soto');
+  assert.equal(valorAuto(r.celda, 6), '+56 45 2 123456');
+  assert.equal(r.celdaSinResolver.length, 0);
 });
 
 test('resolverDeterminista: la categoría acompaña al campo (la UI agrupa por ella)', () => {
@@ -598,28 +605,33 @@ test('profesión u oficio es un campo distinto del cargo', () => {
   assert.equal(campoDeEtiquetaInequivoca('Cargo del representante legal'), 'representante_cargo');
 });
 
-// El COORDINADOR TÉCNICO lo designa el asistente para esta licitación en concreto: no es un dato de
-// la ficha de la empresa y NUNCA debe autocompletarse (regla del usuario, 18-ago-2026).
-test('el coordinador técnico nunca se autocompleta — lo designa el asistente', () => {
+// "Coordinador Técnico" como ETIQUETA (no como bloque, ver esBloqueDesignadoPorNosotros) es un
+// nombre de ROL, no de un campo de la ficha: no dice si pide nombre, teléfono o correo, así que no
+// tiene un campo único al que mapear (regla del usuario, 18-ago-2026).
+test('"coordinador técnico" a secas no mapea a un campo único de la ficha', () => {
   for (const e of ['Coordinador Técnico', 'Nombre del Coordinador Técnico', 'Coordinador del contrato']) {
     assert.equal(campoDeEtiquetaInequivoca(e), null, e);
   }
 });
 
-// REGRESIÓN FORMULARIO N°1 de 1063538-204-LE26 (18-ago-2026). El bloque "COORDINADOR TÉCNICO" trae
-// las MISMAS etiquetas peladas que el del representante legal ("Nombre completo", "Cargo o función",
-// "Correo electrónico"), y la capa 2 las resolvía por contexto: escribía a la representante legal
-// como coordinadora técnica. Regla del usuario: el coordinador lo designa el asistente para ESA
-// licitación, no sale de la ficha. Y justo debajo viene "CONTACTO DEL PROPONENTE", que SÍ se llena —
-// los dos caen en el mismo bloque (GAP=4), así que hay que mirar el encabezado real de cada casilla.
-test('REGRESIÓN FORMULARIO N°1: el coordinador técnico no se llena, el contacto del proponente sí', () => {
-  assert.equal(esBloqueDesignadoPorNosotros('COORDINADOR TECNICO*:'), true);
-  assert.equal(esBloqueDesignadoPorNosotros('Coordinador del contrato'), true);
-  assert.equal(esBloqueDesignadoPorNosotros('CONTRAPARTE TÉCNICA'), true);
-  // El contacto del proponente somos nosotros: no entra en el bloqueo.
+// REGRESIÓN FORMULARIO N°1 de 1063538-204-LE26 (18-ago-2026, extendida 31-ago-2026). El bloque
+// "COORDINADOR TÉCNICO" traía las MISMAS etiquetas peladas que el del representante legal ("Nombre
+// completo", "Cargo o función", "Correo electrónico"); hasta el 31-ago-2026 se dejaba en blanco por
+// regla del usuario. Ese mismo día decidió lo contrario para "coordinador"/"contraparte técnica" a
+// secas: se llenan con los datos del oferente. El bloqueo real que queda es para roles que el
+// ORGANISMO designa para ejecutar el contrato (jefe de proyecto, supervisor/administrador del
+// contrato) — esos siguen sin dato en la ficha.
+test('REGRESIÓN FORMULARIO N°1: coordinador/contraparte técnica se llenan, jefe de proyecto no', () => {
+  assert.equal(esBloqueDesignadoPorNosotros('COORDINADOR TECNICO*:'), false);
+  assert.equal(esBloqueDesignadoPorNosotros('Coordinador del contrato'), false);
+  assert.equal(esBloqueDesignadoPorNosotros('CONTRAPARTE TÉCNICA'), false);
   assert.equal(esBloqueDesignadoPorNosotros('CONTACTO DEL PROPONENTE:'), false);
   assert.equal(esBloqueDesignadoPorNosotros('REPRESENTANTE LEGAL:'), false);
   assert.equal(esBloqueDesignadoPorNosotros('DATOS DEL OFERENTE'), false);
+  // Roles que sí designa el organismo: no hay dato en la ficha para esa persona puntual.
+  assert.equal(esBloqueDesignadoPorNosotros('JEFE DE PROYECTO'), true);
+  assert.equal(esBloqueDesignadoPorNosotros('Supervisor del Contrato'), true);
+  assert.equal(esBloqueDesignadoPorNosotros('Administrador del contrato'), true);
 });
 
 // El encabezado de sección se distingue de una etiqueta de campo por estar en MAYÚSCULAS. Sin esto,
@@ -1224,9 +1236,39 @@ test('clasificar: una columna SI/NO es una casilla para MARCAR, no un encabezado
   // BUG REAL (1954-1-LE26, ANEXO N°5): un checklist de 6 antecedentes con dos casillas SI/NO cada
   // uno daba 12 casillas detectadas y CERO mostradas en pantalla — el anexo se habría subido con el
   // checklist entero en blanco, sin un solo aviso.
-  for (const e of ['Escritura Pública de Constitución — SI', 'RUT de la persona jurídica — NO', 'Cumple', 'No cumple']) {
+  // "Cumple"/"No cumple" NO entran acá: los atrapa antes RE_ESPECIFICO como dato técnico de la
+  // oferta, que es una categoría que la pantalla SÍ muestra. Lo que se corrige es solo el SI/NO.
+  for (const e of ['Escritura Pública de Constitución — SI', 'RUT de la persona jurídica — NO']) {
     assert.equal(clasificarPendiente(e).categoria, 'decision_del_usuario', e);
   }
   // Anclado a los dos extremos: "SI CORRESPONDE" es una acotación, no una casilla para marcar.
   assert.notEqual(clasificarPendiente('Nombre (si corresponde)').categoria, 'decision_del_usuario');
+});
+
+test('contraparte técnica: con o sin "DEL OFERENTE" se llena; administrador del contrato no', () => {
+  // Instrucción del usuario (31-ago-2026, sobre 2928-17-LE26 FORMULARIO N°1A) y su extensión el
+  // mismo día a la forma a secas: "coordinador"/"contraparte técnica" siempre se llenan con los
+  // datos del oferente. Lo que sigue en blanco son los roles que designa el ORGANISMO para
+  // ejecutar el contrato (ver RE_BLOQUE_DESIGNADO_POR_NOSOTROS).
+  assert.equal(esBloqueDesignadoPorNosotros('ANTECEDENTES CONTRAPARTE TÉCNICA DEL OFERENTE'), false);
+  assert.equal(esBloqueDesignadoPorNosotros('Contraparte técnica del proponente'), false);
+  assert.equal(esBloqueDesignadoPorNosotros('CONTRAPARTE TÉCNICA'), false);
+  assert.equal(esBloqueDesignadoPorNosotros('COORDINADOR TÉCNICO'), false);
+  assert.equal(esBloqueDesignadoPorNosotros('Administrador del contrato'), true);
+});
+
+test('contraparte técnica DEL OFERENTE: se llena con el representante y los datos de la empresa', () => {
+  const parrafos = [
+    parrafo(0, 'ANTECEDENTES CONTRAPARTE TÉCNICA DEL OFERENTE'),
+    parrafo(1, 'Nombre completo'), parrafo(2, ''),
+    parrafo(3, 'Teléfono de contacto'), parrafo(4, ''),
+    parrafo(5, 'Correo electrónico'), parrafo(6, ''),
+  ];
+  const r = resolverDeterminista({
+    candidatos: [celda(2, 'Nombre completo'), celda(4, 'Teléfono de contacto'), celda(6, 'Correo electrónico')],
+    blancosInline: [], parrafos, empresa: EMPRESA,
+  });
+  assert.equal(valorAuto(r.celda, 2), 'Lidia Valenzuela Soto');
+  assert.equal(valorAuto(r.celda, 4), '+56 45 2 123456');
+  assert.equal(valorAuto(r.celda, 6), 'contacto@losrobles.cl');
 });

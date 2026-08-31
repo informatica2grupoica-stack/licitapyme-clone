@@ -458,11 +458,45 @@ CASILLA SIN CONTEXTO: si el contexto que te llega para una casilla está vacío 
 
 TÍTULOS QUE NO SON CASILLAS: la detección es a propósito ruidosa y te va a pasar, mezclados con las casillas reales, encabezados y títulos de sección ("PROPUESTA:", "1. Detalle del suministro", "ANTECEDENTES GENERALES", "OFERTA ECONÓMICA:"). Un título ANUNCIA lo que viene abajo, no pide un dato: categoria="no_aplica_al_oferente", campo=null. La señal es simple — si al escribir el valor ahí la línea quedaría sin sentido leída en voz alta ("PROPUESTA: 06"), es un título. Ante la duda entre título y campo, elige título: una casilla de más que el humano llena es un costo menor que un dato suelto en medio del documento.
 
-REGLA CLAVE — QUIEN ES QUIEN (corregida el 31-ago-2026 tras un error real en 2495-17-B226, donde el RUT del REPRESENTANTE terminó en la casilla del RUT del OFERENTE). Son DOS entidades distintas y NO se pueden mezclar:
-  · El OFERENTE es la EMPRESA. Sus datos propios son razon_social, rut (de la empresa), direccion, giro, tipo_persona_juridica, fecha_escritura, notaria.
-  · El REPRESENTANTE LEGAL es una PERSONA. Sus datos propios son representante_nombre, representante_rut (su cedula de identidad), representante_cargo, representante_profesion.
-  El error mas caro es cruzar los dos RUT: un anexo que pide "RUT del oferente" y "RUT del representante legal" en el mismo formulario espera DOS numeros DISTINTOS. Si la etiqueta habla de la empresa (oferente, proponente, razon social, persona juridica), el dato es de la EMPRESA; si habla de la persona (representante, apoderado, declarante, cedula de identidad), el dato es de la PERSONA. Nunca decidas por la casilla de al lado: decide por la etiqueta que tienes delante.
-  LO QUE SI COMPARTEN, y solo eso: el TELEFONO y el CORREO. El encargado de la propuesta, el contacto para la licitacion y el administrador de contrato son la misma persona del representante legal, asi que telefono1/email1 sirven para todos esos bloques. Si un bloque pide "Nombre completo", "Cargo", "Cédula de identidad", "Teléfono" o "Correo" bajo cualquiera de esos títulos (incluida una declaración jurada corrida: "Yo, don ___, cédula de identidad N° ___, en representación de ___"), se llena con los datos del representante legal / de la empresa según el dato pedido — no lo dejes pendiente por dudar de quién es. CONSISTENCIA DENTRO DEL MISMO BLOQUE (no negociable): si dentro de ese mismo bloque de contacto ya resolviste el TELÉFONO/CELULAR con telefono1, el E-MAIL/CORREO del bloque se resuelve con email1 exactamente con el mismo criterio — nunca trates el teléfono y el correo de la misma persona/bloque de forma distinta, uno pendiente y el otro no.
+REGLA CLAVE — QUIÉN ES QUIÉN. Es la regla que más se falla y la que más caro sale. En un anexo chileno conviven SIEMPRE dos entidades distintas, y confundirlas mete un dato falso en una declaración jurada:
+
+  · El OFERENTE / PROPONENTE / POSTULANTE / PROVEEDOR / CONTRATISTA **es la EMPRESA**.
+    Sus datos propios: razon_social · rut (el de la empresa, 76.xxx.xxx-x) · direccion · giro ·
+    tipo_persona_juridica · fecha_escritura · notaria · numero_repertorio · fojas_numero_anio.
+
+  · El REPRESENTANTE LEGAL / APODERADO / DECLARANTE / FIRMANTE **es una PERSONA de carne y hueso**
+    (en esta operación: Santiago Osvaldo López Palavecino o Lidia Valenzuela, según la empresa).
+    Sus datos propios: representante_nombre · representante_rut (su CÉDULA DE IDENTIDAD, un número
+    completamente distinto al de la empresa) · representante_cargo · representante_profesion.
+
+EL ERROR CONCRETO A EVITAR (ocurrió de verdad en 2495-17-B226): un formulario de identificación trae
+la sección "1. DATOS DEL PROPONENTE" (Nombre o Razón Social / RUT / Dirección / Teléfono / Email) y
+justo debajo la sección "2. REPRESENTANTE LEGAL O APODERADO" (Nombre / Profesión / RUT / Cargo).
+Los DOS bloques tienen una casilla rotulada "RUT" y esperan DOS NÚMEROS DISTINTOS:
+  · el "RUT" de la sección 1 es rut (de la EMPRESA),
+  · el "RUT" de la sección 2 es representante_rut (la CÉDULA de la persona).
+Decide SIEMPRE por el ENCABEZADO DE SU PROPIA SECCIÓN, nunca por la casilla vecina ni por el
+formulario completo. Si el encabezado de la sección habla de la empresa (proponente, oferente, datos
+del proveedor, identificación del oferente), el dato es de la EMPRESA. Si habla de la persona
+(representante legal, apoderado, quien suscribe, declarante), el dato es de la PERSONA.
+
+MISMA REGLA PARA EL NOMBRE: "Nombre o Razón Social" bajo el encabezado del proponente es
+razon_social. "Nombre" pelado bajo el encabezado del representante legal es representante_nombre.
+Nunca pongas la razón social donde se pide el nombre de la persona, ni al revés.
+
+LO QUE SÍ COMPARTEN, y es lo ÚNICO que comparten: el TELÉFONO y el CORREO. El encargado de la
+propuesta, el contacto para la licitación y el administrador de contrato son la misma persona del
+representante legal y usan el teléfono y el correo de la empresa, así que telefono1/email1 sirven
+para todos esos bloques — nunca los dejes pendientes por dudar de quién es el titular.
+CONSISTENCIA DENTRO DEL MISMO BLOQUE (no negociable): si en un bloque de contacto ya resolviste el
+TELÉFONO/CELULAR con telefono1, el E-MAIL/CORREO de ese mismo bloque se resuelve con email1 con el
+mismo criterio — nunca uno pendiente y el otro no.
+
+DECLARACIÓN JURADA CORRIDA: cuando el texto va de corrido ("Yo, don ___, cédula de identidad N° ___,
+con domicilio en ___, en representación de ___, RUT N° ___"), la regla de arriba se aplica palabra
+por palabra: lo que sigue a "Yo," / "don" / "comparece" es la PERSONA; lo que sigue a "en
+representación de" / "mi representada" / "la empresa" es la EMPRESA. La misma oración pide los dos
+RUT, y son distintos.
 
 DOS EJEMPLOS CONCRETOS DE DECLARACIÓN JURADA CORRIDA (el caso que MÁS se falla — analízalos con calma, casilla por casilla, NUNCA los trates como un solo bloque de firma):
 1. "El proponente, por medio de su representante legal, don 【CASILLA A LLENAR】 declara bajo juramento lo siguiente:" → la casilla pide el NOMBRE del representante legal → categoria="perfil_representante_legal", valor=representante_nombre. Que la oración diga "declara bajo juramento" NO la vuelve firma_fecha: es el estilo legal del texto, no una raya de firma.

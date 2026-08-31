@@ -73,22 +73,93 @@ async function unIntento(
   }
 }
 
+// ── CASCADA DE CONVERSIÓN (31-ago-2026, pedido explícito del usuario: "eso no debe suceder nunca,
+//    el generador tiene que correr con todos los formatos de Word") ────────────────────────────
+//
+// Un .doc es un binario OLE de Word 97-2003: NO existe forma en JavaScript puro de convertirlo a
+// OOXML editable. Convertir exige LibreOffice sí o sí. Lo que sí se puede es dejar de depender de
+// UNA sola vía, que era el problema real — bastaba que faltara una variable de entorno para que
+// 866 archivos .doc de la base quedaran inaccesibles con un error que parecía del anexo.
+//
+// Ahora se intenta en este orden, y solo se falla si los tres caminos fallan:
+//   1. El microservicio en DOC_CONVERSOR_URL (lo de siempre, producción).
+//   2. El microservicio en su nombre de servicio de docker-compose, POR DEFECTO. Antes, si alguien
+//      olvidaba DOC_CONVERSOR_URL en el .env del VPS, la app ni lo intentaba pese a tener el
+//      contenedor al lado. El nombre solo resuelve dentro de la red interna de compose, así que
+//      como valor por defecto no puede apuntar a nada ajeno.
+//   3. LibreOffice INSTALADO EN LA MÁQUINA (`soffice`). Es lo que hace que un entorno de desarrollo
+//      sin Docker pueda abrir un .doc: si está instalado se usa, si no está, no cuesta nada.
+//
+// El SECRETO ya no bloquea el intento: antes, sin DOC_CONVERSOR_SECRET la app se negaba a llamar
+// aunque el conversor estuviera ahí. Ahora se manda vacío y, si el servicio exige uno, responde 401
+// con un mensaje que dice exactamente eso — mucho mejor que rendirse antes de probar.
+const URL_CONVERSOR_POR_DEFECTO = 'http://conversor-doc:8091';
+
+// Rutas donde LibreOffice se instala por defecto en Windows/macOS/Linux, además del PATH.
+const RUTAS_SOFFICE = [
+  'soffice',
+  'C:\\Program Files\\LibreOffice\\program\\soffice.exe',
+  'C:\\Program Files (x86)\\LibreOffice\\program\\soffice.exe',
+  '/Applications/LibreOffice.app/Contents/MacOS/soffice',
+  '/usr/bin/soffice',
+  '/usr/bin/libreoffice',
+];
+
+/** Convierte con el LibreOffice de ESTA máquina. `null` si no hay ninguno instalado. */
+async function convertirConSofficeLocal(
+  buffer: Buffer, extensionEntrada: string, formatoSalida: string, timeoutMs: number,
+): Promise<Buffer | null> {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { mkdtemp, writeFile, readFile, rm, readdir } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const ejecutar = promisify(execFile);
+
+  let dir = '';
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'anexo-conv-'));
+    const entrada = join(dir, `documento.${extensionEntrada}`);
+    await writeFile(entrada, buffer);
+    for (const soffice of RUTAS_SOFFICE) {
+      try {
+        // `-env:UserInstallation` da un perfil propio: sin esto, si el usuario tiene LibreOffice
+        // abierto, la instancia headless se niega a arrancar ("already running").
+        await ejecutar(soffice, [
+          '--headless', '--norestore', `-env:UserInstallation=file:///${join(dir, 'perfil').replace(/\\/g, '/')}`,
+          '--convert-to', formatoSalida, '--outdir', dir, entrada,
+        ], { timeout: timeoutMs, windowsHide: true });
+      } catch (e: any) {
+        // ENOENT = ese soffice no existe acá; se prueba el siguiente. Otro error sí es real, pero
+        // igual se sigue probando: puede haber otra instalación que sí funcione.
+        continue;
+      }
+      const salida = (await readdir(dir)).find(f => f.startsWith('documento.') && f.endsWith(`.${formatoSalida}`));
+      if (salida) return await readFile(join(dir, salida));
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 interface OpcionesConversion {
   endpoint: string; validarSalida: (b: Buffer) => boolean; descripcionSalida: string;
+  /** Extensión del temporal para el LibreOffice local (el formato de ENTRADA). */
+  extensionEntrada: string;
+  /** Filtro de salida de `soffice --convert-to`. */
+  formatoSalida: string;
 }
-const DESTINO_DOCX: OpcionesConversion = { endpoint: '/convertir', validarSalida: esDocxValido, descripcionSalida: '.docx' };
+const DESTINO_DOCX: OpcionesConversion = { endpoint: '/convertir', validarSalida: esDocxValido, descripcionSalida: '.docx', extensionEntrada: 'doc', formatoSalida: 'docx' };
 
 async function convertir(
   buffer: Buffer, contentType: string, timeoutMs: number, etiqueta: string, destino: OpcionesConversion = DESTINO_DOCX,
 ): Promise<Buffer> {
-  const url = process.env.DOC_CONVERSOR_URL;
-  const secreto = process.env.DOC_CONVERSOR_SECRET;
-  if (!url || !secreto) {
-    throw new Error(
-      `Este documento viene en formato ${etiqueta} y el conversor a ${destino.descripcionSalida} no está configurado ` +
-      '(falta DOC_CONVERSOR_URL/DOC_CONVERSOR_SECRET). Conviértelo manualmente mientras tanto.',
-    );
-  }
+  // Paso 1 y 2 de la cascada: la URL configurada o, si falta, el nombre del servicio de compose.
+  const url = process.env.DOC_CONVERSOR_URL || URL_CONVERSOR_POR_DEFECTO;
+  const secreto = process.env.DOC_CONVERSOR_SECRET || '';
 
   let ultimoMotivo = '';
   for (let intento = 1; intento <= INTENTOS; intento++) {
@@ -104,11 +175,22 @@ async function convertir(
       await esperar(ESPERA_BASE_MS * intento);
     }
   }
+  // Paso 3: el LibreOffice de esta máquina. Es lo que salva a un entorno de desarrollo sin Docker,
+  // y en producción no cambia nada (el contenedor de la app no trae LibreOffice a propósito, para
+  // no inflar su imagen — ver conversor-doc/Dockerfile).
+  const local = await convertirConSofficeLocal(buffer, destino.extensionEntrada, destino.formatoSalida, timeoutMs);
+  if (local && destino.validarSalida(local)) {
+    console.warn(`[anexos-doc-legacy] El conversor no respondió (${ultimoMotivo}); se convirtió ${etiqueta} con el LibreOffice local.`);
+    return local;
+  }
+
   // El mensaje dice QUÉ falló y QUÉ hacer: sin esto, todos los modos de falla del conversor
   // llegaban a la pantalla como una frase técnica distinta y ninguna accionable.
   throw new Error(
-    `No se pudo convertir este documento ${etiqueta} a ${destino.descripcionSalida} después de ${INTENTOS} intento(s) — ${ultimoMotivo}. `
-    + 'Es un problema del conversor, no del anexo: reintenta en un momento.',
+    `No se pudo convertir este documento ${etiqueta} a ${destino.descripcionSalida} — ${ultimoMotivo}. `
+    + `Un ${etiqueta} necesita LibreOffice para poder editarse: revisa que el contenedor "conversor-doc" `
+    + 'esté arriba (docker compose up -d conversor-doc) y que DOC_CONVERSOR_URL/DOC_CONVERSOR_SECRET '
+    + 'coincidan con CONVERSOR_SECRET, o instala LibreOffice en esta máquina.',
   );
 }
 
@@ -123,7 +205,7 @@ export async function convertirPdfADocx(bufferPdf: Buffer): Promise<Buffer> {
   return convertir(bufferPdf, 'application/pdf', 90_000, '.pdf');
 }
 
-const DESTINO_PDF: OpcionesConversion = { endpoint: '/convertir-pdf', validarSalida: esPdfValido, descripcionSalida: '.pdf' };
+const DESTINO_PDF: OpcionesConversion = { endpoint: '/convertir-pdf', validarSalida: esPdfValido, descripcionSalida: '.pdf', extensionEntrada: 'docx', formatoSalida: 'pdf' };
 
 // DOCX → PDF (29-ago-2026, pedido explícito del usuario): paso previo para poder posicionar la
 // firma/timbre con precisión real — ver el comentario largo en conversor-doc/server.mjs. Entrada

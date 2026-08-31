@@ -972,6 +972,122 @@ function segmentarLineasPorNumeracion(items: ItemPlanilla[]): void {
   }
 }
 
+// ─── SEGMENTOS INFERIDOS: EL MISMO LISTADO REPETIDO NO SON LÍNEAS DISTINTAS ──────────────
+// (31-ago-2026, caso real 2026-66-LE26, SS Viña del Mar-Quillota, 27 equipos médicos.)
+// El manifiesto salió con 98 "productos" en 4 líneas cuando la licitación compra 27 equipos en
+// una sola lista. El documento elegido —"Antecedentes Generales de la Oferta.docx", el formulario
+// de anexos del oferente— repite el MISMO listado de 27 equipos CINCO veces, una por anexo:
+// N°5 (código ISP), N°7 (representación de marca), N°8 (plazos de entrega), N°9 (garantía técnica)
+// y N°10 (oferta económica). Cada repetición reinicia el correlativo en 1, y
+// `segmentarLineasPorNumeracion` interpreta cada reinicio como una LÍNEA nueva — así el mismo
+// catálogo se triplicó, y encima arrastró 19 filas del ANEXO N°6 (especificaciones técnicas:
+// "Nivel de ruido ≤48 dB", "Certificaciones: ISO 13485") como si fueran productos.
+//
+// Lo que hace fallar a los gates de viabilidad-ia es justamente la repetición: el manifiesto
+// inflado GANA el "más ítems manda" (98 ≥ 27) y pasa el control de solape contra el modelo con
+// nota alta —los productos correctos SÍ están ahí, tres veces—. Ningún filtro de vocabulario
+// podía verlo: las descripciones son productos reales. La señal es estructural, no léxica.
+//
+// Se aplica SOLO a líneas INFERIDAS del correlativo, nunca a las que el documento rotula
+// explícitamente ("LÍNEA 1", "LÍNEA 2") ni a la numeración compuesta 1.1/2.1: ahí repetir el
+// mismo listado por lote es legítimo y frecuente (un lote por establecimiento pide los mismos
+// equipos), y colapsarlo destruiría información real. La inferencia por reinicio es una conjetura
+// del parser; sobre una conjetura sí se puede exigir coherencia.
+function normalizarDescripcion(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// ¿Las "cantidades" de este segmento son en realidad el CORRELATIVO de la tabla?
+// Firma inequívoca de que el parser leyó la columna equivocada: la tabla no tiene columna de
+// cantidad (típico de un anexo "ITEM | ESPECIFICACIÓN | CUMPLE SÍ/NO") y lo que se guardó como
+// cantidad es el número de fila. En 2026-66-LE26 el segmento del ANEXO N°6 daba exactamente
+// cantidad = numero + 1 en sus 19 filas ("Apurador de Suero/Sangre" con cantidad 2, la siguiente
+// con 3, con 4…). Una cantidad así no es un dato del documento: es ruido con forma de dato, y
+// mientras exista desactiva el GATE DE COTIZACIÓN, que confía en que haya cantidades reales.
+function cantidadEsElCorrelativo(seg: ItemPlanilla[]): boolean {
+  const conAmbos = seg.filter(i => i.numero != null && i.cantidad != null);
+  if (conAmbos.length < 6) return false; // muy pocas filas: no se distingue patrón de coincidencia
+  // Las filas que NO calzan con el correlativo valen 1 en el caso real: son el REINICIO de la
+  // sub-tabla siguiente (el anexo trae una ficha por equipo, cada una renumerando desde 1). Por
+  // eso no alcanza con pedir un porcentaje alto de coincidencia exacta —en 2026-66-LE26 daba 14
+  // de 19, un 74%—: hay que pedir que el patrón dominante sea el correlativo Y que lo único que
+  // se salga sean esos reinicios. Un listado de cotización real jamás cumple las dos: sus
+  // cantidades son arbitrarias, no el índice de su propia fila.
+  return [0, 1].some(desfase => {
+    const calzan = conAmbos.filter(i => i.cantidad === (i.numero as number) + desfase).length;
+    const reinicios = conAmbos.filter(i => i.cantidad === 1 && i.cantidad !== (i.numero as number) + desfase).length;
+    return calzan >= conAmbos.length * 0.6 && calzan + reinicios >= conAmbos.length * 0.95;
+  });
+}
+
+// Cuántas filas del segmento traen una cantidad utilizable.
+function conCantidadReal(seg: ItemPlanilla[]): number {
+  return seg.filter(i => i.cantidad != null && i.cantidad > 0).length;
+}
+
+function depurarSegmentosInferidos(items: ItemPlanilla[], docNombre: string): ItemPlanilla[] {
+  const orden: number[] = [...new Set(items.map(i => i.linea))].sort((a, b) => a - b);
+  if (orden.length < 2) return items;
+  let segmentos = orden.map(l => ({ linea: l, filas: items.filter(i => i.linea === l) }));
+
+  // (1) Fuera los segmentos cuya "cantidad" es el correlativo: no son tablas de cotización.
+  // Solo si queda alguno en pie — si TODOS lo son, el documento entero no es una planilla y de
+  // eso decide el gate de cotización, no esta función.
+  const falsos = segmentos.filter(s => cantidadEsElCorrelativo(s.filas));
+  if (falsos.length && falsos.length < segmentos.length) {
+    for (const f of falsos) {
+      console.warn(`[planilla-costeo] ${docNombre}: segmento ${f.linea} descartado — sus ${f.filas.length} "cantidades" son el `
+        + `correlativo de la tabla (esa tabla no tiene columna de cantidad), no cantidades a cotizar.`);
+    }
+    segmentos = segmentos.filter(s => !falsos.includes(s));
+  }
+
+  // (2) Colapsar los segmentos que listan lo MISMO. Contención sobre el más chico (no Jaccard):
+  // un anexo puede omitir un par de ítems del otro y sigue siendo la misma lista repetida.
+  const claves = segmentos.map(s => new Set(s.filas.map(f => normalizarDescripcion(f.descripcion)).filter(Boolean)));
+  const dueño = segmentos.map((_, i) => i);
+  const raiz = (i: number): number => (dueño[i] === i ? i : (dueño[i] = raiz(dueño[i])));
+  for (let a = 0; a < segmentos.length; a++) {
+    for (let b = a + 1; b < segmentos.length; b++) {
+      const [A, B] = [claves[a], claves[b]];
+      if (!A.size || !B.size) continue;
+      const comunes = [...A].filter(d => B.has(d)).length;
+      if (comunes >= Math.min(A.size, B.size) * 0.8) dueño[raiz(b)] = raiz(a);
+    }
+  }
+  const familias = new Map<number, number[]>();
+  segmentos.forEach((_, i) => {
+    const r = raiz(i);
+    familias.set(r, [...(familias.get(r) ?? []), i]);
+  });
+
+  const conservados: number[] = [];
+  for (const miembros of familias.values()) {
+    if (miembros.length === 1) { conservados.push(miembros[0]); continue; }
+    // De las copias se conserva UNA: la que traiga más cantidades utilizables y, a igualdad, la
+    // ÚLTIMA. El anexo de OFERTA ECONÓMICA —el único que de verdad se cotiza— va al final del
+    // formulario; las copias de arriba son para plazos, garantía o representación de marca.
+    const mejor = miembros.reduce((x, y) => {
+      const cx = conCantidadReal(segmentos[x].filas), cy = conCantidadReal(segmentos[y].filas);
+      if (cy > cx) return y;
+      if (cy < cx) return x;
+      return segmentos[y].filas.length >= segmentos[x].filas.length ? y : x;
+    });
+    console.warn(`[planilla-costeo] ${docNombre}: los segmentos ${miembros.map(i => segmentos[i].linea).join(', ')} listan el MISMO `
+      + `catálogo (el documento lo repite una vez por anexo) — no son líneas distintas; se conserva el segmento `
+      + `${segmentos[mejor].linea} (${conCantidadReal(segmentos[mejor].filas)} cantidades reales) y se descartan las copias.`);
+    conservados.push(mejor);
+  }
+
+  conservados.sort((a, b) => a - b);
+  // Renumerar: las líneas tienen que quedar consecutivas desde 1 o el Excel abre hojas vacías.
+  const salida: ItemPlanilla[] = [];
+  conservados.map(i => segmentos[i]).forEach((seg, idx) => {
+    for (const f of seg.filas) { f.linea = idx + 1; salida.push(f); }
+  });
+  return salida;
+}
+
 // CATÁLOGO DE SUMINISTRO con VALOR UNITARIO (sin columna de cantidad). Formato típico de
 // convenios/suministros de ferretería-gasfitería: una tabla larga "Línea | Código interno |
 // Detalle | Valor Unitario Neto Referencial" con N productos numerados 1..N y su precio unitario
@@ -1275,8 +1391,15 @@ function parsearItemizadoPdf(doc: DocTexto): PlanillaParseResult | null {
   const conItems = secciones.filter(s =>
     s.items.length >= 2 && s.items.filter(i => i.cantidad != null && i.cantidad > 0).length >= s.items.length * 0.5);
   if (!conItems.length) return null;
-  const items: ItemPlanilla[] = [];
+  let items: ItemPlanilla[] = [];
   conItems.forEach((s, i) => { for (const it of s.items) { it.linea = i + 1; items.push(it); } });
+
+  // Una "línea" acá es el ORDINAL de una sección "ANEXO N°x" — una conjetura del parser, no algo
+  // que el documento declare como lote. Antes de darla por buena se exige que cada sección sea una
+  // lista DISTINTA y con cantidades de verdad: un formulario de anexos repite el mismo catálogo una
+  // vez por anexo (plazos, garantía, representación, oferta económica) y sin esto cada copia entra
+  // como una línea más. Caso real 2026-66-LE26 — ver depurarSegmentosInferidos.
+  items = depurarSegmentosInferidos(items, doc.nombre);
 
   if (items.length < 8) return null;
   // Gate de cotización: un itemizado real trae CANTIDADES (evita colar prosa numerada).
@@ -1286,11 +1409,14 @@ function parsearItemizadoPdf(doc: DocTexto): PlanillaParseResult | null {
   // Cada sección se numera desde 1 de forma INDEPENDIENTE: eso es un reinicio de correlativo
   // aunque la secuencia concatenada (1..151 | 1..25) parezca casi creciente y `analizarNumeracion`
   // la leería como continua. Con ≥2 secciones así, son listados separados → por línea.
-  const porLinea = conItems.length >= 2;
+  // Sobre lo que QUEDÓ tras depurar, no sobre las secciones que se leyeron: si el documento
+  // repetía un único catálogo en cuatro anexos, esto es una lista plana, no cuatro líneas.
+  const lineasVivas = [...new Set(items.map(it => it.linea))].sort((a, b) => a - b);
+  const porLinea = lineasVivas.length >= 2;
   if (!porLinea) for (const it of items) it.linea = 1;
   return {
     estructura: porLinea ? 'por_linea' : 'plana',
-    lineas: porLinea ? conItems.map((_, i) => i + 1) : [1],
+    lineas: porLinea ? lineasVivas : [1],
     categorias: [],
     items,
     numeracion: porLinea ? 'reinicia' : analizarNumeracion(items),
@@ -1323,7 +1449,7 @@ function reunirFilasPartidas(lineas: string[]): string[] {
 
 function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
   const lineas = reunirFilasPartidas(doc.texto.split(/\r?\n/));
-  const items: ItemPlanilla[] = [];
+  let items: ItemPlanilla[] = [];
   const lineasOrden: number[] = [];
   const catsOrden: string[] = [];
   let col: ColMap | null = null;
@@ -1484,8 +1610,14 @@ function parsearDoc(doc: DocTexto): PlanillaParseResult | null {
   } else if (numeracion === 'reinicia') {
     // Reinicia/repite SIN títulos ni categorías → líneas inferidas de la propia numeración.
     segmentarLineasPorNumeracion(items);
+    // Esas líneas son una CONJETURA (nadie las rotuló): antes de darlas por buenas se exige que
+    // cada segmento sea una lista DISTINTA y con cantidades de verdad — ver
+    // depurarSegmentosInferidos y el caso 2026-66-LE26.
+    items = depurarSegmentosInferidos(items, doc.nombre);
+    if (items.length < 8) return null; // no quedó planilla utilizable → que mande el modelo
     lineasFinal = [...new Set(items.map(it => it.linea))].sort((a, b) => a - b);
     estructura = lineasFinal.length >= 2 ? 'por_linea' : 'plana';
+    numeracion = analizarNumeracion(items); // el patrón cambia si se colapsaron segmentos
   } else if (numeracion === 'continua') {
     // De corrido = suma alzada. Los títulos "LÍNEA N" son secciones de una MISMA planilla
     // integrada, NO lotes de adjudicación → todos los ítems quedan en la línea 1.
