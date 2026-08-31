@@ -508,6 +508,93 @@ test('detectarFormularios: un nombre entre comillas que NO se repite no dispara 
   assert.equal(detectarFormularios(norm).length, 0);
 });
 
+// BUG REAL (31-ago-2026, caso real 2585-87-LE26, reportado por el usuario: "solo me da 4
+// documentos"): el ancla del PRIMER anexo (el nombre de la propuesta repetido) vive DENTRO de la
+// tablita de encabezado del formulario, no en párrafos sueltos — y la séptima forma solo miraba
+// párrafos. Sin ancla no había título, y ese anexo entero quedaba fusionado dentro del primero
+// que sí se detectaba.
+test('detectarFormularios: la séptima forma también ve el nombre repetido cuando está dentro de una tabla (regresión 2585-87-LE26)', () => {
+  const celda = (texto: string) => `<w:tc>${p(texto)}</w:tc>`;
+  const tablaEncabezado = '<w:tbl><w:tr>' + celda('NOMBRE PROPUESTA')
+    + celda('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”') + '</w:tr></w:tbl>';
+  const xml = NS
+    + p('DECLARACIÓN JURADA SIMPLE SOBRE INCOMPATIBLIDADES PARA CONTRATAR')
+    + tablaEncabezado
+    + p('Declara(n) bajo juramento que…')
+    + p('CARTA DE GARANTÍA TÉCNICA')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + p('Por medio del presente documento…')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 2);
+  assert.equal(formularios[0].titulo, 'DECLARACIÓN JURADA SIMPLE SOBRE INCOMPATIBLIDADES PARA CONTRATAR');
+  assert.equal(formularios[1].titulo, 'CARTA DE GARANTÍA TÉCNICA');
+});
+
+// Con la tabla adentro de `lineas`, el ancla de "ANEXO Nº6" queda varios ordinales más abajo de su
+// propio título, así que el filtro por distancia ya no alcanza: sin el chequeo de "entre el
+// encabezado ya detectado y este título solo hay párrafos vacíos", el subtítulo "OFERTA ECONÓMICA"
+// abría un fragmento propio y partía ese anexo en dos.
+test('detectarFormularios: el subtítulo de un encabezado ya detectado no abre un fragmento aparte (2585-87-LE26)', () => {
+  const celda = (texto: string) => `<w:tc>${p(texto)}</w:tc>`;
+  const xml = NS
+    + p('CARTA DE GARANTÍA TÉCNICA')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + p('Por medio del presente documento…')
+    + p('ANEXO Nº6')
+    + p('')
+    + p('OFERTA ECONÓMICA')
+    + ('<w:tbl><w:tr>' + celda('NOMBRE DE LA PROPUESTA')
+      + celda('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”') + '</w:tr></w:tbl>')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 2);
+  assert.equal(formularios[1].titulo, 'ANEXO Nº6 OFERTA ECONÓMICA');
+});
+
+// OCTAVA forma (31-ago-2026, mismo caso 2585-87-LE26): "PROGRAMA DE INTEGRIDAD" no se llama
+// FORMULARIO/ANEXO/FORMATO y ADEMÁS no trae debajo el nombre de la propuesta repetido, así que
+// ninguna de las siete formas anteriores lo veía. Lo único que lo delimita es que la sección
+// anterior CIERRA con su línea de firma y él abre justo después, en mayúsculas y solo en su párrafo.
+test('detectarFormularios: un título en mayúsculas justo después de la firma que cierra la sección anterior (regresión 2585-87-LE26)', () => {
+  const xml = NS
+    + p('CARTA DE GARANTÍA TÉCNICA')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + p('Por medio del presente documento…')
+    + p('FIRMA DEL OFERENTE')
+    + p('')
+    + p('PROGRAMA DE INTEGRIDAD')
+    + p('Yo, <nombre de representante legal>, cédula de identidad N° …')
+    + p('DESCRIPCIÓN TECNICA DE LOS PRODUCTOS')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 3);
+  assert.equal(formularios[1].titulo, 'PROGRAMA DE INTEGRIDAD');
+});
+
+// Guardarraíl de la octava forma: si después de la firma viene contenido real antes de la línea en
+// mayúsculas, esa línea NO abre sección (es un rótulo interno del mismo anexo, no un título).
+test('detectarFormularios: una línea en mayúsculas que no viene pegada al cierre de la sección anterior no abre nada', () => {
+  const xml = NS
+    + p('CARTA DE GARANTÍA TÉCNICA')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + p('FIRMA DEL OFERENTE')
+    + p('Nota: lo que sigue es parte del mismo anexo.')
+    + p('OBSERVACIONES DEL OFERENTE')
+    + p('Texto de la misma sección.')
+    + p('DESCRIPCIÓN TECNICA DE LOS PRODUCTOS')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 2);
+  assert.equal(formularios[1].titulo, 'DESCRIPCIÓN TECNICA DE LOS PRODUCTOS');
+});
+
 // BUG REAL (2585-87-LE26): dividirPorFormularios arma cada fragmento solo con lo que cae entre
 // indiceInicio e indiceFin — si el primer encabezado detectado no es el primer párrafo del
 // documento (ej. una sección anterior sin la señal repetida, como "PROGRAMA DE INTEGRIDAD" en el

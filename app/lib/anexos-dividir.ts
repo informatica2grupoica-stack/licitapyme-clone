@@ -306,8 +306,19 @@ function detectarEncabezadosPorRepeticion(
 ): { indice: number; titulo: string }[] {
   if (!repetidas.size) return [];
   const lineas: { indice: number; texto: string }[] = [];
+  // BUG REAL (31-ago-2026, caso 2585-87-LE26 reportado por el usuario: "solo me da 4 documentos"):
+  // esta función miraba SOLO párrafos sueltos, y el ancla del PRIMER anexo del documento
+  // ("DECLARACIÓN JURADA SIMPLE SOBRE INCOMPATIBLIDADES PARA CONTRATAR") vive dentro de la tablita
+  // de encabezado ("NOMBRE PROPUESTA" + el nombre repetido entre comillas, en dos celdas). Sin ver
+  // esa tabla no había ancla, no se detectaba el título, y ese anexo quedaba FUSIONADO dentro del
+  // primero que sí se detectó (`encabezados[0].indice = 0` lo arrastra hasta el ordinal 0). Los
+  // párrafos de tabla entran con su ordinal REAL (ordinalInicio + offset), la misma numeración que
+  // usa el resto del módulo — ver parrafosDeTabla.
   for (const b of bloques) {
-    if (b.tipo === 'tabla') continue; // el caso real vive en párrafos sueltos; ver el comentario de arriba
+    if (b.tipo === 'tabla') {
+      for (const p of parrafosDeTabla(b.xmlCompleto)) lineas.push({ indice: b.ordinalInicio + p.offset, texto: p.texto });
+      continue;
+    }
     for (const linea of b.textoPlano.split('\n')) lineas.push({ indice: b.ordinalInicio, texto: linea.trim() });
   }
   const cubiertos = [...yaDetectados].map(h => h.indice).sort((a, b) => a - b);
@@ -334,11 +345,68 @@ function detectarEncabezadosPorRepeticion(
       if (RE_CIERRE_SECCION_ANTERIOR.test(cand.texto)) break; // "FIRMA…"/"FECHA…" cierra la de antes
       if (RE_EMPIEZA_CON_COMILLA.test(cand.texto)) break; // otro nombre repetido: sección distinta
       if (cand.texto.length > LARGO_MAX_ENCABEZADO || !RE_TODO_MAYUSCULAS.test(cand.texto)) break;
+      // ¿El título encontrado es en realidad la CONTINUACIÓN del encabezado ya detectado justo
+      // antes? Hace falta desde que las tablas entran a `lineas`: el ancla de "ANEXO Nº6" vive
+      // dentro de su tabla de encabezado, varios ordinales más abajo, así que la distancia
+      // ancla↔techo se infla y el filtro de VENTANA_CLUSTER de arriba la deja pasar; sin este
+      // chequeo, "OFERTA ECONÓMICA" (el subtítulo del propio ANEXO Nº6) abría un séptimo
+      // fragmento y partía ese anexo en dos.
+      // La señal NO es la distancia en ordinales (en un documento compacto dos secciones
+      // genuinamente distintas quedan a 2-3 ordinales, y ahí un tope numérico se come la buena):
+      // es que entre el encabezado ya detectado y este título no haya NADA salvo párrafos vacíos.
+      // Contenido real de por medio = sección aparte; solo huecos = mismo encabezado, dos líneas.
+      // (Sin ningún encabezado previo — techo = -Infinity — no hay nada que continuar: el título
+      // encontrado es el primero del documento y se toma tal cual.)
+      const soloHuecosDesdeElEncabezado = Number.isFinite(techo) && !lineas.some(
+        l => l.indice > techo && l.indice < cand.indice && l.texto,
+      );
+      if (soloHuecosDesdeElEncabezado) break;
       out.push({ indice: cand.indice, titulo: cand.texto });
       cubiertos.push(cand.indice);
       cubiertos.sort((a, b) => a - b);
       break;
     }
+  }
+  return out;
+}
+
+// OCTAVA forma (31-ago-2026, mismo caso 2585-87-LE26): "PROGRAMA DE INTEGRIDAD" no trae NINGUNA
+// señal de las anteriores — no se llama FORMULARIO/ANEXO/FORMATO y el organismo tampoco repite
+// debajo el nombre de la propuesta entre comillas (la séptima forma no tiene de dónde agarrarse).
+// Lo único que lo delimita es la estructura del papeleo chileno: cada anexo CIERRA con su línea de
+// firma ("FIRMA DEL OFERENTE", a veces seguida de "FECHA: …") y el siguiente ABRE de inmediato con
+// su título en mayúsculas. Así que se lee al revés que en detectarEncabezadosPorRepeticion: donde
+// termina una sección, lo primero no vacío que viene después es el título de la siguiente.
+//
+// Los guardarraíles son los que impiden que esto se coma prosa: entre el cierre y el título solo
+// puede haber párrafos VACÍOS (cualquier texto real de por medio apaga la espera — una firma a
+// mitad de sección seguida de contenido no abre nada), el candidato tiene que ser una línea corta
+// TODA en mayúsculas y sola en su párrafo, y una tabla de por medio también apaga la espera. Lo que
+// esta forma encuentra se suma al final, después de las otras siete, y se descarta si cae junto a
+// un encabezado ya detectado — nunca parte en dos un anexo que ya tenía su título.
+function detectarEncabezadosTrasCierreDeSeccion(
+  bloques: BloqueCrudo[], yaDetectados: { indice: number }[],
+): { indice: number; titulo: string }[] {
+  const cubiertos = yaDetectados.map(h => h.indice);
+  const out: { indice: number; titulo: string }[] = [];
+  let esperandoTitulo = false;
+  for (const b of bloques) {
+    if (b.tipo !== 'parrafo' || b.enCuadroFlotante) { esperandoTitulo = false; continue; }
+    const texto = b.textoPlano.trim();
+    if (!texto) continue; // párrafo vacío: no rompe la espera (es justo el hueco típico entre anexos)
+    if (RE_CIERRE_SECCION_ANTERIOR.test(texto)) { esperandoTitulo = true; continue; } // "FIRMA…"/"FECHA…"
+    if (!esperandoTitulo) continue;
+    esperandoTitulo = false;
+    if (texto.includes('\n')) continue; // el título real va solo en su párrafo
+    if (RE_ROTULO_NOMBRE.test(texto) || RE_EMPIEZA_CON_COMILLA.test(texto)) continue;
+    if (texto.length > LARGO_MAX_ENCABEZADO || !RE_TODO_MAYUSCULAS.test(texto)) continue;
+    // Dedupe por índice EXACTO, no por cercanía: la línea que abre la sección siguiente es
+    // literalmente el mismo párrafo que las otras formas ya detectaron cuando sí lo alcanzaron
+    // ("DESCRIPCIÓN TECNICA…", "ANEXO Nº6"). Una ventana de cercanía en cambio se come títulos
+    // buenos en documentos compactos, donde dos secciones distintas quedan a 2-3 ordinales.
+    if (cubiertos.includes(b.ordinalInicio)) continue; // esta sección ya tiene encabezado
+    out.push({ indice: b.ordinalInicio, titulo: texto });
+    cubiertos.push(b.ordinalInicio);
   }
   return out;
 }
@@ -498,6 +566,9 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
   // Séptima forma (ver detectarEncabezadosPorRepeticion): solo agrega lo que las formas anteriores
   // no cubrieron — nunca parte un anexo que ya tenía su encabezado "FORMULARIO/ANEXO/FORMATO".
   encabezados.push(...detectarEncabezadosPorRepeticion(bloques, repetidasEntreComillas, encabezados));
+  // Octava forma (ver detectarEncabezadosTrasCierreDeSeccion): va ÚLTIMA a propósito — es la señal
+  // más débil de todas, así que solo recoge lo que ninguna de las siete anteriores alcanzó a cubrir.
+  encabezados.push(...detectarEncabezadosTrasCierreDeSeccion(bloques, encabezados));
   encabezados.sort((a, b) => a.indice - b.indice);
   const totalOrdinales = bloques.length ? bloques[bloques.length - 1].ordinalFin + 1 : 0;
   // BUG REAL (2585-87-LE26): dividirPorFormularios arma cada fragmento SOLO con lo que cae entre
