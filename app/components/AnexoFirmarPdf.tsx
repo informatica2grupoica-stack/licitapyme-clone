@@ -29,7 +29,10 @@ export interface EstampaColocada { tipo: 'firma' | 'timbre'; pagina: number; xPc
 interface EstampaUI extends EstampaColocada { id: string }
 
 const ANCHO_DEFECTO: Record<'firma' | 'timbre', number> = { firma: 0.22, timbre: 0.14 };
-const PASO_TAMANO = 0.02;
+// Un click del botón mueve el ancho 4 puntos de página (~33px en una carta a la escala de
+// pantalla). Empezó en 2 y era demasiado sutil: sobre una firma escaneada, con su fondo blanco
+// alrededor, un click se veía igual que ningún click — el control parecía roto aunque funcionara.
+const PASO_TAMANO = 0.04;
 const ANCHO_MIN = 0.06;
 const ANCHO_MAX = 0.6;
 
@@ -60,21 +63,44 @@ interface ArrastreActivo {
   clientY: number;
 }
 
-/** Redimensionado en curso: se arrastra el manijón de la esquina y el ancho sigue al puntero.
+/** Las cuatro esquinas de la estampa, cada una un manijón. El nombre es la esquina que se
+ *  AGARRA; la que queda quieta es siempre la opuesta, igual que en cualquier editor visual. */
+type Esquina = 'nw' | 'ne' | 'sw' | 'se';
+
+/** Redimensionado en curso: se arrastra un manijón de esquina y la estampa escala PAREJA — el
+ *  alto sale del ancho por la proporción real de la imagen, así que nunca se achata ni se estira
+ *  (es la misma cuenta que hace `estamparPdf` al quemarla en el PDF, ver anexos-pdf-firma.ts:
+ *  `escala = anchoDibujo / imagen.width`).
  *  Mismo patrón de eventos de puntero que el arrastre (ver el comentario de arriba del archivo):
  *  el gesto vive en `window`, no en el elemento, así que no se corta si el cursor se sale de la
  *  estampa mientras se agranda. */
 interface RedimensionActiva {
   id: string;
-  /** Ancho que tenía la estampa al empezar el gesto — el delta del puntero se suma sobre ESTE
-   *  valor, no sobre el ancho actual: acumular incrementos frame a frame arrastra el error y hace
-   *  que la imagen "se escape" del cursor. */
+  esquina: Esquina;
+  /** Medidas que tenía la estampa al empezar el gesto — el delta del puntero se aplica sobre
+   *  ESTOS valores, no sobre los actuales: acumular incrementos frame a frame arrastra el error
+   *  y hace que la imagen "se escape" del cursor. */
   anchoInicial: number;
+  altoInicial: number;
+  xInicial: number;
+  yInicial: number;
   clientXInicial: number;
-  /** Ancho en píxeles de la página donde vive la estampa — convierte el desplazamiento del
-   *  puntero (px) al % de página con el que se guarda todo. */
+  /** Tamaño en píxeles de la página donde vive la estampa — convierte el desplazamiento del
+   *  puntero (px) a los % de página con los que se guarda todo. */
   anchoPaginaPx: number;
+  altoPaginaPx: number;
 }
+
+/** Hacia dónde crece la estampa al alejar el manijón del centro, por esquina: la esquina que
+ *  queda FIJA es la opuesta a la que se agarra. */
+const CRECE_A_LA_DERECHA: Record<Esquina, boolean> = { se: true, ne: true, sw: false, nw: false };
+const ANCLA_ARRIBA: Record<Esquina, boolean> = { se: true, sw: true, ne: false, nw: false };
+const CURSOR_ESQUINA: Record<Esquina, string> = {
+  nw: 'cursor-nwse-resize', se: 'cursor-nwse-resize', ne: 'cursor-nesw-resize', sw: 'cursor-nesw-resize',
+};
+const POSICION_ESQUINA: Record<Esquina, string> = {
+  nw: '-top-1.5 -left-1.5', ne: '-top-1.5 -right-1.5', sw: '-bottom-1.5 -left-1.5', se: '-bottom-1.5 -right-1.5',
+};
 
 function Miniatura({
   tipo, url, onIniciarArrastre,
@@ -102,7 +128,7 @@ function EstampaColocadaUI({
 }: {
   estampa: EstampaUI; url: string; oculta: boolean; redimensionando: boolean;
   onIniciarArrastre: (e: React.PointerEvent, id: string, tipo: 'firma' | 'timbre', anchoPct: number) => void;
-  onIniciarRedimension: (e: React.PointerEvent) => void;
+  onIniciarRedimension: (e: React.PointerEvent, esquina: Esquina, caja: DOMRect) => void;
   onQuitar: () => void; onRedimensionar: (delta: number) => void;
 }) {
   // BUG REAL (31-ago-2026, 2495-17-B226 — "lo que me falta es poder agrandar o achicar la firma"):
@@ -113,8 +139,14 @@ function EstampaColocadaUI({
   // disparaba; lo único que pasaba era que empezaba un arrastre. Cortar la propagación en el
   // propio control es el arreglo: vale para los dos botones Y para el manijón nuevo.
   const soloEsteControl = (e: React.PointerEvent) => e.stopPropagation();
+  // La caja de la estampa se mide en el momento de agarrar el manijón: de ahí sale el ALTO real
+  // en pantalla (el `h-auto` de la imagen lo decide el navegador según la proporción del archivo,
+  // el estado solo guarda el ancho), que es lo que permite mover el ancla cuando se agarra una
+  // esquina de arriba o de la izquierda.
+  const cajaRef = useRef<HTMLDivElement>(null);
   return (
     <div
+      ref={cajaRef}
       className="group absolute cursor-move touch-none"
       style={{
         left: `${estampa.xPct * 100}%`, top: `${estampa.yPct * 100}%`, width: `${estampa.anchoPct * 100}%`,
@@ -126,17 +158,23 @@ function EstampaColocadaUI({
         src={url} alt={estampa.tipo} draggable={false}
         className={`w-full h-auto object-contain pointer-events-none drop-shadow ${redimensionando ? 'outline outline-1 outline-indigo-500' : ''}`}
       />
-      {/* Manijón de la esquina — SIEMPRE visible, a diferencia de los botones (que aparecen al
-          pasar el mouse por encima). Es el gesto que espera cualquiera que haya usado un firmador
-          o un editor visual, y además es la única pista en pantalla de que la estampa se puede
-          redimensionar: con los controles escondidos tras el hover, el usuario no tenía forma de
-          descubrirlo. `touch-none` para que en un trackpad/pantalla táctil el navegador no se
-          quede el gesto como scroll. */}
-      <div
-        onPointerDown={onIniciarRedimension}
-        title="Arrastra para agrandar o achicar"
-        className="absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 rounded-[3px] bg-white border-2 border-indigo-600 shadow cursor-nwse-resize touch-none"
-      />
+      {/* Manijones en las CUATRO esquinas — SIEMPRE visibles, a diferencia de los botones (que
+          aparecen al pasar el mouse por encima). Es el gesto que espera cualquiera que haya usado
+          un firmador o un editor visual, y además es la única pista en pantalla de que la estampa
+          se puede redimensionar: con los controles escondidos tras el hover, no había forma de
+          descubrirlo. Cuatro y no uno porque la esquina útil depende de dónde quedó la firma —
+          pegada al margen derecho, tirar hacia la derecha no tiene lugar adonde ir; ahí se agarra
+          una esquina izquierda y crece hacia el otro lado.
+          `touch-none` para que en un trackpad o pantalla táctil el navegador no se quede el gesto
+          como scroll. */}
+      {(['nw', 'ne', 'sw', 'se'] as Esquina[]).map(esquina => (
+        <div
+          key={esquina}
+          onPointerDown={e => { if (cajaRef.current) onIniciarRedimension(e, esquina, cajaRef.current.getBoundingClientRect()); }}
+          title="Arrastra para agrandar o achicar"
+          className={`absolute ${POSICION_ESQUINA[esquina]} ${CURSOR_ESQUINA[esquina]} w-3.5 h-3.5 rounded-[3px] bg-white border-2 border-indigo-600 shadow touch-none`}
+        />
+      ))}
       {/* Los tres botones van JUNTOS arriba: la esquina inferior derecha queda exclusiva del
           manijón. BUG REAL medido en el navegador (31-ago-2026): los de tamaño estaban en
           `-bottom-2.5 right-0` y se superponían con el manijón — `elementFromPoint` sobre el
@@ -352,30 +390,66 @@ export function AnexoFirmarPdf({
   // y correr el efecto que suscribe los listeners; el gesto entero se perdía y el manijón se
   // sentía muerto. `setEstampas` y `redimensionRef` son estables, así que no hace falta esperar a
   // ningún render: el estado `redimension` queda solo para pintar el borde de la estampa activa.
-  const iniciarRedimension = (e: React.PointerEvent, id: string, anchoPct: number, anchoPaginaPx: number) => {
+  const iniciarRedimension = (e: React.PointerEvent, id: string, esquina: Esquina, caja: DOMRect, pagina: number) => {
     e.preventDefault();
     e.stopPropagation(); // no debe empezar TAMBIÉN un arrastre de la estampa (el padre escucha pointerdown)
-    const actual: RedimensionActiva = { id, anchoInicial: anchoPct, clientXInicial: e.clientX, anchoPaginaPx };
+    const rectPagina = paginaRefs.current[pagina]?.getBoundingClientRect();
+    if (!rectPagina?.width || !rectPagina.height) return;
+
+    const actual: RedimensionActiva = {
+      id, esquina,
+      anchoInicial: caja.width / rectPagina.width,
+      altoInicial: caja.height / rectPagina.height,
+      xInicial: (caja.left - rectPagina.left) / rectPagina.width,
+      yInicial: (caja.top - rectPagina.top) / rectPagina.height,
+      clientXInicial: e.clientX,
+      anchoPaginaPx: rectPagina.width,
+      altoPaginaPx: rectPagina.height,
+    };
     redimensionRef.current = actual;
     setRedimension(actual);
 
-    // El ancho sigue al puntero en horizontal: mover el manijón N píxeles a la derecha suma
-    // N/anchoDeLaPágina al anchoPct. La altura la resuelve el `h-auto` de la imagen, así que la
-    // proporción original nunca se deforma (mismo criterio con el que estampa pdf-lib).
-    const aplicarAncho = (clientX: number) => {
-      if (!actual.anchoPaginaPx) return;
-      const anchoPedido = actual.anchoInicial + (clientX - actual.clientXInicial) / actual.anchoPaginaPx;
-      setEstampas(prev => prev.map(es => (
-        es.id === actual.id ? { ...es, anchoPct: anchoValido(es.xPct, anchoPedido) } : es
-      )));
+    // Escala PAREJA: el gesto solo lee el eje horizontal y el alto se deriva por la misma razón
+    // (`factor`), así que la firma nunca se achata ni se estira — es la misma cuenta que hace
+    // pdf-lib al quemarla. Leer un solo eje (y no la diagonal) es a propósito: con los dos, un
+    // gesto en diagonal manda señales que se pelean entre sí y la imagen tiembla.
+    //
+    // La esquina OPUESTA a la que se agarra queda fija. Para las de la derecha/abajo eso es
+    // gratis (el ancla ya es la esquina superior izquierda, que es lo que guarda xPct/yPct); para
+    // las de la izquierda/arriba hay que correr xPct/yPct lo mismo que creció o se achicó, si no
+    // la estampa "se escapa" hacia el otro lado mientras se la redimensiona.
+    const aplicar = (clientX: number) => {
+      const dx = (clientX - actual.clientXInicial) / actual.anchoPaginaPx;
+      const crecimiento = CRECE_A_LA_DERECHA[actual.esquina] ? dx : -dx;
+
+      // Tope: además del mínimo/máximo fijos, la estampa no puede salirse de la hoja. El borde
+      // que la frena es el del lado hacia el que está creciendo.
+      const espacio = CRECE_A_LA_DERECHA[actual.esquina]
+        ? 1 - actual.xInicial                        // ancla a la izquierda: crece hacia el margen derecho
+        : actual.xInicial + actual.anchoInicial;     // ancla a la derecha: crece hacia el margen izquierdo
+      const ancho = Math.min(
+        Math.max(actual.anchoInicial + crecimiento, ANCHO_MIN),
+        Math.max(ANCHO_MIN, Math.min(ANCHO_MAX, espacio)),
+      );
+
+      const factor = ancho / actual.anchoInicial;
+      const alto = actual.altoInicial * factor;
+      const xPct = CRECE_A_LA_DERECHA[actual.esquina]
+        ? actual.xInicial
+        : clamp01(actual.xInicial + (actual.anchoInicial - ancho));
+      const yPct = ANCLA_ARRIBA[actual.esquina]
+        ? actual.yInicial
+        : clamp01(actual.yInicial + (actual.altoInicial - alto));
+
+      setEstampas(prev => prev.map(es => (es.id === actual.id ? { ...es, anchoPct: ancho, xPct, yPct } : es)));
     };
 
-    const alMover = (ev: PointerEvent) => aplicarAncho(ev.clientX);
+    const alMover = (ev: PointerEvent) => aplicar(ev.clientX);
     // El ancho se aplica TAMBIÉN al soltar, con la posición final: un gesto lo bastante rápido
     // puede llegar a `pointerup` sin un solo `pointermove` en el medio. Es la misma garantía que
     // ya tenía el arrastre de posición, que siempre se resolvió en el pointerup.
     const alSoltar = (ev: PointerEvent) => {
-      aplicarAncho(ev.clientX);
+      aplicar(ev.clientX);
       redimensionRef.current = null;
       setRedimension(null);
       window.removeEventListener('pointermove', alMover);
@@ -415,7 +489,7 @@ export function AnexoFirmarPdf({
               {timbreUrl && <Miniatura tipo="timbre" url={timbreUrl} onIniciarArrastre={(e, tipo, ancho) => iniciarArrastre(e, tipo, ancho, null)} />}
             </div>
             <p className="text-[11.5px] text-slate-500 leading-snug flex-1">
-              Arrastra la firma y/o el timbre a cualquier punto del documento. Ya colocada: arrástrala para moverla, tira del <strong>cuadradito de la esquina</strong> para agrandarla o achicarla, y pasa el mouse por encima para los botones de tamaño y quitar.
+              Arrastra la firma y/o el timbre a cualquier punto del documento. Ya colocada: arrástrala para moverla, o tira de <strong>cualquiera de sus cuatro esquinas</strong> para agrandarla y achicarla —siempre pareja, sin deformarse—. Pasa el mouse por encima para los botones de tamaño y de quitar.
             </p>
           </>
         ) : (
@@ -448,7 +522,7 @@ export function AnexoFirmarPdf({
                 oculta={arrastre?.idExistente === es.id}
                 redimensionando={redimension?.id === es.id}
                 onIniciarArrastre={(e, id, tipo, ancho) => iniciarArrastre(e, tipo, ancho, id)}
-                onIniciarRedimension={e => iniciarRedimension(e, es.id, es.anchoPct, dim.ancho)}
+                onIniciarRedimension={(e, esquina, caja) => iniciarRedimension(e, es.id, esquina, caja, i)}
                 onQuitar={() => quitarEstampa(es.id)}
                 onRedimensionar={delta => redimensionarEstampa(es.id, delta)}
               />

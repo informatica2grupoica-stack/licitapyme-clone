@@ -5,6 +5,7 @@ import { getSessionFromRequest } from '@/app/lib/auth-edge';
 
 // Rutas que NO requieren autenticación
 const RUTAS_PUBLICAS = [
+  '/dev-test-firma', // TEMPORAL: banco de pruebas del componente de firma. BORRAR.
   '/bienvenida',                // landing pública de presentación (antes del login)
   '/login',
   '/recuperar',                 // solicitar recuperación de contraseña
