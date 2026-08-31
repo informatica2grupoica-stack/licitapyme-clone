@@ -222,6 +222,30 @@ test('parsearPlanillaCosteo: bases técnicas (autoridad 1) le ganan al ómnibus 
   assert.equal(resultado!.discrepancias!.length, 1, 'y la diferencia queda registrada igual');
 });
 
+// ── El mismo catálogo repetido por anexo NO son líneas distintas ──────────────────────────
+// Caso real 2026-66-LE26 (31-ago-2026, SS Viña del Mar-Quillota): un formulario de anexos del
+// oferente ("Antecedentes Generales de la Oferta.docx") repite el MISMO listado de 27 equipos
+// una vez por anexo (código ISP, representación de marca, plazos, garantía, oferta económica),
+// reiniciando el correlativo en 1 cada vez. Sin depurar, cada reinicio se leía como una LÍNEA
+// nueva: el manifiesto salió con 98 "productos" en 4 líneas cuando la licitación compra 27
+// equipos en una sola lista (las bases no mencionan "línea" ni una sola vez). Encima arrastraba
+// 19 filas de un ANEXO de especificaciones técnicas (un checklist "ITEM | ESPECIFICACIÓN" sin
+// columna de cantidad) cuya "cantidad" leída era el número de fila.
+test('parsearPlanillaCosteo: el mismo catálogo repetido por anexo no son líneas distintas (regresión 2026-66-LE26)', () => {
+  const checklist = [
+    'N°,Ficha,Cantidad,Precio Neto Unitario,Total Neto',
+    ...Array.from({ length: 9 }, (_, i) => `${i + 1},Especificación técnica ${i + 1},${i + 2}," 100.000 "," 100.000 "`),
+  ].join('\n');
+  const texto = [tablaCsv(CATALOGO, 'Descripción'), tablaCsv(CATALOGO, 'Descripción'), checklist].join('\n\n');
+  const resultado = parsearPlanillaCosteo([{ nombre: 'Formulario_Anexos.docx', categoria: 'ANEXOS_OFERENTE', texto, metodo: 'docx' }]);
+  assert.ok(resultado, 'debe parsear la planilla');
+  assert.equal(resultado!.estructura, 'plana', 'una sola lista repetida no es "por línea"');
+  assert.equal(resultado!.items.length, 10, 'se queda con UNA copia del catálogo, no con las 2 + el checklist');
+  assert.ok(resultado!.items.every(i => i.linea === 1), 'todo el catálogo colapsa a una sola línea');
+  const estante = resultado!.items.find(i => /Mueble Estante/.test(i.descripcion));
+  assert.equal(estante!.cantidad, 2, 'las cantidades reales del catálogo se conservan, no el correlativo del checklist');
+});
+
 test('parsearPlanillaCosteo: anexo económico en BLANCO no bloquea la lista de las bases', () => {
   // Plantilla sin desglose (solo encabezado y totales): no llega al mínimo de filas del parser,
   // así que ni siquiera es candidata — las bases entregan la lista sin competencia.
