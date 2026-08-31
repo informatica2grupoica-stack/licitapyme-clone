@@ -1738,3 +1738,37 @@ test('detectarBlancosInline: el contrato vale para TODOS los blancos de un docum
       `el run ${b.indiceRun} no tiene un blanco en la posición ${b.posEnTexto}, tiene "${fragmento}"`);
   }
 });
+
+// BUG REAL (2495-17-B226, FORMULARIO ADMI-1, 31-ago-2026): la fila "Identificación completa de
+// documento en que consta personería:" tiene 62 caracteres — dos más que el tope de largo con que
+// el Patrón 1 descarta el texto corrido. Quedaba con CERO candidatos: ni se autocompletaba (nunca
+// iba a poder: el dato sale de la escritura pública, no de la ficha) ni aparecía como pendiente,
+// así que en pantalla la celda salía vacía y sin ninguna caja donde escribir. Justo la casilla que
+// SIEMPRE se llena a mano era la única sin espacio para hacerlo.
+test('etiqueta larga dentro de una celda: sigue siendo un campo (regresión 2495-17-B226)', () => {
+  const larga = 'Identificación completa de documento en que consta personería:';
+  assert.ok(larga.length > 60, 'el caso pierde sentido si la etiqueta deja de pasar los 60 chars');
+
+  const xml = NS + tabla(
+    fila('Tipo de sociedad', ''),
+    fila(larga, ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
+
+  assert.ok(etiquetas.includes(larga), `la etiqueta larga debería ofrecer casilla: ${JSON.stringify(etiquetas)}`);
+  assert.ok(etiquetas.includes('Tipo de sociedad'), 'la fila corta de al lado no debe perderse');
+});
+
+// El contrapeso del caso de arriba: subir el tope DENTRO de la celda no puede reabrir la puerta a
+// las declaraciones juradas sueltas del cuerpo del documento (1227338-6-LE26, "El oferente que
+// suscribe declara bajo juramento que:" rellenado con el RUT del representante). Fuera de una
+// tabla el largo sigue siendo la única señal disponible, y sigue valiendo 60.
+test('fuera de una celda, el párrafo largo sigue sin ser una etiqueta', () => {
+  const declaracion = 'El oferente que suscribe declara bajo juramento lo siguiente respecto de su oferta:';
+  const xml = NS + p(declaracion) + p('') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
+
+  assert.ok(!etiquetas.includes(declaracion), `no debería ofrecerse como campo: ${JSON.stringify(etiquetas)}`);
+});

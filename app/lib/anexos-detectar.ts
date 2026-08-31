@@ -103,6 +103,13 @@ const RE_PREFIJO_MONEDA = /^(?:US\$|CLP\$|\$)$/;
 // lado— y el campo quedaba sin ninguna casilla donde escribir, en TODO el bloque de
 // identificación (razón social, RUT, domicilio, representante legal completo). Saltando los
 // párrafos de puro relleno se llega al primer vacío de verdad, que es la celda de valor.
+const LARGO_MAX_ETIQUETA = 60;
+// Ver el comentario dentro de detectarCandidatosCeldaCrudos: dentro de una celda de tabla el largo
+// deja de ser evidencia de "texto corrido". El tope sigue existiendo (una celda puede traer un
+// párrafo legal de verdad), pero calibrado a la etiqueta más larga vista en el corpus real, no a
+// la longitud típica de un rótulo corto.
+const LARGO_MAX_ETIQUETA_EN_CELDA = 120;
+
 export function detectarCandidatosCeldaCrudos(
   parrafos: Parrafo[], indicesVacioSinCampo: Set<number> = new Set(), indicesEnCelda: Set<number> = new Set(),
 ): CandidatoCelda[] {
@@ -127,7 +134,19 @@ export function detectarCandidatosCeldaCrudos(
     // filas quedaron con 0 candidatos: ni auto ni pendiente, invisibles por completo en pantalla.
     // Un título de página nunca vive DENTRO de un `<w:tc>` (va antes de que empiece la tabla); una
     // etiqueta de fila sí — es la señal real que distingue los dos casos, no el centrado en sí.
-    if (!actual.texto || actual.texto.length > 60 || (actual.centrado && !indicesEnCelda.has(actual.indice)) || !siguiente || !siguiente.vacio) continue;
+    // El tope de largo es un proxy de "esto es texto corrido (una declaración jurada), no la
+    // etiqueta de un campo". Fuera de una tabla es la única señal que hay, y se mantiene en 60.
+    // Dentro de una celda NO: ahí la estructura de la fila ([etiqueta][celda vacía de al lado]) ya
+    // dice que es una etiqueta, y el largo pasa a ser solo cuánto se explayó el organismo.
+    // BUG REAL (2495-17-B226, FORMULARIO ADMI-1): la fila "Identificación completa de documento en
+    // que consta personería:" (62 caracteres, dos más que el tope) se caía acá y quedaba con CERO
+    // candidatos — ni automática ni pendiente. En pantalla la celda salía vacía y sin ninguna caja
+    // donde escribir, así que el usuario tampoco podía llenarla a mano: el dato solo se puede
+    // resolver mirando la escritura pública, nunca lo va a saber el motor, y era justamente el que
+    // no tenía forma de entrar. Es el mismo criterio que ya rige acá para el centrado (ver
+    // 4999-8-LE26 arriba): dentro de un <w:tc> mandan las filas, no la tipografía.
+    const topeLargoEtiqueta = indicesEnCelda.has(actual.indice) ? LARGO_MAX_ETIQUETA_EN_CELDA : LARGO_MAX_ETIQUETA;
+    if (!actual.texto || actual.texto.length > topeLargoEtiqueta || (actual.centrado && !indicesEnCelda.has(actual.indice)) || !siguiente || !siguiente.vacio) continue;
 
     // La LEYENDA de una línea de firma ("Firma del Oferente o Represente Legal.", el párrafo justo
     // debajo de la raya) no es la etiqueta de un campo — el párrafo vacío que le sigue es puro

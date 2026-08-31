@@ -449,6 +449,94 @@ test('detectarFormularios: un título entre comillas que aparece una sola vez S�
   assert.equal(formularios[1].titulo, 'FORMATO Nº2 IDENTIFICACIÓN DE SOCIOS');
 });
 
+// SÉPTIMA forma (31-ago-2026, caso real 2585-87-LE26, reportado por el usuario: "no me deja
+// separar, eso no me debe trancar las cosas"): ninguno de los títulos dice "FORMULARIO/ANEXO/
+// FORMATO" — se rotulan por su función. El organismo sí repite, idéntico, el nombre de la
+// propuesta entre comillas justo debajo de cada título; esa repetición ya la usaba
+// clavesEntreComillasRepetidas para LIMPIAR subtítulos — acá se reutiliza para ENCONTRAR el título
+// mirando hacia atrás desde cada repetición.
+test('detectarFormularios: títulos sin "FORMULARIO/ANEXO/FORMATO", detectados por el nombre de la propuesta repetido (regresión 2585-87-LE26)', () => {
+  const xml = NS
+    + p('CARTA DE GARANTÍA TÉCNICA')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + p('Por medio del presente documento…')
+    + p('FIRMA DEL OFERENTE O REPRESENTANTE LEGAL')
+    + p('DESCRIPCIÓN TECNICA DE LOS PRODUCTOS')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + p('……………………………………………………')
+    + p('FIRMA DEL OFERENTE O REPRESENTANTE LEGAL')
+    + p('ANEXO Nº6')
+    + p('OFERTA ECONÓMICA')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 3);
+  assert.equal(formularios[0].titulo, 'CARTA DE GARANTÍA TÉCNICA');
+  assert.equal(formularios[1].titulo, 'DESCRIPCIÓN TECNICA DE LOS PRODUCTOS');
+  // "ANEXO Nº6" ya lo encuentra la forma normal (RE_ENCABEZADO_FORMULARIO) — la séptima forma no
+  // debe agregarlo una segunda vez ni partir "OFERTA ECONÓMICA" aparte.
+  assert.equal(formularios[2].titulo, 'ANEXO Nº6 OFERTA ECONÓMICA');
+});
+
+// El rótulo de campo que casi siempre antecede al nombre repetido no es el título — sin saltarlo,
+// cada anexo se habría nombrado "NOMBRE PROPUESTA" en vez de su título real.
+test('detectarFormularios: "NOMBRE PROPUESTA"/"NOMBRE DE LA PROPUESTA" se saltan, no son el título (regresión 2585-87-LE26)', () => {
+  const xml = NS
+    + p('DECLARACIÓN JURADA SIMPLE SOBRE INCOMPATIBLIDADES PARA CONTRATAR')
+    + p('NOMBRE PROPUESTA')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + p('Declara(n) bajo juramento que…')
+    + p('CARTA DE GARANTÍA TÉCNICA')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 2);
+  assert.equal(formularios[0].titulo, 'DECLARACIÓN JURADA SIMPLE SOBRE INCOMPATIBLIDADES PARA CONTRATAR');
+});
+
+// Si el nombre entre comillas NO se repite (aparece una sola vez), no es la señal de "nombre de la
+// propuesta" — no debe inventar una sección donde no hay ninguna repetición real que lo respalde.
+test('detectarFormularios: un nombre entre comillas que NO se repite no dispara la séptima forma', () => {
+  const xml = NS
+    + p('ALGO EN MAYÚSCULAS')
+    + p('“UN NOMBRE CUALQUIERA QUE APARECE UNA SOLA VEZ”')
+    + p('Texto normal de una sola sección, sin nada más pegado.')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  assert.equal(detectarFormularios(norm).length, 0);
+});
+
+// BUG REAL (2585-87-LE26): dividirPorFormularios arma cada fragmento solo con lo que cae entre
+// indiceInicio e indiceFin — si el primer encabezado detectado no es el primer párrafo del
+// documento (ej. una sección anterior sin la señal repetida, como "PROGRAMA DE INTEGRIDAD" en el
+// caso real), ese contenido anterior no entraba en el rango de NINGÚN fragmento y desaparecía del
+// archivo generado en silencio. Ahora se mezcla con el primer fragmento — nunca se pierde.
+test('dividirPorFormularios: el contenido ANTES del primer encabezado detectado no se pierde', async () => {
+  const xml = NS
+    + p('PROGRAMA DE INTEGRIDAD')
+    + p('Contenido que no trae ninguna señal repetida cerca.')
+    + p('CARTA DE GARANTÍA TÉCNICA')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + p('Por medio del presente documento…')
+    + p('DESCRIPCIÓN TECNICA DE LOS PRODUCTOS')
+    + p('“ADQ. DE VEHICULOS ACUATICOS Y TODOTERRENO”')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const totalAntes = (norm.match(/<w:p\b/g) || []).length;
+  const buffer = await bufferDe(norm);
+  const fragmentos = await dividirPorFormularios(buffer, norm);
+  assert.equal(fragmentos.length, 2);
+  let totalDespues = 0;
+  for (const f of fragmentos) {
+    const { xml: fxml } = await abrirDocx(f.buffer);
+    assert.equal(verificarXmlBienFormado(fxml).valido, true, f.titulo);
+    totalDespues += (fxml.match(/<w:p\b/g) || []).length;
+  }
+  assert.equal(totalDespues, totalAntes, 'ningún párrafo puede desaparecer, ni el de antes del primer encabezado');
+});
+
 // ── Clasificación: los casos reales que caían en la caja genérica (auditoría 28-ago-2026) ──────
 // Medido sobre 617 anexos separados de licitaciones reales: 14% quedaba "sin_clasificar". Casi
 // ninguno era ambiguo — el título lo decía con todas sus letras y el machote administrativo del

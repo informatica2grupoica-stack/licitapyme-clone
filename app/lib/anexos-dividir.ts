@@ -283,13 +283,23 @@ function clavesEntreComillasRepetidas(bloques: BloqueCrudo[]): Set<string> {
 //
 // Caminar hacia atrás se detiene ante lo primero que ya no pueda ser parte del título: un
 // encabezado ya detectado por la vía normal (ANEXO Nº6 de este mismo documento, para no partirlo
-// dos veces), una línea que NO es mayúscula completa (ahí empieza prosa real de la sección
-// anterior), o el tope de `VENTANA_MAXIMA`. Los rótulos de campo que anteceden casi siempre al
-// nombre repetido ("NOMBRE PROPUESTA", "NOMBRE DE LA PROPUESTA") se saltan explícitamente — sin
-// eso, el título de cada anexo salía "NOMBRE PROPUESTA" en vez del real.
+// dos veces), una línea de FIRMA/FECHA (siempre CIERRA la sección anterior, nunca antecede al
+// título de la siguiente), una línea que NO es mayúscula completa (ahí empieza prosa real), o el
+// tope de `VENTANA_TITULO`. El rótulo de campo que casi siempre antecede al nombre repetido
+// ("NOMBRE PROPUESTA", "NOMBRE DE LA PROPUESTA") se salta explícitamente — sin eso, el título de
+// cada anexo salía "NOMBRE PROPUESTA" en vez del real.
 const RE_TODO_MAYUSCULAS = /^[^a-záéíóúñü]*[A-ZÁÉÍÓÚÑÜ][^a-záéíóúñü]*$/;
-const RE_ROTULO_SALTABLE = /^(?:nombre|firma|fecha)\b/i;
-const VENTANA_MAXIMA = 8;
+const RE_ROTULO_NOMBRE = /^nombre\b/i;
+const RE_CIERRE_SECCION_ANTERIOR = /^(?:firma|fecha)\b/i;
+// Dos ventanas DISTINTAS a propósito, no una sola: VENTANA_CLUSTER (chica) solo pregunta "¿esta
+// repetición es la MISMA que ya cubrió un encabezado normal?" ("ANEXO Nº6" + "OFERTA ECONÓMICA" +
+// la repetición quedan a 1-2 líneas entre sí) — VENTANA_TITULO (más ancha) es cuánto hay que
+// caminar hacia atrás para encontrar el título real cuando SÍ hace falta buscarlo. Usar una sola
+// ventana grande para las dos cosas apagaba por error la búsqueda de una sección genuinamente
+// distinta solo porque quedaba a pocas líneas de la anterior (se vio en un documento de prueba
+// compacto, donde los índices quedan más pegados que en un caso real de cientos de párrafos).
+const VENTANA_CLUSTER = 3;
+const VENTANA_TITULO = 8;
 
 function detectarEncabezadosPorRepeticion(
   bloques: BloqueCrudo[], repetidas: Set<string>, yaDetectados: { indice: number }[],
@@ -300,22 +310,28 @@ function detectarEncabezadosPorRepeticion(
     if (b.tipo === 'tabla') continue; // el caso real vive en párrafos sueltos; ver el comentario de arriba
     for (const linea of b.textoPlano.split('\n')) lineas.push({ indice: b.ordinalInicio, texto: linea.trim() });
   }
-  if (process.env.DEBUG_DIVIDIR) {
-    for (let i = 0; i < Math.min(15, lineas.length); i++) console.error(i, JSON.stringify(lineas[i]));
-  }
   const cubiertos = [...yaDetectados].map(h => h.indice).sort((a, b) => a - b);
-  const yaCubierto = (indice: number) => cubiertos.some(c => Math.abs(c - indice) <= VENTANA_MAXIMA);
+  // DIRECCIONAL a propósito: un encabezado que viene DESPUÉS del ancla (ej. "ANEXO Nº6", más
+  // adelante en el documento) no cubre nada acá — solo cuenta el que está ANTES O EN el ancla.
+  const techoAntesDe = (indice: number) => {
+    let techo = -Infinity;
+    for (const c of cubiertos) if (c <= indice) techo = Math.max(techo, c);
+    return techo;
+  };
   const out: { indice: number; titulo: string }[] = [];
   for (let i = 0; i < lineas.length; i++) {
     const anchor = lineas[i];
     if (!RE_EMPIEZA_CON_COMILLA.test(anchor.texto)) continue;
     const clave = anchor.texto.replace(RE_COMILLAS_ALREDEDOR, '').trim().toUpperCase();
-    if (!repetidas.has(clave) || yaCubierto(anchor.indice)) continue;
-    for (let j = i - 1; j >= 0 && i - j <= VENTANA_MAXIMA; j--) {
+    if (!repetidas.has(clave)) continue;
+    const techo = techoAntesDe(anchor.indice);
+    if (anchor.indice - techo <= VENTANA_CLUSTER) continue; // esta sección ya tiene su título
+    for (let j = i - 1; j >= 0 && i - j <= VENTANA_TITULO; j--) {
       const cand = lineas[j];
-      if (yaCubierto(cand.indice)) break; // ya hay un encabezado cerca — de la sección ANTERIOR
+      if (cand.indice <= techo) break; // se cruzó al encabezado de la sección ANTERIOR
       if (!cand.texto) continue; // línea en blanco, seguir mirando más atrás
-      if (RE_ROTULO_SALTABLE.test(cand.texto)) continue; // "NOMBRE PROPUESTA" y similares
+      if (RE_ROTULO_NOMBRE.test(cand.texto)) continue; // "NOMBRE PROPUESTA" y similares
+      if (RE_CIERRE_SECCION_ANTERIOR.test(cand.texto)) break; // "FIRMA…"/"FECHA…" cierra la de antes
       if (RE_EMPIEZA_CON_COMILLA.test(cand.texto)) break; // otro nombre repetido: sección distinta
       if (cand.texto.length > LARGO_MAX_ENCABEZADO || !RE_TODO_MAYUSCULAS.test(cand.texto)) break;
       out.push({ indice: cand.indice, titulo: cand.texto });
@@ -484,6 +500,15 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
   encabezados.push(...detectarEncabezadosPorRepeticion(bloques, repetidasEntreComillas, encabezados));
   encabezados.sort((a, b) => a.indice - b.indice);
   const totalOrdinales = bloques.length ? bloques[bloques.length - 1].ordinalFin + 1 : 0;
+  // BUG REAL (2585-87-LE26): dividirPorFormularios arma cada fragmento SOLO con lo que cae entre
+  // indiceInicio e indiceFin — cualquier contenido ANTES del primer encabezado detectado no entra
+  // en el rango de NINGÚN fragmento y se pierde en silencio (nunca fue un problema mientras el
+  // primer título casi siempre era el primer párrafo del documento; la séptima forma de arriba
+  // puede encontrar su primer encabezado bien entrado el documento si las secciones de más atrás
+  // no traen la señal repetida que necesita, ej. quedan dentro de una tabla). Se extiende el primer
+  // encabezado hasta el ordinal 0: peor caso, ese contenido queda MEZCLADO con el primer anexo
+  // detectado — nunca es aceptable que desaparezca del archivo generado.
+  if (encabezados.length) encabezados[0].indice = 0;
   return encabezados.map((h, i) => ({
     titulo: h.titulo,
     indiceInicio: h.indice,
