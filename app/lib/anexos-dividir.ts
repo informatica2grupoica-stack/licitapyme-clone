@@ -271,6 +271,62 @@ function clavesEntreComillasRepetidas(bloques: BloqueCrudo[]): Set<string> {
   return new Set([...conteo].filter(([, n]) => n > 1).map(([clave]) => clave));
 }
 
+// SÉPTIMA forma (31-ago-2026, caso real 2585-87-LE26, reportado por el usuario: "no me deja
+// separar, eso no me debe trancar las cosas"): ninguno de los 6 anexos pegados de este documento
+// se llama "FORMULARIO/ANEXO/FORMATO" — se rotulan por su FUNCIÓN ("PROGRAMA DE INTEGRIDAD",
+// "CARTA DE GARANTÍA TÉCNICA", "DESCRIPCIÓN TECNICA DE LOS PRODUCTOS", "DECLARACION DE PLAZO DE
+// ENTREGA"…). Ningún regex de título puede generalizar un sustantivo nuevo cada vez — pero el
+// organismo repite, IDÉNTICO, el nombre de la propuesta entre comillas justo debajo del título de
+// CADA anexo pegado. Eso ya lo detecta clavesEntreComillasRepetidas (hasta ahora solo para
+// LIMPIAR el subtítulo); acá se reutiliza la MISMA señal al revés: donde el nombre repetido
+// APARECE, buscando hacia ATRÁS tiene que estar el título real de ESE anexo.
+//
+// Caminar hacia atrás se detiene ante lo primero que ya no pueda ser parte del título: un
+// encabezado ya detectado por la vía normal (ANEXO Nº6 de este mismo documento, para no partirlo
+// dos veces), una línea que NO es mayúscula completa (ahí empieza prosa real de la sección
+// anterior), o el tope de `VENTANA_MAXIMA`. Los rótulos de campo que anteceden casi siempre al
+// nombre repetido ("NOMBRE PROPUESTA", "NOMBRE DE LA PROPUESTA") se saltan explícitamente — sin
+// eso, el título de cada anexo salía "NOMBRE PROPUESTA" en vez del real.
+const RE_TODO_MAYUSCULAS = /^[^a-záéíóúñü]*[A-ZÁÉÍÓÚÑÜ][^a-záéíóúñü]*$/;
+const RE_ROTULO_SALTABLE = /^(?:nombre|firma|fecha)\b/i;
+const VENTANA_MAXIMA = 8;
+
+function detectarEncabezadosPorRepeticion(
+  bloques: BloqueCrudo[], repetidas: Set<string>, yaDetectados: { indice: number }[],
+): { indice: number; titulo: string }[] {
+  if (!repetidas.size) return [];
+  const lineas: { indice: number; texto: string }[] = [];
+  for (const b of bloques) {
+    if (b.tipo === 'tabla') continue; // el caso real vive en párrafos sueltos; ver el comentario de arriba
+    for (const linea of b.textoPlano.split('\n')) lineas.push({ indice: b.ordinalInicio, texto: linea.trim() });
+  }
+  if (process.env.DEBUG_DIVIDIR) {
+    for (let i = 0; i < Math.min(15, lineas.length); i++) console.error(i, JSON.stringify(lineas[i]));
+  }
+  const cubiertos = [...yaDetectados].map(h => h.indice).sort((a, b) => a - b);
+  const yaCubierto = (indice: number) => cubiertos.some(c => Math.abs(c - indice) <= VENTANA_MAXIMA);
+  const out: { indice: number; titulo: string }[] = [];
+  for (let i = 0; i < lineas.length; i++) {
+    const anchor = lineas[i];
+    if (!RE_EMPIEZA_CON_COMILLA.test(anchor.texto)) continue;
+    const clave = anchor.texto.replace(RE_COMILLAS_ALREDEDOR, '').trim().toUpperCase();
+    if (!repetidas.has(clave) || yaCubierto(anchor.indice)) continue;
+    for (let j = i - 1; j >= 0 && i - j <= VENTANA_MAXIMA; j--) {
+      const cand = lineas[j];
+      if (yaCubierto(cand.indice)) break; // ya hay un encabezado cerca — de la sección ANTERIOR
+      if (!cand.texto) continue; // línea en blanco, seguir mirando más atrás
+      if (RE_ROTULO_SALTABLE.test(cand.texto)) continue; // "NOMBRE PROPUESTA" y similares
+      if (RE_EMPIEZA_CON_COMILLA.test(cand.texto)) break; // otro nombre repetido: sección distinta
+      if (cand.texto.length > LARGO_MAX_ENCABEZADO || !RE_TODO_MAYUSCULAS.test(cand.texto)) break;
+      out.push({ indice: cand.indice, titulo: cand.texto });
+      cubiertos.push(cand.indice);
+      cubiertos.sort((a, b) => a - b);
+      break;
+    }
+  }
+  return out;
+}
+
 // ¿Esta línea entre comillas es el nombre de la licitación (corta la búsqueda) o el título real
 // del formulario (sirve de subtítulo)? Ver clavesEntreComillasRepetidas.
 function cortaSubtitulo(texto: string, repetidas: Set<string>): boolean {
@@ -423,6 +479,9 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
     if ((conteoClave.get(c.clave) ?? 0) > 1) continue;
     encabezados.push({ indice: c.indice, titulo: c.titulo });
   }
+  // Séptima forma (ver detectarEncabezadosPorRepeticion): solo agrega lo que las formas anteriores
+  // no cubrieron — nunca parte un anexo que ya tenía su encabezado "FORMULARIO/ANEXO/FORMATO".
+  encabezados.push(...detectarEncabezadosPorRepeticion(bloques, repetidasEntreComillas, encabezados));
   encabezados.sort((a, b) => a.indice - b.indice);
   const totalOrdinales = bloques.length ? bloques[bloques.length - 1].ordinalFin + 1 : 0;
   return encabezados.map((h, i) => ({
