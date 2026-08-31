@@ -64,6 +64,10 @@ export interface EmpresaCampos {
   fecha_hoy_dia?: string | null;
   fecha_hoy_mes?: string | null;
   fecha_hoy_anio?: string | null;
+  // Caso real (1042-9-LE26): "del 20___" dentro de una oración larga — el organismo ya imprimió el
+  // "20" del año y el blanco es solo lo que falta ("26"). Igual que fecha_hoy_mes_palabra, en la
+  // práctica solo lo pide campoDeFechaEnFormula; nunca pasa por este motor de IA.
+  fecha_hoy_anio_corto?: string | null;
   // El OTRO formato de fecha partida, igual de común: "___ de ___ de ___" (con la palabra "de"
   // en vez de barras) — ahí la casilla del medio pide el MES EN PALABRA ("agosto"), no el número.
   // En la práctica este trío lo resuelve detectarTripletesFecha (anexos-detectar.ts) sin pasar por
@@ -192,7 +196,7 @@ const CAMPOS_DE_LA_MISMA_PERSONA_Y_EMPRESA: (keyof EmpresaCampos)[] = [
   'representante_nombre', 'representante_rut', 'representante_cargo',
   'representante_nombres', 'representante_apellidos',
   'email1', 'telefono1',
-  'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra', 'fecha_hoy_dia_mes',
+  'fecha_hoy', 'fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_anio_corto', 'fecha_hoy_mes_palabra', 'fecha_hoy_dia_mes',
   'socio_nombre', 'socio_participacion', 'programa_integridad_respuesta', 'nacionalidad',
 ];
 
@@ -336,7 +340,7 @@ export function campoCalzaConLaEtiqueta(etiqueta: string, valor: string): boolea
 // un número huérfano en el documento sin nada que lo explique. Caso real medido (1058086-43-LP26,
 // corriendo con el modelo de respaldo): el título "PROPUESTA:" terminó completado con "06".
 // `fecha_hoy` (la fecha larga, "6 de agosto de 2026") sí es un valor válido para una celda "FECHA".
-const CAMPOS_SOLO_PARA_TRIPLETE_DE_FECHA = new Set<string>(['fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra']);
+const CAMPOS_SOLO_PARA_TRIPLETE_DE_FECHA = new Set<string>(['fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_anio_corto', 'fecha_hoy_mes_palabra']);
 
 const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   razon_social: 'Razón social / nombre de la empresa',
@@ -373,6 +377,7 @@ const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   fecha_hoy_dia: 'Solo el DÍA de hoy (número) — para pies de firma partidos: "Fecha: __ /__ /__"',
   fecha_hoy_mes: 'Solo el MES de hoy (número) — la casilla del medio de "Fecha: __ /__ /__"',
   fecha_hoy_anio: 'Solo el AÑO de hoy (4 dígitos) — la última casilla de "Fecha: __ /__ /__"',
+  fecha_hoy_anio_corto: 'Solo los ÚLTIMOS 2 DÍGITOS del año de hoy — cuando el "20" ya viene impreso en la plantilla, ej. "…del 20___"',
   fecha_hoy_mes_palabra: 'Solo el MES de hoy EN PALABRA ("agosto") — la casilla del medio de "___ de __ de ___" (NUNCA el número ahí)',
   fecha_hoy_dia_mes: 'Día + mes en palabra de HOY, SIN año ("06 de agosto") — para una casilla SUELTA (no un triplete) donde el año ya viene impreso fijo en la plantilla, ej. "LA UNIÓN, ___ DE 2026"',
   socio_nombre: 'Nombre del Socio/Accionista — por política de la empresa, el representante legal (socio único). Casilla "Nombre Socio/Accionista".',

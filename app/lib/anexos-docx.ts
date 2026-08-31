@@ -353,6 +353,42 @@ export function eliminarRespaldoVmlDuplicado(xml: string): string {
   );
 }
 
+// ── Campos de formulario LEGADOS de Word (barra de herramientas "Formularios", anterior a los
+// Content Controls modernos) ─────────────────────────────────────────────────────────────────
+// BUG REAL (1042-9-LE26, F3_Declaración_de_Postulación_y_Compromiso y F4_Declaración_Jurada_
+// Simple): "Yo, ___, Cédula de Identidad N° ___ con domicilio ___..." se veía en pantalla como
+// cualquier otro blanco con raya, pero en el XML no hay una sola raya baja — el blanco es un
+// CAMPO, no texto: `<w:fldChar w:fldCharType="begin"><w:ffData>...<w:textInput/></w:ffData>
+// </w:fldChar>` … `<w:fldChar w:fldCharType="separate"/>` … [runs con el valor actual, acá
+// espacios] … `<w:fldChar w:fldCharType="end"/>`. Ninguna capa del módulo sabe leer eso — todo
+// el resto (detección, resolución por contexto, escritura) da por hecho que un blanco es una
+// raya de `_` dentro de un `<w:t>`. El resultado real: 7 de 7 casillas de cada documento sin
+// tocar, sin un solo aviso — el organismo generó estos formularios con la herramienta VIEJA de
+// Word (Ctrl+F9), probablemente porque el .doc pasó por LibreOffice (ver
+// eliminarRespaldoVmlDuplicado arriba, mismo tipo de "reliquia de compatibilidad").
+//
+// La solución NO es enseñarle este formato a cada capa: es traducirlo al formato que YA
+// entienden, antes de que lo vean. Cada campo entero (de su run de apertura al de cierre,
+// incluidos los bookmarks que Word les cuelga alrededor) se reemplaza por UN solo run con una
+// raya de `_` — el mismo blanco de siempre, con el mismo `rPr` (fuente/tamaño) que ya traía el
+// campo, así el documento generado no cambia de letra donde antes había un campo. Solo se tocan
+// campos de TEXTO (`w:textInput`): un checkbox o una lista desplegable (`w:checkBox`/`w:ddList`)
+// no son "un blanco que se llena con texto" y seguirían necesitando su propio manejo si aparecen.
+//
+// Va en el mismo punto que eliminarRespaldoVmlDuplicado y por la misma razón: ANTES de
+// normalizarParaIds, en las DOS rutas (análisis y generación), para que el documento "original"
+// contra el que se mide la integridad ya nazca traducido — nunca se agrega ni se quita un <w:p>,
+// solo se reduce cuántos <w:r> tiene el que ya existía.
+const RE_CAMPO_FORMULARIO_TEXTO =
+  /<w:r\b[^>]*>(?:(?!<\/w:r>)[\s\S])*?<w:fldChar\s+w:fldCharType="begin">(?:(?!<\/w:fldChar>)[\s\S])*?<w:ffData>(?:(?!<\/w:ffData>)[\s\S])*?<w:textInput\b[^>]*\/?>(?:(?!<\/w:ffData>)[\s\S])*?<\/w:ffData>(?:(?!<\/w:fldChar>)[\s\S])*?<\/w:fldChar><\/w:r>[\s\S]*?<w:r\b[^>]*>(?:(?!<\/w:r>)[\s\S])*?<w:fldChar\s+w:fldCharType="end"\s*\/>(?:(?!<\/w:r>)[\s\S])*?<\/w:r>(?:<w:bookmarkEnd\b[^>]*\/>)?/g;
+
+export function sustituirCamposFormularioLegado(xml: string): string {
+  return xml.replace(RE_CAMPO_FORMULARIO_TEXTO, campo => {
+    const rPr = (campo.match(/<w:rPr>[\s\S]*?<\/w:rPr>/) || [''])[0];
+    return `<w:r>${rPr}<w:t xml:space="preserve">____________</w:t></w:r>`;
+  });
+}
+
 // ── Patrón 1: celda de tabla vacía ───────────────────────────────────────────────────────
 // Inserta el valor DENTRO del <w:p> vacío identificado por su paraId — nunca agrega/quita
 // párrafo. Reutiliza el rPr existente para heredar la misma fuente que el resto del formulario.
@@ -717,7 +753,7 @@ export const rellenarOpcion = rellenarInline;
 export function rellenarRunPorIndice(
   xml: string,
   indiceRun: number,
-  ediciones: { pos: number; largo: number; valor: string }[],
+  ediciones: { pos: number; largo: number; valor: string; pegadoALaIzquierda?: boolean }[],
   // El texto que el DETECTOR vio en este run (CandidatoInline.textoRunOriginal). Opcional para no
   // romper llamadores viejos, pero cuando viene es el cinturón de seguridad de todo el módulo.
   textoRunEsperado?: string,
@@ -769,15 +805,22 @@ export function rellenarRunPorIndice(
   };
 
   let textoNuevo = textoOriginal;
-  for (const { pos, largo, valor } of [...ediciones].sort((a, b) => b.pos - a.pos)) {
+  for (const { pos, largo, valor, pegadoALaIzquierda } of [...ediciones].sort((a, b) => b.pos - a.pos)) {
     const charPrevio = pos > 0 ? (textoNuevo[pos - 1] || '') : charLimite('antes');
     const charSiguiente = pos + largo < textoNuevo.length ? (textoNuevo[pos + largo] || '') : charLimite('despues');
     // Separación por los DOS lados. La de la izquierda ya estaba; la de la derecha se agregó al ver
     // el resultado real del anexo 10 de 1057480-41-LP26, cuyos blancos son líneas de puntos pegadas
     // a la palabra que sigue ("Yo, ............RUT N°............"): sin ella el documento salía con
     // "Inversiones Claro ARZ SPARUT N°76.902.659-2" todo junto.
-    // "°"/"º" cuentan como letra para esto: "RUT N°76.902.659-2" es el mismo defecto visual.
-    const valorFinal = (/[A-Za-zÀ-ÿ0-9°º]/.test(charPrevio) ? ' ' : '')
+    // "°"/"º" cuentan como letra para esto: "RUT N°76.902.659-2" es el mismo defecto visual. ")"
+    // igual (1042-9-LE26, Anexo Impacto Ambiental): "don (doña)______" con el paréntesis de género
+    // pegado a la palabra (ver la regla de REGLAS_PREVIAS del mismo caso) salía "doña)Santiago".
+    //
+    // `pegadoALaIzquierda` es la excepción (1042-9-LE26): un año partido donde el organismo ya
+    // imprimió el siglo ("del 20___") SÍ debe quedar pegado al dígito de la izquierda — separarlos
+    // da "20 26" en vez de "2026". Ver 'anio_2digitos'/'anio_1digito' en anexos-detectar.ts y
+    // fecha_hoy_anio_corto en anexos-determinista.ts, los dos casos que la marcan.
+    const valorFinal = (!pegadoALaIzquierda && /[A-Za-zÀ-ÿ0-9°º)]/.test(charPrevio) ? ' ' : '')
       + valor
       + (/[A-Za-zÀ-ÿ0-9]/.test(charSiguiente) ? ' ' : '');
     textoNuevo = textoNuevo.slice(0, pos) + valorFinal + textoNuevo.slice(pos + largo);

@@ -656,7 +656,10 @@ export function resolverPeladaPorBloque(
 // que ganarle a "empresa ___".
 const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // A quién se representa → la EMPRESA (nunca la persona, aunque venga tras "representante").
-  { re: /\ben\s+represent(?:acion|ación)\s+(?:legal\s+)?de(?:\s+la)?(?:\s+(?:empresa|sociedad|razon\s+social))?\s*$/i, campo: 'razon_social' },
+  // La aclaración "(si corresponde)" (1042-9-LE26, F3) se cuela ENTRE "de" y el blanco — mismo
+  // patrón que "Don (ña) ___": un paréntesis pegado a la palabra apaga el anclaje de fin de frase
+  // si no se lo deja pasar explícitamente.
+  { re: /\ben\s+represent(?:acion|ación)\s+(?:legal\s+)?de(?:\s+la)?(?:\s+(?:empresa|sociedad|razon\s+social))?(?:\s*\([^)]{0,30}\))?\s*$/i, campo: 'razon_social' },
   { re: /\b(?:para|por)\s+(?:y\s+en\s+nombre\s+de|cuenta\s+de)\s*$/i, campo: 'razon_social' },
   // "Mi representada ______" / "mi representada es ______" — fórmula estándar con la que el
   // representante legal nombra a SU empresa dentro de una declaración jurada. Medida por el
@@ -700,9 +703,17 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   { re: /\bnombre\s+(?:completo\s+)?(?:del\s+)?(?:representante|apoderado|declarante)?\s*:?\s*$/i, campo: 'representante_nombre' },
   // Cédula de la persona — distinta del RUT de la empresa aunque compartan la oración.
   { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run)\s*(?:n[°º.]*|numero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
-  // Domicilio.
-  { re: /\b(?:con\s+)?domicili(?:o|ado)\s+(?:en|para\s+estos\s+efectos\s+en)(?:\s+(?:la\s+)?(?:ciudad|comuna)\s+de)?\s*$/i, campo: 'direccion' },
+  // Domicilio. El "en" es OPCIONAL (1042-9-LE26, F3): "con domicilio ______ en representación de…"
+  // pega el blanco directo a "domicilio", sin la preposición — la forma con "en" sigue siendo la
+  // más común, pero exigirla dejaba esta variante sin resolver.
+  { re: /\b(?:con\s+)?domicili(?:o|ado)\s*(?:en|para\s+estos\s+efectos\s+en)?(?:\s+(?:la\s+)?(?:ciudad|comuna)\s+de)?\s*$/i, campo: 'direccion' },
   { re: /\bdirecci(?:o|ó)n\s*:?\s*$/i, campo: 'direccion' },
+  // RUT que sigue al NOMBRE de la persona ("don/doña <nombre>, RUT N°…", con o sin el cargo entre
+  // comillas en el medio: "don (doña)___, "___", RUT___" de 1042-9-LE26). Va ANTES que la regla
+  // genérica de abajo — sin esto, cualquier "RUT" en una declaración jurada se leía como el de la
+  // EMPRESA aunque viniera pegado al nombre de la persona que la firma. `[^.]` corta en el punto
+  // para no cruzar a una oración distinta si "don" apareció mucho antes en el párrafo.
+  { re: /\b(?:don|do[ñn]a)\b[^.]{0,120}?,\s*(?:r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|numero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
   // RUT: por defecto el de la EMPRESA. La cédula de la persona ya se atrapó arriba con su palabra
   // propia ("cédula", "C.I.", "RUN"); un "Rut N°" pelado en una declaración jurada acompaña
   // siempre a la razón social recién nombrada.
@@ -740,7 +751,9 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // "Don (ña) ______" / "a don(a) ______": el organismo cubre los dos géneros con un paréntesis
   // pegado a la palabra. La regla de "don/doña" que ya existía exige que la palabra sea la ÚLTIMA
   // antes del blanco, así que el "(ña)" la desactivaba por completo (5 licitaciones, 20 casillas).
-  { re: /\b(?:don|do[ñn]a|sr|sra)\s*\(\s*(?:[ñn]a|a|esa)\s*\)\s*\.?,?\s*$/i, campo: 'representante_nombre' },
+  // "don (doña)" (1042-9-LE26): la MISMA idea pero con la palabra ENTERA dentro del paréntesis, no
+  // solo el sufijo — se agrega `do[ñn]a` a las alternativas de adentro.
+  { re: /\b(?:don|do[ñn]a|sr|sra)\s*\(\s*(?:do[ñn]a|[ñn]a|a|esa)\s*\)\s*\.?,?\s*$/i, campo: 'representante_nombre' },
 
   // "FECHA ______" sin los dos puntos (33 licitaciones, 126 casillas — la forma más repetida de
   // todas). El match de etiqueta de campoDeBlancoInline exige que termine en ":", así que la misma
@@ -750,7 +763,12 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // DE FECHA ______" (8 licitaciones) es la fecha de un oficio del organismo, NO la nuestra —
   // escribir ahí la fecha de hoy sería un dato falso dentro de una declaración jurada. Con el
   // ancla, "de fecha" nunca entra porque viene precedido de "de".
-  { re: /(?:^|[.;·|\t])\s*fecha\s*:?\s*$/i, campo: 'fecha_hoy' },
+  //
+  // "con" SÍ se deja pasar (1042-9-LE26, F3: "...y, con fecha ___, declaro lo siguiente"): es la
+  // fórmula de PRIMERA PERSONA con la que el propio declarante fecha su declaración — distinta de
+  // "de fecha", que en la burocracia chilena siempre referencia el documento de OTRO (un oficio,
+  // una resolución). Las dos palabras nunca compiten por el mismo blanco.
+  { re: /(?:^|[.;·|\t]|\bcon)\s*fecha\s*:?\s*$/i, campo: 'fecha_hoy' },
 
   // "…, profesión u oficio ______ RUT ……" (2495-17-B226, en los DOS formularios del pliego): el
   // dato está en la ficha (`representante_profesion` = "Ingeniero Constructor") y quedaba en blanco
@@ -773,7 +791,15 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
 // existe sin usar: la comuna del ORGANISMO licitante (ComunaUnidad). Ojo: la regla vieja mandaba
 // "[ciudad/país]" a la región de la EMPRESA — el instructivo pide la del organismo. Corregido acá.
 const RE_LOCALIDAD_FIRMA = /(?:^|[.;])\s*(?:en|ciudad\s+de)\s*$/i;
-const RE_SIGUE_FECHA = /^\s*[,]?\s*(?:a|con\s+fecha|el\s+d(?:i|í)a)\b|^\s*,?\s*\d{0,2}\s*de\b/i;
+// Tercera alternativa (1042-9-LE26): "En <ciudad>, <día>, de<mes>de <año>" — sin la "a" antes del
+// día, así que las dos primeras ramas no la ven: la rama de "a/con fecha/el día" no matchea nada
+// (el día es otro blanco, no una palabra), y la de "\d{0,2} de" exige DÍGITOS y acá el día todavía
+// no se ha escrito, es una raya. El patrón del hueco es el mismo que HUECO más abajo (no se puede
+// reusar esa constante: se declara después y esto se evalúa antes).
+// El "de" final de la tercera rama va SIN `\b`: el guion bajo es \w para el motor de regex, así que
+// "de________" (hueco pegado, sin espacio) no tiene frontera de palabra entre "de" y "_" y `\b`
+// nunca dispara ahí — mismo defecto ya conocido en otras partes de este archivo con guiones bajos.
+const RE_SIGUE_FECHA = /^\s*[,]?\s*(?:a|con\s+fecha|el\s+d(?:i|í)a)\b|^\s*,?\s*\d{0,2}\s*de\b|^\s*,\s*(?:_{2,}|\.{3,}|…+)\s*,\s*de/i;
 
 // Marcadores literales del organismo ("[Insertar RUT]"): el texto dentro del marcador dice
 // EXACTAMENTE qué va ahí y manda sobre cualquier inferencia del contexto.
@@ -912,10 +938,12 @@ const RE_ANTES_DIA = new RegExp(
 // El espacio después de "de" es OPCIONAL a propósito: el organismo escribe "......de……………" pegado
 // (2495-17-B226). Lo que sigue tiene que ser igual un mes, un hueco o un número, así que aflojar el
 // espacio no abre la puerta a nada ("deficiente ___" no calza: tras "de" viene "ficiente").
-const RE_DESPUES_DIA = new RegExp(`^\\s*${NEXO_DIA_MES}\\s*(?:${MES_PALABRA}|${HUECO}|\\d{1,2}\\b)`, 'i');
+// La COMA opcional antes del nexo es la variante de 1042-9-LE26: "En <ciudad>, <día>, de<mes>de
+// <año>" separa cada pieza con coma en vez de solo espacio ("a <día> de <mes>").
+const RE_DESPUES_DIA = new RegExp(`^\\s*,?\\s*${NEXO_DIA_MES}\\s*(?:${MES_PALABRA}|${HUECO}|\\d{1,2}\\b)`, 'i');
 // MES en PALABRA: "…12 de ___ de 2026" / "…12 días del mes de ___ de 2026". Antes tiene que venir
-// un día (número o hueco) y después el año.
-const RE_ANTES_MES_PALABRA = new RegExp(`(?:\\d{1,2}|${HUECO})\\s*${NEXO_DIA_MES}\\s*$`, 'i');
+// un día (número o hueco) y después el año. Misma coma opcional que arriba, mismo motivo.
+const RE_ANTES_MES_PALABRA = new RegExp(`(?:\\d{1,2}|${HUECO})\\s*,?\\s*${NEXO_DIA_MES}\\s*$`, 'i');
 const RE_DESPUES_MES_PALABRA = new RegExp(`^\\s*del?\\s+(?:\\d{2,4}|${HUECO}|20\\s*${HUECO})`, 'i');
 // AÑO: "…de agosto de ___". Antes viene el mes (palabra o hueco) + "de".
 //
@@ -925,6 +953,14 @@ const RE_DESPUES_MES_PALABRA = new RegExp(`^\\s*del?\\s+(?:\\d{2,4}|${HUECO}|20\
 // (2495-17-B226). Ahora el año es "lo que queda cuando ya no hay un 'de <año>' detrás", y el orden
 // de las pruebas (mes ANTES que año) es lo que hace que esto sea correcto y no una puerta abierta.
 const RE_ANTES_ANIO = new RegExp(`(?:${MES_PALABRA}|${HUECO})\\s*del?\\s*(?:20)?\\s*$`, 'i');
+// BUG REAL (1042-9-LE26, F4 "Declaración Jurada Simple"): "…de septiembre del 20___", dentro de UNA
+// SOLA oración larga ("Yo... declaro..."), no en una línea corta de fecha aislada. Por eso NO pasa
+// por detectarTripletesFecha (LARGO_MAX_LINEA_FECHA descarta el párrafo entero por ser una
+// declaración jurada corrida) y cae acá. El "20" del año ya viene IMPRESO por el organismo, así que
+// el blanco es solo lo que falta ("26"). Sin esto, RE_ANTES_ANIO de arriba matchea igual (el "20" es
+// opcional ahí) y el año completo se escribe DESPUÉS del "20" que ya estaba: "del 20 2026". Se
+// prueba primero por ser más específica: exige el "20" que la de arriba solo tolera.
+const RE_ANTES_ANIO_CORTO = new RegExp(`(?:${MES_PALABRA}|${HUECO})\\s*del?\\s*20\\s*$`, 'i');
 // Forma con BARRAS: "Fecha: ___ / ___ / ___" — acá el mes va en NÚMERO, no en palabra.
 const RE_BARRAS_DIA = /(?:fecha|fecha\s+de\s+(?:presentacion|la\s+oferta))\s*:?\s*$/i;
 const RE_DESPUES_BARRA = /^\s*[/\-]/;
@@ -973,6 +1009,7 @@ export function campoDeFechaEnFormula(antes: string, despues: string): Campo | n
   // que al mes le sigue un "de <año>" y al año no. Probar el mes primero y el año como "lo que
   // queda" resuelve los dos sin ambigüedad; al revés, el año se llevaría también al mes.
   if (RE_ANTES_MES_PALABRA.test(antes) && RE_DESPUES_MES_PALABRA.test(despues)) return 'fecha_hoy_mes_palabra' as Campo;
+  if (RE_ANTES_ANIO_CORTO.test(antes) && !RE_DESPUES_MES_PALABRA.test(despues)) return 'fecha_hoy_anio_corto' as Campo;
   if (RE_ANTES_ANIO.test(antes) && !RE_DESPUES_MES_PALABRA.test(despues)) return 'fecha_hoy_anio' as Campo;
   if (RE_ANTES_DIA.test(antes) && RE_DESPUES_DIA.test(despues)) return 'fecha_hoy_dia' as Campo;
   return null;
@@ -1106,7 +1143,7 @@ function valorDe(empresa: EmpresaCampos, campo: Campo): string | null {
 // en tres celdas, así que el número nunca queda huérfano. Sin esta excepción el bloque de fecha
 // resolvía el campo y `anotar` lo tiraba igual: medido, el 60+ licitaciones de mejora se quedaba
 // en +0,4%.
-const SOLO_TRIPLETE = new Set<Campo>(['fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_mes_palabra'] as Campo[]);
+const SOLO_TRIPLETE = new Set<Campo>(['fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_anio_corto', 'fecha_hoy_mes_palabra'] as Campo[]);
 
 // ── Clasificación del PENDIENTE ──────────────────────────────────────────────────────────────
 // Una casilla que no se resolvió no es toda igual: la UI decide con esto si la muestra pidiendo un

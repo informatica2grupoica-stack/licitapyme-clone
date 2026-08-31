@@ -25,7 +25,7 @@
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
   insertarImagenEnParrafo, rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
-  eliminarRespaldoVmlDuplicado, marcarKeepNext, agregarTextoBajoLineaFirma, type Parrafo,
+  eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, marcarKeepNext, agregarTextoBajoLineaFirma, type Parrafo,
 } from '@/app/lib/anexos-docx';
 import {
   analizarAnexo, extraerTablasCrudo,
@@ -128,7 +128,7 @@ interface ResultadoResolucion {
   matcheados: CampoResuelto[];
   pendientes: CandidatoCelda[];
   pendientesConMotivo: Map<number, { categoria: string; motivo: string }>;
-  inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra' }[];
+  inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra'; pegadoALaIzquierda?: boolean }[];
   inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[];
   alertasInadmisibilidad: AlertaInadmisibilidad[];
   checklistPendientes: string[];
@@ -224,13 +224,17 @@ async function resolverTodo(
   // detectarAlternativasExcluyentes): tampoco se le manda a la IA — no es un dato de la ficha, es
   // una decisión del oferente, y dejarla a la IA daba un resultado distinto según qué otros
   // candidatos le tocaran de vecinos en el lote (bug real 4999-8-LE26). Va derecho a pendiente.
-  const inlineFecha: { b: CandidatoInline; valor: string }[] = [];
+  const inlineFecha: { b: CandidatoInline; valor: string; pegadoALaIzquierda?: boolean }[] = [];
   const inlineAlternativa: CandidatoInline[] = [];
   const blancosParaIA: CandidatoInline[] = [];
   for (const b of blancosInline) {
     const rol = tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`);
     const valor = rol ? valorTripleteFecha(rol, empresa) : null;
-    if (rol && valor) inlineFecha.push({ b, valor });
+    // 'anio_2digitos'/'anio_1digito': el SIGLO ya viene IMPRESO justo a la izquierda del blanco
+    // ("del 20___") — el guardarraíl anti-atropello de rellenarRunPorIndice (que antepone un
+    // espacio cuando el texto de al lado termina en dígito) escribiría "20 26" en vez de "2026".
+    // Acá el pegado es exactamente lo correcto, no un atropello.
+    if (rol && valor) inlineFecha.push({ b, valor, pegadoALaIzquierda: rol === 'anio_2digitos' || rol === 'anio_1digito' });
     else if (alternativasExcluyentes.has(`${b.indiceRun}:${b.posEnTexto}`)) inlineAlternativa.push(b);
     else blancosParaIA.push(b);
   }
@@ -346,10 +350,10 @@ async function resolverTodo(
     }
   }
 
-  const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra' }[] = [];
+  const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra'; pegadoALaIzquierda?: boolean }[] = [];
   const inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[] = [];
-  for (const { b, valor } of inlineFecha) {
-    inlineAuto.push({ b, valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia' });
+  for (const { b, valor, pegadoALaIzquierda } of inlineFecha) {
+    inlineAuto.push({ b, valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia', pegadoALaIzquierda });
   }
   for (const b of inlineAlternativa) {
     inlinePendientes.push({
@@ -359,7 +363,10 @@ async function resolverTodo(
   }
   for (const b of blancosParaIA) {
     const res = inline.get(`${b.indiceRun}:${b.posEnTexto}`);
-    if (res?.tipo === 'auto') inlineAuto.push({ b, valor: res.valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia' });
+    // Mismo criterio que 'anio_2digitos' en inlineFecha, otro camino de llegada: campoDeFechaEnFormula
+    // (anexos-determinista.ts) atrapa "del 20___" cuando el blanco vive dentro de una oración larga
+    // que detectarTripletesFecha descarta por su tope de longitud (ver ese comentario).
+    if (res?.tipo === 'auto') inlineAuto.push({ b, valor: res.valor, etiqueta: (b.contexto || '').replace(/\s*:\s*$/, ''), via: 'ia', pegadoALaIzquierda: res.campo === 'fecha_hoy_anio_corto' });
     else if (res?.tipo === 'pendiente') inlinePendientes.push({ b, categoria: res.categoria, motivo: res.motivo });
     else inlinePendientes.push({ b, categoria: 'decision_del_usuario', motivo: 'No se pudo clasificar automáticamente esta casilla.' });
   }
@@ -687,13 +694,16 @@ export async function analizarAnexoParaUI(
   // eliminarRespaldoVmlDuplicado va PRIMERO, antes que nada más — ver su comentario en
   // anexos-docx.ts. Redefine qué cuenta como "el original" para las DOS rutas por igual, así que
   // xmlCrudo (el que compara verificarParrafos) ya nace sin el duplicado.
-  const xmlCrudo = eliminarRespaldoVmlDuplicado(xmlCrudoSinNormalizar);
+  // sustituirCamposFormularioLegado va justo al lado, misma razón: campos "Formularios" viejos
+  // de Word (FORMTEXT) son blancos invisibles para el resto del módulo si no se traducen antes a
+  // una raya de "_" — ver su comentario en anexos-docx.ts.
+  const xmlSinCamposLegados = sustituirCamposFormularioLegado(eliminarRespaldoVmlDuplicado(xmlCrudoSinNormalizar));
   // unificarRunsDeMarcadores va SIEMPRE junto a normalizarParaIds y en las DOS rutas (analizar y
   // generar): junta en un solo <w:t> los marcadores "<<NOMBRE …>>" que Word dejó partidos entre
   // runs, sin cambiar el conteo de párrafos ni de runs — ver su comentario en anexos-docx.ts. Si
   // una de las dos rutas se lo saltara, los ids de los pendientes (que son índices de aparición) no
   // calzarían entre el análisis y la generación.
-  const { xml: xmlConIds } = normalizarParaIds(xmlCrudo);
+  const { xml: xmlConIds } = normalizarParaIds(xmlSinCamposLegados);
   const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
   const analisis = analizarAnexo(xmlNormalizado, { postulaComoUTP: forzarAplica });
   const formularios = detectarFormularios(xmlNormalizado);
@@ -907,11 +917,12 @@ export async function generarAnexoFinal(
   experienciaOcTexto = '',
 ): Promise<ResultadoGeneracion> {
   const { zip, xml: xmlCrudoSinNormalizar } = await abrirDocx(bufferOriginal);
-  // eliminarRespaldoVmlDuplicado va PRIMERO, antes que nada más — ver su comentario en
-  // anexos-docx.ts. Redefine qué cuenta como "el original" para las DOS rutas por igual, así que
-  // xmlCrudo (el que compara verificarParrafos más abajo) ya nace sin el duplicado — sin esto,
-  // la comparación de integridad marcaría como "perdido" un párrafo que nunca fue contenido real.
-  const xmlCrudo = eliminarRespaldoVmlDuplicado(xmlCrudoSinNormalizar);
+  // eliminarRespaldoVmlDuplicado y sustituirCamposFormularioLegado van PRIMERO, antes que nada
+  // más — ver sus comentarios en anexos-docx.ts. Redefinen qué cuenta como "el original" para las
+  // DOS rutas por igual, así que xmlCrudo (el que compara verificarParrafos más abajo) ya nace
+  // sin el duplicado ni los campos legados — sin esto, la comparación de integridad marcaría como
+  // "perdido" un párrafo que nunca fue contenido real.
+  const xmlCrudo = sustituirCamposFormularioLegado(eliminarRespaldoVmlDuplicado(xmlCrudoSinNormalizar));
   // unificarRunsDeMarcadores va SIEMPRE junto a normalizarParaIds y en las DOS rutas (analizar y
   // generar): junta en un solo <w:t> los marcadores "<<NOMBRE …>>" que Word dejó partidos entre
   // runs, sin cambiar el conteo de párrafos ni de runs — ver su comentario en anexos-docx.ts. Si
@@ -958,17 +969,17 @@ export async function generarAnexoFinal(
   //    de runs que ya existían, nunca agrega/quita un <w:t>, así que el índice de aparición no
   //    se corre para el paso 2.
   let completadosInline = 0;
-  const porRun = new Map<number, { pos: number; largo: number; valor: string }[]>();
+  const porRun = new Map<number, { pos: number; largo: number; valor: string; pegadoALaIzquierda?: boolean }[]>();
   // Texto que el DETECTOR vio en cada run — se le pasa a rellenarRunPorIndice para que verifique
   // que está escribiendo donde cree. Ver el cinturón de seguridad en anexos-docx.ts.
   const textoEsperadoPorRun = new Map<number, string>();
-  const anotar = (b: CandidatoInline, valor: string) => {
+  const anotar = (b: CandidatoInline, valor: string, pegadoALaIzquierda?: boolean) => {
     if (!porRun.has(b.indiceRun)) porRun.set(b.indiceRun, []);
-    porRun.get(b.indiceRun)!.push({ pos: b.posEnTexto, largo: b.largo, valor });
+    porRun.get(b.indiceRun)!.push({ pos: b.posEnTexto, largo: b.largo, valor, pegadoALaIzquierda });
     if (b.textoRunOriginal != null) textoEsperadoPorRun.set(b.indiceRun, b.textoRunOriginal);
   };
   for (const a of inlineAuto) {
-    anotar(a.b, a.valor);
+    anotar(a.b, a.valor, a.pegadoALaIzquierda);
     completadosInline++;
   }
   for (const { b } of inlinePendientes) {

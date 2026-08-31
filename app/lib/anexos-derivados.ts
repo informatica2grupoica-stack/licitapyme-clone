@@ -220,6 +220,11 @@ export function conCamposDerivados(empresa: EmpresaCampos, ahora = new Date()): 
       // huérfano sin el mes). A diferencia de esos, este SÍ es válido como respuesta suelta de una
       // sola celda — se lee completo ("06 de agosto") sin depender de casillas vecinas.
       fecha_hoy_dia_mes: `${dia} de ${MESES[Number(mes) - 1]}`,
+      // Caso real (1042-9-LE26, F4 "Declaración Jurada Simple"): "del 20___" dentro de una oración
+      // larga (no una línea de fecha aislada), así que no pasa por detectarTripletesFecha — lo pide
+      // campoDeFechaEnFormula (anexos-determinista.ts). El organismo ya imprimió el "20" del año;
+      // escribir el año completo ahí deja "del 202026".
+      fecha_hoy_anio_corto: anio.slice(-2),
     }))(partesFechaChile(ahora)),
   };
 }

@@ -1086,13 +1086,17 @@ const RE_CONECTOR_DE = /^de$/i;
 // el año no es "de" sino "de 20", así que RE_CONECTOR_DE fallaba y el triplete entero se caía: la
 // fecha quedaba pendiente en LOS SIETE anexos del documento. Escribir el año completo ahí daría
 // "20 2026" en el papel, así que este caso tiene su propio rol (ver valorTripleteFecha).
-const RE_CONECTOR_DE_CON_SIGLO = /^de\s*(?:19|20)$/i;
+const RE_CONECTOR_DE_CON_SIGLO = /^del?\s*(?:19|20)$/i;
 // Variante del mismo pliego (2296-48-LE26, FORMATOS Nº1-B y Nº2): el organismo imprimió TRES
 // dígitos ("DE  202") y dejó el último para escribir a mano. Se acepta hasta 3 dígitos y NUNCA 4:
 // con el año completo impreso ("DE 2026") el blanco que sigue ya no es el año, es otra cosa, y
 // completarlo con "" (los últimos 0 dígitos) sería silenciosamente escribir nada donde el humano
 // sí tiene que decidir algo.
-const RE_CONECTOR_DE_CON_DECADA = /^de\s*(?:19|20)\d$/i;
+const RE_CONECTOR_DE_CON_DECADA = /^del?\s*(?:19|20)\d$/i;
+// BUG REAL (31-ago-2026, 1042-9-LE26, F4 "Declaración Jurada Simple"): "…del mes de septiembre
+// del 20___" — acá el conector es "del" (de + el), no "de", porque la frase completa dice "…del
+// mes de <mes> del <año>". La "l" de más hacía que RE_CONECTOR_DE_CON_SIGLO no matcheara y el
+// triplete se caía entero — el mismo síntoma del caso Conchalí, con una palabra distinta.
 
 // Clave = `${indiceRun}:${posEnTexto}`, el mismo formato que usa el resto del pipeline
 // (resolverAnexoConIA, generarAnexoFinal) para identificar un blanco inline único.

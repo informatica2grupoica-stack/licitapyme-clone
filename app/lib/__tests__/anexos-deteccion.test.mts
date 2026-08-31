@@ -1190,6 +1190,16 @@ test('detectarTripletesFecha: siglo o década del año ya impresos (regresión 2
   assert.equal(roles.filter(r => r === 'anio_2digitos' || r === 'anio_1digito').length, 0);
 });
 
+// CUARTA VARIANTE del mismo síntoma (1042-9-LE26, F4 "Declaración Jurada Simple", 31-ago-2026): el
+// conector entre mes y año es "del 20", no "de 20" — "…a 01 de septiembre del 20___" — porque la
+// frase completa es "del mes de <mes> del <año>". La "l" de más hacía que RE_CONECTOR_DE_CON_SIGLO
+// no matcheara y el triplete se caía entero, igual que en Conchalí pero con otra palabra.
+test('detectarTripletesFecha: conector "del 20" (con "l"), no solo "de 20" (regresión 1042-9-LE26)', () => {
+  const conDel = analizarAnexo(normalizarParaIds(NS + p('Concepción, a ____ de ____ del 20____') + FIN).xml);
+  const roles = [...conDel.blancosInline].map(b => conDel.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  assert.deepEqual(roles, ['dia', 'mes_palabra', 'anio_2digitos']);
+});
+
 // BUG REAL (4999-8-LE26, "ANEXO N°4-A", encontrado 6-ago-2026): una declaración jurada ofrece dos
 // blancos, cada uno al inicio de su propio párrafo, para marcar la alternativa que aplica — la
 // MISMA frase, una vez en positivo y otra negada. Antes se le mandaban a la IA como cualquier otro

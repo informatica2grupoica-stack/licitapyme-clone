@@ -541,6 +541,16 @@ test('REGRESIÓN ANEXO N°4: "<comuna>"/"<ciudad>" son del OFERENTE, no del orga
   assert.equal(campoDeBlancoInline(blanco(firma, firma.indexOf('_'), { largo: 14 })), 'licitacion_comuna');
 });
 
+// BUG REAL (1042-9-LE26, Anexo Impacto Ambiental): "En ____, ____, de____de 2026" — sin la "a"
+// antes del día y con COMA en vez de espacio entre las piezas. RE_SIGUE_FECHA solo reconocía "a" /
+// "con fecha" / "el día" o un NÚMERO ya escrito antes de "de" — acá el día todavía es una raya, no
+// un número, así que la localidad quedaba sin resolver pese a que la frase completa SÍ es la
+// fórmula de firma.
+test('localidad de firma: "En <ciudad>, <día>, de <mes> de <año>" (comuna separada por coma, sin "a")', () => {
+  const firma = 'En __________, ______, de________________de 2026, don (doña) ________, declaro:';
+  assert.equal(campoDeBlancoInline(blanco(firma, firma.indexOf('_'), { largo: 10 })), 'licitacion_comuna');
+});
+
 // El campo `direccion` de la ficha YA trae la comuna adentro ("Camino El Oliveto N° 575 N° 6,
 // Talagante"), así que "con domicilio en <domicilio>, <comuna>, <ciudad>" salía como
 // "…N° 6, Talagante, Talagante, Talagante" (reportado por el usuario en el ANEXO N°4 de
@@ -1069,6 +1079,26 @@ test('fecha de firma: la ciudad viene IMPRESA por el organismo ("Santiago, ___ d
   assert.equal(enFormula('Santiago, 12 de agosto de |'), 'fecha_hoy_anio');
 });
 
+test('fecha de firma: "del 20___" dentro de una oración larga — el año ya trae el "20" impreso', () => {
+  // BUG REAL (1042-9-LE26, F4 "Declaración Jurada Simple"): "Yo... a 01 de septiembre del 20___,
+  // don/doña..., viene en declarar...". Como es UNA SOLA oración larga (no una línea de fecha
+  // aislada), detectarTripletesFecha la descarta por su tope de longitud — cae acá. Antes de esto,
+  // RE_ANTES_ANIO (el "20" le es opcional) igual matcheaba y escribía el año completo DESPUÉS del
+  // "20" ya impreso — "del 20 2026" en vez de "del 2026".
+  assert.equal(enFormula('En Concepción de Chile, a 01 de septiembre del 20|'), 'fecha_hoy_anio_corto');
+  // Sin el "20" impreso, sigue siendo el año completo de siempre.
+  assert.equal(enFormula('En Concepción de Chile, a 01 de septiembre del |'), 'fecha_hoy_anio');
+});
+
+test('fecha de firma: "En <ciudad>, <día>, de<mes>de <año>" — piezas separadas por COMA, no espacio', () => {
+  // BUG REAL (1042-9-LE26, Anexo Impacto Ambiental): "En ____, ____, de____de 2026, don (doña)..."
+  // — a diferencia de "a <día> de <mes>" (espacio), acá cada pieza va separada por coma y no hay
+  // "a" antes del día. Las tres reglas (día/mes) exigían que el nexo "de" viniera pegado sin coma
+  // de por medio, así que las tres casillas quedaban pendientes.
+  assert.equal(enFormula('En Concepción, | , de septiembre de 2026'), 'fecha_hoy_dia');
+  assert.equal(enFormula('En Concepción, 01 , de | de 2026'), 'fecha_hoy_mes_palabra');
+});
+
 test('fecha de firma: variante "a ___ días del mes de ___"', () => {
   assert.equal(enFormula('En Temuco, a | días del mes de agosto de 2026'), 'fecha_hoy_dia');
   assert.equal(enFormula('En Temuco, a 12 días del mes de | de 2026'), 'fecha_hoy_mes_palabra');
@@ -1131,6 +1161,18 @@ test('fecha de firma: el guardarraíl del triplete NO debe tirar lo que la fórm
   const campos = [...r.inline.values()].map(v => (v as { campo?: string }).campo);
   assert.ok(campos.includes('fecha_hoy_dia'), `el día de la fórmula llega a la resolución (campos: ${campos})`);
   assert.ok(campos.includes('fecha_hoy_mes_palabra'), `el mes de la fórmula llega a la resolución (campos: ${campos})`);
+});
+
+test('fecha de firma: "del 20___" llega a la resolución con el campo CORTO, no el año completo', () => {
+  const texto = 'En Concepción de Chile, a 01 de septiembre del 20_____';
+  const r = resolverDeterminista({
+    candidatos: [], parrafos: [parrafo(0, texto)],
+    blancosInline: [blanco(texto, texto.indexOf('_____'))],
+    empresa: EMPRESA,
+  });
+  const campos = [...r.inline.values()].map(v => (v as { campo?: string }).campo);
+  assert.ok(campos.includes('fecha_hoy_anio_corto'), `el año corto de la fórmula llega a la resolución (campos: ${campos})`);
+  assert.ok(!campos.includes('fecha_hoy_anio'), `no debe colarse el año completo cuando el "20" ya está impreso (campos: ${campos})`);
 });
 
 test('fecha de firma: una CELDA suelta rotulada "día" sigue bloqueada', () => {
