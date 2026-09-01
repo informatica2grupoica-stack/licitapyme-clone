@@ -1029,6 +1029,10 @@ export interface CandidatoInline {
   // que sigue es el nombre del dato que va escrito sobre ella ("NOMBRE EMPRESA"). Ver el bloque de
   // LARGO_MAX_ROTULO_DEBAJO mas abajo y su uso en campoDeBlancoInline (anexos-determinista.ts).
   rotuloDebajo?: string;
+  // ETIQUETA EN SU PROPIO PÁRRAFO ARRIBA: el organismo separa "Plazo Máximo de Entrega en días
+  // hábiles:" en su propio párrafo, deja un párrafo vacío de por medio (puro espaciado visual), y
+  // recién en el siguiente pone el blanco ("_____10_____ días hábiles"). Ver rotuloArribaDelBlanco.
+  rotuloArriba?: string;
 }
 
 // BUG REAL (28-ago-2026, reportado por el usuario como "cuando pide 3 veces el correo lo pone una
@@ -1125,6 +1129,33 @@ export function rotuloEmparejadoDeRaya(textoDe: (i: number) => string, indice: n
   return rotulos[indice - inicio] || '';
 }
 
+// BUG REAL (medido 1-sep-2026 con el banco de 300 anexos: "(sin contexto)" era, con diferencia, la
+// categoría más grande de casillas sin resolver — 238 de 2.170). Muestreado contra 3 documentos
+// reales (2448-120-LE26, 2018-27-LP26, 2408-162-LE26): en 3 de 4 casos la etiqueta SÍ existía,
+// visible para cualquier humano, uno o dos párrafos arriba del blanco — el organismo la puso en su
+// propio párrafo y dejó un párrafo vacío de por medio (puro espaciado visual) antes de la línea del
+// blanco:
+//   "Plazo Máximo de Entrega en días hábiles:"  /  ""  /  "_____10_____ días hábiles"
+// El párrafo del blanco YA trae texto propio ("días hábiles"), así que no es una raya pura y
+// `rotuloEmparejadoDeRaya` (que mira ABAJO) nunca se activa para este caso — y el patrón 2 solo
+// arma el contexto con texto DENTRO del mismo párrafo, que acá no tiene nada antes del blanco.
+// Sube hasta LIMITE_SALTOS_ROTULO_ARRIBA párrafos saltando los VACÍOS (puro espaciado) y se detiene
+// en el primer párrafo con texto — lo usa solo si es corto y no habla de firma (misma exigencia que
+// rotuloEmparejadoDeRaya); si ese párrafo no calza, no sigue subiendo: más allá ya no es de fiar que
+// describa este blanco en particular.
+const LIMITE_SALTOS_ROTULO_ARRIBA = 3;
+export function rotuloArribaDelBlanco(textoDe: (i: number) => string, indiceParrafo: number): string {
+  let i = indiceParrafo - 1;
+  let saltos = 0;
+  while (i >= 0 && saltos < LIMITE_SALTOS_ROTULO_ARRIBA) {
+    const t = textoDe(i);
+    if (!t) { i--; saltos++; continue; }
+    if (RE_TIENE_BLANCO_PROPIO.test(t) || RE_ROTULO_ES_FIRMA.test(t)) return '';
+    return esEtiquetaDeCampo(t) ? t.replace(/\s*:\s*$/, '') : '';
+  }
+  return '';
+}
+
 export function detectarBlancosInline(xml: string): CandidatoInline[] {
   const out: CandidatoInline[] = [];
   // La lista que MANDA: mismo patrón, carácter por carácter, que rellenarRunPorIndice.
@@ -1169,6 +1200,10 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
     // Ver el comentario de LARGO_MAX_ROTULO_DEBAJO: el rótulo de esta raya vive DEBAJO, y solo
     // cuando el párrafo es una raya pelada.
     const rotuloDebajo = RE_SOLO_RAYA.test(textoParrafoCompleto) ? rotuloDeLaRaya(indiceParrafo) : '';
+    // Ver rotuloArribaDelBlanco: el rótulo vive en su propio párrafo ARRIBA, con o sin párrafos
+    // vacíos de espaciado de por medio. Solo se USA más abajo cuando el contexto DENTRO del propio
+    // párrafo salió vacío — si ya hay contexto propio, este cómputo simplemente no se toca.
+    const rotuloArriba = rotuloArribaDelBlanco(textoDeParrafo, indiceParrafo);
     let offsetAcumulado = 0;
     let posicionEnParrafo = 0;
 
@@ -1200,12 +1235,14 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
           ...(rotuloPegado ? { absorbeAntes: rotuloPegado } : {}),
           // Con la raya sola, el ROTULO DE ABAJO es el unico contexto que existe — mostrarlo (en la
           // pantalla y en el prompt de la IA) es bastante mejor que "(sin contexto)", que no le
-          // dice nada ni al usuario ni al modelo.
-          contexto: contexto || rotuloDebajo || '(sin contexto)',
+          // dice nada ni al usuario ni al modelo. El ROTULO DE ARRIBA es el mismo respaldo para
+          // cuando la etiqueta vive en su propio párrafo antes del blanco (ver rotuloArribaDelBlanco).
+          contexto: contexto || rotuloDebajo || rotuloArriba || '(sin contexto)',
           parrafoCompleto: textoParrafoCompleto.trim(),
           posEnParrafo: Math.max(0, posGlobalEnParrafo - recorteIzquierdo),
           ...(b.textoMarcador ? { textoMarcador: b.textoMarcador } : {}),
           ...(rotuloDebajo ? { rotuloDebajo } : {}),
+          ...(!contexto && !rotuloDebajo && rotuloArriba ? { rotuloArriba } : {}),
         });
       }
       offsetAcumulado += texto.length;

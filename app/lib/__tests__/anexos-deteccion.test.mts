@@ -1843,6 +1843,57 @@ test('blancos inline: pie de dos columnas — cada raya toma el rotulo de SU col
   assert.equal(doc.lineasFirma.length, 1);
 });
 
+// ETIQUETA EN SU PROPIO PARRAFO ARRIBA (1-sep-2026, banco de 300 anexos: "(sin contexto)" era la
+// categoria mas grande de casillas sin resolver — 238 de 2.170, medido en 44 licitaciones reales).
+// Caso real 2448-120-LE26, Formulario_Oferta_Economica.docx: el organismo pone la etiqueta en su
+// propio parrafo, deja un parrafo VACIO de espaciado visual, y recien despues viene el blanco —que
+// ya trae texto propio ("dias habiles"), asi que no es una raya pura y el rotulo de ABAJO nunca se
+// activa para este caso.
+test('blancos inline: la etiqueta vive en su propio parrafo ARRIBA, saltando el vacio de espaciado', () => {
+  const doc = analizarAnexo(normalizarParaIds(
+    NS
+    + p('Correo electrónico de contacto:')
+    + p('')
+    + p('________________ (formato nombre@dominio.cl)')
+    + FIN,
+  ).xml);
+
+  const candidato = doc.blancosInline.find(b => b.rotuloArriba);
+  assert.ok(candidato, `debia encontrar el rotulo de arriba: ${JSON.stringify(doc.blancosInline)}`);
+  assert.equal(candidato!.rotuloArriba, 'Correo electrónico de contacto');
+  assert.notEqual(candidato!.contexto, '(sin contexto)');
+});
+
+// Control 1: si lo que hay arriba (saltando el vacio) es una leyenda de firma, NO se usa como
+// rotulo — ahi va la imagen de la firma, no un dato de texto (mismo criterio que rotuloDebajo).
+test('blancos inline: el rotulo de arriba NO cruza una leyenda de firma', () => {
+  const doc = analizarAnexo(normalizarParaIds(
+    NS
+    + p('Firma')
+    + p('')
+    + p('Los Ángeles, ___________________________ (día/mes/año)')
+    + FIN,
+  ).xml);
+
+  assert.equal(doc.blancosInline.filter(b => b.rotuloArriba).length, 0);
+});
+
+// Control 2: si el parrafo inmediatamente arriba YA tiene su propio blanco, es OTRO campo — no hay
+// que seguir subiendo a buscar una etiqueta mas lejana que no le pertenece a este blanco.
+test('blancos inline: el rotulo de arriba no salta por encima de OTRO campo con blanco propio', () => {
+  const doc = analizarAnexo(normalizarParaIds(
+    NS
+    + p('Correo electrónico de contacto:')
+    + p('Teléfono ____________')
+    + p('________________ (formato nombre@dominio.cl)')
+    + FIN,
+  ).xml);
+
+  const candidato = doc.blancosInline.find(b => /formato nombre/.test(b.parrafoCompleto));
+  assert.ok(candidato);
+  assert.ok(!candidato!.rotuloArriba, `no debia heredar la etiqueta de dos parrafos arriba: ${candidato!.rotuloArriba}`);
+});
+
 // EDITAR LO QUE SE LLENO SOLO (1-sep-2026, pedido explicito del usuario: "que nos deje editar las
 // cosas que ponemos automaticas... no para que aprenda a llenar sino para no cometer errores").
 // La correccion viaja por `respuestas[id]`, el mismo canal de las casillas escritas a mano. Las

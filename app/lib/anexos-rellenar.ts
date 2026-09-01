@@ -65,6 +65,10 @@ export interface CampoCompletado {
 export interface PendienteCelda {
   id: string; etiqueta: string; formulario?: string;
   categoria?: string; motivo?: string;
+  // Casilla ambigua entre dos datos reales de la ficha (hoy solo representante_nombre vs.
+  // razon_social — ver la sección "NOMBRE pelado ambiguo" en anexos-determinista.ts). La pantalla
+  // precarga alternativas[0] y deja cambiar a la otra con un clic.
+  alternativas?: { campo: string; etiqueta: string; valor: string }[];
 }
 export interface PendienteInline {
   id: string; contexto: string; formulario?: string;
@@ -129,7 +133,7 @@ const MOTIVO_SOLO_MANUAL = 'Bloque de Persona Natural o UTP — no aplica (esta 
 interface ResultadoResolucion {
   matcheados: CampoResuelto[];
   pendientes: CandidatoCelda[];
-  pendientesConMotivo: Map<number, { categoria: string; motivo: string }>;
+  pendientesConMotivo: Map<number, { categoria: string; motivo: string; alternativas?: PendienteCelda['alternativas'] }>;
   inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra'; pegadoALaIzquierda?: boolean }[];
   inlinePendientes: { b: CandidatoInline; categoria: string; motivo: string }[];
   alertasInadmisibilidad: AlertaInadmisibilidad[];
@@ -283,7 +287,7 @@ async function resolverTodo(
 
   const matcheados: CampoResuelto[] = [];
   const pendientes: CandidatoCelda[] = [];
-  const pendientesConMotivo = new Map<number, { categoria: string; motivo: string }>();
+  const pendientesConMotivo = new Map<number, { categoria: string; motivo: string; alternativas?: PendienteCelda['alternativas'] }>();
 
   for (const c of soloManualCandidatos) {
     pendientes.push(c);
@@ -313,7 +317,7 @@ async function resolverTodo(
       // FINAL del párrafo ("RUT: 6.736.698-0") en vez de intentar rellenar una celda vacía que no
       // existe — rellenarCeldaVacia revienta si encuentra texto donde esperaba una celda libre.
       pendientes.push(indicesDosPuntos.has(c.indice) ? { ...c, dosPuntos: true } : c);
-      if (res?.tipo === 'pendiente') pendientesConMotivo.set(c.indice, { categoria: res.categoria, motivo: res.motivo });
+      if (res?.tipo === 'pendiente') pendientesConMotivo.set(c.indice, { categoria: res.categoria, motivo: res.motivo, alternativas: res.alternativas });
     }
   }
 
@@ -770,7 +774,10 @@ export async function analizarAnexoParaUI(
     const id = `celda:${c.indice}`;
     resolucionPorIndice.set(c.indice, { tipo: 'pendiente', etiqueta: c.etiqueta, id });
     const motivo = pendientesConMotivo.get(c.indice);
-    return { id, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios), categoria: motivo?.categoria, motivo: motivo?.motivo };
+    return {
+      id, etiqueta: c.etiqueta, formulario: formularioDe(c.indice, formularios),
+      categoria: motivo?.categoria, motivo: motivo?.motivo, alternativas: motivo?.alternativas,
+    };
   });
 
   // Se arma ACÁ (antes de las tablas) porque construirTablaUI ahora también lo necesita — una

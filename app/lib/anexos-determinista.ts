@@ -216,6 +216,10 @@ export const DICCIONARIO: Entrada[] = [
     // sufijo OFERENTE exige que la frase TERMINE en la palabra que dice a quién describe; acá
     // sigue "a la licitación/a este proceso" después, y por eso no calzaba con nada de arriba.
     new RegExp(`^nombre\\s+del?\\s+(?:proveedor|oferente|proponente|participante|postulante)(?:\\s+postulante)?\\s+a\\s+(?:la\\s+licitacion|este\\s+proceso|esta\\s+propuesta)$`),
+    // "NOMBRE O RAZÓN SOCIAL COMPLETO OFERENTE" (FORMULARIO N°1, 2905-36-LR26): el organismo mete
+    // "COMPLETO" ENTRE "razón social" y a quién describe, orden que ningún patrón de arriba prevé
+    // (todos esperan "completo" antes de "razón social", nunca después).
+    new RegExp(`^nombre\\s+o\\s+razon\\s+social\\s+completo${OFERENTE}$`),
   ] },
   { campo: 'rut', patrones: [
     new RegExp(`^r\\s*u\\s*t${OFERENTE}$`),
@@ -260,6 +264,10 @@ export const DICCIONARIO: Entrada[] = [
     // comuna dentro) en una sola casilla cuando la etiqueta pide las dos cosas juntas.
     /^(?:direccion|domicilio) y comuna$/, /^comuna y (?:direccion|domicilio)$/,
     /^domicilio comercial(?: que acredita| declarado)?$/,
+    // "DOMICILIO DE OFERENTE /SUCURSAL CALLE/ NUMERO" (FORMULARIO N°1, 2905-36-LR26): una sola
+    // casilla combinada, con "/sucursal" colado en el medio — la dirección completa sigue siendo
+    // la respuesta, igual que "Domicilio y comuna" de arriba.
+    new RegExp(`^domicilio${OFERENTE}\\s*\\/\\s*sucursal\\s+calle\\s*\\/\\s*numero$`),
   ] },
   { campo: 'direccion_calle', patrones: [/^calle(?: y numero)?$/, /^nombre de (?:la )?calle$/, /^avenida\/calle$/] },
   // "DPTO./OF:" — la cuarta columna del domicilio partido ("Calle | N° | DPTO./OF. | Comuna"),
@@ -271,7 +279,10 @@ export const DICCIONARIO: Entrada[] = [
     /^oficina$/, /^(?:dpto|depto|departamento)$/, /^of$/, /^n[°º]?\s*(?:de\s+)?oficina$/,
   ] },
   { campo: 'direccion_numero', patrones: [/^n[°º]$/, /^numero$/, /^nro$/, /^numero de (?:la )?(?:calle|direccion|domicilio)$/] },
-  { campo: 'comuna', patrones: [/^comuna$/, new RegExp(`^comuna${OFERENTE}$`)] },
+  // "CIUDAD / COMUNA" (FORMULARIO N°1, 2905-36-LR26): una sola casilla combinada — la comuna es
+  // el dato más específico y el que casi siempre coincide con lo que la gente escribe como
+  // "ciudad" en un pueblo o localidad chica, así que gana ella cuando piden las dos juntas.
+  { campo: 'comuna', patrones: [/^comuna$/, new RegExp(`^comuna${OFERENTE}$`), /^ciudad\s*\/\s*comuna$/, /^comuna\s*\/\s*ciudad$/] },
   { campo: 'ciudad', patrones: [/^ciudad$/, new RegExp(`^ciudad${OFERENTE}$`), /^localidad$/] },
   // REGRESIÓN 2928-17-LE26: "Comuna y región" (orden invertido de "región y comuna", que ya
   // estaba cubierto) quedaba sin diccionario — misma casilla combinada, mismo campo.
@@ -345,6 +356,10 @@ export const DICCIONARIO: Entrada[] = [
     // correo y por eso sigue fuera—, acá el "para la licitación" deja claro que es la PERSONA de
     // contacto de esta oferta, y en esta operación esa persona es siempre el representante legal.
     /^contacto (?:para|de) (?:la )?(?:licitacion|propuesta|oferta|este proceso)$/,
+    // Misma regla con "NOMBRE" delante ("Nombre Contacto de la Licitación", FORMULARIO N°1,
+    // 2905-36-LR26) — la de arriba exige que la etiqueta EMPIECE en "contacto", y acá empieza en
+    // "nombre".
+    /^nombre (?:del? )?contacto (?:para|de) (?:la )?(?:licitacion|propuesta|oferta|este proceso)$/,
     /^contacto (?:del? )?(?:la )?(?:empresa|oferente|proponente|proveedor)$/,
   ] },
   { campo: 'representante_nombres', patrones: [/^nombres$/, /^nombres? de pila$/] },
@@ -387,7 +402,14 @@ export const DICCIONARIO: Entrada[] = [
     /^cuenta (?:corriente|vista|de ahorro|rut) n[°º]?$/,
   ] },
   { campo: 'banco_email', patrones: [/^correo(?: electronico)? para (?:pagos|aviso de pago|transferencias)$/] },
-  { campo: 'banco_titular_nombre', patrones: [/^(?:nombre del )?titular(?: de la cuenta)?$/] },
+  { campo: 'banco_titular_nombre', patrones: [
+    /^(?:nombre del )?titular(?: de la cuenta)?$/,
+    // "Nombre Titular o Razón Social" (2905-36-LR26, cuadro DATOS BANCARIOS): el organismo aclara
+    // que el titular puede ser una persona o una empresa — sigue siendo la misma casilla. Sin un
+    // titular propio en la ficha, resolverDeterminista la completa con la razón social (ver el
+    // fallback "1d-bis" del bloque de pago).
+    /^nombre (?:del )?titular o razon social$/,
+  ] },
   { campo: 'banco_titular_rut', patrones: [/^rut del titular(?: de la cuenta)?$/] },
 
   // ── CAPA 4 — Datos de ESTA licitación (vienen de la API de MP, nunca de un juicio) ──
@@ -1129,7 +1151,14 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
     // Se resuelve SOLO por el diccionario cerrado de etiquetas inequívocas: acá no hay ninguna
     // frase alrededor que desambigüe, así que lo que no esté en el diccionario queda pendiente.
     // Ver la detección del rótulo (y por qué nunca es un rótulo de firma) en anexos-detectar.ts.
-    return b.rotuloDebajo ? campoDeEtiquetaInequivoca(b.rotuloDebajo) : null;
+    // rotuloArriba es el mismo respaldo para cuando la etiqueta vive en su propio párrafo ANTES del
+    // blanco en vez de debajo — se prueba SEGUNDO, después de rotuloDebajo, para no tocar el caso
+    // ya probado del pie de firma de dos columnas (ver rotuloArribaDelBlanco).
+    if (b.rotuloDebajo) {
+      const campo = campoDeEtiquetaInequivoca(b.rotuloDebajo);
+      if (campo) return campo;
+    }
+    return b.rotuloArriba ? campoDeEtiquetaInequivoca(b.rotuloArriba) : null;
   }
   const despues = parrafo.slice(pos + (b.largo || 0));
 
@@ -1462,6 +1491,36 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
       campo = 'banco_email' as Campo;
     }
 
+    // 1d-bis. BLOQUE DE DATOS PARA EL PAGO: sin un titular de cuenta propio en la ficha, la cuenta
+    // está a nombre de la EMPRESA — no queda pendiente.
+    //
+    // Pedido explícito del usuario (1-sep-2026, FORMULARIO N°1 de 2905-36-LR26, casilla "NOMBRE
+    // TITULAR O RAZÓN SOCIAL"): "donde dice nombre del titular cuando es banco siempre es la
+    // empresa". `banco_titular_nombre` existe para el caso RARO de una cuenta a nombre de otra
+    // persona (ver su descripción en anexos-ia-motor.ts) — cuando la ficha no lo tiene cargado,
+    // asumir que no hay nadie más y usar la razón social es lo correcto, no dejar la casilla ciega.
+    if (campo === 'banco_titular_nombre' && !esTercero && esBloqueDePago(bloque)
+        && !valorDe(empresa, 'banco_titular_nombre') && valorDe(empresa, 'razon_social')) {
+      campo = 'razon_social';
+    }
+
+    // 1d-ter. "REGIÓN" a secas quiere SOLO el nombre de la región. El campo `region` de la ficha
+    // guarda la región CON la comuna al final A PROPÓSITO (ver su descripción en
+    // anexos-ia-motor.ts: "Región del Bío Bío, Concepción"), para que las casillas COMBINADAS
+    // ("Región y comuna", "Región/Comuna") salgan completas de un solo campo. Una casilla que solo
+    // dice "REGIÓN" no debe arrastrar la comuna — se corta en la primera coma, igual que
+    // direccionSinComuna recorta la comuna de la dirección.
+    //
+    // Pedido explícito del usuario (1-sep-2026, mismo FORMULARIO N°1): "en región es solo bío bío".
+    if (campo === 'region' && !esTercero && normalizarEtiqueta(propia) === 'region') {
+      const valorRegion = valorDe(empresa, 'region');
+      const limpio = valorRegion ? valorRegion.split(',')[0].trim() : null;
+      if (limpio) {
+        celda.set(c.indice, { tipo: 'auto', valor: limpio, categoria: CATEGORIA_DE_CAMPO('region'), evidencia: propia, campo: 'region' });
+        continue;
+      }
+    }
+
     // 1c. Los SUBCAMPOS del domicilio pelados ("N°", "Oficina") solo significan eso DENTRO de un
     //     bloque de dirección.
     //
@@ -1483,6 +1542,32 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // 2. Etiqueta pelada, desambiguada por el bloque.
     if (!campo && !esTercero && bloque) {
       campo = resolverPeladaPorBloque(c.etiqueta, bloque.etiquetas, bloque.contexto, RE_CTX_PERSONA.test(bloque.contexto));
+    }
+    // 2b. NOMBRE pelado genuinamente ambiguo: ni una hermana, ni el encabezado del bloque, ni un
+    // pie de firma lo desempataron (la capa 2 acaba de devolver `null` a propósito). En vez de un
+    // blanco ciego, se ofrecen las DOS respuestas posibles de la ficha —representante legal y
+    // razón social— con el representante como sugerencia por defecto y la otra a un clic de
+    // distancia.
+    //
+    // Pedido explícito del usuario (1-sep-2026, visto en el FORMULARIO N°2 DECLARACIÓN JURADA):
+    // "aquí siempre va el nombre del oferente o de la empresa, puedes poner uno y darme la opción
+    // de elegir... por lo general siempre es el del representante". No se adivina en silencio (eso
+    // es justo lo que este motor evita en una declaración jurada): la casilla queda con un valor
+    // precargado y editable, marcada igual que cualquier pendiente, con las dos fuentes a la vista.
+    if (!campo && !esTercero && bloque && RE_PELADA_NOMBRE.test(normalizarEtiqueta(etiquetaPropia(c.etiqueta)))) {
+      const nombrePersona = valorDe(empresa, 'representante_nombre');
+      const nombreEmpresa = valorDe(empresa, 'razon_social');
+      if (nombrePersona || nombreEmpresa) {
+        const alternativas: { campo: string; etiqueta: string; valor: string }[] = [];
+        if (nombrePersona) alternativas.push({ campo: 'representante_nombre', etiqueta: 'Representante legal', valor: nombrePersona });
+        if (nombreEmpresa) alternativas.push({ campo: 'razon_social', etiqueta: 'Empresa', valor: nombreEmpresa });
+        celda.set(c.indice, {
+          tipo: 'pendiente', categoria: 'decision_del_usuario',
+          motivo: 'No quedó claro si este "NOMBRE" es el del representante legal o el de la empresa — se sugiere el representante, cámbialo si corresponde la empresa.',
+          alternativas,
+        });
+        continue;
+      }
     }
     // 6. Política fija: programa de integridad siempre "SÍ".
     // La etiqueta manda sobre el contexto: si nombra un dato concreto y distinto (una fecha, una

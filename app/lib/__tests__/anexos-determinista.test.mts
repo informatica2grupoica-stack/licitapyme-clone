@@ -118,6 +118,33 @@ test('bloque: al pie de una firma sin más contexto, quien firma es la persona',
   assert.equal(resolverPeladaPorBloque('NOMBRE', ['nombre'], 'firma del representante legal', true), 'representante_nombre');
 });
 
+// Pedido explícito del usuario (1-sep-2026, FORMULARIO N°2 DECLARACIÓN JURADA): un "NOMBRE" pelado
+// genuinamente ambiguo no debe quedar en blanco sin ninguna pista — se ofrecen las dos respuestas
+// posibles de la ficha, representante legal PRIMERO (el valor que se sugiere por defecto).
+test('NOMBRE pelado ambiguo: en vez de quedar ciego, ofrece representante y empresa como alternativas', () => {
+  const parrafos = [parrafo(0, 'DECLARACIÓN JURADA SIMPLE'), parrafo(1, 'NOMBRE'), parrafo(2, '')];
+  const r = resolverDeterminista({
+    candidatos: [celda(2, 'NOMBRE')], blancosInline: [], parrafos, empresa: EMPRESA,
+  });
+  const res = r.celda.get(2);
+  assert.equal(res?.tipo, 'pendiente');
+  assert.equal(r.celdaSinResolver.length, 0, 'no debe caer al fallback genérico de clasificarPendiente');
+  const alternativas = res && res.tipo === 'pendiente' ? res.alternativas : undefined;
+  assert.deepEqual(alternativas?.map(a => a.campo), ['representante_nombre', 'razon_social']);
+  assert.equal(alternativas?.[0].valor, 'Lidia Valenzuela Soto');
+  assert.equal(alternativas?.[1].valor, 'Comercial Los Robles SpA');
+});
+
+test('NOMBRE pelado ambiguo: sin ficha con ninguno de los dos datos, sigue sin alternativas (celdaSinResolver)', () => {
+  const parrafos = [parrafo(0, 'DECLARACIÓN JURADA SIMPLE'), parrafo(1, 'NOMBRE'), parrafo(2, '')];
+  const empresaVacia = { ...EMPRESA, representante_nombre: null, razon_social: null } as EmpresaCampos;
+  const r = resolverDeterminista({
+    candidatos: [celda(2, 'NOMBRE')], blancosInline: [], parrafos, empresa: empresaVacia,
+  });
+  assert.equal(r.celda.has(2), false);
+  assert.equal(r.celdaSinResolver.some(c => c.indice === 2), true);
+});
+
 // ── Capa 3: declaración jurada corrida ───────────────────────────────────────────────────────
 test('ANEXO N°4 antisindicales: las 5 casillas de la MISMA oración piden 5 campos DISTINTOS', () => {
   const oracion = 'Yo , Cédula de identidad N.º , con domicilio en la ciudad de , en representación de , Rut Nº , declaro bajo juramento que:';
@@ -1353,6 +1380,32 @@ test('inline: la raya con el rotulo DEBAJO ("NOMBRE EMPRESA") se resuelve por el
   } as CandidatoInline), null);
 });
 
+// ROTULO ARRIBA (1-sep-2026, banco de 300 anexos: "(sin contexto)" era la categoria mas grande de
+// casillas sin resolver, 238 de 2.170). Mismo mecanismo que el rotulo DEBAJO de arriba, mirando
+// hacia el otro lado: cuando no hay nada a la izquierda del blanco DENTRO de su propio parrafo, se
+// prueba primero el rotulo de abajo (ya probado) y RECIEN DESPUES el de arriba — asi el pie de
+// firma de dos columnas (que sí tiene rotulo abajo) sigue resolviendo exactamente igual que antes.
+test('inline: sin rotulo abajo, se prueba el rotulo ARRIBA — y DEBAJO manda si hay los dos', () => {
+  const base = { indiceRun: 0, indiceParrafo: 0, textoRunOriginal: '', posEnTexto: 0, largo: 20, contexto: '' };
+  const raya = '____________________';
+
+  assert.equal(campoDeBlancoInline({
+    ...base, parrafoCompleto: raya, posEnParrafo: 0, rotuloArriba: 'Correo electrónico de contacto',
+  } as CandidatoInline), 'email1');
+
+  // Control: un rotulo de arriba que NO esta en el diccionario cerrado queda pendiente.
+  assert.equal(campoDeBlancoInline({
+    ...base, parrafoCompleto: raya, posEnParrafo: 0, rotuloArriba: 'Plazo de garantía de los vehículos',
+  } as CandidatoInline), null);
+
+  // Prioridad: si por alguna razón vinieran los dos, DEBAJO manda (es el caso ya probado y más
+  // específico; ARRIBA es el respaldo nuevo, no debe pisarlo).
+  assert.equal(campoDeBlancoInline({
+    ...base, parrafoCompleto: raya, posEnParrafo: 0,
+    rotuloDebajo: 'NOMBRE EMPRESA', rotuloArriba: 'RUT Representante Legal',
+  } as CandidatoInline), 'razon_social');
+});
+
 // BLOQUE "DATOS PARA EFECTUAR EL PAGO" (2-sep-2026, ANEXO FORMULARIO N°1 de Coquimbo, reportado
 // con el .docx generado en la mano). Dos cosas fallaban en el mismo cuadro:
 //   · "Nº Cuenta:" (sin el "de") no estaba en el diccionario — la ficha tenia el numero cargado y
@@ -1386,6 +1439,69 @@ test('bloque de pago: "N Cuenta" se reconoce y el E-Mail es el de PAGOS, no el c
     empresa: { ...empresaConPagos, banco_email: null } as any,
   });
   assert.equal(valorAuto(sinPagos.celda, 10), 'contacto@losrobles.cl');
+});
+
+// FORMULARIO N°1 DE IDENTIFICACIÓN DEL OFERENTE (1-sep-2026, 2905-36-LR26, reportado con captura
+// del documento generado): cuatro casillas de la MISMA tabla de identificación quedaban en blanco
+// pese a que la ficha tenía el dato — cada una por una etiqueta compuesta que ningún patrón del
+// diccionario preveía.
+test('REGRESIÓN 2905-36-LR26: "NOMBRE O RAZÓN SOCIAL COMPLETO OFERENTE" — "COMPLETO" después de "razón social", no antes', () => {
+  assert.equal(campoDeEtiquetaInequivoca('NOMBRE O RAZON SOCIAL COMPLETO OFERENTE'), 'razon_social');
+});
+
+test('REGRESIÓN 2905-36-LR26: "DOMICILIO DE OFERENTE /SUCURSAL CALLE/ NUMERO" es la dirección completa', () => {
+  assert.equal(campoDeEtiquetaInequivoca('DOMICILIO DE OFERENTE /SUCURSAL CALLE/ NUMERO'), 'direccion');
+});
+
+test('REGRESIÓN 2905-36-LR26: "CIUDAD / COMUNA" combinada resuelve a la comuna', () => {
+  assert.equal(campoDeEtiquetaInequivoca('CIUDAD / COMUNA'), 'comuna');
+  assert.equal(campoDeEtiquetaInequivoca('COMUNA / CIUDAD'), 'comuna');
+});
+
+test('REGRESIÓN 2905-36-LR26: "Nombre Contacto de la Licitación" (con "Nombre" delante) sigue siendo el representante', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Nombre Contacto de la Licitación'), 'representante_nombre');
+});
+
+// Pedido explícito del usuario (1-sep-2026, mismo formulario, cuadro "DATOS BANCARIOS"): "donde
+// dice nombre del titular cuando es banco siempre es la empresa". Sin un titular propio cargado en
+// la ficha, la cuenta está a nombre de la razón social — no queda pendiente.
+test('bloque de pago: sin banco_titular_nombre en la ficha, "NOMBRE TITULAR O RAZÓN SOCIAL" usa la razón social', () => {
+  const parrafos = [
+    parrafo(0, 'DATOS BANCARIOS'),
+    parrafo(1, 'Nombre Titular o Razón Social'), parrafo(2, ''),
+    parrafo(3, 'Banco'), parrafo(4, ''),
+  ];
+  const r = resolverDeterminista({
+    candidatos: [celda(2, 'Nombre Titular o Razón Social'), celda(4, 'Banco')],
+    blancosInline: [], parrafos, empresa: { ...EMPRESA, banco_nombre: 'Banco Security' } as any,
+  });
+  assert.equal(valorAuto(r.celda, 2), 'Comercial Los Robles SpA');
+
+  // Con un titular propio cargado, ese manda — no se pisa lo que la ficha ya tiene.
+  const conTitular = resolverDeterminista({
+    candidatos: [celda(2, 'Nombre Titular o Razón Social')], blancosInline: [], parrafos,
+    empresa: { ...EMPRESA, banco_titular_nombre: 'Otro Titular SpA' } as any,
+  });
+  assert.equal(valorAuto(conTitular.celda, 2), 'Otro Titular SpA');
+});
+
+// Pedido explícito del usuario (1-sep-2026, mismo formulario, cuadro "IDENTIFICACIÓN DEL
+// OFERENTE"): "en región es solo bío bío" — el campo `region` de la ficha guarda la región CON la
+// comuna al final a propósito (para las casillas combinadas), y una "REGIÓN" pelada arrastraba esa
+// cola.
+test('REGRESIÓN 2905-36-LR26: "REGIÓN" pelada corta la comuna; combinada la conserva', () => {
+  const empresaConComuna = { ...EMPRESA, region: 'Región del Bío Bío, Concepción' } as any;
+  const parrafos = [parrafo(0, 'Región'), parrafo(1, '')];
+  const pelada = resolverDeterminista({
+    candidatos: [celda(1, 'Región')], blancosInline: [], parrafos, empresa: empresaConComuna,
+  });
+  assert.equal(valorAuto(pelada.celda, 1), 'Región del Bío Bío');
+
+  const combinada = resolverDeterminista({
+    candidatos: [celda(1, 'Región y comuna')], blancosInline: [],
+    parrafos: [parrafo(0, 'Región y comuna'), parrafo(1, '')], empresa: empresaConComuna,
+  });
+  assert.equal(valorAuto(combinada.celda, 1), 'Región del Bío Bío, Concepción');
 });
 
 // TITULAR VIGENTE (2-sep-2026, FORMATO N°1 de Chimbarongo, visto en el documento generado). El

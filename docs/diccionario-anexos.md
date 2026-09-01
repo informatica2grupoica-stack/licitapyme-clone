@@ -291,10 +291,14 @@ La etiqueta se normaliza antes de comparar: sin tildes, en minúscula, sin puntu
 
 | Reconoce | Patrón exacto |
 | --- | --- |
-| n[°º] de cuenta | `^n[°º] de cuenta$` |
+| n[°º]? de cuenta | `^n[°º]? de cuenta$` |
 | numero de cuenta | `^numero de cuenta$` |
 | cuenta n[°º]? | `^cuenta n[°º]?$` |
 | cuenta bancaria | `^cuenta bancaria$` |
+| n[°º]? cuenta | `^n[°º]? cuenta$` |
+| nro.? ?(de )?cuenta | `^nro\.? ?(?:de )?cuenta$` |
+| numero de la cuenta | `^numero de la cuenta$` |
+| cuenta (corriente|vista|de ahorro|rut) n[°º]? | `^cuenta (?:corriente|vista|de ahorro|rut) n[°º]?$` |
 
 ### `banco_email` — Correo electrónico para pagos
 
@@ -331,6 +335,8 @@ La etiqueta se normaliza antes de comparar: sin tildes, en minúscula, sin puntu
 | licitacion publica | `^licitacion publica$` |
 | nombre del (proceso|proyecto|servicio licitado) | `^nombre del (?:proceso|proyecto|servicio licitado)$` |
 | denominacion de la licitacion | `^denominacion de la licitacion$` |
+| licitacion | `^licitacion$` |
+| licitacion (publica )?n[°º]? nombre | `^licitacion (?:publica )?n[°º]? nombre$` |
 
 ### `licitacion_organismo` — Nombre del organismo comprador (la institución que licita, no el oferente)
 
@@ -436,5 +442,5 @@ Para las plantillas que dejan el nombre del dato escrito en la casilla: `<Razón
 
 ---
 
-**Totales:** 39 datos distintos de la ficha · 166 patrones de etiqueta ·
+**Totales:** 39 datos distintos de la ficha · 172 patrones de etiqueta ·
 32 reglas de frase previa · 16 reglas de marcador.

@@ -8,14 +8,18 @@
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, ChevronDown, ShieldAlert, ListChecks, Pencil, Check, GraduationCap } from 'lucide-react';
+import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, ChevronDown, ShieldAlert, ListChecks, Pencil, Check, GraduationCap, ArrowLeftRight } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 import { AnexoFirmarPdf } from '@/app/components/AnexoFirmarPdf';
 
 export interface AnexoDoc { id: number; nombre: string; url: string }
 
 interface CampoCompletado { etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; formulario?: string; indice?: number }
-interface PendienteCelda { id: string; etiqueta: string; formulario?: string; categoria?: string; motivo?: string }
+// `alternativas`: casilla ambigua entre dos datos reales de la ficha (hoy solo representante legal
+// vs. empresa — ver la sección "NOMBRE pelado ambiguo" en anexos-determinista.ts). La pantalla
+// precarga alternativas[0] como sugerencia y deja cambiar a la otra con un clic.
+interface Alternativa { campo: string; etiqueta: string; valor: string }
+interface PendienteCelda { id: string; etiqueta: string; formulario?: string; categoria?: string; motivo?: string; alternativas?: Alternativa[] }
 interface PendienteInline {
   id: string; contexto: string; formulario?: string;
   parrafoCompleto?: string; posEnParrafo?: number; largoBlanco?: number;
@@ -365,9 +369,9 @@ function TablaReal({
 // del usuario ("moverla por toda la hoja, como ecert Chile") solo se puede cumplir sobre un PDF
 // con página fija, y tener DOS mecanismos de arrastre (uno acá que no hace nada al generar, otro
 // en el paso de firma que sí) es peor que tener uno solo.
-function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false }: {
+function BloqueParrafo({ b, respuestas, onChange, motivoPorId, alternativasPorId, codigo, onCorregido, modoOriginal = false }: {
   b: BloqueParrafoUI; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
-  motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void;
+  motivoPorId: Map<string, string>; alternativasPorId: Map<string, Alternativa[]>; codigo: string; onCorregido: () => void;
   // Panel IZQUIERDO: el documento como VINO, sin nada completado — misma estructura de bloques que
   // el de la derecha (por eso reusa este mismo componente y no otro), así los dos paneles tienen
   // exactamente los mismos párrafos en el mismo orden y el scroll sincronizado calza de verdad.
@@ -402,9 +406,10 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregi
           );
         }
         const motivo = motivoPorId.get(s.id);
-        return (
+        const alternativas = alternativasPorId.get(s.id);
+        const input = (
           <input
-            key={i}
+            key={alternativas ? undefined : i}
             type="text"
             value={respuestas[s.id] || ''}
             onChange={e => onChange(s.id, e.target.value)}
@@ -416,6 +421,26 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregi
             }`}
           />
         );
+        if (!alternativas || alternativas.length < 2) return input;
+        // NOMBRE ambiguo (representante legal vs. empresa, ver anexos-determinista.ts): ya viene
+        // precargado con la primera alternativa — este botón alterna a la otra, sin obligar a
+        // borrar y volver a escribir.
+        const actual = respuestas[s.id] || '';
+        const indiceActual = alternativas.findIndex(a => a.valor === actual);
+        const siguiente = alternativas[(indiceActual + 1 + alternativas.length) % alternativas.length];
+        return (
+          <span key={i} className="inline-flex items-center gap-0.5 align-baseline">
+            {input}
+            <button
+              type="button"
+              onClick={() => onChange(s.id, siguiente.valor)}
+              title={`Usar ${siguiente.etiqueta}: "${siguiente.valor}"`}
+              className="p-0.5 rounded text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50"
+            >
+              <ArrowLeftRight size={11} />
+            </button>
+          </span>
+        );
       })}
     </p>
   );
@@ -425,15 +450,15 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregi
 // blancos ya resueltos o por llenar en su lugar. Reemplaza la vieja grilla de tarjetas: pedido
 // explícito del usuario (4-ago-2026) — "tiene que ser tal cual el mismo texto, la misma
 // estructura", no una lista de campos.
-function DocumentoReplica({ documento, respuestas, onChange, motivoPorId, codigo, onCorregido, modoOriginal = false }: {
+function DocumentoReplica({ documento, respuestas, onChange, motivoPorId, alternativasPorId, codigo, onCorregido, modoOriginal = false }: {
   documento: BloqueUI[]; respuestas: Record<string, string>; onChange: (id: string, v: string) => void;
-  motivoPorId: Map<string, string>; codigo: string; onCorregido: () => void; modoOriginal?: boolean;
+  motivoPorId: Map<string, string>; alternativasPorId: Map<string, Alternativa[]>; codigo: string; onCorregido: () => void; modoOriginal?: boolean;
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl px-5 py-4">
       {documento.map((bloque, i) => bloque.tipo === 'tabla'
         ? <div key={i} className="my-2.5"><TablaReal tabla={bloque.tabla} respuestas={respuestas} onChange={onChange} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} /></div>
-        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} />)}
+        : <BloqueParrafo key={i} b={bloque} respuestas={respuestas} onChange={onChange} motivoPorId={motivoPorId} alternativasPorId={alternativasPorId} codigo={codigo} onCorregido={onCorregido} modoOriginal={modoOriginal} />)}
     </div>
   );
 }
@@ -603,15 +628,21 @@ function SeccionesEscaneadas({ secciones }: { secciones: SeccionEscaneada[] }) {
 function BloqueFirmaTimbre({ firma }: { firma: Analisis['firma'] }) {
   const hayAlgunaImagen = !!firma.firmaUrl || !!firma.timbreUrl;
   const cuantasFirmas = firma.firmas?.length ?? 0;
+  const detectada = firma.lugares.length > 0;
   return (
     <div className="border border-slate-200 rounded-xl p-3 space-y-1.5">
       <p className="text-[12.5px] font-semibold text-slate-700">Firma y timbre</p>
       <p className="text-[11.5px] text-slate-500 leading-snug">
-        {hayAlgunaImagen
-          ? (cuantasFirmas > 1
-            ? `Este documento pide firma/timbre. En el paso siguiente eliges cuál de las ${cuantasFirmas} firmas de la empresa va en cada lugar y la ubicas donde quieras, sobre el PDF ya generado.`
-            : 'Este documento pide firma/timbre. Vas a poder ubicarlas exactamente donde quieras en el paso siguiente, sobre el PDF ya generado.')
-          : <>No hay firma ni timbre cargados en la ficha de la empresa — súbelos en <strong>/empresas</strong> para poder colocarlas.</>}
+        {!hayAlgunaImagen
+          ? <>No hay firma ni timbre cargados en la ficha de la empresa — súbelos en <strong>/empresas</strong> para poder colocarlas.</>
+          : detectada
+            ? (cuantasFirmas > 1
+              ? `Este documento pide firma/timbre. En el paso siguiente eliges cuál de las ${cuantasFirmas} firmas de la empresa va en cada lugar y la ubicas donde quieras, sobre el PDF ya generado.`
+              : 'Este documento pide firma/timbre. Vas a poder ubicarlas exactamente donde quieras en el paso siguiente, sobre el PDF ya generado.')
+            // Pedido explícito del usuario (1-sep-2026): "eso lo vamos a dejar siempre de pasar a
+            // firma para todos los anexos, por si deseamos poner firma a un anexo que no lo esté
+            // pidiendo". El documento no pide firma explícitamente, pero el paso sigue disponible.
+            : 'Este documento no pide firma explícitamente, pero puedes agregarla igual si quieres — "Continuar a firma" te deja ubicarla donde quieras sobre el PDF ya generado.'}
       </p>
     </div>
   );
@@ -699,6 +730,14 @@ export function AnexoRellenoModal({
         const data = await r.json().catch(() => ({}));
         if (!r.ok || !data.success) throw new Error(data.error || 'No se pudo analizar el documento');
         setAnalisis(data);
+        // Casillas con `alternativas` (ver PendienteCelda): se precarga la primera —el
+        // representante legal, por convención del backend— como sugerencia editable, para que la
+        // casilla no salga en blanco. El toggle en BloqueParrafo permite cambiar a la otra.
+        const defaults: Record<string, string> = {};
+        for (const p of (data.pendientesCelda as PendienteCelda[] | undefined) || []) {
+          if (p.alternativas?.length) defaults[p.id] = p.alternativas[0].valor;
+        }
+        if (Object.keys(defaults).length) setRespuestas(prev => ({ ...defaults, ...prev }));
       })
       .catch(e => setError(e.message || 'Error al analizar el documento'))
       .finally(() => setCargando(false));
@@ -725,6 +764,8 @@ export function AnexoRellenoModal({
   const motivoPorId = new Map<string, string>();
   for (const p of analisis?.pendientesCelda || []) if (p.motivo) motivoPorId.set(p.id, p.motivo);
   for (const p of analisis?.pendientesInline || []) if (p.motivo) motivoPorId.set(p.id, p.motivo);
+  const alternativasPorId = new Map<string, Alternativa[]>();
+  for (const p of analisis?.pendientesCelda || []) if (p.alternativas?.length) alternativasPorId.set(p.id, p.alternativas);
 
   // Tras guardar una corrección (ver CampoAuto), se re-analiza el documento EN EL ACTO — la regla
   // recién aprendida ya se inyecta en este mismo re-análisis (ver cargarReglasAprendidasAnexo en
@@ -918,6 +959,7 @@ export function AnexoRellenoModal({
                 <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide mb-2">Documento original</p>
                 <DocumentoReplica
                   documento={analisis.documento} respuestas={{}} onChange={() => {}} motivoPorId={motivoPorId}
+                  alternativasPorId={alternativasPorId}
                   codigo={codigo} onCorregido={() => {}} modoOriginal
                 />
               </>
@@ -1015,9 +1057,7 @@ export function AnexoRellenoModal({
                 </div>
               )}
 
-              {analisis.firma.lugares?.length > 0 && (
-                <BloqueFirmaTimbre firma={analisis.firma} />
-              )}
+              <BloqueFirmaTimbre firma={analisis.firma} />
 
               {totalPendientes === 0 && analisis.completadosAuto.length > 0 && (
                 <p className="text-[12px] text-slate-400">No quedan campos pendientes por completar a mano.</p>
@@ -1026,6 +1066,7 @@ export function AnexoRellenoModal({
               {analisis.documento.length > 0 ? (
                 <DocumentoReplica
                   documento={analisis.documento} respuestas={respuestas} onChange={setRespuesta} motivoPorId={motivoPorId}
+                  alternativasPorId={alternativasPorId}
                   codigo={codigo} onCorregido={recargarAnalisis}
                 />
               ) : (
@@ -1038,34 +1079,43 @@ export function AnexoRellenoModal({
         </div>
 
         {/* Pie */}
-        {!cargando && !error && analisis && (analisis.completadosAuto.length > 0 || totalPendientes > 0 || analisis.firma.lugares.length > 0) && (
+        {/* "Continuar a firma" queda SIEMPRE disponible, pida o no el documento firma explícitamente
+            (pedido explícito del usuario, 1-sep-2026): "por si deseamos poner firma a un anexo que
+            no lo esté pidiendo". Cuando el documento NO pide firma, "Generar documento" (.docx
+            directo) sigue siendo la opción principal — el paso de firma se agrega AL LADO, no la
+            reemplaza, para no forzar a pasar por el PDF cuando nadie quiere estampar nada ahí. */}
+        {!cargando && !error && analisis && (
           <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 bg-slate-50 flex-shrink-0">
             <p className="text-[11px] text-slate-400">
               {totalPendientes > 0 ? `${totalRespondidas}/${totalPendientes} respondidos (opcional)` : 'Listo para generar'}
             </p>
-            {analisis.firma.lugares.length > 0 ? (
+            <div className="flex items-center gap-2">
+              {analisis.firma.lugares.length === 0 && (
+                <button
+                  type="button"
+                  onClick={handleGenerar}
+                  disabled={generando || cargandoPdf}
+                  className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
+                >
+                  {generando
+                    ? <><Loader2 size={13} className="animate-spin" /> Generando…</>
+                    : <><Wand2 size={13} /> Generar documento</>}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleContinuarAFirma}
                 disabled={generando || cargandoPdf}
-                className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
+                title={analisis.firma.lugares.length === 0 ? 'Este documento no pide firma, pero puedes agregarla igual' : undefined}
+                className={analisis.firma.lugares.length > 0
+                  ? 'inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors'
+                  : 'inline-flex items-center gap-1.5 text-[12.5px] font-medium text-indigo-600 border border-indigo-200 hover:bg-indigo-50 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors'}
               >
                 {cargandoPdf
                   ? <><Loader2 size={13} className="animate-spin" /> Preparando PDF…</>
                   : <><Wand2 size={13} /> Continuar a firma</>}
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleGenerar}
-                disabled={generando}
-                className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
-              >
-                {generando
-                  ? <><Loader2 size={13} className="animate-spin" /> Generando…</>
-                  : <><Wand2 size={13} /> Generar documento</>}
-              </button>
-            )}
+            </div>
           </div>
         )}
           </div>

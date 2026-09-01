@@ -232,7 +232,14 @@ const MOTIVO_POR_DEFECTO: Partial<Record<CategoriaCampo, string>> = {
 // revisor tendría que adivinar de dónde salió el valor comparándolo contra la ficha entera, y dos
 // campos con el mismo contenido (ej. razón social = titular de la cuenta) lo harían inauditable.
 export interface ResolucionAuto { tipo: 'auto'; valor: string; categoria: CategoriaCampo; evidencia: string | null; campo?: string }
-export interface ResolucionPendiente { tipo: 'pendiente'; categoria: CategoriaCampo; motivo: string }
+// `alternativas`: casilla genuinamente ambigua entre DOS datos reales de la ficha (hoy solo el caso
+// representante_nombre vs. razon_social — ver resolverDeterminista, sección "NOMBRE pelado
+// ambiguo"). La pantalla precarga la primera como sugerencia y deja cambiar a la segunda con un
+// clic, en vez de un blanco ciego sin ninguna pista.
+export interface ResolucionPendiente {
+  tipo: 'pendiente'; categoria: CategoriaCampo; motivo: string;
+  alternativas?: { campo: string; etiqueta: string; valor: string }[];
+}
 export type Resolucion = ResolucionAuto | ResolucionPendiente;
 
 export interface AlertaInadmisibilidad { riesgo: string; datoQueLoResuelve: string; disponible: boolean }
