@@ -1116,7 +1116,22 @@ test('caption de rol bajo una firma ("(OFERENTE)") no es un campo, pero un campo
   assert.equal(conCaption.candidatosCelda.length, 0, '"(OFERENTE)" solo, sin paréntesis o no, nunca es un campo');
 
   const sinParentesis = analizarAnexo(normalizarParaIds(NS + p('EVALUADOR') + p('') + p('siguiente') + FIN).xml);
-  assert.equal(sinParentesis.candidatosCelda.length, 0, 'vale igual sin los paréntesis');
+  assert.equal(sinParentesis.candidatosCelda.length, 0,
+    'el EVALUADOR es la contraparte: ese dato no lo llena el oferente, con paréntesis o sin ellos');
+
+  // BUG REAL EN EL OTRO SENTIDO (2-sep-2026, FORMATO N°2 de Chimbarongo — "cuando diga OFERENTE es
+  // la empresa"): la regla descartaba la palabra en TODO el documento, y ese formato abre con una
+  // tabla "LICITACIÓN / ID / OFERENTE / RUT". Las otras tres filas se llenaban y la del oferente ni
+  // siquiera aparecía como casilla. Sin paréntesis y sin una firma arriba, es la etiqueta de un
+  // campo — y el diccionario ya sabe que apunta a la razón social.
+  const enTabla = analizarAnexo(normalizarParaIds(NS + p('OFERENTE') + p('') + p('RUT') + FIN).xml);
+  assert.equal(enTabla.candidatosCelda.length, 1, '"OFERENTE" pelado en una tabla SÍ es un campo');
+
+  // …pero colgando de una raya de firma sigue siendo un caption, aunque no lleve paréntesis.
+  const bajoLaFirma = analizarAnexo(normalizarParaIds(
+    NS + p('_'.repeat(40)) + p('OFERENTE') + p('') + p('siguiente') + FIN,
+  ).xml);
+  assert.equal(bajoLaFirma.candidatosCelda.some(c => c.etiqueta === 'OFERENTE'), false);
 
   // Control: una etiqueta real que solo MENCIONA el rol sigue detectándose (el regex está anclado).
   const campoReal = analizarAnexo(normalizarParaIds(NS + p('Nombre del oferente') + p('') + p('siguiente') + FIN).xml);

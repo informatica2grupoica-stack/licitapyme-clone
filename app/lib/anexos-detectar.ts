@@ -161,7 +161,21 @@ export function detectarCandidatosCeldaCrudos(
     // dato. BUG REAL (1057480-41-LP26, anexos 7 y 8): "(OFERENTE)" seguido de un párrafo vacío
     // (puro espaciado antes de la línea de Fecha) calzaba con este patrón 1 y la IA, corrida tras
     // corrida, a veces le escribía la razón social ahí — texto suelto en medio del bloque de firma.
-    if (RE_CAPTION_ROL_FIRMA.test(actual.texto)) continue;
+    //
+    // BUG REAL EN EL OTRO SENTIDO (2-sep-2026, FORMATO N°2 de Chimbarongo, reportado con captura:
+    // "cuando diga OFERENTE es la empresa"): la regla descartaba la palabra en CUALQUIER parte del
+    // documento, y ese formato abre con una tabla de identificación cuyas cuatro filas son
+    // "LICITACIÓN / ID / OFERENTE / RUT". Las otras tres se llenaban y la del oferente ni siquiera
+    // aparecía como casilla — la razón social no tenía dónde escribirse.
+    //
+    // Lo que distingue al caption del campo NO es la palabra, es dónde está: el caption viene
+    // ENTRE PARÉNTESIS (que es como se vio siempre en los pies de firma reales) o cuelga de una
+    // raya / leyenda de firma. Un "OFERENTE" pelado en medio de una tabla es la etiqueta de un
+    // campo, y el diccionario ya sabe que apunta a la razón social.
+    const anterior = i > 0 ? parrafos[i - 1] : null;
+    const cuelgaDeUnaFirma = !!anterior && (esRayaLarga(anterior.texto) || RE_LEYENDA_FIRMA.test(anterior.texto));
+    if (RE_ROL_DE_LA_CONTRAPARTE.test(actual.texto)) continue;
+    if (RE_CAPTION_ROL_FIRMA.test(actual.texto) && (RE_CAPTION_ENTRE_PARENTESIS.test(actual.texto) || cuelgaDeUnaFirma)) continue;
 
     // Una PALABRA SUELTA terminada en punto, o cualquier texto terminado en coma, es el final de
     // una frase — no una etiqueta. Caso real medido (1058086-43-LP26): el párrafo "SANTIAGO." —la
@@ -1053,7 +1067,12 @@ export interface CandidatoInline {
 // Aun cumpliéndolas, el rótulo solo resuelve por el DICCIONARIO cerrado (ver campoDeBlancoInline):
 // si no calza con un campo conocido, la casilla queda pendiente como antes.
 const LARGO_MAX_ROTULO_DEBAJO = 60;
-const RE_ROTULO_ES_FIRMA = /firma|timbre/i;
+// La MISMA pregunta que RE_LEYENDA_FIRMA ("¿este texto habla de la firma?"), más el timbre. Tener
+// dos definiciones distintas fue un bug real (2-sep-2026): "FRIMA OFERENTE / REPRESENTANTE LEGAL"
+// era leyenda de firma para detectarLineasFirma (por "representante legal") y NO lo era para el
+// rótulo de la raya (por el typo), así que la raya de firma se ofrecía como casilla de texto y el
+// documento se quedaba sin lugar donde firmar.
+const RE_ROTULO_ES_FIRMA = /f[ir]{2}ma|representante\s+legal|persona\s+natural|timbre/i;
 const RE_SOLO_RAYA = /^[\s_.…]+$/;
 
 /**
@@ -1069,6 +1088,26 @@ const RE_SOLO_RAYA = /^[\s_.…]+$/;
  * La usan los dos lados del mismo patrón — detectarBlancosInline (para saber qué dato va escrito
  * sobre la raya) y detectarLineasFirma (para NO reservar para la imagen una raya que es de texto).
  */
+/**
+ * ¿Esta raya es la CONTINUACIÓN del campo del renglón de arriba? Caso real (FORMATO N°1 de
+ * Chimbarongo, 2-sep-2026): el organismo deja dos renglones para un nombre largo —
+ *     "NOMBRE O RAZÓN SOCIAL DEL PROPONENTE: ______________"
+ *     "______________"
+ * — y el segundo renglón se ofrecía como una casilla más, vacía y sin ninguna etiqueta que
+ * explicara qué escribir ahí. No es un campo: es el mismo campo que sigue.
+ *
+ * Se exige que el párrafo de arriba TENGA texto (o sea, es un campo rotulado, no otra raya suelta
+ * de un pie de firma de dos columnas) y que TERMINE en su propia raya — que es lo que hace de esto
+ * un renglón partido y no dos casillas distintas.
+ */
+export function esContinuacionDeLaRayaDeArriba(textoDe: (i: number) => string, indice: number): boolean {
+  const propio = textoDe(indice);
+  if (!propio || !RE_SOLO_RAYA.test(propio)) return false;
+  const arriba = textoDe(indice - 1);
+  if (!arriba || RE_SOLO_RAYA.test(arriba)) return false;
+  return RE_TIENE_BLANCO_PROPIO.test(arriba.slice(-30));
+}
+
 export function rotuloEmparejadoDeRaya(textoDe: (i: number) => string, indice: number): string {
   const esRaya = (i: number) => { const t = textoDe(i); return !!t && RE_SOLO_RAYA.test(t); };
   let inicio = indice;
@@ -1646,13 +1685,24 @@ function esRayaLarga(texto: string): boolean {
 // La leyenda bajo la raya no siempre dice "firma" — un caso real dice "Nombre Persona Natural o
 // Representante legal..." sin esa palabra. "representante legal" / "persona natural" al pie de
 // una raya de 10+ guiones es, en la práctica, siempre un bloque de firma en estos documentos.
-const RE_LEYENDA_FIRMA = /firma|representante\s+legal|persona\s+natural/i;
+// "FRIMA" (sic) es un typo REAL y repetido en los pliegos — FORMATO N°3 de Chimbarongo cierra con
+// "FRIMA OFERENTE / REPRESENTANTE LEGAL" (2-sep-2026). Mismo criterio que "representate" sin la "n"
+// en anexos-determinista.ts: no existe otra palabra del dominio que se escriba así, y perder el
+// bloque de firma por una letra transpuesta deja el anexo sin dónde firmar.
+const RE_LEYENDA_FIRMA = /f[ir]{2}ma|representante\s+legal|persona\s+natural/i;
 
 // Ver el uso en detectarCandidatosCeldaCrudos: un párrafo que es SOLO uno de estos roles (con o
 // sin paréntesis) es un caption de "de quién es la columna de arriba", nunca la etiqueta de un
 // campo — anclado con ^...$ para no descartar una etiqueta real que solo MENCIONE la palabra
 // ("Nombre del oferente" sigue siendo un campo válido, esto exige que sea la línea COMPLETA).
 const RE_CAPTION_ROL_FIRMA = /^\(?\s*(oferente|proponente|evaluador|proveedor|contratista)\s*\)?$/i;
+// Los roles de la CONTRAPARTE (quien evalúa, recibe o ministra de fe) nunca son una casilla
+// nuestra, con paréntesis o sin ellos: ese dato no lo llena el oferente.
+const RE_ROL_DE_LA_CONTRAPARTE = /^\(?\s*(evaluador|receptor|ministro de fe|comisi[oó]n evaluadora)\s*\)?$/i;
+// Los PARÉNTESIS son la señal de que es un caption y no una etiqueta de campo — ver el uso en
+// detectarCandidatosCeldaCrudos. "(OFERENTE)" rotula la columna de arriba; "OFERENTE" a secas, en
+// una tabla de identificación, pide la razón social.
+const RE_CAPTION_ENTRE_PARENTESIS = /^\(\s*[^()]+\s*\)$/;
 
 // Caso C (ver abajo): leyenda de firma SIN raya. Es un regex mucho más estrecho que
 // RE_LEYENDA_FIRMA a propósito — ahí basta con que el texto MENCIONE "representante legal" porque
@@ -2251,8 +2301,12 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // contraparte (ver precedeFirmaContraparte): esa fecha es del evaluador, no nuestra, y antes se
   // ofrecía a la IA sin ese contexto.
   const indicesRayaFirma = new Set(todasLasLineasFirma.map(f => f.indice));
+  const textoDeParrafoPorIndice = (i: number) => parrafos.find(p => p.indice === i)?.texto ?? '';
   const blancosInline = asignarCamposDeBloqueFirmaInline(detectarBlancosInline(xml), lineasFirma)
     .filter(b => !indicesRayaFirma.has(b.indiceParrafo))
+    // El segundo renglón de un campo que ocupa dos líneas no es otra casilla — ver
+    // esContinuacionDeLaRayaDeArriba.
+    .filter(b => !esContinuacionDeLaRayaDeArriba(textoDeParrafoPorIndice, b.indiceParrafo))
     .filter(b => !indicesTapadosPorCuadro.has(b.indiceParrafo))
     .filter(b => !(/fecha/i.test(parrafos[b.indiceParrafo]?.texto || '') && precedeFirmaContraparte(parrafos, b.indiceParrafo)));
 

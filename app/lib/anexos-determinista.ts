@@ -377,7 +377,15 @@ export const DICCIONARIO: Entrada[] = [
   // ── Bancario ──
   { campo: 'banco_nombre', patrones: [/^(?:nombre del )?banco$/, /^institucion (?:bancaria|financiera)$/] },
   { campo: 'banco_tipo_cuenta', patrones: [/^tipo de cuenta$/, /^cuenta (?:corriente\/vista|tipo)$/] },
-  { campo: 'banco_numero', patrones: [/^n[°º] de cuenta$/, /^numero de cuenta$/, /^cuenta n[°º]?$/, /^cuenta bancaria$/] },
+  // "Nº Cuenta:" SIN el "de" — la forma más común en los formularios de datos de pago y la que
+  // faltaba (2-sep-2026, ANEXO FORMULARIO N°1 de Coquimbo, reportado con el .docx generado en la
+  // mano: la ficha tenía el número cargado y la casilla salía vacía mientras Banco, Tipo de Cuenta
+  // y Rut de al lado se llenaban solas). Tras normalizar, "Nº Cuenta" queda en "n cuenta".
+  { campo: 'banco_numero', patrones: [
+    /^n[°º]? de cuenta$/, /^numero de cuenta$/, /^cuenta n[°º]?$/, /^cuenta bancaria$/,
+    /^n[°º]? cuenta$/, /^nro\.? ?(?:de )?cuenta$/, /^numero de la cuenta$/,
+    /^cuenta (?:corriente|vista|de ahorro|rut) n[°º]?$/,
+  ] },
   { campo: 'banco_email', patrones: [/^correo(?: electronico)? para (?:pagos|aviso de pago|transferencias)$/] },
   { campo: 'banco_titular_nombre', patrones: [/^(?:nombre del )?titular(?: de la cuenta)?$/] },
   { campo: 'banco_titular_rut', patrones: [/^rut del titular(?: de la cuenta)?$/] },
@@ -390,6 +398,11 @@ export const DICCIONARIO: Entrada[] = [
   { campo: 'licitacion_nombre', patrones: [
     /^nombre(?: de(?: la)?)? licitacion(?: publica)?$/, /^licitacion publica$/,
     /^nombre del (?:proceso|proyecto|servicio licitado)$/, /^denominacion de la licitacion$/,
+    // "Licitación: ____" pelado (FORMATO N°1 y N°3 de Chimbarongo, 2-sep-2026). Es el NOMBRE, no
+    // el código: en el FORMATO N°3 el propio documento pide las dos cosas en líneas seguidas
+    // —"ID: ____" y "Licitación: ____"— así que si el ID va aparte, lo que queda es el título.
+    // Regla confirmada por el usuario ("en licitación no es el id, es el nombre o el título").
+    /^licitacion$/, /^licitacion (?:publica )?n[°º]? nombre$/,
   ] },
   { campo: 'licitacion_organismo', patrones: [
     /^(?:nombre del )?organismo(?: comprador| licitante| demandante)?$/,
@@ -495,6 +508,19 @@ const RE_PELADA_NOMBRE = ETIQUETAS_PELADAS[0].re;
 // capa 1 (`^r u t${OFERENTE}$`, con el sufijo opcional): "RUT" a secas se resuelve ahí como el de
 // la EMPRESA y nunca llega a esta capa. Ver el paso 1b de resolverDeterminista.
 const RE_PELADA_RUT = /^(?:rut|r u t|rol unico tributario|cedula|c i|run)(?: n[°º]?)?$/;
+
+// ¿Este bloque son los DATOS PARA EFECTUAR EL PAGO? Se pregunta por el encabezado del bloque y
+// también por sus casillas hermanas: hay formularios que no rotulan el bloque y se reconocen solo
+// porque piden "Banco / Tipo de Cuenta / Nº Cuenta" juntos. Se exigen DOS señales bancarias entre
+// las hermanas para no confundirlo con una mención suelta ("boleta bancaria de garantía").
+const RE_CTX_PAGO = /\b(datos para (?:efectuar el )?pago|forma de pago|transferencia (?:bancaria|electronica)|deposito en cuenta|datos bancarios|cuenta bancaria)\b/;
+const RE_HERMANA_BANCARIA = /\b(banco|tipo de cuenta|n[°º]? ?cuenta|numero de cuenta|cuenta corriente|cuenta vista|titular)\b/;
+
+function esBloqueDePago(bloque?: { contexto: string; etiquetas: string[] }): boolean {
+  if (!bloque) return false;
+  if (RE_CTX_PAGO.test(normalizarEtiqueta(bloque.contexto))) return true;
+  return bloque.etiquetas.filter(h => RE_HERMANA_BANCARIA.test(h)).length >= 2;
+}
 
 // Subcampos del domicilio escritos PELADOS: por sí solos no dicen que hablan de una dirección
 // ("N°" es también el número de fila de cualquier tabla). Ver la capa 1c de resolverDeterminista.
@@ -630,6 +656,42 @@ function construirBloques(candidatos: CandidatoCelda[], parrafos: Parrafo[]): Ma
   const porIndice = new Map<number, Bloque>();
   for (const b of bloques) for (const i of b.indices) porIndice.set(i, b);
   return porIndice;
+}
+
+/**
+ * ¿De quién viene hablando el formulario justo ANTES de esta casilla? Devuelve el titular del
+ * último NOMBRE rotulado que aparece más arriba: 'persona' si ese nombre era del representante,
+ * 'empresa' si era la razón social, null si no hay ninguno cerca.
+ *
+ * BUG REAL (2-sep-2026, FORMATO N°1 de Chimbarongo, visto en el documento generado): el formulario
+ * lista "NOMBRE O RAZÓN SOCIAL DEL PROPONENTE / RUT / DOMICILIO / … / NOMBRE DEL REPRESENTANTE
+ * LEGAL / RUT". Los dos "RUT:" son pelados e idénticos, y los dos salían con el RUT de la EMPRESA
+ * — o sea el segundo bloque quedaba con el nombre de una persona y el RUT de otra. La capa 1b ya
+ * resolvía este par, pero solo cuando la hermana era un "Nombre" PELADO; acá la hermana dice
+ * "NOMBRE DEL REPRESENTANTE LEGAL", que el diccionario resuelve solo y por eso nunca llegaba a esa
+ * comparación. Se mira quién es el titular vigente, que es exactamente lo que hace un humano
+ * leyendo el formulario de arriba abajo.
+ *
+ * Se corta en el encabezado de sección más cercano (no se cruza a otro bloque) y a los
+ * PARRAFOS_ATRAS_TITULAR párrafos, para no heredar un titular nombrado mucho antes.
+ */
+const PARRAFOS_ATRAS_TITULAR = 12;
+
+export function titularVigenteAntesDe(parrafos: Parrafo[], indice: number): 'persona' | 'empresa' | null {
+  const desde = parrafos.findIndex(p => p.indice === indice);
+  if (desde < 0) return null;
+  for (let i = desde - 1; i >= 0 && desde - i <= PARRAFOS_ATRAS_TITULAR; i--) {
+    // El párrafo trae su propia raya pegada ("NOMBRE DEL REPRESENTANTE LEGAL: ___________"): se
+    // corta ahí para quedarse con la etiqueta, que es lo que el diccionario sabe leer.
+    const texto = (parrafos[i].texto || '').replace(/[_.…]{2,}[\s\S]*$/, '').trim();
+    if (!texto) continue;
+    const campo = campoDeEtiquetaInequivoca(texto);
+    if (campo === 'representante_nombre') return 'persona';
+    if (campo === 'razon_social') return 'empresa';
+    // Un encabezado de sección corta la herencia: lo de arriba es otro bloque.
+    if (!campo && RE_ENCABEZADO_SECCION.test(texto)) return null;
+  }
+  return null;
 }
 
 /** De "IDENTIFICACIÓN DEL REPRESENTANTE — NOMBRE" devuelve solo "NOMBRE". */
@@ -1382,7 +1444,24 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
         ? resolverPeladaPorBloque(hermanaNombre, bloque.etiquetas, bloque.contexto, RE_CTX_PERSONA.test(bloque.contexto))
         : null;
       if (titularDelNombre === 'representante_nombre') campo = 'representante_rut';
+      // Sin hermana PELADA que desempate, manda el titular vigente: el último nombre rotulado que
+      // aparece más arriba en el mismo bloque. Ver titularVigenteAntesDe.
+      if (!hermanaNombre && titularVigenteAntesDe(parrafos, c.indice) === 'persona') campo = 'representante_rut';
     }
+    // 1d. BLOQUE DE DATOS PARA EL PAGO: el correo que se pide ahí es el de PAGOS, no el comercial.
+    //
+    // Caso real (2-sep-2026, ANEXO FORMULARIO N°1 de Coquimbo): el bloque "B) DATOS PARA EFECTUAR
+    // EL PAGO" pide "Razón Social / Banco / Tipo de Cuenta / Nº Cuenta / Rut / E-Mail". El E-Mail
+    // salía con el correo comercial (ventas@) teniendo la ficha un correo de pagos propio
+    // (pagos@) — el dato equivocado en el formulario con el que el municipio paga.
+    //
+    // Solo se cambia si la ficha TIENE cargado el correo de pagos: sin él, la casilla seguiría
+    // resolviéndose como hasta ahora (correo comercial) en vez de quedar pendiente. Una mejora no
+    // puede dejar en blanco una casilla que antes salía llena.
+    if (campo === 'email1' && !esTercero && esBloqueDePago(bloque) && valorDe(empresa, 'banco_email')) {
+      campo = 'banco_email' as Campo;
+    }
+
     // 1c. Los SUBCAMPOS del domicilio pelados ("N°", "Oficina") solo significan eso DENTRO de un
     //     bloque de dirección.
     //
@@ -1452,6 +1531,18 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // propone — todas devuelven `fecha_hoy` entera. Por eso el flag se deduce del propio campo en
     // vez de arrastrar un segundo valor de retorno por todo campoDeBlancoInline.
     return { b, campo, desdeFormulaDeFecha: !aprendido && !!campo && SOLO_TRIPLETE.has(campo) };
+  }).map(x => {
+    // TITULAR VIGENTE, también para los blancos INLINE. En un formulario escrito como texto
+    // corrido —"NOMBRE DEL REPRESENTANTE LEGAL: ____" y debajo "RUT: ____"— no hay celdas, así que
+    // la capa 1b (que trabaja sobre candidatos de celda) no interviene y el "RUT:" pelado caía
+    // SIEMPRE en el de la empresa: el bloque quedaba con el nombre de una persona y el RUT de otra
+    // (FORMATO N°1 de Chimbarongo, 2-sep-2026). Ver titularVigenteAntesDe.
+    if (x.campo !== 'rut') return x;
+    const antes = (x.b.parrafoCompleto ?? '').slice(0, x.b.posEnParrafo ?? 0);
+    if (!RE_PELADA_RUT.test(normalizarEtiqueta(antes))) return x;
+    return titularVigenteAntesDe(parrafos, x.b.indiceParrafo) === 'persona'
+      ? { ...x, campo: 'representante_rut' as Campo }
+      : x;
   });
   const parrafosQuePidenComunaAparte = new Set(
     camposInline.filter(x => x.campo === 'comuna' || x.campo === 'ciudad').map(x => x.b.indiceParrafo),

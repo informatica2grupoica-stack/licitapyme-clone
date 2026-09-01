@@ -1352,3 +1352,63 @@ test('inline: la raya con el rotulo DEBAJO ("NOMBRE EMPRESA") se resuelve por el
     ...base, parrafoCompleto: raya, posEnParrafo: 0, rotuloDebajo: 'V°B° DEL INSPECTOR TECNICO',
   } as CandidatoInline), null);
 });
+
+// BLOQUE "DATOS PARA EFECTUAR EL PAGO" (2-sep-2026, ANEXO FORMULARIO N°1 de Coquimbo, reportado
+// con el .docx generado en la mano). Dos cosas fallaban en el mismo cuadro:
+//   · "Nº Cuenta:" (sin el "de") no estaba en el diccionario — la ficha tenia el numero cargado y
+//     la casilla salia vacia mientras Banco y Tipo de Cuenta de al lado se llenaban solas;
+//   · el "E-Mail:" de ese cuadro salia con el correo COMERCIAL, teniendo la ficha un correo de
+//     pagos propio. Es el formulario con el que el municipio paga: ahi va el de pagos.
+test('bloque de pago: "N Cuenta" se reconoce y el E-Mail es el de PAGOS, no el comercial', () => {
+  const parrafos = [
+    parrafo(0, 'B ) DATOS PARA EFECTUAR EL PAGO'),
+    parrafo(1, 'Razon Social'), parrafo(2, ''),
+    parrafo(3, 'Banco'), parrafo(4, ''),
+    parrafo(5, 'Tipo de Cuenta'), parrafo(6, ''),
+    parrafo(7, 'Nº Cuenta'), parrafo(8, ''),
+    parrafo(9, 'E-Mail'), parrafo(10, ''),
+  ];
+  const empresaConPagos = { ...EMPRESA, banco_nombre: 'Banco Security', banco_tipo_cuenta: 'Cuenta corriente',
+    banco_numero: '921197332', banco_email: 'pagos@losrobles.cl' };
+  const r = resolverDeterminista({
+    candidatos: [celda(4, 'Banco'), celda(6, 'Tipo de Cuenta'), celda(8, 'Nº Cuenta'), celda(10, 'E-Mail')],
+    blancosInline: [], parrafos, empresa: empresaConPagos as any,
+  });
+  assert.equal(valorAuto(r.celda, 4), 'Banco Security');
+  assert.equal(valorAuto(r.celda, 6), 'Cuenta corriente');
+  assert.equal(valorAuto(r.celda, 8), '921197332', '"N Cuenta" sin el "de" tambien es el numero de cuenta');
+  assert.equal(valorAuto(r.celda, 10), 'pagos@losrobles.cl', 'en el cuadro de pago va el correo de pagos');
+
+  // Sin correo de pagos en la ficha, la casilla sigue saliendo con el comercial: una mejora no
+  // puede dejar en blanco una casilla que antes se llenaba.
+  const sinPagos = resolverDeterminista({
+    candidatos: [celda(10, 'E-Mail')], blancosInline: [], parrafos,
+    empresa: { ...empresaConPagos, banco_email: null } as any,
+  });
+  assert.equal(valorAuto(sinPagos.celda, 10), 'contacto@losrobles.cl');
+});
+
+// TITULAR VIGENTE (2-sep-2026, FORMATO N°1 de Chimbarongo, visto en el documento generado). El
+// formulario es texto corrido, no una tabla: "NOMBRE O RAZON SOCIAL DEL PROPONENTE: ___ / RUT: ___
+// / DOMICILIO: ___ / … / NOMBRE DEL REPRESENTANTE LEGAL: ___ / RUT: ___". Los dos "RUT:" son
+// identicos y los dos salian con el de la EMPRESA — el segundo bloque quedaba con el nombre de una
+// persona y el RUT de otra. La capa 1b ya resolvia este par, pero solo con una hermana "Nombre"
+// PELADA y sobre celdas de tabla.
+test('titular vigente: el "RUT:" que sigue al nombre del representante es el de la PERSONA', () => {
+  const parrafos = [
+    parrafo(0, 'NOMBRE O RAZON SOCIAL DEL PROPONENTE: ______________________'),
+    parrafo(1, 'RUT: ______________'),
+    parrafo(2, 'DOMICILIO: ______________________'),
+    parrafo(3, 'NOMBRE DEL REPRESENTANTE LEGAL: ______________________'),
+    parrafo(4, 'RUT: ______________'),
+  ];
+  const rutEmpresa = { indiceRun: 1, indiceParrafo: 1, textoRunOriginal: '', posEnTexto: 5, largo: 14,
+    contexto: 'RUT:', parrafoCompleto: 'RUT: ______________', posEnParrafo: 5 };
+  const rutPersona = { ...rutEmpresa, indiceRun: 4, indiceParrafo: 4 };
+  const r = resolverDeterminista({
+    candidatos: [], blancosInline: [rutEmpresa as any, rutPersona as any], parrafos, empresa: EMPRESA,
+  });
+  assert.equal((r.inline.get('1:5') as any)?.valor, '76.902.659-2', 'el primer RUT es el de la empresa');
+  assert.equal((r.inline.get('4:5') as any)?.valor, '6.736.698-0',
+    'el segundo RUT, bajo el nombre del representante, es el de la persona');
+});
