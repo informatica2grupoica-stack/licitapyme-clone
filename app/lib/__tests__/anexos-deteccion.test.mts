@@ -12,6 +12,7 @@ import {
 } from '../anexos-docx';
 import { analizarAnexo, detectarSecciones, detectarCandidatosCelda, detectarBlancosInline, indiceFilaEncabezado, extraerTablasCrudo, detectarCandidatosTabla, detectarTripletesFecha, detectarAlternativasExcluyentes, esEtiquetaDeCampo } from '../anexos-detectar';
 import { valorExisteEnFicha, campoCalzaConLaEtiqueta, type EmpresaCampos } from '../anexos-ia-motor';
+import { resolverDeterminista } from '../anexos-determinista';
 import { esCandidatoDePrecioUnitario } from '../anexos-precios-columnas';
 import { calcularTotalesAlPie, pareceFilaDePie, calcularTotalesPorSeccion, resolverTablaResumen } from '../anexos-totales-seccion';
 
@@ -1959,4 +1960,48 @@ test('blancos inline: el rotulo en MAYUSCULAS pegado antes del blanco se reempla
   // "cedula de identidad N°" va en minusculas y ES parte de la oracion: no se toca, o el dato
   // quedaria suelto sin decir que es.
   assert.equal(cedula.absorbeAntes, undefined);
+});
+
+// DESAMBIGUAR DUPLICADOS: EL CORTE CIEGO NO PUEDE TRAGARSE LA ETIQUETA VECINA (1-sep-2026,
+// 2018-27-LP26, FORMATO DE IDENTIFICACIÓN DEL PROPONENTE, reportado con captura). Esta tabla real
+// repite "Nombre o razón social del proponente / …U.T.P." y "Cédula de identidad del proponente /
+// …U.T.P." dos veces cada una (proponente + representante), así que desambiguarDuplicados les
+// antepone la fila vecina como contexto ("… — Cédula de identidad del…"). Dos bugs encadenados:
+//   1. El corte ciego a 160 recortaba la CADENA COMBINADA completa, así que la propia etiqueta de
+//      la celda perdía su cola ("…de los integrantes de la U.T.P.") y ningún patrón calzaba.
+//   2. Si el corte caía justo dentro de un paréntesis sin cerrar de la fila vecina ("(si se
+//      tratase de"), ese "(" sobrevivía pegado a la fila SIGUIENTE y el borrador de paréntesis de
+//      normalizarEtiqueta cruzaba hasta el ")" de esa otra celda, borrando su etiqueta entera.
+test('resolverDeterminista: la tabla real de proponente/UTP resuelve las 7 casillas, sin filtrar nombres donde va el teléfono', () => {
+  const xml = NS + tabla(
+    fila('Nombre o razón social del proponente / Nombre o razón social de los integrantes de la U.T.P.', ''),
+    fila('Cédula de identidad del proponente / cédula de identidad de cada uno de los integrantes de la U.T.P.', ''),
+    fila('Domicilio del proponente.', ''),
+    fila('Número de teléfono, correo electrónico (e-mail).', ''),
+    fila('Nombre representante legal o convencional. (si se tratase de persona jurídica o de UTP)', ''),
+    fila('Cédula de identidad del representante del proponente', ''),
+    fila('Domicilio del representante del proponente', ''),
+    fila('Número de teléfono, correo electrónico (e-mail).', ''),
+    fila('Nombre o razón social del proponente / Nombre o razón social de los integrantes de la U.T.P.', ''),
+    fila('Cédula de identidad del proponente / cédula de identidad de cada uno de los integrantes de la U.T.P.', ''),
+  ) + FIN;
+  const doc = analizarAnexo(normalizarParaIds(xml).xml);
+  const empresa: EmpresaCampos = {
+    razon_social: 'Inversiones Claro ARZ SPA', rut: '76.902.659-2', direccion: 'Barros Arana N°492, Concepción',
+    region: 'Región del Bío Bío', giro: 'Venta de Maquinaria', tipo_persona_juridica: 'SpA',
+    fecha_sociedad: null, fecha_escritura: null, notaria: null, numero_repertorio: null, fojas_numero_anio: null,
+    representante_nombre: 'Santiago López', representante_rut: '15.875.453-3', representante_cargo: 'Ingeniero',
+    email1: 'ventas@grupoica.cl', telefono1: '+569 3146 2445',
+    banco_tipo_cuenta: null, banco_numero: null, banco_nombre: null, banco_email: null,
+    banco_titular_nombre: null, banco_titular_rut: null, firma_url: null, timbre_url: null,
+  };
+  const r = resolverDeterminista({
+    candidatos: doc.candidatosCelda, blancosInline: doc.blancosInline, parrafos: doc.parrafos, empresa,
+  });
+  const valores = doc.candidatosCelda.map(c => (r.celda.get(c.indice)?.tipo === 'auto' ? (r.celda.get(c.indice) as any).valor : null));
+  assert.deepEqual(valores, [
+    'Inversiones Claro ARZ SPA', '76.902.659-2', 'Barros Arana N°492, Concepción', null,
+    'Santiago López', '15.875.453-3', 'Barros Arana N°492, Concepción', null,
+    'Inversiones Claro ARZ SPA', '76.902.659-2',
+  ], 'las 7 casillas de proponente/representante se llenan; el teléfono/correo combinado sigue pendiente (sin dictamen), no con un nombre');
 });

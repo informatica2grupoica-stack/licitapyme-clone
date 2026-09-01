@@ -1551,3 +1551,88 @@ test('titular vigente: el "RUT:" que sigue al nombre del representante es el de 
   assert.equal((r.inline.get('4:5') as any)?.valor, '6.736.698-0',
     'el segundo RUT, bajo el nombre del representante, es el de la persona');
 });
+
+// ── PROPONENTE / UTP MEZCLADOS EN LA MISMA CASILLA (1-sep-2026, 2018-27-LP26, FORMATO DE
+// IDENTIFICACIÓN DEL PROPONENTE) ───────────────────────────────────────────────────────────────
+// El organismo escribe las dos alternativas separadas por "/" en la MISMA etiqueta ("...del
+// proponente / ...de los integrantes de la U.T.P.") porque la empresa puede postular sola o en
+// Unión Temporal de Proveedores. Esta empresa nunca postula como UTP, así que la mitad de después
+// de la "/" nunca aplica — pero antes de RE_ALTERNATIVA_UTP_AL_FINAL, la etiqueta completa no
+// calzaba con NINGÚN patrón (todos terminan justo después de "proponente") y quedaba pendiente.
+test('diccionario: "X del proponente / X de los integrantes de la U.T.P." resuelve por la mitad del proponente', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Nombre o razón social del proponente / Nombre o razón social de los integrantes de la U.T.P.'), 'razon_social');
+  assert.equal(campoDeEtiquetaInequivoca('Cédula de identidad del proponente / cédula de identidad de cada uno de los integrantes de la U.T.P.'), 'rut');
+  // Control: sin la alternativa UTP pegada, sigue resolviendo igual que siempre.
+  assert.equal(campoDeEtiquetaInequivoca('Nombre o razón social del proponente'), 'razon_social');
+});
+
+// "Cédula de identidad del proponente" (sin alternativa UTP): por la regla OFERENTE = PROPONENTE =
+// LA EMPRESA, es el RUT de la empresa — distinto de la "cédula de identidad" PELADA (sin remate),
+// que es de la PERSONA que firma (representante_rut, ver capa 1b más arriba en este archivo).
+test('diccionario: "cédula de identidad del proponente" es el RUT de la empresa, no de la persona', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Cédula de identidad del proponente'), 'rut');
+  assert.equal(campoDeEtiquetaInequivoca('Cédula de identidad'), 'representante_rut');
+});
+
+// REPRE ahora acepta "legal o convencional" (sinónimo jurídico de apoderado) y "del
+// proponente/oferente/empresa" (el organismo dice DE QUIÉN es el representante en vez de agregar
+// "legal") — mismo documento real, mismas 3 casillas reportadas con captura.
+test('diccionario: "representante legal o convencional" y "representante del proponente" son el representante legal', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Nombre representante legal o convencional'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Cédula de identidad del representante del proponente'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('Domicilio del representante del proponente'), 'direccion');
+});
+
+// PIE DE FIRMA MARCADOR — "DE QUIÉN" SIN "QUÉ DATO" (1-sep-2026, DECLARACIÓN JURADA PROGRAMA DE
+// INTEGRIDAD, 2018-27-LP26): "Yo, <nombre de representante legal o nombre de persona natural>,
+// cédula de identidad Nº,<representante legal o de persona natural>, con domicilio en…" — el
+// SEGUNDO marcador solo dice de quién es el dato, nunca qué dato es (el "cédula de identidad" que
+// lo explica quedó afuera, en el texto literal justo antes). Sin este fix, REGLAS_MARCADOR veía
+// "representante legal" adentro del marcador y devolvía el NOMBRE — la misma persona repetida
+// donde debía ir su RUT.
+test('inline: marcador que solo dice DE QUIÉN (sin nombrar rut/cédula) hereda el dato del texto de antes', () => {
+  const base = { indiceRun: 0, indiceParrafo: 0, textoRunOriginal: '', posEnTexto: 0, largo: 3 };
+  const parrafoCompleto = 'Yo, Fulano, cédula de identidad Nº,___, con domicilio en___';
+  const pos = parrafoCompleto.indexOf('___');
+  assert.equal(campoDeBlancoInline({
+    ...base, contexto: '', parrafoCompleto, posEnParrafo: pos,
+    textoMarcador: ' representante legal o de persona natural',
+  } as CandidatoInline), 'representante_rut');
+  // Control: si el marcador YA nombra su propio dato (rut/cédula), ese manda como siempre — este
+  // chequeo nuevo no debe pisar la regla existente de REGLAS_MARCADOR #2.
+  assert.equal(campoDeBlancoInline({
+    ...base, contexto: '', parrafoCompleto, posEnParrafo: pos,
+    textoMarcador: 'RUT del representante legal',
+  } as CandidatoInline), 'representante_rut');
+});
+
+// LOCALIDAD DE FIRMA CON DOS PUNTOS (1-sep-2026, mismo documento): "Fecha: En ___ a XX días del
+// mes de…" — el "En" viene pegado a "Fecha:" con DOS PUNTOS, no punto ni punto y coma; sin ":" en
+// RE_LOCALIDAD_FIRMA la comuna del organismo nunca se resolvía.
+test('inline: "Fecha: En ___" (con dos puntos) resuelve la comuna de la licitación, igual que con punto', () => {
+  const base = { indiceRun: 0, indiceParrafo: 0, textoRunOriginal: '', posEnTexto: 0, largo: 3 };
+  const parrafoCompleto = 'Fecha: En ___ a 12 de agosto de 2026';
+  const pos = parrafoCompleto.indexOf('___');
+  assert.equal(campoDeBlancoInline({
+    ...base, contexto: '', parrafoCompleto, posEnParrafo: pos,
+  } as CandidatoInline), 'licitacion_comuna');
+});
+
+// FÓRMULA DE FECHA CON "X" COMO HUECO (1-sep-2026, mismo documento): "Fecha: En ___ a XX días del
+// mes de ___ de ___" — el DÍA viene fijo como "XX" (2 X, bajo el umbral de blanco real) y el
+// MES/AÑO sí son blancos reales con "XXXXXXX"/"XXX". Sin "X{2,}" en HUECO, "a XX días del mes de"
+// no calzaba con ningún hueco conocido y el mes/año de toda la fórmula quedaban pendientes.
+test('inline: fecha con "XX" como hueco del día resuelve igual que con guion bajo o puntos', () => {
+  const base = { indiceRun: 0, indiceParrafo: 0, textoRunOriginal: '', posEnTexto: 0, largo: 7 };
+  const parrafoCompleto = 'Fecha: En Nueva Imperial a XX días del mes de XXXXXXX de XXX';
+  const posMes = parrafoCompleto.indexOf('XXXXXXX');
+  const posAnio = parrafoCompleto.lastIndexOf('XXX');
+  const mes = campoDeBlancoInline({
+    ...base, contexto: '', parrafoCompleto, posEnParrafo: posMes, largo: 7,
+  } as CandidatoInline);
+  const anio = campoDeBlancoInline({
+    ...base, contexto: '', parrafoCompleto, posEnParrafo: posAnio, largo: 3,
+  } as CandidatoInline);
+  assert.equal(mes, 'fecha_hoy_mes_palabra');
+  assert.equal(anio, 'fecha_hoy_anio');
+});

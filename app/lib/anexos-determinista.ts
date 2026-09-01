@@ -92,6 +92,19 @@ const RE_TIPO_DE_PERSONA_AL_FINAL =
 // remate "persona natural/jurídica", porque preguntan justamente por esa clasificación.
 const PALABRAS_QUE_NECESITAN_EL_REMATE = new Set(['tipo', 'naturaleza', 'calidad', 'clase', 'condicion', 'categoria']);
 
+// BUG REAL (1-sep-2026, 2018-27-LP26, FORMATO DE IDENTIFICACIÓN DEL PROPONENTE, reportado con
+// captura): la misma casilla de una tabla de identificación sirve para el proponente solo O para
+// una Unión Temporal de Proveedores, y el organismo escribe las DOS alternativas separadas por "/"
+// en la MISMA etiqueta: "Nombre o razón social del proponente / Nombre o razón social de los
+// integrantes de la U.T.P.", "Cédula de identidad del proponente / cédula de identidad de cada uno
+// de los integrantes de la U.T.P.". Como esta empresa NUNCA postula como UTP (política del
+// usuario), la mitad de después de la "/" nunca aplica — pero al dejarla pegada, la etiqueta
+// completa no calzaba con NINGÚN patrón del diccionario (todos terminan en `$` justo después de
+// "proponente") y las 7 casillas de la tabla quedaban pendientes pese a ser datos básicos de la
+// empresa. Mismo criterio que RE_TIPO_DE_PERSONA_AL_FINAL: el QUÉ (nombre, cédula) no cambia, solo
+// A QUIÉN describe la otra mitad — se saca ANTES de comparar contra el diccionario.
+const RE_ALTERNATIVA_UTP_AL_FINAL = /\s*\/[^/]*\bintegrantes\b[^/]*\bu\s*t\s*p\b\s*$/;
+
 export function normalizarEtiqueta(s: string): string {
   return sinParentesisEnvolvente(s || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')   // sin tildes
@@ -113,6 +126,8 @@ export function normalizarEtiqueta(s: string): string {
     .replace(/^\s*(?:\d+\s*[.)-]+|[a-z]\s*[.)-]+|[-•*])\s+/, ' ')
     .replace(/[.:;,_·"'“”]+/g, ' ')                      // puntuación y rayas de relleno
     .replace(/\s+/g, ' ')
+    .trim()
+    .replace(RE_ALTERNATIVA_UTP_AL_FINAL, '')
     .trim()
     .replace(RE_TIPO_DE_PERSONA_AL_FINAL, (coincidencia, ...resto) => {
       // Solo se saca si queda etiqueta después: "PERSONA NATURAL" pelada NO es una casilla con
@@ -149,6 +164,10 @@ const CATEGORIA_DE_CAMPO = (campo: Campo): CategoriaCampo => {
 // Sufijo opcional "del oferente / de la empresa / del proponente": la MISMA pregunta viene con
 // cualquiera de esos remates según el organismo. Sin él, "RUT DEL OFERENTE:" no matcheaba nada.
 const OFERENTE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:empresa|oferente|proponente|participante|postulante|contribuyente|prestador|proveedor))?';
+// Mismo remate que OFERENTE, pero OBLIGATORIO (sin el "?" final) — para entradas donde la etiqueta
+// PELADA (sin remate) ya significa otra cosa y solo el remate explícito desambigua a favor de la
+// empresa. Ver su uso en 'rut' ("cédula de identidad DEL PROPONENTE").
+const OFERENTE_OBLIGATORIO = '\\s+(?:del?\\s+|de\\s+la\\s+)?(?:empresa|oferente|proponente|participante|postulante|contribuyente|prestador|proveedor)';
 // "representate" (sin la "n") es un error de tipeo REAL y frecuente en los pliegos — visto en
 // "Formatos Esmaltes" (La Serena) como "(representate legal)". La casilla dice exactamente de quién
 // es el dato; perderla por una letra sería absurdo. La "n" opcional no introduce ninguna
@@ -158,7 +177,14 @@ const OFERENTE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:empresa|oferente|proponent
 // normaliza a espacio ("nombre rep legal") y ninguna alternativa cubría la abreviatura. "rep" solo
 // se acepta ACOMPAÑADA de "legal": "rep" a secas es ambigua (repertorio, representación,
 // repetición) y adivinar ahí es justo lo que esta capa no debe hacer.
-const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representan?te(?:\\s+legal)?|rep\\s+legal|apoderado|declarante|firmante|suscriptor))';
+// "REPRESENTANTE" acepta dos calificadores más, agregados el 1-sep-2026 (2018-27-LP26, FORMATO DE
+// IDENTIFICACIÓN DEL PROPONENTE — tabla mezclada proponente/UTP, ver también RE_ALTERNATIVA_UTP_AL_
+// FINAL más abajo): "legal o convencional" (sinónimo jurídico de "apoderado", el mismo dato) y "del
+// proponente/oferente/empresa" (el organismo dice DE QUIÉN es el representante en vez de agregar
+// "legal" — "Cédula de identidad del representante DEL PROPONENTE", "Domicilio del representante
+// DEL PROPONENTE"). Ninguno de los dos es un tercero nuevo: sigue siendo el representante legal de
+// nuestra empresa, solo que rotulado distinto.
+const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representan?te(?:\\s+legal(?:\\s+o\\s+convencional)?|\\s+(?:del?\\s+|de\\s+la\\s+)?(?:proponente|oferente|empresa))?|rep\\s+legal|apoderado|declarante|firmante|suscriptor))';
 
 // Sufijos que NO cambian QUÉ dato se pide, solo cómo el organismo lo rotula. Se aplican al teléfono
 // y al correo, nunca al nombre ni al RUT.
@@ -245,6 +271,14 @@ export const DICCIONARIO: Entrada[] = [
     /^(?:n[°º]?\s*(?:de\s+)?)?cedula de identidad o rut$/, /^c\s*i\s*o\s*r\s*u\s*t$/,
     /^(?:n[°º]?\s*(?:de\s+)?)?rut o cedula de identidad$/,
     /^rut\/cedula(?: de identidad)?$/, /^cedula(?: de identidad)?\/rut$/,
+    // "Cédula de identidad del proponente" (2018-27-LP26, tras el strip de RE_ALTERNATIVA_UTP_AL_
+    // FINAL): a diferencia de la "cédula de identidad" pelada de más abajo (que es de la PERSONA,
+    // ver representante_rut), acá el remate DICE que es del proponente — y por la regla ya
+    // establecida "OFERENTE = PROPONENTE = LA EMPRESA" (ver RE_CAPTION_ROL_FIRMA), es el RUT de la
+    // empresa, nunca el de quien firma. El remate de OFERENTE es obligatorio a propósito: sin él,
+    // esta entrada competiría con la "cédula de identidad" pelada de representante_rut por la MISMA
+    // etiqueta pelada, y ahí sí gana la persona (ambigüedad real, no se toca).
+    new RegExp(`^cedula(?:\\s+de\\s+identidad)?${OFERENTE_OBLIGATORIO}$`),
   ] },
   { campo: 'giro', patrones: [
     new RegExp(`^giro(?:\\s+(?:comercial|del\\s+negocio|o\\s+actividad))?${OFERENTE}$`),
@@ -268,6 +302,11 @@ export const DICCIONARIO: Entrada[] = [
     // casilla combinada, con "/sucursal" colado en el medio — la dirección completa sigue siendo
     // la respuesta, igual que "Domicilio y comuna" de arriba.
     new RegExp(`^domicilio${OFERENTE}\\s*\\/\\s*sucursal\\s+calle\\s*\\/\\s*numero$`),
+    // "Domicilio del representante del proponente" (2018-27-LP26): por la misma regla ya usada en
+    // teléfono/correo del representante (el remate de REPRESENTANTE es igual al de la empresa,
+    // porque el representante legal declara el domicilio comercial como el suyo propio para estos
+    // efectos), el domicilio del representante es el mismo domicilio de la ficha.
+    new RegExp(`^(?:direccion|domicilio)(?:\\s+(?:comercial|legal|particular|de\\s+la\\s+empresa))?${REPRE}$`),
   ] },
   { campo: 'direccion_calle', patrones: [/^calle(?: y numero)?$/, /^nombre de (?:la )?calle$/, /^avenida\/calle$/] },
   // "DPTO./OF:" — la cuarta columna del domicilio partido ("Calle | N° | DPTO./OF. | Comuna"),
@@ -914,7 +953,11 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
 // del 1-sep-2026): la formula va EN MEDIO de la oracion, no al principio ni despues de un punto,
 // asi que las dos ramas de arriba no la veian. "en la ciudad de" seguido de un blanco es
 // inequivoco donde sea que aparezca: no hay otra cosa que pueda ir ahi.
-const RE_LOCALIDAD_FIRMA = /(?:^|[.;])\s*(?:en|ciudad\s+de)\s*$|\ben\s+la\s+ciudad\s+de\s*$/i;
+// BUG REAL (1-sep-2026, DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD, 2018-27-LP26): "Fecha: En ___ a
+// XX días del mes de…" — el "En" viene pegado a "Fecha:" con DOS PUNTOS, no punto ni punto y coma.
+// Sin el ":" en la clase de arranque, la comuna del organismo (que este blanco pide) nunca se
+// resolvía y la casilla quedaba en "(sin contexto)".
+const RE_LOCALIDAD_FIRMA = /(?:^|[.;:])\s*(?:en|ciudad\s+de)\s*$|\ben\s+la\s+ciudad\s+de\s*$/i;
 // Tercera alternativa (1042-9-LE26): "En <ciudad>, <día>, de<mes>de <año>" — sin la "a" antes del
 // día, así que las dos primeras ramas no la ven: la rama de "a/con fecha/el día" no matchea nada
 // (el día es otro blanco, no una palabra), y la de "\d{0,2} de" exige DÍGITOS y acá el día todavía
@@ -990,6 +1033,23 @@ export const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
 // Van solo las formas verbales, nunca el adjetivo.
 const RE_MARCADOR_INSTRUCCION = /\b(?:indicar|indique|marcar|marque|senalar|señalar|senale|señale|completar|complete|adjuntar|adjunte|describir|describa|detallar|detalle|explicar|explique)\b/i;
 
+// BUG REAL (1-sep-2026, DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD, 2018-27-LP26, reportado con
+// captura): "Yo, <nombre de representante legal o nombre de persona natural>, cédula de identidad
+// Nº,<representante legal o de persona natural>, con domicilio en…" — el SEGUNDO marcador dice DE
+// QUIÉN es el dato ("representante legal o de persona natural") pero nunca QUÉ dato es: el "cédula
+// de identidad" que lo explica quedó AFUERA, en el texto literal justo antes del marcador. Sin este
+// chequeo, REGLAS_MARCADOR ve "representante legal" adentro del marcador y devuelve el NOMBRE —el
+// oferente salía firmando "Yo, Fulano, cédula de identidad N°, Fulano" (el nombre repetido donde
+// va el RUT, que nunca se escribía).
+//
+// Se prueba SOLO cuando el marcador NO nombra su propio dato (ni rut/cédula/run) — si lo nombrara
+// ("<RUT del representante>"), el marcador sigue mandando como siempre (REGLAS_MARCADOR #2 ya lo
+// cubre). El texto de ANTES gana cuando es inequívoco: es la misma idea que REGLAS_PREVIAS,
+// aplicada al caso marcador. Comma-tolerante a propósito ("identidad Nº," con COMA, no los dos
+// puntos que exige REGLAS_PREVIAS) porque así viene escrito el caso real.
+const RE_MARCADOR_YA_NOMBRA_SU_DATO = /\b(?:rut|run|c[eé]dula)\b/i;
+const RE_ANTES_MARCADOR_ES_CEDULA_O_RUT = /\b(?:c[eé]dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run|r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|numero|nro)?\s*[:,]?\s*$/i;
+
 // BUG REAL atrapado por el banco (1058086-43-LP26): un bloque "Nombre: ___ Cargo: ___
 // Institución: ___" es la firma de un TERCERO que certifica algo del oferente (ej. un cliente
 // anterior), no la del propio oferente. "Cargo:" solo, sin más pista, es una etiqueta inequívoca
@@ -1042,7 +1102,13 @@ const esBloqueDeTercero = (texto: string) => RE_BLOQUE_TERCERO.test(texto.replac
 // 2026" vs "12 de agosto de ___"), y equivocarse ahí escribe el año donde va el mes. Lo que
 // desambigua es qué VIENE DESPUÉS del blanco, no qué viene antes.
 const MES_PALABRA = '(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)';
-const HUECO = '(?:_{2,}|\\.{3,}|…+)';
+// BUG REAL (1-sep-2026, DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD, 2018-27-LP26): "Fecha: En ___ a
+// XX días del mes de ___ de ___" — el organismo rellena el DÍA con una "XX" fija (no es un blanco:
+// solo 2 X, bajo el umbral de 3 que exige RE_TIENE_BLANCO_PROPIO/listarBlancosInline para contarlo
+// como raya), y el MES/AÑO sí son blancos reales con "XXXXXXX"/"XXX". Sin "X{2,}" acá, "a XX días
+// del mes de" no calzaba con ningún HUECO ni con \d{1,2} — el mes y el año de TODA la fórmula
+// quedaban pendientes, aunque las otras tres variantes (guion bajo, puntos, elipsis) sí resolvían.
+const HUECO = '(?:_{2,}|\\.{3,}|…+|X{2,})';
 // El nexo entre el día y el mes. El mismo pliego usa las DOS formas en formularios distintos
 // (2495-17-B226: "a ___ días del mes de ___" en ADMI-1 y "a ___ del mes de ___" en ADMI-3), así que
 // el "días" es opcional. La alternativa LARGA va primero: con `de` adelante, el motor de regex
@@ -1151,6 +1217,15 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
     // marcador tal cual, instrucción incluida — las reglas no necesitan que se les pele el verbo)
     // y el bloqueo por instrucción queda de red de seguridad, solo para lo que de verdad no
     // matchea nada.
+    //
+    // Ver RE_ANTES_MARCADOR_ES_CEDULA_O_RUT: si el texto pegado ANTES del marcador ya dice
+    // inequívocamente "cédula de identidad"/"RUT" y el marcador mismo no lo repite, el de antes
+    // manda — se prueba ANTES que REGLAS_MARCADOR, porque si se probara después "representante
+    // legal" adentro del marcador ya habría devuelto el nombre.
+    const antesDelMarcador = (b.parrafoCompleto ?? '').slice(0, b.posEnParrafo ?? 0);
+    if (!RE_MARCADOR_YA_NOMBRA_SU_DATO.test(b.textoMarcador) && RE_ANTES_MARCADOR_ES_CEDULA_O_RUT.test(antesDelMarcador)) {
+      return 'representante_rut';
+    }
     const m = REGLAS_MARCADOR.find(r => r.re.test(b.textoMarcador!));
     if (m) return m.campo;
     if (RE_MARCADOR_INSTRUCCION.test(b.textoMarcador)) return null;

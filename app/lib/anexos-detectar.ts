@@ -330,7 +330,35 @@ function desambiguarDuplicados(candidatos: CandidatoCelda[], parrafos: Parrafo[]
     // pedido de nuevo en otro formulario del mismo documento, no una ambigüedad real.
     const contexto = contextoDeRolCercano(parrafos, c.indice - 1);
     if (!contexto) return c;
-    return { ...c, etiqueta: `${contexto} — ${c.etiqueta}`.slice(0, 160) };
+    // BUG REAL (1-sep-2026, 2018-27-LP26, FORMATO DE IDENTIFICACIÓN DEL PROPONENTE): el `.slice(0,
+    // 160)` recortaba la CADENA COMBINADA de punta a punta, así que cuando `contexto` ya era una
+    // ORACIÓN larga (acá, la fila hermana completa: "Nombre o razón social del proponente / Nombre
+    // o razón social de los integrantes de la U.T.P.", 96 caracteres — RE_CONTEXTO_ROL matchea
+    // "proponente" en cualquier frase, no solo en encabezados cortos como "REPRESENTANTE LEGAL:"),
+    // lo que sobrevivía del propio `c.etiqueta` quedaba cortado a la mitad de una palabra ("…de
+    // cada "), sin llegar nunca a "integrantes de la U.T.P." — ni el diccionario ni el strip de
+    // alternativa UTP (anexos-determinista.ts) podían verla, y la casilla quedaba pendiente aunque
+    // el dato SÍ estaba en la ficha. `etiquetaPropia` (anexos-determinista.ts) de todas formas
+    // descarta `contexto` entero al resolver — lo único que importa preservar completo es la
+    // etiqueta PROPIA de la celda, nunca el contexto que solo se usa para mostrar a qué bloque
+    // pertenece un duplicado.
+    let contextoAcotado = contexto.length > LARGO_MAX_ETIQUETA ? contexto.slice(0, LARGO_MAX_ETIQUETA) : contexto;
+    // El corte a LARGO_MAX_ETIQUETA es a ciegas y puede caer JUSTO dentro de un paréntesis abierto
+    // ("...convencional. (si se tratase de"). BUG REAL (1-sep-2026, mismo documento): ese "(" sin
+    // su ")" sobrevive pegado a la etiqueta propia de la celda vecina ("Número de teléfono, correo
+    // electrónico (e-mail)."), y el fallback de campoDeEtiquetaInequivoca que prueba la CADENA
+    // COMPUESTA completa (ver más abajo en resolverDeterminista, capa 1) le pasa esto entero a
+    // normalizarEtiqueta — que borra "TODO lo que hay entre paréntesis" con un regex no-greedy que
+    // igual cruza hasta el PRIMER ")" que encuentre, sin importar cuán lejos esté. Como el único
+    // ")" que queda es el de "(e-mail)" de la otra celda, se borra la etiqueta de teléfono/correo
+    // ENTERA y queda solo "Nombre representante legal o convencional" — que sí calza con el
+    // diccionario y llena la casilla de teléfono con el NOMBRE del representante. Cortar el
+    // paréntesis sin cerrar (retroceder hasta antes del último "(" desparejado) evita que el corte
+    // ciego alguna vez deje basura capaz de fusionarse con el paréntesis de OTRA celda.
+    const abiertos = (contextoAcotado.match(/\(/g) || []).length;
+    const cerrados = (contextoAcotado.match(/\)/g) || []).length;
+    if (abiertos > cerrados) contextoAcotado = contextoAcotado.slice(0, contextoAcotado.lastIndexOf('(')).trimEnd();
+    return { ...c, etiqueta: `${contextoAcotado} — ${c.etiqueta}` };
   });
 }
 
