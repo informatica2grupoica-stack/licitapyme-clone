@@ -254,6 +254,12 @@ export const DICCIONARIO: Entrada[] = [
     // "COMPLETO" ENTRE "razón social" y a quién describe, orden que ningún patrón de arriba prevé
     // (todos esperan "completo" antes de "razón social", nunca después).
     new RegExp(`^nombre\\s+o\\s+razon\\s+social\\s+completo${OFERENTE}$`),
+    // "RAZÓN SOCIAL PERSONA JURÍDICA O EMPRESA A LA QUE REPRESENTE" — sinónimo medido en el banco
+    // de 300 anexos (1-sep-2026, 12 casillas / 2 licitaciones): el organismo aclara "persona
+    // jurídica" y agrega "a la que represente" porque la casilla vive dentro de un bloque de
+    // representante ("quien representa a...") — sigue preguntando por la razón social, no por la
+    // persona.
+    /^razon social persona juridica o empresa a la que represente$/,
   ] },
   { campo: 'rut', patrones: [
     new RegExp(`^r\\s*u\\s*t${OFERENTE}$`),
@@ -279,6 +285,10 @@ export const DICCIONARIO: Entrada[] = [
     /^(?:n[°º]?\s*(?:de\s+)?)?cedula de identidad o rut$/, /^c\s*i\s*o\s*r\s*u\s*t$/,
     /^(?:n[°º]?\s*(?:de\s+)?)?rut o cedula de identidad$/,
     /^rut\/cedula(?: de identidad)?$/, /^cedula(?: de identidad)?\/rut$/,
+    // "RUT PERSONA JURÍDICA O EMPRESA" — sinónimo medido en el banco de 300 anexos (1-sep-2026,
+    // 12 casillas / 2 licitaciones), mismo bloque y mismo organismo que "RAZÓN SOCIAL PERSONA
+    // JURÍDICA O EMPRESA A LA QUE REPRESENTE" de arriba.
+    /^rut persona juridica o empresa$/,
     // "Cédula de identidad del proponente" (2018-27-LP26, tras el strip de RE_ALTERNATIVA_UTP_AL_
     // FINAL): a diferencia de la "cédula de identidad" pelada de más abajo (que es de la PERSONA,
     // ver representante_rut), acá el remate DICE que es del proponente — y por la regla ya
@@ -324,12 +334,21 @@ export const DICCIONARIO: Entrada[] = [
   { campo: 'direccion_oficina' as Campo, patrones: [
     /^(?:dpto|depto|departamento)\s*\/\s*(?:of|ofic|oficina)$/, /^(?:of|ofic|oficina)\s*\/\s*(?:dpto|depto|departamento)$/,
     /^oficina$/, /^(?:dpto|depto|departamento)$/, /^of$/, /^n[°º]?\s*(?:de\s+)?oficina$/,
+    // "Depto. Nº" — el organismo agrega el rótulo de número a la abreviatura, aunque lo que se
+    // escribe ahí sigue siendo el número/letra de la oficina, no un número aparte. Sinónimo
+    // medido en el banco de 300 anexos (1-sep-2026, 3 casillas / 2 licitaciones).
+    /^(?:dpto|depto|departamento)\s*n[°º]?$/,
   ] },
   { campo: 'direccion_numero', patrones: [/^n[°º]$/, /^numero$/, /^nro$/, /^numero de (?:la )?(?:calle|direccion|domicilio)$/] },
   // "CIUDAD / COMUNA" (FORMULARIO N°1, 2905-36-LR26): una sola casilla combinada — la comuna es
   // el dato más específico y el que casi siempre coincide con lo que la gente escribe como
   // "ciudad" en un pueblo o localidad chica, así que gana ella cuando piden las dos juntas.
-  { campo: 'comuna', patrones: [/^comuna$/, new RegExp(`^comuna${OFERENTE}$`), /^ciudad\s*\/\s*comuna$/, /^comuna\s*\/\s*ciudad$/] },
+  { campo: 'comuna', patrones: [
+    /^comuna$/, new RegExp(`^comuna${OFERENTE}$`), /^ciudad\s*\/\s*comuna$/, /^comuna\s*\/\s*ciudad$/,
+    // "Comuna de origen" — sinónimo medido en el banco de 300 anexos (1-sep-2026, 3 casillas / 2
+    // licitaciones): "de origen" aclara que es la comuna del oferente, no la del organismo.
+    /^comuna de origen$/,
+  ] },
   { campo: 'ciudad', patrones: [/^ciudad$/, new RegExp(`^ciudad${OFERENTE}$`), /^localidad$/] },
   // REGRESIÓN 2928-17-LE26: "Comuna y región" (orden invertido de "región y comuna", que ya
   // estaba cubierto) quedaba sin diccionario — misma casilla combinada, mismo campo.
@@ -360,6 +379,12 @@ export const DICCIONARIO: Entrada[] = [
     // o nada— no lo reconocía: el correo quedaba en blanco en cualquier anexo que lo rotule así.
     new RegExp(`^(?:correo|correo\\s+electronico|e[\\s-]*mail|mail|casilla\\s+electronica)(?:\\s+de\\s+contacto)?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
     /^correo electronico para (?:notificaciones|efectos de (?:esta )?licitacion)$/,
+    // "Correo de contacto para informar pago" — sinónimo medido en el banco de 300 anexos
+    // (1-sep-2026, 2 casillas / 2 licitaciones). Vive casi siempre en un bloque de datos
+    // bancarios: el fallback "1d" de resolverDeterminista ya sube esto a `banco_email` cuando la
+    // ficha lo tiene cargado, así que agregar acá no arriesga mandar el correo comercial a un
+    // formulario de pago.
+    /^correo de contacto para informar pago$/,
   ] },
   // "FECHA:" suelta (un solo blanco, no un triplete día/mes/año — esos ya los resuelve entero
   // detectarTripletesFecha antes de llegar acá) → fecha larga con la que se firma la oferta.
@@ -423,6 +448,18 @@ export const DICCIONARIO: Entrada[] = [
     // párrafo SIGUIENTE, patrón de CELDA, no de inline. Sin anclar el inicio (la ciudad varía por
     // organismo): basta con que la etiqueta TERMINE en la palabra "yo" tras normalizar.
     /(?:^|\s)yo$/,
+    // "Nombre de Socios" (plural, sin numerar) — mismo criterio que "Rut Socio(s)": por política
+    // de socio único, el socio ES el representante legal. Sinónimo medido en el banco de 300
+    // anexos (1-sep-2026, 8 casillas / 2 licitaciones).
+    /^nombre de socios$/,
+    // "Beneficiarios Finales" — sin estructura societaria declarada, el representante legal es el
+    // beneficiario final al 100% (decisión del usuario, 1-sep-2026, mismo criterio que socio
+    // único). 8 casillas / 2 licitaciones.
+    /^beneficiarios finales$/,
+    // "Nombre y firma" — el motor ya sabe poner la firma (imagen, aparte) y el nombre por
+    // separado; esta etiqueta combinada solo pedía el nombre y quedaba sin ningún patrón que la
+    // cubriera. 12 casillas / 8 licitaciones, el sinónimo más repetido del banco de 300 anexos.
+    /^nombre y firma$/,
   ] },
   { campo: 'representante_nombres', patrones: [/^nombres$/, /^nombres? de pila$/] },
   { campo: 'representante_apellidos', patrones: [/^apellidos$/, /^apellido paterno y materno$/] },
@@ -430,6 +467,9 @@ export const DICCIONARIO: Entrada[] = [
     new RegExp(`^(?:rut|r\\s*u\\s*t|run|cedula(?:\\s+de\\s+identidad)?|c\\s*i)${REPRE}$`),
     /^cedula de identidad(?: n[°º]?)?$/, /^c i n[°º]?$/, /^run$/, /^numero de (?:cedula|run)$/,
     /^rut representante$/, /^(?:n[°º]?\s*(?:de\s+)?)?cedula (?:nacional )?de identidad(?: nacional)?$/,
+    // "CEDULA IDENTIDAD/PASAPORTE" — el organismo cubre también al extranjero sin RUT chileno.
+    // Sinónimo medido en el banco de 300 anexos (1-sep-2026, 12 casillas / 2 licitaciones).
+    /^cedula identidad\/pasaporte$/,
     // "RUT Socio" → el RUT del representante legal, porque por política de la empresa el socio
     // único ES el representante legal (mismo criterio que socio_nombre/socio_participacion, ya
     // documentado en el instructivo interno y en el prompt de anexos-ia-motor.ts). No se crea un
@@ -438,6 +478,10 @@ export const DICCIONARIO: Entrada[] = [
     // "2 — Rut Socio"…) la ataja esFilaDeSocioPosterior más abajo, que bloquea todas menos la
     // fila 1 — si no, el mismo RUT se repetiría en las 12 filas.
     /^rut (?:del? )?(?:socio|accionista)(?:\/accionista)?$/, /^rut socio\/accionista$/,
+    // "Rut Socios" (plural, sin numerar) — mismo dato, sinónimo medido en el banco de 300 anexos
+    // (1-sep-2026, 8 casillas / 2 licitaciones). La grilla NUMERADA sigue bloqueada por
+    // esFilaDeSocioPosterior como arriba; esto solo cubre la fila sin número.
+    /^rut socios$/,
   ] },
   // La PROFESIÓN u OFICIO no es el CARGO: un anexo puede pedir las dos en el mismo bloque
   // ("Cargo: Gerente" / "Profesión u oficio: Empresaria"). Ver migration-69.
@@ -540,7 +584,10 @@ export function esFilaDeSocioPosterior(etiqueta: string): boolean {
   if (!campo || !CAMPOS_DE_SOCIO.has(String(campo))) return false;
   // `representante_rut` también lo devuelve "Cédula de identidad" (una grilla de terceros): el
   // bloqueo solo aplica cuando la columna habla de SOCIOS, que es donde nace el dato duplicado.
-  return campo !== 'representante_rut' || /\b(socio|accionista)\b/i.test(columna);
+  // Plural incluido a propósito (1-sep-2026, sinónimo nuevo "Rut Socios"): `\bsocio\b` no matchea
+  // "socios" (el \b después de "socio" no dispara entre dos letras), así que la grilla numerada
+  // con la forma PLURAL ("2 — Rut Socios") se habría colado sin este ajuste.
+  return campo !== 'representante_rut' || /\b(socios?|accionistas?)\b/i.test(columna);
 }
 
 /** Etiqueta que ya dice a quién describe → campo, sin mirar el contexto. `null` si es ambigua. */
@@ -883,6 +930,9 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // más común, pero exigirla dejaba esta variante sin resolver.
   { re: /\b(?:con\s+)?domicili(?:o|ado)\s*(?:en|para\s+estos\s+efectos\s+en)?(?:\s+(?:la\s+)?(?:ciudad|comuna)\s+de)?\s*$/i, campo: 'direccion' },
   { re: /\bdirecci(?:o|ó)n\s*:?\s*$/i, campo: 'direccion' },
+  // "…residente en la comuna de ___" sin "domicilio" delante (esa forma ya la cubre la regla de
+  // arriba) — sinónimo medido en el banco de 300 anexos (1-sep-2026, 3 casillas / 3 licitaciones).
+  { re: /\bcomuna\s+de\s*$/i, campo: 'comuna' },
   // RUT que sigue al NOMBRE de la persona ("don/doña <nombre>, RUT N°…", con o sin el cargo entre
   // comillas en el medio: "don (doña)___, "___", RUT___" de 1042-9-LE26). Va ANTES que la regla
   // genérica de abajo — sin esto, cualquier "RUT" en una declaración jurada se leía como el de la

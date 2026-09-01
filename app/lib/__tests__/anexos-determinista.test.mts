@@ -1680,3 +1680,36 @@ test('diccionario: "Teléfono Móvil ___" (calificador, no sinónimo suelto) es 
   assert.equal(campoDeEtiquetaInequivoca('Teléfono Móvil Contacto'), 'telefono1');
   assert.equal(campoDeEtiquetaInequivoca('Teléfono Fijo Representante Legal'), 'telefono1');
 });
+
+// BANCO DE 300 ANEXOS — SINÓNIMOS PENDIENTES DE CONVERTIR EN REGLA (1-sep-2026). El usuario pidió
+// explícitamente pasar del Excel de clasificación a mejoras reales de código ("vale la pena pasar
+// ese excel a las mejoras"). Cada patrón de este test es un sinónimo REAL medido en el banco de
+// 300 anexos (293 etiquetas / 2.170 casillas) que, tras verificar contra el diccionario ya vigente
+// hoy (muchos quedaron cubiertos por los fixes de este mismo día), seguía sin resolverse.
+test('diccionario: sinónimos del banco de 300 anexos convertidos en regla (1-sep-2026)', () => {
+  assert.equal(campoDeEtiquetaInequivoca('RAZÓN SOCIAL PERSONA JURÍDICA O EMPRESA A LA QUE REPRESENTE'), 'razon_social');
+  assert.equal(campoDeEtiquetaInequivoca('RUT PERSONA JURÍDICA O EMPRESA'), 'rut');
+  assert.equal(campoDeEtiquetaInequivoca('CEDULA IDENTIDAD/PASAPORTE'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('Nombre de Socios'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Rut Socios'), 'representante_rut');
+  assert.equal(campoDeEtiquetaInequivoca('Beneficiarios Finales'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Nombre y firma'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Comuna de origen'), 'comuna');
+  assert.equal(campoDeEtiquetaInequivoca('Depto. Nº'), 'direccion_oficina');
+  assert.equal(campoDeEtiquetaInequivoca('Correo de contacto para informar pago'), 'email1');
+
+  // Control: la grilla NUMERADA de socios sigue bloqueada (esFilaDeSocioPosterior) — el sinónimo
+  // plural nuevo NO debe reabrir la puerta a repetir el mismo RUT en las 12 filas.
+  assert.equal(esFilaDeSocioPosterior('2 — Rut Socios'), true);
+});
+
+// "comuna de" INLINE (REGLAS_PREVIAS) — "…residente en la comuna de ___", sin "domicilio" delante
+// (esa forma ya la cubre la regla vecina). 3 casillas / 3 licitaciones del banco de 300 anexos.
+test('inline: "…comuna de ___" (sin "domicilio" delante) resuelve la comuna', () => {
+  const parrafoCompleto = 'Declaro residir en la comuna de ___';
+  const pos = parrafoCompleto.indexOf('___');
+  assert.equal(campoDeBlancoInline({
+    indiceRun: 0, indiceParrafo: 0, textoRunOriginal: '', posEnTexto: 0, largo: 3,
+    contexto: '', parrafoCompleto, posEnParrafo: pos,
+  } as CandidatoInline), 'comuna');
+});

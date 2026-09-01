@@ -2005,3 +2005,24 @@ test('resolverDeterminista: la tabla real de proponente/UTP resuelve las 7 casil
     'Inversiones Claro ARZ SPA', '76.902.659-2',
   ], 'las 7 casillas de proponente/representante se llenan; el teléfono/correo combinado sigue pendiente (sin dictamen), no con un nombre');
 });
+
+// "YO," EN SU PROPIA CELDA (1-sep-2026, FORMATO N°2 DECLARACIÓN SIMPLE DE ACEPTACIÓN DE BASES,
+// 4328-32-LP26, reportado por el usuario con captura: "aquí dice yo y lo dejas vacío... debería
+// ir el nombre del representante legal"). Tabla [Yo,][ ][C.I. N°][RUT]: "Yo," termina en coma, y
+// la regla que descarta un párrafo terminado en coma (pensada para no confundir el final de una
+// oración con una etiqueta real) la sacaba ANTES de llegar al diccionario — la casilla del nombre
+// quedaba invisible (ni auto ni pendiente) mientras "C.I. N°" al lado sí se llenaba.
+test('celdas: "Yo," en su propia celda es candidato — no se confunde con el final de una oración', () => {
+  const xml = NS + tabla(
+    fila('Yo,', '', 'C.I. N°', ''),
+  ) + FIN;
+  const candidatos = analizarAnexo(normalizarParaIds(xml).xml).candidatosCelda;
+  const etiquetas = candidatos.map(c => c.etiqueta);
+  assert.ok(etiquetas.includes('Yo,'), `"Yo," debía ofrecerse como candidato: ${JSON.stringify(etiquetas)}`);
+
+  // Control: un párrafo que de verdad termina una oración ("SANTIAGO.", con punto — o cualquier
+  // texto terminado en coma que NO sea "Yo,") sigue descartándose como siempre.
+  const xmlControl = NS + tabla(fila('Contacto,', '')) + FIN;
+  const candidatosControl = analizarAnexo(normalizarParaIds(xmlControl).xml).candidatosCelda;
+  assert.ok(!candidatosControl.some(c => c.etiqueta === 'Contacto,'), 'una coma que no es "Yo," se sigue descartando');
+});

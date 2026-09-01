@@ -194,8 +194,18 @@ export function detectarCandidatosCeldaCrudos(
     // "SANTIAGO." — y de paso, sin esa casilla capturada, el párrafo vacío que le seguía quedaba
     // libre para que detectarLineasFirma (Caso C) lo tomara como el hueco de la firma de LA FILA
     // DE ABAJO: la imagen terminaba estampada en la celda de "R.U.T.", no en la de "Firma".
-    if (/,$/.test(actual.texto)
-      || (/\.$/.test(actual.texto) && !/\s/.test(actual.texto.trim()) && (actual.texto.match(/\./g)?.length ?? 0) === 1)) continue;
+    // EXCEPCIÓN REAL a la regla de arriba: "Yo," sola en su propio párrafo/celda SÍ es una
+    // etiqueta — es la fórmula notarial partida en dos ("Yo," | <nombre> en la celda de al lado),
+    // no el final de una frase. BUG REAL (1-sep-2026, FORMATO N°2 DECLARACIÓN SIMPLE DE
+    // ACEPTACIÓN DE BASES, 4328-32-LP26, reportado por el usuario con captura: "aquí dice yo y lo
+    // dejas vacío... debería ir el nombre del representante legal"): en una tabla
+    // [Yo,][ ][C.I. N°][RUT], la coma final descartaba "Yo," ANTES de llegar al diccionario (que
+    // ya la reconoce, ver `/(?:^|\s)yo$/` bajo `representante_nombre` — la misma regla que ya
+    // resolvía el caso inline "En Arica, Yo:"), así que la casilla del nombre quedaba invisible —
+    // ni completada ni ofrecida como pendiente — mientras la de al lado (C.I. N°) sí se llenaba.
+    const esYoSolo = /^yo[,:]?$/i.test(actual.texto.trim());
+    if (!esYoSolo && (/,$/.test(actual.texto)
+      || (/\.$/.test(actual.texto) && !/\s/.test(actual.texto.trim()) && (actual.texto.match(/\./g)?.length ?? 0) === 1))) continue;
 
     // Un párrafo que YA trae su propio blanco ("Antofagasta,________________") tampoco es la
     // etiqueta de otro campo: ese blanco lo cubre el patrón 2 (inline), y el párrafo vacío
