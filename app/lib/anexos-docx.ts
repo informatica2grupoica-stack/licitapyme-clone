@@ -561,7 +561,20 @@ const RE_RAYAS = /_{4,}/g;
 // Sin `\b` despues de "mes": en el documento real la palabra viene PEGADA a la raya del mes
 // ("del mes_________"), y ahi un guion bajo cuenta como caracter de palabra — ese limite nunca
 // se cumplia y el blanco del dia seguia invisible.
-const RE_RAYA_CORTA_DIA_DE_FECHA = /(?<=\ba\s{0,3})_{2,3}(?=\s{0,3}del?\s*mes)/gi;
+const RE_RAYA_CORTA_DIA_DE_FECHA = /(?<=\ba\s{0,3})[_X]{2,3}(?=\s{0,3}del?\s*mes)/gi;
+// BUG REAL (1-sep-2026, FORMULARIO N°3 PROGRAMA DE INTEGRIDAD, reportado con captura: "dime por
+// que no es capaz de encontrar donde llenar por las XXX"). Hay organismos que no dejan una raya
+// sino una corrida de equis mayusculas donde va cada dato:
+//   "Yo, NOMBRE APELLIDO XXXX, cedula de identidad N° XXXXX, con domicilio en XXXXXX, en
+//    representacion de la empresa XXXXXX, RUT N° XXXXXX..."
+// Ninguna de esas era una casilla para el motor: el documento se veia "sin nada que llenar", y
+// como tampoco quedaba como pendiente, el usuario ni siquiera tenia donde escribirlo a mano.
+//
+// Tres o mas equis, y AISLADAS: los lookarounds exigen que no haya letra ni digito pegado, lo que
+// descarta los numeros romanos ("XXI", "MMXXIV", "XXXIV") y cualquier sigla que las lleve adentro.
+// Con dos equis no alcanza — "XX" aparece en romanos y en abreviaturas; el unico caso de dos que
+// vale es el dia de la fecha ("el dia XX del mes"), que ya lo cubre la regla de arriba.
+const RE_EQUIS_DE_RELLENO = /(?<![\p{L}\p{N}])X{3,}(?![\p{L}\p{N}])/gu;
 
 // Línea de puntos: puntos ASCII (".") y/o el carácter ELIPSIS "…" (U+2026, UN SOLO carácter que
 // Word/el usuario tipea como "..." y autocorrige a un glifo) — MEZCLADOS entre sí, nunca
@@ -612,6 +625,7 @@ export function listarBlancosInline(textoRun: string): BlancoInline[] {
   const crudos: { pos: number; largo: number; textoMarcador?: string }[] = [];
   for (const m of textoRun.matchAll(RE_RAYAS)) crudos.push({ pos: m.index!, largo: m[0].length });
   for (const m of textoRun.matchAll(RE_RAYA_CORTA_DIA_DE_FECHA)) crudos.push({ pos: m.index!, largo: m[0].length });
+  for (const m of textoRun.matchAll(RE_EQUIS_DE_RELLENO)) crudos.push({ pos: m.index!, largo: m[0].length });
   for (const m of textoRun.matchAll(RE_CORRIDA_PUNTOS)) {
     if (pesoPuntos(m[0]) < UMBRAL_PESO_PUNTOS) continue;
     crudos.push({ pos: m.index!, largo: m[0].length });

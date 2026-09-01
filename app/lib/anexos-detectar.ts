@@ -18,7 +18,7 @@ import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
 // traía su propio blanco — Patrón 1 lo tomaba entero como ETIQUETA de un campo, apuntando al
 // párrafo SIGUIENTE (puro espaciado) como si ahí fuera el valor, en vez de a los puntos DENTRO de
 // esta misma línea (que ahora sí cubre el patrón 2, inline).
-const RE_TIENE_BLANCO_PROPIO = /_{4,}|\.{6,}|…{2,}/;
+const RE_TIENE_BLANCO_PROPIO = /_{4,}|\.{6,}|…{2,}|(?<![\p{L}\p{N}])X{3,}(?![\p{L}\p{N}])/u;
 
 // ── Diagnóstico de exclusiones silenciosas ────────────────────────────────────────────────
 // Varias reglas heurísticas de este archivo (ancho de columna, "este blanco antecede un bloque
@@ -1002,6 +1002,10 @@ export interface CandidatoInline {
   // "contexto" recortado a 60 caracteres, blancos de una declaración jurada corrida como "de ___
   // de ___" no se entendían sin abrir el Word).
   parrafoCompleto: string; posEnParrafo: number;
+  // Campo de la ficha resuelto por la ESTRUCTURA del documento, igual que el `campoFijo` de las
+  // celdas: un "NOMBRE_____" / "R.U.T. _____" pegado al bloque de "FIRMA REPRESENTANTE LEGAL" es,
+  // sin ninguna ambiguedad, el dato de ESA persona. Ver asignarCamposDeBloqueFirmaInline.
+  campoFijo?: string;
   // PIE DE FIRMA ROTULADO: el texto del parrafo de ABAJO cuando este blanco es una raya sola y lo
   // que sigue es el nombre del dato que va escrito sobre ella ("NOMBRE EMPRESA"). Ver el bloque de
   // LARGO_MAX_ROTULO_DEBAJO mas abajo y su uso en campoDeBlancoInline (anexos-determinista.ts).
@@ -1846,17 +1850,51 @@ const CAMPOS_FIJOS_BLOQUE_FIRMA: { re: RegExp; campo: string }[] = [
 
 // Marca con `campoFijo` los candidatos que caen dentro del bloque de una firma que nombra a su
 // firmante. No borra ni agrega candidatos: solo les adjunta la respuesta ya conocida.
+//
+// La ventana mira para los DOS LADOS de la leyenda. BUG REAL (1-sep-2026, FORMULARIO N°2
+// DECLARACION JURADA, reportado con captura y con la regla del usuario: "las declaraciones juradas
+// casi siempre es el nombre y el rut del representante en la firma"): esa declaración cierra con
+//     NOMBRE_______ / R.U.T. _______ / ________ / FIRMA REPRESENTANTE LEGAL / Fecha _______
+// o sea el nombre y el RUT van ARRIBA de la leyenda, no debajo. Mirando solo hacia abajo, el
+// "R.U.T." caia en la regla generica de RUT y se llenaba con el RUT de la EMPRESA — un dato real
+// pero de otra persona, en una declaracion jurada.
+function anclasDeFirmaQueNombranPersona(lineasFirma: LineaFirma[]): number[] {
+  return lineasFirma.filter(f => RE_LEYENDA_NOMBRA_PERSONA.test(f.contexto)).map(f => f.indice);
+}
+const enBloqueDeFirma = (anclas: number[], indice: number) =>
+  anclas.some(i => Math.abs(indice - i) <= VENTANA_CAMPOS_BLOQUE_FIRMA);
+
 export function asignarCamposDeBloqueFirma<T extends CandidatoCelda>(
   candidatos: T[], lineasFirma: LineaFirma[],
 ): T[] {
-  const anclas = lineasFirma.filter(f => RE_LEYENDA_NOMBRA_PERSONA.test(f.contexto)).map(f => f.indice);
+  const anclas = anclasDeFirmaQueNombranPersona(lineasFirma);
   if (!anclas.length) return candidatos;
   return candidatos.map(c => {
-    const cerca = anclas.some(i => c.indice > i && c.indice <= i + VENTANA_CAMPOS_BLOQUE_FIRMA);
-    if (!cerca) return c;
+    if (!enBloqueDeFirma(anclas, c.indice)) return c;
     const limpia = c.etiqueta.replace(/\s*:\s*$/, '').trim();
     const regla = CAMPOS_FIJOS_BLOQUE_FIRMA.find(r => r.re.test(limpia));
     return regla ? { ...c, campoFijo: regla.campo } : c;
+  });
+}
+
+/**
+ * Lo mismo, para los blancos INLINE. En la declaracion jurada del caso real el nombre y el RUT no
+ * son celdas de tabla ni "Etiqueta:" con dos puntos: son texto corrido con la raya pegada
+ * ("NOMBRE_______", "R.U.T. ________"), que es el patron 2. La etiqueta es lo que hay ANTES del
+ * blanco dentro del mismo parrafo — se limpia igual que en las celdas y se compara con la misma
+ * lista, para que las dos formas de escribir el mismo pie de firma den el mismo resultado.
+ */
+export function asignarCamposDeBloqueFirmaInline(
+  blancos: CandidatoInline[], lineasFirma: LineaFirma[],
+): CandidatoInline[] {
+  const anclas = anclasDeFirmaQueNombranPersona(lineasFirma);
+  if (!anclas.length) return blancos;
+  return blancos.map(b => {
+    if (!enBloqueDeFirma(anclas, b.indiceParrafo)) return b;
+    const antes = (b.parrafoCompleto || '').slice(0, b.posEnParrafo ?? 0);
+    const limpia = antes.replace(/\s*:\s*$/, '').trim();
+    const regla = CAMPOS_FIJOS_BLOQUE_FIRMA.find(r => r.re.test(limpia));
+    return regla ? { ...b, campoFijo: regla.campo } : b;
   });
 }
 
@@ -2174,7 +2212,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // contraparte (ver precedeFirmaContraparte): esa fecha es del evaluador, no nuestra, y antes se
   // ofrecía a la IA sin ese contexto.
   const indicesRayaFirma = new Set(todasLasLineasFirma.map(f => f.indice));
-  const blancosInline = detectarBlancosInline(xml)
+  const blancosInline = asignarCamposDeBloqueFirmaInline(detectarBlancosInline(xml), lineasFirma)
     .filter(b => !indicesRayaFirma.has(b.indiceParrafo))
     .filter(b => !indicesTapadosPorCuadro.has(b.indiceParrafo))
     .filter(b => !(/fecha/i.test(parrafos[b.indiceParrafo]?.texto || '') && precedeFirmaContraparte(parrafos, b.indiceParrafo)));

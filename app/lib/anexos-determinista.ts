@@ -170,11 +170,16 @@ const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representan?te(?:\\s+legal)?|
 //    los de la empresa. Por eso estos dos campos aceptan el remate de OFERENTE **y** el de REPRE, a
 //    diferencia del nombre o el RUT, donde sí son personas distintas y confundirlas es un error.
 const PRINCIPAL_ALT = '(?:\\s+(?:principal(?:es)?|alternativos?|secundarios?)(?:\\s+y\\s+(?:el\\s+)?(?:alternativos?|secundarios?|principal(?:es)?))?)?';
-const CONTACTO = `(?:${OFERENTE}|${REPRE})?`;
+// Remate "del contacto" (regla explícita del usuario, 1-sep-2026): la empresa usa UN solo teléfono
+// y UN solo correo — el del oferente, el del representante y el "del contacto" son el mismo. Sin
+// esto, "Teléfono del Contacto:" y "Correo electrónico del Contacto:" quedaban pendientes en un
+// formulario donde las tres filas de arriba (teléfono, correo, contacto) ya se llenaban solas.
+const DEL_CONTACTO = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:contacto|persona\\s+de\\s+contacto))';
+const CONTACTO = `(?:${OFERENTE}|${REPRE}|${DEL_CONTACTO})?`;
 
 interface Entrada { campo: Campo; patrones: RegExp[] }
 
-const DICCIONARIO: Entrada[] = [
+export const DICCIONARIO: Entrada[] = [
   // ── Empresa ──
   { campo: 'razon_social', patrones: [
     new RegExp(`^razon\\s+social${OFERENTE}$`),
@@ -334,6 +339,13 @@ const DICCIONARIO: Entrada[] = [
     // o correo, y adivinar ahí es exactamente lo que la capa 1 no debe hacer.
     /^nombre (?:del? )?contacto$/, /^persona de contacto$/, /^nombre de la persona de contacto$/,
     /^nombre y apellidos? del? contacto$/, /^contacto (?:comercial )?nombre$/,
+    // "Contacto para la licitación:" (regla explícita del usuario, 1-sep-2026, FORMULARIO N°1 de
+    // identificación del oferente: "contacto de la licitación siempre es el nombre del
+    // representante"). A diferencia de "Contacto" a secas —que no dice si pide nombre, teléfono o
+    // correo y por eso sigue fuera—, acá el "para la licitación" deja claro que es la PERSONA de
+    // contacto de esta oferta, y en esta operación esa persona es siempre el representante legal.
+    /^contacto (?:para|de) (?:la )?(?:licitacion|propuesta|oferta|este proceso)$/,
+    /^contacto (?:del? )?(?:la )?(?:empresa|oferente|proponente|proveedor)$/,
   ] },
   { campo: 'representante_nombres', patrones: [/^nombres$/, /^nombres? de pila$/] },
   { campo: 'representante_apellidos', patrones: [/^apellidos$/, /^apellido paterno y materno$/] },
@@ -659,7 +671,7 @@ export function resolverPeladaPorBloque(
 //    ___, Rut Nº ___"  → 5 casillas, 5 reglas, cero ambigüedad.
 // Se evalúan EN ORDEN y manda la primera que calce: "en representación de la empresa ___" tiene
 // que ganarle a "empresa ___".
-const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
+export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // A quién se representa → la EMPRESA (nunca la persona, aunque venga tras "representante").
   // La aclaración "(si corresponde)" (1042-9-LE26, F3) se cuela ENTRE "de" y el blanco — mismo
   // patrón que "Don (ña) ___": un paréntesis pegado a la palabra apaga el anclaje de fin de frase
@@ -691,6 +703,10 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   { re: /\brepresentan?te\s+legal\s+de(?:\s+la)?(?:\s+(?:empresa|sociedad))?\s*$/i, campo: 'razon_social' },
   // Nombre de quien declara.
   { re: /\byo,?\s*$/i, campo: 'representante_nombre' },
+  // "Yo, NOMBRE APELLIDO XXXX, cedula de identidad N° XXXXX…" (FORMULARIO N°3 PROGRAMA DE
+  // INTEGRIDAD, 1-sep-2026): el organismo escribe QUE va en la casilla justo antes de ella.
+  // "nombre apellido" es inequivoco — una empresa no tiene apellido.
+  { re: /\bnombres?\s+y?\s*apellidos?\s*:?\s*$/i, campo: 'representante_nombre' },
   { re: /\b(?:don|dona|doña|sr|sra|senor|señor)\.?,?\s*$/i, campo: 'representante_nombre' },
   // "En Santiago, a __ días del mes de __ de 2026, comparece ___, de nacionalidad ___, C.I.
   // N°___, con domicilio en ___, quien bajo juramento expone…" — fórmula notarial estándar de
@@ -795,7 +811,11 @@ const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
 // CAPA 5 — Localidad de firma. "En ______ a ___ de ___" cae hoy en firma_fecha → null, y el dato
 // existe sin usar: la comuna del ORGANISMO licitante (ComunaUnidad). Ojo: la regla vieja mandaba
 // "[ciudad/país]" a la región de la EMPRESA — el instructivo pide la del organismo. Corregido acá.
-const RE_LOCALIDAD_FIRMA = /(?:^|[.;])\s*(?:en|ciudad\s+de)\s*$/i;
+// "…en la ciudad de ____ el dia XX del mes…" (FORMULARIO N°3 PROGRAMA DE INTEGRIDAD, caso real
+// del 1-sep-2026): la formula va EN MEDIO de la oracion, no al principio ni despues de un punto,
+// asi que las dos ramas de arriba no la veian. "en la ciudad de" seguido de un blanco es
+// inequivoco donde sea que aparezca: no hay otra cosa que pueda ir ahi.
+const RE_LOCALIDAD_FIRMA = /(?:^|[.;])\s*(?:en|ciudad\s+de)\s*$|\ben\s+la\s+ciudad\s+de\s*$/i;
 // Tercera alternativa (1042-9-LE26): "En <ciudad>, <día>, de<mes>de <año>" — sin la "a" antes del
 // día, así que las dos primeras ramas no la ven: la rama de "a/con fecha/el día" no matchea nada
 // (el día es otro blanco, no una palabra), y la de "\d{0,2} de" exige DÍGITOS y acá el día todavía
@@ -808,7 +828,7 @@ const RE_SIGUE_FECHA = /^\s*[,]?\s*(?:a|con\s+fecha|el\s+d(?:i|í)a)\b|^\s*,?\s*
 
 // Marcadores literales del organismo ("[Insertar RUT]"): el texto dentro del marcador dice
 // EXACTAMENTE qué va ahí y manda sobre cualquier inferencia del contexto.
-const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
+export const REGLAS_MARCADOR: { re: RegExp; campo: Campo }[] = [
   // BUG REAL (18-ago-2026, 1247197-54-LE26, "DECLARACIÓN JURADA PARA CONTRATAR"): el marcador
   // "<RUT representante legal o persona natural según corresponda>" caía en la regla de
   // "representante legal" (que estaba PRIMERA) y se completaba con el NOMBRE del representante
@@ -1422,7 +1442,11 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
   // blanco — nunca el placeholder vacío, que `esEtiquetaAprendible` ya dejó fuera al guardar.
   const camposInline = blancosInline.map(b => {
     const aprendido = campoAprendido(b.textoMarcador || b.contexto || '');
-    const campo = aprendido ?? campoDeBlancoInline(b);
+    // `campoFijo`: lo resolvio la ESTRUCTURA del documento (asignarCamposDeBloqueFirmaInline) — un
+    // "NOMBRE____" / "R.U.T. ____" pegado al bloque de "FIRMA REPRESENTANTE LEGAL" es de esa
+    // persona y punto. Manda sobre el diccionario, igual que en las celdas; solo una correccion
+    // aprendida del experto puede ganarle.
+    const campo = aprendido ?? (b.campoFijo as Campo | undefined) ?? campoDeBlancoInline(b);
     // En el camino INLINE las tres piezas sueltas de la fecha solo las puede devolver
     // campoDeFechaEnFormula: ninguna otra regla de acá (marcador, previa, diccionario) las
     // propone — todas devuelven `fecha_hoy` entera. Por eso el flag se deduce del propio campo en

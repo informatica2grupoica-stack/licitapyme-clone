@@ -207,7 +207,16 @@ function EstampaColocadaUI({
              redimensionar nunca empezaba. `-top-7` los sube por encima de los cuatro manijones.
            · `opacity-0` los hace invisibles pero SIGUEN capturando el puntero, y ahí tapaban un
              pedazo de la imagen para arrastrarla — de ahí el `pointer-events-none`. */}
-      <div className="absolute -top-7 left-0 flex gap-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
+      {/* BUG REAL (1-sep-2026, reportado: "no me deja usar los botones... se esconde al sacar el
+          mouse"): los botones viven 28px POR ENCIMA de la estampa, y entre el borde de arriba de la
+          imagen y la fila de botones quedaba un hueco de 8px sin nada. Al subir el cursor hacia
+          ellos se cruzaba esa franja muerta, el `group-hover` se apagaba y los botones volvian a
+          `pointer-events-none` justo antes de que el mouse llegara: se veian, pero era imposible
+          apretarlos. El `pb-2` estira el area sensible del contenedor hacia abajo hasta TOCAR la
+          imagen, asi que el cursor nunca sale del grupo en el camino (los botones son hijos de la
+          caja, y el hover de un hijo cuenta como hover del padre aunque quede dibujado afuera).
+          `hover:` propio ademas de `group-hover:` como red de seguridad. */}
+      <div className="absolute -top-7 left-0 pb-2 flex gap-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto hover:opacity-100 hover:pointer-events-auto transition-opacity">
         <button
           type="button" onClick={() => onRedimensionar(-PASO_TAMANO)} onPointerDown={soloEsteControl} title="Achicar"
           className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-800 text-white shadow"
@@ -413,7 +422,14 @@ export function AnexoFirmarPdf({
       if (actual.idExistente) {
         setEstampas(prev => prev.map(es => (es.id === actual.idExistente ? { ...es, pagina, xPct, yPct } : es)));
       } else {
-        setEstampas(prev => [...prev, { id: `e${idCounter.current++}`, tipo: actual.tipo, pagina, xPct, yPct, anchoPct: actual.anchoPct }]);
+        // `firmaId` viaja en la estampa nueva: sin el, TODAS las firmas colocadas quedaban sin
+        // dueno y el resto del sistema las resolvia a la principal. En pantalla eso se veia como
+        // "me muestra todas las firmas pero solo me deja poner una" (reportado el 1-sep-2026): la
+        // segunda firma si se colocaba, solo que dibujada con la imagen de la primera.
+        setEstampas(prev => [...prev, {
+          id: `e${idCounter.current++}`, tipo: actual.tipo, pagina, xPct, yPct, anchoPct: actual.anchoPct,
+          ...(actual.firmaId != null ? { firmaId: actual.firmaId } : {}),
+        }]);
       }
     };
 

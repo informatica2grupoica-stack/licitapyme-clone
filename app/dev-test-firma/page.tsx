@@ -30,8 +30,13 @@ export default function Page() {
     <div style={{ position: 'fixed', inset: 0, display: 'flex' }}>
       <AnexoFirmarPdf
         pdfBytes={bytes}
-        firmaUrl={svg('Firma', '%23123a8f')}
+        firmaUrl={svg('Titular', '%23123a8f')}
         timbreUrl={svg('Timbre', '%23a01010')}
+        firmas={[
+          { id: 1, etiqueta: 'Juan Perez — titular', url: svg('Titular', '%23123a8f'), esPrincipal: true },
+          { id: 2, etiqueta: 'Ana Soto — suplente', url: svg('Suplente', '%23117a3a'), esPrincipal: false },
+          { id: 3, etiqueta: 'Luis Rojas — apoderado', url: svg('Apoderado', '%237a1180'), esPrincipal: false },
+        ]}
         generando={false}
         onConfirmar={(e) => { (window as any).__ESTAMPAS = e; }}
         onVolver={() => {}}

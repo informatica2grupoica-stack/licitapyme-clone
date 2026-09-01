@@ -8,7 +8,7 @@
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, ChevronDown, ShieldAlert, ListChecks, Pencil, Check } from 'lucide-react';
+import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, ChevronDown, ShieldAlert, ListChecks, Pencil, Check, GraduationCap } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 import { AnexoFirmarPdf } from '@/app/components/AnexoFirmarPdf';
 
@@ -23,10 +23,10 @@ interface PendienteInline {
 }
 type SegmentoCeldaUI =
   | { t: 'texto'; v: string }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string; id?: string }
   | { t: 'input'; id: string };
 interface CeldaTablaUI {
-  texto: string; auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }; input?: { id: string };
+  texto: string; auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string; id?: string }; input?: { id: string };
   // Blanco inline DENTRO de una celda con texto propio ("SI ____ NO ____ declaro...") — ver el
   // mismo campo en anexos-rellenar.ts.
   segmentosInline?: SegmentoCeldaUI[];
@@ -45,7 +45,7 @@ interface SeccionEscaneada { titulo: string; campos: CampoSeccionEscaneada[]; oc
 type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
 type SegmentoUI =
   | { t: 'texto'; v: string; negrita?: boolean; subrayado?: boolean }
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string; id?: string }
   | { t: 'input'; id: string; largo?: number }
   | { t: 'salto' };
 interface BloqueParrafoUI {
@@ -89,15 +89,34 @@ interface Analisis {
 // `rellenosPorParaId` en anexos-rellenar.ts) no hay con qué enseñarle una regla al motor — se
 // muestra el valor igual, solo que sin el lápiz de corrección.
 function CampoAuto({
-  valor, via, etiqueta, codigo, onCorregido, prefijo,
+  valor, via, etiqueta, codigo, onCorregido, prefijo, id, valorEditado, onEditar,
 }: {
   valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string; codigo: string;
   onCorregido: () => void; prefijo?: string;
+  // `id` + `onEditar`: corregir el valor SOLO EN ESTE DOCUMENTO, sin enseñarle nada al motor
+  // (pedido explícito del usuario, 1-sep-2026: "que nos deje editar las cosas que ponemos
+  // automáticas... no para que aprenda a llenar sino para no cometer errores"). La corrección se
+  // guarda en `respuestas[id]`, el mismo canal por donde viajan las casillas escritas a mano, y el
+  // generador la respeta por encima de lo que él había resuelto.
+  id?: string; valorEditado?: string; onEditar?: (id: string, valor: string) => void;
 }) {
   const toast = useToast();
   const [editando, setEditando] = useState(false);
-  const [valorNuevo, setValorNuevo] = useState(valor);
+  // Lo que se muestra es la corrección si existe; si no, lo que resolvió el motor.
+  const valorMostrado = valorEditado != null && valorEditado.trim() ? valorEditado : valor;
+  const [valorNuevo, setValorNuevo] = useState(valorMostrado);
   const [guardando, setGuardando] = useState(false);
+  const editable = !!(id && onEditar);
+  const corregidoAMano = valorMostrado !== valor;
+
+  // Guardar la corrección en el documento y nada más: no toca el motor, no enseña ninguna regla,
+  // no re-analiza (re-analizar volvería a resolver la casilla y pisaría lo recién escrito).
+  const guardarSoloAqui = () => {
+    const nuevo = valorNuevo.trim();
+    if (!nuevo || !id || !onEditar) return;
+    onEditar(id, nuevo);
+    setEditando(false);
+  };
   // 'ordenes_compra' (14-ago-2026): candidato de experiencia sacado de una OC REAL nuestra —
   // mismo color de aviso que 'bases' (ámbar, no verde) a propósito: es un dato real, pero la
   // pertinencia frente a lo que ESTA licitación pide de experiencia la tiene que confirmar un
@@ -107,9 +126,13 @@ function CampoAuto({
   // Aprobaciones), no un dato adivinado.
   const colorClase = via === 'costeo' ? 'text-cyan-700' : via === 'bases' || via === 'ordenes_compra' ? 'text-amber-700' : via === 'auditor' ? 'text-violet-700' : 'text-emerald-700';
 
+  // La corrección que además ENSEÑA: la casilla se corrige acá y el motor aprende la regla para
+  // los próximos anexos. Es la de siempre, ahora explícita en su propio botón — antes era el único
+  // camino, así que arreglar una errata puntual dejaba una regla aprendida que nadie pidió.
   const guardarCorreccion = async () => {
     const corregido = valorNuevo.trim();
     if (!corregido || !etiqueta) return;
+    if (id && onEditar) onEditar(id, corregido);
     setGuardando(true);
     try {
       const r = await fetch('/api/anexos/feedback', {
@@ -145,18 +168,34 @@ function CampoAuto({
           type="text"
           value={valorNuevo}
           onChange={e => setValorNuevo(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') guardarCorreccion(); if (e.key === 'Escape') setEditando(false); }}
+          onKeyDown={e => {
+            if (e.key === 'Enter') { editable ? guardarSoloAqui() : guardarCorreccion(); }
+            if (e.key === 'Escape') setEditando(false);
+          }}
           autoFocus
           className="inline-block w-40 px-1 py-0.5 text-[12px] bg-white border border-indigo-300 rounded-sm focus:outline-none focus:ring-1 focus:ring-indigo-400"
         />
+        {editable && (
+          <button
+            type="button" disabled={!valorNuevo.trim()} onClick={guardarSoloAqui}
+            title="Usar este valor en este documento (no enseña nada al sistema)"
+            className="inline-flex items-center justify-center w-5 h-5 rounded bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white"
+          >
+            <Check size={10} />
+          </button>
+        )}
+        {etiqueta && (
+          <button
+            type="button" disabled={guardando || !valorNuevo.trim()} onClick={guardarCorreccion}
+            title="Usarlo acá Y enseñárselo al sistema para los próximos anexos"
+            className="inline-flex items-center justify-center h-5 px-1.5 gap-0.5 rounded bg-violet-600 hover:bg-violet-700 disabled:bg-violet-300 text-white text-[9.5px] font-bold"
+          >
+            {guardando ? <Loader2 size={10} className="animate-spin" /> : <GraduationCap size={10} />}
+            aprender
+          </button>
+        )}
         <button
-          type="button" disabled={guardando || !valorNuevo.trim()} onClick={guardarCorreccion} title="Guardar corrección"
-          className="inline-flex items-center justify-center w-5 h-5 rounded bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white"
-        >
-          {guardando ? <Loader2 size={10} className="animate-spin" /> : <Check size={10} />}
-        </button>
-        <button
-          type="button" onClick={() => { setEditando(false); setValorNuevo(valor); }} title="Cancelar"
+          type="button" onClick={() => { setEditando(false); setValorNuevo(valorMostrado); }} title="Cancelar"
           className="inline-flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
         >
           <X size={10} />
@@ -167,23 +206,24 @@ function CampoAuto({
 
   return (
     <span
-      className={`group/campo inline-flex items-center gap-0.5 font-semibold ${colorClase} ${etiqueta ? 'cursor-pointer' : ''}`}
+      className={`group/campo inline-flex items-center gap-0.5 font-semibold ${corregidoAMano ? 'text-indigo-700 underline decoration-dotted' : colorClase} ${etiqueta || editable ? 'cursor-pointer' : ''}`}
       title={
-        !etiqueta ? undefined
+        corregidoAMano ? 'Lo corregiste a mano para este documento — clic para volver a editarlo'
+          : !etiqueta && !editable ? undefined
           : via === 'costeo' ? 'Precio cruzado con el costeo subido — clic para corregir'
           : via === 'auditor' ? 'Sacado del Auditor Técnico/Comercial ya aprobado por el asesor — clic para corregir'
           : via === 'bases' ? 'Sacado del texto de las Bases — clic para corregir'
           : via === 'ordenes_compra' ? 'Candidato de una Orden de Compra real nuestra — verifica que sea pertinente antes de presentar, clic para corregir'
           : 'Completado por IA — clic para corregir'
       }
-      onClick={etiqueta ? () => setEditando(true) : undefined}
+      onClick={etiqueta || editable ? () => { setValorNuevo(valorMostrado); setEditando(true); } : undefined}
     >
-      {prefijo ? `${prefijo} ${valor}` : valor}
+      {prefijo ? `${prefijo} ${valorMostrado}` : valorMostrado}
       {via === 'costeo' && <span className="shrink-0 text-[9px] font-bold align-super">$</span>}
       {via === 'auditor' && <span className="shrink-0 text-[9px] font-bold align-super">auditor</span>}
       {via === 'bases' && <span className="shrink-0 text-[9px] font-bold align-super">bases</span>}
       {via === 'ordenes_compra' && <span className="shrink-0 text-[9px] font-bold align-super">OC</span>}
-      {etiqueta && <Pencil size={9} className="shrink-0 opacity-0 group-hover/campo:opacity-60 transition-opacity" />}
+      {(etiqueta || editable) && <Pencil size={9} className="shrink-0 opacity-0 group-hover/campo:opacity-60 transition-opacity" />}
     </span>
   );
 }
@@ -259,7 +299,10 @@ function TablaReal({
                         if (s.t === 'texto') return <span key={k}>{s.v}</span>;
                         if (s.t === 'auto') {
                           return (
-                            <CampoAuto key={k} valor={s.v} via={s.via} etiqueta={s.etiqueta} codigo={codigo} onCorregido={onCorregido} />
+                            <CampoAuto
+                              key={k} valor={s.v} via={s.via} etiqueta={s.etiqueta} codigo={codigo} onCorregido={onCorregido}
+                              id={s.id} valorEditado={s.id ? respuestas[s.id] : undefined} onEditar={onChange}
+                            />
                           );
                         }
                         return (
@@ -293,6 +336,7 @@ function TablaReal({
                     <CampoAuto
                       valor={c.auto.valor} via={c.auto.via} etiqueta={c.auto.etiqueta} prefijo={c.texto || undefined}
                       codigo={codigo} onCorregido={onCorregido}
+                      id={c.auto.id} valorEditado={c.auto.id ? respuestas[c.auto.id] : undefined} onEditar={onChange}
                     />
                   ) : (
                     <span className="text-slate-700">{c.texto}</span>
@@ -350,7 +394,12 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, codigo, onCorregi
         }
         if (modoOriginal) return <BlancoOriginal key={i} largo={s.t === 'input' ? s.largo : s.v.length} />;
         if (s.t === 'auto') {
-          return <CampoAuto key={i} valor={s.v} via={s.via} etiqueta={s.etiqueta} codigo={codigo} onCorregido={onCorregido} />;
+          return (
+            <CampoAuto
+              key={i} valor={s.v} via={s.via} etiqueta={s.etiqueta} codigo={codigo} onCorregido={onCorregido}
+              id={s.id} valorEditado={s.id ? respuestas[s.id] : undefined} onEditar={onChange}
+            />
+          );
         }
         const motivo = motivoPorId.get(s.id);
         return (

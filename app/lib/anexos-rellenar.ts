@@ -89,7 +89,9 @@ export interface CeldaTablaUI {
   texto: string;                                   // texto ya existente en el Word (columna, dato fijo)
   // `etiqueta` — de dónde viene este valor (ver ResolucionMostrada) — viaja hasta el frontend para
   // que el botón "corregir" (ver anexos-feedback.ts) sepa a qué TIPO de casilla enseñarle la regla.
-  auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string };   // se completó sola — se muestra el valor, sin input
+  // `id`: la misma clave que llevaría si estuviera pendiente — con ella la pantalla puede corregir
+  // el valor sin enseñarle nada al motor (ver SegmentoUI en anexos-documento-ui.ts).
+  auto?: { valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string; id?: string };   // se completó sola — se muestra el valor, sin input
   input?: { id: string };                          // blanco real pendiente — el mismo id que usa generarAnexoFinal
   // BUG REAL (3713-7-LE26): una celda con texto propio que además trae un blanco INLINE adentro
   // ("SI ____ NO ____ declaro...", "Plazo de entrega ……… días hábiles") nunca calzaba con
@@ -630,7 +632,7 @@ function construirTablaUI(
         for (const idx of c.indicesParrafos) {
           const res = resolucionPorIndice.get(idx);
           if (!res) continue;
-          if (res.tipo === 'auto') return { texto: c.texto, auto: { valor: res.valor, via: res.via, etiqueta: res.etiqueta } };
+          if (res.tipo === 'auto') return { texto: c.texto, auto: { valor: res.valor, via: res.via, etiqueta: res.etiqueta, id: res.id } };
           return { texto: c.texto, input: { id: res.id } };
         }
         const segmentosInline = segmentosDeCelda(c.indicesParrafos, blancosPorParrafo, porBlancoInline, parrafos);
@@ -644,7 +646,7 @@ function construirTablaUI(
       // `c.texto` sigue siendo '' para una celda realmente vacía (sin cambio de comportamiento) —
       // pero conserva el prefijo de moneda ("$") en una celda dosPuntos, que si no desaparecía de
       // la vista aunque el .docx generado sí lo mantuviera (ver detectarCandidatosTabla).
-      if (res.tipo === 'auto') return { texto: c.texto, auto: { valor: res.valor, via: res.via, etiqueta: res.etiqueta } };
+      if (res.tipo === 'auto') return { texto: c.texto, auto: { valor: res.valor, via: res.via, etiqueta: res.etiqueta, id: res.id } };
       return { texto: c.texto, input: { id: res.id } };
     })),
   };
@@ -685,7 +687,7 @@ export interface AnalisisAnexo {
 }
 
 type ResolucionMostrada =
-  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor' }
+  | { tipo: 'auto'; etiqueta: string; campo: string; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; id: string }
   | { tipo: 'pendiente'; etiqueta: string; id: string };
 
 export async function analizarAnexoParaUI(
@@ -758,7 +760,10 @@ export async function analizarAnexoParaUI(
       etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via,
       formulario: formularioDe(m.c.indice, formularios), indice: m.c.indice,
     });
-    resolucionPorIndice.set(m.c.indice, { tipo: 'auto', etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via });
+    // El id es el MISMO que tendría esta casilla si hubiera quedado pendiente — así una corrección
+    // escrita desde la pantalla entra por el canal que el generador ya respeta (ver el bucle de
+    // `matcheados` en generarAnexoFinal: lo que escribió el humano manda sobre lo automático).
+    resolucionPorIndice.set(m.c.indice, { tipo: 'auto', etiqueta: m.c.etiqueta, campo: m.campo, valor: m.valor, via: m.via, id: `celda:${m.c.indice}` });
   }
 
   const pendientesCeldaTodos: PendienteCelda[] = pendientesFiltrados.map(c => {
@@ -772,7 +777,10 @@ export async function analizarAnexoParaUI(
   // celda con texto propio puede traer un blanco inline adentro (ver segmentosDeCelda arriba).
   const porBlancoInline = new Map<string, Resuelto>();
   for (const a of inlineAuto) {
-    porBlancoInline.set(`${a.b.indiceRun}:${a.b.posEnTexto}`, { tipo: 'auto', valor: a.valor, via: a.via, etiqueta: a.etiqueta });
+    porBlancoInline.set(`${a.b.indiceRun}:${a.b.posEnTexto}`, {
+      tipo: 'auto', valor: a.valor, via: a.via, etiqueta: a.etiqueta,
+      id: `inline:${a.b.indiceRun}:${a.b.posEnTexto}`,
+    });
   }
   for (const { b } of inlinePendientes) {
     porBlancoInline.set(`${b.indiceRun}:${b.posEnTexto}`, { tipo: 'pendiente', id: `inline:${b.indiceRun}:${b.posEnTexto}` });
@@ -853,7 +861,7 @@ export async function analizarAnexoParaUI(
   const porParrafo = new Map<number, Resuelto>();
   for (const [indice, res] of resolucionPorIndice) {
     porParrafo.set(indice, res.tipo === 'auto'
-      ? { tipo: 'auto', valor: res.valor, via: res.via, etiqueta: res.etiqueta }
+      ? { tipo: 'auto', valor: res.valor, via: res.via, etiqueta: res.etiqueta, id: res.id }
       : { tipo: 'pendiente', id: res.id });
   }
   const documento = construirDocumentoUI({
@@ -989,6 +997,17 @@ export async function generarAnexoFinal(
     if (b.textoRunOriginal != null) textoEsperadoPorRun.set(b.indiceRun, b.textoRunOriginal);
   };
   for (const a of inlineAuto) {
+    // LO QUE ESCRIBIÓ EL HUMANO MANDA, también acá. Las CELDAS ya lo hacían (ver el bucle de
+    // `matcheados` más abajo); los blancos inline no, así que una corrección hecha sobre un valor
+    // que el motor había completado solo se perdía en silencio y el documento salía con el valor
+    // viejo. Pedido explícito del usuario (1-sep-2026): poder editar lo automático "para no
+    // cometer errores", sin que eso enseñe ninguna regla.
+    const corregido = respuestas[`inline:${a.b.indiceRun}:${a.b.posEnTexto}`];
+    if (corregido && corregido.trim() && corregido.trim() !== a.valor) {
+      anotar(a.b, corregido.trim(), a.pegadoALaIzquierda);
+      respondidos++;
+      continue;
+    }
     anotar(a.b, a.valor, a.pegadoALaIzquierda);
     completadosInline++;
   }

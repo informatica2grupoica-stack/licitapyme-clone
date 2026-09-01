@@ -342,7 +342,7 @@ export function campoCalzaConLaEtiqueta(etiqueta: string, valor: string): boolea
 // `fecha_hoy` (la fecha larga, "6 de agosto de 2026") sí es un valor válido para una celda "FECHA".
 const CAMPOS_SOLO_PARA_TRIPLETE_DE_FECHA = new Set<string>(['fecha_hoy_dia', 'fecha_hoy_mes', 'fecha_hoy_anio', 'fecha_hoy_anio_corto', 'fecha_hoy_mes_palabra']);
 
-const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
+export const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   razon_social: 'Razón social / nombre de la empresa',
   rut: 'RUT de la empresa',
   direccion: 'Dirección comercial COMPLETA (calle + número + comuna) — úsalo SOLO si la casilla pide "Domicilio"/"Dirección" en UNA sola casilla. Si la casilla dice "Calle", "N°"/"Número", "Comuna" o "Ciudad" por separado, usa el campo específico de abajo, nunca este entero.',

@@ -28,7 +28,13 @@ export type SegmentoUI =
   // `etiqueta` — de dónde salió este valor (ver ResueltoAuto) — viaja hasta el frontend para que
   // el botón "corregir" (feedback loop, ver anexos-feedback.ts) sepa a qué TIPO de casilla
   // enseñarle la regla cuando el usuario diga que este valor está mal.
-  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
+  // `id` es la MISMA clave con la que viajaría si estuviera pendiente (`celda:N` /
+  // `inline:run:pos`). Con ella, la pantalla puede CORREGIR un valor que se completó solo sin
+  // enseñarle nada al motor: escribe la corrección en `respuestas[id]` y el generador la respeta
+  // por encima de lo que él mismo había resuelto. Pedido explícito del usuario (1-sep-2026):
+  // "que nos deje editar las cosas que ponemos automáticas... no para que aprenda a llenar sino
+  // para no cometer errores".
+  | { t: 'auto'; v: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string; id?: string }
   | { t: 'input'; id: string; largo?: number }
   | { t: 'salto' };
 
@@ -48,7 +54,7 @@ export type BloqueUI<T> = BloqueParrafoUI | BloqueTablaUI<T>;
 // por BLANCO INLINE (una corrida de ____ dentro de una oración, que puede haber varias en el
 // mismo párrafo). Las claves son exactamente las que ya usan los ids de los pendientes, para
 // que lo que se escriba en pantalla vuelva al backend apuntando al mismo lugar.
-export interface ResueltoAuto { tipo: 'auto'; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string }
+export interface ResueltoAuto { tipo: 'auto'; valor: string; via: 'ia' | 'costeo' | 'bases' | 'ordenes_compra' | 'auditor'; etiqueta?: string; id?: string }
 export interface ResueltoInput { tipo: 'pendiente'; id: string }
 export type Resuelto = ResueltoAuto | ResueltoInput;
 
@@ -265,7 +271,9 @@ export function construirDocumentoUI<T>({
           if (!res) continue;
           if (b.posEnTexto > cursor) segmentos.push({ t: 'texto', v: texto.slice(cursor, b.posEnTexto), negrita, subrayado });
           segmentos.push(res.tipo === 'auto'
-            ? { t: 'auto', v: res.valor, via: res.via, etiqueta: res.etiqueta }
+            // `id` solo si existe: agregar la clave con `undefined` cambia la forma del objeto y
+            // rompe cualquier comparacion exacta contra la salida de este modulo.
+            ? { t: 'auto', v: res.valor, via: res.via, etiqueta: res.etiqueta, ...(res.id ? { id: res.id } : {}) }
             : { t: 'input', id: res.id, largo: b.largo });
           cursor = b.posEnTexto + b.largo;
         }
@@ -281,7 +289,7 @@ export function construirDocumentoUI<T>({
     const delParrafo = porParrafo.get(indiceParrafo);
     if (delParrafo) {
       segmentos.push(delParrafo.tipo === 'auto'
-        ? { t: 'auto', v: delParrafo.valor, via: delParrafo.via, etiqueta: delParrafo.etiqueta }
+        ? { t: 'auto', v: delParrafo.valor, via: delParrafo.via, etiqueta: delParrafo.etiqueta, ...(delParrafo.id ? { id: delParrafo.id } : {}) }
         : { t: 'input', id: delParrafo.id });
     }
 

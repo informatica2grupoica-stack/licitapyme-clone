@@ -1827,3 +1827,21 @@ test('blancos inline: pie de dos columnas — cada raya toma el rotulo de SU col
   // La de la segunda columna NO es una casilla de texto: es donde va la imagen de la firma.
   assert.equal(doc.lineasFirma.length, 1);
 });
+
+// EDITAR LO QUE SE LLENO SOLO (1-sep-2026, pedido explicito del usuario: "que nos deje editar las
+// cosas que ponemos automaticas... no para que aprenda a llenar sino para no cometer errores").
+// La correccion viaja por `respuestas[id]`, el mismo canal de las casillas escritas a mano. Las
+// CELDAS ya lo respetaban; los blancos INLINE no, asi que la correccion se perdia en silencio y el
+// documento salia con el valor viejo. Mismo patron de fijacion por fuente que el test de arriba:
+// generarAnexoFinal no tiene fixture completo, y lo que hay que garantizar es que ese cruce exista.
+test('generarAnexoFinal: una correccion del humano pisa el valor automatico tambien en los inline', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const src = readFileSync(fileURLToPath(new URL('../anexos-rellenar.ts', import.meta.url)), 'utf8');
+  assert.match(src, /for \(const a of inlineAuto\) \{[\s\S]{0,600}respuestas\[`inline:\$\{a\.b\.indiceRun\}:\$\{a\.b\.posEnTexto\}`\]/,
+    'el bucle de inlineAuto debe mirar la respuesta del humano antes de escribir su propio valor');
+  // Y cada valor automatico tiene que salir CON su id: sin id, la pantalla no tiene por donde
+  // mandar la correccion y el boton de editar no puede existir.
+  assert.match(src, /id: `celda:\$\{m\.c\.indice\}`/);
+  assert.match(src, /id: `inline:\$\{a\.b\.indiceRun\}:\$\{a\.b\.posEnTexto\}`/);
+});
