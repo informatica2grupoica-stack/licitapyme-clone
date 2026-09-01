@@ -621,6 +621,35 @@ const RE_TRAMO_PUNTOS = /[.…]{2,}/g;
 const RE_TRAMO_RAYAS = /_{2,}/g;
 
 // Encuentra, en un <w:t> YA DECODIFICADO (ver decodificarXml), cada blanco con su contexto previo.
+// RÓTULO-PLACEHOLDER pegado ANTES del blanco: el organismo escribe en MAYÚSCULAS qué va en la
+// casilla, y la casilla viene justo después — "Yo, NOMBRE APELLIDO ______________, cédula de
+// identidad N° ______" (FORMULARIO N°3 PROGRAMA DE INTEGRIDAD). Al rellenar solo el blanco quedaba
+// "Yo, NOMBRE APELLIDO Lidia Valenzuela," con la instrucción impresa en medio de la declaración —
+// reportado el 1-sep-2026: "y eso no puede ser". Ese rótulo NO es parte de la oración: sacándolo,
+// la frase queda perfecta ("Yo, Lidia Valenzuela, cédula de identidad N°…").
+//
+// LISTA CERRADA y en MAYÚSCULAS, a propósito. Un rótulo en minúsculas ("cédula de identidad N°",
+// "RUT N°") SÍ es parte de la oración y borrarlo la rompería: el dato quedaría suelto sin decir
+// qué es. Solo se absorbe lo que describe a la persona o a la empresa y no aporta gramática.
+const RE_PLACEHOLDER_ANTES_DEL_BLANCO = new RegExp(
+  '(?:'
+  + 'NOMBRES?(?:\\s+Y)?\\s+APELLIDOS?'
+  + '|(?:NOMBRE|RUT|R\\.?U\\.?T\\.?|RAZ[OÓ]N\\s+SOCIAL)(?:\\s+(?:DEL?|DE\\s+LA))?'
+  + '\\s+(?:OFERENTE|PROPONENTE|POSTULANTE|PARTICIPANTE|EMPRESA|SOCIEDAD|REPRESENTANTE(?:\\s+LEGAL)?|DECLARANTE)'
+  + ')\\s*[,:]?\\s*$',
+);
+
+/**
+ * Cuántos caracteres, justo antes del blanco que empieza en `pos`, son un rótulo-placeholder que
+ * hay que reemplazar JUNTO con el blanco. 0 si no hay ninguno. La usan la detección (para marcar
+ * `absorbeAntes` en el candidato) y la réplica de pantalla (para mostrar la frase igual que va a
+ * salir en el documento) — una sola definición, así no pueden divergir.
+ */
+export function absorbeAntesDelBlanco(textoRun: string, pos: number): number {
+  const m = textoRun.slice(0, pos).match(RE_PLACEHOLDER_ANTES_DEL_BLANCO);
+  return m ? m[0].length : 0;
+}
+
 export function listarBlancosInline(textoRun: string): BlancoInline[] {
   const crudos: { pos: number; largo: number; textoMarcador?: string }[] = [];
   for (const m of textoRun.matchAll(RE_RAYAS)) crudos.push({ pos: m.index!, largo: m[0].length });

@@ -991,9 +991,15 @@ export async function generarAnexoFinal(
   // Texto que el DETECTOR vio en cada run — se le pasa a rellenarRunPorIndice para que verifique
   // que está escribiendo donde cree. Ver el cinturón de seguridad en anexos-docx.ts.
   const textoEsperadoPorRun = new Map<number, string>();
-  const anotar = (b: CandidatoInline, valor: string, pegadoALaIzquierda?: boolean) => {
+  // `absorber`: además del blanco se reemplaza el rótulo-placeholder que lo precede ("NOMBRE
+  // APELLIDO ____" → el nombre ocupa los dos). Solo para valores que se llenan solos — si la
+  // casilla queda pendiente, el rótulo se conserva porque es la única pista de qué escribir ahí.
+  const anotar = (b: CandidatoInline, valor: string, pegadoALaIzquierda?: boolean, absorber = false) => {
+    const corrimiento = absorber ? (b.absorbeAntes ?? 0) : 0;
     if (!porRun.has(b.indiceRun)) porRun.set(b.indiceRun, []);
-    porRun.get(b.indiceRun)!.push({ pos: b.posEnTexto, largo: b.largo, valor, pegadoALaIzquierda });
+    porRun.get(b.indiceRun)!.push({
+      pos: b.posEnTexto - corrimiento, largo: b.largo + corrimiento, valor, pegadoALaIzquierda,
+    });
     if (b.textoRunOriginal != null) textoEsperadoPorRun.set(b.indiceRun, b.textoRunOriginal);
   };
   for (const a of inlineAuto) {
@@ -1004,11 +1010,11 @@ export async function generarAnexoFinal(
     // cometer errores", sin que eso enseñe ninguna regla.
     const corregido = respuestas[`inline:${a.b.indiceRun}:${a.b.posEnTexto}`];
     if (corregido && corregido.trim() && corregido.trim() !== a.valor) {
-      anotar(a.b, corregido.trim(), a.pegadoALaIzquierda);
+      anotar(a.b, corregido.trim(), a.pegadoALaIzquierda, true);
       respondidos++;
       continue;
     }
-    anotar(a.b, a.valor, a.pegadoALaIzquierda);
+    anotar(a.b, a.valor, a.pegadoALaIzquierda, true);
     completadosInline++;
   }
   for (const { b } of inlinePendientes) {

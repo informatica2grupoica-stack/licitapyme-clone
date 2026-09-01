@@ -2,7 +2,7 @@
 // Frente E.1 — detección de campos a rellenar en un anexo real, sin conocimiento previo del
 // documento. Probado contra 4 anexos reales de 4 organismos (Chile Chico, Lo Barnechea, y 2
 // más) — ver docs/BITACORA-CAMBIOS-VIABILIDAD.md para el detalle de cada hallazgo.
-import { listarParrafos, listarBlancosInline, parrafoEstaVacio, decodificarXml, textoDeRuns, iterarTablas, type Parrafo } from '@/app/lib/anexos-docx';
+import { listarParrafos, listarBlancosInline, parrafoEstaVacio, decodificarXml, textoDeRuns, iterarTablas, type Parrafo, absorbeAntesDelBlanco } from '@/app/lib/anexos-docx';
 import { RE_ENCABEZADO_FORMULARIO } from '@/app/lib/anexos-dividir';
 
 // Vocabulario de ROL cercano a una etiqueta duplicada ("<contexto> — <campo>", ver
@@ -1002,6 +1002,11 @@ export interface CandidatoInline {
   // "contexto" recortado a 60 caracteres, blancos de una declaración jurada corrida como "de ___
   // de ___" no se entendían sin abrir el Word).
   parrafoCompleto: string; posEnParrafo: number;
+  // Cuántos caracteres ANTES del blanco son un rótulo-placeholder que hay que reemplazar JUNTO con
+  // él ("Yo, NOMBRE APELLIDO ____" → se escribe sobre "NOMBRE APELLIDO ____", no después). Solo se
+  // aplica si la casilla se llena sola; si queda pendiente no se borra nada. Ver
+  // RE_PLACEHOLDER_ANTES_DEL_BLANCO.
+  absorbeAntes?: number;
   // Campo de la ficha resuelto por la ESTRUCTURA del documento, igual que el `campoFijo` de las
   // celdas: un "NOMBRE_____" / "R.U.T. _____" pegado al bloque de "FIRMA REPRESENTANTE LEGAL" es,
   // sin ninguna ambiguedad, el dato de ESA persona. Ver asignarCamposDeBloqueFirmaInline.
@@ -1099,7 +1104,14 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
   };
 
   // Un rótulo de FIRMA no es una casilla de texto: ahí va la IMAGEN (lo maneja detectarLineasFirma).
+  // Y tampoco lo es una raya que tiene la leyenda de firma ARRIBA, aunque debajo lleve un rótulo
+  // que nombre un dato: "Firma del oferente…" / "______" / "NOMBRE DEL OFERENTE" es un bloque de
+  // firma con su caption, no una casilla donde escribir la razón social (BUG REAL 1-sep-2026: la
+  // razón social se escribía justo encima de la línea donde tiene que ir la firma, y de paso el
+  // documento se quedaba sin ningún lugar donde firmar).
   const rotuloDeLaRaya = (indice: number): string => {
+    const arriba = textoDeParrafo(indice - 1);
+    if (arriba && RE_ROTULO_ES_FIRMA.test(arriba)) return '';
     const propio = rotuloEmparejadoDeRaya(textoDeParrafo, indice);
     return propio && !RE_ROTULO_ES_FIRMA.test(propio) && esEtiquetaDeCampo(propio) ? propio : '';
   };
@@ -1139,9 +1151,14 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
         // Cuánto espacio se recorta por la izquierda al hacer trim() — para correr posEnParrafo
         // en la misma medida y que siga apuntando al blanco real dentro del texto YA recortado.
         const recorteIzquierdo = textoParrafoCompleto.length - textoParrafoCompleto.trimStart().length;
+        // El rótulo se busca dentro del MISMO run que el blanco: `posEnTexto`/`largo` son
+        // coordenadas de run (es lo que edita rellenarRunPorIndice), así que absorber texto que
+        // vive en otro run correría la escritura a un lugar equivocado.
+        const rotuloPegado = absorbeAntesDelBlanco(texto, b.posEnTexto);
         out.push({
           indiceRun: indiceRunGlobal, indiceParrafo,
           textoRunOriginal: texto, posEnTexto: b.posEnTexto, largo: b.largo,
+          ...(rotuloPegado ? { absorbeAntes: rotuloPegado } : {}),
           // Con la raya sola, el ROTULO DE ABAJO es el unico contexto que existe — mostrarlo (en la
           // pantalla y en el prompt de la IA) es bastante mejor que "(sin contexto)", que no le
           // dice nada ni al usuario ni al modelo.
@@ -1751,6 +1768,28 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
         if (parrafos[i + 1]) leyendasConRaya.add(parrafos[i + 1].indice);
         if (partes.length > 1 && parrafos[i + 2]) leyendasConRaya.add(parrafos[i + 2].indice);
         if (partes.length > 2 && parrafos[i + 3]) leyendasConRaya.add(parrafos[i + 3].indice);
+        continue;
+      }
+    }
+
+    // Caso A-bis: la leyenda va ARRIBA y la raya DEBAJO — "Firma del oferente o de su(s)
+    // representante(s), si es persona jurídica" y en el renglón siguiente la línea donde se firma
+    // (FORMULARIO N°3 PROGRAMA DE INTEGRIDAD, reportado el 1-sep-2026: "no me da la opción de poner
+    // la firma, el botón sale directo a generar documento"). Ninguno de los tres casos lo cubría:
+    // el A busca la leyenda DEBAJO de la raya, el B la busca en el MISMO párrafo, y el C es para
+    // leyendas SIN raya y además exige `esEtiquetaDeCampo`, que una leyenda de once palabras como
+    // esa no pasa. Resultado: el documento salía sin ningún lugar de firma y el paso de firma ni
+    // aparecía. Acá no hace falta `esEtiquetaDeCampo`: la señal fuerte es la RAYA pegada abajo,
+    // igual que en el Caso A pero al revés.
+    if (esRayaLarga(p.texto) && !usados.has(p.indice)) {
+      const arriba = parrafos[i - 1];
+      const leyendaArriba = arriba && !arriba.vacio && arriba.texto.length <= LARGO_MAX_LEYENDA_FIRMA
+        && !RE_TIENE_BLANCO_PROPIO.test(arriba.texto) && RE_LEYENDA_FIRMA.test(arriba.texto)
+        ? arriba
+        : null;
+      if (leyendaArriba) {
+        agregar(p, leyendaArriba.texto.trim(), leyendaArriba);
+        leyendasConRaya.add(leyendaArriba.indice);
         continue;
       }
     }

@@ -1845,3 +1845,43 @@ test('generarAnexoFinal: una correccion del humano pisa el valor automatico tamb
   assert.match(src, /id: `celda:\$\{m\.c\.indice\}`/);
   assert.match(src, /id: `inline:\$\{a\.b\.indiceRun\}:\$\{a\.b\.posEnTexto\}`/);
 });
+
+// LEYENDA ARRIBA, RAYA ABAJO (1-sep-2026, FORMULARIO N°3 PROGRAMA DE INTEGRIDAD, reportado con
+// captura: "no me da la opcion de poner la firma, el boton sale directo a generar documento").
+// El pie es "Firma del oferente o de su(s) representante(s), si es persona juridica" y DEBAJO la
+// linea. El Caso A busca la leyenda debajo de la raya, el B en el mismo parrafo y el C exige
+// `esEtiquetaDeCampo`, que una leyenda de once palabras no pasa: el documento salia con CERO
+// lugares de firma y el paso de firma ni aparecia.
+test('lineas de firma: la leyenda ARRIBA y la raya DEBAJO tambien es un bloque de firma', () => {
+  const doc = analizarAnexo(normalizarParaIds(
+    NS
+    + p('Firma del oferente o de su(s) representante(s), si es persona juridica')
+    + p('__________________________')
+    + p('NOMBRE DEL OFERENTE')
+    + p('RUT DEL OFERENTE')
+    + FIN,
+  ).xml);
+
+  assert.equal(doc.lineasFirma.length, 1);
+  assert.match(doc.lineasFirma[0].contexto, /Firma del oferente/);
+
+  // Y esa raya NO es una casilla de texto: el rotulo de abajo ("NOMBRE DEL OFERENTE") no la
+  // convierte en el lugar donde escribir la razon social — ahi va la imagen de la firma.
+  assert.equal(doc.blancosInline.filter(b => b.rotuloDebajo).length, 0);
+});
+
+// ROTULO-PLACEHOLDER PEGADO AL BLANCO (mismo documento, mismo reporte: "dice Yo, NOMBRE APELLIDOS
+// y despues pones el nombre del representante, y eso no puede ser"). El organismo escribe en
+// MAYUSCULAS que va en la casilla; al rellenar solo el blanco quedaba la instruccion impresa en
+// medio de la declaracion jurada.
+test('blancos inline: el rotulo en MAYUSCULAS pegado antes del blanco se reemplaza con el valor', () => {
+  const doc = analizarAnexo(normalizarParaIds(
+    NS + p('Yo, NOMBRE APELLIDO ______________, cedula de identidad N° _____________,') + FIN,
+  ).xml);
+
+  const [nombre, cedula] = doc.blancosInline;
+  assert.equal(nombre.absorbeAntes, 'NOMBRE APELLIDO '.length);
+  // "cedula de identidad N°" va en minusculas y ES parte de la oracion: no se toca, o el dato
+  // quedaria suelto sin decir que es.
+  assert.equal(cedula.absorbeAntes, undefined);
+});

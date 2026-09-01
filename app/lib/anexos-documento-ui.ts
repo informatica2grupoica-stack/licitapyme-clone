@@ -19,7 +19,7 @@
 // el motor de IA (anexos-ia-motor.ts) y los patrones de detección (anexos-detectar.ts); acá solo
 // se recibe el resultado ya resuelto y se ubica en el lugar del documento donde corresponde.
 import type JSZip from 'jszip';
-import { listarBlancosInline, decodificarXml, finDeTabla } from '@/app/lib/anexos-docx';
+import { listarBlancosInline, decodificarXml, finDeTabla, absorbeAntesDelBlanco } from '@/app/lib/anexos-docx';
 
 export type Alineacion = 'izquierda' | 'centro' | 'derecha' | 'justificado';
 
@@ -269,7 +269,13 @@ export function construirDocumentoUI<T>({
         for (const b of listarBlancosInline(texto)) {
           const res = porBlancoInline.get(`${iRun}:${b.posEnTexto}`);
           if (!res) continue;
-          if (b.posEnTexto > cursor) segmentos.push({ t: 'texto', v: texto.slice(cursor, b.posEnTexto), negrita, subrayado });
+          // El rótulo-placeholder pegado antes del blanco ("Yo, NOMBRE APELLIDO ____") lo REEMPLAZA
+          // el valor cuando la casilla se llena sola — ver absorbeAntesDelBlanco. La réplica tiene
+          // que mostrar exactamente eso, o la pantalla diría "Yo, NOMBRE APELLIDO Lidia Valenzuela"
+          // y el documento generado diría otra cosa.
+          const absorbe = res.tipo === 'auto' ? absorbeAntesDelBlanco(texto, b.posEnTexto) : 0;
+          const hasta = b.posEnTexto - absorbe;
+          if (hasta > cursor) segmentos.push({ t: 'texto', v: texto.slice(cursor, hasta), negrita, subrayado });
           segmentos.push(res.tipo === 'auto'
             // `id` solo si existe: agregar la clave con `undefined` cambia la forma del objeto y
             // rompe cualquier comparacion exacta contra la salida de este modulo.
