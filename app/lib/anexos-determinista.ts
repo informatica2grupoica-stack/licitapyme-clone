@@ -124,7 +124,15 @@ export function normalizarEtiqueta(s: string): string {
     // final obligatorio sigue protegiendo "R.U.T." igual que en la viñeta de número: ahí no hay
     // espacio entre la "r." y la "U", así que nunca se confunde con una viñeta.
     .replace(/^\s*(?:\d+\s*[.)-]+|[a-z]\s*[.)-]+|[-•*])\s+/, ' ')
-    .replace(/[.:;,_·"'“”]+/g, ' ')                      // puntuación y rayas de relleno
+    // BUG REAL (1-sep-2026, FORMATO N°1 IDENTIFICACIÓN DEL PROPONENTE, 4328-32-LP26, reportado por
+    // el usuario: "por qué no me pone la dirección del oferente ni del representante legal"):
+    // "Domicilio del Oferente*" y "Domicilio del Representante Legal*" traen un asterisco de
+    // llamada a pie de página ("*El Domicilio... debe encontrarse dentro del Territorio Nacional")
+    // pegado al final de la etiqueta. El "*" nunca se quitaba (el strip de la línea de arriba solo
+    // reconoce el asterisco como VIÑETA al INICIO), así que ninguna entrada del diccionario —que
+    // termina justo en "oferente"/"representante legal"— calzaba, y las DOS direcciones quedaban
+    // pendientes pese a ser el mismo dato que ya se llenaba en el resto del formulario.
+    .replace(/[.:;,_·"'“”*]+/g, ' ')                      // puntuación y rayas de relleno
     .replace(/\s+/g, ' ')
     .trim()
     .replace(RE_ALTERNATIVA_UTP_AL_FINAL, '')
@@ -327,7 +335,11 @@ export const DICCIONARIO: Entrada[] = [
   // estaba cubierto) quedaba sin diccionario — misma casilla combinada, mismo campo.
   { campo: 'region', patrones: [/^region$/, /^region y comuna$/, /^comuna y region$/, /^ciudad y region$/, /^region\/comuna$/] },
   { campo: 'telefono1', patrones: [
-    new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|fijo))?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
+    // "Teléfono Fijo Representante Legal" / "Teléfono Móvil Contacto" (4328-32-LP26): "fijo"/"movil"
+    // como CALIFICADOR de "teléfono" (no como sinónimo suelto — ese caso ya lo cubre la alternativa
+    // "movil"/"celular" del inicio). La empresa usa el mismo número para fijo y móvil (misma
+    // política que "principal y alternativo"), así que las dos casillas se llenan con telefono1.
+    new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|fijo|movil|celular))?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
     /^telefono\/celular$/, /^fono contacto$/, /^numero de (?:telefono|contacto)$/,
     /^n[°º]? de telefono$/,
     // "TELÉFONO FIJO Y CELULAR" — una sola casilla para las dos formas (anexos reales presentados).
@@ -857,7 +869,15 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   { re: /\b(?:de\s+)?nacionalidad\s*:?\s*$/i, campo: 'nacionalidad' as Campo },
   { re: /\bnombre\s+(?:completo\s+)?(?:del\s+)?(?:representante|apoderado|declarante)?\s*:?\s*$/i, campo: 'representante_nombre' },
   // Cédula de la persona — distinta del RUT de la empresa aunque compartan la oración.
-  { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run)\s*(?:n[°º.]*|numero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
+  //
+  // BUG REAL (1-sep-2026, ANEXO N°7 PLAZO DE EJECUCIÓN, 4373-6/7-LP26, reportado por el usuario:
+  // "si dice yo santiago es obvio que debería ir el rut de él a continuación si lo están
+  // pidiendo"): "cédula de identidad NÚMERO ___" (con tilde, la palabra completa, no la abreviatura
+  // "N°") no calzaba porque el marcador de número solo aceptaba "numero" sin tilde — la MISMA
+  // palabra, escrita como el organismo realmente la escribe, se le escapaba a esta regla y a la
+  // gemela de RUT dos líneas más abajo. "Yo, <nombre>" resolvía bien; "cédula de identidad número
+  // <RUT>", pegado al lado, se quedaba en blanco.
+  { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
   // Domicilio. El "en" es OPCIONAL (1042-9-LE26, F3): "con domicilio ______ en representación de…"
   // pega el blanco directo a "domicilio", sin la preposición — la forma con "en" sigue siendo la
   // más común, pero exigirla dejaba esta variante sin resolver.
@@ -868,11 +888,11 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // genérica de abajo — sin esto, cualquier "RUT" en una declaración jurada se leía como el de la
   // EMPRESA aunque viniera pegado al nombre de la persona que la firma. `[^.]` corta en el punto
   // para no cruzar a una oración distinta si "don" apareció mucho antes en el párrafo.
-  { re: /\b(?:don|do[ñn]a)\b[^.]{0,120}?,\s*(?:r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|numero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
+  { re: /\b(?:don|do[ñn]a)\b[^.]{0,120}?,\s*(?:r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
   // RUT: por defecto el de la EMPRESA. La cédula de la persona ya se atrapó arriba con su palabra
   // propia ("cédula", "C.I.", "RUN"); un "Rut N°" pelado en una declaración jurada acompaña
   // siempre a la razón social recién nombrada.
-  { re: /\b(?:r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|numero|nro)?\s*:?\s*$/i, campo: 'rut' },
+  { re: /\b(?:r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*:?\s*$/i, campo: 'rut' },
   { re: /\bgiro\s*:?\s*$/i, campo: 'giro' },
   { re: /\b(?:tel(?:e|é)fono|fono|celular)\s*:?\s*$/i, campo: 'telefono1' },
   { re: /\b(?:correo(?:\s+electr(?:o|ó)nico)?|e-?mail)\s*:?\s*$/i, campo: 'email1' },
@@ -1048,7 +1068,7 @@ const RE_MARCADOR_INSTRUCCION = /\b(?:indicar|indique|marcar|marque|senalar|señ
 // aplicada al caso marcador. Comma-tolerante a propósito ("identidad Nº," con COMA, no los dos
 // puntos que exige REGLAS_PREVIAS) porque así viene escrito el caso real.
 const RE_MARCADOR_YA_NOMBRA_SU_DATO = /\b(?:rut|run|c[eé]dula)\b/i;
-const RE_ANTES_MARCADOR_ES_CEDULA_O_RUT = /\b(?:c[eé]dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run|r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|numero|nro)?\s*[:,]?\s*$/i;
+const RE_ANTES_MARCADOR_ES_CEDULA_O_RUT = /\b(?:c[eé]dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run|r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*[:,]?\s*$/i;
 
 // BUG REAL atrapado por el banco (1058086-43-LP26): un bloque "Nombre: ___ Cargo: ___
 // Institución: ___" es la firma de un TERCERO que certifica algo del oferente (ej. un cliente

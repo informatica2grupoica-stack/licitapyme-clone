@@ -1636,3 +1636,47 @@ test('inline: fecha con "XX" como hueco del día resuelve igual que con guion ba
   assert.equal(mes, 'fecha_hoy_mes_palabra');
   assert.equal(anio, 'fecha_hoy_anio');
 });
+
+// "NÚMERO" CON TILDE (1-sep-2026, ANEXO N°7 PLAZO DE EJECUCIÓN, 4373-6-LP26 y 4373-7-LP26,
+// reportado por el usuario con captura: "si dice yo santiago es obvio que debería ir el rut de él
+// a continuación si lo están pidiendo"). "Yo, ___, cédula de identidad número ___, en
+// representación de ___, RUT ___..." — el nombre resolvía bien, pero "cédula de identidad NÚMERO"
+// (con tilde, la palabra completa tal como la escribió el organismo) no calzaba: el marcador de
+// número de la regla ("N°"/"numero"/"nro") solo aceptaba "numero" SIN tilde. La misma falla estaba
+// duplicada en la regla gemela de RUT pelado.
+test('inline: "cédula de identidad NÚMERO" (con tilde) resuelve igual que sin tilde o "N°"', () => {
+  const base = { indiceRun: 0, indiceParrafo: 0, textoRunOriginal: '', posEnTexto: 0, largo: 3 };
+  const parrafoCompleto = 'Yo, Fulano, cédula de identidad número ___, en representación de Empresa SpA, RUT ___';
+  const posCedula = parrafoCompleto.indexOf('___');
+  const posRut = parrafoCompleto.lastIndexOf('___');
+  assert.equal(campoDeBlancoInline({
+    ...base, contexto: '', parrafoCompleto, posEnParrafo: posCedula,
+  } as CandidatoInline), 'representante_rut');
+  assert.equal(campoDeBlancoInline({
+    ...base, contexto: '', parrafoCompleto, posEnParrafo: posRut,
+  } as CandidatoInline), 'rut');
+});
+
+// ASTERISCO DE LLAMADA A PIE DE PÁGINA (1-sep-2026, FORMATO N°1 IDENTIFICACIÓN DEL PROPONENTE,
+// 4328-32-LP26, reportado por el usuario: "por qué no me pone la dirección del oferente ni del
+// representante legal si es la misma dirección"). "Domicilio del Oferente*" y "Domicilio del
+// Representante Legal*" traen un "*" pegado que remite a una nota al pie — ninguna entrada del
+// diccionario (que termina justo en "oferente"/"representante legal") calzaba con el asterisco
+// colgando, así que las DOS direcciones quedaban pendientes pese a ser el mismo dato ya cargado.
+test('diccionario: el asterisco de llamada a pie de página no bloquea el domicilio', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Domicilio del Oferente*'), 'direccion');
+  assert.equal(campoDeEtiquetaInequivoca('Domicilio del Representante Legal*'), 'direccion');
+  // Control: sin asterisco, sigue resolviendo igual que siempre.
+  assert.equal(campoDeEtiquetaInequivoca('Domicilio del Oferente'), 'direccion');
+});
+
+// "TELÉFONO MÓVIL" COMO CALIFICADOR (mismo documento y mismo reporte): "Teléfono Fijo
+// Representante Legal" ya resolvía ("fijo" era un calificador aceptado); "Teléfono Móvil
+// Representante Legal" no, porque "movil" solo estaba como SINÓNIMO suelto de "teléfono", nunca
+// como calificador después de la palabra "teléfono". La empresa usa el mismo número para fijo y
+// móvil (misma política que "principal y alternativo").
+test('diccionario: "Teléfono Móvil ___" (calificador, no sinónimo suelto) es el mismo teléfono', () => {
+  assert.equal(campoDeEtiquetaInequivoca('Teléfono Móvil Representante Legal'), 'telefono1');
+  assert.equal(campoDeEtiquetaInequivoca('Teléfono Móvil Contacto'), 'telefono1');
+  assert.equal(campoDeEtiquetaInequivoca('Teléfono Fijo Representante Legal'), 'telefono1');
+});
