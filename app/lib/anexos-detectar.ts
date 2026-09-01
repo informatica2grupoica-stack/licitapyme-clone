@@ -241,6 +241,15 @@ export function detectarCandidatosCelda(
 // "REEMPLAZAR ESTE TEXTO POR LA FIRMA…" es la MISMA fórmula pero para la imagen de la firma —
 // esa ya la resuelve detectarLineasFirma con su propio mecanismo (una imagen, no texto), así que
 // se excluye acá para no ofrecer una casilla de texto encima de donde tiene que ir la firma.
+//
+// BUG REAL (2-sep-2026, reportado con captura): excluirla acá bastaba para no ofrecerla como
+// casilla de texto, pero el párrafo no queda cubierto por NINGÚN otro mecanismo tampoco —
+// detectarLineasFirma solo lo reconoce como "lugar de firma" cuando hay un párrafo vacío
+// inmediatamente antes (Caso C); sin eso (el caso más común: el placeholder vive solo, pegado a
+// lo anterior) la instrucción "REEMPLAZAR ESTE TEXTO POR LA FIRMA DEL REPRESENTANTE LEGAL" queda
+// tal cual, visible para siempre en el documento final — el usuario la ve detrás/al lado de la
+// firma que estampa a mano. Ver detectarPlaceholdersFirmaSinTexto: se vacía SIEMPRE al generar,
+// exista o no un lugar de firma detectado ahí, para que quede en blanco listo para la imagen.
 const RE_PLACEHOLDER_REEMPLAZAR = /^reemplazar\s+este\s+texto\s+por\s+(.+?)[.:]?$/i;
 const RE_PLACEHOLDER_ES_FIRMA = /\bf[ir]{2}ma\b|\btimbre\b/i;
 
@@ -253,6 +262,22 @@ export function detectarPlaceholdersReemplazar(parrafos: Parrafo[]): CandidatoCe
     const descripcion = m[1].trim();
     if (RE_PLACEHOLDER_ES_FIRMA.test(descripcion)) continue;
     out.push({ etiqueta: descripcion, paraId: p.paraId, indice: p.indice, reemplazarTexto: true });
+  }
+  return out;
+}
+
+// El otro lado de la exclusión de arriba: los párrafos "REEMPLAZAR ESTE TEXTO POR LA FIRMA/EL
+// TIMBRE…" no se ofrecen como campo de texto, pero tampoco pueden sobrevivir intactos en el
+// documento final — se vacían solos al generar (ver generarAnexoFinal), sin pedirle nada al
+// usuario, igual que cualquier otro placeholder de instrucción.
+export function detectarPlaceholdersFirmaSinTexto(parrafos: Parrafo[]): { paraId: string; indice: number }[] {
+  const out: { paraId: string; indice: number }[] = [];
+  for (const p of parrafos) {
+    if (!p.texto) continue;
+    const m = RE_PLACEHOLDER_REEMPLAZAR.exec(p.texto.trim());
+    if (!m) continue;
+    if (!RE_PLACEHOLDER_ES_FIRMA.test(m[1].trim())) continue;
+    out.push({ paraId: p.paraId, indice: p.indice });
   }
   return out;
 }
@@ -2271,6 +2296,8 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // intacta; lo que cambia es que ahora se ven.
   const candidatosPlaceholderReemplazar = detectarPlaceholdersReemplazar(parrafos)
     .filter(c => !indicesTapadosPorCuadro.has(c.indice));
+  const placeholdersFirmaSinTexto = detectarPlaceholdersFirmaSinTexto(parrafos)
+    .filter(c => !indicesTapadosPorCuadro.has(c.indice));
   const candidatosCeldaTodos = [...candidatosTabla, ...candidatosCeldaCrudos, ...candidatosPlaceholderReemplazar];
   const indicesDeTabla = new Set(candidatosTabla.map(c => c.indice));
   const habilitados = new Set(acotarASeccionesHabilitadas(candidatosCeldaTodos, secciones, indicesDeTabla).map(c => c.indice));
@@ -2466,6 +2493,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
 
   return {
     parrafos, secciones, blancosInline, lineasFirma, indicesSoloManual, bloquesFirmaAmbiguos,
+    placeholdersFirmaSinTexto,
     // Los datos que viven DENTRO de un bloque de firma que nombra a su firmante quedan resueltos
     // acá mismo (`campoFijo`), sin pasar por la IA — ver asignarCamposDeBloqueFirma.
     candidatosCelda: asignarCamposDeBloqueFirma(candidatosCelda, lineasFirma),

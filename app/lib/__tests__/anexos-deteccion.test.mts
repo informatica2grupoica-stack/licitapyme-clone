@@ -2024,6 +2024,28 @@ test('celdas: "REEMPLAZAR ESTE TEXTO POR X" es candidato con reemplazarTexto=tru
   assert.ok(!candidatos.some(c => /firma/i.test(c.etiqueta)), 'la firma no debe ofrecerse como texto a reemplazar');
 });
 
+// BUG REAL (2-sep-2026, reportado con captura): excluir la firma de arriba de `candidatosCelda`
+// bastaba para no ofrecerla como casilla de texto, pero el párrafo quedaba sin NINGÚN mecanismo
+// que lo vaciara — "REEMPLAZAR ESTE TEXTO POR LA FIRMA DEL REPRESENTANTE LEGAL" sobrevivía tal
+// cual en el documento final (detectarLineasFirma solo lo reconoce como lugar de firma cuando hay
+// un párrafo vacío justo antes — Caso C — y este placeholder vive SOLO, pegado a lo anterior, que
+// es el caso más común). `placeholdersFirmaSinTexto` lo captura igual, para vaciarlo siempre al
+// generar (ver generarAnexoFinal), exista o no un lugar de firma detectado ahí.
+test('placeholdersFirmaSinTexto: "REEMPLAZAR ESTE TEXTO POR LA FIRMA…" se captura aunque no haya ningún párrafo vacío alrededor', () => {
+  const xml = NS + tabla(fila('REEMPLAZAR ESTE TEXTO POR LA FIRMA DEL REPRESENTANTE LEGAL')) + FIN;
+  const analisis = analizarAnexo(normalizarParaIds(xml).xml);
+  assert.equal(analisis.candidatosCelda.length, 0, 'no se ofrece como casilla de texto');
+  assert.equal(analisis.lineasFirma.length, 0, 'sin un vacío alrededor, tampoco es un lugar de firma clásico');
+  assert.equal(analisis.placeholdersFirmaSinTexto.length, 1, 'pero SÍ se captura para vaciarlo al generar');
+  assert.match(analisis.placeholdersFirmaSinTexto[0].paraId, /^[0-9A-F]{8}$/);
+});
+
+test('placeholdersFirmaSinTexto: reconoce "EL TIMBRE" además de "LA FIRMA"', () => {
+  const xml = NS + tabla(fila('REEMPLAZAR ESTE TEXTO POR EL TIMBRE DE LA EMPRESA')) + FIN;
+  const analisis = analizarAnexo(normalizarParaIds(xml).xml);
+  assert.equal(analisis.placeholdersFirmaSinTexto.length, 1);
+});
+
 // "YO," EN SU PROPIA CELDA (1-sep-2026, FORMATO N°2 DECLARACIÓN SIMPLE DE ACEPTACIÓN DE BASES,
 // 4328-32-LP26, reportado por el usuario con captura: "aquí dice yo y lo dejas vacío... debería
 // ir el nombre del representante legal"). Tabla [Yo,][ ][C.I. N°][RUT]: "Yo," termina en coma, y

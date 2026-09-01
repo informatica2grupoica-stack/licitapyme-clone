@@ -1240,6 +1240,22 @@ export async function generarAnexoFinal(
     }
   }
 
+  // 4) Placeholders "REEMPLAZAR ESTE TEXTO POR LA FIRMA/EL TIMBRE…" (ver
+  //    detectarPlaceholdersFirmaSinTexto): no son un dato de texto — se vacían SIEMPRE, sin
+  //    pedirle nada al usuario, para que el párrafo quede en blanco y listo para la firma que se
+  //    posiciona a mano sobre el PDF (ver anexos-pdf-firma.ts). Se excluye cualquier paraId que ya
+  //    sea un lugar de firma del paso 3 (mismo párrafo) — ahí la leyenda es la etiqueta/caption de
+  //    la imagen y tiene que sobrevivir, no vaciarse.
+  const paraIdsLineaFirma = new Set(analisis.lineasFirma.map(l => l.paraId));
+  for (const ph of analisis.placeholdersFirmaSinTexto) {
+    if (paraIdsLineaFirma.has(ph.paraId)) continue;
+    try {
+      xml = reemplazarTextoDeParrafo(xml, ph.paraId, '');
+    } catch (error) {
+      console.error(`[anexos-rellenar] No se pudo vaciar el placeholder de firma (paraId ${ph.paraId}):`, String(error).slice(0, 200));
+    }
+  }
+
   const integridad = verificarParrafos(xmlCrudo, xml);
   const buffer = await guardarDocx(zip, xml);
 
