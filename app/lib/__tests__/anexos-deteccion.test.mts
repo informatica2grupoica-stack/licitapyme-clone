@@ -2006,6 +2006,24 @@ test('resolverDeterminista: la tabla real de proponente/UTP resuelve las 7 casil
   ], 'las 7 casillas de proponente/representante se llenan; el teléfono/correo combinado sigue pendiente (sin dictamen), no con un nombre');
 });
 
+// PLACEHOLDER "REEMPLAZAR ESTE TEXTO POR X" (1-sep-2026, FORMATO N°2 DECLARACIÓN SIMPLE,
+// 4328-32-LP26, reportado por el usuario). El párrafo vive SOLO, sin ninguna celda vacía al lado
+// (el patrón 1 exige un párrafo vacío INMEDIATAMENTE después) — sin un detector propio, era
+// invisible: ni completado, ni siquiera ofrecido como pendiente.
+test('celdas: "REEMPLAZAR ESTE TEXTO POR X" es candidato con reemplazarTexto=true, salvo la firma', () => {
+  const xml = NS
+    + tabla(fila('REEMPLAZAR ESTE TEXTO POR EL NOMBRE Y RUT DEL REPRESENTANTE LEGAL'))
+    + tabla(fila('REEMPLAZAR ESTE TEXTO POR LA FIRMA DEL REPRESENTANTE LEGAL'))
+    + FIN;
+  const candidatos = analizarAnexo(normalizarParaIds(xml).xml).candidatosCelda;
+  const nombreYRut = candidatos.find(c => c.etiqueta === 'EL NOMBRE Y RUT DEL REPRESENTANTE LEGAL');
+  assert.ok(nombreYRut, `debía detectarse como candidato: ${JSON.stringify(candidatos.map(c => c.etiqueta))}`);
+  assert.equal(nombreYRut!.reemplazarTexto, true);
+
+  // La firma NO se ofrece como casilla de texto — ahí va la imagen (mecanismo aparte).
+  assert.ok(!candidatos.some(c => /firma/i.test(c.etiqueta)), 'la firma no debe ofrecerse como texto a reemplazar');
+});
+
 // "YO," EN SU PROPIA CELDA (1-sep-2026, FORMATO N°2 DECLARACIÓN SIMPLE DE ACEPTACIÓN DE BASES,
 // 4328-32-LP26, reportado por el usuario con captura: "aquí dice yo y lo dejas vacío... debería
 // ir el nombre del representante legal"). Tabla [Yo,][ ][C.I. N°][RUT]: "Yo," termina en coma, y

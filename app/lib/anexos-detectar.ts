@@ -75,6 +75,12 @@ export interface CandidatoCelda {
   // PEGADO al final — se escribe con rellenarFinDeParrafo, nunca con rellenarCeldaVacia (que exige
   // la celda vacía y revienta si encuentra texto). Ver detectarCeldaPrefijoMoneda más abajo.
   dosPuntos?: boolean;
+  // true si el "valor" reemplaza TODO el texto de este mismo párrafo, en vez de escribirse en una
+  // celda vacía al lado o al final de la etiqueta — ver detectarPlaceholdersReemplazar y
+  // reemplazarTextoDeParrafo (anexos-docx.ts). `paraId`/`indice` apuntan al PROPIO párrafo de la
+  // etiqueta (no hay celda vecina): "REEMPLAZAR ESTE TEXTO POR EL NOMBRE Y RUT DEL REPRESENTANTE
+  // LEGAL" es a la vez la etiqueta Y el blanco a llenar.
+  reemplazarTexto?: boolean;
 }
 
 // Celda de tabla cuyo ÚNICO contenido es un prefijo de moneda ("$", "US$", "CLP$") — el número va
@@ -222,6 +228,33 @@ export function detectarCandidatosCelda(
   parrafos: Parrafo[], indicesVacioSinCampo: Set<number> = new Set(), indicesEnCelda: Set<number> = new Set(),
 ): CandidatoCelda[] {
   return desambiguarDuplicados(detectarCandidatosCeldaCrudos(parrafos, indicesVacioSinCampo, indicesEnCelda), parrafos);
+}
+
+// PATRÓN "REEMPLAZAR ESTE TEXTO POR X": el propio párrafo ES el blanco, no una etiqueta con una
+// celda vacía al lado. BUG REAL (1-sep-2026, FORMATO N°2 DECLARACIÓN SIMPLE, 4328-32-LP26,
+// reportado por el usuario con captura y con el reclamo directo "aún sigue así, ¿lo reparaste o
+// no?"): "REEMPLAZAR ESTE TEXTO POR EL NOMBRE Y RUT DEL REPRESENTANTE LEGAL" vive SOLA en su
+// propia fila de tabla, sin ninguna celda vecina — el patrón 1 exige un párrafo vacío
+// INMEDIATAMENTE después, así que esto nunca llegaba a ser candidato: ni completado, ni siquiera
+// ofrecido como pendiente.
+//
+// "REEMPLAZAR ESTE TEXTO POR LA FIRMA…" es la MISMA fórmula pero para la imagen de la firma —
+// esa ya la resuelve detectarLineasFirma con su propio mecanismo (una imagen, no texto), así que
+// se excluye acá para no ofrecer una casilla de texto encima de donde tiene que ir la firma.
+const RE_PLACEHOLDER_REEMPLAZAR = /^reemplazar\s+este\s+texto\s+por\s+(.+?)[.:]?$/i;
+const RE_PLACEHOLDER_ES_FIRMA = /\bf[ir]{2}ma\b|\btimbre\b/i;
+
+export function detectarPlaceholdersReemplazar(parrafos: Parrafo[]): CandidatoCelda[] {
+  const out: CandidatoCelda[] = [];
+  for (const p of parrafos) {
+    if (!p.texto) continue;
+    const m = RE_PLACEHOLDER_REEMPLAZAR.exec(p.texto.trim());
+    if (!m) continue;
+    const descripcion = m[1].trim();
+    if (RE_PLACEHOLDER_ES_FIRMA.test(descripcion)) continue;
+    out.push({ etiqueta: descripcion, paraId: p.paraId, indice: p.indice, reemplazarTexto: true });
+  }
+  return out;
 }
 
 // Caso real (1738-18-LE26): una tabla de identificación trae "RUT" DOS veces — una fila para el
@@ -2236,7 +2269,9 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   // pantalla sin una sola casilla — y si la empresa sí postula en UTP alguna vez, no había forma de
   // completarlas. La regla original ("no rellenar solo lo que no nos corresponde") se mantiene
   // intacta; lo que cambia es que ahora se ven.
-  const candidatosCeldaTodos = [...candidatosTabla, ...candidatosCeldaCrudos];
+  const candidatosPlaceholderReemplazar = detectarPlaceholdersReemplazar(parrafos)
+    .filter(c => !indicesTapadosPorCuadro.has(c.indice));
+  const candidatosCeldaTodos = [...candidatosTabla, ...candidatosCeldaCrudos, ...candidatosPlaceholderReemplazar];
   const indicesDeTabla = new Set(candidatosTabla.map(c => c.indice));
   const habilitados = new Set(acotarASeccionesHabilitadas(candidatosCeldaTodos, secciones, indicesDeTabla).map(c => c.indice));
   const indicesSoloManual = new Set(

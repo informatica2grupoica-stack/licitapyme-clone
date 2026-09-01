@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
-  Upload, Trash2, Pencil, Check, X, FolderPlus, Wand2, Send, Scissors,
+  Upload, Trash2, Pencil, Check, X, FolderPlus, Wand2, Send, Scissors, PlayCircle,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
@@ -280,6 +280,7 @@ function CajaDroppable({
   onRellenarAnexo,
   onSepararAnexo,
   onEnviarAuditor,
+  onRellenarTodos,
   subiendo,
 }: {
   caja: CajaConfig;
@@ -300,6 +301,9 @@ function CajaDroppable({
   onRellenarAnexo?: (doc: AnexoDoc) => void;
   onSepararAnexo?: (doc: AnexoDoc) => void;
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
+  // Solo se pasa (y solo se muestra el botón) en la caja de Anexos Administrativos — arma la cola
+  // con los documentos rellenables de ESTA caja y se la pasa al padre, que la procesa uno por uno.
+  onRellenarTodos?: (docs: AnexoDoc[]) => void;
   subiendo: string | null; // key de la caja que está subiendo un archivo
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
@@ -347,6 +351,21 @@ function CajaDroppable({
         >
           {subiendoAqui ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
         </button>
+        {/* "Generar todos" — solo en Anexos Administrativos, y solo si hay al menos un doc
+            rellenable. Arma la cola con los rellenables de esta caja (mismo criterio que el botón
+            individual, esAnexoRellenable) y se la pasa al padre. */}
+        {onRellenarTodos && caja.key === CAT_ANEXOS_ADMIN && docs.some(esAnexoRellenable) && (
+          <button
+            type="button"
+            onClick={() => onRellenarTodos(docs.filter(esAnexoRellenable).map(d => (
+              { id: d.id as number, nombre: d.nombre, url: d.url_local || d.url }
+            )))}
+            title="Generar todos los anexos de esta caja, uno por uno"
+            className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-100 rounded transition-colors flex-shrink-0"
+          >
+            <PlayCircle size={12} />
+          </button>
+        )}
         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${caja.colorCount}`}>
           {docs.length}
         </span>
@@ -396,6 +415,7 @@ function DocumentosGrid({
   onRellenarAnexo,
   onSepararAnexo,
   onEnviarAuditor,
+  onRellenarTodos,
   modo,
 }: {
   documentos: DocLicitacion[];
@@ -409,6 +429,7 @@ function DocumentosGrid({
   // que ya están en este componente.
   onSepararAnexo?: true;
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
+  onRellenarTodos?: (docs: AnexoDoc[]) => void;
   // 'licitacion' = todas las cajas MENOS Documentos Propios (docs de la licitación);
   // 'propios' = SOLO la caja Documentos Propios (lo que creamos/editamos);
   // undefined = todas (comportamiento previo).
@@ -714,6 +735,7 @@ function DocumentosGrid({
             onRellenarAnexo={onRellenarAnexo}
             onSepararAnexo={onSepararAnexo ? handleSepararAnexo : undefined}
             onEnviarAuditor={onEnviarAuditor}
+            onRellenarTodos={onRellenarTodos}
             subiendo={subiendo}
           />
         ))}
@@ -1322,6 +1344,24 @@ export function DocumentosSection({
   // Nombre del PDF que se está rellenando ahora mismo (null = ninguno) — evita doble clic
   // mientras corre el OCR (puede tardar 10-30s), sin necesidad de un modal propio todavía.
   const [generandoPdf, setGenerandoPdf] = useState<string | null>(null);
+
+  // Ejecuta el POST a /api/anexos/rellenar-pdf sin tocar toasts/estado — lo reusan tanto el botón
+  // individual (handleRellenarAnexo) como la cola de "Generar todos" (avanzarCola), que necesita
+  // el resultado puro para acumularlo y seguir con el siguiente documento.
+  const rellenarPdfAutomatico = async (doc: AnexoDoc): Promise<{ ok: boolean; mensaje: string }> => {
+    try {
+      const r = await fetch('/api/anexos/rellenar-pdf', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codigo: codigoDecoded, documentoId: doc.id, empresaId }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) return { ok: false, mensaje: d.error || 'No se pudo rellenar el PDF' };
+      return { ok: true, mensaje: `${d.completados}/${d.totalDetectados} casillas` };
+    } catch (e: any) {
+      return { ok: false, mensaje: e?.message || 'Error de red' };
+    }
+  };
+
   // El botón de rellenar (Wand2) es el mismo para Word y PDF — acá se decide a qué motor va cada
   // clic. PDF: en una licitación pública el documento que se sube tiene que ser el MISMO oficial,
   // así que /api/anexos/rellenar-pdf escribe encima del original (sin pantalla de revisión
@@ -1333,23 +1373,72 @@ export function DocumentosSection({
     if (generandoPdf) return;
     setGenerandoPdf(doc.nombre);
     toast.info('Rellenando el PDF…', 'Puede tardar hasta medio minuto (lee el documento con OCR).');
-    try {
-      const r = await fetch('/api/anexos/rellenar-pdf', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ codigo: codigoDecoded, documentoId: doc.id, empresaId }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo rellenar el PDF'); return; }
-      toast.success(
-        `PDF rellenado — ${d.completados}/${d.totalDetectados} casillas`,
-        'Revísalo en «Documentos para MP» antes de subirlo a Mercado Público — todavía no hay pantalla de revisión.',
-      );
+    const res = await rellenarPdfAutomatico(doc);
+    if (!res.ok) { toast.error(res.mensaje); setGenerandoPdf(null); return; }
+    toast.success(
+      `PDF rellenado — ${res.mensaje}`,
+      'Revísalo en «Documentos para MP» antes de subirlo a Mercado Público — todavía no hay pantalla de revisión.',
+    );
+    fetchDocumentos();
+    setGenerandoPdf(null);
+  };
+
+  // ── "Generar todos" (Anexos Administrativos) ──────────────────────────────────
+  // Cola de anexos administrativos que se procesan uno detrás del otro. `colaAnexos` (para el
+  // badge "X de N" y para saber si hay un batch activo) e `indiceCola` (índice actual) viven en
+  // estado porque se renderizan; el resultado acumulado (ok/error) NO — viaja como parámetro
+  // simple entre pasos de avanzarCola, evitando el riesgo de leer estado desactualizado entre
+  // un paso y el siguiente (el paso de un Word puede tardar minutos: el usuario revisa, repara,
+  // firma). colaContinuacionRef guarda "qué hacer después" mientras el modal está abierto
+  // esperando al usuario en un anexo Word.
+  const [colaAnexos, setColaAnexos] = useState<AnexoDoc[]>([]);
+  const [indiceCola, setIndiceCola] = useState(0);
+  const [procesandoPdfBatch, setProcesandoPdfBatch] = useState<string | null>(null);
+  const colaContinuacionRef = useRef<(() => void) | null>(null);
+  // Se pone en true justo antes de llamar a la continuación desde onGenerado — el modal, al
+  // generar con éxito, llama onGenerado() y ENSEGUIDA onClose() (avisarYCerrar). En modo batch,
+  // ese onClose automático no es un cierre manual del usuario y no debe cortar la cola.
+  const batchRecienGeneradoRef = useRef(false);
+
+  const avanzarCola = async (indice: number, cola: AnexoDoc[], acumulado: { ok: string[]; error: string[] }) => {
+    if (indice >= cola.length) {
+      setColaAnexos([]);
+      setIndiceCola(0);
+      setAnexoDoc(null);
       fetchDocumentos();
-    } catch (e: any) {
-      toast.error('Error de red al rellenar el PDF', e?.message);
-    } finally {
-      setGenerandoPdf(null);
+      if (acumulado.error.length === 0) {
+        toast.success(`Listo — ${acumulado.ok.length} anexo${acumulado.ok.length === 1 ? '' : 's'} generado${acumulado.ok.length === 1 ? '' : 's'}`);
+      } else {
+        toast.warning(
+          `${acumulado.ok.length} generados, ${acumulado.error.length} con error`,
+          acumulado.error.join(' · '),
+        );
+      }
+      return;
     }
+    setIndiceCola(indice);
+    const doc = cola[indice];
+    if (/\.pdf$/i.test(doc.nombre)) {
+      setProcesandoPdfBatch(doc.nombre);
+      const res = await rellenarPdfAutomatico(doc);
+      setProcesandoPdfBatch(null);
+      if (res.ok) acumulado.ok.push(doc.nombre); else acumulado.error.push(`${doc.nombre}: ${res.mensaje}`);
+      avanzarCola(indice + 1, cola, acumulado);
+    } else {
+      colaContinuacionRef.current = () => {
+        acumulado.ok.push(doc.nombre);
+        avanzarCola(indice + 1, cola, acumulado);
+      };
+      setAnexoDoc(doc);
+    }
+  };
+
+  const handleGenerarTodos = (docs: AnexoDoc[]) => {
+    if (docs.length === 0) return;
+    if (!empresaId) { toast.error('Falta la empresa asignada a esta licitación'); return; }
+    setColaAnexos(docs);
+    setIndiceCola(0);
+    avanzarCola(0, docs, { ok: [], error: [] });
   };
   // Documento elegido para mandar al Auditor Técnico — abre el selector de punto (SelectorPuntoAuditor).
   const [enviandoDoc, setEnviandoDoc] = useState<{ nombre: string; url: string } | null>(null);
@@ -1589,6 +1678,7 @@ export function DocumentosSection({
               onRellenarAnexo={isAdmin ? handleRellenarAnexo : undefined}
               onSepararAnexo={isAdmin ? true : undefined}
               onEnviarAuditor={isAdmin && negocioId ? setEnviandoDoc : undefined}
+              onRellenarTodos={isAdmin ? handleGenerarTodos : undefined}
               modo="licitacion"
             />
           </div>
@@ -1647,14 +1737,56 @@ export function DocumentosSection({
         />
       )}
 
-      {/* Pantalla de relleno de un anexo de oferente */}
+      {/* Pantalla de relleno de un anexo de oferente — en modo batch ("Generar todos"), en vez de
+          cerrar tras generar, encadena el siguiente doc de colaAnexos (ver avanzarCola). */}
       <AnexoRellenoModal
         doc={anexoDoc}
         codigo={codigoDecoded}
         empresaId={empresaId ?? null}
-        onClose={() => setAnexoDoc(null)}
-        onGenerado={() => fetchDocumentos()}
+        progreso={colaAnexos.length > 0 ? { actual: indiceCola + 1, total: colaAnexos.length } : undefined}
+        onGenerado={() => {
+          const continuar = colaContinuacionRef.current;
+          if (continuar) {
+            colaContinuacionRef.current = null;
+            batchRecienGeneradoRef.current = true;
+            continuar();
+          } else {
+            fetchDocumentos();
+          }
+        }}
+        onClose={() => {
+          if (batchRecienGeneradoRef.current) {
+            // Cierre automático que dispara el modal justo después de generar con éxito — el
+            // avance de cola ya lo maneja onGenerado, esto no es que el usuario haya cancelado.
+            batchRecienGeneradoRef.current = false;
+            return;
+          }
+          if (colaAnexos.length > 0) {
+            // X o click afuera a mitad del batch: lo corta. Lo ya generado queda guardado, no se
+            // revierte nada.
+            setColaAnexos([]);
+            setIndiceCola(0);
+            colaContinuacionRef.current = null;
+            toast.info('Generación de anexos detenida', 'Los ya generados quedaron guardados.');
+            fetchDocumentos();
+          }
+          setAnexoDoc(null);
+        }}
       />
+
+      {/* Overlay del tramo automático del batch (PDF, sin pantalla de revisión) — mismo patrón
+          visual que "separando". */}
+      {procesandoPdfBatch && createPortal(
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm overlay-in">
+          <div className="bg-white rounded-2xl shadow-2xl px-8 py-7 modal-in">
+            <DocSplitLoader
+              titulo="Rellenando anexos…"
+              subtitulo={`"${procesandoPdfBatch}" (${indiceCola + 1} de ${colaAnexos.length})`}
+            />
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

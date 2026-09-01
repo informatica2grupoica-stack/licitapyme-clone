@@ -354,11 +354,12 @@ export const DICCIONARIO: Entrada[] = [
   // estaba cubierto) quedaba sin diccionario — misma casilla combinada, mismo campo.
   { campo: 'region', patrones: [/^region$/, /^region y comuna$/, /^comuna y region$/, /^ciudad y region$/, /^region\/comuna$/] },
   { campo: 'telefono1', patrones: [
-    // "Teléfono Fijo Representante Legal" / "Teléfono Móvil Contacto" (4328-32-LP26): "fijo"/"movil"
-    // como CALIFICADOR de "teléfono" (no como sinónimo suelto — ese caso ya lo cubre la alternativa
-    // "movil"/"celular" del inicio). La empresa usa el mismo número para fijo y móvil (misma
-    // política que "principal y alternativo"), así que las dos casillas se llenan con telefono1.
-    new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|fijo|movil|celular))?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
+    // "Teléfono Móvil Contacto" (4328-32-LP26): "movil"/"celular" como CALIFICADOR de "teléfono"
+    // (no como sinónimo suelto — ese caso ya lo cubre la alternativa "movil"/"celular" del
+    // inicio). "fijo" NO entra a propósito: el usuario aclaró (1-sep-2026) que la empresa no
+    // tiene teléfono fijo, solo el móvil que guarda la ficha — "Teléfono Fijo ___" debe quedar
+    // pendiente, no llenarse con un número de celular disfrazado de fijo.
+    new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|movil|celular))?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
     /^telefono\/celular$/, /^fono contacto$/, /^numero de (?:telefono|contacto)$/,
     /^n[°º]? de telefono$/,
     // "TELÉFONO FIJO Y CELULAR" — una sola casilla para las dos formas (anexos reales presentados).
@@ -1569,7 +1570,77 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     return 'auto';
   };
 
+  // ── Fórmula de fecha en CELDAS DE TABLA separadas ("En" | ␣ | ", a" | ␣ | "del mes de" | ␣ |
+  // "del año" | ␣) ─────────────────────────────────────────────────────────────────────────────
+  // Misma fórmula notarial que campoDeFechaEnFormula ya resuelve para el camino INLINE ("En ___ a
+  // ___ de ___ de ___" dentro de UN párrafo) — acá el organismo la reparte en CUATRO pares
+  // [etiqueta][celda vacía] de una fila de tabla. BUG REAL (1-sep-2026, FORMATO N°2 DECLARACIÓN
+  // SIMPLE DE ACEPTACIÓN DE BASES, reportado por el usuario con captura: "aún sigue así, ¿lo
+  // reparaste o no?"): el patrón 1 ya detecta cada blanco como candidato suelto (tiene su propia
+  // celda vacía al lado), pero ninguna capa mira la SECUENCIA de candidatos — "en"/"a"/"del mes
+  // de"/"del año" no dicen nada por sí solos, así que las cuatro casillas quedaban invisibles.
+  //
+  // Se busca la secuencia exacta entre candidatos CONSECUTIVOS (mismo orden de lectura del
+  // documento): solo dispara cuando las CUATRO etiquetas calzan una detrás de otra, así que no
+  // hay riesgo de que un "En" suelto de otro formulario se confunda con esto.
+  const RE_CELDA_FORMULA_EN = /^en$/;
+  const RE_CELDA_FORMULA_A = /^a$/;
+  const RE_CELDA_FORMULA_DEL_MES_DE = /^del mes de$/;
+  const RE_CELDA_FORMULA_DEL_ANIO = /^del a[nñ]o$/;
+  const resueltosPorTripleteCeldas = new Set<number>();
+  for (let i = 0; i + 3 < candidatos.length; i++) {
+    const [c0, c1, c2, c3] = candidatos.slice(i, i + 4);
+    const [n0, n1, n2, n3] = [c0, c1, c2, c3].map(c => normalizarEtiqueta(etiquetaPropia(c.etiqueta)));
+    if (!RE_CELDA_FORMULA_EN.test(n0) || !RE_CELDA_FORMULA_A.test(n1)
+        || !RE_CELDA_FORMULA_DEL_MES_DE.test(n2) || !RE_CELDA_FORMULA_DEL_ANIO.test(n3)) continue;
+    const piezas: [CandidatoCelda, Campo][] = [
+      [c0, 'licitacion_comuna' as Campo], [c1, 'fecha_hoy_dia' as Campo],
+      [c2, 'fecha_hoy_mes_palabra' as Campo], [c3, 'fecha_hoy_anio' as Campo],
+    ];
+    for (const [c, campo] of piezas) {
+      anotar(campo, c.etiqueta, r => celda.set(c.indice, r), true);
+      resueltosPorTripleteCeldas.add(c.indice);
+    }
+  }
+
+  // ── PLACEHOLDER "REEMPLAZAR ESTE TEXTO POR X" (todo el párrafo es el blanco) ────────────────
+  // BUG REAL (1-sep-2026, FORMATO N°2 DECLARACIÓN SIMPLE, 4328-32-LP26, reportado por el usuario):
+  // "REEMPLAZAR ESTE TEXTO POR EL NOMBRE Y RUT DEL REPRESENTANTE LEGAL" pide DOS datos en una
+  // sola casilla — no hay ningún `Campo` que represente "nombre + rut juntos", así que se arma el
+  // texto combinado a mano, ANTES del diccionario normal (que solo sabe devolver un campo).
+  // Cualquier otro "REEMPLAZAR ESTE TEXTO POR X" que sí describa un dato simple ("LA RAZÓN
+  // SOCIAL", etc.) cae al diccionario de siempre — no hace falta una regla especial para cada uno.
+  const RE_REEMPLAZO_NOMBRE_Y_RUT_REP = /\bnombre\s+y\s+rut\s+del\s+representante(?:\s+legal)?\b|\brut\s+y\s+nombre\s+del\s+representante(?:\s+legal)?\b/i;
+  const resueltosPorReemplazoDeTexto = new Set<number>();
   for (const c of candidatos) {
+    if (!c.reemplazarTexto) continue;
+    const n = normalizarEtiqueta(c.etiqueta);
+    if (RE_REEMPLAZO_NOMBRE_Y_RUT_REP.test(n)) {
+      const nombre = valorDe(empresa, 'representante_nombre');
+      const rut = valorDe(empresa, 'representante_rut');
+      if (nombre && rut) {
+        celda.set(c.indice, {
+          tipo: 'auto', valor: `${nombre}, RUT ${rut}`, categoria: 'perfil_representante_legal',
+          evidencia: c.etiqueta, campo: 'representante_nombre',
+        });
+      } else {
+        celda.set(c.indice, {
+          tipo: 'pendiente', categoria: 'perfil_representante_legal',
+          motivo: 'Falta el nombre o el RUT del representante legal en la ficha de la empresa. Complétalos en Empresas y esta casilla se llena sola.',
+        } as Resolucion);
+      }
+      resueltosPorReemplazoDeTexto.add(c.indice);
+      continue;
+    }
+    const campo = campoDeEtiquetaInequivoca(c.etiqueta);
+    if (campo) {
+      anotar(campo, c.etiqueta, r => celda.set(c.indice, r));
+      resueltosPorReemplazoDeTexto.add(c.indice);
+    }
+  }
+
+  for (const c of candidatos) {
+    if (resueltosPorTripleteCeldas.has(c.indice) || resueltosPorReemplazoDeTexto.has(c.indice)) continue;
     const propia = etiquetaPropia(c.etiqueta);
     const bloque = bloques.get(c.indice);
 

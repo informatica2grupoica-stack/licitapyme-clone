@@ -1670,15 +1670,15 @@ test('diccionario: el asterisco de llamada a pie de página no bloquea el domici
   assert.equal(campoDeEtiquetaInequivoca('Domicilio del Oferente'), 'direccion');
 });
 
-// "TELÉFONO MÓVIL" COMO CALIFICADOR (mismo documento y mismo reporte): "Teléfono Fijo
-// Representante Legal" ya resolvía ("fijo" era un calificador aceptado); "Teléfono Móvil
-// Representante Legal" no, porque "movil" solo estaba como SINÓNIMO suelto de "teléfono", nunca
-// como calificador después de la palabra "teléfono". La empresa usa el mismo número para fijo y
-// móvil (misma política que "principal y alternativo").
-test('diccionario: "Teléfono Móvil ___" (calificador, no sinónimo suelto) es el mismo teléfono', () => {
+// "TELÉFONO MÓVIL" COMO CALIFICADOR (4328-32-LP26): "movil" solo estaba como SINÓNIMO suelto de
+// "teléfono", nunca como calificador después de la palabra "teléfono" ("Teléfono Móvil
+// Representante Legal" no calzaba). "Teléfono FIJO" queda deliberadamente FUERA — el usuario
+// aclaró (1-sep-2026, mismo día, tras ver la casilla llena) que la empresa no tiene teléfono fijo,
+// solo el móvil que guarda la ficha: escribirlo ahí sería un número de celular disfrazado de fijo.
+test('diccionario: "Teléfono Móvil ___" es el mismo teléfono; "Teléfono Fijo ___" queda pendiente', () => {
   assert.equal(campoDeEtiquetaInequivoca('Teléfono Móvil Representante Legal'), 'telefono1');
   assert.equal(campoDeEtiquetaInequivoca('Teléfono Móvil Contacto'), 'telefono1');
-  assert.equal(campoDeEtiquetaInequivoca('Teléfono Fijo Representante Legal'), 'telefono1');
+  assert.equal(campoDeEtiquetaInequivoca('Teléfono Fijo Representante Legal'), null);
 });
 
 // BANCO DE 300 ANEXOS — SINÓNIMOS PENDIENTES DE CONVERTIR EN REGLA (1-sep-2026). El usuario pidió
@@ -1701,6 +1701,48 @@ test('diccionario: sinónimos del banco de 300 anexos convertidos en regla (1-se
   // Control: la grilla NUMERADA de socios sigue bloqueada (esFilaDeSocioPosterior) — el sinónimo
   // plural nuevo NO debe reabrir la puerta a repetir el mismo RUT en las 12 filas.
   assert.equal(esFilaDeSocioPosterior('2 — Rut Socios'), true);
+});
+
+// FECHA EN CELDAS DE TABLA SEPARADAS (1-sep-2026, FORMATO N°2 DECLARACIÓN SIMPLE DE ACEPTACIÓN DE
+// BASES, 4328-32-LP26, reportado por el usuario con captura y con el reclamo directo "aún sigue
+// así, ¿lo reparaste o no?"). La fórmula notarial "En ___ a ___ del mes de ___ del año ___" vive
+// repartida en CUATRO pares [etiqueta][celda vacía] de una fila de tabla, no en un solo párrafo —
+// el patrón 1 ya detectaba cada blanco suelto (con su propio id), pero "en"/"a"/"del mes de"/"del
+// año" no significan nada por sí solos y ninguna capa miraba la SECUENCIA completa.
+test('resolverDeterminista: fecha en CELDAS DE TABLA separadas ("En"|"a"|"del mes de"|"del año")', () => {
+  const empresaConFecha = { ...EMPRESA, fecha_hoy_dia: '01', fecha_hoy_mes_palabra: 'septiembre', fecha_hoy_anio: '2026' };
+  const candidatos = [celda(50, 'En'), celda(52, ', a'), celda(54, 'del mes de'), celda(56, 'del año')];
+  const r = resolverDeterminista({ candidatos, blancosInline: [], parrafos: [], empresa: empresaConFecha });
+  assert.equal(valorAuto(r.celda, 50), 'Nueva Imperial', 'la comuna es la de la LICITACIÓN, no la de la empresa');
+  assert.equal(valorAuto(r.celda, 52), '01');
+  assert.equal(valorAuto(r.celda, 54), 'septiembre');
+  assert.equal(valorAuto(r.celda, 56), '2026');
+
+  // Control: la secuencia tiene que calzar COMPLETA — un "En" suelto, sin sus tres vecinos
+  // exactos detrás, no dispara nada (evita falsos positivos en cualquier otro formulario).
+  const candidatosSueltos = [celda(60, 'En'), celda(62, 'Otra etiqueta cualquiera')];
+  const r2 = resolverDeterminista({ candidatos: candidatosSueltos, blancosInline: [], parrafos: [], empresa: empresaConFecha });
+  assert.equal(valorAuto(r2.celda, 60), null);
+});
+
+// PLACEHOLDER "REEMPLAZAR ESTE TEXTO POR X" — RESOLUCIÓN (1-sep-2026, mismo caso). No hay ningún
+// `Campo` que represente "nombre + rut juntos", así que se arma el texto combinado a mano.
+test('resolverDeterminista: "REEMPLAZAR ESTE TEXTO POR EL NOMBRE Y RUT DEL REPRESENTANTE LEGAL" combina los dos datos', () => {
+  const candidatos = [celda(45, 'EL NOMBRE Y RUT DEL REPRESENTANTE LEGAL', { reemplazarTexto: true })];
+  const r = resolverDeterminista({ candidatos, blancosInline: [], parrafos: [], empresa: EMPRESA });
+  assert.equal(valorAuto(r.celda, 45), 'Lidia Valenzuela Soto, RUT 6.736.698-0');
+
+  // Control: sin nombre/rut en la ficha, queda pendiente con motivo accionable — no se inventa
+  // ni se deja invisible.
+  const empresaIncompleta = { ...EMPRESA, representante_rut: null };
+  const r2 = resolverDeterminista({ candidatos, blancosInline: [], parrafos: [], empresa: empresaIncompleta });
+  assert.equal(r2.celda.get(45)?.tipo, 'pendiente');
+
+  // Control: otro "REEMPLAZAR ESTE TEXTO POR X" que sí describe un dato simple cae al diccionario
+  // normal — no hace falta una regla especial para cada variante.
+  const candidatosRazonSocial = [celda(46, 'RAZÓN SOCIAL', { reemplazarTexto: true })];
+  const r3 = resolverDeterminista({ candidatos: candidatosRazonSocial, blancosInline: [], parrafos: [], empresa: EMPRESA });
+  assert.equal(valorAuto(r3.celda, 46), 'Comercial Los Robles SpA');
 });
 
 // "comuna de" INLINE (REGLAS_PREVIAS) — "…residente en la comuna de ___", sin "domicilio" delante

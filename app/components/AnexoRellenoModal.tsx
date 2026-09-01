@@ -649,7 +649,7 @@ function BloqueFirmaTimbre({ firma }: { firma: Analisis['firma'] }) {
 }
 
 export function AnexoRellenoModal({
-  doc, codigo, empresaId, onClose, onGenerado,
+  doc, codigo, empresaId, onClose, onGenerado, progreso,
 }: {
   doc: AnexoDoc | null;
   codigo: string;
@@ -659,6 +659,10 @@ export function AnexoRellenoModal({
   // dividió) — quien abre el modal decide qué hacer con ellos (ej. adjuntarlos a un punto del
   // Auditor Técnico), no solo refrescar la lista de Documentos.
   onGenerado: (archivos: { nombre: string; url: string }[]) => void;
+  // Presente solo cuando el padre está encadenando varios anexos ("Generar todos" de una caja) —
+  // muestra "Anexo X de N" en la cabecera. El resto del componente no cambia: quien decide cuándo
+  // pasar al siguiente doc es el padre, cambiando el prop `doc`.
+  progreso?: { actual: number; total: number };
 }) {
   const toast = useToast();
   const [cargando, setCargando] = useState(true);
@@ -908,6 +912,11 @@ export function AnexoRellenoModal({
           <p className="flex-1 min-w-0 text-[13px] font-semibold text-slate-800 truncate" title={doc.nombre}>
             {doc.nombre}
           </p>
+          {progreso && (
+            <span className="flex-shrink-0 text-[11px] font-bold px-2 py-1 rounded-lg bg-indigo-100 text-indigo-700">
+              Anexo {progreso.actual} de {progreso.total}
+            </span>
+          )}
           <a
             href={doc.url} target="_blank" rel="noopener noreferrer"
             className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"

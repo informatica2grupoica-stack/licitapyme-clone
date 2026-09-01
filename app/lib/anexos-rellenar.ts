@@ -24,7 +24,7 @@
 // (anexos-totales-seccion.ts) — eso nunca fue "el diccionario", sigue igual.
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
-  insertarImagenEnParrafo, rellenarFinDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
+  insertarImagenEnParrafo, rellenarFinDeParrafo, reemplazarTextoDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
   eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, marcarKeepNext, agregarTextoBajoLineaFirma, type Parrafo,
 } from '@/app/lib/anexos-docx';
 import {
@@ -1073,12 +1073,18 @@ export async function generarAnexoFinal(
     // el valor tecleado se descartaba SIN UN AVISO: el usuario veía en el documento un número que
     // él no puso, en la casilla donde sí había escrito otro. Se antepone acá, en el único punto que
     // ve las dos cosas a la vez.
+    // reemplazarTexto se trata como dosPuntos para efectos de "¿hay que exigir la celda vacía y
+    // llevar la cuenta de duplicados?": el párrafo destino es el PROPIO placeholder, único por
+    // definición (no hay una celda vecina que otro candidato pueda disputar).
+    const noEsCeldaVacia = m.dosPuntos || m.c.reemplazarTexto;
     const escritoPorElHumano = respuestas[`celda:${m.c.indice}`];
     if (escritoPorElHumano && escritoPorElHumano.trim() && escritoPorElHumano.trim() !== m.valor) {
-      if (!m.dosPuntos && paraIdsCeldaEscritos.has(m.c.paraId)) continue;
+      if (!noEsCeldaVacia && paraIdsCeldaEscritos.has(m.c.paraId)) continue;
       try {
-        xml = m.dosPuntos ? rellenarFinDeParrafo(xml, m.c.paraId, escritoPorElHumano.trim()) : rellenarCeldaVacia(xml, m.c.paraId, escritoPorElHumano.trim());
-        if (!m.dosPuntos) paraIdsCeldaEscritos.add(m.c.paraId);
+        xml = m.c.reemplazarTexto ? reemplazarTextoDeParrafo(xml, m.c.paraId, escritoPorElHumano.trim())
+          : m.dosPuntos ? rellenarFinDeParrafo(xml, m.c.paraId, escritoPorElHumano.trim())
+          : rellenarCeldaVacia(xml, m.c.paraId, escritoPorElHumano.trim());
+        if (!noEsCeldaVacia) paraIdsCeldaEscritos.add(m.c.paraId);
         respondidos++;
         avisos.push(`"${m.c.etiqueta}" se resolvió sola al generar, pero se respetó lo que escribiste ("${escritoPorElHumano.trim().slice(0, 40)}").`);
       } catch (error) {
@@ -1087,7 +1093,7 @@ export async function generarAnexoFinal(
       }
       continue;
     }
-    if (!m.dosPuntos && paraIdsCeldaEscritos.has(m.c.paraId)) {
+    if (!noEsCeldaVacia && paraIdsCeldaEscritos.has(m.c.paraId)) {
       avisos.push(`Campo duplicado detectado ("${m.c.etiqueta}") — se dejó pendiente para revisar a mano en vez de arriesgar el documento.`);
       continue;
     }
@@ -1095,8 +1101,12 @@ export async function generarAnexoFinal(
       // "Etiqueta:" (patrón 5) NO es una celda vacía — el párrafo ya trae la etiqueta como texto,
       // así que el valor se agrega al FINAL de ese mismo párrafo, nunca reemplazando/exigiendo que
       // esté vacío (rellenarCeldaVacia revienta si encuentra texto donde esperaba una celda libre).
-      xml = m.dosPuntos ? rellenarFinDeParrafo(xml, m.c.paraId, m.valor) : rellenarCeldaVacia(xml, m.c.paraId, m.valor);
-      if (!m.dosPuntos) paraIdsCeldaEscritos.add(m.c.paraId);
+      // reemplazarTexto (patrón "REEMPLAZAR ESTE TEXTO POR X") va al otro extremo: el párrafo YA
+      // tiene texto y ese texto entero se descarta, no se le agrega nada al final.
+      xml = m.c.reemplazarTexto ? reemplazarTextoDeParrafo(xml, m.c.paraId, m.valor)
+        : m.dosPuntos ? rellenarFinDeParrafo(xml, m.c.paraId, m.valor)
+        : rellenarCeldaVacia(xml, m.c.paraId, m.valor);
+      if (!noEsCeldaVacia) paraIdsCeldaEscritos.add(m.c.paraId);
       completados++;
     } catch (error) {
       console.error(`[anexos-rellenar] No se pudo escribir "${m.c.etiqueta}" (paraId ${m.c.paraId}), se omite sin bloquear el resto:`, String(error).slice(0, 200));
@@ -1106,14 +1116,17 @@ export async function generarAnexoFinal(
   for (const c of pendientesFiltrados) {
     const respuesta = respuestas[`celda:${c.indice}`];
     if (respuesta && respuesta.trim()) {
-      if (!c.dosPuntos && paraIdsCeldaEscritos.has(c.paraId)) {
+      const noEsCeldaVaciaP = c.dosPuntos || c.reemplazarTexto;
+      if (!noEsCeldaVaciaP && paraIdsCeldaEscritos.has(c.paraId)) {
         avisos.push(`"${c.etiqueta}" ya se había completado automáticamente — lo que escribiste ahí no se aplicó, revisa el documento generado.`);
         continue;
       }
       try {
         // Una celda con prefijo de moneda ("$") ya tiene texto — rellenarCeldaVacia revienta ahí.
-        xml = c.dosPuntos ? rellenarFinDeParrafo(xml, c.paraId, respuesta.trim()) : rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
-        if (!c.dosPuntos) paraIdsCeldaEscritos.add(c.paraId);
+        xml = c.reemplazarTexto ? reemplazarTextoDeParrafo(xml, c.paraId, respuesta.trim())
+          : c.dosPuntos ? rellenarFinDeParrafo(xml, c.paraId, respuesta.trim())
+          : rellenarCeldaVacia(xml, c.paraId, respuesta.trim());
+        if (!noEsCeldaVaciaP) paraIdsCeldaEscritos.add(c.paraId);
         respondidos++;
       } catch (error) {
         console.error(`[anexos-rellenar] No se pudo escribir la respuesta de "${c.etiqueta}" (paraId ${c.paraId}):`, String(error).slice(0, 200));

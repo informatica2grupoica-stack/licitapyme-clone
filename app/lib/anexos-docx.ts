@@ -466,6 +466,28 @@ export function rellenarFinDeParrafo(xml: string, paraId: string, valor: string)
   return xml.slice(0, m.index) + apertura + cuerpo + run + cierre + xml.slice((m.index ?? 0) + entero.length);
 }
 
+// Reemplaza TODO el contenido de un párrafo por un único run con el valor nuevo — a diferencia de
+// rellenarFinDeParrafo (que AGREGA al final) y rellenarCeldaVacia (que exige la celda vacía), este
+// se usa cuando el propio texto del párrafo ES el placeholder a reemplazar entero: "REEMPLAZAR
+// ESTE TEXTO POR EL NOMBRE Y RUT DEL REPRESENTANTE LEGAL" no puede sobrevivir junto al dato real.
+// Ver detectarPlaceholdersReemplazar (anexos-detectar.ts).
+//
+// Se conserva el `<w:pPr>` (alineación, sangría, espaciado) porque describe el PÁRRAFO, no el
+// texto — perderlo movería el nuevo texto de lugar en la página. El formato de letra se hereda del
+// PRIMER run existente (mismo criterio que rellenarCeldaVacia usa para el que ya está vacío): es
+// el que trae el estilo visible del placeholder original.
+export function reemplazarTextoDeParrafo(xml: string, paraId: string, valor: string): string {
+  const re = new RegExp(`(<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>)([\\s\\S]*?)(<\\/w:p>)`);
+  const m = xml.match(re);
+  if (!m) throw new Error(`No se encontró el párrafo w14:paraId="${paraId}"`);
+  const [entero, apertura, cuerpo, cierre] = m;
+  const pPrMatch = cuerpo.match(/^<w:pPr>[\s\S]*?<\/w:pPr>/);
+  const runs = [...cuerpo.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)];
+  const rPrMatch = runs.length ? runs[0][0].match(/<w:rPr>[\s\S]*?<\/w:rPr>/) : null;
+  const cuerpoNuevo = `${pPrMatch ? pPrMatch[0] : ''}<w:r>${rPrMatch ? rPrMatch[0] : ''}<w:t xml:space="preserve">${xmlEscape(valor)}</w:t></w:r>`;
+  return xml.slice(0, m.index) + apertura + cuerpoNuevo + cierre + xml.slice((m.index ?? 0) + entero.length);
+}
+
 // ── Patrones 2 y 3: blancos DENTRO de un mismo <w:t> (subrayado inline / opción a marcar) ─
 export interface BlancoInline {
   posEnTexto: number;   // posición del inicio del blanco, dentro del <w:t> YA DECODIFICADO
