@@ -5,12 +5,11 @@ import { createPortal } from 'react-dom';
 import {
   FileText, Sparkles, RefreshCw, Loader2, Bot,
   CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
-  Upload, Trash2, Pencil, Check, X, FolderPlus, Wand2, Send, Scissors, PlayCircle,
+  Upload, Trash2, Pencil, Check, X, FolderPlus, Send, PlayCircle,
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
-import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
+import { getFileIcon, formatFileSize, SectionHeader } from '../utils';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
-import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
 import { SelectorPuntoAuditor } from '@/app/components/SelectorPuntoAuditor';
 import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
@@ -123,43 +122,21 @@ interface CajaConfig {
 }
 
 // ─── Item draggable ───────────────────────────────────────────────────────────
+// Fila de un documento: solo el ojo. El resto de acciones (rellenar, separar, enviar al
+// auditor, preguntar a ankIA, eliminar) vive dentro del visor que abre el ojo — ver
+// DocumentosGrid, que decide cuáles de esas acciones aplican a este documento y se las
+// pasa como props a <DocumentViewerModal>.
 function DocItem({
   doc,
-  codigoDecoded,
   onDragStart,
   isDragging,
   onView,
-  onOpenIA,
-  onDelete,
-  onRellenarAnexo,
-  onSepararAnexo,
-  onEnviarAuditor,
 }: {
   doc: DocLicitacion;
-  codigoDecoded: string;
   onDragStart: (e: React.DragEvent, doc: DocumentoAdjunto) => void;
   isDragging: boolean;
-  onView: (doc: VisorDoc) => void;
-  onOpenIA: (doc: { nombre: string; url: string }) => void;
-  onDelete?: (doc: DocLicitacion) => void;
-  onRellenarAnexo?: (doc: AnexoDoc) => void;
-  // Separa un .docx que trae varios anexos pegados (ver anexos-dividir.ts) en un archivo por
-  // anexo — paso independiente del relleno, útil para organizar ANTES de llenar nada.
-  onSepararAnexo?: (doc: AnexoDoc) => void;
-  // Presente solo cuando esta pantalla vive dentro de un negocio (nunca al mirar una licitación
-  // suelta, todavía sin asignar) — manda el documento tal cual está al checklist del Auditor
-  // Técnico, sin pasar por el relleno. Para lo que YA quedó listo (una garantía escaneada, un
-  // anexo llenado a mano fuera de la app), no para los que todavía tienen campos vacíos.
-  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
+  onView: (doc: DocLicitacion) => void;
 }) {
-  const analizable = esUrlAnalizable(doc.url_local || doc.url);
-  // Borrable si su categoría es de las nuestras (generadas por la app) O si el usuario lo
-  // subió a mano directamente en una caja oficial (origen_manual) — en ese caso la caja
-  // puede ser "Bases Administrativas" y aun así debe poder eliminarlo, a diferencia de un
-  // documento real descargado de Mercado Público que cae en la misma caja.
-  const esPropio = CATS_BORRABLES.has((doc.categoria || '').toUpperCase()) || !!doc.origen_manual;
-  const rellenable = onRellenarAnexo && esAnexoRellenable(doc);
-  const separable = onSepararAnexo && esAnexoSeparable(doc);
   return (
     <div
       draggable
@@ -183,77 +160,15 @@ function DocItem({
           {doc.size ? formatFileSize(doc.size) : ''}
         </span>
         <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0">
-          {rellenable && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onRellenarAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-              className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-              title="Rellenar anexo con los datos de la empresa"
-              draggable={false}
-            >
-              <Wand2 size={11} />
-            </button>
-          )}
-          {separable && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onSepararAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-              className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors"
-              title="Separar en anexos independientes (si trae varios pegados en un solo Word)"
-              draggable={false}
-            >
-              <Scissors size={11} />
-            </button>
-          )}
-          {onEnviarAuditor && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onEnviarAuditor({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-              className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
-              title="Enviar al Auditor Técnico"
-              draggable={false}
-            >
-              <Send size={11} />
-            </button>
-          )}
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onOpenIA({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
-            className="p-1 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
-            title="Preguntar sobre este documento"
-            draggable={false}
-          >
-            <Sparkles size={11} />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onView({ nombre: doc.nombre, url: doc.url_local || doc.url }); }}
+            onClick={(e) => { e.stopPropagation(); onView(doc); }}
             className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
             title="Ver en el visor"
             draggable={false}
           >
             <Eye size={11} />
           </button>
-          <a
-            href={doc.url_local || doc.url} download={doc.nombre}
-            onClick={(e) => { e.stopPropagation(); registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó'); }}
-            className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
-            title="Descargar"
-            draggable={false}
-          >
-            <Download size={11} />
-          </a>
-          {esPropio && onDelete && (
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onDelete(doc); }}
-              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-              title="Eliminar documento propio"
-              draggable={false}
-            >
-              <Trash2 size={11} />
-            </button>
-          )}
         </div>
       </div>
     </div>
@@ -264,7 +179,6 @@ function DocItem({
 function CajaDroppable({
   caja,
   docs,
-  codigoDecoded,
   isDragOver,
   isDraggingActive,
   draggingDoc,
@@ -274,17 +188,11 @@ function CajaDroppable({
   onDragLeave,
   onDrop,
   onView,
-  onOpenIA,
   onUpload,
-  onDelete,
-  onRellenarAnexo,
-  onSepararAnexo,
-  onEnviarAuditor,
   onRellenarTodos,
   subiendo,
 }: {
   caja: CajaConfig;
-  codigoDecoded: string;
   docs: DocLicitacion[];
   isDragOver: boolean;
   isDraggingActive: boolean;
@@ -294,13 +202,10 @@ function CajaDroppable({
   onDragEnter: (e: React.DragEvent, key: string) => void;
   onDragLeave: (e: React.DragEvent) => void;
   onDrop: (e: React.DragEvent, key: string) => void;
-  onView: (doc: VisorDoc) => void;
-  onOpenIA: (doc: { nombre: string; url: string }) => void;
+  // Abre el visor con el documento completo — DocumentosGrid decide ahí, según el doc, qué
+  // acciones (rellenar/separar/auditor/eliminar/chat) ofrecerle dentro del visor.
+  onView: (doc: DocLicitacion) => void;
   onUpload: (files: FileList | File[], categoria: string) => void;
-  onDelete: (doc: DocLicitacion) => void;
-  onRellenarAnexo?: (doc: AnexoDoc) => void;
-  onSepararAnexo?: (doc: AnexoDoc) => void;
-  onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
   // Solo se pasa (y solo se muestra el botón) en la caja de Anexos Administrativos — arma la cola
   // con los documentos rellenables de ESTA caja y se la pasa al padre, que la procesa uno por uno.
   onRellenarTodos?: (docs: AnexoDoc[]) => void;
@@ -377,15 +282,9 @@ function CajaDroppable({
           <DocItem
             key={doc.nombre}
             doc={doc}
-            codigoDecoded={codigoDecoded}
             onDragStart={onDragStart}
             isDragging={draggingDoc?.nombre === doc.nombre}
             onView={onView}
-            onOpenIA={onOpenIA}
-            onDelete={onDelete}
-            onRellenarAnexo={onRellenarAnexo}
-            onSepararAnexo={onSepararAnexo}
-            onEnviarAuditor={onEnviarAuditor}
           />
         ))}
 
@@ -409,8 +308,6 @@ function CajaDroppable({
 function DocumentosGrid({
   documentos,
   codigoDecoded,
-  onView,
-  onOpenIA,
   onRefrescar,
   onRellenarAnexo,
   onSepararAnexo,
@@ -420,8 +317,6 @@ function DocumentosGrid({
 }: {
   documentos: DocLicitacion[];
   codigoDecoded: string;
-  onView: (doc: VisorDoc) => void;
-  onOpenIA: (doc: { nombre: string; url: string }) => void;
   onRefrescar: () => void;
   onRellenarAnexo?: (doc: AnexoDoc) => void;
   // Habilita el botón de separar en la grilla (gateado por admin desde el padre, igual que
@@ -454,9 +349,18 @@ function DocumentosGrid({
   // Nombre del documento que se está separando ahora mismo (null = ninguno) — muestra el
   // overlay con DocSplitLoader mientras dura el fetch a /api/anexos/separar.
   const [separando, setSeparando] = useState<string | null>(null);
+  // Documento abierto en el visor (modal). null = cerrado. Guarda el objeto COMPLETO (no solo
+  // nombre/url) porque el visor necesita categoria/id/origen_manual para decidir qué acciones
+  // ofrecer en su cabecera (rellenar/separar/auditor/eliminar) — ver el mount más abajo.
+  const [visorDoc, setVisorDoc] = useState<DocLicitacion | null>(null);
   const dragEnterCount = useRef<Record<string, number>>({});
   const confirmar = useConfirm();
   const toast = useToast();
+
+  const abrirVisor = (doc: DocLicitacion) => {
+    registrarVerDocumento(codigoDecoded, doc.nombre, 'Vio');
+    setVisorDoc(doc);
+  };
 
   // Elimina un documento PROPIO (solo esa categoría). Confirma, llama al DELETE del
   // backend (borra de R2 + caché) y actualiza el estado local de forma optimista.
@@ -718,7 +622,6 @@ function DocumentosGrid({
           <CajaDroppable
             key={caja.key}
             caja={caja}
-            codigoDecoded={codigoDecoded}
             docs={grupos[caja.key] || []}
             isDragOver={dragOver === caja.key}
             isDraggingActive={isDraggingActive}
@@ -728,13 +631,8 @@ function DocumentosGrid({
             onDragEnter={handleDragEnter}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
-            onView={onView}
-            onOpenIA={onOpenIA}
+            onView={abrirVisor}
             onUpload={handleUpload}
-            onDelete={handleDelete}
-            onRellenarAnexo={onRellenarAnexo}
-            onSepararAnexo={onSepararAnexo ? handleSepararAnexo : undefined}
-            onEnviarAuditor={onEnviarAuditor}
             onRellenarTodos={onRellenarTodos}
             subiendo={subiendo}
           />
@@ -759,11 +657,9 @@ function DocumentosGrid({
               <DocItem
                 key={doc.nombre}
                 doc={doc}
-                codigoDecoded={codigoDecoded}
                 onDragStart={handleDragStart}
                 isDragging={draggingDoc?.nombre === doc.nombre}
-                onView={onView}
-                onOpenIA={onOpenIA}
+                onView={abrirVisor}
               />
             ))}
           </div>
@@ -783,6 +679,31 @@ function DocumentosGrid({
         </div>,
         document.body,
       )}
+
+      {/* Visor: acá viven ahora todas las acciones que antes eran botones sueltos en la fila
+          del documento (rellenar, separar, enviar al auditor, chat con ankIA, eliminar) —
+          cada una condicionada exactamente igual que antes, solo que ahora se decide qué
+          props pasarle al visor en vez de qué botón dibujar en DocItem. */}
+      <DocumentViewerModal
+        doc={visorDoc}
+        codigo={codigoDecoded}
+        onClose={() => setVisorDoc(null)}
+        onRellenarAnexo={visorDoc && onRellenarAnexo && esAnexoRellenable(visorDoc) ? () => {
+          const d = visorDoc; setVisorDoc(null);
+          onRellenarAnexo({ id: d.id as number, nombre: d.nombre, url: d.url_local || d.url });
+        } : undefined}
+        onSepararAnexo={visorDoc && onSepararAnexo && esAnexoSeparable(visorDoc) ? () => {
+          const d = visorDoc; setVisorDoc(null);
+          handleSepararAnexo({ id: d.id as number, nombre: d.nombre, url: d.url_local || d.url });
+        } : undefined}
+        onEnviarAuditor={visorDoc && onEnviarAuditor ? () => {
+          const d = visorDoc; setVisorDoc(null);
+          onEnviarAuditor({ nombre: d.nombre, url: d.url_local || d.url });
+        } : undefined}
+        onEliminar={visorDoc && (CATS_BORRABLES.has((visorDoc.categoria || '').toUpperCase()) || !!visorDoc.origen_manual) ? () => {
+          const d = visorDoc; setVisorDoc(null); handleDelete(d);
+        } : undefined}
+      />
     </div>
   );
 }
@@ -1336,9 +1257,9 @@ export function DocumentosSection({
   // Documento abierto en el visor inline (modal). null = cerrado.
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
   // Ver un documento: abre el visor Y registra la actividad "Vio el documento" (bitácora).
+  // Usado solo por DocumentosPropiosGrid ("Documentos para MP") — la grilla de la licitación
+  // (docsLicitacion) tiene su propio visor con más acciones, ver DocumentosGrid más arriba.
   const verYRegistrar = (doc: VisorDoc) => { registrarVerDocumento(codigoDecoded, doc.nombre, 'Vio'); setVisorDoc(doc); };
-  // Documento abierto en el chat rápido de IA (modal). null = cerrado.
-  const [iaDoc, setIaDoc] = useState<{ nombre: string; url: string } | null>(null);
   // Anexo de oferente abierto en la pantalla de relleno (modal). null = cerrado.
   const [anexoDoc, setAnexoDoc] = useState<AnexoDoc | null>(null);
   // Nombre del PDF que se está rellenando ahora mismo (null = ninguno) — evita doble clic
@@ -1672,8 +1593,6 @@ export function DocumentosSection({
             <DocumentosGrid
               documentos={docsLicitacion as DocLicitacion[]}
               codigoDecoded={codigoDecoded}
-              onView={verYRegistrar}
-              onOpenIA={setIaDoc}
               onRefrescar={fetchDocumentos}
               onRellenarAnexo={isAdmin ? handleRellenarAnexo : undefined}
               onSepararAnexo={isAdmin ? true : undefined}
@@ -1708,11 +1627,9 @@ export function DocumentosSection({
         />
       </div>
 
-      {/* Visor inline de documentos (PDF/imagen/Office) — sin descargar */}
+      {/* Visor inline de "Documentos para MP" (PDF/imagen/Office) — sin descargar. El de
+          "Documentos y Bases" vive dentro de DocumentosGrid, con más acciones en la cabecera. */}
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
-
-      {/* Chat rápido de IA sobre un documento puntual */}
-      <DocumentoIAModal doc={iaDoc} codigo={codigoDecoded} onClose={() => setIaDoc(null)} />
 
       {/* Enviar un documento ya existente (propio o de la licitación) a un punto del Auditor
           Técnico — camino inverso al de "Generar": acá el archivo ya está listo. */}
