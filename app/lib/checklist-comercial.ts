@@ -358,6 +358,41 @@ export function lineasDelInforme(informe: any): Array<{ linea: number; descripci
   return out.sort((a, b) => a.linea - b.linea);
 }
 
+/**
+ * TODAS las líneas a las que se puede postular, uniendo las DOS vistas del informe: el manifiesto
+ * comercial (`lineasDelInforme`, el que trae cantidad/unidad/presupuesto) y el técnico
+ * (`lineasTecnicasDelInforme`, el que fusiona los productos de una línea-paquete).
+ *
+ * BUG REAL (2-sep-2026, negocio 979 / 2446-240-LE26, reportado por el usuario: "seleccioné las dos
+ * líneas y solo me da una"). El SELECTOR ya unía las dos vistas —por eso ofrecía las líneas 1 y 2 y
+ * el usuario pudo marcar ambas—, pero la generación del checklist miraba SOLO el manifiesto
+ * comercial, que en ese informe trae una sola línea: la línea 2 existe únicamente del lado técnico.
+ * Resultado: se podía elegir una línea que después NUNCA generaba su fila de precio, y no había
+ * ninguna forma de cotizarla. Dos fuentes para la misma pregunta siempre terminan así; ahora es
+ * una sola y la usan el selector y el generador.
+ *
+ * Preferimos ofrecer una línea de más que esconder una a la que había que postular: si una vista
+ * conoce una línea que la otra no, entra igual.
+ */
+export function lineasOfertablesDelInforme(informe: any): Array<{ linea: number; descripcion: string; cantidad: number | null; unidad: string | null; presupuestoLinea: number | null; caracteristicas: number; soloTecnica: boolean }> {
+  const comercial = lineasDelInforme(informe);
+  const tecnicas = new Map(lineasTecnicasDelInforme(informe).map(l => [l.linea, l]));
+  const numeros = Array.from(new Set([...comercial.map(l => l.linea), ...tecnicas.keys()])).sort((a, b) => a - b);
+  return numeros.map(n => {
+    const c = comercial.find(l => l.linea === n);
+    const t = tecnicas.get(n);
+    return {
+      linea: n,
+      descripcion: String(c?.descripcion || t?.nombre || `Línea ${n}`).slice(0, 280),
+      cantidad: c?.cantidad ?? null,
+      unidad: c?.unidad ?? null,
+      presupuestoLinea: c?.presupuestoLinea ?? null,
+      caracteristicas: t?.caracteristicas.length ?? 0,
+      soloTecnica: !c,
+    };
+  });
+}
+
 // ═══ GENERACIÓN ═════════════════════════════════════════════════════════════════
 
 /**
@@ -613,7 +648,9 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
   // suma_alzada → un único precio total. por_linea → un precio por línea, y el asistente
   // marca a cuáles se oferta (se puede postular a un subconjunto).
   if (esPorLinea(informe)) {
-    const lineas = lineasDelInforme(informe);
+    // La MISMA lista que ofrece el selector (ver lineasOfertablesDelInforme): si una línea se
+    // puede elegir, tiene que poder cotizarse.
+    const lineas = lineasOfertablesDelInforme(informe);
     if (lineas.length > 0) {
       for (const l of lineas) {
         push({

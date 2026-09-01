@@ -17,8 +17,8 @@ import pool from '@/app/lib/db';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
-import { cargarNegocio, leerInforme } from '@/app/api/negocios/[id]/comercial/route';
-import { esPorLinea, lineasDelInforme } from '@/app/lib/checklist-comercial';
+import { cargarNegocio, leerInforme, sincronizar } from '@/app/api/negocios/[id]/comercial/route';
+import { esPorLinea, lineasDelInforme, lineasOfertablesDelInforme } from '@/app/lib/checklist-comercial';
 import { lineasTecnicasDelInforme } from '@/app/lib/auditor-tecnico-core';
 import { leerDecisionLineas, guardarLineasOfertadas, lineasExcluidasDeNegocio } from '@/app/lib/lineas-oferta';
 import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
@@ -33,36 +33,20 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol: req.headers.get('x-user-rol') };
 }
 
-/**
- * Las líneas ofertables, unificando las dos vistas del informe: el manifiesto comercial
- * (lineasDelInforme, el que trae cantidad/unidad/presupuesto) y el técnico
- * (lineasTecnicasDelInforme, el que fusiona los productos de una línea-paquete y cuenta sus
- * características). Los dos numeran igual desde el fix de numeroDeLinea; si aun así una vista
- * conoce una línea que la otra no, se muestra igual — preferimos ofrecer una línea de más que
- * esconder una a la que había que postular.
- */
+// Las líneas ofertables salen de checklist-comercial.ts — la MISMA función que usa el generador
+// del checklist. Antes esta ruta tenía su propia copia de la unión comercial+técnica: el selector
+// ofrecía líneas que el generador después no conocía, y elegirlas no producía ninguna fila de
+// precio (bug real del negocio 979, ver lineasOfertablesDelInforme).
 function lineasOfertables(informe: any) {
-  const comercial = lineasDelInforme(informe);
-  const tecnicas = new Map(lineasTecnicasDelInforme(informe).map(l => [l.linea, l]));
-  const numeros = Array.from(new Set([...comercial.map(l => l.linea), ...tecnicas.keys()])).sort((a, b) => a - b);
-  return numeros.map(n => {
-    const c = comercial.find(l => l.linea === n);
-    const t = tecnicas.get(n);
-    return {
-      linea: n,
-      nombre: c?.descripcion || t?.nombre || `Línea ${n}`,
-      cantidad: c?.cantidad ?? null,
-      unidad: c?.unidad ?? null,
-      presupuesto: c?.presupuestoLinea ?? null,
-      caracteristicas: t?.caracteristicas.length ?? 0,
-      // De qué lado apareció, cuando aparece en UNO SOLO. Medido el 26-ago-2026: 10 de 136
-      // informes por línea traen los dos arrays con líneas distintas, y NINGUNO de los dos es
-      // confiable siempre (hay manifiestos con filas basura y hay informes donde la IA numera
-      // un "LÍNEA n" por producto). No se elige un ganador a ciegas: se marca la discrepancia
-      // para que la vea el humano que está decidiendo, en vez de resolverla mal en silencio.
-      soloEn: c && !t ? ('comercial' as const) : (!c && t ? ('tecnico' as const) : null),
-    };
-  });
+  return lineasOfertablesDelInforme(informe).map(l => ({
+    linea: l.linea,
+    nombre: l.descripcion,
+    cantidad: l.cantidad,
+    unidad: l.unidad,
+    presupuesto: l.presupuestoLinea,
+    caracteristicas: l.caracteristicas,
+    origen: l.soloTecnica ? ('tecnica' as const) : ('comercial' as const),
+  }));
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
@@ -152,6 +136,24 @@ export async function PUT(request: NextRequest, { params }: Params) {
       })),
       usuarioId: userId,
     });
+
+    // AGREGAR una línea a la oferta tiene que CREAR su trabajo, no solo marcarla.
+    // BUG REAL (2-sep-2026, negocio 979, reportado por el usuario: "seleccioné las dos líneas y
+    // solo me da una"). `guardarLineasOfertadas` proyecta `ofertamos` sobre las filas que YA
+    // existen — perfecto para sacar una línea de la oferta, inútil para meterla: la fila de precio
+    // de esa línea nunca se había materializado (el checklist se generó cuando esa línea estaba
+    // fuera o sin decidir). Y el GET del Auditor solo re-sincroniza si el checklist está vacío o
+    // si la viabilidad es más nueva, así que la línea agregada no aparecía nunca.
+    // `sincronizar` es INSERT IGNORE contra (negocio_id, clave_origen): agrega lo que falta y no
+    // toca ni una fila que el asesor ya haya cargado o aprobado.
+    if (informe) {
+      try {
+        await sincronizar(negocio.id, negocio.licitacion_codigo, informe);
+      } catch (e) {
+        // La decisión ya quedó guardada: materializar es una consecuencia, no parte del guardado.
+        console.warn('[lineas-oferta][PUT] no se pudo materializar el checklist de las líneas nuevas:', String(e));
+      }
+    }
 
     // Tipo propio (no CAMBIO_ETAPA): la etapa del negocio no se movió, y el backfill de
     // migration-76 lee CAMBIO_ETAPA para deducir cuándo se postuló — ensuciarlo con otra cosa

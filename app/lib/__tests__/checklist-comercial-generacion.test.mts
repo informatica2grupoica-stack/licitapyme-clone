@@ -9,7 +9,7 @@
 //   npx tsx --test app/lib/__tests__/checklist-comercial-generacion.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { generarItemsDesdeViabilidad, type ItemGenerado } from '../checklist-comercial';
+import { generarItemsDesdeViabilidad, lineasOfertablesDelInforme, type ItemGenerado } from '../checklist-comercial';
 
 function porClave(items: ItemGenerado[], clave: string) {
   return items.find(i => i.claveOrigen === clave);
@@ -157,4 +157,43 @@ test('un informe con campos null/undefined en vez de arrays no revienta', () => 
   });
   assert.equal(items.length, 1, 'campos null/undefined no deben tumbar la función, solo queda el precio por defecto');
   assert.equal(items[0].claveOrigen, 'precio:total');
+});
+
+// BUG REAL (2-sep-2026, negocio 979 / 2446-240-LE26, reportado por el usuario: "seleccione las dos
+// lineas y solo me da una"). El informe tiene DOS vistas de los productos y no siempre coinciden:
+// `productos.items` (la tecnica) y `manifiesto_productos` (la comercial). El SELECTOR ya unia las
+// dos —por eso ofrecia las lineas 1 y 2—, pero la generacion del checklist miraba SOLO la
+// comercial: la linea 2 se podia elegir y despues no existia ninguna fila donde cotizarla.
+const INFORME_DOS_VISTAS = {
+  ...INFORME_BASE,
+  modalidad: { tipo: 'por_linea' },
+  // La vista TECNICA conoce las dos lineas...
+  productos: {
+    items: [
+      { linea: 'L1', descripcion: 'Hidrolavadora peatonal', cantidad: 2, unidad_medida: 'Unidad' },
+      { linea: 'L2', descripcion: 'Limpiador de filtros', cantidad: 1, unidad_medida: 'Unidad' },
+    ],
+  },
+  // ...y la COMERCIAL solo la primera.
+  manifiesto_productos: [
+    { linea: 'L1', descripcion: 'Hidrolavadora peatonal', cantidad: 2, unidad_medida: 'Unidad' },
+  ],
+};
+
+test('lineas ofertables: se unen las dos vistas del informe (tecnica + manifiesto)', () => {
+  const lineas = lineasOfertablesDelInforme(INFORME_DOS_VISTAS);
+  assert.deepEqual(lineas.map(l => l.linea), [1, 2]);
+  // La linea que solo conoce la vista tecnica queda marcada, para poder decirlo en pantalla.
+  assert.equal(lineas[1].soloTecnica, true);
+  assert.equal(lineas[0].soloTecnica, false);
+});
+
+test('precios: se genera una fila por CADA linea ofertable, no solo por las del manifiesto', () => {
+  const items = generarItemsDesdeViabilidad(INFORME_DOS_VISTAS, [1, 2]);
+  const precios = items.filter(i => i.tipo === 'precio').map(i => i.claveOrigen);
+  assert.deepEqual(precios, ['precio:linea:1', 'precio:linea:2']);
+
+  // Y el filtro por seleccion sigue mandando: si solo se oferta la 1, la 2 no genera trabajo.
+  const soloUna = generarItemsDesdeViabilidad(INFORME_DOS_VISTAS, [1]);
+  assert.deepEqual(soloUna.filter(i => i.tipo === 'precio').map(i => i.claveOrigen), ['precio:linea:1']);
 });

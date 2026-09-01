@@ -187,8 +187,13 @@ export { agregarDocumentos, bitacora };
  * Materializa el checklist desde el informe. Idempotente: `INSERT IGNORE` contra la unique
  * (negocio_id, clave_origen), así que resincronizar tras un re-análisis AGREGA lo nuevo y
  * nunca pisa lo que el asesor ya aprobó.
+ *
+ * Exportada porque el SELECTOR DE LÍNEAS también la necesita: agregar una línea a la oferta tiene
+ * que crear su fila de precio, y hasta el 2-sep-2026 no la creaba nadie (ver el PUT de
+ * /lineas-oferta). Este GET solo la corre cuando el checklist está vacío o cuando la viabilidad es
+ * más nueva, así que cambiar la selección no disparaba nada.
  */
-async function sincronizar(negocioId: number, codigo: string, informe: any): Promise<number> {
+export async function sincronizar(negocioId: number, codigo: string, informe: any): Promise<number> {
   // Si ya se decidió a qué líneas se oferta (selector de líneas, migración 78), no se genera
   // trabajo para las demás. Sin decisión devuelve null y se materializa todo, igual que antes.
   const lineasOfertadas = await leerLineasOfertadas(negocioId);
