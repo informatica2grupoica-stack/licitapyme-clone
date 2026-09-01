@@ -1002,6 +1002,10 @@ export interface CandidatoInline {
   // "contexto" recortado a 60 caracteres, blancos de una declaración jurada corrida como "de ___
   // de ___" no se entendían sin abrir el Word).
   parrafoCompleto: string; posEnParrafo: number;
+  // PIE DE FIRMA ROTULADO: el texto del parrafo de ABAJO cuando este blanco es una raya sola y lo
+  // que sigue es el nombre del dato que va escrito sobre ella ("NOMBRE EMPRESA"). Ver el bloque de
+  // LARGO_MAX_ROTULO_DEBAJO mas abajo y su uso en campoDeBlancoInline (anexos-determinista.ts).
+  rotuloDebajo?: string;
 }
 
 // BUG REAL (28-ago-2026, reportado por el usuario como "cuando pide 3 veces el correo lo pone una
@@ -1024,6 +1028,55 @@ export interface CandidatoInline {
 // El arreglo es que exista UNA sola definición: `indiceRun` ES la posición del <w:t> en la lista
 // global del documento, con el MISMO regex que usa quien escribe. Los párrafos se siguen usando
 // para el contexto y para `indiceParrafo`, pero ya no para numerar los runs.
+// El PIE DE FIRMA ROTULADO: una raya sola en su propio párrafo y, DEBAJO, el nombre del dato que
+// va escrito sobre ella ("____________" / "NOMBRE EMPRESA"). Reportado por el usuario el
+// 1-sep-2026 con captura (ANEXO N°2, declaración jurada de Cholchol): la tabla de cierre tiene dos
+// columnas, "NOMBRE EMPRESA" y "FIRMA REPRESENTANTE LEGAL", cada una con su raya arriba — la de
+// firma sí se detectaba (es una línea de firma), la de la empresa quedaba vacía para siempre.
+// Es el ESPEJO del patrón 1 (etiqueta arriba, blanco abajo) y no lo cubría ningún detector: el
+// blanco no tiene nada a su izquierda, así que `campoDeBlancoInline` lo descartaba de entrada.
+//
+// Condiciones para tomar el párrafo de abajo como rótulo (todas, a propósito estrechas):
+//  · el párrafo del blanco es SOLO la raya (nada de texto alrededor);
+//  · el de abajo es corto, sin blanco propio (si tuviera, sería otra casilla, no un rótulo);
+//  · no menciona firma ni timbre — ahí va la IMAGEN de la firma, no texto, y escribir el nombre de
+//    la empresa sobre la línea donde tiene que ir la firma sería peor que dejarla vacía.
+// Aun cumpliéndolas, el rótulo solo resuelve por el DICCIONARIO cerrado (ver campoDeBlancoInline):
+// si no calza con un campo conocido, la casilla queda pendiente como antes.
+const LARGO_MAX_ROTULO_DEBAJO = 60;
+const RE_ROTULO_ES_FIRMA = /firma|timbre/i;
+const RE_SOLO_RAYA = /^[\s_.…]+$/;
+
+/**
+ * El rótulo que le corresponde a la raya del párrafo `indice`, EMPAREJADO POR POSICIÓN. Un pie de
+ * firma de dos columnas no alterna raya/rótulo: pone primero las dos rayas y después los dos
+ * rótulos —"______" "______" "NOMBRE EMPRESA" "FIRMA REPRESENTANTE LEGAL"—, así que el rótulo de
+ * una raya es el que ocupa SU MISMO lugar en la corrida de rótulos, no el párrafo de al lado (que
+ * ahí es la otra raya). Con una sola raya y su rótulo debajo —el caso corriente— da exactamente lo
+ * mismo que mirar el párrafo siguiente.
+ *
+ * Devuelve '' salvo que la estructura calce EXACTA (tantos rótulos como rayas, todos cortos, sin
+ * blancos propios y sin vacíos en medio): sin esa correspondencia 1:1, emparejar sería adivinar.
+ * La usan los dos lados del mismo patrón — detectarBlancosInline (para saber qué dato va escrito
+ * sobre la raya) y detectarLineasFirma (para NO reservar para la imagen una raya que es de texto).
+ */
+export function rotuloEmparejadoDeRaya(textoDe: (i: number) => string, indice: number): string {
+  const esRaya = (i: number) => { const t = textoDe(i); return !!t && RE_SOLO_RAYA.test(t); };
+  let inicio = indice;
+  while (inicio > 0 && esRaya(inicio - 1)) inicio--;
+  let fin = indice;
+  while (esRaya(fin + 1)) fin++;
+  const cuantasRayas = fin - inicio + 1;
+  const rotulos: string[] = [];
+  for (let i = fin + 1; i < fin + 1 + cuantasRayas; i++) {
+    const t = textoDe(i);
+    if (!t || t.length > LARGO_MAX_ROTULO_DEBAJO || RE_TIENE_BLANCO_PROPIO.test(t)) break;
+    rotulos.push(t);
+  }
+  if (rotulos.length !== cuantasRayas) return '';
+  return rotulos[indice - inicio] || '';
+}
+
 export function detectarBlancosInline(xml: string): CandidatoInline[] {
   const out: CandidatoInline[] = [];
   // La lista que MANDA: mismo patrón, carácter por carácter, que rellenarRunPorIndice.
@@ -1032,6 +1085,20 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
   // Puntero que avanza junto con los párrafos: los dos arreglos vienen en orden de documento y
   // matchAll nunca devuelve matches solapados, así que alcanza con recorrerlos una sola vez.
   let puntero = 0;
+
+  // Texto plano de un párrafo por índice — solo se usa para mirar el rótulo de ABAJO, así que se
+  // calcula bajo demanda en vez de precomputar el documento entero.
+  const textoDeParrafo = (i: number): string => {
+    const m = parrafos[i];
+    if (!m) return '';
+    return [...m[1].matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(x => decodificarXml(x[1])).join('').trim();
+  };
+
+  // Un rótulo de FIRMA no es una casilla de texto: ahí va la IMAGEN (lo maneja detectarLineasFirma).
+  const rotuloDeLaRaya = (indice: number): string => {
+    const propio = rotuloEmparejadoDeRaya(textoDeParrafo, indice);
+    return propio && !RE_ROTULO_ES_FIRMA.test(propio) && esEtiquetaDeCampo(propio) ? propio : '';
+  };
 
   parrafos.forEach((parMatch, indiceParrafo) => {
     const desde = parMatch.index ?? 0;
@@ -1044,6 +1111,9 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
     // usa rellenarRunPorIndice para escribir, y ese también decodifica antes de editar.
     const runsDelParrafo = indicesDeEsteParrafo.map(i => decodificarXml(runsGlobales[i][1]));
     const textoParrafoCompleto = runsDelParrafo.join('');
+    // Ver el comentario de LARGO_MAX_ROTULO_DEBAJO: el rótulo de esta raya vive DEBAJO, y solo
+    // cuando el párrafo es una raya pelada.
+    const rotuloDebajo = RE_SOLO_RAYA.test(textoParrafoCompleto) ? rotuloDeLaRaya(indiceParrafo) : '';
     let offsetAcumulado = 0;
     let posicionEnParrafo = 0;
 
@@ -1068,10 +1138,14 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
         out.push({
           indiceRun: indiceRunGlobal, indiceParrafo,
           textoRunOriginal: texto, posEnTexto: b.posEnTexto, largo: b.largo,
-          contexto: contexto || '(sin contexto)',
+          // Con la raya sola, el ROTULO DE ABAJO es el unico contexto que existe — mostrarlo (en la
+          // pantalla y en el prompt de la IA) es bastante mejor que "(sin contexto)", que no le
+          // dice nada ni al usuario ni al modelo.
+          contexto: contexto || rotuloDebajo || '(sin contexto)',
           parrafoCompleto: textoParrafoCompleto.trim(),
           posEnParrafo: Math.max(0, posGlobalEnParrafo - recorteIzquierdo),
           ...(b.textoMarcador ? { textoMarcador: b.textoMarcador } : {}),
+          ...(rotuloDebajo ? { rotuloDebajo } : {}),
         });
       }
       offsetAcumulado += texto.length;
@@ -1124,6 +1198,17 @@ const RE_CONECTOR_DE_CON_DECADA = /^del?\s*(?:19|20)\d$/i;
 // blanco — "Los Vilos, ____________de_______________2026" (caso real 3713-7-LE26, 6 ocurrencias en
 // el mismo documento). Se exige que justo después del segundo blanco aparezca un año de 4 dígitos
 // (19xx/20xx) suelto — sin eso, "de" es una palabra demasiado común como para bastar por sí sola.
+// BUG REAL (1-sep-2026, ANEXO 3 de Cholchol, reportado con captura): "En ______, a __ del mes
+// _______ del año______" — la CIUDAD sí se completó, pero día, mes y año quedaron los tres en
+// blanco. El organismo no separa con "de" sino que nombra la unidad: "del mes" entre el día y el
+// mes, "del año" entre el mes y el año. RE_CONECTOR_DE exige exactamente "de", así que el trío se
+// caía entero. Es la MISMA fecha de siempre (la de presentación de la oferta), solo rotulada
+// distinto — cuarta forma registrada de escribir la fecha en un anexo chileno.
+// Se acepta también el siglo/década ya impresos ("del año 20___"), igual que las otras formas.
+const RE_CONECTOR_DEL_MES = /^del?\s+mes(?:\s+de)?$/i;
+const RE_CONECTOR_DEL_ANIO = /^del?\s+a[nñ]o(?:\s*(?:19|20)\d{0,2})?$/i;
+const RE_CONECTOR_DEL_ANIO_CON_SIGLO = /^del?\s+a[nñ]o\s*(?:19|20)$/i;
+const RE_CONECTOR_DEL_ANIO_CON_DECADA = /^del?\s+a[nñ]o\s*(?:19|20)\d$/i;
 const RE_ANIO_IMPRESO = /\b(19|20)\d{2}\b/;
 const LARGO_COLA_ANIO = 20;
 
@@ -1148,9 +1233,12 @@ export function detectarTripletesFecha(blancos: CandidatoInline[]): Map<string, 
         const conector1 = texto.slice(b1.posEnParrafo + b1.largo, b2.posEnParrafo).trim();
         const conector2 = texto.slice(b2.posEnParrafo + b2.largo, b3.posEnParrafo).trim();
         const esBarra = conector1 === '/' && conector2 === '/';
-        const esDe = RE_CONECTOR_DE.test(conector1) && RE_CONECTOR_DE.test(conector2);
-        const esDeConSiglo = RE_CONECTOR_DE.test(conector1) && RE_CONECTOR_DE_CON_SIGLO.test(conector2);
-        const esDeConDecada = RE_CONECTOR_DE.test(conector1) && RE_CONECTOR_DE_CON_DECADA.test(conector2);
+        // "de" (lo de siempre) o "del mes" (forma de Cholchol) sirven igual para separar el día del
+        // mes: lo que importa es que el conector diga que lo que sigue es el MES, no cómo lo rotula.
+        const abreMes = RE_CONECTOR_DE.test(conector1) || RE_CONECTOR_DEL_MES.test(conector1);
+        const esDe = abreMes && (RE_CONECTOR_DE.test(conector2) || RE_CONECTOR_DEL_ANIO.test(conector2));
+        const esDeConSiglo = abreMes && (RE_CONECTOR_DE_CON_SIGLO.test(conector2) || RE_CONECTOR_DEL_ANIO_CON_SIGLO.test(conector2));
+        const esDeConDecada = abreMes && (RE_CONECTOR_DE_CON_DECADA.test(conector2) || RE_CONECTOR_DEL_ANIO_CON_DECADA.test(conector2));
         if (esBarra || esDe || esDeConSiglo || esDeConDecada) {
           out.set(`${b1.indiceRun}:${b1.posEnTexto}`, 'dia');
           out.set(`${b2.indiceRun}:${b2.posEnTexto}`, esBarra ? 'mes_numero' : 'mes_palabra');
@@ -1165,7 +1253,7 @@ export function detectarTripletesFecha(blancos: CandidatoInline[]): Map<string, 
         const [b1, b2] = [grupo[i], grupo[i + 1]];
         const conector = texto.slice(b1.posEnParrafo + b1.largo, b2.posEnParrafo).trim();
         const cola = texto.slice(b2.posEnParrafo + b2.largo, b2.posEnParrafo + b2.largo + LARGO_COLA_ANIO);
-        if (RE_CONECTOR_DE.test(conector) && RE_ANIO_IMPRESO.test(cola)) {
+        if ((RE_CONECTOR_DE.test(conector) || RE_CONECTOR_DEL_MES.test(conector)) && RE_ANIO_IMPRESO.test(cola)) {
           out.set(`${b1.indiceRun}:${b1.posEnTexto}`, 'dia');
           out.set(`${b2.indiceRun}:${b2.posEnTexto}`, 'mes_palabra');
           i += 2;
@@ -1640,6 +1728,20 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
       const paginas = [siguiente1, siguiente2, siguiente3];
       const partes = paginas.filter(t => t && t.length <= LARGO_MAX_LEYENDA_FIRMA && !RE_TIENE_BLANCO_PROPIO.test(t));
       const contexto = partes.some(t => RE_LEYENDA_FIRMA.test(t)) ? partes.join(' ').trim() : '';
+      // BUG REAL (1-sep-2026, ANEXO N°2 de Cholchol, reportado con captura: "donde dice nombre de
+      // la empresa y esta la linea arriba es facil de poner"). El pie es de DOS columnas y el
+      // documento pone primero las dos rayas y despues los dos rotulos:
+      //     "______"  "______"  "NOMBRE EMPRESA"  "FIRMA REPRESENTANTE LEGAL"
+      // La ventana de tres parrafos saltaba por encima de la segunda raya y encontraba la leyenda
+      // de la OTRA columna: la raya de la empresa quedaba marcada como linea de firma —reservada
+      // para la imagen— y la razon social no tenia donde escribirse. Si esta raya tiene su propio
+      // rotulo emparejado por posicion y ese rotulo no habla de firma, la raya es una casilla de
+      // TEXTO y esta leyenda es de otra columna. Ver rotuloEmparejadoDeRaya.
+      // Ademas de no hablar de firma, el rotulo propio tiene que SER una etiqueta de campo (frase
+      // nominal corta, sin verbos): un pie que abajo de la raya escribe el nombre de la persona
+      // ("Sr. Juan Perez") no convierte esa raya en una casilla de texto — ahi va la firma igual.
+      const rotuloPropio = rotuloEmparejadoDeRaya(i => parrafos[i]?.texto ?? '', i);
+      if (contexto && rotuloPropio && !RE_ROTULO_ES_FIRMA.test(rotuloPropio) && esEtiquetaDeCampo(rotuloPropio)) continue;
       if (contexto) {
         agregar(p, contexto, parrafos[i + 1]);
         if (parrafos[i + 1]) leyendasConRaya.add(parrafos[i + 1].indice);

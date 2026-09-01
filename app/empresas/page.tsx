@@ -11,7 +11,7 @@ import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import {
   Building2, Plus, Pencil, Trash2, Loader2, X, Save, Inbox,
-  User, Landmark, Mail, Phone, MapPin, ShieldCheck, Upload, Eye, Award,
+  User, Landmark, Mail, Phone, MapPin, ShieldCheck, Upload, Eye, Award, PenLine, Star,
 } from 'lucide-react';
 
 interface Empresa {
@@ -49,6 +49,17 @@ interface Empresa {
   timbre_nombre?: string | null;
 }
 
+// Una firma escaneada de las VARIAS que puede tener la empresa (migration-84). `es_principal` es
+// la que se usa cuando nadie elige: la del .docx, la de la ficha tecnica y la marcada por defecto
+// al firmar el PDF - es el espejo de `empresas.firma_url`, ver app/lib/empresa-firmas.ts.
+interface FirmaEmpresa {
+  id: number;
+  etiqueta: string;
+  url: string;
+  nombre: string | null;
+  es_principal: boolean;
+}
+
 interface EmpresaDocumento {
   id: number;
   tipo: string;
@@ -79,9 +90,10 @@ function Campo({ label, value, onChange, placeholder, required }: {
   );
 }
 
-// Logo / firma / timbre: un archivo cada uno, se reemplaza al subir uno nuevo.
+// Logo / timbre: un archivo cada uno, se reemplaza al subir uno nuevo. La FIRMA se salio de aca
+// (migration-84): ahora son varias y viven en su propia tabla - ver SeccionFirmas mas abajo.
 function SubidaArchivoUnico({ empresaId, tipo, label, urlActual, nombreActual, onCambio }: {
-  empresaId: number; tipo: 'logo' | 'firma' | 'timbre'; label: string;
+  empresaId: number; tipo: 'logo' | 'timbre'; label: string;
   urlActual: string | null | undefined; nombreActual: string | null | undefined; onCambio: () => void;
 }) {
   const [subiendo, setSubiendo] = useState(false);
@@ -131,6 +143,160 @@ function SubidaArchivoUnico({ empresaId, tipo, label, urlActual, nombreActual, o
         {urlActual && (
           <button onClick={eliminar} title="Quitar" className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"><Trash2 size={14} /></button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Firmas escaneadas: VARIAS por empresa (pedido explicito del usuario, 1-sep-2026 - "tener la
+// posibilidad de tener varias firmas"). Antes era un slot unico que se pisaba al subir otro, con
+// el resultado de que una empresa con representante titular y suplente tenia que reemplazar el
+// archivo a mano antes de cada anexo. La marcada como principal (estrella) es la que se usa sola
+// en todo lo que no pregunta -el .docx, la ficha tecnica-; al firmar un PDF se puede arrastrar
+// cualquiera de las otras. Nunca hay cero principales mientras exista al menos una firma: lo
+// garantiza el backend (sincronizarFirmaPrincipal), no esta pantalla.
+function SeccionFirmas({ empresaId, onCambio }: { empresaId: number; onCambio: () => void }) {
+  const [firmas, setFirmas] = useState<FirmaEmpresa[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [etiqueta, setEtiqueta] = useState('');
+  const [subiendo, setSubiendo] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const toast = useToast();
+  const confirmar = useConfirm();
+
+  const cargar = useCallback(async () => {
+    setCargando(true);
+    try {
+      const r = await fetch(`/api/empresas/${empresaId}/firmas`);
+      const d = await r.json().catch(() => ({}));
+      setFirmas(d.firmas || []);
+    } finally {
+      setCargando(false);
+    }
+  }, [empresaId]);
+
+  useEffect(() => { cargar(); }, [cargar]);
+
+  // `onCambio` recarga la ficha de la empresa del padre: la columna espejo `firma_url` cambia con
+  // cada alta/baja/cambio de principal, y sin esto el resto del formulario se queda con la vieja.
+  const aplicar = (nuevas: FirmaEmpresa[]) => { setFirmas(nuevas); onCambio(); };
+
+  const subir = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setSubiendo(true);
+    try {
+      // Varias a la vez: elegir 3 firmas en el explorador sube las 3, cada una con el nombre de su
+      // archivo como etiqueta (la etiqueta escrita solo se usa cuando se sube UNA - si no, las
+      // tres quedarian con el mismo rotulo y no habria como distinguirlas al firmar).
+      for (const file of Array.from(files)) {
+        const fd = new FormData();
+        if (files.length === 1 && etiqueta.trim()) fd.append('etiqueta', etiqueta.trim());
+        fd.append('file', file);
+        const r = await fetch(`/api/empresas/${empresaId}/firmas`, { method: 'POST', body: fd });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok || !d.success) { toast.error(d.error || `No se pudo subir "${file.name}"`); break; }
+        aplicar(d.firmas || []);
+      }
+      setEtiqueta('');
+    } finally {
+      setSubiendo(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const marcarPrincipal = async (f: FirmaEmpresa) => {
+    const r = await fetch(`/api/empresas/${empresaId}/firmas?firmaId=${f.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ principal: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo marcar por defecto'); return; }
+    aplicar(d.firmas || []);
+  };
+
+  const renombrar = async (f: FirmaEmpresa, valor: string) => {
+    const nueva = valor.trim();
+    if (!nueva || nueva === f.etiqueta) return;
+    const r = await fetch(`/api/empresas/${empresaId}/firmas?firmaId=${f.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etiqueta: nueva }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo renombrar'); return; }
+    aplicar(d.firmas || []);
+  };
+
+  const eliminar = async (f: FirmaEmpresa) => {
+    const ok = await confirmar({
+      titulo: 'Eliminar firma',
+      mensaje: `Se quita "${f.etiqueta}" de la ficha. Los anexos ya generados con ella no cambian.`,
+      confirmarLabel: 'Eliminar', peligro: true,
+    });
+    if (!ok) return;
+    const r = await fetch(`/api/empresas/${empresaId}/firmas?firmaId=${f.id}`, { method: 'DELETE' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo eliminar'); return; }
+    aplicar(d.firmas || []);
+  };
+
+  return (
+    <div className="border border-slate-200 rounded-lg p-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <p className="text-[11px] font-semibold text-slate-600 flex items-center gap-1.5">
+          <PenLine size={12} className="text-slate-400" /> Firmas escaneadas
+          {firmas.length > 0 && <span className="text-slate-400 font-normal">({firmas.length})</span>}
+        </p>
+        <p className="text-[10.5px] text-slate-400">PNG o JPG · la estrella es la que se usa por defecto</p>
+      </div>
+
+      {cargando && (
+        <p className="text-[11.5px] text-slate-400 flex items-center gap-1.5 py-2">
+          <Loader2 size={12} className="animate-spin" /> Cargando firmas…
+        </p>
+      )}
+
+      {!cargando && firmas.length === 0 && (
+        <p className="text-[11.5px] text-slate-400 py-2">
+          Sin firmas cargadas. Sube una imagen de la firma (fondo blanco, recortada) para que se pueda estampar en los anexos.
+        </p>
+      )}
+
+      {!cargando && firmas.length > 0 && (
+        <ul className="space-y-1.5 mb-2">
+          {firmas.map(f => (
+            <li key={f.id} className="flex items-center gap-2 px-2 py-1.5 border border-slate-200 rounded-lg bg-white">
+              <img src={f.url} alt={f.etiqueta} className="h-8 w-16 object-contain flex-shrink-0 bg-white border border-slate-100 rounded" />
+              <input
+                defaultValue={f.etiqueta}
+                onBlur={e => renombrar(f, e.target.value)}
+                title="De quien es esta firma - es lo que ves al elegirla en el anexo"
+                className="flex-1 min-w-0 text-[12.5px] text-slate-700 bg-transparent border border-transparent hover:border-slate-200 focus:border-indigo-400 rounded px-1.5 py-0.5 outline-none"
+              />
+              <button
+                onClick={() => marcarPrincipal(f)} disabled={f.es_principal}
+                title={f.es_principal ? 'Es la firma por defecto' : 'Usar esta por defecto'}
+                className={`p-1.5 rounded transition-colors ${f.es_principal ? 'text-amber-500' : 'text-slate-300 hover:text-amber-500 hover:bg-amber-50'}`}
+              >
+                <Star size={14} fill={f.es_principal ? 'currentColor' : 'none'} />
+              </button>
+              <a href={f.url} target="_blank" rel="noreferrer" title="Ver"
+                className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"><Eye size={14} /></a>
+              <button onClick={() => eliminar(f)} title="Eliminar"
+                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"><Trash2 size={14} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex items-center gap-2">
+        <input
+          value={etiqueta} onChange={e => setEtiqueta(e.target.value)}
+          placeholder="De quien es (ej: Juan Perez - Rep. legal)"
+          className="flex-1 min-w-0 border border-slate-200 rounded-lg px-2.5 py-1.5 text-[12px] outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+        <input ref={fileRef} type="file" accept="image/png,image/jpeg" multiple className="hidden" onChange={e => subir(e.target.files)} />
+        <button onClick={() => fileRef.current?.click()} disabled={subiendo}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors disabled:opacity-50">
+          {subiendo ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Subir firma
+        </button>
       </div>
     </div>
   );
@@ -352,10 +518,14 @@ function EmpresaModal({ inicial, onCerrar, onGuardada }: {
             <>
               <section>
                 <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><ShieldCheck size={13} /> Identidad (Auditor Técnico)</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <SubidaArchivoUnico empresaId={inicial.id} tipo="logo" label="Logo" urlActual={f.logo_url} nombreActual={f.logo_nombre} onCambio={recargarEmpresa} />
-                  <SubidaArchivoUnico empresaId={inicial.id} tipo="firma" label="Firma escaneada" urlActual={f.firma_url} nombreActual={f.firma_nombre} onCambio={recargarEmpresa} />
                   <SubidaArchivoUnico empresaId={inicial.id} tipo="timbre" label="Timbre digital" urlActual={f.timbre_url} nombreActual={f.timbre_nombre} onCambio={recargarEmpresa} />
+                </div>
+                {/* La firma ya NO es un slot unico como el logo/timbre: una empresa firma con
+                    varias personas y cual va en cada anexo lo decide el documento. */}
+                <div className="mt-2">
+                  <SeccionFirmas empresaId={inicial.id} onCambio={recargarEmpresa} />
                 </div>
               </section>
 

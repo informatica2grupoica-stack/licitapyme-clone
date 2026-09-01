@@ -153,7 +153,12 @@ const OFERENTE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:empresa|oferente|proponent
 // "Formatos Esmaltes" (La Serena) como "(representate legal)". La casilla dice exactamente de quién
 // es el dato; perderla por una letra sería absurdo. La "n" opcional no introduce ninguna
 // ambigüedad: no existe otra palabra del dominio que se escriba "representate".
-const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representan?te(?:\\s+legal)?|apoderado|declarante|firmante|suscriptor))';
+// BUG REAL (1-sep-2026, ANEXO 1 de Cholchol, reportado con captura): la fila "NOMBRE REP. LEGAL"
+// quedaba VACÍA mientras la fila "RUN" de al lado sí traía el RUT del representante — el punto se
+// normaliza a espacio ("nombre rep legal") y ninguna alternativa cubría la abreviatura. "rep" solo
+// se acepta ACOMPAÑADA de "legal": "rep" a secas es ambigua (repertorio, representación,
+// repetición) y adivinar ahí es justo lo que esta capa no debe hacer.
+const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representan?te(?:\\s+legal)?|rep\\s+legal|apoderado|declarante|firmante|suscriptor))';
 
 // Sufijos que NO cambian QUÉ dato se pide, solo cómo el organismo lo rotula. Se aplican al teléfono
 // y al correo, nunca al nombre ni al RUT.
@@ -1035,7 +1040,15 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
   const pos = b.posEnParrafo ?? b.posEnTexto ?? 0;
   if (esBloqueDeTercero(parrafo)) return null;
   const antes = parrafo.slice(0, pos);
-  if (!antes.trim()) return null;
+  if (!antes.trim()) {
+    // PIE DE FIRMA ROTULADO: la raya no tiene nada a su izquierda, pero DEBAJO está el nombre del
+    // dato que va escrito sobre ella ("____________" / "NOMBRE EMPRESA" — caso real reportado el
+    // 1-sep-2026, ANEXO N°2 de Cholchol, donde esa casilla quedaba vacía en todas las corridas).
+    // Se resuelve SOLO por el diccionario cerrado de etiquetas inequívocas: acá no hay ninguna
+    // frase alrededor que desambigüe, así que lo que no esté en el diccionario queda pendiente.
+    // Ver la detección del rótulo (y por qué nunca es un rótulo de firma) en anexos-detectar.ts.
+    return b.rotuloDebajo ? campoDeEtiquetaInequivoca(b.rotuloDebajo) : null;
+  }
   const despues = parrafo.slice(pos + (b.largo || 0));
 
   // Localidad de firma: "En ______ a 12 de agosto de 2026".

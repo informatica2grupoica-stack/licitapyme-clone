@@ -532,6 +532,13 @@ export interface FirmaInfo {
   // URLs de las imágenes, para que el modal muestre la miniatura de CADA una: el usuario pidió
   // "poder ver cuál de las dos" antes de generar.
   firmaUrl: string | null; timbreUrl: string | null;
+  // TODAS las firmas de la empresa (migration-84), la principal primero — el modal muestra una
+  // miniatura arrastrable por cada una y el usuario elige cuál va en cada lugar del documento.
+  // La llena la RUTA (/api/anexos/analizar), no este archivo: acá solo se conoce la ficha ya
+  // aplanada (EmpresaCampos), que a propósito no lleva la lista (entraría a los prompts de IA
+  // como si fuera un campo de texto más — ver el filtro de firma_url en anexos-ia-motor.ts).
+  // `firmaUrl` sigue siendo la PRINCIPAL: es el default y lo que usa el camino .docx.
+  firmas?: FirmaDisponible[];
   // Un lugar por cada bloque de firma detectado en el documento, con la leyenda real ("FIRMA Y
   // TIMBRE REPRESENTANTE LEGAL") para que se sepa cuál es cuál. El modal manda de vuelta, por cada
   // uno, qué estampar y con qué alineación — ver LugarFirma y las claves `firma:N` / `firmaPos:N`.
@@ -543,6 +550,9 @@ export interface FirmaInfo {
 // `porDefecto` lo calcula el BACKEND y la pantalla solo lo muestra — así lo que se ve marcado es
 // exactamente lo que va a pasar si el usuario no toca nada, sin que la UI tenga que reimplementar
 // la regla (que es justo como se desincronizó la vista previa de los marcadores).
+/** Una firma escaneada de la empresa, tal como la ve el modal para elegir cuál estampar. */
+export interface FirmaDisponible { id: number; etiqueta: string; url: string; esPrincipal: boolean }
+
 export interface LugarFirmaUI { id: string; contexto: string; pideTimbre: boolean; porDefecto: QueEstampar }
 
 export type QueEstampar = 'ambas' | 'firma' | 'timbre' | 'ninguna';

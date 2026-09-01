@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { subirDocumentoR2 } from '@/app/lib/r2';
+import { agregarFirmaEmpresa, listarFirmasEmpresa, sincronizarFirmaPrincipal } from '@/app/lib/empresa-firmas';
 
 function getUser(req: NextRequest) {
   const id = req.headers.get('x-user-id');
@@ -21,7 +22,11 @@ function getUser(req: NextRequest) {
 
 type Params = { params: Promise<{ id: string }> };
 
-const TIPOS_COLUMNA = ['logo', 'firma', 'timbre'] as const;
+// 'firma' YA NO está acá: desde migration-84 una empresa puede tener VARIAS firmas (tabla
+// empresa_firmas, ver /api/empresas/[id]/firmas). Este endpoint sigue aceptando tipo='firma' para
+// no romper a ningún llamador viejo, pero delega en esa tabla en vez de pisar la columna —
+// `empresas.firma_url` pasó a ser el espejo de la firma principal, no la fuente.
+const TIPOS_COLUMNA = ['logo', 'timbre'] as const;
 const TIPOS_TABLA = ['certificado', 'experiencia', 'otro'] as const;
 
 export async function POST(request: NextRequest, { params }: Params) {
@@ -41,6 +46,15 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
     const publicUrl = await subirDocumentoR2(`empresas/${id}`, file.name, buffer, file.type);
+
+    if (tipo === 'firma') {
+      const etiqueta = String(formData.get('titulo') || '').trim() || file.name.replace(/\.[a-z0-9]+$/i, '');
+      const id_firma = await agregarFirmaEmpresa(id, {
+        etiqueta, url: publicUrl, nombre: file.name,
+        subidoPor: userId, subidoPorNombre: request.headers.get('x-user-nombre') || null,
+      });
+      return NextResponse.json({ success: true, id: id_firma, url: publicUrl, nombre: file.name });
+    }
 
     if ((TIPOS_COLUMNA as readonly string[]).includes(tipo)) {
       await pool.query(
@@ -98,6 +112,16 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
     if (documentoId) {
       await pool.query(`DELETE FROM empresa_documentos WHERE id = ? AND empresa_id = ?`, [documentoId, id]);
+      return NextResponse.json({ success: true });
+    }
+
+    // Compatibilidad: "borrar la firma" sin decir cuál = borrar la que estaba en uso (la
+    // principal), no todas — borrar en silencio firmas que el llamador viejo ni sabe que existen
+    // sería destruir datos por una llamada que antes afectaba a un solo archivo.
+    if (tipoColumna === 'firma') {
+      const principal = (await listarFirmasEmpresa(id)).find(f => f.es_principal);
+      if (principal) await pool.query(`DELETE FROM empresa_firmas WHERE id = ? AND empresa_id = ?`, [principal.id, id]);
+      await sincronizarFirmaPrincipal(id);
       return NextResponse.json({ success: true });
     }
 

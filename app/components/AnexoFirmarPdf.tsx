@@ -25,8 +25,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, X, Plus, Minus, ArrowLeft, FileSignature } from 'lucide-react';
 
-export interface EstampaColocada { tipo: 'firma' | 'timbre'; pagina: number; xPct: number; yPct: number; anchoPct: number }
+export interface EstampaColocada {
+  tipo: 'firma' | 'timbre';
+  /** CUÁL de las firmas de la empresa es esta (migration-84: titular, suplente, apoderado…).
+   *  Solo para `tipo: 'firma'`; sin él se estampa la principal, que es como funcionaba cuando
+   *  había una sola. */
+  firmaId?: number;
+  pagina: number; xPct: number; yPct: number; anchoPct: number;
+}
 interface EstampaUI extends EstampaColocada { id: string }
+
+/** Una firma escaneada de la ficha de la empresa — llega desde /api/anexos/analizar. */
+export interface FirmaDisponibleUI { id: number; etiqueta: string; url: string; esPrincipal: boolean }
 
 const ANCHO_DEFECTO: Record<'firma' | 'timbre', number> = { firma: 0.22, timbre: 0.14 };
 // Un click del botón mueve el ancho 4 puntos de página (~33px en una carta a la escala de
@@ -50,6 +60,11 @@ const clamp01 = (v: number, max = 1) => Math.min(Math.max(v, 0), max);
 
 interface ArrastreActivo {
   tipo: 'firma' | 'timbre';
+  /** Cuál firma se está arrastrando (undefined = timbre, o la firma principal). */
+  firmaId?: number;
+  /** La imagen que se está arrastrando, resuelta al empezar el gesto: con varias firmas ya no
+   *  alcanza con el `tipo` para saber cuál dibujar en el preview flotante. */
+  url: string;
   /** null = viene de la miniatura (crea una nueva); string = moviendo una ya colocada. */
   idExistente: string | null;
   anchoPct: number;
@@ -102,20 +117,25 @@ const POSICION_ESQUINA: Record<Esquina, string> = {
   nw: '-top-1.5 -left-1.5', ne: '-top-1.5 -right-1.5', sw: '-bottom-1.5 -left-1.5', se: '-bottom-1.5 -right-1.5',
 };
 
+// Una miniatura por imagen arrastrable: el timbre, y UNA POR CADA firma de la empresa
+// (migration-84). La etiqueta debajo es de quién es la firma — con dos firmas escaneadas del
+// mismo trazo, el rótulo es lo único que distingue al titular del suplente.
 function Miniatura({
-  tipo, url, onIniciarArrastre,
+  tipo, url, etiqueta, principal, onIniciarArrastre,
 }: {
-  tipo: 'firma' | 'timbre'; url: string;
-  onIniciarArrastre: (e: React.PointerEvent, tipo: 'firma' | 'timbre', anchoPct: number) => void;
+  tipo: 'firma' | 'timbre'; url: string; etiqueta: string; principal?: boolean;
+  onIniciarArrastre: (e: React.PointerEvent) => void;
 }) {
   return (
     <figure
       className="text-center cursor-grab active:cursor-grabbing select-none touch-none"
-      onPointerDown={e => onIniciarArrastre(e, tipo, ANCHO_DEFECTO[tipo])}
-      title={`Arrastra ${tipo === 'firma' ? 'la firma' : 'el timbre'} a cualquier punto del documento`}
+      onPointerDown={onIniciarArrastre}
+      title={`Arrastra "${etiqueta}" a cualquier punto del documento`}
     >
-      <img src={url} alt={tipo} className="h-10 max-w-[110px] object-contain pointer-events-none border border-slate-200 rounded bg-white p-1" draggable={false} />
-      <figcaption className="text-[10px] text-slate-400 mt-0.5">{tipo}</figcaption>
+      <img src={url} alt={etiqueta} className="h-10 max-w-[110px] object-contain pointer-events-none border border-slate-200 rounded bg-white p-1" draggable={false} />
+      <figcaption className="text-[10px] text-slate-400 mt-0.5 max-w-[110px] truncate" title={etiqueta}>
+        {principal ? '★ ' : ''}{etiqueta}
+      </figcaption>
     </figure>
   );
 }
@@ -175,14 +195,19 @@ function EstampaColocadaUI({
           className={`absolute ${POSICION_ESQUINA[esquina]} ${CURSOR_ESQUINA[esquina]} w-3.5 h-3.5 rounded-[3px] bg-white border-2 border-indigo-600 shadow touch-none`}
         />
       ))}
-      {/* Los tres botones van JUNTOS arriba: la esquina inferior derecha queda exclusiva del
-          manijón. BUG REAL medido en el navegador (31-ago-2026): los de tamaño estaban en
-          `-bottom-2.5 right-0` y se superponían con el manijón — `elementFromPoint` sobre el
-          manijón devolvía el botón "Achicar", no el manijón, así que el gesto de redimensionar
-          nunca empezaba.
-          `pointer-events-none` mientras están ocultos: `opacity-0` los hace invisibles pero SIGUEN
-          capturando el puntero, y ahí tapaban un pedazo de la imagen para arrastrarla. */}
-      <div className="absolute -top-2.5 -right-2.5 flex gap-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
+      {/* Los tres botones van JUNTOS arriba y a la IZQUIERDA, separados de las esquinas.
+          Tres cosas medidas en el navegador (31-ago-2026), cada una dejaba un control muerto:
+           · Anclados a la DERECHA (`-right-2.5`), el botón se corría solo: al agrandar, el borde
+             derecho avanza y el botón se va de abajo del cursor — el primer click funcionaba y
+             los siguientes caían al vacío, que se siente exactamente como "no hace nada". El
+             ancla del redimensionado por botón es la esquina superior IZQUIERDA, así que ahí los
+             botones quedan quietos y se puede clickear varias veces seguidas.
+           · Antes estaban en `-bottom-2.5 right-0` y se superponían con el manijón de esquina:
+             `elementFromPoint` sobre el manijón devolvía el botón "Achicar" y el gesto de
+             redimensionar nunca empezaba. `-top-7` los sube por encima de los cuatro manijones.
+           · `opacity-0` los hace invisibles pero SIGUEN capturando el puntero, y ahí tapaban un
+             pedazo de la imagen para arrastrarla — de ahí el `pointer-events-none`. */}
+      <div className="absolute -top-7 left-0 flex gap-0.5 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity">
         <button
           type="button" onClick={() => onRedimensionar(-PASO_TAMANO)} onPointerDown={soloEsteControl} title="Achicar"
           className="flex items-center justify-center w-5 h-5 rounded-full bg-slate-700 hover:bg-slate-800 text-white shadow"
@@ -207,11 +232,15 @@ function EstampaColocadaUI({
 }
 
 export function AnexoFirmarPdf({
-  pdfBytes, firmaUrl, timbreUrl, generando, onConfirmar, onVolver,
+  pdfBytes, firmaUrl, timbreUrl, firmas, generando, onConfirmar, onVolver,
 }: {
   pdfBytes: ArrayBuffer;
+  /** La firma PRINCIPAL de la empresa (espejo de `empresas.firma_url`) — sigue siendo el fallback
+   *  cuando `firmas` viene vacío (migración 84 sin aplicar, o ficha vieja). */
   firmaUrl: string | null;
   timbreUrl: string | null;
+  /** Todas las firmas de la empresa; una miniatura arrastrable por cada una. */
+  firmas?: FirmaDisponibleUI[];
   generando: boolean;
   onConfirmar: (estampas: EstampaColocada[]) => void;
   onVolver: () => void;
@@ -227,6 +256,22 @@ export function AnexoFirmarPdf({
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const paginaRefs = useRef<(HTMLDivElement | null)[]>([]);
   const idCounter = useRef(0);
+  // Las firmas arrastrables: las de la ficha (migration-84) o, si esa lista viene vacía, la única
+  // firma principal de siempre — así una base sin la migración aplicada se sigue comportando
+  // exactamente como antes en vez de quedarse sin nada que arrastrar. El id 0 del fallback nunca
+  // viaja al backend (ver `idFirmaDe`): significa "la principal", que es justo el default.
+  const firmasDisponibles: FirmaDisponibleUI[] = firmas && firmas.length
+    ? firmas
+    : (firmaUrl ? [{ id: 0, etiqueta: 'Firma', url: firmaUrl, esPrincipal: true }] : []);
+  const idFirmaDe = (f: FirmaDisponibleUI) => (f.id > 0 ? f.id : undefined);
+  const urlDeFirma = (firmaId?: number) =>
+    (firmaId != null ? firmasDisponibles.find(f => f.id === firmaId)?.url : undefined)
+      ?? firmasDisponibles.find(f => f.esPrincipal)?.url
+      ?? firmaUrl
+      ?? '';
+  const urlDe = (estampa: { tipo: 'firma' | 'timbre'; firmaId?: number }) =>
+    (estampa.tipo === 'timbre' ? timbreUrl : urlDeFirma(estampa.firmaId));
+
   // Copia en ref del estado de arrastre — los listeners de window se agregan UNA vez (no en cada
   // pointermove) y necesitan leer el valor MÁS RECIENTE sin volver a suscribirse todo el tiempo.
   const arrastreRef = useRef<ArrastreActivo | null>(null);
@@ -284,11 +329,15 @@ export function AnexoFirmarPdf({
   }, [pdfBytes]);
 
   // ── Arrastre manual por eventos de puntero — ver el comentario largo arriba del archivo ──────
-  const iniciarArrastre = (e: React.PointerEvent, tipo: 'firma' | 'timbre', anchoPct: number, idExistente: string | null) => {
+  const iniciarArrastre = (
+    e: React.PointerEvent, tipo: 'firma' | 'timbre', anchoPct: number, idExistente: string | null,
+    firmaId?: number, url?: string,
+  ) => {
     e.preventDefault();
     const rectImagen = e.currentTarget.getBoundingClientRect();
     const nuevo: ArrastreActivo = {
-      tipo, idExistente, anchoPct,
+      tipo, idExistente, anchoPct, firmaId,
+      url: url ?? (tipo === 'timbre' ? (timbreUrl || '') : (urlDeFirma(firmaId) || '')),
       offsetXPx: e.clientX - rectImagen.left,
       offsetYPx: e.clientY - rectImagen.top,
       clientX: e.clientX, clientY: e.clientY,
@@ -462,8 +511,7 @@ export function AnexoFirmarPdf({
     window.addEventListener('pointercancel', alSoltar);
   };
 
-  const urlDe = (tipo: 'firma' | 'timbre') => (tipo === 'firma' ? firmaUrl : timbreUrl);
-  const hayImagenes = !!firmaUrl || !!timbreUrl;
+  const hayImagenes = firmasDisponibles.length > 0 || !!timbreUrl;
 
   // Tamaño del preview flotante: se usa el ancho de la página bajo el cursor si hay una, si no el
   // de la primera página del documento (todas suelen compartir el mismo tamaño) — nunca depende
@@ -484,12 +532,22 @@ export function AnexoFirmarPdf({
         <div className="w-px h-6 bg-slate-300" />
         {hayImagenes ? (
           <>
-            <div className="flex items-center gap-3">
-              {firmaUrl && <Miniatura tipo="firma" url={firmaUrl} onIniciarArrastre={(e, tipo, ancho) => iniciarArrastre(e, tipo, ancho, null)} />}
-              {timbreUrl && <Miniatura tipo="timbre" url={timbreUrl} onIniciarArrastre={(e, tipo, ancho) => iniciarArrastre(e, tipo, ancho, null)} />}
+            <div className="flex items-center gap-3 flex-wrap max-w-[45%] overflow-x-auto">
+              {firmasDisponibles.map(f => (
+                <Miniatura
+                  key={f.id} tipo="firma" url={f.url} etiqueta={f.etiqueta} principal={f.esPrincipal && firmasDisponibles.length > 1}
+                  onIniciarArrastre={e => iniciarArrastre(e, 'firma', ANCHO_DEFECTO.firma, null, idFirmaDe(f), f.url)}
+                />
+              ))}
+              {timbreUrl && (
+                <Miniatura
+                  tipo="timbre" url={timbreUrl} etiqueta="timbre"
+                  onIniciarArrastre={e => iniciarArrastre(e, 'timbre', ANCHO_DEFECTO.timbre, null, undefined, timbreUrl)}
+                />
+              )}
             </div>
             <p className="text-[11.5px] text-slate-500 leading-snug flex-1">
-              Arrastra la firma y/o el timbre a cualquier punto del documento. Ya colocada: arrástrala para moverla, o tira de <strong>cualquiera de sus cuatro esquinas</strong> para agrandarla y achicarla —siempre pareja, sin deformarse—. Pasa el mouse por encima para los botones de tamaño y de quitar.
+              {firmasDisponibles.length > 1 ? 'Elige cuál firma va en cada lugar y arrástrala' : 'Arrastra la firma y/o el timbre'} a cualquier punto del documento. Ya colocada: arrástrala para moverla, o tira de <strong>cualquiera de sus cuatro esquinas</strong> para agrandarla y achicarla —siempre pareja, sin deformarse—. Pasa el mouse por encima para los botones de tamaño y de quitar.
             </p>
           </>
         ) : (
@@ -518,10 +576,10 @@ export function AnexoFirmarPdf({
             <canvas ref={el => { canvasRefs.current[i] = el; }} className="absolute inset-0 pointer-events-none" />
             {estampas.filter(es => es.pagina === i).map(es => (
               <EstampaColocadaUI
-                key={es.id} estampa={es} url={urlDe(es.tipo) || ''}
+                key={es.id} estampa={es} url={urlDe(es) || ''}
                 oculta={arrastre?.idExistente === es.id}
                 redimensionando={redimension?.id === es.id}
-                onIniciarArrastre={(e, id, tipo, ancho) => iniciarArrastre(e, tipo, ancho, id)}
+                onIniciarArrastre={(e, id, tipo, ancho) => iniciarArrastre(e, tipo, ancho, id, es.firmaId)}
                 onIniciarRedimension={(e, esquina, caja) => iniciarRedimension(e, es.id, esquina, caja, i)}
                 onQuitar={() => quitarEstampa(es.id)}
                 onRedimensionar={delta => redimensionarEstampa(es.id, delta)}
@@ -536,7 +594,7 @@ export function AnexoFirmarPdf({
           cualquier página (soltar ahí simplemente no coloca nada, no hace falta bloquear el gesto). */}
       {arrastre && (
         <img
-          src={urlDe(arrastre.tipo) || ''}
+          src={arrastre.url}
           alt=""
           className="fixed z-[200] pointer-events-none opacity-90 drop-shadow-lg"
           style={{

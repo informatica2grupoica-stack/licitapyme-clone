@@ -63,6 +63,9 @@ interface Analisis {
   firma: {
     detectada: boolean; disponible: boolean; timbreDetectado: boolean; timbreDisponible: boolean;
     firmaUrl: string | null; timbreUrl: string | null;
+    // Todas las firmas de la empresa (migration-84) — el paso de firma muestra una miniatura
+    // arrastrable por cada una. `firmaUrl` es la principal (el default de siempre).
+    firmas?: { id: number; etiqueta: string; url: string; esPrincipal: boolean }[];
     lugares: { id: string; contexto: string; pideTimbre: boolean; porDefecto: string }[];
   };
   // El propio anexo dice que no nos corresponde presentarlo (ej. "si el oferente no es una UTP no
@@ -550,12 +553,15 @@ function SeccionesEscaneadas({ secciones }: { secciones: SeccionEscaneada[] }) {
 // componente (no este panel) es donde de verdad se arrastra la firma/timbre.
 function BloqueFirmaTimbre({ firma }: { firma: Analisis['firma'] }) {
   const hayAlgunaImagen = !!firma.firmaUrl || !!firma.timbreUrl;
+  const cuantasFirmas = firma.firmas?.length ?? 0;
   return (
     <div className="border border-slate-200 rounded-xl p-3 space-y-1.5">
       <p className="text-[12.5px] font-semibold text-slate-700">Firma y timbre</p>
       <p className="text-[11.5px] text-slate-500 leading-snug">
         {hayAlgunaImagen
-          ? 'Este documento pide firma/timbre. Vas a poder ubicarlas exactamente donde quieras en el paso siguiente, sobre el PDF ya generado.'
+          ? (cuantasFirmas > 1
+            ? `Este documento pide firma/timbre. En el paso siguiente eliges cuál de las ${cuantasFirmas} firmas de la empresa va en cada lugar y la ubicas donde quieras, sobre el PDF ya generado.`
+            : 'Este documento pide firma/timbre. Vas a poder ubicarlas exactamente donde quieras en el paso siguiente, sobre el PDF ya generado.')
           : <>No hay firma ni timbre cargados en la ficha de la empresa — súbelos en <strong>/empresas</strong> para poder colocarlas.</>}
       </p>
     </div>
@@ -832,6 +838,7 @@ export function AnexoRellenoModal({
             pdfBytes={pdfParaFirmar}
             firmaUrl={analisis?.firma.firmaUrl ?? null}
             timbreUrl={analisis?.firma.timbreUrl ?? null}
+            firmas={analisis?.firma.firmas ?? []}
             generando={generando}
             onConfirmar={handleGenerarFirmado}
             onVolver={() => setPaso('formulario')}

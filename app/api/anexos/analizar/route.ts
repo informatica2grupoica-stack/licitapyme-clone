@@ -8,6 +8,7 @@ import { puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBasesParaAnexo, obtenerExperienciaOcParaAnexo, obtenerDatosAuditorParaAnexo } from '@/app/lib/anexos-datos';
 import { analizarAnexoParaUI } from '@/app/lib/anexos-rellenar';
 import { logCobertura } from '@/app/lib/anexos-cobertura';
+import { listarFirmasEmpresa } from '@/app/lib/empresa-firmas';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,13 @@ export async function GET(request: NextRequest) {
     // documento (ej. esta licitación SÍ se postula en UTP) — ver detectarAvisoNoAplica.
     const forzarAplica = searchParams.get('aplica') === '1';
     const analisis = await analizarAnexoParaUI(bufferOriginal, empresa, itemsCosteo, basesTexto, datosAuditor, forzarAplica, experienciaOcTexto);
+
+    // Las VARIAS firmas de la empresa (migration-84) — se agregan acá y no dentro de
+    // analizarAnexoParaUI porque esa función recibe la ficha ya aplanada (EmpresaCampos), que a
+    // propósito NO lleva la lista: todo lo que está en ese objeto termina ofreciéndose al motor de
+    // IA como valor de casilla. `firma.firmaUrl` sigue siendo la principal (el default).
+    const firmas = await listarFirmasEmpresa(empresaId);
+    analisis.firma.firmas = firmas.map(f => ({ id: f.id, etiqueta: f.etiqueta, url: f.url, esPrincipal: f.es_principal }));
 
     // AUTODIAGNÓSTICO (ver anexos-cobertura.ts): el análisis ya trae `cobertura` calculada. Acá solo
     // se deja en el log del servidor, y SOLO si hay algo que mirar — así, en los logs del VPS, un

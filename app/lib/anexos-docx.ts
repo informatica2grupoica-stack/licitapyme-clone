@@ -551,6 +551,17 @@ const RE_MARCADORES: { re: RegExp; valido: (dentro: string) => boolean }[] = [
 // Blancos "de raya": guiones bajos (lo de siempre) y líneas de puntos/elipsis. El umbral de los
 // guiones bajos es 4 (nadie escribe "____" salvo para dejar una línea para llenar).
 const RE_RAYAS = /_{4,}/g;
+// BUG REAL (1-sep-2026, ANEXO 3 de Cholchol, reportado con captura): "En ________, a __ del mes
+// ________ del año______" — el blanco del DÍA trae solo DOS guiones bajos, bajo el umbral de 4, así
+// que era invisible: el día no se llenaba nunca y, peor, sin ese blanco el trío día/mes/año no se
+// formaba y el mes y el año también quedaban pendientes (ver detectarTripletesFecha). Bajar el
+// umbral general a 2 no es opción —"__" aparece en subrayados decorativos y en tablas— así que se
+// acepta un blanco corto SOLO cuando está encajado en la fórmula de fecha: precedido de "a" y
+// seguido de "de(l) mes". Ahí no hay ninguna otra cosa que pueda ser.
+// Sin `\b` despues de "mes": en el documento real la palabra viene PEGADA a la raya del mes
+// ("del mes_________"), y ahi un guion bajo cuenta como caracter de palabra — ese limite nunca
+// se cumplia y el blanco del dia seguia invisible.
+const RE_RAYA_CORTA_DIA_DE_FECHA = /(?<=\ba\s{0,3})_{2,3}(?=\s{0,3}del?\s*mes)/gi;
 
 // Línea de puntos: puntos ASCII (".") y/o el carácter ELIPSIS "…" (U+2026, UN SOLO carácter que
 // Word/el usuario tipea como "..." y autocorrige a un glifo) — MEZCLADOS entre sí, nunca
@@ -600,6 +611,7 @@ const RE_TRAMO_RAYAS = /_{2,}/g;
 export function listarBlancosInline(textoRun: string): BlancoInline[] {
   const crudos: { pos: number; largo: number; textoMarcador?: string }[] = [];
   for (const m of textoRun.matchAll(RE_RAYAS)) crudos.push({ pos: m.index!, largo: m[0].length });
+  for (const m of textoRun.matchAll(RE_RAYA_CORTA_DIA_DE_FECHA)) crudos.push({ pos: m.index!, largo: m[0].length });
   for (const m of textoRun.matchAll(RE_CORRIDA_PUNTOS)) {
     if (pesoPuntos(m[0]) < UMBRAL_PESO_PUNTOS) continue;
     crudos.push({ pos: m.index!, largo: m[0].length });

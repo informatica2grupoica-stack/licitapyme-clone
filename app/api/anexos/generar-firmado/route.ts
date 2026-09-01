@@ -31,7 +31,8 @@ import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoYEmpresa } from '@/app/lib/anexos-datos';
 import { descargarFirma } from '@/app/lib/anexos-rellenar';
-import { estamparPdf, type EstampaPdf } from '@/app/lib/anexos-pdf-firma';
+import { estamparPdf, type EstampaPdf, type ImagenParaEstampar } from '@/app/lib/anexos-pdf-firma';
+import { listarFirmasEmpresa } from '@/app/lib/empresa-firmas';
 import { registrarActividad } from '@/app/lib/actividad';
 import { yaCongelado } from '@/app/lib/congelamiento';
 
@@ -52,7 +53,10 @@ function validarEstampas(input: unknown): EstampaPdf[] {
     const yPct = Number(e.yPct);
     const anchoPct = Number(e.anchoPct);
     if (!Number.isFinite(pagina) || !Number.isFinite(xPct) || !Number.isFinite(yPct) || !Number.isFinite(anchoPct)) continue;
-    out.push({ tipo: e.tipo, pagina, xPct, yPct, anchoPct });
+    // firmaId: cuál de las firmas de la empresa (migration-84). Se valida contra la BD más abajo
+    // — acá solo se conserva si es un número; que exista y sea DE ESTA empresa se chequea allá.
+    const firmaId = Number(e.firmaId);
+    out.push({ tipo: e.tipo, pagina, xPct, yPct, anchoPct, ...(Number.isFinite(firmaId) ? { firmaId } : {}) });
   }
   return out;
 }
@@ -111,16 +115,42 @@ export async function POST(request: NextRequest) {
     const usaFirma = estampas.some(e => e.tipo === 'firma');
     const usaTimbre = estampas.some(e => e.tipo === 'timbre');
     const avisos: string[] = [];
-    const [firma, timbre] = await Promise.all([
+
+    // Las firmas NO principales que el usuario arrastró (migration-84: una empresa puede tener
+    // varias). Se cruzan contra la BD por empresa: el `firmaId` viene del cliente, y sin ese
+    // filtro se podría estampar la firma de OTRA empresa pasando un id ajeno. Cada una se baja
+    // UNA sola vez aunque se haya colocado en varios lugares del documento.
+    const firmasEmpresa = usaFirma ? await listarFirmasEmpresa(empresaId) : [];
+    const idsPedidos = [...new Set(
+      estampas
+        .filter(e => e.tipo === 'firma' && e.firmaId != null)
+        .map(e => e.firmaId as number)
+        .filter(id => firmasEmpresa.some(f => f.id === id)),
+    )];
+
+    const [firma, timbre, ...extras] = await Promise.all([
       usaFirma && empresa.firma_url ? descargarFirma(empresa.firma_url) : Promise.resolve(null),
       usaTimbre && empresa.timbre_url ? descargarFirma(empresa.timbre_url) : Promise.resolve(null),
+      ...idsPedidos.map(async id => {
+        const f = firmasEmpresa.find(x => x.id === id)!;
+        return { id, etiqueta: f.etiqueta, imagen: await descargarFirma(f.url) };
+      }),
     ]);
+
+    const firmasPorId: Record<number, ImagenParaEstampar> = {};
+    for (const extra of extras) {
+      if (extra.imagen) firmasPorId[extra.id] = extra.imagen;
+      // Sin este aviso, una firma que no se pudo bajar caía silenciosamente en la principal — el
+      // PDF salía "bien" firmado por OTRA persona, que es peor que salir sin firma.
+      else avisos.push(`No se pudo descargar la firma "${extra.etiqueta}" — en su lugar se usó la firma por defecto de la empresa.`);
+    }
     if (usaFirma && empresa.firma_url && !firma) avisos.push('No se pudo descargar la firma guardada — el PDF se generó SIN firma.');
     if (usaTimbre && empresa.timbre_url && !timbre) avisos.push('No se pudo descargar el timbre guardado — el PDF se generó SIN timbre.');
 
     const pdfFinal = await estamparPdf(pdfSinFirma, estampas, {
       ...(firma ? { firma } : {}),
       ...(timbre ? { timbre } : {}),
+      firmasPorId,
     });
 
     const nombreArchivo = `ANEXO_${nombreOriginal.replace(/\.(docx?|pdf)$/i, '')}.pdf`;

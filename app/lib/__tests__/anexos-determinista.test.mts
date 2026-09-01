@@ -1314,3 +1314,41 @@ test('contraparte técnica DEL OFERENTE: se llena con el representante y los dat
   assert.equal(valorAuto(r.celda, 4), '+56 45 2 123456');
   assert.equal(valorAuto(r.celda, 6), 'contacto@losrobles.cl');
 });
+
+// BUG REAL (1-sep-2026, ANEXO 1 de Cholchol, reportado con captura): la fila "NOMBRE REP. LEGAL"
+// quedaba vacía mientras la de al lado ("RUN") sí traía el RUT del representante. La abreviatura
+// "REP. LEGAL" es de las más comunes del país y no estaba en ningún patrón.
+test('campoDeEtiquetaInequivoca: "NOMBRE REP. LEGAL" es el representante legal', () => {
+  assert.equal(campoDeEtiquetaInequivoca('NOMBRE REP. LEGAL'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Nombre Rep Legal'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('NOMBRE DEL REP. LEGAL'), 'representante_nombre');
+  // Control: "rep" sin "legal" es ambigua (repertorio, representación) — no se adivina.
+  assert.equal(campoDeEtiquetaInequivoca('NOMBRE REP.'), null);
+});
+
+// PIE DE FIRMA ROTULADO (1-sep-2026, ANEXO N°2 de Cholchol, reportado con captura): la tabla de
+// cierre trae dos columnas, cada una con una raya y, DEBAJO, de quien es —"NOMBRE EMPRESA" y
+// "FIRMA REPRESENTANTE LEGAL"—. La de firma se detectaba (es una linea de firma); la de la empresa
+// quedaba vacia siempre: el blanco no tiene NADA a su izquierda, asi que se descartaba de entrada.
+test('inline: la raya con el rotulo DEBAJO ("NOMBRE EMPRESA") se resuelve por el rotulo', () => {
+  const base = { indiceRun: 0, indiceParrafo: 0, textoRunOriginal: '', posEnTexto: 0, largo: 20, contexto: '' };
+  const raya = '____________________';
+
+  assert.equal(campoDeBlancoInline({
+    ...base, parrafoCompleto: raya, posEnParrafo: 0, rotuloDebajo: 'NOMBRE EMPRESA',
+  } as CandidatoInline), 'razon_social');
+
+  assert.equal(campoDeBlancoInline({
+    ...base, parrafoCompleto: raya, posEnParrafo: 0, rotuloDebajo: 'NOMBRE REPRESENTANTE LEGAL',
+  } as CandidatoInline), 'representante_nombre');
+
+  // Control 1: sin rotulo abajo sigue sin resolverse — una raya sola no dice nada.
+  assert.equal(campoDeBlancoInline({
+    ...base, parrafoCompleto: raya, posEnParrafo: 0,
+  } as CandidatoInline), null);
+
+  // Control 2: un rotulo que NO esta en el diccionario cerrado queda pendiente, no se adivina.
+  assert.equal(campoDeBlancoInline({
+    ...base, parrafoCompleto: raya, posEnParrafo: 0, rotuloDebajo: 'V°B° DEL INSPECTOR TECNICO',
+  } as CandidatoInline), null);
+});

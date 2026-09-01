@@ -1169,6 +1169,33 @@ test('detectarTripletesFecha: dupla día/mes con el año ya impreso en el docume
   assert.equal(sinAnio.tripletesFecha.size, 0);
 });
 
+// CUARTO FORMATO REAL (1-sep-2026, ANEXO 3 de Cholchol, reportado por el usuario con captura):
+// "En ______, a __ del mes________ del año______". Dos cosas lo rompían a la vez:
+//   1) el blanco del DÍA trae solo DOS guiones bajos, bajo el umbral de 4 de RE_RAYAS — invisible;
+//   2) los conectores no son "de" sino "del mes" y "del año".
+// Resultado real: la ciudad se completaba y el día, el mes y el año quedaban los tres pendientes.
+test('detectarTripletesFecha: "a __ del mes ___ del año ___" (ciudad + día corto + mes + año)', () => {
+  const cholchol = analizarAnexo(normalizarParaIds(
+    NS + p('En ________, a __ del mes_________ del año______') + FIN,
+  ).xml);
+  const roles = [...cholchol.blancosInline].map(b => cholchol.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  // El primer blanco es la CIUDAD (no forma parte del trío) y los tres siguientes, la fecha.
+  assert.deepEqual(roles, [undefined, 'dia', 'mes_palabra', 'anio']);
+
+  // El mismo formato con el siglo ya impreso ("del año 20___").
+  const conSiglo = analizarAnexo(normalizarParaIds(
+    NS + p('En Cholchol, a __ del mes_________ del año 20______') + FIN,
+  ).xml);
+  const rolesSiglo = [...conSiglo.blancosInline].map(b => conSiglo.tripletesFecha.get(`${b.indiceRun}:${b.posEnTexto}`));
+  assert.deepEqual(rolesSiglo, ['dia', 'mes_palabra', 'anio_2digitos']);
+
+  // Control: el blanco corto SOLO se acepta encajado en la fórmula de fecha. Suelto en cualquier
+  // otro lugar sigue siendo invisible — bajar el umbral general a 2 llenaría de casillas falsas
+  // cualquier subrayado decorativo del documento.
+  const cortoSuelto = analizarAnexo(normalizarParaIds(NS + p('Marca __ Modelo __') + FIN).xml);
+  assert.equal(cortoSuelto.blancosInline.length, 0);
+});
+
 // TERCER FORMATO REAL (2296-48-LE26, Municipalidad de Conchalí — los 7 formatos del pliego cierran
 // igual): el organismo imprime el SIGLO ("DE  20____") o la DÉCADA ("DE  202__") y deja el resto
 // del año para escribir a mano. El conector entre el mes y el año deja de ser "de" a secas, así
@@ -1771,4 +1798,32 @@ test('fuera de una celda, el párrafo largo sigue sin ser una etiqueta', () => {
   const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
 
   assert.ok(!etiquetas.includes(declaracion), `no debería ofrecerse como campo: ${JSON.stringify(etiquetas)}`);
+});
+
+// PIE DE FIRMA DE DOS COLUMNAS (1-sep-2026, ANEXO N°2 de Cholchol, reportado con captura: "donde
+// dice nombre de la empresa y esta la linea arriba es facil de poner"). El documento pone PRIMERO
+// las dos rayas y DESPUES los dos rotulos:
+//     "______"  "______"  "NOMBRE EMPRESA"  "FIRMA REPRESENTANTE LEGAL"
+// Dos fallas encadenadas: (1) la ventana de leyenda de detectarLineasFirma saltaba por encima de
+// la segunda raya y marcaba la PRIMERA como linea de firma —o sea reservada para la imagen—, y
+// (2) aun sin eso, una raya sola no tiene nada a su izquierda con que identificarse. La razon
+// social no tenia donde escribirse en ningun caso.
+test('blancos inline: pie de dos columnas — cada raya toma el rotulo de SU columna', () => {
+  const doc = analizarAnexo(normalizarParaIds(
+    NS
+    + p('____________________________________')
+    + p('_______________________________________')
+    + p('NOMBRE EMPRESA')
+    + p('FIRMA REPRESENTANTE LEGAL')
+    + FIN,
+  ).xml);
+
+  // La raya de la primera columna queda como casilla de texto, rotulada con su propio rotulo.
+  const conRotulo = doc.blancosInline.filter(b => b.rotuloDebajo);
+  assert.equal(conRotulo.length, 1);
+  assert.equal(conRotulo[0].rotuloDebajo, 'NOMBRE EMPRESA');
+  assert.equal(conRotulo[0].contexto, 'NOMBRE EMPRESA');
+
+  // La de la segunda columna NO es una casilla de texto: es donde va la imagen de la firma.
+  assert.equal(doc.lineasFirma.length, 1);
 });

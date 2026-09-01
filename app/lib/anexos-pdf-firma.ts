@@ -18,6 +18,10 @@ import { PDFDocument, type PDFImage } from 'pdf-lib';
 
 export interface EstampaPdf {
   tipo: 'firma' | 'timbre';
+  /** CUÁL de las firmas de la empresa es esta estampa (migration-84: una empresa puede tener
+   *  varias — titular, suplente, apoderado). Solo aplica a `tipo: 'firma'`; sin él se usa la
+   *  principal, que es como se comportaba todo antes de que hubiera más de una. */
+  firmaId?: number;
   /** 0-based — la página donde el usuario soltó la imagen. */
   pagina: number;
   /** 0..1, desde el borde IZQUIERDO de la página — invariante al zoom de la vista previa. */
@@ -47,23 +51,37 @@ async function embeberImagen(pdfDoc: PDFDocument, img: ImagenParaEstampar): Prom
  * revientan la generación completa por una sola imagen faltante).
  */
 export async function estamparPdf(
-  pdfBuffer: Buffer, estampas: EstampaPdf[], imagenes: { firma?: ImagenParaEstampar; timbre?: ImagenParaEstampar },
+  pdfBuffer: Buffer,
+  estampas: EstampaPdf[],
+  imagenes: {
+    firma?: ImagenParaEstampar;
+    timbre?: ImagenParaEstampar;
+    /** Las firmas NO principales, por id (ver EstampaPdf.firmaId). `firma` sigue siendo la
+     *  principal / el fallback: una estampa sin firmaId, o con uno que no llegó a bajarse, usa
+     *  esa — nunca se cambia una firma por otra en silencio, se cae al comportamiento de siempre. */
+    firmasPorId?: Record<number, ImagenParaEstampar>;
+  },
 ): Promise<Buffer> {
   const pdfDoc = await PDFDocument.load(pdfBuffer);
-  const cacheImagenEmbebida = new Map<'firma' | 'timbre', PDFImage>();
+  // Clave del caché: el tipo MÁS la firma concreta. Con la clave vieja ('firma'/'timbre' a secas),
+  // dos firmas distintas en el mismo PDF se estampaban las dos con la imagen de la primera.
+  const cacheImagenEmbebida = new Map<string, PDFImage>();
 
   for (const estampa of estampas) {
-    const datos = imagenes[estampa.tipo];
+    const datos = estampa.tipo === 'firma'
+      ? (estampa.firmaId != null ? imagenes.firmasPorId?.[estampa.firmaId] : undefined) ?? imagenes.firma
+      : imagenes.timbre;
     if (!datos) continue;
+    const claveCache = estampa.tipo === 'firma' ? `firma:${estampa.firmaId ?? 'principal'}` : 'timbre';
     const totalPaginas = pdfDoc.getPageCount();
     if (estampa.pagina < 0 || estampa.pagina >= totalPaginas) continue; // página inexistente: se ignora, no revienta el resto
     const pagina = pdfDoc.getPage(estampa.pagina);
     const { width: anchoPagina, height: altoPagina } = pagina.getSize();
 
-    let imagen = cacheImagenEmbebida.get(estampa.tipo);
+    let imagen = cacheImagenEmbebida.get(claveCache);
     if (!imagen) {
       imagen = await embeberImagen(pdfDoc, datos);
-      cacheImagenEmbebida.set(estampa.tipo, imagen);
+      cacheImagenEmbebida.set(claveCache, imagen);
     }
 
     const anchoDibujo = anchoPagina * Math.max(0.02, Math.min(1, estampa.anchoPct));
