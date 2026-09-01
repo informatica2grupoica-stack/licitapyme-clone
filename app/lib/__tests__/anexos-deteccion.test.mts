@@ -206,6 +206,15 @@ test('indiceFilaEncabezado: última fila inicial con todas sus celdas con texto'
     { completa: true, numCeldas: 3, tieneCeldaCombinada: true },
     { completa: false, numCeldas: 6 },
   ]), 0);
+  // BUG REAL (1-sep-2026, 2585-87-LE26): "NOMBRE PROPUESTA" | "ADQ. DE VEHÍCULOS…" (ya impreso por
+  // el organismo, sus DOS celdas con texto) seguida de "FECHA DECLARACIÓN (DÍA/MES/AÑO)" | blanco.
+  // La fila 0 es "completa" pero su segunda celda es una frase larga, no el nombre de una columna
+  // — no puede ser el encabezado. Sin nada más completo, no hay encabezado: -1, para que patrón 1
+  // (que YA resuelve bien "FECHA DECLARACIÓN…" sola) se haga cargo.
+  assert.equal(indiceFilaEncabezado([
+    { completa: true, numCeldas: 2, celdaLarga: true },
+    { completa: false, numCeldas: 2 },
+  ]), -1);
 });
 
 test('tabla que abre con una fila-título mergeada: el encabezado es la siguiente (regresión cajas sin casillas)', () => {

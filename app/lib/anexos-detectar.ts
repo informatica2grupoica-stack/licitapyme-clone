@@ -593,13 +593,24 @@ function columnasPorAncho(anchosHeader: (number | null)[], anchosFila: (number |
 //    sin casilla en la mitad de las filas, exactamente lo que no dejaba rellenar el usuario. Una
 //    celda combinada (gridSpan) fusiona VARIAS columnas en una — lo opuesto de lo que hace un
 //    encabezado real (nombrar cada columna por separado) — así que tampoco cuenta como encabezado.
-export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: number; tieneCeldaCombinada?: boolean }[]): number {
+//
+// BUG REAL (1-sep-2026, 2585-87-LE26, DECLARACIÓN JURADA SOBRE INCOMPATIBILIDADES): el bloque de
+// identificación que abre cada anexo ("NOMBRE PROPUESTA" | "ADQ. DE VEHÍCULOS ACUÁTICOS Y
+// TODOTERRENO…", ya impreso por el organismo) es una fila con SUS DOS celdas llenas — "completa"
+// por definición — así que ganaba como encabezado, y la fila real de abajo ("FECHA DECLARACIÓN
+// (DÍA/MES/AÑO)" | blanco) se leía como una FILA DE DATOS bajo esa columna fantasma. La etiqueta
+// resultante ("FECHA DECLARACIÓN… — ADQ. DE VEHÍCULOS…") no calzaba con nada del diccionario y la
+// casilla de fecha, que patrón 1 ya resolvía sola, desaparecía tapada por esta lectura. Un
+// encabezado real nombra columnas ("Nombre", "RUT", "SÍ", "NO") — nunca una frase completa. Misma
+// familia que el gridSpan de arriba: una celda larga tampoco es una columna, se salta igual.
+export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: number; tieneCeldaCombinada?: boolean; celdaLarga?: boolean }[]): number {
   let ultimo = -1;
   for (let i = 0; i < filas.length; i++) {
     if (!filas[i].completa) break;
-    // fila-título de 1 celda, o fila con alguna celda combinada (gridSpan): ninguna de las dos es
-    // el encabezado real — se salta sin cortar el rastreo.
-    if (filas[i].numCeldas < 2 || filas[i].tieneCeldaCombinada) continue;
+    // fila-título de 1 celda, con alguna celda combinada (gridSpan), o con una celda de texto
+    // largo (prosa, no el nombre de una columna): ninguna es el encabezado real — se salta sin
+    // cortar el rastreo.
+    if (filas[i].numCeldas < 2 || filas[i].tieneCeldaCombinada || filas[i].celdaLarga) continue;
     ultimo = i;
   }
   return ultimo;
@@ -744,6 +755,7 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
         completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length,
         numCeldasConTexto: textos.filter(t => t !== '').length,
         tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
+        celdaLarga: textos.some(t => t.length > LARGO_MAX_ETIQUETA),
       };
     });
     const primerEncabezado = indiceFilaEncabezado(filasInfo);
@@ -954,6 +966,7 @@ function indicesEnCeldasDeDatosDeTabla(xml: string): Set<number> {
         completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length,
         numCeldasConTexto: textos.filter(t => t !== '').length,
         tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
+        celdaLarga: textos.some(t => t.length > LARGO_MAX_ETIQUETA),
       };
     });
     const primerEncabezado = indiceFilaEncabezado(filasInfo);

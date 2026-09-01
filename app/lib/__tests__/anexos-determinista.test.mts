@@ -1441,6 +1441,29 @@ test('bloque de pago: "N Cuenta" se reconoce y el E-Mail es el de PAGOS, no el c
   assert.equal(valorAuto(sinPagos.celda, 10), 'contacto@losrobles.cl');
 });
 
+// DECLARACIÓN JURADA SIMPLE SOBRE INCOMPATIBILIDADES (1-sep-2026, 2585-87-LE26): dos casillas
+// reales quedaban en blanco, cada una tapada por una capa distinta.
+test('REGRESIÓN 2585-87-LE26: "FECHA DECLARACIÓN (DÍA/MES/AÑO)" sin el "de" que exige "fecha de declaración"', () => {
+  assert.equal(campoDeEtiquetaInequivoca('FECHA DECLARACIÓN (DÍA/MES/AÑO)'), 'fecha_hoy');
+});
+
+test('REGRESIÓN 2585-87-LE26: "En Arica, Yo:" — la fórmula "Yo," partida en dos párrafos (etiqueta + blanco), no inline', () => {
+  const parrafos = [
+    parrafo(0, 'DECLARACIÓN JURADA SIMPLE SOBRE INCOMPATIBILIDADES'),
+    parrafo(1, 'En Arica, Yo:'), parrafo(2, ''),
+  ];
+  const r = resolverDeterminista({
+    candidatos: [celda(2, 'En Arica, Yo:')], blancosInline: [], parrafos, empresa: EMPRESA,
+  });
+  assert.equal(valorAuto(r.celda, 2), 'Lidia Valenzuela Soto');
+});
+
+test('DECLARACIÓN DE PLAZO DE ENTREGA (1-sep-2026, 2585-87-LE26): "el oferente, ___" inline es la razón social', () => {
+  const oracion = 'Por medio del presente documento el oferente, indico que los bienes requeridos serán entregados en un plazo de días hábiles.';
+  const pos = oracion.indexOf('el oferente, ') + 'el oferente, '.length;
+  assert.equal(campoDeBlancoInline(blanco(oracion, pos)), 'razon_social');
+});
+
 // FORMULARIO N°1 DE IDENTIFICACIÓN DEL OFERENTE (1-sep-2026, 2905-36-LR26, reportado con captura
 // del documento generado): cuatro casillas de la MISMA tabla de identificación quedaban en blanco
 // pese a que la ficha tenía el dato — cada una por una etiqueta compuesta que ningún patrón del

@@ -312,7 +312,12 @@ export const DICCIONARIO: Entrada[] = [
   ] },
   // "FECHA:" suelta (un solo blanco, no un triplete día/mes/año — esos ya los resuelve entero
   // detectarTripletesFecha antes de llegar acá) → fecha larga con la que se firma la oferta.
-  { campo: 'fecha_hoy', patrones: [/^fecha$/, /^fecha de (?:la )?(?:oferta|presentacion|propuesta|declaracion)$/] },
+  { campo: 'fecha_hoy', patrones: [
+    /^fecha$/, /^fecha de (?:la )?(?:oferta|presentacion|propuesta|declaracion)$/,
+    // "FECHA DECLARACIÓN (DÍA/MES/AÑO)" (2585-87-LE26) — sin el "de" que exige el patrón de
+    // arriba. El "(DÍA/MES/AÑO)" no cambia el campo, es el formato que ya trae fecha_hoy.
+    /^fecha (?:oferta|presentacion|propuesta|declaracion)$/,
+  ] },
   { campo: 'tipo_persona_juridica', patrones: [/^tipo de (?:persona|sociedad|empresa)(?: juridica)?$/, /^naturaleza juridica$/] },
   // NACIONALIDAD: politica fija de la empresa ("Chilena") — ver NACIONALIDAD_POR_DEFECTO en
   // anexos-derivados.ts. Medida por el auditor del 28-ago-2026 en 21 licitaciones, siempre en
@@ -361,6 +366,12 @@ export const DICCIONARIO: Entrada[] = [
     // "nombre".
     /^nombre (?:del? )?contacto (?:para|de) (?:la )?(?:licitacion|propuesta|oferta|este proceso)$/,
     /^contacto (?:del? )?(?:la )?(?:empresa|oferente|proponente|proveedor)$/,
+    // "En Arica, Yo:" (2585-87-LE26, DECLARACIÓN JURADA SOBRE INCOMPATIBILIDADES): la fórmula
+    // notarial "Yo," ya la resuelve REGLAS_PREVIAS para un blanco INLINE (mismo párrafo), pero acá
+    // el organismo corta la oración en dos párrafos — la etiqueta ("…Yo:") y el blanco en el
+    // párrafo SIGUIENTE, patrón de CELDA, no de inline. Sin anclar el inicio (la ciudad varía por
+    // organismo): basta con que la etiqueta TERMINE en la palabra "yo" tras normalizar.
+    /(?:^|\s)yo$/,
   ] },
   { campo: 'representante_nombres', patrones: [/^nombres$/, /^nombres? de pila$/] },
   { campo: 'representante_apellidos', patrones: [/^apellidos$/, /^apellido paterno y materno$/] },
@@ -850,6 +861,10 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // detectado por la auditoría): el organismo escribe la INSTRUCCIÓN de qué va antes del blanco.
   { re: /\bnombre\s+(?:completo\s+)?o\s+raz(?:o|ó)n\s+social(?:\s+de(?:\s+la)?)?(?:\s+(?:empresa|sociedad))?(?:\s+(?:participante|oferente|proponente|postulante))?\s*:?\s*$/i, campo: 'razon_social' },
   { re: /(?:^|,)\s*(?:la\s+)?empresa\s*,?\s*$/i, campo: 'razon_social' },
+  // "Por medio del presente documento el oferente, ______ indico que…" (2585-87-LE26,
+  // DECLARACIÓN DE PLAZO DE ENTREGA): mismo patrón que "la empresa ___" de arriba, con "oferente"
+  // como sustantivo — pedido explícito del usuario (1-sep-2026): "si dice oferente, es la empresa".
+  { re: /\b(?:el\s+)?(?:oferente|proponente|proveedor|contratista|postulante)\s*,\s*$/i, campo: 'razon_social' },
 
   // ── Formas medidas en el muestreo de 1.500 documentos (31-ago-2026) ──
   //
