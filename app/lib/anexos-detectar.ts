@@ -1626,7 +1626,14 @@ export function esEtiquetaDeCampo(texto: string): boolean {
 // cualquier anexo chileno. Van en su propio blocklist (no en RE_PALABRA_DE_ORACION) porque no son
 // vocabulario de ORACIÓN: son sustantivos sueltos, la señal que los delata es el significado de la
 // palabra completa, no que traigan un verbo declarativo adentro.
-const RE_ETIQUETA_ES_AVISO_DEL_ORGANISMO = /^(?:notas?|observaci[oó]n(?:es)?|importante|atenci[oó]n|advertencia|aviso|ojo)$/i;
+//
+// BUG REAL (2-sep-2026, FORMULARIO D "DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD", 2704-67-LE26,
+// reportado con captura: "OBS: me pone un SI lo cual no debe"): "OBS" es la abreviatura de
+// "Observación" que el bloqueo de arriba no cubría — solo tenía la palabra completa. Mismo párrafo
+// aislado al pie del documento ("OBS: "), misma IA de respaldo, mismo resultado inventado: "SÍ"
+// pegado a la abreviatura, adivinado por el tema de "programa de integridad (SI/NO)" que domina el
+// resto del documento.
+const RE_ETIQUETA_ES_AVISO_DEL_ORGANISMO = /^(?:notas?|obs\.?|observaci[oó]n(?:es)?|importante|atenci[oó]n|advertencia|aviso|ojo)$/i;
 
 export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];

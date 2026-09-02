@@ -60,6 +60,20 @@ test('diccionario: la etiqueta que ya nombra al representante no depende del con
   assert.equal(campoDeEtiquetaInequivoca('Cargo del representante'), 'representante_cargo');
 });
 
+// BUG REAL (2-sep-2026, FORMULARIO C, 2704-67-LE26, reportado por el usuario: "no me pone el nombre
+// del representante lega o apoderado"): la etiqueta EXACTA de la casilla es "REPRESENTANTE LEGAL O
+// APODERADO:" — el organismo cubre las dos figuras jurídicas en una sola casilla, tal como ya hace
+// la leyenda de firma del mismo documento ("FIRMA REPRESENTANTE LEGAL O APODERADO"). El patrón
+// anterior solo aceptaba "representante legal" O "apoderado" por separado (match exacto anclado),
+// nunca el compuesto — la casilla quedaba pendiente con "la etiqueta no corresponde a ningún dato"
+// pese a que la ficha de la empresa sí tenía el nombre cargado.
+test('diccionario: "REPRESENTANTE LEGAL O APODERADO" (compuesto) resuelve igual que cada mitad por separado', () => {
+  assert.equal(campoDeEtiquetaInequivoca('REPRESENTANTE LEGAL O APODERADO'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Apoderado o Representante Legal'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Representante Legal'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Apoderado'), 'representante_nombre');
+});
+
 test('REGRESIÓN 2928-17-LE26: "Comuna y región" resuelve igual que "Región y comuna" (orden invertido)', () => {
   assert.equal(campoDeEtiquetaInequivoca('Región y comuna'), 'region');
   assert.equal(campoDeEtiquetaInequivoca('Comuna y región'), 'region');
@@ -367,6 +381,26 @@ test('programa de integridad: una casilla que pide OTRO dato no recibe el "SÍ" 
     candidatos: [celda(1, '¿Cuenta con uno?')], blancosInline: [], parrafos, empresa: conRespuesta,
   });
   assert.equal(valorAuto(ok.celda, 1), 'SÍ');
+});
+
+// BUG REAL (2-sep-2026, FORMULARIO D "DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD", 2704-67-LE26,
+// reportado con captura por el usuario: "me debe dejar a mí decidir si pongo sí o no... aquí no va
+// nada"): la pregunta venía como una fila de checkbox — "SI" | ☐ | "NO" | ☐ — DOS candidatos
+// separados, cada uno con la etiqueta pelada de su propia opción. Como los dos comparten el mismo
+// contexto de bloque (la pregunta de integridad), la política fija los marcaba a los DOS con "Sí" a
+// la vez — dato inventado y, encima, contradictorio en el propio documento. Una opción de MARCAR
+// ("SI"/"NO" a secas) nunca es la política fija: es una decisión excluyente del oferente, igual que
+// cualquier "Cumple/No cumple" — debe quedar pendiente.
+test('programa de integridad: una fila de checkbox SI/NO (dos casillas de marcar) NUNCA se autocompleta', () => {
+  const parrafos = [parrafo(0, '¿Cuenta con algún programa de integridad? Si su respuesta es SI complete la siguiente declaración jurada')];
+  const conRespuesta = { ...EMPRESA, programa_integridad_respuesta: 'SÍ' } as EmpresaCampos;
+  const r = resolverDeterminista({
+    candidatos: [celda(1, 'SI'), celda(2, 'NO')], blancosInline: [], parrafos, empresa: conRespuesta,
+  });
+  assert.equal(valorAuto(r.celda, 1), null, 'la opción "SI" no debe marcarse sola');
+  assert.equal(valorAuto(r.celda, 2), null, 'la opción "NO" no debe marcarse sola');
+  assert.ok(r.celdaSinResolver.some(c => c.indice === 1), 'la opción "SI" queda pendiente (decisión del oferente)');
+  assert.ok(r.celdaSinResolver.some(c => c.indice === 2), 'la opción "NO" queda pendiente (decisión del oferente)');
 });
 
 // ── Clasificación del pendiente ──────────────────────────────────────────────────────────────

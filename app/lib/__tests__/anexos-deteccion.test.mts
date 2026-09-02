@@ -141,12 +141,16 @@ test('"Nota:" y sinónimos de aviso del organismo NUNCA son una casilla, aunque 
     + p('Nota:') + p('El presente formato debe consolidarse en un único archivo.')
     + p('Observación:') + p('Ver anexo técnico adjunto.')
     + p('Importante:') + p('Los precios deben incluir IVA.')
+    + p('OBS:') + p('Ver punto 4.2 de las bases técnicas.')
     + p('Cargo:')
     + FIN;
   const { xml: norm } = normalizarParaIds(xml);
   const etiquetas = analizarAnexo(norm).camposConDosPuntos.map(c => c.etiqueta);
 
-  for (const aviso of ['Nota', 'Observación', 'Importante']) {
+  // BUG REAL (2-sep-2026, FORMULARIO D "DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD", 2704-67-LE26,
+  // reportado con captura): "OBS:" es la abreviatura de "Observación" y el blocklist original solo
+  // tenía la palabra completa — la IA le pegó un "SÍ" inventado al lado, igual que a "Nota:".
+  for (const aviso of ['Nota', 'Observación', 'Importante', 'OBS']) {
     assert.ok(!etiquetas.includes(aviso), `"${aviso}:" no debe ofrecerse como casilla: ${JSON.stringify(etiquetas)}`);
   }
   // Control: una etiqueta real corta (no un aviso del organismo) sigue funcionando igual.

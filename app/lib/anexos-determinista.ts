@@ -441,7 +441,14 @@ export const DICCIONARIO: Entrada[] = [
   // ── Representante legal ──
   { campo: 'representante_nombre', patrones: [
     new RegExp(`^nombre(?:\\s+completo)?${REPRE}$`),
-    new RegExp(`^(?:representan?te\\s+legal|apoderado)$`),
+    // BUG REAL (2-sep-2026, FORMULARIO C, 2704-67-LE26, reportado por el usuario: "no me pone el
+    // nombre del representante lega o apoderado"): la etiqueta rotula el CAMPO como "REPRESENTANTE
+    // LEGAL O APODERADO:" — el organismo cubre las dos figuras jurídicas en una sola casilla, tal
+    // como ya hace la etiqueta de FIRMA del mismo documento ("FIRMA REPRESENTANTE LEGAL O
+    // APODERADO"). El match exacto de abajo solo aceptaba "representante legal" O "apoderado" por
+    // separado — el compuesto con "O APODERADO" pegado no calzaba con ninguno de los dos y la
+    // casilla se quedaba sin dato pese a que la ficha lo tenía.
+    new RegExp(`^(?:representan?te\\s+legal(?:\\s+o\\s+apoderado)?|apoderado(?:\\s+o\\s+representan?te\\s+legal)?)$`),
     /^nombre y apellidos? del representante(?: legal)?$/,
     /^(?:identificacion|individualizacion) del (?:representante(?: legal)?|apoderado)$/,
     /^representante legal de la empresa$/, /^nombre del firmante$/, /^quien suscribe$/,
@@ -1876,8 +1883,20 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // La regla exacta: si la etiqueta ES un encabezado de sección, tiene que nombrar la integridad
     // ELLA MISMA — el contexto de alrededor no se la presta. Una pregunta escrita en prosa
     // ("¿Cuenta la empresa con un programa…?") no es encabezado y sigue resolviéndose por contexto.
+    //
+    // BUG REAL (2-sep-2026, FORMULARIO D, 2704-67-LE26, reportado por el usuario con captura: "me
+    // debe dejar a mí decidir si pongo sí o no... aquí no va nada"): esta política fija está pensada
+    // para UN blanco libre que responde la pregunta entera. Cuando el organismo la presenta como dos
+    // CASILLAS DE MARCAR excluyentes ("SI" | ☐ | "NO" | ☐, una fila de checkbox), cada casilla es su
+    // propio candidato con etiqueta pelada "SI"/"NO" — el bloque comparten el mismo contexto (la
+    // pregunta de integridad), así que la política los agarraba a LOS DOS y el documento salía con
+    // "Sí" marcado en la opción SI y también en la opción NO. RE_CASILLA_MARCAR (la misma señal que
+    // ya usa `clasificarPendiente` para "columna de MARCAR SI/NO") descarta la política acá: una
+    // etiqueta que es LITERALMENTE la opción a marcar, no la pregunta, es una decisión del oferente
+    // — igual que cualquier otro par de alternativas excluyentes, queda pendiente.
     const etiquetaEsEncabezado = RE_ENCABEZADO_SECCION.test(String(propia).trim());
     if (!campo && !RE_ETIQUETA_PIDE_OTRO_DATO.test(normalizarEtiqueta(propia))
+        && !RE_CASILLA_MARCAR.test(normalizarEtiqueta(propia))
         && esPreguntaDeIntegridad(etiquetaEsEncabezado ? propia : `${c.etiqueta} ${bloque?.contexto ?? ''}`)) {
       campo = 'programa_integridad_respuesta' as Campo;
     }
