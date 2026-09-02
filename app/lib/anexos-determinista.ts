@@ -132,6 +132,16 @@ export function normalizarEtiqueta(s: string): string {
     // reconoce el asterisco como VIÑETA al INICIO), así que ninguna entrada del diccionario —que
     // termina justo en "oferente"/"representante legal"— calzaba, y las DOS direcciones quedaban
     // pendientes pese a ser el mismo dato que ya se llenaba en el resto del formulario.
+    // Notación burocrática de género/plural con barra ("del/los Representante/es Legal/es",
+    // "el/la funcionario/a"): se saca la alternativa después de la barra y se queda con la base
+    // singular, que es la que conoce el diccionario. BUG REAL (ANEXO N°1 DECLARACIÓN JURADA SIMPLE
+    // PACTO DE INTEGRIDAD, ejemplo real del usuario): "Nombre y Firma del/los Representante/es
+    // Legal/es:" no calzaba con la entrada ya existente para "nombre y firma" — la barra no se
+    // quitaba nunca y la etiqueta le llegaba entera al diccionario. Va ANTES del strip de puntuación
+    // de la línea de abajo (que no toca "/") y solo dispara con una palabra corta después de la
+    // barra (2-4 letras) para no tocar una fecha en formato "día/mes/año" ("mes"/"año" no son
+    // ninguna de estas terminaciones) ni una fracción numérica.
+    .replace(/\/(?:es|as|os|las|los|la|lo|una|un|s)\b/g, '')
     .replace(/[.:;,_·"'“”*]+/g, ' ')                      // puntuación y rayas de relleno
     .replace(/\s+/g, ' ')
     .trim()
@@ -460,7 +470,11 @@ export const DICCIONARIO: Entrada[] = [
     // "Nombre y firma" — el motor ya sabe poner la firma (imagen, aparte) y el nombre por
     // separado; esta etiqueta combinada solo pedía el nombre y quedaba sin ningún patrón que la
     // cubriera. 12 casillas / 8 licitaciones, el sinónimo más repetido del banco de 300 anexos.
-    /^nombre y firma$/,
+    // El remate de REPRE es OPCIONAL: "Nombre y Firma del Representante Legal:" (ejemplo real del
+    // usuario, ANEXO N°1 PACTO DE INTEGRIDAD, con la notación "del/los Representante/es Legal/es"
+    // ya reducida a singular por normalizarEtiqueta) sigue pidiendo lo mismo, solo que rotulado
+    // más largo.
+    new RegExp(`^nombre y firma${REPRE}?$`),
   ] },
   { campo: 'representante_nombres', patrones: [/^nombres$/, /^nombres? de pila$/] },
   { campo: 'representante_apellidos', patrones: [/^apellidos$/, /^apellido paterno y materno$/] },
@@ -870,7 +884,12 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // La aclaración "(si corresponde)" (1042-9-LE26, F3) se cuela ENTRE "de" y el blanco — mismo
   // patrón que "Don (ña) ___": un paréntesis pegado a la palabra apaga el anclaje de fin de frase
   // si no se lo deja pasar explícitamente.
-  { re: /\ben\s+represent(?:acion|ación)\s+(?:legal\s+)?de(?:\s+la)?(?:\s+(?:empresa|sociedad|razon\s+social))?(?:\s*\([^)]{0,30}\))?\s*$/i, campo: 'razon_social' },
+  // BUG REAL (1443565-2-LE26, ANEXO N°5, reportado por el usuario con captura): la MISMA aclaración
+  // también aparece ANTES del "de" — "en representación legal (completar si aplica) de ___" — y esa
+  // posición no estaba cubierta: el paréntesis solo se toleraba después de "de", nunca entre "legal"
+  // y "de". El resultado era la casilla de la empresa vacía en toda declaración jurada con esa
+  // redacción, aunque el dato (RUT de la empresa) estuviera justo al lado ya resuelto.
+  { re: /\ben\s+represent(?:acion|ación)\s+(?:legal\s+)?(?:\([^)]{0,40}\)\s*)?de(?:\s+la)?(?:\s+(?:empresa|sociedad|razon\s+social))?(?:\s*\([^)]{0,30}\))?\s*$/i, campo: 'razon_social' },
   { re: /\b(?:para|por)\s+(?:y\s+en\s+nombre\s+de|cuenta\s+de)\s*$/i, campo: 'razon_social' },
   // "Mi representada ______" / "mi representada es ______" — fórmula estándar con la que el
   // representante legal nombra a SU empresa dentro de una declaración jurada. Medida por el
@@ -1273,6 +1292,14 @@ export function campoDeFechaEnFormula(antes: string, despues: string): Campo | n
   if (RE_ANTES_ANIO_CORTO.test(antes) && !RE_DESPUES_MES_PALABRA.test(despues)) return 'fecha_hoy_anio_corto' as Campo;
   if (RE_ANTES_ANIO.test(antes) && !RE_DESPUES_MES_PALABRA.test(despues)) return 'fecha_hoy_anio' as Campo;
   if (RE_ANTES_DIA.test(antes) && RE_DESPUES_DIA.test(despues)) return 'fecha_hoy_dia' as Campo;
+  // FÓRMULA AL REVÉS de RE_LOCALIDAD_FIRMA: ahí el blanco ES la ciudad y la fecha viene escrita
+  // después ("En ___ a 12 de agosto"). Acá la ciudad YA viene impresa como texto fijo y es la FECHA
+  // COMPLETA la que falta en un solo blanco, sin ninguna pieza suelta detrás — caso real (ejemplo
+  // real del usuario, FORMATO Nº1-B, "LA SERENA, _____________________________"). Muy acotado a
+  // propósito: el párrafo entero tiene que ser SOLO "Ciudad," + el blanco, para no confundir
+  // cualquier etiqueta corta terminada en coma (que casi siempre usa ":" en vez de ",") con una
+  // fecha. Va AL FINAL, después de agotar las fórmulas de pieza suelta.
+  if (/^[A-ZÁÉÍÓÚÑ][\p{L}\s.'-]{1,28},\s*$/u.test(antes) && /^[\s.\-]*$/.test(despues)) return 'fecha_hoy' as Campo;
   return null;
 }
 
@@ -1306,6 +1333,15 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
   if (esBloqueDeTercero(parrafo)) return null;
   const antes = parrafo.slice(0, pos);
   if (!antes.trim()) {
+    // FECHA CON AÑO YA IMPRESO, blanco AL PRINCIPIO del párrafo: "________________________de 2026."
+    // (caso real 1443565-2-LE26, ANEXO N°5, pie de firma — reportado por el usuario con captura).
+    // Es la misma fórmula que fecha_hoy_dia_mes ya cubre para 4777-24-LE26 ("LA UNIÓN, ___ DE
+    // 2026.-"), pero acá no hay NADA a la izquierda del blanco (ni ciudad, ni "a"), así que caía en
+    // la rama de pie de firma rotulado de abajo y, al no haber rótulo debajo/arriba, quedaba
+    // pendiente para siempre. Se prueba ANTES que esa rama: "de <año>" pegado al blanco es una señal
+    // de fecha inequívoca aunque no haya nada antes.
+    const despuesDelBlanco = parrafo.slice(pos + (b.largo || 0));
+    if (RE_DESPUES_MES_PALABRA.test(despuesDelBlanco)) return 'fecha_hoy_dia_mes' as Campo;
     // PIE DE FIRMA ROTULADO: la raya no tiene nada a su izquierda, pero DEBAJO está el nombre del
     // dato que va escrito sobre ella ("____________" / "NOMBRE EMPRESA" — caso real reportado el
     // 1-sep-2026, ANEXO N°2 de Cholchol, donde esa casilla quedaba vacía en todas las corridas).

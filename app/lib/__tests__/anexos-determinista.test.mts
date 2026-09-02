@@ -166,6 +166,16 @@ test('declaración jurada: "en representación de" gana aunque venga tras la pal
   assert.equal(campoDeBlancoInline(blanco(o, o.indexOf('de ') + 3)), 'razon_social');
 });
 
+// BUG REAL (1443565-2-LE26, ANEXO N°5, reportado por el usuario con captura): "(completar si
+// aplica)" se cuela ENTRE "legal" y "de", no después de "de" como el caso ya cubierto de
+// 1042-9-LE26 ("de (si corresponde)"). La casilla de la empresa quedaba vacía aunque el RUT de al
+// lado (mismo blanco vecino) sí resolvía bien.
+test('declaración jurada: "en representación legal (completar si aplica) de" resuelve la empresa', () => {
+  const o = 'Cédula Nacional de Identidad N° ; en representación legal (completar si aplica) de , RUT ';
+  const pos = o.indexOf('de ,') + 3;
+  assert.equal(campoDeBlancoInline(blanco(o, pos)), 'razon_social');
+});
+
 // ── Capa 5: localidad de la firma (hueco abierto del instructivo) ────────────────────────────
 test('localidad de firma: "En ____ a 12 de agosto" es la comuna del ORGANISMO, no la región de la empresa', () => {
   const o = 'En  a 12 de agosto de 2026';
@@ -1146,6 +1156,21 @@ test('fecha de firma: el blanco todavía sin llenar tampoco confunde mes con añ
   assert.equal(enFormula('En Concepción, a ____ de ______ de |'), 'fecha_hoy_anio');
 });
 
+// BUG REAL (ejemplo real del usuario, FORMATO Nº1-B): "LA SERENA, _____________________________"
+// — al revés que RE_LOCALIDAD_FIRMA (ahí el blanco es la ciudad y la fecha va escrita después): acá
+// la ciudad YA viene impresa como texto fijo y la fecha COMPLETA es lo único que falta, en un solo
+// blanco, sin ninguna pieza suelta detrás.
+test('fecha de firma: "<Ciudad ya impresa>, ___" con nada después es la fecha completa', () => {
+  assert.equal(enFormula('LA SERENA, |'), 'fecha_hoy');
+  assert.equal(enFormula('Concepción, |'), 'fecha_hoy');
+  // Control: una etiqueta corta terminada en coma no es una ciudad — sin la coma+nada-después no
+  // se activa esto y sigue devolviendo null (queda para las reglas de más abajo, no a esta).
+  assert.equal(enFormula('Nombre del Representante Legal, |'), null);
+  // Control: si después del blanco SIGUE habiendo texto (no es el cierre del párrafo), tampoco es
+  // este caso — podría ser cualquier otra cosa, no una fecha suelta.
+  assert.equal(enFormula('Los Vilos, | comparece don Fulano'), null);
+});
+
 test('fecha de firma: NO se activa donde la fecha es de otro (guardarraíl)', () => {
   // "Ordinario N° 123 DE FECHA ___" es la fecha de un oficio del ORGANISMO (8 licitaciones):
   // escribir ahí la fecha de hoy sería un dato falso dentro de una declaración jurada.
@@ -1404,6 +1429,27 @@ test('inline: sin rotulo abajo, se prueba el rotulo ARRIBA — y DEBAJO manda si
     ...base, parrafoCompleto: raya, posEnParrafo: 0,
     rotuloDebajo: 'NOMBRE EMPRESA', rotuloArriba: 'RUT Representante Legal',
   } as CandidatoInline), 'razon_social');
+});
+
+// BUG REAL (1443565-2-LE26, ANEXO N°5, reportado por el usuario con captura): el pie de firma cierra
+// con "________________________de 2026." — el AÑO ya viene impreso y el blanco no tiene NADA a su
+// izquierda (mismo punto de partida que el pie de firma rotulado de arriba), pero acá lo que sigue
+// ("de 2026") ya es una fecha inequívoca por sí sola y no necesita ningún rótulo para resolverse.
+// fecha_hoy_dia_mes existía como campo derivado (anexos-derivados.ts, caso 4777-24-LE26) pero nunca
+// tenía una regla que lo seleccionara para este blanco: caía en la rama de rótulo, no encontraba
+// ninguno, y quedaba pendiente para siempre.
+test('inline: raya sin nada a la izquierda seguida de "de <año>" es fecha_hoy_dia_mes, sin rótulo', () => {
+  const base = { indiceRun: 0, indiceParrafo: 0, textoRunOriginal: '', posEnTexto: 0, largo: 24, contexto: '' };
+  const parrafo = '________________________de 2026.';
+  assert.equal(campoDeBlancoInline({
+    ...base, parrafoCompleto: parrafo, posEnParrafo: 0,
+  } as CandidatoInline), 'fecha_hoy_dia_mes');
+
+  // Control: sin "de <año>" después, sigue siendo el pie de firma rotulado de siempre (no se activa
+  // por cualquier raya sin nada a la izquierda).
+  assert.equal(campoDeBlancoInline({
+    ...base, parrafoCompleto: '____________________', posEnParrafo: 0,
+  } as CandidatoInline), null);
 });
 
 // BLOQUE "DATOS PARA EFECTUAR EL PAGO" (2-sep-2026, ANEXO FORMULARIO N°1 de Coquimbo, reportado
@@ -1694,6 +1740,12 @@ test('diccionario: sinónimos del banco de 300 anexos convertidos en regla (1-se
   assert.equal(campoDeEtiquetaInequivoca('Rut Socios'), 'representante_rut');
   assert.equal(campoDeEtiquetaInequivoca('Beneficiarios Finales'), 'representante_nombre');
   assert.equal(campoDeEtiquetaInequivoca('Nombre y firma'), 'representante_nombre');
+  // BUG REAL (ejemplo real del usuario, ANEXO N°1 DECLARACIÓN JURADA SIMPLE PACTO DE INTEGRIDAD):
+  // "Nombre y Firma del/los Representante/es Legal/es:" — la notación burocrática de género/plural
+  // con barra ("del/los", "Representante/es", "Legal/es") se reduce a singular en normalizarEtiqueta
+  // y el remate ya lo tolera el patrón (REPRE opcional).
+  assert.equal(campoDeEtiquetaInequivoca('Nombre y Firma del/los Representante/es Legal/es:'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('Nombre y Firma del Representante Legal'), 'representante_nombre');
   assert.equal(campoDeEtiquetaInequivoca('Comuna de origen'), 'comuna');
   assert.equal(campoDeEtiquetaInequivoca('Depto. Nº'), 'direccion_oficina');
   assert.equal(campoDeEtiquetaInequivoca('Correo de contacto para informar pago'), 'email1');

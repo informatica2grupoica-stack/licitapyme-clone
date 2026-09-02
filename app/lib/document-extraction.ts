@@ -195,6 +195,103 @@ async function ocrPdfGrandePorChunksGlm(buffer: Buffer, totalPaginas: number, no
   return partes.join('\n\n');
 }
 
+// ─── Relleno puntual de páginas vacías DENTRO de un PDF con capa de texto ────────
+// BUG REAL (4469-159-LE26, sep-2026): un documento puede EMPEZAR con texto real (p.ej. un
+// decreto de 2 páginas) y a mitad de camino volverse escaneado (el anexo técnico real, pegado
+// atrás, sin capa de texto) — un "PDF mixto". El gate de densidad GLOBAL (arriba) solo atrapa
+// el caso en que el bloque vacío es GRANDE (≥30% del documento); un documento con, por
+// ejemplo, 5 de 40 páginas escaneadas en el medio sigue pasando el gate igual — esas 5 páginas
+// quedarían mudas y nadie se entera. Esta función se llama SIEMPRE que un PDF se clasifica
+// como 'pdf-text' pero tiene AL MENOS UNA página sin texto propio: intenta leer esas páginas
+// puntuales por OCR (GLM-OCR, con Tesseract local de respaldo) y, si ninguna de las dos
+// pudo, deja la marca estándar `[OCR_NO_DISPONIBLE]` en vez de dejarlas mudas — así el resto
+// de la maquinaria de auto-sanación que ya existe para el camino 100%-escaneado
+// (ocrTieneHuecos/paginasConHueco/rellenarHuecos en zai-ocr.ts, el "no reusar caché con
+// huecos" de viabilidad-ia.ts) también protege a los documentos que EMPIEZAN como texto.
+// Parte PURA (sin red/IO) del gate "¿esto es texto real o hay que OCR-earlo?". Separada para
+// poder testearla con casos sintéticos (sin PDFs reales ni credenciales) — ver
+// document-extraction.test.mts. `chunksPorPagina` = chars de texto propio por página, en orden.
+export function evaluarCapaDeTextoPdf(
+  chunksPorPagina: number[],
+  textoReal: string,
+  capaBasura: boolean,
+): { tieneCapaDeTexto: boolean; paginasVaciasIdx: number[]; fraccionVacias: number; densidad: number } {
+  const numPags = Math.max(1, chunksPorPagina.length || 1);
+  const densidad = textoReal.length / numPags;
+  const paginasVaciasIdx = chunksPorPagina
+    .map((l, i) => ((l || 0) < 5 ? i + 1 : 0))
+    .filter(n => n > 0);
+  const fraccionVacias = numPags > 0 ? paginasVaciasIdx.length / numPags : 0;
+  const tieneCapaDeTexto = textoReal.length > 300 && densidad >= 120 && !capaBasura && fraccionVacias < 0.3;
+  return { tieneCapaDeTexto, paginasVaciasIdx, fraccionVacias, densidad };
+}
+
+// Parte PURA (sin red/IO) del relleno: reconstruye el texto del documento página por página,
+// sustituyendo SOLO las páginas vacías por el bloque de hueco estándar. Reconstruir desde el
+// array (en vez de un regex sobre el string ya concatenado) evita depender de la cantidad
+// exacta de saltos de línea entre marcadores — un regex anterior de esta misma función fallaba
+// con páginas vacías consecutivas, detectado por su propio test (ver document-extraction.test.mts).
+export function construirTextoPdfConHuecos(textosPorPagina: string[], paginasVacias: number[]): string {
+  if (!paginasVacias.length) return textosPorPagina.map((t, i) => `\n\n[[PÁGINA ${i + 1}]]\n${t}`).join('');
+  const vacias = new Set(paginasVacias);
+  return textosPorPagina
+    .map((t, i) => {
+      const n = i + 1;
+      const cuerpo = vacias.has(n)
+        ? '[OCR_NO_DISPONIBLE: página sin texto dentro de un documento mixto — se intenta OCR puntual]'
+        : t;
+      return `\n\n[[PÁGINA ${n}]]\n${cuerpo}`;
+    })
+    .join('');
+}
+
+async function rellenarPaginasVaciasEnTextoPdf(
+  textosPorPagina: string[],
+  paginasVacias: number[],
+  sourceUrl: string | undefined,
+  buffer: Buffer,
+): Promise<string> {
+  if (!paginasVacias.length) return construirTextoPdfConHuecos(textosPorPagina, []);
+
+  // Mismo formato de hueco que usa el camino 100%-escaneado, para poder reusar
+  // paginasConHueco/rellenarHuecos tal cual.
+  let texto = construirTextoPdfConHuecos(textosPorPagina, paginasVacias);
+
+  const { esUrlOcrPublica, extraerPaginasConGlmOcr, paginasConHueco, rellenarHuecos } = await import('@/app/lib/zai-ocr');
+  const resueltos = new Map<number, string>();
+
+  const ocrProvider = (process.env.IA_OCR_PROVIDER ?? 'zai').toLowerCase();
+  if (ocrProvider !== 'tesseract' && sourceUrl && esUrlOcrPublica(sourceUrl) && process.env.ZAI_API_KEY) {
+    console.log(`⚠️ ${paginasVacias.length} pág(s) vacía(s) dentro de un PDF-texto mixto → OCR puntual (GLM)...`);
+    for (const n of paginasVacias) {
+      try {
+        const t = await extraerPaginasConGlmOcr(sourceUrl, n, n);
+        if (t && t.trim().length > 0) resueltos.set(n, t.trim());
+      } catch (e) {
+        console.warn(`[glm-ocr] falló página puntual ${n}:`, e instanceof Error ? e.message : e);
+      }
+    }
+  }
+
+  const faltantes = paginasVacias.filter(n => !resueltos.has(n));
+  if (faltantes.length) {
+    try {
+      const { ocrPaginasLocalTesseract } = await import('@/app/lib/tesseract-ocr');
+      const porTesseract = await ocrPaginasLocalTesseract(buffer, faltantes);
+      for (const [n, t] of porTesseract) resueltos.set(n, t);
+    } catch (e) {
+      console.warn('[OCR] relleno puntual con Tesseract local falló:', e instanceof Error ? e.message : e);
+    }
+  }
+
+  texto = rellenarHuecos(texto, resueltos);
+  const siguenVacias = paginasConHueco(texto);
+  console.log(siguenVacias.length
+    ? `⚠️ ${siguenVacias.length}/${paginasVacias.length} pág(s) siguen sin poderse leer (quedan marcadas OCR_NO_DISPONIBLE, se reintentará solas).`
+    : `✅ ${paginasVacias.length} pág(s) vacía(s) recuperadas por OCR puntual.`);
+  return texto;
+}
+
 // ======================================================
 // EXTRACCIÓN DE TEXTO CON DETECCIÓN INTELIGENTE
 // ======================================================
@@ -329,6 +426,12 @@ export async function extractTextFromDocument(
       // exacta de cada dato (requisito del PROMPT 2). Las páginas se procesan en orden.
       const pdfParse = (await import('pdf-parse')).default;
       let _pag = 0;
+      // Texto CRUDO por página (no solo su largo): permite reconstruir el documento
+      // reemplazando SOLO las páginas vacías por su marca de hueco (construirTextoPdfConHuecos),
+      // sin depender de un regex frágil sobre el string ya concatenado — ver el bug real que
+      // encontró el propio test de esta función (páginas vacías consecutivas rompían el regex
+      // por la cantidad exacta de saltos de línea entre marcadores).
+      const textosPorPagina: string[] = [];
       const pagerender = (pageData: any) =>
         pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false })
           .then((tc: any) => {
@@ -339,9 +442,11 @@ export async function extractTextFromDocument(
               else text += '\n' + item.str;
               lastY = item.transform[5];
             }
+            textosPorPagina[_pag - 1] = text;
             return `\n\n[[PÁGINA ${_pag}]]\n${text}`;
           });
       const pdfData = await pdfParse(buffer, { pagerender });
+      const chunksPorPagina = textosPorPagina.map(t => (t || '').trim().length);
 
       // ¿El texto extraído es REAL o solo los marcadores [[PÁGINA N]] de un escaneado?
       // pdf-parse antepone un marcador por página aunque la página sea una imagen sin
@@ -358,12 +463,30 @@ export async function extractTextFromDocument(
       // ("MUR¡ÁTICO", "I-MTJNICIPALIDAO"). Si es basura, se trata como escaneado → GLM-OCR.
       const { esTextoBasuraOCR } = await import('@/app/lib/zai-ocr');
       const capaBasura = esTextoBasuraOCR(textoReal);
-      const tieneCapaDeTexto = textoReal.length > 300 && densidad >= 120 && !capaBasura;
+      // BUG REAL (4469-159-LE26, sep-2026): un decreto de 2 páginas con considerandos legales
+      // muy densos + 46 páginas ESCANEADAS pegadas atrás (las bases técnicas reales, con las
+      // especificaciones del producto) promedia 132 chars/pág — pasa el umbral de densidad
+      // GLOBAL aunque el 96% del documento esté en blanco. El promedio de todo el documento no
+      // detecta un bloque de páginas vacías cuando unas pocas páginas densas lo compensan. Se
+      // exige además que la MAYORÍA de las páginas tengan algo de texto propio: si una fracción
+      // grande está completamente vacía, es un escaneado parcial (portada/decreto con texto +
+      // anexo técnico escaneado) y también debe ir a OCR.
+      const { tieneCapaDeTexto, paginasVaciasIdx, fraccionVacias } = evaluarCapaDeTextoPdf(chunksPorPagina, textoReal, capaBasura);
 
       if (tieneCapaDeTexto) {
         console.log(`✅ PDF con texto: ${textoReal.length} chars reales, ${numPags} págs (densidad ${Math.round(densidad)}/pág)`);
+        // Documento mayormente de texto, pero con páginas puntuales vacías (documento MIXTO:
+        // empieza con texto y a mitad de camino necesita OCR) — no dejarlas mudas. Con
+        // omitirOCR no se gasta cuota intentando leerlas, pero igual quedan MARCADAS (no
+        // mudas): sin la marca, un documento que en verdad no aportaba nada (plano, imagen)
+        // es indistinguible de uno donde el texto real simplemente no llegó a leerse.
+        const textoFinal = !paginasVaciasIdx.length
+          ? pdfData.text
+          : opts.omitirOCR
+            ? construirTextoPdfConHuecos(textosPorPagina, paginasVaciasIdx)
+            : await rellenarPaginasVaciasEnTextoPdf(textosPorPagina, paginasVaciasIdx, opts.sourceUrl, buffer);
         return {
-          texto: pdfData.text,
+          texto: textoFinal,
           numPages: pdfData.numpages,
           metodo: 'pdf-text',
           confianza: 'alta'
@@ -371,7 +494,9 @@ export async function extractTextFromDocument(
       }
       console.log(capaBasura
         ? `⚠️ PDF con capa de texto BASURA (OCR del escáner ilegible): ${textoReal.length} chars, ${numPags} págs → re-OCR como escaneado`
-        : `⚠️ PDF con poca capa de texto: ${textoReal.length} chars reales en ${numPags} págs (densidad ${Math.round(densidad)}/pág) → tratado como escaneado`);
+        : fraccionVacias >= 0.3
+          ? `⚠️ PDF con bloque de páginas vacías: ${paginasVaciasIdx.length}/${numPags} págs sin texto propio (${Math.round(fraccionVacias * 100)}%, densidad global ${Math.round(densidad)}/pág) → tratado como escaneado`
+          : `⚠️ PDF con poca capa de texto: ${textoReal.length} chars reales en ${numPags} págs (densidad ${Math.round(densidad)}/pág) → tratado como escaneado`);
 
       // PDF escaneado pero se pidió OMITIR OCR (p.ej. planos/imágenes que no aportan
       // al análisis): devolver lo poco que haya sin gastar cuota de OCR.
