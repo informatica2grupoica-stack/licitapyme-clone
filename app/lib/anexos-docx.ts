@@ -442,6 +442,46 @@ export function rellenarCeldaVacia(xml: string, paraId: string, valor: string): 
   return xml.slice(0, m.index) + apertura + cuerpoNuevo + cierre + xml.slice((m.index ?? 0) + entero.length);
 }
 
+// ── Checkboxes NATIVOS de Word (`<w:sdt>` con `<w14:checkbox>`) ──────────────────────────────
+// Ver detectarGruposCheckbox en anexos-detectar.ts. Marcar uno es un mecanismo TOTALMENTE
+// distinto a escribir texto en un blanco: hay que voltear el interruptor interno del control de
+// contenido (`<w14:checked w14:val="0|1"/>`) Y actualizar el glifo visible (☐/☒) a la vez —un
+// lector que solo mire el texto (o Word antes de "recalcular" el campo) muestra lo que hay escrito
+// ahí, no el estado real del interruptor, así que dejar uno desincronizado del otro es peor que no
+// tocar nada.
+export function marcarCheckbox(xml: string, paraId: string, marcado: boolean): string {
+  const mParrafo = xml.match(new RegExp(`<w:p\\b[^>]*w14:paraId="${paraId}"[^>]*>`));
+  if (!mParrafo) throw new Error(`No se encontró el párrafo w14:paraId="${paraId}"`);
+  const inicioParrafo = mParrafo.index!;
+  const inicioSdt = xml.lastIndexOf('<w:sdt>', inicioParrafo);
+  if (inicioSdt < 0) throw new Error(`El párrafo ${paraId} no vive dentro de un <w:sdt> — no es un checkbox`);
+  const finSdt = xml.indexOf('</w:sdt>', inicioParrafo);
+  if (finSdt < 0) throw new Error(`El <w:sdt> de ${paraId} no cierra`);
+  const bloque = xml.slice(inicioSdt, finSdt + '</w:sdt>'.length);
+  if (!/<w14:checkbox>/.test(bloque)) throw new Error(`El párrafo ${paraId} no es un checkbox`);
+
+  // El glifo a dibujar (y su fuente) los declara EL PROPIO checkbox en `checkedState`/
+  // `uncheckedState` — nunca se hardcodea ☒/☐: aunque en la práctica casi siempre son los mismos
+  // dos códigos, el control es libre de usar otros.
+  const clave = marcado ? 'checkedState' : 'uncheckedState';
+  const mEstado = bloque.match(new RegExp(`<w14:${clave}\\s+w14:val="([0-9A-Fa-f]+)"(?:\\s+w14:font="([^"]*)")?\\s*/>`));
+  const codigo = mEstado ? parseInt(mEstado[1], 16) : (marcado ? 0x2612 : 0x2610); // ☒ / ☐ de respaldo
+  const fuente = mEstado?.[2];
+
+  let bloqueNuevo = bloque.replace(/<w14:checked\s+w14:val="\d"\s*\/>/, `<w14:checked w14:val="${marcado ? 1 : 0}"/>`);
+  // El glifo vive en el único run de texto dentro del contenido del sdt.
+  bloqueNuevo = bloqueNuevo.replace(/(<w:t[^>]*>)[^<]*(<\/w:t>)/, `$1${xmlEscape(String.fromCharCode(codigo))}$2`);
+  if (fuente) {
+    // Rara vez el glifo marcado usa una fuente de símbolos distinta al glifo sin marcar — se
+    // actualiza el rFonts del run para no dibujar el símbolo nuevo con la fuente del viejo.
+    bloqueNuevo = bloqueNuevo.replace(
+      /<w:rFonts\s+w:ascii="[^"]*"\s+w:eastAsia="[^"]*"\s+w:hAnsi="[^"]*"([^/]*)\/>/,
+      `<w:rFonts w:ascii="${fuente}" w:eastAsia="${fuente}" w:hAnsi="${fuente}"$1/>`,
+    );
+  }
+  return xml.slice(0, inicioSdt) + bloqueNuevo + xml.slice(finSdt + '</w:sdt>'.length);
+}
+
 // ── Patrón 5: etiqueta que termina en ":" y el valor va A CONTINUACIÓN, en la misma línea ──
 // Distinto de rellenarCeldaVacia (párrafo vacío al lado de la etiqueta) y del blanco inline (una
 // raya de guiones que se sobrescribe): acá el párrafo TIENE texto —la etiqueta— y no hay ni celda

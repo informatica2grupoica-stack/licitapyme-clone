@@ -174,7 +174,15 @@ export async function cargarEmpresaEnriquecida(codigo: string, empresaId: string
   // Los tramos del código ("2495-17-B226" → "2495"/"17"/"B226") se derivan DESPUÉS del merge, no
   // dentro de conCamposDerivados: acá arriba la ficha cruda todavía no tiene `licitacion_codigo`
   // (llega en `datosLicitacion`, desde la API de MP), así que calcularlos antes daba siempre null.
-  return { ...fusionada, ...camposDelCodigoLicitacion(fusionada.licitacion_codigo) };
+  // MISMO motivo para "comuna + fecha juntas" (caso real, barrido de 300 documentos 2-sep-2026,
+  // 6 licitaciones: "<Ciudad>, <día/mes/año>" como rótulo de UNA sola celda de tabla): la comuna
+  // del organismo también llega recién en `datosLicitacion`, así que calcularla dentro de
+  // conCamposDerivados siempre habría dado null. Reusa `fusionada.fecha_hoy`, no una fecha nueva,
+  // para no desincronizarse de la fecha de cierre que ya se resolvió arriba.
+  return {
+    ...fusionada, ...camposDelCodigoLicitacion(fusionada.licitacion_codigo),
+    licitacion_comuna_y_fecha: fusionada.licitacion_comuna ? `${fusionada.licitacion_comuna}, ${fusionada.fecha_hoy}` : null,
+  };
 }
 
 /**

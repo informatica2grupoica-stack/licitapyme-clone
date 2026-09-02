@@ -573,6 +573,33 @@ function parrafosQueNuncaSonCampoEnTabla(xml: string): Set<number> {
   return excluidos;
 }
 
+// BUG REAL (2-sep-2026, FORMATO N°6 PROGRAMAS DE INTEGRIDAD, 4328-32-LP26, reportado por el
+// usuario con captura: "esa línea no creo que exista en el original"): OOXML exige que una tabla
+// SIEMPRE vaya seguida de un párrafo — Word lo inserta solo, vacío, fuera de cualquier `<w:tc>`.
+// El Patrón 1 (`detectarCandidatosCeldaCrudos`, ciego a tablas) no lo sabe: ve "párrafo con texto
+// → párrafo vacío" en orden lineal y toma como etiqueta lo último que haya en la ÚLTIMA celda de
+// la tabla, sin importar que ese párrafo vacío ya no esté DENTRO de ninguna celda. En este caso la
+// última celda era un checkbox "☐" (Cumple/No cumple, casillas `<w14:checkbox>` nativas de Word
+// que este motor no sabe marcar) y el candidato fantasma terminó con "SÍ" escrito en un párrafo
+// que en el documento real está completamente vacío — una línea que el usuario nunca vio en el
+// original porque, de hecho, no existe como campo.
+//
+// `parrafosQueNuncaSonCampoEnTabla` (arriba) ya cubre el relleno DENTRO de una celda; este es el
+// mismo problema mirando hacia AFUERA: el primer párrafo después de `</w:tbl>`, si está vacío, es
+// SIEMPRE relleno estructural de Word, nunca un campo — sea cual sea el texto que haya adentro de
+// la última celda de la tabla.
+function primerParrafoTrasTablaSiEstaVacio(xml: string): Set<number> {
+  const offsetsIndices = offsetsAIndices(xml);
+  const excluidos = new Set<number>();
+  for (const m of xml.matchAll(/<\/w:tbl>\s*(<w:p\b[^>]*w14:paraId="[0-9A-Fa-f]+"[^>]*>([\s\S]*?)<\/w:p>)/g)) {
+    if (!parrafoEstaVacio(m[2])) continue; // párrafo real que retoma el cuerpo del documento
+    const offsetParrafo = m.index! + m[0].indexOf(m[1]);
+    const indice = offsetsIndices.get(offsetParrafo);
+    if (indice != null) excluidos.add(indice);
+  }
+  return excluidos;
+}
+
 interface CeldaCruda {
   texto: string; vacio: boolean; paraId: string | null; indiceGlobal: number | null; anchoPct: number | null;
   // El paraId del ÚLTIMO párrafo de la celda, SIEMPRE presente (a diferencia de `paraId`, que
@@ -1586,6 +1613,21 @@ export function esEtiquetaDeCampo(texto: string): boolean {
   return limpio.split(/\s+/).length <= MAX_PALABRAS_ETIQUETA;
 }
 
+// BUG REAL GRAVE (2-sep-2026, FORMATO N°6 PROGRAMAS DE INTEGRIDAD, 4328-32-LP26, reportado por el
+// usuario con captura de "Nota:SÍ" pegado en el documento generado): "Nota:" es gramaticalmente
+// una etiqueta corta y sin vocabulario de oración —RE_PALABRA_DE_ORACION no la para—, así que
+// `esEtiquetaDeCampo` la deja pasar y `resolverAnexoConIA` la trata como una casilla real. La IA,
+// con el contexto de un párrafo cercano sobre "programa de integridad (SI/NO)", adivinó "SÍ" y lo
+// escribió pegado a la palabra "Nota" en el documento final — un dato inventado en medio de una
+// aclaración del organismo, el mismo tipo de error que ya paró el BUG REAL GRAVE de 1227338-6-LE26
+// más arriba, pero por una palabra SUELTA en vez de una oración completa.
+// "Nota"/"Observación"/"Importante"/"Atención"/"Advertencia"/"Aviso" a secas SIEMPRE introducen una
+// aclaración del organismo, nunca piden un dato al oferente — es la misma convención burocrática en
+// cualquier anexo chileno. Van en su propio blocklist (no en RE_PALABRA_DE_ORACION) porque no son
+// vocabulario de ORACIÓN: son sustantivos sueltos, la señal que los delata es el significado de la
+// palabra completa, no que traigan un verbo declarativo adentro.
+const RE_ETIQUETA_ES_AVISO_DEL_ORGANISMO = /^(?:notas?|observaci[oó]n(?:es)?|importante|atenci[oó]n|advertencia|aviso|ojo)$/i;
+
 export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   for (let i = 0; i < parrafos.length; i++) {
@@ -1594,7 +1636,9 @@ export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[
     if (!texto.endsWith(':') || texto.length > 80 || p.centrado) continue;
     if (RE_TIENE_BLANCO_PROPIO.test(texto)) continue;   // tiene su propio blanco → lo cubre el patrón 2
     if (!esEtiquetaDeCampo(texto)) continue;            // es una oración, no una etiqueta
-    out.push({ etiqueta: texto.replace(/\s*:\s*$/, ''), paraId: p.paraId, indice: p.indice });
+    const limpio = texto.replace(/\s*:\s*$/, '').trim();
+    if (RE_ETIQUETA_ES_AVISO_DEL_ORGANISMO.test(limpio)) continue; // "Nota:" introduce una aclaración, no pide un dato
+    out.push({ etiqueta: limpio, paraId: p.paraId, indice: p.indice });
   }
   return out;
 }
@@ -2243,6 +2287,73 @@ export function detectarAvisoNoAplica(parrafos: Parrafo[]): AvisoNoAplica | null
   return null;
 }
 
+// ── Checkboxes NATIVOS de Word (☐/☒, controles de contenido `<w14:checkbox>`) ─────────────
+// BUG REAL (2-sep-2026, FORMATO N°6 PROGRAMAS DE INTEGRIDAD, 4328-32-LP26, reportado por el
+// usuario: "tampoco me deja marcar en los recuadros"). Estos cuadraditos NO son texto ni un
+// blanco: son un `<w:sdt>` con su propio interruptor interno (`<w14:checked w14:val="0|1"/>`),
+// un mecanismo de Word completamente distinto al de cualquier otro blanco de este archivo. Hasta
+// ahora el motor no los reconocía en absoluto — ni para leerlos ni para marcarlos — así que la
+// única señal que veía era el glifo "☐" como texto suelto, y (antes de otro fix del mismo día)
+// terminaba tratándolo como la etiqueta de un párrafo vecino.
+//
+// Alcance a propósito acotado: solo se reconocen PARES/GRUPOS de 2+ checkboxes en la MISMA fila de
+// una tabla (el patrón real medido: "Cumple ☐ | No cumple ☐"), donde el usuario elige UNA opción.
+// Un checkbox suelto (sin hermanos en su fila) queda fuera de este barrido — no hay como decidir
+// solo, así que se deja para cuando aparezca un caso real que lo pida.
+export interface OpcionCheckbox { paraId: string; etiqueta: string; marcado: boolean }
+export interface GrupoCheckbox { id: string; contexto: string; opciones: OpcionCheckbox[] }
+
+// Bloques `<w:sdt>...</w:sdt>` de un tramo de XML. Los checkbox de Word nunca traen otro `<w:sdt>`
+// adentro (a diferencia de las tablas, que sí anidan) — el primer `</w:sdt>` que aparece siempre
+// cierra el que abrió, así que no hace falta el manejo especial que sí necesita `iterarTablas`.
+function bloquesSdt(texto: string): { cuerpo: string; inicio: number }[] {
+  const out: { cuerpo: string; inicio: number }[] = [];
+  const re = /<w:sdt>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(texto))) {
+    const finTag = texto.indexOf('</w:sdt>', m.index);
+    if (finTag < 0) continue;
+    out.push({ cuerpo: texto.slice(m.index, finTag + '</w:sdt>'.length), inicio: m.index });
+  }
+  return out;
+}
+
+const RE_CHECKBOX_MARCADO = /<w14:checked\s+w14:val="(\d)"\s*\/>/;
+
+export function detectarGruposCheckbox(xml: string): GrupoCheckbox[] {
+  const grupos: GrupoCheckbox[] = [];
+  for (const tabla of iterarTablas(xml)) {
+    const filas = [...tabla.cuerpo.matchAll(/<w:tr\b[^>]*>([\s\S]*?)<\/w:tr>/g)].map(m => m[1]);
+    if (filas.length < 2) continue; // necesita encabezado + al menos una fila de datos
+    // Los rótulos de columna viven en la PRIMERA fila (el encabezado nunca trae checkboxes).
+    const celdasEncabezado = [...filas[0].matchAll(/<w:tc\b[^>]*>([\s\S]*?)<\/w:tc>/g)].map(m => textoDeRuns(m[1]).trim());
+
+    for (let f = 1; f < filas.length; f++) {
+      const sdts = bloquesSdt(filas[f]).filter(s => /<w14:checkbox>/.test(s.cuerpo));
+      if (sdts.length < 2) continue; // menos de 2 opciones no es un grupo de elección (ver alcance arriba)
+
+      // Contexto = el texto ANTES del primer checkbox de la fila — la celda descriptiva de qué se
+      // está preguntando ("El/La representante legal... declara que..."), siempre la primera
+      // columna, nunca dentro de un `<w:sdt>`.
+      const contexto = textoDeRuns(filas[f].slice(0, sdts[0].inicio)).trim();
+
+      const opciones: OpcionCheckbox[] = sdts.map((s, i) => {
+        const marcado = RE_CHECKBOX_MARCADO.exec(s.cuerpo)?.[1] === '1';
+        const paraId = s.cuerpo.match(/<w:p\b[^>]*w14:paraId="([0-9A-Fa-f]+)"/)?.[1] ?? '';
+        // Mismo índice de columna que en el encabezado, saltando la primera celda (la
+        // descriptiva). Si el conteo no calza (gridSpan, encabezado distinto) se cae a un rótulo
+        // genérico — nunca se inventa el nombre de una columna que no se pudo leer.
+        const etiqueta = celdasEncabezado[i + 1] || `Opción ${i + 1}`;
+        return { paraId, etiqueta, marcado };
+      }).filter(o => o.paraId);
+
+      if (opciones.length < 2) continue;
+      grupos.push({ id: opciones[0].paraId, contexto, opciones });
+    }
+  }
+  return grupos;
+}
+
 // ── Punto de entrada: analiza un XML completo y devuelve los patrones + secciones ─────────
 export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postulaComoUTP?: boolean } = {}) {
   const parrafos = listarParrafos(xml);
@@ -2272,7 +2383,12 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   ]);
   // Relleno de tabla que nunca es un campo real (ver parrafosQueNuncaSonCampoEnTabla): ni como
   // valor apuntado por el candidato (el caso real encontrado), ni celdas angostas de puro layout.
-  const parrafosSinCampo = parrafosQueNuncaSonCampoEnTabla(xml);
+  // Se le suma el párrafo vacío que Word inserta obligatoriamente DESPUÉS de cada tabla (ver
+  // primerParrafoTrasTablaSiEstaVacio) — mismo problema, mirando hacia el otro lado.
+  const parrafosSinCampo = new Set([
+    ...parrafosQueNuncaSonCampoEnTabla(xml),
+    ...primerParrafoTrasTablaSiEstaVacio(xml),
+  ]);
   const indicesEnCelda = indicesDentroDeCelda(xml);
   const candidatosCeldaCrudos = detectarCandidatosCelda(parrafos, parrafosSinCampo, indicesEnCelda)
     .filter(c => !indicesTabla.has(c.indice))
@@ -2501,6 +2617,7 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
     avisoNoAplica: detectarAvisoNoAplica(parrafos),
     tripletesFecha: detectarTripletesFecha(blancosInline),
     alternativasExcluyentes: detectarAlternativasExcluyentes(blancosInline),
+    gruposCheckbox: detectarGruposCheckbox(xml),
   };
 }
 

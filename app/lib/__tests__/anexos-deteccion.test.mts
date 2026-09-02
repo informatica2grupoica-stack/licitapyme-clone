@@ -108,6 +108,51 @@ test('tabla de formulario: cada etiqueta se queda con SU celda (regresión 4291-
     `no debe inventar columnas desde la primera fila: ${JSON.stringify(etiquetas)}`);
 });
 
+// BUG REAL (2-sep-2026, FORMATO N°6 PROGRAMAS DE INTEGRIDAD, 4328-32-LP26, reportado por el
+// usuario con captura: "esa línea no creo que exista en el original"). OOXML exige un párrafo
+// DESPUÉS de toda tabla — Word lo inserta solo, vacío, fuera de cualquier celda. El Patrón 1
+// (ciego a tablas) tomaba como etiqueta de ESE párrafo fantasma lo último que hubiera en la
+// ÚLTIMA celda de la tabla (acá, un checkbox "☐" de una fila Cumple/No cumple) y terminaba
+// escribiendo un valor donde en el documento real no hay ninguna casilla.
+test('párrafo vacío que Word inserta obligatoriamente DESPUÉS de una tabla nunca es candidato', () => {
+  const xml = NS + tabla(
+    fila('Requerimientos del Servicio', 'Cumple', 'No cumple'),
+    fila('texto largo del requisito', '☐', '☐'),
+  ) + p('') + p('A fin de comprobar que posee un Programa de Integridad...') + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).candidatosCelda.map(c => c.etiqueta);
+
+  assert.ok(!etiquetas.some(e => e.includes('☐')),
+    `el párrafo fantasma después de la tabla no debe salir como candidato: ${JSON.stringify(etiquetas)}`);
+
+  // Control: un párrafo que SÍ retoma el cuerpo del documento (tiene texto propio) después de la
+  // tabla sigue siendo texto normal, no se descarta nada de él.
+  const parrafos = listarParrafos(norm);
+  const textoTrasTabla = parrafos.find(pp => pp.texto.startsWith('A fin de comprobar'));
+  assert.ok(textoTrasTabla, 'el párrafo real después de la tabla se sigue leyendo');
+});
+
+// BUG REAL GRAVE (2-sep-2026, mismo documento, reportado por el usuario con captura de "Nota:SÍ"
+// en el .docx generado): "Nota:" es gramaticalmente una etiqueta corta sin vocabulario de oración,
+// así que camposConDosPuntos la ofrecía como casilla real y la IA le pegó un valor inventado al
+// lado — un dato falso en medio de una aclaración del organismo.
+test('"Nota:" y sinónimos de aviso del organismo NUNCA son una casilla, aunque parezcan una etiqueta corta', () => {
+  const xml = NS
+    + p('Nota:') + p('El presente formato debe consolidarse en un único archivo.')
+    + p('Observación:') + p('Ver anexo técnico adjunto.')
+    + p('Importante:') + p('Los precios deben incluir IVA.')
+    + p('Cargo:')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const etiquetas = analizarAnexo(norm).camposConDosPuntos.map(c => c.etiqueta);
+
+  for (const aviso of ['Nota', 'Observación', 'Importante']) {
+    assert.ok(!etiquetas.includes(aviso), `"${aviso}:" no debe ofrecerse como casilla: ${JSON.stringify(etiquetas)}`);
+  }
+  // Control: una etiqueta real corta (no un aviso del organismo) sigue funcionando igual.
+  assert.ok(etiquetas.includes('Cargo'), `"Cargo:" sigue siendo una casilla real: ${JSON.stringify(etiquetas)}`);
+});
+
 // BUG REAL (4999-8-LE26, "ANEXO N°1 FORMULARIO DATOS DEL OFERENTE", encontrado 6-ago-2026 corriendo
 // el banco de pruebas contra licitaciones reales): misma tabla [etiqueta][valor] de 2 columnas SIN
 // encabezado que el caso de arriba, pero acá la CELDA de la etiqueta viene centrada por estilo del
@@ -2065,4 +2110,58 @@ test('celdas: "Yo," en su propia celda es candidato — no se confunde con el fi
   const xmlControl = NS + tabla(fila('Contacto,', '')) + FIN;
   const candidatosControl = analizarAnexo(normalizarParaIds(xmlControl).xml).candidatosCelda;
   assert.ok(!candidatosControl.some(c => c.etiqueta === 'Contacto,'), 'una coma que no es "Yo," se sigue descartando');
+});
+
+// CHECKBOXES NATIVOS DE WORD EN GRUPO (2-sep-2026, FORMATO N°6 PROGRAMAS DE INTEGRIDAD,
+// 4328-32-LP26, reportado por el usuario: "tampoco me deja marcar en los recuadros"). Tabla
+// [Requerimientos del Servicio | Cumple | No cumple] con una fila de datos cuyas dos últimas
+// celdas son controles de contenido `<w:sdt>` con `<w14:checkbox>`, no texto ni un blanco normal.
+const filaConCheckbox = (requisito: string, marcadoCumple = '0', marcadoNoCumple = '0') => `<w:tr>
+  <w:tc><w:p><w:r><w:t xml:space="preserve">${requisito}</w:t></w:r></w:p></w:tc>
+  <w:sdt><w:sdtPr><w:id w:val="1"/><w14:checkbox>
+    <w14:checked w14:val="${marcadoCumple}"/><w14:checkedState w14:val="2612" w14:font="MS Gothic"/><w14:uncheckedState w14:val="2610" w14:font="MS Gothic"/>
+  </w14:checkbox></w:sdtPr><w:sdtContent><w:tc><w:p w14:paraId="AAAAAAAA"><w:r><w:t>☐</w:t></w:r></w:p></w:tc></w:sdtContent></w:sdt>
+  <w:sdt><w:sdtPr><w:id w:val="2"/><w14:checkbox>
+    <w14:checked w14:val="${marcadoNoCumple}"/><w14:checkedState w14:val="2612" w14:font="MS Gothic"/><w14:uncheckedState w14:val="2610" w14:font="MS Gothic"/>
+  </w14:checkbox></w:sdtPr><w:sdtContent><w:tc><w:p w14:paraId="BBBBBBBB"><w:r><w:t>☐</w:t></w:r></w:p></w:tc></w:sdtContent></w:sdt>
+</w:tr>`;
+
+test('checkboxes: un par Cumple/No cumple en la misma fila se detecta como UN grupo de elección', () => {
+  const xml = NS
+    + `<w:tbl><w:tblPr/><w:tr><w:tc><w:p><w:r><w:t>Requerimientos del Servicio</w:t></w:r></w:p></w:tc>`
+    + `<w:tc><w:p><w:r><w:t>Cumple</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>No cumple</w:t></w:r></w:p></w:tc></w:tr>`
+    + filaConCheckbox('El oferente posee un programa de integridad.')
+    + `</w:tbl>` + FIN;
+  const grupos = analizarAnexo(normalizarParaIds(xml).xml).gruposCheckbox;
+
+  assert.equal(grupos.length, 1);
+  assert.equal(grupos[0].contexto, 'El oferente posee un programa de integridad.');
+  assert.deepEqual(grupos[0].opciones.map(o => o.etiqueta), ['Cumple', 'No cumple']);
+  assert.deepEqual(grupos[0].opciones.map(o => o.marcado), [false, false]);
+  assert.equal(grupos[0].opciones[0].paraId, 'AAAAAAAA');
+  assert.equal(grupos[0].opciones[1].paraId, 'BBBBBBBB');
+});
+
+test('checkboxes: refleja cuál opción viene YA marcada en el documento', () => {
+  const xml = NS
+    + `<w:tbl><w:tblPr/><w:tr><w:tc><w:p><w:r><w:t>Req</w:t></w:r></w:p></w:tc>`
+    + `<w:tc><w:p><w:r><w:t>Cumple</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>No cumple</w:t></w:r></w:p></w:tc></w:tr>`
+    + filaConCheckbox('Requisito', '1', '0')
+    + `</w:tbl>` + FIN;
+  const grupos = analizarAnexo(normalizarParaIds(xml).xml).gruposCheckbox;
+  assert.deepEqual(grupos[0].opciones.map(o => o.marcado), [true, false]);
+});
+
+test('checkboxes: un checkbox SUELTO (sin hermano en su fila) no forma grupo — fuera de alcance a propósito', () => {
+  const filaUnSoloCheckbox = `<w:tr><w:tc><w:p><w:r><w:t>Acepto los términos</w:t></w:r></w:p></w:tc>
+    <w:sdt><w:sdtPr><w:id w:val="1"/><w14:checkbox><w14:checked w14:val="0"/>
+      <w14:checkedState w14:val="2612" w14:font="MS Gothic"/><w14:uncheckedState w14:val="2610" w14:font="MS Gothic"/>
+    </w14:checkbox></w:sdtPr><w:sdtContent><w:tc><w:p w14:paraId="CCCCCCCC"><w:r><w:t>☐</w:t></w:r></w:p></w:tc></w:sdtContent></w:sdt>
+  </w:tr>`;
+  const xml = NS
+    + `<w:tbl><w:tblPr/><w:tr><w:tc><w:p><w:r><w:t>Encabezado</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Marca</w:t></w:r></w:p></w:tc></w:tr>`
+    + filaUnSoloCheckbox
+    + `</w:tbl>` + FIN;
+  const grupos = analizarAnexo(normalizarParaIds(xml).xml).gruposCheckbox;
+  assert.equal(grupos.length, 0);
 });

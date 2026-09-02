@@ -8,7 +8,7 @@
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, ChevronDown, ShieldAlert, ListChecks, Pencil, Check, GraduationCap, ArrowLeftRight } from 'lucide-react';
+import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, ChevronDown, ShieldAlert, ListChecks, Pencil, Check, GraduationCap, ArrowLeftRight, Square, CheckSquare } from 'lucide-react';
 import { useToast } from '@/app/components/ui/toast';
 import { AnexoFirmarPdf } from '@/app/components/AnexoFirmarPdf';
 
@@ -80,6 +80,9 @@ interface Analisis {
   checklistPendientes?: string[];
   faltantesFicha?: { campo: string; nombre: string; etiqueta: string; origen: 'ficha' | 'licitacion' }[];
   seccionesEscaneadas?: SeccionEscaneada[];
+  // Checkboxes NATIVOS de Word en grupo (Cumple/No cumple y similares) — ver GrupoCheckboxUI en
+  // anexos-rellenar.ts. El usuario elige UNA opción por grupo; nunca se autocompletan solos.
+  gruposCheckbox?: { id: string; contexto: string; formulario?: string; opciones: { id: string; etiqueta: string; marcado: boolean }[] }[];
 }
 
 // Un valor que el motor completó solo, mostrado en su lugar dentro de la réplica del documento —
@@ -648,6 +651,54 @@ function BloqueFirmaTimbre({ firma }: { firma: Analisis['firma'] }) {
   );
 }
 
+// Checkboxes NATIVOS de Word en grupo ("Cumple ☐ / No cumple ☐") — ver detectarGruposCheckbox en
+// anexos-detectar.ts. BUG REAL (2-sep-2026, FORMATO N°6 PROGRAMAS DE INTEGRIDAD, 4328-32-LP26,
+// reportado por el usuario: "tampoco me deja marcar en los recuadros"). El sistema NUNCA adivina
+// cuál marcar solo — no hay forma determinista de saberlo sin arriesgar un dato falso en una
+// declaración jurada (el mismo día se encontró y corrigió un "SÍ" que el respaldo IA había
+// inventado y escrito en el lugar equivocado) — el usuario elige acá, un clic por grupo.
+function BloqueGruposCheckbox({
+  grupos, respuestas, onChange,
+}: {
+  grupos: NonNullable<Analisis['gruposCheckbox']>;
+  respuestas: Record<string, string>;
+  onChange: (id: string, v: string) => void;
+}) {
+  if (grupos.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {grupos.map(g => {
+        const elegido = respuestas[g.id];
+        return (
+          <div key={g.id} className="border border-slate-200 rounded-xl p-3 space-y-2">
+            <p className="text-[12px] text-slate-600 leading-snug">{g.contexto}</p>
+            <div className="flex flex-wrap gap-2">
+              {g.opciones.map(o => {
+                const seleccionada = elegido === o.id;
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => onChange(g.id, o.id)}
+                    className={`flex items-center gap-1.5 text-[12px] font-medium px-2.5 py-1.5 rounded-md border transition ${
+                      seleccionada
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {seleccionada ? <CheckSquare size={14} /> : <Square size={14} />}
+                    {o.etiqueta}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AnexoRellenoModal({
   doc, codigo, empresaId, onClose, onGenerado, progreso,
 }: {
@@ -1064,6 +1115,10 @@ export function AnexoRellenoModal({
                     </button>
                   </div>
                 </div>
+              )}
+
+              {analisis.gruposCheckbox && analisis.gruposCheckbox.length > 0 && (
+                <BloqueGruposCheckbox grupos={analisis.gruposCheckbox} respuestas={respuestas} onChange={setRespuesta} />
               )}
 
               <BloqueFirmaTimbre firma={analisis.firma} />

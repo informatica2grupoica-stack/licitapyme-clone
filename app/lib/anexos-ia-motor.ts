@@ -145,6 +145,15 @@ export interface EmpresaCampos {
   licitacion_organismo_rut?: string | null;
   licitacion_direccion?: string | null;
   licitacion_comuna?: string | null;
+  // Comuna + fecha de firma EN UNA SOLA CASILLA — caso real (medido en el barrido de 300
+  // documentos reales, 2-sep-2026, 6 licitaciones: "<Ciudad>, <día/mes/año>" y "CIUDAD, FECHA" como
+  // encabezado de UNA celda de tabla que pide los dos datos juntos, no dos celdas separadas). Al
+  // revés de RE_LOCALIDAD_FIRMA / campoDeFechaEnFormula (que resuelven "En ___ a 12 de agosto" o
+  // "Santiago, ___" como blancos INLINE dentro de una frase), acá el organismo ya fusionó los dos
+  // datos en el RÓTULO de una celda de tabla, así que hace falta un campo propio con el valor ya
+  // combinado. `null` si la licitación no trae comuna del organismo — nunca se inventa la mitad
+  // que falta.
+  licitacion_comuna_y_fecha?: string | null;
   licitacion_region?: string | null;
   licitacion_unidad_compradora?: string | null;
   licitacion_monto_estimado?: string | null;

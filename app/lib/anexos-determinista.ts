@@ -405,6 +405,16 @@ export const DICCIONARIO: Entrada[] = [
     // arriba. El "(DÍA/MES/AÑO)" no cambia el campo, es el formato que ya trae fecha_hoy.
     /^fecha (?:oferta|presentacion|propuesta|declaracion)$/,
   ] },
+  // Comuna + fecha de firma EN UNA SOLA CELDA (barrido de 300 documentos reales, 2-sep-2026, 6
+  // licitaciones): "<Ciudad>, <día/mes/año>" y "CIUDAD, FECHA" como rótulo de UNA celda de tabla
+  // que pide los dos datos juntos — no la comuna del OFERENTE (`comuna`, línea de arriba) ni la
+  // fecha sola (`fecha_hoy`): es la fórmula de cierre de firma ("En <comuna>, a <fecha>") fusionada
+  // en un solo campo. El `<` y `>` del marcador sobreviven a `normalizarEtiqueta` (solo pela
+  // paréntesis, no ángulos) — el patrón los tolera como opcionales en vez de sumar un paso más de
+  // normalización global.
+  { campo: 'licitacion_comuna_y_fecha' as Campo, patrones: [
+    /^<?ciudad>?\s+<?dia\/mes\/ano>?$/, /^ciudad\s+fecha$/, /^ciudad\s+y\s+fecha$/, /^lugar\s+y\s+fecha$/,
+  ] },
   { campo: 'tipo_persona_juridica', patrones: [/^tipo de (?:persona|sociedad|empresa)(?: juridica)?$/, /^naturaleza juridica$/] },
   // NACIONALIDAD: politica fija de la empresa ("Chilena") — ver NACIONALIDAD_POR_DEFECTO en
   // anexos-derivados.ts. Medida por el auditor del 28-ago-2026 en 21 licitaciones, siempre en
@@ -1326,6 +1336,18 @@ export function campoDeBlancoInline(b: CandidatoInline): Campo | null {
     }
     const m = REGLAS_MARCADOR.find(r => r.re.test(b.textoMarcador!));
     if (m) return m.campo;
+    // BUG REAL (medido en el barrido de 300 documentos reales, 2-sep-2026: "Nombre y firma" sin
+    // resolver en 4 licitaciones, con marcador — pese a que esa MISMA frase, como etiqueta de
+    // CELDA, la resuelve el diccionario cerrado desde hace tiempo). REGLAS_MARCADOR es una lista
+    // chica, pensada para sintaxis de marcador (ángulos, "reemplazar por…"); el diccionario cerrado
+    // de `campoDeEtiquetaInequivoca` es mucho más grande y el marcador casi siempre ES, en el
+    // fondo, una etiqueta de campo en lenguaje llano ("RUT", "Domicilio", "Nombre y firma…") — el
+    // comentario de arriba ya lo decía ("la señal real de que es libre es que NO calce con ningún
+    // campo conocido") pero nunca se conectó con el diccionario grande, solo con el chico. Se
+    // prueba ANTES del bloqueo por instrucción, no después: si el marcador de verdad nombra un
+    // dato conocido, no importa que además traiga un verbo de instrucción pegado.
+    const porDiccionario = campoDeEtiquetaInequivoca(b.textoMarcador);
+    if (porDiccionario) return porDiccionario;
     if (RE_MARCADOR_INSTRUCCION.test(b.textoMarcador)) return null;
   }
   const parrafo = b.parrafoCompleto ?? b.contexto ?? '';
@@ -1432,6 +1454,7 @@ const NOMBRE_HUMANO_CAMPO: Record<string, string> = {
   licitacion_codigo: 'Código de la licitación', licitacion_nombre: 'Nombre de la licitación',
   licitacion_organismo: 'Organismo comprador', licitacion_organismo_rut: 'RUT del organismo',
   licitacion_comuna: 'Comuna del organismo', licitacion_region: 'Región del organismo',
+  licitacion_comuna_y_fecha: 'Comuna del organismo y fecha de firma',
   licitacion_unidad_compradora: 'Unidad compradora',
 };
 /** Los `licitacion_*` no son de la ficha: los trae la API de Mercado Público en cada análisis. */

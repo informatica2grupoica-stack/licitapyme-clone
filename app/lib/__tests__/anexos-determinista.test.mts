@@ -195,6 +195,17 @@ test('marcador: el texto dentro del marcador manda sobre el contexto inferido', 
   assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: '[Insertar ID de Mercado Público]' })), 'licitacion_codigo');
 });
 
+// BUG REAL (medido en el barrido de 300 documentos reales, 2-sep-2026: "Nombre y firma" sin
+// resolver en 4 licitaciones distintas pese a que esa MISMA frase, como etiqueta de CELDA, ya la
+// resuelve el diccionario cerrado hace tiempo). REGLAS_MARCADOR es chica y no traía esta entrada;
+// el diccionario grande (campoDeEtiquetaInequivoca) sí, pero nunca se consultaba para marcadores.
+test('marcador: cuando REGLAS_MARCADOR no lo cubre, se prueba contra el diccionario cerrado grande', () => {
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: 'Nombre y firma' })), 'representante_nombre');
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: 'Razón Social' })), 'razon_social');
+  // Control: un marcador que de verdad no nombra ningún dato conocido sigue sin resolver.
+  assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: 'observaciones adicionales' })), null);
+});
+
 test('marcador que es una INSTRUCCIÓN al oferente nunca se autocompleta', () => {
   const m = '[indicar en esta casilla el número del documento que respalda]';
   assert.equal(campoDeBlancoInline(blanco('texto', 0, { textoMarcador: m })), null);
@@ -1747,6 +1758,11 @@ test('diccionario: sinónimos del banco de 300 anexos convertidos en regla (1-se
   assert.equal(campoDeEtiquetaInequivoca('Nombre y Firma del/los Representante/es Legal/es:'), 'representante_nombre');
   assert.equal(campoDeEtiquetaInequivoca('Nombre y Firma del Representante Legal'), 'representante_nombre');
   assert.equal(campoDeEtiquetaInequivoca('Comuna de origen'), 'comuna');
+  // BUG REAL (barrido de 300 documentos reales, 2-sep-2026, 6 licitaciones): "<Ciudad>, <día/mes/
+  // año>" y "CIUDAD, FECHA" como rótulo de UNA celda que pide la comuna del organismo y la fecha de
+  // firma juntas — no `comuna` (esa es la del OFERENTE) ni `fecha_hoy` sola.
+  assert.equal(campoDeEtiquetaInequivoca('<Ciudad>, <día/mes/año>'), 'licitacion_comuna_y_fecha');
+  assert.equal(campoDeEtiquetaInequivoca('CIUDAD, FECHA'), 'licitacion_comuna_y_fecha');
   assert.equal(campoDeEtiquetaInequivoca('Depto. Nº'), 'direccion_oficina');
   assert.equal(campoDeEtiquetaInequivoca('Correo de contacto para informar pago'), 'email1');
 

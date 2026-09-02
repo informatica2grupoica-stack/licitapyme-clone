@@ -25,7 +25,7 @@
 import {
   normalizarParaIds, unificarRunsDeMarcadores, rellenarCeldaVacia, rellenarRunPorIndice,
   insertarImagenEnParrafo, rellenarFinDeParrafo, reemplazarTextoDeParrafo, verificarParrafos, abrirDocx, guardarDocx,
-  eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, marcarKeepNext, agregarTextoBajoLineaFirma, type Parrafo,
+  eliminarRespaldoVmlDuplicado, sustituirCamposFormularioLegado, marcarKeepNext, agregarTextoBajoLineaFirma, marcarCheckbox, type Parrafo,
 } from '@/app/lib/anexos-docx';
 import {
   analizarAnexo, extraerTablasCrudo,
@@ -688,6 +688,18 @@ export interface AnalisisAnexo {
    * descubrir el hueco después, con el .docx ya generado, obliga a rehacer el anexo entero.
    */
   faltantesFicha: { campo: string; nombre: string; etiqueta: string; origen: 'ficha' | 'licitacion' }[];
+  // Checkboxes NATIVOS de Word en grupo (ver detectarGruposCheckbox, anexos-detectar.ts) — el
+  // usuario elige UNA opción por grupo desde la pantalla; NUNCA se autocompletan solos (no hay
+  // forma determinista de saber cuál marcar sin adivinar, y adivinar mal en un checkbox de
+  // "Cumple/No cumple" es peor que dejarlo pendiente).
+  gruposCheckbox: GrupoCheckboxUI[];
+}
+
+export interface GrupoCheckboxUI {
+  id: string;
+  contexto: string;
+  formulario?: string;
+  opciones: { id: string; etiqueta: string; marcado: boolean }[];
 }
 
 type ResolucionMostrada =
@@ -875,12 +887,20 @@ export async function analizarAnexoParaUI(
     xml: xmlNormalizado, porParrafo, porBlancoInline, tablasPorIndice, numeracion,
   });
 
+  const gruposCheckbox: GrupoCheckboxUI[] = analisis.gruposCheckbox.map(g => ({
+    id: `checkbox:${g.id}`,
+    contexto: g.contexto,
+    formulario: formularioDe(analisis.parrafos.find(p => p.paraId === g.id)?.indice ?? -1, formularios),
+    opciones: g.opciones.map(o => ({ id: o.paraId, etiqueta: o.etiqueta, marcado: o.marcado })),
+  }));
+
   return {
     completadosAuto: completadosAutoFinal,
     pendientesCelda,
     pendientesInline,
     tablas,
     documento,
+    gruposCheckbox,
     secciones: analisis.secciones.map(s => ({ tipo: s.tipo, decision: s.decision, textoEncabezado: s.textoEncabezado })),
     firma,
     ordenFormularios: formularios.map(f => f.titulo),
@@ -1132,6 +1152,27 @@ export async function generarAnexoFinal(
         console.error(`[anexos-rellenar] No se pudo escribir la respuesta de "${c.etiqueta}" (paraId ${c.paraId}):`, String(error).slice(0, 200));
         avisos.push(`No se pudo escribir lo que ingresaste en "${c.etiqueta}" — revísalo a mano en el documento generado.`);
       }
+    }
+  }
+
+  // 2.5) Checkboxes NATIVOS de Word en grupo (ver detectarGruposCheckbox, anexos-detectar.ts): el
+  //      usuario elige UNA opción por grupo desde la pantalla (clave `checkbox:<idDelGrupo>` en
+  //      `respuestas`, mismo canal que el resto). Sin elección, el grupo queda tal cual el
+  //      original (las dos opciones sin marcar) — nunca se adivina cuál marcar.
+  for (const g of analisis.gruposCheckbox) {
+    const elegido = respuestas[`checkbox:${g.id}`];
+    if (!elegido) continue;
+    const opcion = g.opciones.find(o => o.paraId === elegido);
+    if (!opcion) {
+      avisos.push(`No se pudo marcar la opción elegida en "${g.contexto.slice(0, 60)}" — revísalo a mano en el documento generado.`);
+      continue;
+    }
+    try {
+      xml = marcarCheckbox(xml, opcion.paraId, true);
+      respondidos++;
+    } catch (error) {
+      console.error(`[anexos-rellenar] No se pudo marcar el checkbox "${opcion.etiqueta}" (paraId ${opcion.paraId}):`, String(error).slice(0, 200));
+      avisos.push(`No se pudo marcar "${opcion.etiqueta}" en "${g.contexto.slice(0, 60)}" — revísalo a mano en el documento generado.`);
     }
   }
 
