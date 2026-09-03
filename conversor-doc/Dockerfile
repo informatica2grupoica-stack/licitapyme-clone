@@ -16,9 +16,28 @@ WORKDIR /app
 # Es una imagen pesada (~500-700MB) pero corre UNA vez por conversión, bajo demanda, no en cada
 # request de la app — no comparte contenedor con "app" para no inflar ese build ni su tiempo de
 # arranque.
+#
+# FUENTES (3-sep-2026, BUG REAL medido sobre el "ANEXO Nº 01: IDENTIFICACIÓN DEL OFERENTE" ya
+# generado): sin estas tres líneas el PDF NO sale con la misma letra que el .docx de la licitación.
+# `--no-install-recommends` bota los paquetes de fuentes que LibreOffice trae como "recomendados",
+# así que el contenedor quedaba SOLO con DejaVu. Los anexos piden Arial (cuerpo) y Calibri (los
+# títulos que heredan del estilo Normal); LibreOffice no las encuentra y sustituye AMBAS por DejaVu
+# Sans. Se comprobó leyendo las fuentes incrustadas del PDF generado: `BAAAAA+DejaVuSans-Bold` y
+# `CAAAAA+DejaVuSans`, cuando el XML del .docx dice Arial/Calibri en cada run. DejaVu es más ancha
+# que Arial, así que además de "otra letra" cambian los cortes de línea y el largo de los párrafos
+# justificados — el anexo deja de ser idéntico al que entrega el organismo.
+# Las tres son clones MÉTRICOS (mismo ancho por carácter que la original, no solo parecidas), que es
+# lo que hace que la paginación calce exacta:
+#   fonts-liberation2       → Liberation Sans/Serif/Mono = Arial / Times New Roman / Courier New
+#   fonts-crosextra-carlito → Carlito = Calibri
+#   fonts-crosextra-caladea → Caladea = Cambria
+# LibreOffice las toma solo, por su tabla interna de sustitución métrica: no hay que configurar nada.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer \
     libreoffice-draw \
+    fonts-liberation2 \
+    fonts-crosextra-carlito \
+    fonts-crosextra-caladea \
     ca-certificates \
     tzdata \
   && rm -rf /var/lib/apt/lists/*

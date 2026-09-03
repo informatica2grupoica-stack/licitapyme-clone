@@ -72,15 +72,28 @@ test('hayPreciosObsoletos: dispara una vez y deja de disparar una vez reconcilia
 });
 
 // ─── El presupuesto es el de lo que ofertamos ─────────────────────────────────────────────────
-test('ofertando una sola canasta, el tope es el de ESA canasta (y en neto)', () => {
+test('el tope sigue a la selección: una, la otra, o las dos', () => {
+  // Pedido textual del usuario con el selector a la vista (03-sep-2026): "cuando selecciono uno o
+  // dos me debe poner el presupuesto de uno, del otro o de ambos según se seleccione".
   const lineas = [
     { linea: 1, cantidad: 2500, presupuestoLinea: 17839600 },
     { linea: 2, cantidad: 33, presupuestoLinea: 21478000 },
   ];
-  const soloLinea2 = presupuestoDeLaOferta(POR_LINEA, lineas, new Set([1]));
-  assert.equal(Math.round(soloLinea2!), 18048739, 'el mismo neto que el comercial calcula a mano (21.478.000 / 1,19)');
-  // Sin descartar nada manda el global, también en neto.
-  assert.equal(Math.round(presupuestoDeLaOferta(POR_LINEA, lineas, new Set())!), Math.round(39317600 / 1.19));
+  assert.equal(Math.round(presupuestoDeLaOferta(POR_LINEA, lineas, new Set([2]))!), 14991261, 'solo la línea 1: 17.839.600 / 1,19');
+  assert.equal(Math.round(presupuestoDeLaOferta(POR_LINEA, lineas, new Set([1]))!), 18048739, 'solo la línea 2: 21.478.000 / 1,19');
+  assert.equal(Math.round(presupuestoDeLaOferta(POR_LINEA, lineas, new Set())!), 33040000, 'las dos: la suma de ambos topes');
+  // …y esa suma es exactamente el global publicado en neto, como tiene que ser.
+  assert.equal(Math.round(39317600 / 1.19), 33040000);
+});
+
+test('la suma de las líneas nunca pasa del global publicado', () => {
+  // Si los topes por línea vinieran inflados respecto del total, el techo lo pone el global: es lo
+  // que las bases fijan para la licitación entera.
+  const infladas = [
+    { linea: 1, cantidad: 1, presupuestoLinea: 30000000 },
+    { linea: 2, cantidad: 1, presupuestoLinea: 30000000 },
+  ];
+  assert.equal(Math.round(presupuestoDeLaOferta(POR_LINEA, infladas, new Set())!), Math.round(39317600 / 1.19));
 });
 
 test('si una línea ofertada no tiene tope propio utilizable, se vuelve al global (no se inventa un máximo)', () => {

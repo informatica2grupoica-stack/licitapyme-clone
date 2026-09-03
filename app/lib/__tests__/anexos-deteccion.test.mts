@@ -48,6 +48,9 @@ test('celda vacía: da igual si la generó Word o LibreOffice (regresión conver
   assert.equal(parrafoEstaVacio('<w:r><w:t>algo</w:t></w:r>'), false);
 });
 
+// Espacio duro U+00A0: se declara con escape porque en el codigo fuente es invisible.
+const NBSP = '\u00a0';
+
 test('rellenarCeldaVacia escribe en los dos estilos y no pisa un dato existente', () => {
   const conParaId = (cuerpo: string) => `<w:document xmlns:w="urn:w" xmlns:w14="urn:w14"><w:body><w:p w14:paraId="AAAA0001">${cuerpo}</w:p></w:body></w:document>`;
 
@@ -81,6 +84,26 @@ test('rellenarCeldaVacia escribe en los dos estilos y no pisa un dato existente'
   const chequeo = verificarXmlBienFormado(corrupto);
   assert.equal(chequeo.valido, false);
   assert.match(chequeo.error || '', /w:t.*colgando/);
+
+  // REGRESION ANEXO N 01 IDENTIFICACION DEL OFERENTE (3-sep-2026, auditado contra el .docx del
+  // organismo): la celda a rellenar no viene vacia, viene con un ESPACIO DURO (U+00A0). Antes el
+  // valor se AGREGABA detras de ese espacio y en el PDF salia " Comercial MP SpA", corrido un
+  // espacio respecto a los cuadros cuyas celdas si venian vacias. Tiene que quedar exacto.
+  const conNbsp = rellenarCeldaVacia(
+    conParaId('<w:r><w:rPr><w:sz w:val="20"/></w:rPr><w:t>' + NBSP + '</w:t></w:r>'),
+    'AAAA0001', 'Comercial MP SpA',
+  );
+  assert.match(conNbsp, /<w:t xml:space="preserve">Comercial MP SpA<\/w:t>/);
+  assert.equal(conNbsp.includes(NBSP), false, 'el espacio duro no puede sobrevivir delante del valor');
+  assert.equal((conNbsp.match(/<w:t\b/g) || []).length, 1, 'un solo <w:t>: se reemplaza, no se agrega otro');
+  assert.match(conNbsp, /<w:rPr><w:sz w:val="20"\/><\/w:rPr>/, 'el formato de la celda queda intacto');
+
+  // Mismo caso, pero con el NBSP escrito como ENTIDAD (asi lo guardan algunos generadores).
+  const conEntidad = rellenarCeldaVacia(
+    conParaId('<w:r><w:t xml:space="preserve">&#160;</w:t></w:r>'), 'AAAA0001', 'Banco de Chile',
+  );
+  assert.match(conEntidad, /<w:t xml:space="preserve">Banco de Chile<\/w:t>/);
+  assert.equal(conEntidad.includes('&#160;'), false, 'la entidad tampoco puede quedar delante del valor');
 });
 
 // La tabla de identificación del oferente: [etiqueta][valor][etiqueta][valor], SIN fila de

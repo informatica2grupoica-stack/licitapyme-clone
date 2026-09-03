@@ -265,11 +265,20 @@ export function presupuestoDeLineaEsUnitario(
  * comparar una línea contra la suma de todas.
  *
  * Reglas, todas conservadoras:
- *  · Sin líneas descartadas, manda el global (se oferta todo: el global ES el tope).
+ *  · EL TOPE ES LA SUMA DE LAS LÍNEAS MARCADAS, marques una, otra o todas — es la regla que pidió
+ *    el usuario con el selector a la vista (03-sep-2026): "cuando selecciono uno o dos me debe
+ *    poner el presupuesto de uno, del otro o de ambos según se seleccione". Antes, con TODAS
+ *    marcadas se devolvía el global sin sumar nada: en 1271359-92-LE26 daba el mismo número
+ *    ($17.839.600 + $21.478.000 = $39.317.600 = el global publicado), así que se veía bien por
+ *    casualidad — pero era otra regla, y en cuanto el global no fuera exactamente la suma de sus
+ *    líneas el presupuesto habría dejado de seguir a la selección.
  *  · Si UNA de las líneas ofertadas no tiene tope propio utilizable (no lo fijan las bases, o el
  *    guardado es en realidad el precio por unidad — ver presupuestoDeLineaEsUnitario), se vuelve
  *    al global: sumar los topes que sí existen daría un máximo inventado, más bajo que el real,
  *    y dispararía "sobre presupuesto" contra una oferta sana.
+ *  · La suma nunca puede pasar del global: ese es el techo que publican las bases para toda la
+ *    licitación. Con un subconjunto la suma ya es menor por definición, así que este freno solo
+ *    actúa si los topes por línea vienen inflados respecto del total.
  *  · `presupuesto_linea` viene CON IVA (así lo publican las bases) y la oferta se compara SIEMPRE
  *    en neto, así que se divide. El global se toma de `neto` y, si solo hay `bruto`, se
  *    convierte — usar un bruto como si fuera neto regala 19% de tope y calla la alerta.
@@ -285,7 +294,7 @@ export function presupuestoDeLaOferta(
     Number(informe?.presupuesto?.neto) || (bruto != null ? (conIva ? bruto / IVA : bruto) : null);
 
   const ofertadas = lineasPublicadas.filter(l => !excluidas.has(l.linea));
-  if (!excluidas.size || ofertadas.length === 0) return global;
+  if (ofertadas.length === 0) return global;
 
   let suma = 0;
   for (const l of ofertadas) {
@@ -293,7 +302,7 @@ export function presupuestoDeLaOferta(
     if (presupuestoDeLineaEsUnitario(l, global)) return global;
     suma += conIva ? l.presupuestoLinea / IVA : l.presupuestoLinea;
   }
-  return suma;
+  return global != null ? Math.min(suma, global) : suma;
 }
 
 // Mismo criterio de normalización de unidad que auditor-tecnico-core.ts (alias es/plural/tildes),

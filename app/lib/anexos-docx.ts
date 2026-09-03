@@ -158,9 +158,14 @@ export function normalizarParaIds(xml: string): { xml: string; agregados: number
 // otras cosas, donde ya se estampó una firma. Se excluye explícitamente para no escribir encima.
 const RE_CONTENIDO_NO_TEXTUAL = /<w:(drawing|pict|object)\b/;
 
+// Se pasa por textoDeRuns —que DECODIFICA las entidades— y no por el XML crudo: un .docx que
+// escriba el espacio duro como `&#160;` en vez de como carácter U+00A0 se veía como "ya tiene
+// texto" (la cadena cruda `&#160;` no la vacía ningún trim) y el relleno de esa celda moría con
+// "el párrafo ya tiene contenido". Con las entidades resueltas, las dos formas de escribir el
+// mismo espacio duro dan el mismo veredicto, que es lo que promete el comentario de textoDeRuns.
 export function parrafoEstaVacio(cuerpo: string): boolean {
   if (RE_CONTENIDO_NO_TEXTUAL.test(cuerpo)) return false;
-  return [...cuerpo.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join('').trim() === '';
+  return textoDeRuns(cuerpo).trim() === '';
 }
 
 // ── Cuadros de texto flotantes MÁS ALTOS QUE UNA PÁGINA ──────────────────────────────────
@@ -419,7 +424,20 @@ export function rellenarCeldaVacia(xml: string, paraId: string, valor: string): 
   // es el único formulario con párrafos vacíos con tabulaciones declaradas.
   // El `(?:\s[^>]*)?` exige que después de `w:t` venga un espacio (o el cierre directo), que es lo
   // que separa la etiqueta <w:t> de toda la familia <w:tXxx>.
-  const conTVacio = cuerpo.match(/<w:t(?:\s[^>]*)?\/>|<w:t(?:\s[^>]*)?><\/w:t>/);
+  //
+  // "EN BLANCO" no es lo mismo que "vacío" (3-sep-2026, BUG REAL medido sobre el PDF del ANEXO Nº 01
+  // ya generado): un montón de plantillas dejan las celdas a rellenar con un ESPACIO DURO —
+  // `<w:t>{U+00A0}</w:t>`, U+00A0 literal en el XML, no la entidad—. `parrafoEstaVacio` las da por
+  // vacías (String.trim() se come el NBSP) y hacía bien, pero acá la regex vieja no las reconocía,
+  // así que el relleno caía en la rama de abajo y AGREGABA un <w:t> nuevo detrás del que ya estaba:
+  // el valor salía como " Comercial MP SpA", con un espacio de más adelante. Se veía en el PDF
+  // final —los datos del primer cuadro quedaban corridos un espacio respecto al cuadro de al lado,
+  // cuyas celdas sí venían realmente vacías— y el anexo dejaba de ser idéntico al del organismo.
+  // Reemplazar la etiqueta ENTERA (no solo su contenido) es lo que borra el espacio duro; el
+  // `texto` que se inserta ya trae su propio xml:space="preserve". El `\s` de JS YA incluye U+00A0
+  // (a diferencia del `\s` de otros lenguajes), así que cubre el NBSP literal; la alternancia con
+  // `&#160;`/`&#xA0;` es para los .docx que lo escriben como entidad en vez de como carácter.
+  const conTVacio = cuerpo.match(/<w:t(?:\s[^>]*)?\/>|<w:t(?:\s[^>]*)?>(?:\s|&#(?:160|[xX]0*[aA]0);)*<\/w:t>/);
   const runs = [...cuerpo.matchAll(/<w:r\b[\s\S]*?<\/w:r>/g)];
   if (conTVacio) {
     cuerpoNuevo = cuerpo.replace(conTVacio[0], texto);            // ya hay un <w:t> vacío: se llena
