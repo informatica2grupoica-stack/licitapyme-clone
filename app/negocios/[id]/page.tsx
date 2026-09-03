@@ -31,6 +31,7 @@ import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publi
 import { RecorridoNegocio } from './RecorridoNegocio';
 import { GestionAside } from './GestionAside';
 import { InformacionComercialSection } from './InformacionComercialSection';
+import { CosteoEditorCard } from './CosteoEditorCard';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
@@ -179,7 +180,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'comentarios' | 'comercial';
+type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'comentarios' | 'costeo' | 'comercial';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -1347,6 +1348,13 @@ function DetalleContent() {
     { key: 'fechas',       label: 'Fechas',             count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
     { key: 'preguntas',    label: 'Preguntas',          count: null },
     { key: 'comentarios',  label: 'Comentarios',        count: null },
+    // "Costeo" va justo ARRIBA de "Auditor Técnico" (pedido del usuario, 02-sep-2026): es el
+    // paso previo — se arma el precio acá, y el Auditor Técnico (Motor Comercial) ya lo ve
+    // reflejado apenas se guarda, sin tener que subir ningún Excel. Mismo gate que el Auditor
+    // Técnico por ahora (admin, desde que hay Información Comercial): es la misma etapa de trabajo.
+    ...(hayComercial
+      ? [{ key: 'costeo' as Seccion, label: 'Costeo', count: null }]
+      : []),
     ...(hayComercial
       ? [{ key: 'comercial' as Seccion, label: 'Auditor Técnico', count: comercialPorAprobar || null, alerta: comercialPorAprobar > 0 }]
       : []),
@@ -1533,6 +1541,9 @@ function DetalleContent() {
                 isAdmin={isAdmin}
                 onEstadoChanged={sincronizarEstadoPipeline}
               />
+            )}
+            {seccion === 'costeo' && hayComercial && (
+              <CosteoEditorCard negocioId={negocio.id} licitacionCodigo={negocio.licitacion_codigo} />
             )}
             {seccion === 'comercial' && hayComercial && (
               <InformacionComercialSection

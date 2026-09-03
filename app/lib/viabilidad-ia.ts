@@ -20,7 +20,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla, extraerTablaProductoCantidad, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla, extraerListadoCanonicoBases, decidirReemplazoPorCanonica, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
 
 // Re-export para no romper a quien lo importaba desde acá (el filtro vive ahora en
 // planilla-costeo-parser.ts, módulo PURO sin dependencias, para que generar-costeo.ts también
@@ -2233,27 +2233,26 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   }
 
   // ── CONTRASTE CONTRA LA TABLA CANÓNICA DE LAS BASES TÉCNICAS ────────────────────────────
-  // (17-ago-2026.) El listado autoritativo de QUÉ se compra vive en las bases técnicas como una
-  // tabla "Producto | Cantidad" — extraíble de forma 100% determinista, sin IA (ver
-  // extraerTablaProductoCantidad). Se usa como CONTROL del manifiesto del LLM:
-  //   · Si el LLM trae los mismos productos MÁS un montón de filas extra, esas extras son ruido
-  //     (criterios, requisitos, notas) y manda la tabla canónica.
-  //   · Si el LLM trae MENOS o distinto, NO se pisa: la tabla canónica puede ser un resumen y el
-  //     detalle real vivir en otro documento (un anexo con más desglose) — ahí el LLM aporta.
-  // El guardarraíl de "el LLM ya contiene lo canónico" es lo que hace seguro el override: solo
-  // recorta cuando está probado que lo correcto YA está adentro y lo demás sobra.
+  // (17-ago-2026, ampliado 3-sep-2026.) El listado autoritativo de QUÉ se compra vive en las
+  // bases técnicas — como tabla "Producto | Cantidad" o como lista numerada "N.- Producto /
+  // Cantidad total" (ver extraerListadoCanonicoBases) — extraíble de forma 100% determinista,
+  // sin IA. Se usa como CONTROL del manifiesto del LLM/planilla, vía decidirReemplazoPorCanonica:
+  //   · Si el manifiesto trae los mismos productos MÁS un montón de filas que no calzan con
+  //     NINGÚN producto canónico, esas son ruido (criterios, requisitos, notas) y manda la tabla
+  //     canónica.
+  //   · Si el manifiesto es más largo pero CADA fila de más SÍ calza con algún producto
+  //     canónico, no es ruido: es la misma lista desagregada por otro eje (ej. por edificio de
+  //     entrega, caso real 2408-162-LE26 — bases técnicas listan 10 productos con el total
+  //     agregado del proyecto, el Anexo Económico los desagrega en 28 filas por destino de
+  //     entrega, y ambos suman exactamente lo mismo) — ahí NO se pisa, se perdería el desglose.
+  //   · Si el manifiesto trae MENOS o distinto sin relación, tampoco se pisa: la canónica puede
+  //     ser un resumen y el detalle real vivir en otro documento — ahí el LLM/planilla aporta.
   try {
-    const canonica = extraerTablaProductoCantidad(fuentes.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
+    const canonica = extraerListadoCanonicoBases(fuentes.map(d => ({ nombre: d.nombre, categoria: d.categoria, texto: d.texto, metodo: d.metodo })));
     if (canonica.length >= 3 && manifiesto.length > 0) {
-      const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
-      const enManifiesto = manifiesto.map(m => norm(m.descripcion));
-      const cubiertos = canonica.filter(c => {
-        const nc = norm(c.descripcion);
-        return enManifiesto.some(em => em === nc || em.includes(nc) || nc.includes(em));
-      }).length;
-      const cobertura = cubiertos / canonica.length;
-      if (cobertura >= 0.7 && manifiesto.length > canonica.length * 1.5) {
-        console.warn(`[viabilidad-ia-v3] ${codigo}: el manifiesto del LLM traía ${manifiesto.length} ítems pero la tabla canónica de las bases lista ${canonica.length} (cobertura ${Math.round(cobertura * 100)}%) → se recorta a la canónica; el resto era ruido del documento.`);
+      const decision = decidirReemplazoPorCanonica(manifiesto, canonica);
+      if (decision.reemplazar) {
+        console.warn(`[viabilidad-ia-v3] ${codigo}: el manifiesto traía ${manifiesto.length} ítems pero la tabla canónica de las bases lista ${canonica.length} (${decision.motivo}) → se recorta a la canónica.`);
         manifiesto = canonica.map(c => ({
           linea: 1, categoria: null, descripcion: c.descripcion, modelo: '',
           cantidad: c.cantidad, unidad_medida: '', unidad_inferida: true,
@@ -2261,7 +2260,7 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
         }));
         origenManifiesto = 'tabla_canonica';
       } else if (canonica.length !== manifiesto.length) {
-        console.log(`[viabilidad-ia-v3] ${codigo}: tabla canónica de bases = ${canonica.length} ítems vs manifiesto = ${manifiesto.length} (cobertura ${Math.round(cobertura * 100)}%) — se conserva el manifiesto (puede tener desglose que la tabla resume).`);
+        console.log(`[viabilidad-ia-v3] ${codigo}: tabla canónica de bases = ${canonica.length} ítems vs manifiesto = ${manifiesto.length} (${decision.motivo}) — se conserva el manifiesto.`);
       }
     }
   } catch (e) { console.warn(`[viabilidad-ia-v3] ${codigo}: contraste con tabla canónica falló:`, String(e).slice(0, 140)); }

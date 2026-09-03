@@ -721,6 +721,15 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     if (accion === 'CARGAR') {
       // El asistente carga evidencia. Si el punto ya estaba aprobado, vuelve a CARGADO: un
       // valor aprobado que cambia sin que nadie lo vea es justo lo que esto viene a evitar.
+      //
+      // Para tipo='precio' esto es una edición MANUAL — pero es a propósito temporal: prioridad
+      // siempre al costeo (pedido del usuario, 03-sep-2026: "que sea manual y automático pero
+      // siempre prioridad al automático, pero que se pueda modificar manual"). Nada la protege de
+      // el próximo guardado del costeo — ver ingresarVersionCosteo en comercial/costeo/route.ts,
+      // que resincroniza CUALQUIER ítem 'precio' que no esté APROBADO, sea cual sea su origen. El
+      // único freno real es aprobar el punto: ESO sí queda fijo hasta que el asesor lo reabra.
+      const nuevoValorNumero = body.valorNumero != null && body.valorNumero !== ''
+        ? Number(body.valorNumero) : item.valor_numero;
       await pool.query(
         `UPDATE checklist_comercial
             SET estado = 'CARGADO', valor_texto = ?, valor_numero = ?,
@@ -730,7 +739,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
           WHERE id = ?`,
         [
           body.valorTexto ?? item.valor_texto ?? null,
-          body.valorNumero != null && body.valorNumero !== '' ? Number(body.valorNumero) : item.valor_numero,
+          nuevoValorNumero,
           item.tipo === 'precio' ? 1 : item.ofertamos,
           userId, nombreActor, ahora, itemId,
         ],

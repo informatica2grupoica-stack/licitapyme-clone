@@ -12,6 +12,7 @@ import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentVie
 interface Alerta { codigo: string; descripcion: string; detalle: string }
 interface VersionCosteo {
   id: number; version: number; vigente: boolean; archivo_nombre: string; archivo_url: string | null;
+  origen?: 'archivo' | 'editor';
   total_costo_neto: number | null; total_precio_neto: number | null;
   presupuesto_publicado: number | null; total_anexo_economico: number | null;
   alertas: Alerta[]; subido_por_nombre: string | null; subido_at: string;
@@ -129,7 +130,9 @@ export function MotorComercialCard({ negocioId, licitacionCodigo }: { negocioId:
             {vigente.presupuesto_publicado != null && (
               <span>Presupuesto: <span className="font-semibold text-zinc-700">{fmtCLP(vigente.presupuesto_publicado)}</span></span>
             )}
-            <span className="text-zinc-400">{vigente.archivo_nombre} · v{vigente.version}{vigente.subido_por_nombre ? ` · ${vigente.subido_por_nombre}` : ''}</span>
+            <span className="text-zinc-400">
+              {vigente.origen === 'editor' ? 'Editado en la pestaña Costeo' : vigente.archivo_nombre} · v{vigente.version}{vigente.subido_por_nombre ? ` · ${vigente.subido_por_nombre}` : ''}
+            </span>
             {vigente.archivo_url && (
               <span className="inline-flex items-center gap-1">
                 <button

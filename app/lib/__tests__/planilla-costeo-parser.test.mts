@@ -8,7 +8,8 @@ import {
   detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerSeccionesLineaProducto,
   detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea,
   detectarOfertaSubconjuntoItems, extraerPresupuestoPorLineaTabla,
-  parsearPlanillaCosteo, extraerTablaProductoCantidad,
+  parsearPlanillaCosteo, extraerTablaProductoCantidad, detectarOfertaTotalUnico,
+  extraerListaNumeradaCantidadTotal, extraerListadoCanonicoBases, decidirReemplazoPorCanonica,
 } from '../planilla-costeo-parser';
 
 const doc = (texto: string) => [{ nombre: 'bases.pdf', categoria: 'BASES_ADMINISTRATIVAS', texto, metodo: 'pdf-text' }];
@@ -657,4 +658,153 @@ test('fila partida en dos líneas se reúne y conserva su cantidad (regresión 2
   const terciado = r!.items.find(i => /Terciado Estructural/i.test(i.descripcion));
   assert.ok(terciado, `se perdió la fila partida en dos líneas: ${r!.items.map(i => i.descripcion).join(' | ')}`);
   assert.equal(terciado!.cantidad, 6, 'la fila se reunió pero sin la cantidad de la línea siguiente');
+});
+
+// El título real trae "TÉCNICO" colado entre el sustantivo y "ECONÓMICA" ("ANEXO N°5 OFERTA
+// TÉCNICO ECONÓMICA", 2408-162-LE26, mobiliario Municipalidad de Los Ángeles): la regex de título
+// no lo anclaba, así que el trío Subtotal/IVA/Total consolidado al pie nunca se evaluaba y la
+// licitación quedaba marcada por_linea (por la numeración 1.x/2.x de dos edificios) en vez de
+// suma_alzada, aunque la propia planilla cierra con UN solo total para ambos.
+test('detecta total único con título "OFERTA TÉCNICO ECONÓMICA" (regresión 2408-162-LE26)', () => {
+  const total = detectarOfertaTotalUnico(doc(`
+ANEXO N°5 OFERTA TÉCNICO ECONÓMICA
+ITEM NOMBRE DESCRIPCION CANTIDAD PRECIO UNITARIO NETO PRECIO TOTAL NETO
+1.1 ESCAÑO BANCA 3 CUERPOS 2 $- $-
+1.2 BASURERO MURAL BASURERO METALICO 1 $- $-
+2.1 ESCAÑO BANCA 3 CUERPOS 6 $- $-
+2.2 BASURERO MURAL BASURERO METALICO 4 $- $-
+SUB TOTAL NETO $0
+IVA $0
+PRECIO TOTAL IVA INCLUIDO $0
+`));
+  assert.ok(total, 'no detectó el total único bajo el título "oferta técnico económica"');
+});
+
+test('detecta total único con título "ANEXO TÉCNICO ECONÓMICO" (orden inverso también anda)', () => {
+  const total = detectarOfertaTotalUnico(doc(`
+ANEXO TÉCNICO ECONÓMICO N°5
+Ítem Descripción Cantidad Valor Unitario Neto Valor Total Neto
+1 Producto A 10 $- $-
+SUBTOTAL $0
+IVA $0
+TOTAL $0
+`));
+  assert.ok(total, 'no detectó el total único bajo el título "anexo técnico económico"');
+});
+
+// ─── extraerListaNumeradaCantidadTotal / extraerListadoCanonicoBases / decidirReemplazoPorCanonica ───
+// (3-sep-2026, caso real 2408-162-LE26, mobiliario Municipalidad de Los Ángeles.)
+test('extraerListaNumeradaCantidadTotal: lee el formato real de bases técnicas (regresión 2408-162-LE26)', () => {
+  const items = extraerListaNumeradaCantidadTotal(doc(`
+## II.- SISTEMA DE EQUIPAMIENTO
+
+De acuerdo a lo indicado en relación a cantidades, codificación y distribución en documento anexo denominado PRESUPUESTO DETALLADO:
+
+## 1.- BANCA CAMARÍN:
+
+CANTIDAD TOTAL: 6 UNID.
+
+BANCA CAMARIN SIMPLE 150X44X45H CM FABRICACIÓN EN PERFIL ACERO 1,5MM.
+
+[[PÁGINA 4]]
+2.- BASURERO MURAL:
+
+CANTIDAD TOTAL: 8 UNID.
+
+CONTENEDOR METALICO DE MATERIALES RESISTENTES.
+
+[[PÁGINA 5]]
+3.- BASURERO PEDAL:
+
+CANTIDAD TOTAL: 4 UNID.
+
+BASURERO PEDAL ACERO INOX PULIDO RESISTENTE Y DURADERO.
+`));
+  assert.equal(items.length, 3);
+  assert.equal(items[0].descripcion, 'BANCA CAMARÍN');
+  assert.equal(items[0].cantidad, 6);
+  assert.equal(items[1].descripcion, 'BASURERO MURAL');
+  assert.equal(items[1].cantidad, 8);
+  assert.equal(items[2].cantidad, 4);
+});
+
+test('extraerListaNumeradaCantidadTotal: cláusulas numeradas sin "CANTIDAD TOTAL" no se confunden con productos', () => {
+  const items = extraerListaNumeradaCantidadTotal(doc(`
+1.- GENERALIDADES:
+Las presentes bases técnicas se refieren a las condiciones del proyecto.
+
+2.- DEFINICIONES:
+Para efectos de este documento se entenderá por Inspector Técnico...
+
+3.- COORDINACIÓN:
+El proveedor deberá asignar a una persona para coordinar la entrega.
+`));
+  assert.equal(items.length, 0, 'sin "CANTIDAD TOTAL" cerca no debe extraer nada');
+});
+
+test('extraerListadoCanonicoBases: prefiere la tabla de dos columnas cuando existe', () => {
+  const items = extraerListadoCanonicoBases(doc(`
+Producto Cantidad
+Chaleco Balístico con funda 155
+Cascos balísticos 300
+Bastón Retráctil 250
+`));
+  assert.equal(items.length, 3);
+  assert.equal(items[0].descripcion, 'Chaleco Balístico con funda');
+});
+
+test('extraerListadoCanonicoBases: cae a la lista numerada cuando no hay tabla de dos columnas', () => {
+  const items = extraerListadoCanonicoBases(doc(`
+1.- ESCAÑO:
+CANTIDAD TOTAL: 9 UNID.
+Banca para exterior.
+
+2.- RACK:
+CANTIDAD TOTAL: 46 UNID.
+Estantería metálica.
+
+3.- BICICLETERO:
+CANTIDAD TOTAL: 4 UNID.
+Bicicletero tipo arco.
+`));
+  assert.equal(items.length, 3);
+  assert.equal(items[1].descripcion, 'RACK');
+  assert.equal(items[1].cantidad, 46);
+});
+
+test('decidirReemplazoPorCanonica: manifiesto desagregado por edificio NO se reemplaza (regresión 2408-162-LE26)', () => {
+  // Bases técnicas: 10 productos con el total agregado del proyecto completo.
+  const canonica = [
+    { descripcion: 'BANCA CAMARÍN' }, { descripcion: 'BASURERO MURAL' }, { descripcion: 'BASURERO PEDAL' },
+    { descripcion: 'BASURERO PORTACENICERO' }, { descripcion: 'BICICLETERO' }, { descripcion: 'ESCAÑO' },
+    { descripcion: 'EXPOSITOR FOLLETERIA' }, { descripcion: 'MESON ACERO INOX' }, { descripcion: 'MUEBLE CLINICO' },
+    { descripcion: 'RACK' },
+  ];
+  // Anexo económico: los MISMOS 10 productos, desagregados por edificio de entrega → 28 filas,
+  // pero cada una calza con algún producto de la canónica (nada es ruido real).
+  const manifiesto = [
+    ...Array(3).fill({ descripcion: 'ESCAÑO' }), ...Array(5).fill({ descripcion: 'BASURERO MURAL' }),
+    ...Array(2).fill({ descripcion: 'BASURERO PORTACENICERO' }), ...Array(2).fill({ descripcion: 'BICICLETERO' }),
+    ...Array(4).fill({ descripcion: 'EXPOSITOR FOLLETERIA' }), ...Array(3).fill({ descripcion: 'BASURERO PEDAL' }),
+    ...Array(4).fill({ descripcion: 'RACK' }), ...Array(2).fill({ descripcion: 'BANCA CAMARIN' }),
+    { descripcion: 'MESON ACERO INOX' }, ...Array(2).fill({ descripcion: 'MUEBLE CLINICO' }),
+  ];
+  assert.ok(manifiesto.length > canonica.length * 1.5, 'el fixture debe reproducir "manifiesto mucho más largo"');
+  const d = decidirReemplazoPorCanonica(manifiesto, canonica);
+  assert.equal(d.reemplazar, false, `no debería reemplazar una desagregación legítima: ${d.motivo}`);
+  assert.equal(d.fraccionRuido, 0, 'ninguna fila del manifiesto debería quedar sin cobertura');
+});
+
+test('decidirReemplazoPorCanonica: manifiesto con ruido real (criterios colados) SÍ se reemplaza', () => {
+  const canonica = [
+    { descripcion: 'Chaleco Balístico con funda' }, { descripcion: 'Cascos balísticos' }, { descripcion: 'Bastón Retráctil' },
+  ];
+  const manifiesto = [
+    { descripcion: 'Chaleco Balístico con funda' }, { descripcion: 'Cascos balísticos' }, { descripcion: 'Bastón Retráctil' },
+    { descripcion: 'Oferta Administrativa' }, { descripcion: 'Oferta Técnica' }, { descripcion: 'Oferta económica' },
+    { descripcion: 'Cumplimiento de requisitos formales' }, { descripcion: 'Plazo de entrega' },
+  ];
+  const d = decidirReemplazoPorCanonica(manifiesto, canonica);
+  assert.equal(d.reemplazar, true, `debería reemplazar cuando hay ruido real: ${d.motivo}`);
+  assert.ok(d.fraccionRuido >= 0.3, 'las filas de criterios deberían contar como ruido no cubierto');
 });

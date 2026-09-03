@@ -430,7 +430,11 @@ export function detectarTipoAdjudicacionMultiple(docs: { texto: string }[]): str
 // un gran total al pie. Por eso, cada aparición de "total" se descarta si está pegada a
 // "valor/precio unitario" (fila de encabezados de una tabla por-ítem = por_linea).
 export function detectarOfertaTotalUnico(docs: { texto: string }[]): boolean {
-  const reTitulo = /formulario\s+e\s*-?\s*1|oferta\s+econ[oó]mica|anexo\s+econ[oó]mico/gi;
+  // "técnico" (u orden invertido) suele colarse entre el sustantivo y "económic-": el título real
+  // de 2408-162-LE26 es "ANEXO N°5 OFERTA TÉCNICO ECONÓMICA" y no matcheaba ninguna rama, así que
+  // el trío Subtotal/IVA/Total al pie del Anexo (un solo total para 2 "edificios" 1.x/2.x, que el
+  // parser confundía con 2 líneas) nunca se evaluaba: la licitación quedaba por_linea sin serlo.
+  const reTitulo = /formulario\s+e\s*-?\s*1|oferta\s+(?:t[eé]cnico\s*-?\s*)?econ[oó]mica|econ[oó]mica\s*-?\s*t[eé]cnica|anexo\s+(?:t[eé]cnico\s*-?\s*)?econ[oó]mico|econ[oó]mico\s*-?\s*t[eé]cnico/gi;
   const reTotal = /monto\s+total\s+(neto|iva|general)|precio\s+total\s+(neto\s+)?(final|general)|total\s+(general|neto)\s+(de\s+la\s+)?oferta|costo\s+total\s+(de\s+la\s+)?oferta|valor\s+total\s+ofertad|total\s+iva\s+incluido/gi;
   for (const d of docs) {
     if (!d.texto) continue;
@@ -589,7 +593,9 @@ export function detectarOfertaSubconjuntoItems(docs: { texto: string }[]): strin
 // solo y lo clasificó GLOBAL con confianza 1. Esta señal cierra ese hueco.
 // Devuelve la frase-evidencia (citable) o null.
 export function detectarCuadroEconomicoPorLinea(docs: { texto: string }[]): string | null {
-  const reTitulo = /cuadro\s+de\s+oferta\s+econ[oó]mica|formulario\s+(?:de\s+)?oferta\s+econ[oó]mica|anexo\s+econ[oó]mico/gi;
+  // Mismo hueco de título que detectarOfertaTotalUnico: "técnico" colado entre el sustantivo y
+  // "económic-" ("oferta técnico económica").
+  const reTitulo = /cuadro\s+de\s+oferta\s+econ[oó]mica|formulario\s+(?:de\s+)?oferta\s+(?:t[eé]cnico\s*-?\s*)?econ[oó]mica|anexo\s+(?:t[eé]cnico\s*-?\s*)?econ[oó]mico/gi;
   // Un bloque = etiqueta "Línea N" seguida (a corta distancia) de su cierre de totales
   // "TOTAL [NETO] $ … IVA … TOTAL": el trío de consolidación, pero de UNA sola línea.
   const reBloque = /l[ií]nea\s*(?:n\s*[°º])?\s*(\d{1,3})[\s\S]{0,1800}?total(?:\s+neto)?\s*\$?[\s\S]{0,100}?iva\s*\$?[\s\S]{0,100}?total\s*\$?/gi;
@@ -1726,6 +1732,123 @@ export function extraerTablaProductoCantidad(docs: DocTexto[]): ItemPlanilla[] {
     }
   }
   return [];
+}
+
+// ─── LISTA NUMERADA "N.- PRODUCTO: … CANTIDAD TOTAL: N UNID." de las BASES TÉCNICAS ────────
+// (3-sep-2026, caso real 2408-162-LE26, mobiliario Municipalidad de Los Ángeles.) Otra forma,
+// distinta de la tabla de dos columnas de arriba, en que las bases técnicas listan lo
+// AUTORITATIVO que se compra: un ítem por sección numerada, con el total agregado del proyecto
+// completo (no por destino de entrega) y la ficha técnica como párrafo aparte:
+//
+//     1.- BANCA CAMARÍN:
+//     CANTIDAD TOTAL: 6 UNID.
+//     BANCA CAMARIN SIMPLE 150X44X45H CM FABRICACIÓN EN PERFIL ACERO...
+//
+//     2.- BASURERO MURAL:
+//     CANTIDAD TOTAL: 8 UNID.
+//     ...
+//
+// Antes de este fix, `extraerTablaProductoCantidad` (que exige un encabezado de dos columnas)
+// nunca reconocía este formato, así que el "CONTRASTE CONTRA LA TABLA CANÓNICA" de
+// viabilidad-ia.ts no tenía con qué comparar el manifiesto — la fuente autoritativa de las bases
+// técnicas quedaba sin leer, aunque el documento la tuviera clarísima.
+//
+// Verificado contra el caso real: sumando estos 10 totales por tipo de producto da EXACTO el
+// mismo total que las 28 filas del Anexo Económico (que las desagrega por edificio de entrega:
+// "1.- Oficinas Fomento" / "2.- Dirección de Medio Ambiente") — las bases técnicas agregan, el
+// anexo económico desagrega por destino. Por eso el llamador (ver decidirReemplazoPorCanonica)
+// NO debe tratar esa desagregación como ruido a recortar.
+const RE_ITEM_NUMERADO_CANTIDAD_TOTAL =
+  /^#{0,3}\s*\d{1,3}\.-\s*([A-ZÁÉÍÓÚÑÜ][A-ZÁÉÍÓÚÑÜ0-9 ./"'()-]{1,80}?):?\s*$/;
+const RE_CANTIDAD_TOTAL = /cantidad\s+total\s*:?\s*(\d{1,6})\s*(?:unid|un\.?\b|unidades?)?/i;
+
+export function extraerListaNumeradaCantidadTotal(docs: DocTexto[]): ItemPlanilla[] {
+  for (const doc of docs) {
+    if (!doc.texto) continue;
+    const lineas = doc.texto.split('\n');
+    const items: ItemPlanilla[] = [];
+    for (let i = 0; i < lineas.length; i++) {
+      const m = limpiarCelda(lineas[i]).match(RE_ITEM_NUMERADO_CANTIDAD_TOTAL);
+      if (!m) continue;
+      const descripcion = m[1].trim();
+      if (descripcion.length < 3) continue;
+      // La "CANTIDAD TOTAL" no siempre está en la línea inmediata (línea en blanco de por medio,
+      // marcador "[[PÁGINA N]]"): se busca en una ventana corta, cortando si aparece OTRO
+      // encabezado numerado antes — ese ítem no trae el dato en este formato.
+      let cantidad: number | null = null;
+      for (let j = i + 1; j < Math.min(i + 8, lineas.length); j++) {
+        const t = limpiarCelda(lineas[j]);
+        if (!t) continue;
+        const c = t.match(RE_CANTIDAD_TOTAL);
+        if (c) { cantidad = Number(c[1]); break; }
+        if (RE_ITEM_NUMERADO_CANTIDAD_TOTAL.test(t)) break;
+      }
+      if (cantidad == null || !Number.isFinite(cantidad) || cantidad <= 0) continue;
+      items.push({ linea: 1, categoria: null, numero: items.length + 1, descripcion, unidad: 'UNID', cantidad });
+    }
+    // Menos de 3 ítems puede ser una cláusula numerada cualquiera con una cantidad coincidente
+    // cerca — no una lista real de productos.
+    if (items.length >= 3) return items;
+  }
+  return [];
+}
+
+// Combina las DOS formas conocidas de tabla canónica de bases técnicas: la de dos columnas
+// primero (más estricta), y si no encuentra nada, la lista numerada con "CANTIDAD TOTAL". Es el
+// único punto que debe llamar viabilidad-ia.ts para el contraste — agregar una tercera forma
+// nueva se hace acá, no en cada llamador.
+export function extraerListadoCanonicoBases(docs: DocTexto[]): ItemPlanilla[] {
+  const tabla = extraerTablaProductoCantidad(docs);
+  return tabla.length ? tabla : extraerListaNumeradaCantidadTotal(docs);
+}
+
+// ¿Conviene reemplazar el manifiesto (del LLM o de la planilla) por la tabla canónica de las
+// bases técnicas? Extraído de viabilidad-ia.ts para poder probarlo sin levantar todo el pipeline
+// de análisis. Dos preguntas distintas, no una:
+//   · cobertura   — ¿la canónica está TODA adentro del manifiesto? (si no, la canónica puede ser
+//                    un resumen y el manifiesto tener un desglose real que ella no tiene — no se
+//                    pisa, ver comentario original del llamador).
+//   · fraccionRuido — de las filas del manifiesto que NO calzan con ningún producto canónico,
+//                    ¿qué fracción del manifiesto son? Un manifiesto más largo que la canónica
+//                    pero 100% cubierto por ella (cada fila de más calza con ALGÚN producto
+//                    canónico) NO es ruido: es la MISMA lista desagregada por otro eje (caso real
+//                    2408-162-LE26: 28 filas del Anexo Económico por EDIFICIO de entrega, mismos
+//                    10 productos que las bases técnicas totalizan por tipo) — reemplazarla ahí
+//                    perdería ese desglose real. Ruido de verdad es la fila de la tabla de
+//                    CRITERIOS o el rótulo de un anexo colado entre los productos: esas SÍ quedan
+//                    fuera de cualquier producto canónico.
+export interface DecisionReemplazoCanonica {
+  reemplazar: boolean;
+  cobertura: number;
+  fraccionRuido: number;
+  motivo: string;
+}
+
+export function decidirReemplazoPorCanonica(
+  manifiesto: { descripcion: string }[],
+  canonica: { descripcion: string }[],
+): DecisionReemplazoCanonica {
+  const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const coincide = (a: string, b: string) => !!a && !!b && (a === b || a.includes(b) || b.includes(a));
+  const canonicaNorm = canonica.map(c => norm(c.descripcion));
+  const manifiestoNorm = manifiesto.map(m => norm(m.descripcion));
+
+  const cubiertos = canonicaNorm.filter(nc => manifiestoNorm.some(em => coincide(em, nc))).length;
+  const cobertura = canonica.length ? cubiertos / canonica.length : 0;
+
+  const sinCobertura = manifiestoNorm.filter(em => !canonicaNorm.some(nc => coincide(em, nc))).length;
+  const fraccionRuido = manifiesto.length ? sinCobertura / manifiesto.length : 0;
+
+  const masLargo = manifiesto.length > canonica.length * 1.5;
+  const reemplazar = cobertura >= 0.7 && masLargo && fraccionRuido >= 0.3;
+  return {
+    reemplazar, cobertura, fraccionRuido,
+    motivo: reemplazar
+      ? `cobertura ${Math.round(cobertura * 100)}% y ${Math.round(fraccionRuido * 100)}% del manifiesto es ruido no cubierto por la canónica`
+      : masLargo && cobertura >= 0.7
+        ? `el manifiesto es más largo pero ${Math.round((1 - fraccionRuido) * 100)}% de sus filas calzan con algún producto canónico — desagregación legítima, no ruido`
+        : 'sin evidencia suficiente para reemplazar',
+  };
 }
 
 // Recorre los documentos candidatos y devuelve el MEJOR resultado (más ítems; a igualdad,

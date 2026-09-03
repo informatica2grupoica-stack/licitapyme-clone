@@ -14,8 +14,20 @@
 //
 // Se llama después de cualquier cambio de precio en el checklist. Es idempotente y barato: no
 // vuelve a parsear el Excel salvo que haga falta el detalle por línea.
+//
+// BUG REAL (03-sep-2026, negocio con costeo hecho en el editor integrado): esto SIEMPRE hacía
+// `fetch(costeo.archivo_url)`, pero un costeo de origen='editor' (migración 85) tiene
+// `archivo_url = NULL` a propósito — "una versión de editor no tiene ningún archivo detrás". El
+// fetch fallaba, el catch lo atrapaba en silencio y la función devolvía null sin avisar nada: para
+// TODO negocio que usa el editor (cada vez más el flujo principal, no solo el Excel subido), esta
+// función nunca recalculaba nada — el usuario corregía el precio del checklist para que calzara
+// con el costeo, y la alerta de discordancia seguía mostrando los números viejos para siempre,
+// porque el único camino que la refresca estaba roto. Ahora se lee según el origen: archivo → baja
+// y parsea el Excel (como siempre); editor → relee el estado vivo (negocio_costeo_editor) y lo
+// convierte con la MISMA función que usa el editor al guardar (editorAFilasCosteo).
 import pool from '@/app/lib/db';
-import { parsearCosteo, calcularAlertasMotorComercial, type AlertaMotorComercial } from '@/app/lib/motor-comercial';
+import { parsearCosteo, calcularAlertasMotorComercial, type AlertaMotorComercial, type FilaCosteo } from '@/app/lib/motor-comercial';
+import { editorAFilasCosteo, type EstadoCosteoEditor } from '@/app/lib/costeo-editor';
 
 /**
  * Vuelve a calcular y guardar las alertas del costeo vigente. Devuelve las alertas nuevas, o null
@@ -32,7 +44,7 @@ export async function recalcularAlertasCosteo(args: {
   const { negocioId } = args;
 
   const [filasCosteo] = await pool.query(
-    `SELECT id, archivo_url, presupuesto_publicado FROM checklist_comercial_costeo
+    `SELECT id, origen, archivo_url, presupuesto_publicado FROM checklist_comercial_costeo
       WHERE negocio_id = ? AND vigente = 1 LIMIT 1`,
     [negocioId],
   ) as any;
@@ -50,13 +62,28 @@ export async function recalcularAlertasCosteo(args: {
   const valores = (filasPrecio as any[]).map(r => r.valor_numero).filter(v => v != null);
   const totalAnexoEconomico = valores.length ? valores.reduce((s: number, v: any) => s + Number(v), 0) : null;
 
-  let filas: Awaited<ReturnType<typeof parsearCosteo>> = [];
+  let filas: FilaCosteo[] = [];
   try {
-    const res = await fetch(costeo.archivo_url);
-    if (res.ok) filas = await parsearCosteo(Buffer.from(await res.arrayBuffer()));
+    if (costeo.origen === 'editor') {
+      const [filasEditor] = await pool.query(
+        `SELECT datos_json FROM negocio_costeo_editor WHERE negocio_id = ? LIMIT 1`,
+        [negocioId],
+      ) as any;
+      const row = (filasEditor as any[])[0];
+      const datos = row ? (typeof row.datos_json === 'string' ? JSON.parse(row.datos_json) : row.datos_json) : null;
+      if (datos) {
+        // ofertamos: default true — mismo saneo defensivo que hace el GET del editor para
+        // costeos guardados antes de que ese campo existiera.
+        const grupos = (datos.grupos || []).map((g: any) => ({ ...g, ofertamos: g.ofertamos !== false }));
+        filas = editorAFilasCosteo({ ...datos, grupos } as EstadoCosteoEditor);
+      }
+    } else {
+      const res = await fetch(costeo.archivo_url);
+      if (res.ok) filas = await parsearCosteo(Buffer.from(await res.arrayBuffer()));
+    }
   } catch {
-    // Si el archivo no se puede bajar no se inventan alertas: se dejan las que había. Un fallo de
-    // red no debe borrar el diagnóstico anterior ni fabricar uno nuevo.
+    // Si no se puede releer (archivo caído, JSON corrupto) no se inventan alertas: se dejan las
+    // que había. Un fallo no debe borrar el diagnóstico anterior ni fabricar uno nuevo.
     return null;
   }
   if (!filas.length) return null;

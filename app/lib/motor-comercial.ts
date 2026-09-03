@@ -299,13 +299,32 @@ export function calcularAlertasMotorComercial(args: {
   // 3489-29-LP26: la alerta salía ANTES de cargar ningún anexo y lo mandó a buscar un documento
   // que no existía. El nombre del código se conserva (hay filas guardadas con él), pero el mensaje
   // ahora dice de dónde sale de verdad cada cifra y qué hacer.
+  //
+  // "el costeo SUBIDO" (03-sep-2026): este chequeo corre para los DOS orígenes de costeo —
+  // archivo .xlsx subido Y el editor integrado del sistema (checklist_comercial_costeo.origen,
+  // migración 85) — pero el texto solo nombraba el primero. Un usuario que arma el costeo
+  // directo en el editor (nunca sube ningún archivo) reportó no entender a qué costeo se refería
+  // la alerta, porque le hablaba de algo que él nunca hizo. "Guardado" es neutro entre ambos.
+  //
+  // ESTA ALERTA YA NO ES RUIDO DE CADA EDICIÓN (03-sep-2026): antes el checklist se sincronizaba
+  // con el costeo UNA SOLA VEZ (mientras seguía en PENDIENTE) y quedaba congelado para siempre —
+  // así que cualquier ajuste posterior al costeo (bajar el recargo, un ítem nuevo) disparaba esta
+  // alerta aunque nadie hubiera tocado el checklist a mano. El usuario lo reportó: "no cada vez
+  // que modifique el costeo me va a salir eso... la idea es que el costeo mande las cosas al
+  // auditor técnico" — y, al precisarlo, agregó el criterio final: "que sea manual y automático
+  // pero siempre prioridad al automático". Ahora ingresarVersionCosteo (comercial/costeo/route.ts)
+  // resincroniza el precio en CADA guardado del costeo — el costeo manda SIEMPRE, incluso sobre un
+  // precio que alguien cargó a mano — salvo que el punto ya esté APROBADO por el asesor: ese es el
+  // ÚNICO freno real, porque un valor aprobado que cambia sin que nadie lo vea es justo lo que la
+  // doble firma existe para evitar. Por eso el texto de acá habla de una aprobación que quedó
+  // vieja, no de un descuadre genérico a investigar.
   if (args.totalAnexoEconomico != null && Math.round((args.totalAnexoEconomico - totalCosteo) * 100) !== 0) {
     alertas.push({
       codigo: 'DISCORDANCIA_COSTEO_ANEXO',
-      descripcion: 'El precio cargado no calza con el costeo',
-      detalle: `El precio que cargaste en el checklist suma ${fmtCLP(args.totalAnexoEconomico)}, `
-        + `pero el costeo subido suma ${fmtCLP(totalCosteo)} de precio de venta. `
-        + 'Corrige el precio del checklist o vuelve a subir el costeo — todavía no interviene ningún anexo.',
+      descripcion: 'El precio aprobado quedó desactualizado',
+      detalle: `El checklist tiene un precio de ${fmtCLP(args.totalAnexoEconomico)} — probablemente ya APROBADO, por eso el costeo no lo pisó solo — `
+        + `pero el costeo cambió después y ahora da ${fmtCLP(totalCosteo)} de precio de venta. `
+        + 'Si el cambio del costeo es válido, reabre el punto para que se actualice; si el precio aprobado sigue siendo el correcto, no hagas nada.',
     });
   }
 
