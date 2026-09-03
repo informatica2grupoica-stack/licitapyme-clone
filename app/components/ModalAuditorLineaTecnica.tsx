@@ -141,6 +141,9 @@ export function ModalAuditorLineaTecnica({
   const [documentos, setDocumentos] = useState<Array<{ id: number; url: string; nombre: string }>>([]);
   // Uno por línea normal, varios si es una línea-paquete (migración 82) — ver ProductoDeLinea.
   const [productos, setProductos] = useState<ProductoDeLinea[]>([]);
+  // Lo que EXIGEN las bases para esta línea, tal cual lo leyó el informe, para poder mostrarlo
+  // antes de que nadie haya corrido la clasificación (ver el GET del route de características).
+  const [exigencias, setExigencias] = useState<Array<{ index: number; nombre: string | null; items: string[] }>>([]);
   const [editandoIndex, setEditandoIndex] = useState<number | null>(null);
   const [confirmandoProducto, setConfirmandoProducto] = useState(false);
   const [formProducto, setFormProducto] = useState({ marca: '', modelo: '', fabricante: '', paisFabricacion: '', anioFabricacion: '' });
@@ -189,6 +192,7 @@ export function ModalAuditorLineaTecnica({
     if (dCaract.success) {
       setCaracteristicas(dCaract.caracteristicas || []);
       setProductos(dCaract.productos || []);
+      setExigencias(dCaract.exigencias || []);
     }
   }, [negocioId, itemId, base]);
 
@@ -619,7 +623,35 @@ export function ModalAuditorLineaTecnica({
                 </div>
 
                 {caracteristicas.length === 0 ? (
-                  <p className="text-[12px] text-zinc-400 py-3">Sin características clasificadas todavía. Pulsa "Validar" o sube la ficha del producto.</p>
+                  // VISTA PREVIA DE LO QUE PIDEN LAS BASES. Antes acá solo había una frase gris y
+                  // la línea se veía vacía aunque el informe ya tuviera todas sus especificaciones
+                  // leídas — el reclamo del usuario en 1271359-92-LE26 ("no me muestra nada", y su
+                  // canasta tenía 5 productos con 55 exigencias). Comparar sigue siendo un paso
+                  // aparte; esto es solo poder LEER lo exigido, sin gastar una llamada de IA.
+                  <div className="py-2">
+                    {exigencias.length === 0 ? (
+                      <p className="text-[12px] text-zinc-400 py-1">Sin características clasificadas todavía. Pulsa "Validar" o sube la ficha del producto.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        <p className="text-[11.5px] text-zinc-500">
+                          Esto es lo que piden las bases para esta línea ({exigencias.reduce((n, p) => n + p.items.length, 0)} especificación(es)
+                          {exigencias.length > 1 ? ` en ${exigencias.length} productos` : ''}). Todavía nadie las comparó: pulsa "Validar" o sube la ficha del producto.
+                        </p>
+                        {exigencias.map(p => (
+                          <div key={p.index} className="border border-zinc-100 rounded-lg overflow-hidden">
+                            <div className="px-3 py-2 bg-zinc-100/70 text-[11px] font-bold text-zinc-600">
+                              {p.nombre || `Producto ${p.index + 1}`}
+                            </div>
+                            <ul className="divide-y divide-zinc-100">
+                              {p.items.map((c, i) => (
+                                <li key={i} className="px-3 py-1.5 text-[11.5px] text-zinc-700 leading-snug">{c}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 ) : productos.length > 1 ? (
                   // Línea-paquete (migración 83): una tabla POR PRODUCTO, con su propio subtítulo
                   // — sin esto no había forma de saber cuál fila de "lo que pide" era de cuál

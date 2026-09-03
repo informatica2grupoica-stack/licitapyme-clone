@@ -26,7 +26,7 @@ import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { esPorLinea, lineasDelInforme } from '@/app/lib/checklist-comercial';
 import { IVA } from '@/app/lib/costeo-comparativo';
-import { parsearCosteo, calcularAlertasMotorComercial, totalesDeCosteo, totalPrecioDeLinea, type AlertaMotorComercial } from '@/app/lib/motor-comercial';
+import { parsearCosteo, calcularAlertasMotorComercial, totalesDeCosteo, totalPrecioDeLinea, presupuestoDeLaOferta, type AlertaMotorComercial } from '@/app/lib/motor-comercial';
 import { cargarNegocio, leerInforme, leerItems, nombreDe, asesores } from '../route';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { lineasExcluidasDeNegocio } from '@/app/lib/lineas-oferta';
@@ -104,7 +104,6 @@ export async function ingresarVersionCosteo(
 ) {
   const { userId, nombreActor } = opts;
   const informe = await leerInforme(negocio.licitacion_codigo);
-  const presupuestoPublicado = informe?.presupuesto?.neto ?? informe?.presupuesto?.bruto ?? null;
   // EL TOPE POR LÍNEA VIENE CON IVA y se compara contra un costeo NETO (03-sep-2026). El manifiesto
   // guarda `presupuesto_linea` tal como lo publican las bases —"viene IVA incluido en ambos
   // formatos soportados", ver el backfill de presupuesto en viabilidad-ia.ts— mientras que
@@ -117,7 +116,11 @@ export async function ingresarVersionCosteo(
   // sin tener que saber de IVA. `presupuestoDeLineaEsUnitario` no se ve afectado — ya prueba contra
   // el global y contra el global × 1,19.
   const lineaConIva = informe?.presupuesto?.con_iva !== false;
-  const lineasPublicadas = (informe ? lineasDelInforme(informe) : []).map(l => ({
+  // Crudas = tal como las publica el informe (topes CON IVA). Las necesita presupuestoDeLaOferta,
+  // que hace su propia normalización y además prueba el guardarraíl del "unitario" contra el
+  // monto crudo — pasarle las ya divididas restaría el IVA dos veces.
+  const lineasPublicadasCrudas = informe ? lineasDelInforme(informe) : [];
+  const lineasPublicadas = lineasPublicadasCrudas.map(l => ({
     ...l,
     presupuestoLinea: l.presupuestoLinea != null && lineaConIva ? l.presupuestoLinea / IVA : l.presupuestoLinea,
   }));
@@ -130,6 +133,11 @@ export async function ingresarVersionCosteo(
   // una línea descartada ahí ya ni siquiera genera fila de precio que mirar.
   const items = await leerItems(negocio.id);
   const lineasExcluidas = await lineasExcluidasDeNegocio(negocio.id, lineasPublicadas.map(l => l.linea));
+
+  // EL PRESUPUESTO ES EL DE LO QUE OFERTAMOS, no el de la licitación entera — ver
+  // presupuestoDeLaOferta(). Con una sola de dos canastas en juego, el global no es un tope:
+  // es la suma de dos topes distintos, y comparar contra él regala holgura que no existe.
+  const presupuestoPublicado = presupuestoDeLaOferta(informe, lineasPublicadasCrudas, lineasExcluidas);
 
   const ahora = ahoraChileSQL();
 

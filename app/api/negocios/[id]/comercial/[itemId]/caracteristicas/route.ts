@@ -217,7 +217,24 @@ export async function GET(request: NextRequest, { params }: Params) {
 
     const caracteristicas = await leerCaracteristicas(item.id);
     const productos = await productosDeItem(item, negocio.licitacion_codigo).catch(() => []);
-    return NextResponse.json({ success: true, caracteristicas, productos });
+    // LO QUE EXIGEN LAS BASES, ANTES DE CLASIFICAR (03-sep-2026, pedido del usuario sobre
+    // 1271359-92-LE26: "en el auditor no me muestra nada"). Hasta ahora, una línea sin comparación
+    // corrida mostraba una pantalla vacía —"Sin características clasificadas todavía"— aunque el
+    // informe ya tuviera las 55 especificaciones de esa canasta leídas de las bases. Se devuelven
+    // tal cual, agrupadas por producto, para poder leerlas sin gastar una llamada de IA (y para
+    // que se vean también en un negocio congelado, donde "Validar" ya no se puede apretar).
+    let exigencias: Array<{ index: number; nombre: string | null; items: string[] }> = [];
+    if (caracteristicas.length === 0 && item.linea_numero != null) {
+      try {
+        const informe = await leerInforme(negocio.licitacion_codigo);
+        if (informe) {
+          exigencias = productosCrudosDeLinea(informe, item.linea_numero)
+            .map((p, i) => ({ index: i, nombre: p.nombre || null, items: p.caracteristicas }))
+            .filter(p => p.items.length > 0);
+        }
+      } catch { /* sin informe legible se sigue mostrando la pantalla, solo sin la vista previa */ }
+    }
+    return NextResponse.json({ success: true, caracteristicas, productos, exigencias });
   } catch (error) {
     console.error('[comercial][caracteristicas][GET]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });

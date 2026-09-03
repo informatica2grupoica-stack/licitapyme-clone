@@ -1149,3 +1149,79 @@ export function hayLineasTecnicasHuerfanas(
   if (reales.size === 0) return false; // sin líneas en el informe no hay con qué comparar (fail-open)
   return items.some(i => i.tipo === 'linea_tecnica' && (i.linea_numero == null || !reales.has(Number(i.linea_numero))));
 }
+
+// ═══ FILAS DE PRECIO QUE YA NO CORRESPONDEN A LA MODALIDAD ═══════════════════════
+//
+// POR QUÉ EXISTE (03-sep-2026, 1271359-92-LE26, el usuario mirando su propia pantalla): el bloque
+// COMERCIAL mostraba "Total ofertado (2 líneas) $39.112.646" cuando se oferta UNA sola línea de
+// $19.556.323. El total salía de sumar la fila por línea CON la fila "Precio total ofertado"
+// (`precio:total`), que quedó de cuando el informe clasificaba la licitación como suma alzada: el
+// mismo dinero contado dos veces. Y de ahí se contagiaba todo lo demás —el Motor Comercial decía
+// "el checklist tiene un precio de $39.112.646… reabre el punto", una alerta falsa sobre una
+// cifra que no existía en ninguna parte, y el bloque pedía aprobar un punto de más antes de
+// generar el anexo económico.
+//
+// La modalidad de un informe puede cambiar entre análisis (por_linea ↔ suma_alzada). Las filas de
+// precio de la modalidad ANTERIOR no se borran solas y siguen contando en todas partes, porque
+// todo el sistema suma "las filas tipo precio que se ofertan".
+//
+// Se reusa `ofertamos = 0` en vez de inventar un estado nuevo: esa marca YA significa "esta fila
+// no entra al total, ni al avance, ni bloquea el anexo" y la respetan la UI, el resumen del
+// bloque, el auto-precarga del costeo y las dos consultas que suman el total ofertado. Una fila
+// virgen se borra; una con un valor cargado se conserva a la vista, atenuada — nunca se borra un
+// número que escribió una persona.
+
+export interface FilaPrecioExistente {
+  id: number;
+  claveOrigen: string | null;
+  ofertamos: boolean | null;
+  /** ¿Nadie la tocó todavía? (PENDIENTE, sin valor, sin firmas) */
+  virgen: boolean;
+}
+
+export interface PlanFilasPrecio {
+  /** Filas de la modalidad vieja que nadie trabajó: se borran. */
+  borrar: number[];
+  /** Filas de la modalidad vieja CON un valor cargado: se marcan `ofertamos = 0` y quedan a la vista. */
+  desactivar: number[];
+}
+
+const ES_PRECIO_LINEA = /^precio:linea:/;
+
+/** Las filas de precio que sobran para la modalidad actual del informe. */
+function filasPrecioObsoletas<T extends { claveOrigen: string | null }>(filas: T[], informe: any): T[] {
+  const porLinea = filas.filter(f => ES_PRECIO_LINEA.test(String(f.claveOrigen || '')));
+  const totales = filas.filter(f => String(f.claveOrigen || '') === 'precio:total');
+  if (!porLinea.length || !totales.length) return []; // solo hay una forma: no hay nada que decidir
+
+  if (esPorLinea(informe)) {
+    // OJO: "por línea" sin líneas en el informe es justo el caso en que el generador crea a
+    // propósito un `precio:total` ("revisar líneas"). Ahí el total NO sobra.
+    return lineasOfertablesDelInforme(informe).length > 0 ? totales : [];
+  }
+  return porLinea; // suma alzada: el total manda y los precios por línea son los que sobran
+}
+
+export function planDeFilasPrecio(filas: FilaPrecioExistente[], informe: any): PlanFilasPrecio {
+  const plan: PlanFilasPrecio = { borrar: [], desactivar: [] };
+  for (const f of filasPrecioObsoletas(filas, informe)) {
+    if (f.virgen) plan.borrar.push(f.id);
+    else if (f.ofertamos !== false) plan.desactivar.push(f.id);
+  }
+  return plan;
+}
+
+/**
+ * ¿Quedan filas de precio de otra modalidad TODAVÍA ACTIVAS? Se calcula en memoria sobre lo que el
+ * GET ya leyó, igual que hayLineasTecnicasHuerfanas: una vez reconciliadas (borradas o con
+ * `ofertamos = 0`) deja de dar true y no se vuelve a disparar.
+ */
+export function hayPreciosObsoletos(
+  items: Array<{ tipo: string; clave_origen?: string | null; ofertamos?: boolean | null }>,
+  informe: any,
+): boolean {
+  const filas = items
+    .filter(i => i.tipo === 'precio')
+    .map(i => ({ claveOrigen: i.clave_origen ?? null, ofertamos: i.ofertamos ?? null }));
+  return filasPrecioObsoletas(filas, informe).some(f => f.ofertamos !== false);
+}

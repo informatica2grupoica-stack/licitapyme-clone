@@ -21,6 +21,7 @@ import {
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado, reubicacionDeItemGuardado,
   itemsDesdeArchivosDeAnexo, esAlertaDeCumplimiento, planDeReconciliacion, type FilaReconciliable,
   planDeLineasTecnicas, hayLineasTecnicasHuerfanas, type FilaLineaTecnicaExistente,
+  planDeFilasPrecio, hayPreciosObsoletos, type FilaPrecioExistente,
   ACCIONES_ITEM, type AccionItem,
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
@@ -32,6 +33,7 @@ import { leerLineasOfertadas, lineasExcluidasDeNegocio, reproyectarDecisionGuard
 
 import { decidirGeneracion, type DocumentoCandidato, type BloqueGenerable } from '@/app/lib/auditor-generacion';
 import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
+import { presupuestoDeLaOferta } from '@/app/lib/motor-comercial';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -245,11 +247,48 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   await reubicarExistentes(negocioId);
   await reconciliarExistentes(negocioId);
   await reconciliarLineasTecnicas(negocioId, informe);
+  await reconciliarFilasPrecio(negocioId, informe);
   // La decisión del selector puede ser MÁS VIEJA que las filas recién creadas o reconciliadas:
   // sin volver a proyectarla, esas filas quedan sin marca y el bloque técnico muestra líneas que
   // no se ofertan como si fueran trabajo pendiente (1271359-92-LE26).
   await reproyectarDecisionGuardada(negocioId);
   return nuevos;
+}
+
+/**
+ * Saca de circulación las filas de precio de una modalidad que ya no es la del informe — ver
+ * planDeFilasPrecio() para el caso real (un `precio:total` de cuando la licitación se creía suma
+ * alzada, sumándose a los precios por línea y duplicando el total ofertado).
+ */
+export async function reconciliarFilasPrecio(negocioId: number, informe: any): Promise<void> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, clave_origen, ofertamos, estado, valor_numero, valor_texto, observacion,
+              cargado_por, aprobado_por
+         FROM checklist_comercial
+        WHERE negocio_id = ? AND bloque = 'COMERCIAL' AND tipo = 'precio'`,
+      [negocioId],
+    ) as any;
+    const filas: FilaPrecioExistente[] = (rows as any[]).map(r => ({
+      id: r.id,
+      claveOrigen: r.clave_origen ?? null,
+      ofertamos: r.ofertamos == null ? null : !!r.ofertamos,
+      virgen: r.estado === 'PENDIENTE' && r.valor_numero == null && r.valor_texto == null
+        && r.observacion == null && r.cargado_por == null && r.aprobado_por == null,
+    }));
+    if (!filas.length) return;
+
+    const plan = planDeFilasPrecio(filas, informe);
+    if (plan.desactivar.length) {
+      await pool.query(`UPDATE checklist_comercial SET ofertamos = 0 WHERE id IN (?)`, [plan.desactivar]);
+    }
+    if (plan.borrar.length) {
+      await pool.query(`DELETE FROM checklist_comercial_documentos WHERE item_id IN (?)`, [plan.borrar]).catch(() => {});
+      await pool.query(`DELETE FROM checklist_comercial WHERE id IN (?)`, [plan.borrar]);
+    }
+  } catch (e) {
+    console.error('[checklist] reconciliación de filas de precio falló (no bloquea):', String(e).slice(0, 200));
+  }
 }
 
 /**
@@ -509,8 +548,9 @@ export async function GET(request: NextRequest, { params }: Params) {
     // corre cuando el informe es más nuevo que el checklist, y estos negocios ya pasaron por ahí.
     // El chequeo no cuesta consultas (compara lo ya leído contra el informe) y solo escribe
     // cuando de verdad sobran filas — después de la primera vez deja de dispararse.
-    if (activo && informe && hayLineasTecnicasHuerfanas(items, informe)) {
+    if (activo && informe && (hayLineasTecnicasHuerfanas(items, informe) || hayPreciosObsoletos(items, informe))) {
       await reconciliarLineasTecnicas(negocio.id, informe);
+      await reconciliarFilasPrecio(negocio.id, informe);
       await reproyectarDecisionGuardada(negocio.id);
       items = await leerItems(negocio.id);
     }
@@ -877,10 +917,12 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       try {
         const informe = await leerInforme(negocio.licitacion_codigo);
         const lineasPublicadas = informe ? lineasDelInforme(informe) : [];
+        const excluidas = await lineasExcluidasDeNegocio(negocio.id, lineasPublicadas.map(l => l.linea));
         await recalcularAlertasCosteo({
           negocioId: negocio.id,
           lineasPublicadas,
-          lineasExcluidas: await lineasExcluidasDeNegocio(negocio.id, lineasPublicadas.map(l => l.linea)),
+          lineasExcluidas: excluidas,
+          presupuestoPublicado: presupuestoDeLaOferta(informe, lineasPublicadas, excluidas),
         });
       } catch (e) {
         // Recalcular es una mejora del diagnóstico, no parte de guardar el precio: si falla, el

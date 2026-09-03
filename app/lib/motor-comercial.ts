@@ -11,6 +11,7 @@
 //   L=Costo unitario REAL  M=Costo total neto REAL  (sección Compras, se llena después)
 // La hoja "AUDITORIA" se ignora: es un espejo con fórmulas, no datos propios.
 import ExcelJS from 'exceljs';
+import { IVA } from '@/app/lib/costeo-comparativo';
 
 // Posiciones de la plantilla V3 que genera generar-costeo.ts. Se conservan SOLO como respaldo
 // para una hoja cuyo encabezado no se pueda reconocer (ver detectarEsquema) — ya no como supuesto.
@@ -253,6 +254,48 @@ export function presupuestoDeLineaEsUnitario(
   return false;
 }
 
+/**
+ * EL PRESUPUESTO CONTRA EL QUE SE COMPARA LA OFERTA, cuando no se postula a todas las líneas.
+ *
+ * POR QUÉ (03-sep-2026, 1271359-92-LE26, reportado por el usuario mirando su pantalla): el Motor
+ * mostraba "Presupuesto: $33.040.000" —el GLOBAL de la licitación— mientras se ofertaba UNA sola
+ * de las dos canastas, cuyo tope propio es $21.478.000 con IVA ($18.048.739 neto). Con el global,
+ * una oferta de $19.556.323 parecía tener 40% de holgura cuando en realidad iba 8% POR ENCIMA de
+ * su tope. Es el mismo error que ya se corrigió en el cuadro comparativo del editor de costeo:
+ * comparar una línea contra la suma de todas.
+ *
+ * Reglas, todas conservadoras:
+ *  · Sin líneas descartadas, manda el global (se oferta todo: el global ES el tope).
+ *  · Si UNA de las líneas ofertadas no tiene tope propio utilizable (no lo fijan las bases, o el
+ *    guardado es en realidad el precio por unidad — ver presupuestoDeLineaEsUnitario), se vuelve
+ *    al global: sumar los topes que sí existen daría un máximo inventado, más bajo que el real,
+ *    y dispararía "sobre presupuesto" contra una oferta sana.
+ *  · `presupuesto_linea` viene CON IVA (así lo publican las bases) y la oferta se compara SIEMPRE
+ *    en neto, así que se divide. El global se toma de `neto` y, si solo hay `bruto`, se
+ *    convierte — usar un bruto como si fuera neto regala 19% de tope y calla la alerta.
+ */
+export function presupuestoDeLaOferta(
+  informe: any,
+  lineasPublicadas: Array<{ linea: number; cantidad: number | null; presupuestoLinea: number | null }>,
+  excluidas: Set<number>,
+): number | null {
+  const conIva = informe?.presupuesto?.con_iva !== false;
+  const bruto = Number(informe?.presupuesto?.bruto) || null;
+  const global: number | null =
+    Number(informe?.presupuesto?.neto) || (bruto != null ? (conIva ? bruto / IVA : bruto) : null);
+
+  const ofertadas = lineasPublicadas.filter(l => !excluidas.has(l.linea));
+  if (!excluidas.size || ofertadas.length === 0) return global;
+
+  let suma = 0;
+  for (const l of ofertadas) {
+    if (l.presupuestoLinea == null || l.presupuestoLinea <= 0) return global;
+    if (presupuestoDeLineaEsUnitario(l, global)) return global;
+    suma += conIva ? l.presupuestoLinea / IVA : l.presupuestoLinea;
+  }
+  return suma;
+}
+
 // Mismo criterio de normalización de unidad que auditor-tecnico-core.ts (alias es/plural/tildes),
 // pero acá solo para COMPARAR igualdad textual, no para convertir — el motor comercial no
 // convierte unidades, solo detecta que costeo y línea publicada dicen algo distinto.
@@ -337,13 +380,8 @@ export function calcularAlertasMotorComercial(args: {
     });
   }
 
-  if (args.presupuestoPublicado != null && Math.round((totalCosteo - args.presupuestoPublicado) * 100) > 0) {
-    alertas.push({
-      codigo: 'SOBRE_PRESUPUESTO',
-      descripcion: 'Sobre presupuesto',
-      detalle: `El total ofertado (${fmtCLP(totalCosteo)}) supera el presupuesto publicado (${fmtCLP(args.presupuestoPublicado)}).`,
-    });
-  }
+  const sobrePresupuestoGlobal =
+    args.presupuestoPublicado != null && Math.round((totalCosteo - args.presupuestoPublicado) * 100) > 0;
 
   // Presupuesto POR LÍNEA — algunas bases fijan un monto máximo INDEPENDIENTE por línea (lote),
   // no solo un total global (viabilidad-ia.ts ya detecta esa señal y la guarda como
@@ -383,6 +421,23 @@ export function calcularAlertasMotorComercial(args: {
       codigo: 'SOBRE_PRESUPUESTO_LINEA',
       descripcion: 'Sobre presupuesto por línea',
       detalle: `Línea(s) ${sobrePresupuestoLinea.join(', ')}: el costeo de esa línea supera el máximo que las bases fijan para ELLA (no el total global).`,
+    });
+  }
+
+  // EL AVISO GLOBAL VA DESPUÉS DE SABER SI EL POR LÍNEA YA LO DIJO (03-sep-2026). Cuando se
+  // oferta UNA sola línea, el "total ofertado" y "el total de esa línea" son el mismo número
+  // contra el mismo tope: dos alertas para un solo problema. Se conserva la específica, que dice
+  // estrictamente más (nombra la línea). Si el exceso NO está cubierto línea por línea —varias
+  // líneas ofertadas, o líneas sin tope propio— el aviso global sigue apareciendo, porque ahí es
+  // el único que ve el conjunto.
+  const ofertadasConAviso = args.lineasPublicadas
+    .filter(l => !excluidas.has(l.linea))
+    .every(l => sobrePresupuestoLinea.includes(l.linea));
+  if (sobrePresupuestoGlobal && !(sobrePresupuestoLinea.length > 0 && ofertadasConAviso)) {
+    alertas.push({
+      codigo: 'SOBRE_PRESUPUESTO',
+      descripcion: 'Sobre presupuesto',
+      detalle: `El total ofertado (${fmtCLP(totalCosteo)}) supera el presupuesto publicado (${fmtCLP(args.presupuestoPublicado!)}).`,
     });
   }
 

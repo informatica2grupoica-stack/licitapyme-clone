@@ -40,6 +40,10 @@ export async function recalcularAlertasCosteo(args: {
   negocioId: number;
   lineasPublicadas: Array<{ linea: number; cantidad: number | null; unidad: string | null; presupuestoLinea: number | null }>;
   lineasExcluidas?: Set<number>;
+  /** El tope contra el que comparar, ya resuelto por el llamador con presupuestoDeLaOferta() —
+   *  cambia cuando cambian las líneas que se ofertan, así que no sirve el que quedó guardado en la
+   *  versión del costeo. `undefined` = usar el guardado (comportamiento anterior). */
+  presupuestoPublicado?: number | null;
 }): Promise<AlertaMotorComercial[] | null> {
   const { negocioId } = args;
 
@@ -88,17 +92,24 @@ export async function recalcularAlertasCosteo(args: {
   }
   if (!filas.length) return null;
 
+  const presupuestoPublicado = args.presupuestoPublicado !== undefined
+    ? args.presupuestoPublicado
+    : (costeo.presupuesto_publicado != null ? Number(costeo.presupuesto_publicado) : null);
+
   const alertas = calcularAlertasMotorComercial({
     filas,
     totalAnexoEconomico,
-    presupuestoPublicado: costeo.presupuesto_publicado != null ? Number(costeo.presupuesto_publicado) : null,
+    presupuestoPublicado,
     lineasPublicadas: args.lineasPublicadas,
     lineasExcluidas: args.lineasExcluidas,
   });
 
+  // El presupuesto también se guarda: es lo que muestra la cabecera del Motor Comercial, y si se
+  // dejara el viejo la pantalla seguiría citando el tope de la licitación entera después de sacar
+  // una línea de la oferta.
   await pool.query(
-    `UPDATE checklist_comercial_costeo SET alertas = ?, total_anexo_economico = ? WHERE id = ?`,
-    [JSON.stringify(alertas), totalAnexoEconomico, costeo.id],
+    `UPDATE checklist_comercial_costeo SET alertas = ?, total_anexo_economico = ?, presupuesto_publicado = ? WHERE id = ?`,
+    [JSON.stringify(alertas), totalAnexoEconomico, presupuestoPublicado, costeo.id],
   );
   return alertas;
 }

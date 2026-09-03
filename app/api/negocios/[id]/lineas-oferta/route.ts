@@ -22,6 +22,7 @@ import { esPorLinea, lineasDelInforme, lineasOfertablesDelInforme } from '@/app/
 import { lineasTecnicasDelInforme } from '@/app/lib/auditor-tecnico-core';
 import { leerDecisionLineas, guardarLineasOfertadas, lineasExcluidasDeNegocio } from '@/app/lib/lineas-oferta';
 import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
+import { presupuestoDeLaOferta } from '@/app/lib/motor-comercial';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -165,10 +166,14 @@ export async function PUT(request: NextRequest, { params }: Params) {
     // si no se recalcula acá, la alerta sigue citando cifras de líneas que ya no se ofertan.
     try {
       const lineasPublicadas = informe ? lineasDelInforme(informe) : [];
+      const excluidas = await lineasExcluidasDeNegocio(negocio.id, lineasPublicadas.map(l => l.linea));
       await recalcularAlertasCosteo({
         negocioId: negocio.id,
         lineasPublicadas,
-        lineasExcluidas: await lineasExcluidasDeNegocio(negocio.id, lineasPublicadas.map(l => l.linea)),
+        lineasExcluidas: excluidas,
+        // Cambiar a qué líneas vamos cambia el TOPE, no solo el total: sin esto, sacar una línea
+        // de la oferta seguía comparando contra el presupuesto de la licitación entera.
+        presupuestoPublicado: presupuestoDeLaOferta(informe, lineasPublicadas, excluidas),
       });
     } catch (e) {
       // Refrescar el diagnóstico es una mejora, no parte de guardar la decisión: si falla, la

@@ -1310,6 +1310,18 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2 flex-wrap">
             <p className="text-[13px] font-semibold text-zinc-800 leading-snug">{item.titulo}</p>
+            {/* Mismo chip que la fila técnica (FilaLineaTecnica): una línea que se decidió no
+                ofertar se lee igual en los dos bloques. Solo atenuarla no alcanzaba — se veía como
+                una fila más, apagada, sin decir por qué. */}
+            {noOfertada && (
+              <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-zinc-600">
+                {/* El "precio total" de una licitación que hoy se cotiza por línea no está "fuera
+                    de la oferta": quedó reemplazado por las filas por línea (ver
+                    planDeFilasPrecio). Decirlo con las palabras correctas evita que alguien lo
+                    vuelva a incluir y duplique el total otra vez. */}
+                {item.clave_origen === 'precio:total' ? 'Reemplazado por las líneas' : 'Fuera de la oferta'}
+              </span>
+            )}
             <span className={`text-[9.5px] font-bold px-1.5 py-px rounded ${crit.bg} ${crit.text}`}>{crit.label}</span>
             {item.ponderacion != null && item.ponderacion > 0 && (
               <span className="text-[9.5px] font-bold px-1.5 py-px rounded bg-violet-100 text-violet-700">{item.ponderacion}%</span>
