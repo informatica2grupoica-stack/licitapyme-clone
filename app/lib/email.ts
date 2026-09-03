@@ -7,7 +7,7 @@
 //   SMTP_SECURE=true                    (true para 465, false para 587)
 //   SMTP_USER=notificaciones@tudominio.cl   (la cuenta de correo completa)
 //   SMTP_PASS=la_contraseña_de_esa_cuenta
-//   SMTP_FROM="ICA Licitaciones <notificaciones@tudominio.cl>"  (opcional; por defecto = SMTP_USER)
+//   SMTP_FROM="LICITANK <notificaciones@tudominio.cl>"  (opcional; por defecto = SMTP_USER)
 //   NEXT_PUBLIC_APP_URL=https://tu-app   (para los enlaces del correo)
 import nodemailer, { type Transporter } from 'nodemailer';
 
@@ -49,17 +49,40 @@ interface AsignacionEmail {
 }
 
 // ─── Layout compartido (todos los correos usan esta base) ─────────────────────
-// Identidad real de la marca (logo = red de nodos cian sobre fondo oscuro): header
-// oscuro con wordmark de dos tonos + acento cian, tarjetas con franja indigo, botón
-// sólido. Estilo cuidado, no el gradiente genérico.
-const APP_NOMBRE = 'ICA Licitaciones';
-const C_TINTA   = '#0f172a'; // header oscuro (slate-900)
-const C_CIAN    = '#22d3ee'; // acento del logo
-const C_INDIGO  = '#4f46e5'; // acción / franja (primario de la app)
+// Identidad real de la marca (ver app/components/LicitankLogo.tsx y el sidebar en
+// AppLayout.tsx): header casi negro (mismo tono que el sidebar de la app), rombo
+// teal con diamante blanco, wordmark "LICITANK" + subtítulo "Licitaciones".
+const APP_NOMBRE = 'LICITANK';
+const C_TINTA    = '#1c2027'; // header oscuro (mismo tono que el sidebar de la app)
+const C_TEAL     = '#2FC7A6'; // acento del logo (rombo teal)
+const C_INDIGO   = '#4f46e5'; // acción / franja (primario de la app)
 
-// Wordmark de dos tonos: "ICA" en cian, "Licitaciones" en blanco.
+// Rombo del logo (icono real de LicitankLogo.tsx, sin el degradado de la base
+// para que se vea igual de nítido en clientes de correo que no soportan filtros).
+function iconoLicitank(size = 30): string {
+  return `
+    <svg width="${size}" height="${size}" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" style="display:block;">
+      <defs>
+        <linearGradient id="lk-body" x1="20" y1="18" x2="80" y2="82" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#4BE3C0" />
+          <stop offset="100%" stop-color="#2FC7A6" />
+        </linearGradient>
+      </defs>
+      <rect x="18" y="18" width="64" height="64" rx="20" transform="rotate(45 50 50)" fill="url(#lk-body)" />
+      <rect x="36" y="30" width="28" height="28" rx="3" transform="rotate(45 50 44)" fill="#ffffff" />
+    </svg>`;
+}
+
+// Wordmark: icono + "LICITANK" en blanco + subtítulo "Licitaciones" (igual al sidebar).
 function wordmark(): string {
-  return `<span style="font-size:17px;font-weight:800;letter-spacing:-.01em;color:${C_CIAN};">ICA</span><span style="font-size:17px;font-weight:600;letter-spacing:-.01em;color:#ffffff;"> Licitaciones</span>`;
+  return `
+    <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+      <td style="padding-right:10px;">${iconoLicitank(30)}</td>
+      <td style="vertical-align:middle;line-height:1.15;">
+        <div style="font-size:16px;font-weight:800;letter-spacing:-.01em;color:#ffffff;">LICITANK</div>
+        <div style="font-size:9.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#8b93a1;">Licitaciones</div>
+      </td>
+    </tr></table>`;
 }
 
 // Tarjeta estándar de una licitación (con franja de acento a la izquierda).
@@ -89,7 +112,7 @@ function layoutEmail(o: { titulo: string; cuerpo: string; cta?: { label: string;
       <tr><td style="background:${C_TINTA};padding:20px 26px;">
         ${wordmark()}
       </td></tr>
-      <tr><td style="height:3px;background:${C_CIAN};font-size:0;line-height:0;">&nbsp;</td></tr>
+      <tr><td style="height:3px;background:${C_TEAL};font-size:0;line-height:0;">&nbsp;</td></tr>
       <tr><td style="padding:28px 26px 26px;">
         <h1 style="margin:0 0 18px;color:#0f172a;font-size:19px;font-weight:700;line-height:1.3;">${o.titulo}</h1>
         ${o.cuerpo}
@@ -171,7 +194,7 @@ export async function enviarCorreoRecuperacion(p: RecuperacionEmail): Promise<bo
     await t.sendMail({
       from: FROM(),
       to: p.to,
-      subject: 'Restablece tu contraseña · ICA Licitaciones',
+      subject: 'Restablece tu contraseña · LICITANK',
       html: plantillaRecuperacion(p),
     });
     return true;
@@ -506,7 +529,7 @@ export async function verificarSMTP(): Promise<{ ok: boolean; error?: string }> 
 }
 
 /** Renderiza las plantillas con datos de muestra (para previsualizar el diseño sin enviar). */
-export function previewEmailsHTML(appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.icalicitaciones.cl'): { asignacion: string; digest: string; cambio: string } {
+export function previewEmailsHTML(appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://app.licitank.cl'): { asignacion: string; digest: string; cambio: string } {
   const lic = { codigo: '1523-45-LE26', nombre: 'Adquisición de maquinaria de aseo industrial para recinto municipal', organismo: 'Municipalidad de Temuco', monto: 45_000_000, cierre: '2026-08-15' };
   return {
     asignacion: plantillaAsignacion({ to: '', nombre: 'Camila', codigo: lic.codigo, licitacionNombre: lic.nombre, organismo: lic.organismo, monto: lic.monto, cierre: lic.cierre, actorNombre: 'Jorge' }, appUrl),

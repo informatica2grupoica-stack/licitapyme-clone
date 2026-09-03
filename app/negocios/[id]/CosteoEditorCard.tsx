@@ -672,11 +672,23 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
   const totalGeneral = gruposOfertados.reduce((s, grp) => s + totalGrupo(grp, margenDeGrupo(grp, margen)), 0);
   const costoGeneral = gruposOfertados.reduce((s, grp) => s + costoGrupo(grp, margenDeGrupo(grp, margen)), 0);
   const hayMargenPropio = grupos.some(grp => Number.isFinite(grp.margenVenta as number));
-  // ¿Vale la pena ofrecer "Separar por línea"? Solo si sigue todo en una sola hoja y esa hoja
-  // mezcla ≥2 líneas reales distintas (si no, no hay nada que separar).
+  // ¿Vale la pena ofrecer "Separar por línea"? Solo si sigue todo en una sola hoja, esa hoja
+  // mezcla ≥2 líneas reales distintas, Y ADEMÁS al menos 2 de esas líneas tienen su PROPIO
+  // presupuesto independiente (presupuestosPorLinea) — la señal real de que las bases las tratan
+  // como canastas separadas (caso 1271359-92-LE26: canasta 1 tope $17.839.600, canasta 2 tope
+  // $21.478.000, cada una con su propio máximo).
+  //
+  // Sin ese segundo chequeo, un manifiesto con varias "líneas" dispara el aviso aunque sean puro
+  // artefacto del documento fuente: caso real 2408-162-LE26 (mobiliario Municipalidad de Los
+  // Ángeles), el Anexo Económico numera los ítems "1.1..1.8" / "2.1..2.20" por EDIFICIO de
+  // entrega (Oficinas Fomento / Dirección de Medio Ambiente), no por lote licitable — la
+  // licitación es GLOBAL con un solo presupuesto de $24M para todo, sin tope por edificio, y
+  // "separar por línea" ahí rompería el costeo en vez de ayudarlo.
   const lineasEnUnaHoja = grupos.length === 1
     ? new Set(grupos[0].filas.map(f => f.lineaReal).filter((n): n is number => n != null))
     : new Set<number>();
+  const lineasConPresupuestoPropio = [...lineasEnUnaHoja].filter(n => presupuestosPorLinea[n] != null).length;
+  const hayCanastasSeparables = lineasEnUnaHoja.size >= 2 && lineasConPresupuestoPropio >= 2;
 
   // ── Cuadro comparativo, UNO POR HOJA ────────────────────────────────────────────────────────
   // El presupuesto se publica por línea, así que cada línea/canasta se compara contra SU tope: un
@@ -801,8 +813,10 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
 
       {/* Las bases pueden armar canastas/líneas con total propio aunque el análisis haya
           clasificado la licitación como global — caso real 1271359-92-LE26. Separar deja cada
-          línea en su hoja, con su propio interruptor "¿ofertamos?". */}
-      {!congelado && lineasEnUnaHoja.size >= 2 && (
+          línea en su hoja, con su propio interruptor "¿ofertamos?". Solo se ofrece cuando esas
+          líneas tienen presupuesto propio (ver hayCanastasSeparables arriba) — si no, lo más
+          probable es que sean solo un artefacto de numeración del documento fuente. */}
+      {!congelado && hayCanastasSeparables && (
         <div className="mt-2 flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           <AlertTriangle size={13} className="text-amber-500 flex-shrink-0" />
           <p className="text-[11.5px] text-amber-800 flex-1">
