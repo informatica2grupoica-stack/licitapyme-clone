@@ -18,9 +18,10 @@ import {
   datosCosteoAEditor, fusionarConViabilidad, editorAFilasCosteo, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor,
 } from '@/app/lib/costeo-editor';
 import { IVA } from '@/app/lib/costeo-comparativo';
-import { lineasDelInforme } from '@/app/lib/checklist-comercial';
+import { lineasDelInforme, lineasOfertablesDelInforme } from '@/app/lib/checklist-comercial';
+import { leerDecisionLineas, guardarLineasOfertadas } from '@/app/lib/lineas-oferta';
 import { presupuestoDeLineaEsUnitario } from '@/app/lib/motor-comercial';
-import { cargarNegocio, leerInforme, nombreDe } from '../route';
+import { cargarNegocio, leerInforme, nombreDe, sincronizar } from '../route';
 import { ingresarVersionCosteo } from '../costeo/route';
 import { yaCongelado } from '@/app/lib/congelamiento';
 
@@ -127,6 +128,21 @@ export async function GET(request: NextRequest, { params }: Params) {
       estado = desdeViab; sinGuardar = true; // aún no se guardó ninguna versión — es solo la propuesta inicial
     }
 
+    // ── UNA SOLA DECISIÓN DE LÍNEAS PARA TODA LA APP (03-sep-2026) ────────────────────────────
+    // El interruptor "¿ofertamos esta hoja?" del editor y el selector de líneas a ofertar del
+    // negocio eran dos memorias distintas de la MISMA decisión: se podía apagar la línea 1 arriba
+    // y seguir viéndola encendida —y sumando al total— en el costeo. Manda la tabla del selector
+    // (negocio_lineas_oferta, migración 78), que es la que ya consumen el Auditor Técnico y el
+    // Motor Comercial; el editor la refleja y también la escribe (ver el PUT), así la decisión se
+    // toma en cualquiera de los dos lados y el otro queda al día.
+    if (estado) {
+      const decision = new Map((await leerDecisionLineas(negocio.id)).map(d => [d.linea, d.ofertamos]));
+      if (decision.size) {
+        estado = { ...estado, grupos: estado.grupos.map(g =>
+          g.linea != null && decision.has(g.linea) ? { ...g, ofertamos: decision.get(g.linea)! } : g) };
+      }
+    }
+
     return NextResponse.json({
       success: true, estado, sinGuardar, agregados, reclasificados, presupuestoPublicado, presupuestosPorLinea,
       sinViabilidad: !guardado && !desdeViab,
@@ -175,6 +191,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
       [negocio.id, estado.modalidad, JSON.stringify(estado), userId, nombreActor, ahora],
     );
 
+    // El interruptor de cada hoja ES la decisión de líneas del negocio (ver el GET): apagar la
+    // línea 1 acá tiene que atenuarla también en el Auditor Técnico y sacarla de las alertas del
+    // Motor Comercial, sin obligar a repetir la misma decisión en dos pantallas.
+    await propagarDecisionDeLineas(negocio, estado, userId);
+
     const { version, alertas, totales } = await ingresarVersionCosteo(negocio, filas, {
       origen: 'editor', archivoUrl: null, archivoNombre: 'Costeo (editor interno)',
       userId, nombreActor,
@@ -184,5 +205,53 @@ export async function PUT(request: NextRequest, { params }: Params) {
   } catch (error) {
     console.error('[comercial/costeo-editor][PUT]', String(error));
     return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}
+
+/**
+ * Lleva los interruptores "¿ofertamos esta hoja?" del editor a la decisión de líneas del negocio.
+ *
+ * Se manda SIEMPRE la lista completa de líneas conocidas (no solo las que tienen hoja): guardar
+ * únicamente las hojas presentes dejaría implícitamente fuera de la oferta a una línea que el
+ * costeo todavía no llegó a cotizar, que nadie decidió descartar.
+ *
+ * Y solo se escribe cuando hay un CAMBIO real: si nadie tocó ningún interruptor, guardar una
+ * decisión "ofertamos todas" apagaría el banner del selector sin que nadie lo haya contestado.
+ */
+async function propagarDecisionDeLineas(
+  negocio: { id: number; licitacion_codigo: string },
+  estado: EstadoCosteoEditor,
+  userId: number,
+): Promise<void> {
+  try {
+    const hojas = estado.grupos.filter(g => g.linea != null);
+    if (!hojas.length) return; // costeo global o por categoría: no hay decisión de líneas que tomar
+
+    const informe = await leerInforme(negocio.licitacion_codigo);
+    const conocidas = new Map(informe ? lineasOfertablesDelInforme(informe).map(l => [l.linea, l.descripcion]) : []);
+    if (!conocidas.size) return; // sin líneas en el informe no se puede validar contra qué se está decidiendo
+
+    const previo = new Map((await leerDecisionLineas(negocio.id)).map(d => [d.linea, d.ofertamos]));
+    const lineas = [...conocidas.keys()].sort((a, b) => a - b).map(n => {
+      const hoja = hojas.find(g => g.linea === n);
+      return {
+        linea: n,
+        nombre: conocidas.get(n) ?? null,
+        ofertamos: hoja ? !!hoja.ofertamos : (previo.get(n) ?? true),
+      };
+    });
+    if (!lineas.some(l => l.ofertamos)) return;                    // apagarlas todas no es una decisión válida
+    if (!previo.size && lineas.every(l => l.ofertamos)) return;    // nada apagado y sin decisión previa: no hay nada que registrar
+    if (previo.size && lineas.every(l => previo.get(l.linea) === l.ofertamos)) return; // sin cambios
+
+    await guardarLineasOfertadas({
+      negocioId: negocio.id, licitacionCodigo: negocio.licitacion_codigo, lineas, usuarioId: userId,
+    });
+    // Volver a incluir una línea tiene que CREAR su trabajo, no solo marcarla — mismo motivo que
+    // en el PUT de /lineas-oferta.
+    if (informe) await sincronizar(negocio.id, negocio.licitacion_codigo, informe);
+  } catch (e) {
+    // La decisión de líneas es un efecto lateral del guardado: si falla, el costeo igual se guarda.
+    console.error('[comercial/costeo-editor] propagar decisión de líneas falló (no bloquea):', String(e).slice(0, 200));
   }
 }

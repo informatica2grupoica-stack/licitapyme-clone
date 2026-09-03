@@ -105,6 +105,17 @@ const PALABRAS_QUE_NECESITAN_EL_REMATE = new Set(['tipo', 'naturaleza', 'calidad
 // A QUIÉN describe la otra mitad — se saca ANTES de comparar contra el diccionario.
 const RE_ALTERNATIVA_UTP_AL_FINAL = /\s*\/[^/]*\bintegrantes\b[^/]*\bu\s*t\s*p\b\s*$/;
 
+// BUG REAL (3-sep-2026, ANEXO N°01 de 2446-250-LE26, reportado por el usuario con captura: "Cedula
+// Nacional de Identificación ese es el rut"): el documento oficial chileno se llama "cédula de
+// identidad", pero muchos organismos lo escriben "cédula (nacional) de IDENTIFICACIÓN". Las OCHO
+// entradas del diccionario que hablan de la cédula —en `rut` y en `representante_rut`— dicen
+// "identidad" y ninguna cubría la otra palabra, así que la casilla del RUT del representante
+// quedaba en blanco pese a estar en la ficha. Se arregla UNA vez acá, en la normalización, en vez
+// de duplicar las ocho entradas: son la misma palabra del mismo documento.
+// El ancla en "cedula|carnet|documento" es lo que lo hace seguro: "IDENTIFICACIÓN DEL OFERENTE"
+// (el título más repetido de estos anexos) no lleva ninguna de esas palabras delante y no se toca.
+const RE_CEDULA_DE_IDENTIFICACION = /\b(cedula|carnet|documento)((?:\s+nacional)?(?:\s+de)?)\s+identificacion\b/g;
+
 export function normalizarEtiqueta(s: string): string {
   return sinParentesisEnvolvente(s || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')   // sin tildes
@@ -145,6 +156,7 @@ export function normalizarEtiqueta(s: string): string {
     .replace(/[.:;,_·"'“”*]+/g, ' ')                      // puntuación y rayas de relleno
     .replace(/\s+/g, ' ')
     .trim()
+    .replace(RE_CEDULA_DE_IDENTIFICACION, '$1$2 identidad')
     .replace(RE_ALTERNATIVA_UTP_AL_FINAL, '')
     .trim()
     .replace(RE_TIPO_DE_PERSONA_AL_FINAL, (coincidencia, ...resto) => {
@@ -220,6 +232,10 @@ const PRINCIPAL_ALT = '(?:\\s+(?:principal(?:es)?|alternativos?|secundarios?)(?:
 // formulario donde las tres filas de arriba (teléfono, correo, contacto) ya se llenaban solas.
 const DEL_CONTACTO = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:contacto|persona\\s+de\\s+contacto))';
 const CONTACTO = `(?:${OFERENTE}|${REPRE}|${DEL_CONTACTO})?`;
+// Rótulo de número ANTES del nombre del dato: "N° Teléfono", "Nº Celular", "N° de Móvil". No cambia
+// QUÉ se pide — es la misma construcción burocrática que "N° de RUT" (ya cubierta pieza por pieza
+// en `rut`). Se usa en teléfono, donde el organismo la escribe con las cuatro palabras del dato.
+const NUMERO_DE = '(?:n[°º]?\\s*(?:de\\s+)?)?';
 
 interface Entrada { campo: Campo; patrones: RegExp[] }
 
@@ -369,19 +385,28 @@ export const DICCIONARIO: Entrada[] = [
     // inicio). "fijo" NO entra a propósito: el usuario aclaró (1-sep-2026) que la empresa no
     // tiene teléfono fijo, solo el móvil que guarda la ficha — "Teléfono Fijo ___" debe quedar
     // pendiente, no llenarse con un número de celular disfrazado de fijo.
-    new RegExp(`^(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|movil|celular))?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
+    // BUG REAL (3-sep-2026, ANEXO N°01 IDENTIFICACIÓN DEL OFERENTE de 2446-250-LE26, reportado por
+    // el usuario con captura: "no me reconoció el Nº Celular y eso es básico"): la etiqueta viene
+    // rotulada "Nº Celular" —con el número de rótulo ANTES del dato— en las DOS tablas del anexo
+    // (la del oferente y la del representante legal), y las dos quedaban en blanco. El prefijo
+    // "N°/N° de" solo existía pegado a la palabra "teléfono" (`n[°º]? de telefono`, `n[°º]?
+    // telefono`, ambos absorbidos acá): con "celular" o "móvil" no había ninguna forma que lo
+    // cubriera. Ahora el prefijo es parte del patrón general, así que vale para las cuatro palabras
+    // y para todos los remates que ya se aceptaban ("N° Celular del Contacto", "Nº de Móvil").
+    // Regla del usuario (mismo reporte): el número es UNO SOLO —el de la empresa/oferente— así que
+    // el celular del bloque del representante legal es el mismo `telefono1` de la ficha; eso ya lo
+    // permite el remate `${CONTACTO}`, que acepta tanto el de oferente como el de representante.
+    new RegExp(`^${NUMERO_DE}(?:telefono|fono|celular|movil)(?:s)?(?:\\s+(?:de\\s+contacto|comercial|movil|celular))?${PRINCIPAL_ALT}${CONTACTO}${PRINCIPAL_ALT}$`),
     /^telefono\/celular$/, /^fono contacto$/, /^numero de (?:telefono|contacto)$/,
-    /^n[°º]? de telefono$/,
     // "TELÉFONO FIJO Y CELULAR" — una sola casilla para las dos formas (anexos reales presentados).
     /^telefono fijo y celular$/, /^telefono(?: fijo)?\/celular$/, /^fono fijo y movil$/,
     // "Teléfono (Anexo) / Fax" (FORMULARIO N°1 de 1063538-204-LE26): el fax ya no existe, pero
     // el organismo lo sigue imprimiendo junto al teléfono en la misma casilla. El dato que se
     // escribe ahí es el teléfono. Una casilla de FAX SOLA sigue quedando pendiente: no tenemos fax.
     /^telefono\s*\/?\s*fax$/, /^fono\s*\/?\s*fax$/,
-    // "N° teléfono" — el "N°" va PEGADO al dato, sin el "de" que sí exige `n[°º]? de telefono`
-    // de arriba (misma construcción que "N° DE RUT" vs "N° RUT"). Medido por el auditor de
-    // generalización del 31-ago-2026 en 3 licitaciones de organismos distintos.
-    /^n[°º]?\s*telefono$/, /^n[°º]?\s*(?:de\s+)?fono$/,
+    // "N° teléfono" / "N° de fono" (auditor de generalización del 31-ago-2026, 3 licitaciones de
+    // organismos distintos) ya los cubre `NUMERO_DE` en el patrón general de arriba, que además
+    // los extendió a "celular" y "móvil".
   ] },
   { campo: 'email1', patrones: [
     // El GUION cuenta como separador ("E-mail", de las etiquetas más frecuentes que existe).
@@ -961,7 +986,7 @@ export const REGLAS_PREVIAS: { re: RegExp; campo: Campo }[] = [
   // palabra, escrita como el organismo realmente la escribe, se le escapaba a esta regla y a la
   // gemela de RUT dos líneas más abajo. "Yo, <nombre>" resolvía bien; "cédula de identidad número
   // <RUT>", pegado al lado, se quedaba en blanco.
-  { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
+  { re: /\b(?:c(?:é|e)dula\s+(?:nacional\s+)?de\s+identi(?:dad|ficaci(?:o|ó)n)|c\.?\s*i\.?|run)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*:?\s*$/i, campo: 'representante_rut' },
   // Domicilio. El "en" es OPCIONAL (1042-9-LE26, F3): "con domicilio ______ en representación de…"
   // pega el blanco directo a "domicilio", sin la preposición — la forma con "en" sigue siendo la
   // más común, pero exigirla dejaba esta variante sin resolver.
@@ -1155,7 +1180,7 @@ const RE_MARCADOR_INSTRUCCION = /\b(?:indicar|indique|marcar|marque|senalar|señ
 // aplicada al caso marcador. Comma-tolerante a propósito ("identidad Nº," con COMA, no los dos
 // puntos que exige REGLAS_PREVIAS) porque así viene escrito el caso real.
 const RE_MARCADOR_YA_NOMBRA_SU_DATO = /\b(?:rut|run|c[eé]dula)\b/i;
-const RE_ANTES_MARCADOR_ES_CEDULA_O_RUT = /\b(?:c[eé]dula\s+(?:nacional\s+)?de\s+identidad|c\.?\s*i\.?|run|r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*[:,]?\s*$/i;
+const RE_ANTES_MARCADOR_ES_CEDULA_O_RUT = /\b(?:c[eé]dula\s+(?:nacional\s+)?de\s+identi(?:dad|ficaci(?:o|ó)n)|c\.?\s*i\.?|run|r\.?\s*u\.?\s*t\.?|rol\s+(?:u|ú)nico\s+tributario)\s*(?:n[°º.]*|n(?:u|ú)mero|nro)?\s*[:,]?\s*$/i;
 
 // BUG REAL atrapado por el banco (1058086-43-LP26): un bloque "Nombre: ___ Cargo: ___
 // Institución: ___" es la firma de un TERCERO que certifica algo del oferente (ej. un cliente

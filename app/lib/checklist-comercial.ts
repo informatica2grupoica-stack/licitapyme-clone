@@ -563,8 +563,8 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
     if (l.caracteristicas.length === 0) continue;
     push({
       bloque: 'TECNICO', tipo: 'linea_tecnica',
-      titulo: `Línea ${l.linea} — ${l.nombre}`,
-      descripcion: `${l.caracteristicas.length} característica(s) técnica(s) a verificar.`,
+      titulo: tituloDeLineaTecnica(l),
+      descripcion: descripcionDeLineaTecnica(l),
       // Marca exclusiva sin equivalente admitido: un incumplimiento aquí puede inhabilitar la
       // oferta, igual que otros puntos duros del checklist. El resto afecta puntaje, no admisibilidad.
       criticidad: l.clasificacion === 'especifico' && l.admiteEquivalente === false ? 'ADMISIBILIDAD_DURA' : 'PUNTAJE_CONDICIONANTE',
@@ -1047,4 +1047,105 @@ export function planDeReconciliacion(filas: FilaReconciliable[]): PlanReconcilia
     if (!aBorrar.has(id)) plan.absorber.push({ id, ...cambios });
   }
   return plan;
+}
+
+// ═══ RECONCILIACIÓN DE LÍNEAS TÉCNICAS ══════════════════════════════════════════
+//
+// POR QUÉ EXISTE (03-sep-2026, caso real 1271359-92-LE26 traído por el usuario: "el auditor no
+// detecta las líneas ni los ítems de las líneas… yo seleccioné la línea 2 y no me muestra nada").
+//
+// Las filas `linea_tecnica` se materializan UNA vez, con la numeración que el informe tenía ese
+// día. Esa numeración puede cambiar después — por un re-análisis de la viabilidad, o porque el
+// checklist se generó antes del fix de numeración del 26-ago-2026 (`Number("L7")` = NaN caía al
+// ÍNDICE del array, así que una licitación de 2 canastas con 6 productos dejaba 6 filas
+// numeradas 1..6). Nadie limpiaba esas filas viejas, y el desfase envenena todo lo que viene
+// después:
+//   · el selector de líneas ofrece las líneas REALES (2), pero el checklist muestra 6;
+//   · la proyección de `ofertamos` se abstiene (fail-open, ver lineas-oferta.ts) porque la
+//     numeración no calza — así que elegir "ofertamos solo la línea 2" no atenúa nada y el
+//     asistente sigue viendo arriba la línea 1, que no vamos a ofertar;
+//   · la línea que SÍ se oferta se ve incompleta: su fila conserva el título de UN producto
+//     ("Línea 2 — Locker metálicos colores") cuando el informe actual dice que esa canasta son 5
+//     productos con 55 características.
+// Medido en producción: 31 de 243 negocios con checklist técnico estaban así, y solo 2 tenían
+// trabajo cargado en las filas sobrantes.
+//
+// La reconciliación es deliberadamente conservadora: borra SOLO filas vírgenes de líneas que ya
+// no existen (nadie pierde trabajo) y refresca título/descripción de las que sí existen (son
+// datos derivados del informe, no trabajo humano). Una fila huérfana CON trabajo no se toca: se
+// devuelve en `conflictivas` para avisarlo en pantalla y que lo resuelva una persona.
+
+/** El título de la fila de una línea técnica. Fuente única: la usan el generador y la
+ *  reconciliación, para que no puedan divergir y "refrescar" no reescriba en loop. */
+export function tituloDeLineaTecnica(l: { linea: number; nombre: string }): string {
+  return `Línea ${l.linea} — ${l.nombre}`.slice(0, 300);
+}
+
+/** La descripción de la fila de una línea técnica (cuántas especificaciones hay que verificar). */
+export function descripcionDeLineaTecnica(l: { caracteristicas: unknown[] }): string {
+  return `${l.caracteristicas.length} característica(s) técnica(s) a verificar.`;
+}
+
+export interface FilaLineaTecnicaExistente {
+  id: number;
+  lineaNumero: number | null;
+  titulo: string;
+  descripcion: string | null;
+  /** ¿Nadie la tocó todavía? (PENDIENTE, sin documentos, sin características comparadas, sin firmas) */
+  virgen: boolean;
+}
+
+export interface PlanLineasTecnicas {
+  /** Filas de líneas que ya no existen y que nadie trabajó: se pueden borrar sin perder nada. */
+  borrar: number[];
+  /** Filas de líneas que SÍ existen pero con el título/descripción de una versión vieja del informe. */
+  retitular: Array<{ id: number; titulo: string; descripcion: string }>;
+  /** Filas de líneas que ya no existen pero que YA TIENEN TRABAJO: no se tocan, se avisan. */
+  conflictivas: Array<{ id: number; lineaNumero: number | null; titulo: string }>;
+}
+
+export function planDeLineasTecnicas(filas: FilaLineaTecnicaExistente[], informe: any): PlanLineasTecnicas {
+  const plan: PlanLineasTecnicas = { borrar: [], retitular: [], conflictivas: [] };
+  // Las líneas REALES son las mismas que generaría el checklist hoy: las que traen
+  // características (ver generarItemsDesdeViabilidad). Sin ninguna no hay con qué comparar —
+  // fail-open, no se toca nada: un informe que se quedó sin productos (re-análisis fallido,
+  // lectura incompleta) jamás puede borrar el trabajo del checklist.
+  const reales = new Map(lineasTecnicasDelInforme(informe).filter(l => l.caracteristicas.length).map(l => [l.linea, l]));
+  if (reales.size === 0) return plan;
+
+  for (const f of filas) {
+    const real = f.lineaNumero == null ? undefined : reales.get(f.lineaNumero);
+    if (!real) {
+      if (f.virgen) plan.borrar.push(f.id);
+      else plan.conflictivas.push({ id: f.id, lineaNumero: f.lineaNumero, titulo: f.titulo });
+      continue;
+    }
+    // El título/descripción se refrescan SOLO en filas vírgenes. En una fila ya trabajada el
+    // título es la referencia de contra qué se comparó: si un re-análisis corrió la numeración,
+    // la línea 5 puede ser hoy otro producto, y renombrarla en silencio dejaría el veredicto de
+    // un producto colgando del nombre de otro. Ahí se prefiere el desfase visible.
+    if (!f.virgen) continue;
+    const titulo = tituloDeLineaTecnica(real);
+    const descripcion = descripcionDeLineaTecnica(real);
+    if (f.titulo !== titulo || (f.descripcion || '') !== descripcion) {
+      plan.retitular.push({ id: f.id, titulo, descripcion });
+    }
+  }
+  return plan;
+}
+
+/**
+ * ¿Hay filas `linea_tecnica` de líneas que el informe actual ya no tiene? Se calcula en memoria
+ * (las líneas reales salen del informe, sin consultas) para que el GET del Auditor pueda
+ * auto-sanarse sin pagar una consulta extra en cada carga de pantalla: sincronizar() solo corre
+ * cuando el informe es MÁS NUEVO que el checklist, así que un checklist numerado con una escala
+ * vieja no se arreglaría nunca solo.
+ */
+export function hayLineasTecnicasHuerfanas(
+  items: Array<{ tipo: string; linea_numero: number | null }>,
+  informe: any,
+): boolean {
+  const reales = new Set(lineasTecnicasDelInforme(informe).filter(l => l.caracteristicas.length).map(l => l.linea));
+  if (reales.size === 0) return false; // sin líneas en el informe no hay con qué comparar (fail-open)
+  return items.some(i => i.tipo === 'linea_tecnica' && (i.linea_numero == null || !reales.has(Number(i.linea_numero))));
 }

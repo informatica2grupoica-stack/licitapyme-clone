@@ -101,6 +101,33 @@ export async function guardarLineasOfertadas(args: {
     );
   }
 
+  const { sinProyectar } = await proyectarDecisionEnChecklist(negocioId, lineas);
+  return {
+    ofertadas: lineas.filter(l => l.ofertamos).map(l => l.linea),
+    descartadas: lineas.filter(l => !l.ofertamos).map(l => l.linea),
+    sinProyectar,
+  };
+}
+
+/**
+ * Escribe la decisión sobre `checklist_comercial.ofertamos`. Separada de guardarLineasOfertadas
+ * porque la sincronización del checklist también la necesita: la decisión puede haberse tomado
+ * ANTES de que existieran las filas (o mientras la numeración estaba desalineada, ver
+ * reconciliarLineasTecnicas), y sin volver a proyectarla esas filas se quedan sin marca para
+ * siempre — que es exactamente lo que pasó en 1271359-92-LE26: se eligió ofertar solo la línea 2
+ * y el bloque técnico siguió mostrando las 6 filas viejas sin atenuar ninguna.
+ *
+ * `respetarExclusionManual` (el modo de la sincronización automática): una línea que se decidió
+ * NO ofertar se apaga igual —la decisión del selector manda sobre una marca vieja—, pero una
+ * línea ofertada solo RELLENA las filas sin marca. Así una fila que alguien apagó a mano en el
+ * costeo ("esta línea no la ofertamos") no revive sola en cada carga de pantalla. Cuando la
+ * persona guarda el selector la exclusión manual sí se revierte: eso es una decisión explícita.
+ */
+export async function proyectarDecisionEnChecklist(
+  negocioId: number,
+  lineas: Array<{ linea: number; ofertamos: boolean }>,
+  opciones?: { respetarExclusionManual?: boolean },
+): Promise<{ sinProyectar: string[] }> {
   const ofertadas = lineas.filter(l => l.ofertamos).map(l => l.linea);
   const descartadas = lineas.filter(l => !l.ofertamos).map(l => l.linea);
   const conocidas = new Set(lineas.map(l => l.linea));
@@ -146,7 +173,7 @@ export async function guardarLineasOfertadas(args: {
       await pool.query(
         `UPDATE checklist_comercial SET ofertamos = 1
           WHERE negocio_id = ? AND tipo IN (?) AND linea_numero IN (?)
-            AND (ofertamos IS NULL OR ofertamos = 0)`,
+            AND ${opciones?.respetarExclusionManual ? 'ofertamos IS NULL' : '(ofertamos IS NULL OR ofertamos = 0)'}`,
         [negocioId, proyectables, ofertadas],
       );
     }
@@ -160,7 +187,27 @@ export async function guardarLineasOfertadas(args: {
     }
   }
 
-  return { ofertadas, descartadas, sinProyectar };
+  return { sinProyectar };
+}
+
+/**
+ * Vuelve a proyectar la decisión YA GUARDADA sobre el checklist. La llama la sincronización del
+ * Auditor: sin esto, las filas creadas (o reconciliadas) después de contestar el selector se
+ * quedan sin marca y el bloque técnico muestra líneas que no se ofertan como si fueran trabajo
+ * pendiente. Sin decisión guardada no hace nada — fail-open, igual que el resto del selector.
+ */
+export async function reproyectarDecisionGuardada(negocioId: number): Promise<void> {
+  try {
+    const decision = await leerDecisionLineas(negocioId);
+    if (!decision.length) return;
+    await proyectarDecisionEnChecklist(
+      negocioId,
+      decision.map(d => ({ linea: d.linea, ofertamos: d.ofertamos })),
+      { respetarExclusionManual: true },
+    );
+  } catch (e) {
+    console.error('[lineas-oferta] re-proyección falló (no bloquea):', String(e).slice(0, 200));
+  }
 }
 
 /**

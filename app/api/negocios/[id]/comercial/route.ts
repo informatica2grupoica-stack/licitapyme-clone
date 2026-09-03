@@ -20,6 +20,7 @@ import {
   esPorLinea, modalidadDudosa, estadoDeBloque, lineasDelInforme, excluirYaExistentes, type EstadoItem,
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado, reubicacionDeItemGuardado,
   itemsDesdeArchivosDeAnexo, esAlertaDeCumplimiento, planDeReconciliacion, type FilaReconciliable,
+  planDeLineasTecnicas, hayLineasTecnicasHuerfanas, type FilaLineaTecnicaExistente,
   ACCIONES_ITEM, type AccionItem,
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
@@ -27,7 +28,7 @@ import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
 import { revisarDeltaForo } from '@/app/lib/control-foro';
 import { leerCongelamiento, yaCongelado } from '@/app/lib/congelamiento';
 import { agregarDocumentos, bitacora } from '@/app/lib/checklist-comercial-db';
-import { leerLineasOfertadas, lineasExcluidasDeNegocio } from '@/app/lib/lineas-oferta';
+import { leerLineasOfertadas, lineasExcluidasDeNegocio, reproyectarDecisionGuardada } from '@/app/lib/lineas-oferta';
 
 import { decidirGeneracion, type DocumentoCandidato, type BloqueGenerable } from '@/app/lib/auditor-generacion';
 import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
@@ -243,7 +244,60 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
 
   await reubicarExistentes(negocioId);
   await reconciliarExistentes(negocioId);
+  await reconciliarLineasTecnicas(negocioId, informe);
+  // La decisión del selector puede ser MÁS VIEJA que las filas recién creadas o reconciliadas:
+  // sin volver a proyectarla, esas filas quedan sin marca y el bloque técnico muestra líneas que
+  // no se ofertan como si fueran trabajo pendiente (1271359-92-LE26).
+  await reproyectarDecisionGuardada(negocioId);
   return nuevos;
+}
+
+/**
+ * Pone las filas `linea_tecnica` al día con las líneas REALES del informe — ver
+ * planDeLineasTecnicas() para el porqué y para el caso real que lo motivó.
+ *
+ * Solo borra filas vírgenes de líneas que ya no existen y refresca título/descripción de las que
+ * sí existen. Nunca toca una fila con trabajo: esa se avisa en pantalla (checklistDesalineado del
+ * selector de líneas) para que la resuelva una persona.
+ */
+export async function reconciliarLineasTecnicas(negocioId: number, informe: any): Promise<void> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT c.id, c.linea_numero, c.titulo, c.descripcion, c.estado, c.observacion,
+              c.cargado_por, c.aprobado_por,
+              (SELECT COUNT(*) FROM checklist_comercial_documentos d WHERE d.item_id = c.id) AS n_docs,
+              (SELECT COUNT(*) FROM checklist_comercial_caracteristicas k WHERE k.item_id = c.id) AS n_carac
+         FROM checklist_comercial c
+        WHERE c.negocio_id = ? AND c.tipo = 'linea_tecnica'`,
+      [negocioId],
+    ) as any;
+    const filas: FilaLineaTecnicaExistente[] = (rows as any[]).map(r => ({
+      id: r.id,
+      lineaNumero: r.linea_numero == null ? null : Number(r.linea_numero),
+      titulo: r.titulo,
+      descripcion: r.descripcion,
+      virgen: r.estado === 'PENDIENTE' && Number(r.n_docs) === 0 && Number(r.n_carac) === 0
+        && r.observacion == null && r.cargado_por == null && r.aprobado_por == null,
+    }));
+    if (!filas.length) return;
+
+    const plan = planDeLineasTecnicas(filas, informe);
+    for (const r of plan.retitular) {
+      await pool.query(`UPDATE checklist_comercial SET titulo = ?, descripcion = ? WHERE id = ?`,
+        [r.titulo, r.descripcion, r.id]);
+    }
+    if (plan.borrar.length) {
+      await pool.query(`DELETE FROM checklist_comercial_documentos WHERE item_id IN (?)`, [plan.borrar]).catch(() => {});
+      await pool.query(`DELETE FROM checklist_comercial_caracteristicas WHERE item_id IN (?)`, [plan.borrar]).catch(() => {});
+      await pool.query(`DELETE FROM checklist_comercial WHERE id IN (?)`, [plan.borrar]);
+    }
+    if (plan.conflictivas.length) {
+      console.warn(`[checklist] negocio ${negocioId}: ${plan.conflictivas.length} línea(s) técnica(s) con trabajo ya no existen en el informe — se dejan intactas:`,
+        plan.conflictivas.map(c => `#${c.id} L${c.lineaNumero}`).join(', '));
+    }
+  } catch (e) {
+    console.error('[checklist] reconciliación de líneas técnicas falló (no bloquea):', String(e).slice(0, 200));
+  }
 }
 
 /**
@@ -447,6 +501,17 @@ export async function GET(request: NextRequest, { params }: Params) {
     // ~20 INSERT en cada carga de pantalla, solo cuando de verdad hay algo más nuevo.
     if (activo && informe && (items.length === 0 || await viabilidadMasNuevaQueChecklist(negocio.id, negocio.licitacion_codigo))) {
       await sincronizar(negocio.id, negocio.licitacion_codigo, informe);
+      items = await leerItems(negocio.id);
+    }
+
+    // AUTO-SANACIÓN DE LÍNEAS TÉCNICAS (03-sep-2026, 1271359-92-LE26). Un checklist materializado
+    // con una numeración de líneas vieja no se arregla solo: la sincronización de arriba solo
+    // corre cuando el informe es más nuevo que el checklist, y estos negocios ya pasaron por ahí.
+    // El chequeo no cuesta consultas (compara lo ya leído contra el informe) y solo escribe
+    // cuando de verdad sobran filas — después de la primera vez deja de dispararse.
+    if (activo && informe && hayLineasTecnicasHuerfanas(items, informe)) {
+      await reconciliarLineasTecnicas(negocio.id, informe);
+      await reproyectarDecisionGuardada(negocio.id);
       items = await leerItems(negocio.id);
     }
 

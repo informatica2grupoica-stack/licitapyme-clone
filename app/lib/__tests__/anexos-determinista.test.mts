@@ -1857,3 +1857,68 @@ test('inline: "…comuna de ___" (sin "domicilio" delante) resuelve la comuna', 
     contexto: '', parrafoCompleto, posEnParrafo: pos,
   } as CandidatoInline), 'comuna');
 });
+
+// ════ ANEXO N°01 IDENTIFICACIÓN DEL OFERENTE — 2446-250-LE26 (3-sep-2026) ════
+// Reportado por el usuario con captura de la pantalla de relleno: en las DOS tablas del anexo (la
+// del oferente y la del representante legal) quedaban tres casillas vacías. Dos eran bugs del
+// diccionario; la tercera ("Estado Civil") es correcta que quede pendiente — no hay ese dato en la
+// ficha y el usuario la llena a mano en el input de la pantalla ("está bien que quede vacío pero
+// que se pueda llenar manual").
+
+test('diccionario: "Nº Celular" es el teléfono — el rótulo de número va ANTES del dato', () => {
+  // El "N°/Nº" solo se aceptaba pegado a la palabra "teléfono"; con "celular" o "móvil" no había
+  // ninguna forma que lo cubriera y la casilla más básica del anexo quedaba en blanco.
+  for (const e of ['Nº Celular', 'N° Celular', 'N° de Celular', 'Nº Móvil', 'N° de móvil']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'telefono1', e);
+  }
+  // Las formas que ya funcionaban antes de generalizar el prefijo siguen igual.
+  assert.equal(campoDeEtiquetaInequivoca('N° teléfono'), 'telefono1');
+  assert.equal(campoDeEtiquetaInequivoca('6.- N° DE TELEFONO:'), 'telefono1');
+  // Regla del usuario: el número es UNO SOLO (el de la empresa), así que el celular del bloque del
+  // representante legal es el mismo teléfono de la ficha.
+  assert.equal(campoDeEtiquetaInequivoca('N° Celular del Representante Legal'), 'telefono1');
+  // Guardarraíl que no se toca: la empresa no tiene teléfono FIJO, ni con el N° delante.
+  assert.equal(campoDeEtiquetaInequivoca('N° Teléfono Fijo'), null);
+});
+
+test('diccionario: "Cédula Nacional de Identificación" es el RUT del representante', () => {
+  // El documento chileno se llama "cédula de identidad", pero el organismo lo escribe
+  // "identificación": es la misma palabra y se normaliza una sola vez, no entrada por entrada.
+  assert.equal(normalizarEtiqueta('Cedula Nacional de Identificación'), 'cedula nacional de identidad');
+  for (const e of ['Cedula Nacional de Identificación', 'Cédula de Identificación', 'N° de Cédula de Identificación']) {
+    assert.equal(campoDeEtiquetaInequivoca(e), 'representante_rut', e);
+  }
+  // El sinónimo vale para todas las formas que ya conocía el diccionario, incluida la que lo
+  // ofrece junto al RUT de la empresa.
+  assert.equal(campoDeEtiquetaInequivoca('RUT o Cédula de Identificación'), 'rut');
+  // Y para el remate que dice que es del OFERENTE (ahí el dato es el RUT de la empresa).
+  assert.equal(campoDeEtiquetaInequivoca('Cédula de Identificación del Proponente'), 'rut');
+  // Guardarraíl: "IDENTIFICACIÓN DEL OFERENTE" —el título más repetido de estos anexos— no lleva
+  // "cédula" delante y no se toca, ni acá ni en el encabezado que resuelve la razón social.
+  assert.equal(normalizarEtiqueta('IDENTIFICACIÓN DEL OFERENTE'), 'identificacion del oferente');
+  assert.equal(campoDeEtiquetaInequivoca('Identificación del Oferente'), 'razon_social');
+});
+
+test('inline: "…cédula nacional de identificación N° ___" resuelve el RUT del representante', () => {
+  const parrafoCompleto = 'Yo, Lidia Valenzuela Soto, cédula nacional de identificación N° ___';
+  const pos = parrafoCompleto.indexOf('___');
+  assert.equal(campoDeBlancoInline({
+    indiceRun: 0, indiceParrafo: 0, textoRunOriginal: '', posEnTexto: 0, largo: 3,
+    contexto: '', parrafoCompleto, posEnParrafo: pos,
+  } as CandidatoInline), 'representante_rut');
+});
+
+test('resolverDeterminista: el anexo de 2446-250-LE26 llena celular y cédula, y deja el estado civil al humano', () => {
+  const candidatos = [
+    celda(0, 'DATOS DEL OFERENTE Y REPRESENTANTE LEGAL: — Nº Celular'),
+    celda(1, 'Cedula Nacional de Identificación'),
+    celda(2, 'Estado Civil'),
+    celda(3, 'DATOS DEL REPRESENTANTE LEGAL — Nº Celular'),
+  ];
+  const r = resolverDeterminista({ candidatos, blancosInline: [], parrafos: [], empresa: EMPRESA });
+  assert.equal(valorAuto(r.celda, 0), '+56 45 2 123456');
+  assert.equal(valorAuto(r.celda, 1), '6.736.698-0');
+  assert.equal(r.celda.get(2)?.tipo ?? 'sin-resolver', 'sin-resolver');
+  // El celular del representante es el MISMO de la empresa: la ficha tiene un solo teléfono.
+  assert.equal(valorAuto(r.celda, 3), '+56 45 2 123456');
+});
