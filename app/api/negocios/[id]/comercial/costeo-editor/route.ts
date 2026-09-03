@@ -36,6 +36,20 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
+// EL COSTEO DEL SISTEMA ES ADMIN-ONLY POR AHORA (03-sep-2026, decisión del usuario: "ese costeo
+// solo debe estar habilitado para los admin de momento, después será habilitado para todos").
+// La pestaña "Costeo" del negocio ya se pinta solo para admin (page.tsx, `hayComercial`), pero el
+// gate vivía SOLO en el front: cualquiera con acceso al negocio podía leer y escribir el costeo
+// llamando a esta ruta directo. Se cierra acá, que es donde de verdad manda.
+//
+// PARA ABRIRLO A TODOS: borrar esta función y sus 2 llamadas (GET y PUT), y sacar `isAdmin &&` de
+// `hayComercial` en app/negocios/[id]/page.tsx. Son los dos únicos lugares.
+function soloAdmin(rol: string | null) {
+  return rol === 'admin'
+    ? null
+    : NextResponse.json({ error: 'El costeo del sistema está habilitado solo para administradores.' }, { status: 403 });
+}
+
 async function estadoGuardado(negocioId: number): Promise<EstadoCosteoEditor | null> {
   const [rows] = await pool.query(
     `SELECT modalidad, datos_json FROM negocio_costeo_editor WHERE negocio_id = ? LIMIT 1`,
@@ -62,6 +76,8 @@ function estadoDesdeViabilidad(negocio: { id: number; licitacion_codigo: string 
 export async function GET(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const noAdmin = soloAdmin(rol);
+  if (noAdmin) return noAdmin;
   const { id } = await params;
 
   try {
@@ -159,6 +175,8 @@ export async function GET(request: NextRequest, { params }: Params) {
 export async function PUT(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const noAdmin = soloAdmin(rol);
+  if (noAdmin) return noAdmin;
   const { id } = await params;
 
   try {

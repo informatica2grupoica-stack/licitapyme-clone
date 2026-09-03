@@ -399,7 +399,7 @@ function InputDecimalCL({ valor, onFijar, disabled, className, title }: {
   );
 }
 
-function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupuesto, congelado, apagada, recargo, recargoPropio, onMargenObjetivo }: {
+function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupuesto, congelado, apagada, recargo, recargoPropio, onMargenObjetivo, ancho = false }: {
   comp: Comparativo;
   titulo: string;                                   // qué línea/hoja es este cuadro
   fuente: 'manual' | 'linea' | 'global' | null;     // de dónde salió el tope que se está usando
@@ -410,9 +410,14 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
   recargo: number;                                  // % sobre el costo con que vende esta hoja
   recargoPropio: boolean;                           // ¿es suyo, o heredado del costeo completo?
   onMargenObjetivo: (m: number) => void;            // fijar el margen s/venta → despeja el recargo
+  /** DEBAJO de la planilla en vez de al costado (pantalla completa). Los tres bloques se reparten
+   *  en columnas que se adaptan al ancho, en vez de apilarse en una tira de 268 px: en un notebook
+   *  esa columna lateral se comía la planilla, que es lo que se está editando (pedido del usuario,
+   *  03-sep-2026: "al lado acorta la pantalla, sobre todo en un notebook"). */
+  ancho?: boolean;
 }) {
   return (
-    <div className={`bg-white border border-[#c6c6c6] shadow-sm p-2.5 space-y-2.5 ${apagada ? 'opacity-60' : ''}`} style={{ fontFamily: FUENTE_HOJA }}>
+    <div className={`bg-white border border-[#c6c6c6] shadow-sm p-2.5 ${ancho ? 'space-y-2' : 'space-y-2.5'} ${apagada ? 'opacity-60' : ''}`} style={{ fontFamily: FUENTE_HOJA }}>
       {/* Un cuadro POR HOJA: cada línea/canasta se compara contra SU tope, nunca las dos juntas
           contra el global (pedido del usuario, 03-sep-2026, con el Excel de 1271359-92-LE26 a la
           vista: ahí cada canasta tiene su propia celda "Presupuesto iva incluido"). */}
@@ -420,7 +425,11 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
         <span className="truncate">{titulo}</span>
         {apagada && <span className="text-[9.5px] font-semibold text-zinc-400 flex-shrink-0">· no se oferta</span>}
       </p>
+      {/* Al ancho: tres columnas que se adaptan. Angosto: exactamente el apilado de antes — las
+          clases de separación se conservan una por una para no mover ni un pixel de esa vista. */}
+      <div className={ancho ? 'grid gap-x-4 gap-y-2 grid-cols-[repeat(auto-fit,minmax(260px,1fr))] items-start' : 'space-y-2.5'}>
       {/* ── Estimado: lo que sale del costeo ───────────────────────────────────────────────── */}
+      <div className={`${ancho ? 'min-w-0 ' : ''}space-y-2.5`}>
       <table className="border-collapse w-full">
         <tbody>
           <FilaCuadro etiqueta="Total venta C/IVA" valor={fmtCLP(Math.round(comp.ventaConIva))} fondo={CUADRO_AZUL} titulo="= Precio total neto × 1,19" />
@@ -449,12 +458,15 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
         Recargo s/costo {recargo.toFixed(recargo % 1 === 0 ? 0 : 1).replace('.', ',')}%
         {recargoPropio ? ' · propio de esta hoja' : ' · del costeo completo'}
       </p>
+      </div>
+
 
       {/* Presupuesto de la licitación. Se TIPEA CON IVA y el neto se deriva — igual que el Excel
           ("Presupuesto iva incluido" en F15, y K14 = F15/1,19): las bases publican el monto con
           IVA, así que pedir el neto obligaba a dividir a mano. Se precarga con el publicado que
           trae la viabilidad (el mismo que usa la alerta "Sobre presupuesto" del Motor Comercial) y
           se corrige cuando el tope real es por canasta y no el global. */}
+      <div className={`${ancho ? 'min-w-0 ' : ''}space-y-2.5`}>
       <div className="flex items-center gap-1.5 px-1 py-[2px]" style={{ background: CUADRO_AMARILLO }}>
         <span className="text-[10.5px] text-zinc-700 flex-1">Presupuesto iva incluido</span>
         <input
@@ -475,9 +487,10 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
               {fuente === 'global' && ' · presupuesto global de la licitación'}
               {fuente === 'manual' && ' · escrito a mano'}</>}
       </p>
+      </div>
 
       {/* ── Real: lo que de verdad costó ───────────────────────────────────────────────────── */}
-      <div className="pt-1.5 border-t border-dashed border-zinc-300">
+      <div className={ancho ? 'min-w-0' : 'pt-1.5 border-t border-dashed border-zinc-300'}>
         <p className="text-[10.5px] font-bold text-zinc-500 mb-1 px-1"
            title='Lo que se ofertó (Total neto) es un dato fijo. Lo demás de este bloque se calcula desde lo que en verdad pagaste al proveedor — se carga ítem por ítem en la planilla, columna "Costo unit. REAL", cuando llega la factura/OC. Mientras esa columna esté vacía, este bloque no tiene de dónde sacar el costo real y se ve en blanco: no es un error.'>
           COMPARATIVO REAL
@@ -508,6 +521,7 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
               ? `Costo real completo — los ${comp.filasTotales} ítems cargados.`
               : `Parcial: ${comp.filasConCostoReal} de ${comp.filasTotales} ítems con "Costo unit. REAL" cargado (la utilidad real todavía sale alta).`}
         </p>
+      </div>
       </div>
     </div>
   );
@@ -695,7 +709,7 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
   // cuadro que mezclara las dos contra el global daría una distancia que no existe (pedido del
   // usuario, 03-sep-2026). Solo filas con algún dato, igual que editorAFilasCosteo del backend
   // (una fila recién agregada y vacía no debe contar como "ítem sin costo real").
-  const cuadroDeHoja = (grp: GrupoEditor, gi: number) => {
+  const cuadroDeHoja = (grp: GrupoEditor, gi: number, ancho = false) => {
     const filas = grp.filas.filter(f => f.detalle.trim() !== '' || f.cantidad != null || f.valorConIva != null);
     const { valor, fuente } = presupuestoDeHoja(grp, grupos, presupuestosPorLinea, presupuestoPublicado);
     const recargo = margenDeGrupo(grp, margen);
@@ -710,6 +724,7 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
     return (
       <CuadroComparativo
         key={grp.nombre}
+        ancho={ancho}
         comp={comp}
         titulo={grp.linea != null ? `Línea ${grp.linea}` : grp.nombre}
         fuente={fuente}
@@ -851,7 +866,7 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
 
   // ── La "hoja" ────────────────────────────────────────────────────────────────────────────
   const Hoja = (
-    <div className="border border-[#c6c6c6] bg-white shadow-sm flex-1 min-h-0 flex flex-col" style={{ fontFamily: FUENTE_HOJA }}>
+    <div className="border border-[#c6c6c6] bg-white shadow-sm flex-1 min-h-0 min-w-0 flex flex-col" style={{ fontFamily: FUENTE_HOJA }}>
       <div className="overflow-auto flex-1">
         <table className="border-collapse w-full" style={{ minWidth: 1380 }}>
           <colgroup>
@@ -1031,13 +1046,18 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
     return createPortal(
       <div className="fixed inset-0 z-[100] bg-zinc-100 flex flex-col">
         {Cabecera}
-        {/* La planilla a la izquierda y el cuadro comparativo a la derecha — mismo lugar que ocupa
-            en el Excel del comercial, al costado de las filas. */}
-        <div className="flex-1 min-h-0 p-3 flex gap-3">
-          <div className="flex-1 min-w-0 flex">{Hoja}</div>
+        {/* LA PLANILLA ARRIBA, A TODO EL ANCHO, Y EL CUADRO COMPARATIVO DEBAJO (03-sep-2026).
+            Antes el cuadro era una columna fija de 268 px al costado —imitando dónde vive en el
+            Excel del comercial—, y en un notebook le quitaba ese ancho justo a lo que se está
+            editando: la planilla (1.380 px de columnas) quedaba apretada y encima se desbordaba
+            POR ENCIMA del cuadro, porque el contenedor de la hoja no tenía `min-w-0` y un flex
+            child con una tabla adentro no se encoge sin eso. Abajo, el mismo cuadro se reparte en
+            columnas que se adaptan al ancho disponible y ocupa menos alto que la tira vertical. */}
+        <div className="flex-1 min-h-0 p-3 flex flex-col gap-3">
+          <div className="flex-1 min-h-0 min-w-0 flex">{Hoja}</div>
           {/* El cuadro de la hoja que se está mirando — el de las otras líneas se ve al cambiar de
-              pestaña, abajo, para no comparar dos topes distintos en la misma columna. */}
-          <aside className="w-[268px] flex-shrink-0 overflow-y-auto">{cuadroDeHoja(g, giActivo)}</aside>
+              pestaña, para no comparar dos topes distintos en el mismo lugar. */}
+          <div className="flex-shrink-0 max-h-[42vh] overflow-y-auto">{cuadroDeHoja(g, giActivo, true)}</div>
         </div>
       </div>,
       document.body,
@@ -1072,8 +1092,10 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
 
       {/* Los cuadros comparativos se ven también acá, sin abrir la planilla: es el resumen que el
           comercial mira para decidir. Uno por línea, cada uno contra SU tope. */}
-      <div className="flex flex-wrap gap-3 items-start">
-        {grupos.map((grp, i) => <div key={grp.nombre} className="w-[272px]">{cuadroDeHoja(grp, i)}</div>)}
+      {/* Una tarjeta por hoja, en columnas que se adaptan al panel (antes eran 272 px fijos: en un
+          panel angosto sobraba espacio a la derecha y en uno ancho no se aprovechaba). */}
+      <div className="grid gap-3 items-start grid-cols-[repeat(auto-fill,minmax(min(100%,272px),1fr))]">
+        {grupos.map((grp, i) => <div key={grp.nombre} className="min-w-0">{cuadroDeHoja(grp, i)}</div>)}
       </div>
 
       <p className="flex items-start gap-1.5 text-[11px] text-zinc-400 px-1">
