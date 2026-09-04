@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { AppLayout }  from '@/app/components/AppLayout';
 import { useToast }   from '@/app/components/ui/toast';
 import { useSession } from '@/app/lib/session-context';
-import { getEstadoPipeline } from '@/app/lib/pipeline';
+import { getEstadoPipeline, esGanado } from '@/app/lib/pipeline';
 import { estadoEfectivoCodigo, estadoEfectivoNombre } from '@/app/lib/estado-mp';
 
 // Colores del badge de estado de Mercado Público (por código efectivo).
@@ -34,6 +34,7 @@ import { InformacionComercialSection } from './InformacionComercialSection';
 import { CosteoEditorCard } from './CosteoEditorCard';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
+import { ComprasSection } from './ComprasSection';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
 import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
@@ -180,7 +181,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'comentarios' | 'costeo' | 'comercial';
+type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'comentarios' | 'costeo' | 'comercial' | 'compras';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -1082,7 +1083,7 @@ function DetalleContent() {
   // La bandeja de aprobación transversal (/aprobaciones) deep-linkea acá con ?seccion=comercial
   // para llevar directo a la pestaña Auditor Técnico. Cualquier valor fuera del catálogo cae al
   // default en vez de dejar la pantalla en un estado inválido.
-  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'comentarios', 'comercial']);
+  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'comentarios', 'comercial', 'compras']);
   const seccionInicial = searchParams.get('seccion') as Seccion | null;
   const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
 
@@ -1338,6 +1339,10 @@ function DetalleContent() {
   // admin mientras se sigue trabajando. El resto del flujo (subir docs, avanzar de etapa,
   // postular) no depende de esto en ningún punto, así que ocultarlo no bloquea nada.
   const hayComercial = isAdmin && tieneInformacionComercial(negocio.estado_pipeline);
+  // "Compras" solo aparece cuando el negocio ganó (Módulo de Compras, spec §3.1: "solo las líneas
+  // efectivamente adjudicadas") y para quien puede operarlo: admin, jefe de ventas (aprobar_comercial)
+  // o un Encargado de Compras (permiso compras) — mismo círculo que gatea la API.
+  const hayCompras = esGanado(negocio.estado_pipeline) && (isAdmin || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial);
   const NAV_SECTIONS: ReadonlyArray<{ key: Seccion; label: string; count: number | null; alerta?: boolean }> = [
     { key: 'resumen',      label: 'Resumen',            count: null },
     { key: 'resultado',    label: 'Resultado',          count: null },
@@ -1357,6 +1362,9 @@ function DetalleContent() {
       : []),
     ...(hayComercial
       ? [{ key: 'comercial' as Seccion, label: 'Auditor Técnico', count: comercialPorAprobar || null, alerta: comercialPorAprobar > 0 }]
+      : []),
+    ...(hayCompras
+      ? [{ key: 'compras' as Seccion, label: 'Compras', count: null }]
       : []),
   ];
 
@@ -1553,6 +1561,9 @@ function DetalleContent() {
                 estadoPipeline={negocio.estado_pipeline}
                 onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)}
               />
+            )}
+            {seccion === 'compras' && hayCompras && (
+              <ComprasSection negocioId={negocio.id} />
             )}
           </div>
         </div>

@@ -32,10 +32,10 @@ import { useToast } from '@/app/components/ui/toast';
 // Cuadro comparativo (venta/costo/utilidad/margen, estimado vs real, distancia al presupuesto):
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
-import { calcularComparativo, recargoParaMargen, margenDeRecargo, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
+import { calcularComparativo, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
 import {
   Calculator, Loader2, Plus, Trash2, RefreshCw, Save, AlertTriangle, ShieldCheck, Sparkles,
-  Maximize2, X, ExternalLink, SplitSquareHorizontal, Combine,
+  Maximize2, X, ExternalLink, SplitSquareHorizontal, Combine, FileSearch, Link2 as LinkIcon,
 } from 'lucide-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
@@ -55,6 +55,11 @@ interface FilaEditor {
   // Costo unitario NETO realmente pagado, cuando se sabe (factura/OC). Alimenta el bloque "REAL"
   // del cuadro comparativo. Vacío mientras no se conozca — nunca se copia del estimado.
   costoRealUnitario: number | null;
+  // Recargo sobre el costo de ESTA fila, en %. null/undefined = hereda el de la hoja, y esa el del
+  // costeo completo. El global sigue siendo el que manda: esto es el clic puntual sobre un ítem
+  // que se vende con otro margen, como en el Excel del asistente (1114-12-LE26: ×2,1 la plataforma
+  // satelital y ×2,0 el sensor, en la misma hoja) — ver FilaEditorCosteo en costeo-editor.ts.
+  margenVenta?: number | null;
   link1: string; link2: string; link3: string;
 }
 // ofertamos: ¿se oferta esta hoja/línea? default true. Apagarla la saca de los totales y de lo
@@ -216,12 +221,30 @@ function calcularFormulas(f: FilaEditor, margenVenta: number) {
 function margenDeGrupo(grp: GrupoEditor, general: number): number {
   return Number.isFinite(grp.margenVenta as number) ? (grp.margenVenta as number) : general;
 }
-
-function totalGrupo(grp: GrupoEditor, margen: number) {
-  return grp.filas.reduce((s, f) => s + (calcularFormulas(f, margen).precioTotal ?? 0), 0);
+/** …y el de UNA fila: el suyo, si no el de su hoja, si no el global. Misma cascada de tres niveles
+ *  que margenDeFila en app/lib/costeo-editor.ts (el backend recalcula todo con ella al guardar). */
+function margenDeFila(f: FilaEditor, grp: GrupoEditor, general: number): number {
+  return Number.isFinite(f.margenVenta as number) ? (f.margenVenta as number) : margenDeGrupo(grp, general);
 }
-function costoGrupo(grp: GrupoEditor, margen: number) {
-  return grp.filas.reduce((s, f) => s + (calcularFormulas(f, margen).costoTotal ?? 0), 0);
+/** El link del producto es obligatorio en toda fila ya COTIZADA (con "Valor c/IVA" cargado): sin
+ *  él, el precio con el que se oferta no tiene de dónde volver a revisarse. Las filas todavía sin
+ *  cotizar se pueden guardar igual — el costeo se llena de a poco. Espejo de filasSinLink en
+ *  app/lib/costeo-editor.ts, que es donde el guardado se corta de verdad. */
+function faltaLink(f: FilaEditor): boolean {
+  return f.valorConIva != null && !esLinkDeProducto(f.link1) && !esLinkDeProducto(f.link2) && !esLinkDeProducto(f.link3);
+}
+
+/** ¿Cuántas filas de la hoja tienen recargo propio? Solo para avisarlo en el cuadro comparativo:
+ *  ahí el "% Margen" es un promedio ponderado y no coincide con ningún número tipeado. */
+function filasConMargenPropio(grp: GrupoEditor): number {
+  return grp.filas.filter(f => Number.isFinite(f.margenVenta as number)).length;
+}
+
+function totalGrupo(grp: GrupoEditor, general: number) {
+  return grp.filas.reduce((s, f) => s + (calcularFormulas(f, margenDeFila(f, grp, general)).precioTotal ?? 0), 0);
+}
+function costoGrupo(grp: GrupoEditor, general: number) {
+  return grp.filas.reduce((s, f) => s + (calcularFormulas(f, margenDeFila(f, grp, general)).costoTotal ?? 0), 0);
 }
 /** ¿Qué tope (presupuesto NETO) le corresponde a ESTA hoja? En la mayoría de las licitaciones el
  *  presupuesto se publica POR LÍNEA y el global es solo la suma, así que comparar una línea contra
@@ -258,7 +281,7 @@ function costoRealGrupo(grp: GrupoEditor) {
 // grueso, celdas con fórmula con un tinte gris que las distingue de las que se tipean a mano.
 const GRID_BORDE = '#d0d3d8';
 const FUENTE_HOJA = "Calibri, 'Segoe UI', Arial, sans-serif";
-const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P'];
+const LETRAS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q'];
 
 function celdaInput(extra = '') {
   return `w-full h-full bg-transparent text-[12.5px] px-1.5 py-1 outline-none disabled:opacity-60 ` +
@@ -276,6 +299,47 @@ function CeldaNumero({ value, onChange, disabled }: {
       disabled={disabled}
       className={celdaInput('text-right tabular-nums')}
       placeholder=""
+    />
+  );
+}
+
+/** Recargo de UNA fila. Vacía = hereda (muestra en gris el que le toca por la hoja/el costeo
+ *  completo); con número propio queda en azul, para que se vea de un vistazo cuál se tocó a mano.
+ *
+ *  Lo tipeado lo lee parsearRecargo (acepta "110" y también "x2,1", que es como está escrito en el
+ *  Excel del asistente). Se confirma con Enter o al salir, no en cada tecla: escribiendo "110" el
+ *  paso intermedio "1" recalcularía la fila por un instante. Borrar el contenido devuelve la fila
+ *  a lo que mande el costeo completo. */
+function CeldaMargenFila({ propio, efectivo, onChange, disabled }: {
+  propio: number | null;                 // el recargo tipeado en ESTA fila (null = hereda)
+  efectivo: number;                      // el que se está aplicando de verdad
+  onChange: (v: number | null) => void;
+  disabled?: boolean;
+}) {
+  const [borrador, setBorrador] = useState<string | null>(null);
+  const txtDe = (n: number) => (Math.round(n * 100) / 100).toString().replace('.', ',');
+  const confirmar = () => {
+    const txt = borrador;
+    setBorrador(null);
+    if (txt == null) return;
+    const r = parsearRecargo(txt);
+    if (r === undefined) return;                                 // basura: se descarta, queda lo que había
+    onChange(r);                                                 // null = vaciar, vuelve a heredar
+  };
+  return (
+    <input
+      value={borrador ?? (propio == null ? '' : txtDe(propio))}
+      disabled={disabled}
+      onChange={e => setBorrador(e.target.value)}
+      onBlur={confirmar}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setBorrador(null); }}
+      placeholder={txtDe(efectivo)}
+      title={propio == null
+        ? `Hereda ${txtDe(efectivo)}% del costeo completo (×${(1 + efectivo / 100).toFixed(2).replace('.', ',')}). Escribe un número acá para venderle a ESTE ítem con otro margen — también vale "x2,1". Vacío = vuelve a heredar.`
+        : `Margen propio de este ítem: ${txtDe(propio)}% sobre el costo (×${(1 + propio / 100).toFixed(2).replace('.', ',')}) = ${margenDeRecargo(propio).toFixed(1).replace('.', ',')}% sobre la venta. Borra la celda para volver al del costeo completo.`}
+      className={`w-full h-full bg-transparent text-right text-[12.5px] tabular-nums px-1.5 py-1 outline-none disabled:opacity-60 ` +
+        `focus:ring-2 focus:ring-inset focus:ring-[#1a73e8] focus:bg-[#e8f0fe]/40 ` +
+        (propio == null ? 'text-zinc-400 placeholder:text-zinc-400' : 'font-semibold text-[#1a73e8]')}
     />
   );
 }
@@ -399,7 +463,7 @@ function InputDecimalCL({ valor, onFijar, disabled, className, title }: {
   );
 }
 
-function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupuesto, congelado, apagada, recargo, recargoPropio, onMargenObjetivo, ancho = false }: {
+function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupuesto, congelado, apagada, recargo, recargoPropio, itemsConRecargoPropio, onMargenObjetivo, ancho = false }: {
   comp: Comparativo;
   titulo: string;                                   // qué línea/hoja es este cuadro
   fuente: 'manual' | 'linea' | 'global' | null;     // de dónde salió el tope que se está usando
@@ -409,6 +473,7 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
   apagada: boolean;                                 // hoja marcada "no ofertamos"
   recargo: number;                                  // % sobre el costo con que vende esta hoja
   recargoPropio: boolean;                           // ¿es suyo, o heredado del costeo completo?
+  itemsConRecargoPropio: number;                    // filas que se venden con SU propio recargo
   onMargenObjetivo: (m: number) => void;            // fijar el margen s/venta → despeja el recargo
   /** DEBAJO de la planilla en vez de al costado (pantalla completa). Los tres bloques se reparten
    *  en columnas que se adaptan al ancho, en vez de apilarse en una tira de 268 px: en un notebook
@@ -457,6 +522,14 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
       <p className="text-[10px] text-zinc-400 px-1 -mt-1.5">
         Recargo s/costo {recargo.toFixed(recargo % 1 === 0 ? 0 : 1).replace('.', ',')}%
         {recargoPropio ? ' · propio de esta hoja' : ' · del costeo completo'}
+        {/* Con ítems de margen propio el "% Margen s/venta" de arriba es el promedio ponderado de
+            la hoja, no el recargo de ninguna fila en particular — y fijarlo a mano no toca esas
+            filas (son una decisión explícita). Se avisa acá para que el número no confunda. */}
+        {itemsConRecargoPropio > 0 && (
+          <span className="text-[#1a73e8]" title="Esos ítems tienen su propio recargo en la columna '% margen' de la planilla y no cambian al fijar el margen de acá. Borra esa celda para devolverlos al margen del costeo.">
+            {' '}· {itemsConRecargoPropio} ítem{itemsConRecargoPropio === 1 ? '' : 's'} con margen propio
+          </span>
+        )}
       </p>
       </div>
 
@@ -547,6 +620,9 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
   const [alertas, setAlertas] = useState<Alerta[] | null>(null);
   const [ultimoGuardado, setUltimoGuardado] = useState<string | null>(null);
   const [pantallaCompleta, setPantallaCompleta] = useState(false);
+  // Fichas técnicas en proceso (04-sep-2026) — por id de fila, no un solo booleano: varias filas
+  // pueden estar generando su ficha a la vez, cada una independiente.
+  const [generandoFicha, setGenerandoFicha] = useState<Set<string>>(new Set());
 
   const cargar = useCallback(async () => {
     try {
@@ -612,6 +688,33 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
       });
       return { ...prev, grupos };
     });
+  };
+
+  // Ficha técnica del producto desde su link (04-sep-2026) — usa el PRIMER link no vacío de la
+  // fila (link1 → link2 → link3, en ese orden); el backend hace la extracción y sube el PDF a
+  // Documentos Propios. No inventa nada: si la tienda no trae datos técnicos aprovechables, el
+  // endpoint responde error y acá solo se avisa, sin subir un PDF vacío.
+  const generarFichaProducto = async (f: FilaEditor) => {
+    const link = f.link1?.trim() || f.link2?.trim() || f.link3?.trim();
+    if (!link) { toast.info('Esta fila no tiene ningún link cargado'); return; }
+    if (!f.detalle?.trim()) { toast.info('Esta fila no tiene descripción de producto'); return; }
+    setGenerandoFicha(prev => new Set(prev).add(f.id));
+    try {
+      const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor/ficha-producto`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ detalle: f.detalle, link }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo generar la ficha técnica'); return; }
+      const detalleExito = d.especificaciones > 0
+        ? `${d.especificaciones} especificación${d.especificaciones === 1 ? '' : 'es'}`
+        : d.tieneDescripcionLibre ? 'descripción del proveedor (sin tabla de specs)' : '';
+      toast.success(`Ficha generada — ${d.nombre}`, detalleExito || undefined);
+    } catch (e: any) {
+      toast.error(e?.message || 'Error de red al generar la ficha');
+    } finally {
+      setGenerandoFicha(prev => { const next = new Set(prev); next.delete(f.id); return next; });
+    }
   };
 
   const recargarDesdeViabilidad = async () => {
@@ -683,9 +786,19 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
   const gruposOfertados = grupos.filter(g => g.ofertamos);
   // Cada hoja vende con SU recargo (o el general si no tiene uno propio) — igual que el Excel, que
   // usa ×1,25 en una canasta y ×1,34 en la otra.
-  const totalGeneral = gruposOfertados.reduce((s, grp) => s + totalGrupo(grp, margenDeGrupo(grp, margen)), 0);
-  const costoGeneral = gruposOfertados.reduce((s, grp) => s + costoGrupo(grp, margenDeGrupo(grp, margen)), 0);
-  const hayMargenPropio = grupos.some(grp => Number.isFinite(grp.margenVenta as number));
+  const totalGeneral = gruposOfertados.reduce((s, grp) => s + totalGrupo(grp, margen), 0);
+  const costoGeneral = gruposOfertados.reduce((s, grp) => s + costoGrupo(grp, margen), 0);
+  // ¿Alguien pisó el recargo global más adentro? (una hoja, o un ítem suelto). Solo cambia cómo se
+  // rotula el número de arriba: pasa a ser la BASE de la que cuelgan las excepciones, no "el"
+  // recargo del costeo.
+  const hojasConMargenPropio = grupos.filter(grp => Number.isFinite(grp.margenVenta as number)).length;
+  const itemsConMargenPropio = grupos.reduce((n, grp) => n + filasConMargenPropio(grp), 0);
+  const hayMargenPropio = hojasConMargenPropio > 0 || itemsConMargenPropio > 0;
+  // Ítems cotizados a los que les falta el link — el guardado queda bloqueado hasta completarlos
+  // (el backend corta igual, ver filasSinLink). Solo se miran las hojas que SÍ se ofertan.
+  const sinLink = gruposOfertados.flatMap(grp =>
+    grp.filas.filter(faltaLink).map(f => ({ hoja: grp.nombre, detalle: (f.detalle || '').trim() || `fila ${f.item}` })),
+  );
   // ¿Vale la pena ofrecer "Separar por línea"? Solo si sigue todo en una sola hoja, esa hoja
   // mezcla ≥2 líneas reales distintas, Y ADEMÁS al menos 2 de esas líneas tienen su PROPIO
   // presupuesto independiente (presupuestosPorLinea) — la señal real de que las bases las tratan
@@ -714,8 +827,8 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
     const { valor, fuente } = presupuestoDeHoja(grp, grupos, presupuestosPorLinea, presupuestoPublicado);
     const recargo = margenDeGrupo(grp, margen);
     const comp = calcularComparativo({
-      ventaNeta: totalGrupo(grp, recargo),
-      costoNetoEstimado: costoGrupo(grp, recargo),
+      ventaNeta: totalGrupo(grp, margen),
+      costoNetoEstimado: costoGrupo(grp, margen),
       costoNetoReal: costoRealGrupo(grp),
       filasConCostoReal: filas.filter(f => f.costoRealUnitario != null).length,
       filasTotales: filas.length,
@@ -733,6 +846,7 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
         congelado={congelado}
         recargo={recargo}
         recargoPropio={Number.isFinite(grp.margenVenta as number)}
+        itemsConRecargoPropio={filasConMargenPropio(grp)}
         onPresupuesto={v => setEstado(prev => prev ? {
           ...prev, grupos: prev.grupos.map((x, i) => i !== gi ? x : { ...x, presupuestoNeto: v }),
         } : prev)}
@@ -781,9 +895,12 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
             %
             {/* margen sobre la venta = recargo / (1 + recargo) — el mismo número que sale en el
                 cuadro comparativo, dicho acá para que no parezcan dos cifras en desacuerdo. */}
-            <span className="text-[10.5px] font-normal text-zinc-400" title="Equivalencia: un recargo del 25% sobre el costo deja una utilidad del 20% sobre la venta. Las hojas con recargo propio no siguen este número.">
+            <span className="text-[10.5px] font-normal text-zinc-400" title="Equivalencia: un recargo del 25% sobre el costo deja una utilidad del 20% sobre la venta. Las hojas —y los ítems— con recargo propio no siguen este número.">
               = {margenDeRecargo(margen).toFixed(1).replace('.', ',')}% s/venta
-              {hayMargenPropio && ' · hay hojas con recargo propio'}
+              {hayMargenPropio && ` · ${[
+                hojasConMargenPropio ? `${hojasConMargenPropio} hoja${hojasConMargenPropio === 1 ? '' : 's'}` : '',
+                itemsConMargenPropio ? `${itemsConMargenPropio} ítem${itemsConMargenPropio === 1 ? '' : 's'}` : '',
+              ].filter(Boolean).join(' y ')} con recargo propio`}
             </span>
           </label>
           <button
@@ -797,7 +914,10 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
           </button>
           <button
             onClick={guardar}
-            disabled={guardando || congelado || !dirty}
+            disabled={guardando || congelado || !dirty || sinLink.length > 0}
+            title={sinLink.length > 0
+              ? `Falta el link del producto en ${sinLink.length} ítem(s) ya cotizado(s). Pégalo en la columna Link 1 de cada uno para poder guardar.`
+              : undefined}
             className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-40"
           >
             {guardando ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
@@ -825,6 +945,22 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
           <span className="text-zinc-400">({grupos.length - gruposOfertados.length} línea(s) apagada(s), no cuentan)</span>
         )}
       </div>
+
+      {/* Todo ítem cotizado tiene que decir DE DÓNDE salió su precio. Se avisa acá, con nombre y
+          apellido de los que faltan, en vez de dejar que el usuario descubra el bloqueo recién al
+          apretar Guardar. */}
+      {!congelado && sinLink.length > 0 && (
+        <div className="mt-2 flex items-start gap-2 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+          <LinkIcon size={13} className="text-rose-500 flex-shrink-0 mt-0.5" />
+          <p className="text-[11.5px] text-rose-800 flex-1">
+            <span className="font-semibold">Falta el link del producto en {sinLink.length} ítem(s) cotizado(s).</span>{' '}
+            Pega en <span className="font-semibold">Link 1</span> la página donde cotizaste cada uno — sin eso no se puede guardar el costeo.
+            <span className="block text-[11px] text-rose-600/90 mt-0.5">
+              {sinLink.slice(0, 4).map(f => f.detalle.slice(0, 45)).join(' · ')}{sinLink.length > 4 ? ` · y ${sinLink.length - 4} más` : ''}
+            </span>
+          </p>
+        </div>
+      )}
 
       {/* Las bases pueden armar canastas/líneas con total propio aunque el análisis haya
           clasificado la licitación como global — caso real 1271359-92-LE26. Separar deja cada
@@ -861,14 +997,12 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
 
   const giActivo = Math.min(grupoActivo, grupos.length - 1);
   const g = grupos[giActivo];
-  // Las filas y los totales de la hoja abierta se calculan con EL RECARGO DE ESA HOJA.
-  const margenHoja = margenDeGrupo(g, margen);
 
   // ── La "hoja" ────────────────────────────────────────────────────────────────────────────
   const Hoja = (
     <div className="border border-[#c6c6c6] bg-white shadow-sm flex-1 min-h-0 min-w-0 flex flex-col" style={{ fontFamily: FUENTE_HOJA }}>
       <div className="overflow-auto flex-1">
-        <table className="border-collapse w-full" style={{ minWidth: 1380 }}>
+        <table className="border-collapse w-full" style={{ minWidth: 1452 }}>
           <colgroup>
             <col style={{ width: 34 }} />{/* # de fila */}
             <col style={{ width: 56 }} />{/* A Línea */}
@@ -879,14 +1013,15 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
             <col style={{ width: 100 }} />{/* F Valor c/IVA */}
             <col style={{ width: 96 }} />{/* G Costo unit. neto */}
             <col style={{ width: 96 }} />{/* H Costo total neto */}
-            <col style={{ width: 96 }} />{/* I Precio unit. venta */}
-            <col style={{ width: 100 }} />{/* J Precio total neto */}
-            <col style={{ width: 104 }} />{/* K Costo unitario REAL */}
-            <col style={{ width: 104 }} />{/* L Costo total neto REAL */}
-            <col style={{ width: 78 }} />{/* M VARIACION */}
-            <col style={{ width: 100 }} />{/* N Link 1 */}
-            <col style={{ width: 100 }} />{/* O Link 2 */}
-            <col style={{ width: 100 }} />{/* P Link 3 */}
+            <col style={{ width: 72 }} />{/* I % margen (por fila) */}
+            <col style={{ width: 96 }} />{/* J Precio unit. venta */}
+            <col style={{ width: 100 }} />{/* K Precio total neto */}
+            <col style={{ width: 104 }} />{/* L Costo unitario REAL */}
+            <col style={{ width: 104 }} />{/* M Costo total neto REAL */}
+            <col style={{ width: 78 }} />{/* N VARIACION */}
+            <col style={{ width: 100 }} />{/* O Link 1 */}
+            <col style={{ width: 100 }} />{/* P Link 2 */}
+            <col style={{ width: 100 }} />{/* Q Link 3 */}
             <col style={{ width: 28 }} />{/* borrar fila */}
           </colgroup>
           <thead className="sticky top-0 z-10">
@@ -903,7 +1038,13 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
               {([
                 ['Línea', ''], ['Detalle de producto', ''], ['Unidad', ''], ['Sku proveedor', ''],
                 ['Cantidad', ''], ['Valor c/IVA', ''],
-                ['Costo unit. neto', ''], ['Costo total neto', ''], ['Precio unit. venta', ''], ['Precio total neto', ''],
+                ['Costo unit. neto', ''], ['Costo total neto', ''],
+                // Margen POR ÍTEM: normalmente vacío (hereda el del costeo completo, que es el que
+                // manda). Se llena solo cuando un producto se vende con otro recargo, como en el
+                // Excel del asistente — 1114-12-LE26 tiene =G4*2.1 en la plataforma satelital y
+                // =G5*2 en el sensor, en la misma hoja.
+                ['% margen', 'Recargo sobre el costo de ESTE ítem. Vacío = usa el margen del costeo completo (el número gris es el que se está aplicando). Escribe otro número —o "x2,1"— para venderle a este ítem con margen propio.'],
+                ['Precio unit. venta', ''], ['Precio total neto', ''],
                 // Único encabezado con tooltip propio: es la ÚNICA columna que se tipea a mano en
                 // esta sección y de la que depende todo el bloque "COMPARATIVO REAL" del costado —
                 // el usuario no la ubicaba porque el aviso de ese bloque la nombraba al revés
@@ -917,7 +1058,9 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
           </thead>
           <tbody>
             {g.filas.map((f, fi) => {
-              const { costoUnitario, costoTotal, precioUnitarioSinDecimales, precioTotal } = calcularFormulas(f, margenHoja);
+              const margenFila = margenDeFila(f, g, margen);
+              const leFaltaLink = g.ofertamos && faltaLink(f);
+              const { costoUnitario, costoTotal, precioUnitarioSinDecimales, precioTotal } = calcularFormulas(f, margenFila);
               const bajoCosto = costoTotal != null && precioTotal != null && precioTotal < costoTotal;
               // VARIACIÓN de la fila — misma fórmula que la columna N del Excel: =(L/G)−1, en %.
               const variacion = f.costoRealUnitario != null && costoUnitario ? (f.costoRealUnitario / costoUnitario - 1) * 100 : null;
@@ -942,7 +1085,17 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
                   <td style={celda} className="p-0"><CeldaNumero value={f.valorConIva} onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={congelado} /></td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Valor c/IVA / 1.19">{fmtCLP(costoUnitario != null ? Math.round(costoUnitario) : null)}</td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Cantidad × Costo unitario">{fmtCLP(costoTotal)}</td>
-                  <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title={`= Costo unitario × (1 + ${margenHoja}%)`}>{fmtCLP(precioUnitarioSinDecimales)}</td>
+                  {/* Margen de ESTA fila — la única celda de la cadena de fórmulas que se puede
+                      pisar a mano. Vacía = hereda; con número propio, azul. */}
+                  <td style={{ ...celda, background: f.margenVenta != null ? '#e8f0fe' : undefined }} className="p-0">
+                    <CeldaMargenFila
+                      propio={Number.isFinite(f.margenVenta as number) ? (f.margenVenta as number) : null}
+                      efectivo={margenFila}
+                      onChange={v => actualizarFila(grupoActivo, fi, { margenVenta: v })}
+                      disabled={congelado}
+                    />
+                  </td>
+                  <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title={`= Costo unitario × (1 + ${margenFila}%)`}>{fmtCLP(precioUnitarioSinDecimales)}</td>
                   <td style={celdaFormula} className={`px-1.5 text-right text-[12.5px] font-semibold tabular-nums ${bajoCosto ? 'text-rose-600' : 'text-emerald-700'}`} title="= Cantidad × Precio unitario">{fmtCLP(precioTotal)}</td>
                   {/* "SECCIÓN COMPRAS" del Excel (columnas L, M y N de la plantilla real): el costo
                       unitario REAL se tipea cuando llega la factura/OC —es el único dato del cuadro
@@ -955,10 +1108,30 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Cantidad × Costo unitario REAL">{fmtCLP(costoRealFila(f))}</td>
                   <td style={celdaFormula} className={`px-1.5 text-right text-[12.5px] tabular-nums font-semibold ${variacion == null ? 'text-zinc-400' : variacion > 0 ? 'text-rose-600' : 'text-emerald-700'}`}
                       title="= (Costo unitario REAL / Costo unitario neto) − 1. Positivo = salió más caro de lo cotizado.">{fmtPct(variacion)}</td>
-                  <td style={celda} className="p-0"><CeldaLink value={f.link1} onChange={v => actualizarFila(grupoActivo, fi, { link1: v })} disabled={congelado} label="Link 1" /></td>
+                  {/* Link 1 en rojo mientras la fila esté cotizada y sin respaldo: es la celda que
+                      hay que llenar para poder guardar (ver faltaLink). */}
+                  <td style={{ ...celda, background: leFaltaLink ? '#fdeceb' : undefined }} className="p-0"
+                      title={leFaltaLink ? 'Este ítem ya tiene precio pero no dice de dónde salió. Pega acá el link del producto — sin eso el costeo no se guarda.' : undefined}>
+                    <CeldaLink value={f.link1} onChange={v => actualizarFila(grupoActivo, fi, { link1: v })} disabled={congelado} label={leFaltaLink ? 'Falta el link' : 'Link 1'} />
+                  </td>
                   <td style={celda} className="p-0"><CeldaLink value={f.link2} onChange={v => actualizarFila(grupoActivo, fi, { link2: v })} disabled={congelado} label="Link 2" /></td>
                   <td style={celda} className="p-0"><CeldaLink value={f.link3} onChange={v => actualizarFila(grupoActivo, fi, { link3: v })} disabled={congelado} label="Link 3" /></td>
-                  <td style={{ border: `1px solid ${GRID_BORDE}` }} className="text-center">
+                  <td style={{ border: `1px solid ${GRID_BORDE}` }} className="text-center whitespace-nowrap">
+                    {(f.link1 || f.link2 || f.link3) && (
+                      generandoFicha.has(f.id) ? (
+                        <span className="inline-block p-0.5 text-indigo-400" title="Generando ficha técnica…">
+                          <Loader2 size={11} className="animate-spin" />
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => generarFichaProducto(f)}
+                          title="Generar ficha técnica desde el primer link cargado (sube un PDF a Documentos Propios)"
+                          className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-300 hover:text-indigo-600 transition-opacity"
+                        >
+                          <FileSearch size={11} />
+                        </button>
+                      )
+                    )}
                     {!congelado && (
                       <button onClick={() => eliminarFila(grupoActivo, fi)} className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-300 hover:text-rose-600 transition-opacity">
                         <Trash2 size={11} />
@@ -969,7 +1142,7 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
               );
             })}
             {g.filas.length === 0 && (
-              <tr><td colSpan={18} className="px-4 py-6 text-center text-zinc-400 text-[12px]" style={{ border: `1px solid ${GRID_BORDE}` }}>Sin ítems en esta hoja</td></tr>
+              <tr><td colSpan={19} className="px-4 py-6 text-center text-zinc-400 text-[12px]" style={{ border: `1px solid ${GRID_BORDE}` }}>Sin ítems en esta hoja</td></tr>
             )}
             {/* Fila de totales — mismo lugar que la fila SUMA() de la plantilla de Excel. Cada
                 suma queda justo bajo SU columna (Costo total neto / Precio total neto). */}
@@ -977,15 +1150,15 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
               <td className="text-[11px] text-zinc-400 text-center" style={{ border: `1px solid ${GRID_BORDE}`, background: '#f3f2f1', height: 26 }}>{g.filas.length + 2}</td>
               <td colSpan={6} className="px-1.5 text-[11.5px] font-bold text-zinc-500" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }}>TOTALES DE ESTA HOJA</td>
               <td style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
-              <td className="px-1.5 text-right text-[12.5px] font-bold text-zinc-800 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(costoGrupo(g, margenHoja))}</td>
-              <td style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
-              <td className="px-1.5 text-right text-[12.5px] font-bold text-emerald-700 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(totalGrupo(g, margenHoja))}</td>
+              <td className="px-1.5 text-right text-[12.5px] font-bold text-zinc-800 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(costoGrupo(g, margen))}</td>
+              <td colSpan={2} style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
+              <td className="px-1.5 text-right text-[12.5px] font-bold text-emerald-700 tabular-nums" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{fmtCLP(totalGrupo(g, margen))}</td>
               <td style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
               <td className="px-1.5 text-right text-[12.5px] font-bold text-amber-700 tabular-nums" title="Costo REAL total de esta hoja (solo las filas que ya tienen costo real cargado)" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>{costoRealGrupo(g) > 0 ? fmtCLP(costoRealGrupo(g)) : '—'}</td>
               {/* Variación de la hoja: sobre los TOTALES, no el promedio de las filas (el AVERAGE
                   del Excel le da el mismo peso a un ítem de $80.000 que a uno de $3.000.000). */}
               <td className="px-1.5 text-right text-[12.5px] font-bold tabular-nums text-zinc-600" title="= (Costo total REAL / Costo total neto) − 1, sobre los totales de la hoja" style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5', borderTop: `2px solid ${GRID_BORDE}` }}>
-                {costoRealGrupo(g) > 0 && costoGrupo(g, margenHoja) > 0 ? fmtPct((costoRealGrupo(g) / costoGrupo(g, margenHoja) - 1) * 100) : '—'}
+                {costoRealGrupo(g) > 0 && costoGrupo(g, margen) > 0 ? fmtPct((costoRealGrupo(g) / costoGrupo(g, margen) - 1) * 100) : '—'}
               </td>
               <td colSpan={4} style={{ border: `1px solid ${GRID_BORDE}`, background: '#eef1f5' }} />
             </tr>

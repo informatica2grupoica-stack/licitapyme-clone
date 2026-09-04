@@ -89,11 +89,16 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //                       app/api/cron/viabilidad-perfil/route.ts. Empieza con un solo perfil
 //                       (el "Asesor") para validar que no dispare falsos positivos de costo/calidad
 //                       antes de ofrecerlo a todos.
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente';
+//   compras           → candidato a "Encargado de Compras" (Módulo de Compras, sep-2026): entra al
+//                       pool de asignación (manual por jefe de ventas, o automática por menor carga
+//                       si vence el plazo de 3h hábiles) y puede operar las tareas del negocio una
+//                       vez ganado. "Jefe de ventas" reusa `aprobar_comercial` (ya es quien aprueba
+//                       el negocio comercial) — no se creó un permiso nuevo para eso.
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
-  aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true, repartir_puente: true,
+  aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true, repartir_puente: true, compras: true,
 };
 
 /** Lee los permisos efectivos de un usuario por id+rol. Admin → todos. Tolera columna ausente. */

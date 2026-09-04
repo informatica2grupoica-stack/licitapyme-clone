@@ -29,6 +29,7 @@ import { enviarAvisoOrdenesCompra } from '@/app/lib/email';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { MP_UA, fetchMPConReintentos } from '@/app/lib/mp-adjuntos';
+import { vincularOrdenCompraDeMP } from '@/app/lib/compras';
 import type { OrdenCompraAPI } from '@/app/types/mercado-publico.types';
 
 // Códigos de estado de la API (documentación de ChileCompra). Se guardan los dos: el código es
@@ -146,7 +147,8 @@ export interface ResumenSync {
  * Pensado para el cron diario. Es idempotente: correrlo dos veces no duplica avisos.
  */
 export async function sincronizarOrdenesCompra(
-  { dias = DIAS_BARRIDO_POR_DEFECTO, avisar = true }: { dias?: number; avisar?: boolean } = {},
+  { dias = DIAS_BARRIDO_POR_DEFECTO, avisar = true, soloProveedor = false }:
+  { dias?: number; avisar?: boolean; soloProveedor?: boolean } = {},
 ): Promise<ResumenSync> {
   const resumen: ResumenSync = {
     diasBarridos: 0, candidatas: 0, nuevas: 0, cambiosEstado: 0, deTerceros: 0,
@@ -192,7 +194,12 @@ export async function sincronizarOrdenesCompra(
 
   // 1b) Barrido del listado diario, cruzando por el nombre. Es la vía que funciona sin haber
   //     configurado nada, y la única que encuentra la PRIMERA orden de una empresa nueva.
-  for (let i = 0; i < dias; i++) {
+  //
+  //     `soloProveedor` la SALTA. Es para la corrida frecuente del Módulo de Compras (§3.6: la
+  //     orden de compra tiene que aparecer apenas llega, no al día siguiente): la vía directa por
+  //     proveedor son 2 llamadas —una por empresa— contra las ~16.000 órdenes que hay que bajar y
+  //     recorrer por cada día de barrido. Eso se puede correr cada 20 minutos; el barrido no.
+  for (let i = 0; !soloProveedor && i < dias; i++) {
     const fecha = new Date(Date.now() - i * 86_400_000);
     try {
       const lista = await cli.listarOrdenesCompraDelDia(fecha);
@@ -263,6 +270,25 @@ export async function sincronizarOrdenesCompra(
     if (codProv && empresa) proveedoresDescubiertos.set(empresa.id, codProv);
 
     if (negocio) avisos.push({ oc, negocio, esNueva, estadoAnterior });
+
+    // ── Módulo de Compras (§3.6) ──────────────────────────────────────────────────────────
+    // Si esta licitación ya está GANADA y abierta en Compras, la orden se carga sola en su ficha
+    // y se avisa al encargado. Antes los dos módulos se ignoraban: el sistema traía la OC desde MP
+    // todos los días, y al mismo tiempo la pestaña Compras pedía que alguien fuera al portal a
+    // copiar el número, la fecha y el monto a mano.
+    // Best-effort y ordenado: nunca frena la sincronización de órdenes.
+    if (esNuestra && licitacionCodigo) {
+      await vincularOrdenCompraDeMP(licitacionCodigo, {
+        codigo: oc.Codigo!,
+        estado: (oc as any).Estado || ESTADOS_OC[Number(oc.CodigoEstado)] || null,
+        // "Emitida" para Compras es cuando SALIÓ hacia nosotros; si el organismo no registró el
+        // envío, se cae a la fecha de creación.
+        fechaEmision: soloFecha(oc.Fechas?.FechaEnvio) || soloFecha(oc.Fechas?.FechaCreacion),
+        fechaAceptacion: soloFecha(oc.Fechas?.FechaAceptacion),
+        total: num(oc.Total),
+        totalNeto: num(oc.TotalNeto),
+      });
+    }
   }
 
   for (const [empresaId, codProv] of proveedoresDescubiertos) {
@@ -297,6 +323,13 @@ export async function sincronizarOrdenesCompra(
   }
 
   return resumen;
+}
+
+/** La parte de fecha (YYYY-MM-DD) de lo que venga de MP. Las columnas de la OC del cliente en
+ *  compras_asignacion son DATE: guardar ahí un datetime completo no aporta y complica la lectura. */
+function soloFecha(v: unknown): string | null {
+  const t = fechaMySQL(v);
+  return t ? t.slice(0, 10) : null;
 }
 
 async function guardarOrdenCompra(

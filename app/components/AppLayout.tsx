@@ -278,6 +278,9 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   // Badge del "Puente": cuántas licitaciones esperan reparto. Igual que Aprobaciones, solo se
   // consulta si el perfil puede usarlo.
   const puedeRepartir = usuario?.rol === 'admin' || !!usuario?.permisos?.repartir_puente;
+  // Compras: jefe de ventas (aprobar_comercial) y Encargado de Compras (permiso `compras`), no
+  // solo admin — mismo criterio que la API (app/lib/compras.ts).
+  const puedeVerCompras = usuario?.rol === 'admin' || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
   const [totalPuente, setTotalPuente] = useState(0);
   useEffect(() => {
     if (!puedeRepartir) return;
@@ -318,6 +321,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (i.href === '/aprobaciones' && puedeAprobar) return true;
       if (i.href === '/puente' && puedeRepartir) return true;
       if (i.href === '/entregas' && puedeVerEntregas) return true;
+      if (i.href === '/compras' && puedeVerCompras) return true;
       return false;
     }),
   })).map(group => ({

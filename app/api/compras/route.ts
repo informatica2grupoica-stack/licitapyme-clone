@@ -1,10 +1,13 @@
 // app/api/compras/route.ts
-// MÓDULO COMPRAS (Auditor Técnico, Fase 7, spec §12.2/12.3) — lista los negocios ya congelados
-// (postulados) con su paquete de traspaso completo. Es deliberadamente de SOLO LECTURA: el
-// paquete ya quedó fijo al congelar (app/lib/congelamiento.ts); este endpoint solo lo expone.
-// Vista transversal (admin), igual patrón que /api/aprobaciones.
+// MÓDULO DE COMPRAS — listado transversal (pantalla /compras): un negocio ganado por fila, con su
+// asignación (encargado, plazo de 3h hábiles, urgencia) y el avance de sus tareas. Toda la lógica
+// vive en app/lib/compras.ts.
+//
+// Visible para: admin, jefe de ventas (permiso aprobar_comercial) y Encargado de Compras (permiso
+// compras) — el mismo círculo que puede operar el módulo, no solo mirarlo.
 import { NextRequest, NextResponse } from 'next/server';
-import pool from '@/app/lib/db';
+import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { listarAsignacionesCompras, candidatosEncargado } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -15,46 +18,24 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
+async function puedeVerCompras(userId: number, rol: string | null): Promise<boolean> {
+  if (rol === 'admin') return true;
+  const p = await permisosDeUsuario(userId, rol);
+  return !!(p.compras || p.aprobar_comercial);
+}
+
 export async function GET(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (rol !== 'admin') return NextResponse.json({ error: 'Solo administradores.' }, { status: 403 });
+  if (!(await puedeVerCompras(userId, rol))) return NextResponse.json({ error: 'Sin acceso a Compras.' }, { status: 403 });
 
   try {
-    const [rows] = await pool.query(
-      // DATE_FORMAT en SQL (no String(Date) en JS): mismo criterio que entrega-proyecto.ts —
-      // el toString() de JS arrastra locale/zona; formatear en SQL entrega el instante exacto.
-      `SELECT c.negocio_id, DATE_FORMAT(c.congelado_at, '%Y-%m-%d %H:%i:%s') AS congelado_at,
-              c.congelado_por, c.congelado_por_nombre, c.paquete_traspaso,
-              n.licitacion_codigo, n.licitacion_nombre, n.licitacion_organismo, n.asignado_a,
-              u.nombre AS asignado_nombre, u.email AS asignado_email
-         FROM checklist_comercial_congelamiento c
-         JOIN negocios n ON n.id = c.negocio_id
-         LEFT JOIN usuarios u ON u.id = n.asignado_a
-        ORDER BY c.congelado_at DESC`,
-    ) as any;
-
-    const paquetes = (rows as any[]).map(r => ({
-      negocioId: r.negocio_id,
-      licitacionCodigo: r.licitacion_codigo,
-      licitacionNombre: r.licitacion_nombre,
-      licitacionOrganismo: r.licitacion_organismo,
-      asignadoId: r.asignado_a,
-      asignadoNombre: r.asignado_nombre,
-      asignadoEmail: r.asignado_email,
-      congeladoAt: r.congelado_at,
-      congeladoPorId: r.congelado_por,
-      congeladoPorNombre: r.congelado_por_nombre,
-      paquete: typeof r.paquete_traspaso === 'string' ? JSON.parse(r.paquete_traspaso) : r.paquete_traspaso,
-    }));
-
-    return NextResponse.json({ success: true, paquetes });
+    const [filas, candidatos] = await Promise.all([listarAsignacionesCompras(), candidatosEncargado()]);
+    return NextResponse.json({ success: true, negocios: filas, candidatos });
   } catch (error: any) {
     console.error('[compras][GET]', String(error));
-    // Solo la migración 55 pendiente (tabla inexistente) degrada a lista vacía.
-    // Cualquier otro error de BD (timeout, conexión, etc.) debe verse como error real.
     if (error?.code === 'ER_NO_SUCH_TABLE') {
-      return NextResponse.json({ success: true, paquetes: [], migracionPendiente: true });
+      return NextResponse.json({ success: true, negocios: [], migracionPendiente: true });
     }
     return NextResponse.json({ error: 'No se pudo cargar Compras.' }, { status: 500 });
   }

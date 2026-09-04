@@ -30,6 +30,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { construirDesdeLicitacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
 import { abrirEntregaSiCorresponde } from '@/app/lib/entrega-proyecto';
+import { abrirComprasSiCorresponde } from '@/app/lib/compras';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { idsEquivalentes, normalizarEstado } from '@/app/lib/pipeline';
 import { avisarResultadoLicitacion } from '@/app/lib/avisar-resultado-licitacion';
@@ -89,7 +90,7 @@ export async function procesarPostuladas(
   opts: { promover?: boolean; soloCerradas?: boolean; presupuestoMs?: number; maxCodigos?: number } = {},
 ): Promise<{
   codigos: number; procesados: number; sinPresupuesto: number;
-  adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number;
+  adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number; comprasAbiertas: number;
   rateLimit: number;   // consultas que MP rechazó por ráfaga (si es >0, algo quedó sin revisar)
   lote: number;        // códigos tomados en ESTA corrida (tope MAX_CODIGOS_POR_CORRIDA)
   restantes: number;   // los que quedan de la cola total sin revisar → el scheduler vuelve a llamar
@@ -112,7 +113,7 @@ export async function procesarPostuladas(
   const maxCodigos = opts.maxCodigos ?? MAX_CODIGOS_POR_CORRIDA;
   // `codigos` = candidatos totales · `procesados` = los que alcanzaron a consultarse ·
   // `sinPresupuesto` = los que quedaron fuera por tiempo (van primeros en la próxima corrida).
-  const stats = { codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, rateLimit: 0, lote: 0, restantes: 0 };
+  const stats = { codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, comprasAbiertas: 0, rateLimit: 0, lote: 0, restantes: 0 };
   const inicio = Date.now();
 
   let filas: FilaPostulada[] = [];
@@ -244,6 +245,11 @@ export async function procesarPostuladas(
             await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
               .then(abierta => { if (abierta) stats.entregasAbiertas++; })
               .catch(e => console.error('[procesar-postuladas] abrir entrega falló:', String(e).slice(0, 200)));
+
+            // ── MÓDULO DE COMPRAS — Fase 1 (§3) ──
+            await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
+              .then(abierta => { if (abierta) stats.comprasAbiertas++; })
+              .catch(e => console.error('[procesar-postuladas] abrir compras falló:', String(e).slice(0, 200)));
           }
 
           if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
@@ -316,7 +322,7 @@ export async function procesarPostuladas(
 // de verdad es siempre el acta de MP, no el estado interno.
 async function reconfirmarResueltasSinCache(
   client: ReturnType<typeof getMercadoPublicoClient>,
-  stats: { adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number },
+  stats: { adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number; comprasAbiertas: number },
 ): Promise<void> {
   const inicio = Date.now();
   let filas: FilaPostulada[] = [];
@@ -371,6 +377,10 @@ async function reconfirmarResueltasSinCache(
           await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
             .then(abierta => { if (abierta) stats.entregasAbiertas++; })
             .catch(e => console.error('[procesar-postuladas] abrir entrega (reconfirmar) falló:', String(e).slice(0, 200)));
+
+          await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
+            .then(abierta => { if (abierta) stats.comprasAbiertas++; })
+            .catch(e => console.error('[procesar-postuladas] abrir compras (reconfirmar) falló:', String(e).slice(0, 200)));
         }
         if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
         const mensaje = adj.ganamos

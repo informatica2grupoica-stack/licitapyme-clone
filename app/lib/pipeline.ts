@@ -71,6 +71,14 @@ export function idsEquivalentes(idVigente: string): string[] {
   return [idVigente, ...legados];
 }
 
+// ¿El negocio está en el estado "ganado" (label GANADA, id vigente ADJUDICADA)? Es la puerta de
+// entrada al Módulo de Compras (spec §3.1: "solo las líneas efectivamente adjudicadas"). Vive acá
+// (no en app/lib/compras.ts, que importa `pool` y no es seguro para un componente cliente) porque
+// pipeline.ts no tiene ninguna dependencia de servidor.
+export function esGanado(id: string | null | undefined): boolean {
+  return normalizarEstado(id) === 'ADJUDICADA';
+}
+
 export function getEstadoPipeline(id: string | null | undefined): EstadoPipeline | null {
   if (!id) return null;
   const key = ALIAS_LEGADO[id] ?? id;

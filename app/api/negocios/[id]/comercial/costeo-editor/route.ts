@@ -15,7 +15,7 @@ import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { adaptarViabilidadACosteo } from '@/app/lib/generar-costeo';
 import {
-  datosCosteoAEditor, fusionarConViabilidad, editorAFilasCosteo, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor,
+  datosCosteoAEditor, fusionarConViabilidad, editorAFilasCosteo, filasSinLink, MARGEN_VENTA_DEFECTO, type EstadoCosteoEditor,
 } from '@/app/lib/costeo-editor';
 import { IVA } from '@/app/lib/costeo-comparativo';
 import { lineasDelInforme, lineasOfertablesDelInforme } from '@/app/lib/checklist-comercial';
@@ -196,6 +196,18 @@ export async function PUT(request: NextRequest, { params }: Params) {
     };
     const filas = editorAFilasCosteo(estado);
     if (!filas.length) return NextResponse.json({ error: 'No hay ítems con datos para guardar' }, { status: 400 });
+
+    // El link del producto es obligatorio en todo ítem ya cotizado — ver filasSinLink. Se corta acá
+    // y no solo en el botón del editor: el front puede avisar, pero la garantía de que ningún
+    // precio quede sin respaldo tiene que estar donde se escribe de verdad.
+    const sinLink = filasSinLink(estado);
+    if (sinLink.length) {
+      const muestra = sinLink.slice(0, 4).map(f => `"${f.detalle.slice(0, 40)}"`).join(', ');
+      return NextResponse.json({
+        error: `Falta el link del producto en ${sinLink.length} ítem(s) ya cotizado(s): ${muestra}${sinLink.length > 4 ? `, y ${sinLink.length - 4} más` : ''}. Pega en Link 1 la página donde cotizaste cada uno.`,
+        itemsSinLink: sinLink,
+      }, { status: 400 });
+    }
 
     const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
     const ahora = ahoraChileSQL();

@@ -7,6 +7,7 @@ import type { EmpresaCampos } from '@/app/lib/anexos-ia-motor';
 import { conCamposDerivados, fechaLargaChile, camposDelCodigoLicitacion } from '@/app/lib/anexos-derivados';
 import { convertirDocADocx, convertirPdfADocx } from '@/app/lib/anexos-doc-legacy';
 import { parsearCosteo, itemsPrecioDeCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
+import { obtenerItemsCosteoDelEditor } from '@/app/lib/costeo-editor';
 import { ocrTieneHuecos, esTextoBasuraOCR } from '@/app/lib/zai-ocr';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
@@ -52,6 +53,30 @@ export async function cargarDocumentoBase(codigo: string, documentoId: string): 
   // en el conversor del VPS (LibreOffice headless) antes de analizar/rellenar/separar.
   const bufferOriginal = esDocLegado ? await convertirDocADocx(bufferDescargado) : bufferDescargado;
   const nombreOriginal = esDocLegado ? nombre.replace(/\.doc$/i, '.docx') : nombre;
+
+  return { bufferOriginal, nombreOriginal };
+}
+
+// Variante de cargarDocumentoBase para el anexo económico en .xlsx/.xlsm — sin conversión (exceljs
+// lee el .xlsx directo, no hace falta LibreOffice) y sin datos de empresa (el motor de Excel solo
+// rellena precio unitario, nunca campos de identidad).
+export async function cargarDocumentoXlsx(codigo: string, documentoId: string): Promise<DocumentoBase> {
+  const [docRows] = await pool.query(
+    `SELECT documento_nombre, documento_url_local
+       FROM documentos_cache WHERE id = ? AND licitacion_codigo = ? LIMIT 1`,
+    [documentoId, codigo],
+  );
+  const doc = (docRows as any[])[0];
+  if (!doc) throw new Error('Documento no encontrado en esta licitación');
+
+  const nombreOriginal: string = doc.documento_nombre || '';
+  if (!/\.(xlsx|xlsm)$/i.test(nombreOriginal)) {
+    throw new Error('Solo se soportan planillas Excel (.xlsx/.xlsm), esta no lo es');
+  }
+
+  const resDoc = await fetch(doc.documento_url_local);
+  if (!resDoc.ok) throw new Error(`No se pudo bajar el documento original (HTTP ${resDoc.status})`);
+  const bufferOriginal = Buffer.from(await resDoc.arrayBuffer());
 
   return { bufferOriginal, nombreOriginal };
 }
@@ -318,6 +343,17 @@ async function obtenerLicitacionParaAnexo(codigo: string): Promise<{ campos: Cam
 // se pudo leer, se degrada a "sin precios" — el Anexo Creator sigue funcionando igual que hoy,
 // solo sin el auto-relleno de precios.
 export async function obtenerItemsCosteoParaAnexo(codigo: string): Promise<ItemCosteoPrecio[]> {
+  // 0) El costeo VIVO del editor interno (pestaña "Costeo" del negocio) — pedido explícito del
+  // usuario: usar el costeo de la aplicación, no un documento generado. Manda siempre que exista,
+  // porque es la fuente que el asesor edita directamente; los dos caminos de abajo (checklist con
+  // archivo / planilla suelta) quedan como respaldo para negocios que nunca usaron el editor.
+  try {
+    const items = await obtenerItemsCosteoDelEditor(codigo);
+    if (items.length) return items;
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudo leer el costeo del editor de ${codigo}:`, String(e).slice(0, 200));
+  }
+
   // 1) El camino "oficial": la planilla vigente del checklist comercial.
   try {
     const [rows] = await pool.query(

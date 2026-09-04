@@ -17,6 +17,15 @@ export interface PaqueteTraspaso {
   contactosCliente: {
     organismo: string | null; unidad: string | null; direccion: string | null;
     comuna: string | null; region: string | null; usuarioNombre: string | null; usuarioCargo: string | null;
+    // §4.2 campo 11 pide "nombre, teléfono, correo, TODO dato disponible", y §17.3 pide capturar el
+    // contacto de PAGOS (que "nunca es la misma persona que la contraparte técnica"). La ficha de MP
+    // trae los dos y no se estaban leyendo. Opcionales: los paquetes congelados antes de sep-2026 no
+    // los tienen, y muchos organismos publican estos campos vacíos.
+    responsableContratoNombre?: string | null;
+    responsableContratoEmail?: string | null;
+    responsableContratoFono?: string | null;
+    responsablePagoNombre?: string | null;
+    responsablePagoEmail?: string | null;
   } | null;
 }
 
@@ -148,22 +157,44 @@ async function construirPaquete(negocioId: number, licitacionCodigo: string): Pr
  * Ahora se reintenta con backoff y, si aun así no se logra, `repararContactosFaltantes()`
  * lo completa después (ver abajo).
  */
-async function obtenerContactosCliente(
+export async function obtenerContactosCliente(
   licitacionCodigo: string,
 ): Promise<PaqueteTraspaso['contactosCliente']> {
   const client = getMercadoPublicoClient();
   for (let intento = 1; intento <= 3; intento++) {
     try {
-      const lic = await client.obtenerPorCodigoRapido(licitacionCodigo, 8_000);
-      const c = (lic as any)?.Comprador;
-      if (c) {
-        return {
-          organismo: c.NombreOrganismo || null, unidad: c.NombreUnidad || null,
-          direccion: c.DireccionUnidad || null, comuna: c.ComunaUnidad || null, region: c.RegionUnidad || null,
-          usuarioNombre: c.NombreUsuario || null, usuarioCargo: c.CargoUsuario || null,
-        };
-      }
-      return null; // MP respondió pero la licitación no trae Comprador → no hay nada que reintentar
+      const lic = await client.obtenerPorCodigoRapido(licitacionCodigo, 8_000) as any;
+      if (!lic) return null;
+      // BUG REAL (04-sep-2026, 1114-12-LE26): esto leía `lic.Comprador`, que NO EXISTE.
+      // `obtenerPorCodigoRapido` devuelve la ficha YA APLANADA — Organismo, NombreUnidad,
+      // DireccionUnidad, ComunaUnidad, Region, NombreUsuario, CargoUsuario van en la raíz. El
+      // `Comprador` daba undefined y la función devolvía null por el camino de "MP respondió pero
+      // no trae comprador", que ni siquiera reintenta. Resultado: NINGÚN paquete de traspaso tenía
+      // contactos del cliente, y Compras recibía el proyecto sin a quién llamar — justo lo que
+      // exige la primera tarea del encargado (§5.3, contacto inicial). Se deja el `Comprador` como
+      // respaldo por si alguna otra ruta entrega el JSON crudo de MP sin aplanar.
+      const c = lic.Comprador || lic;
+      const dato = (v: unknown) => {
+        const t = typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim();
+        return t || null;   // MP publica estos campos como "" cuando el organismo no los llenó
+      };
+      const contactos = {
+        organismo: dato(c.NombreOrganismo ?? c.Organismo),
+        unidad: dato(c.NombreUnidad),
+        direccion: dato(c.DireccionUnidad),
+        comuna: dato(c.ComunaUnidad),
+        region: dato(c.RegionUnidad ?? c.Region),
+        usuarioNombre: dato(c.NombreUsuario),
+        usuarioCargo: dato(c.CargoUsuario),
+        responsableContratoNombre: dato(c.NombreResponsableContrato),
+        responsableContratoEmail: dato(c.EmailResponsableContrato),
+        responsableContratoFono: dato(c.FonoResponsableContrato),
+        responsablePagoNombre: dato(c.NombreResponsablePago),
+        responsablePagoEmail: dato(c.EmailResponsablePago),
+      };
+      // Si la ficha vino sin UN SOLO dato útil, es lo mismo que no tenerla: se devuelve null para
+      // que quede como faltante honesto en vez de un bloque de nulls que parece un contacto.
+      return Object.values(contactos).some(Boolean) ? contactos : null;
     } catch {
       if (intento < 3) await new Promise(r => setTimeout(r, intento * 1_500));
     }
@@ -196,7 +227,13 @@ export async function repararContactosFaltantes(limite = 20): Promise<{ revisado
            OR JSON_TYPE(JSON_EXTRACT(c.paquete_traspaso, '$.contactosCliente')) = 'NULL'
         ORDER BY c.congelado_at DESC
         LIMIT ?`,
-      [ESTADOS_OFERTA_ENVIADA, limite],
+      // Un solo placeholder, un solo parámetro. BUG REAL (04-sep-2026): acá se pasaba además
+      // ESTADOS_OFERTA_ENVIADA, que no tiene `?` propio — el array caía en el LIMIT y MySQL
+      // rechazaba la consulta con error de sintaxis. El catch de abajo se lo tragaba, así que la
+      // reparación devolvía "0 revisados" para siempre y NADIE se enteraba: el negocio 717
+      // (1114-12-LE26) llevaba 4 semanas congelado sin contactos del cliente esperando un cron
+      // que no podía funcionar.
+      [limite],
     ) as any;
     filas = rows as any[];
   } catch (e) {

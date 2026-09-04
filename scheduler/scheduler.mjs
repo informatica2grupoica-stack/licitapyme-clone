@@ -158,6 +158,11 @@ async function jobOrdenesCompra() { await loop('órdenes de compra', '/api/cron/
 // historial completo cada día.
 async function jobComprasObuma() { await loop('compras Obuma', '/api/cron/obuma-compras', { maxPasadas: 1, body: { paginas: 5 } }); }
 
+// Módulo de Compras (§3.3): fallback de asignación — si el jefe de ventas no asignó encargado
+// dentro de las 3h hábiles, el sistema asigna solo al de menor carga. Cada 20 min: bastante rápido
+// para que el SLA de 3h no se sienta, sin ser tan frecuente como el aviso de resultados.
+async function jobComprasAsignacion() { await loop('compras asignación', '/api/cron/compras-asignacion', { maxPasadas: 1 }); }
+
 // ── Programación (hora Chile) ───────────────────────────────────────────────────
 const opts = { timezone: TZ };
 
@@ -177,9 +182,11 @@ cron.schedule('35 1-23/4 * * *', jobViabilidadPerfil, opts); // 01:35,05:35,... 
 cron.schedule('40 7 * * *',     jobOrdenesCompra, opts);
 // 07:45: justo después de las OC de MP, mismo criterio de horario.
 cron.schedule('45 7 * * *',     jobComprasObuma, opts);
+// CADA 20 MINUTOS: fallback de asignación de Compras (§3.3). Barato (sin llamadas externas, solo BD).
+cron.schedule('*/20 * * * *',   () => sinSolapar('compras-asignacion', jobComprasAsignacion), opts);
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · estados-asignadas+postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · estados-asignadas+postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día) · compras-asignación */20 (fallback 3h hábiles)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.

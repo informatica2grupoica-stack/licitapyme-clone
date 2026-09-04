@@ -681,3 +681,76 @@ export async function enviarAvisoResultadoLicitacion(p: ResultadoLicitacionEmail
     return false;
   }
 }
+
+// ── Módulo de Compras: proyecto ganado, entra a Compras (spec §3.2) ────────────────────────
+// "Al declararse ganado, el sistema notifica a todos los intervinientes: el asistente comercial
+// que lo trabajó, el EM y el jefe de ventas. Canal: en el sistema Y TAMBIÉN POR CORREO."
+// La campana (historial_eventos) ya salía desde la Fase 1 — este es el otro canal que la spec
+// exige y que faltaba. La notificación no bloquea a nadie: el asistente y el EM solo toman
+// conocimiento, el único que ejecuta acción es el jefe de ventas, que asigna.
+interface ComprasGanadoEmail {
+  to: string; nombre?: string | null;
+  codigo: string; licitacionNombre?: string | null; organismo?: string | null; monto?: number | null;
+  urgente: boolean;                 // Cadena de Urgencia (§3.7): plazo de entrega < 3 días
+  plazoEntrega?: string | null;     // el ofertado, tal como quedó en el resumen ejecutivo
+  vencimientoAsignacion?: string | null;  // ganado + 3h hábiles (§3.3)
+  negocioId: number;
+}
+
+function plantillaComprasGanado(p: ComprasGanadoEmail, appUrl: string): string {
+  const url = appUrl ? `${appUrl.replace(/\/$/, '')}/negocios/${p.negocioId}` : '';
+  const fila = (label: string, valor: string | null) => valor
+    ? `<tr><td style="padding:3px 0;color:#6b7280;font-size:13px;width:150px;">${label}</td><td style="padding:3px 0;color:#111827;font-size:13px;font-weight:500;">${esc(valor)}</td></tr>`
+    : '';
+  const acento = p.urgente ? '#e11d48' : C_TEAL;
+  const cuerpo = `
+    <p style="margin:0 0 14px;color:#374151;font-size:14px;line-height:1.55;">Hola ${esc(p.nombre || '')}:</p>
+    <p style="margin:0 0 16px;color:#374151;font-size:14px;line-height:1.55;">
+      Ganamos este proyecto y ya entró al Módulo de Compras.${p.urgente
+        ? ' <strong style="color:#e11d48;">Está en Cadena de Urgencia</strong>: el plazo de entrega comprometido es menor a 3 días, así que todas las tareas corren en paralelo y con prioridad máxima.'
+        : ''}
+    </p>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#ffffff;border:1px solid #e5e7eb;border-left:3px solid ${acento};border-radius:8px;">
+      <tr><td style="padding:15px 18px;">
+        <div style="color:${acento};font-size:11px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;">
+          ${p.urgente ? 'Proyecto ganado · URGENTE' : 'Proyecto ganado'}
+        </div>
+        <div style="margin-top:4px;color:#0f172a;font-size:15px;font-weight:700;line-height:1.4;">${esc(p.licitacionNombre || p.codigo)}</div>
+        <div style="margin-top:3px;color:#94a3b8;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;">${esc(p.codigo)}</div>
+        <table style="width:100%;border-collapse:collapse;margin-top:11px;">
+          ${fila('Organismo', p.organismo || null)}
+          ${fila('Precio de venta', fmtMonto(p.monto))}
+          ${fila('Plazo de entrega', p.plazoEntrega || null)}
+          ${fila('Asignar antes de', p.vencimientoAsignacion || null)}
+        </table>
+      </td></tr>
+    </table>
+    <p style="margin:16px 0 0;color:#6b7280;font-size:12.5px;line-height:1.55;">
+      El jefe de ventas asigna al encargado de Compras dentro de 3 horas hábiles. Vencido ese plazo,
+      el sistema lo asigna solo al encargado con menor carga.
+    </p>`;
+  return layoutEmail({
+    titulo: p.urgente ? '🔴 Proyecto ganado — URGENTE' : '🛒 Proyecto ganado, entra a Compras',
+    cuerpo,
+    cta: url ? { label: 'Abrir el proyecto', url } : undefined,
+  });
+}
+
+/** Aviso de proyecto ganado a UN destinatario del Módulo de Compras. Devuelve true si se envió. */
+export async function enviarAvisoComprasGanado(p: ComprasGanadoEmail): Promise<boolean> {
+  const t = transporter();
+  if (!t) { console.warn('[email] SMTP no configurado — aviso de proyecto ganado (Compras) omitido'); return false; }
+  if (!p.to) return false;
+  try {
+    await t.sendMail({
+      from: FROM(),
+      to: p.to,
+      subject: `${p.urgente ? '🔴 URGENTE — ' : '🛒 '}Proyecto ganado, entra a Compras: ${p.licitacionNombre || p.codigo}`,
+      html: plantillaComprasGanado(p, process.env.NEXT_PUBLIC_APP_URL || ''),
+    });
+    return true;
+  } catch (e) {
+    console.error('[email] envío de aviso de proyecto ganado (Compras) falló:', String(e));
+    return false;
+  }
+}

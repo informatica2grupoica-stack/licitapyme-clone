@@ -12,6 +12,7 @@ import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
+import { AnexoRellenoExcelModal, type AnexoXlsxDoc } from '@/app/components/AnexoRellenoExcelModal';
 import { SelectorPuntoAuditor } from '@/app/components/SelectorPuntoAuditor';
 import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
 import { DocSplitLoader } from '@/app/components/ui/DocSplitLoader';
@@ -37,8 +38,16 @@ type DocLicitacion = DocumentoAdjunto & { categoria?: string; origen_manual?: bo
 // (anexos-pdf-rellenar.ts) escribe encima del original en vez de convertirlo a Word. El botón es
 // el mismo (Wand2); qué endpoint llama al hacer clic se decide en DocumentosSection según la
 // extensión — ver el wrapper de onRellenarAnexo más abajo.
+// XLSX (04-sep-2026): el anexo económico a veces viene como planilla del organismo, no como Word
+// — motor separado (anexos-excel-precios.ts / *-xlsx routes), acotado a ANEXOS_ECONOMICOS (a
+// diferencia de Word/PDF, SÍ se filtra por categoría acá: un .xlsx cualquiera —el costeo propio,
+// por ejemplo— no es un formulario de oferta y ofrecer el botón sobre él sería confuso).
+function esAnexoXlsxRellenable(doc: DocLicitacion): boolean {
+  return /\.(xlsx|xlsm)$/i.test(doc.nombre || '') && doc.id != null && (doc.categoria || '').toUpperCase() === CAT_ANEXOS_ECONOMICOS;
+}
+
 function esAnexoRellenable(doc: DocLicitacion): boolean {
-  return /\.(docx?|pdf)$/i.test(doc.nombre || '') && doc.id != null;
+  return (/\.(docx?|pdf)$/i.test(doc.nombre || '') || esAnexoXlsxRellenable(doc)) && doc.id != null;
 }
 
 // "Separar anexos" ADEMÁS acepta PDF (14-ago-2026, pedido explícito del usuario: "sacar los
@@ -188,7 +197,7 @@ function DocItem({
               type="button"
               onClick={(e) => { e.stopPropagation(); onRellenarAnexo!({ id: doc.id as number, nombre: doc.nombre, url: doc.url_local || doc.url }); }}
               className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors"
-              title="Rellenar anexo con los datos de la empresa"
+              title={esAnexoXlsxRellenable(doc) ? 'Rellenar precios del anexo económico con el costeo' : 'Rellenar anexo con los datos de la empresa'}
               draggable={false}
             >
               <Wand2 size={11} />
@@ -1341,6 +1350,8 @@ export function DocumentosSection({
   const [iaDoc, setIaDoc] = useState<{ nombre: string; url: string } | null>(null);
   // Anexo de oferente abierto en la pantalla de relleno (modal). null = cerrado.
   const [anexoDoc, setAnexoDoc] = useState<AnexoDoc | null>(null);
+  // Anexo económico en Excel abierto en su propia pantalla de relleno (motor separado).
+  const [anexoXlsxDoc, setAnexoXlsxDoc] = useState<AnexoXlsxDoc | null>(null);
   // Nombre del PDF que se está rellenando ahora mismo (null = ninguno) — evita doble clic
   // mientras corre el OCR (puede tardar 10-30s), sin necesidad de un modal propio todavía.
   const [generandoPdf, setGenerandoPdf] = useState<string | null>(null);
@@ -1368,6 +1379,7 @@ export function DocumentosSection({
   // todavía — el resultado queda en "Documentos para MP" para revisar a mano antes de subirlo).
   // Word: sigue el camino de siempre, abre el modal de relleno con revisión campo por campo.
   const handleRellenarAnexo = async (doc: AnexoDoc) => {
+    if (/\.(xlsx|xlsm)$/i.test(doc.nombre)) { setAnexoXlsxDoc(doc); return; }
     if (!/\.pdf$/i.test(doc.nombre)) { setAnexoDoc(doc); return; }
     if (!empresaId) { toast.error('Falta la empresa asignada a esta licitación'); return; }
     if (generandoPdf) return;
@@ -1772,6 +1784,14 @@ export function DocumentosSection({
           }
           setAnexoDoc(null);
         }}
+      />
+
+      {/* Anexo económico en Excel — motor y pantalla separados del de Word/PDF. */}
+      <AnexoRellenoExcelModal
+        doc={anexoXlsxDoc}
+        codigo={codigoDecoded}
+        onGenerado={() => fetchDocumentos()}
+        onClose={() => setAnexoXlsxDoc(null)}
       />
 
       {/* Overlay del tramo automático del batch (PDF, sin pantalla de revisión) — mismo patrón

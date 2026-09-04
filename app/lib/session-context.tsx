@@ -21,6 +21,7 @@ export interface UsuarioSession {
     aprobar_comercial?: boolean;
     entrega_proyectos?: boolean;
     repartir_puente?: boolean;
+    compras?: boolean;
   };
   // Frente C.1: ¿ve por defecto solo la Tarjeta de Decisión (resumen) en vez de los 4 módulos
   // de detalle? El propio usuario puede graduarse desde el botón "Ver análisis completo".

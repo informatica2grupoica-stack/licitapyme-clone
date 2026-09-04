@@ -11,16 +11,20 @@
 //   I (Precio unitario venta)      = G * (1 + margen)      margen fijo de la plantilla: 27%
 //   J (Precio unitario s/decimales)= TRUNC(I, 0)           es lo que de verdad se oferta en MP
 //   K (Precio total neto)          = J * E
-// Acá el margen queda como UN número editable para todo el costeo (en la plantilla real es la
-// misma constante ×1.27 repetida en cada fila) — nunca se le pide al usuario tipear el precio de
-// venta a mano, se deriva del costo, igual que en el Excel.
+// Acá el margen es UN número editable para todo el costeo, y ese global es el que manda salvo que
+// se lo pise más adentro: una hoja puede tener el suyo (GrupoEditorCosteo.margenVenta) y una FILA
+// también (FilaEditorCosteo.margenVenta) — cascada fila → hoja → global. Es literal lo que hace el
+// Excel del asistente, donde el multiplicador va escrito en cada celda y puede cambiar de una fila
+// a la otra. Nunca se le pide al usuario tipear el precio de venta a mano: se deriva del costo.
 //
 // Misma forma de fila que consume motor-comercial.ts (FilaCosteo) — así las 4 alertas del Motor
 // Comercial y el auto-precarga del checklist no distinguen si el costeo vino de un .xlsx subido o
 // de acá.
 import type { DatosCosteo, ModalidadCosteo } from '@/app/lib/generar-costeo';
-import type { FilaCosteo } from '@/app/lib/motor-comercial';
+import { itemsPrecioDeCosteo, type FilaCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
+import { esLinkDeProducto } from '@/app/lib/costeo-comparativo';
 import { numeroDeLinea } from '@/app/lib/auditor-tecnico-core';
+import pool from '@/app/lib/db';
 
 export const MARGEN_VENTA_DEFECTO = 27; // % — mismo multiplicador ×1.27 que trae la plantilla real
 
@@ -44,6 +48,14 @@ export interface FilaEditorCosteo {
   // cuadro comparativo que no se deriva de nada: se tipea cuando llega la factura/OC. Vacío
   // mientras no se sepa (nunca se rellena con el estimado — ver feedback "no inventar datos").
   costoRealUnitario: number | null;
+  // Recargo sobre el costo de ESTA fila, en %. null/undefined = hereda el de la hoja (y esa, el
+  // del costeo completo). El caso real es 1114-12-LE26: en el Excel del asistente el multiplicador
+  // NO es una constante del costeo, va escrito fila por fila — I4 =G4*2.1 (plataforma satelital) e
+  // I5 =G5*2 (sensor de presión), en la MISMA hoja. Con el margen solo global, el editor vendía el
+  // sensor a $3.516.421 en vez de $3.348.973: $669.792 de más en una oferta que iba a 1,94% del
+  // tope, y ese precio inflado es el que después toma el Anexo Económico
+  // (obtenerItemsCosteoDelEditor). El global sigue mandando en todo lo que no se toque a mano.
+  margenVenta?: number | null;
   link1: string;                    // S — Link 1
   link2: string;                    // T — Link 2
   link3: string;                    // V — Link 3
@@ -106,6 +118,19 @@ function mismoProducto(a: string, b: string): boolean {
  *  y el fuzzy-match no se puede indexar por clave exacta. */
 function buscarMismoProducto<T extends { detalle: string }>(filas: T[], detalle: string): T | undefined {
   return filas.find(f => mismoProducto(f.detalle, detalle));
+}
+
+/** Recargo con el que se vende UNA fila: el suyo si lo tiene, si no el de su hoja, si no el del
+ *  costeo completo. Cascada de tres niveles — el global es el que manda salvo que alguien haya
+ *  puesto un número a mano más adentro (ver FilaEditorCosteo.margenVenta). */
+export function margenDeFila(
+  fila: { margenVenta?: number | null },
+  grupo: { margenVenta?: number | null },
+  general: number,
+): number {
+  if (Number.isFinite(fila.margenVenta as number)) return fila.margenVenta as number;
+  if (Number.isFinite(grupo.margenVenta as number)) return grupo.margenVenta as number;
+  return Number.isFinite(general) ? general : MARGEN_VENTA_DEFECTO;
 }
 
 /** Las 4 columnas que se calculan solas — MISMA cadena de fórmulas que la plantilla real
@@ -250,11 +275,19 @@ export function fusionarConViabilidad(
  *  "CANASTA N°" con su propio total en el Formulario de Oferta Económica, aunque el informe decía
  *  modalidad "suma_alzada"). Es una corrección MANUAL, acotada a este costeo — no toca la
  *  modalidad guardada en el informe de viabilidad ni el checklist del Auditor Técnico. */
+/** Baja el recargo propio de una hoja a cada una de sus filas que no tenga uno. Se usa al
+ *  separar/unir hojas: si no, mover una fila de hoja le cambia el precio en silencio (la hoja de
+ *  destino vende con otro recargo). Con el margen por fila esa decisión ya se puede conservar. */
+function fijarMargenEnFilas(g: GrupoEditorCosteo): FilaEditorCosteo[] {
+  if (!Number.isFinite(g.margenVenta as number)) return g.filas;
+  return g.filas.map(f => Number.isFinite(f.margenVenta as number) ? f : { ...f, margenVenta: g.margenVenta as number });
+}
+
 export function separarPorLinea(estado: EstadoCosteoEditor): EstadoCosteoEditor {
   const porLinea = new Map<number, GrupoEditorCosteo>();
   const sinLinea: FilaEditorCosteo[] = [];
   for (const g of estado.grupos) {
-    for (const f of g.filas) {
+    for (const f of fijarMargenEnFilas(g)) {
       if (f.lineaReal == null) { sinLinea.push(f); continue; }
       if (!porLinea.has(f.lineaReal)) porLinea.set(f.lineaReal, { nombre: `Línea ${f.lineaReal}`, linea: f.lineaReal, ofertamos: true, filas: [] });
       porLinea.get(f.lineaReal)!.filas.push(f);
@@ -271,8 +304,38 @@ export function separarPorLinea(estado: EstadoCosteoEditor): EstadoCosteoEditor 
  *  "no ofertamos" NO se traen de vuelta — es la misma decisión que dejarlas fuera, no un accidente
  *  al unir. */
 export function unirEnUnaHoja(estado: EstadoCosteoEditor): EstadoCosteoEditor {
-  const filas = estado.grupos.filter(g => g.ofertamos).flatMap(g => g.filas).map((f, i) => ({ ...f, item: i + 1 }));
+  const filas = estado.grupos.filter(g => g.ofertamos).flatMap(fijarMargenEnFilas).map((f, i) => ({ ...f, item: i + 1 }));
   return { ...estado, modalidad: 'suma_alzada', grupos: [{ nombre: 'Costeo', linea: null, ofertamos: true, filas }] };
+}
+
+/** ¿Esta fila ya está cotizada? Tiene precio de mercado cargado, así que su precio de venta sale
+ *  de algún lado concreto y ese lado tiene que quedar anotado. */
+function estaCotizada(f: FilaEditorCosteo): boolean {
+  return f.valorConIva != null;
+}
+
+/** El link del producto es OBLIGATORIO en toda fila cotizada (decisión del usuario, 04-sep-2026):
+ *  sin él, el precio con el que se oferta no tiene respaldo — nadie puede volver a revisarlo, ni
+ *  comparar contra lo que después se pagó de verdad, ni generar la ficha técnica del producto (que
+ *  se arma justamente desde el primer link). Sirve cualquiera de los tres (Link 1/2/3).
+ *
+ *  Solo se exige a las filas COTIZADAS: una fila recién traída del manifiesto de viabilidad
+ *  (descripción y cantidad, sin precio todavía) se sigue pudiendo guardar, para no obligar a
+ *  cotizar el costeo entero de una sentada antes de poder guardar nada.
+ *
+ *  Las hojas apagadas (`ofertamos: false`) quedan fuera: no se ofertan, no necesitan respaldo.
+ *  Devuelve las filas que faltan, ya descritas para el mensaje de error. */
+export function filasSinLink(estado: EstadoCosteoEditor): { hoja: string; item: number; detalle: string }[] {
+  const faltan: { hoja: string; item: number; detalle: string }[] = [];
+  for (const g of estado.grupos || []) {
+    if (g.ofertamos === false) continue;
+    for (const f of g.filas || []) {
+      if (!estaCotizada(f)) continue;
+      if (esLinkDeProducto(f.link1) || esLinkDeProducto(f.link2) || esLinkDeProducto(f.link3)) continue;
+      faltan.push({ hoja: g.nombre, item: f.item, detalle: (f.detalle || '').trim() || `fila ${f.item}` });
+    }
+  }
+  return faltan;
 }
 
 /** Convierte el estado editable a FilaCosteo[] — MISMA forma que produce parsearCosteo() al leer
@@ -284,13 +347,12 @@ export function editorAFilasCosteo(estado: EstadoCosteoEditor): FilaCosteo[] {
   const filas: FilaCosteo[] = [];
   for (const g of estado.grupos || []) {
     if (g.ofertamos === false) continue; // línea/canasta que se decidió no ofertar — fuera del todo
-    // Cada hoja puede vender con su propio recargo (así lo hace el Excel del comercial); si no
-    // tiene uno propio, usa el del costeo completo.
-    const margenVenta = Number.isFinite(g.margenVenta as number) ? (g.margenVenta as number) : margenGeneral;
+    // Cada hoja puede vender con su propio recargo (así lo hace el Excel del comercial)…
     for (const f of g.filas || []) {
       const sinDatos = !f.detalle?.trim() && f.cantidad == null && f.valorConIva == null;
       if (sinDatos) continue;
-      const { costoUnitario, costoTotal, precioUnitarioSinDecimales, precioTotal } = calcularFormulas(f, margenVenta);
+      // …y cada fila puede tener el suyo propio dentro de la hoja (caso 1114-12-LE26).
+      const { costoUnitario, costoTotal, precioUnitarioSinDecimales, precioTotal } = calcularFormulas(f, margenDeFila(f, g, margenGeneral));
       filas.push({
         hoja: g.nombre, fila: f.item,
         item: f.item, detalle: f.detalle?.trim() || null,
@@ -307,4 +369,42 @@ export function editorAFilasCosteo(estado: EstadoCosteoEditor): FilaCosteo[] {
     }
   }
   return filas;
+}
+
+// ── Puente hacia el Anexo Creator, fuente PRIMARIA (el costeo VIVO de la app) ────────────────
+// obtenerItemsCosteoParaAnexo (anexos-datos.ts) hoy solo mira checklist_comercial_costeo.archivo_url
+// (NULL a propósito cuando origen='editor', ver project_costeo_sync_checklist_precio_manual_sep2026)
+// y, si falla, un .xlsx suelto en Documentos Propios — nunca lee el editor en sí. Esta función es
+// ese tercer camino, y debe intentarse PRIMERO: es el costeo que el asesor edita en la pestaña
+// "Costeo" del negocio, la fuente que el usuario pidió usar en vez de un documento generado.
+// Mismo query que estadoGuardado() en app/api/negocios/[id]/comercial/costeo-editor/route.ts —
+// replicado acá porque esa función vive acoplada a una ruta API, no a una lib importable.
+export async function obtenerItemsCosteoDelEditor(codigo: string): Promise<ItemCosteoPrecio[]> {
+  try {
+    const [negocios] = await pool.query(
+      `SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`,
+      [codigo],
+    ) as any;
+    const negocioId = (negocios as any[])[0]?.id;
+    if (!negocioId) return [];
+
+    const [rows] = await pool.query(
+      `SELECT modalidad, datos_json FROM negocio_costeo_editor WHERE negocio_id = ? LIMIT 1`,
+      [negocioId],
+    ) as any;
+    const row = (rows as any[])[0];
+    if (!row) return [];
+
+    const datos = typeof row.datos_json === 'string' ? JSON.parse(row.datos_json) : row.datos_json;
+    const grupos = (datos?.grupos || []).map((g: any) => ({ ...g, ofertamos: g.ofertamos !== false }));
+    const estado: EstadoCosteoEditor = {
+      modalidad: row.modalidad,
+      margenVenta: Number(datos?.margenVenta) || MARGEN_VENTA_DEFECTO,
+      grupos,
+    };
+    return itemsPrecioDeCosteo(editorAFilasCosteo(estado));
+  } catch (e) {
+    console.error('[costeo-editor] no se pudo leer el costeo del editor para el anexo:', String(e).slice(0, 200));
+    return [];
+  }
 }

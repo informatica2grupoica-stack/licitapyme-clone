@@ -23,6 +23,7 @@ interface Permisos {
   entrega_proyectos?: boolean;
   viabilidad_automatica?: boolean;
   repartir_puente?: boolean;
+  compras?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -58,6 +59,7 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   { key: 'aprobar_comercial',   label: 'Aprobar Información Comercial',       desc: 'Visar los puntos del checklist comercial (rol "asesor"). El admin ya lo tiene.', categoria: 'comercial' },
   { key: 'repartir_puente',     label: 'Puente del Radar (repartir trabajo)', desc: 'Puede empujar licitaciones del radar al puente y repartirlas entre varios perfiles.', categoria: 'comercial' },
   { key: 'entrega_proyectos',   label: 'Circuito de Entrega de Proyectos',    desc: 'Recibe el aviso cuando ganamos una licitación y debe acusar recibo del proyecto.', categoria: 'comercial' },
+  { key: 'compras',             label: 'Encargado de Compras',                desc: 'Candidato a que le asignen negocios ganados (Módulo de Compras): entra al pool de asignación automática y puede operar sus tareas.', categoria: 'comercial' },
 ];
 
 function parsePermisos(p: Permisos | string | null | undefined): Permisos {

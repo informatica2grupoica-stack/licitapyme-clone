@@ -91,6 +91,37 @@ export function margenDeRecargo(recargo: number): number {
   return (recargo / (1 + recargo / 100));
 }
 
+/** Lee el recargo que alguien tipeó en la columna "% margen" de una fila del costeo. Acepta las
+ *  dos formas en que el asistente escribe el margen en su Excel: el recargo en % ("110", "110%")
+ *  o el multiplicador ("x2,1" / "2,1x"), que es literal lo que hay en la celda I4 del
+ *  COSTEO_1114-12-LE26 (=G4*2.1). Coma o punto decimal, da lo mismo.
+ *
+ *  '' (vacío) ⇒ null: la fila vuelve a heredar el margen del costeo. Basura o un recargo ≤ −100%
+ *  (vender a $0 o menos) ⇒ undefined: no se toca lo que ya había. */
+export function parsearRecargo(txt: string): number | null | undefined {
+  if (txt.trim() === '') return null;
+  const limpio = txt.trim().toLowerCase().replace('%', '').trim();
+  const mult = /^(?:x\s*(.+)|(.+?)\s*x)$/.exec(limpio);
+  const n = Number((mult ? (mult[1] ?? mult[2]) : limpio).replace(',', '.'));
+  if (!Number.isFinite(n)) return undefined;
+  // Redondeo a 6 decimales: (2,1 − 1) × 100 da 110,00000000000001 en coma flotante, y ese número
+  // se guarda y se vuelve a mostrar. Ningún margen real necesita más precisión que la millonésima.
+  const recargo = mult ? Math.round((n - 1) * 1e8) / 1e6 : n;
+  return recargo <= -100 ? undefined : recargo;
+}
+
+/** ¿Esto es de verdad el link de un producto? El costeo exige respaldo: toda fila cotizada tiene
+ *  que decir DE DÓNDE salió ese precio (decisión del usuario, 04-sep-2026). Alcanza con que parezca
+ *  una dirección web — se acepta con o sin protocolo ("https://falabella.cl/p/1", "falabella.cl/p/1"),
+ *  porque los links se pegan de la barra del navegador o del correo del proveedor y llegan de las
+ *  dos formas. Lo que NO pasa es una nota suelta en su lugar ("pendiente", "cotizado por mail"). */
+export function esLinkDeProducto(url: string | null | undefined): boolean {
+  const t = (url || '').trim();
+  if (!t || /\s/.test(t)) return false;                  // una frase no es un link
+  if (/^https?:\/\//i.test(t)) return t.length > 'https://'.length + 3;
+  return /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/|$|\?|:)/i.test(t);  // dominio.tld, con o sin ruta
+}
+
 const pct = (num: number, den: number): number | null => (den === 0 ? null : (num / den) * 100);
 
 export function calcularComparativo(e: EntradaComparativo): Comparativo {
