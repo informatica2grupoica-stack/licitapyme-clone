@@ -215,12 +215,16 @@ export async function parsearCosteo(buffer: Buffer): Promise<FilaCosteo[]> {
 // una tabla de precios unitarios: descripción + precio de venta. Mismo patrón que ya usa esta
 // ruta para todo lo demás (parsearCosteo se corre en caliente desde el .xlsx en R2, nunca se
 // persiste el detalle por fila en una tabla propia — ver cabecera del archivo).
-export interface ItemCosteoPrecio { descripcion: string; precioUnitario: number; unidad: string | null }
+// `cantidad` NO la usa el match de precios unitarios (ahí solo se cruza descripción → precio):
+// existe para el anexo económico que pide UN SOLO monto por toda la oferta, sin tabla de ítems
+// donde poner los unitarios (caso real 2585-87-LE26, "OFERTA VALOR") — ver totalNetoDeItemsCosteo
+// y anexos-monto-oferta.ts. Puede venir null: la planilla del organismo no siempre trae cantidad.
+export interface ItemCosteoPrecio { descripcion: string; precioUnitario: number; unidad: string | null; cantidad: number | null }
 
 export function itemsPrecioDeCosteo(filas: FilaCosteo[]): ItemCosteoPrecio[] {
   return filas
     .filter(f => f.detalle && f.precioUnitarioSinDecimales != null && f.precioUnitarioSinDecimales > 0)
-    .map(f => ({ descripcion: f.detalle!.trim(), precioUnitario: f.precioUnitarioSinDecimales!, unidad: f.unidad }));
+    .map(f => ({ descripcion: f.detalle!.trim(), precioUnitario: f.precioUnitarioSinDecimales!, unidad: f.unidad, cantidad: f.cantidadOriginal }));
 }
 
 export interface AlertaMotorComercial { codigo: string; descripcion: string; detalle: string }

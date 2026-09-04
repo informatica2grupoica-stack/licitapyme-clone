@@ -84,9 +84,9 @@ test('matchearPreciosExcel + escribirPreciosExcel: match exacto, no pisa la fór
   const { wb, ws } = libroCasoReal();
   const tabla = detectarTablaPrecios(ws)!;
   const items: ItemCosteoPrecio[] = [
-    { descripcion: 'Poste Omega 3 mts. 2,5 mm', precioUnitario: 5000, unidad: 'UN' },
-    { descripcion: 'Set Perno coche c/tuerca', precioUnitario: 1200, unidad: 'UN' },
-    { descripcion: 'Aluminio compuesto 4 mm', precioUnitario: 8500, unidad: 'UN' },
+    { descripcion: 'Poste Omega 3 mts. 2,5 mm', precioUnitario: 5000, unidad: 'UN', cantidad: 1 },
+    { descripcion: 'Set Perno coche c/tuerca', precioUnitario: 1200, unidad: 'UN', cantidad: 1 },
+    { descripcion: 'Aluminio compuesto 4 mm', precioUnitario: 8500, unidad: 'UN', cantidad: 1 },
   ];
   const matches = await matchearPreciosExcel(tabla, items);
   assert.equal(matches.length, 3);
@@ -106,7 +106,7 @@ test('matchearPreciosExcel + escribirPreciosExcel: match exacto, no pisa la fór
 test('matchearPreciosExcel: ítem sin ningún parecido queda sin match (nunca inventa)', async () => {
   const { ws } = libroCasoReal();
   const tabla = detectarTablaPrecios(ws)!;
-  const items: ItemCosteoPrecio[] = [{ descripcion: 'Guantes de látex desechables', precioUnitario: 300, unidad: 'UN' }];
+  const items: ItemCosteoPrecio[] = [{ descripcion: 'Guantes de látex desechables', precioUnitario: 300, unidad: 'UN', cantidad: 1 }];
   const matches = await matchearPreciosExcel(tabla, items);
   assert.equal(matches.length, 0);
 });

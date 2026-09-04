@@ -24,7 +24,7 @@ test('normalizarParaMatchExacto: un cero final en un decimal no cambia el valor 
 
 test('matchExacto: cruza por texto normalizado y separa la etiqueta de "— Precio unitario"', () => {
   const items: ItemCosteoPrecio[] = [
-    { descripcion: 'FIERRO Ø 12 ESTRIADO', precioUnitario: 5000, unidad: 'UN' },
+    { descripcion: 'FIERRO Ø 12 ESTRIADO', precioUnitario: 5000, unidad: 'UN', cantidad: 1 },
   ];
   const { matches, sinResolver } = matchExacto(['FIERRO Ø 12 ESTRIADO — Precio unitario', 'MOLDAJE'], items);
   assert.equal(matches.length, 1);
@@ -33,7 +33,7 @@ test('matchExacto: cruza por texto normalizado y separa la etiqueta de "— Prec
 });
 
 test('matchExacto: sin ningún ítem que calce, todo queda sin resolver (nunca inventa)', () => {
-  const items: ItemCosteoPrecio[] = [{ descripcion: 'CASCO DE SEGURIDAD', precioUnitario: 3000, unidad: 'UN' }];
+  const items: ItemCosteoPrecio[] = [{ descripcion: 'CASCO DE SEGURIDAD', precioUnitario: 3000, unidad: 'UN', cantidad: 1 }];
   const { matches, sinResolver } = matchExacto(['GUANTES DE LÁTEX'], items);
   assert.equal(matches.length, 0);
   assert.deepEqual(sinResolver, ['GUANTES DE LÁTEX']);

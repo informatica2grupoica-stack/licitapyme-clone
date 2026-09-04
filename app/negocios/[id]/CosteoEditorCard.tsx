@@ -35,7 +35,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { calcularComparativo, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
 import {
   Calculator, Loader2, Plus, Trash2, RefreshCw, Save, AlertTriangle, ShieldCheck, Sparkles,
-  Maximize2, X, ExternalLink, SplitSquareHorizontal, Combine, FileSearch, Link2 as LinkIcon,
+  Maximize2, X, ExternalLink, ArrowLeft, SplitSquareHorizontal, Combine, FileSearch, Link2 as LinkIcon,
 } from 'lucide-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
@@ -539,27 +539,45 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
           IVA, así que pedir el neto obligaba a dividir a mano. Se precarga con el publicado que
           trae la viabilidad (el mismo que usa la alerta "Sobre presupuesto" del Motor Comercial) y
           se corrige cuando el tope real es por canasta y no el global. */}
+      {/* El NETO manda: es el número contra el que se compara la oferta (la venta del costeo es
+          neta) y el que alimenta "% distancia del tope". Antes vivía en una línea gris de 10 px
+          bajo el input y el protagonista era el monto con IVA — al revés de cómo se usa (pedido
+          del usuario, 04-sep-2026: "el neto es el que nos importa... dale más presencia"). Ahora
+          el neto va grande arriba y el con IVA queda como lo que es: la casilla donde se tipea,
+          porque así lo publican las bases. */}
       <div className={`${ancho ? 'min-w-0 ' : ''}space-y-2.5`}>
-      <div className="flex items-center gap-1.5 px-1 py-[2px]" style={{ background: CUADRO_AMARILLO }}>
-        <span className="text-[10.5px] text-zinc-700 flex-1">Presupuesto iva incluido</span>
-        <input
-          type="number"
-          value={presupuestoManual != null ? Math.round(presupuestoManual * IVA) : ''}
-          disabled={congelado}
-          placeholder={fuente !== 'manual' && comp.presupuestoConIva != null ? String(Math.round(comp.presupuestoConIva)) : 'escríbelo'}
-          onChange={e => onPresupuesto(e.target.value === '' ? null : Number(e.target.value) / IVA)}
-          className="w-[110px] bg-white/70 border border-amber-300 text-right text-[11px] font-bold text-zinc-800 px-1 py-[1px] outline-none tabular-nums disabled:opacity-60"
-          title="Tope de ESTA línea, CON IVA. El neto (el que se compara contra la oferta) se calcula solo: monto / 1,19. Vacío = se usa el presupuesto de la línea que trae el informe."
-        />
+      <div className="border border-amber-300" style={{ background: CUADRO_AMARILLO }}>
+        <div className="px-2 pt-1.5 pb-1">
+          <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800/80 leading-none">
+            Presupuesto NETO · tope
+          </p>
+          <p className={`mt-1 leading-none tabular-nums ${comp.presupuestoNeto == null ? 'text-[13px] font-semibold text-amber-700/70' : 'text-[19px] font-bold text-zinc-900'}`}
+             title="El tope NETO de esta línea. Es el que se compara contra la oferta (Total neto venta) y del que sale el % de distancia.">
+            {comp.presupuestoNeto == null ? 'sin tope' : fmtCLP(Math.round(comp.presupuestoNeto))}
+          </p>
+          <p className="text-[10px] text-amber-800/70 mt-[3px] leading-snug">
+            {comp.presupuestoNeto == null
+              ? 'Escribe abajo el monto con IVA para ver la distancia.'
+              : <>
+                  {fuente === 'linea' && 'presupuesto de esta línea, del informe'}
+                  {fuente === 'global' && 'presupuesto global de la licitación'}
+                  {fuente === 'manual' && 'escrito a mano'}
+                </>}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 px-2 py-[3px] bg-white/45 border-t border-amber-200">
+          <span className="text-[10.5px] text-zinc-600 flex-1 leading-tight">Con IVA <span className="text-zinc-400">(así lo publican)</span></span>
+          <input
+            type="number"
+            value={presupuestoManual != null ? Math.round(presupuestoManual * IVA) : ''}
+            disabled={congelado}
+            placeholder={fuente !== 'manual' && comp.presupuestoConIva != null ? String(Math.round(comp.presupuestoConIva)) : 'escríbelo'}
+            onChange={e => onPresupuesto(e.target.value === '' ? null : Number(e.target.value) / IVA)}
+            className="w-[110px] bg-white border border-amber-300 text-right text-[11px] font-semibold text-zinc-700 px-1 py-[1px] outline-none tabular-nums disabled:opacity-60"
+            title="Tope de ESTA línea, CON IVA. El neto de arriba (el que se compara contra la oferta) se calcula solo: monto / 1,19. Vacío = se usa el presupuesto de la línea que trae el informe."
+          />
+        </div>
       </div>
-      <p className="text-[10px] text-zinc-400 px-1 -mt-1.5 leading-snug">
-        {comp.presupuestoNeto == null
-          ? 'Sin tope conocido para esta línea: escríbelo (con IVA) para ver la distancia.'
-          : <>Neto {fmtCLP(Math.round(comp.presupuestoNeto))}
-              {fuente === 'linea' && ' · presupuesto de esta línea, del informe'}
-              {fuente === 'global' && ' · presupuesto global de la licitación'}
-              {fuente === 'manual' && ' · escrito a mano'}</>}
-      </p>
       </div>
 
       {/* ── Real: lo que de verdad costó ───────────────────────────────────────────────────── */}
@@ -600,7 +618,11 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
   );
 }
 
-export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: number; licitacionCodigo: string }) {
+/** `standalone` = el costeo abierto en su propia pestaña (/negocios/[id]/costeo), no dentro del
+ *  panel del negocio. Nace ya en pantalla completa, Escape no lo cierra (no hay nada detrás) y en
+ *  vez de la X se ofrece volver al negocio. Existe para poder mirar la viabilidad en una pestaña y
+ *  costear en la otra, sin cerrar y guardar cada vez (pedido del usuario, 04-sep-2026). */
+export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = false }: { negocioId: number; licitacionCodigo: string; standalone?: boolean }) {
   const toast = useToast();
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -619,7 +641,7 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
   const [grupoActivo, setGrupoActivo] = useState(0);
   const [alertas, setAlertas] = useState<Alerta[] | null>(null);
   const [ultimoGuardado, setUltimoGuardado] = useState<string | null>(null);
-  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+  const [pantallaCompleta, setPantallaCompleta] = useState(standalone);
   // Fichas técnicas en proceso (04-sep-2026) — por id de fila, no un solo booleano: varias filas
   // pueden estar generando su ficha a la vez, cada una independiente.
   const [generandoFicha, setGenerandoFicha] = useState<Set<string>>(new Set());
@@ -644,15 +666,25 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
 
   useEffect(() => { cargar(); }, [cargar]);
 
-  // Escape cierra la pantalla completa — como cualquier editor de verdad.
+  // Escape cierra la pantalla completa — como cualquier editor de verdad. En pestaña propia no:
+  // detrás no hay nada que mostrar, cerrarla dejaría la página en blanco.
   useEffect(() => {
-    if (!pantallaCompleta) return;
+    if (!pantallaCompleta || standalone) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPantallaCompleta(false); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pantallaCompleta]);
+  }, [pantallaCompleta, standalone]);
 
   const dirty = useMemo(() => JSON.stringify(estado) !== JSON.stringify(guardado), [estado, guardado]);
+
+  // En pestaña propia, cerrarla con cambios sin guardar los pierde sin que nadie avise (dentro del
+  // negocio al menos el panel sigue montado). El navegador pregunta antes de irse.
+  useEffect(() => {
+    if (!standalone || !dirty) return;
+    const onSalir = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', onSalir);
+    return () => window.removeEventListener('beforeunload', onSalir);
+  }, [dirty, standalone]);
 
   const actualizarFila = (gi: number, fi: number, patch: Partial<FilaEditor>) => {
     setEstado(prev => {
@@ -923,7 +955,30 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo }: { negocioId: n
             {guardando ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
             Guardar
           </button>
-          {pantallaCompleta ? (
+          {/* Abrir el costeo en SU PROPIA pestaña: así la viabilidad se puede dejar abierta en la
+              otra y consultarla mientras se cotiza, en vez de cerrar el costeo (guardando) cada
+              vez que hace falta mirar un dato (pedido del usuario, 04-sep-2026). No se ofrece
+              cuando YA se está en esa pestaña. */}
+          {!standalone && (
+            <a
+              href={`/negocios/${negocioId}/costeo`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Abre la planilla en una pestaña aparte — deja la viabilidad abierta en esta y trabaja en la otra"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
+            >
+              <ExternalLink size={12} /> Pestaña aparte
+            </a>
+          )}
+          {standalone ? (
+            <a
+              href={`/negocios/${negocioId}?seccion=costeo`}
+              title="Volver a la ficha del negocio en esta misma pestaña"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
+            >
+              <ArrowLeft size={12} /> Volver al negocio
+            </a>
+          ) : pantallaCompleta ? (
             <button onClick={() => setPantallaCompleta(false)} title="Cerrar (Esc)" className="p-1.5 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded-lg transition-colors">
               <X size={16} />
             </button>

@@ -226,7 +226,12 @@ function CampoAuto({
       onClick={etiqueta || editable ? () => { setValorNuevo(valorMostrado); setEditando(true); } : undefined}
     >
       {prefijo ? `${prefijo} ${valorMostrado}` : valorMostrado}
-      {via === 'costeo' && <span className="shrink-0 text-[9px] font-bold align-super">$</span>}
+      {/* El badge de procedencia del costeo es un "$" en superíndice. Si el valor YA empieza con el
+          signo peso (el monto único de la oferta económica, ver anexos-monto-oferta.ts), el badge lo
+          duplicaría a la derecha y se lee como si el símbolo fuera parte de la cifra, al revés de
+          como se escribe un monto — reportado por el usuario viendo "43.629.578 $" en pantalla. La
+          procedencia igual se ve: el color verde y el tooltip no cambian. */}
+      {via === 'costeo' && !valorMostrado.trim().startsWith('$') && <span className="shrink-0 text-[9px] font-bold align-super">$</span>}
       {via === 'auditor' && <span className="shrink-0 text-[9px] font-bold align-super">auditor</span>}
       {via === 'bases' && <span className="shrink-0 text-[9px] font-bold align-super">bases</span>}
       {via === 'ordenes_compra' && <span className="shrink-0 text-[9px] font-bold align-super">OC</span>}

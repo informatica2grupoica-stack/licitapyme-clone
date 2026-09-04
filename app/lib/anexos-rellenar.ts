@@ -37,6 +37,8 @@ import {
 } from '@/app/lib/anexos-ia-motor';
 import { repasarConIA, repasoActivado } from '@/app/lib/anexos-repaso-ia';
 import { matchearPreciosConIA } from '@/app/lib/anexos-precios-ia';
+import { esCandidatoDePrecioUnitario } from '@/app/lib/anexos-precios-columnas';
+import { resolverMontoUnicoOferta, porcentajeIvaDeclarado, totalNetoDeItemsCosteo } from '@/app/lib/anexos-monto-oferta';
 import {
   resolverTablaConAuditor, resolverPreciosConAuditor, resolverCamposSueltosConAuditor,
   type DatosAuditorAnexo,
@@ -128,6 +130,12 @@ export interface CampoResuelto {
 // analisis.indicesSoloManual, detección ESTRUCTURAL — no es "el diccionario") ni siquiera se
 // mandan a la IA: van pendientes de una, con motivo fijo, ahorrando la llamada y garantizando
 // que nunca se autocompletan por error de juicio del modelo.
+// Nombre del campo con que se marca la casilla de MONTO TOTAL DE LA OFERTA resuelta desde el
+// costeo (anexo económico sin tabla de ítems, ver anexos-monto-oferta.ts). Se usa además al
+// generar, para que ese monto entre a `totalesEscritos` y lo revise el guardarraíl bloqueante
+// (auditor-verificacion-total.ts) igual que los totales al pie de una tabla.
+export const CAMPO_MONTO_TOTAL_OFERTA = 'monto_total_oferta';
+
 const MOTIVO_SOLO_MANUAL = 'Bloque de Persona Natural o UTP — no aplica (esta empresa postula como persona jurídica individual).';
 
 interface ResultadoResolucion {
@@ -354,6 +362,28 @@ async function resolverTodo(
       if (m) { matcheados.push({ c, campo: 'precio_unitario_costeo', valor: fmtNumeroCL(m.precioUnitario), via: 'costeo' }); pendientesConMotivo.delete(c.indice); }
       else pendientesTrasPrecio.push(c);
     }
+  }
+
+  // EL ANEXO ECONÓMICO SIN TABLA DE ÍTEMS: una sola casilla que pide el monto total de la oferta
+  // ("OFERTA VALOR", caso real 2585-87-LE26) — ver anexos-monto-oferta.ts. Va DESPUÉS del motor de
+  // precios unitarios y solo cuando ese motor no tenía dónde trabajar: si el documento trae una
+  // columna de precio unitario, el total lo calcula calcularTotalesAlPie sumando la columna del
+  // propio anexo, nunca el costeo.
+  if (itemsCosteo && itemsCosteo.length > 0) {
+    const hayTablaDeItems = candidatosCelda.some(c => esCandidatoDePrecioUnitario(c.etiqueta));
+    const montos = resolverMontoUnicoOferta(
+      pendientesTrasPrecio.map(c => c.etiqueta),
+      totalNetoDeItemsCosteo(itemsCosteo),
+      { hayTablaDeItems, porcentajeIva: porcentajeIvaDeclarado(parrafos.map(p => p.texto || '')) },
+    );
+    const mapaMonto = new Map(montos.map(m => [m.etiqueta, m]));
+    const restantes: CandidatoCelda[] = [];
+    for (const c of pendientesTrasPrecio) {
+      const m = mapaMonto.get(c.etiqueta);
+      if (m) { matcheados.push({ c, campo: CAMPO_MONTO_TOTAL_OFERTA, valor: m.valor, via: 'costeo' }); pendientesConMotivo.delete(c.indice); }
+      else restantes.push(c);
+    }
+    pendientesTrasPrecio = restantes;
   }
 
   const inlineAuto: { b: CandidatoInline; valor: string; etiqueta: string; via: 'ia' | 'bases' | 'ordenes_compra'; pegadoALaIzquierda?: boolean }[] = [];
@@ -1083,7 +1113,15 @@ export async function generarAnexoFinal(
   // común de raíz (dos entradas de `matcheados`/`matcheadosExtra` con el mismo paraId) sin
   // necesitar la excepción para detectarlo.
   const paraIdsCeldaEscritos = new Set<string>();
+  // Monto único de la oferta (anexo económico sin tabla de ítems): se anota lo que DE VERDAD quedó
+  // escrito —lo del humano si corrigió— para que el guardarraíl de total lo compare contra el
+  // costeo, igual que los totales al pie. Ver CAMPO_MONTO_TOTAL_OFERTA.
+  const totalesMontoUnico: { etiqueta: string; valor: string }[] = [];
   for (const m of [...matcheados, ...matcheadosExtra]) {
+    if (m.campo === CAMPO_MONTO_TOTAL_OFERTA) {
+      const escrito = respuestas[`celda:${m.c.indice}`];
+      totalesMontoUnico.push({ etiqueta: m.c.etiqueta, valor: escrito?.trim() ? escrito.trim() : m.valor });
+    }
     // LO QUE ESCRIBIÓ EL HUMANO MANDA (auditoría 28-ago-2026). `analizar` y `generar` son dos
     // requests separados y no comparten estado, así que una casilla puede quedar PENDIENTE en la
     // pantalla (el usuario la ve vacía y la escribe) y resolverse AUTOMÁTICA al generar — pasa con
@@ -1300,5 +1338,5 @@ export async function generarAnexoFinal(
   const integridad = verificarParrafos(xmlCrudo, xml);
   const buffer = await guardarDocx(zip, xml);
 
-  return { buffer, completados, respondidos, integridad, avisos, totalesEscritos: totalesPie };
+  return { buffer, completados, respondidos, integridad, avisos, totalesEscritos: [...totalesPie, ...totalesMontoUnico] };
 }

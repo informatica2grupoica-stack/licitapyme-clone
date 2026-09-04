@@ -1083,7 +1083,7 @@ function DetalleContent() {
   // La bandeja de aprobación transversal (/aprobaciones) deep-linkea acá con ?seccion=comercial
   // para llevar directo a la pestaña Auditor Técnico. Cualquier valor fuera del catálogo cae al
   // default en vez de dejar la pantalla en un estado inválido.
-  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'comentarios', 'comercial', 'compras']);
+  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'comentarios', 'costeo', 'comercial', 'compras']);
   const seccionInicial = searchParams.get('seccion') as Seccion | null;
   const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
 
