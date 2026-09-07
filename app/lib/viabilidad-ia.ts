@@ -20,7 +20,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
-import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, extraerPresupuestoPorLineaTabla, extraerListadoCanonicoBases, decidirReemplazoPorCanonica, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
+import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, detectarLicitacionTipoMultiple, extraerPresupuestoPorLineaTabla, extraerListadoCanonicoBases, decidirReemplazoPorCanonica, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
 
 // Re-export para no romper a quien lo importaba desde acá (el filtro vive ahora en
 // planilla-costeo-parser.ts, módulo PURO sin dependencias, para que generar-costeo.ts también
@@ -760,6 +760,7 @@ function construirSenalModalidad(
   ofertaSubconjunto: string | null = null,
   cuadroPorLinea: string | null = null,
   formulariosPorArchivo: number[] = [],
+  licitacionTipoMultiple: string | null = null,
 ): string {
   // PRIORIDAD MÁXIMA ABSOLUTA — cada línea trae su PROPIO archivo de formulario económico
   // (ej. "01_FORMULARIO_ECONÓMICO_LÍNEA_1.xlsx" … "_8.xlsx"): estructuralmente NO puede existir
@@ -767,6 +768,14 @@ function construirSenalModalidad(
   // 2446-167-LP26 (equipos veterinarios).
   if (formulariosPorArchivo.length >= 2) {
     return `SEÑAL DETERMINISTA DE MODALIDAD (calculada de los NOMBRES de archivo): la licitación trae ${formulariosPorArchivo.length} FORMULARIOS ECONÓMICOS SEPARADOS, uno por línea (líneas ${formulariosPorArchivo.slice(0, 10).join(', ')}${formulariosPorArchivo.length > 10 ? '…' : ''}), cada uno un archivo distinto. Esto determina modalidad = por_linea de forma estructural: si cada línea se cotiza en su propio archivo, no puede existir un total único consolidado. El costeo debe ir POR LÍNEA (una hoja por línea, alineada con cada formulario).`;
+  }
+  // PRIORIDAD MÁXIMA — LICITACIÓN DECLARADA "DE TIPO MÚLTIPLE" (campo formal de Mercado
+  // Público): el proveedor puede ofertar TODOS los productos o SÓLO ALGUNOS, con un
+  // precio/monto/presupuesto disponible IVA incluido POR CADA LÍNEA (si se sobrepasa, esa
+  // línea queda inadmisible). Es la misma idea que "oferta por subconjunto" con la redacción
+  // propia y estándar de MP.
+  if (licitacionTipoMultiple) {
+    return `SEÑAL DETERMINISTA DE MODALIDAD (declaración formal de las bases): "${licitacionTipoMultiple}". La licitación está declarada de TIPO MÚLTIPLE: el proveedor puede ofertar todos los productos solicitados o SÓLO ALGUNOS de ellos, indicando un precio/monto disponible IVA incluido POR CADA LÍNEA de producto (si la oferta de una línea supera ese monto, esa línea se declara inadmisible). Esto determina modalidad = por_linea: cada línea se cotiza y se evalúa contra su propio tope, independiente de las demás. El costeo debe ir POR LÍNEA (una hoja por línea).`;
   }
   // PRIORIDAD MÁXIMA — SE PUEDE OFERTAR A UN SUBCONJUNTO de ítems/líneas. Descarta suma alzada
   // por definición (todo-o-nada) aunque el formulario económico cierre con Subtotal/IVA/Total.
@@ -845,6 +854,7 @@ function veredictoAdjudicacionDeterminista(
   lenguajePorLinea: string | null,
   presupuestoPorLinea: string | null,
   tipoAdjudicacionMultiple: string | null,
+  licitacionTipoMultiple: string | null = null,
 ): { tipo: 'GLOBAL' | 'POR_LINEAS'; motivo: string } | null {
   // Prioridad: evidencia más directa e inequívoca primero.
   if (formulariosPorArchivo.length >= 2) {
@@ -852,6 +862,9 @@ function veredictoAdjudicacionDeterminista(
   }
   if (tipoAdjudicacionMultiple) {
     return { tipo: 'POR_LINEAS', motivo: `declaración explícita de las bases: "${tipoAdjudicacionMultiple}"` };
+  }
+  if (licitacionTipoMultiple) {
+    return { tipo: 'POR_LINEAS', motivo: `licitación declarada de TIPO MÚLTIPLE (se puede ofertar solo a algunas líneas, con tope de monto independiente por línea): "${licitacionTipoMultiple.slice(0, 120)}"` };
   }
   if (ofertaSubconjunto) {
     return { tipo: 'POR_LINEAS', motivo: `las bases permiten ofertar/ganar solo un subconjunto de ítems/líneas: "${ofertaSubconjunto.slice(0, 80)}"` };
@@ -890,12 +903,18 @@ function veredictoModalidadDeterminista(
   ofertaSubconjunto: string | null = null,
   cuadroPorLinea: string | null = null,
   formulariosPorArchivo: number[] = [],
+  licitacionTipoMultiple: string | null = null,
 ): { tipo: 'suma_alzada' | 'por_linea'; motivo: string } | null {
   // 0.a EVIDENCIA ESTRUCTURAL MÁS FUERTE QUE CUALQUIER OTRA: archivos de formulario económico
   //     SEPARADOS por línea (uno por archivo). No hay forma de que exista un total único
   //     consolidado si cada línea vive en su propio archivo. Va ANTES que todo lo demás.
   if (formulariosPorArchivo.length >= 2) {
     return { tipo: 'por_linea', motivo: `${formulariosPorArchivo.length} formularios económicos en archivos separados, uno por línea (líneas ${formulariosPorArchivo.slice(0, 10).join(', ')})` };
+  }
+  // 0.a2 LICITACIÓN DECLARADA "DE TIPO MÚLTIPLE" (campo formal de MP): se puede ofertar todo o
+  //     solo algunas líneas, cada una con su propio tope de monto disponible IVA incluido.
+  if (licitacionTipoMultiple) {
+    return { tipo: 'por_linea', motivo: `licitación declarada de tipo múltiple (se puede ofertar solo a algunas líneas, con tope de monto independiente por línea): "${licitacionTipoMultiple.slice(0, 120)}"` };
   }
   // 0. EXCEPCIÓN a la regla maestra: si el oferente puede postular solo a ALGUNOS ítems y omitir
   //    el resto, no es suma alzada (que es todo-o-nada) por más que el formulario cierre con
@@ -1882,6 +1901,7 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   let cuadroPorLinea: string | null = null;
   let formulariosPorArchivo: number[] = [];
   let tipoAdjudicacionMultiple: string | null = null;
+  let licitacionTipoMultiple: string | null = null;
   try {
     lineasForm = detectarLineasFormulario(fuentes);
     // "LÍNEA DE PRODUCTO N°X" en bases técnicas = lotes independientes (mismo peso que las
@@ -1904,8 +1924,9 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     // (evidencia formal de cómo se adjudica) — ninguna señal existente los reconocía.
     formulariosPorArchivo = detectarFormulariosEconomicosPorArchivo(fuentes);
     tipoAdjudicacionMultiple = detectarTipoAdjudicacionMultiple(fuentes);
+    licitacionTipoMultiple = detectarLicitacionTipoMultiple(fuentes);
   } catch { /* señal opcional */ }
-  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo);
+  const senal = construirSenalModalidad(planilla, lineasForm, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo, licitacionTipoMultiple);
 
   const userPrompt = construirUserPromptV3(codigo, ctx, docs, senal, planilla?.fuenteDoc);
   // REGLAS APRENDIDAS DEL EXPERTO — se INYECTAN al final del prompt para que el análisis mejore
@@ -2049,7 +2070,7 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     adj.estado = 'DETERMINADA';
     adj.evidencia = 'un solo ítem/línea detectado en el manifiesto — no puede haber adjudicación por línea con una sola línea, es GLOBAL por definición';
   } else {
-  const det = veredictoAdjudicacionDeterminista(ofertaSubconjunto, formulariosPorArchivo, participacionParcialPorLinea, presupuestoPorLinea, tipoAdjudicacionMultiple);
+  const det = veredictoAdjudicacionDeterminista(ofertaSubconjunto, formulariosPorArchivo, participacionParcialPorLinea, presupuestoPorLinea, tipoAdjudicacionMultiple, licitacionTipoMultiple);
   if (det) {
     const comoDet = det.tipo; // 'GLOBAL' | 'POR_LINEAS' — ya viene en el vocabulario de adjudicación
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
@@ -2103,6 +2124,7 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
       || !!ofertaSubconjunto
       || formulariosPorArchivo.length >= 2
       || !!tipoAdjudicacionMultiple
+      || !!licitacionTipoMultiple
       || manifiestoPorLinea;
     if (comoLLM.includes('LINEA') && manifiestoPorLinea && !presupuestoPorLinea && !lenguajePorLinea) {
       // Evidencia MEDIA (viene del manifiesto del LLM, no de una señal 100% determinista): se
@@ -2167,7 +2189,7 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
   // la oferta económica (cuadro por línea, presupuesto por línea, formularios separados, etc.);
   // nunca al revés — si la adjudicación ya es POR_LINEAS, el costeo se queda por_linea sin tocar.
   if (tipoCosteo === 'suma_alzada') {
-    const detCosteo = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo);
+    const detCosteo = veredictoModalidadDeterminista(planilla, totalUnico, lenguajePorLinea, presupuestoPorLinea, ofertaSubconjunto, cuadroPorLinea, formulariosPorArchivo, licitacionTipoMultiple);
     if (detCosteo?.tipo === 'por_linea') {
       console.log(`[viabilidad-ia-v3] ${codigo}: costeo promovido a por_linea aunque la adjudicación es GLOBAL (${detCosteo.motivo}).`);
       tipoCosteo = 'por_linea';

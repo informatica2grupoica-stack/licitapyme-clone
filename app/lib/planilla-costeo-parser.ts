@@ -577,6 +577,43 @@ export function detectarOfertaSubconjuntoItems(docs: { texto: string }[]): strin
   return null;
 }
 
+// LICITACIÓN "DE TIPO MÚLTIPLE" — declaración FORMAL de Mercado Público (campo "Tipo de
+// licitación") acompañada de un párrafo estándar (el mismo texto se repite igual en cientos
+// de fichas distintas) que explica qué significa: el proveedor puede ofertar TODOS los
+// productos solicitados O SÓLO ALGUNOS de ellos, indicando el precio/monto/presupuesto
+// disponible (IVA incluido) POR CADA LÍNEA de producto; si la oferta de una línea sobrepasa
+// ese monto disponible, esa oferta/línea se declara INADMISIBLE.
+//
+// Es la MISMA idea de fondo que detectarOfertaSubconjuntoItems (se puede ofertar a un
+// subconjunto → no es todo-o-nada → no es suma alzada) pero con una redacción propia que
+// ningún patrón existente cazaba: "ofertar TODOS los productos ... O SÓLO ALGUNOS de ellos"
+// (los patrones de subconjunto exigen "uno/una/dos/varios/algunos O MÁS de las líneas/ítems",
+// no "todos ... o sólo algunos") y "precio disponible ... por/en cada línea" (exige la
+// palabra "presupuesto"/"monto" en detectarPresupuestoPorLinea, no "precio"; y esa función
+// además exige ≥2 líneas ENUMERADAS con su monto, que este párrafo declarativo no trae —
+// los montos reales por línea suelen estar en OTRA tabla de las bases).
+//
+// Caso real reportado por el usuario (7-sep-2026): la plataforma no distinguía este párrafo
+// como evidencia de por_linea. Devuelve la frase-evidencia hallada (citable) o null.
+export function detectarLicitacionTipoMultiple(docs: { texto: string }[]): string | null {
+  const reAnchor = /(?:se\s+determina\s+)?licitaci[oó]n\s+(?:es\s+|ser[aá]\s+|de\s+)?tipo\s+m[uú]ltiple|tipo\s+de\s+licitaci[oó]n[\s\S]{0,20}?m[uú]ltiple/i;
+  const reSubconjunto = /ofert\w*\s+todos\s+los\s+productos[\s\S]{0,250}?(?:o\s+)?s[oó]lo\s+algunos\s+de\s+ellos/i;
+  const reTopePorLinea = /(?:precio|monto|presupuesto)\s+disponible[\s\S]{0,80}?(?:por|en)\s+cada\s+l[ií]nea\s+de\s+producto|sobrepas\w*\s+el\s+monto\s+disponible[\s\S]{0,200}?inadmisible/i;
+  for (const d of docs) {
+    if (!d.texto) continue;
+    const mAnchor = d.texto.match(reAnchor);
+    if (!mAnchor || mAnchor.index == null) continue;
+    const ventana = d.texto.slice(mAnchor.index, mAnchor.index + 900);
+    const mSub = ventana.match(reSubconjunto);
+    const mTope = ventana.match(reTopePorLinea);
+    if (!mSub && !mTope) continue;
+    const evidencia = (mSub?.[0] || mTope?.[0] || '').replace(/\s+/g, ' ').trim();
+    const anchorTxt = mAnchor[0].replace(/\s+/g, ' ').trim();
+    return evidencia ? `${anchorTxt}" ... "${evidencia}` : anchorTxt;
+  }
+  return null;
+}
+
 // CUADRO ECONÓMICO POR LÍNEA — el formulario de oferta económica trae UNA TABLA POR LÍNEA,
 // cada una cerrando con su PROPIO bloque de totales ("TOTAL NETO $ / 19% IVA $ / TOTAL $"),
 // y NO existe un gran total consolidado que las sume. Por la regla maestra del experto
