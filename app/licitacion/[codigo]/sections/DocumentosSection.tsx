@@ -25,7 +25,9 @@ import { registrarVerDocumento } from '@/app/lib/actividad-cliente';
 // API de MP): categoria (caja donde vive) y origen_manual (lo subió el usuario a mano
 // directamente en esa caja, a diferencia de lo descargado de Mercado Público — ver
 // CATS_BORRABLES más abajo, que ahora también respeta esta marca para habilitar "Eliminar").
-type DocLicitacion = DocumentoAdjunto & { categoria?: string; origen_manual?: boolean | number };
+// generado_separar: lo produjo "Separar anexos" a partir de un documento más largo — ver
+// documentos_generados_separar (migration-89) y CATS_PARA_AUDITOR más abajo para dónde se pinta.
+type DocLicitacion = DocumentoAdjunto & { categoria?: string; origen_manual?: boolean | number; generado_separar?: boolean | number };
 
 // Cualquier Word (.doc o .docx) descargado de la licitación es candidato a rellenar — SIN
 // filtrar por categoría: el clasificador de MP a veces mete un anexo real fuera de
@@ -74,13 +76,17 @@ const CAT_ANEXOS_TECNICOS = 'ANEXOS_TECNICOS';
 const CAT_ANEXOS_ECONOMICOS = 'ANEXOS_ECONOMICOS';
 const CATS_BORRABLES = new Set([CAT_PROPIOS, CAT_ANEXOS_ADMIN, CAT_ANEXOS_TECNICOS, CAT_ANEXOS_ECONOMICOS]);
 
-// Cajas que el Auditor Técnico usa de verdad para armar su checklist (ver sincronizar() en
-// app/api/negocios/[id]/comercial/route.ts) — a propósito NO incluye "Anexos Oferente", la caja
-// catch-all de lo que todavía no se clasificó con claridad. Pedido explícito del usuario
-// (7-sep-2026): que se vea a simple vista, en Documentos, cuál archivo cuenta para el Auditor —
-// EN VIVO según la categoría actual, no una marca guardada aparte, así que mover un documento de
-// caja (drag&drop) lo prende o apaga solo, sin ningún paso extra.
-const CATS_PARA_AUDITOR = new Set([CAT_ANEXOS_ADMIN, CAT_ANEXOS_TECNICOS, CAT_ANEXOS_ECONOMICOS]);
+// Colores de estado de un documento en "Documentos y Bases" (corregido 7-sep-2026, pedido
+// explícito del usuario tras ver el primer intento):
+//  · NARANJO = lo generó "Separar anexos" (documentos_generados_separar) — es un ARCHIVO NUESTRO,
+//    recién partido de uno más largo, todavía no dice nada sobre si ya se usó para algo.
+//  · VERDE = ya se mandó al Auditor Técnico (su URL vive en checklist_comercial_documentos de
+//    este negocio) — ver urlsEnAuditor/refrescarUrlsAuditor más abajo. Manda sobre el naranjo: un
+//    anexo separado Y YA enviado se ve verde, porque "ya está en el Auditor" es el estado más
+//    avanzado de los dos.
+// Ninguno de los dos depende de la CAJA/categoría — a diferencia del primer intento, que pintaba
+// verde por estar en Anexos Administrativos/Técnicos/Económicos y mezclaba "recién separado" con
+// "ya enviado", que para el usuario son dos cosas distintas.
 
 // ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
 // Estilo común a todas las cajas (neutro). El color real lo da el contenido.
@@ -151,6 +157,7 @@ function DocItem({
   onRellenarAnexo,
   onSepararAnexo,
   onEnviarAuditor,
+  enviadoAlAuditor,
 }: {
   doc: DocLicitacion;
   codigoDecoded: string;
@@ -168,6 +175,9 @@ function DocItem({
   // Técnico, sin pasar por el relleno. Para lo que YA quedó listo (una garantía escaneada, un
   // anexo llenado a mano fuera de la app), no para los que todavía tienen campos vacíos.
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
+  // ¿La URL de este documento ya vive en checklist_comercial_documentos de este negocio? Ver
+  // urlsEnAuditor en el componente padre — VERDE, manda sobre el naranjo de generado_separar.
+  enviadoAlAuditor?: boolean;
 }) {
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
   // Borrable si su categoría es de las nuestras (generadas por la app) O si el usuario lo
@@ -177,8 +187,7 @@ function DocItem({
   const esPropio = CATS_BORRABLES.has((doc.categoria || '').toUpperCase()) || !!doc.origen_manual;
   const rellenable = onRellenarAnexo && esAnexoRellenable(doc);
   const separable = onSepararAnexo && esAnexoSeparable(doc);
-  // Verde = esta caja es una de las que el Auditor Técnico lee de verdad — ver CATS_PARA_AUDITOR.
-  const enElAuditor = CATS_PARA_AUDITOR.has((doc.categoria || '').toUpperCase());
+  const separado = !!doc.generado_separar;
   return (
     <div
       draggable
@@ -187,7 +196,11 @@ function DocItem({
         group flex flex-col gap-1.5 px-2.5 py-2 rounded-lg border
         cursor-grab active:cursor-grabbing select-none transition-all
         ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
-        ${enElAuditor ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100' : 'bg-white border-slate-100 hover:bg-slate-50'}
+        ${enviadoAlAuditor
+          ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+          : separado
+            ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
+            : 'bg-white border-slate-100 hover:bg-slate-50'}
       `}
     >
       <div className="flex items-start gap-2">
@@ -196,12 +209,14 @@ function DocItem({
         <p className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 leading-snug line-clamp-2 break-words" title={doc.nombre}>
           {doc.nombre}
         </p>
-        {enElAuditor && (
-          <span
-            className="flex-shrink-0 mt-0.5"
-            title="Cuenta para el Auditor Técnico (caja Administrativa/Técnica/Económica)"
-          >
+        {enviadoAlAuditor && (
+          <span className="flex-shrink-0 mt-0.5" title="Ya se envió al Auditor Técnico">
             <CheckCircle size={12} className="text-emerald-500" />
+          </span>
+        )}
+        {!enviadoAlAuditor && separado && (
+          <span className="flex-shrink-0 mt-0.5" title="Generado al separar un documento con varios anexos pegados">
+            <Scissors size={12} className="text-orange-500" />
           </span>
         )}
       </div>
@@ -309,6 +324,7 @@ function CajaDroppable({
   onEnviarAuditor,
   onRellenarTodos,
   subiendo,
+  urlsEnAuditor,
 }: {
   caja: CajaConfig;
   codigoDecoded: string;
@@ -332,6 +348,8 @@ function CajaDroppable({
   // con los documentos rellenables de ESTA caja y se la pasa al padre, que la procesa uno por uno.
   onRellenarTodos?: (docs: AnexoDoc[]) => void;
   subiendo: string | null; // key de la caja que está subiendo un archivo
+  // URLs ya enviadas al Auditor Técnico de este negocio — ver urlsEnAuditor en el padre.
+  urlsEnAuditor: Set<string>;
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
   const subiendoAqui = subiendo === caja.key;
@@ -413,6 +431,7 @@ function CajaDroppable({
             onRellenarAnexo={onRellenarAnexo}
             onSepararAnexo={onSepararAnexo}
             onEnviarAuditor={onEnviarAuditor}
+            enviadoAlAuditor={urlsEnAuditor.has(doc.url_local || doc.url)}
           />
         ))}
 
@@ -444,6 +463,7 @@ function DocumentosGrid({
   onEnviarAuditor,
   onRellenarTodos,
   modo,
+  urlsEnAuditor,
 }: {
   documentos: DocLicitacion[];
   codigoDecoded: string;
@@ -461,6 +481,8 @@ function DocumentosGrid({
   // 'propios' = SOLO la caja Documentos Propios (lo que creamos/editamos);
   // undefined = todas (comportamiento previo).
   modo?: 'licitacion' | 'propios';
+  // URLs ya enviadas al Auditor Técnico de este negocio — ver urlsEnAuditor en DocumentosSection.
+  urlsEnAuditor: Set<string>;
 }) {
   // Agrupa los documentos por su categoría real (sin pre-crear cajas vacías).
   const buildGrupos = (docs: DocLicitacion[]) => {
@@ -668,7 +690,18 @@ function DocumentosGrid({
     e.preventDefault();
     setDragOver(null);
     dragEnterCount.current = {};
-    if (!draggingDoc) return;
+
+    // Arrastre NATIVO desde el explorador de archivos del sistema (Windows/Finder/el escritorio),
+    // no un reordenamiento interno de la app — pedido explícito del usuario (7-sep-2026): "que
+    // desde mi pc pueda arrastrar documentos... dejarlo en una caja del programa, por ejemplo
+    // administrativo, y que se cargue ahí". Mismo camino que el botón "Subir documento(s) a esta
+    // caja" (handleUpload) — la única diferencia es que el archivo llega por `dataTransfer.files`
+    // en vez de un `<input type="file">`. `draggingDoc` sigue null en este caso porque nunca se
+    // llamó a handleDragStart (eso solo pasa al arrastrar una tarjeta YA dentro de la app).
+    if (!draggingDoc) {
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) await handleUpload(e.dataTransfer.files, targetKey);
+      return;
+    }
 
     const sourceKey = (draggingDoc as any).categoria || 'SIN_CATEGORIA';
     if (sourceKey === targetKey) { setDraggingDoc(null); return; }
@@ -764,6 +797,7 @@ function DocumentosGrid({
             onEnviarAuditor={onEnviarAuditor}
             onRellenarTodos={onRellenarTodos}
             subiendo={subiendo}
+            urlsEnAuditor={urlsEnAuditor}
           />
         ))}
       </div>
@@ -791,6 +825,7 @@ function DocumentosGrid({
                 isDragging={draggingDoc?.nombre === doc.nombre}
                 onView={onView}
                 onOpenIA={onOpenIA}
+                enviadoAlAuditor={urlsEnAuditor.has(doc.url_local || doc.url)}
               />
             ))}
           </div>
@@ -1360,6 +1395,21 @@ export function DocumentosSection({
   // (los que NOSOTROS creamos o editamos: costeo, informe, y lo que subamos).
   const docsLicitacion = documentosCache.filter(d => ((d as any).categoria || '').toUpperCase() !== 'DOCUMENTOS_PROPIOS');
   const docsPropios = documentosCache.filter(d => ((d as any).categoria || '').toUpperCase() === 'DOCUMENTOS_PROPIOS');
+  // URLs de "Documentos y Bases" que YA se enviaron al Auditor Técnico de este negocio — pintan
+  // el documento de VERDE (pedido explícito del usuario, 7-sep-2026: "los de documentos mp...
+  // cuando ya los mando al auditor, esos son los que quiero que cambien a verde"). Se relee EN
+  // VIVO (nunca una marca guardada en el documento) para que quede al día solo si el punto del
+  // checklist se borra o el documento se reemplaza — ver /comercial/documentos-auditor.
+  const [urlsEnAuditor, setUrlsEnAuditor] = useState<Set<string>>(new Set());
+  const refrescarUrlsAuditor = () => {
+    if (!negocioId) { setUrlsEnAuditor(new Set()); return; }
+    fetch(`/api/negocios/${negocioId}/comercial/documentos-auditor`)
+      .then(r => r.json())
+      .then(d => { if (d?.success) setUrlsEnAuditor(new Set(d.urls || [])); })
+      .catch(() => {});
+  };
+  useEffect(refrescarUrlsAuditor, [negocioId]);
+
   // Documento abierto en el visor inline (modal). null = cerrado.
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
   // Ver un documento: abre el visor Y registra la actividad "Vio el documento" (bitácora).
@@ -1493,6 +1543,7 @@ export function DocumentosSection({
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.success) { toast.error(d.error || 'No se pudo enviar al Auditor Técnico'); return; }
       toast.success('Enviado al Auditor Técnico', `"${enviandoDoc.nombre}" quedó en CARGADO`);
+      refrescarUrlsAuditor(); // se pinta verde de inmediato, sin esperar el próximo montaje
     } catch (e: any) {
       toast.error('Error de red', e?.message);
     } finally {
@@ -1710,6 +1761,7 @@ export function DocumentosSection({
               onEnviarAuditor={isAdmin && negocioId ? setEnviandoDoc : undefined}
               onRellenarTodos={isAdmin ? handleGenerarTodos : undefined}
               modo="licitacion"
+              urlsEnAuditor={urlsEnAuditor}
             />
           </div>
         )}

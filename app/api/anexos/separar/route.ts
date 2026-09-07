@@ -59,6 +59,21 @@ const CATEGORIA_POR_CLASIFICACION: Record<string, string> = {
   sin_clasificar: 'ANEXOS_OFERENTE',
 };
 
+// Marca en documentos_generados_separar (migration-89) que ESTE archivo lo produjo "Separar
+// anexos" — la señal que "Documentos y Bases" usa para pintarlo NARANJO, a diferencia de un
+// documento original de Mercado Público. Best-effort: si la migración todavía no está aplicada,
+// no rompe la separación (el archivo igual se sube y queda usable, solo sin el color).
+async function marcarGeneradoPorSeparar(documentoId: number): Promise<void> {
+  if (!documentoId) return;
+  try {
+    await pool.query(
+      `INSERT INTO documentos_generados_separar (documento_id) VALUES (?)
+       ON DUPLICATE KEY UPDATE documento_id = documento_id`,
+      [documentoId],
+    );
+  } catch { /* migración 89 pendiente — el archivo se sube igual */ }
+}
+
 export async function POST(request: NextRequest) {
   const usuario = await getAuthedUser(request);
   if (!usuario) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
@@ -144,17 +159,22 @@ export async function POST(request: NextRequest) {
       // pero en la caja equivocada — visualmente indistinguible de "no se separó" para quien
       // solo mira una caja a la vez (reportado como "separó 5 de 6": el 6º estaba ahí, pero en
       // Anexos Oferente en vez de Económicos).
-      await pool.query(
+      // `id = LAST_INSERT_ID(id)` hace que result.insertId traiga el id de la fila aunque se haya
+      // tomado la rama UPDATE (reintento sobre un nombre que ya existía) — sin esto, insertId sale
+      // 0 en ese caso y no habría cómo marcar la fila en documentos_generados_separar de abajo.
+      const [r] = await pool.query(
         `INSERT INTO documentos_cache
            (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, categoria_manual, usuario_id)
          VALUES (?, ?, ?, ?, ?, ?, 1, ?)
          ON DUPLICATE KEY UPDATE
+           id                  = LAST_INSERT_ID(id),
            documento_url_local = VALUES(documento_url_local),
            size_bytes          = VALUES(size_bytes),
            categoria           = VALUES(categoria),
            updated_at          = CURRENT_TIMESTAMP`,
         [codigo, nombre, url, f.buffer.length, CONTENT_TYPE_DOCX, categoriaCaja, usuario.id],
-      );
+      ) as any;
+      await marcarGeneradoPorSeparar(r.insertId);
       archivos.push({ nombre, categoria: f.categoria, titulo: f.titulo, url });
     }
 
@@ -204,17 +224,19 @@ async function separarPdfEscaneado(
     const categoria = clasificarAnexo(parte.seccion.titulo, parte.seccion.texto);
     const categoriaCaja = CATEGORIA_POR_CLASIFICACION[categoria] || 'ANEXOS_OFERENTE';
     const url = await subirDocumentoR2(codigo, parte.nombreArchivo, parte.buffer, CONTENT_TYPE_PDF);
-    await pool.query(
+    const [r] = await pool.query(
       `INSERT INTO documentos_cache
          (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, categoria_manual, usuario_id)
        VALUES (?, ?, ?, ?, ?, ?, 1, ?)
        ON DUPLICATE KEY UPDATE
+         id                  = LAST_INSERT_ID(id),
          documento_url_local = VALUES(documento_url_local),
          size_bytes          = VALUES(size_bytes),
          categoria           = VALUES(categoria),
          updated_at          = CURRENT_TIMESTAMP`,
       [codigo, parte.nombreArchivo, url, parte.buffer.length, CONTENT_TYPE_PDF, categoriaCaja, usuarioId],
-    );
+    ) as any;
+    await marcarGeneradoPorSeparar(r.insertId);
     archivos.push({ nombre: parte.nombreArchivo, categoria, titulo: parte.seccion.titulo, url });
   }
 
