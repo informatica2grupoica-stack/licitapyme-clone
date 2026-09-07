@@ -1093,24 +1093,32 @@ export function planDeReconciliacion(filas: FilaReconciliable[]): PlanReconcilia
       continue;
     }
 
-    // 3) Un anexo individual (Formato 2-B) que ya viene cubierto por un anexo combinado del
-    //    mismo checklist (Formatos N°2-A, 2-B, 2-C, 2-D) — antes numeroDeFormatoEn() solo veía el
-    //    PRIMER identificador del combinado ("2-A"), así que separar el archivo real de "2-B" lo
-    //    trataba como documento nuevo (número explícito distinto) en vez de reconocerlo ya
-    //    cubierto (caso real reportado 07-sep-2026). Se fusiona en el que cubre MÁS
-    //    identificadores; si nadie lo tocó todavía, se borra sin perder ningún trabajo.
+    // 3) Un anexo COMBINADO (varios identificadores en el título, "Formatos N°2-A, 2-B, 2-C,
+    //    2-D") cuyos identificadores están TODOS cubiertos por anexos individuales del mismo
+    //    checklist ("Formato 2-A", "2-B", "2-C", "2-D" cada uno por su lado) se vuelve redundante
+    //    y se borra — pedido explícito del usuario (07-sep-2026): "lo ideal es que estén
+    //    separadas", una vez que YA separó los archivos reales prefiere trabajar cada Formato por
+    //    su cuenta, no un combinado compitiendo al lado.
+    //
+    //    Antes esta fusión iba al revés (el combinado sobrevivía, los individuales se borraban) —
+    //    el usuario lo vio en pantalla y lo corrigió: si separó los documentos, el combinado ya no
+    //    aporta nada. GUARDARRAÍL: solo se borra si TODOS sus identificadores tienen un individual
+    //    que los cubra — si falta uno (2-A sin separar, por ejemplo), el combinado sigue siendo la
+    //    única evidencia de que ese Formato existe y no se toca, para no perder el recordatorio.
     if (clave.startsWith('anexo:') && f.tipo === 'documento') {
       const numerosF = numerosDeFormatoEn(f.titulo);
-      if (numerosF.length) {
-        let mejor = f;
+      if (numerosF.length > 1) {
+        const cubiertos = new Set<string>();
         for (const o of anexos) {
           if (o.id === f.id) continue;
           const numerosO = numerosDeFormatoEn(o.titulo);
-          if (!coincidenEntradas({ numeros: numerosF, nucleo: '' }, { numeros: numerosO, nucleo: '' })) continue;
-          const numerosMejor = numerosDeFormatoEn(mejor.titulo);
-          if (numerosO.length > numerosMejor.length || (numerosO.length === numerosMejor.length && o.id < mejor.id)) mejor = o;
+          // Solo cuenta un individual MÁS ESPECÍFICO (menos identificadores) que cae DENTRO del
+          // combinado — otro combinado más grande no "cubre" a este, sería el caso inverso.
+          if (numerosO.length && numerosO.length < numerosF.length && numerosO.every(n => numerosF.includes(n))) {
+            numerosO.forEach(n => cubiertos.add(n));
+          }
         }
-        if (mejor.id !== f.id && f.virgen) plan.borrar.push(f.id);
+        if (numerosF.every(n => cubiertos.has(n)) && f.virgen) plan.borrar.push(f.id);
       }
     }
   }

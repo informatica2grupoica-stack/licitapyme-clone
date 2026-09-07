@@ -222,28 +222,45 @@ test('reconciliación: si la fila duplicada tiene evidencia, no se borra nada', 
   assert.equal(plan.absorber[0].ponderacion, 5);   // la ponderación sí se rescata
 });
 
-// Caso real reportado 07-sep-2026: el informe generó UN punto combinado ("Formatos N°2-A, 2-B,
-// 2-C, 2-D"), y al separar los archivos reales el escaneo de anexos creó filas individuales para
-// 2-B/2-C/2-D — antes numeroDeFormatoEn() solo veía "2-A" del combinado, así que "2-B" se leía
-// como número EXPLÍCITO DISTINTO (nunca el mismo documento) en vez de reconocerse ya cubierto.
-test('reconciliación: un anexo individual ya cubierto por un combinado se fusiona en el combinado', async () => {
+// Caso real reportado 07-sep-2026 (licitación 2723-62-LE26): el informe generó UN punto
+// combinado ("Formatos N°2-A, 2-B, 2-C, 2-D"), el usuario separó los 4 archivos reales, y el
+// combinado se quedaba mostrándose igual — "esa me la diste separada, esa no debería aparecer".
+// Se borra el COMBINADO (no los individuales) cuando TODOS sus identificadores ya tienen su
+// propio anexo individual — el usuario prefiere trabajar cada Formato por separado.
+test('reconciliación: el combinado se borra cuando TODOS sus identificadores ya están separados', async () => {
   const { planDeReconciliacion } = await import('../checklist-comercial');
   const filas: any[] = [
     { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formatos N°2-A, 2-B, 2-C, 2-D: Declaraciones simples', descripcion: 'Declaraciones juradas simples sobre habilidad', clave_origen: 'anexo:formatos_n_2a_2b_2c_2d', ponderacion: null, virgen: true },
-    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-B - Declaración Simple Habilidad', descripcion: null, clave_origen: 'anexo:archivo:formato_2_b_declaracion_simple_habilidad', ponderacion: null, virgen: true },
-    { id: 3, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-C - Declaración Simple Aceptación', descripcion: null, clave_origen: 'anexo:archivo:formato_2_c_declaracion_simple_aceptacion', ponderacion: null, virgen: true },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-A - Declaración Simple Habilidad', descripcion: null, clave_origen: 'anexo:archivo:formato_2_a', ponderacion: null, virgen: true },
+    { id: 3, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-B - Declaración Simple Habilidad', descripcion: null, clave_origen: 'anexo:archivo:formato_2_b', ponderacion: null, virgen: true },
+    { id: 4, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-C - Declaración Simple Aceptación', descripcion: null, clave_origen: 'anexo:archivo:formato_2_c', ponderacion: null, virgen: true },
+    { id: 5, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-D - Declaración Simple Sobre', descripcion: null, clave_origen: 'anexo:archivo:formato_2_d', ponderacion: null, virgen: true },
   ];
   const plan = planDeReconciliacion(filas);
-  assert.deepEqual(plan.borrar.sort(), [2, 3]);   // se fusionan en el combinado (id 1), que tiene más identificadores
+  assert.deepEqual(plan.borrar, [1]);   // solo el combinado se va; los 4 individuales quedan
 });
 
-test('reconciliación: un anexo individual YA CARGADO no se borra aunque el combinado lo cubra', async () => {
-  // Misma regla de siempre: si alguien ya trabajó la fila, se deja intacta — mejor un duplicado
-  // visible que perder evidencia (ver el comentario de FilaReconciliable.virgen).
+// GUARDARRAÍL: si falta separar uno (acá el 2-A), el combinado sigue siendo la única evidencia
+// de que ESE Formato existe — no se borra, para no perder el recordatorio.
+test('reconciliación: el combinado NO se borra si falta separar alguno de sus identificadores', async () => {
   const { planDeReconciliacion } = await import('../checklist-comercial');
   const filas: any[] = [
     { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formatos N°2-A, 2-B, 2-C, 2-D: Declaraciones simples', descripcion: null, clave_origen: 'anexo:formatos_n_2a_2b_2c_2d', ponderacion: null, virgen: true },
-    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-B - Declaración Simple Habilidad', descripcion: null, clave_origen: 'anexo:archivo:formato_2_b_declaracion_simple_habilidad', ponderacion: null, virgen: false },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-B - Declaración Simple Habilidad', descripcion: null, clave_origen: 'anexo:archivo:formato_2_b', ponderacion: null, virgen: true },
+    { id: 3, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-C - Declaración Simple Aceptación', descripcion: null, clave_origen: 'anexo:archivo:formato_2_c', ponderacion: null, virgen: true },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, []);   // 2-A y 2-D no tienen individual propio: el combinado se queda
+});
+
+test('reconciliación: el combinado YA TRABAJADO no se borra aunque esté todo separado', async () => {
+  // Misma regla de siempre: si alguien ya trabajó la fila (cargó algo, la aprobó), se deja
+  // intacta — mejor un duplicado visible que perder evidencia (ver FilaReconciliable.virgen).
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formatos N°2-A, 2-B: Declaraciones simples', descripcion: null, clave_origen: 'anexo:formatos_n_2a_2b', ponderacion: null, virgen: false },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-A - Declaración Simple Habilidad', descripcion: null, clave_origen: 'anexo:archivo:formato_2_a', ponderacion: null, virgen: true },
+    { id: 3, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-B - Declaración Simple Habilidad', descripcion: null, clave_origen: 'anexo:archivo:formato_2_b', ponderacion: null, virgen: true },
   ];
   const plan = planDeReconciliacion(filas);
   assert.deepEqual(plan.borrar, []);
