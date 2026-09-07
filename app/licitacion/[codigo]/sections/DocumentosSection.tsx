@@ -901,7 +901,7 @@ function claveCajaPropia(sub?: string | null) {
 function DocPropioItem({
   doc, isDragging, isEditing, valorNombre, busy,
   onDragStart, onView, onDownloadClick, onReemplazar, onRenombrarClick, onEliminar,
-  onGuardarNombre, onCancelarEdicion, onChangeValorNombre, onEnviarAuditor,
+  onGuardarNombre, onCancelarEdicion, onChangeValorNombre, onEnviarAuditor, enviadoAlAuditor,
 }: {
   doc: DocPropio;
   isDragging: boolean;
@@ -918,6 +918,11 @@ function DocPropioItem({
   onCancelarEdicion: () => void;
   onChangeValorNombre: (v: string) => void;
   onEnviarAuditor?: () => void;
+  // ¿La URL de este documento ya vive en checklist_comercial_documentos de este negocio? Mismo
+  // criterio que DocItem — ver urlsEnAuditor en DocumentosSection. Pedido explícito del usuario
+  // (7-sep-2026): el anexo YA RELLENADO (que vive acá, en Documentos Propios, no en la caja donde
+  // se separó) es justo el que de verdad se manda al Auditor, así que también se pinta verde.
+  enviadoAlAuditor?: boolean;
 }) {
   const urlDe = (doc as any).url_local || (doc as any).url;
   return (
@@ -928,7 +933,7 @@ function DocPropioItem({
         group flex flex-col gap-1.5 px-2.5 py-2 rounded-lg border
         cursor-grab active:cursor-grabbing select-none transition-all
         ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
-        bg-white border-slate-100 hover:bg-slate-50
+        ${enviadoAlAuditor ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100' : 'bg-white border-slate-100 hover:bg-slate-50'}
       `}
     >
       <div className="flex items-start gap-2">
@@ -947,6 +952,11 @@ function DocPropioItem({
             </p>
           )}
         </div>
+        {enviadoAlAuditor && (
+          <span className="flex-shrink-0 mt-0.5" title="Ya se envió al Auditor Técnico">
+            <CheckCircle size={12} className="text-emerald-500" />
+          </span>
+        )}
         {busy && <Loader2 size={12} className="animate-spin text-violet-500 flex-shrink-0 mt-0.5" />}
       </div>
       <div className="flex items-center justify-between pl-[26px]">
@@ -981,7 +991,7 @@ function CajaPropiaDroppable({
   onDragStart, onDragOver, onDragEnter, onDragLeave, onDrop,
   onView, onDownloadClick, onReemplazar, onRenombrarClick, onEliminar,
   editando, valorNombre, onGuardarNombre, onCancelarEdicion, onChangeValorNombre, ocupado,
-  onEnviarAuditor,
+  onEnviarAuditor, urlsEnAuditor,
 }: {
   cajaKey: string;
   label: string;
@@ -1006,6 +1016,7 @@ function CajaPropiaDroppable({
   onChangeValorNombre: (v: string) => void;
   ocupado: string | null;
   onEnviarAuditor?: (doc: DocPropio) => void;
+  urlsEnAuditor: Set<string>;
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
   return (
@@ -1044,6 +1055,7 @@ function CajaPropiaDroppable({
             onCancelarEdicion={onCancelarEdicion}
             onChangeValorNombre={onChangeValorNombre}
             onEnviarAuditor={onEnviarAuditor ? () => onEnviarAuditor(doc) : undefined}
+            enviadoAlAuditor={urlsEnAuditor.has((doc as any).url_local || (doc as any).url)}
           />
         ))}
         {isDragOver && (
@@ -1067,12 +1079,13 @@ function CajaPropiaDroppable({
 // Se persiste en `subcategoria` — una columna aparte de `categoria` (que sigue marcando el
 // documento como DOCUMENTOS_PROPIOS). La clasificación IA (/api/documentos/clasificar) nunca
 // corre sobre estos documentos ni toca esta columna — ver /api/documentos/organizar.
-function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnviarAuditor }: {
+function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnviarAuditor, urlsEnAuditor }: {
   docs: DocPropio[];
   codigoDecoded: string;
   onView: (doc: VisorDoc) => void;
   onRefrescar: () => void;
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
+  urlsEnAuditor: Set<string>;
 }) {
   const confirmar = useConfirm();
   const toast = useToast();
@@ -1356,6 +1369,7 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnv
               onChangeValorNombre={setValorNombre}
               ocupado={ocupado}
               onEnviarAuditor={onEnviarAuditor ? (doc) => onEnviarAuditor({ nombre: doc.nombre, url: urlDe(doc) }) : undefined}
+              urlsEnAuditor={urlsEnAuditor}
             />
           ))}
         </div>
@@ -1787,6 +1801,7 @@ export function DocumentosSection({
           onView={verYRegistrar}
           onRefrescar={fetchDocumentos}
           onEnviarAuditor={isAdmin && negocioId ? (doc => esCosteo(doc) ? enviarCosteoAlMotorComercial(doc) : setEnviandoDoc(doc)) : undefined}
+          urlsEnAuditor={urlsEnAuditor}
         />
       </div>
 

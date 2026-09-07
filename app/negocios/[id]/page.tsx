@@ -1159,6 +1159,7 @@ function DetalleContent() {
           categoria: d.categoria ?? undefined,
           subcategoria: d.subcategoria ?? undefined,
           origen_manual: !!d.origen_manual,
+          generado_separar: !!d.generado_separar,
           ya_descargado: true,
         })));
       }
