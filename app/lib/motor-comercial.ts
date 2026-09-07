@@ -369,18 +369,22 @@ export function calcularAlertasMotorComercial(args: {
   // que modifique el costeo me va a salir eso... la idea es que el costeo mande las cosas al
   // auditor técnico" — y, al precisarlo, agregó el criterio final: "que sea manual y automático
   // pero siempre prioridad al automático". Ahora ingresarVersionCosteo (comercial/costeo/route.ts)
-  // resincroniza el precio en CADA guardado del costeo — el costeo manda SIEMPRE, incluso sobre un
-  // precio que alguien cargó a mano — salvo que el punto ya esté APROBADO por el asesor: ese es el
-  // ÚNICO freno real, porque un valor aprobado que cambia sin que nadie lo vea es justo lo que la
-  // doble firma existe para evitar. Por eso el texto de acá habla de una aprobación que quedó
-  // vieja, no de un descuadre genérico a investigar.
+  // resincroniza el precio en CADA guardado del costeo — el costeo manda SIEMPRE.
+  //
+  // 07-sep-2026: el freno de "nunca tocar un punto APROBADO" se quitó — era exactamente el bug
+  // que el usuario reportó ("modifico el costeo y no lo manda, tengo que corregirlo a mano").
+  // Ahora sincronizar un punto que ya estaba Aprobado lo REABRE a Cargado (mismo criterio que
+  // cualquier otra edición de un punto aprobado en este sistema), así que esta alerta ya casi no
+  // debería disparar por esa causa — solo queda como red de seguridad para el caso en que algún
+  // ítem no se pudo sincronizar (p.ej. una línea sin `lineaPublicada` explícita en el costeo, ver
+  // totalPrecioDeLinea) y el número quedó desactualizado de verdad.
   if (args.totalAnexoEconomico != null && Math.round((args.totalAnexoEconomico - totalCosteo) * 100) !== 0) {
     alertas.push({
       codigo: 'DISCORDANCIA_COSTEO_ANEXO',
-      descripcion: 'El precio aprobado quedó desactualizado',
-      detalle: `El checklist tiene un precio de ${fmtCLP(args.totalAnexoEconomico)} — probablemente ya APROBADO, por eso el costeo no lo pisó solo — `
-        + `pero el costeo cambió después y ahora da ${fmtCLP(totalCosteo)} de precio de venta. `
-        + 'Si el cambio del costeo es válido, reabre el punto para que se actualice; si el precio aprobado sigue siendo el correcto, no hagas nada.',
+      descripcion: 'El precio del checklist no coincide con el costeo',
+      detalle: `El checklist tiene un precio de ${fmtCLP(args.totalAnexoEconomico)} `
+        + `pero el costeo da ${fmtCLP(totalCosteo)} de precio de venta. El costeo debería haber sincronizado este `
+        + 'valor solo; si sigue desactualizado revisa el ítem (puede que su línea no tenga cómo identificarse dentro del costeo).',
     });
   }
 

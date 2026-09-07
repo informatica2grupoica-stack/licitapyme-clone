@@ -74,6 +74,21 @@ test('diccionario: "REPRESENTANTE LEGAL O APODERADO" (compuesto) resuelve igual 
   assert.equal(campoDeEtiquetaInequivoca('Apoderado'), 'representante_nombre');
 });
 
+// BUG REAL (7-sep-2026, FORMATO N°1 "IDENTIFICACIÓN DEL PROPONENTE", capturado por el usuario: "no
+// se por que no lo llena"): tres casillas de la MISMA tabla de identificación quedaban pendientes
+// mientras el resto (razón social, domicilio, teléfono, contacto) sí se llenaba solo.
+//  1. "RUT Persona Natural – Empresa o Sociedad" — el guion largo "–" a mitad de etiqueta (no al
+//     INICIO, que ya se limpiaba como viñeta) nunca se quitaba, así que le llegaba al diccionario
+//     pegado y ningún patrón lo esperaba.
+//  2. "Nombre del o los Representantes Legales" y 3. "RUT del o los Representantes Legales" — el
+//     plural sin barra ("representantes legales", no "representante legal" ni "del/los
+//     Representante/es Legal/es") no lo cubría REPRE, que solo aceptaba singular.
+test('REGRESIÓN FORMATO N°1 (7-sep-2026): RUT con guion largo a mitad de etiqueta, y "del o los Representantes Legales" en plural', () => {
+  assert.equal(campoDeEtiquetaInequivoca('RUT Persona Natural – Empresa o Sociedad'), 'rut');
+  assert.equal(campoDeEtiquetaInequivoca('Nombre del o los Representantes Legales'), 'representante_nombre');
+  assert.equal(campoDeEtiquetaInequivoca('RUT del o los Representantes Legales'), 'representante_rut');
+});
+
 test('REGRESIÓN 2928-17-LE26: "Comuna y región" resuelve igual que "Región y comuna" (orden invertido)', () => {
   assert.equal(campoDeEtiquetaInequivoca('Región y comuna'), 'region');
   assert.equal(campoDeEtiquetaInequivoca('Comuna y región'), 'region');

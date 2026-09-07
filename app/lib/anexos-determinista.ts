@@ -153,7 +153,13 @@ export function normalizarEtiqueta(s: string): string {
     // barra (2-4 letras) para no tocar una fecha en formato "día/mes/año" ("mes"/"año" no son
     // ninguna de estas terminaciones) ni una fracción numérica.
     .replace(/\/(?:es|as|os|las|los|la|lo|una|un|s)\b/g, '')
-    .replace(/[.:;,_·"'“”*]+/g, ' ')                      // puntuación y rayas de relleno
+    // BUG REAL (7-sep-2026, "RUT Persona Natural – Empresa o Sociedad"): un guion largo (– / —)
+    // usado como separador decorativo a mitad de etiqueta no se quitaba —solo la viñeta de INICIO
+    // (línea de arriba) reconoce el guion corto— así que la etiqueta le llegaba al diccionario con
+    // el guion pegado ("rut persona natural – empresa…") y ningún patrón lo esperaba. Ningún campo
+    // del diccionario depende de que un guion sobreviva a mitad de etiqueta (verificado), así que
+    // se suma acá con los demás signos de puntuación/relleno.
+    .replace(/[.:;,_·"'“”*\-–—]+/g, ' ')                  // puntuación y rayas de relleno
     .replace(/\s+/g, ' ')
     .trim()
     .replace(RE_CEDULA_DE_IDENTIFICACION, '$1$2 identidad')
@@ -214,7 +220,15 @@ const OFERENTE_OBLIGATORIO = '\\s+(?:del?\\s+|de\\s+la\\s+)?(?:empresa|oferente|
 // "legal" — "Cédula de identidad del representante DEL PROPONENTE", "Domicilio del representante
 // DEL PROPONENTE"). Ninguno de los dos es un tercero nuevo: sigue siendo el representante legal de
 // nuestra empresa, solo que rotulado distinto.
-const REPRE = '(?:\\s+(?:del?\\s+|de\\s+la\\s+)?(?:representan?te(?:\\s+legal(?:\\s+o\\s+convencional)?|\\s+(?:del?\\s+|de\\s+la\\s+)?(?:proponente|oferente|empresa))?|rep\\s+legal|apoderado|declarante|firmante|suscriptor))';
+// BUG REAL (7-sep-2026, FORMATO N°1 "IDENTIFICACIÓN DEL PROPONENTE", capturas del usuario: "no se
+// por que no lo llena" sobre "Nombre del o los Representantes Legales" / "RUT del o los
+// Representantes Legales"): esto SOLO cubría el singular ("representante", "legal", "apoderado"…)
+// y la notación con BARRA ya reducida a singular por normalizarEtiqueta ("del/los
+// Representante/es" → "del representante"). Pero "del o los Representantes Legales", escrito
+// entero en plural y sin barra, no pasa por esa reducción — llega tal cual, en plural, y ningún
+// alternativa de acá lo esperaba. Se agrega el plural (representantes, legales, apoderados…) y el
+// filler "o los"/"y los"/"de los" entre "del" y la palabra, sin sacar nada del singular existente.
+const REPRE = '(?:\\s+(?:del?\\s+(?:o\\s+los\\s+|y\\s+los\\s+)?|de\\s+la\\s+|de\\s+los\\s+)?(?:representan?tes?(?:\\s+legal(?:es)?(?:\\s+o\\s+convencional(?:es)?)?|\\s+(?:del?\\s+|de\\s+la\\s+)?(?:proponente|oferente|empresa))?|rep\\s+legal(?:es)?|apoderados?|declarantes?|firmantes?|suscriptor(?:es)?))';
 
 // Sufijos que NO cambian QUÉ dato se pide, solo cómo el organismo lo rotula. Se aplican al teléfono
 // y al correo, nunca al nombre ni al RUT.
@@ -315,6 +329,12 @@ export const DICCIONARIO: Entrada[] = [
     // 12 casillas / 2 licitaciones), mismo bloque y mismo organismo que "RAZÓN SOCIAL PERSONA
     // JURÍDICA O EMPRESA A LA QUE REPRESENTE" de arriba.
     /^rut persona juridica o empresa$/,
+    // "RUT Persona Natural – Empresa o Sociedad" (7-sep-2026, FORMATO N°1 "IDENTIFICACIÓN DEL
+    // PROPONENTE", capturado por el usuario): misma idea que "RUT o C.I." de arriba —el organismo
+    // cubre las dos figuras jurídicas en una sola casilla porque el oferente puede ser persona
+    // natural o empresa— pero acá lo dice con palabras completas en vez de la sigla "C.I.". Para
+    // nosotros (persona jurídica) sigue siendo el RUT de la empresa.
+    /^rut persona natural empresa o sociedad$/,
     // "Cédula de identidad del proponente" (2018-27-LP26, tras el strip de RE_ALTERNATIVA_UTP_AL_
     // FINAL): a diferencia de la "cédula de identidad" pelada de más abajo (que es de la PERSONA,
     // ver representante_rut), acá el remate DICE que es del proponente — y por la regla ya

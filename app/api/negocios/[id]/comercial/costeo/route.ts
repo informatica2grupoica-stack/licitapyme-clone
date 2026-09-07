@@ -24,6 +24,7 @@ import { registrarEvento } from '@/app/lib/historial';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { bitacora } from '@/app/lib/checklist-comercial-db';
 import { esPorLinea, lineasDelInforme } from '@/app/lib/checklist-comercial';
 import { IVA } from '@/app/lib/costeo-comparativo';
 import { parsearCosteo, calcularAlertasMotorComercial, totalesDeCosteo, totalPrecioDeLinea, presupuestoDeLaOferta, type AlertaMotorComercial } from '@/app/lib/motor-comercial';
@@ -41,6 +42,8 @@ function getUser(req: NextRequest) {
   const rol = req.headers.get('x-user-rol');
   return { id: id ? parseInt(id) : null, rol };
 }
+
+const fmtCLPLog = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
 async function totalAnexoEconomico(negocioId: number): Promise<number | null> {
   const [rows] = await pool.query(
@@ -141,7 +144,8 @@ export async function ingresarVersionCosteo(
 
   const ahora = ahoraChileSQL();
 
-  // ── SINCRONIZAR el checklist con el costeo ANTES de calcular alertas (03-sep-2026) ──────────
+  // ── SINCRONIZAR el checklist con el costeo ANTES de calcular alertas (03-sep-2026, ampliado
+  // 07-sep-2026) ─────────────────────────────────────────────────────────────────────────────
   // Antes esto corría DESPUÉS de calcular alertas y guardar la versión, y encima solo sobre
   // ítems todavía en PENDIENTE (spec §7.5 original): la primera vez que se guardaba un costeo,
   // el precio se copiaba al checklist — pero desde ahí quedaba CONGELADO para siempre, aunque
@@ -151,13 +155,16 @@ export async function ingresarVersionCosteo(
   // modifique el costeo me va a salir eso... la idea es que el costeo mande las cosas al auditor
   // técnico".
   //
-  // Y el criterio final (mismo día, tras precisar el pedido): "que sea manual y automático pero
-  // siempre prioridad al automático, pero que se pueda modificar manual" — o sea, el costeo
-  // SIEMPRE sincroniza mientras el punto no esté APROBADO, sin excepción por "alguien ya lo
-  // cargó a mano". Cargar un precio a mano sigue siendo válido (para el flujo asistente→asesor,
-  // o para licitaciones sin costeo), pero no queda protegido: el siguiente guardado del costeo
-  // lo pisa igual. Solo aprobar el punto lo saca de este ciclo — ahí sí es una decisión firmada
-  // que el costeo no debe tocar en silencio, y es lo único que la alerta de discordancia avisa.
+  // 07-sep-2026, mismo hilo: el freno de "nunca tocar un punto APROBADO" (que existía a
+  // propósito desde el 03-sep) el usuario lo reportó como el bug — "modifico el costeo y no lo
+  // manda, tengo que corregirlo a mano en el Motor Comercial", justo porque el punto ya estaba
+  // aprobado y el sistema se abstenía a propósito. Pedido explícito, reiterado ("siempre pero
+  // siempre"): el costeo manda SIEMPRE, sin excepción por aprobación. Cuando pisa un punto que
+  // ya estaba APROBADO, lo REABRE a CARGADO — mismo criterio que ya usa el resto del sistema para
+  // cualquier edición de un punto aprobado (ver transicion('CARGAR') en checklist-comercial.ts:
+  // "un dato aprobado que cambió sin que nadie lo vea es exactamente el error que este módulo
+  // existe para evitar"). Nunca deja un precio nuevo bajo un estado "Aprobado" que nadie volvió a
+  // mirar.
   //
   // Y NUNCA sobre una línea que quedó fuera de la oferta: el UPDATE de abajo escribe
   // `ofertamos = 1` (correcto para lo que sí se oferta, porque sincronizar un precio ES
@@ -166,7 +173,28 @@ export async function ingresarVersionCosteo(
   // alguien la visara. Aplica sobre todo a los negocios viejos, donde las filas de las líneas
   // descartadas ya existen; en uno nuevo el selector directamente no las genera.
   const itemsPrecio = items.filter((i: any) =>
-    i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.estado !== 'APROBADO' && i.ofertamos !== false);
+    i.bloque === 'COMERCIAL' && i.tipo === 'precio' && i.ofertamos !== false);
+
+  // Reabre y sincroniza UN ítem, dejando bitácora — misma forma que la acción 'CARGAR' manual
+  // (comercial/route.ts) para que el historial del punto luzca igual sin importar quién lo tocó.
+  // Devuelve true si el punto estaba APROBADO y se reabrió (para avisar a los asesores).
+  async function sincronizarItemPrecio(it: any, total: number): Promise<boolean> {
+    const eraAprobado = it.estado === 'APROBADO';
+    await pool.query(
+      `UPDATE checklist_comercial SET estado = 'CARGADO', valor_numero = ?, ofertamos = 1,
+              cargado_por = ?, cargado_por_nombre = ?, cargado_at = ?,
+              aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL WHERE id = ?`,
+      [total, userId, nombreActor, ahora, it.id],
+    );
+    await bitacora(it.id, negocio.id, 'CARGAR', it.estado, 'CARGADO',
+      eraAprobado
+        ? `El costeo cambió: reabierto automáticamente (estaba Aprobado) — nuevo precio ${fmtCLPLog(total)}`
+        : `Sincronizado automáticamente desde el costeo — nuevo precio ${fmtCLPLog(total)}`,
+      userId, nombreActor);
+    return eraAprobado;
+  }
+
+  const reabiertos: string[] = [];
   if (esPorLinea(informe)) {
     // Suma TODOS los sub-ítems de la línea (totalPrecioDeLinea), no una fila suelta con la
     // clave equivocada — una línea real puede traer varios productos en su misma hoja.
@@ -174,21 +202,29 @@ export async function ingresarVersionCosteo(
       const total = it.linea_numero != null ? totalPrecioDeLinea(filas, it.linea_numero) : null;
       if (total == null) continue;
       if (Math.round((Number(it.valor_numero ?? NaN) - total) * 100) === 0) continue; // ya está al día
-      await pool.query(
-        `UPDATE checklist_comercial SET estado = 'CARGADO', valor_numero = ?, ofertamos = 1,
-                cargado_por = ?, cargado_por_nombre = ?, cargado_at = ? WHERE id = ?`,
-        [total, userId, nombreActor, ahora, it.id],
-      );
+      if (await sincronizarItemPrecio(it, total)) reabiertos.push(it.titulo || `línea ${it.linea_numero}`);
     }
   } else {
     const totalItem = itemsPrecio.find((i: any) => i.linea_numero == null);
     if (totalItem && totalPrecioNeto > 0
       && Math.round((Number(totalItem.valor_numero ?? NaN) - totalPrecioNeto) * 100) !== 0) {
-      await pool.query(
-        `UPDATE checklist_comercial SET estado = 'CARGADO', valor_numero = ?, ofertamos = 1,
-                cargado_por = ?, cargado_por_nombre = ?, cargado_at = ? WHERE id = ?`,
-        [totalPrecioNeto, userId, nombreActor, ahora, totalItem.id],
-      );
+      if (await sincronizarItemPrecio(totalItem, totalPrecioNeto)) reabiertos.push(totalItem.titulo || 'precio total');
+    }
+  }
+
+  // Aviso a los asesores cuando el costeo reabrió un punto que YA habían aprobado: es su
+  // aprobación la que quedó invalidada, así que les toca volver a visar — mismo tipo de evento
+  // que cuando el asistente carga algo nuevo (comercial/route.ts, acción 'CARGAR').
+  if (reabiertos.length > 0) {
+    for (const a of await asesores()) {
+      if (Number(a.id) === Number(userId)) continue;
+      await registrarEvento({
+        tipo: 'COMERCIAL_POR_APROBAR',
+        licitacionCodigo: negocio.licitacion_codigo, licitacionNombre: negocio.licitacion_nombre,
+        usuarioId: a.id, usuarioNombre: a.nombre, actorId: userId, actorNombre: nombreActor,
+        mensaje: `${nombreActor} modificó el costeo y reabrió ${reabiertos.length} punto(s) que ya estaban aprobados: ${reabiertos.join(', ')}`,
+        metadata: { negocioId: negocio.id, bloque: 'COMERCIAL' },
+      });
     }
   }
 
