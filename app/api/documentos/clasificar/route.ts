@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { clasificarLicitacion } from '@/app/lib/clasificacion';
+import { leerInforme, sincronizar } from '@/app/api/negocios/[id]/comercial/route';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -71,6 +72,32 @@ export async function PATCH(req: NextRequest) {
         [nueva_categoria, codigo, documento_nombre],
       );
     }
+
+    // BUG REAL (7-sep-2026, pedido explícito del usuario: "que sea sincronizado, si muevo uno de
+    // admin a anexos oferente se me salga del auditor técnico, lo mismo al revés"): antes este
+    // PATCH solo cambiaba la columna — el Auditor Técnico no se enteraba hasta la próxima vez que
+    // alguien reabriera el negocio y algo disparara sincronizar() de pura casualidad. Ahora se
+    // dispara acá mismo, para TODOS los negocios activos de esta licitación (normalmente uno):
+    // sincronizar() ya sabe crear la casilla nueva si el documento entró a una caja válida y
+    // limpiarCasillasDeArchivosMovidos() ya sabe borrar la vieja si salió, así que no hay lógica
+    // nueva que escribir acá — solo hay que llamarlo. Nunca bloquea el drag & drop del usuario: si
+    // falla, la categoría ya quedó guardada y el Auditor se pone al día la próxima vez que se abra.
+    try {
+      const informe = await leerInforme(codigo);
+      if (informe) {
+        const [negociosRows] = await pool.query(
+          `SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE`,
+          [codigo],
+        ) as any;
+        for (const { id } of negociosRows as Array<{ id: number }>) {
+          await sincronizar(id, codigo, informe).catch(e =>
+            console.warn(`[documentos/clasificar] sincronizar negocio ${id} falló (no bloquea):`, String(e).slice(0, 200)));
+        }
+      }
+    } catch (e) {
+      console.warn('[documentos/clasificar] no se pudo sincronizar el Auditor Técnico:', String(e).slice(0, 200));
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

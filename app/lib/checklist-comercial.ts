@@ -123,7 +123,7 @@ function bloqueDeCriterio(nombre: string): BloqueChecklist {
 }
 
 /** Normaliza un texto a una clave estable (para clave_origen). */
-function slug(s: string): string {
+export function slug(s: string): string {
   return String(s || '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, '_')

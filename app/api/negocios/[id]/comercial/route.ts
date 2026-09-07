@@ -23,6 +23,7 @@ import {
   planDeLineasTecnicas, hayLineasTecnicasHuerfanas, type FilaLineaTecnicaExistente,
   planDeFilasPrecio, hayPreciosObsoletos, type FilaPrecioExistente,
   ACCIONES_ITEM, type AccionItem,
+  tituloDesdeNombreDeArchivo, slug,
 } from '@/app/lib/checklist-comercial';
 import { calcularSemaforo, causalesDeBloqueo } from '@/app/lib/semaforo-auditor';
 import { leerCachePreguntas } from '@/app/lib/preguntas-respuestas';
@@ -207,11 +208,20 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   // existe la casilla, aunque el informe no lo haya listado (986278-14-LE26 traía 5 anexos y el
   // Auditor mostraba 4 — faltaba el N°3 de UTP). Se excluye DOCUMENTOS_PROPIOS: ahí caen los
   // archivos que generó la app o subió el equipo, no los anexos de las bases.
+  //
+  // BUG REAL (7-sep-2026, reportado por el usuario: "a veces me salen los anexos de oferente"):
+  // este filtro incluía 'ANEXOS_OFERENTE' — la caja CATCH-ALL de todo lo que el clasificador no
+  // logró ubicar con claridad en Administrativo/Técnico/Económico. Cualquier archivo que cayera
+  // ahí (sin clasificar todavía, o clasificado a mano en otra caja a propósito) igual generaba su
+  // casilla en el Auditor, mezclando "esto se debe subir" con "esto ni siquiera se sabe qué es
+  // todavía". Ahora solo las 3 cajas de anexos YA clasificados alimentan el checklist — moverlo a
+  // Anexos Oferente lo saca de acá, y devolverlo a una de las 3 lo vuelve a traer (ver
+  // limpiarCasillasDeArchivosMovidos más abajo para el sentido inverso).
   try {
     const [anexoRows] = await pool.query(
       `SELECT documento_nombre FROM documentos_cache
         WHERE licitacion_codigo = ?
-          AND categoria IN ('ANEXOS_OFERENTE', 'ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS')`,
+          AND categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS')`,
       [codigo],
     ) as any;
     items = items.concat(itemsDesdeArchivosDeAnexo(
@@ -248,11 +258,69 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   await reconciliarExistentes(negocioId);
   await reconciliarLineasTecnicas(negocioId, informe);
   await reconciliarFilasPrecio(negocioId, informe);
+  await limpiarCasillasDeArchivosMovidos(negocioId, codigo);
   // La decisión del selector puede ser MÁS VIEJA que las filas recién creadas o reconciliadas:
   // sin volver a proyectarla, esas filas quedan sin marca y el bloque técnico muestra líneas que
   // no se ofertan como si fueran trabajo pendiente (1271359-92-LE26).
   await reproyectarDecisionGuardada(negocioId);
   return nuevos;
+}
+
+/**
+ * Borra las casillas 'ADMINISTRATIVO'/'documento' que itemsDesdeArchivosDeAnexo creó a partir de
+ * un archivo real, cuando ESE archivo YA NO está en ninguna de las 3 cajas de anexos clasificados
+ * (lo movieron a mano a otra caja, típicamente Anexos Oferente).
+ *
+ * BUG REAL (7-sep-2026, mismo reporte de "a veces me salen los anexos de oferente" — pero al
+ * revés): sacar 'ANEXOS_OFERENTE' del filtro de arriba resuelve que no se generen casillas NUEVAS
+ * para archivos sin clasificar, pero no dice nada de las que YA se habían generado antes de mover
+ * el archivo — esas quedarían huérfanas para siempre, mostrando "Adjuntar" para un documento que
+ * el usuario decidió sacar de esa caja. Pedido explícito del usuario: "si muevo uno de admin a
+ * anexos oferente se me salga del auditor técnico".
+ *
+ * SOLO se borra si la casilla sigue VIRGEN (PENDIENTE, sin documento adjunto, sin valor, sin
+ * observación, sin firmas) — si alguien ya la trabajó, mover el archivo de caja después no debe
+ * destruir esa evidencia. `clave_origen` (`anexo:archivo:<slug del título>`) es la misma clave
+ * determinista con la que itemsDesdeArchivosDeAnexo la creó; se compara contra los documentos que
+ * SIGUEN vigentes en las 3 cajas para saber cuáles perdieron su archivo de origen.
+ */
+async function limpiarCasillasDeArchivosMovidos(negocioId: number, codigo: string): Promise<void> {
+  const PREFIJO = 'anexo:archivo:';
+  try {
+    const [filas] = await pool.query(
+      `SELECT c.id, c.clave_origen, c.estado, c.valor_texto, c.valor_numero, c.observacion,
+              c.cargado_por, c.aprobado_por,
+              (SELECT COUNT(*) FROM checklist_comercial_documentos d WHERE d.item_id = c.id) AS n_docs
+         FROM checklist_comercial c
+        WHERE c.negocio_id = ? AND c.bloque = 'ADMINISTRATIVO' AND c.tipo = 'documento'
+          AND c.clave_origen LIKE ?`,
+      [negocioId, `${PREFIJO}%`],
+    ) as any;
+    const virgenes = (filas as any[]).filter(f =>
+      f.estado === 'PENDIENTE' && Number(f.n_docs) === 0 && f.valor_texto == null
+      && f.valor_numero == null && f.observacion == null && f.cargado_por == null && f.aprobado_por == null);
+    if (!virgenes.length) return;
+
+    const [docsRows] = await pool.query(
+      `SELECT documento_nombre FROM documentos_cache
+        WHERE licitacion_codigo = ?
+          AND categoria IN ('ANEXOS_ADMINISTRATIVOS', 'ANEXOS_TECNICOS', 'ANEXOS_ECONOMICOS')`,
+      [codigo],
+    ) as any;
+    const slugsVigentes = new Set(
+      (docsRows as Array<{ documento_nombre: string }>).map(r => slug(tituloDesdeNombreDeArchivo(r.documento_nombre))),
+    );
+
+    const aBorrar = virgenes
+      .filter(f => !slugsVigentes.has(String(f.clave_origen).slice(PREFIJO.length)))
+      .map(f => f.id);
+    if (!aBorrar.length) return;
+
+    await pool.query(`DELETE FROM checklist_comercial_documentos WHERE item_id IN (?)`, [aBorrar]).catch(() => {});
+    await pool.query(`DELETE FROM checklist_comercial WHERE id IN (?)`, [aBorrar]);
+  } catch (e) {
+    console.error('[checklist] limpieza de casillas de archivos movidos falló (no bloquea):', String(e).slice(0, 200));
+  }
 }
 
 /**

@@ -74,6 +74,14 @@ const CAT_ANEXOS_TECNICOS = 'ANEXOS_TECNICOS';
 const CAT_ANEXOS_ECONOMICOS = 'ANEXOS_ECONOMICOS';
 const CATS_BORRABLES = new Set([CAT_PROPIOS, CAT_ANEXOS_ADMIN, CAT_ANEXOS_TECNICOS, CAT_ANEXOS_ECONOMICOS]);
 
+// Cajas que el Auditor Técnico usa de verdad para armar su checklist (ver sincronizar() en
+// app/api/negocios/[id]/comercial/route.ts) — a propósito NO incluye "Anexos Oferente", la caja
+// catch-all de lo que todavía no se clasificó con claridad. Pedido explícito del usuario
+// (7-sep-2026): que se vea a simple vista, en Documentos, cuál archivo cuenta para el Auditor —
+// EN VIVO según la categoría actual, no una marca guardada aparte, así que mover un documento de
+// caja (drag&drop) lo prende o apaga solo, sin ningún paso extra.
+const CATS_PARA_AUDITOR = new Set([CAT_ANEXOS_ADMIN, CAT_ANEXOS_TECNICOS, CAT_ANEXOS_ECONOMICOS]);
+
 // ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
 // Estilo común a todas las cajas (neutro). El color real lo da el contenido.
 const ESTILO_CAJA = {
@@ -169,6 +177,8 @@ function DocItem({
   const esPropio = CATS_BORRABLES.has((doc.categoria || '').toUpperCase()) || !!doc.origen_manual;
   const rellenable = onRellenarAnexo && esAnexoRellenable(doc);
   const separable = onSepararAnexo && esAnexoSeparable(doc);
+  // Verde = esta caja es una de las que el Auditor Técnico lee de verdad — ver CATS_PARA_AUDITOR.
+  const enElAuditor = CATS_PARA_AUDITOR.has((doc.categoria || '').toUpperCase());
   return (
     <div
       draggable
@@ -177,7 +187,7 @@ function DocItem({
         group flex flex-col gap-1.5 px-2.5 py-2 rounded-lg border
         cursor-grab active:cursor-grabbing select-none transition-all
         ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
-        bg-white border-slate-100 hover:bg-slate-50
+        ${enElAuditor ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100' : 'bg-white border-slate-100 hover:bg-slate-50'}
       `}
     >
       <div className="flex items-start gap-2">
@@ -186,6 +196,14 @@ function DocItem({
         <p className="flex-1 min-w-0 text-[11px] font-semibold text-slate-700 leading-snug line-clamp-2 break-words" title={doc.nombre}>
           {doc.nombre}
         </p>
+        {enElAuditor && (
+          <span
+            className="flex-shrink-0 mt-0.5"
+            title="Cuenta para el Auditor Técnico (caja Administrativa/Técnica/Económica)"
+          >
+            <CheckCircle size={12} className="text-emerald-500" />
+          </span>
+        )}
       </div>
       <div className="flex items-center justify-between pl-[26px]">
         <span className="text-[10px] text-slate-400 leading-tight flex-shrink-0">

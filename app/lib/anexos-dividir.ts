@@ -761,8 +761,87 @@ function limpiarParaNombreArchivo(texto: string, maxLargo = 80): string {
 // sin ninguna forma de distinguirlos a simple vista). La categoría ya se ve en la CAJA donde
 // queda cada archivo ("Anexos Administrativos"/"Técnicos"/"Económicos" — ver
 // POST /api/anexos/separar), así que repetirla en el nombre era redundante Y rompía la lectura.
+
+// ── Nombre CORTO del archivo dividido (07-sep-2026, pedido explícito del usuario) ────────────
+// El título completo de arriba puede llegar a 80 caracteres — Mercado Público solo acepta 50 al
+// subir un archivo (CON extensión), así que un nombre largo se corta a la mitad ahí y queda
+// ilegible. No hace falta todo el título: con el tipo, el número y 2-4 palabras clave alcanza
+// para reconocer de qué se trata ("Formulario 1-A - Identificacion Oferente.docx" en vez de
+// "FORMULARIO_N1-A_IDENTIFICACION_DEL_PROPONENTE_LICITACION_PUBLICA_ADQUISICION_DE...docx").
+//
+// Reusa las MISMAS 4 formas de encabezado que sufijoDeArchivo/RE_ENCABEZADO_FORMULARIO (tipo+N°,
+// "(ANEXO X)" al final de la línea, letra entre comillas, categoría+letra) — nunca se reinventa
+// la detección, solo se agrega la captura de la PALABRA (Formulario/Anexo/Formato) que
+// sufijoDeArchivo no necesitaba para su propio uso interno.
+//
+// El número y una eventual letra de sufijo quedan SIN espacio entre sí ("1-A", nunca "1 - A"): es
+// el mismo formato que ya usan los títulos del checklist del Auditor Técnico ("Anexo N°2-A -
+// Declaración jurada simple", ver la cabecera de anexos-match.ts) y el que su regex de
+// emparejamiento (RE_NUMERO) sabe leer — un espacio ahí rompería en silencio el reparto
+// automático de archivos generados a su punto correcto del checklist.
+const RE_TIPO_NUMERO = /^(FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)/i;
+const RE_TIPO_PARENTESIS = /\(\s*(ANEXO)\s*N?[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)\s*\)\s*$/i;
+const RE_TIPO_LETRA_COMILLAS = /^(FORMULARIO|ANEXO|FORMATO)\s*["“‘']([A-Z])["”’']/i;
+const RE_TIPO_CATEGORIA_LETRA = /^(FORMULARIO|ANEXO|FORMATO)\s*([A-Z]{1,8})\s*-\s*(\d+)/i;
+
+function tipoEIdentificador(titulo: string): { palabra: string; id: string; coincidencia: string } | null {
+  const t = titulo.trim();
+  let m = t.match(RE_TIPO_NUMERO);
+  if (m) return { palabra: m[1], id: m[2].replace(/\s+/g, ''), coincidencia: m[0] };
+  m = t.match(RE_TIPO_PARENTESIS);
+  if (m) return { palabra: m[1], id: m[2].replace(/\s+/g, ''), coincidencia: m[0] };
+  m = t.match(RE_TIPO_LETRA_COMILLAS);
+  if (m) return { palabra: m[1], id: m[2].toUpperCase(), coincidencia: m[0] };
+  m = t.match(RE_TIPO_CATEGORIA_LETRA);
+  if (m) return { palabra: m[1], id: `${m[2].toUpperCase()}-${m[3]}`, coincidencia: m[0] };
+  return null;
+}
+
+// Artículos, preposiciones y conectores del español burocrático — no aportan nada como palabra
+// clave del nombre corto. "n"/"nº" por si algún residuo de la numeración queda pegado al resto.
+const PALABRAS_VACIAS_NOMBRE_CORTO = new Set([
+  'de', 'del', 'la', 'el', 'los', 'las', 'y', 'o', 'u', 'en', 'para', 'por', 'con', 'a', 'al',
+  'su', 'sus', 'un', 'una', 'n', 'nº', 'no',
+]);
+const MAX_PALABRAS_DESCRIPTOR = 4;
+// Deja margen bajo el tope de 50 caracteres de Mercado Público — la extensión ".docx" (5) se
+// agrega DESPUÉS de este recorte (ver dividirPorFormularios/api/anexos/separar).
+const MAX_LARGO_NOMBRE_CORTO = 42;
+
+function descriptorCorto(resto: string): string {
+  const limpio = resto.replace(/^[\s:.\-–—"“”'’]+/, '').replace(/["“”'’]+/g, '').trim();
+  if (!limpio) return '';
+  const palabras = limpio.split(/\s+/).filter(w => {
+    const norm = w.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+    return norm.length > 1 && !PALABRAS_VACIAS_NOMBRE_CORTO.has(norm);
+  });
+  const elegidas: string[] = [];
+  let largo = 0;
+  for (const w of palabras) {
+    if (elegidas.length >= MAX_PALABRAS_DESCRIPTOR) break;
+    const nueva = largo + (largo ? 1 : 0) + w.length;
+    // -12 deja lugar al prefijo "Tipo 99-A - " que todavía no se sumó a `largo`.
+    if (elegidas.length > 0 && nueva > MAX_LARGO_NOMBRE_CORTO - 12) break;
+    elegidas.push(w);
+    largo = nueva;
+  }
+  return elegidas.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+}
+
 export function nombreArchivoDesdeTitulo(titulo: string): string {
-  return limpiarParaNombreArchivo(titulo);
+  const info = tipoEIdentificador(titulo);
+  // Sin encabezado reconocible (no debería pasar dentro de dividirPorFormularios, que solo llega
+  // acá con títulos que YA calzaron con RE_ENCABEZADO_FORMULARIO — ver más abajo) se cae al
+  // recorte genérico de siempre, solo que más corto.
+  if (!info) return limpiarParaNombreArchivo(titulo, MAX_LARGO_NOMBRE_CORTO);
+
+  const palabra = info.palabra.charAt(0).toUpperCase() + info.palabra.slice(1).toLowerCase();
+  const resto = titulo.replace(info.coincidencia, '');
+  const descriptor = descriptorCorto(resto);
+  let base = descriptor ? `${palabra} ${info.id} - ${descriptor}` : `${palabra} ${info.id}`;
+  base = base.replace(/[^\p{L}\p{N} -]+/gu, '').replace(/\s+/g, ' ').trim();
+  if (base.length > MAX_LARGO_NOMBRE_CORTO) base = base.slice(0, MAX_LARGO_NOMBRE_CORTO).replace(/[\s-]+$/, '');
+  return base || `${palabra} ${info.id}`;
 }
 
 // Mismo criterio de extracción de texto que usa listarBloquesCrudos para el título de un párrafo

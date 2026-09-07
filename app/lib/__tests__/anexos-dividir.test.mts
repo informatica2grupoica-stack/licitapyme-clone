@@ -136,20 +136,38 @@ test('clasificarAnexo: sin señal clara (0 coincidencias o empate) no adivina, q
 // usa ESE guion literal para reconocer el mismo número+letra al repartir cada archivo dividido a
 // su punto del checklist del Auditor Técnico — con "_" en vez de "-", el matching de letra se
 // pierde en silencio y el archivo cae en el ítem genérico en vez del suyo.
-test('nombreArchivoDesdeTitulo: conserva el guion del sufijo de letra ("N°1-A") para que anexos-match.ts lo siga reconociendo', () => {
+test('nombreArchivoDesdeTitulo: conserva el guion del sufijo de letra ("1-A") para que anexos-match.ts lo siga reconociendo', () => {
   const nombre = nombreArchivoDesdeTitulo('ANEXO Nº 1-A: IDENTIFICACIÓN DEL OFERENTE');
-  assert.match(nombre, /N1-A/, `debe conservar "N1-A" literal, salió: ${nombre}`);
+  assert.match(nombre, /1-A/, `debe conservar "1-A" literal, salió: ${nombre}`);
   // Y ese nombre sigue matcheando contra el título del checklist con el mismo número+letra —
   // la prueba de fondo es que repartirArchivosGenerados no lo mande al ítem equivocado.
   assert.ok(puntajeCoincidencia('Anexo N°1-A - Identificación del Oferente', nombre) >= 100, 'debe matchear por número con letra, no solo por número');
 });
 
-// Sin prefijo de categoría a propósito (13-ago-2026, regresión 1063538-204-LE26): la categoría
-// ya se ve en la caja donde queda el archivo — repetirla en el nombre solo hacía que varios
-// anexos de la MISMA categoría se vieran idénticos en una lista truncada por la UI.
-test('nombreArchivoDesdeTitulo: nombre legible, en mayúsculas, SIN prefijo de categoría', () => {
+// BUG REAL (7-sep-2026, pedido explícito del usuario): el nombre completo (hasta 80 caracteres)
+// no cabe en el límite de 50 caracteres de Mercado Público al subir el archivo — se recorta a la
+// mitad y queda ilegible. Ahora: tipo + número + hasta 4 palabras clave, nunca la categoría (esa
+// ya se ve en la caja donde queda el archivo — repetirla era redundante, regresión 1063538-204-LE26).
+test('nombreArchivoDesdeTitulo: nombre CORTO — tipo + número + pocas palabras clave, bajo 50 caracteres', () => {
   const nombre = nombreArchivoDesdeTitulo('ANEXO N°3: OFERTA ECONÓMICA');
-  assert.equal(nombre, 'ANEXO_N3_OFERTA_ECONÓMICA');
+  assert.equal(nombre, 'Anexo 3 - Oferta Económica');
+  assert.ok(nombre.length <= 45, `debe quedar corto (con ".docx" bajo 50): "${nombre}" mide ${nombre.length}`);
+});
+
+// Caso real reportado por el usuario (7-sep-2026): título con la licitación entera pegada detrás
+// del nombre del formulario — el nombre completo pasaba los 90 caracteres y Mercado Público lo
+// cortaba a la mitad al subir.
+test('nombreArchivoDesdeTitulo: título largo real de licitación queda muy por debajo del límite de 50 de Mercado Público', () => {
+  const nombre = nombreArchivoDesdeTitulo(
+    'FORMATO N°2-A DECLARACIÓN SIMPLE HABILIDAD PARA OFERTAR LICITACIÓN PÚBLICA ADQUISICIÓN DE GRÚA HORQUILLA',
+  );
+  assert.match(nombre, /^Formato 2-A/i);
+  assert.ok(nombre.length + '.docx'.length <= 50, `"${nombre}.docx" debe caber en 50 caracteres, mide ${nombre.length + 5}`);
+});
+
+test('nombreArchivoDesdeTitulo: letra entre comillas ("ANEXO "A"") y categoría+letra ("FORMULARIO ADMI-1") también dan nombre corto', () => {
+  assert.equal(nombreArchivoDesdeTitulo('ANEXO "A" OFERTA TÉCNICA'), 'Anexo A - Oferta Técnica');
+  assert.match(nombreArchivoDesdeTitulo('FORMULARIO ADMI-1 DECLARACIÓN JURADA'), /^Formulario ADMI-1/);
 });
 
 test('dividirPorFormularios: cada fragmento sale con categoría y nombreArchivo (título limpio, sin prefijo de categoría)', async () => {
@@ -165,9 +183,9 @@ test('dividirPorFormularios: cada fragmento sale con categoría y nombreArchivo 
   const divididos = await dividirPorFormularios(buffer, norm);
   assert.equal(divididos.length, 2);
   assert.equal(divididos[0].categoria, 'administrativo');
-  assert.match(divididos[0].nombreArchivo, /^ANEXO_N1/);
+  assert.match(divididos[0].nombreArchivo, /^Anexo 1/);
   assert.equal(divididos[1].categoria, 'economico');
-  assert.match(divididos[1].nombreArchivo, /^ANEXO_N2/);
+  assert.match(divididos[1].nombreArchivo, /^Anexo 2/);
 });
 
 // Regresión real 1063538-204-LE26: encabezado "pelado" (nada más que el número) con el título
@@ -192,8 +210,8 @@ test('dividirPorFormularios: encabezado pelado toma el título del párrafo sigu
 
   const buffer = await bufferDe(norm);
   const divididos = await dividirPorFormularios(buffer, norm);
-  assert.match(divididos[0].nombreArchivo, /^FORMULARIO_N1_IDENTIFICACION_DEL_PROPONENTE/);
-  assert.match(divididos[1].nombreArchivo, /^FORMULARIO_N3_OFERTA_ECONÓMICA/);
+  assert.match(divididos[0].nombreArchivo, /^Formulario 1 - Identificacion Proponente/i);
+  assert.match(divididos[1].nombreArchivo, /^Formulario 3 - Oferta Económica/i);
 });
 
 // Regresión real 1063538-204-LE26 (mismo documento, otro bug): el organismo tituló el primer
@@ -411,7 +429,7 @@ test('detectarFormularios: encabezados con la palabra "FORMATO" (regresión 2296
   assert.equal(formularios[0].titulo, 'FORMATO Nº1-A IDENTIFICACIÓN DEL OFERENTE');
   assert.equal(formularios[2].titulo, 'FORMATO Nº 3 OFERTA ECONÓMICA');
   // El sufijo de letra tiene que sobrevivir al nombre de archivo (lo usa anexos-match.ts).
-  assert.match(nombreArchivoDesdeTitulo(formularios[0].titulo), /^FORMATO_N1-A/);
+  assert.match(nombreArchivoDesdeTitulo(formularios[0].titulo), /^Formato 1-A/i);
 });
 
 // El plural "Formatos" aparece en la prosa real de estos mismos documentos ("las Bases
