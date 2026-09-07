@@ -122,6 +122,28 @@ function bloqueDeCriterio(nombre: string): BloqueChecklist {
   return 'TECNICO';
 }
 
+// ¿El propio ANEXO es técnico o económico? "Oferta Técnica"/"Ficha Técnica" → TECNICO,
+// "Oferta Económica"/"Anexo Económico" → COMERCIAL (RE_PRECIO ya cubre "económic"/"oferta econ").
+// Todo lo demás (declaraciones juradas, identificación del oferente, garantías, UTP, integridad…)
+// es ADMINISTRATIVO, el default y la mayoría real de los casos.
+//
+// BUG REAL (07-sep-2026, reportado por el usuario): antes CUALQUIER anexo caía en ADMINISTRATIVO
+// sin mirar su propio título — "Formato N°5: Oferta Técnica" y "Formato N°6: Oferta Económica"
+// aparecían como Administrativo. El acuerdo era: los anexos se reparten entre los tres bloques
+// según lo que de verdad son (nosotros los llenamos y subimos); lo que NO es un anexo pero sí una
+// condición a cumplir (certificados, garantías) baja a alertas — eso ya funcionaba bien, esto solo
+// corrige EN CUÁL de los tres bloques cae el anexo mismo.
+const RE_ANEXO_TECNICO = /\bt[eé]cnic/i;
+// "Bases técnicas" es el nombre de la sección de las bases (lo que el organismo exige), no un
+// documento que nosotros entreguemos — "Declaración de aceptación de las Bases Técnicas" es un
+// trámite administrativo, aunque la palabra "técnicas" aparezca en el título.
+const RE_BASES_TECNICAS = /\bbases?\s+t[eé]cnicas?\b/i;
+function bloqueDeAnexo(titulo: string): BloqueChecklist {
+  if (RE_PRECIO.test(titulo) || RE_PLAZO.test(titulo)) return 'COMERCIAL';
+  if (RE_ANEXO_TECNICO.test(titulo) && !RE_BASES_TECNICAS.test(titulo)) return 'TECNICO';
+  return 'ADMINISTRATIVO';
+}
+
 /** Normaliza un texto a una clave estable (para clave_origen). */
 export function slug(s: string): string {
   return String(s || '')
@@ -304,7 +326,10 @@ function creaRegistroAdmin() {
 export function excluirYaExistentes(nuevos: ItemGenerado[], titulosExistentesAdmin: string[]): ItemGenerado[] {
   const existentes: EntradaAdmin[] = titulosExistentesAdmin.map(t => ({ numero: numeroDeFormatoEn(t), nucleo: nucleoDeTitulo(t) }));
   return nuevos.filter(it => {
-    if (it.bloque !== 'ADMINISTRATIVO' || !it.claveOrigen.startsWith('anexo:')) return true;
+    // Solo aplica a lo que nace con clave_origen 'anexo:...' (orden_anexos_propios/documentos_
+    // infaltables/archivos de anexo) — el bloque resultante YA NO es siempre ADMINISTRATIVO desde
+    // que bloqueDeAnexo() reparte técnico/económico por su propio título (07-sep-2026).
+    if (!it.claveOrigen.startsWith('anexo:')) return true;
     const candidato: EntradaAdmin = { numero: numeroDeFormatoEn(it.titulo), nucleo: nucleoDeTitulo(it.titulo) };
     return !existentes.some(e => coincidenEntradas(candidato, e));
   });
@@ -411,7 +436,7 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
     // Índice de los ANEXOS/FORMATOS reales ya creados (documento a adjuntar, bloque
     // administrativo). Lo usan los bloqueantes de más abajo para pegar su advertencia sobre el
     // anexo que citan en vez de crear una fila suelta que parece otro anexo más.
-    if (completo.bloque === 'ADMINISTRATIVO' && completo.tipo === 'documento') {
+    if (completo.tipo === 'documento') {
       const n = numeroDeFormatoEn(completo.titulo);
       if (n && !anexosPorNumero.has(n)) anexosPorNumero.set(n, completo);
     }
@@ -427,7 +452,8 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
     const titulo = String(a?.que_crear || '').trim();
     if (!titulo || registroAdmin.esDuplicado(titulo)) continue;
     registroAdmin.registrar(titulo, push({
-      bloque: 'ADMINISTRATIVO', tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
+      bloque: tituloEsAnexo(titulo) ? bloqueDeAnexo(titulo) : 'ADMINISTRATIVO',
+      tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
       titulo: titulo.slice(0, 280),
       descripcion: [a?.que_debe_contener, a?.por_que].filter(Boolean).join(' — ') || null,
       criticidad: critDe(a?.criticidad), ponderacion: null,
@@ -444,7 +470,8 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
     const titulo = String(d?.exige || '').trim();
     if (!titulo || registroAdmin.esDuplicado(titulo)) continue;   // ya vino por otra fuente
     registroAdmin.registrar(titulo, push({
-      bloque: 'ADMINISTRATIVO', tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
+      bloque: tituloEsAnexo(titulo) ? bloqueDeAnexo(titulo) : 'ADMINISTRATIVO',
+      tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
       titulo: titulo.slice(0, 280),
       descripcion: d?.cubre || null, criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null,
       fuenteCita: d?.fuente || null, origen: 'viabilidad',
@@ -621,7 +648,7 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
     }
     if (criterioEsAnexo) registroAdmin.registrar(nombre);
     push({
-      bloque: criterioEsAnexo ? 'ADMINISTRATIVO' : bloqueDeCriterio(nombre),
+      bloque: criterioEsAnexo ? bloqueDeAnexo(nombre) : bloqueDeCriterio(nombre),
       tipo: criterioEsAnexo ? 'documento' : 'dato',
       titulo: nombre.slice(0, 280),
       descripcion: esPlazo ? [desc, textoRango].filter(Boolean).join(' · ') || null : desc,
@@ -893,12 +920,14 @@ export function reubicacionDeItemGuardado(
     destino = { bloque: 'ADMINISTRATIVO', tipo: 'dato' };
   } else if (clave.startsWith('criterio:')) {
     destino = esAnexo
-      ? { bloque: 'ADMINISTRATIVO', tipo: 'documento' }
+      ? { bloque: bloqueDeAnexo(row.titulo), tipo: 'documento' }
       : { bloque: row.bloque, tipo: 'dato' };
   } else if (clave.startsWith('anexo:')) {
     // Lo que se insertó como "anexo" pero no nombra ningún anexo (programa de integridad,
-    // certificado de Tesorería, documentación de experiencia…) baja a las alertas.
-    destino = { bloque: 'ADMINISTRATIVO', tipo: esAnexo ? 'documento' : 'dato' };
+    // certificado de Tesorería, documentación de experiencia…) baja a las alertas. Lo que SÍ es
+    // un anexo va al bloque que le corresponde por su propio título (admin/técnico/económico),
+    // no siempre ADMINISTRATIVO — ver bloqueDeAnexo().
+    destino = esAnexo ? { bloque: bloqueDeAnexo(row.titulo), tipo: 'documento' } : { bloque: 'ADMINISTRATIVO', tipo: 'dato' };
   } else if (clave === CLAVE_ITEM_PLAZO) {
     destino = { bloque: 'COMERCIAL', tipo: 'dato' };
   }
@@ -941,7 +970,10 @@ export function itemsDesdeArchivosDeAnexo(
 ): ItemGenerado[] {
   const registro = creaRegistroAdmin();
   for (const it of yaGenerados) {
-    if (it.bloque === 'ADMINISTRATIVO') registro.registrar(it.titulo);
+    // Cualquier documento ya generado cuenta para el dedupe, sea cual sea su bloque — un anexo
+    // técnico o económico que el informe ya listó (ver bloqueDeAnexo()) no debe duplicarse acá
+    // solo porque ya no vive en ADMINISTRATIVO.
+    if (it.tipo === 'documento') registro.registrar(it.titulo);
   }
   const out: ItemGenerado[] = [];
   let orden = ordenInicial;
@@ -952,7 +984,7 @@ export function itemsDesdeArchivosDeAnexo(
     if (!titulo || !tituloEsAnexo(titulo) || registro.esDuplicado(titulo)) continue;
     registro.registrar(titulo);
     out.push({
-      bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo,
+      bloque: bloqueDeAnexo(titulo), tipo: 'documento', titulo,
       descripcion: `Anexo de la licitación (${nombre}). El informe no lo listó: revisar en las bases si aplica a esta oferta.`,
       criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null, fuenteCita: nombre,
       origen: 'documentos', claveOrigen: `anexo:archivo:${slug(titulo)}`,

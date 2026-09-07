@@ -39,11 +39,14 @@ const INFORME = {
 const items = generarItemsDesdeViabilidad(INFORME);
 const porTitulo = (t: string) => items.find(i => i.titulo.startsWith(t));
 
-test('los anexos quedan arriba, en administrativo y como documento a subir', () => {
-  for (const t of ['Anexo N°3', 'Anexo N°7', 'Anexo N°9']) {
+test('los anexos quedan arriba, repartidos por bloque, y como documento a subir', () => {
+  // "Anexo N°3: Oferta Técnica" es un documento TÉCNICO por lo que es su título — ver
+  // bloqueDeAnexo(). Los otros dos no nombran nada técnico/económico y siguen en ADMINISTRATIVO.
+  const esperado: Record<string, string> = { 'Anexo N°3': 'TECNICO', 'Anexo N°7': 'ADMINISTRATIVO', 'Anexo N°9': 'ADMINISTRATIVO' };
+  for (const [t, bloque] of Object.entries(esperado)) {
     const it = porTitulo(t);
     assert.ok(it, `falta ${t}`);
-    assert.equal(it!.bloque, 'ADMINISTRATIVO', t);
+    assert.equal(it!.bloque, bloque, t);
     assert.equal(it!.tipo, 'documento', t);
   }
 });

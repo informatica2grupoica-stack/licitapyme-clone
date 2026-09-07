@@ -232,8 +232,11 @@ export async function sincronizar(negocioId: number, codigo: string, informe: an
   // Cierra el hueco que el INSERT IGNORE de abajo no cubre: un re-análisis puede redactar el
   // MISMO Anexo/Formato N°X con otras palabras, y como clave_origen es el slug de ESE texto, el
   // UNIQUE(negocio_id, clave_origen) no lo detecta como repetido — ver excluirYaExistentes().
+  // clave_origen, no bloque: un anexo técnico o económico también nace con clave 'anexo:...' y
+  // hay que pescarlo igual — desde que bloqueDeAnexo() lo reparte, ya no vive siempre en
+  // ADMINISTRATIVO (ver excluirYaExistentes()).
   const [existentesRows] = await pool.query(
-    `SELECT titulo FROM checklist_comercial WHERE negocio_id = ? AND bloque = 'ADMINISTRATIVO'`,
+    `SELECT titulo FROM checklist_comercial WHERE negocio_id = ? AND clave_origen LIKE 'anexo:%'`,
     [negocioId],
   );
   items = excluirYaExistentes(items, (existentesRows as Array<{ titulo: string }>).map(r => r.titulo));

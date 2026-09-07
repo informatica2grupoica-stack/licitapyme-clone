@@ -41,6 +41,66 @@ export async function agregarDocumentos(
   }
 }
 
+/**
+ * Limpia del checklist cualquier referencia a un documento que se borró en OTRO lugar — hoy el
+ * único llamador es el DELETE de "Documentos y Bases" (`/api/documentos/[codigo]`).
+ *
+ * BUG REAL (07-sep-2026): ese DELETE solo tocaba `documentos_cache`. Si el documento ya se había
+ * "enviado al Auditor" (checklist_comercial_documentos apuntando a esa misma url), el punto se
+ * quedaba en CARGADO/APROBADO ("Por aprobar") con una URL que ya no existe en ninguna parte —
+ * mismo síntoma que el bug de ELIMINAR_DOCUMENTO (ver el PATCH de comercial/route.ts), pero por
+ * la otra puerta: acá no hay un `itemId` de partida, hay que encontrarlo por la URL borrada.
+ *
+ * Misma regla que ELIMINAR_DOCUMENTO: si esa era la ÚLTIMA evidencia del punto, vuelve a
+ * PENDIENTE (como si nunca se hubiera cargado nada); si quedan otras, solo demota
+ * APROBADO→CARGADO. Devuelve los `negocioId` afectados para que el llamador decida si avisa por SSE.
+ */
+export async function quitarDocumentoDelChecklistPorUrl(
+  url: string, docNombre: string, userId: number | null, userNombre: string,
+): Promise<number[]> {
+  const [afectados] = await pool.query(
+    `SELECT DISTINCT item_id, negocio_id FROM checklist_comercial_documentos WHERE url = ?`, [url],
+  ) as any;
+  const items = afectados as Array<{ item_id: number; negocio_id: number }>;
+  if (!items.length) return [];
+
+  for (const { item_id: itemId, negocio_id: negocioId } of items) {
+    await pool.query(`DELETE FROM checklist_comercial_documentos WHERE item_id = ? AND url = ?`, [itemId, url]);
+
+    const [[{ quedan }]] = await pool.query(
+      `SELECT COUNT(*) AS quedan FROM checklist_comercial_documentos WHERE item_id = ?`, [itemId],
+    ) as any;
+    const [itemRows] = await pool.query(`SELECT estado FROM checklist_comercial WHERE id = ?`, [itemId]) as any;
+    const estadoActual = (itemRows as any[])[0]?.estado;
+    if (!estadoActual) continue;   // el punto ya no existe (negocio borrado, etc.)
+
+    let nuevoEstado = estadoActual;
+    if (quedan > 0) {
+      if (estadoActual === 'APROBADO') {
+        nuevoEstado = 'CARGADO';
+        await pool.query(
+          `UPDATE checklist_comercial SET estado = 'CARGADO', aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL WHERE id = ?`,
+          [itemId],
+        );
+      }
+    } else if (estadoActual !== 'PENDIENTE') {
+      nuevoEstado = 'PENDIENTE';
+      await pool.query(
+        `UPDATE checklist_comercial
+            SET estado = 'PENDIENTE', observacion = NULL,
+                cargado_por = NULL, cargado_por_nombre = NULL, cargado_at = NULL,
+                aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL
+          WHERE id = ?`,
+        [itemId],
+      );
+    }
+    if (nuevoEstado !== estadoActual)
+      await bitacora(itemId, negocioId, 'ELIMINAR_DOCUMENTO', estadoActual, nuevoEstado, `Se borró "${docNombre}" desde Documentos`, userId, userNombre);
+  }
+
+  return Array.from(new Set(items.map(i => i.negocio_id)));
+}
+
 export async function bitacora(
   itemId: number, negocioId: number, accion: string,
   anterior: string | null, nuevo: string, comentario: string | null,

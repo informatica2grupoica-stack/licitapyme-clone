@@ -130,6 +130,8 @@ test('generarItemsDesdeViabilidad: un bloqueante que cita "Anexo N°8" se pega a
     },
   };
   const items = generarItemsDesdeViabilidad(informe);
+  // "Declaración Aceptación Bases Técnicas" NO es un documento técnico propio (es un trámite
+  // administrativo: aceptar las bases), así que sigue en ADMINISTRATIVO — ver RE_BASES_TECNICAS.
   const admin = items.filter(i => i.bloque === 'ADMINISTRATIVO');
   assert.equal(admin.length, 1, `la advertencia no abre fila propia (salieron: ${admin.map(i => i.titulo).join(' | ')})`);
   assert.match(admin[0].descripcion || '', /No firmar Anexo N°8/);
@@ -147,8 +149,9 @@ test('generarItemsDesdeViabilidad: "Anexo N°6.1" a "N°6.7" (sub-índices) NO s
     },
   };
   const items = generarItemsDesdeViabilidad(informe);
-  const admin = items.filter(i => i.bloque === 'ADMINISTRATIVO');
-  assert.equal(admin.length, 7, `deberían quedar 7 anexos distintos (salieron: ${admin.map(i => i.titulo).join(' | ')})`);
+  // "Especificaciones Técnicas" es un documento TÉCNICO por su propio título — ver bloqueDeAnexo().
+  const tecnico = items.filter(i => i.bloque === 'TECNICO' && i.tipo === 'documento');
+  assert.equal(tecnico.length, 7, `deberían quedar 7 anexos distintos (salieron: ${tecnico.map(i => i.titulo).join(' | ')})`);
 });
 
 // Caso real 759-21-LE26: dos anexos con la MISMA descripción genérica pero número EXPLÍCITO

@@ -4,6 +4,8 @@ import pool from '@/app/lib/db';
 import { puedeVerLicitacion } from '@/app/lib/api-auth';
 import { borrarDocumentoR2 } from '@/app/lib/r2';
 import { registrarActividad, userIdFromHeaders } from '@/app/lib/actividad';
+import { quitarDocumentoDelChecklistPorUrl } from '@/app/lib/checklist-comercial-db';
+import { publicarCambio } from '@/app/lib/sse-bus';
 
 // Categorías de archivos que GENERAMOS nosotros (nunca oficiales de Mercado Público) — todas
 // borrables/renombrables por igual. Las 3 de anexos separados (ver anexos-dividir.ts
@@ -122,6 +124,19 @@ export async function DELETE(
     await pool.query(`DELETE FROM documentos_cache WHERE id = ?`, [doc.id]);
     // Limpia la marca en la tabla aparte (best-effort: si no existe la tabla, no hay nada que limpiar).
     try { await pool.query(`DELETE FROM documentos_origen_manual WHERE documento_id = ?`, [doc.id]); } catch {}
+
+    // Si este documento ya se había "enviado al Auditor Técnico" (checklist_comercial_documentos
+    // apuntando a esta misma url), ese punto no puede seguir "por aprobar" con una evidencia que
+    // ya no existe — BUG REAL (07-sep-2026): borrar acá dejaba el checklist colgado para siempre.
+    try {
+      const negociosAfectados = await quitarDocumentoDelChecklistPorUrl(
+        doc.documento_url_local, nombre || doc.documento_url_local,
+        userIdFromHeaders(request.headers), request.headers.get('x-user-nombre') || 'Usuario',
+      );
+      if (negociosAfectados.length) publicarCambio('checklist_comercial');
+    } catch (e) {
+      console.warn(`[documentos:DELETE] no se pudo limpiar el checklist ${codigoDec}:`, String(e));
+    }
 
     // Bitácora: borró un documento propio de esta licitación (best-effort).
     registrarActividad({
