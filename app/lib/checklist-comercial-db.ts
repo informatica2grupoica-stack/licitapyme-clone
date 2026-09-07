@@ -2,10 +2,8 @@
 // Escrituras de apoyo del checklist (documentos adjuntos + bitácora), extraídas de
 // app/api/negocios/[id]/comercial/route.ts para que también las pueda usar código de lib.
 //
-// POR QUÉ SE MOVIERON (19-ago-2026): el motor de comparación masiva
-// (app/lib/auditor-comparacion-masiva.ts) las necesita, y el route ya importa ESE motor — dejarlas
-// en el route habría creado un ciclo de imports. El route las re-exporta, así que los consumidores
-// que ya las traían desde ahí (la ruta .../[itemId]/caracteristicas, /api/aprobaciones) siguen igual.
+// El route las re-exporta, así que los consumidores que ya las traían desde ahí (la ruta
+// .../[itemId]/caracteristicas, /api/aprobaciones) siguen igual.
 
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';

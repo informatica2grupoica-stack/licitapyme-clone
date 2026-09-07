@@ -349,8 +349,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ error: 'El informe no trae características técnicas para esta línea.' }, { status: 400 });
 
       // En paralelo: con varios productos, clasificar uno por uno (secuencial) puede sumar
-      // minutos y pasarse del límite de la petición HTTP (mismo problema que resolvió el trabajo
-      // de fondo de la comparación masiva — ver auditor-comparacion-masiva.ts).
+      // minutos y pasarse del límite de la petición HTTP.
       const resultados = await Promise.all(aClasificar.map(({ producto, productoIndex }) =>
         clasificarCaracteristicasLinea(producto, { licitacionCodigo: negocio.licitacion_codigo })
           .then(clasificadas => ({ productoIndex, clasificadas }))));

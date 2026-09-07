@@ -739,10 +739,6 @@ export async function POST(request: NextRequest, { params }: Params) {
       return NextResponse.json({ success: true, items, resumen: resumirChecklist(items) });
     }
 
-    // 'comparar_documento_masivo' se mudó a .../comercial/comparacion-masiva (POST arranca un
-    // trabajo de fondo, GET informa el avance): con 88 líneas técnicas no cabía en esta petición.
-    // Ver app/lib/auditor-comparacion-masiva.ts.
-
     return NextResponse.json({ error: 'Acción desconocida' }, { status: 400 });
   } catch (error) {
     console.error('[comercial][POST]', String(error));
@@ -801,12 +797,34 @@ export async function PATCH(request: NextRequest, { params }: Params) {
 
       await pool.query(`DELETE FROM checklist_comercial_documentos WHERE id = ?`, [documentoId]);
 
-      const nuevoEstado = item.estado === 'APROBADO' ? 'CARGADO' : item.estado;
+      // Si ese era el ÚLTIMO documento, el punto queda sin ninguna evidencia — no puede seguir
+      // "por aprobar" ni "aprobado" con cero respaldo. BUG REAL (07-sep-2026): antes solo se
+      // demotaba APROBADO→CARGADO y ahí quedaba para siempre, aunque ya no hubiera ningún
+      // documento que revisar. Con 0 documentos el punto vuelve a PENDIENTE, tal como si nunca
+      // se hubiera cargado nada.
+      const [[{ quedan }]] = await pool.query(
+        `SELECT COUNT(*) AS quedan FROM checklist_comercial_documentos WHERE item_id = ?`,
+        [itemId],
+      ) as any;
+      const nuevoEstado = quedan > 0
+        ? (item.estado === 'APROBADO' ? 'CARGADO' : item.estado)
+        : 'PENDIENTE';
       if (nuevoEstado !== item.estado) {
-        await pool.query(
-          `UPDATE checklist_comercial SET estado = 'CARGADO', aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL WHERE id = ?`,
-          [itemId],
-        );
+        if (nuevoEstado === 'PENDIENTE') {
+          await pool.query(
+            `UPDATE checklist_comercial
+                SET estado = 'PENDIENTE', observacion = NULL,
+                    cargado_por = NULL, cargado_por_nombre = NULL, cargado_at = NULL,
+                    aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL
+              WHERE id = ?`,
+            [itemId],
+          );
+        } else {
+          await pool.query(
+            `UPDATE checklist_comercial SET estado = 'CARGADO', aprobado_por = NULL, aprobado_por_nombre = NULL, aprobado_at = NULL WHERE id = ?`,
+            [itemId],
+          );
+        }
       }
       await bitacora(itemId, negocio.id, 'ELIMINAR_DOCUMENTO', item.estado, nuevoEstado, `Eliminó "${doc.nombre}"`, userId, nombreActor);
       publicarCambio('checklist_comercial');

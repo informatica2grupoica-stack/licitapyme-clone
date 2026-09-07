@@ -8,6 +8,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Upload, Loader2, AlertTriangle, FileSpreadsheet, History, Eye, Download, Trash2 } from 'lucide-react';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
+import { urlDescarga } from '@/app/lib/descargas-cliente';
 
 interface Alerta { codigo: string; descripcion: string; detalle: string }
 interface VersionCosteo {
@@ -144,7 +145,7 @@ export function MotorComercialCard({ negocioId, licitacionCodigo }: { negocioId:
                   <Eye size={12} />
                 </button>
                 <a
-                  href={vigente.archivo_url} download={vigente.archivo_nombre}
+                  href={urlDescarga(vigente.archivo_url!)} download={vigente.archivo_nombre}
                   title="Descargar"
                   className="p-0.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
                 >

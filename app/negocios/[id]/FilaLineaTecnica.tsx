@@ -8,8 +8,9 @@
 // comparación por característica exigido/ofertado, precio y plazo de la línea, documento fuente —
 // vive en ModalAuditorLineaTecnica.tsx, que se abre con "Ver comparación".
 import { useState } from 'react';
-import { Check, X, Wrench, Undo2, Loader2 } from 'lucide-react';
+import { Check, X, Wrench, Undo2, Loader2, Upload } from 'lucide-react';
 import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
+import { useToast } from '@/app/components/ui/toast';
 
 interface ResumenTecnico { total: number; cumplen: number; noCumplen: number; conComplemento: number; sinEvaluar: number; pendientesProveedor: number }
 
@@ -36,11 +37,77 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
   fueraDeLaOferta?: boolean;
   onAccion: (itemId: number, accion: string, extra?: Record<string, unknown>) => Promise<boolean>;
 }) {
+  const toast = useToast();
   const [modalAbierto, setModalAbierto] = useState(false);
+  const [arrastrando, setArrastrando] = useState(false);
+  const [subiendoFicha, setSubiendoFicha] = useState(false);
+  const [progreso, setProgreso] = useState<string | null>(null);
   const resumen = item.resumen_tecnico;
+  const puedeSoltar = !bloqueado && !ocupado && !subiendoFicha;
+  const base = `/api/negocios/${negocioId}/comercial/${item.id}/caracteristicas`;
+
+  // Sube y compara, EN LA LÍNEA, una o varias fichas soltadas encima de la fila — sin pasar por
+  // el modal. Antes la única forma de cargar la ficha de una línea era el botón "Comparar contra
+  // un documento" del bloque completo, que comparaba UN documento contra TODAS las líneas a la
+  // vez: si esa ficha era de una sola línea, las demás salían con falsos "0 de N cumple" (ver
+  // memoria project_ficha_por_linea_ago2026). Acá el documento nunca sale de ESTA línea.
+  //
+  // Varios archivos a la vez porque una línea puede traer más de un producto (hasta 30+ bajo la
+  // misma línea de precio) — cada ficha se compara una por una, en orden, contra el trozo de
+  // texto que le corresponde a su producto (ver comparar_ficha en el route de características).
+  const procesarFichasSoltadas = async (files: FileList) => {
+    setSubiendoFicha(true);
+    try {
+      if (!resumen || resumen.total === 0) {
+        setProgreso('Clasificando las características de las bases…');
+        const rVal = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'validar' }) });
+        const dVal = await rVal.json().catch(() => ({}));
+        if (!rVal.ok) { toast.error(dVal.error || 'No se pudo clasificar la línea'); return; }
+      }
+
+      const lista = Array.from(files);
+      let comparadas = 0;
+      for (let i = 0; i < lista.length; i++) {
+        const file = lista[i];
+        setProgreso(lista.length > 1 ? `Comparando ${i + 1}/${lista.length}: ${file.name}` : `Comparando "${file.name}"…`);
+        const fd = new FormData();
+        fd.append('licitacionCodigo', licitacionCodigo);
+        fd.append('files', file);
+        const rSubida = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
+        const dSubida = await rSubida.json().catch(() => ({}));
+        if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || `No se pudo subir "${file.name}"`); continue; }
+        const doc = dSubida.documentos[0];
+        const rComp = await fetch(base, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ accion: 'comparar_ficha', documentoUrl: doc.url, documentoNombre: doc.nombre }),
+        });
+        const dComp = await rComp.json().catch(() => ({}));
+        if (!rComp.ok) { toast.error(dComp.error || `No se pudo comparar "${file.name}"`); continue; }
+        comparadas++;
+      }
+      if (comparadas > 0) toast.success(comparadas === 1 ? 'Ficha comparada' : `${comparadas} fichas comparadas`, item.titulo);
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally {
+      setSubiendoFicha(false);
+      setProgreso(null);
+    }
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setArrastrando(false);
+    if (!puedeSoltar) return;
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) procesarFichasSoltadas(e.dataTransfer.files);
+  };
 
   return (
-    <div className={`px-4 py-3 ${item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''} ${fueraDeLaOferta ? 'opacity-55' : ''}`}>
+    <div
+      onDragOver={e => { if (puedeSoltar) { e.preventDefault(); setArrastrando(true); } }}
+      onDragLeave={() => setArrastrando(false)}
+      onDrop={onDrop}
+      className={`px-4 py-3 transition-colors ${item.estado === 'OBSERVADO' ? 'bg-orange-50/40' : ''} ${fueraDeLaOferta ? 'opacity-55' : ''} ${arrastrando ? 'bg-violet-50 ring-2 ring-inset ring-violet-300' : ''}`}
+    >
       <div className="flex items-start gap-3">
         <div className="pt-0.5">
           {item.estado === 'APROBADO'
@@ -96,6 +163,20 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
             className="p-1.5 text-zinc-300 hover:text-zinc-600 hover:bg-zinc-50 rounded-lg transition-colors">
             <Undo2 size={13} />
           </button>
+        )}
+
+        {subiendoFicha || arrastrando ? (
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-violet-600">
+            {subiendoFicha ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+            {progreso || 'Suelta la(s) ficha(s) técnica(s) acá'}
+          </span>
+        ) : !bloqueado && (
+          // Pista permanente, tenue: sin esto no hay ninguna señal en la fila de que se puede
+          // arrastrar la ficha del proveedor directo acá — la única pista era el comentario en
+          // el código, invisible para quien usa la pantalla.
+          <span className="inline-flex items-center gap-1 text-[10.5px] text-zinc-300">
+            <Upload size={10} /> o arrastra la ficha técnica acá
+          </span>
         )}
       </div>
 

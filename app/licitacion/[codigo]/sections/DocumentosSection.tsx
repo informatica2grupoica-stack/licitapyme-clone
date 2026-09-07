@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
+import { urlDescarga } from '@/app/lib/descargas-cliente';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { DocumentoIAModal } from '@/app/components/DocumentoIAModal';
 import { AnexoRellenoModal, type AnexoDoc } from '@/app/components/AnexoRellenoModal';
@@ -277,7 +278,7 @@ function DocItem({
             <Eye size={11} />
           </button>
           <a
-            href={doc.url_local || doc.url} download={doc.nombre}
+            href={urlDescarga(doc.url_local || doc.url)} download={doc.nombre}
             onClick={(e) => { e.stopPropagation(); registrarVerDocumento(codigoDecoded, doc.nombre, 'Descargó'); }}
             className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
             title="Descargar"
@@ -971,7 +972,7 @@ function DocPropioItem({
         ) : (
           <div className="flex items-center gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity flex-shrink-0">
             <button type="button" onClick={(e) => { e.stopPropagation(); onView(); }} className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors" title="Ver en el visor" draggable={false}><Eye size={11} /></button>
-            <a href={urlDe} download={doc.nombre} onClick={(e) => { e.stopPropagation(); onDownloadClick(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Descargar" draggable={false}><Download size={11} /></a>
+            <a href={urlDescarga(urlDe)} download={doc.nombre} onClick={(e) => { e.stopPropagation(); onDownloadClick(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Descargar" draggable={false}><Download size={11} /></a>
             {onEnviarAuditor && (
               <button type="button" onClick={(e) => { e.stopPropagation(); onEnviarAuditor(); }} className="p-1 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors" title="Enviar al Auditor Técnico" draggable={false}><Send size={11} /></button>
             )}
@@ -1722,7 +1723,7 @@ export function DocumentosSection({
                   : <><RefreshCw size={11} /> Regenerar</>}
               </button>
               <a
-                href={(costeo as any).url_local || (costeo as any).url}
+                href={urlDescarga((costeo as any).url_local || (costeo as any).url)}
                 download={costeo.nombre}
                 className="shrink-0 flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-100 hover:bg-emerald-200 px-2.5 py-1 rounded-lg transition-colors"
               >

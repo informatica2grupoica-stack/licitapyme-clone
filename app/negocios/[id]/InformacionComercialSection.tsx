@@ -15,10 +15,10 @@
 //
 // Tiempo real: cualquier carga o visado se refleja al instante en la pantalla del otro (SSE).
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Banner } from '@/app/components/ui/Banner';
+import { urlDescarga } from '@/app/lib/descargas-cliente';
 import { Select } from '@/app/components/ui/Select';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { useSession } from '@/app/lib/session-context';
@@ -29,7 +29,6 @@ import { SelectorDocumentoAnexo } from '@/app/components/SelectorDocumentoAnexo'
 import { repartirArchivosGenerados } from '@/app/lib/anexos-match';
 import { FilaLineaTecnica } from './FilaLineaTecnica';
 import { MotorComercialCard } from './MotorComercialCard';
-import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
 import {
   tieneAnexosAuditor, CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado,
   esAlertaDeCumplimiento,
@@ -37,7 +36,7 @@ import {
 import {
   ShieldCheck, Building2, Check, X, Upload, Loader2, AlertTriangle, Copy,
   FileText, DollarSign, Wrench, ClipboardCheck, RefreshCw, Undo2, Sparkles,
-  Eye, Download, Trash2, History, FileStack,
+  Eye, Download, Trash2, History,
 } from 'lucide-react';
 
 // ── Tipos (espejo de lo que devuelve /api/negocios/[id]/comercial) ──────────────
@@ -82,42 +81,6 @@ interface Item {
 interface Resumen {
   total: number; aprobados: number; porAprobar: number; pendientes: number;
   observados: number; bloqueantesPendientes: number; listoParaPostular: boolean; avance: number;
-}
-
-/** "Línea 12 — SILLA DE RUEDAS" → "SILLA DE RUEDAS", recortado para que quepa en el desplegable. */
-function nombreCortoLinea(titulo: string): string {
-  const sinPrefijo = String(titulo || '').replace(/^L[íi]nea\s+\d+\s*[—–-]\s*/i, '').trim();
-  return sinPrefijo.length > 38 ? `${sinPrefijo.slice(0, 38)}…` : sinPrefijo;
-}
-
-/** "$0.42 USD · 63 llamadas". Se muestra con 2 decimales: bajo eso el número no dice nada útil. */
-function textoCosto(c?: { llamadas: number; usd: number } | null): string | null {
-  if (!c || c.llamadas === 0) return null;
-  return `~$${c.usd < 0.01 ? c.usd.toFixed(4) : c.usd.toFixed(2)} USD · ${c.llamadas} llamada(s) de IA`;
-}
-
-/** Resultado de una línea dentro de la comparación masiva. */
-interface ResultadoMasivoLinea {
-  lineaNumero: number; itemId: number; titulo: string;
-  total: number; cumplen: number; noCumplen: number;
-  fuenteRequisitos?: 'ya_clasificadas' | 'informe' | 'bases_tecnicas' | null;
-  segmentada?: boolean; error?: string;
-}
-
-/** Trabajo de fondo de "Comparar contra un documento" (ver migración 70). */
-interface JobMasivo {
-  estado: 'procesando' | 'listo' | 'error';
-  fase: string | null;
-  documento: string | null;
-  total: number; procesadas: number;
-  error: string | null;
-  elapsedSeg: number;
-  costo?: { llamadas: number; tokensIn: number; tokensOut: number; usd: number };
-  resumen: {
-    documento: string; lineasTotales: number; lineasComparadas: number;
-    bloquesFicha: number; resultados: ResultadoMasivoLinea[];
-    costo?: { llamadas: number; tokensIn: number; tokensOut: number; usd: number };
-  } | null;
 }
 
 interface Empresa {
@@ -256,65 +219,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   // caen los archivos que ningún punto matcheó con confianza (ver repartirArchivosGenerados).
   const [generandoItem, setGenerandoItem] = useState<Item | null>(null);
   const [anexoDocSeleccionado, setAnexoDocSeleccionado] = useState<AnexoDoc | null>(null);
-  // Con licitaciones de 100+ ítems, revisar línea por línea es inviable — por defecto el bloque
-  // TECNICO solo muestra las líneas técnicas que aún no están aprobadas.
-  const [soloExcepcionesTecnico, setSoloExcepcionesTecnico] = useState(true);
-  // Carga masiva: UN documento (catálogo, ficha completa) comparado contra TODAS las líneas
-  // técnicas de una vez — evita subir el mismo archivo N veces, una por línea.
-  // Es un TRABAJO DE FONDO (migración 70): con 88 líneas la comparación dura minutos, así que el
-  // POST solo la arranca y esta pantalla sigue el avance por polling. Sobrevive a un F5.
-  const [jobMasivo, setJobMasivo] = useState<JobMasivo | null>(null);
-  const [subiendoMasivo, setSubiendoMasivo] = useState(false);
-  // A qué línea corresponde la ficha que se va a subir. '' = todas las ofertadas (comportamiento
-  // de siempre). Una ficha casi nunca cubre la licitación entera: el proveedor manda la de SU
-  // línea, y compararla contra las demás produce "0 de N cumple" en líneas que ese documento
-  // nunca mencionó — se lee como un incumplimiento real y encima se paga IA por cada una.
-  const [lineaFicha, setLineaFicha] = useState<string>('');
   const [generandoFicha, setGenerandoFicha] = useState(false);
-  const [verLineaId, setVerLineaId] = useState<number | null>(null);
-  const fileMasivoRef = useRef<HTMLInputElement>(null);
-  const comparandoMasivo = subiendoMasivo || jobMasivo?.estado === 'procesando';
-  const resultadoMasivo = jobMasivo?.estado === 'listo' ? (jobMasivo.resumen?.resultados ?? []) : null;
-
-  const leerJobMasivo = useCallback(async (): Promise<JobMasivo | null> => {
-    try {
-      const r = await fetch(`/api/negocios/${negocioId}/comercial/comparacion-masiva`);
-      if (!r.ok) return null;
-      const d = await r.json();
-      setJobMasivo(d.job ?? null);
-      return d.job ?? null;
-    } catch { return null; }
-  }, [negocioId]);
-
-  const compararDocumentoMasivo = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setSubiendoMasivo(true);
-    try {
-      const fd = new FormData();
-      fd.append('licitacionCodigo', licitacionCodigo);
-      fd.append('files', files[0]);
-      const rSubida = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
-      const dSubida = await rSubida.json();
-      if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || 'No se pudo subir el documento'); return; }
-      const doc = dSubida.documentos[0];
-
-      const r = await fetch(`/api/negocios/${negocioId}/comercial/comparacion-masiva`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          documentoUrl: doc.url, documentoNombre: doc.nombre,
-          lineas: lineaFicha ? [Number(lineaFicha)] : [],
-        }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok) { toast.error(d.error || 'No se pudo comparar el documento'); return; }
-      await leerJobMasivo();
-    } catch (e) {
-      toast.error('Error de red', String(e));
-    } finally {
-      setSubiendoMasivo(false);
-      if (fileMasivoRef.current) fileMasivoRef.current.value = '';
-    }
-  };
 
   /**
    * Genera NUESTRA ficha técnica desde las exigencias que el Auditor ya tiene clasificadas.
@@ -326,7 +231,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
     try {
       const r = await fetch(`/api/negocios/${negocioId}/comercial/ficha-tecnica`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lineas: lineaFicha ? [Number(lineaFicha)] : [] }),
+        body: JSON.stringify({ lineas: [] }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d?.success) { toast.error(d.error || 'No se pudo generar la ficha'); return; }
@@ -344,16 +249,6 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
     } catch (e: any) {
       toast.error('Error de red', String(e));
     } finally { setGenerandoFicha(false); }
-  };
-
-  /** Cierra la tabla de resultados: borra el job para que no reaparezca en el próximo render. */
-  const cerrarResultadoMasivo = async () => {
-    setJobMasivo(null);
-    try {
-      const r = await fetch(`/api/negocios/${negocioId}/comercial/comparacion-masiva`, { method: 'DELETE' });
-      const d = await r.json();
-      if (r.ok && d.resumen) setResumen(d.resumen);
-    } catch { /* el job se limpia solo en la próxima corrida */ }
   };
 
   const cargar = useCallback(async () => {
@@ -382,20 +277,6 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   }, [negocioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
-  // Al entrar (o volver tras un F5) puede haber una comparación corriendo desde antes.
-  useEffect(() => { leerJobMasivo(); }, [leerJobMasivo]);
-
-  // Polling del trabajo de fondo: solo mientras está vivo, y se apaga solo al terminar.
-  useEffect(() => {
-    if (jobMasivo?.estado !== 'procesando') return;
-    const t = setInterval(async () => {
-      const job = await leerJobMasivo();
-      if (job?.estado === 'listo') { cargar(); toast.success('Comparación lista', `${job.resumen?.lineasComparadas ?? 0} línea(s) comparadas.`); }
-      else if (job?.estado === 'error') toast.error('La comparación falló', job.error || undefined);
-    }, 4000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobMasivo?.estado, leerJobMasivo, cargar]);
   // El asesor tiene que poder aprobar el mismo día, en el momento: si el asistente carga algo
   // mientras esta pantalla está abierta, aparece solo.
   useRealtime(cargar);
@@ -720,80 +601,28 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                   {resumenTecnicoGlobal.sinValidar > 0 && <span className="text-zinc-400">{resumenTecnicoGlobal.sinValidar} sin validar</span>}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <input ref={fileMasivoRef} type="file" className="hidden" onChange={e => compararDocumentoMasivo(e.target.files)} />
-                  {/* De qué línea es la ficha. Solo aparece si hay más de una: con una sola no hay
-                      nada que elegir. Por defecto "todas", que es como se comportaba antes. */}
-                  {lineasTecnicas.length > 1 && (
-                    <select
-                      value={lineaFicha}
-                      onChange={e => setLineaFicha(e.target.value)}
-                      disabled={comparandoMasivo}
-                      title="¿De qué línea es la ficha que vas a subir?"
-                      className="max-w-[240px] rounded-lg border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-600 disabled:opacity-50"
-                    >
-                      <option value="">Ficha de todas las líneas</option>
-                      {lineasTecnicas.map(l => (
-                        <option key={l.id} value={l.linea_numero ?? ''}>
-                          Ficha de la línea {l.linea_numero} — {nombreCortoLinea(l.titulo)}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {/* NUESTRA ficha primero, la del proveedor después: ese es el orden que pidió el
-                      usuario. Tener la propia armada es lo que convierte la comparación en algo
-                      contrastable en vez de una lectura a ciegas del PDF que mandó el proveedor. */}
+                  {/* La ficha del proveedor ya no se sube acá: se arrastra directo a la fila de
+                      SU línea (ver FilaLineaTecnica) — antes este botón comparaba UN documento
+                      contra TODAS las líneas de una vez, y una ficha de una sola línea producía
+                      falsos "0 de N cumple" en las demás (ver memoria project_ficha_por_linea_ago2026). */}
                   <button
                     onClick={generarFichaPropia}
                     disabled={generandoFicha}
-                    title={lineaFicha
-                      ? `Arma nuestra ficha técnica de la línea ${lineaFicha}, con el logo y la firma de la empresa`
-                      : 'Arma nuestra ficha técnica con las líneas que ofertamos, con el logo y la firma de la empresa'}
+                    title="Arma nuestra ficha técnica con las líneas que ofertamos, con el logo y la firma de la empresa"
                     className="inline-flex items-center gap-1.5 rounded-lg border border-teal-200 px-2.5 py-1 text-[11px] font-semibold text-teal-700 transition-colors hover:bg-teal-50 disabled:opacity-50"
                   >
                     {generandoFicha ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
                     {generandoFicha ? 'Armando ficha…' : 'Generar nuestra ficha'}
-                  </button>
-                  <button
-                    onClick={() => fileMasivoRef.current?.click()}
-                    disabled={comparandoMasivo}
-                    title={lineaFicha
-                      ? `La ficha se comparará SOLO contra la línea ${lineaFicha}`
-                      : 'Un solo documento con las especificaciones de varias líneas — se compara contra cada una'}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg border border-violet-200 transition-colors disabled:opacity-50"
-                  >
-                    {comparandoMasivo ? <Loader2 size={12} className="animate-spin" /> : <FileStack size={12} />}
-                    {!comparandoMasivo ? 'Comparar contra un documento'
-                      : jobMasivo?.estado === 'procesando' && jobMasivo.total > 0
-                        ? `Comparando… ${jobMasivo.procesadas}/${jobMasivo.total}`
-                        : 'Comparando…'}
-                  </button>
-                  {/* La comparación dura minutos: sin esto la pantalla parece colgada. */}
-                  {jobMasivo?.estado === 'procesando' && (
-                    <span className="text-[11px] text-zinc-400">
-                      {jobMasivo.fase || 'Preparando'}
-                      {jobMasivo.total > 0 && ` · ${Math.round((jobMasivo.procesadas / jobMasivo.total) * 100)}%`}
-                      {textoCosto(jobMasivo.costo) && <span className="text-amber-600"> · {textoCosto(jobMasivo.costo)}</span>}
-                    </span>
-                  )}
-                  {jobMasivo?.estado === 'error' && (
-                    <span className="text-[11px] text-rose-600 font-semibold">
-                      {jobMasivo.error || 'La comparación falló'}
-                      {textoCosto(jobMasivo.costo) && <span className="text-amber-600 font-normal"> · alcanzó a gastar {textoCosto(jobMasivo.costo)}</span>}
-                    </span>
-                  )}
-                  <button onClick={() => setSoloExcepcionesTecnico(v => !v)} className="text-[11px] font-semibold text-violet-600 hover:text-violet-800">
-                    {soloExcepcionesTecnico ? 'Mostrar todas las líneas' : 'Mostrar solo pendientes'}
                   </button>
                 </div>
               </div>
             )}
 
             <div className="divide-y divide-zinc-100">
+              {/* Las líneas técnicas SIEMPRE se muestran, aprobadas o no: un botón "mostrar
+                  todas" que las escondía por defecto hacía parecer que una línea que se aprobó
+                  sola (todo cumple) había desaparecido, en vez de mostrar el trabajo hecho. */}
               {delBloque.map(item => {
-                if (b.key === 'TECNICO' && item.tipo === 'linea_tecnica' && soloExcepcionesTecnico && item.estado === 'APROBADO') return null;
-                // "Mostrar solo pendientes" también esconde las líneas fuera de la oferta: no son
-                // pendientes de nadie.
-                if (item.tipo === 'linea_tecnica' && item.ofertamos === false && soloExcepcionesTecnico) return null;
                 return item.tipo === 'linea_tecnica' ? (
                   <FilaLineaTecnica
                     key={item.id}
@@ -821,7 +650,7 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                   />
                 );
               })}
-              {b.key === 'TECNICO' && soloExcepcionesTecnico && lineasTecnicas.length > 0 && resumenTecnicoGlobal.aprobadas === resumenTecnicoGlobal.totalLineas && (
+              {b.key === 'TECNICO' && lineasTecnicas.length > 0 && resumenTecnicoGlobal.aprobadas === resumenTecnicoGlobal.totalLineas && (
                 <p className="px-4 py-3 text-[12px] text-emerald-600 font-medium">Todas las líneas técnicas están aprobadas.</p>
               )}
             </div>
@@ -904,27 +733,6 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
 
       <DocumentViewerModal doc={visorDoc} onClose={() => setVisorDoc(null)} />
 
-      {resultadoMasivo && (
-        <ModalResultadoMasivo
-          resultados={resultadoMasivo}
-          resumen={jobMasivo?.resumen ?? null}
-          onVerLinea={id => { cerrarResultadoMasivo(); setVerLineaId(id); }}
-          onClose={cerrarResultadoMasivo}
-        />
-      )}
-
-      {verLineaId != null && (
-        <ModalAuditorLineaTecnica
-          negocioId={negocioId}
-          itemId={verLineaId}
-          licitacionCodigo={licitacionCodigo}
-          puedeAprobar={puedeAprobar}
-          bloqueado={sinEmpresa}
-          onClose={() => setVerLineaId(null)}
-          onAccion={accionar}
-        />
-      )}
-
       {/* Flujo "Generar" — paso 1: elegir a cuál Word real de la licitación corresponde este
           anexo. Se oculta en cuanto se elige uno (paso 2, el modal de relleno, toma el relevo). */}
       <SelectorDocumentoAnexo
@@ -944,80 +752,6 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
         onGenerado={handleAnexoGenerado}
       />
     </div>
-  );
-}
-
-// ════════════════════════════════════════════════════════════════════════════════
-// Resultado de "Comparar contra un documento" (carga masiva) — una fila por línea procesada,
-// con acceso directo a la comparación completa de la que tenga algo pendiente.
-function ModalResultadoMasivo({ resultados, resumen, onVerLinea, onClose }: {
-  resultados: ResultadoMasivoLinea[];
-  resumen: JobMasivo['resumen'];
-  onVerLinea: (itemId: number) => void;
-  onClose: () => void;
-}) {
-  const totalCumplen = resultados.filter(r => !r.error && r.total > 0 && r.noCumplen === 0).length;
-  const totalNoCumplen = resultados.filter(r => r.noCumplen > 0).length;
-  const totalErrores = resultados.filter(r => r.error).length;
-
-  return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3" onClick={onClose} role="dialog" aria-modal="true" aria-label="Resultado de la comparación masiva">
-      <div className="w-full max-w-lg max-h-[85vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-zinc-100 flex items-start gap-3 flex-shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0"><FileStack size={15} className="text-violet-600" /></div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[14.5px] font-bold text-zinc-900">Comparación masiva</p>
-            <p className="text-[12px] text-zinc-400 mt-0.5">
-              {resultados.length} línea{resultados.length === 1 ? '' : 's'} procesada{resultados.length === 1 ? '' : 's'} · {totalCumplen} sin problemas
-              {totalNoCumplen > 0 && <span className="text-rose-600 font-semibold"> · {totalNoCumplen} con incumplimientos</span>}
-              {totalErrores > 0 && <span className="text-amber-600 font-semibold"> · {totalErrores} con error</span>}
-            </p>
-            {/* Sin esto no se distingue "la ficha no cubre esa línea" de "la línea sí cumple". */}
-            {resumen && (
-              <p className="text-[11px] text-zinc-400 mt-0.5 truncate">
-                {resumen.documento} · {resumen.lineasComparadas} de {resumen.lineasTotales} línea(s) del checklist
-                {resumen.bloquesFicha > 0
-                  ? ` · ficha segmentada en ${resumen.bloquesFicha} bloque(s)`
-                  : ' · ficha sin segmentar (se comparó contra el texto completo)'}
-              </p>
-            )}
-          </div>
-          <button onClick={onClose} className="p-1.5 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded-lg transition-colors flex-shrink-0" aria-label="Cerrar"><X size={16} /></button>
-        </div>
-        <div className="px-3 py-2 overflow-y-auto flex-1 space-y-1">
-          {resultados.map(r => {
-            const ok = !r.error && r.total > 0 && r.noCumplen === 0;
-            return (
-              <button key={r.itemId} onClick={() => onVerLinea(r.itemId)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-zinc-50 text-left transition-colors">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[12.5px] font-medium text-zinc-800 truncate">Línea {r.lineaNumero} — {r.titulo}</p>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">
-                    {r.error ? r.error : `${r.cumplen} de ${r.total} cumple${r.noCumplen > 0 ? ` · ${r.noCumplen} no cumple` : ''}`}
-                  </p>
-                </div>
-                <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                  r.error ? 'bg-amber-100 text-amber-700' : ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'
-                }`}>
-                  {r.error ? 'Error' : ok ? 'Sin problemas' : `${r.noCumplen} no cumple`}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="px-5 py-3 border-t border-zinc-100 flex-shrink-0">
-          {/* Es la operación más cara del sistema: el gasto se muestra, no se esconde en el log. */}
-          {textoCosto(resumen?.costo) && (
-            <p className="text-[11px] text-amber-600 text-center mb-2">
-              Costo de esta comparación: {textoCosto(resumen?.costo)}
-              {resumen?.costo && ` (${(resumen.costo.tokensIn + resumen.costo.tokensOut).toLocaleString('es-CL')} tokens)`}
-            </p>
-          )}
-          <button onClick={onClose} className="w-full px-3 py-1.5 text-[12px] font-semibold text-zinc-500 hover:text-zinc-700">Cerrar</button>
-        </div>
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -1365,7 +1099,7 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                     <Eye size={12} />
                   </button>
                   <a
-                    href={doc.url} download={doc.nombre}
+                    href={urlDescarga(doc.url)} download={doc.nombre}
                     title="Descargar"
                     className="p-0.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors flex-shrink-0"
                   >

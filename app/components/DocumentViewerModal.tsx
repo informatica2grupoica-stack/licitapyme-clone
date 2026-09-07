@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Download, ExternalLink, FileText, FileQuestion, Loader2, AlertTriangle } from 'lucide-react';
+import { urlDescarga } from '@/app/lib/descargas-cliente';
 
 // El visor de Office (view.officeapps.live.com) es un servicio gratuito de Microsoft sin
 // garantía de servicio: a veces se queda pegado en "buscando el archivo" indefinidamente sin
@@ -98,7 +99,7 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
             <ExternalLink size={15} />
           </a>
           <a
-            href={doc.url} download={doc.nombre}
+            href={urlDescarga(doc.url)} download={doc.nombre}
             className="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
             title="Descargar"
           >
@@ -173,7 +174,7 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
                     <ExternalLink size={12} /> Abrir en pestaña nueva
                   </a>
                   <a
-                    href={doc.url} download={doc.nombre}
+                    href={urlDescarga(doc.url)} download={doc.nombre}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-white border border-amber-300 hover:bg-amber-100 text-amber-800 text-[12px] font-semibold rounded-lg transition-colors"
                   >
                     <Download size={12} /> Descargar
@@ -202,7 +203,7 @@ export function DocumentViewerModal({ doc, onClose }: { doc: VisorDoc | null; on
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-semibold rounded-lg transition-colors">
                   <ExternalLink size={14} /> Abrir
                 </a>
-                <a href={doc.url} download={doc.nombre}
+                <a href={urlDescarga(doc.url)} download={doc.nombre}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-[13px] font-semibold rounded-lg transition-colors">
                   <Download size={14} /> Descargar
                 </a>
