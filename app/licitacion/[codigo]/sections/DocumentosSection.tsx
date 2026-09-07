@@ -1173,7 +1173,11 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnv
 
   // Sube un único archivo a "Documentos para MP" (categoría DOCUMENTOS_PROPIOS).
   // Presign → PUT directo a R2 → guardar en documentos_cache.
-  const subirUnArchivo = async (file: File) => {
+  // `subcategoria`: cuando el archivo se suelta DIRECTO sobre una caja propia (arrastre nativo
+  // desde el explorador de archivos — ver handleDrop), aterriza ahí mismo en vez de en "Sin
+  // clasificar" — pedido explícito del usuario (7-sep-2026): "que se cargue en esa caja", no que
+  // haya que reubicarlo a mano después de subirlo.
+  const subirUnArchivo = async (file: File, subcategoria?: string) => {
     if (file.size > 100 * 1024 * 1024) throw new Error(`"${file.name}" supera los 100 MB.`);
     const pres = await fetch('/api/documentos/presign', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1185,23 +1189,24 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnv
     if (!put.ok) throw new Error(`Error subiendo "${file.name}"`);
     const save = await fetch('/api/documentos/guardar', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ licitacionCodigo: codigoDecoded, documentoNombre: file.name, url: p.publicUrl, size: file.size, categoria: 'DOCUMENTOS_PROPIOS' }),
+      body: JSON.stringify({ licitacionCodigo: codigoDecoded, documentoNombre: file.name, url: p.publicUrl, size: file.size, categoria: 'DOCUMENTOS_PROPIOS', subcategoria }),
     });
     if (!save.ok) throw new Error(`No se pudo registrar "${file.name}"`);
   };
 
   // Sube uno o varios documentos NUEVOS a "Documentos para MP" (categoría DOCUMENTOS_PROPIOS).
   // Se suben en secuencia (no en paralelo) para no saturar el endpoint de presign; el botón
-  // queda deshabilitado y muestra el progreso hasta terminar el lote completo. Aterrizan en
-  // "Sin clasificar" — el usuario los arrastra a su caja después.
-  const subirNuevo = async (files: File[]) => {
+  // queda deshabilitado y muestra el progreso hasta terminar el lote completo. Sin `subcategoria`
+  // aterrizan en "Sin clasificar" (botón genérico del encabezado); con ella, directo en esa caja
+  // (arrastre nativo sobre una caja puntual).
+  const subirNuevo = async (files: File[], subcategoria?: string) => {
     if (files.length === 0) return;
     let exitosos = 0;
     const errores: string[] = [];
     for (let i = 0; i < files.length; i++) {
       setSubiendoNuevo({ actual: i + 1, total: files.length });
       try {
-        await subirUnArchivo(files[i]);
+        await subirUnArchivo(files[i], subcategoria);
         exitosos++;
       } catch (e: any) {
         errores.push(e?.message || files[i].name);
@@ -1244,7 +1249,18 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnv
   const handleDrop = async (e: React.DragEvent, targetKey: string) => {
     e.preventDefault();
     setDragOver(null); dragEnterCount.current = {};
-    if (!draggingDoc) return;
+
+    // Arrastre NATIVO desde el explorador de archivos del sistema, no un reordenamiento interno
+    // — pedido explícito del usuario (7-sep-2026), reportado sobre ESTA sección ("Documentos para
+    // MP"): "cuando quiero pasar un documento de mi pc arrastrándolo a una caja... no lo deja".
+    // Mismo camino que subirNuevo() (el botón del encabezado), con la caja de destino ya elegida
+    // en vez de caer siempre en "Sin clasificar".
+    if (!draggingDoc) {
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        await subirNuevo(Array.from(e.dataTransfer.files), targetKey === CAJA_SIN_CLASIFICAR ? undefined : targetKey);
+      }
+      return;
+    }
     const sourceKey = claveCajaPropia(draggingDoc.subcategoria);
     if (sourceKey === targetKey) { setDraggingDoc(null); return; }
 
