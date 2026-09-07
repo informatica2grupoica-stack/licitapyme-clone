@@ -1534,6 +1534,25 @@ test('una ORACIÓN terminada en ":" no es una etiqueta de campo (patrón 5)', ()
   assert.deepEqual(etiquetas, ['RUT']);
 });
 
+// BUG REAL (7-sep-2026, FORMATO N°1 "IDENTIFICACIÓN DEL PROPONENTE", capturado por el usuario: "lo
+// más importante, cuando salga fecha tiene que poner la fecha"): el pie de firma real cierra con
+// "Fecha," — un párrafo suelto que termina en COMA, no en dos puntos, y sin raya ni subrayado
+// (el humano escribiría la fecha a mano después de la coma). El patrón 5 exigía ":" exacto, así
+// que esta forma nunca generaba candidato: el párrafo quedaba intacto como si fuera texto fijo,
+// sin autocompletarse ni aparecer pendiente.
+test('patrón 5 con COMA en vez de dos puntos: "Fecha," se detecta y se completa igual que "Fecha:"', () => {
+  const xml = normalizarParaIds(NS + p('Fecha,') + FIN).xml;
+  const etiquetas = analizarAnexo(xml).camposConDosPuntos.map(c => c.etiqueta);
+  assert.deepEqual(etiquetas, ['Fecha']);
+});
+
+test('patrón 5 con coma: una oración legal que termina en coma sigue sin confundirse con una etiqueta', () => {
+  const xml = normalizarParaIds(
+    NS + p('El oferente que suscribe declara bajo juramento, sin excepción,') + FIN,
+  ).xml;
+  assert.deepEqual(analizarAnexo(xml).camposConDosPuntos, []);
+});
+
 test('el RUT que cuelga de una firma es el del firmante que la leyenda nombra, siempre', () => {
   // Seis "RUT:" idénticos en el mismo documento daban tres respuestas distintas cuando lo decidía
   // la IA (uno con el RUT de la empresa, cuatro con el del representante, uno sin nada). No es un

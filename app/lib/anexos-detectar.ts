@@ -1635,15 +1635,26 @@ export function esEtiquetaDeCampo(texto: string): boolean {
 // resto del documento.
 const RE_ETIQUETA_ES_AVISO_DEL_ORGANISMO = /^(?:notas?|obs\.?|observaci[oó]n(?:es)?|importante|atenci[oó]n|advertencia|aviso|ojo)$/i;
 
+// BUG REAL (7-sep-2026, FORMATO N°1 "IDENTIFICACIÓN DEL PROPONENTE", capturado por el usuario: "lo
+// más importante, cuando salga fecha tiene que poner la fecha"): el pie de firma cierra con
+// "Fecha," (un párrafo suelto, SIN dos puntos, SIN raya ni subrayado — el humano escribiría la
+// fecha a mano después de la coma). El patrón exigía ":" exacto, así que esta forma —tan común como
+// "Fecha:"— nunca generaba candidato: ni se autocompletaba ni aparecía pendiente, el párrafo
+// quedaba intacto como si fuera texto fijo del formulario. La coma cumple exactamente el mismo rol
+// estructural que los dos puntos (separa la etiqueta de dónde va la respuesta), así que se acepta
+// como alternativa — nunca se activa por sí sola para un dato no reconocido: sigue dependiendo por
+// completo de que el diccionario resuelva `limpio` con certeza (ver el comentario de arriba).
+const RE_TERMINA_ETIQUETA = /[:,]\s*$/;
+
 export function detectarCamposConDosPuntos(parrafos: Parrafo[]): CandidatoCelda[] {
   const out: CandidatoCelda[] = [];
   for (let i = 0; i < parrafos.length; i++) {
     const p = parrafos[i];
     const texto = p.texto.trim();
-    if (!texto.endsWith(':') || texto.length > 80 || p.centrado) continue;
+    if (!RE_TERMINA_ETIQUETA.test(texto) || texto.length > 80 || p.centrado) continue;
     if (RE_TIENE_BLANCO_PROPIO.test(texto)) continue;   // tiene su propio blanco → lo cubre el patrón 2
-    if (!esEtiquetaDeCampo(texto)) continue;            // es una oración, no una etiqueta
-    const limpio = texto.replace(/\s*:\s*$/, '').trim();
+    const limpio = texto.replace(/\s*[:,]\s*$/, '').trim();
+    if (!esEtiquetaDeCampo(limpio)) continue;           // es una oración, no una etiqueta
     if (RE_ETIQUETA_ES_AVISO_DEL_ORGANISMO.test(limpio)) continue; // "Nota:" introduce una aclaración, no pide un dato
     out.push({ etiqueta: limpio, paraId: p.paraId, indice: p.indice });
   }
