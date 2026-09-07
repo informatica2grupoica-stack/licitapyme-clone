@@ -39,14 +39,13 @@ const INFORME = {
 const items = generarItemsDesdeViabilidad(INFORME);
 const porTitulo = (t: string) => items.find(i => i.titulo.startsWith(t));
 
-test('los anexos quedan arriba, repartidos por bloque, y como documento a subir', () => {
-  // "Anexo N°3: Oferta Técnica" es un documento TÉCNICO por lo que es su título — ver
-  // bloqueDeAnexo(). Los otros dos no nombran nada técnico/económico y siguen en ADMINISTRATIVO.
-  const esperado: Record<string, string> = { 'Anexo N°3': 'TECNICO', 'Anexo N°7': 'ADMINISTRATIVO', 'Anexo N°9': 'ADMINISTRATIVO' };
-  for (const [t, bloque] of Object.entries(esperado)) {
+test('los anexos quedan arriba, todos en administrativo, como documento a subir', () => {
+  // Pedido explícito del usuario (07-sep-2026): todo anexo/formato va a ADMINISTRATIVO sin
+  // importar el tema ("Oferta Técnica" incluida) — una sola bandeja, no repartida por bloque.
+  for (const t of ['Anexo N°3', 'Anexo N°7', 'Anexo N°9']) {
     const it = porTitulo(t);
     assert.ok(it, `falta ${t}`);
-    assert.equal(it!.bloque, bloque, t);
+    assert.equal(it!.bloque, 'ADMINISTRATIVO', t);
     assert.equal(it!.tipo, 'documento', t);
   }
 });
@@ -221,6 +220,43 @@ test('reconciliación: si la fila duplicada tiene evidencia, no se borra nada', 
   const plan = planDeReconciliacion(filas);
   assert.deepEqual(plan.borrar, []);
   assert.equal(plan.absorber[0].ponderacion, 5);   // la ponderación sí se rescata
+});
+
+// Caso real reportado 07-sep-2026: el informe generó UN punto combinado ("Formatos N°2-A, 2-B,
+// 2-C, 2-D"), y al separar los archivos reales el escaneo de anexos creó filas individuales para
+// 2-B/2-C/2-D — antes numeroDeFormatoEn() solo veía "2-A" del combinado, así que "2-B" se leía
+// como número EXPLÍCITO DISTINTO (nunca el mismo documento) en vez de reconocerse ya cubierto.
+test('reconciliación: un anexo individual ya cubierto por un combinado se fusiona en el combinado', async () => {
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formatos N°2-A, 2-B, 2-C, 2-D: Declaraciones simples', descripcion: 'Declaraciones juradas simples sobre habilidad', clave_origen: 'anexo:formatos_n_2a_2b_2c_2d', ponderacion: null, virgen: true },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-B - Declaración Simple Habilidad', descripcion: null, clave_origen: 'anexo:archivo:formato_2_b_declaracion_simple_habilidad', ponderacion: null, virgen: true },
+    { id: 3, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-C - Declaración Simple Aceptación', descripcion: null, clave_origen: 'anexo:archivo:formato_2_c_declaracion_simple_aceptacion', ponderacion: null, virgen: true },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar.sort(), [2, 3]);   // se fusionan en el combinado (id 1), que tiene más identificadores
+});
+
+test('reconciliación: un anexo individual YA CARGADO no se borra aunque el combinado lo cubra', async () => {
+  // Misma regla de siempre: si alguien ya trabajó la fila, se deja intacta — mejor un duplicado
+  // visible que perder evidencia (ver el comentario de FilaReconciliable.virgen).
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formatos N°2-A, 2-B, 2-C, 2-D: Declaraciones simples', descripcion: null, clave_origen: 'anexo:formatos_n_2a_2b_2c_2d', ponderacion: null, virgen: true },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formato 2-B - Declaración Simple Habilidad', descripcion: null, clave_origen: 'anexo:archivo:formato_2_b_declaracion_simple_habilidad', ponderacion: null, virgen: false },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, []);
+});
+
+test('reconciliación: dos anexos con números explícitos SIN overlap no se fusionan', async () => {
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Anexo N°2 Declaración Jurada Simple UTP', descripcion: null, clave_origen: 'anexo:anexo_n_2', ponderacion: null, virgen: true },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Anexo N°3 Declaración Jurada Simple UTP', descripcion: null, clave_origen: 'anexo:anexo_n_3', ponderacion: null, virgen: true },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, []);
 });
 
 test('reconciliación: criterios que no repiten nada quedan intactos', async () => {

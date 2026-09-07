@@ -122,25 +122,16 @@ function bloqueDeCriterio(nombre: string): BloqueChecklist {
   return 'TECNICO';
 }
 
-// ¿El propio ANEXO es técnico o económico? "Oferta Técnica"/"Ficha Técnica" → TECNICO,
-// "Oferta Económica"/"Anexo Económico" → COMERCIAL (RE_PRECIO ya cubre "económic"/"oferta econ").
-// Todo lo demás (declaraciones juradas, identificación del oferente, garantías, UTP, integridad…)
-// es ADMINISTRATIVO, el default y la mayoría real de los casos.
-//
-// BUG REAL (07-sep-2026, reportado por el usuario): antes CUALQUIER anexo caía en ADMINISTRATIVO
-// sin mirar su propio título — "Formato N°5: Oferta Técnica" y "Formato N°6: Oferta Económica"
-// aparecían como Administrativo. El acuerdo era: los anexos se reparten entre los tres bloques
-// según lo que de verdad son (nosotros los llenamos y subimos); lo que NO es un anexo pero sí una
-// condición a cumplir (certificados, garantías) baja a alertas — eso ya funcionaba bien, esto solo
-// corrige EN CUÁL de los tres bloques cae el anexo mismo.
-const RE_ANEXO_TECNICO = /\bt[eé]cnic/i;
-// "Bases técnicas" es el nombre de la sección de las bases (lo que el organismo exige), no un
-// documento que nosotros entreguemos — "Declaración de aceptación de las Bases Técnicas" es un
-// trámite administrativo, aunque la palabra "técnicas" aparezca en el título.
-const RE_BASES_TECNICAS = /\bbases?\s+t[eé]cnicas?\b/i;
+// TODO anexo/formato/formulario va SIEMPRE a ADMINISTRATIVO, sea cual sea su tema — pedido
+// explícito del usuario (07-sep-2026): "no me tires los anexos al técnico ni al comercial, esos
+// tienen que estar en administrativo siempre, todos los anexos o formulario juntos". Hubo una
+// versión anterior de esta función que los repartía por título (Oferta Técnica → TECNICO, Oferta
+// Económica → COMERCIAL) el mismo día, a pedido de una lectura previa del mismo requerimiento —
+// el usuario la revirtió apenas la vio en pantalla: "anexos" es una sola bandeja, no tres. La
+// única fuente de bloque no-administrativo sigue siendo `linea_tecnica` (fichas por línea) y los
+// criterios/datos que bloqueDeCriterio ya mandaba a TECNICO/COMERCIAL — eso no cambió.
 function bloqueDeAnexo(titulo: string): BloqueChecklist {
-  if (RE_PRECIO.test(titulo) || RE_PLAZO.test(titulo)) return 'COMERCIAL';
-  if (RE_ANEXO_TECNICO.test(titulo) && !RE_BASES_TECNICAS.test(titulo)) return 'TECNICO';
+  void titulo;   // firma se mantiene por si el usuario vuelve a pedir el reparto por título
   return 'ADMINISTRATIVO';
 }
 
@@ -191,8 +182,10 @@ function num(v: unknown): number | null {
 // INDEPENDIENTES — casos reales: "Formulario N°1: Identificación del Oferente" (persona) y
 // "Anexo N°1: Programa de Integridad" (otro tema por completo) comparten el "1" pero NO son el
 // mismo documento; ignorar la palabra los fundía por puro accidente de numeración.
-const RE_NUM_FORMATO = /(formato|anexo|formulario)\s*n?[°ºo]?\s*[.]?\s*(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b/i;
-const RE_STRIP_FORMATO = /\(?\s*(?:formato|anexo|formulario)\s*n?[°ºo]?\s*[.]?\s*\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?\s*\)?\s*:?\s*/gi;
+// El plural ("Formatos N°2-A, 2-B, ..." — un título que agrupa varios) es tan común como el
+// singular en las bases chilenas; el `s?` fuera del grupo captor no afecta la "palabra" normalizada.
+const RE_NUM_FORMATO = /(formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b/i;
+const RE_STRIP_FORMATO = /\(?\s*(?:formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?\s*\)?\s*:?\s*/gi;
 
 // Exportadas: el script de limpieza de duplicados ya materializados (checklist_comercial viejo,
 // insertado antes de este fix) reusa exactamente este criterio — ver scripts/limpiar-checklist-duplicados.mjs.
@@ -202,6 +195,36 @@ export function numeroDeFormatoEn(texto: string): string | null {
   const palabra = m[1].toLowerCase();
   const numero = m[2].replace(/[.\-\s]/g, '').toLowerCase();   // "6.1"/"6 . 1" → "61"; "5-A" → "5a"
   return `${palabra}:${numero}`;
+}
+
+/**
+ * TODOS los identificadores de Formato/Anexo/Formulario citados en un título, no solo el primero.
+ * Un título "lista" — "Formatos N°2-A, 2-B, 2-C, 2-D: Declaraciones simples" — cubre CUATRO
+ * documentos a la vez, y la lista sigue sin repetir la palabra "Formato" delante de cada número.
+ *
+ * BUG REAL (07-sep-2026, reportado por el usuario): numeroDeFormatoEn() (singular) solo veía el
+ * primero ("2-A"). Cuando el usuario separó los archivos reales "Formato 2-B", "2-C", "2-D",
+ * coincidenEntradas() los comparó como números EXPLÍCITOS DISTINTOS ("2a" ≠ "2b") — la regla de
+ * "identificadores explícitos distintos nunca son el mismo documento" es correcta en general,
+ * pero acá el combinado SÍ incluye el "2b", solo que nadie lo había leído. Quedaron duplicados: el
+ * combinado + 3 filas individuales para el mismo requisito.
+ */
+export function numerosDeFormatoEn(texto: string): string[] {
+  const t = String(texto || '');
+  const m = RE_NUM_FORMATO.exec(t);
+  if (!m) return [];
+  const palabra = m[1].toLowerCase();
+  const normalizar = (n: string) => n.replace(/[.\-\s]/g, '').toLowerCase();
+  const numeros = [normalizar(m[2])];
+  // Continuación de la lista: ", 2-B, 2-C, 2-D" sin repetir la palabra — mismo patrón dígito+sufijo.
+  const RE_CONTINUACION = /^\s*,\s*(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b/i;
+  let cursor = t.slice(m.index + m[0].length);
+  let cont: RegExpExecArray | null;
+  while ((cont = RE_CONTINUACION.exec(cursor))) {
+    numeros.push(normalizar(cont[1]));
+    cursor = cursor.slice(cont[0].length);
+  }
+  return numeros.map(n => `${palabra}:${n}`);
 }
 export function nucleoDeTitulo(texto: string): string {
   // NO usar slug() acá: su fallback '|| sin_nombre' convertiría CUALQUIER título que sea SOLO
@@ -282,20 +305,22 @@ export function nucleosCoinciden(a: string, b: string): boolean {
   return corto.length >= 15 && corto.length / largo.length >= 0.45 && contieneConTolerancia(largo, corto);
 }
 
-interface EntradaAdmin { numero: string | null; nucleo: string }
+interface EntradaAdmin { numeros: string[]; nucleo: string }
 
 function coincidenEntradas(a: EntradaAdmin, b: EntradaAdmin): boolean {
-  // Ambos citan un identificador explícito → ese identificador manda, sea igual o distinto
-  // (nunca cae al núcleo: dos anexos con el MISMO texto genérico pero número distinto no son
-  // el mismo documento).
-  if (a.numero != null && b.numero != null) return a.numero === b.numero;
+  // Ambos citan al menos un identificador explícito → coinciden si hay INTERSECCIÓN entre los
+  // dos conjuntos (nunca cae al núcleo: título genérico + número explícito sin overlap no es el
+  // mismo documento). Un título "lista" puede cubrir varios identificadores a la vez — ver
+  // numerosDeFormatoEn(). Sin intersección con AMBOS lados no-vacíos, son documentos distintos
+  // aunque el resto del texto se parezca (misma regla de siempre, ahora por conjunto).
+  if (a.numeros.length && b.numeros.length) return a.numeros.some(n => b.numeros.includes(n));
   return nucleosCoinciden(a.nucleo, b.nucleo);
 }
 
 /** Registro compartido por TODA una corrida de generarItemsDesdeViabilidad — ver arriba. */
 function creaRegistroAdmin() {
   const registrados: Array<EntradaAdmin & { item?: ItemGenerado }> = [];
-  const entrada = (titulo: string): EntradaAdmin => ({ numero: numeroDeFormatoEn(titulo), nucleo: nucleoDeTitulo(titulo) });
+  const entrada = (titulo: string): EntradaAdmin => ({ numeros: numerosDeFormatoEn(titulo), nucleo: nucleoDeTitulo(titulo) });
   return {
     esDuplicado(titulo: string): boolean {
       const candidato = entrada(titulo);
@@ -324,13 +349,13 @@ function creaRegistroAdmin() {
 // existentes, así no hay riesgo de que una fila vieja con formato de clave distinto se vea como
 // "nueva" y dispare el problema inverso.
 export function excluirYaExistentes(nuevos: ItemGenerado[], titulosExistentesAdmin: string[]): ItemGenerado[] {
-  const existentes: EntradaAdmin[] = titulosExistentesAdmin.map(t => ({ numero: numeroDeFormatoEn(t), nucleo: nucleoDeTitulo(t) }));
+  const existentes: EntradaAdmin[] = titulosExistentesAdmin.map(t => ({ numeros: numerosDeFormatoEn(t), nucleo: nucleoDeTitulo(t) }));
   return nuevos.filter(it => {
     // Solo aplica a lo que nace con clave_origen 'anexo:...' (orden_anexos_propios/documentos_
-    // infaltables/archivos de anexo) — el bloque resultante YA NO es siempre ADMINISTRATIVO desde
-    // que bloqueDeAnexo() reparte técnico/económico por su propio título (07-sep-2026).
+    // infaltables/archivos de anexo) — se filtra por la clave, no por bloque, porque todos estos
+    // terminan en ADMINISTRATIVO de todas formas (ver bloqueDeAnexo()).
     if (!it.claveOrigen.startsWith('anexo:')) return true;
-    const candidato: EntradaAdmin = { numero: numeroDeFormatoEn(it.titulo), nucleo: nucleoDeTitulo(it.titulo) };
+    const candidato: EntradaAdmin = { numeros: numerosDeFormatoEn(it.titulo), nucleo: nucleoDeTitulo(it.titulo) };
     return !existentes.some(e => coincidenEntradas(candidato, e));
   });
 }
@@ -924,9 +949,7 @@ export function reubicacionDeItemGuardado(
       : { bloque: row.bloque, tipo: 'dato' };
   } else if (clave.startsWith('anexo:')) {
     // Lo que se insertó como "anexo" pero no nombra ningún anexo (programa de integridad,
-    // certificado de Tesorería, documentación de experiencia…) baja a las alertas. Lo que SÍ es
-    // un anexo va al bloque que le corresponde por su propio título (admin/técnico/económico),
-    // no siempre ADMINISTRATIVO — ver bloqueDeAnexo().
+    // certificado de Tesorería, documentación de experiencia…) baja a las alertas.
     destino = esAnexo ? { bloque: bloqueDeAnexo(row.titulo), tipo: 'documento' } : { bloque: 'ADMINISTRATIVO', tipo: 'dato' };
   } else if (clave === CLAVE_ITEM_PLAZO) {
     destino = { bloque: 'COMERCIAL', tipo: 'dato' };
@@ -970,9 +993,6 @@ export function itemsDesdeArchivosDeAnexo(
 ): ItemGenerado[] {
   const registro = creaRegistroAdmin();
   for (const it of yaGenerados) {
-    // Cualquier documento ya generado cuenta para el dedupe, sea cual sea su bloque — un anexo
-    // técnico o económico que el informe ya listó (ver bloqueDeAnexo()) no debe duplicarse acá
-    // solo porque ya no vive en ADMINISTRATIVO.
     if (it.tipo === 'documento') registro.registrar(it.titulo);
   }
   const out: ItemGenerado[] = [];
@@ -1061,14 +1081,36 @@ export function planDeReconciliacion(filas: FilaReconciliable[]): PlanReconcilia
         o.id !== f.id && !String(o.clave_origen || '').startsWith('criterio:')
         && !String(o.clave_origen || '').startsWith('bloqueante:')
         && coincidenEntradas(
-          { numero: numeroDeFormatoEn(f.titulo), nucleo: nucleoDeTitulo(f.titulo) },
-          { numero: numeroDeFormatoEn(o.titulo), nucleo: nucleoDeTitulo(o.titulo) },
+          { numeros: numerosDeFormatoEn(f.titulo), nucleo: nucleoDeTitulo(f.titulo) },
+          { numeros: numerosDeFormatoEn(o.titulo), nucleo: nucleoDeTitulo(o.titulo) },
         ));
       if (destino) {
         // La fórmula de puntaje del criterio se traslada al destino: si no, al fusionar se perdía
         // CÓMO se evalúa ese requisito, que es justo lo que el asesor necesita leer.
         editar(destino, f.descripcion ? `Se evalúa: ${f.descripcion}` : null, f.ponderacion);
         if (f.virgen) plan.borrar.push(f.id);
+      }
+      continue;
+    }
+
+    // 3) Un anexo individual (Formato 2-B) que ya viene cubierto por un anexo combinado del
+    //    mismo checklist (Formatos N°2-A, 2-B, 2-C, 2-D) — antes numeroDeFormatoEn() solo veía el
+    //    PRIMER identificador del combinado ("2-A"), así que separar el archivo real de "2-B" lo
+    //    trataba como documento nuevo (número explícito distinto) en vez de reconocerlo ya
+    //    cubierto (caso real reportado 07-sep-2026). Se fusiona en el que cubre MÁS
+    //    identificadores; si nadie lo tocó todavía, se borra sin perder ningún trabajo.
+    if (clave.startsWith('anexo:') && f.tipo === 'documento') {
+      const numerosF = numerosDeFormatoEn(f.titulo);
+      if (numerosF.length) {
+        let mejor = f;
+        for (const o of anexos) {
+          if (o.id === f.id) continue;
+          const numerosO = numerosDeFormatoEn(o.titulo);
+          if (!coincidenEntradas({ numeros: numerosF, nucleo: '' }, { numeros: numerosO, nucleo: '' })) continue;
+          const numerosMejor = numerosDeFormatoEn(mejor.titulo);
+          if (numerosO.length > numerosMejor.length || (numerosO.length === numerosMejor.length && o.id < mejor.id)) mejor = o;
+        }
+        if (mejor.id !== f.id && f.virgen) plan.borrar.push(f.id);
       }
     }
   }

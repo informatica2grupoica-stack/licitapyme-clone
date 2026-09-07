@@ -149,9 +149,9 @@ test('generarItemsDesdeViabilidad: "Anexo N°6.1" a "N°6.7" (sub-índices) NO s
     },
   };
   const items = generarItemsDesdeViabilidad(informe);
-  // "Especificaciones Técnicas" es un documento TÉCNICO por su propio título — ver bloqueDeAnexo().
-  const tecnico = items.filter(i => i.bloque === 'TECNICO' && i.tipo === 'documento');
-  assert.equal(tecnico.length, 7, `deberían quedar 7 anexos distintos (salieron: ${tecnico.map(i => i.titulo).join(' | ')})`);
+  // Pedido explícito del usuario (07-sep-2026): todo anexo va a ADMINISTRATIVO, sin importar tema.
+  const admin = items.filter(i => i.bloque === 'ADMINISTRATIVO');
+  assert.equal(admin.length, 7, `deberían quedar 7 anexos distintos (salieron: ${admin.map(i => i.titulo).join(' | ')})`);
 });
 
 // Caso real 759-21-LE26: dos anexos con la MISMA descripción genérica pero número EXPLÍCITO
