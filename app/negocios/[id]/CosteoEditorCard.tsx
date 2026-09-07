@@ -29,6 +29,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useToast } from '@/app/components/ui/toast';
+import { useConfirm } from '@/app/components/ui/confirm';
 // Cuadro comparativo (venta/costo/utilidad/margen, estimado vs real, distancia al presupuesto):
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
@@ -36,6 +37,7 @@ import { calcularComparativo, recargoParaMargen, margenDeRecargo, parsearRecargo
 import {
   Calculator, Loader2, Plus, Trash2, RefreshCw, Save, AlertTriangle, ShieldCheck, Sparkles,
   Maximize2, X, ExternalLink, ArrowLeft, SplitSquareHorizontal, Combine, FileSearch, Link2 as LinkIcon,
+  PictureInPicture2, Minimize2,
 } from 'lucide-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
@@ -624,6 +626,7 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
  *  costear en la otra, sin cerrar y guardar cada vez (pedido del usuario, 04-sep-2026). */
 export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = false }: { negocioId: number; licitacionCodigo: string; standalone?: boolean }) {
   const toast = useToast();
+  const confirmar = useConfirm();
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [recargando, setRecargando] = useState(false);
@@ -642,6 +645,14 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
   const [alertas, setAlertas] = useState<Alerta[] | null>(null);
   const [ultimoGuardado, setUltimoGuardado] = useState<string | null>(null);
   const [pantallaCompleta, setPantallaCompleta] = useState(standalone);
+  // Burbuja flotante (pedido del usuario, 07-sep-2026): reemplaza la vieja "Pestaña aparte" —
+  // en vez de abrir el costeo en otra pestaña del navegador, flota ENCIMA de esta misma página
+  // (como el widget de chat de WhatsApp) para poder mirar la viabilidad detrás mientras se costea.
+  // 'cerrado' = no está activa (vista normal de abajo); 'panel' = ventana flotante abierta;
+  // 'burbuja' = minimizada a un botón redondo, sin perder lo editado (el componente nunca se
+  // desmonta al minimizar ni al cerrar — cerrarFlotante() solo pide confirmar si hay algo sin
+  // guardar).
+  const [flotante, setFlotante] = useState<'cerrado' | 'panel' | 'burbuja'>('cerrado');
   // Fichas técnicas en proceso (04-sep-2026) — por id de fila, no un solo booleano: varias filas
   // pueden estar generando su ficha a la vez, cada una independiente.
   const [generandoFicha, setGenerandoFicha] = useState<Set<string>>(new Set());
@@ -677,14 +688,42 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
 
   const dirty = useMemo(() => JSON.stringify(estado) !== JSON.stringify(guardado), [estado, guardado]);
 
-  // En pestaña propia, cerrarla con cambios sin guardar los pierde sin que nadie avise (dentro del
-  // negocio al menos el panel sigue montado). El navegador pregunta antes de irse.
+  // Cerrar o recargar la pestaña con cambios sin guardar los pierde sin que nadie avise — antes
+  // solo se avisaba en pestaña propia (standalone); ahora también en la burbuja flotante y en
+  // pantalla completa, porque el riesgo es el mismo. El navegador pregunta antes de irse.
   useEffect(() => {
-    if (!standalone || !dirty) return;
+    if (!dirty) return;
     const onSalir = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
     window.addEventListener('beforeunload', onSalir);
     return () => window.removeEventListener('beforeunload', onSalir);
-  }, [dirty, standalone]);
+  }, [dirty]);
+
+  // Escape en la burbuja abierta la MINIMIZA, no la cierra: minimizar nunca pierde nada (el
+  // componente sigue montado), así que no hace falta pedir confirmación acá.
+  useEffect(() => {
+    if (flotante !== 'panel') return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFlotante('burbuja'); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [flotante]);
+
+  // Cerrar la burbuja del todo si hay cambios sin guardar pide confirmar primero (pedido del
+  // usuario: "que no se cierre si no se ha guardado"). No es que se pierdan de verdad —el estado
+  // sigue vivo en este mismo componente mientras no se recargue la página— pero la confirmación
+  // obliga a leer el aviso y guardar antes, en vez de cerrarla sin pensarlo.
+  const cerrarFlotante = useCallback(async () => {
+    if (dirty) {
+      const ok = await confirmar({
+        titulo: 'Cambios sin guardar en el costeo',
+        mensaje: 'Se conservan mientras no cierres o recargues esta pestaña, pero conviene guardarlos antes de cerrar la burbuja.',
+        confirmarLabel: 'Cerrar igual',
+        cancelarLabel: 'Seguir editando',
+        peligro: true,
+      });
+      if (!ok) return;
+    }
+    setFlotante('cerrado');
+  }, [dirty, confirmar]);
 
   const actualizarFila = (gi: number, fi: number, patch: Partial<FilaEditor>) => {
     setEstado(prev => {
@@ -955,21 +994,6 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
             {guardando ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
             Guardar
           </button>
-          {/* Abrir el costeo en SU PROPIA pestaña: así la viabilidad se puede dejar abierta en la
-              otra y consultarla mientras se cotiza, en vez de cerrar el costeo (guardando) cada
-              vez que hace falta mirar un dato (pedido del usuario, 04-sep-2026). No se ofrece
-              cuando YA se está en esa pestaña. */}
-          {!standalone && (
-            <a
-              href={`/negocios/${negocioId}/costeo`}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Abre la planilla en una pestaña aparte — deja la viabilidad abierta en esta y trabaja en la otra"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
-            >
-              <ExternalLink size={12} /> Pestaña aparte
-            </a>
-          )}
           {standalone ? (
             <a
               href={`/negocios/${negocioId}?seccion=costeo`}
@@ -978,17 +1002,46 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
             >
               <ArrowLeft size={12} /> Volver al negocio
             </a>
+          ) : flotante === 'panel' ? (
+            // Dentro de la burbuja: minimizar es gratis (no pierde nada, el componente sigue
+            // montado), pero cerrarla del todo pasa por cerrarFlotante(), que pregunta si hay
+            // cambios sin guardar (pedido del usuario, 07-sep-2026).
+            <>
+              <button
+                onClick={() => setFlotante('burbuja')}
+                title="Minimizar a burbuja (Esc) — sigue editando cuando quieras, no se pierde nada"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
+              >
+                <Minimize2 size={12} /> Minimizar
+              </button>
+              <button onClick={cerrarFlotante} title="Cerrar la burbuja" className="p-1.5 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded-lg transition-colors">
+                <X size={16} />
+              </button>
+            </>
           ) : pantallaCompleta ? (
             <button onClick={() => setPantallaCompleta(false)} title="Cerrar (Esc)" className="p-1.5 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded-lg transition-colors">
               <X size={16} />
             </button>
           ) : (
-            <button
-              onClick={() => setPantallaCompleta(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
-            >
-              <Maximize2 size={12} /> Pantalla completa
-            </button>
+            <>
+              {/* Burbuja flotante (pedido del usuario, 07-sep-2026): reemplaza la vieja "Pestaña
+                  aparte" que abría el costeo en otra pestaña del navegador. Ahora flota ENCIMA de
+                  esta misma página —como el chat de WhatsApp— para poder mirar la viabilidad
+                  detrás mientras se cotiza, sin ir y venir entre pestañas. */}
+              <button
+                onClick={() => setFlotante('panel')}
+                title="Abre el costeo en una burbuja flotante encima de esta página: se abre y cierra cuando quieras, y no deja cerrarla del todo si hay cambios sin guardar"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
+              >
+                <PictureInPicture2 size={12} /> Burbuja flotante
+              </button>
+              <button
+                onClick={() => setPantallaCompleta(true)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+              >
+                <Maximize2 size={12} /> Pantalla completa
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -1289,6 +1342,61 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
         </div>
       </div>,
       document.body,
+    );
+  }
+
+  // ── Burbuja flotante ────────────────────────────────────────────────────────────────────────
+  // No standalone (esa ya es una pestaña propia, no necesita flotar sobre nada). El resto del
+  // negocio (viabilidad, etc.) queda visible y usable alrededor/debajo — a diferencia de pantalla
+  // completa, que tapa todo. El componente NUNCA se desmonta al minimizar o cerrar (solo cambia
+  // `flotante`), así que lo editado sigue ahí si se vuelve a abrir.
+  if (!standalone && flotante !== 'cerrado') {
+    return (
+      <>
+        {/* Donde vivía la planilla queda un aviso chico — evita una sección en blanco mientras el
+            costeo está flotando en otro lado de la pantalla. */}
+        <div className="bg-white rounded-xl border border-dashed border-zinc-300 p-4 flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-[12.5px] text-zinc-500 flex items-center gap-1.5">
+            <PictureInPicture2 size={14} className="text-zinc-400 flex-shrink-0" />
+            El costeo está abierto en una burbuja flotante
+            {dirty && <span className="text-amber-600 font-semibold">· cambios sin guardar</span>}
+          </p>
+          <button
+            onClick={() => setFlotante('panel')}
+            className="text-[11.5px] font-bold text-indigo-700 hover:underline flex-shrink-0"
+          >
+            Traer al frente
+          </button>
+        </div>
+
+        {createPortal(
+          flotante === 'panel' ? (
+            <div
+              role="dialog"
+              aria-label={`Costeo · ${licitacionCodigo}`}
+              className="fixed bottom-5 right-5 z-[90] w-[min(880px,94vw)] h-[min(640px,86vh)] bg-white rounded-2xl shadow-2xl border border-zinc-300 flex flex-col overflow-hidden"
+            >
+              {Cabecera}
+              <div className="flex-1 min-h-0 p-3 flex flex-col gap-3 overflow-auto">
+                <div className="flex-1 min-h-0 min-w-0 flex">{Hoja}</div>
+                <div className="flex-shrink-0 max-h-[36vh] overflow-y-auto">{cuadroDeHoja(g, giActivo, true)}</div>
+              </div>
+            </div>
+          ) : (
+            // Minimizada: solo el botón redondo, como el chat head de WhatsApp — un clic la
+            // vuelve a abrir tal cual quedó.
+            <button
+              onClick={() => setFlotante('panel')}
+              title={dirty ? `Costeo · ${licitacionCodigo} — cambios sin guardar, clic para volver a abrirlo` : `Costeo · ${licitacionCodigo} — clic para volver a abrirlo`}
+              className="fixed bottom-5 right-5 z-[90] w-14 h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xl flex items-center justify-center transition-colors"
+            >
+              <Calculator size={22} />
+              {dirty && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-white" />}
+            </button>
+          ),
+          document.body,
+        )}
+      </>
     );
   }
 
