@@ -1658,6 +1658,41 @@ test('titular vigente: el "RUT:" que sigue al nombre del representante es el de 
     'el segundo RUT, bajo el nombre del representante, es el de la persona');
 });
 
+// BUG REAL (7-sep-2026, FORMATO N°2-A "DECLARACIÓN SIMPLE", reportado por el usuario: "el rut es
+// del representante no de la empresa"): a diferencia del caso Chimbarongo de arriba —una etiqueta
+// por LÍNEA, en párrafos distintos— acá las tres casillas viven en la MISMA oración: "Por
+// intermedio de la presente yo <NOMBRE>, Rut <RUT>, representante legal de la empresa <RAZÓN
+// SOCIAL> declaro…". El nombre y la razón social ya resolvían bien (los resuelve el diccionario sin
+// ambigüedad); el "Rut" del medio caía siempre en el de la empresa por dos motivos: (1) la
+// comparación de "¿la etiqueta pegada es un RUT pelado?" se hacía contra TODO el párrafo desde su
+// inicio, nunca contra la etiqueta más cercana, así que nunca daba igual a "rut" a secas; y (2)
+// `titularVigenteAntesDe` solo mira PÁRRAFOS anteriores, nunca el texto que precede DENTRO del
+// mismo párrafo — ver `titularDeLaMismaOracion` en el motor.
+test('titular vigente DENTRO DE LA MISMA ORACIÓN: "yo <nombre>, Rut, representante legal de la empresa <razón social>"', () => {
+  const oracion = 'Por intermedio de la presente yo';
+  const trasNombre = ' Rut';
+  const trasRut = ', representante legal de la empresa';
+  const trasEmpresa = ' declaro lo siguiente:';
+  const full = `${oracion}____${trasNombre}____${trasRut}____${trasEmpresa}`;
+  const posNombre = oracion.length;
+  const posRut = (oracion + '____' + trasNombre).length;
+  const posEmpresa = (oracion + '____' + trasNombre + '____' + trasRut).length;
+
+  const base = { indiceParrafo: 1, textoRunOriginal: '', posEnTexto: 0, largo: 4, parrafoCompleto: full };
+  const blancoNombre = { ...base, indiceRun: 1, contexto: 'yo', posEnParrafo: posNombre };
+  const blancoRut = { ...base, indiceRun: 2, contexto: 'Rut', posEnParrafo: posRut };
+  const blancoEmpresa = { ...base, indiceRun: 3, contexto: 'representante legal de la empresa', posEnParrafo: posEmpresa };
+
+  const r = resolverDeterminista({
+    candidatos: [], blancosInline: [blancoNombre as any, blancoRut as any, blancoEmpresa as any],
+    parrafos: [parrafo(1, full)], empresa: EMPRESA,
+  });
+  assert.equal((r.inline.get('1:0') as any)?.valor, EMPRESA.representante_nombre);
+  assert.equal((r.inline.get('2:0') as any)?.valor, EMPRESA.representante_rut,
+    'el RUT del medio es el de la PERSONA nombrada justo antes en la misma oración, no el de la empresa');
+  assert.equal((r.inline.get('3:0') as any)?.valor, EMPRESA.razon_social);
+});
+
 // ── PROPONENTE / UTP MEZCLADOS EN LA MISMA CASILLA (1-sep-2026, 2018-27-LP26, FORMATO DE
 // IDENTIFICACIÓN DEL PROPONENTE) ───────────────────────────────────────────────────────────────
 // El organismo escribe las dos alternativas separadas por "/" en la MISMA etiqueta ("...del

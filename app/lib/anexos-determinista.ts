@@ -1958,7 +1958,7 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
   // Mismo orden de prioridad que en las celdas: la corrección aprendida del experto manda sobre el
   // diccionario. Acá la "etiqueta" es el marcador (`<RAZÓN SOCIAL>`) o el texto que rodea al
   // blanco — nunca el placeholder vacío, que `esEtiquetaAprendible` ya dejó fuera al guardar.
-  const camposInline = blancosInline.map(b => {
+  const camposInlineSinTitular = blancosInline.map(b => {
     const aprendido = campoAprendido(b.textoMarcador || b.contexto || '');
     // `campoFijo`: lo resolvio la ESTRUCTURA del documento (asignarCamposDeBloqueFirmaInline) — un
     // "NOMBRE____" / "R.U.T. ____" pegado al bloque de "FIRMA REPRESENTANTE LEGAL" es de esa
@@ -1970,18 +1970,49 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // propone — todas devuelven `fecha_hoy` entera. Por eso el flag se deduce del propio campo en
     // vez de arrastrar un segundo valor de retorno por todo campoDeBlancoInline.
     return { b, campo, desdeFormulaDeFecha: !aprendido && !!campo && SOLO_TRIPLETE.has(campo) };
-  }).map(x => {
+  });
+
+  // BUG REAL (7-sep-2026, FORMATO N°2-A "DECLARACIÓN SIMPLE", reportado por el usuario: "el rut es
+  // del representante no de la empresa"): "Por intermedio de la presente yo <NOMBRE>, Rut <RUT>,
+  // representante legal de la empresa <RAZÓN SOCIAL> declaro..." — la fórmula notarial más común
+  // del país, con las TRES casillas en la MISMA oración/párrafo. El nombre y la razón social ya
+  // salían bien (los resuelve el diccionario sin ambigüedad), pero el "Rut" pelado del medio caía
+  // siempre en el de la empresa, por dos motivos encadenados:
+  //  1. La comparación de "¿la etiqueta pegada al blanco es un RUT pelado?" se hacía contra TODO el
+  //     texto del párrafo desde su inicio (`parrafoCompleto.slice(0, posEnParrafo)` = "Por
+  //     intermedio de la presente yo____ Rut"), no contra la etiqueta más cercana — nunca era
+  //     igual a "rut" a secas, así que la corrección de titular ni se intentaba. `contexto` (ya
+  //     calculado por detectarBlancosInline) SÍ recorta hasta el separador más próximo — acá alcanza
+  //     con reusarlo.
+  //  2. Aun arreglando (1), `titularVigenteAntesDe` solo mira PÁRRAFOS anteriores — nunca dentro del
+  //     PROPIO párrafo, que es justo donde vive "yo <NOMBRE>" en esta fórmula (todo en una sola
+  //     oración, no en líneas separadas como el caso Chimbarongo que motivó esa función). Se agrega
+  //     `titularDeLaMismaOracion`: mira los demás blancos YA resueltos del MISMO párrafo, se queda
+  //     con el más cercano ANTES de este, y solo si ninguno aplica cae al párrafo-por-párrafo de
+  //     siempre (que sigue sirviendo para el formulario de texto corrido con una etiqueta por línea).
+  const titularDeLaMismaOracion = (indiceParrafo: number, posEnParrafo: number): 'persona' | 'empresa' | null => {
+    let mejor: { pos: number; titular: 'persona' | 'empresa' } | null = null;
+    for (const x of camposInlineSinTitular) {
+      if (x.b.indiceParrafo !== indiceParrafo) continue;
+      const pos = x.b.posEnParrafo ?? -1;
+      if (pos >= posEnParrafo) continue;
+      const titular = x.campo === 'representante_nombre' ? 'persona' : x.campo === 'razon_social' ? 'empresa' : null;
+      if (titular && (!mejor || pos > mejor.pos)) mejor = { pos, titular };
+    }
+    return mejor?.titular ?? null;
+  };
+
+  const camposInline = camposInlineSinTitular.map(x => {
     // TITULAR VIGENTE, también para los blancos INLINE. En un formulario escrito como texto
     // corrido —"NOMBRE DEL REPRESENTANTE LEGAL: ____" y debajo "RUT: ____"— no hay celdas, así que
     // la capa 1b (que trabaja sobre candidatos de celda) no interviene y el "RUT:" pelado caía
     // SIEMPRE en el de la empresa: el bloque quedaba con el nombre de una persona y el RUT de otra
     // (FORMATO N°1 de Chimbarongo, 2-sep-2026). Ver titularVigenteAntesDe.
     if (x.campo !== 'rut') return x;
-    const antes = (x.b.parrafoCompleto ?? '').slice(0, x.b.posEnParrafo ?? 0);
-    if (!RE_PELADA_RUT.test(normalizarEtiqueta(antes))) return x;
-    return titularVigenteAntesDe(parrafos, x.b.indiceParrafo) === 'persona'
-      ? { ...x, campo: 'representante_rut' as Campo }
-      : x;
+    if (!RE_PELADA_RUT.test(normalizarEtiqueta(x.b.contexto || ''))) return x;
+    const titular = titularDeLaMismaOracion(x.b.indiceParrafo, x.b.posEnParrafo ?? 0)
+      ?? titularVigenteAntesDe(parrafos, x.b.indiceParrafo);
+    return titular === 'persona' ? { ...x, campo: 'representante_rut' as Campo } : x;
   });
   const parrafosQuePidenComunaAparte = new Set(
     camposInline.filter(x => x.campo === 'comuna' || x.campo === 'ciudad').map(x => x.b.indiceParrafo),
