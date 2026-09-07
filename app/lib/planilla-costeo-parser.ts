@@ -707,15 +707,27 @@ export function detectarPresupuestoPorLinea(docs: { texto: string }[]): string |
     // Aysén): tabla "LINEAS | PARTIDA | UNIDAD | CANTIDAD | Presupuesto disponible por línea" con
     // 13 filas numeradas 1..13 y su propio monto, agrupadas por categoría (OPERACIONAL /
     // ADMINISTRATIVO) vía <td colspan> (esas filas de categoría tienen 1 sola celda y no matchean).
+    // 7-sep-2026 (caso real 867990-45-LP26, tabla Word "ITEM|CANTIDAD|DETALLE|PRESUPUESTO
+    // DISPONIBLE POR LÍNEA|PRECIO UNITARIO NETO|PRECIO TOTAL NETO|PRECIO TOTAL CON IVA"): dos
+    // bugs en este contador. (1) Las celdas de una tabla exportada de WORD vienen envueltas en
+    // <p>/<strong> (`<td><p>1</p></td>`), y el regex de celda exigía "sin etiquetas anidadas"
+    // (`[^<]*`) — nunca matcheaba ninguna celda de ese formato (0 filas siempre), solo
+    // funcionaba con el HTML plano de GLM-OCR (`<td>1</td>`). Fix: capturar todo el contenido
+    // entre <td>/</td> y LIMPIAR las etiquetas internas, en vez de prohibirlas. (2) El monto de
+    // REFERENCIA por línea puede NO estar en la ÚLTIMA celda: cuando las columnas de precio que
+    // debe llenar el OFERENTE (unitario/total/con IVA) vienen en blanco (planilla a llenar), el
+    // monto de tope queda en una celda INTERMEDIA, antes de esas columnas vacías. Fix: buscar el
+    // monto en cualquier celda después de la primera, no solo en la última.
     let filasTablaLineaMonto = 0;
     if (/<tr[\s>]/i.test(d.texto)) {
       const numerosVistos = new Set<number>();
       for (const f of d.texto.matchAll(/<tr[^>]*>((?:(?!<\/tr>)[\s\S])*?)<\/tr>/gi)) {
-        const celdas = [...f[1].matchAll(/<td[^>]*>([^<]*)<\/td>/gi)].map(c => c[1].trim());
+        const celdas = [...f[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)]
+          .map(c => c[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim());
         if (celdas.length < 2) continue;
         const primera = celdas[0];
-        const ultima = celdas[celdas.length - 1];
-        if (/^\d{1,3}$/.test(primera) && /^\$?\s*[\d][\d.,]{3,}$/.test(ultima)) numerosVistos.add(parseInt(primera, 10));
+        if (!/^\d{1,3}$/.test(primera)) continue;
+        if (celdas.slice(1).some(c => /^\$?\s*[\d][\d.,]{3,}$/.test(c))) numerosVistos.add(parseInt(primera, 10));
       }
       filasTablaLineaMonto = numerosVistos.size;
     }
