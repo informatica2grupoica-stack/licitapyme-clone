@@ -396,6 +396,131 @@ export async function compararFichasMultiModelo(
   return { multiplesModelos, modelos, recomendados: modelos.filter(m => m.cumpleTodo).map(m => m.nombreModelo) };
 }
 
+// ─── Camino "auditar de una" (pedido del usuario, 08-sep-2026): UN botón, N fichas, sin que la
+// persona tenga que decidir de antemano si son PARTES del mismo equipo (camión + grúa + canastillo,
+// cada parte en su propio documento) o MODELOS ALTERNATIVOS compitiendo por la misma línea (varios
+// tractores). "Como un auditor real": evalúa cada ficha contra el pliego completo, y decide sola
+// cuál de los dos casos es, según cómo se comportan las respuestas:
+//   · Si lo que cada ficha responde NO SE PISA con lo que responden las demás (cada una cubre su
+//     propia parte) → modo COMPLEMENTARIA: se unen todas las respuestas.
+//   · Si varias fichas responden LA MISMA característica con datos distintos la mayoría de las
+//     veces → modo COMPETENCIA: son alternativas completas, se rankea cada una y se recomienda la
+//     que más cumple (o la única que cumple TODO).
+// La decisión es aritmética (contar coincidencias/discrepancias), no una opinión de la IA — misma
+// regla de veracidad del resto del archivo.
+export interface RespuestaFicha { fichaNombre: string; valorTexto: string | null; veredicto: VeredictoTecnico | null }
+export interface ConflictoCaracteristica { caracteristicaId: number; descripcion: string; respuestas: RespuestaFicha[] }
+export interface CandidatoAuditoria { fichaNombre: string; resumen: ResumenLinea; cumpleTodo: boolean }
+export interface ResultadoAuditoriaMultiple {
+  modo: 'unica' | 'complementaria' | 'competencia';
+  /** clave = id de la característica. Ya trae de qué ficha salió cada dato (`fichaNombre`). */
+  veredictosFinales: Map<number, VeredictoCaracteristica & { fichaNombre: string }>;
+  /** ids de características que NINGUNA ficha subida logró responder — hay que pedir otro documento. */
+  faltantes: number[];
+  /** Discrepancias puntuales entre fichas (aunque el modo general sea "complementaria") — nunca se
+   *  ocultan, aunque no cambien la decisión de modo. */
+  conflictos: ConflictoCaracteristica[];
+  /** Solo cuando modo === 'competencia': un candidato por ficha, para poder decir cuál conviene. */
+  candidatos?: CandidatoAuditoria[];
+  /** Nombre de la ficha recomendada cuando hay competencia (ganador único, o el que más se acerca
+   *  si ninguno cumple el 100% — nunca se elige uno como si cumpliera cuando no cumple). */
+  recomendado?: string | null;
+}
+
+/** "Auditar con IA" — reemplaza tener que elegir a mano entre "Subir ficha" (una parte a la vez) y
+ *  "Varios modelos" (alternativas compitiendo): acá se suben TODAS las fichas juntas y el sistema
+ *  decide el modo. Motor por defecto GLM (no hace falta el razonamiento de Kimi para esto — cada
+ *  ficha se compara contra el pliego completo con el mismo Agente 2 de siempre). */
+export async function auditarFichasMultiples(
+  caracteristicas: Array<Pick<CaracteristicaClasificada, 'descripcion' | 'tipo' | 'valorRequeridoNumero' | 'valorRequeridoNumeroMax' | 'unidadRequerida' | 'valorRequeridoTexto'> & { id: number }>,
+  fichas: FichaEntrada[],
+  motor: MotorComparacion = MOTOR_GLM,
+): Promise<ResultadoAuditoriaMultiple> {
+  if (!fichas.length) return { modo: 'unica', veredictosFinales: new Map(), faltantes: caracteristicas.map(c => c.id), conflictos: [] };
+
+  const porFicha = await Promise.all(fichas.map(async ficha => ({
+    ficha, veredictos: await compararFichaProveedor(caracteristicas, ficha.texto, ficha.nombre, { motor }),
+  })));
+
+  if (fichas.length === 1) {
+    const { ficha, veredictos } = porFicha[0];
+    const veredictosFinales = new Map(Array.from(veredictos.entries()).map(([id, v]) => [id, { ...v, fichaNombre: ficha.nombre }]));
+    const faltantes = caracteristicas.filter(c => !veredictos.get(c.id)?.veredicto).map(c => c.id);
+    return { modo: 'unica', veredictosFinales, faltantes, conflictos: [] };
+  }
+
+  // Por característica, quién respondió y qué dijo — la base para distinguir complementaria vs
+  // competencia sin que nadie tenga que elegir el botón correcto de antemano.
+  const respuestasPorCaract = new Map<number, Array<{ ficha: FichaEntrada; v: VeredictoCaracteristica }>>();
+  for (const { ficha, veredictos } of porFicha) {
+    for (const c of caracteristicas) {
+      const v = veredictos.get(c.id);
+      if (!v?.veredicto) continue;
+      if (!respuestasPorCaract.has(c.id)) respuestasPorCaract.set(c.id, []);
+      respuestasPorCaract.get(c.id)!.push({ ficha, v });
+    }
+  }
+
+  let overlap = 0, conflictoCount = 0;
+  const conflictos: ConflictoCaracteristica[] = [];
+  for (const [id, respuestas] of respuestasPorCaract) {
+    if (respuestas.length < 2) continue;
+    overlap++;
+    const primero = respuestas[0].v;
+    const discrepan = respuestas.some(r =>
+      r.v.veredicto !== primero.veredicto ||
+      (r.v.valorOfertadoTexto && primero.valorOfertadoTexto && r.v.valorOfertadoTexto !== primero.valorOfertadoTexto));
+    if (discrepan) {
+      conflictoCount++;
+      const c = caracteristicas.find(x => x.id === id)!;
+      conflictos.push({
+        caracteristicaId: id, descripcion: c.descripcion,
+        respuestas: respuestas.map(r => ({ fichaNombre: r.ficha.nombre, valorTexto: r.v.valorOfertadoTexto, veredicto: r.v.veredicto })),
+      });
+    }
+  }
+
+  // Umbral: si la mayoría de lo que se solapa entre fichas discrepa, son alternativas completas
+  // compitiendo por la línea. Si el solape es bajo o mayormente coincide (o no hay solape porque
+  // cada ficha cubre su propia parte, como camión/grúa/canastillo), son documentos COMPLEMENTARIOS.
+  const modo: 'complementaria' | 'competencia' = overlap > 0 && conflictoCount / overlap >= 0.5 ? 'competencia' : 'complementaria';
+
+  if (modo === 'competencia') {
+    const candidatos = porFicha.map(({ ficha, veredictos }) => {
+      const filas = caracteristicas.map(c => {
+        const v = veredictos.get(c.id);
+        return { veredicto: v?.veredicto ?? null, pendiente_confirmacion_proveedor: v?.pendienteConfirmacionProveedor ?? true };
+      });
+      const resumen = resumenLinea(filas);
+      return { ficha, veredictos, resumen, cumpleTodo: resumen.total > 0 && resumen.cumplen === resumen.total };
+    });
+    const ganadores = candidatos.filter(c => c.cumpleTodo);
+    // Ganador sin ambigüedad si hay exactamente uno; si no, el de más aciertos (aritmética, no una
+    // opinión de la IA) — pero solo se marca `recomendado` de verdad cuando cumple TODO.
+    const elegido = ganadores.length === 1 ? ganadores[0] : candidatos.reduce((a, b) => (b.resumen.cumplen > a.resumen.cumplen ? b : a));
+    const veredictosFinales = new Map(Array.from(elegido.veredictos.entries()).map(([id, v]) => [id, { ...v, fichaNombre: elegido.ficha.nombre }]));
+    const faltantes = caracteristicas.filter(c => !elegido.veredictos.get(c.id)?.veredicto).map(c => c.id);
+    return {
+      modo, veredictosFinales, faltantes, conflictos,
+      candidatos: candidatos.map(c => ({ fichaNombre: c.ficha.nombre, resumen: c.resumen, cumpleTodo: c.cumpleTodo })),
+      recomendado: ganadores.length === 1 ? elegido.ficha.nombre : null,
+    };
+  }
+
+  // Complementaria: unión de respuestas — cada característica la resuelve la PRIMERA ficha (en el
+  // orden que se subieron) que trajo un dato para ella. Las discrepancias puntuales quedan en
+  // `conflictos` para que una persona decida, pero nunca bloquean ni se ocultan.
+  const veredictosFinales = new Map<number, VeredictoCaracteristica & { fichaNombre: string }>();
+  for (const { ficha, veredictos } of porFicha) {
+    for (const [id, v] of veredictos) {
+      if (!v.veredicto || veredictosFinales.has(id)) continue;
+      veredictosFinales.set(id, { ...v, fichaNombre: ficha.nombre });
+    }
+  }
+  const faltantes = caracteristicas.filter(c => !veredictosFinales.get(c.id)?.veredicto).map(c => c.id);
+  return { modo, veredictosFinales, faltantes, conflictos };
+}
+
 /** Camino A, paso 2 (fallback): UNA característica, modelo barato (cadena por defecto, sin
  *  modeloPreferido) — solo se llama cuando el paso determinista no pudo resolver. */
 export async function evaluarCaracteristicaConIA(args: {

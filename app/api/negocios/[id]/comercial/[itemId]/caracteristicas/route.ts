@@ -28,9 +28,9 @@ import { transicion } from '@/app/lib/checklist-comercial';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import {
-  clasificarCaracteristicasLinea, compararFichaProveedor, compararFichasMultiModelo,
+  clasificarCaracteristicasLinea, compararFichaProveedor, compararFichasMultiModelo, auditarFichasMultiples,
   evaluarCaracteristicaDeterminista, evaluarCaracteristicaConIA, slugCaracteristica,
-  type VeredictoCaracteristica,
+  type VeredictoCaracteristica, type ConflictoCaracteristica, type CandidatoAuditoria,
 } from '@/app/lib/auditor-tecnico';
 import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
 import { extraerProductoOfertado } from '@/app/lib/producto-ofertado';
@@ -560,6 +560,150 @@ export async function POST(request: NextRequest, { params }: Params) {
       publicarCambio('checklist_comercial');
       const caracteristicas = await leerCaracteristicas(item.id);
       return NextResponse.json({ success: true, respetadas, caracteristicas });
+    }
+
+    // ── "Auditar con IA": UN botón, N fichas a la vez (pedido del usuario, 08-sep-2026: "quiero
+    // que lo haga todo un solo botón... si subo 10 que me diga cual es la más eficiente... si me
+    // falta una ficha que me diga, si algo está mal que me lo diga"). Reemplaza tener que elegir a
+    // mano entre "comparar_ficha" (fichas complementarias, una parte del equipo cada una) y
+    // "comparar_ficha_ia100" (fichas alternativas compitiendo): acá el sistema decide solo cuál es
+    // el caso — ver auditarFichasMultiples() — y siempre devuelve una narrativa de auditor: qué se
+    // cubrió, qué falta y qué no coincide entre documentos. Nunca inventa: lo que ninguna ficha
+    // responde queda "sin evaluar", como siempre.
+    if (accion === 'auditar_fichas') {
+      const documentos: Array<{ url: string; nombre: string }> = Array.isArray(body.documentos)
+        ? body.documentos.filter((d: any) => d?.url).map((d: any) => ({ url: String(d.url), nombre: String(d.nombre || 'ficha técnica') }))
+        : [];
+      if (!documentos.length) return NextResponse.json({ error: 'Sube al menos una ficha técnica.' }, { status: 400 });
+
+      const todas = await leerCaracteristicas(item.id);
+      if (!todas.length)
+        return NextResponse.json({ error: 'Primero valida la línea para clasificar sus características.' }, { status: 400 });
+
+      const existentes = todas.filter(c => !c.respuesta_manual);
+      const respetadas = todas.length - existentes.length;
+      if (!existentes.length) {
+        return NextResponse.json({
+          success: true, respetadas, caracteristicas: todas,
+          auditoria: { modo: 'unica', faltantes: [], conflictos: [] },
+          narrativa: 'Todas las características de esta línea están contestadas a mano: no se cambió ninguna.',
+        });
+      }
+
+      // Lee y segmenta CADA documento por producto (igual que 'comparar_ficha') — así una
+      // línea-paquete sigue comparando cada producto contra su propia parte, aunque ahora entren
+      // varios documentos de una vez.
+      const extraidos = await Promise.all(documentos.map(async doc => {
+        const extraido = await descargarYExtraerTexto(doc.url, doc.nombre);
+        if (!extraido?.texto || extraido.texto.trim().length < 30) return null;
+        const { segmentos, bufferPdf } = await prepararSegmentosDeLaFicha({
+          licitacionCodigo: negocio.licitacion_codigo, lineaNumero: item.linea_numero,
+          documentoUrl: doc.url, documentoNombre: doc.nombre, textoCompleto: extraido.texto,
+        });
+        return { doc, textoCompleto: extraido.texto, segmentos, bufferPdf };
+      }));
+      const validos = extraidos.filter((e): e is NonNullable<typeof e> => e !== null);
+      if (!validos.length)
+        return NextResponse.json({ error: 'No se pudo leer texto de ninguna de las fichas subidas.' }, { status: 400 });
+
+      const gruposPorProducto = new Map<number, typeof existentes>();
+      for (const c of existentes) {
+        const idx = c.producto_index ?? 0;
+        if (!gruposPorProducto.has(idx)) gruposPorProducto.set(idx, []);
+        gruposPorProducto.get(idx)!.push(c);
+      }
+
+      const faltantesTotal: Array<{ id: number; descripcion: string }> = [];
+      const conflictosTotal: ConflictoCaracteristica[] = [];
+      let modoGeneral: 'unica' | 'complementaria' | 'competencia' = (validos.length > 1 ? 'complementaria' : 'unica') as 'unica' | 'complementaria' | 'competencia';
+      const candidatosPorProducto: Record<number, { candidatos: CandidatoAuditoria[]; recomendado: string | null }> = {};
+
+      await Promise.all(Array.from(gruposPorProducto.entries()).map(async ([idx, items]) => {
+        const fichasProducto = validos.map(v => ({
+          nombre: v.doc.nombre,
+          texto: v.segmentos.find(s => s.productoIndex === idx)?.texto || v.textoCompleto,
+        }));
+        const resultado = await auditarFichasMultiples(
+          items.map(c => ({
+            id: c.id, descripcion: c.descripcion, tipo: c.tipo,
+            valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
+            unidadRequerida: c.unidad_requerida, valorRequeridoTexto: c.valor_requerido_texto,
+          })),
+          fichasProducto,
+        );
+        if (resultado.modo === 'competencia') modoGeneral = 'competencia';
+        for (const id of resultado.faltantes) {
+          const c = items.find(x => x.id === id);
+          if (c) faltantesTotal.push({ id, descripcion: c.descripcion });
+        }
+        conflictosTotal.push(...resultado.conflictos);
+        if (resultado.candidatos) candidatosPorProducto[idx] = { candidatos: resultado.candidatos, recomendado: resultado.recomendado ?? null };
+
+        for (const c of items) {
+          const v = resultado.veredictosFinales.get(c.id);
+          if (!v) continue;
+          let convertido: number | null = null;
+          let veredictoFinal = v.veredicto;
+          if (v.valorOfertadoNumero != null && c.valor_requerido_numero != null) {
+            const det = evaluarCaracteristicaDeterminista({
+              tipo: c.tipo, valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
+              unidadRequerida: c.unidad_requerida, valorOfertadoNumero: v.valorOfertadoNumero, unidadOfertadaOriginal: v.unidadOfertadaOriginal,
+            });
+            if (det) { convertido = det.valorConvertidoNumero; veredictoFinal = det.veredicto; }
+          }
+          // Mismo guardarraíl anti-regresión que 'comparar_ficha': un documento nuevo agrega o
+          // corrige, nunca borra un veredicto que ya existía porque ESTE grupo de fichas no lo menciona.
+          if (veredictoFinal == null && c.veredicto != null) continue;
+          await pool.query(
+            `UPDATE checklist_comercial_caracteristicas
+                SET valor_ofertado_texto = ?, valor_ofertado_numero = ?, unidad_ofertada_original = ?,
+                    valor_convertido_numero = ?, veredicto = ?, pendiente_confirmacion_proveedor = ?,
+                    fundamento_documento = ?, fundamento_cita = COALESCE(?, fundamento_cita), confianza = ?, origen = 'ficha'
+              WHERE id = ?`,
+            [
+              v.valorOfertadoTexto, v.valorOfertadoNumero, v.unidadOfertadaOriginal, convertido,
+              veredictoFinal, (v.pendienteConfirmacionProveedor || !veredictoFinal) ? 1 : 0,
+              v.fichaNombre.slice(0, 300), v.fundamentoCita, v.confianza, c.id,
+            ],
+          );
+        }
+      }));
+
+      await agregarDocumentos(item.id, negocio.id, validos.map(v => ({ url: v.doc.url, nombre: v.doc.nombre })), userId, nombreActor);
+      for (const v of validos) {
+        try {
+          await procesarProductosDeLaFicha({
+            itemId: item.id, negocioId: negocio.id, licitacionCodigo: negocio.licitacion_codigo,
+            documentoNombre: v.doc.nombre, segmentos: v.segmentos, bufferPdf: v.bufferPdf,
+          });
+        } catch (e) {
+          console.error('[comercial][caracteristicas] no se pudo leer marca/modelo de una ficha:', String(e));
+        }
+      }
+
+      await intentarAutoTransicion(item, negocio.id, userId, nombreActor);
+      publicarCambio('checklist_comercial');
+      const caracteristicasFinal = await leerCaracteristicas(item.id);
+
+      const total = existentes.length;
+      const cubiertas = total - faltantesTotal.length;
+      const partes: string[] = [`Cobertura: ${cubiertas}/${total} especificación(es) resuelta(s) con ${validos.length} ficha(s).`];
+      if (modoGeneral === 'competencia') {
+        partes.push('Las fichas subidas describen productos ALTERNATIVOS (no partes complementarias de un mismo equipo) — revisa el detalle de candidatos para ver cuál cumple más.');
+      }
+      if (faltantesTotal.length) {
+        partes.push(`Falta cubrir: ${faltantesTotal.map(f => f.descripcion).slice(0, 8).join('; ')}${faltantesTotal.length > 8 ? '…' : ''}. Sube la ficha que traiga ese dato.`);
+      }
+      if (conflictosTotal.length) {
+        partes.push(`${conflictosTotal.length} característica(s) con datos que NO coinciden entre las fichas subidas — revísalas antes de aprobar.`);
+      }
+      if (!faltantesTotal.length && !conflictosTotal.length) partes.push('Sin conflictos entre documentos.');
+
+      return NextResponse.json({
+        success: true, respetadas, caracteristicas: caracteristicasFinal,
+        auditoria: { modo: modoGeneral, faltantes: faltantesTotal, conflictos: conflictosTotal, candidatosPorProducto },
+        narrativa: partes.join(' '),
+      });
     }
 
     // ── Agente 2, camino "100% IA" (Kimi K3): VARIAS fichas / modelos candidatos ────────────────

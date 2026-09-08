@@ -90,33 +90,17 @@ interface ComercialLigado {
   plazo: { valorTexto: string | null; estado: EstadoItem } | null;
 }
 
-// ─── Camino "100% IA" (Kimi K3) — ficha con varios modelos candidatos (ej. catálogo con varios
-// tractores). Ver comparar_ficha_ia100 en la API: identifica cada modelo y evalúa las
-// características contra cada uno; solo escribe en el checklist si hay un ganador SIN ambigüedad.
-interface VeredictoDeModeloIA100 {
-  caracteristicaId: number;
-  descripcion: string;
-  valorOfertadoTexto: string | null;
-  valorOfertadoNumero: number | null;
-  unidadOfertadaOriginal: string | null;
-  veredicto: Veredicto | null;
-  pendienteConfirmacionProveedor: boolean;
-  fundamentoCita: string | null;
-  confianza: number;
-}
-interface ModeloComparadoIA {
-  nombreModelo: string;
-  resumenSpecs: string | null;
-  resumen: { total: number; cumplen: number; noCumplen: number; conComplemento: number; sinEvaluar: number; pendientesProveedor: number };
-  cumpleTodo: boolean;
-  producto: { marca: string | null; modelo: string | null; fabricante: string | null; paisFabricacion: string | null; anioFabricacion: string | null };
-  veredictos: VeredictoDeModeloIA100[];
-}
-interface ReporteIA100 {
-  productoIndex: number;
-  multiplesModelos: boolean;
-  recomendados: string[];
-  modelos: ModeloComparadoIA[];
+// ─── "Auditar con IA" — un solo botón, N fichas a la vez (pedido del usuario, 08-sep-2026): el
+// sistema decide solo si son fichas COMPLEMENTARIAS (cada una cubre su parte, ej. camión + grúa +
+// canastillo) o ALTERNATIVAS compitiendo por la línea (varios tractores) — ver auditar_fichas en
+// la API. Siempre devuelve una narrativa de auditor: qué se cubrió, qué falta, qué no coincide.
+interface CandidatoAuditoriaUI { fichaNombre: string; resumen: { total: number; cumplen: number; noCumplen: number; conComplemento: number; sinEvaluar: number }; cumpleTodo: boolean }
+interface ConflictoAuditoriaUI { caracteristicaId: number; descripcion: string; respuestas: Array<{ fichaNombre: string; valorTexto: string | null; veredicto: Veredicto | null }> }
+interface AuditoriaResultado {
+  modo: 'unica' | 'complementaria' | 'competencia';
+  faltantes: Array<{ id: number; descripcion: string }>;
+  conflictos: ConflictoAuditoriaUI[];
+  candidatosPorProducto?: Record<number, { candidatos: CandidatoAuditoriaUI[]; recomendado: string | null }>;
 }
 
 const VEREDICTO_STYLE: Record<Veredicto, { bg: string; text: string; label: string }> = {
@@ -178,11 +162,10 @@ export function ModalAuditorLineaTecnica({
   const [formProducto, setFormProducto] = useState({ marca: '', modelo: '', fabricante: '', paisFabricacion: '', anioFabricacion: '' });
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
   const [validando, setValidando] = useState(false);
-  const [subiendoFicha, setSubiendoFicha] = useState(false);
-  const [comparandoIA100, setComparandoIA100] = useState(false);
-  const [reporteIA100, setReporteIA100] = useState<ReporteIA100[] | null>(null);
-  const [arrastrandoIA100, setArrastrandoIA100] = useState(false);
-  const [eligiendoModelo, setEligiendoModelo] = useState<string | null>(null);
+  const [auditando, setAuditando] = useState(false);
+  const [narrativaAuditoria, setNarrativaAuditoria] = useState<string | null>(null);
+  const [auditoria, setAuditoria] = useState<AuditoriaResultado | null>(null);
+  const [arrastrandoAuditor, setArrastrandoAuditor] = useState(false);
   const [reiniciando, setReiniciando] = useState(false);
   const [progreso, setProgreso] = useState<string | null>(null);
   // Ocupado por ÍNDICE de producto: cada tarjeta tiene sus propios botones y no deben bloquearse
@@ -190,8 +173,7 @@ export function ModalAuditorLineaTecnica({
   const [confirmandoImagenIndex, setConfirmandoImagenIndex] = useState<number | null>(null);
   const [subiendoImagenIndex, setSubiendoImagenIndex] = useState<number | null>(null);
   const [quitandoImagenIndex, setQuitandoImagenIndex] = useState<number | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const fileRefIA100 = useRef<HTMLInputElement>(null);
+  const fileRefAuditor = useRef<HTMLInputElement>(null);
   const imgFileRef = useRef<HTMLInputElement>(null);
   const imgTargetIndex = useRef(0);
   const autoEjecutado = useRef(false);
@@ -276,69 +258,6 @@ export function ModalAuditorLineaTecnica({
     return true;
   }, [base, toast, onCambio]);
 
-  // Camino "100% IA" (Kimi K3) — para cuando hay VARIOS modelos candidatos (más de un
-  // tractor/equipo): identifica cada modelo — sea que vengan todos en UN catálogo o repartidos en
-  // VARIOS documentos, uno por modelo (pedido explícito: poder cargar/arrastrar varias fichas a la
-  // vez) — y compara las exigencias contra cada uno. Más caro y más lento que "Comparar ficha"
-  // normal a propósito — se elige a mano, no corre solo. Ver comparar_ficha_ia100 en la API.
-  const compararFichaIA100 = useCallback(async (documentos: Array<{ url: string; nombre: string }>): Promise<void> => {
-    if (!documentos.length) return;
-    setComparandoIA100(true);
-    setReporteIA100(null);
-    try {
-      const r = await fetch(base, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ accion: 'comparar_ficha_ia100', documentos }),
-      });
-      const d = await r.json();
-      if (!r.ok) { toast.error(d.error || 'No se pudo comparar las fichas con IA'); return; }
-      if (d.caracteristicas) setCaracteristicas(d.caracteristicas);
-      setReporteIA100(d.reportes || []);
-      const conVariosModelos = (d.reportes || []).some((rep: ReporteIA100) => rep.multiplesModelos);
-      if (!conVariosModelos) {
-        toast.success('Se identificó un solo modelo', 'No hizo falta elegir entre varios — mismo resultado que "Comparar ficha".');
-      } else if (d.escritas) {
-        toast.success('Modelo identificado', 'Se encontró un único modelo que cumple todo y se cargó en el checklist.');
-      } else {
-        toast.error('Ningún modelo cumple todo (o hay varios empatados)', 'Revisa el detalle por modelo abajo antes de decidir.');
-      }
-      onCambio?.();
-    } catch (e) {
-      toast.error('Error de red', String(e));
-    } finally {
-      setComparandoIA100(false);
-    }
-  }, [base, toast, onCambio]);
-
-  // "Usar este modelo" — pedido explícito del usuario (08-sep-2026): cuando hay varios candidatos
-  // (ej. 5 fichas de tractores) quiere poder ELEGIR cuál se oferta, no depender de que el sistema
-  // encuentre solo un ganador sin ambigüedad. No vuelve a llamar a la IA: aplica el detalle que ya
-  // vino en el reporte. A diferencia del ganador automático, esto SÍ confirma el producto (marca/
-  // modelo quedan LOCKEADOS) — necesario para que subir después la ficha de OTRO ítem del mismo
-  // paquete (los implementos, por ejemplo) ya no le pise la marca/modelo al tractor elegido.
-  const elegirModeloIA100 = useCallback(async (productoIndex: number, modelo: ModeloComparadoIA) => {
-    setEligiendoModelo(modelo.nombreModelo);
-    try {
-      const r = await fetch(base, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accion: 'elegir_modelo_ia100', productoIndex, nombreModelo: modelo.nombreModelo,
-          veredictos: modelo.veredictos, producto: modelo.producto,
-        }),
-      });
-      const d = await r.json();
-      if (!r.ok) { toast.error(d.error || 'No se pudo aplicar el modelo elegido'); return; }
-      if (d.caracteristicas) setCaracteristicas(d.caracteristicas);
-      if (d.productos) setProductos(d.productos);
-      toast.success(`Modelo elegido: ${modelo.nombreModelo}`, `${d.escritas} característica(s) actualizada(s) — marca/modelo quedaron confirmados.`);
-      onCambio?.();
-    } catch (e) {
-      toast.error('Error de red', String(e));
-    } finally {
-      setEligiendoModelo(null);
-    }
-  }, [base, toast, onCambio]);
-
   // Camino "Enviar al Auditor" desde Documentos: llega con el archivo ya elegido — valida la
   // línea si hace falta y compara automáticamente, sin esperar un clic más del usuario.
   useEffect(() => {
@@ -356,34 +275,15 @@ export function ModalAuditorLineaTecnica({
     })();
   }, [cargando, documentoInicial, caracteristicas.length, validar, compararFicha]);
 
-  const subirFicha = async (files: FileList | null) => {
+  // "Auditar con IA" — UN botón, N fichas (pedido del usuario, 08-sep-2026). Sube todos los
+  // archivos juntos y llama a 'auditar_fichas': el backend decide solo si son complementarias
+  // (partes de un mismo equipo) o alternativas compitiendo, y devuelve una narrativa de auditor
+  // (cobertura, qué falta, qué no coincide) además de escribir los veredictos en el checklist.
+  const auditarConIA = useCallback(async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    setSubiendoFicha(true);
-    try {
-      const fd = new FormData();
-      fd.append('licitacionCodigo', licitacionCodigo);
-      fd.append('files', files[0]);
-      const rSubida = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
-      const dSubida = await rSubida.json();
-      if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || 'No se pudo subir la ficha'); return; }
-      const doc = dSubida.documentos[0];
-      if (caracteristicas.length === 0) await validar(false);
-      await compararFicha(doc.url, doc.nombre);
-    } catch (e) {
-      toast.error('Error de red', String(e));
-    } finally {
-      setSubiendoFicha(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
-  // Mismo flujo que subirFicha, pero para el camino "100% IA": acepta VARIOS archivos a la vez
-  // (uno por modelo candidato, pedido explícito del usuario) — se suben todos en UNA subida
-  // (/api/documentos/subir ya acepta varios `files`) y se comparan juntos en una sola llamada, no
-  // uno por uno como "Subir ficha" — acá los archivos son candidatos del MISMO producto, no
-  // documentos independientes.
-  const subirFichaIA100 = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+    setAuditando(true);
+    setNarrativaAuditoria(null);
+    setAuditoria(null);
     try {
       const fd = new FormData();
       fd.append('licitacionCodigo', licitacionCodigo);
@@ -392,13 +292,26 @@ export function ModalAuditorLineaTecnica({
       const dSubida = await rSubida.json();
       if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || 'No se pudo subir la(s) ficha(s)'); return; }
       if (caracteristicas.length === 0) await validar(false);
-      await compararFichaIA100(dSubida.documentos.map((d: { url: string; nombre: string }) => ({ url: d.url, nombre: d.nombre })));
+      const r = await fetch(base, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'auditar_fichas', documentos: dSubida.documentos.map((d: { url: string; nombre: string }) => ({ url: d.url, nombre: d.nombre })) }),
+      });
+      const d = await r.json();
+      if (!r.ok) { toast.error(d.error || 'No se pudo auditar las fichas'); return; }
+      setCaracteristicas(d.caracteristicas || []);
+      setAuditoria(d.auditoria || null);
+      setNarrativaAuditoria(d.narrativa || null);
+      const sinNovedad = !d.auditoria?.faltantes?.length && !d.auditoria?.conflictos?.length;
+      if (sinNovedad) toast.success('Auditoría completa', d.narrativa);
+      else toast.error('Auditoría con pendientes', d.narrativa);
+      onCambio?.();
     } catch (e) {
       toast.error('Error de red', String(e));
     } finally {
-      if (fileRefIA100.current) fileRefIA100.current.value = '';
+      setAuditando(false);
+      if (fileRefAuditor.current) fileRefAuditor.current.value = '';
     }
-  };
+  }, [base, toast, onCambio, licitacionCodigo, caracteristicas.length, validar]);
 
   // Confirmar la foto que quedó de la extracción automática (o de una confirmación anterior).
   // Probado contra fichas reales: a veces la extracción trae la imagen equivocada, así que esto
@@ -752,16 +665,11 @@ export function ModalAuditorLineaTecnica({
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg transition-colors disabled:opacity-50">
                       {validando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} {resumen.total > 0 ? 'Re-validar' : 'Validar'}
                     </button>
-                    <input ref={fileRef} type="file" className="hidden" onChange={e => subirFicha(e.target.files)} />
-                    <button onClick={() => fileRef.current?.click()} disabled={subiendoFicha || bloqueado}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-zinc-500 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors disabled:opacity-50">
-                      {subiendoFicha ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Subir ficha
-                    </button>
-                    <input ref={fileRefIA100} type="file" multiple className="hidden" onChange={e => subirFichaIA100(e.target.files)} />
-                    <button onClick={() => fileRefIA100.current?.click()} disabled={comparandoIA100 || bloqueado}
-                      title="Para varios modelos/equipos candidatos (ej. varios tractores) — uno o varios archivos, un catálogo o una ficha por modelo. Más lento y más caro: identifica cuál modelo cumple todo."
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-amber-700 hover:bg-amber-50 rounded-lg border border-amber-200 transition-colors disabled:opacity-50">
-                      {comparandoIA100 ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Varios modelos (IA)
+                    <input ref={fileRefAuditor} type="file" multiple className="hidden" onChange={e => auditarConIA(e.target.files)} />
+                    <button onClick={() => fileRefAuditor.current?.click()} disabled={auditando || bloqueado}
+                      title="Sube una o varias fichas juntas (una parte del equipo cada una, o varios modelos candidatos) — la IA decide sola cómo compararlas y audita cobertura, faltantes y conflictos."
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-violet-600 hover:bg-violet-50 rounded-lg border border-violet-200 transition-colors disabled:opacity-50">
+                      {auditando ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Auditar con IA
                     </button>
                     {caracteristicas.length > 0 && !bloqueado && (
                       <button onClick={reiniciar} disabled={reiniciando} title="Borrar toda la comparación y volver a empezar"
@@ -773,73 +681,74 @@ export function ModalAuditorLineaTecnica({
                 </div>
 
                 {!bloqueado && (
-                  // Zona de arrastre dedicada al camino "100% IA": suelta uno o varios archivos —
-                  // cada uno un modelo candidato (o un catálogo con varios) — y se comparan todos
-                  // juntos en una sola llamada. Mismo patrón ya probado en FilaLineaTecnica.tsx
-                  // (arrastrar fichas directo, sin pasar por un selector), aplicado acá al camino
-                  // de "varios modelos candidatos" en vez de "varios productos de la línea".
+                  // Zona de arrastre única: suelta una o varias fichas juntas (partes de un mismo
+                  // equipo, o modelos alternativos) — la IA decide sola cómo compararlas.
                   <div
-                    onDragOver={e => { e.preventDefault(); if (!comparandoIA100) setArrastrandoIA100(true); }}
-                    onDragLeave={() => setArrastrandoIA100(false)}
+                    onDragOver={e => { e.preventDefault(); if (!auditando) setArrastrandoAuditor(true); }}
+                    onDragLeave={() => setArrastrandoAuditor(false)}
                     onDrop={e => {
                       e.preventDefault();
-                      setArrastrandoIA100(false);
-                      if (!comparandoIA100 && e.dataTransfer.files?.length) subirFichaIA100(e.dataTransfer.files);
+                      setArrastrandoAuditor(false);
+                      if (!auditando && e.dataTransfer.files?.length) auditarConIA(e.dataTransfer.files);
                     }}
                     className={`mb-3 rounded-lg border border-dashed px-3 py-2 text-center text-[11px] transition-colors ${
-                      arrastrandoIA100 ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-zinc-200 text-zinc-400 hover:border-zinc-300'
+                      arrastrandoAuditor ? 'border-violet-400 bg-violet-50 text-violet-700' : 'border-zinc-200 text-zinc-400 hover:border-zinc-300'
                     }`}
                   >
-                    {comparandoIA100
-                      ? <span className="inline-flex items-center gap-1.5 text-amber-700 font-semibold"><Loader2 size={11} className="animate-spin" /> Identificando modelos y comparando…</span>
-                      : 'Suelta aquí una o varias fichas — un modelo candidato por archivo — para que la IA diga cuál cumple'}
+                    {auditando
+                      ? <span className="inline-flex items-center gap-1.5 text-violet-700 font-semibold"><Loader2 size={11} className="animate-spin" /> Auditando fichas contra las bases…</span>
+                      : 'Suelta aquí una o varias fichas — camión + grúa + canastillo, o varios modelos candidatos — la IA audita y guía'}
                   </div>
                 )}
 
-                {reporteIA100 && reporteIA100.length > 0 && (
-                  <div className="mb-3 border border-amber-200 bg-amber-50/60 rounded-xl p-3 space-y-3">
-                    <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wide">Comparación IA por modelo (Kimi K3)</p>
-                    {reporteIA100.map(rep => (
-                      <div key={rep.productoIndex} className="space-y-1.5">
-                        {!rep.multiplesModelos ? (
-                          <p className="text-[11.5px] text-zinc-600">La ficha describe un solo modelo — no había nada que desambiguar.</p>
-                        ) : (
-                          <>
-                            <p className="text-[11.5px] text-zinc-600">
-                              {rep.recomendados.length === 1
-                                ? <>Modelo recomendado: <span className="font-bold text-emerald-700">{rep.recomendados[0]}</span> (ya se cargó en el checklist).</>
-                                : rep.recomendados.length > 1
-                                  ? <>Empate: {rep.recomendados.length} modelos cumplen el 100% — decide a mano cuál ofertar.</>
-                                  : <>Ningún modelo cumple el 100% — el más cercano queda abajo, con sus brechas.</>}
-                            </p>
-                            <div className="space-y-1">
-                              {[...rep.modelos].sort((a, b) => b.resumen.cumplen - a.resumen.cumplen).map(m => (
-                                <div key={m.nombreModelo} className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11.5px] ${m.cumpleTodo ? 'bg-emerald-100/70' : 'bg-white'}`}>
-                                  <div className="min-w-0">
-                                    <span className={`font-semibold ${m.cumpleTodo ? 'text-emerald-700' : 'text-zinc-700'}`}>{m.nombreModelo}</span>
-                                    {m.resumenSpecs && <span className="text-zinc-400"> — {m.resumenSpecs}</span>}
-                                  </div>
-                                  <div className="flex items-center gap-2 flex-shrink-0">
-                                    <span className={`font-semibold ${m.cumpleTodo ? 'text-emerald-700' : 'text-zinc-500'}`}>
-                                      {m.resumen.cumplen}/{m.resumen.total} cumple
-                                      {m.resumen.noCumplen > 0 && <span className="text-rose-600"> · {m.resumen.noCumplen} no</span>}
-                                    </span>
-                                    {!bloqueado && (
-                                      <button
-                                        onClick={() => elegirModeloIA100(rep.productoIndex, m)}
-                                        disabled={eligiendoModelo != null}
-                                        title="Aplica este modelo al checklist y confirma marca/modelo — queda protegido de que otra ficha lo pise después"
-                                        className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-violet-600 hover:bg-violet-100 px-1.5 py-0.5 rounded disabled:opacity-50"
-                                      >
-                                        {eligiendoModelo === m.nombreModelo ? <Loader2 size={10} className="animate-spin" /> : null} Usar este
-                                      </button>
-                                    )}
-                                  </div>
-                                </div>
+                {narrativaAuditoria && (
+                  <div className={`mb-3 border rounded-xl p-3 space-y-2 ${
+                    auditoria && (auditoria.faltantes.length || auditoria.conflictos.length) ? 'border-amber-200 bg-amber-50/60' : 'border-emerald-200 bg-emerald-50/60'
+                  }`}>
+                    <p className={`text-[11px] font-bold uppercase tracking-wide ${
+                      auditoria && (auditoria.faltantes.length || auditoria.conflictos.length) ? 'text-amber-800' : 'text-emerald-800'
+                    }`}>Veredicto del auditor</p>
+                    <p className="text-[11.5px] text-zinc-700 leading-snug">{narrativaAuditoria}</p>
+
+                    {!!auditoria?.faltantes.length && (
+                      <div>
+                        <p className="text-[10.5px] font-bold text-amber-700 uppercase tracking-wide mb-1">Falta ficha para</p>
+                        <ul className="space-y-0.5">
+                          {auditoria.faltantes.map(f => (
+                            <li key={f.id} className="text-[11px] text-zinc-600">• {f.descripcion}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {!!auditoria?.conflictos.length && (
+                      <div>
+                        <p className="text-[10.5px] font-bold text-rose-700 uppercase tracking-wide mb-1">Datos que no coinciden entre fichas</p>
+                        <ul className="space-y-1">
+                          {auditoria.conflictos.map(c => (
+                            <li key={c.caracteristicaId} className="text-[11px] text-zinc-600">
+                              <span className="font-semibold text-zinc-700">{c.descripcion}:</span>{' '}
+                              {c.respuestas.map((r, i) => (
+                                <span key={i}>{i > 0 ? ' vs. ' : ''}<span className="italic">{r.fichaNombre}</span> dice &ldquo;{r.valorTexto ?? '—'}&rdquo;</span>
                               ))}
-                            </div>
-                          </>
-                        )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {auditoria?.modo === 'competencia' && auditoria.candidatosPorProducto && Object.values(auditoria.candidatosPorProducto).map((grupo, gi) => (
+                      <div key={gi} className="space-y-1">
+                        <p className="text-[10.5px] font-bold text-violet-700 uppercase tracking-wide mb-1">Ranking de fichas competidoras</p>
+                        {[...grupo.candidatos].sort((a, b) => b.resumen.cumplen - a.resumen.cumplen).map(c => (
+                          <div key={c.fichaNombre} className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11.5px] ${c.cumpleTodo ? 'bg-emerald-100/70' : 'bg-white'}`}>
+                            <span className={`font-semibold truncate ${c.cumpleTodo ? 'text-emerald-700' : 'text-zinc-700'}`}>{c.fichaNombre}</span>
+                            <span className={`font-semibold flex-shrink-0 ${c.cumpleTodo ? 'text-emerald-700' : 'text-zinc-500'}`}>
+                              {c.resumen.cumplen}/{c.resumen.total} cumple
+                              {c.resumen.noCumplen > 0 && <span className="text-rose-600"> · {c.resumen.noCumplen} no</span>}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     ))}
                   </div>
