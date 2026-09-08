@@ -21,7 +21,10 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import type { Parrafo } from '@/app/lib/anexos-docx';
 import type { CandidatoCelda, CandidatoInline } from '@/app/lib/anexos-detectar';
 import { bloqueReglasAprendidasAnexo } from '@/app/lib/anexos-feedback';
-import { resolverDeterminista, clasificarPendiente } from '@/app/lib/anexos-determinista';
+import {
+  resolverDeterminista, clasificarPendiente, normalizarEtiqueta, etiquetaPropia,
+  RE_CASILLA_MARCAR, RE_ALTERNATIVA_CUENTA_CON,
+} from '@/app/lib/anexos-determinista';
 
 export interface EmpresaCampos {
   razon_social: string | null;
@@ -349,6 +352,23 @@ export function campoCalzaConLaEtiqueta(etiqueta: string, valor: string): boolea
   return regla ? regla.valido(valor) : true;
 }
 
+// GUARDARRAÍL — política fija de "programa de integridad" vs. alternativa excluyente (BUG REAL,
+// 8-sep-2026, tabla "PROGRAMA(S) DE INTEGRIDAD Y COMPLIANCE", reportado por el usuario con
+// captura: "me marca sí y sí, solo tiene que marcar el que dice cuenta con programa de
+// integridad"). El prompt (PROGRAMA DE INTEGRIDAD, más abajo) le dice al modelo que la pregunta
+// siempre se responde "SÍ" — correcto cuando la casilla es la pregunta ENTERA, pero cuando el
+// organismo la presenta como DOS opciones excluyentes (casillero "SI"/"NO" pelado, o una fila en
+// prosa "Cuenta con…" / "No cuenta con…", cada una con su propia celda "Marcar alternativa"), cada
+// opción es su PROPIO candidato con la MISMA etiqueta de fondo ("programa de integridad") — el
+// modelo las marcaba las DOS con "SÍ" y el documento salía contradictorio consigo mismo. Mismo
+// guardarraíl que ya usa el motor determinista (RE_CASILLA_MARCAR / RE_ALTERNATIVA_CUENTA_CON en
+// anexos-determinista.ts): si la etiqueta PROPIA de esta casilla es la opción misma (no la
+// pregunta), la política fija no aplica.
+export function esOpcionExcluyenteDeIntegridad(etiqueta: string): boolean {
+  const propia = normalizarEtiqueta(etiquetaPropia(etiqueta || ''));
+  return RE_CASILLA_MARCAR.test(propia) || RE_ALTERNATIVA_CUENTA_CON.test(propia);
+}
+
 // Las TRES partes sueltas de la fecha de hoy ("06", "08", "2026") solo tienen sentido dentro de una
 // línea partida en casillas ("Fecha: __ / __ / __", "___ de ___ de ___") — y ese caso ya se
 // resuelve entero y determinista en detectarTripletesFecha, sin pasar por la IA. Si el modelo
@@ -540,7 +560,8 @@ PIE DE FIRMA CON FECHA: día, mes y/o año de la fecha en que se presenta la ofe
 - Suelta SIN partir, un solo blanco tras "FECHA:" que no está dividido en día/mes/año y no está pegado a una raya de firma manuscrita → campo fecha_hoy (fecha larga completa, "06 de agosto de 2026"). Excepción: si esa "FECHA:" cae dentro de un ANEXO O SECCIÓN CONDICIONAL COMPLETA que no corresponde (regla f de arriba), prima la exclusión → no_aplica_al_oferente.
 - Con el AÑO ya fijo como texto literal en la plantilla y UN solo blanco para el resto (ej. "LA UNIÓN, 【CASILLA】 DE 2026.-") → ese blanco pide "día + de + mes en palabra" → campo fecha_hoy_dia_mes (formato "06 de agosto", SIN año — el año ya está impreso, no lo repitas).
 
-PROGRAMA DE INTEGRIDAD: cuando una casilla pregunta, en cualquier formato (SI___NO___, casillero a marcar, "Cumple: Sí/No"), si la empresa CUENTA CON un Programa de Integridad, política de integridad, código de ética para proveedores, o adhiere a la Directiva N°31 de ChileCompra → categoria=perfil_empresa, campo=programa_integridad_respuesta (siempre resuelve "SÍ", es política fija de la empresa). Esto es DISTINTO de una casilla que pide DESCRIBIR el programa (en qué consiste, qué políticas incluye, un texto libre) — esa sigue siendo decision_del_usuario, valor null.
+PROGRAMA DE INTEGRIDAD: cuando UNA SOLA casilla es la PREGUNTA ENTERA ("¿Cuenta con Programa de Integridad?", "SI___NO___", "Cumple: Sí/No" como una única casilla que resume la respuesta), si la empresa CUENTA CON un Programa de Integridad, política de integridad, código de ética para proveedores, o adhiere a la Directiva N°31 de ChileCompra → categoria=perfil_empresa, campo=programa_integridad_respuesta (siempre resuelve "SÍ", es política fija de la empresa). Esto es DISTINTO de una casilla que pide DESCRIBIR el programa (en qué consiste, qué políticas incluye, un texto libre) — esa sigue siendo decision_del_usuario, valor null.
+EXCEPCIÓN QUE NUNCA SE AUTOCOMPLETA (dos casillas para UNA sola pregunta): si el organismo presenta la pregunta como DOS OPCIONES EXCLUYENTES por separado — un casillero "SI" y otro casillero "NO" cada uno con su propia celda de marcar, o una fila "Cuenta con programa(s) de integridad…" y otra fila "No cuenta con programa(s) de integridad…" cada una con su propia celda "Marcar alternativa" — entonces CADA una de esas dos casillas es la OPCIÓN misma, no la pregunta: categoria=decision_del_usuario, campo=null para AMBAS. Nunca les pongas "SÍ" a las dos: el documento quedaría contradictorio consigo mismo (marcado "SÍ" en la fila que cuenta y también en la que no cuenta). Es el oferente quien marca la que corresponda.
 
 SOCIO/ACCIONISTA: cuando un anexo pide identificar socios o accionistas con su porcentaje de participación ("Nombre Socio/Accionista", "RUT Socio", "Porcentaje de Derechos o Participación") y no hay ningún otro dato en el documento que indique una sociedad con varios socios distintos → categoria=perfil_empresa, campo=socio_nombre para el nombre y campo=socio_participacion para el porcentaje (la empresa opera con socio único, el representante legal, al 100%). Si la casilla pide el RUT del socio, usa representante_rut (es la misma persona).
 
@@ -645,6 +666,17 @@ async function resolverLoteCampos(
       const categoria: CategoriaCampo = CATEGORIAS_VALIDAS.has(r.categoria) ? r.categoria : 'decision_del_usuario';
       const etiqueta = item.ref.tipo === 'celda' ? item.ref.c.etiqueta : (item.ref.b.contexto || '');
       const campo: string = typeof r.campo === 'string' ? r.campo : '';
+
+      // GUARDARRAÍL — ver esOpcionExcluyenteDeIntegridad más arriba (BUG REAL 8-sep-2026): la
+      // política fija de "programa de integridad" nunca se aplica cuando la etiqueta es la OPCIÓN
+      // de una alternativa excluyente, no la pregunta.
+      if (campo === 'programa_integridad_respuesta' && esOpcionExcluyenteDeIntegridad(etiqueta)) {
+        out.set(item.n, {
+          tipo: 'pendiente', categoria: 'decision_del_usuario',
+          motivo: 'Fila de alternativa excluyente: marca la que corresponda según la situación real de la empresa.',
+        });
+        continue;
+      }
 
       // GUARDARRAÍL: no basta con que la CATEGORÍA sea plausible — el CAMPO que nombró la IA
       // tiene que (1) pertenecer al grupo permitido para esa categoría (ver

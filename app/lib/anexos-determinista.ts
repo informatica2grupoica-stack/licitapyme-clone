@@ -903,7 +903,7 @@ export function titularVigenteAntesDe(parrafos: Parrafo[], indice: number): 'per
 }
 
 /** De "IDENTIFICACIÓN DEL REPRESENTANTE — NOMBRE" devuelve solo "NOMBRE". */
-function etiquetaPropia(etiqueta: string): string {
+export function etiquetaPropia(etiqueta: string): string {
   return etiqueta.match(/^(?:.+?)\s+—\s+(.+)$/)?.[1] ?? etiqueta;
 }
 
@@ -1551,15 +1551,17 @@ const RE_DECISION = /\b(marque|marcar|con una x|describa|describ|indique|senale|
 const RE_TERCERO = /\b(cliente|mandante|contraparte|quien certifica|emisor del certificado|contratante)\b/;
 // La etiqueta propia de la casilla es SOLO la palabra de la columna — anclada a los dos extremos a
 // propósito: "SI" es una casilla para marcar, "SI CORRESPONDE" o "no aplica al oferente" no.
-const RE_CASILLA_MARCAR = /^(?:si|no|si\s*\/\s*no|cumple|no cumple|aplica|no aplica|acompana|adjunta)$/;
+// Exportada: el motor IA (anexos-ia-motor.ts) la reusa como guardarraíl de la política fija de
+// "programa de integridad" — ver el comentario ahí (BUG REAL 7-sep-2026/8-sep-2026).
+export const RE_CASILLA_MARCAR = /^(?:si|no|si\s*\/\s*no|cumple|no cumple|aplica|no aplica|acompana|adjunta)$/;
 
 // Misma familia que RE_CASILLA_MARCAR, pero para cuando la opción no viene como palabra pelada
 // ("SI"/"NO") sino como una FILA ENTERA que declara la alternativa en prosa: "Cuenta con
 // programa(s) de integridad..." / "No cuenta con programa(s) de integridad...", cada una con su
 // propia celda "Marcar alternativa" al lado. Anclada al INICIO: una etiqueta que declara el hecho
 // ("Cuenta con…") en vez de preguntarlo ("¿Cuenta con…?", "¿La empresa cuenta con…?") es la opción
-// a marcar, no la pregunta.
-const RE_ALTERNATIVA_CUENTA_CON = /^no\s+cuenta\s+con\b|^cuenta\s+con\b/;
+// a marcar, no la pregunta. Exportada por el mismo motivo que RE_CASILLA_MARCAR arriba.
+export const RE_ALTERNATIVA_CUENTA_CON = /^no\s+cuenta\s+con\b|^cuenta\s+con\b/;
 
 export function clasificarPendiente(etiqueta: string): { categoria: CategoriaCampo; motivo: string } {
   const n = normalizarEtiqueta(etiquetaPropia(etiqueta));

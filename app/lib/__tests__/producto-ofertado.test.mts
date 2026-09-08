@@ -5,8 +5,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  extraerProductoOfertado, marcaDesdeDominio, marcaPorMencionRepetida, modeloDesdeEncabezado,
-  modeloDesdeNombreArchivo, tieneAlgo,
+  extraerProductoOfertado, marcaDesdeDominio, marcaJuntoAModelo, marcaPorMencionRepetida,
+  modeloDesdeEncabezado, modeloDesdeNombreArchivo, tieneAlgo,
 } from '../producto-ofertado';
 
 // ─── FICHA TABULADA: lo etiquetado manda ──────────────────────────────────────────────────────
@@ -152,6 +152,39 @@ test('marcaPorMencionRepetida: exige que la palabra se repita, una mención suel
 test('marcaPorMencionRepetida: "equivalente" cerca invalida aunque la palabra se repita 3+ veces', () => {
   const t = 'Se aceptan equipos de marca Bosch o equivalente. Bosch. Bosch. Bosch.';
   assert.equal(marcaPorMencionRepetida(t), null);
+});
+
+// ─── BUG REAL (08-sep-2026, "Ficha_Tecnica_Tractor_MF5710.pdf"): esta ficha trae DOS menciones de
+// "marca X" — "OFERENTE: ... comercializa bajo marca TECNOMAQ" (el revendedor) y "tractor...marca
+// Massey Ferguson, modelo MF5710" (el equipo real) — y NINGUNA se repite 3+ veces, así que
+// marcaPorMencionRepetida() descartaba ambas y volvía a caer en ventas@grupoica.cl del encabezado.
+const FICHA_MF5710 = [
+  'INVERSIONES CLARO ARZ SpA',
+  'RUT: 76.902.659-2 | Barros Arana N° 492, Concepción | ventas@grupoica.cl | +56 9 3146 2445',
+  'FICHA TÉCNICA DEL EQUIPO',
+  'Tractor Agrícola Massey Ferguson MF5710',
+  'OFERENTE: INVERSIONES CLARO ARZ SpA — RUT 76.902.659-2 (comercializa bajo marca TECNOMAQ)',
+  'El equipo ofertado corresponde a un tractor agrícola nuevo, sin uso, marca Massey Ferguson, modelo MF5710, de tracción 4WD.',
+].join('\n');
+
+test('caso real: "marca X, modelo Y" en la misma frase le gana al dominio de contacto del revendedor', () => {
+  const p = extraerProductoOfertado(FICHA_MF5710);
+  assert.equal(p.marca, 'Massey Ferguson');
+});
+
+test('marcaJuntoAModelo: captura nombres de dos palabras pegados a "modelo"', () => {
+  assert.equal(marcaJuntoAModelo('tractor marca Massey Ferguson, modelo MF5710'), 'Massey Ferguson');
+  assert.equal(marcaJuntoAModelo('equipo marca Bosch modelo GWS750'), 'Bosch');
+  assert.equal(marcaJuntoAModelo('sin ninguna mención de marca ni modelo'), null);
+});
+
+test('marcaDesdeDominio: ignora un dominio pegado a un RUT o a un correo de rol genérico', () => {
+  const t = 'RUT: 76.902.659-2 | ventas@grupoica.cl | +56 9 3146 2445';
+  assert.equal(marcaDesdeDominio(t), null);
+});
+
+test('marcaDesdeDominio: sigue funcionando cuando el dominio NO está en un bloque de remitente', () => {
+  assert.equal(marcaDesdeDominio('visita SENSING.KONICAMINOLTA.COM para más información'), 'KONICAMINOLTA');
 });
 
 test('sin ninguna señal, todo queda en null', () => {

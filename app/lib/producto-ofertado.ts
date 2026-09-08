@@ -111,6 +111,7 @@ export function extraerProductoOfertado(texto: string, nombreArchivo?: string): 
   // marcaPorMencionRepetida ANTES que marcaDesdeDominio: una mención explícita "marca X" repetida
   // en el cuerpo es más confiable que adivinar por el dominio de contacto de quien redactó la
   // ficha (ver el bug real documentado en esa función).
+  if (!out.marca) out.marca = marcaJuntoAModelo(texto);
   if (!out.marca) out.marca = marcaPorMencionRepetida(texto);
   if (!out.marca) out.marca = marcaDesdeDominio(texto);
   if (!out.fabricante) out.fabricante = out.marca;   // en un folleto de fábrica son lo mismo
@@ -128,6 +129,31 @@ export function extraerProductoOfertado(texto: string, nombreArchivo?: string): 
 // (grupoica.cl) como si fuera la marca del equipo. La ficha terminaba diciendo "Marca: GRUPOICA"
 // para un tractor/implemento que no tiene nada que ver con esa empresa.
 const RE_EQUIV_CERCA = /\b(equivalente|similar)\b/i;
+
+// BUG REAL (08-sep-2026, misma familia de casos, "Ficha_Tecnica_Tractor_MF5710.pdf"): ese
+// documento trae DOS menciones de "marca X" — "OFERENTE: ... comercializa bajo marca TECNOMAQ"
+// (la marca del REVENDEDOR que redactó el documento) y "tractor... marca Massey Ferguson, modelo
+// MF5710" (la marca REAL del equipo) — y NINGUNA de las dos se repite 3+ veces, así que
+// marcaPorMencionRepetida() descartaba ambas y volvía a caer en el dominio de contacto del
+// revendedor. La señal que faltaba: cuando "marca X" aparece INMEDIATAMENTE antes de "modelo Y" en
+// la misma frase, es casi siempre la descripción concreta del equipo que se está ofertando (así
+// habla un fabricante/vendedor de SU producto), a diferencia de "comercializa bajo marca X", que
+// describe a la empresa, no al equipo — con eso basta, no hace falta que se repita.
+// SIN el flag /i: el grupo capturado exige mayúscula inicial de verdad — con /i, "marca ni modelo"
+// (de una frase como "sin mención de marca ni modelo") también "calificaría" porque [A-Z] pasa a
+// aceptar minúsculas. Por eso "marca"/"modelo" se escriben con las dos capitalizaciones a mano.
+const RE_MARCA_JUNTO_A_MODELO = /\b[Mm]arca\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ0-9]+(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ0-9]+){0,2})\s*,?\s+[Mm]odelo\b/;
+
+/**
+ * Marca cuando aparece justo antes de "modelo" en la misma frase ("marca Massey Ferguson, modelo
+ * MF5710") — la señal más confiable de las tres (no exige repetición, y captura nombres de dos o
+ * tres palabras como "Massey Ferguson" o "Konica Minolta"). Se prueba ANTES que
+ * marcaPorMencionRepetida y marcaDesdeDominio.
+ */
+export function marcaJuntoAModelo(texto: string): string | null {
+  const m = RE_MARCA_JUNTO_A_MODELO.exec(String(texto || ''));
+  return m ? m[1].trim() : null;
+}
 
 /**
  * Marca a partir de una mención explícita "marca X" en CUALQUIER parte del texto (a diferencia de
@@ -167,6 +193,14 @@ export function marcaPorMencionRepetida(texto: string): string | null {
 const SUBDOMINIOS_GENERICOS = new Set(['www', 'sensing', 'shop', 'store', 'soporte', 'support', 'es', 'us', 'cl']);
 const DOMINIOS_GENERICOS = new Set(['gmail', 'hotmail', 'outlook', 'youtube', 'facebook', 'linkedin', 'instagram', 'google']);
 
+// BUG REAL (07/08-sep-2026, misma familia: fichas redactadas por un revendedor con su propio
+// correo de contacto en el encabezado — "ventas@grupoica.cl" cerca de un RUT). Un dominio que
+// aparece pegado a un RUT o a un correo de rol genérico (ventas@/contacto@/info@) casi siempre
+// identifica a QUIEN ESCRIBIÓ el documento, no al fabricante del equipo — tomarlo como marca es
+// EXACTAMENTE el invento que este módulo existe para evitar. Se excluye ese dominio de raíz: mejor
+// marca=null (que alguien complete a mano) que una marca segura pero equivocada.
+const RE_CONTEXTO_REMITENTE = /\b(rut|ventas@|contacto@|info@|comercial@)/i;
+
 /**
  * Marca a partir del sitio web que aparece en la ficha.
  *
@@ -183,6 +217,13 @@ export function marcaDesdeDominio(texto: string): string | null {
     partes.pop();                                   // el TLD
     const nombre = partes.reverse().find(p => !SUBDOMINIOS_GENERICOS.has(p));
     if (!nombre || nombre.length < 4 || DOMINIOS_GENERICOS.has(nombre)) continue;
+
+    // ¿Este dominio vive en el bloque de contacto del REMITENTE (RUT / correo de rol genérico a
+    // menos de ~80 caracteres)? Si es así, es la identidad de quien redactó la ficha, no la marca
+    // del equipo — se descarta este dominio y se sigue probando con el siguiente de la lista.
+    const idx = t.toLowerCase().indexOf(d.toLowerCase());
+    const contexto = t.slice(Math.max(0, idx - 80), idx + d.length + 80);
+    if (RE_CONTEXTO_REMITENTE.test(contexto)) continue;
 
     // ¿El texto escribe ese mismo nombre separado en palabras? ("konicaminolta" → "KONICA MINOLTA")
     const separado = buscarGrafiaSeparada(t, nombre);
