@@ -659,12 +659,14 @@ export function CosteoEditorCard({
   const [alertas, setAlertas] = useState<Alerta[] | null>(null);
   const [ultimoGuardado, setUltimoGuardado] = useState<string | null>(null);
   const [pantallaCompleta, setPantallaCompleta] = useState(standalone);
-  // Burbuja flotante (pedido del usuario, 07-sep-2026, ampliada a TODA LA APP el 08-sep-2026):
-  // en vez de abrir el costeo en otra pestaña del navegador, flota ENCIMA de cualquier página de
-  // la app (como el widget de chat de WhatsApp) para poder seguir trabajando mientras se costea.
-  // El modo ('panel' abierto / 'burbuja' minimizada) ya no es estado local — vive en
-  // CosteoFlotanteContext (ver `flot`, `enPanelFlotante`, `esNegocioActivoGlobal` más abajo) para
-  // sobrevivir a cualquier navegación, no solo a quedarse en la misma página.
+  // Burbuja flotante (pedido del usuario, 07-sep-2026, ampliada a TODA LA APP y a pantalla
+  // completa el 08-sep-2026): en vez de abrir el costeo en otra pestaña del navegador, flota
+  // ENCIMA de cualquier página de la app (como el widget de chat de WhatsApp) para poder seguir
+  // trabajando mientras se costea. El modo ('grande' = pantalla completa / 'burbuja' minimizada)
+  // ya no es estado local — vive en CosteoFlotanteContext (ver `flot`, `enGrandeFlotante`,
+  // `esNegocioActivoGlobal` más abajo) para sobrevivir a cualquier navegación, no solo a quedarse
+  // en la misma página. `pantallaCompleta` (abajo) queda SOLO para `standalone` — la pestaña
+  // propia del costeo, que no participa del sistema de burbuja porque ya es su propia pestaña.
   // Fichas técnicas en proceso (04-sep-2026) — por id de fila, no un solo booleano: varias filas
   // pueden estar generando su ficha a la vez, cada una independiente.
   const [generandoFicha, setGenerandoFicha] = useState<Set<string>>(new Set());
@@ -717,7 +719,7 @@ export function CosteoEditorCard({
   // `modoFlotanteGlobal`: esta instancia ES la burbuja (la monta <CosteoFlotanteHost/> en el
   // layout raíz — ver CosteoFlotanteContext.tsx). Todo lo que antes leía el estado LOCAL
   // `flotante` ahora lee el contexto global, que sobrevive a cualquier navegación.
-  const enPanelFlotante = modoFlotanteGlobal && flot.modo === 'panel';
+  const enGrandeFlotante = modoFlotanteGlobal && flot.modo === 'grande';
   // ¿El negocio de ESTA página (instancia embebida, no la global) es el que está flotando en
   // otro lado ahora mismo? Si sí, acá no se edita nada — solo se avisa (ver el return de más
   // abajo) para nunca tener dos editores del mismo negocio divergiendo a la vez.
@@ -726,11 +728,11 @@ export function CosteoEditorCard({
   // Escape en la burbuja abierta la MINIMIZA, no la cierra: minimizar nunca pierde nada (el
   // componente sigue montado), así que no hace falta pedir confirmación acá.
   useEffect(() => {
-    if (!enPanelFlotante) return;
+    if (!enGrandeFlotante) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') flot.minimizar(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [enPanelFlotante, flot]);
+  }, [enGrandeFlotante, flot]);
 
   // Cerrar la burbuja del todo si hay cambios sin guardar pide confirmar primero (pedido del
   // usuario: "que no se cierre si no se ha guardado"). No es que se pierdan de verdad —el estado
@@ -768,10 +770,13 @@ export function CosteoEditorCard({
     return () => flot.registrarGuardaAntesDeReemplazar(null);
   }, [modoFlotanteGlobal, dirty, confirmar, licitacionCodigo, flot]);
 
-  // Botón "Burbuja flotante" de la instancia EMBEBIDA: le pasa la posta a la burbuja global,
-  // llevándose lo editado en memoria (aunque no esté guardado) para no perder nada en el
-  // traspaso — ver `estadoHeredado` más arriba.
-  const abrirBurbujaGlobal = useCallback(() => {
+  // Botón "Abrir costeo" de la instancia EMBEBIDA: le pasa la posta a la burbuja global (que abre
+  // en GRANDE — pedido del usuario, 08-sep-2026: "se ve muy pequeño... necesito que se vea
+  // grande"), llevándose lo editado en memoria (aunque no esté guardado) para no perder nada en
+  // el traspaso — ver `estadoHeredado` más arriba. Reemplaza los dos botones que había antes
+  // ("Burbuja flotante" chico + "Pantalla completa" local, sin capacidad de minimizar): ahora es
+  // uno solo, siempre grande, y desde ahí "Minimizar" manda a la burbuja cuando haga falta.
+  const abrirCosteoGrande = useCallback(() => {
     flot.abrir(negocioId, licitacionCodigo, estado ? { estado, guardado } : undefined);
   }, [flot, negocioId, licitacionCodigo, estado, guardado]);
 
@@ -1052,46 +1057,36 @@ export function CosteoEditorCard({
             >
               <ArrowLeft size={12} /> Volver al negocio
             </a>
-          ) : enPanelFlotante ? (
-            // Dentro de la burbuja: minimizar es gratis (no pierde nada, el componente sigue
-            // montado), pero cerrarla del todo pasa por cerrarFlotante(), que pregunta si hay
-            // cambios sin guardar (pedido del usuario, 07-sep-2026).
+          ) : enGrandeFlotante ? (
+            // Grande y flotante a la vez: minimizar a burbuja es gratis (no pierde nada, el
+            // componente sigue montado), pero cerrarla del todo pasa por cerrarFlotante(), que
+            // pregunta si hay cambios sin guardar (pedido del usuario, 07-sep-2026).
             <>
               <button
                 onClick={() => flot.minimizar()}
-                title="Minimizar a burbuja (Esc) — sigue editando cuando quieras, no se pierde nada"
+                title="Minimizar a burbuja (Esc) — sigue editando cuando quieras desde el botón redondo, no se pierde nada"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
               >
                 <Minimize2 size={12} /> Minimizar
               </button>
-              <button onClick={cerrarFlotante} title="Cerrar la burbuja" className="p-1.5 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded-lg transition-colors">
+              <button onClick={cerrarFlotante} title="Cerrar" className="p-1.5 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded-lg transition-colors">
                 <X size={16} />
               </button>
             </>
-          ) : pantallaCompleta ? (
-            <button onClick={() => setPantallaCompleta(false)} title="Cerrar (Esc)" className="p-1.5 text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 rounded-lg transition-colors">
-              <X size={16} />
-            </button>
           ) : (
-            <>
-              {/* Burbuja flotante (pedido del usuario, 07-sep-2026; ampliada a TODA LA APP el
-                  08-sep-2026): reemplaza la vieja "Pestaña aparte" que abría el costeo en otra
-                  pestaña del navegador. Flota ENCIMA de cualquier página de la app —como el chat
-                  de WhatsApp— para seguir trabajando sin cerrar el costeo a cada momento. */}
-              <button
-                onClick={abrirBurbujaGlobal}
-                title="Abre el costeo en una burbuja flotante — se mantiene abierta aunque navegues a otra página de la app, y no deja cerrarla del todo si hay cambios sin guardar"
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
-              >
-                <PictureInPicture2 size={12} /> Burbuja flotante
-              </button>
-              <button
-                onClick={() => setPantallaCompleta(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
-              >
-                <Maximize2 size={12} /> Pantalla completa
-              </button>
-            </>
+            // Burbuja flotante (pedido del usuario, 07-sep-2026; ampliada a TODA LA APP y a
+            // pantalla completa el 08-sep-2026: "se ve muy pequeño... necesito que se vea
+            // grande... cuando esté en grande también quiero poder mandarlo a la burbuja").
+            // Un solo botón: abre GRANDE (pantalla completa) y flotante a la vez — se mantiene
+            // abierto aunque navegues a otra página, y desde ahí "Minimizar" lo manda a la
+            // burbuja (botón redondo) sin perder nada.
+            <button
+              onClick={abrirCosteoGrande}
+              title="Abre el costeo grande — se mantiene abierto aunque navegues a otra página de la app; minimízalo a una burbuja cuando quieras seguir trabajando en otra parte"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+            >
+              <Maximize2 size={12} /> Abrir costeo
+            </button>
           )}
         </div>
       </div>
@@ -1376,27 +1371,26 @@ export function CosteoEditorCard({
   // ── Burbuja flotante GLOBAL ──────────────────────────────────────────────────────────────────
   // Esta instancia ES la burbuja (la montó <CosteoFlotanteHost/> en el layout raíz — nunca una
   // página). Es un portal puro: no tiene "hueco" propio en ningún lado, así que jamás cae al
-  // return de abajo (el embebido normal) ni a `pantallaCompleta`. Al vivir en el layout raíz de
-  // Next.js (que no se desmonta al navegar), sobrevive a cualquier cambio de página — a
-  // diferencia de la versión anterior (07-sep-2026), que era la MISMA instancia embebida en la
-  // página del negocio y desaparecía en cuanto se cambiaba de sección o de ruta.
+  // return de abajo (el embebido normal) ni a `pantallaCompleta` (esa es solo para `standalone`).
+  // Al vivir en el layout raíz de Next.js (que no se desmonta al navegar), sobrevive a cualquier
+  // cambio de página — a diferencia de la versión anterior (07-sep-2026), que era la MISMA
+  // instancia embebida en la página del negocio y desaparecía en cuanto se cambiaba de sección o
+  // de ruta. 'grande' = pantalla completa (pedido del usuario, 08-sep-2026: "se ve muy
+  // pequeño... necesito que se vea grande" — reemplaza el panel chico de 880×640 que tenía
+  // antes), 'burbuja' = minimizada a un botón redondo.
   if (modoFlotanteGlobal) {
     return createPortal(
-      flot.modo === 'panel' ? (
-        <div
-          role="dialog"
-          aria-label={`Costeo · ${licitacionCodigo}`}
-          className="fixed bottom-5 right-5 z-[90] w-[min(880px,94vw)] h-[min(640px,86vh)] bg-white rounded-2xl shadow-2xl border border-zinc-300 flex flex-col overflow-hidden"
-        >
+      flot.modo === 'grande' ? (
+        <div className="fixed inset-0 z-[100] bg-zinc-100 flex flex-col">
           {Cabecera}
-          <div className="flex-1 min-h-0 p-3 flex flex-col gap-3 overflow-auto">
+          <div className="flex-1 min-h-0 p-3 flex flex-col gap-3">
             <div className="flex-1 min-h-0 min-w-0 flex">{Hoja}</div>
-            <div className="flex-shrink-0 max-h-[36vh] overflow-y-auto">{cuadroDeHoja(g, giActivo, true)}</div>
+            <div className="flex-shrink-0 max-h-[42vh] overflow-y-auto">{cuadroDeHoja(g, giActivo, true)}</div>
           </div>
         </div>
       ) : (
         // Minimizada: solo el botón redondo, como el chat head de WhatsApp — un clic la
-        // vuelve a abrir tal cual quedó.
+        // vuelve a abrir grande, tal cual quedó.
         <button
           onClick={() => flot.expandir()}
           title={dirty ? `Costeo · ${licitacionCodigo} — cambios sin guardar, clic para volver a abrirlo` : `Costeo · ${licitacionCodigo} — clic para volver a abrirlo`}
@@ -1410,6 +1404,9 @@ export function CosteoEditorCard({
     );
   }
 
+  // Solo alcanza este punto `standalone` (la pestaña propia /negocios/[id]/costeo): ya no hay
+  // ningún botón que ponga `pantallaCompleta` en `true` para la instancia embebida — ese camino
+  // ahora es SIEMPRE el global de arriba (`abrirCosteoGrande` → modoFlotanteGlobal, modo 'grande').
   if (pantallaCompleta) {
     return createPortal(
       <div className="fixed inset-0 z-[100] bg-zinc-100 flex flex-col">
@@ -1463,18 +1460,19 @@ export function CosteoEditorCard({
 
       <div className="bg-white rounded-xl border border-zinc-200">{Cabecera}</div>
 
-      {/* Vista previa chica — el editor de verdad vive en pantalla completa (pedido del usuario,
+      {/* Vista previa chica — el editor de verdad vive grande y flotante (pedido del usuario,
           02-sep-2026: una planilla de más de 8 columnas no cabe cómoda en el panel angosto del
-          negocio). Clic en cualquier parte abre lo mismo que "Pantalla completa" de arriba. */}
+          negocio; 08-sep-2026: además queda flotando y sobrevive a la navegación — ver
+          `abrirCosteoGrande`). Clic en cualquier parte abre lo mismo que "Abrir costeo" de arriba. */}
       <button
-        onClick={() => setPantallaCompleta(true)}
+        onClick={abrirCosteoGrande}
         className="w-full bg-white rounded-xl border border-dashed border-zinc-300 hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors p-8 flex flex-col items-center gap-2 text-center"
       >
         <Maximize2 size={20} className="text-zinc-400" />
         <p className="text-[13px] font-semibold text-zinc-700">Abrir la planilla de costeo</p>
         <p className="text-[11.5px] text-zinc-400 max-w-sm">
           {grupos.reduce((s, x) => s + x.filas.length, 0)} ítem(s)
-          {grupos.length > 1 ? ` en ${grupos.length} hoja(s)` : ''} · se edita en pantalla completa, como el Excel
+          {grupos.length > 1 ? ` en ${grupos.length} hoja(s)` : ''} · se edita en pantalla completa, como el Excel, y se puede minimizar a una burbuja
         </p>
       </button>
 

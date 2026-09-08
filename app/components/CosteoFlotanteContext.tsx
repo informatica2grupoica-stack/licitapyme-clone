@@ -29,7 +29,10 @@ interface CosteoActivo {
 
 interface CosteoFlotanteCtx {
   activo: CosteoActivo | null;
-  modo: 'panel' | 'burbuja';
+  // 'grande' = pantalla completa (una planilla de varias columnas no cabe cómoda en un panel
+  // chico — pedido del usuario, 08-sep-2026: "se ve muy pequeño... necesito que se vea grande").
+  // 'burbuja' = minimizada a un botón redondo, para seguir en otra página sin perder lo editado.
+  modo: 'grande' | 'burbuja';
   /** Trae al frente el negocio que ya está flotando, o abre uno nuevo (reemplazando al anterior si
    *  no tiene cambios sin guardar — o tras confirmar que sí se descartan). `heredado` transporta
    *  lo editado en memoria de la instancia embebida para no perderlo en el traspaso. */
@@ -49,7 +52,7 @@ const Ctx = createContext<CosteoFlotanteCtx | null>(null);
 
 export function CosteoFlotanteProvider({ children }: { children: ReactNode }) {
   const [activo, setActivo] = useState<CosteoActivo | null>(null);
-  const [modo, setModo] = useState<'panel' | 'burbuja'>('panel');
+  const [modo, setModo] = useState<'grande' | 'burbuja'>('grande');
   const guardaRef = useRef<(() => Promise<boolean>) | null>(null);
 
   const registrarGuardaAntesDeReemplazar = useCallback((fn: (() => Promise<boolean>) | null) => {
@@ -60,7 +63,7 @@ export function CosteoFlotanteProvider({ children }: { children: ReactNode }) {
     // Ya está flotando ESTE mismo negocio: solo se trae al frente, nunca se reemplaza la
     // instancia (lo que lleve editado en memoria ahora mismo va más adelante que `heredado`,
     // que quedaría desactualizado).
-    if (activo && activo.negocioId === negocioId) { setModo('panel'); return; }
+    if (activo && activo.negocioId === negocioId) { setModo('grande'); return; }
     // Ya hay OTRO negocio flotando: su propia instancia decide si hay algo sin guardar que se
     // perdería al reemplazarla (misma lógica que ya usa el botón "Cerrar" de la burbuja).
     if (activo && activo.negocioId !== negocioId) {
@@ -68,11 +71,11 @@ export function CosteoFlotanteProvider({ children }: { children: ReactNode }) {
       if (!puedeReemplazar) return;
     }
     setActivo({ negocioId, licitacionCodigo, heredado });
-    setModo('panel');
+    setModo('grande');
   }, [activo]);
 
   const minimizar = useCallback(() => setModo('burbuja'), []);
-  const expandir = useCallback(() => setModo('panel'), []);
+  const expandir = useCallback(() => setModo('grande'), []);
   const cerrar = useCallback(() => { setActivo(null); guardaRef.current = null; }, []);
 
   // Memoizado: sin esto, cada componente que consume el contexto (potencialmente varios negocios
