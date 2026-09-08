@@ -1369,6 +1369,14 @@ en una sola bolsa de 30+ características donde ninguna ficha del proveedor las 
 es el error — separar por componente es lo correcto, aunque Mercado Público solo cuente esa línea como
 "1 ítem".
 
+PASO 0, ANTES DE CLASIFICAR (obligatorio, por cada línea de Mercado Público): ¿esta línea trae un bloque
+de especificaciones que cita SU PROPIA marca/modelo ("equivalente a modelo X de Y"), distinta de la del
+resto? Si SÍ → esa línea es 2+ ítems de productos.items[] (mismo "linea", un nombre por componente). NO
+uses el conteo de ítems de Mercado Público como excusa para fusionarlos — MP puede contar 1 y las bases
+describir 6 productos (tractor+implementos) o 3 (camión+grúa+canastillo). Falla común a evitar: quedarse
+con 1 solo ítem "porque así lo cuenta Mercado Público" cuando las bases técnicas claramente describen
+componentes con marcas distintas — eso es el error exacto que este párrafo existe para prevenir.
+
 Clasifica cada ítem y trátalo distinto:
 
   ══ ESPECÍFICO (tiene marca/modelo de referencia o características técnicas detalladas) ══
