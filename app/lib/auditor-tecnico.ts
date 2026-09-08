@@ -19,13 +19,16 @@
 // y se re-exporta aquí para no romper a los consumidores existentes de este archivo.
 import { crearChatIA } from '@/app/lib/gemini';
 import { parseJsonIA } from '@/app/lib/json-ia';
+import { extraerProductoOfertado, type ProductoOfertado } from '@/app/lib/producto-ofertado';
 import {
   normalizarConfianza,
+  resumenLinea,
   type TipoRequisitoTecnico,
   type VeredictoTecnico,
   type LineaTecnica,
   type CaracteristicaClasificada,
   type VeredictoCaracteristica,
+  type ResumenLinea,
   corregirTipoDeTolerancia,
 } from '@/app/lib/auditor-tecnico-core';
 
@@ -124,13 +127,38 @@ confianza: un ENTERO entre 0 y 100 (nunca una fracción entre 0 y 1 — si tu co
 Devuelve SOLO JSON, sin markdown ni texto adicional:
 {"veredictos":[{"id":0,"valor_ofertado_texto":"","valor_ofertado_numero":null,"unidad_ofertada_original":"","veredicto":"CUMPLE|NO_CUMPLE|CUMPLE_CON_COMPLEMENTO|null","pendiente_confirmacion_proveedor":false,"fundamento_cita":"","confianza":0}]}`;
 
+// ─── Motor de IA de una llamada de comparación ──────────────────────────────────────────────────
+// Parametriza compararFichaProveedor() para que la reuse también compararFichasMultiModelo() (más
+// abajo, camino "100% IA" con Kimi K3) sin duplicar la llamada, el prompt ni el parseo — solo
+// cambia QUÉ modelo de IA responde y cuánto presupuesto de tokens se le da.
+interface MotorComparacion {
+  proveedorPreferido?: string;   // 'kimi' → Moonshot K3 (ver PROVEEDORES_TEXTO en gemini.ts)
+  modeloPreferido?: string;      // GLM específico dentro de la cuenta Z.AI (comportamiento de siempre)
+  timeoutMs: number;
+  maxTokens: number;
+  loteMax: number;               // tope de características por llamada — ver la nota de abajo
+}
+const MOTOR_GLM: MotorComparacion = { modeloPreferido: 'glm-5.2', timeoutMs: 90_000, maxTokens: 6_000, loteMax: MAX_CARACT_POR_LLAMADA };
+// Kimi K3 razona SIEMPRE — no se puede apagar, solo graduar (ver reasoningEffort en gemini.ts) — y
+// ese razonamiento se cobra y ocupa el MISMO presupuesto de max_tokens que el JSON final. Sin más
+// margen que GLM se repetiría el bug de "JSON cortado a la mitad" que ya obligó a lotear (ver
+// MAX_CARACT_POR_LLAMADA): por eso maxTokens es casi 3x y el lote es más chico. timeoutMs más
+// largo por la misma razón — pensar de más tarda más.
+const MOTOR_KIMI: MotorComparacion = { proveedorPreferido: 'kimi', timeoutMs: 180_000, maxTokens: 16_000, loteMax: 15 };
+
 /** Agente 2 (camino B) — dada la ficha técnica del proveedor (texto ya extraído), compara CADA
- *  característica ya clasificada y emite veredicto. Modelo preferido: glm-5.2. */
+ *  característica ya clasificada y emite veredicto. Motor por defecto: GLM-5.2 (comportamiento de
+ *  siempre). `opciones.motor` permite correr la MISMA comparación con Kimi K3 (ver MOTOR_KIMI) y
+ *  `opciones.modeloObjetivo` acota la ficha a UN modelo cuando el documento describe varios (ver
+ *  compararFichasMultiModelo) — con un solo modelo se omite y el comportamiento es idéntico al de
+ *  siempre. */
 export async function compararFichaProveedor(
   caracteristicas: Array<Pick<CaracteristicaClasificada, 'descripcion' | 'tipo' | 'valorRequeridoNumero' | 'valorRequeridoNumeroMax' | 'unidadRequerida' | 'valorRequeridoTexto'> & { id: number }>,
   fichaTexto: string,
   fichaNombre: string,
+  opciones: { motor?: MotorComparacion; modeloObjetivo?: string | null } = {},
 ): Promise<Map<number, VeredictoCaracteristica>> {
+  const { motor = MOTOR_GLM, modeloObjetivo = null } = opciones;
   const resultado = new Map<number, VeredictoCaracteristica>();
   if (!caracteristicas.length) return resultado;
 
@@ -139,10 +167,10 @@ export async function compararFichaProveedor(
   // — a ~150 tokens cada una son ~7.400, por encima del max_tokens de 6.000: el JSON se cortaba y
   // las características del final se quedaban SIN veredicto para siempre. Falla en silencio,
   // porque quedar "sin evaluar" es exactamente lo que se ve cuando la ficha no dice nada.
-  if (caracteristicas.length > MAX_CARACT_POR_LLAMADA) {
-    for (let i = 0; i < caracteristicas.length; i += MAX_CARACT_POR_LLAMADA) {
-      const lote = caracteristicas.slice(i, i + MAX_CARACT_POR_LLAMADA);
-      const parcial = await compararFichaProveedor(lote, fichaTexto, fichaNombre);
+  if (caracteristicas.length > motor.loteMax) {
+    for (let i = 0; i < caracteristicas.length; i += motor.loteMax) {
+      const lote = caracteristicas.slice(i, i + motor.loteMax);
+      const parcial = await compararFichaProveedor(lote, fichaTexto, fichaNombre, opciones);
       for (const [k, v] of parcial) resultado.set(k, v);
     }
     return resultado;
@@ -151,7 +179,13 @@ export async function compararFichaProveedor(
   const lista = caracteristicas.map(c =>
     `id=${c.id} · ${c.descripcion} (${c.tipo}${c.valorRequeridoTexto ? `, exigido: ${c.valorRequeridoTexto}` : ''}${c.unidadRequerida ? ` ${c.unidadRequerida}` : ''})`,
   ).join('\n');
-  const user = `CARACTERÍSTICAS A VERIFICAR:
+  // modeloObjetivo (camino "100% IA" con varios modelos en la misma ficha, ej. un catálogo con
+  // varios tractores): sin esto la IA puede mezclar datos de dos modelos distintos porque están en
+  // el mismo texto. Con un solo modelo en la ficha se omite — no hay nada que desambiguar.
+  const alcance = modeloObjetivo
+    ? `ATENCIÓN: esta ficha técnica describe VARIOS modelos/equipos distintos. Evalúa ÚNICAMENTE los datos del modelo "${modeloObjetivo}" — ignora por completo los datos de cualquier otro modelo que aparezca en el mismo texto, aunque esté en la misma tabla o página.\n\n`
+    : '';
+  const user = `${alcance}CARACTERÍSTICAS A VERIFICAR:
 ${lista}
 
 FICHA TÉCNICA DEL PROVEEDOR ("${fichaNombre}"):
@@ -159,9 +193,9 @@ ${fichaTexto.slice(0, 40_000)}`;
 
   const completion: any = await crearChatIA({
     messages: [{ role: 'system', content: SYS_AGENTE2 }, { role: 'user', content: user }],
-    temperature: 0.1, stream: false, max_tokens: 6_000,
+    temperature: 0.1, stream: false, max_tokens: motor.maxTokens,
     response_format: { type: 'json_object' },
-  }, { timeoutMs: 90_000, modeloPreferido: 'glm-5.2' });
+  }, { timeoutMs: motor.timeoutMs, modeloPreferido: motor.modeloPreferido, proveedorPreferido: motor.proveedorPreferido });
 
   const txt = String(completion.choices?.[0]?.message?.content ?? '');
   const parsed: any = parseJsonIA(txt) || {};
@@ -186,6 +220,180 @@ ${fichaTexto.slice(0, 40_000)}`;
     });
   }
   return resultado;
+}
+
+// ─── Camino "100% IA" (Kimi K3): ficha con VARIOS modelos candidatos ────────────────────────────
+//
+// PEDIDO DEL USUARIO (07-sep-2026): la ficha técnica de un proveedor a veces no describe UN equipo,
+// sino un CATÁLOGO — varios modelos de la misma familia en el mismo documento (folleto de línea
+// completa, cotización con 3+ alternativas: "si en la ficha técnica tengo más de 3 tractores...").
+// compararFichaProveedor() de arriba asume UN SOLO producto: con varios modelos mezclados en el
+// mismo texto, la IA puede tomar datos de cualquiera de ellos indistintamente y el veredicto sale
+// sin sentido (compara la exigencia contra un batido de specs de modelos distintos). Esta función
+// identifica CADA modelo por separado y evalúa las características exigidas contra cada uno, para
+// poder responder "el Modelo X es el único que cumple todo" con fundamento.
+//
+// DOS LLAMADAS, no una (mismo patrón Agente1/Agente2 del resto del archivo): identificar los
+// modelos es una tarea corta y barata; comparar cada uno reusa compararFichaProveedor() con
+// `modeloObjetivo` para acotar el texto — así cada llamada de comparación es tan fiable como la de
+// siempre (mismo prompt, mismo parseo, mismo lote) y solo cambia el motor (Kimi K3, MOTOR_KIMI).
+//
+// PROMPT ROBUSTO: distingue "modelo distinto" de "el mismo modelo escrito distinto" (evita que un
+// catálogo con "Tractor JD 5075E" y "JD5075E" cuente como dos), y exige fundamento_cita para poder
+// auditar de dónde salió cada modelo — misma regla de veracidad que el resto del auditor.
+const SYS_IDENTIFICAR_MODELOS = `Eres un auditor técnico de licitaciones públicas chilenas, experto en maquinaria y equipamiento industrial. Te doy el texto completo de una ficha técnica o catálogo de un proveedor, que puede describir UN SOLO equipo o VARIOS modelos distintos de la misma familia (ej. un catálogo con 3 tractores, 5 bombas, 4 generadores, distintas variantes de potencia/capacidad de la misma línea).
+
+TU TAREA: identificar cada modelo/equipo DISTINTO que aparece como una opción concreta y verificable (con sus propias especificaciones técnicas propias), no menciones genéricas, accesorios ni opcionales.
+
+REGLAS:
+- Si la ficha describe UN SOLO equipo, devuelve un único modelo (no fuerces una lista de varios).
+- NO inventes modelos que no estén en el texto.
+- NO dupliques el mismo modelo con variantes de escritura (ej. "JD 5075E" y "JD5075E" son el MISMO modelo — unifícalos usando el nombre tal como aparece la primera vez).
+- Dos modelos son DISTINTOS solo si tienen especificaciones técnicas propias y diferenciables (potencia, capacidad, dimensiones, código de modelo, etc.) — no cuentes como modelo aparte una simple mención de marca sin datos propios.
+- "resumen_specs": 2-3 datos que lo distinguen de los OTROS modelos de esta misma ficha (ej. "180 HP, 4x4, cabina cerrada"), máximo 200 caracteres — solo para que una persona lo identifique de un vistazo, no repitas la ficha completa.
+- "fundamento_cita": la frase o dato textual de la ficha que prueba que este modelo existe como opción propia (máximo 300 caracteres).
+
+Devuelve SOLO JSON, sin markdown ni texto adicional:
+{"modelos":[{"nombre_modelo":"","resumen_specs":"","fundamento_cita":""}]}`;
+
+export interface ModeloCandidato {
+  nombreModelo: string;
+  resumenSpecs: string | null;
+  fundamentoCita: string | null;
+}
+
+/** Identifica los modelos/equipos DISTINTOS descritos en una ficha (catálogo con varias opciones).
+ *  Llamada corta y barata frente a la de comparación — por defecto corre en el motor pasado (Kimi
+ *  K3, MOTOR_KIMI), pero acepta cualquier motor para poder probarla también en GLM si hiciera falta. */
+export async function identificarModelosFicha(
+  fichaTexto: string, fichaNombre: string, motor: MotorComparacion = MOTOR_KIMI,
+): Promise<ModeloCandidato[]> {
+  const user = `FICHA TÉCNICA ("${fichaNombre}"):
+${fichaTexto.slice(0, 60_000)}`;
+
+  const completion: any = await crearChatIA({
+    messages: [{ role: 'system', content: SYS_IDENTIFICAR_MODELOS }, { role: 'user', content: user }],
+    temperature: 0.1, stream: false, max_tokens: 2_000,
+    response_format: { type: 'json_object' },
+  }, { timeoutMs: motor.timeoutMs, modeloPreferido: motor.modeloPreferido, proveedorPreferido: motor.proveedorPreferido });
+
+  const txt = String(completion.choices?.[0]?.message?.content ?? '');
+  const parsed: any = parseJsonIA(txt) || {};
+  const arr = Array.isArray(parsed.modelos) ? parsed.modelos : [];
+  const out: ModeloCandidato[] = [];
+  for (const m of arr) {
+    const nombreModelo = String(m?.nombre_modelo || '').trim();
+    if (!nombreModelo) continue;
+    out.push({
+      nombreModelo: nombreModelo.slice(0, 200),
+      resumenSpecs: m?.resumen_specs ? String(m.resumen_specs).slice(0, 200) : null,
+      fundamentoCita: m?.fundamento_cita ? String(m.fundamento_cita).slice(0, 300) : null,
+    });
+  }
+  return out;
+}
+
+export interface ResultadoModeloComparado {
+  nombreModelo: string;
+  resumenSpecs: string | null;
+  /** clave = id de la característica (mismo id que entra a compararFichasMultiModelo). */
+  veredictos: Map<number, VeredictoCaracteristica>;
+  resumen: ResumenLinea;
+  /** true solo si TODAS las características dieron CUMPLE — ni un NO_CUMPLE, ni un pendiente, ni
+   *  un CUMPLE_CON_COMPLEMENTO (ese es "cumple con condiciones", no cumplimiento pleno). */
+  cumpleTodo: boolean;
+  /** Marca/modelo/fabricante leídos (determinista, sin IA) DEL DOCUMENTO de este candidato
+   *  específico — para que el caller pueda ofrecer "usar este modelo" y confirmar el producto
+   *  ofertado con estos datos, en vez de dejar que la próxima ficha de OTRO ítem de un mismo
+   *  paquete pise el producto con datos que no le corresponden (ver el bug real de 08-sep-2026:
+   *  la ficha de los implementos TECNOMAQ sobrescribía la marca ya leída del tractor). */
+  producto: ProductoOfertado;
+}
+
+export interface ResultadoComparacionMultiModelo {
+  /** false si la ficha resultó describir UN solo modelo — `modelos` trae un único elemento y el
+   *  resultado es equivalente a llamar compararFichaProveedor() directamente. */
+  multiplesModelos: boolean;
+  modelos: ResultadoModeloComparado[];
+  /** Modelo(s) que cumplen el 100% de las características verificables. Vacío si NINGUNO cumple
+   *  todo — en ese caso el caller debe mostrar el que más se acerca (mayor resumen.cumplen) y sus
+   *  brechas, nunca elegir uno como si cumpliera cuando no cumple. */
+  recomendados: string[];
+}
+
+export interface FichaEntrada { texto: string; nombre: string }
+
+/**
+ * Camino "100% IA" (Kimi K3, pedido del usuario 07-sep-2026): identifica y compara TODOS los
+ * modelos/equipos candidatos que aparezcan en una o VARIAS fichas a la vez (ej. más de 3
+ * tractores) — cada modelo por separado, para poder decir cuál cumple. Cubre los dos casos reales
+ * sin que el caller tenga que distinguirlos:
+ *   · UN documento que es un catálogo con varios modelos mezclados (identificarModelosFicha
+ *     encuentra 2+ dentro de esa misma ficha → se escopa con `modeloObjetivo`).
+ *   · VARIOS documentos, cada uno la ficha de UN solo modelo (pedido explícito del usuario,
+ *     07-sep-2026: poder cargar/arrastrar varias fichas a la vez) — cada documento aporta sus
+ *     propios candidatos, sin necesidad de escopar (el documento completo ES ese modelo).
+ * Ambos casos se aplanan en una sola lista de candidatos antes de comparar, así que una mezcla de
+ * los dos (2 catálogos con 2 modelos cada uno) también funciona sin código especial.
+ *
+ * La decisión final ("qué modelo cumple todo") es DETERMINISTA — la IA solo extrae y compara dato
+ * por dato; contar quién cumplió todo es aritmética simple (resumenLinea), no una opinión de la
+ * IA, siguiendo la misma regla de veracidad del resto del auditor: nunca declarar cumplimiento por
+ * interpretación, solo por dato verificado.
+ *
+ * Con una sola ficha que resulta describir UN SOLO modelo, se comporta igual que
+ * compararFichaProveedor() (un elemento en `modelos`, multiplesModelos=false).
+ */
+export async function compararFichasMultiModelo(
+  caracteristicas: Array<Pick<CaracteristicaClasificada, 'descripcion' | 'tipo' | 'valorRequeridoNumero' | 'valorRequeridoNumeroMax' | 'unidadRequerida' | 'valorRequeridoTexto'> & { id: number }>,
+  fichas: FichaEntrada[],
+  motor: MotorComparacion = MOTOR_KIMI,
+): Promise<ResultadoComparacionMultiModelo> {
+  if (!fichas.length) return { multiplesModelos: false, modelos: [], recomendados: [] };
+
+  // Identifica los modelos DE CADA documento por separado — un documento puede traer un solo
+  // modelo (el caso normal cuando cada archivo es la ficha de UN equipo) o varios (un catálogo).
+  const porFicha = await Promise.all(fichas.map(async (ficha) => ({
+    ficha, identificados: await identificarModelosFicha(ficha.texto, ficha.nombre, motor),
+  })));
+
+  interface Candidato { nombreModelo: string; resumenSpecs: string | null; ficha: FichaEntrada; requiereAlcance: boolean }
+  const candidatos: Candidato[] = [];
+  for (const { ficha, identificados } of porFicha) {
+    // Sin modelos identificables en ESTE documento (ficha rara, texto insuficiente) → se toma
+    // como un solo modelo sin nombre propio (el nombre del archivo), igual que
+    // compararFichaProveedor() de siempre — evita perder el documento entero por un fallo puntual
+    // del Agente de identificación cuando la comparación en sí sí podría funcionar.
+    const propios = identificados.length ? identificados : [{ nombreModelo: ficha.nombre, resumenSpecs: null, fundamentoCita: null }];
+    // requiereAlcance: solo hace falta acotar con `modeloObjetivo` cuando ESTE documento trae
+    // varios modelos mezclados en el mismo texto. Si el documento es dedicado a un solo modelo
+    // (el caso normal de "una ficha por archivo"), acotar no aporta nada — el texto completo YA es
+    // ese modelo — y evita una instrucción de más en el prompt.
+    for (const m of propios) candidatos.push({ nombreModelo: m.nombreModelo, resumenSpecs: m.resumenSpecs, ficha, requiereAlcance: propios.length > 1 });
+  }
+
+  const multiplesModelos = candidatos.length > 1;
+
+  const modelos: ResultadoModeloComparado[] = await Promise.all(candidatos.map(async (c) => {
+    const veredictos = await compararFichaProveedor(
+      caracteristicas, c.ficha.texto, c.ficha.nombre,
+      { motor, modeloObjetivo: c.requiereAlcance ? c.nombreModelo : null },
+    );
+    const filas = caracteristicas.map(car => {
+      const v = veredictos.get(car.id);
+      return { veredicto: v?.veredicto ?? null, pendiente_confirmacion_proveedor: v?.pendienteConfirmacionProveedor ?? true };
+    });
+    const resumen = resumenLinea(filas);
+    return {
+      nombreModelo: c.nombreModelo, resumenSpecs: c.resumenSpecs, veredictos, resumen,
+      cumpleTodo: resumen.total > 0 && resumen.cumplen === resumen.total,
+      // Determinista, sin IA (mismo lector que usa "Subir ficha" normal) — leído DEL DOCUMENTO
+      // propio de este candidato, nunca del texto de otro modelo mezclado en la misma llamada.
+      producto: extraerProductoOfertado(c.ficha.texto, c.ficha.nombre),
+    };
+  }));
+
+  return { multiplesModelos, modelos, recomendados: modelos.filter(m => m.cumpleTodo).map(m => m.nombreModelo) };
 }
 
 /** Camino A, paso 2 (fallback): UNA característica, modelo barato (cadena por defecto, sin

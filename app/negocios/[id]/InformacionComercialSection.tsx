@@ -237,11 +237,17 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
       if (!r.ok || !d?.success) { toast.error(d.error || 'No se pudo generar la ficha'); return; }
       // El aviso de casillas en blanco NO es cosmético: son las que hay que completar a mano antes
       // de presentar, y es justo lo que se pierde de vista si el PDF se abre y se da por listo.
-      if (d.sinCompletar > 0) {
-        toast.warning(
-          `Ficha lista con ${d.lineas} línea(s)`,
-          `${d.sinCompletar} casilla(s) de "Ofertado" quedaron en blanco: complétalas antes de presentar.`,
-        );
+      //
+      // sinConfirmar (08-sep-2026): marca/modelo/foto leídos automáticamente de la ficha del
+      // proveedor, sin que nadie los haya revisado. El PDF YA NO imprime ese aviso adentro del
+      // documento (antes salía en letra ámbar, dentro de lo que se presenta al organismo) — el
+      // aviso tiene que vivir ACÁ, antes de descargar, no dentro del documento oficial.
+      const avisos = [
+        d.sinCompletar > 0 ? `${d.sinCompletar} casilla(s) de "Ofertado" en blanco` : null,
+        d.sinConfirmar > 0 ? `${d.sinConfirmar} producto(s) con marca/modelo o foto sin confirmar` : null,
+      ].filter(Boolean);
+      if (avisos.length) {
+        toast.warning(`Ficha lista con ${d.lineas} línea(s)`, `${avisos.join(' · ')} — revísalos antes de presentar.`);
       } else {
         toast.success(`Ficha lista con ${d.lineas} línea(s)`, 'Todas las casillas vienen completas.');
       }
@@ -1020,6 +1026,31 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
     }
   };
 
+  // Válvula manual del asesor (08-sep-2026, pedido del usuario): el dedupe automático fusiona la
+  // gran mayoría, pero no todas las bases redactan sus Formatos de un modo que el detector
+  // reconozca — esto es lo que queda para el duplicado que se le escapó. Irreversible, por eso el
+  // aviso cambia si el punto ya tiene evidencia cargada: no es lo mismo borrar una fila vacía que
+  // una con un documento aprobado adentro.
+  const [eliminandoItem, setEliminandoItem] = useState(false);
+  const eliminarItem = async () => {
+    const tieneEvidencia = item.documentos.length > 0 || item.estado === 'APROBADO' || item.estado === 'CARGADO';
+    const ok = await confirmar({
+      titulo: '¿Eliminar este punto del checklist?',
+      mensaje: tieneEvidencia
+        ? `"${item.titulo}" tiene evidencia cargada que se perderá. Úsalo solo si es un duplicado de otro punto.`
+        : `"${item.titulo}" — no se puede deshacer.`,
+      confirmarLabel: 'Eliminar',
+      peligro: true,
+    });
+    if (!ok) return;
+    setEliminandoItem(true);
+    try {
+      await onAccion(item.id, 'ELIMINAR_ITEM');
+    } finally {
+      setEliminandoItem(false);
+    }
+  };
+
   const observar = async () => {
     if (!observacion.trim()) { toast.error('Escribe qué hay que corregir'); return; }
     if (await onAccion(item.id, 'OBSERVAR', { observacion: observacion.trim() })) {
@@ -1303,6 +1334,20 @@ function FilaItem({ item, licitacionCodigo, puedeAprobar, bloqueado, ocupado, mo
                 className="p-1.5 text-zinc-300 hover:text-zinc-600 hover:bg-zinc-50 rounded-lg transition-colors"
               >
                 <Undo2 size={13} />
+              </button>
+            )}
+
+            {/* Asesor: eliminar un duplicado que el dedupe automático no fusionó (ver
+                planDeReconciliacion). Respeta el mismo congelamiento que el resto de las acciones
+                — el servidor igual lo rechazaría con 409 si la licitación ya se postuló. */}
+            {puedeAprobar && !bloqueado && (
+              <button
+                onClick={eliminarItem}
+                disabled={eliminandoItem}
+                title="Eliminar este punto (duplicado)"
+                className="p-1.5 text-zinc-300 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {eliminandoItem ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
               </button>
             )}
           </div>

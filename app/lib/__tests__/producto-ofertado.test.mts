@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  extraerProductoOfertado, marcaDesdeDominio, modeloDesdeEncabezado,
+  extraerProductoOfertado, marcaDesdeDominio, marcaPorMencionRepetida, modeloDesdeEncabezado,
   modeloDesdeNombreArchivo, tieneAlgo,
 } from '../producto-ofertado';
 
@@ -119,6 +119,39 @@ test('saca el modelo del nombre del archivo como último recurso', () => {
 test('el dato etiquetado le gana al nombre del archivo', () => {
   const p = extraerProductoOfertado('Modelo: LS-160', 'Ficha tecnica original LS-150.pdf');
   assert.equal(p.modelo, 'LS-160');
+});
+
+// ─── BUG REAL (07-sep-2026, 2495-17-B226 "Implementos TECNOMAQ"): la ficha la redacta el
+// revendedor (contacto @grupoica.cl en el encabezado) y declara su marca real varias veces
+// ("marca TECNOMAQ", "TECNOMAQ, en su calidad de marca comercializadora…") pero SIN el rótulo
+// "Marca:" al inicio de un renglón. Antes de este fix, marcaDesdeDominio() tomaba el dominio de
+// contacto del revendedor (grupoica.cl) como si fuera la marca del equipo.
+const FICHA_TECNOMAQ = [
+  'INVERSIONES CLARO ARZ SpA',
+  'RUT: 76.902.659-2 | Barros Arana N° 492, Concepción | ventas@grupoica.cl | +56 9 3146 2445',
+  'FICHA TÉCNICA DEL EQUIPO',
+  'Línea de Implementos TECNOMAQ para Trasplante de Árboles',
+  'OFERENTE: INVERSIONES CLARO ARZ SpA — RUT 76.902.659-2 — marca TECNOMAQ',
+  'Todos los implementos son nuevos, sin uso, e ingresan bajo la marca y garantía TECNOMAQ.',
+  'SISTEMA DE TRASPLANTE DE ÁRBOLES VIVOS — TECNOMAQ',
+  'PALA BARRE NIEVE — TECNOMAQ',
+  'TECNOMAQ, en su calidad de marca comercializadora y responsable técnica de esta línea de implementos, otorga garantía de 12 meses.',
+].join('\n');
+
+test('caso real: la marca real repetida en el cuerpo le gana al dominio de contacto del revendedor', () => {
+  const p = extraerProductoOfertado(FICHA_TECNOMAQ);
+  assert.equal(p.marca, 'TECNOMAQ');
+  assert.equal(p.fabricante, 'TECNOMAQ');
+});
+
+test('marcaPorMencionRepetida: exige que la palabra se repita, una mención suelta no basta', () => {
+  assert.equal(marcaPorMencionRepetida('Se aceptan equipos de marca Bosch o equivalente'), null);
+  assert.equal(marcaPorMencionRepetida('El equipo debe ser equivalente a la marca Bosch o superior'), null);
+});
+
+test('marcaPorMencionRepetida: "equivalente" cerca invalida aunque la palabra se repita 3+ veces', () => {
+  const t = 'Se aceptan equipos de marca Bosch o equivalente. Bosch. Bosch. Bosch.';
+  assert.equal(marcaPorMencionRepetida(t), null);
 });
 
 test('sin ninguna señal, todo queda en null', () => {

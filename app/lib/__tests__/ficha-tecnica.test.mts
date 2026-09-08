@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  textoRequisito, textoOfertado, especificacionesSinCompletar, construirFichaTecnicaHtml,
+  textoRequisito, textoOfertado, especificacionesSinCompletar, productosSinConfirmar, construirFichaTecnicaHtml,
   imagenProducto,
   type EspecificacionFicha, type LineaFicha, type EmpresaFicha, type ProductoFicha,
 } from '../ficha-tecnica';
@@ -206,53 +206,73 @@ test('con fabricante/país/garantía, se imprime la sección', () => {
   assert.ok(h.includes('12 meses'));
 });
 
-// Un dato leído automáticamente y no confirmado por una persona sale con aviso: presentarlo sin
-// revisar es un riesgo, no un detalle cosmético.
-test('marca/modelo sin confirmar avisa que hay que revisarlo antes de presentar', () => {
+// BUG REAL (08-sep-2026, pedido explícito del usuario): este documento es el que se PRESENTA al
+// organismo — antes, un dato sin confirmar imprimía ACÁ MISMO un aviso interno ("⚠ … revisar antes
+// de presentar", en letra ámbar) que viajaba dentro del PDF oficial. Ahora el PDF nunca lleva ese
+// aviso (esté confirmado o no) — el control de "¿ya lo revisaron?" se movió a productosSinConfirmar,
+// que alimenta un aviso EN LA PANTALLA antes de descargar, nunca dentro del documento.
+test('marca/modelo sin confirmar se imprime igual, SIN ningún aviso dentro del documento', () => {
   const h = ficha([{
     linea: 8, titulo: 'Set',
     productos: [prod({ nombre: 'Set', marca: 'Konica Minolta', confirmado: false })],
   }]);
-  assert.ok(/revisar antes de presentar/i.test(h));
+  assert.ok(h.includes('Konica Minolta'));
+  assert.ok(!/revisar antes de presentar/i.test(h));
+  assert.ok(!/sin.confirmar/i.test(h));
 });
 
-test('marca/modelo confirmados por una persona NO muestran el aviso', () => {
+test('marca/modelo confirmados se imprimen igual (mismo resultado, confirmado o no)', () => {
   const h = ficha([{
     linea: 8, titulo: 'Set',
     productos: [prod({ nombre: 'Set', marca: 'Konica Minolta', confirmado: true })],
   }]);
+  assert.ok(h.includes('Konica Minolta'));
   assert.ok(!/revisar antes de presentar/i.test(h));
 });
 
-// ─── FOTO DEL PRODUCTO — con o sin confirmar por una persona ──────────────────────────────────
+// ─── FOTO DEL PRODUCTO — siempre con el mismo pie neutro, esté confirmada o no ─────────────────
 // Verificado con fichas reales (27-ago-2026): la extracción automática a veces trae la imagen
-// EQUIVOCADA (una textura decorativa, una franja de logos de certificación) en vez del producto.
-// Por eso, mientras nadie la confirme, la ficha tiene que avisarlo — no imprimirla como si fuera
-// segura, mismo criterio que ya existía para marca/modelo/fabricante.
+// EQUIVOCADA (una textura decorativa, una franja de logos de certificación) en vez del producto —
+// pero ese riesgo se controla ANTES de presentar (productosSinConfirmar), no con un aviso impreso
+// en el documento que se entrega al organismo.
 test('sin imagenDataUri, no imprime nada', () => {
   assert.equal(imagenProducto(prod({})), '');
   assert.equal(imagenProducto(null), '');
   assert.equal(imagenProducto(undefined), '');
 });
 
-test('imagen SIN confirmar: sale con el aviso de revisar, no como "Imagen referencial" a secas', () => {
+test('imagen SIN confirmar: sale igual como "Imagen referencial", sin ningún aviso interno', () => {
   const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: false }));
   assert.ok(h.includes('data:image/png;base64,AAA'));
-  assert.ok(/confirmar que corresponde al equipo/i.test(h));
-  assert.ok(!h.includes('>Imagen referencial<'));
-});
-
-test('imagen CONFIRMADA por una persona: sale con el pie neutro, sin el aviso', () => {
-  const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: true }));
   assert.ok(h.includes('>Imagen referencial<'));
   assert.ok(!/confirmar que corresponde al equipo/i.test(h));
 });
 
-// El texto (marca/modelo) y la foto se confirman POR SEPARADO (migración 81): confirmar uno no
-// confirma el otro. Texto confirmado + foto sin confirmar debe seguir avisando de la foto.
-test('confirmar el texto NO confirma la foto: el aviso de la imagen se mantiene', () => {
-  const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', confirmado: true, imagenConfirmada: false }));
-  assert.ok(/confirmar que corresponde al equipo/i.test(h));
+test('imagen CONFIRMADA por una persona: mismo pie neutro', () => {
+  const h = imagenProducto(prod({ imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: true }));
+  assert.ok(h.includes('>Imagen referencial<'));
+});
+
+// ─── productosSinConfirmar — el aviso se movió a la PANTALLA, no al documento ──────────────────
+test('productosSinConfirmar cuenta marca/modelo sin confirmar', () => {
+  const lineas: LineaFicha[] = [{ linea: 1, titulo: 'L1', productos: [prod({ marca: 'Acme', confirmado: false })] }];
+  assert.equal(productosSinConfirmar(lineas), 1);
+});
+
+test('productosSinConfirmar cuenta la foto sin confirmar, independiente del texto (migración 81)', () => {
+  const lineas: LineaFicha[] = [{
+    linea: 1, titulo: 'L1',
+    productos: [prod({ marca: 'Acme', confirmado: true, imagenDataUri: 'data:image/png;base64,AAA', imagenConfirmada: false })],
+  }];
+  assert.equal(productosSinConfirmar(lineas), 1);
+});
+
+test('productosSinConfirmar en 0 cuando todo está confirmado (o no hay nada que confirmar)', () => {
+  const lineas: LineaFicha[] = [
+    { linea: 1, titulo: 'L1', productos: [prod({ marca: 'Acme', confirmado: true })] },
+    { linea: 2, titulo: 'L2', productos: [prod({})] },
+  ];
+  assert.equal(productosSinConfirmar(lineas), 0);
 });
 
 // ─── LÍNEA-PAQUETE: UNA FICHA POR PRODUCTO, cada una con LO SUYO ──────────────────────────────

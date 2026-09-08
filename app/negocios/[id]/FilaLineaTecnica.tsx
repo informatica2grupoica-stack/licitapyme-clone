@@ -21,6 +21,39 @@ interface ItemLineaTecnica {
   criticidad: string;
   estado: 'PENDIENTE' | 'CARGADO' | 'APROBADO' | 'OBSERVADO';
   resumen_tecnico: ResumenTecnico | null;
+  /** Nombres de los productos que trae ESTA línea (uno normalmente; varios si es una línea-paquete
+   *  como "Tractor, Sistema de trasplante, Barre nieve…" — ver migración 82/83). null si no hay
+   *  informe legible todavía. Pedido del usuario (08-sep-2026): verlos sin tener que abrir el modal. */
+  productos?: string[] | null;
+}
+
+// Umbral para desplegar en vez de listar todo de corrido — pedido explícito del usuario
+// (08-sep-2026): una línea-paquete puede traer 30+ productos (ver memoria de la Línea 7 con 11
+// herramientas de un caso real) y listarlos todos de una alarga la fila más que el resto de la
+// pantalla junta.
+const TOPE_PRODUCTOS_SIN_DESPLEGAR = 30;
+
+/** "Esta línea trae N productos: A, B, C…" — colapsable si son muchos. Solo se muestra cuando hay
+ *  MÁS de un producto (con uno solo, el título de la línea ya lo dice — repetirlo sería ruido). */
+function ProductosDeLaLinea({ nombres }: { nombres: string[] }) {
+  const [desplegado, setDesplegado] = useState(false);
+  if (nombres.length <= 1) return null;
+  const esLargo = nombres.length > TOPE_PRODUCTOS_SIN_DESPLEGAR;
+  const visibles = esLargo && !desplegado ? nombres.slice(0, TOPE_PRODUCTOS_SIN_DESPLEGAR) : nombres;
+  return (
+    <p className="text-[11px] text-zinc-500 leading-snug mt-1">
+      <span className="font-semibold text-zinc-600">{nombres.length} productos:</span> {visibles.join(' · ')}
+      {esLargo && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setDesplegado(v => !v); }}
+          className="ml-1 font-semibold text-violet-600 hover:underline"
+        >
+          {desplegado ? 'mostrar menos' : `y ${nombres.length - TOPE_PRODUCTOS_SIN_DESPLEGAR} más…`}
+        </button>
+      )}
+    </p>
+  );
 }
 
 // ════════════════════════════════════════════════════════════════════════════════
@@ -143,6 +176,7 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
             )}
           </div>
           {item.descripcion && <p className="text-[11.5px] text-zinc-500 leading-snug mt-1">{item.descripcion}</p>}
+          {item.productos && <ProductosDeLaLinea nombres={item.productos} />}
         </div>
       </div>
 

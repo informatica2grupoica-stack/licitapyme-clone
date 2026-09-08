@@ -90,6 +90,35 @@ interface ComercialLigado {
   plazo: { valorTexto: string | null; estado: EstadoItem } | null;
 }
 
+// ─── Camino "100% IA" (Kimi K3) — ficha con varios modelos candidatos (ej. catálogo con varios
+// tractores). Ver comparar_ficha_ia100 en la API: identifica cada modelo y evalúa las
+// características contra cada uno; solo escribe en el checklist si hay un ganador SIN ambigüedad.
+interface VeredictoDeModeloIA100 {
+  caracteristicaId: number;
+  descripcion: string;
+  valorOfertadoTexto: string | null;
+  valorOfertadoNumero: number | null;
+  unidadOfertadaOriginal: string | null;
+  veredicto: Veredicto | null;
+  pendienteConfirmacionProveedor: boolean;
+  fundamentoCita: string | null;
+  confianza: number;
+}
+interface ModeloComparadoIA {
+  nombreModelo: string;
+  resumenSpecs: string | null;
+  resumen: { total: number; cumplen: number; noCumplen: number; conComplemento: number; sinEvaluar: number; pendientesProveedor: number };
+  cumpleTodo: boolean;
+  producto: { marca: string | null; modelo: string | null; fabricante: string | null; paisFabricacion: string | null; anioFabricacion: string | null };
+  veredictos: VeredictoDeModeloIA100[];
+}
+interface ReporteIA100 {
+  productoIndex: number;
+  multiplesModelos: boolean;
+  recomendados: string[];
+  modelos: ModeloComparadoIA[];
+}
+
 const VEREDICTO_STYLE: Record<Veredicto, { bg: string; text: string; label: string }> = {
   CUMPLE:                { bg: 'bg-emerald-100', text: 'text-emerald-700', label: 'Cumple' },
   NO_CUMPLE:              { bg: 'bg-rose-100',    text: 'text-rose-700',    label: 'No cumple' },
@@ -150,6 +179,10 @@ export function ModalAuditorLineaTecnica({
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
   const [validando, setValidando] = useState(false);
   const [subiendoFicha, setSubiendoFicha] = useState(false);
+  const [comparandoIA100, setComparandoIA100] = useState(false);
+  const [reporteIA100, setReporteIA100] = useState<ReporteIA100[] | null>(null);
+  const [arrastrandoIA100, setArrastrandoIA100] = useState(false);
+  const [eligiendoModelo, setEligiendoModelo] = useState<string | null>(null);
   const [reiniciando, setReiniciando] = useState(false);
   const [progreso, setProgreso] = useState<string | null>(null);
   // Ocupado por ÍNDICE de producto: cada tarjeta tiene sus propios botones y no deben bloquearse
@@ -158,12 +191,14 @@ export function ModalAuditorLineaTecnica({
   const [subiendoImagenIndex, setSubiendoImagenIndex] = useState<number | null>(null);
   const [quitandoImagenIndex, setQuitandoImagenIndex] = useState<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const fileRefIA100 = useRef<HTMLInputElement>(null);
   const imgFileRef = useRef<HTMLInputElement>(null);
   const imgTargetIndex = useRef(0);
   const autoEjecutado = useRef(false);
   // Id del documento que se está volviendo a comparar (ver el botón junto a "Ver documento") —
   // null cuando ninguno está en curso.
   const [recomparandoId, setRecomparandoId] = useState<number | null>(null);
+  const [eliminandoDocId, setEliminandoDocId] = useState<number | null>(null);
 
   const cargarTodo = useCallback(async () => {
     const [rHeader, rCaract] = await Promise.all([
@@ -241,6 +276,69 @@ export function ModalAuditorLineaTecnica({
     return true;
   }, [base, toast, onCambio]);
 
+  // Camino "100% IA" (Kimi K3) — para cuando hay VARIOS modelos candidatos (más de un
+  // tractor/equipo): identifica cada modelo — sea que vengan todos en UN catálogo o repartidos en
+  // VARIOS documentos, uno por modelo (pedido explícito: poder cargar/arrastrar varias fichas a la
+  // vez) — y compara las exigencias contra cada uno. Más caro y más lento que "Comparar ficha"
+  // normal a propósito — se elige a mano, no corre solo. Ver comparar_ficha_ia100 en la API.
+  const compararFichaIA100 = useCallback(async (documentos: Array<{ url: string; nombre: string }>): Promise<void> => {
+    if (!documentos.length) return;
+    setComparandoIA100(true);
+    setReporteIA100(null);
+    try {
+      const r = await fetch(base, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'comparar_ficha_ia100', documentos }),
+      });
+      const d = await r.json();
+      if (!r.ok) { toast.error(d.error || 'No se pudo comparar las fichas con IA'); return; }
+      if (d.caracteristicas) setCaracteristicas(d.caracteristicas);
+      setReporteIA100(d.reportes || []);
+      const conVariosModelos = (d.reportes || []).some((rep: ReporteIA100) => rep.multiplesModelos);
+      if (!conVariosModelos) {
+        toast.success('Se identificó un solo modelo', 'No hizo falta elegir entre varios — mismo resultado que "Comparar ficha".');
+      } else if (d.escritas) {
+        toast.success('Modelo identificado', 'Se encontró un único modelo que cumple todo y se cargó en el checklist.');
+      } else {
+        toast.error('Ningún modelo cumple todo (o hay varios empatados)', 'Revisa el detalle por modelo abajo antes de decidir.');
+      }
+      onCambio?.();
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally {
+      setComparandoIA100(false);
+    }
+  }, [base, toast, onCambio]);
+
+  // "Usar este modelo" — pedido explícito del usuario (08-sep-2026): cuando hay varios candidatos
+  // (ej. 5 fichas de tractores) quiere poder ELEGIR cuál se oferta, no depender de que el sistema
+  // encuentre solo un ganador sin ambigüedad. No vuelve a llamar a la IA: aplica el detalle que ya
+  // vino en el reporte. A diferencia del ganador automático, esto SÍ confirma el producto (marca/
+  // modelo quedan LOCKEADOS) — necesario para que subir después la ficha de OTRO ítem del mismo
+  // paquete (los implementos, por ejemplo) ya no le pise la marca/modelo al tractor elegido.
+  const elegirModeloIA100 = useCallback(async (productoIndex: number, modelo: ModeloComparadoIA) => {
+    setEligiendoModelo(modelo.nombreModelo);
+    try {
+      const r = await fetch(base, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accion: 'elegir_modelo_ia100', productoIndex, nombreModelo: modelo.nombreModelo,
+          veredictos: modelo.veredictos, producto: modelo.producto,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { toast.error(d.error || 'No se pudo aplicar el modelo elegido'); return; }
+      if (d.caracteristicas) setCaracteristicas(d.caracteristicas);
+      if (d.productos) setProductos(d.productos);
+      toast.success(`Modelo elegido: ${modelo.nombreModelo}`, `${d.escritas} característica(s) actualizada(s) — marca/modelo quedaron confirmados.`);
+      onCambio?.();
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally {
+      setEligiendoModelo(null);
+    }
+  }, [base, toast, onCambio]);
+
   // Camino "Enviar al Auditor" desde Documentos: llega con el archivo ya elegido — valida la
   // línea si hace falta y compara automáticamente, sin esperar un clic más del usuario.
   useEffect(() => {
@@ -276,6 +374,29 @@ export function ModalAuditorLineaTecnica({
     } finally {
       setSubiendoFicha(false);
       if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  // Mismo flujo que subirFicha, pero para el camino "100% IA": acepta VARIOS archivos a la vez
+  // (uno por modelo candidato, pedido explícito del usuario) — se suben todos en UNA subida
+  // (/api/documentos/subir ya acepta varios `files`) y se comparan juntos en una sola llamada, no
+  // uno por uno como "Subir ficha" — acá los archivos son candidatos del MISMO producto, no
+  // documentos independientes.
+  const subirFichaIA100 = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    try {
+      const fd = new FormData();
+      fd.append('licitacionCodigo', licitacionCodigo);
+      Array.from(files).forEach(f => fd.append('files', f));
+      const rSubida = await fetch('/api/documentos/subir', { method: 'POST', body: fd });
+      const dSubida = await rSubida.json();
+      if (!rSubida.ok || !dSubida.documentos?.length) { toast.error(dSubida.error || 'No se pudo subir la(s) ficha(s)'); return; }
+      if (caracteristicas.length === 0) await validar(false);
+      await compararFichaIA100(dSubida.documentos.map((d: { url: string; nombre: string }) => ({ url: d.url, nombre: d.nombre })));
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally {
+      if (fileRefIA100.current) fileRefIA100.current.value = '';
     }
   };
 
@@ -364,6 +485,29 @@ export function ModalAuditorLineaTecnica({
       toast.error('Error de red', String(e));
     } finally {
       setReiniciando(false);
+    }
+  };
+
+  // Documentos que solo SE ACUMULABAN — no había forma de sacar uno subido de más o equivocado
+  // (pedido del usuario, 07-sep-2026). Reusa la acción ELIMINAR_DOCUMENTO que ya existe para el
+  // resto del checklist (InformacionComercialSection.tsx) vía el mismo `onAccion` — borra la fila
+  // de checklist_comercial_documentos y, si era el último documento del punto, lo devuelve a
+  // PENDIENTE (ver comercial/route.ts). Acá además hay que refrescar `documentos` (este modal hace
+  // su propio fetch aparte, onAccion solo actualiza el estado de la pantalla de afuera).
+  const eliminarDocumento = async (doc: { id: number; nombre: string }) => {
+    const ok = await confirmar({
+      titulo: `¿Eliminar "${doc.nombre}"?`,
+      mensaje: 'Esto solo saca el documento de la lista de evidencia de esta línea — no cambia los veredictos ya guardados. Si era el único documento, la línea vuelve a "sin validar".',
+      confirmarLabel: 'Eliminar documento',
+      peligro: true,
+    });
+    if (!ok || !onAccion) return;
+    setEliminandoDocId(doc.id);
+    try {
+      const ok2 = await onAccion(itemId, 'ELIMINAR_DOCUMENTO', { documentoId: doc.id });
+      if (ok2) { toast.success('Documento eliminado', doc.nombre); await cargarTodo(); }
+    } finally {
+      setEliminandoDocId(null);
     }
   };
 
@@ -613,6 +757,12 @@ export function ModalAuditorLineaTecnica({
                       className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-zinc-500 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors disabled:opacity-50">
                       {subiendoFicha ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Subir ficha
                     </button>
+                    <input ref={fileRefIA100} type="file" multiple className="hidden" onChange={e => subirFichaIA100(e.target.files)} />
+                    <button onClick={() => fileRefIA100.current?.click()} disabled={comparandoIA100 || bloqueado}
+                      title="Para varios modelos/equipos candidatos (ej. varios tractores) — uno o varios archivos, un catálogo o una ficha por modelo. Más lento y más caro: identifica cuál modelo cumple todo."
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-amber-700 hover:bg-amber-50 rounded-lg border border-amber-200 transition-colors disabled:opacity-50">
+                      {comparandoIA100 ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Varios modelos (IA)
+                    </button>
                     {caracteristicas.length > 0 && !bloqueado && (
                       <button onClick={reiniciar} disabled={reiniciando} title="Borrar toda la comparación y volver a empezar"
                         className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11.5px] font-semibold text-rose-500 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50">
@@ -621,6 +771,79 @@ export function ModalAuditorLineaTecnica({
                     )}
                   </div>
                 </div>
+
+                {!bloqueado && (
+                  // Zona de arrastre dedicada al camino "100% IA": suelta uno o varios archivos —
+                  // cada uno un modelo candidato (o un catálogo con varios) — y se comparan todos
+                  // juntos en una sola llamada. Mismo patrón ya probado en FilaLineaTecnica.tsx
+                  // (arrastrar fichas directo, sin pasar por un selector), aplicado acá al camino
+                  // de "varios modelos candidatos" en vez de "varios productos de la línea".
+                  <div
+                    onDragOver={e => { e.preventDefault(); if (!comparandoIA100) setArrastrandoIA100(true); }}
+                    onDragLeave={() => setArrastrandoIA100(false)}
+                    onDrop={e => {
+                      e.preventDefault();
+                      setArrastrandoIA100(false);
+                      if (!comparandoIA100 && e.dataTransfer.files?.length) subirFichaIA100(e.dataTransfer.files);
+                    }}
+                    className={`mb-3 rounded-lg border border-dashed px-3 py-2 text-center text-[11px] transition-colors ${
+                      arrastrandoIA100 ? 'border-amber-400 bg-amber-50 text-amber-700' : 'border-zinc-200 text-zinc-400 hover:border-zinc-300'
+                    }`}
+                  >
+                    {comparandoIA100
+                      ? <span className="inline-flex items-center gap-1.5 text-amber-700 font-semibold"><Loader2 size={11} className="animate-spin" /> Identificando modelos y comparando…</span>
+                      : 'Suelta aquí una o varias fichas — un modelo candidato por archivo — para que la IA diga cuál cumple'}
+                  </div>
+                )}
+
+                {reporteIA100 && reporteIA100.length > 0 && (
+                  <div className="mb-3 border border-amber-200 bg-amber-50/60 rounded-xl p-3 space-y-3">
+                    <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wide">Comparación IA por modelo (Kimi K3)</p>
+                    {reporteIA100.map(rep => (
+                      <div key={rep.productoIndex} className="space-y-1.5">
+                        {!rep.multiplesModelos ? (
+                          <p className="text-[11.5px] text-zinc-600">La ficha describe un solo modelo — no había nada que desambiguar.</p>
+                        ) : (
+                          <>
+                            <p className="text-[11.5px] text-zinc-600">
+                              {rep.recomendados.length === 1
+                                ? <>Modelo recomendado: <span className="font-bold text-emerald-700">{rep.recomendados[0]}</span> (ya se cargó en el checklist).</>
+                                : rep.recomendados.length > 1
+                                  ? <>Empate: {rep.recomendados.length} modelos cumplen el 100% — decide a mano cuál ofertar.</>
+                                  : <>Ningún modelo cumple el 100% — el más cercano queda abajo, con sus brechas.</>}
+                            </p>
+                            <div className="space-y-1">
+                              {[...rep.modelos].sort((a, b) => b.resumen.cumplen - a.resumen.cumplen).map(m => (
+                                <div key={m.nombreModelo} className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-[11.5px] ${m.cumpleTodo ? 'bg-emerald-100/70' : 'bg-white'}`}>
+                                  <div className="min-w-0">
+                                    <span className={`font-semibold ${m.cumpleTodo ? 'text-emerald-700' : 'text-zinc-700'}`}>{m.nombreModelo}</span>
+                                    {m.resumenSpecs && <span className="text-zinc-400"> — {m.resumenSpecs}</span>}
+                                  </div>
+                                  <div className="flex items-center gap-2 flex-shrink-0">
+                                    <span className={`font-semibold ${m.cumpleTodo ? 'text-emerald-700' : 'text-zinc-500'}`}>
+                                      {m.resumen.cumplen}/{m.resumen.total} cumple
+                                      {m.resumen.noCumplen > 0 && <span className="text-rose-600"> · {m.resumen.noCumplen} no</span>}
+                                    </span>
+                                    {!bloqueado && (
+                                      <button
+                                        onClick={() => elegirModeloIA100(rep.productoIndex, m)}
+                                        disabled={eligiendoModelo != null}
+                                        title="Aplica este modelo al checklist y confirma marca/modelo — queda protegido de que otra ficha lo pise después"
+                                        className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-violet-600 hover:bg-violet-100 px-1.5 py-0.5 rounded disabled:opacity-50"
+                                      >
+                                        {eligiendoModelo === m.nombreModelo ? <Loader2 size={10} className="animate-spin" /> : null} Usar este
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
                 {caracteristicas.length === 0 ? (
                   // VISTA PREVIA DE LO QUE PIDEN LAS BASES. Antes acá solo había una frase gris y
@@ -756,6 +979,16 @@ export function ModalAuditorLineaTecnica({
                         className="p-1 text-zinc-400 hover:text-violet-600 hover:bg-violet-50 rounded transition-colors flex-shrink-0">
                         <Eye size={14} />
                       </button>
+                      {!bloqueado && onAccion && (
+                        <button
+                          onClick={() => eliminarDocumento(doc)}
+                          disabled={eliminandoDocId != null}
+                          title="Eliminar documento"
+                          className="p-1 text-zinc-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors flex-shrink-0 disabled:opacity-50"
+                        >
+                          {eliminandoDocId === doc.id ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

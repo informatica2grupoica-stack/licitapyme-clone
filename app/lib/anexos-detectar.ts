@@ -726,6 +726,24 @@ function columnasPorAncho(anchosHeader: (number | null)[], anchosFila: (number |
 // casilla de fecha, que patrón 1 ya resolvía sola, desaparecía tapada por esta lectura. Un
 // encabezado real nombra columnas ("Nombre", "RUT", "SÍ", "NO") — nunca una frase completa. Misma
 // familia que el gridSpan de arriba: una celda larga tampoco es una columna, se salta igual.
+//
+// BUG REAL (7-sep-2026, 2446-225-LR26, FORMULARIO N°3 "PROGRAMA DE INTEGRIDAD"): esa regla asumía
+// que "alguna celda larga" siempre significa "una etiqueta corta + una frase ya impresa al lado"
+// (el caso 2585-87-LE26 de arriba). Pero acá el encabezado real es "Nombre del Programa de
+// Integridad y compliance y fecha de éste" | "Medio (s) de verificación acompañado (s) para
+// acreditar que el Programa de Integridad y compliance es conocido por el personal" — DOS nombres
+// de columna, cada uno una oración larga por sí sola (61 y 123 caracteres). "some" los marcaba a
+// los dos como celdaLarga y la tabla entera se descartaba (`encabezados.length === 0`): las DOS
+// celdas de datos de abajo (para escribir el nombre del programa y el medio de verificación)
+// quedaban sin un solo candidato — invisibles, sin forma de llenarlas a mano ni de mostrar "sin
+// resolver". La señal que sí distingue los dos casos: en la fila de 2585-87-LE26 UNA celda es
+// corta (el nombre real de la columna, "NOMBRE PROPUESTA") y la OTRA es la frase larga (el valor
+// ya impreso) — con TODAS las celdas largas por igual no hay ninguna corta que sea "la columna
+// real": son igual de largas porque el organismo redactó así sus dos nombres de columna.
+function filaEsCeldaLarga(textos: string[]): boolean {
+  return textos.some(t => t.length > LARGO_MAX_ETIQUETA) && !textos.every(t => t.length > LARGO_MAX_ETIQUETA);
+}
+
 export function indiceFilaEncabezado(filas: { completa: boolean; numCeldas: number; tieneCeldaCombinada?: boolean; celdaLarga?: boolean }[]): number {
   let ultimo = -1;
   for (let i = 0; i < filas.length; i++) {
@@ -878,7 +896,7 @@ export function detectarCandidatosTabla(xml: string): CandidatoCelda[] {
         completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length,
         numCeldasConTexto: textos.filter(t => t !== '').length,
         tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
-        celdaLarga: textos.some(t => t.length > LARGO_MAX_ETIQUETA),
+        celdaLarga: filaEsCeldaLarga(textos),
       };
     });
     const primerEncabezado = indiceFilaEncabezado(filasInfo);
@@ -1089,7 +1107,7 @@ function indicesEnCeldasDeDatosDeTabla(xml: string): Set<number> {
         completa: filaTieneTodasSusCeldasConTexto(f[1]), numCeldas: textos.length,
         numCeldasConTexto: textos.filter(t => t !== '').length,
         tieneCeldaCombinada: filaTieneCeldaCombinada(f[1]),
-        celdaLarga: textos.some(t => t.length > LARGO_MAX_ETIQUETA),
+        celdaLarga: filaEsCeldaLarga(textos),
       };
     });
     const primerEncabezado = indiceFilaEncabezado(filasInfo);

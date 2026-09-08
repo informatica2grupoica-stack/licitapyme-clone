@@ -290,6 +290,34 @@ test('indiceFilaEncabezado: última fila inicial con todas sus celdas con texto'
   ]), -1);
 });
 
+// BUG REAL (7-sep-2026, 2446-225-LR26, FORMULARIO N°3 "PROGRAMA DE INTEGRIDAD", reportado por el
+// usuario: "el cuadro de más abajo no me deja poner nada manual"): a diferencia del caso de
+// 2585-87-LE26 (arriba), acá las DOS celdas del encabezado son largas — "Nombre del Programa de
+// Integridad y compliance y fecha de éste" | "Medio (s) de verificación acompañado (s) para
+// acreditar que el Programa de Integridad y compliance es conocido por el personal" — porque el
+// organismo redactó así sus DOS nombres de columna, no porque una sea la etiqueta y la otra un
+// valor ya impreso. Con la regla vieja ("alguna celda larga → nunca encabezado") la tabla entera
+// se descartaba y sus celdas de datos (para escribir el nombre del programa y el medio de
+// verificación) no generaban NINGÚN candidato: invisibles, sin forma de llenarlas a mano.
+test('encabezado con SUS DOS celdas largas (ambas son nombres de columna reales) sí se detecta (regresión 2446-225-LR26)', () => {
+  const COL1 = 'Nombre del Programa de Integridad y compliance y fecha de éste';
+  const COL2 = 'Medio (s) de verificación acompañado (s) para acreditar que el Programa de Integridad y compliance es conocido por el personal';
+  const xml = NS + tabla(
+    fila(COL1, COL2),
+    fila('', ''),
+    fila('', ''),
+  ) + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const a = analizarAnexo(norm);
+  const etiquetas = a.candidatosCelda.map(c => c.etiqueta);
+  assert.ok(etiquetas.includes(COL1), `falta candidato para la columna del nombre del programa: ${JSON.stringify(etiquetas)}`);
+  assert.ok(etiquetas.includes(COL2), `falta candidato para la columna del medio de verificación: ${JSON.stringify(etiquetas)}`);
+  // Dos filas de datos bajo el encabezado (una lista, no una sola entidad): manual, nunca inventado.
+  for (const c of a.candidatosCelda.filter(c => etiquetas.includes(c.etiqueta))) {
+    assert.ok(a.indicesSoloManual.has(c.indice), `queda para llenar a mano, nunca se inventa: ${c.etiqueta}`);
+  }
+});
+
 test('tabla que abre con una fila-título mergeada: el encabezado es la siguiente (regresión cajas sin casillas)', () => {
   const xml = NS + tabla(
     fila('INTEGRANTES DE LA UTP'),

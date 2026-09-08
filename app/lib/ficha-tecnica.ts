@@ -162,6 +162,18 @@ export function especificacionesSinCompletar(lineas: LineaFicha[]): number {
     n + l.productos.reduce((m, p) => m + p.especificaciones.filter(e => !textoOfertado(e)).length, 0), 0);
 }
 
+/**
+ * Cuántos productos tienen marca/modelo o foto SIN confirmar por una persona (08-sep-2026). El PDF
+ * ya no imprime ese aviso dentro del documento (ver imagenProducto/fichaDeProducto) — se presenta
+ * como si fuera definitivo aunque nadie lo haya revisado. Este conteo es lo que debe mostrar la
+ * PANTALLA antes de dejar descargar/presentar, mismo criterio que especificacionesSinCompletar.
+ */
+export function productosSinConfirmar(lineas: LineaFicha[]): number {
+  return lineas.reduce((n, l) => n + l.productos.filter(p =>
+    (p.confirmado === false && (p.marca || p.modelo)) || (!!p.imagenDataUri && !p.imagenConfirmada),
+  ).length, 0);
+}
+
 /** Todos los productos del documento, en orden, con la línea a la que pertenece cada uno. */
 function productosEnOrden(lineas: LineaFicha[]): Array<{ linea: LineaFicha; producto: ProductoFicha }> {
   return lineas.flatMap(linea => linea.productos.map(producto => ({ linea, producto })));
@@ -175,18 +187,21 @@ function productosEnOrden(lineas: LineaFicha[]): Array<{ linea: LineaFicha; prod
  * ficha-imagen-extraer.ts) elige "la imagen más grande de la página", y eso a veces NO es la foto
  * del producto — en una prueba contra 15 fichas de proveedor ya cargadas, 2 de 4 casos revisados
  * a mano trajeron una textura decorativa de marketing o una franja de logos de certificación en
- * vez del equipo. Por eso, mientras nadie la haya confirmado, se imprime con un aviso en vez del
- * pie neutro "Imagen referencial": no se oculta lo que leyó la máquina, pero tampoco se presenta
- * como si fuera definitivo.
+ * vez del equipo.
+ *
+ * BUG REAL (08-sep-2026, pedido explícito del usuario): ESTE documento es el que se PRESENTA al
+ * organismo — antes, mientras nadie confirmaba la foto, se imprimía acá mismo un aviso interno
+ * ("⚠ … confirmar que corresponde al equipo antes de presentar") en letra ámbar, que es exactamente
+ * el tipo de texto que NUNCA debe viajar en un documento oficial. El control de "¿ya revisaron
+ * esto?" vive en la pantalla ANTES de descargar (ver productosSinConfirmar más abajo, que alimenta
+ * el mismo aviso que ya usa especificacionesSinCompletar) — el PDF en sí solo lleva el pie neutro,
+ * sea que la imagen ya se haya confirmado o no.
  */
 export function imagenProducto(p: ProductoFicha | null | undefined): string {
   if (!p?.imagenDataUri) return '';
-  const pie = p.imagenConfirmada
-    ? 'Imagen referencial'
-    : '⚠ Imagen leída automáticamente de la ficha del proveedor — confirmar que corresponde al equipo antes de presentar.';
   return `<div class="foto-producto">
     <img src="${p.imagenDataUri}" alt="" />
-    <p class="foto-ref${p.imagenConfirmada ? '' : ' sin-confirmar'}">${esc(pie)}</p>
+    <p class="foto-ref">Imagen referencial</p>
   </div>`;
 }
 
@@ -241,9 +256,6 @@ function fichaDeProducto(p: ProductoFicha, linea: LineaFicha, numero: number): s
     <h2 class="prod-nombre">${esc(p.nombre)}</h2>
     ${marcaModelo ? `<p class="prod-modelo">${esc(marcaModelo)}</p>` : ''}
     ${cantidad ? `<p class="prod-cant">${esc(cantidad)}</p>` : ''}
-    ${p.confirmado === false && marcaModelo
-      ? '<p class="sin-confirmar">⚠ Marca/modelo leídos automáticamente de la ficha del proveedor — revisar antes de presentar.</p>'
-      : ''}
     ${imagenProducto(p)}
     <h3 class="sec">Especificaciones técnicas</h3>
     ${p.especificaciones.length === 0
@@ -324,13 +336,11 @@ export function construirFichaTecnicaHtml(d: DatosFichaTecnica): string {
   h3.sec { font-size: 11px; font-weight: 800; color: #0f766e; text-transform: uppercase;
            letter-spacing: .5px; margin: 14px 0 6px; }
   p.sin { margin: 0 0 5px; color: #a1a1aa; font-style: italic; }
-  p.sin-confirmar { margin: 5px 0 0; color: #b45309; font-size: 9px; font-weight: 600; }
 
   /* Foto centrada + pie, igual que la ficha de proveedor que se tomó de modelo. */
   .foto-producto { text-align: center; margin: 12px 0 4px; page-break-inside: avoid; }
   .foto-producto img { max-height: 170px; max-width: 62%; object-fit: contain; }
   .foto-producto .foto-ref { margin: 5px 0 0; color: #a1a1aa; font-size: 8.5px; font-style: italic; }
-  .foto-producto .foto-ref.sin-confirmar { color: #b45309; font-weight: 600; font-style: normal; }
 
   /* Especificaciones: DOS columnas (característica | lo ofertado), filas alternadas. */
   table.specs { border-collapse: collapse; width: 100%; }

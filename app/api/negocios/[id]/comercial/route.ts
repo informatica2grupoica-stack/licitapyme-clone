@@ -35,6 +35,7 @@ import { leerLineasOfertadas, lineasExcluidasDeNegocio, reproyectarDecisionGuard
 import { decidirGeneracion, type DocumentoCandidato, type BloqueGenerable } from '@/app/lib/auditor-generacion';
 import { recalcularAlertasCosteo } from '@/app/lib/motor-comercial-recalculo';
 import { presupuestoDeLaOferta } from '@/app/lib/motor-comercial';
+import { productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -164,13 +165,20 @@ async function leerResumenesTecnicos(negocioId: number): Promise<Map<number, any
   return porItem;
 }
 
-export async function leerItems(negocioId: number) {
+// licitacionCodigo (08-sep-2026, pedido del usuario): opcional — solo el GET principal de la
+// pantalla lo pasa, para adjuntar `productos` (los nombres de los productos de CADA línea técnica,
+// ej. una línea-paquete como "Tractor, Sistema de trasplante, Barre nieve…") sin tener que abrir
+// el modal para saber que la línea trae más de un ítem. Los demás call-sites (acciones puntuales)
+// no lo necesitan — sus respuestas no repintan esa lista, así que no vale la pena leer el informe
+// en cada PATCH.
+export async function leerItems(negocioId: number, licitacionCodigo?: string) {
   const [rows] = await pool.query(
     `SELECT ${COLS} FROM checklist_comercial WHERE negocio_id = ? ORDER BY bloque, orden, id`,
     [negocioId],
   ) as any;
   const documentos = await leerDocumentosPorItem(negocioId);
   const resumenesTecnicos = await leerResumenesTecnicos(negocioId);
+  const informe = licitacionCodigo ? await leerInforme(licitacionCodigo).catch(() => null) : null;
   return (rows as any[]).map(r => ({
     ...r,
     generable: !!r.generable,
@@ -179,6 +187,11 @@ export async function leerItems(negocioId: number) {
     valor_numero: r.valor_numero === null ? null : Number(r.valor_numero),
     documentos: documentos.get(r.id) || [],
     resumen_tecnico: r.tipo === 'linea_tecnica' ? (resumenesTecnicos.get(r.id) || { total: 0, cumplen: 0, noCumplen: 0, conComplemento: 0, sinEvaluar: 0, pendientesProveedor: 0 }) : null,
+    // Solo nombres (liviano) — el detalle de cada producto (marca/modelo/foto) sigue viviendo en
+    // el modal, esto es únicamente para mostrar "esta línea trae N productos" sin abrirlo.
+    productos: (r.tipo === 'linea_tecnica' && informe && r.linea_numero != null)
+      ? productosCrudosDeLinea(informe, r.linea_numero).map(p => p.nombre)
+      : null,
   }));
 }
 
@@ -553,7 +566,7 @@ async function decidirGeneracionDeBloques(negocio: any) {
   ) as any;
   const hayCosteoVigente = (costeoRows as any[]).length > 0;
 
-  const items = await leerItems(negocio.id);
+  const items = await leerItems(negocio.id, negocio.licitacion_codigo);
   // Sin las alertas de cumplimiento: viven en su propia sección y no son parte del bloque que
   // genera el anexo (ver esAlertaDeCumplimiento). Con ellas dentro, el mensaje decía "faltan 31
   // puntos" mientras el encabezado del bloque mostraba 28.
@@ -838,8 +851,26 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const visa = await esAsesor(userId, rol);
     if ((accion === 'APROBAR' || accion === 'OBSERVAR' || accion === 'REABRIR') && !visa)
       return NextResponse.json({ error: 'Solo el asesor puede visar los puntos.' }, { status: 403 });
+    if (accion === 'ELIMINAR_ITEM' && !visa)
+      return NextResponse.json({ error: 'Solo el asesor puede eliminar un punto del checklist.' }, { status: 403 });
 
     const anterior = item.estado as EstadoItem;
+
+    // ── ELIMINAR ITEM: válvula manual contra un duplicado que el dedupe automático no fusionó ──
+    // Mismo espíritu que planDeReconciliacion (ver checklist-comercial.ts): irreversible, así que
+    // solo la usa el asesor. No valida "virgen" — a diferencia del dedupe automático, esto lo pide
+    // una persona mirando la pantalla, que puede decidir borrar incluso un punto ya trabajado (el
+    // caso real: aprobó por error el duplicado y quiere sacarlo). El frontend es el que avisa si
+    // el punto tiene evidencia antes de confirmar.
+    if (accion === 'ELIMINAR_ITEM') {
+      await bitacora(itemId, negocio.id, 'ELIMINAR_ITEM', anterior, anterior, `Eliminó el punto "${item.titulo}"`, userId, nombreActor);
+      await pool.query(`DELETE FROM checklist_comercial_documentos WHERE item_id = ?`, [itemId]).catch(() => {});
+      await pool.query(`DELETE FROM checklist_comercial_caracteristicas WHERE item_id = ?`, [itemId]).catch(() => {});
+      await pool.query(`DELETE FROM checklist_comercial WHERE id = ?`, [itemId]);
+      publicarCambio('checklist_comercial');
+      const items = await leerItems(negocio.id);
+      return NextResponse.json({ success: true, items, resumen: resumirChecklist(items) });
+    }
 
     // ── ACUSE DE LECTURA de una alerta de cumplimiento ────────────────────────────────────────
     // Las "Alertas de cumplimiento" no son documentos que alguien entregue: son condiciones de las

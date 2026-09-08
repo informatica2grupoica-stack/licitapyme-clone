@@ -184,8 +184,18 @@ function num(v: unknown): number | null {
 // mismo documento; ignorar la palabra los fundía por puro accidente de numeración.
 // El plural ("Formatos N°2-A, 2-B, ..." — un título que agrupa varios) es tan común como el
 // singular en las bases chilenas; el `s?` fuera del grupo captor no afecta la "palabra" normalizada.
-const RE_NUM_FORMATO = /(formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b/i;
-const RE_STRIP_FORMATO = /\(?\s*(?:formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?\s*\)?\s*:?\s*/gi;
+//
+// CÓDIGO PROPIO DEL ORGANISMO (08-sep-2026, reportado por el usuario): no todas las bases numeran
+// "Formulario N°1" / "Anexo 3". Algunos organismos usan su propio código pegado al número —
+// "Formulario ADMI-1", "Formulario ECO-1", "Formulario TEC-1" — y ese código NO calzaba con el
+// patrón (exigía dígito pegado a la palabra clave, con solo "N°"/"." de por medio). Sin
+// identificador detectado, el dedupe caía al núcleo del texto, que no coincide entre "Formulario
+// ECO-1 Oferta Económica" (del informe de viabilidad) y "2-formulario ECO 1" (del archivo real
+// descargado) — dos filas para el mismo formulario. El grupo captor 2 ahora admite ese código
+// (2-6 letras) entre la palabra clave y el número; se guarda como parte del identificador para no
+// fundir series independientes ("ADMI-1" y "ECO-1" siguen siendo documentos distintos).
+const RE_NUM_FORMATO = /(formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*(?:([a-z]{2,6})[.\-\s]*)?(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b/i;
+const RE_STRIP_FORMATO = /\(?\s*(?:formato|anexo|formulario)s?\s*n?[°ºo]?\s*[.]?\s*(?:[a-z]{2,6}[.\-\s]*)?\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?\s*\)?\s*:?\s*/gi;
 
 // Exportadas: el script de limpieza de duplicados ya materializados (checklist_comercial viejo,
 // insertado antes de este fix) reusa exactamente este criterio — ver scripts/limpiar-checklist-duplicados.mjs.
@@ -193,8 +203,9 @@ export function numeroDeFormatoEn(texto: string): string | null {
   const m = RE_NUM_FORMATO.exec(String(texto || ''));
   if (!m) return null;
   const palabra = m[1].toLowerCase();
-  const numero = m[2].replace(/[.\-\s]/g, '').toLowerCase();   // "6.1"/"6 . 1" → "61"; "5-A" → "5a"
-  return `${palabra}:${numero}`;
+  const codigo = m[2] ? `${m[2].toLowerCase()}_` : '';
+  const numero = m[3].replace(/[.\-\s]/g, '').toLowerCase();   // "6.1"/"6 . 1" → "61"; "5-A" → "5a"
+  return `${palabra}:${codigo}${numero}`;
 }
 
 /**
@@ -208,21 +219,44 @@ export function numeroDeFormatoEn(texto: string): string | null {
  * "identificadores explícitos distintos nunca son el mismo documento" es correcta en general,
  * pero acá el combinado SÍ incluye el "2b", solo que nadie lo había leído. Quedaron duplicados: el
  * combinado + 3 filas individuales para el mismo requisito.
+ *
+ * RANGO CON CÓDIGO PROPIO (08-sep-2026, reportado por el usuario): "Formulario ADMI-1 a ADMI-4"
+ * es la misma idea que la lista de arriba, pero escrita como rango con la palabra "a" en vez de
+ * comas, y con el código del organismo (ADMI/ECO/TEC) repetido en el segundo extremo. Se expande
+ * a los 4 identificadores intermedios — si no, "ADMI-2", "ADMI-3", "ADMI-4" (que sí llegan como
+ * filas individuales desde los archivos reales) no encuentran con qué fundirse.
  */
 export function numerosDeFormatoEn(texto: string): string[] {
   const t = String(texto || '');
   const m = RE_NUM_FORMATO.exec(t);
   if (!m) return [];
   const palabra = m[1].toLowerCase();
+  const codigo = m[2] ? m[2].toLowerCase() : '';
   const normalizar = (n: string) => n.replace(/[.\-\s]/g, '').toLowerCase();
-  const numeros = [normalizar(m[2])];
+  const conCodigo = (n: string) => codigo ? `${codigo}_${n}` : n;
+  const primero = normalizar(m[3]);
+  const numeros = [conCodigo(primero)];
   // Continuación de la lista: ", 2-B, 2-C, 2-D" sin repetir la palabra — mismo patrón dígito+sufijo.
   const RE_CONTINUACION = /^\s*,\s*(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b/i;
   let cursor = t.slice(m.index + m[0].length);
   let cont: RegExpExecArray | null;
   while ((cont = RE_CONTINUACION.exec(cursor))) {
-    numeros.push(normalizar(cont[1]));
+    numeros.push(conCodigo(normalizar(cont[1])));
     cursor = cursor.slice(cont[0].length);
+  }
+  // Rango: "ADMI-1 a ADMI-4" / "N°1 a N°4" — solo entre extremos puramente numéricos (sin sufijo
+  // de letra) y con el MISMO código a ambos lados (o sin código en el segundo extremo, heredando
+  // el del primero: "Formulario ADMI-1 a 4"). Tope de 20 para no expandir un rango mal leído.
+  const RE_RANGO = /^\s+a\s+(?:formato|anexo|formulario)?s?\s*n?[°ºo]?\s*[.]?\s*(?:([a-z]{2,6})[.\-\s]*)?(\d{1,2})\b/i;
+  const rango = RE_RANGO.exec(cursor);
+  if (rango && numeros.length === 1 && /^\d+$/.test(primero)) {
+    const codigoFin = rango[1] ? rango[1].toLowerCase() : codigo;
+    const desde = Number(primero);
+    const hasta = Number(rango[2]);
+    if (codigoFin === codigo && Number.isFinite(desde) && Number.isFinite(hasta) && hasta > desde && hasta - desde <= 20) {
+      numeros.length = 0;
+      for (let n = desde; n <= hasta; n++) numeros.push(conCodigo(String(n)));
+    }
   }
   return numeros.map(n => `${palabra}:${n}`);
 }
@@ -853,11 +887,17 @@ export function estadoDeBloque(
  * no hacía nada. Con la lista en un módulo puro, un test puede comprobar que todo lo que la
  * pantalla manda está acá. Ver checklist-acciones.test.mts.
  *
- * OJO: no todas pasan por transicion(). ELIMINAR_DOCUMENTO y ACUSAR/DESACUSAR se resuelven antes,
- * con su propia lógica; transicion() modela solo la doble firma.
+ * OJO: no todas pasan por transicion(). ELIMINAR_DOCUMENTO, ELIMINAR_ITEM y ACUSAR/DESACUSAR se
+ * resuelven antes, con su propia lógica; transicion() modela solo la doble firma.
+ *
+ * ELIMINAR_ITEM (08-sep-2026, pedido del usuario): válvula manual para un duplicado que el
+ * dedupe automático (ver planDeReconciliacion) no alcanzó a fusionar — pasa lo mismo que
+ * ELIMINAR_DOCUMENTO pero para la FILA completa. Solo el asesor puede usarla (mismo permiso que
+ * visar), para que un punto de admisibilidad no desaparezca por una acción unilateral del
+ * asistente.
  */
 export const ACCIONES_ITEM = [
-  'CARGAR', 'APROBAR', 'OBSERVAR', 'REABRIR', 'ELIMINAR_DOCUMENTO', 'ACUSAR', 'DESACUSAR',
+  'CARGAR', 'APROBAR', 'OBSERVAR', 'REABRIR', 'ELIMINAR_DOCUMENTO', 'ELIMINAR_ITEM', 'ACUSAR', 'DESACUSAR',
 ] as const;
 export type AccionItem = typeof ACCIONES_ITEM[number];
 
@@ -1119,6 +1159,50 @@ export function planDeReconciliacion(filas: FilaReconciliable[]): PlanReconcilia
           }
         }
         if (numerosF.every(n => cubiertos.has(n)) && f.virgen) plan.borrar.push(f.id);
+        continue;
+      }
+
+      // 4) Dos filas SUELTAS (un solo identificador cada una, o ninguno) que citan el MISMO
+      //    Formato/Anexo por caminos distintos: una nació del informe de viabilidad (clave
+      //    'anexo:...', trae ponderación/criticidad y la cita exacta de las bases) y la otra de un
+      //    archivo real ya descargado (clave 'anexo:archivo:...', solo el nombre del documento).
+      //
+      //    BUG REAL (08-sep-2026, reportado por el usuario, tras arreglar el identificador con
+      //    código propio ADMI/ECO/TEC): la fusión del caso 3 de arriba solo dispara para un
+      //    COMBINADO con VARIOS identificadores ("ADMI-1 a ADMI-4") — nunca existía una regla para
+      //    el caso más común, dos filas de a UNA ("Formulario ECO-1 Oferta Económica" del informe +
+      //    "2-formulario ECO 1" del archivo). Resincronizar no las tocaba y quedaban duplicadas para
+      //    siempre.
+      //
+      //    Gana la fila con TRABAJO real (no virgen); si ninguna lo tiene, gana la del INFORME —
+      //    trae ponderación y criticidad de las bases, que la del archivo no tiene — y se absorbe
+      //    en su descripción una referencia al archivo real, para no perder ese dato.
+      if (!plan.borrar.includes(f.id) && numerosF.length <= 1) {
+        const pareja = anexos.find(o => o.id !== f.id && !plan.borrar.includes(o.id)
+          && String(o.clave_origen || '').startsWith('anexo:')
+          && numerosDeFormatoEn(o.titulo).length <= 1
+          && coincidenEntradas(
+            { numeros: numerosF, nucleo: nucleoDeTitulo(f.titulo) },
+            { numeros: numerosDeFormatoEn(o.titulo), nucleo: nucleoDeTitulo(o.titulo) },
+          ));
+        if (pareja) {
+          const parejaClave = String(pareja.clave_origen || '');
+          const fEsArchivo = clave.startsWith('anexo:archivo:');
+          const parejaEsArchivo = parejaClave.startsWith('anexo:archivo:');
+          let destino: FilaReconciliable, sobrante: FilaReconciliable;
+          if (!f.virgen && pareja.virgen) [destino, sobrante] = [f, pareja];
+          else if (f.virgen && !pareja.virgen) [destino, sobrante] = [pareja, f];
+          else if (fEsArchivo === parejaEsArchivo) [destino, sobrante] = f.id < pareja.id ? [f, pareja] : [pareja, f];
+          else if (parejaEsArchivo) [destino, sobrante] = [f, pareja];
+          else [destino, sobrante] = [pareja, f];
+
+          if (sobrante.virgen) {
+            const sobranteEsArchivo = String(sobrante.clave_origen || '').startsWith('anexo:archivo:');
+            const texto = sobranteEsArchivo ? `Coincide con el archivo real "${sobrante.titulo}".` : sobrante.descripcion;
+            editar(destino, texto, sobrante.ponderacion);
+            plan.borrar.push(sobrante.id);
+          }
+        }
       }
     }
   }

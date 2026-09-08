@@ -266,6 +266,51 @@ test('reconciliación: el combinado YA TRABAJADO no se borra aunque esté todo s
   assert.deepEqual(plan.borrar, []);
 });
 
+// Caso real reportado 08-sep-2026 (mismo negocio que motivó el fix de código propio ADMI/ECO/TEC):
+// "Formulario ECO-1 Oferta Económica" (del informe, con ponderación 40%) y "2-formulario ECO 1"
+// (del archivo real ya descargado) seguían duplicados DESPUÉS de Resincronizar — el caso 3 de
+// arriba solo fusiona un COMBINADO (varios identificadores) contra sus individuales; nunca existía
+// una regla para dos filas SUELTAS de a una. Gana la del informe porque trae la ponderación/
+// criticidad de las bases; se absorbe una referencia al archivo real en su descripción.
+test('reconciliación: dos filas sueltas (informe + archivo) del mismo Formato se fusionan, gana la del informe', async () => {
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formulario ECO-1 Oferta Económica', descripcion: 'Valor total con IVA incluido, plazo de entrega — Requisito esencial y criterio de evaluación (40%)', clave_origen: 'anexo:formulario_eco_1_oferta_economica', ponderacion: 40, virgen: true },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: '2-formulario ECO 1', descripcion: 'Anexo de la licitación (2-FORMULARIO_ECO_1.docx). El informe no lo listó: revisar en las bases si aplica a esta oferta.', clave_origen: 'anexo:archivo:2_formulario_eco_1', ponderacion: null, virgen: true },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, [2]);
+  assert.equal(plan.absorber.length, 1);
+  assert.equal(plan.absorber[0].id, 1);
+  assert.match(plan.absorber[0].descripcion!, /Coincide con el archivo real "2-formulario ECO 1"/);
+});
+
+// Si el lado del ARCHIVO ya tiene trabajo real (alguien cargó/aprobó ese documento), gana ese
+// lado aunque sea el que normalmente pierde — nunca se borra evidencia.
+test('reconciliación: si la fila del archivo ya tiene trabajo, sobrevive ella y se borra la del informe', async () => {
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formulario TEC-1 Oferta Técnica', descripcion: null, clave_origen: 'anexo:formulario_tec_1_oferta_tecnica', ponderacion: 30, virgen: true },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: '3-formulario TEC 1', descripcion: 'Ficha con las características técnicas', clave_origen: 'anexo:archivo:3_formulario_tec_1', ponderacion: null, virgen: false },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, [1]);
+  assert.equal(plan.absorber[0].id, 2);
+  assert.equal(plan.absorber[0].ponderacion, 30);   // la ponderación del informe se rescata igual
+});
+
+// Si AMBOS lados ya tienen trabajo (raro, pero posible si alguien cargó las dos por error), no se
+// borra ninguna — mejor un duplicado visible que perder cualquiera de las dos evidencias.
+test('reconciliación: si ambas filas sueltas tienen trabajo, no se borra ninguna', async () => {
+  const { planDeReconciliacion } = await import('../checklist-comercial');
+  const filas: any[] = [
+    { id: 1, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formulario ADMI-1 Declaración Jurada', descripcion: null, clave_origen: 'anexo:formulario_admi_1', ponderacion: null, virgen: false },
+    { id: 2, bloque: 'ADMINISTRATIVO', tipo: 'documento', titulo: 'Formulario Admi-1 - Declaración Jurada', descripcion: null, clave_origen: 'anexo:archivo:formulario_admi_1', ponderacion: null, virgen: false },
+  ];
+  const plan = planDeReconciliacion(filas);
+  assert.deepEqual(plan.borrar, []);
+});
+
 test('reconciliación: dos anexos con números explícitos SIN overlap no se fusionan', async () => {
   const { planDeReconciliacion } = await import('../checklist-comercial');
   const filas: any[] = [

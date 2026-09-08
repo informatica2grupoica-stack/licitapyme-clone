@@ -108,11 +108,59 @@ export function extraerProductoOfertado(texto: string, nombreArchivo?: string): 
   // Las fichas de fábrica muchas veces NO son una tabla con "Marca:" sino un folleto comercial
   // (caso real LS-150: la palabra "marca" solo aparece en "marcas registradas"). Ahí hay que leer
   // las señales que el folleto sí trae. Se usan solo como respaldo: lo etiquetado siempre gana.
+  // marcaPorMencionRepetida ANTES que marcaDesdeDominio: una mención explícita "marca X" repetida
+  // en el cuerpo es más confiable que adivinar por el dominio de contacto de quien redactó la
+  // ficha (ver el bug real documentado en esa función).
+  if (!out.marca) out.marca = marcaPorMencionRepetida(texto);
   if (!out.marca) out.marca = marcaDesdeDominio(texto);
   if (!out.fabricante) out.fabricante = out.marca;   // en un folleto de fábrica son lo mismo
   if (!out.modelo) out.modelo = modeloDesdeEncabezado(texto);
   if (!out.modelo && nombreArchivo) out.modelo = modeloDesdeNombreArchivo(nombreArchivo);
   return out;
+}
+
+// BUG REAL (07-sep-2026, 2495-17-B226 "Implementos TECNOMAQ" y 2585-87-LE26 "CUATRIMOTO"): ambas
+// fichas las redacta el mismo revendedor (contacto ventas@grupoica.cl en el encabezado) y
+// declaran su marca real sin ambigüedad ("OFERENTE: ... — marca TECNOMAQ", "TECNOMAQ, en su
+// calidad de marca comercializadora y responsable técnica..."), pero NUNCA con el rótulo "Marca:"
+// al inicio de un renglón — buscarEtiqueta() no las encuentra, y el único respaldo que había,
+// marcaDesdeDominio(), tomaba el dominio de contacto del REVENDEDOR que escribió el documento
+// (grupoica.cl) como si fuera la marca del equipo. La ficha terminaba diciendo "Marca: GRUPOICA"
+// para un tractor/implemento que no tiene nada que ver con esa empresa.
+const RE_EQUIV_CERCA = /\b(equivalente|similar)\b/i;
+
+/**
+ * Marca a partir de una mención explícita "marca X" en CUALQUIER parte del texto (a diferencia de
+ * buscarEtiqueta, que exige la etiqueta al inicio del renglón). Se usa como respaldo ANTES de
+ * marcaDesdeDominio: una mención textual del nombre es más confiable que adivinar por un dominio
+ * de contacto, que puede ser del revendedor/oferente y no del fabricante.
+ *
+ * Exige DOS señales para no confundir una mención suelta ni la frase "equivalente a la marca X"
+ * (que describe lo que PIDEN las bases, no lo ofertado — mismo riesgo que ya cubre buscarEtiqueta):
+ *   1) "marca <Palabra>" en el texto, sin "equivalente"/"similar" cerca (antes o después, en la
+ *      misma oración aproximada).
+ *   2) esa misma palabra aparece 2 veces MÁS en el resto del documento (además de la mención
+ *      "marca X") — un nombre citado una sola vez de pasada no basta como señal.
+ */
+export function marcaPorMencionRepetida(texto: string): string | null {
+  const t = String(texto || '');
+  const re = /\bmarca\s+([A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ0-9]{2,30})\b/g;
+  const probados = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(t))) {
+    const candidato = m[1];
+    const clave = candidato.toLowerCase();
+    if (probados.has(clave)) continue;
+    probados.add(clave);
+
+    const contexto = t.slice(Math.max(0, m.index - 30), m.index + m[0].length + 30);
+    if (RE_EQUIV_CERCA.test(contexto)) continue;
+
+    const reRepeticion = new RegExp(`\\b${candidato.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+    const repeticiones = (t.match(reRepeticion) || []).length;
+    if (repeticiones >= 3) return candidato;   // la mención "marca X" + al menos 2 más en el texto
+  }
+  return null;
 }
 
 /** Dominios que no dicen nada de la marca. */

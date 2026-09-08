@@ -140,7 +140,10 @@ function modeloGeminiSeguro(pedido: string | undefined, porDefecto: string): str
   return v;
 }
 
-type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean };
+// reasoningEffort: para proveedores donde el razonamiento NO se puede apagar (Kimi K3 — a
+// diferencia de GLM/DeepSeek, `thinking:{type:'disabled'}` no existe ahí, solo se puede marcar el
+// ESFUERZO de razonamiento con reasoning_effort: 'low'|'high'|'max'). Ver cuerpoPara().
+type ProveedorTexto = { baseURL: string; keyEnv: string; model: string; sinThinking: boolean; reasoningEffort?: string };
 const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   zai:      { baseURL: 'https://api.z.ai/api/paas/v4', keyEnv: 'ZAI_API_KEY',      model: process.env.GLM_TEXT_MODEL || 'glm-4.7-flashx', sinThinking: true  },
   // CADENA de respaldo GLM en la MISMA cuenta Z.AI (23-jul-2026: se pasó de 1 a 3 rungs — un
@@ -166,6 +169,16 @@ const PROVEEDORES_TEXTO: Record<string, ProveedorTexto> = {
   // tokens de salida, 0 caracteres útiles). V4 acepta el mismo `thinking:{type:'disabled'}` de GLM.
   deepseek: { baseURL: 'https://api.deepseek.com',     keyEnv: 'DEEPSEEK_API_KEY', model: process.env.DEEPSEEK_TEXT_MODEL || 'deepseek-v4-flash', sinThinking: true },
   gemini:   { baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', keyEnv: 'GEMINI_API_KEY', model: modeloGeminiSeguro(process.env.GEMINI_MODEL, 'gemini-2.5-flash'), sinThinking: false },
+  // Kimi K3 (Moonshot AI, 07-sep-2026) — el modelo "100% IA" pedido para el Auditor Técnico
+  // (compararFichaProveedor / compararFichasMultiModelo en auditor-tecnico.ts), NUNCA el proveedor
+  // de texto por defecto: se invoca puntualmente con crearChatIA(..., {proveedorPreferido:'kimi'}).
+  // Endpoint INTERNACIONAL (api.moonshot.ai) — no confundir con api.moonshot.cn (China), las keys
+  // no son intercambiables. sinThinking:false porque K3 NO admite apagar el razonamiento (a
+  // diferencia de GLM/DeepSeek); reasoningEffort controla cuánto piensa — 'low' para textos de
+  // extracción simples, pero acá se deja 'high' por defecto porque la tarea (comparar
+  // especificaciones técnicas entre varios modelos de equipo) se beneficia de más razonamiento y
+  // el usuario pidió explícitamente "la mejor version" para este uso puntual, no el más barato.
+  kimi: { baseURL: 'https://api.moonshot.ai/v1', keyEnv: 'KIMI_API_KEY', model: process.env.KIMI_TEXT_MODEL || 'kimi-k3', sinThinking: false, reasoningEffort: process.env.KIMI_REASONING_EFFORT || 'high' },
 };
 export const IA_TEXT_PROVIDER = (process.env.IA_TEXT_PROVIDER ?? 'zai').toLowerCase();
 
@@ -240,6 +253,18 @@ function cuerpoPara(cfg: ProveedorTexto, params: any): any {
   // pueden truncar la salida). reasoning_effort:'none' lo desactiva → menos tokens/costo.
   // Solo afecta a Gemini (no a DeepSeek/GLM, que se llaman con su propio cfg).
   else if (cfg.baseURL.includes('generativelanguage')) body.reasoning_effort = 'none';
+  // cfg.reasoningEffort (Kimi K3): el razonamiento no se puede apagar, solo graduar. Se aplica
+  // DESPUÉS del `else if` de arriba porque son ramas mutuamente excluyentes por proveedor
+  // (ningún cfg tiene sinThinking=true, baseURL de Gemini Y reasoningEffort a la vez).
+  if (cfg.reasoningEffort) {
+    body.reasoning_effort = cfg.reasoningEffort;
+    // BUG REAL (08-sep-2026, verificado en vivo contra api.moonshot.ai): Kimi K3 devuelve 400
+    // "invalid temperature: only 1 is allowed for this model" con CUALQUIER otro valor. Todos los
+    // prompts del proyecto mandan temperature:0.1 (pensado para GLM/DeepSeek/Gemini) — sin este
+    // override, TODAS las llamadas a Kimi fallaban con 400 y caían en silencio al respaldo
+    // (deepseek-v4-flash), o sea nunca se llegaba a usar el modelo "mejor versión" pedido.
+    body.temperature = 1;
+  }
   return body;
 }
 
@@ -297,6 +322,19 @@ function tarifaModelo(model: string): { precIn: number; precOut: number } {
     });
     if (m.includes('lite')) return env('GEMINI_PRICE_IN_USD_PER_M_LITE', 'GEMINI_PRICE_OUT_USD_PER_M_LITE', 0.10, 0.40);
     return env('GEMINI_PRICE_IN_USD_PER_M', 'GEMINI_PRICE_OUT_USD_PER_M', 0.30, 2.50);
+  }
+  // Kimi (Moonshot AI, 07-sep-2026). K3 es el flagship (razonamiento siempre encendido — el
+  // "pensamiento" también se cobra como tokens de salida, ver reasoningEffort en PROVEEDORES_TEXTO)
+  // y el que usa el Auditor Técnico por defecto. K2.6 queda documentado por si se cambia
+  // KIMI_TEXT_MODEL a propósito (más barato, sin garantía de razonamiento profundo). Precios
+  // públicos de platform.kimi.ai / api.moonshot.ai, USD por 1M — confirmar ahí si cambian.
+  if (m.includes('kimi')) {
+    const env = (i: string, o: string, di: number, dobj: number) => ({
+      precIn:  Number(process.env[i] ?? di),
+      precOut: Number(process.env[o] ?? dobj),
+    });
+    if (m.includes('k2')) return env('KIMI_PRICE_IN_USD_PER_M_K2', 'KIMI_PRICE_OUT_USD_PER_M_K2', 0.95, 4.00);
+    return env('KIMI_PRICE_IN_USD_PER_M_K3', 'KIMI_PRICE_OUT_USD_PER_M_K3', 3.00, 15.00); // k3 (default)
   }
   return { precIn: 0.27, precOut: 1.10 }; // otros
 }
@@ -447,8 +485,20 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
 // reales medidos: 4-93s); si no responde, mejor pasar pronto al respaldo que esperar el mismo
 // margen generoso que se le da a los modelos de última instancia. Si no se pasa, usa opts.timeoutMs
 // para el principal también (comportamiento previo, sin cambios para callers que no lo usan).
-export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number } = {}) {
-  const activo = opts.modeloPreferido ? { ...PROVEEDORES_TEXTO.zai, model: opts.modeloPreferido } : cfgTexto();
+//
+// opts.proveedorPreferido (07-sep-2026): a diferencia de modeloPreferido (que SOLO cambia el
+// modelo dentro de la cuenta Z.AI), esto fuerza un PROVEEDOR completo distinto — baseURL, key y
+// modelo — de PROVEEDORES_TEXTO (hoy solo tiene sentido con 'kimi'). Uso: el Auditor Técnico pide
+// Kimi K3 puntualmente para comparar una ficha técnica, sin tocar IA_TEXT_PROVIDER global. Si la
+// key de ese proveedor no está configurada, cae de inmediato a la cadena normal (cfgTexto())
+// para no romper el caller — mejor GLM que un error de "proveedor sin key" en una función que no
+// lo espera. La cadena de respaldo se arma igual a partir de ese proveedor (cfgTextoRespaldos ya
+// sabe deduplicar contra el activo), así que un fallo de Kimi cae a DeepSeek/GLM en vez de morir.
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string; proveedorPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number } = {}) {
+  const proveedorForzado = opts.proveedorPreferido ? PROVEEDORES_TEXTO[opts.proveedorPreferido] : undefined;
+  const activo = proveedorForzado && process.env[proveedorForzado.keyEnv]
+    ? proveedorForzado
+    : opts.modeloPreferido ? { ...PROVEEDORES_TEXTO.zai, model: opts.modeloPreferido } : cfgTexto();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
   const timeoutPrimario = opts.timeoutMsPrimario ?? opts.timeoutMs;
   const reqOptsPrimario = timeoutPrimario ? { timeout: timeoutPrimario } : undefined;

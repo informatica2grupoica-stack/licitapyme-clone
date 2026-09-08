@@ -418,6 +418,30 @@ test('programa de integridad: una fila de checkbox SI/NO (dos casillas de marcar
   assert.ok(r.celdaSinResolver.some(c => c.indice === 2), 'la opción "NO" queda pendiente (decisión del oferente)');
 });
 
+// BUG REAL (7-sep-2026, tabla "PROGRAMA(S) DE INTEGRIDAD Y COMPLIANCE", reportado por el usuario
+// con captura: "me pone sí y sí, solo me tiene que poner que sí contamos o no en la otra"): mismo
+// patrón que el checkbox SI/NO de arriba, pero la opción viene como una FILA ENTERA en prosa
+// ("Cuenta con…" / "No cuenta con…"), cada una con su propia celda "Marcar alternativa" al lado.
+// Las dos etiquetas nombran "integridad" y comparten el mismo contexto de bloque, así que la
+// política fija las marcaba a las DOS con "SÍ" — el documento salía contradictorio consigo mismo.
+test('programa de integridad: una fila "Cuenta con…" / "No cuenta con…" (alternativa en prosa) NUNCA se autocompleta', () => {
+  const parrafos = [parrafo(0, 'PROGRAMA(S) DE INTEGRIDAD Y COMPLIANCE')];
+  const conRespuesta = { ...EMPRESA, programa_integridad_respuesta: 'SÍ' } as EmpresaCampos;
+  const r = resolverDeterminista({
+    candidatos: [
+      celda(1, 'Cuenta con programa (s) de integridad y compliance que sean conocidos por el personal'),
+      celda(2, 'No cuenta con programa (s) de integridad y compliance que sean conocidos por el personal'),
+    ],
+    blancosInline: [], parrafos, empresa: conRespuesta,
+  });
+  assert.equal(valorAuto(r.celda, 1), null, 'la fila "Cuenta con…" no debe marcarse sola');
+  assert.equal(valorAuto(r.celda, 2), null, 'la fila "No cuenta con…" no debe marcarse sola');
+  assert.ok(r.celdaSinResolver.some(c => c.indice === 1), 'la fila "Cuenta con…" queda pendiente (decisión del oferente)');
+  assert.ok(r.celdaSinResolver.some(c => c.indice === 2), 'la fila "No cuenta con…" queda pendiente (decisión del oferente)');
+  assert.equal(clasificarPendiente('Cuenta con programa (s) de integridad y compliance').categoria, 'decision_del_usuario');
+  assert.equal(clasificarPendiente('No cuenta con programa (s) de integridad y compliance').categoria, 'decision_del_usuario');
+});
+
 // ── Clasificación del pendiente ──────────────────────────────────────────────────────────────
 test('clasificarPendiente: distingue precio, decisión, tercero y título', () => {
   assert.equal(clasificarPendiente('Valor unitario neto').categoria, 'especifico_licitacion');

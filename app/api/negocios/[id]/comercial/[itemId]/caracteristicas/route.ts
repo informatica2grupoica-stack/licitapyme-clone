@@ -28,7 +28,7 @@ import { transicion } from '@/app/lib/checklist-comercial';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import {
-  clasificarCaracteristicasLinea, compararFichaProveedor,
+  clasificarCaracteristicasLinea, compararFichaProveedor, compararFichasMultiModelo,
   evaluarCaracteristicaDeterminista, evaluarCaracteristicaConIA, slugCaracteristica,
   type VeredictoCaracteristica,
 } from '@/app/lib/auditor-tecnico';
@@ -196,6 +196,66 @@ async function intentarAutoTransicion(item: any, negocioId: number, userId: numb
     [userId, nombreActor, ahora, item.id],
   );
   await bitacora(item.id, negocioId, 'CARGAR', item.estado, 'CARGADO', `${Number(r.total)}/${Number(r.total)} características evaluadas`, userId, nombreActor);
+}
+
+/** Un veredicto de UN modelo candidato para UNA característica — la misma forma que el reporte de
+ *  comparar_ficha_ia100 le devuelve a la pantalla (ver ese action), reusada acá para poder
+ *  aplicarla tanto automáticamente (ganador sin ambigüedad) como a pedido explícito del usuario
+ *  ("Usar este modelo" — ver elegir_modelo_ia100). */
+interface VeredictoDeModeloIA100 {
+  caracteristicaId: number;
+  valorOfertadoTexto: string | null;
+  valorOfertadoNumero: number | null;
+  unidadOfertadaOriginal: string | null;
+  veredicto: 'CUMPLE' | 'NO_CUMPLE' | 'CUMPLE_CON_COMPLEMENTO' | null;
+  pendienteConfirmacionProveedor: boolean;
+  fundamentoCita: string | null;
+  confianza: number;
+}
+
+/**
+ * Escribe en checklist_comercial_caracteristicas los veredictos de UN modelo elegido (ganador
+ * automático o elección explícita del usuario). Mismo repaso determinista de unidades que
+ * 'comparar_ficha' de siempre, y el MISMO guardarraíl anti-regresión (08-sep-2026, línea-paquete
+ * real 2495-17-B226): un modelo/documento nuevo puede agregar o corregir un veredicto, pero nunca
+ * borrar uno que ya existía solo porque ESTE modelo en particular no menciona esa característica
+ * — sin esto, comparar la ficha de un ítem del paquete borraba lo ya resuelto de otro ítem.
+ * Devuelve cuántas filas se escribieron de verdad (excluye las saltadas por el guardarraíl).
+ */
+async function aplicarVeredictosDeModeloIA100(
+  caracteristicasActuales: Array<{ id: number; tipo: string; valor_requerido_numero: number | null; valor_requerido_numero_max: number | null; unidad_requerida: string | null; veredicto: string | null }>,
+  veredictosModelo: VeredictoDeModeloIA100[],
+  etiquetaFuente: string,
+): Promise<number> {
+  let escritas = 0;
+  for (const v of veredictosModelo) {
+    const c = caracteristicasActuales.find(it => it.id === v.caracteristicaId);
+    if (!c) continue;
+    let convertido: number | null = null;
+    let veredictoFinal = v.veredicto;
+    if (v.valorOfertadoNumero != null && c.valor_requerido_numero != null) {
+      const det = evaluarCaracteristicaDeterminista({
+        tipo: c.tipo as any, valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
+        unidadRequerida: c.unidad_requerida, valorOfertadoNumero: v.valorOfertadoNumero, unidadOfertadaOriginal: v.unidadOfertadaOriginal,
+      });
+      if (det) { convertido = det.valorConvertidoNumero; veredictoFinal = det.veredicto; }
+    }
+    if (veredictoFinal == null && c.veredicto != null) continue;
+    await pool.query(
+      `UPDATE checklist_comercial_caracteristicas
+          SET valor_ofertado_texto = ?, valor_ofertado_numero = ?, unidad_ofertada_original = ?,
+              valor_convertido_numero = ?, veredicto = ?, pendiente_confirmacion_proveedor = ?,
+              fundamento_documento = ?, fundamento_cita = COALESCE(?, fundamento_cita), confianza = ?, origen = 'ficha'
+        WHERE id = ?`,
+      [
+        v.valorOfertadoTexto, v.valorOfertadoNumero, v.unidadOfertadaOriginal, convertido,
+        veredictoFinal, (v.pendienteConfirmacionProveedor || !veredictoFinal) ? 1 : 0,
+        etiquetaFuente.slice(0, 300), v.fundamentoCita, v.confianza, c.id,
+      ],
+    );
+    escritas++;
+  }
+  return escritas;
 }
 
 // ═══ GET — detalle completo (nivel 3) ═══════════════════════════════════════════
@@ -452,6 +512,18 @@ export async function POST(request: NextRequest, { params }: Params) {
           });
           if (det) { convertido = det.valorConvertidoNumero; veredictoFinal = det.veredicto; }
         }
+        // BUG REAL (08-sep-2026, línea-paquete 2495-17-B226 "SISTEMA DE TRASPLANTE DE ÁRBOLES":
+        // tractor + 4 implementos bajo la MISMA línea, sin separar por producto_index — el informe
+        // los trajo como un solo producto con 48 características mixtas). Subir la ficha del
+        // tractor resuelve las características DE TRACTOR; subir después la ficha de los
+        // implementos (que no menciona nada de tractor) hacía que CADA característica de tractor
+        // volviera a veredicto=null — la IA la marca correctamente como "no mencionada en ESTE
+        // documento", pero el UPDATE de acá abajo pisaba SIN CONDICIÓN el dato bueno que ya había.
+        // Resultado observado en vivo: subir 3 fichas de la misma línea (tractor, implementos,
+        // catálogo) terminaba en "0 de 48 cumple" — cada subida borraba lo que la anterior resolvió.
+        // Regla: un documento nuevo puede AGREGAR o CORREGIR un veredicto (si trae uno), pero nunca
+        // BORRAR uno que ya existía solo porque este documento en particular no lo menciona.
+        if (veredictoFinal == null && c.veredicto != null) continue;
         await pool.query(
           `UPDATE checklist_comercial_caracteristicas
               SET valor_ofertado_texto = ?, valor_ofertado_numero = ?, unidad_ofertada_original = ?,
@@ -488,6 +560,174 @@ export async function POST(request: NextRequest, { params }: Params) {
       publicarCambio('checklist_comercial');
       const caracteristicas = await leerCaracteristicas(item.id);
       return NextResponse.json({ success: true, respetadas, caracteristicas });
+    }
+
+    // ── Agente 2, camino "100% IA" (Kimi K3): VARIAS fichas / modelos candidatos ────────────────
+    // (pedido del usuario, 07-sep-2026: "si en la ficha técnica tengo más de 3 tractores... debe
+    // ser capaz de decirme qué modelo cumple con las especificaciones", y luego: "que se le puedan
+    // cargar varias fichas a la vez" — cada tractor puede venir en SU PROPIO documento, no
+    // necesariamente todos mezclados en un solo catálogo). Distinto de 'comparar_ficha' de arriba:
+    // no asume que cada documento es de UN producto de la línea, identifica cada modelo (dentro de
+    // cada documento, y a través de todos los documentos) y compara cada uno contra las
+    // exigencias. Es la vía CARA (Kimi K3 razona siempre, ver MOTOR_KIMI en auditor-tecnico.ts) —
+    // por eso es una acción aparte, que el asistente elige a mano, no el camino por defecto.
+    //
+    // Solo se ESCRIBE en checklist_comercial_caracteristicas cuando hay un ganador SIN AMBIGÜEDAD
+    // (exactamente un modelo cumple el 100%): si hay 0 o 2+ candidatos que cumplen todo, se
+    // devuelve el reporte completo y NINGUNA fila se toca — es una decisión que le corresponde a
+    // una persona, no algo que el sistema deba resolver solo.
+    if (accion === 'comparar_ficha_ia100') {
+      // Acepta `documentos: [{url,nombre}, ...]` (varias fichas a la vez) y, por comodidad, el
+      // formato singular `documentoUrl`/`documentoNombre` de las demás acciones — se normaliza a
+      // la misma lista de 1 elemento.
+      const documentos: Array<{ url: string; nombre: string }> = Array.isArray(body.documentos)
+        ? body.documentos.map((d: any) => ({ url: String(d?.url || ''), nombre: String(d?.nombre || 'ficha técnica') })).filter((d: any) => d.url)
+        : (body.documentoUrl ? [{ url: String(body.documentoUrl), nombre: String(body.documentoNombre || 'ficha técnica') }] : []);
+      if (!documentos.length) return NextResponse.json({ error: 'Falta al menos una ficha técnica.' }, { status: 400 });
+
+      const todas = await leerCaracteristicas(item.id);
+      if (!todas.length)
+        return NextResponse.json({ error: 'Primero valida la línea para clasificar sus características.' }, { status: 400 });
+
+      const existentes = todas.filter(c => !c.respuesta_manual);
+      const respetadas = todas.length - existentes.length;
+      if (!existentes.length)
+        return NextResponse.json({
+          success: true, respetadas, reportes: [],
+          aviso: 'Todas las características de esta línea están contestadas a mano: no se comparó nada.',
+        });
+
+      // Cada documento se lee de forma independiente — un archivo que falla no tumba a los demás
+      // (mejor comparar los 3 que sí se pudieron leer que rechazar los 4 por uno corrupto).
+      const fichas = (await Promise.all(documentos.map(async (d) => {
+        try {
+          const extraido = await descargarYExtraerTexto(d.url, d.nombre);
+          if (!extraido?.texto || extraido.texto.trim().length < 30) return null;
+          return { texto: extraido.texto, nombre: d.nombre };
+        } catch (e) {
+          console.error(`[comercial][caracteristicas][ia100] no se pudo leer "${d.nombre}":`, String(e));
+          return null;
+        }
+      }))).filter((f): f is { texto: string; nombre: string } => f != null);
+      if (!fichas.length) return NextResponse.json({ error: 'No se pudo leer texto de ninguna de las fichas.' }, { status: 400 });
+
+      const gruposPorProducto = new Map<number, typeof existentes>();
+      for (const c of existentes) {
+        const idx = c.producto_index ?? 0;
+        if (!gruposPorProducto.has(idx)) gruposPorProducto.set(idx, []);
+        gruposPorProducto.get(idx)!.push(c);
+      }
+
+      // Por producto de la línea (normalmente uno solo, salvo línea-paquete): identifica los
+      // modelos a través de TODAS las fichas subidas y compara cada uno contra las características
+      // de ese producto. NOTA: con una línea-paquete de 2+ productos, las mismas fichas se
+      // comparan contra CADA grupo de características — asumido a propósito porque el caso real de
+      // este camino es "varios modelos candidatos del MISMO tipo de equipo" (una línea con un solo
+      // producto), no un paquete de productos distintos; no se intenta adivinar qué ficha
+      // corresponde a qué producto del paquete.
+      const documentoNombreResumen = fichas.map(f => f.nombre).join(', ');
+      const reportes = await Promise.all(Array.from(gruposPorProducto.entries()).map(async ([idx, items]) => {
+        const resultado = await compararFichasMultiModelo(
+          items.map(c => ({
+            id: c.id, descripcion: c.descripcion, tipo: c.tipo,
+            valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
+            unidadRequerida: c.unidad_requerida, valorRequeridoTexto: c.valor_requerido_texto,
+          })),
+          fichas,
+        );
+        return {
+          productoIndex: idx,
+          items,
+          multiplesModelos: resultado.multiplesModelos,
+          recomendados: resultado.recomendados,
+          modelos: resultado.modelos.map(m => ({
+            nombreModelo: m.nombreModelo, resumenSpecs: m.resumenSpecs, resumen: m.resumen, cumpleTodo: m.cumpleTodo,
+            // Para que la pantalla pueda ofrecer "usar este modelo" sin adivinar marca/modelo de
+            // nuevo — ya se leyó del documento propio de este candidato (extraerProductoOfertado).
+            producto: m.producto,
+            veredictos: items.map(c => {
+              const v = m.veredictos.get(c.id);
+              return {
+                caracteristicaId: c.id, descripcion: c.descripcion,
+                valorOfertadoTexto: v?.valorOfertadoTexto ?? null,
+                valorOfertadoNumero: v?.valorOfertadoNumero ?? null,
+                unidadOfertadaOriginal: v?.unidadOfertadaOriginal ?? null,
+                veredicto: v?.veredicto ?? null,
+                pendienteConfirmacionProveedor: v?.pendienteConfirmacionProveedor ?? true,
+                fundamentoCita: v?.fundamentoCita ?? null, confianza: v?.confianza ?? 0,
+              };
+            }),
+          })),
+        };
+      }));
+
+      // Ganador SIN AMBIGÜEDAD → se escribe, igual que 'comparar_ficha' de siempre. Con 0 o 2+
+      // candidatos que cumplen todo, no se toca nada — el usuario elige a mano con "Usar este
+      // modelo" (ver la acción elegir_modelo_ia100 más abajo).
+      let escritas = 0;
+      for (const r of reportes) {
+        if (r.recomendados.length !== 1) continue;
+        const ganador = r.modelos.find(m => m.nombreModelo === r.recomendados[0]);
+        if (!ganador) continue;
+        escritas += await aplicarVeredictosDeModeloIA100(
+          r.items, ganador.veredictos, `${ganador.nombreModelo} — Modelo IA (entre: ${documentoNombreResumen})`,
+        );
+      }
+
+      if (escritas) {
+        await agregarDocumentos(item.id, negocio.id, documentos, userId, nombreActor);
+        await intentarAutoTransicion(item, negocio.id, userId, nombreActor);
+        publicarCambio('checklist_comercial');
+      }
+
+      const caracteristicas = await leerCaracteristicas(item.id);
+      return NextResponse.json({
+        success: true, respetadas, escritas,
+        reportes: reportes.map(({ items: _items, ...r }) => r),
+        caracteristicas,
+      });
+    }
+
+    // ── Elegir a mano UN modelo del reporte de comparar_ficha_ia100 ("Usar este modelo") ────────
+    // Pedido explícito del usuario (08-sep-2026, tras ver 2495-17-B226): cuando hay varios modelos
+    // candidatos (5 fichas de tractores, por ejemplo) quiere poder ELEGIR cuál es el que se
+    // oferta, no depender de que el sistema encuentre un ganador sin ambigüedad. La pantalla ya
+    // tiene el reporte completo (veredictos + marca/modelo por candidato, de comparar_ficha_ia100)
+    // y lo reenvía tal cual — acá no se vuelve a llamar a la IA, solo se aplica lo que ya se
+    // calculó.
+    //
+    // A diferencia del ganador AUTOMÁTICO de comparar_ficha_ia100 (que queda origen='ficha' SIN
+    // confirmar, como cualquier lectura automática), acá SÍ se confirma el producto
+    // (confirmarProductoOfertado) — es una persona la que decidió, y esa confirmación LOCKEA
+    // marca/modelo/fabricante: guardarProductoLeidoDeFicha() se abstiene de tocarlos mientras
+    // confirmado_por no sea null. Es justo el candado que faltaba: sin él, subir después la ficha
+    // de OTRO ítem del mismo paquete (ej. los implementos) pisaba la marca del tractor ya elegido.
+    if (accion === 'elegir_modelo_ia100') {
+      const productoIndex = Number.isInteger(body.productoIndex) ? Number(body.productoIndex) : 0;
+      const nombreModelo = String(body.nombreModelo || '').trim();
+      const veredictosModelo: VeredictoDeModeloIA100[] = Array.isArray(body.veredictos) ? body.veredictos : [];
+      if (!veredictosModelo.length) return NextResponse.json({ error: 'Falta el detalle del modelo a aplicar.' }, { status: 400 });
+
+      const actuales = await leerCaracteristicas(item.id);
+      const escritas = await aplicarVeredictosDeModeloIA100(
+        actuales, veredictosModelo, `${nombreModelo || 'Modelo elegido'} — elegido a mano entre varios candidatos`,
+      );
+
+      const p = body.producto || {};
+      const limpio = (v: unknown) => { const t = String(v ?? '').trim(); return t ? t.slice(0, 160) : null; };
+      await confirmarProductoOfertado({
+        itemId: item.id, negocioId: negocio.id, productoIndex, usuarioId: userId,
+        marca: limpio(p.marca), modelo: limpio(p.modelo) ?? limpio(nombreModelo),
+        fabricante: limpio(p.fabricante), paisFabricacion: limpio(p.paisFabricacion), anioFabricacion: limpio(p.anioFabricacion),
+      });
+
+      await intentarAutoTransicion(item, negocio.id, userId, nombreActor);
+      publicarCambio('checklist_comercial');
+      const caracteristicas = await leerCaracteristicas(item.id);
+      return NextResponse.json({
+        success: true, escritas, caracteristicas,
+        productos: await productosDeItem(item, negocio.licitacion_codigo),
+      });
     }
 
     return NextResponse.json({ error: 'Acción desconocida' }, { status: 400 });

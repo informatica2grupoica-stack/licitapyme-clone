@@ -3,7 +3,7 @@
 //   npx tsx --test app/lib/__tests__/checklist-comercial-nucleos.test.mts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nucleoDeTitulo, nucleosCoinciden, numeroDeFormatoEn } from '../checklist-comercial';
+import { nucleoDeTitulo, nucleosCoinciden, numeroDeFormatoEn, numerosDeFormatoEn } from '../checklist-comercial';
 
 // ─── TOLERANCIA A UN TYPO (26-ago-2026, auditoría técnica) ────────────────────────────────
 // Caso real, negocio 453: dos análisis del MISMO documento un día de diferencia, y el segundo
@@ -72,4 +72,42 @@ test('numeroDeFormatoEn detecta el identificador con normalidad, el typo no lo a
   assert.equal(numeroDeFormatoEn('Anexo N°6.1: Ficha técnica'), 'anexo:61');
   assert.equal(numeroDeFormatoEn('Anexo N°6.2: Ficha técnica'), 'anexo:62');
   assert.notEqual(numeroDeFormatoEn('Anexo N°6.1: Ficha técnica'), numeroDeFormatoEn('Anexo N°6.2: Ficha técnica'));
+});
+
+// ─── CÓDIGO PROPIO DEL ORGANISMO (08-sep-2026, caso real reportado por el usuario) ─────────
+// El Auditor Técnico mostraba dobles: "Formulario ADMI-1 a ADMI-4 completos y firmados" (del
+// informe de viabilidad) al lado de "Formulario Admi-1 - Declaración Jurada", "...Admi-2...",
+// "...Admi-3...", "...Admi-4..." (uno por cada archivo real ya descargado) — mismo requisito,
+// 5 filas. Y lo mismo con "Formulario ECO-1 Oferta Económica" vs "2-formulario ECO 1", y
+// "Formulario TEC-1 Oferta Técnica" vs "3-formulario TEC 1". La causa: el organismo numera con
+// su propio código (ADMI/ECO/TEC) pegado al número, un patrón que el detector no reconocía como
+// identificador — así que el dedupe nunca los cruzaba.
+test('reconoce el código propio del organismo (ADMI-1, ECO-1, TEC-1) como identificador', () => {
+  assert.equal(numeroDeFormatoEn('Formulario ECO-1 Oferta Económica'), 'formulario:eco_1');
+  assert.equal(numeroDeFormatoEn('2-formulario ECO 1'), 'formulario:eco_1');
+  assert.equal(numeroDeFormatoEn('Formulario TEC-1 Oferta Técnica'), 'formulario:tec_1');
+  assert.equal(numeroDeFormatoEn('3-formulario TEC 1'), 'formulario:tec_1');
+});
+
+test('el código propio no funde series distintas (ADMI-1 y ECO-1 siguen siendo documentos distintos)', () => {
+  assert.notEqual(numeroDeFormatoEn('Formulario ADMI-1'), numeroDeFormatoEn('Formulario ECO-1'));
+});
+
+test('expande el rango "ADMI-1 a ADMI-4" a los 4 identificadores intermedios', () => {
+  const combinado = numerosDeFormatoEn('Formulario ADMI-1 a ADMI-4 completos y firmados');
+  assert.deepEqual(combinado, ['formulario:admi_1', 'formulario:admi_2', 'formulario:admi_3', 'formulario:admi_4']);
+
+  // Cada archivo real, por su lado, cae dentro del rango expandido — así se fusionan.
+  assert.ok(combinado.includes(numerosDeFormatoEn('Formulario Admi-1 - Declaración Jurada')[0]));
+  assert.ok(combinado.includes(numerosDeFormatoEn('Formulario Admi-2 - Declaración Jurada Sim')[0]));
+  assert.ok(combinado.includes(numerosDeFormatoEn('Formulario Admi-3 - Declaración Jurada Sim')[0]));
+  assert.ok(combinado.includes(numerosDeFormatoEn('Formulario Admi-4 - Declaración Jurada Sim')[0]));
+});
+
+// Un rango real siempre trae ambos extremos numéricos y el mismo código — si el segundo extremo
+// no calza (otro código, o no es un rango real), NO se expande a ciegas: mejor no fusionar que
+// fundir dos series independientes por accidente.
+test('no expande si el segundo extremo del "a" es un código distinto', () => {
+  const numeros = numerosDeFormatoEn('Formulario ADMI-1 a ECO-4 completos');
+  assert.deepEqual(numeros, ['formulario:admi_1']);
 });

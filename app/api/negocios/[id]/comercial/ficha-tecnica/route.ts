@@ -18,7 +18,7 @@ import { cargarNegocio, nombreDe, leerInforme } from '../route';
 import { productosCrudosDeLinea } from '@/app/lib/auditor-tecnico-core';
 import { leerProductosDeLinea } from '@/app/lib/producto-ofertado-db';
 import {
-  construirFichaTecnicaHtml, especificacionesSinCompletar,
+  construirFichaTecnicaHtml, especificacionesSinCompletar, productosSinConfirmar,
   type LineaFicha, type EspecificacionFicha, type EmpresaFicha, type ProductoFicha,
 } from '@/app/lib/ficha-tecnica';
 
@@ -255,6 +255,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       // Se devuelve para que la pantalla avise ANTES de presentar: una casilla en blanco es una
       // casilla que hay que completar a mano, no un detalle estético.
       sinCompletar: especificacionesSinCompletar(lineas),
+      // Marca/modelo/foto leídos automáticamente y sin confirmar (08-sep-2026): el PDF YA NO
+      // imprime ese aviso adentro (ver ficha-tecnica.ts) — vive acá, para que la pantalla avise
+      // ANTES de descargar/presentar, en vez de que el aviso viaje dentro del documento oficial.
+      sinConfirmar: productosSinConfirmar(lineas),
     });
   } catch (e: any) {
     console.error('[ficha-tecnica]', String(e));

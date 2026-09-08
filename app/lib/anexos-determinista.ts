@@ -1553,6 +1553,14 @@ const RE_TERCERO = /\b(cliente|mandante|contraparte|quien certifica|emisor del c
 // propósito: "SI" es una casilla para marcar, "SI CORRESPONDE" o "no aplica al oferente" no.
 const RE_CASILLA_MARCAR = /^(?:si|no|si\s*\/\s*no|cumple|no cumple|aplica|no aplica|acompana|adjunta)$/;
 
+// Misma familia que RE_CASILLA_MARCAR, pero para cuando la opción no viene como palabra pelada
+// ("SI"/"NO") sino como una FILA ENTERA que declara la alternativa en prosa: "Cuenta con
+// programa(s) de integridad..." / "No cuenta con programa(s) de integridad...", cada una con su
+// propia celda "Marcar alternativa" al lado. Anclada al INICIO: una etiqueta que declara el hecho
+// ("Cuenta con…") en vez de preguntarlo ("¿Cuenta con…?", "¿La empresa cuenta con…?") es la opción
+// a marcar, no la pregunta.
+const RE_ALTERNATIVA_CUENTA_CON = /^no\s+cuenta\s+con\b|^cuenta\s+con\b/;
+
 export function clasificarPendiente(etiqueta: string): { categoria: CategoriaCampo; motivo: string } {
   const n = normalizarEtiqueta(etiquetaPropia(etiqueta));
   if (!n) {
@@ -1578,6 +1586,11 @@ export function clasificarPendiente(etiqueta: string): { categoria: CategoriaCam
   // solo aviso. Es una decisión del oferente (qué documentos adjunta), nunca un dato de la ficha.
   if (RE_CASILLA_MARCAR.test(n)) {
     return { categoria: 'decision_del_usuario', motivo: 'Casilla para marcar (SÍ/NO): la decide el oferente según los documentos que adjunte.' };
+  }
+  // Misma decisión excluyente que RE_CASILLA_MARCAR, pero escrita como fila en prosa ("Cuenta con…"
+  // / "No cuenta con…") en vez de casilla pelada — ver RE_ALTERNATIVA_CUENTA_CON.
+  if (RE_ALTERNATIVA_CUENTA_CON.test(n)) {
+    return { categoria: 'decision_del_usuario', motivo: 'Fila de alternativa excluyente: marca la que corresponda según la situación real de la empresa.' };
   }
   if (RE_TITULO.test(n) && n.split(' ').length <= 5) {
     return { categoria: 'no_aplica_al_oferente', motivo: 'Es un encabezado o título de sección — anuncia lo que viene abajo, no pide un dato.' };
@@ -1939,9 +1952,20 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // ya usa `clasificarPendiente` para "columna de MARCAR SI/NO") descarta la política acá: una
     // etiqueta que es LITERALMENTE la opción a marcar, no la pregunta, es una decisión del oferente
     // — igual que cualquier otro par de alternativas excluyentes, queda pendiente.
+    //
+    // BUG REAL (7-sep-2026, tabla "PROGRAMA(S) DE INTEGRIDAD Y COMPLIANCE", reportado por el
+    // usuario con captura): el mismo patrón, pero la opción no viene como "SI"/"NO" pelado sino
+    // como una fila entera en prosa — "Cuenta con programa(s)…" / "No cuenta con programa(s)…" —
+    // cada una con su propia celda "Marcar alternativa". Las dos etiquetas nombran "integridad" y
+    // comparten el mismo contexto de bloque, así que la política las agarraba a las DOS por igual:
+    // el documento salía con "SÍ" en la fila afirmativa Y en la negativa a la vez. RE_ALTERNATIVA_
+    // CUENTA_CON descarta la política igual que RE_CASILLA_MARCAR: una etiqueta que EMPIEZA
+    // declarando el hecho, en vez de preguntarlo, es la opción — queda pendiente para que el
+    // oferente marque la que corresponda.
     const etiquetaEsEncabezado = RE_ENCABEZADO_SECCION.test(String(propia).trim());
     if (!campo && !RE_ETIQUETA_PIDE_OTRO_DATO.test(normalizarEtiqueta(propia))
         && !RE_CASILLA_MARCAR.test(normalizarEtiqueta(propia))
+        && !RE_ALTERNATIVA_CUENTA_CON.test(normalizarEtiqueta(propia))
         && esPreguntaDeIntegridad(etiquetaEsEncabezado ? propia : `${c.etiqueta} ${bloque?.contexto ?? ''}`)) {
       campo = 'programa_integridad_respuesta' as Campo;
     }
