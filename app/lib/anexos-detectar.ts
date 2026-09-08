@@ -846,11 +846,21 @@ function extraerCeldasDeFila(filaXml: string, offsetFila: number, offsetsIndices
     const indicesParrafos = parrafosCelda
       .map(p => offsetsIndices.get(offsetCelda + (p.index ?? 0)))
       .filter((i): i is number => i != null);
-    // Toma el ÚLTIMO párrafo vacío de la celda como candidato a rellenar — casi siempre las celdas
+    // Toma el PRIMER párrafo vacío de la celda como candidato a rellenar — casi siempre las celdas
     // de una tabla de specs traen un solo párrafo, así que en la práctica es el único. Se usa
     // parrafoEstaVacio (sin TEXTO) y no "sin runs": con el XML de LibreOffice, que deja un run
     // vacío en cada celda, la regla vieja no encontraba ni una celda libre en todo el documento.
-    const parrafoVacio = [...parrafosCelda].reverse().find(p => parrafoEstaVacio(p[2]));
+    //
+    // BUG REAL (8-sep-2026, FORMULARIO N°3 PROGRAMA DE INTEGRIDAD, 2446-225-LR26, reportado con
+    // captura: "están corridas no están bien ubicadas"): antes se tomaba el ÚLTIMO párrafo vacío.
+    // Cuando una celda del organismo trae DOS párrafos vacíos (una línea "fantasma" antes de la
+    // línea de escritura real — artefacto del template, no algo que el motor pueda evitar), el
+    // valor se escribía en el SEGUNDO párrafo y quedaba una línea en blanco arriba: el texto salía
+    // un renglón más abajo que el de la celda vecina (que sí trae un solo párrafo), visualmente
+    // "corrido"/desalineado respecto a las demás columnas de la misma fila. Escribir en el PRIMER
+    // párrafo vacío es lo que hace cualquier humano al tipear en una celda de Word (el cursor
+    // arranca ahí) y deja el valor en la misma línea que sus vecinas de fila.
+    const parrafoVacio = parrafosCelda.find(p => parrafoEstaVacio(p[2]));
     let paraId: string | null = null;
     let indiceGlobal: number | null = null;
     let dosPuntos = false;
