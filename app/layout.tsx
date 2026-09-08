@@ -5,6 +5,8 @@ import { SessionProvider } from '@/app/lib/session-context';
 import { ToastProvider }   from '@/app/components/ui/toast';
 import { ConfirmProvider } from '@/app/components/ui/confirm';
 import { ThemeProvider }   from '@/app/lib/theme-context';
+import { CosteoFlotanteProvider } from '@/app/components/CosteoFlotanteContext';
+import { CosteoFlotanteHost }     from '@/app/components/CosteoFlotanteHost';
 
 // Aplica la clase `dark` a <html> ANTES del primer paint, leyendo directo de localStorage.
 // Sin esto, ThemeProvider la aplicaría recién en un efecto de React y se vería un flash
@@ -37,7 +39,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SessionProvider>
             <ToastProvider>
               <ConfirmProvider>
-                {children}
+                <CosteoFlotanteProvider>
+                  {children}
+                  <CosteoFlotanteHost />
+                </CosteoFlotanteProvider>
               </ConfirmProvider>
             </ToastProvider>
           </SessionProvider>

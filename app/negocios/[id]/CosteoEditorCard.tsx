@@ -30,6 +30,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
+import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/CosteoFlotanteContext';
 // Cuadro comparativo (venta/costo/utilidad/margen, estimado vs real, distancia al presupuesto):
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
@@ -77,7 +78,9 @@ interface GrupoEditor {
   // cada canasta tiene el suyo (×1,25 en una, ×1,34 en la otra) — ver GrupoEditorCosteo.
   margenVenta?: number | null;
 }
-interface EstadoEditor {
+// Exportado: CosteoFlotanteContext.tsx lo usa para tipar el traspaso de lo editado (sin guardar)
+// de la instancia embebida a la instancia flotante global — ver `estadoHeredado` más abajo.
+export interface EstadoEditor {
   modalidad: 'suma_alzada' | 'por_linea' | 'por_categoria';
   margenVenta: number;
   grupos: GrupoEditor[];
@@ -623,15 +626,26 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
 /** `standalone` = el costeo abierto en su propia pestaña (/negocios/[id]/costeo), no dentro del
  *  panel del negocio. Nace ya en pantalla completa, Escape no lo cierra (no hay nada detrás) y en
  *  vez de la X se ofrece volver al negocio. Existe para poder mirar la viabilidad en una pestaña y
- *  costear en la otra, sin cerrar y guardar cada vez (pedido del usuario, 04-sep-2026). */
-export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = false }: { negocioId: number; licitacionCodigo: string; standalone?: boolean }) {
+ *  costear en la otra, sin cerrar y guardar cada vez (pedido del usuario, 04-sep-2026).
+ *
+ *  `modoFlotanteGlobal` = esta instancia ES la burbuja flotante de toda la app (la monta
+ *  <CosteoFlotanteHost/> en el layout raíz, nunca una página) — ver CosteoFlotanteContext.tsx.
+ *  `estadoHeredado` siembra su estado inicial con lo que ya tenía editado (sin guardar) la
+ *  instancia embebida de la página, en vez de perderlo al abrir la burbuja. */
+export function CosteoEditorCard({
+  negocioId, licitacionCodigo, standalone = false, modoFlotanteGlobal = false, estadoHeredado = null,
+}: {
+  negocioId: number; licitacionCodigo: string; standalone?: boolean;
+  modoFlotanteGlobal?: boolean; estadoHeredado?: CosteoEstadoHeredado | null;
+}) {
   const toast = useToast();
   const confirmar = useConfirm();
-  const [cargando, setCargando] = useState(true);
+  const flot = useCosteoFlotante();
+  const [cargando, setCargando] = useState(!estadoHeredado);
   const [guardando, setGuardando] = useState(false);
   const [recargando, setRecargando] = useState(false);
-  const [estado, setEstado] = useState<EstadoEditor | null>(null);
-  const [guardado, setGuardado] = useState<EstadoEditor | null>(null); // última versión persistida — para detectar cambios sin guardar
+  const [estado, setEstado] = useState<EstadoEditor | null>(estadoHeredado?.estado ?? null);
+  const [guardado, setGuardado] = useState<EstadoEditor | null>(estadoHeredado ? estadoHeredado.guardado : null); // última versión persistida — para detectar cambios sin guardar
   const [sinViabilidad, setSinViabilidad] = useState(false);
   // Presupuesto publicado en el informe de viabilidad — valor por defecto del cuadro comparativo
   // (el mismo que usa la alerta "Sobre presupuesto" del Motor Comercial).
@@ -645,14 +659,12 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
   const [alertas, setAlertas] = useState<Alerta[] | null>(null);
   const [ultimoGuardado, setUltimoGuardado] = useState<string | null>(null);
   const [pantallaCompleta, setPantallaCompleta] = useState(standalone);
-  // Burbuja flotante (pedido del usuario, 07-sep-2026): reemplaza la vieja "Pestaña aparte" —
-  // en vez de abrir el costeo en otra pestaña del navegador, flota ENCIMA de esta misma página
-  // (como el widget de chat de WhatsApp) para poder mirar la viabilidad detrás mientras se costea.
-  // 'cerrado' = no está activa (vista normal de abajo); 'panel' = ventana flotante abierta;
-  // 'burbuja' = minimizada a un botón redondo, sin perder lo editado (el componente nunca se
-  // desmonta al minimizar ni al cerrar — cerrarFlotante() solo pide confirmar si hay algo sin
-  // guardar).
-  const [flotante, setFlotante] = useState<'cerrado' | 'panel' | 'burbuja'>('cerrado');
+  // Burbuja flotante (pedido del usuario, 07-sep-2026, ampliada a TODA LA APP el 08-sep-2026):
+  // en vez de abrir el costeo en otra pestaña del navegador, flota ENCIMA de cualquier página de
+  // la app (como el widget de chat de WhatsApp) para poder seguir trabajando mientras se costea.
+  // El modo ('panel' abierto / 'burbuja' minimizada) ya no es estado local — vive en
+  // CosteoFlotanteContext (ver `flot`, `enPanelFlotante`, `esNegocioActivoGlobal` más abajo) para
+  // sobrevivir a cualquier navegación, no solo a quedarse en la misma página.
   // Fichas técnicas en proceso (04-sep-2026) — por id de fila, no un solo booleano: varias filas
   // pueden estar generando su ficha a la vez, cada una independiente.
   const [generandoFicha, setGenerandoFicha] = useState<Set<string>>(new Set());
@@ -667,13 +679,17 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
       const pub = Number(d.presupuestoPublicado); // ojo: Number(null) es 0, no NaN
       setPresupuestoPublicado(d.presupuestoPublicado != null && Number.isFinite(pub) && pub > 0 ? pub : null);
       setPresupuestosPorLinea(d.presupuestosPorLinea && typeof d.presupuestosPorLinea === 'object' ? d.presupuestosPorLinea : {});
-      if (d.estado) {
+      // `estadoHeredado` (traspaso embebida → burbuja global) manda sobre lo que traiga el
+      // fetch: puede ir MÁS ADELANTE que lo guardado en el backend (cambios sin guardar todavía).
+      // El resto de la respuesta (viabilidad, congelado, presupuestos) sí se toma siempre — eso
+      // no lo trae el traspaso.
+      if (d.estado && !estadoHeredado) {
         setEstado(d.estado);
         setGuardado(d.sinGuardar ? null : d.estado);
       }
     } catch { /* silencioso: no bloquear la pestaña por el costeo */ }
     finally { setCargando(false); }
-  }, [negocioId]);
+  }, [negocioId, estadoHeredado]);
 
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -698,14 +714,23 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
     return () => window.removeEventListener('beforeunload', onSalir);
   }, [dirty]);
 
+  // `modoFlotanteGlobal`: esta instancia ES la burbuja (la monta <CosteoFlotanteHost/> en el
+  // layout raíz — ver CosteoFlotanteContext.tsx). Todo lo que antes leía el estado LOCAL
+  // `flotante` ahora lee el contexto global, que sobrevive a cualquier navegación.
+  const enPanelFlotante = modoFlotanteGlobal && flot.modo === 'panel';
+  // ¿El negocio de ESTA página (instancia embebida, no la global) es el que está flotando en
+  // otro lado ahora mismo? Si sí, acá no se edita nada — solo se avisa (ver el return de más
+  // abajo) para nunca tener dos editores del mismo negocio divergiendo a la vez.
+  const esNegocioActivoGlobal = !standalone && !modoFlotanteGlobal && flot.activo?.negocioId === negocioId;
+
   // Escape en la burbuja abierta la MINIMIZA, no la cierra: minimizar nunca pierde nada (el
   // componente sigue montado), así que no hace falta pedir confirmación acá.
   useEffect(() => {
-    if (flotante !== 'panel') return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFlotante('burbuja'); };
+    if (!enPanelFlotante) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') flot.minimizar(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [flotante]);
+  }, [enPanelFlotante, flot]);
 
   // Cerrar la burbuja del todo si hay cambios sin guardar pide confirmar primero (pedido del
   // usuario: "que no se cierre si no se ha guardado"). No es que se pierdan de verdad —el estado
@@ -722,8 +747,33 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
       });
       if (!ok) return;
     }
-    setFlotante('cerrado');
-  }, [dirty, confirmar]);
+    flot.cerrar();
+  }, [dirty, confirmar, flot]);
+
+  // La burbuja GLOBAL activa se registra a sí misma como "quien decide si hay algo sin guardar" —
+  // así, si el usuario abre el costeo de OTRO negocio mientras este sigue flotando,
+  // `flot.abrir()` pregunta ANTES de reemplazarlo (misma lógica que cerrarFlotante, reutilizada).
+  useEffect(() => {
+    if (!modoFlotanteGlobal) return;
+    flot.registrarGuardaAntesDeReemplazar(async () => {
+      if (!dirty) return true;
+      return confirmar({
+        titulo: 'Cambios sin guardar en el costeo',
+        mensaje: `Vas a abrir el costeo de otra licitación y la burbuja actual (${licitacionCodigo}) tiene cambios sin guardar. Se pierden si continúas.`,
+        confirmarLabel: 'Descartar y continuar',
+        cancelarLabel: 'Seguir editando esta',
+        peligro: true,
+      });
+    });
+    return () => flot.registrarGuardaAntesDeReemplazar(null);
+  }, [modoFlotanteGlobal, dirty, confirmar, licitacionCodigo, flot]);
+
+  // Botón "Burbuja flotante" de la instancia EMBEBIDA: le pasa la posta a la burbuja global,
+  // llevándose lo editado en memoria (aunque no esté guardado) para no perder nada en el
+  // traspaso — ver `estadoHeredado` más arriba.
+  const abrirBurbujaGlobal = useCallback(() => {
+    flot.abrir(negocioId, licitacionCodigo, estado ? { estado, guardado } : undefined);
+  }, [flot, negocioId, licitacionCodigo, estado, guardado]);
 
   const actualizarFila = (gi: number, fi: number, patch: Partial<FilaEditor>) => {
     setEstado(prev => {
@@ -1002,13 +1052,13 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
             >
               <ArrowLeft size={12} /> Volver al negocio
             </a>
-          ) : flotante === 'panel' ? (
+          ) : enPanelFlotante ? (
             // Dentro de la burbuja: minimizar es gratis (no pierde nada, el componente sigue
             // montado), pero cerrarla del todo pasa por cerrarFlotante(), que pregunta si hay
             // cambios sin guardar (pedido del usuario, 07-sep-2026).
             <>
               <button
-                onClick={() => setFlotante('burbuja')}
+                onClick={() => flot.minimizar()}
                 title="Minimizar a burbuja (Esc) — sigue editando cuando quieras, no se pierde nada"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
               >
@@ -1024,13 +1074,13 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
             </button>
           ) : (
             <>
-              {/* Burbuja flotante (pedido del usuario, 07-sep-2026): reemplaza la vieja "Pestaña
-                  aparte" que abría el costeo en otra pestaña del navegador. Ahora flota ENCIMA de
-                  esta misma página —como el chat de WhatsApp— para poder mirar la viabilidad
-                  detrás mientras se cotiza, sin ir y venir entre pestañas. */}
+              {/* Burbuja flotante (pedido del usuario, 07-sep-2026; ampliada a TODA LA APP el
+                  08-sep-2026): reemplaza la vieja "Pestaña aparte" que abría el costeo en otra
+                  pestaña del navegador. Flota ENCIMA de cualquier página de la app —como el chat
+                  de WhatsApp— para seguir trabajando sin cerrar el costeo a cada momento. */}
               <button
-                onClick={() => setFlotante('panel')}
-                title="Abre el costeo en una burbuja flotante encima de esta página: se abre y cierra cuando quieras, y no deja cerrarla del todo si hay cambios sin guardar"
+                onClick={abrirBurbujaGlobal}
+                title="Abre el costeo en una burbuja flotante — se mantiene abierta aunque navegues a otra página de la app, y no deja cerrarla del todo si hay cambios sin guardar"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-bold text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 rounded-lg border border-zinc-200 transition-colors"
               >
                 <PictureInPicture2 size={12} /> Burbuja flotante
@@ -1323,6 +1373,43 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
     </div>
   );
 
+  // ── Burbuja flotante GLOBAL ──────────────────────────────────────────────────────────────────
+  // Esta instancia ES la burbuja (la montó <CosteoFlotanteHost/> en el layout raíz — nunca una
+  // página). Es un portal puro: no tiene "hueco" propio en ningún lado, así que jamás cae al
+  // return de abajo (el embebido normal) ni a `pantallaCompleta`. Al vivir en el layout raíz de
+  // Next.js (que no se desmonta al navegar), sobrevive a cualquier cambio de página — a
+  // diferencia de la versión anterior (07-sep-2026), que era la MISMA instancia embebida en la
+  // página del negocio y desaparecía en cuanto se cambiaba de sección o de ruta.
+  if (modoFlotanteGlobal) {
+    return createPortal(
+      flot.modo === 'panel' ? (
+        <div
+          role="dialog"
+          aria-label={`Costeo · ${licitacionCodigo}`}
+          className="fixed bottom-5 right-5 z-[90] w-[min(880px,94vw)] h-[min(640px,86vh)] bg-white rounded-2xl shadow-2xl border border-zinc-300 flex flex-col overflow-hidden"
+        >
+          {Cabecera}
+          <div className="flex-1 min-h-0 p-3 flex flex-col gap-3 overflow-auto">
+            <div className="flex-1 min-h-0 min-w-0 flex">{Hoja}</div>
+            <div className="flex-shrink-0 max-h-[36vh] overflow-y-auto">{cuadroDeHoja(g, giActivo, true)}</div>
+          </div>
+        </div>
+      ) : (
+        // Minimizada: solo el botón redondo, como el chat head de WhatsApp — un clic la
+        // vuelve a abrir tal cual quedó.
+        <button
+          onClick={() => flot.expandir()}
+          title={dirty ? `Costeo · ${licitacionCodigo} — cambios sin guardar, clic para volver a abrirlo` : `Costeo · ${licitacionCodigo} — clic para volver a abrirlo`}
+          className="fixed bottom-5 right-5 z-[90] w-14 h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xl flex items-center justify-center transition-colors"
+        >
+          <Calculator size={22} />
+          {dirty && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-white" />}
+        </button>
+      ),
+      document.body,
+    );
+  }
+
   if (pantallaCompleta) {
     return createPortal(
       <div className="fixed inset-0 z-[100] bg-zinc-100 flex flex-col">
@@ -1345,58 +1432,23 @@ export function CosteoEditorCard({ negocioId, licitacionCodigo, standalone = fal
     );
   }
 
-  // ── Burbuja flotante ────────────────────────────────────────────────────────────────────────
-  // No standalone (esa ya es una pestaña propia, no necesita flotar sobre nada). El resto del
-  // negocio (viabilidad, etc.) queda visible y usable alrededor/debajo — a diferencia de pantalla
-  // completa, que tapa todo. El componente NUNCA se desmonta al minimizar o cerrar (solo cambia
-  // `flotante`), así que lo editado sigue ahí si se vuelve a abrir.
-  if (!standalone && flotante !== 'cerrado') {
+  // El negocio de ESTA página ya está flotando en otro lado (la instancia global de arriba) —
+  // acá no queda espacio en blanco, solo el aviso y un acceso directo. Nunca se edita dos veces
+  // el mismo negocio a la vez.
+  if (esNegocioActivoGlobal) {
     return (
-      <>
-        {/* Donde vivía la planilla queda un aviso chico — evita una sección en blanco mientras el
-            costeo está flotando en otro lado de la pantalla. */}
-        <div className="bg-white rounded-xl border border-dashed border-zinc-300 p-4 flex items-center justify-between gap-3 flex-wrap">
-          <p className="text-[12.5px] text-zinc-500 flex items-center gap-1.5">
-            <PictureInPicture2 size={14} className="text-zinc-400 flex-shrink-0" />
-            El costeo está abierto en una burbuja flotante
-            {dirty && <span className="text-amber-600 font-semibold">· cambios sin guardar</span>}
-          </p>
-          <button
-            onClick={() => setFlotante('panel')}
-            className="text-[11.5px] font-bold text-indigo-700 hover:underline flex-shrink-0"
-          >
-            Traer al frente
-          </button>
-        </div>
-
-        {createPortal(
-          flotante === 'panel' ? (
-            <div
-              role="dialog"
-              aria-label={`Costeo · ${licitacionCodigo}`}
-              className="fixed bottom-5 right-5 z-[90] w-[min(880px,94vw)] h-[min(640px,86vh)] bg-white rounded-2xl shadow-2xl border border-zinc-300 flex flex-col overflow-hidden"
-            >
-              {Cabecera}
-              <div className="flex-1 min-h-0 p-3 flex flex-col gap-3 overflow-auto">
-                <div className="flex-1 min-h-0 min-w-0 flex">{Hoja}</div>
-                <div className="flex-shrink-0 max-h-[36vh] overflow-y-auto">{cuadroDeHoja(g, giActivo, true)}</div>
-              </div>
-            </div>
-          ) : (
-            // Minimizada: solo el botón redondo, como el chat head de WhatsApp — un clic la
-            // vuelve a abrir tal cual quedó.
-            <button
-              onClick={() => setFlotante('panel')}
-              title={dirty ? `Costeo · ${licitacionCodigo} — cambios sin guardar, clic para volver a abrirlo` : `Costeo · ${licitacionCodigo} — clic para volver a abrirlo`}
-              className="fixed bottom-5 right-5 z-[90] w-14 h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xl flex items-center justify-center transition-colors"
-            >
-              <Calculator size={22} />
-              {dirty && <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-white" />}
-            </button>
-          ),
-          document.body,
-        )}
-      </>
+      <div className="bg-white rounded-xl border border-dashed border-zinc-300 p-4 flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-[12.5px] text-zinc-500 flex items-center gap-1.5">
+          <PictureInPicture2 size={14} className="text-zinc-400 flex-shrink-0" />
+          El costeo está abierto en una burbuja flotante
+        </p>
+        <button
+          onClick={() => flot.expandir()}
+          className="text-[11.5px] font-bold text-indigo-700 hover:underline flex-shrink-0"
+        >
+          Traer al frente
+        </button>
+      </div>
     );
   }
 
