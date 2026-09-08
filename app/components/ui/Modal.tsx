@@ -45,10 +45,7 @@ export function Modal({
       role="dialog"
     >
       {/* Overlay */}
-      <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" />
 
       {/* Panel */}
       <div

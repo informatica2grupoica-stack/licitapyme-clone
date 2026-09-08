@@ -1858,7 +1858,7 @@ export function DocumentosSection({
         codigo={codigoDecoded}
         empresaId={empresaId ?? null}
         progreso={colaAnexos.length > 0 ? { actual: indiceCola + 1, total: colaAnexos.length } : undefined}
-        onGenerado={() => {
+        onGenerado={(archivos) => {
           const continuar = colaContinuacionRef.current;
           if (continuar) {
             colaContinuacionRef.current = null;
@@ -1866,6 +1866,15 @@ export function DocumentosSection({
             continuar();
           } else {
             fetchDocumentos();
+            // Pedido explícito del usuario (8-sep-2026): al generar UN anexo (fuera de "Generar
+            // todos"), que vaya derecho al Auditor Técnico — pero bien, sin adivinar a qué punto
+            // corresponde. Se abre el MISMO selector que usa el botón manual "Enviar al Auditor"
+            // (SelectorPuntoAuditor), así el usuario solo confirma el punto correcto; nunca se
+            // asigna solo. Si el anexo trajo varios formularios pegados (se dividió en más de un
+            // archivo), no se adivina cuál va a cuál punto — quedan en Documentos Propios y se
+            // mandan a mano, uno por uno, como siempre. Tampoco aplica sin negocio (licitación
+            // suelta, sin Auditor Técnico) ni fuera de admin.
+            if (isAdmin && negocioId && archivos.length === 1) setEnviandoDoc(archivos[0]);
           }
         }}
         onClose={() => {
@@ -1892,7 +1901,12 @@ export function DocumentosSection({
       <AnexoRellenoExcelModal
         doc={anexoXlsxDoc}
         codigo={codigoDecoded}
-        onGenerado={() => fetchDocumentos()}
+        onGenerado={(archivo) => {
+          fetchDocumentos();
+          // Mismo criterio que el anexo Word/PDF de arriba: derecho al selector del Auditor
+          // Técnico, nunca asignado a ciegas.
+          if (isAdmin && negocioId) setEnviandoDoc(archivo);
+        }}
         onClose={() => setAnexoXlsxDoc(null)}
       />
 

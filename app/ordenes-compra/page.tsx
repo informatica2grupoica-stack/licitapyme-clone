@@ -150,7 +150,7 @@ function EnviarExperienciaModal({ oc, onClose }: { oc: OrdenCompra; onClose: () 
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 overlay-in"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }} role="dialog" aria-modal="true">
+      role="dialog" aria-modal="true">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md modal-in">
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
           <div className="flex items-center gap-2.5">

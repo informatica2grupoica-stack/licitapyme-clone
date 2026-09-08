@@ -74,8 +74,7 @@ export function FacturaObumaModal({ codigo, compraOcId, dteId, onClose }: {
   }, [onClose]);
 
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto"
-      onClick={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4 overflow-y-auto">
       <div className="bg-white w-full sm:max-w-2xl sm:rounded-2xl shadow-2xl my-0 sm:my-8" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 sticky top-0 bg-white sm:rounded-t-2xl">
           <span className="text-[13px] font-bold text-slate-700">

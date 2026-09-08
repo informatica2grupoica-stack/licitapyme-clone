@@ -128,7 +128,6 @@ export function DocumentoIAModal({
   return createPortal(
     <div
       className="fixed inset-0 z-[100] flex flex-col bg-black/70 backdrop-blur-sm p-2 sm:p-4"
-      onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`Consultas del documento: ${doc.nombre}`}

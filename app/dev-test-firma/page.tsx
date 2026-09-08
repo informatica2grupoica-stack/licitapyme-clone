@@ -37,6 +37,7 @@ export default function Page() {
           { id: 2, etiqueta: 'Ana Soto — suplente', url: svg('Suplente', '%23117a3a'), esPrincipal: false },
           { id: 3, etiqueta: 'Luis Rojas — apoderado', url: svg('Apoderado', '%237a1180'), esPrincipal: false },
         ]}
+        firmaRequerida={false}
         generando={false}
         onConfirmar={(e) => { (window as any).__ESTAMPAS = e; }}
         onVolver={() => {}}

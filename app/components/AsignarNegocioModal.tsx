@@ -92,7 +92,6 @@ export function AsignarNegocioModal({
   return (
     <div
       className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 overlay-in"
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       role="dialog" aria-modal="true" aria-label="Asignar a Negocio"
     >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md modal-in">

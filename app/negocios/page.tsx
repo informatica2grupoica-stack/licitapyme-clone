@@ -999,7 +999,7 @@ function NegocioDetalleModal({ negocio: neg, isAdmin, onClose }: { negocio: Nego
   const inf  = extra?.viabilidad_informe;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       role="dialog" aria-modal="true" aria-label={neg.licitacion_nombre || 'Detalle del negocio'}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden" onClick={ev => ev.stopPropagation()}>
         {/* Header */}

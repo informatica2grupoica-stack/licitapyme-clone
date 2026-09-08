@@ -16,6 +16,7 @@ import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoPdfYEmpresa } from '@/app/lib/anexos-datos';
 import { rellenarAnexoPdfEscaneado } from '@/app/lib/anexos-pdf-rellenar';
+import { clasificarAnexo, CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA } from '@/app/lib/anexos-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
 import { yaCongelado } from '@/app/lib/congelamiento';
 
@@ -75,15 +76,20 @@ export async function POST(request: NextRequest) {
 
     const nombreSalida = nombreOriginal.replace(/\.pdf$/i, '') + '_RELLENO.pdf';
     const url = await subirDocumentoR2(codigo, nombreSalida, resultado.bufferFinal, CONTENT_TYPE_PDF);
+    // Caja de "Documentos para MP" — solo por el TÍTULO (un PDF escaneado no tiene XML del que
+    // sacar texto plano barato como el .docx; el clasificador ya prioriza el título cuando dice
+    // algo, ver su comentario en anexos-dividir.ts). Sin subcategoria en el UPDATE, mismo criterio
+    // que el resto: no pisar una reorganización manual en una regeneración posterior.
+    const subcategoria = CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA[clasificarAnexo(nombreOriginal, '')];
     await pool.query(
       `INSERT INTO documentos_cache
-         (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, categoria_manual, usuario_id)
-       VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', 1, ?)
+         (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, categoria_manual, subcategoria, usuario_id)
+       VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', 1, ?, ?)
        ON DUPLICATE KEY UPDATE
          documento_url_local = VALUES(documento_url_local),
          size_bytes          = VALUES(size_bytes),
          updated_at          = CURRENT_TIMESTAMP`,
-      [codigo, nombreSalida, url, resultado.bufferFinal.length, CONTENT_TYPE_PDF, usuario.id],
+      [codigo, nombreSalida, url, resultado.bufferFinal.length, CONTENT_TYPE_PDF, subcategoria, usuario.id],
     );
 
     registrarActividad({

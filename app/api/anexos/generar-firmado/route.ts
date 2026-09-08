@@ -30,9 +30,10 @@ import pool from '@/app/lib/db';
 import { getAuthedUser, puedeVerLicitacion, esAdmin } from '@/app/lib/api-auth';
 import { subirDocumentoR2 } from '@/app/lib/r2';
 import { cargarDocumentoYEmpresa } from '@/app/lib/anexos-datos';
-import { descargarFirma } from '@/app/lib/anexos-rellenar';
+import { descargarFirma, documentoRequiereFirma } from '@/app/lib/anexos-rellenar';
 import { estamparPdf, type EstampaPdf, type ImagenParaEstampar } from '@/app/lib/anexos-pdf-firma';
 import { listarFirmasEmpresa } from '@/app/lib/empresa-firmas';
+import { clasificarAnexo, textoPlanoDeXml, CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA } from '@/app/lib/anexos-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
 import { yaCongelado } from '@/app/lib/congelamiento';
 
@@ -108,13 +109,31 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Solo para el nombre de archivo y las URLs de firma/timbre — el documento en sí (con el texto
-    // ya puesto) es `pdfSinFirma`, no se vuelve a generar nada a partir de bufferOriginal.
-    const { nombreOriginal, empresa } = await cargarDocumentoYEmpresa(codigo, documentoId, empresaId);
+    // bufferOriginal ya NO se usa para regenerar el documento (eso lo hace /vista-previa-pdf) —
+    // acá solo sirve para: (a) confirmar si el anexo REALMENTE pide firma (guardarraíl de abajo) y
+    // (b) clasificarlo para la caja de "Documentos para MP" (ver subirYRegistrar más abajo).
+    const { bufferOriginal, nombreOriginal, empresa } = await cargarDocumentoYEmpresa(codigo, documentoId, empresaId);
 
     const usaFirma = estampas.some(e => e.tipo === 'firma');
     const usaTimbre = estampas.some(e => e.tipo === 'timbre');
     const avisos: string[] = [];
+
+    // GUARDARRAÍL DE FIRMA (8-sep-2026): antes `estampas` vacío pasaba igual (comentario de cabecera
+    // del archivo, "el PDF sale igual, sin ninguna imagen") — correcto para un anexo que NO pide
+    // firma, pero silencioso y equivocado para uno que SÍ la pide y el usuario llegó hasta acá sin
+    // colocarla (por descuido, o porque no tiene una firma cargada). Se recalcula acá, en el
+    // backend, si el documento realmente la requiere — no basta con confiar en que el botón de la
+    // UI ya lo filtró, mismo criterio que el resto de los guardarraíles reales de este módulo.
+    const { requiereFirma, xmlNormalizado } = await documentoRequiereFirma(bufferOriginal);
+    if (requiereFirma && !usaFirma) {
+      return NextResponse.json(
+        {
+          error: 'Este anexo tiene línea de firma y no se colocó ninguna — arrastra la firma sobre el documento antes de generar. No se subió nada.',
+          firmaRequerida: true,
+        },
+        { status: 409 },
+      );
+    }
 
     // Las firmas NO principales que el usuario arrastró (migration-84: una empresa puede tener
     // varias). Se cruzan contra la BD por empresa: el `firmaId` viene del cliente, y sin ese
@@ -155,15 +174,19 @@ export async function POST(request: NextRequest) {
 
     const nombreArchivo = `ANEXO_${nombreOriginal.replace(/\.(docx?|pdf)$/i, '')}.pdf`;
     const url = await subirDocumentoR2(codigo, nombreArchivo, pdfFinal, CONTENT_TYPE_PDF);
+    // Caja de "Documentos para MP" — ver CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA. `subcategoria` solo
+    // en el INSERT, nunca en el UPDATE (mismo criterio que /api/anexos/generar): si el usuario ya
+    // reorganizó el archivo a mano, una regeneración no le pisa esa elección.
+    const subcategoria = CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA[clasificarAnexo(nombreOriginal, textoPlanoDeXml(xmlNormalizado))];
     await pool.query(
       `INSERT INTO documentos_cache
-         (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, usuario_id)
-       VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', ?)
+         (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, subcategoria, usuario_id)
+       VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', ?, ?)
        ON DUPLICATE KEY UPDATE
          documento_url_local = VALUES(documento_url_local),
          size_bytes          = VALUES(size_bytes),
          updated_at          = CURRENT_TIMESTAMP`,
-      [codigo, nombreArchivo, url, pdfFinal.length, CONTENT_TYPE_PDF, usuario.id],
+      [codigo, nombreArchivo, url, pdfFinal.length, CONTENT_TYPE_PDF, subcategoria, usuario.id],
     );
 
     registrarActividad({

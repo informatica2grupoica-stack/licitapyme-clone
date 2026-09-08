@@ -979,6 +979,11 @@ export interface ResultadoGeneracion {
    * documento no tiene tabla de precios (todos los anexos administrativos).
    */
   totalesEscritos: { etiqueta: string; valor: string }[];
+  /** true si el documento tiene al menos un lugar de firma detectado (analisis.lineasFirma) — ver
+   *  el guardarraíl en /api/anexos/generar: ese endpoint nunca estampa firma, así que si el
+   *  documento la requiere, generar ahí en vez de por /api/anexos/generar-firmado dejaría un
+   *  anexo final sin firmar en silencio. */
+  firmaRequerida: boolean;
 }
 
 export async function generarAnexoFinal(
@@ -1338,5 +1343,25 @@ export async function generarAnexoFinal(
   const integridad = verificarParrafos(xmlCrudo, xml);
   const buffer = await guardarDocx(zip, xml);
 
-  return { buffer, completados, respondidos, integridad, avisos, totalesEscritos: [...totalesPie, ...totalesMontoUnico] };
+  return {
+    buffer, completados, respondidos, integridad, avisos,
+    totalesEscritos: [...totalesPie, ...totalesMontoUnico],
+    firmaRequerida: analisis.lineasFirma.length > 0,
+  };
+}
+
+/**
+ * Solo determina si el documento pide firma en algún lugar (`analisis.lineasFirma`), sin correr
+ * el resto del pipeline (match de campos, motor IA) — se usa en /api/anexos/generar-firmado para
+ * bloquear la generación cuando la firma es obligatoria y no se colocó ninguna, sin pagar el
+ * costo de un análisis completo (que además llama al motor IA). Misma normalización de XML que
+ * analizarAnexoParaUI/generarAnexoFinal, así que ve exactamente los mismos lugares de firma.
+ */
+export async function documentoRequiereFirma(bufferOriginal: Buffer): Promise<{ requiereFirma: boolean; xmlNormalizado: string }> {
+  const { xml: xmlCrudoSinNormalizar } = await abrirDocx(bufferOriginal);
+  const xmlSinCamposLegados = sustituirCamposFormularioLegado(eliminarRespaldoVmlDuplicado(xmlCrudoSinNormalizar));
+  const { xml: xmlConIds } = normalizarParaIds(xmlSinCamposLegados);
+  const xmlNormalizado = unificarRunsDeMarcadores(xmlConIds);
+  const analisis = analizarAnexo(xmlNormalizado, { postulaComoUTP: false });
+  return { requiereFirma: analisis.lineasFirma.length > 0, xmlNormalizado };
 }

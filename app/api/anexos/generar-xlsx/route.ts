@@ -24,17 +24,23 @@ export const maxDuration = 60;
 
 const CONTENT_TYPE_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
+// Este endpoint SOLO genera el anexo ECONÓMICO en Excel (tabla de precios) — a diferencia de
+// /api/anexos/generar, acá no hace falta clasificar por título/texto: la caja de "Documentos
+// para MP" siempre es "Anexos Económicos", nunca en el UPDATE (mismo criterio de no pisar una
+// reorganización manual — ver el comentario equivalente en generar/route.ts).
+const CAJA_ECONOMICO = 'Anexos Económicos';
+
 async function subirYRegistrar(codigo: string, nombre: string, buffer: Buffer, usuarioId: number) {
   const url = await subirDocumentoR2(codigo, nombre, buffer, CONTENT_TYPE_XLSX);
   await pool.query(
     `INSERT INTO documentos_cache
-       (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, usuario_id)
-     VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', ?)
+       (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, subcategoria, usuario_id)
+     VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', ?, ?)
      ON DUPLICATE KEY UPDATE
        documento_url_local = VALUES(documento_url_local),
        size_bytes          = VALUES(size_bytes),
        updated_at          = CURRENT_TIMESTAMP`,
-    [codigo, nombre, url, buffer.length, CONTENT_TYPE_XLSX, usuarioId],
+    [codigo, nombre, url, buffer.length, CONTENT_TYPE_XLSX, CAJA_ECONOMICO, usuarioId],
   );
   return url;
 }

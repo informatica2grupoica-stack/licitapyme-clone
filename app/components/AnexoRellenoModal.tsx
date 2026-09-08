@@ -950,7 +950,6 @@ export function AnexoRellenoModal({
   return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-2"
-      onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={`Rellenar anexo: ${doc.nombre}`}
@@ -994,6 +993,7 @@ export function AnexoRellenoModal({
             firmaUrl={analisis?.firma.firmaUrl ?? null}
             timbreUrl={analisis?.firma.timbreUrl ?? null}
             firmas={analisis?.firma.firmas ?? []}
+            firmaRequerida={(analisis?.firma.lugares.length ?? 0) > 0}
             generando={generando}
             onConfirmar={handleGenerarFirmado}
             onVolver={() => setPaso('formulario')}

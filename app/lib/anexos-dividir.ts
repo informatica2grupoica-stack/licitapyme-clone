@@ -851,7 +851,7 @@ export function nombreArchivoDesdeTitulo(titulo: string): string {
 // hace falta el documento entero para reconocer su categoría.
 const LARGO_MAX_TEXTO_CLASIFICACION = 3000;
 
-function textoPlanoDeXml(xml: string, maxLargo = LARGO_MAX_TEXTO_CLASIFICACION): string {
+export function textoPlanoDeXml(xml: string, maxLargo = LARGO_MAX_TEXTO_CLASIFICACION): string {
   const texto = [...xml.matchAll(/<w:t[^>]*>([^<]*)<\/w:t>/g)].map(m => m[1]).join(' ');
   return texto.slice(0, maxLargo);
 }
@@ -921,6 +921,26 @@ export async function dividirPorFormularios(bufferBase: Buffer, xml: string): Pr
   }
   return resultados;
 }
+
+// ── Caja de "Documentos para MP" para el anexo YA GENERADO (rellenado/firmado) ─────────────────
+// Pedido explícito del usuario (8-sep-2026): cuando se genera un anexo administrativo/técnico/
+// económico, el archivo final tiene que caer solo en Documentos Propios ("Documentos para MP"),
+// en una caja con el nombre de su categoría — reusa la MISMA clasificación por título/texto que
+// ya usa `dividirPorFormularios` para los anexos separados, así que no hay dos criterios
+// distintos para la misma pregunta ("¿de qué tipo es este anexo?").
+//
+// Esto es un concepto TOTALMENTE DISTINTO de `bloqueDeAnexo()` (checklist-comercial.ts), que
+// decide en qué bloque del Auditor Técnico vive el PUNTO del checklist — ese sigue siendo
+// SIEMPRE 'ADMINISTRATIVO' por decisión explícita del usuario (revertida el mismo día que se
+// intentó repartir), y esto no lo toca ni lo reabre. `sin_clasificar` no crea caja: el archivo
+// queda en "Sin clasificar" dentro de Documentos Propios, igual que cualquier otro autogenerado
+// hoy (COSTEO_, etc.) — nunca se adivina una categoría que el propio clasificador no encontró.
+export const CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA: Record<CategoriaAnexo, string | null> = {
+  administrativo: 'Anexos Administrativos',
+  tecnico: 'Anexos Técnicos',
+  economico: 'Anexos Económicos',
+  sin_clasificar: null,
+};
 
 // Dos anexos del mismo documento rara vez comparten título exacto, pero un título repetido (o dos
 // que se limpian al mismo nombre, ej. "ANEXO N°1" y "ANEXO N°1 (continuación)" truncados por

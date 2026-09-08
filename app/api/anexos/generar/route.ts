@@ -13,7 +13,7 @@ import { cargarDocumentoYEmpresa, obtenerItemsCosteoParaAnexo, obtenerTextoBases
 import { generarAnexoFinal } from '@/app/lib/anexos-rellenar';
 import { verificarTotalEconomico, montoDesdeTexto, type VerificacionTotal } from '@/app/lib/auditor-verificacion-total';
 import { abrirDocx, verificarXmlBienFormado } from '@/app/lib/anexos-docx';
-import { dividirPorFormularios } from '@/app/lib/anexos-dividir';
+import { dividirPorFormularios, clasificarAnexo, textoPlanoDeXml, CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA } from '@/app/lib/anexos-dividir';
 import { registrarActividad } from '@/app/lib/actividad';
 import { yaCongelado } from '@/app/lib/congelamiento';
 
@@ -23,17 +23,22 @@ export const maxDuration = 60;
 
 const CONTENT_TYPE_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
-async function subirYRegistrar(codigo: string, nombre: string, buffer: Buffer, usuarioId: number) {
+// `subcategoria` es la caja de "Documentos para MP" (Anexos Administrativos/Técnicos/Económicos —
+// ver CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA). Solo se manda en el INSERT, NUNCA en el UPDATE: si
+// el usuario ya reorganizó el documento a mano (arrastrándolo a otra caja), una regeneración
+// posterior del mismo anexo no debe pisarle esa elección — mismo criterio de "lo movido a mano es
+// intocable" que ya usa categoria_manual para los documentos de la licitación.
+async function subirYRegistrar(codigo: string, nombre: string, buffer: Buffer, usuarioId: number, subcategoria: string | null) {
   const url = await subirDocumentoR2(codigo, nombre, buffer, CONTENT_TYPE_DOCX);
   await pool.query(
     `INSERT INTO documentos_cache
-       (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, usuario_id)
-     VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', ?)
+       (licitacion_codigo, documento_nombre, documento_url_local, size_bytes, content_type, categoria, subcategoria, usuario_id)
+     VALUES (?, ?, ?, ?, ?, 'DOCUMENTOS_PROPIOS', ?, ?)
      ON DUPLICATE KEY UPDATE
        documento_url_local = VALUES(documento_url_local),
        size_bytes          = VALUES(size_bytes),
        updated_at          = CURRENT_TIMESTAMP`,
-    [codigo, nombre, url, buffer.length, CONTENT_TYPE_DOCX, usuarioId],
+    [codigo, nombre, url, buffer.length, CONTENT_TYPE_DOCX, subcategoria, usuarioId],
   );
   return url;
 }
@@ -138,6 +143,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // GUARDARRAÍL DE FIRMA (8-sep-2026): este endpoint nunca estampa firma — el .docx sale tal
+    // cual lo dejó el auto-relleno. Si el documento SÍ tiene al menos un lugar de firma detectado,
+    // generarlo por acá dejaría un anexo "final" sin firmar, en silencio (el camino correcto es
+    // /api/anexos/generar-firmado, vía el paso "Continuar a firma" del modal). Antes esto solo lo
+    // evitaba el botón de la UI (que oculta "Generar documento" cuando hay firma pendiente) — acá
+    // queda también forzado en el backend, mismo criterio que el resto de los guardarraíles reales
+    // de este archivo. No aplica a los anexos que de verdad no piden firma (la mayoría): esos
+    // siguen generando igual que siempre, sin ningún paso de más.
+    if (resultado.firmaRequerida) {
+      return NextResponse.json(
+        {
+          error: 'Este anexo tiene línea de firma y todavía no se colocó ninguna. Vuelve atrás y usa "Continuar a firma" para posicionarla antes de generar — no se subió nada.',
+          firmaRequerida: true,
+        },
+        { status: 409 },
+      );
+    }
+
     // GUARDARRAÍL DEL ANEXO ECONÓMICO (18-ago-2026): el precio es lo que se evalúa, así que un
     // total que no calza con el costeo aprobado es el error más caro que puede cometer el sistema.
     // El motor comercial ya detectaba la discordancia, pero solo como ALERTA informativa: el
@@ -152,9 +175,19 @@ export async function POST(request: NextRequest) {
     const { xml: xmlFinal } = await abrirDocx(resultado.buffer);
     const formularios = await dividirPorFormularios(resultado.buffer, xmlFinal);
 
+    // Caja de "Documentos para MP" donde cae cada archivo — ver CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA.
+    // Con varios formularios pegados, cada uno YA trae su propia categoría (dividirPorFormularios la
+    // calcula por título + texto de SU fragmento); sin dividir, se clasifica el documento completo
+    // por su nombre original + el texto final.
     const candidatos = formularios.length >= 2
-      ? formularios.map(f => ({ nombre: `${f.nombreArchivo}.docx`, buffer: f.buffer }))
-      : [{ nombre: `ANEXO_${nombreOriginal}`, buffer: resultado.buffer }];
+      ? formularios.map(f => ({
+          nombre: `${f.nombreArchivo}.docx`, buffer: f.buffer,
+          subcategoria: CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA[f.categoria],
+        }))
+      : [{
+          nombre: `ANEXO_${nombreOriginal}`, buffer: resultado.buffer,
+          subcategoria: CAJA_DOCUMENTOS_PROPIOS_POR_CATEGORIA[clasificarAnexo(nombreOriginal, textoPlanoDeXml(xmlFinal))],
+        }];
 
     // Antes de subir NADA: cada .docx candidato debe tener un XML bien formado — ver
     // verificarXmlBienFormado (anexos-docx.ts). verificarParrafos (arriba) solo compara la
@@ -180,7 +213,7 @@ export async function POST(request: NextRequest) {
 
     const archivos: { nombre: string; url: string }[] = [];
     for (const c of candidatos) {
-      const url = await subirYRegistrar(codigo, c.nombre, c.buffer, usuario.id);
+      const url = await subirYRegistrar(codigo, c.nombre, c.buffer, usuario.id, c.subcategoria);
       archivos.push({ nombre: c.nombre, url });
     }
 

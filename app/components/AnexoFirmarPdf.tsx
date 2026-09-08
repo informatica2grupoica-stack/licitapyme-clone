@@ -241,7 +241,7 @@ function EstampaColocadaUI({
 }
 
 export function AnexoFirmarPdf({
-  pdfBytes, firmaUrl, timbreUrl, firmas, generando, onConfirmar, onVolver,
+  pdfBytes, firmaUrl, timbreUrl, firmas, firmaRequerida, generando, onConfirmar, onVolver,
 }: {
   pdfBytes: ArrayBuffer;
   /** La firma PRINCIPAL de la empresa (espejo de `empresas.firma_url`) — sigue siendo el fallback
@@ -250,6 +250,12 @@ export function AnexoFirmarPdf({
   timbreUrl: string | null;
   /** Todas las firmas de la empresa; una miniatura arrastrable por cada una. */
   firmas?: FirmaDisponibleUI[];
+  /** El documento SÍ tiene al menos un lugar de firma detectado (analisis.firma.lugares.length >
+   *  0) — no todos los anexos la piden. Cuando es true, no se puede generar sin al menos una
+   *  estampa de tipo 'firma' colocada (ver el guardarraíl equivalente en el backend,
+   *  /api/anexos/generar-firmado). Cuando es false, el paso de firma sigue disponible por si el
+   *  usuario quiere agregarla igual, pero nunca bloquea. */
+  firmaRequerida: boolean;
   generando: boolean;
   onConfirmar: (estampas: EstampaColocada[]) => void;
   onVolver: () => void;
@@ -528,6 +534,8 @@ export function AnexoFirmarPdf({
   };
 
   const hayImagenes = firmasDisponibles.length > 0 || !!timbreUrl;
+  const firmaColocada = estampas.some(es => es.tipo === 'firma');
+  const bloqueadoPorFirma = firmaRequerida && !firmaColocada;
 
   // Tamaño del preview flotante: se usa el ancho de la página bajo el cursor si hay una, si no el
   // de la primera página del documento (todas suelen compartir el mismo tamaño) — nunca depende
@@ -546,6 +554,18 @@ export function AnexoFirmarPdf({
           <ArrowLeft size={14} /> Volver a los campos
         </button>
         <div className="w-px h-6 bg-slate-300" />
+        {/* Aviso de si ESTE anexo pide firma o no — a veces no la lleva, y el usuario lo confunde
+            con "me olvidé de generarlo". Se muestra siempre (no solo cuando falta), para que la
+            respuesta a "¿esto necesita firma?" esté a la vista sin adivinar. */}
+        <span
+          className={`flex-shrink-0 text-[11px] font-semibold px-2 py-1 rounded-lg ${
+            firmaRequerida
+              ? (firmaColocada ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')
+              : 'bg-slate-200 text-slate-500'
+          }`}
+        >
+          {firmaRequerida ? (firmaColocada ? 'Firma requerida — colocada' : 'Firma requerida — falta colocarla') : 'Este anexo no pide firma'}
+        </span>
         {hayImagenes ? (
           <>
             <div className="flex items-center gap-3 flex-wrap max-w-[45%] overflow-x-auto">
@@ -622,13 +642,18 @@ export function AnexoFirmarPdf({
       )}
 
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 bg-slate-50 flex-shrink-0">
-        <p className="text-[11px] text-slate-400">
-          {estampas.length === 0 ? 'Sin firma ni timbre colocados — el PDF sale igual, en blanco ahí.' : `${estampas.length} imagen(es) colocada(s)`}
+        <p className={`text-[11px] ${bloqueadoPorFirma ? 'text-amber-700 font-medium' : 'text-slate-400'}`}>
+          {bloqueadoPorFirma
+            ? 'Este anexo pide firma — arrastra la firma sobre el documento para poder generar.'
+            : estampas.length === 0
+              ? 'Sin firma ni timbre colocados — el PDF sale igual, en blanco ahí.'
+              : `${estampas.length} imagen(es) colocada(s)`}
         </p>
         <button
           type="button"
           onClick={() => onConfirmar(estampas.map(({ id, ...resto }) => resto))}
-          disabled={generando || cargando || !!error}
+          disabled={generando || cargando || !!error || bloqueadoPorFirma}
+          title={bloqueadoPorFirma ? 'Falta colocar la firma que este anexo requiere' : undefined}
           className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 px-4 py-2 rounded-lg transition-colors"
         >
           {generando

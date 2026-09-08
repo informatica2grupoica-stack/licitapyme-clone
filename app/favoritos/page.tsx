@@ -118,7 +118,6 @@ function ModalAsignar({
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4"
-      onClick={e => e.target === e.currentTarget && onClose()}
     >
       <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl scale-in overflow-hidden">
         <div className="flex justify-center pt-3 sm:hidden">

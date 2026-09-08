@@ -1335,23 +1335,39 @@ SIN OMITIR, SIN RESUMIR, SIN "optimizar la presentación", EN EL MISMO ORDEN de 
 invención: si las bases no especifican, se declara explícitamente (ver abajo). LISTA TODOS los ítems (el
 total debe coincidir con lo que exige la licitación).
 
-UNA LÍNEA/ÍTEM DE MERCADO PÚBLICO PUEDE EMPAQUETAR VARIOS PRODUCTOS DISTINTOS (caso real 2495-17-B226
-"Sistema de trasplante de árboles": Mercado Público lista UN solo ítem, pero la tabla de "Características
-del equipo"/matriz de evaluación técnica trae columnas TIPO | IMPLEMENTO | REQUISITO, con 6 componentes
-con especificaciones PROPIAS y separadas — Tractor, Sistema de trasplante, Barre nieve, Trompo para sal,
-Carro de transporte, Carro para regado). Señal para detectarlo: la sección de especificaciones técnicas
-tiene una columna de "implemento"/"componente"/"equipo" con varios valores distintos bajo la MISMA línea,
-cada uno con SU PROPIO bloque de requisitos técnicos (no una lista plana de características sueltas).
+UNA LÍNEA/ÍTEM DE MERCADO PÚBLICO PUEDE EMPAQUETAR VARIOS PRODUCTOS DISTINTOS. Dos casos reales, dos
+formas distintas en que las bases lo escriben — la señal que importa es la MISMA en ambos, no el formato:
 
-Cuando eso pase: NO fusiones esos componentes en un solo ítem con todas las características mezcladas —
-emite un ítem de productos.items[] POR CADA componente/implemento, TODOS con el MISMO valor de "linea"
-(ej. "L1" para los 6), cada uno con nombre = el nombre del componente específico ("Tractor", "Sistema de
-trasplante de árboles vivos", "Barre nieve", "Trompo para sal", "Carro de transporte", "Carro para
-regado") y SOLO sus propias características — nunca las de otro componente de la misma línea. Esto es lo
-que permite comparar después la ficha técnica de CADA equipo contra SUS propias exigencias, en vez de
-mezclar los requisitos del tractor con los del carro de riego en una sola bolsa de 40+ características
-donde ninguna ficha del proveedor las cubre todas. Fusionar aquí es el error — separar por componente es
-lo correcto, aunque Mercado Público solo cuente esa línea como "1 ítem".
+  · 2495-17-B226 "Sistema de trasplante de árboles": Mercado Público lista UN ítem, pero la tabla de
+    "Características del equipo" trae columnas TIPO | IMPLEMENTO | REQUISITO, con 6 componentes con
+    especificaciones PROPIAS — Tractor, Sistema de trasplante, Barre nieve, Trompo para sal, Carro de
+    transporte, Carro para regado.
+  · 2446-225-LR26 "Camiones con Grúa Hidráulica y Canastillo Alza Hombre": Mercado Público lista UN
+    ítem, y las bases NO traen tabla — van con encabezados de sección por subsistema (Motor, CHASIS,
+    SEGURIDAD, CARROCERÍA, luego "Grúa Hidráulica Articulada equivalente a modelo F95B0.24 de Fassi",
+    luego "CANASTILLO ALZA HOMBRE"). Motor/Chasis/Seguridad/Carrocería SÍ son del mismo vehículo (no se
+    separan: ninguno cita una marca/modelo propia, todos describen EL MISMO camión) — pero la Grúa y el
+    Canastillo cada uno cita SU PROPIA marca/modelo de referencia, distinta a la del camión: son
+    productos aparte, típicamente de otro fabricante, que se le monta encima al vehículo.
+
+LA SEÑAL GENERALIZABLE (no el formato de tabla, que es solo UNA forma de presentarla): dentro de una
+misma línea, ¿hay un bloque de especificaciones que cita SU PROPIA marca/modelo de referencia ("equivalente
+a modelo X de Y", "marca Z", un código de modelo propio), DISTINTA de la marca/modelo del resto de la
+línea? Si sí, ese bloque es un componente/producto APARTE, sin importar si las bases lo presentan como
+fila de tabla, encabezado de sección, o párrafo suelto. Si un bloque de especificaciones NO cita marca ni
+modelo propios y solo describe una dimensión/parte del MISMO equipo ya identificado (motor, chasis,
+seguridad de un mismo camión; refrigeración, embrague, dirección de un mismo tractor), NO se separa —
+sigue siendo parte de ese único producto.
+
+Cuando detectes 2+ componentes por esta señal: NO los fusiones en un solo ítem con todas las
+características mezcladas — emite un ítem de productos.items[] POR CADA componente, TODOS con el MISMO
+valor de "linea" (ej. "L1"), cada uno con nombre = el nombre del componente específico ("Camión"/
+"Tractor", "Grúa Hidráulica", "Canastillo Alza Hombre", etc.) y SOLO sus propias características — nunca
+las de otro componente de la misma línea. Esto es lo que permite comparar después la ficha técnica de
+CADA equipo contra SUS propias exigencias, en vez de mezclar los requisitos del camión con los de la grúa
+en una sola bolsa de 30+ características donde ninguna ficha del proveedor las cubre todas. Fusionar aquí
+es el error — separar por componente es lo correcto, aunque Mercado Público solo cuente esa línea como
+"1 ítem".
 
 Clasifica cada ítem y trátalo distinto:
 
