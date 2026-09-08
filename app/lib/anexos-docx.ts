@@ -457,6 +457,21 @@ export function rellenarCeldaVacia(xml: string, paraId: string, valor: string): 
     const rPrMatch = cuerpo.match(/<w:pPr>[\s\S]*?(<w:rPr>[\s\S]*?<\/w:rPr>)[\s\S]*?<\/w:pPr>/);
     cuerpoNuevo = `${cuerpo}<w:r>${rPrMatch ? rPrMatch[1] : ''}${texto}</w:r>`; // sin runs (Word)
   }
+
+  // BUG REAL (8-sep-2026, FORMULARIO N°3 PROGRAMA DE INTEGRIDAD, 2446-225-LR26, reportado con
+  // captura: "fíjate que están corridas no están bien ubicadas"): una celda vacía "para llenar a
+  // mano" a veces trae una indentación NEGATIVA en su <w:pPr> — pensada para alinear un símbolo
+  // pequeño (una marca de casillero, "☐") pegado al borde de la celda, saliéndose a propósito del
+  // margen normal de un carácter. Al escribir ahí un VALOR real ("Programa de Integridad", varias
+  // palabras), ese mismo indent negativo se hereda y el texto sale corrido fuera de los límites de
+  // la celda en el PDF. Un indent POSITIVO sí es formato de texto legítimo (sangría de primera
+  // línea) y no se toca — solo el negativo, que para prosa nunca es intencional.
+  const indParrafo = cuerpoNuevo.match(/<w:ind\b[^>]*\/>/);
+  if (indParrafo && /\sw:(?:left|start|right|end)="-\d+"/.test(indParrafo[0])) {
+    const sinNegativos = indParrafo[0].replace(/\sw:(left|start|right|end)="-\d+"/g, '');
+    cuerpoNuevo = cuerpoNuevo.replace(indParrafo[0], sinNegativos);
+  }
+
   return xml.slice(0, m.index) + apertura + cuerpoNuevo + cierre + xml.slice((m.index ?? 0) + entero.length);
 }
 
