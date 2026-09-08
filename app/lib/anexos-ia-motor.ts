@@ -418,7 +418,7 @@ export const DESCRIPCION_CAMPO: Partial<Record<keyof EmpresaCampos, string>> = {
   fecha_hoy_dia_mes: 'Día + mes en palabra de HOY, SIN año ("06 de agosto") — para una casilla SUELTA (no un triplete) donde el año ya viene impreso fijo en la plantilla, ej. "LA UNIÓN, ___ DE 2026"',
   socio_nombre: 'Nombre del Socio/Accionista — por política de la empresa, el representante legal (socio único). Casilla "Nombre Socio/Accionista".',
   socio_participacion: 'Porcentaje de Derechos o Participación del socio — siempre "100%" (socio único). Casilla "Porcentaje de Derechos"/"% de Participación".',
-  programa_integridad_respuesta: '"SÍ" — respuesta fija a "¿Cuenta con Programa de Integridad/Compliance?" o equivalente (código de ética, Directiva N°31 ChileCompra). Política de la empresa: SIEMPRE se responde que sí.',
+  programa_integridad_respuesta: 'DESACTIVADO — no uses este campo. La pregunta "¿Cuenta con Programa de Integridad/Compliance?" (o equivalente: código de ética, Directiva N°31 ChileCompra), en cualquier formato, es SIEMPRE "decision_del_usuario" — el oferente decide, nunca se autocompleta.',
   nacionalidad: 'Nacionalidad del oferente / del representante legal. Política fija de la empresa: siempre "Chilena".',
   licitacion_codigo: 'Código/ID de ESTA licitación en Mercado Público',
   licitacion_nombre: 'Nombre/título de ESTA licitación',
@@ -493,7 +493,7 @@ e) "firma_fecha": SOLO una raya de firma manuscrita, o "Ciudad y fecha ___" pega
 f) "no_aplica_al_oferente": encabezado/columna sin dato propio que pedir, bloque de Persona Natural o UTP (esta empresa postula como persona jurídica individual), o anexo de uso interno del organismo licitante ("USO DE LA ENTIDAD LICITANTE", pautas de evaluación internas). Valor null.
 
 ANEXO O SECCIÓN CONDICIONAL COMPLETA (caso particular de la regla f, caso real 4777-24-LE26): si el TÍTULO del anexo o de la sección (no una frase suelta a mitad de párrafo) indica explícitamente que ese bloque entero solo aplica bajo una condición que el oferente no cumple — ej. "FORMATO IDENTIFICACIÓN UNIÓN TEMPORAL DE PROVEEDORES (SOLO SI CORRESPONDE)" cuando la empresa postula sola, o "ANEXO PERSONA NATURAL" cuando postula una persona jurídica — TODAS las casillas de ese anexo/sección van a no_aplica_al_oferente con valor null, INCLUIDAS las que pidan "nombre del proponente", "RUT del oferente", "representante legal del proponente" o cualquier fecha/encabezado que preceda a esos datos ("REGIÓN:", "PROVINCIA:", "COMUNA:", "FECHA:"). Señal para reconocerlo: el título trae "(SOLO SI CORRESPONDE)", "EN CASO DE UNIÓN TEMPORAL", "SI POSTULA COMO PERSONA NATURAL" o equivalente, y aparece ANTES de las casillas como encabezado de sección — no en medio de una oración. Esto prima sobre la sinonimia proponente=oferente y sobre la regla de "una sola persona" de más abajo: esas dos solo aplican a una casilla suelta dentro de un párrafo mixto que menciona UTP de pasada, NUNCA cuando el título mismo del bloque marca la condición de exclusión.
-g) "decision_del_usuario": exige elegir entre opciones que no se infieren de datos objetivos (ej. DESCRIBIR en qué consiste el programa de integridad de la empresa, si pertenece a un grupo empresarial) y no viene resuelto en ninguna ficha. Valor null. Ojo: la pregunta SÍ/NO de "¿cuenta con Programa de Integridad?" NO es decision_del_usuario — ver PROGRAMA DE INTEGRIDAD más abajo, esa sí se resuelve sola.
+g) "decision_del_usuario": exige elegir entre opciones que no se infieren de datos objetivos (ej. DESCRIBIR en qué consiste el programa de integridad de la empresa, si pertenece a un grupo empresarial) y no viene resuelto en ninguna ficha. Valor null. La pregunta SÍ/NO de "¿cuenta con Programa de Integridad?", en cualquier formato (SI___NO___, casillero a marcar, fila "Cuenta con.../No cuenta con..."), TAMBIÉN es "decision_del_usuario" — el oferente la marca a mano, nunca la respondas tú.
 
 CASILLA SIN CONTEXTO: si el contexto que te llega para una casilla está vacío o es solo la casilla misma, sin ninguna palabra real alrededor (ni etiqueta, ni oración, ni fila de tabla), no hay información suficiente para clasificarla con certeza → categoria="especifico_licitacion", campo=null. Nunca la fuerces a perfil_* por descarte, ni a firma_fecha, ni a no_aplica_al_oferente: "sin contexto" no es lo mismo que "es un título" o "no aplica", es un dato que el humano debe revisar directamente en el documento.
 
@@ -560,8 +560,7 @@ PIE DE FIRMA CON FECHA: día, mes y/o año de la fecha en que se presenta la ofe
 - Suelta SIN partir, un solo blanco tras "FECHA:" que no está dividido en día/mes/año y no está pegado a una raya de firma manuscrita → campo fecha_hoy (fecha larga completa, "06 de agosto de 2026"). Excepción: si esa "FECHA:" cae dentro de un ANEXO O SECCIÓN CONDICIONAL COMPLETA que no corresponde (regla f de arriba), prima la exclusión → no_aplica_al_oferente.
 - Con el AÑO ya fijo como texto literal en la plantilla y UN solo blanco para el resto (ej. "LA UNIÓN, 【CASILLA】 DE 2026.-") → ese blanco pide "día + de + mes en palabra" → campo fecha_hoy_dia_mes (formato "06 de agosto", SIN año — el año ya está impreso, no lo repitas).
 
-PROGRAMA DE INTEGRIDAD: cuando UNA SOLA casilla es la PREGUNTA ENTERA ("¿Cuenta con Programa de Integridad?", "SI___NO___", "Cumple: Sí/No" como una única casilla que resume la respuesta), si la empresa CUENTA CON un Programa de Integridad, política de integridad, código de ética para proveedores, o adhiere a la Directiva N°31 de ChileCompra → categoria=perfil_empresa, campo=programa_integridad_respuesta (siempre resuelve "SÍ", es política fija de la empresa). Esto es DISTINTO de una casilla que pide DESCRIBIR el programa (en qué consiste, qué políticas incluye, un texto libre) — esa sigue siendo decision_del_usuario, valor null.
-EXCEPCIÓN QUE NUNCA SE AUTOCOMPLETA (dos casillas para UNA sola pregunta): si el organismo presenta la pregunta como DOS OPCIONES EXCLUYENTES por separado — un casillero "SI" y otro casillero "NO" cada uno con su propia celda de marcar, o una fila "Cuenta con programa(s) de integridad…" y otra fila "No cuenta con programa(s) de integridad…" cada una con su propia celda "Marcar alternativa" — entonces CADA una de esas dos casillas es la OPCIÓN misma, no la pregunta: categoria=decision_del_usuario, campo=null para AMBAS. Nunca les pongas "SÍ" a las dos: el documento quedaría contradictorio consigo mismo (marcado "SÍ" en la fila que cuenta y también en la que no cuenta). Es el oferente quien marca la que corresponda.
+PROGRAMA DE INTEGRIDAD: DESACTIVADO a pedido explícito del usuario (8-sep-2026) — la política fija de "siempre SÍ" seguía saliendo contradictoria (SÍ en las dos opciones) en formatos nuevos, y el usuario pidió dejarlo siempre en manual. Cualquier casilla sobre "¿Cuenta con Programa de Integridad?" (política de integridad, código de ética, Directiva N°31 ChileCompra), en CUALQUIER formato — una sola casilla que resume la respuesta, "SI___NO___", dos casilleros separados "SI"/"NO", o dos filas en prosa "Cuenta con.../No cuenta con..." — es SIEMPRE categoria=decision_del_usuario, campo=null. No uses programa_integridad_respuesta. Una casilla que pide DESCRIBIR el programa (en qué consiste, qué políticas incluye) también es decision_del_usuario, valor null, igual que antes.
 
 SOCIO/ACCIONISTA: cuando un anexo pide identificar socios o accionistas con su porcentaje de participación ("Nombre Socio/Accionista", "RUT Socio", "Porcentaje de Derechos o Participación") y no hay ningún otro dato en el documento que indique una sociedad con varios socios distintos → categoria=perfil_empresa, campo=socio_nombre para el nombre y campo=socio_participacion para el porcentaje (la empresa opera con socio único, el representante legal, al 100%). Si la casilla pide el RUT del socio, usa representante_rut (es la misma persona).
 
@@ -667,16 +666,21 @@ async function resolverLoteCampos(
       const etiqueta = item.ref.tipo === 'celda' ? item.ref.c.etiqueta : (item.ref.b.contexto || '');
       const campo: string = typeof r.campo === 'string' ? r.campo : '';
 
-      // GUARDARRAÍL — ver esOpcionExcluyenteDeIntegridad más arriba (BUG REAL 8-sep-2026): la
-      // política fija de "programa de integridad" nunca se aplica cuando la etiqueta es la OPCIÓN
-      // de una alternativa excluyente, no la pregunta.
-      if (campo === 'programa_integridad_respuesta' && esOpcionExcluyenteDeIntegridad(etiqueta)) {
+      // GUARDARRAÍL — política fija de "programa de integridad" DESACTIVADA a pedido explícito del
+      // usuario (8-sep-2026): "mejor dejamelo manual cuando tenga que poner programa de integridad".
+      // El patrón "dos opciones que comparten el contexto del bloque" (ver esOpcionExcluyenteDe-
+      // Integridad, BUG REAL 7/8-sep-2026) seguía reapareciendo en formatos nuevos y el documento
+      // salía con "SÍ" inventado en ambas alternativas. Ahora SIEMPRE queda pendiente, sea cual sea
+      // la etiqueta — el modelo puede seguir devolviendo el campo (el prompt ya no se lo pide, pero
+      // por si insiste) y acá se intercepta antes de escribir nada.
+      if (campo === 'programa_integridad_respuesta') {
         out.set(item.n, {
           tipo: 'pendiente', categoria: 'decision_del_usuario',
-          motivo: 'Fila de alternativa excluyente: marca la que corresponda según la situación real de la empresa.',
+          motivo: 'Marca "Cuenta con..." o "No cuenta con..." Programa de Integridad según la situación real de la empresa.',
         });
         continue;
       }
+      void esOpcionExcluyenteDeIntegridad;
 
       // GUARDARRAÍL: no basta con que la CATEGORÍA sea plausible — el CAMPO que nombró la IA
       // tiene que (1) pertenecer al grupo permitido para esa categoría (ver

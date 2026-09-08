@@ -1964,13 +1964,14 @@ export function resolverDeterminista(entrada: EntradaDeterminista): ResultadoDet
     // CUENTA_CON descarta la política igual que RE_CASILLA_MARCAR: una etiqueta que EMPIEZA
     // declarando el hecho, en vez de preguntarlo, es la opción — queda pendiente para que el
     // oferente marque la que corresponda.
-    const etiquetaEsEncabezado = RE_ENCABEZADO_SECCION.test(String(propia).trim());
-    if (!campo && !RE_ETIQUETA_PIDE_OTRO_DATO.test(normalizarEtiqueta(propia))
-        && !RE_CASILLA_MARCAR.test(normalizarEtiqueta(propia))
-        && !RE_ALTERNATIVA_CUENTA_CON.test(normalizarEtiqueta(propia))
-        && esPreguntaDeIntegridad(etiquetaEsEncabezado ? propia : `${c.etiqueta} ${bloque?.contexto ?? ''}`)) {
-      campo = 'programa_integridad_respuesta' as Campo;
-    }
+    // DESACTIVADA a pedido explícito del usuario (8-sep-2026): pese a los guardarraíles de arriba
+    // (RE_CASILLA_MARCAR, RE_ALTERNATIVA_CUENTA_CON), el patrón de "dos opciones que comparten
+    // contexto" sigue apareciendo en formatos nuevos que ningún guardarraíl anticipa, y cada vez que
+    // falla el documento sale con un "SÍ" inventado y a veces contradictorio (SÍ y SÍ). El usuario
+    // pidió dejarlo siempre en manual: "mejor dejamelo manual cuando tenga que poner programa de
+    // integridad". La pregunta "¿cuenta con Programa de Integridad?", en cualquier formato, ya NO
+    // se autocompleta — cae a `celdaSinResolver` → pendiente → `decision_del_usuario`.
+    void esPreguntaDeIntegridad;
 
     // 'falta' ya dejó el pendiente accionable en el mapa: no se manda a las capas de abajo, porque
     // el dato que pide esta casilla ya está identificado — lo que hay que hacer es llenar la ficha,

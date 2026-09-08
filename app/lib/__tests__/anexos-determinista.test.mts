@@ -360,15 +360,20 @@ test('resolverDeterminista es idempotente: dos corridas dan exactamente lo mismo
   assert.equal(valorAuto(a.celda, 3), 'Comercial Los Robles SpA');
 });
 
-// ── Política fija ────────────────────────────────────────────────────────────────────────────
-test('programa de integridad: la pregunta SÍ/NO se responde sola; "describa" queda al humano', () => {
+// ── Política fija — DESACTIVADA a pedido explícito del usuario (8-sep-2026) ────────────────────
+// El auto-"SÍ" seguía saliendo contradictorio (SÍ y SÍ) en formatos nuevos pese a los guardarraíles
+// de RE_CASILLA_MARCAR/RE_ALTERNATIVA_CUENTA_CON, y el usuario pidió dejarlo siempre en manual:
+// "mejor dejamelo manual cuando tenga que poner programa de integridad". Ahora la pregunta, en
+// cualquier formato, NUNCA se autocompleta — queda pendiente para que el oferente decida.
+test('programa de integridad: la pregunta SÍ/NO NUNCA se autocompleta; "describa" sigue quedando al humano', () => {
   const parrafos = [parrafo(0, '¿La empresa cuenta con un Programa de Integridad?')];
   const conRespuesta = { ...EMPRESA, programa_integridad_respuesta: 'SÍ' } as EmpresaCampos;
   const r = resolverDeterminista({
     candidatos: [celda(1, '¿Cuenta con Programa de Integridad?')],
     blancosInline: [], parrafos, empresa: conRespuesta,
   });
-  assert.equal(valorAuto(r.celda, 1), 'SÍ');
+  assert.equal(valorAuto(r.celda, 1), null);
+  assert.ok(r.celdaSinResolver.some(c => c.indice === 1), 'queda pendiente para que el oferente decida');
 
   const r2 = resolverDeterminista({
     candidatos: [celda(1, 'Describa en qué consiste su Programa de Integridad')],
@@ -380,7 +385,8 @@ test('programa de integridad: la pregunta SÍ/NO se responde sola; "describa" qu
 // BUG REAL (ANEXO N°2 de 2724-35-LP26, encontrado por el repaso de IA el 19-ago-2026): el anexo
 // completo se titula "PROGRAMA DE INTEGRIDAD", así que el CONTEXTO del bloque activaba la política
 // para cualquier casilla no resuelta del documento — el pie de firma "<Ciudad>, <día/mes/año>"
-// quedó con "SÍ" escrito adentro. La etiqueta manda sobre el contexto.
+// quedó con "SÍ" escrito adentro. Ya no hay política que activar, pero el test se conserva: ninguna
+// casilla de OTRO dato debe recibir jamás la respuesta de integridad.
 test('programa de integridad: una casilla que pide OTRO dato no recibe el "SÍ" por el contexto', () => {
   const parrafos = [parrafo(0, 'DECLARACIÓN JURADA — PROGRAMA DE INTEGRIDAD')];
   const conRespuesta = { ...EMPRESA, programa_integridad_respuesta: 'SÍ' } as EmpresaCampos;
@@ -391,11 +397,11 @@ test('programa de integridad: una casilla que pide OTRO dato no recibe el "SÍ" 
     assert.notEqual(valorAuto(r.celda, 1), 'SÍ', `"${etiqueta}" no puede recibir la respuesta de integridad`);
   }
 
-  // Y la casilla que SÍ es la pregunta se sigue resolviendo por contexto, como antes.
+  // Y la casilla que ANTES era "la pregunta" también queda pendiente ahora — sin política que aplicar.
   const ok = resolverDeterminista({
     candidatos: [celda(1, '¿Cuenta con uno?')], blancosInline: [], parrafos, empresa: conRespuesta,
   });
-  assert.equal(valorAuto(ok.celda, 1), 'SÍ');
+  assert.equal(valorAuto(ok.celda, 1), null);
 });
 
 // BUG REAL (2-sep-2026, FORMULARIO D "DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD", 2704-67-LE26,
