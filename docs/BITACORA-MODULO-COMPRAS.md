@@ -1,5 +1,11 @@
 # Módulo de Compras — Fase 1 (04-sep-2026)
 
+> **Sesión 10 (09-sep-2026): auditoría de lo construido el 8/9-sep + reordenamiento de pantalla.**
+> Ver §10 al final. Entre la Sesión 4 (04-sep) y esta sesión se construyó CASI TODA la spec
+> (§7-§19) SIN una sola línea de bitácora — 13 tablas nuevas (migration-90 a 102), 13 librerías,
+> 34 rutas API y 13 tarjetas de UI. Está aplicado en la base real y funcionalmente completo, pero
+> nadie lo documentó ni lo probó en navegador. Si retomas esto, lee §10 primero.
+
 > **Sesión 2 (04-sep-2026, más tarde): la Fase 1 quedó CERRADA.** Ver §7 al final — correo de
 > proyecto ganado, orden de compra del cliente y registro de ejecución de las tareas. Lo que sigue
 > es §8 (Auditor de Compras) o §9-§10 (incidencias y compuertas), sin empezar.
@@ -568,3 +574,522 @@ sistema.
 `app/lib/ordenes-compra.ts` (enganche + modo `soloProveedor`) ·
 `app/api/cron/compras-asignacion/route.ts` · `app/api/compras/[negocioId]/route.ts` (link y PDF) ·
 `app/negocios/[id]/ComprasSection.tsx` · `app/lib/__tests__/compras.test.mts`
+
+---
+
+## 10. Sesión 10 (09-sep-2026): auditoría de las Sesiones 5-9 (nunca documentadas) + reordenamiento
+
+El usuario compartió `ESPECIFICACION_Modulo_Compras_v2_2.docx` (ahora sí, versión completa de 22
+secciones) y pidió: (1) revisar qué falta contra el documento, (2) confirmar si Obuma está
+integrado, (3) que la pantalla deje de mostrarlo todo apilado — "no se va a entender para qué
+sirve cada módulo" — y (4) que Compras pueda ver el costeo con las mismas funciones de la burbuja
+flotante.
+
+### 10.1 Lo que apareció: Sesiones 5-9 existieron pero nunca se escribieron acá
+
+Entre el 08-sep y el 09-sep (antes de esta sesión) se construyó, sin ninguna línea de bitácora:
+
+- **13 migraciones** (`migration-90` a `migration-102`) — **verificado con `SHOW TABLES` contra la
+  BD real: las 26 tablas nuevas EXISTEN**, no quedaron a mitad de aplicar.
+- **13 librerías** (`app/lib/compras-*.ts` + `tipo-cambio.ts`): auditor de compras (§8, cotización
+  OCR multi-formato, homologación por IA, cuadro comparativo, 4 escenarios desde Epeira 575
+  Talagante), incidencias (§9, con Oportunidad de Mejora y triple aprobación), aprobaciones+SKU
+  (§7, §10, compuertas de compra y margen 20%), reparto administrativo (§11, registro pasivo de lo
+  que hace Obuma), importación/costo aterrizado (§12), logística/fleteros (§13), reloj/multas/
+  prórrogas (§15), entrega/acta/postventa (§16, §17), fracaso con doble dictamen (§14.6),
+  aprendizaje/sugerencia de proveedor histórico (§19.3) y gastos reales (pedido aparte del usuario,
+  no numerado en la spec).
+- **34 rutas API** y **13 tarjetas de UI**, todas montadas (ninguna huérfana).
+- **Sin una sola prueba en navegador ni entrada de bitácora.** Se auditó con un agente de
+  exploración (lectura completa de cada archivo nuevo, cruzado contra las 22 secciones de la spec)
+  — ver conversación de esta fecha para el detalle sección por sección.
+
+### 10.2 El problema real que reportó el usuario: confirmado, y es de pantalla, no de código
+
+`ComprasSection.tsx` mostraba, apenas había encargado asignado, **12 tarjetas seguidas al mismo
+nivel** (Productos → Modalidad de retiro → Reloj → Fracaso → Incidencias → Auditor de Compras →
+Gastos → Importación → Aprobaciones/SKU → Reparto Administrativo → Entrega → Postventa), sin tabs
+ni agrupación. Un proyecto recién asignado veía exactamente la misma pila que uno ya entregado.
+
+**Fix:** las 12 tarjetas se agruparon en **5 pestañas por etapa real del ciclo de compra**, cada
+una con una línea que explica para qué sirve (constante `FASES` en `ComprasSection.tsx`):
+
+| Pestaña | Contiene | Spec |
+|---|---|---|
+| Tareas | El checklist de validación y plazos administrativos | §5 |
+| Costeo y Auditoría | Cobertura por producto + Auditor de Compras | §8, §14 |
+| Aprobación y SKU | Creación de SKU + las dos compuertas | §7, §10 |
+| Compra, Importación y Logística | Reparto administrativo + importación + modalidad de retiro + gastos | §11, §12, §13 |
+| Entrega y Cierre | Reloj/multas + incidencias + acta de entrega + postventa + fracaso | §9, §15, §16, §17, §14.6 |
+
+Lo de arriba de las pestañas (header, documentos, banner de faltantes, encargado, OC del cliente,
+resumen ejecutivo) queda igual — es información de "Entrada" que aplica siempre, no una etapa.
+`app/compras/[negocioId]/page.tsx` pasó de `max-w-4xl` a `max-w-6xl`: con pestañas y tablas
+comparativas el contenedor angosto quedaba apretado.
+
+### 10.3 Costeo con las mismas funciones de la burbuja — enganchado
+
+Ningún archivo de Compras importaba `CosteoFlotanteContext`. Solo había reuso de **datos** (copia
+puntual de precios del editor a `compras_producto` al asignar, ver `poblarProductosCompra` en
+`compras.ts`), nunca de la vista en vivo. Se agregó un botón **"Ver costeo"** en el header de
+`ComprasSection.tsx` que llama `useCosteoFlotante().abrir(negocioId, licitacionCodigo)` — la MISMA
+función que usa el resto de la app (ver [[project_costeo_burbuja_flotante_sep2026]]), no una copia:
+abre la burbuja/pantalla completa real, con el mismo estado y las mismas fórmulas.
+
+### 10.4 Obuma — decisión del usuario, no una integración nueva
+
+Hoy `app/lib/obuma.ts` es de **solo lectura** (v1.0: proveedores, OC de compra, facturas) y se usa
+en vivo en 2 puntos: `proveedorNuevoOAntiguo` (§8.5, en `compras-auditor.ts`) y
+`sugerenciaProveedorHistorico` (§19.3, en `compras-aprendizaje.ts`). El resto de las secciones que
+mencionan Obuma (§11, §16, §17) son **registro pasivo por diseño**: la spec dice literalmente "eso
+lo ejecuta Obuma, el módulo solo controla y registra el estado" — no está roto, es la spec.
+
+**Decisión explícita del usuario (09-sep-2026):** dejar pendiente cualquier integración de
+escritura con Obuma por ahora, EXCEPTO la creación de SKU (§7) — "apenas lleguemos a ese módulo, ya
+que sé cómo se realiza, lo apliqué en otro programa". O sea: cuando se trabaje la pestaña
+"Aprobación y SKU", el usuario va a guiar cómo crear/homologar el SKU contra Obuma en vivo (hoy
+`crearSku` en `compras-aprobaciones.ts` solo guarda `obumaProductoId` a mano, sin llamada real). No
+tocar esto todavía sin que el usuario lo pida.
+
+### 10.5 Verificación de esta sesión
+
+- `npx tsc --noEmit` → limpio en `ComprasSection.tsx` y `app/compras/[negocioId]/page.tsx` (los 3
+  errores que arroja el comando son de `app/lib/detectar-aperturas.ts`, preexistentes de otra
+  sesión, no tocados acá).
+- Tablas de las migraciones 86-102 confirmadas contra la BD real con un script de solo lectura
+  (`scripts/scratch/check-tablas-compras.mjs`, queda como herramienta de diagnóstico reutilizable).
+- **No se probó en navegador**: la ruta `/compras/717` redirige a login (comportamiento esperado,
+  sin sesión) — se intentó conectar al servidor del propio usuario (`localhost:3000`, HMR ya había
+  recargado los cambios), pero el asistente no ingresa credenciales. Pendiente que el usuario
+  recorra las 5 pestañas del negocio 717 y confirme que se ve bien.
+
+### 10.6.1 Primera prueba en vivo (09-sep-2026, mismo día): 2 bugs reales, ambos arreglados
+
+El usuario entró al negocio 717 con sesión iniciada y reportó dos huecos:
+
+1. **El Resumen Ejecutivo no mostraba quién ganó/trabajó el negocio de nuestro lado.** El dato
+   YA estaba calculado y guardado — `ResumenEjecutivo.responsableNombre` (JOIN
+   `negocios.asignado_a` → `usuarios.nombre` en `entrega-proyecto.ts::construirResumenEjecutivo`,
+   heredado por `ResumenEjecutivoCompras`) viaja completo en `resumen_json` (confirmado con lectura
+   directa a la BD: `responsableNombre: "Consuelo Ramirez"` para el 717) — nadie lo pintaba en
+   pantalla. Fix: nuevo campo en la interfaz `ResumenCompras` de `ComprasSection.tsx` + una tarjeta
+   "Asistente comercial (lo trabajó)" al inicio del grid del resumen, separada de "Contactos del
+   cliente" (que es del organismo, no nuestro).
+2. **El acta de evaluación no aparecía en "Documentación del proyecto".** Existe y ya estaba
+   descargada (`Acta_1114_12_LE26.pdf`, visible en la pestaña "Resultado" de la licitación vía
+   `DocumentosActa.tsx` → `GET /api/licitacion/acta`), pero vive en su PROPIA tabla
+   (`acta_documento`, `app/lib/acta-adjudicacion.ts`) — completamente separada de `documentos_cache`,
+   que es la única fuente que lee `DocumentosLicitacionCard.tsx` (vía `GET /api/documentos/[codigo]`).
+   Fix: el card ahora pide las dos fuentes en paralelo y funde en una sola lista los documentos del
+   acta que ya tienen copia en R2 (`d.url`), bajo la categoría nueva "ACTA" → "Acta de adjudicación".
+   Los detectados-pero-no-descargados se siguen gestionando solo desde "Resultado" (no se duplicó
+   ese flujo acá).
+
+**Nota para quien retome:** el acta NO se trae sola — hoy requiere que un admin abra la pestaña
+"Resultado" de la licitación y apriete "Buscar documentos" (`POST /api/licitacion/acta`, pega
+contra Mercado Público con IP chilena). Si en el futuro se quiere que llegue sola al ganar (como ya
+pasa con la OC del cliente, ver §9), es un enganche nuevo en `abrirComprasSiCorresponde` o en el
+cron `compras-asignacion` — no se construyó en esta sesión, no se pidió.
+
+Verificado en vivo (sesión del propio usuario, `localhost:3000`, negocio 717): ambos campos se ven
+correctos en pantalla, el link del acta abre el PDF real en R2. `npx tsc --noEmit` limpio.
+
+### 10.6.2 Recorrido completo de las 4 pestañas restantes (09-sep-2026, mismo día): 1 bug grave más
+
+El usuario pidió "revisa todo, realiza el flujo completo a ver si todo cuadra". Se recorrieron en
+vivo (negocio 717, sesión del propio usuario) las 4 pestañas que nadie había abierto en navegador:
+Costeo y Auditoría, Aprobación y SKU, Compra/Importación/Logística, Entrega y Cierre.
+
+**Bug grave encontrado — cotización en dólares leída como si fuera pesos.** El usuario había
+registrado una cotización real de Unisource Ingeniería (`Cotizacion24377.pdf`, USD, "5.- TIPO
+MONEDA: DOLAR" explícito en el documento) esa misma mañana. La extracción por IA
+(`extraerDatosCotizacionDeDocumento`, `app/lib/compras-cotizacion-ocr.ts`) devolvió
+`precioUnitario: 2.05` y `moneda: "CLP"` — leyó "2.052,00" (formato chileno: punto de miles, coma
+decimal) como 2,05, y no detectó "DOLAR" en el pie de página aunque el texto OCR lo traía literal.
+Con eso, el cuadro comparativo y los 4 escenarios del Auditor de Compras mostraban **$2 CLP** por un
+sensor industrial que en verdad cuesta **USD 2.052 (~$1.902.081 CLP)** — un error de ~950.000×, no
+cosmético: si alguien hubiera aprobado la compra con esos escenarios, la Compuerta 2 (margen) habría
+mostrado un negocio espectacular sobre un precio que no existe.
+
+Interesante: el pipeline de conversión de moneda (`tipo-cambio.ts`, migration-100, `precio_unitario_clp`)
+**ya existía y funcionaba bien** — fue construido ESE MISMO DÍA, más temprano, a raíz de esta misma
+cotización (ver el comentario en `compras-auditor.ts::registrarCotizacion`, "hallazgo real
+09-sep-2026, cotización de Unisource en USD"). El bug no estaba en la conversión: estaba un paso
+antes, en la EXTRACCIÓN — la IA nunca le pasó "USD" al conversor porque devolvió "CLP".
+
+**Arreglado en tres capas:**
+1. **Prompt de extracción mejorado** (`SYS_EXTRACCION`): instrucción explícita del formato chileno
+   de números (punto = miles, coma = decimal) y de revisar TODO el documento — no solo el
+   encabezado — buscando "TIPO MONEDA"/"DOLAR"/"USD" antes de asumir CLP.
+2. **Red de seguridad nueva**: la IA ahora también extrae `cantidadPrincipal` (la cantidad de la
+   línea del precio unitario). `precioUnitarioConfiable()` compara `precioUnitario × cantidad`
+   contra `precioTotal` (que SÍ se leyó bien, 8.243 — el propio documento permite detectar el error
+   sin volver a llamar a la IA); si el desfase es de orden de magnitud (>3×), anula el
+   `precioUnitario` en vez de dejarlo pasar mal — mismo criterio de
+   [[feedback_no_inventar_datos_parser]]: mejor pedirle al encargado que lo tipee que un precio
+   equivocado silencioso.
+3. **Dato ya corrupto en la BD, corregido con los valores reales del PDF** (se descargó y leyó el
+   PDF real para confirmar los números): `scripts/scratch/fix-cotizacion-11-unisource.mjs` —
+   cotización #11 pasó a `precio_unitario=2052, precio_total=8243, moneda='USD'`, con el tipo de
+   cambio del día ya cacheado (`compras_tipo_cambio`, $926,94), recalculando
+   `precio_unitario_clp=$1.902.081` y `precio_total_clp=$7.640.766`, y el ítem homologado
+   (`compras_cotizacion_item`) actualizado igual. Verificado en vivo: el cuadro comparativo y los 4
+   escenarios ahora muestran $1.902.081/unidad y $7.648.324 de costo total (= 4×1.902.081 + $40.000
+   de flete interno, matemática consistente).
+
+**Bug menor encontrado — "Productos y cobertura" mostraba el precio de VENTA sin etiqueta, no el
+costo.** `compras_producto.monto_unitario` se puebla desde `precioUnitarioSinDecimales` del costeo
+(motor-comercial.ts) — el precio que LE COBRAMOS al Estado, no `costoUnitarioNeto` (lo que a
+NOSOTROS nos cuesta). `ProductosCompraCard.tsx` lo pintaba como número pelado ("4 Unidad ·
+$6.745.621"), en una pestaña cuyo propósito es justo comparar costos de cotización — fácil de leer
+como techo de compra cuando en realidad ES el precio de venta (pagar cerca de eso se come toda la
+utilidad). Fix: se etiquetó explícito ("venta unitaria: $6.745.621"). No se agregó una columna de
+costo nueva (requeriría migración de esquema) — el costo real ya está a un clic en "Ver costeo" y en
+las cotizaciones del mismo Auditor.
+
+**Verificado y confirmado CORRECTO, no bug (para no repetir la duda si alguien retoma esto):**
+- Los 4 escenarios salían idénticos — correcto, hay una sola cotización real cargada, así que las 4
+  estrategias de selección convergen al mismo candidato. `calcularEscenarios()` sí diferencia
+  cuando hay más de un candidato por producto (revisado el código, no solo la pantalla).
+- `RepartoAdminCard` y `PostventaCard` no se veían en sus pestañas — ambos por diseño: Reparto solo
+  aparece con la Compuerta 1 ya aprobada (§11.2, "tareas paralelas AL APROBARSE la compra") y
+  Postventa solo si el resumen ejecutivo trae compromisos/garantías (el 717 no tiene ninguno
+  registrado — dato real, no hueco).
+- Un `POST /api/actividad → 400` intermitente en consola: preexistente, de otra sesión (registro de
+  "vio esta sección" al navegar por la licitación), no toca nada de Compras — no se investigó más
+  a fondo por estar fuera de alcance.
+
+**Verificación de esta sesión:** `npx tsc --noEmit` limpio · `npm run test:viabilidad` → **984/984**
+(sin tests nuevos — el fix de extracción es de prompt + una función pura ya cubierta
+indirectamente). Las 5 pestañas recorridas en vivo con la sesión real del usuario, sin errores de
+consola nuevos ni requests fallidos propios de Compras.
+
+### 10.6 Qué sigue (según lo que decida el usuario)
+
+- Probar en vivo el negocio 717 con las pestañas nuevas.
+- Si el usuario quiere, agregar contadores/badges por pestaña (cuántas tareas pendientes, cuántas
+  incidencias abiertas) — no se hizo en esta sesión para no mezclar cambio de UI con cambio de
+  datos.
+- Cuando se trabaje "Aprobación y SKU": integración de escritura con Obuma para crear el SKU, con
+  el usuario guiando (ver §10.4).
+- §18 (Trazabilidad) sigue sin vista propia — hoy es indirecta vía `historial_eventos` y el
+  histórico de `compras_tarea`; no hay un dashboard dedicado.
+
+---
+
+## 11. Sesión 11 (09-sep-2026): "agreguemos lo que falta" — dashboard, contadores, permisos finos
+
+El usuario pidió completar lo que faltaba. Auditoría rápida: **§7-§17 ya estaban construidos**
+(sesiones 5-10), y el propio documento marca §18 (Dashboard) y §19.4 como **fuera de alcance**
+explícito para esta etapa — así que "lo que falta" se acotó, con el usuario, a tres cosas
+concretas que sí valía la pena construir ahora que el módulo tiene uso real.
+
+### 11.1 Contadores por pestaña
+
+La reorganización en 5 fases (Sesión 10) escondió información: antes de entrar a una pestaña no
+había forma de saber si había algo esperando. `obtenerResumenFases()` (nuevo, `app/lib/compras.ts`)
+calcula, con consultas livianas envueltas en try/catch (nunca rompen la pantalla si una tabla
+falla): tareas vencidas, productos sin ninguna cotización, compuertas pendientes, hitos
+administrativos pendientes (`null` si la Compuerta 1 no está aprobada — no aplica todavía) e
+incidencias abiertas + reloj vencido. Viaja en `GET /api/compras/[negocioId]` como
+`resumenFases`, y `ComprasSection.tsx` pinta un badge por pestaña (rojo si es urgente: incidencia
+abierta o reloj vencido).
+
+### 11.2 Dashboard de Compras (§18) — construido pese a que la spec lo marca "fuera de alcance"
+
+La spec es explícita: "Dashboard de Compras (**fuera de alcance**, condiciona el modelo de datos)".
+Solo pedía que el modelo de datos lo soportara después — y ya lo soportaba (cada tarea trae
+`creado_at`/`cerrado_at`/`responsable` desde el día uno, migration-86). El usuario pidió completar
+igual, así que esto es la vista que faltaba sobre datos que ya existían, no una funcionalidad nueva
+de fondo.
+
+`app/lib/compras-dashboard.ts` (`obtenerDashboardCompras()`): negocios activos/urgentes, relojes
+vencidos, incidencias abiertas, SLA de asignación real (§3.3, promedio de horas + cuántas fueron
+fallback automático), **cuellos de botella por tipo de tarea** (tiempo promedio de creación a
+cierre, solo entre las cerradas, ordenado de más lenta a más rápida) y **ranking por encargado**
+(tareas cerradas, vencidas hoy, tiempo promedio — atribución "a quien tenía la tarea en el momento
+del evento", spec §18.4). Todo el cálculo de horas es en JS sobre fechas ya guardadas como hora de
+pared de Chile — nunca `TIMESTAMPDIFF`/`NOW()` de MySQL (mismo criterio que el resto del proyecto).
+
+`GET /api/compras/dashboard` — gate MÁS ANGOSTO que el resto del módulo: admin o
+`aprobar_comercial` únicamente (§2.4/§18.6: "la estadística de gestión por usuario es visible solo
+para la jefatura, no para el propio encargado" — el permiso `compras` NO alcanza acá, a propósito).
+`app/compras/dashboard/page.tsx`, enlazado desde `/compras` con un botón "Dashboard" visible solo a
+jefatura.
+
+**Hallazgo real construyendo esto, no un bug de UI:** el dashboard mostraba "Fijación y validación
+del reloj de entrega" como vencida en el negocio 717 aunque el reloj YA estaba fijado (Sesión 10,
+sección "sigamos"). La tarea del catálogo y la tabla `compras_reloj` son cosas distintas y nadie las
+enganchaba — a diferencia de `registrarOrdenCompraCliente`, que sí cierra sola la tarea
+`aceptar_oc`. Fix: `fijarReloj()` (`app/lib/compras-reloj.ts`) ahora cierra sola la tarea
+`reloj_entrega` con el mismo patrón. Corregido también el dato ya viejo del 717
+(`scripts/scratch/cerrar-tarea-reloj-717.mjs`). El dashboard sirvió literalmente para lo que dice la
+spec que debía servir: encontrar un cuello de botella falso.
+
+### 11.3 Permisos finos: administración y bodega (§2.2)
+
+La spec decía "se define cuando el sistema esté andando, no antes" — y hoy nadie salvo los 3 admin
+tiene el permiso `compras` (ver Sesión 1, §4 punto 3), así que este era el momento sin riesgo de
+romper acceso real de nadie. Dos permisos nuevos, **aditivos** sobre `compras` (que sigue siendo el
+perfil "compras y entrega", el dueño operativo de todo el negocio):
+
+- **`compras_administracion`** — opera SOLO el Proceso Administrativo §11 (`RepartoAdminCard`),
+  aunque no sea el encargado del negocio.
+- **`compras_bodega`** — opera SOLO la verificación de la entrega §16.4 (Conforme/No conforme
+  dentro de `EntregaCard`), aunque no sea el encargado del negocio.
+
+**La parte que costó pensar, no la de agregar dos checkboxes:** casi todas las rutas de Compras
+(`aprobaciones`, `sku`, `incidencias`, `importacion`, `logistica`, `gastos`, `productos`,
+`cotizaciones`/`escenarios`, y casi toda `entrega`) reusan el MISMO gate (`puedeOperarCompras`) para
+absolutamente todo. Si se lo hubiera ensanchado sin más, administración y bodega habrían quedado con
+permiso de escritura sobre TODO el módulo, no solo su sección — justo lo que el "aditivo pero
+angosto" del diseño quería evitar. Se resolvió con dos gates separados en
+`app/api/compras/[negocioId]/route.ts`:
+- `puedeOperarCompras` — el de siempre, intacto, sigue siendo el único que usan las rutas de
+  escritura genéricas.
+- `puedeVerCompras` (nuevo) — suma administración/bodega, pero SOLO se usa para lectura general (el
+  `GET` principal, y el `GET` de `aprobaciones`/`entrega` que esas dos secciones necesitan leer) o
+  para la acción puntual que de verdad es de ellas: `reparto` (GET+PATCH completos, vía
+  `puedeOperarReparto` en su propia ruta) y `entrega`'s acción `verificacion` (chequeo dentro del
+  propio `switch`, no en el gate general del PATCH).
+
+`EntregaCard.tsx` recibió un prop nuevo `puedeVerificar` (además de `puedeOperar`), usado SOLO en el
+botón Conforme/No conforme — el resto de la tarjeta (modalidad, acta, firmas) sigue exclusivo del
+encargado. `ComprasSection.tsx` calcula `esAdministracion`/`esBodega` de los permisos del usuario y
+se los pasa a `RepartoAdminCard`/`EntregaCard`.
+
+Catálogo de permisos actualizado en `app/admin/usuarios/page.tsx` (dos checkboxes nuevos, categoría
+"comercial"), y los 4 gates de navegación/vista que antes solo miraban `compras`/`aprobar_comercial`
+(`app/compras/page.tsx`, `app/compras/[negocioId]/page.tsx`, `app/components/AppLayout.tsx`, más el
+listado `GET /api/compras`) se ensancharon para dejar entrar a los dos perfiles nuevos.
+
+### 11.4 Verificación
+
+`npx tsc --noEmit` limpio · `npm run test:viabilidad` → **984/984** (sin tests nuevos: son vistas
+sobre datos existentes y ajustes de permisos, no lógica de negocio nueva que valiera un test
+unitario aparte). Verificado en vivo con la sesión real del usuario: contadores correctos en las 5
+pestañas del 717, dashboard con datos reales (SLA 10.9 días, 1 tarea cerrada en 1.5h, 5 tareas
+vencidas → 4 tras el fix del reloj), checkbox nuevo visible en `/admin/usuarios`. **No probado**:
+ningún usuario real tiene todavía `compras_administracion` ni `compras_bodega` otorgado — la
+autorización se revisó leyendo el código de cada ruta, no recorriendo la pantalla como esos
+perfiles (no hay ninguna cuenta de prueba con esos permisos).
+
+### 11.5 Qué sigue
+
+- Otorgar `compras_administracion`/`compras_bodega` a cuentas reales cuando existan esos perfiles,
+  y recorrer la pantalla como ellos al menos una vez.
+- El Dashboard es v1: sin filtro por rango de fecha ni por encargado, sin exportar. Ampliar si la
+  jefatura lo usa y pide algo puntual — no antes.
+
+---
+
+## 12. Sesión 12 (09-sep-2026): el contacto de la licitación vivía en el acta, no en la ficha de MP
+
+El usuario pidió el teléfono y correo de la persona a cargo de MP en 1114-12-LE26. Se revisaron las
+tres fuentes que la app ya lee (ficha de la API, bases en PDF, acta de evaluación en PDF): ninguna
+trae esos dos datos — `EmailResponsableContrato`/`FonoResponsableContrato` de la API vienen siempre
+`""`, y las bases dicen explícitamente "No se atenderán consultas por teléfono ni otros canales".
+Se le dijo así al usuario.
+
+El usuario mandó capturas de pantalla del **propio portal de Mercado Público**: la página del acta
+tiene una sección "Datos del Contacto para esta Licitación" (Nombre Completo / Cargo / Teléfono /
+Fax / E-Mail) que la API nunca expone y que ningún documento trae — **pero que la app YA descarga**
+como HTML crudo dentro de `leerActa()` (`app/lib/acta-adjudicacion.ts`) para sacar la grilla de
+anexos. Nadie leía el resto de esa página.
+
+**Fix, sin llamada nueva a MP** (reusa el HTML que `leerActa()` ya trae):
+- `parseContactoLicitacion(html)` — mismo patrón genérico de extracción por `<tr>`/`<t[dh]>` que ya
+  usa el resto del archivo para los anexos. Busca la sección por su título, lee las filas
+  etiqueta→valor. **No verificado contra HTML real** (el sandbox de esta sesión no tiene IP
+  chilena, no puede abrir mercadopublico.cl) — queda para confirmar con "Releer" desde una sesión
+  real la próxima vez que se use en una licitación nueva.
+- Migración 103: 4 columnas nuevas en `adjudicacion_cache` (`contacto_nombre/cargo/telefono/email`),
+  aplicada contra la BD real. `leerYGuardarActa()` las persiste cuando el parseo encuentra el
+  bloque; `obtenerActaVista()` las expone a la UI.
+- `DocumentosActa.tsx` (pestaña "Resultado" de la licitación) pinta el contacto arriba de la lista
+  de documentos del acta, con el e-mail como `mailto:`.
+- `congelamiento.ts::obtenerContactosCliente()` — el que alimenta `usuarioNombre`/`usuarioCargo` en
+  todos lados (paquete de traspaso, Resumen Ejecutivo de Compras) — ahora suma
+  `usuarioTelefono`/`usuarioEmail` leyendo esas mismas columnas, best-effort (nunca rompe si la
+  migración no corrió o el acta no se ha leído todavía). Es el mismo Pablo Vergara Brito que ya
+  aparecía como "Contraparte" en el Resumen Ejecutivo — se le suman los 2 campos, no se duplica.
+
+**El dato del 717 se cargó a mano** con los valores EXACTOS que el usuario mostró en las capturas
+(Pablo Vergara Brito · Asistente Administrativo · 56-22-4496661 · pablo.vergara@mop.gov.cl) —
+`scripts/scratch/set-contacto-1114.mjs` — porque el sandbox no puede volver a leer el acta en vivo
+para confirmarlo por su cuenta. Es dato real que el usuario ya tenía en pantalla, no una invención.
+
+**Verificación:** `npx tsc --noEmit` limpio, `npm run test:viabilidad` → **984/984**. Migración 103
+aplicada y confirmada contra la BD real. **No se pudo probar en navegador** (la sesión de este
+turno no tenía login activo) — pendiente que el usuario confirme visualmente en "Resultado" del
+717, y que pruebe "Releer" en una licitación adjudicada NUEVA para validar el parser contra HTML
+real por primera vez.
+
+---
+
+## 13. Sesión 13 (10-sep-2026): "termina el módulo" — el acta llega sola
+
+Sin sesión de navegador disponible (otra vez), esta sesión fue código + auditoría estática. El
+pendiente más concreto que quedaba de la Sesión 12 era manual: un admin tenía que abrir
+"Resultado" y apretar "Buscar documentos" para que el acta (y el contacto que trae, §12 arriba)
+llegara. Se automatizó.
+
+### 13.1 El acta se lee sola
+
+`licitacionesEnComprasSinActa()` + `traerActaAutomatico()` (nuevo en `acta-adjudicacion.ts`),
+enganchados al cron `compras-asignacion` que ya corre cada 15-30 min (mismo que trae la OC del
+cliente por proveedor) — de a 5 negocios por corrida, cada uno en su propio try/catch para que uno
+que falle no tumbe a los demás.
+
+**Migración 104** (`adjudicacion_cache.acta_leida_at`): sin esto, un organismo que simplemente no
+publica ningún anexo en el acta habría hecho que el cron reintentara ESE negocio cada 15-30 min
+para siempre (2 llamadas a MP cada vez, sin que nada fuera a cambiar) — `acta_leida_at` se sella al
+intentar, tenga o no anexos, separado de si guardó algo. `licitacionesEnComprasSinActa()` también
+exige `url_acta IS NOT NULL` (no intenta si MP todavía ni siquiera publicó el link del acta).
+Backfill aplicado: 10 licitaciones que ya se habían leído a mano antes de que existiera esta
+columna quedaron selladas, para no reprocesarlas de gratis.
+
+### 13.2 Auditoría estática del resto del módulo (sin navegador)
+
+Se lanzó una revisión de código dedicada sobre lo que todavía no se había recorrido en vivo ni leído
+línea por línea: `compras-entrega.ts` (§16/§17), `compras-logistica.ts` (§13), `compras-gastos.ts`,
+`compras-fracaso.ts`, `compras-proveedores.ts`, `compras-reparto.ts` — buscando el mismo tipo de
+bugs ya encontrados en el resto del módulo (dinero mal calculado, campo leído de la columna
+equivocada, un hecho real que no cierra su tarea del catálogo, guards que fallan abierto). Revisado
+también a mano `calcularMargenPrevisto` (compras-aprobaciones.ts) y `calcularCostoAterrizado`
+(compras-importacion.ts, prorrateo del flete internacional §12.4) — ambos correctos: el margen
+prioriza costo aterrizado → escenario elegido → costeo estimado, y el prorrateo es por unidad,
+efectivo, no la fórmula gruesa de Fase 3 que la spec prohíbe explícitamente para esta decisión.
+
+**6 hallazgos reales, arreglados:**
+
+1. **IDOR en `quitarPuntoEntrega`** (`compras-entrega.ts`) — confianza ALTA, el único de
+   seguridad. Borraba un punto de entrega por `id` solo, sin comprobar que fuera del negocio de la
+   URL: cualquiera con acceso de Compras a SU negocio podía borrar un punto de entrega de OTRO
+   negocio mandando su `id`. Fix: `quitarPuntoEntrega(negocioId, id)` con `WHERE id=? AND
+   negocio_id=?`, mismo patrón que ya usaba `eliminarGasto` en `compras-gastos.ts` — el guardarraíl
+   correcto existía en el mismo módulo, acá faltaba.
+2. **`generarActa` no invalidaba la firma/cierre de una versión anterior** (`compras-entrega.ts`,
+   §16.5/§16.7) — regenerar el acta limpiaba la aprobación pero dejaba `acta_firma_*`,
+   `acta_conformidad` y `cerrada_at` de la versión VIEJA, mostrando un acta "cerrada" con contenido
+   que en los hechos nunca fue firmado. Fix: toda regeneración limpia también firma y cierre, mismo
+   criterio que `invalidarAprobacionesCompras`.
+3. **`declararFracaso` no invalidaba el dictamen del jefe de ventas al re-declarar con otro
+   motivo** (`compras-fracaso.ts`, §14.6) — si el encargado corregía el motivo declarado, el
+   dictamen anterior (que analizó el motivo VIEJO) seguía mostrado como vigente. Fix: si el motivo
+   cambia de verdad, limpia el dictamen; si es el mismo texto, no toca nada.
+4. **`obtenerOCrearProveedor` comparaba RUT como string exacto** (`compras-proveedores.ts`, §8.3) —
+   "76.123.456-7" y "76123456-7" no calzaban entre sí, creando proveedores duplicados en vez de
+   engancharlos (justo lo que la función decía evitar). Fix: comparación normalizada con `normRut`
+   (misma utilidad que ya usa `adjudicacion.ts`), sin tocar el RUT guardado.
+5. **Política "proveedor nuevo exige factura antes de provisión de fondos" nunca se aplicaba**
+   (`compras-reparto.ts`, §11.2) — la regla estaba descrita en el comentario de la migración pero
+   `marcarHitoReparto` no la comprobaba. Fix: nueva función `proveedorNuevoSinFactura()` (mira los
+   proveedores del escenario elegido vs. `compras_cotizacion.proveedor_nuevo`, calculado por
+   Obuma) que bloquea provisionar fondos si hay un proveedor nuevo sin factura registrada.
+6. **Desmarcar un hito de reparto no limpiaba el dato adjunto** (`compras-reparto.ts`) — el número
+   de OC, monto o cuenta quedaban pegados y reaparecían como vigentes al reactivar el hito sin que
+   nadie los hubiera vuelto a verificar. Fix: desmarcar limpia también el campo adjunto de ese
+   hito.
+
+**Descartado tras revisar, no era bug:** `compras-logistica.ts` (sugerencia de fleteros, pana,
+modalidad de retiro) y `compras-gastos.ts` (total en CLP) sin hallazgos — el filtro de
+`compras_gasto` por moneda es intencional, no un bug de casing. Dos hallazgos de confianza BAJA
+(duplicado de evento al re-firmar la guía/acta ya cerrada; `plazo_despacho_dias` no se limpia al
+cambiar de carga consolidada a única) quedaron sin tocar — el propio informe los marca como ruido
+cosmético, no corrupción de datos, y no valía el riesgo de tocar más código por eso.
+
+Se verificó explícitamente el mismo patrón del bug del reloj (un hecho real que no cierra su tarea
+del catálogo) en `generar acta`, `firmar guía` y los hitos de reparto/logística/gastos — ninguno
+tiene una tarea del catálogo asociada que debiera cerrarse y no cierre (la única relacionada,
+`contacto_pagos` §17.3, es independiente). No es el mismo bug repetido en otro lado.
+
+### 13.3 Verificación
+
+`npx tsc --noEmit` limpio · `npm run test:viabilidad` → **984/984**. Migraciones 103 y 104
+aplicadas contra la BD real. Sin sesión de navegador disponible — nada de esto se probó en vivo
+esta sesión.
+
+---
+
+## 14. Sesión 14 (10-sep-2026): verificación en vivo + SKU-Obuma en escritura real
+
+### 14.1 Verificación en vivo — todo lo de la Sesión 13, confirmado
+
+Con sesión real del usuario abierta, se recorrieron las 5 pestañas del negocio 717 y se probaron en
+vivo (no solo por script) dos de los guards agregados en la Sesión 13:
+- **IDOR de `quitarPuntoEntrega`**: ya verificado por script en la Sesión 13; hoy se confirmó en
+  pantalla que la Documentación/Entrega se ve correcta.
+- **Guard "proveedor nuevo exige factura antes de provisionar fondos"**: clic real en "Provisión de
+  fondos" → toast **"El escenario elegido incluye un proveedor nuevo — se exige la factura de
+  compra registrada..."** — bloqueó exacto como se diseñó. Unisource quedó marcada `proveedor_nuevo=1`
+  de verdad (consulta real a OBUMA de una sesión anterior), no fue necesario fabricar el caso.
+- **Guard de cobertura en `generarActa`** (§14.2): clic en "Generar acta" con 0/2 productos listos →
+  toast **"El proyecto no tiene cobertura total todavía (0/2 listos)..."** — bloqueó correcto.
+
+Antes de esto se creó una **cotización SIMULADA** para "Plataformas satelital - GOES CS2" (pedido
+explícito del usuario, con el valor del costeo original — `scripts/scratch/crear-cotizacion-simulada-plataforma-717.mjs`),
+marcada sin ambigüedad ("SIMULACIÓN — pendiente cotización real") para que nadie la confunda con una
+cotización de proveedor real. Eso permitió recalcular el escenario con AMBOS productos cubiertos
+(antes solo tenía al sensor real de Unisource): costo total pasó de $7.648.324 a **$20.537.128**,
+margen real de 81,1% a **49,1%** — las Compuertas 1 y 2, que ya estaban aprobadas con el dato
+incompleto, se invalidaron solas (§10.5) y se volvieron a aprobar con el dato completo. Se creó
+también el segundo SKU. Técnica usada para todo esto: **importar los módulos TypeScript reales vía
+`tsx` con las env vars cargadas ANTES del import** (`scripts/scratch/elegir-escenario-717.mts` y
+similares) — permite ejecutar la lógica de negocio real sin necesitar sesión de navegador ni
+duplicar la lógica en SQL a mano. Reutilizable para la próxima vez que no haya sesión disponible.
+
+### 14.2 SKU–OBUMA: de standby a escritura real (spec §7, §7.5)
+
+El usuario compartió su otro proyecto (`D:\grupoica-intranet`, mismo grupo empresarial — **mismo
+token de Obuma**, confirmado byte a byte) donde ya había resuelto esto antes. Se leyó
+`app/api/obuma/productos/route.ts` de ese proyecto para sacar el payload real de
+`POST productos.create.json`, y se confirmó EN VIVO (solo lectura) contra la cuenta real:
+
+- Categoría **"Mercado Publico" = id 13255**, con **1383 productos reales** ya cargados ahí — es la
+  categoría que la propia empresa ya usa para todo lo comprado para licitaciones.
+- **25 subcategorías reales** debajo (INSTRUMENTOS, MAQUINARIA, FERRETERIA, TECNOLOGIA, EPP, etc.).
+- El SKU sigue el patrón `"60" + subcategoría + correlativo` (ej. `6026434221`), correlativo
+  arrancando en 203 — replicado tal cual, no inventado.
+
+**Decisiones del usuario (10-sep-2026) antes de escribir el código de escritura:**
+- Los productos creados desde Compras quedan **solo internos**: `producto_para_venta=0`,
+  `producto_vender_en_web=0`, `producto_mostrar=0` — no son catálogo público, son lo que se compró
+  para cumplir UNA licitación puntual.
+- La subcategoría **se elige a mano cada vez** (selector con las 25 reales) — sin default fijo.
+
+**Construido:**
+- `app/lib/obuma.ts`: `listarCategoriasProductos`, `listarSubcategoriasProductos`,
+  `listarProductosObuma`, `siguienteSkuMercadoPublico` (correlativo real, filtra por
+  categoría+subcategoría en la propia consulta a Obuma — no trae los 1383 productos), y
+  `crearProductoObuma` (la escritura real, `POST productos.create.json`).
+- **Migración 105**: `compras_sku.obuma_codigo_comercial` — el código comercial que genera Obuma
+  ("6026427204") es DISTINTO del `sku_propio` legible interno; no se pisan.
+- `crearSku()` (compras-aprobaciones.ts) acepta `crearEnObuma`/`obumaSubcategoriaId`: si viene,
+  usa el costo del **escenario YA elegido** para ESE producto puntual (nunca un costo aparte — mismo
+  criterio que `calcularMargenPrevisto`), genera el SKU correlativo, crea el producto en Obuma de
+  verdad, y guarda `obuma_producto_id`/`obuma_codigo_comercial` — el usuario deja de tipear el ID a
+  mano para este camino.
+- `GET /api/compras/obuma-subcategorias` (nuevo, transversal) + formulario de SKU en
+  `AprobacionesCompraCard.tsx`: checkbox "Crear también en Obuma" + selector de subcategoría: si se
+  marca, el campo manual de "ID producto en OBUMA" se oculta (lo llena Obuma solo).
+
+**Verificación:** `npx tsc --noEmit` limpio · `npm run test:viabilidad` → **984/984**. Migración 105
+aplicada contra la BD real. `GET /api/compras/obuma-subcategorias` probado en vivo (con sesión real):
+devuelve las 25 subcategorías reales. **La escritura real (`crearProductoObuma`, crear un producto
+de verdad en Obuma) NO se probó** — se le preguntó al usuario si quería que se disparara una prueba
+ahora mismo (borrar y re-crear el SKU del sensor con la opción Obuma) y prefirió probarlo él mismo
+desde su sesión cuando quiera. No hay endpoint de borrado visto en `grupoica-intranet`, así que un
+producto creado por error no es trivial de deshacer — correcto no arriesgarlo sin que lo dispare él.
+
+### 14.3 Cómo probarlo (para el usuario)
+
+1. Entrar a "Aprobación y SKU" de cualquier negocio con la Compuerta 1 ya aprobada.
+2. En la fila de un producto SIN SKU todavía, "Crear SKU".
+3. Llenar SKU propio/marca/modelo como siempre, marcar **"Crear también en Obuma"**, elegir la
+   subcategoría real que corresponda, Guardar.
+4. Si todo sale bien: toast "SKU creado — también se creó el producto real en Obuma", y el bloque
+   del SKU muestra "Creado en Obuma — código NNNNNNNNNN". Se puede confirmar entrando a Obuma
+   directamente y buscando ese código.
+5. Si algo sale mal (error de Obuma, subcategoría inválida, etc.), el SKU local NO se crea tampoco
+   (todo o nada) — el error queda en el toast.

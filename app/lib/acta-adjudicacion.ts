@@ -93,12 +93,61 @@ async function urlActaDe(codigo: string): Promise<string | null> {
   }
 }
 
+export interface ContactoLicitacionActa {
+  nombre: string; cargo: string | null; telefono: string | null; email: string | null;
+}
+
 export interface LecturaActa {
   documentos: DocumentoActa[];
   urlActa: string;
   cookies: string;
   referer: string;
+  contactoLicitacion: ContactoLicitacionActa | null;
   diagnostico: string;
+}
+
+/**
+ * "Datos del Contacto para esta Licitación" (nombre, cargo, teléfono, e-mail) — un bloque de la
+ * MISMA página del acta, que hasta el 09-sep-2026 nadie leía (`leerActa` solo miraba la grilla de
+ * anexos). Se pidió a mano una vez ("necesito el número y el correo de la persona a cargo") y
+ * resultó que la ficha de la API de MP (licitaciones_cache) trae esos campos SIEMPRE vacíos
+ * (`EmailResponsableContrato`/`FonoResponsableContrato` = "") — el acta sí los publica.
+ *
+ * Reusa el mismo patrón de extracción genérico que ya usa el resto del archivo (`<tr>` → celdas
+ * `<t[dh]>` limpias): busca, dentro de la ventana de texto que sigue al título de la sección, la
+ * fila cuya primera celda es la etiqueta ("Nombre Completo", "Cargo", "Teléfono", "E-Mail") y
+ * devuelve la celda siguiente. Sin el nombre no vale la pena guardar el resto — puede que el
+ * bloque no exista en licitaciones más viejas o de otro formato de página.
+ *
+ * NO VERIFICADO contra HTML real en este entorno (el sandbox no tiene IP chilena, ver cabecera del
+ * archivo) — confirmar con "Releer" desde una sesión con acceso real a Mercado Público.
+ */
+function parseContactoLicitacion(html: string): ContactoLicitacionActa | null {
+  const inicio = html.search(/Datos del Contacto para esta Licitaci[oó]n/i);
+  if (inicio === -1) return null;
+  let fin = html.indexOf('Datos de la Adquisici', inicio);
+  if (fin === -1 || fin - inicio > 6000) fin = inicio + 4000;
+  const bloque = html.slice(inicio, fin);
+
+  const leerCampo = (etiqueta: RegExp): string | null => {
+    for (const tr of bloque.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+      const celdas = [...tr[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => limpiar(c[1]));
+      if (celdas.length >= 2 && etiqueta.test(celdas[0])) {
+        const valor = celdas[1];
+        return valor && valor !== '--' && valor !== '-' ? valor.slice(0, 200) : null;
+      }
+    }
+    return null;
+  };
+
+  const nombre = leerCampo(/Nombre\s*Completo/i);
+  if (!nombre) return null;
+  return {
+    nombre,
+    cargo: leerCampo(/^Cargo$/i),
+    telefono: leerCampo(/Tel[eé]fono/i),
+    email: leerCampo(/E-?\s?Mail/i),
+  };
 }
 
 /**
@@ -175,9 +224,10 @@ export async function leerActa(codigo: string): Promise<LecturaActa | null> {
     });
   }
 
+  const contactoLicitacion = parseContactoLicitacion(html);
   const sinControl = documentos.filter(d => !d.controlPostback).length;
   return {
-    documentos, urlActa, cookies, referer,
+    documentos, urlActa, cookies, referer, contactoLicitacion,
     diagnostico: [
       `${Math.round(html.length / 1024)} KB`,
       `${filasVistas} filas`,
@@ -238,17 +288,41 @@ export async function guardarActaDocumentos(
 }
 
 export async function leerYGuardarActa(codigo: string): Promise<{
-  ok: boolean; documentos: number; diagnostico: string;
+  ok: boolean; documentos: number; diagnostico: string; contactoLicitacion: ContactoLicitacionActa | null;
 }> {
   const lectura = await leerActa(codigo);
-  if (!lectura) return { ok: false, documentos: 0, diagnostico: 'no se pudo abrir el acta' };
+  if (!lectura) return { ok: false, documentos: 0, diagnostico: 'no se pudo abrir el acta', contactoLicitacion: null };
   const { guardados, otros } = await guardarActaDocumentos(codigo, lectura);
+
+  // Se sella "ya se leyó" aunque no haya traído ningún anexo (organismo que no publicó nada) —
+  // separado de si guardó documentos. Sin esto, licitacionesEnComprasSinActa() reintentaría este
+  // negocio en cada corrida del cron para siempre, sin que nada vaya a cambiar.
+  try {
+    await pool.query(`UPDATE adjudicacion_cache SET acta_leida_at = ? WHERE licitacion_codigo = ?`, [ahoraChileSQL(), codigo]);
+  } catch (e) {
+    console.error(`[acta] no se pudo sellar acta_leida_at de ${codigo}:`, String(e).slice(0, 150));
+  }
+
+  if (lectura.contactoLicitacion) {
+    const c = lectura.contactoLicitacion;
+    try {
+      await pool.query(
+        `UPDATE adjudicacion_cache
+            SET contacto_nombre = ?, contacto_cargo = ?, contacto_telefono = ?, contacto_email = ?
+          WHERE licitacion_codigo = ?`,
+        [c.nombre, c.cargo, c.telefono, c.email, codigo],
+      );
+    } catch (e) {
+      console.error(`[acta] no se pudo guardar el contacto de ${codigo}:`, String(e).slice(0, 200));
+    }
+  }
+
   // El resto (resolución, declaraciones juradas) no se guarda, pero se dice que existe: el
   // usuario no debe creer que el acta solo tenía un documento si en verdad tenía seis.
   const diagnostico = otros.length
     ? `${lectura.diagnostico} · ${otros.length} más sin traer (${otros.map(o => o.tipo).join(', ')})`
     : lectura.diagnostico;
-  return { ok: true, documentos: guardados, diagnostico };
+  return { ok: true, documentos: guardados, diagnostico, contactoLicitacion: lectura.contactoLicitacion };
 }
 
 // ── Descarga ─────────────────────────────────────────────────────────────────
@@ -346,12 +420,31 @@ export interface ActaVista {
   documentos: DocumentoActaVista[];
   descargados: number;
   leida: boolean;
+  contactoLicitacion: ContactoLicitacionActa | null;
 }
 
 export async function obtenerActaVista(codigo: string): Promise<ActaVista> {
-  const base: ActaVista = { codigo, tieneActa: false, urlActa: null, documentos: [], descargados: 0, leida: false };
+  const base: ActaVista = {
+    codigo, tieneActa: false, urlActa: null, documentos: [], descargados: 0, leida: false, contactoLicitacion: null,
+  };
   base.urlActa = await urlActaDe(codigo);
   base.tieneActa = !!base.urlActa;
+
+  try {
+    const [[c]] = await pool.query(
+      `SELECT contacto_nombre, contacto_cargo, contacto_telefono, contacto_email
+         FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1`,
+      [codigo],
+    ) as any;
+    if (c?.contacto_nombre) {
+      base.contactoLicitacion = {
+        nombre: c.contacto_nombre, cargo: c.contacto_cargo || null,
+        telefono: c.contacto_telefono || null, email: c.contacto_email || null,
+      };
+    }
+  } catch (e) {
+    console.error(`[acta] contacto de ${codigo}:`, String(e).slice(0, 150));
+  }
 
   try {
     const [rows] = await pool.query(
@@ -380,4 +473,44 @@ export async function obtenerActaVista(codigo: string): Promise<ActaVista> {
   }
 
   return base;
+}
+
+// ── Automatización (sep-2026) ────────────────────────────────────────────────
+// Antes el acta solo se leía si un admin abría "Resultado" y apretaba "Buscar documentos" a mano
+// — nadie lo hacía apenas se ganaba, así que el acta de evaluación (el documento que explica por
+// qué ganamos) y el contacto de la licitación (ver ContactoLicitacionActa) podían quedar sin traer
+// semanas. Se engancha al mismo cron de Compras que ya corre cada 15-30 min (§3.3/§3.6,
+// `app/api/cron/compras-asignacion/route.ts`) en vez de crear uno nuevo.
+
+/** Negocios que YA están en Compras (compras_asignacion) pero cuya acta nunca se INTENTÓ leer
+ *  (`adjudicacion_cache.acta_leida_at` nulo — sellado en `leerYGuardarActa` sea cual sea el
+ *  resultado, para no reintentar para siempre un organismo que no publicó ningún anexo). Limitado
+ *  a `limite` por corrida — el cron vuelve a pasar en 15-30 min, no hace falta traerlos todos de
+ *  una vez. */
+export async function licitacionesEnComprasSinActa(limite = 5): Promise<string[]> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT ca.licitacion_codigo
+         FROM compras_asignacion ca
+         JOIN adjudicacion_cache adc ON adc.licitacion_codigo = ca.licitacion_codigo
+        WHERE adc.acta_leida_at IS NULL AND adc.url_acta IS NOT NULL
+        GROUP BY ca.licitacion_codigo
+        ORDER BY ca.ganado_at DESC
+        LIMIT ${Math.max(1, Math.min(limite, 20))}`,
+    ) as any;
+    return (rows as any[]).map(r => String(r.licitacion_codigo));
+  } catch (e) {
+    console.error('[acta] licitacionesEnComprasSinActa:', String(e).slice(0, 150));
+    return [];
+  }
+}
+
+/** Lee y descarga el acta de una licitación de Compras, de punta a punta (equivalente a que un
+ *  admin apriete "Buscar documentos" y después "Traer pendientes" a mano). Nunca lanza — cada
+ *  llamada del cron va en su propio try/catch, un acta que falla no debe tumbar las demás. */
+export async function traerActaAutomatico(codigo: string): Promise<{ ok: boolean; documentos: number }> {
+  const r = await leerYGuardarActa(codigo);
+  if (!r.ok || r.documentos === 0) return { ok: r.ok, documentos: 0 };
+  const { descargados } = await descargarActaDocumentos(codigo);
+  return { ok: true, documentos: descargados };
 }

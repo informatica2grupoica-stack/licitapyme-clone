@@ -812,25 +812,12 @@ export default function PostuladasPage() {
     return () => { cancelado = true; };
   }, [negocios.length, version]);
 
-  // Refresco de APERTURAS en segundo plano (rasca el portal de MP, IP chilena) DESPUÉS de pintar
-  // → no bloquea la carga instantánea, pero igual detecta las aperturadas aunque el cron aún no
-  // haya corrido. Fusiona el resultado en cada tarjeta (chip Aperturada) sin recargar la página.
-  useEffect(() => {
-    if (!estadoCargado || negocios.length === 0) return;
-    let cancelado = false;
-    (async () => {
-      try {
-        const r = await fetch('/api/postuladas/aperturas');
-        const d = await r.json();
-        if (cancelado || !d?.aperturas) return;
-        setNegocios(prev => prev.map(n => ({
-          ...n,
-          aperturada: (n.aperturada || d.aperturas[n.licitacion_codigo]) ? 1 : 0,
-        })));
-      } catch { /* portal no accesible (fuera de Chile) → se queda con lo de la tabla */ }
-    })();
-    return () => { cancelado = true; };
-  }, [estadoCargado, negocios.length, version]);
+  // NOTA (sep-2026, auditoría de tiempo real): antes había acá un segundo refresco que rascaba el
+  // portal de MP en vivo apenas se abría esta pantalla, para detectar aperturas antes que el cron.
+  // Se sacó a propósito — el dueño pidió que NINGUNA consulta a MP dependa de abrir una pantalla,
+  // solo el cron de 5 min (/api/cron/aperturas, vía scheduler.mjs). El chip "Aperturada" sigue
+  // viniendo de `/api/postuladas/estado` (arriba), que ya lee la tabla `licitacion_apertura` que
+  // ese cron mantiene al día.
 
   // Perfiles presentes (filtro admin).
   const perfiles = useMemo(() => {

@@ -15,7 +15,7 @@ import { Select } from '@/app/components/ui/Select';
 import { colorUsuario } from '@/app/lib/user-color';
 import {
   ShoppingCart, Loader2, Building2, ArrowUpRight, Search, Filter, X, Calendar,
-  Users, ArrowUpDown, AlertTriangle, Clock, UserPlus, CheckCircle2,
+  Users, ArrowUpDown, AlertTriangle, Clock, UserPlus, CheckCircle2, BarChart3,
 } from 'lucide-react';
 
 interface ComprasFila {
@@ -74,7 +74,7 @@ function FilaCompras({ f, esJefeDeVentas, candidatos, onAsignado }: {
               </span>
             )}
           </div>
-          <Link href={`/negocios/${f.negocioId}?seccion=compras`} className="block text-[13.5px] font-bold text-zinc-800 hover:text-teal-700 leading-snug mt-0.5">
+          <Link href={`/compras/${f.negocioId}`} className="block text-[13.5px] font-bold text-zinc-800 hover:text-teal-700 leading-snug mt-0.5">
             {f.licitacionNombre || f.licitacionCodigo}
           </Link>
           <div className="flex items-center gap-3 mt-1 text-[11.5px] text-zinc-500 flex-wrap">
@@ -89,7 +89,7 @@ function FilaCompras({ f, esJefeDeVentas, candidatos, onAsignado }: {
         </div>
         <div className="flex items-center gap-3 flex-shrink-0">
           <span className="text-[12px] font-semibold text-zinc-600">{fmtCLP(f.montoNuestro)}</span>
-          <Link href={`/negocios/${f.negocioId}?seccion=compras`} className="text-zinc-400 hover:text-teal-600"><ArrowUpRight size={16} /></Link>
+          <Link href={`/compras/${f.negocioId}`} className="text-zinc-400 hover:text-teal-600"><ArrowUpRight size={16} /></Link>
         </div>
       </div>
 
@@ -144,7 +144,8 @@ export default function ComprasPage() {
   const limpiar = () => { setFAsignado([]); setSoloUrgentes(false); setSoloSinAsignar(false); setFechaDesde(''); setFechaHasta(''); };
 
   const esAdmin = usuario?.rol === 'admin';
-  const puedeVer = esAdmin || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
+  const puedeVer = esAdmin || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial
+    || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega;
   const esJefeDeVentas = esAdmin || !!usuario?.permisos?.aprobar_comercial;
 
   const cargar = useCallback(async () => {
@@ -238,13 +239,22 @@ export default function ComprasPage() {
               </p>
             </div>
           </div>
-          {negocios.length > 0 && (
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, código, organismo o encargado…"
-                className="pl-8 pr-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:ring-1 focus:ring-teal-500 outline-none w-72" />
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {esJefeDeVentas && (
+              <Link href="/compras/dashboard"
+                className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-zinc-600 bg-white border border-zinc-200 hover:bg-zinc-50 px-3 py-2 rounded-lg transition-colors"
+                title="Cuellos de botella y estadística de gestión (spec §18) — solo jefatura">
+                <BarChart3 size={13} /> Dashboard
+              </Link>
+            )}
+            {negocios.length > 0 && (
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar nombre, código, organismo o encargado…"
+                  className="pl-8 pr-3 py-2 text-[13px] border border-zinc-200 rounded-lg focus:ring-1 focus:ring-teal-500 outline-none w-72" />
+              </div>
+            )}
+          </div>
         </div>
 
         {error && <Banner variante="error" accion={{ label: 'Reintentar', onClick: cargar }}>{error}</Banner>}

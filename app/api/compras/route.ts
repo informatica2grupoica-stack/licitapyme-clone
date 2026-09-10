@@ -21,7 +21,9 @@ function getUser(req: NextRequest) {
 async function puedeVerCompras(userId: number, rol: string | null): Promise<boolean> {
   if (rol === 'admin') return true;
   const p = await permisosDeUsuario(userId, rol);
-  return !!(p.compras || p.aprobar_comercial);
+  // administración/bodega (§2.2) también entran al listado: necesitan llegar a SU negocio para
+  // operar su sección angosta, aunque no sean el encargado de compras/entrega.
+  return !!(p.compras || p.aprobar_comercial || p.compras_administracion || p.compras_bodega);
 }
 
 export async function GET(request: NextRequest) {

@@ -1,14 +1,15 @@
 // app/lib/detectar-aperturas.ts
 // Detección de APERTURA para las POSTULADAS leyendo el portal de MP (como la descarga de docs).
 //
-// Dos disparadores usan las MISMAS primitivas para que la alerta salga UNA sola vez:
-//   · El cron /api/cron/aperturas (scheduler, IP chilena) → detectarAperturas(lote).
-//   · La carga del apartado Postuladas → refrescarAperturas(codigos) vía /api/postuladas/estado,
-//     así el chip "Aperturada" aparece sin depender de que el cron esté configurado.
+// ÚNICO disparador: el cron /api/cron/aperturas (scheduler, IP chilena, cada 5 min) →
+// detectarAperturas(lote) → marcarYAvisar(..., notificar:true). (sep-2026, auditoría de tiempo
+// real): antes también había un refresco on-demand al abrir /postuladas que rascaba el portal en
+// vivo — se sacó a propósito, el dueño pidió que NINGUNA consulta a MP (ni la alerta que puede
+// salir de ella) dependa de que alguien abra una pantalla. El apartado Postuladas ahora solo LEE
+// lo que este cron dejó en `licitacion_apertura` (vía /api/postuladas/estado, cache puro).
 //
-// "Tiempo real" con MP: MP no empuja eventos. Lo más cercano es sondear seguido; en cuanto
-// una corrida (cron o visita a la página) ve el cambio, empuja la notificación por SSE a la
-// campana del/los perfil(es) al instante. La latencia = cada cuánto se sondea.
+// "Tiempo real" con MP: MP no empuja eventos. Lo más cercano es sondear seguido; el cron corre
+// cada 5 min, así que la latencia del aviso queda acotada a eso.
 //
 // Requiere IP chilena (WAF). Idempotente: al marcar aperturada se dispara la alerta una vez
 // (transición no-aperturada → aperturada) y el código no se vuelve a consultar.
@@ -27,10 +28,6 @@ const IN_POSTULADA = ESTADOS_POSTULADA.map(() => '?').join(', ');
 
 const CONCURRENCIA   = 3;       // fichas del portal en paralelo (gentil con MP)
 const PRESUPUESTO_MS = 280_000; // margen bajo maxDuration=300 del cron
-
-// Minutos que un "aún sin apertura" se considera fresco antes de re-consultar el portal.
-// Evita que cada visita al apartado Postuladas re-lea la ficha de las que siguen sin abrir.
-const REVERIFICAR_MIN = 20;
 
 interface EstadoApertura { aperturada: boolean; verificadoHaceMin: number | null }
 
@@ -62,7 +59,8 @@ export async function leerAperturas(codigos: string[]): Promise<Map<string, bool
 
 // ── Marcar aperturada + avisar a los perfiles (una sola vez) ──────────────────
 // Persiste el resultado. Si es una TRANSICIÓN a aperturada (antes no lo estaba), avisa por
-// campana+SSE a todos los perfiles que la postularon. Devuelve si disparó la alerta.
+// campana+SSE+correo a todos los perfiles que la postularon. Devuelve si disparó la alerta.
+// Solo la llama el cron (ver cabecera del archivo) — nunca un caller on-demand.
 async function marcarYAvisar(codigo: string, aperturada: boolean, evidencia: string): Promise<boolean> {
   // ¿Ya estaba marcada aperturada? → no re-avisar.
   let yaAperturada = false;
@@ -115,45 +113,6 @@ async function marcarYAvisar(codigo: string, aperturada: boolean, evidencia: str
     }
   } catch (e) { console.error(`[detectar-aperturas] aviso ${codigo} falló:`, String(e)); }
   return true;
-}
-
-// ── Refrescar un conjunto de códigos leyendo el portal (con presupuesto) ──────
-// Solo consulta el portal para los que NO están ya marcados aperturados. Devuelve el mapa
-// COMPLETO (tabla + recién detectados) para que el caller pinte los chips.
-export async function refrescarAperturas(
-  codigos: string[],
-  opts: { maxDetectar?: number; presupuestoMs?: number } = {},
-): Promise<Map<string, boolean>> {
-  const maxDetectar  = opts.maxDetectar ?? 12;
-  const presupuesto  = opts.presupuestoMs ?? 12_000;
-  const inicio = Date.now();
-
-  const detalle = await leerAperturasDetalle(codigos);
-  const estado = new Map<string, boolean>();
-  for (const c of codigos) estado.set(c, !!detalle.get(c)?.aperturada);
-
-  // Candidatos a consultar el portal: NO aperturados y (sin fila o verificados hace rato).
-  // Los verificados hace poco se dejan como están (el cron los reintenta en su cadencia).
-  const pendientes = codigos.filter(c => {
-    const d = detalle.get(c);
-    if (d?.aperturada) return false;
-    if (!d) return true;                                  // nunca verificado
-    return d.verificadoHaceMin == null || d.verificadoHaceMin >= REVERIFICAR_MIN;
-  }).slice(0, Math.max(0, maxDetectar));
-  if (pendientes.length === 0) return estado;
-
-  let i = 0;
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCIA, pendientes.length) }, async () => {
-    while (i < pendientes.length) {
-      const codigo = pendientes[i++];
-      if (Date.now() - inicio > presupuesto) return;
-      const r = await detectarAperturaPortal(codigo);
-      if (!r) continue; // portal no legible → se reintenta luego
-      await marcarYAvisar(codigo, r.aperturada, r.evidencia);
-      estado.set(codigo, r.aperturada);
-    }
-  }));
-  return estado;
 }
 
 // ── Cuántas POSTULADAS cerradas quedan por verificar (para el GET del cron) ───

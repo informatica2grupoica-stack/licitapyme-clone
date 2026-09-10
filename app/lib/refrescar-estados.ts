@@ -495,9 +495,21 @@ export async function refrescarEstadosAsignadas(
   return stats;
 }
 
-// Refresco PUNTUAL de UN código (sensación de tiempo real al abrir el detalle de un negocio).
+// Refresco PUNTUAL de UN código (sensación de tiempo real al abrir el detalle de un negocio, o
+// al asignarlo).
 // Cache-first en el sentido de que solo escribe si el estado definitivo de la API difiere del
 // cacheado. Devuelve el nombre canónico persistido, o null si no cambió / no se pudo consultar.
+//
+// NUNCA NOTIFICA (sep-2026, auditoría de tiempo real — pedido explícito del dueño): antes solo
+// 'Adjudicada' estaba blindada acá; el resto de los terminales (Cerrada/Revocada/Desierta/
+// Suspendida) SÍ disparaban campana+correo con solo abrir el detalle de un negocio — bastaba con
+// que MP hubiera cambiado el estado entre que el cron pasó y alguien entrara a mirar. El dueño fue
+// explícito: NINGUNA alerta puede depender de que alguien abra una pantalla, para NINGÚN estado —
+// solo el barrido automático (estados-asignadas / procesar-postuladas, cada 5 min) tiene permitido
+// dispararla, así el tiempo de aviso es SIEMPRE acotado y predecible ("cerrada→adjudicada en ≤5
+// min"), nunca "cuando a alguien se le ocurra mirar". Aquí solo se deja server el
+// `licitacion_estado` crudo (para que el detalle no muestre un estado viejo) sin avisar; el
+// barrido programado (que corre igual, en paralelo, cada 5 min) es el único que notifica.
 export async function refrescarEstadoCodigo(
   codigo: string,
   estadoCache: string | null,
@@ -512,7 +524,7 @@ export async function refrescarEstadoCodigo(
     const nombre = estadoDefinitivoCanonico(lic);
     if (!nombre) return null;
     if (normNombre(estadoCache) === normNombre(nombre)) return null;
-    const cambio = await persistirYNotificar(codigo, nombre, true, lic);
+    const cambio = await persistirYNotificar(codigo, nombre, false, lic);
     if (cambio) console.log(`[refrescar-estados] on-demand ${codigo}: ${estadoCache ?? '—'} → ${nombre}`);
     // Devuelve el nombre aunque no haya "cambio" nuevo (otra corrida pudo escribirlo): el detalle
     // igual debe reflejar el estado terminal actual.

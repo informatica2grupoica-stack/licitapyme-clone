@@ -1357,8 +1357,6 @@ function NegociosContent() {
   const [exportando, setExportando]     = useState(false);
   // Refresco de estados MP en curso (badge sutil "actualizando…"; no bloquea la vista).
   const [refrescandoEstados, setRefrescandoEstados] = useState(false);
-  // Evita re-disparar el refresco de fondo más de una vez por montaje.
-  const estadosRefrescados = useRef(false);
   // Hidratado = ya restauramos los filtros guardados; evita persistir el default antes.
   const [hidratado, setHidratado]       = useState(false);
 
@@ -1422,38 +1420,30 @@ function NegociosContent() {
   // marcado. Esperar a `hidratado` deja una sola carga, ya con el filtro correcto.
   useEffect(() => { if (hidratado) cargar(); }, [cargar, hidratado]);
 
-  // Refresco AUTORITATIVO de estados desde la API de MP para las asignadas vivas. Jala Cerrada/
-  // Desierta/Adjudicada/Revocada/Suspendida (y "Ganada" cuando es nuestra postulada adjudicada) y,
-  // si hubo cambios, recarga en silencio para pintar los badges. `force` salta el throttle (botón
-  // manual). Best-effort: si MP no responde, la vista sigue con lo cacheado.
-  const REFRESCO_MS = 2 * 60 * 60 * 1000; // 2 horas
-  const refrescarEstadosMP = useCallback(async (force = false) => {
+  // Refresco AUTORITATIVO de estados desde la API de MP para las asignadas vivas — SOLO manual
+  // (botón "Actualizar"). Jala Cerrada/Desierta/Adjudicada/Revocada/Suspendida y, si hubo cambios,
+  // recarga en silencio para pintar los badges. Best-effort: si MP no responde, la vista sigue
+  // con lo cacheado.
+  //
+  // (sep-2026, auditoría de tiempo real): antes esto TAMBIÉN se disparaba solo con abrir /negocios
+  // (acotado a 1 vez cada 2h por navegador) — y esa llamada notifica (campana+correo) en cada
+  // transición real que encuentra. El dueño fue explícito: ninguna consulta a MP, y menos una que
+  // puede avisar, puede depender de que alguien abra una pantalla. El barrido automático de 5 min
+  // (estados-asignadas, vía scheduler.mjs) ya cubre exactamente este mismo universo — este botón
+  // queda solo para un pull manual explícito, cuando alguien quiere el dato al instante sin
+  // esperar el próximo tick del cron.
+  const refrescarEstadosMP = useCallback(async () => {
     if (refrescandoEstados) return;
-    if (!force) {
-      try {
-        const last = Number(localStorage.getItem('neg_estados_mp_last') || 0);
-        if (Date.now() - last < REFRESCO_MS) return; // aún fresco → no gasta API
-      } catch { /* sin storage: sigue */ }
-    }
     setRefrescandoEstados(true);
     try {
       const res = await fetch('/api/negocios/refrescar-estados', { method: 'POST' });
       const data = await res.json().catch(() => ({}));
-      try { localStorage.setItem('neg_estados_mp_last', String(Date.now())); } catch { /* cuota */ }
       if (data?.success && (data.actualizadas ?? 0) > 0) {
         await cargar(true); // recarga silenciosa: los badges cambian sin parpadeo de "Cargando…"
       }
     } catch { /* nunca bloquea la vista */ }
     finally { setRefrescandoEstados(false); }
-  }, [cargar, refrescandoEstados, REFRESCO_MS]);
-
-  // Al abrir la vista (tras la primera carga), dispara el refresco en BACKGROUND, acotado a 2h.
-  // La vista ya mostró lo cacheado; esto solo actualiza los badges cuando MP resolvió algo.
-  useEffect(() => {
-    if (!yaActualizado || estadosRefrescados.current) return;
-    estadosRefrescados.current = true;
-    refrescarEstadosMP(false);
-  }, [yaActualizado, refrescarEstadosMP]);
+  }, [cargar, refrescandoEstados]);
 
   const eliminar = async (id: number) => {
     const ok = await confirmar({
@@ -1686,7 +1676,7 @@ function NegociosContent() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={async () => { setYaActualizado(false); await cargar(); refrescarEstadosMP(true); }}
+              onClick={async () => { setYaActualizado(false); await cargar(); refrescarEstadosMP(); }}
               disabled={loading || refrescandoEstados}
               title="Recargar y consultar Mercado Público (Cerrada/Desierta/Adjudicada/Revocada) para las asignadas"
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-all ${

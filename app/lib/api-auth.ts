@@ -66,7 +66,22 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
     );
     const fila = (rows as any[])[0];
     if (!fila) return true; // sin asignar: pública para cualquier perfil normal
-    return fila.asignado_a === u.id;
+    if (fila.asignado_a === u.id) return true;
+
+    // Encargado de Compras de este negocio (Módulo de Compras, spec §3.5: "toda la documentación
+    // del proyecto" viaja con él) — puede ser una persona DISTINTA del dueño comercial original,
+    // que quedaría bloqueado sin este caso. Mismo círculo que puedeOperarCompras: el propio
+    // encargado, o cualquiera con permiso `compras`/`aprobar_comercial`.
+    if (p.compras || p.aprobar_comercial) return true;
+    try {
+      const [compRows] = await pool.query(
+        `SELECT 1 FROM compras_asignacion WHERE licitacion_codigo = ? AND asignado_a = ? LIMIT 1`,
+        [codigo, u.id],
+      );
+      if ((compRows as any[]).length > 0) return true;
+    } catch { /* tabla de compras no disponible: no bloquea el resto del chequeo */ }
+
+    return false;
   } catch {
     return false; // fail-closed
   }
@@ -91,14 +106,25 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //                       antes de ofrecerlo a todos.
 //   compras           → candidato a "Encargado de Compras" (Módulo de Compras, sep-2026): entra al
 //                       pool de asignación (manual por jefe de ventas, o automática por menor carga
-//                       si vence el plazo de 3h hábiles) y puede operar las tareas del negocio una
-//                       vez ganado. "Jefe de ventas" reusa `aprobar_comercial` (ya es quien aprueba
+//                       si vence el plazo de 3h hábiles) y puede operar TODO el negocio una vez
+//                       ganado — es el perfil "compras y entrega" de la spec §2.2, el dueño
+//                       operativo. "Jefe de ventas" reusa `aprobar_comercial` (ya es quien aprueba
 //                       el negocio comercial) — no se creó un permiso nuevo para eso.
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras';
+//   compras_administracion → perfil "administración (pagos y facturación)" de §2.2 (sep-2026,
+//                       cuando ya había uso real del módulo — antes la spec pedía esperar "a que el
+//                       sistema esté andando"). ADITIVO sobre `compras`, no lo reemplaza: solo abre
+//                       acceso angosto al Proceso Administrativo §11 (hitos de OBUMA: OC emitida,
+//                       pago, anticipo, factura, carpeta de proyecto, provisión de fondos) para
+//                       alguien que NO es el encargado de compras/entrega del negocio.
+//   compras_bodega    → perfil "bodega" de §2.2, mismo momento. ADITIVO: abre solo la verificación
+//                       física de la entrega (§16.4, "hoy la ejecuta el propio encargado de
+//                       compras; cuando exista bodeguero, él dará el visto bueno").
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
   aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true, repartir_puente: true, compras: true,
+  compras_administracion: true, compras_bodega: true,
 };
 
 /** Lee los permisos efectivos de un usuario por id+rol. Admin → todos. Tolera columna ausente. */

@@ -186,11 +186,11 @@ cron.schedule('45 7 * * *',     jobComprasObuma, opts);
 cron.schedule('*/20 * * * *',   () => sinSolapar('compras-asignacion', jobComprasAsignacion), opts);
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · estados-asignadas+postuladas+aperturas+ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día) · compras-asignación */20 (fallback 3h hábiles)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · resultados (estados-asignadas+postuladas+aperturas) */5 · ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día) · compras-asignación */20 (fallback 3h hábiles)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.
 jobDocsNeg().catch(e => console.error('[scheduler] arranque docsNeg:', String(e)));
-// También refresca el estado de postuladas al arrancar → el apartado (que lee solo cache)
-// queda al día apenas se despliega, sin esperar al primer tick de las 2h.
-jobPostuladas().catch(e => console.error('[scheduler] arranque postuladas:', String(e)));
+// También refresca el resultado (ganada/perdida/apertura) al arrancar → el apartado (que lee
+// solo cache) queda al día apenas se despliega, sin esperar el primer tick de los 5 min.
+jobResultados().catch(e => console.error('[scheduler] arranque resultados:', String(e)));

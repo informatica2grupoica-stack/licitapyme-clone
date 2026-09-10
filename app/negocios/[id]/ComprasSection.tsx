@@ -4,18 +4,52 @@
 // GANADA: resumen ejecutivo de solo lectura, asignación de encargado (jefe de ventas, 3h hábiles
 // con fallback automático) y el motor de tareas de Validación/Administrativo.
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
 import { useSession } from '@/app/lib/session-context';
+import { useCosteoFlotante } from '@/app/components/CosteoFlotanteContext';
+import { ProductosCompraCard } from './ProductosCompraCard';
+import { AuditorComprasCard } from './AuditorComprasCard';
+import { AprobacionesCompraCard } from './AprobacionesCompraCard';
+import { RepartoAdminCard } from './RepartoAdminCard';
+import { GastosCard } from './GastosCard';
+import { ModalidadRetiroCard } from './ModalidadRetiroCard';
+import { IncidenciasCard } from './IncidenciasCard';
+import { RelojEntregaCard } from './RelojEntregaCard';
+import { EntregaCard } from './EntregaCard';
+import { PostventaCard } from './PostventaCard';
+import { DocumentosLicitacionCard } from './DocumentosLicitacionCard';
+import { ImportacionCard } from './ImportacionCard';
+import { FracasoCard } from './FracasoCard';
 import {
   ShoppingCart, Loader2, UserPlus, Clock, AlertTriangle, CheckCircle2, Circle, PlayCircle,
   Plus, ChevronDown, ChevronUp, DollarSign, FileWarning, Building2, Calendar, X,
-  FileText, Save, ClipboardList, Flag, RefreshCw, Zap, ExternalLink,
+  FileText, Save, ClipboardList, Flag, RefreshCw, Zap, ExternalLink, ArrowUpRight,
+  Calculator, ClipboardCheck, Package, Truck,
 } from 'lucide-react';
+
+// Las 12 tarjetas de §7 a §17 son etapas distintas del mismo negocio, no cosas que conviva ver
+// todas juntas todo el tiempo (esa era la queja: "todo apilado hacia abajo no se entiende para
+// qué sirve cada módulo"). Se agrupan por etapa real del ciclo de compra, en el mismo orden en
+// que ocurren. Las Tareas (§5) quedan como pestaña propia porque son el checklist del día a día,
+// independiente de en qué etapa esté el resto.
+type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega';
+const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string }[] = [
+  { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'El checklist de validación y plazos administrativos (§5): contacto con el cliente, validación técnica real, validación de la cotización y del costeo.' },
+  { key: 'costeo', label: 'Costeo y Auditoría', icon: Calculator, descripcion: 'Cobertura por producto (§14), el costeo digital del proyecto y el Auditor de Compras (§8): cotizaciones, homologación, cuadro comparativo y los 4 escenarios de compra.' },
+  { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'Creación del SKU propio (§7) y las dos compuertas de aprobación (§10): aprobación de la compra y aprobación del margen (piso 20%).' },
+  { key: 'compra', label: 'Compra, Importación y Logística', icon: Package, descripcion: 'Lo administrativo post-aprobación con OBUMA (§11), costo aterrizado si es importación (§12), modalidad de retiro (§13) y gastos reales del proyecto.' },
+  { key: 'entrega', label: 'Entrega y Cierre', icon: Truck, descripcion: 'Reloj de entrega y multas (§15), incidencias (§9), acta de entrega (§16), postventa (§17) y, si corresponde, el registro de fracaso (§14.6).' },
+];
 
 interface ResumenCompras {
   licitacionNombre: string | null; organismo: string | null;
+  // Quién trabajó/ganó el negocio de nuestro lado (n.asignado_a en entrega-proyecto.ts) — NO es un
+  // contacto del cliente. El backend ya lo calcula (ResumenEjecutivo.responsableNombre) y lo manda;
+  // hasta ahora nadie lo pintaba en pantalla.
+  responsableNombre: string | null;
   montoNuestro: number | null; montoOfertado: number | null;
   presupuestoProyecto: number | null; fechaCierreLicitacion: string | null;
   plazoEntregaOfertado: string | null; hitoInicioPlazo: string | null;
@@ -66,6 +100,16 @@ interface Tarea {
 
 interface Candidato { id: number; nombre: string | null; carga: number }
 
+// Un número por pestaña, para saber dónde mirar sin tener que abrir las cinco (ver app/lib/compras.ts
+// ::obtenerResumenFases). Nunca decide nada — es puramente informativo.
+interface ResumenFases {
+  tareas: { vencidas: number };
+  costeo: { productosSinCotizacion: number };
+  aprobacion: { compuertasPendientes: number };
+  compra: { hitosAdminPendientes: number | null };
+  entrega: { incidenciasAbiertas: number; relojVencido: boolean };
+}
+
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 const fmtFecha = (s: string | null) => {
   if (!s) return '—';
@@ -92,11 +136,14 @@ function BadgeEstadoTarea({ estado, vencida }: { estado: Tarea['estado']; vencid
 export function ComprasSection({ negocioId }: { negocioId: number }) {
   const { usuario } = useSession();
   const toast = useToast();
+  const flot = useCosteoFlotante();
+  const [faseActiva, setFaseActiva] = useState<Fase>('tareas');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [asignacion, setAsignacion] = useState<Asignacion | null>(null);
   const [tareas, setTareas] = useState<Tarea[]>([]);
   const [candidatos, setCandidatos] = useState<Candidato[]>([]);
+  const [resumenFases, setResumenFases] = useState<ResumenFases | null>(null);
   const [licitacionNombre, setLicitacionNombre] = useState<string | null>(null);
   const [licitacionOrganismo, setLicitacionOrganismo] = useState<string | null>(null);
   const [ocMp, setOcMp] = useState<OrdenCompraMp | null>(null);
@@ -111,6 +158,7 @@ export function ComprasSection({ negocioId }: { negocioId: number }) {
   const [ocAbierta, setOcAbierta] = useState(false);
   const [ocForm, setOcForm] = useState({ numero: '', emitidaAt: '', aceptadaAt: '', monto: '', difiere: false, observacion: '' });
   const [guardandoOC, setGuardandoOC] = useState(false);
+  const [buscandoOC, setBuscandoOC] = useState(false);
   const [regenerando, setRegenerando] = useState(false);
   // Registro de ejecución de UNA tarea (§5.3/§5.4): se abre de a una, con su propio borrador.
   const [tareaAbierta, setTareaAbierta] = useState<number | null>(null);
@@ -121,6 +169,10 @@ export function ComprasSection({ negocioId }: { negocioId: number }) {
   const esAdmin = usuario?.rol === 'admin';
   const esJefeDeVentas = esAdmin || !!usuario?.permisos?.aprobar_comercial;
   const puedeOperar = esAdmin || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial || asignacion?.asignadoA === usuario?.id;
+  // Perfiles angostos (§2.2, sep-2026): pueden operar SU sección aunque no sean el encargado del
+  // negocio. `esAdmin` ya cubre todo, no hace falta sumarlo acá — ver api-auth.ts.
+  const esAdministracion = !!usuario?.permisos?.compras_administracion;
+  const esBodega = !!usuario?.permisos?.compras_bodega;
 
   const cargar = useCallback(async () => {
     try {
@@ -135,6 +187,7 @@ export function ComprasSection({ negocioId }: { negocioId: number }) {
       });
       setTareas(data.tareas || []);
       setCandidatos(data.candidatos || []);
+      setResumenFases(data.resumenFases || null);
       setLicitacionNombre(data.licitacionNombre);
       setLicitacionOrganismo(data.licitacionOrganismo);
       setOcMp(data.ordenCompraMp || null);
@@ -204,6 +257,28 @@ export function ComprasSection({ negocioId }: { negocioId: number }) {
       toast.error('No se pudo actualizar el resumen', e.message);
     } finally {
       setRegenerando(false);
+    }
+  };
+
+  // §3.6 — "buscar ahora" en vez de esperar el cron de 15-30 min. Cubre sobre todo licitaciones
+  // ganadas ANTES de que existiera Compras: la OC muchas veces ya está guardada de un sync
+  // anterior, solo falta engancharla con este negocio puntual.
+  const buscarOC = async () => {
+    setBuscandoOC(true);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/orden-compra/buscar`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo buscar');
+      if (!data.encontrada) {
+        toast.error('No se encontró todavía', 'Ni guardada de antes ni en Mercado Público ahora mismo — puedes registrarla a mano o volver a intentar más tarde.');
+      } else {
+        toast.success(`Orden de compra encontrada — N° ${data.oc.numero}`, data.viaVivo ? 'Se trajo en vivo desde Mercado Público.' : 'Ya estaba guardada, se enganchó con este negocio.');
+        await cargar();
+      }
+    } catch (e: any) {
+      toast.error('No se pudo buscar la orden de compra', e.message);
+    } finally {
+      setBuscandoOC(false);
     }
   };
 
@@ -313,18 +388,42 @@ export function ComprasSection({ negocioId }: { negocioId: number }) {
         <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${asignacion.urgente ? 'bg-rose-50' : 'bg-teal-50'}`}>
           <ShoppingCart size={17} className={asignacion.urgente ? 'text-rose-600' : 'text-teal-600'} />
         </div>
-        <div>
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h2 className="text-[15px] font-bold text-zinc-900 leading-tight">Compras</h2>
+            <h2 className="text-[15px] font-bold text-zinc-900 leading-tight">
+              {licitacionNombre || `Negocio #${negocioId}`}
+            </h2>
             {asignacion.urgente && (
               <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full">
                 <AlertTriangle size={11} /> Cadena de Urgencia
               </span>
             )}
           </div>
-          <p className="text-[12px] text-zinc-500">Ganado {fmtFecha(asignacion.ganadoAt)}</p>
+          <p className="text-[12px] text-zinc-500 flex items-center gap-2 flex-wrap">
+            <span>{asignacion.licitacionCodigo}</span>
+            {licitacionOrganismo && <span>· {licitacionOrganismo}</span>}
+            <span>· Ganado {fmtFecha(asignacion.ganadoAt)}</span>
+            <Link href={`/negocios/${negocioId}`} className="inline-flex items-center gap-0.5 text-teal-700 hover:text-teal-800 font-semibold">
+              Ver licitación <ArrowUpRight size={11} />
+            </Link>
+          </p>
         </div>
+        {/* Mismo costeo digital que el resto de la app (§6.2: "el asistente lo registra
+            directamente... queda registrado automáticamente"), abierto con la MISMA burbuja
+            flotante/pantalla completa que se usa en la licitación — no una copia ni una vista
+            aparte. Se puede abrir desde cualquier pestaña de acá, no solo desde "Costeo y Auditoría". */}
+        <button
+          onClick={() => flot.abrir(negocioId, asignacion.licitacionCodigo)}
+          className="flex-shrink-0 inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-2 rounded-lg transition-colors"
+          title="Abre el costeo digital del proyecto (misma burbuja flotante que en la pestaña Costeo de la licitación)"
+        >
+          <Calculator size={14} /> Ver costeo
+        </button>
       </div>
+
+      {/* §3.5 — "toda la documentación del proyecto" viaja con el paquete de traspaso: bases,
+          anexos y respaldos, congelados por el Auditor Técnico al postular. Solo lectura acá. */}
+      <DocumentosLicitacionCard licitacionCodigo={asignacion.licitacionCodigo} />
 
       {/* Los faltantes traen su propia salida: casi siempre el dato SÍ existe hoy y lo que estaba
           viejo era la foto (el paquete de traspaso se congela al postular, semanas antes de ganar).
@@ -420,10 +519,19 @@ export function ComprasSection({ negocioId }: { negocioId: number }) {
             )}
           </div>
           {puedeOperar && (
-            <button onClick={() => setOcAbierta(v => !v)}
-              className="flex-shrink-0 text-[12px] font-semibold text-teal-700 hover:text-teal-800">
-              {ocAbierta ? 'Cerrar' : oc.origen === 'mp' ? 'Corregir a mano' : (oc.numero || oc.aceptadaAt ? 'Editar' : 'Registrar a mano')}
-            </button>
+            <div className="flex-shrink-0 flex items-center gap-3">
+              {oc.origen !== 'mp' && (
+                <button onClick={buscarOC} disabled={buscandoOC}
+                  className="inline-flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50">
+                  {buscandoOC ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+                  Buscar automáticamente
+                </button>
+              )}
+              <button onClick={() => setOcAbierta(v => !v)}
+                className="text-[12px] font-semibold text-teal-700 hover:text-teal-800">
+                {ocAbierta ? 'Cerrar' : oc.origen === 'mp' ? 'Corregir a mano' : (oc.numero || oc.aceptadaAt ? 'Editar' : 'Registrar a mano')}
+              </button>
+            </div>
           )}
         </div>
 
@@ -511,6 +619,12 @@ export function ComprasSection({ negocioId }: { negocioId: number }) {
           {resumenAbierto && (
             <div className="border-t border-zinc-100 px-4 py-4 space-y-3">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {/* Quién ganó/trabajó este negocio de nuestro lado — no confundir con los
+                    contactos del cliente de más abajo, que son del organismo. */}
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase flex items-center gap-1"><UserPlus size={11} /> Asistente comercial (lo trabajó)</p>
+                  <p className="text-[13px] font-bold text-zinc-800">{r.responsableNombre || '—'}</p>
+                </div>
                 <div className="bg-zinc-50 rounded-lg p-2.5">
                   <p className="text-[10px] font-bold text-zinc-400 uppercase flex items-center gap-1"><DollarSign size={11} /> Precio de venta ganado</p>
                   <p className="text-[13px] font-bold text-zinc-800">{fmtCLP(r.montoNuestro)}</p>
@@ -581,10 +695,59 @@ export function ComprasSection({ negocioId }: { negocioId: number }) {
         </div>
       )}
 
-      {/* Tareas */}
+      {/* A partir de acá, todo lo que sigue son etapas posteriores a tener un encargado asignado
+          (§7 a §17) — agrupadas por fase real del ciclo de compra en vez de apiladas todas juntas.
+          Cada pestaña dice en una línea para qué sirve, así no hay que adivinar qué tarjeta mirar. */}
       {asignacion.asignadoA && (
-        <div className="space-y-3">
-          {(['VALIDACION', 'ADMINISTRATIVO', 'MANUAL'] as const).map(cat => {
+        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+          <div className="flex items-center gap-1 px-2 pt-2 overflow-x-auto border-b border-zinc-100">
+            {FASES.map(f => {
+              const Icon = f.icon;
+              const activa = faseActiva === f.key;
+              // Un número por pestaña — dónde mirar sin abrir las cinco. `null` = sin nada que
+              // avisar (no se pinta badge). `alerta` fuerza rojo aunque el número sea chico (ej. un
+              // reloj vencido con 0 incidencias sigue siendo urgente).
+              let badge: number | null = null; let alerta = false;
+              if (resumenFases) {
+                if (f.key === 'tareas') badge = resumenFases.tareas.vencidas || null;
+                else if (f.key === 'costeo') badge = resumenFases.costeo.productosSinCotizacion || null;
+                else if (f.key === 'aprobacion') badge = resumenFases.aprobacion.compuertasPendientes || null;
+                else if (f.key === 'compra') badge = resumenFases.compra.hitosAdminPendientes;
+                else if (f.key === 'entrega') {
+                  badge = resumenFases.entrega.incidenciasAbiertas || (resumenFases.entrega.relojVencido ? 0 : null);
+                  alerta = resumenFases.entrega.relojVencido || resumenFases.entrega.incidenciasAbiertas > 0;
+                }
+              }
+              return (
+                <button
+                  key={f.key}
+                  onClick={() => setFaseActiva(f.key)}
+                  className={`flex-shrink-0 inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-t-lg border-b-2 transition-colors whitespace-nowrap ${
+                    activa
+                      ? 'text-indigo-700 border-indigo-600 bg-indigo-50/50'
+                      : 'text-zinc-500 border-transparent hover:text-zinc-800 hover:bg-zinc-50'
+                  }`}
+                >
+                  <Icon size={13} /> {f.label}
+                  {badge != null && (
+                    <span className={`text-[10px] font-bold px-1.5 py-px rounded-full ${
+                      alerta ? 'bg-rose-500 text-white' : activa ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-500'
+                    }`}>
+                      {badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11.5px] text-zinc-500 px-4 py-2.5 bg-zinc-50/60 border-b border-zinc-100">
+            {FASES.find(f => f.key === faseActiva)?.descripcion}
+          </p>
+
+          <div className="p-3 sm:p-4 space-y-3">
+            {faseActiva === 'tareas' && (
+              <div className="space-y-3">
+                {(['VALIDACION', 'ADMINISTRATIVO', 'MANUAL'] as const).map(cat => {
             const items = porCategoria[cat];
             if (!items || items.length === 0) return null;
             return (
@@ -739,6 +902,46 @@ export function ComprasSection({ negocioId }: { negocioId: number }) {
               )}
             </div>
           )}
+              </div>
+            )}
+
+            {/* Costeo y Auditoría (§8, §14): cobertura por producto, costeo digital y el
+                comparativo/escenarios del Auditor de Compras. */}
+            {faseActiva === 'costeo' && (
+              <div className="space-y-3">
+                <ProductosCompraCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                <AuditorComprasCard negocioId={negocioId} puedeOperar={puedeOperar} />
+              </div>
+            )}
+
+            {/* Aprobación y SKU (§7, §10). */}
+            {faseActiva === 'aprobacion' && (
+              <div className="space-y-3">
+                <AprobacionesCompraCard negocioId={negocioId} puedeOperar={puedeOperar} />
+              </div>
+            )}
+
+            {/* Compra, Importación y Logística (§11, §12, §13 + gastos reales). */}
+            {faseActiva === 'compra' && (
+              <div className="space-y-3">
+                <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
+                <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} />
+              </div>
+            )}
+
+            {/* Entrega y Cierre (§9, §15, §16, §17, §14.6). */}
+            {faseActiva === 'entrega' && (
+              <div className="space-y-3">
+                <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} />
+                <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                <FracasoCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

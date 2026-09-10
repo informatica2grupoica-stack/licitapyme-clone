@@ -13,7 +13,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import {
-  FileCheck2, Loader2, Download, Eye, AlertTriangle, RefreshCw, Star, FileText,
+  FileCheck2, Loader2, Download, Eye, AlertTriangle, RefreshCw, Star, FileText, User, Phone, Mail,
 } from 'lucide-react';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 
@@ -22,9 +22,11 @@ interface DocActa {
   descripcion: string | null; tamanoKb: number | null; fechaAdjunto: string | null;
   url: string | null; error: string | null;
 }
+interface ContactoLicitacion { nombre: string; cargo: string | null; telefono: string | null; email: string | null }
 interface Vista {
   codigo: string; tieneActa: boolean; urlActa: string | null;
   documentos: DocActa[]; descargados: number; leida: boolean;
+  contactoLicitacion: ContactoLicitacion | null;
 }
 
 const peso = (kb: number | null) =>
@@ -114,6 +116,28 @@ export default function DocumentosActa({ codigo, isAdmin, acento = '#4f46e5' }: 
           </div>
         )}
       </div>
+
+      {/* Persona a cargo en Mercado Público de ESTA licitación (nombre, cargo, teléfono, e-mail) —
+          la ficha de la API de MP nunca trae estos dos últimos, pero el acta sí los publica. */}
+      {vista.contactoLicitacion && (
+        <div className="flex items-start gap-2 text-[11.5px] bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 mb-2">
+          <User size={13} className="flex-shrink-0 mt-0.5 text-slate-400" />
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-700">
+              {vista.contactoLicitacion.nombre}
+              {vista.contactoLicitacion.cargo && <span className="font-normal text-slate-400"> — {vista.contactoLicitacion.cargo}</span>}
+            </p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5 text-slate-500">
+              {vista.contactoLicitacion.telefono && (
+                <span className="inline-flex items-center gap-1"><Phone size={11} /> {vista.contactoLicitacion.telefono}</span>
+              )}
+              {vista.contactoLicitacion.email && (
+                <a href={`mailto:${vista.contactoLicitacion.email}`} className="inline-flex items-center gap-1 hover:text-indigo-600"><Mail size={11} /> {vista.contactoLicitacion.email}</a>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-start gap-1.5 text-[11.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mb-2">

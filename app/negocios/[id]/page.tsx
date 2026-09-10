@@ -34,7 +34,6 @@ import { InformacionComercialSection } from './InformacionComercialSection';
 import { CosteoEditorCard } from './CosteoEditorCard';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
-import { ComprasSection } from './ComprasSection';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
 import {
   ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
@@ -44,7 +43,7 @@ import {
   Download, Bot, Brain, RefreshCw, Eye,
   Sparkles, BarChart3, BookOpen, AlertTriangle, ListChecks,
   TrendingUp, CheckCircle, Upload, ChevronRight, Files,
-  ShieldAlert, Award, Wrench,
+  ShieldAlert, Award, Wrench, ShoppingCart, ArrowUpRight,
 } from 'lucide-react';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
@@ -1085,7 +1084,13 @@ function DetalleContent() {
   // default en vez de dejar la pantalla en un estado inválido.
   const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'comentarios', 'costeo', 'comercial', 'compras']);
   const seccionInicial = searchParams.get('seccion') as Seccion | null;
-  const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
+  const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && seccionInicial !== 'compras' && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
+
+  // Compras dejó de ser una pestaña de la licitación (es su propio módulo, spec §1.4: el módulo
+  // arranca donde termina la postulación). Los links viejos con ?seccion=compras se redirigen ahí.
+  useEffect(() => {
+    if (seccionInicial === 'compras' && negocio?.id) router.replace(`/compras/${negocio.id}`);
+  }, [seccionInicial, negocio?.id, router]);
 
   // Documentos
   const [documentos, setDocumentos]           = useState<DocumentoLocal[]>([]);
@@ -1364,9 +1369,6 @@ function DetalleContent() {
     ...(hayComercial
       ? [{ key: 'comercial' as Seccion, label: 'Auditor Técnico', count: comercialPorAprobar || null, alerta: comercialPorAprobar > 0 }]
       : []),
-    ...(hayCompras
-      ? [{ key: 'compras' as Seccion, label: 'Compras', count: null }]
-      : []),
   ];
 
   return (
@@ -1492,6 +1494,18 @@ function DetalleContent() {
                 `publicarCambio('negocio')` y la sección comercial ya escucha con useRealtime. */}
             <SelectorLineasOferta negocioId={negocio.id} />
 
+            {/* Compras es su propio módulo (menú lateral), no una pestaña de la licitación —
+                este es solo el puente de salida para quien viene de acá. */}
+            {seccion === 'resumen' && hayCompras && (
+              <Link href={`/compras/${negocio.id}`}
+                className="flex items-center justify-between gap-3 bg-teal-50 border border-teal-200 rounded-xl px-4 py-3 hover:bg-teal-100 transition-colors">
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-teal-800">
+                  <ShoppingCart size={16} /> Este negocio ganó — ir al Módulo de Compras
+                </span>
+                <ArrowUpRight size={15} className="text-teal-600 flex-shrink-0" />
+              </Link>
+            )}
+
             {/* Sections */}
             {seccion === 'resumen' && (
               <SeccionResumen
@@ -1562,9 +1576,6 @@ function DetalleContent() {
                 estadoPipeline={negocio.estado_pipeline}
                 onEmpresaChange={empresa_id => setNegocio(prev => prev ? { ...prev, empresa_id } : prev)}
               />
-            )}
-            {seccion === 'compras' && hayCompras && (
-              <ComprasSection negocioId={negocio.id} />
             )}
           </div>
         </div>

@@ -6,6 +6,9 @@
 //      asignó encargado a mano, el sistema lo asigna al de menor carga.
 //   2. §3.6 — La orden de compra del cliente: se busca en Mercado Público y se carga sola en la
 //      ficha del negocio ganado, avisando al encargado.
+//   3. Acta de evaluación (sep-2026): antes solo se traía si un admin la pedía a mano en
+//      "Resultado". Se lee y descarga sola, de a 5 negocios por corrida, junto con el contacto de
+//      la licitación que esa misma página trae (ver acta-adjudicacion.ts).
 //
 // POR QUÉ LA OC VA ACÁ Y NO EN EL CRON DIARIO DE ÓRDENES: ese barre el listado completo de un día
 // (~16.000 órdenes de todo Chile) porque la API no deja preguntar por una licitación concreta, y
@@ -17,6 +20,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { asignacionAutomaticaFallback, engancharOrdenesCompraPendientes } from '@/app/lib/compras';
 import { sincronizarOrdenesCompra } from '@/app/lib/ordenes-compra';
+import { licitacionesEnComprasSinActa, traerActaAutomatico } from '@/app/lib/acta-adjudicacion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -58,7 +62,28 @@ export async function GET(req: NextRequest) {
       console.warn('[cron/compras-asignacion] enganche de órdenes falló:', String(e).slice(0, 150));
     }
 
-    return NextResponse.json({ success: true, ...r, oc, duracionMs: Date.now() - t0 });
+    // El acta de evaluación (y el contacto de la licitación que trae, ver acta-adjudicacion.ts)
+    // antes solo llegaba si un admin la pedía a mano en "Resultado". Se trae sola acá, de a pocas
+    // por corrida — el cron vuelve a pasar en 15-30 min. Requiere IP chilena (igual que la OC de
+    // arriba); si el servidor no la tiene, falla en silencio y sigue intentando en la próxima
+    // corrida, nunca tumba el cron.
+    let acta = { intentadas: 0, traidas: 0 };
+    try {
+      const pendientes = await licitacionesEnComprasSinActa(5);
+      acta.intentadas = pendientes.length;
+      for (const codigo of pendientes) {
+        try {
+          const res = await traerActaAutomatico(codigo);
+          if (res.ok && res.documentos > 0) acta.traidas++;
+        } catch (e: any) {
+          console.warn(`[cron/compras-asignacion] acta de ${codigo} falló:`, String(e).slice(0, 150));
+        }
+      }
+    } catch (e: any) {
+      console.warn('[cron/compras-asignacion] búsqueda de actas pendientes falló:', String(e).slice(0, 150));
+    }
+
+    return NextResponse.json({ success: true, ...r, oc, acta, duracionMs: Date.now() - t0 });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });
   }

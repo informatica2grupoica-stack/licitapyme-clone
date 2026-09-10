@@ -28,7 +28,7 @@ import pool from '@/app/lib/db';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { registrarEvento } from '@/app/lib/historial';
 import { ahoraChileSQL } from '@/app/lib/tz';
-import { construirDesdeLicitacion, enriquecer, guardarCache } from '@/app/lib/adjudicacion';
+import { construirDesdeLicitacion, enriquecer, guardarCache, respuestaDesdeCache, type RespuestaAdjudicacion } from '@/app/lib/adjudicacion';
 import { abrirEntregaSiCorresponde } from '@/app/lib/entrega-proyecto';
 import { abrirComprasSiCorresponde } from '@/app/lib/compras';
 import { publicarCambio } from '@/app/lib/sse-bus';
@@ -86,6 +86,132 @@ function fmtCLP(n: number | null | undefined): string {
   return new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 }
 
+// Promueve cada negocio del código a ADJUDICADA/PERDIDA (si el UPDATE mueve la fila de verdad)
+// y avisa. Compartido entre el barrido en vivo (consulta MP, dentro de `procesarPostuladas`) y
+// `promoverConCacheConfirmado` (código ya confirmado en `adjudicacion_cache`, sin gastar una
+// consulta nueva a MP).
+async function promoverYAvisar(
+  codigo: string,
+  negocios: FilaPostulada[],
+  adj: RespuestaAdjudicacion,
+  stats: { adjudicadas: number; perdidas: number; entregasAbiertas: number; comprasAbiertas: number },
+): Promise<void> {
+  const nuevoEstado = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
+  for (const n of negocios) {
+    const [upd] = await pool.query(
+      `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW()
+       WHERE id = ? AND estado_pipeline IN (${IN_POSTULADA})`,
+      [nuevoEstado, n.id, ...ESTADOS_POSTULADA],
+    ) as any;
+    // Solo cuenta como resultado NUEVO si el UPDATE movió la fila de verdad. Si otra
+    // corrida (o alguien a mano) ya la había sacado de POSTULADA, no se vuelve a avisar.
+    if (!upd?.affectedRows) continue;
+    // El auto-avance POSTULADA→ADJUDICADA/PERDIDA es tan real como un PATCH manual — los
+    // tableros de otros perfiles (admin viendo Postuladas/Adjudicadas ajenas, el dashboard)
+    // deben enterarse en vivo, no solo el dueño del negocio vía la campana (auditoría ago-2026).
+    publicarCambio('negocio');
+
+    // ── ENTREGA DE PROYECTOS (Frente F.1) ──
+    // Ganamos → se abre la entrega y arranca el circuito de acuse de recibo. Va atado a la
+    // TRANSICIÓN (affectedRows), no al estado: por eso las adjudicadas que ya estaban en la
+    // base antes de este módulo no disparan una avalancha de avisos retroactivos.
+    if (adj.ganamos) {
+      await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
+        .then(abierta => { if (abierta) stats.entregasAbiertas++; })
+        .catch(e => console.error('[procesar-postuladas] abrir entrega falló:', String(e).slice(0, 200)));
+
+      // ── MÓDULO DE COMPRAS — Fase 1 (§3) ──
+      await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
+        .then(abierta => { if (abierta) stats.comprasAbiertas++; })
+        .catch(e => console.error('[procesar-postuladas] abrir compras falló:', String(e).slice(0, 200)));
+    }
+
+    if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
+
+    const mensaje = adj.ganamos
+      ? `🏆 ¡Adjudicada! Ganaste ${n.licitacion_nombre || codigo}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
+      : `Resultado publicado: ${n.licitacion_nombre || codigo} se adjudicó a terceros`;
+    await registrarEvento({
+      tipo: 'RESULTADO_ADJUDICACION',
+      licitacionCodigo: codigo, licitacionNombre: n.licitacion_nombre,
+      usuarioId: n.asignado_a, usuarioNombre: n.usuario_nombre,
+      actorId: null, actorNombre: 'Mercado Público',
+      mensaje,
+      metadata: {
+        licitacion_codigo: codigo, resultado: adj.ganamos ? 'ganada' : 'perdida',
+        monto_nuestro: adj.montoNuestro, url_acta: adj.adjudicacion?.urlActa ?? null,
+      },
+    });
+    // Correo (asignado+admins) + WhatsApp (admins). Best-effort, no bloquea el cron.
+    await avisarResultadoLicitacion({
+      tipo: adj.ganamos ? 'ganada' : 'perdida',
+      codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
+      asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
+    });
+  }
+}
+
+// ── AUTO-SANACIÓN: POSTULADA cuyo cache YA confirma el resultado ──────────────────────────────
+// Bug real (auditoría sep-2026, caso "ADQ. ELEVADOR ELECTR. TIJERA Y CHIPEADORA" 1042-9-LE26 y
+// 7 más): la consulta on-demand del apartado Postuladas (`obtenerAdjudicacion`, la que dispara
+// cada vez que alguien ABRE esa pantalla) escribe el resultado en `adjudicacion_cache` apenas MP
+// lo publica, pero SOLO eso — no promueve `estado_pipeline` ni avisa (esa lógica vive acá, no
+// ahí). El barrido de arriba, para no gastar cupo de MP en algo "ya sabido", EXCLUYE a propósito
+// cualquier código cuyo cache ya tenga `es_adjudicada=1`. Combinados: si alguien mira la pantalla
+// ANTES de que este cron llegue al código, el cache queda "confirmado" en silencio y el barrido
+// de arriba nunca más lo vuelve a mirar — la licitación se queda pegada en POSTULADA para
+// siempre, sin avisar ganamos/perdimos, aunque el resultado ya esté guardado. Esta pasada cierra
+// el hueco: no gasta ninguna consulta a MP (el dato ya está en cache), solo mira lo que quedó
+// atascado y corre la MISMA promoción+aviso que el barrido en vivo.
+async function promoverConCacheConfirmado(
+  stats: { adjudicadas: number; perdidas: number; errores: number; entregasAbiertas: number; comprasAbiertas: number },
+): Promise<void> {
+  let filas: any[] = [];
+  try {
+    const [rows] = await pool.query(
+      `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a,
+              u.nombre AS usuario_nombre, u.email AS usuario_email,
+              c.es_adjudicada, c.estado, c.codigo_estado, c.fecha_adjudicacion,
+              c.fecha_estimada_adjudicacion, c.fecha_apertura_tecnica, c.tipo_adjudicacion,
+              c.numero_resolucion, c.numero_oferentes, c.url_acta, c.monto_adjudicado_total, c.lineas
+       FROM negocios n
+       JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
+       JOIN adjudicacion_cache c
+         ON c.licitacion_codigo COLLATE utf8mb4_general_ci = n.licitacion_codigo COLLATE utf8mb4_general_ci
+       WHERE n.activo = TRUE
+         AND n.estado_pipeline IN (${IN_POSTULADA})
+         AND c.es_adjudicada = 1`,
+    ) as any[];
+    filas = rows;
+  } catch (e) {
+    console.error('[procesar-postuladas] auto-sanación: carga falló:', String(e));
+    return;
+  }
+  if (filas.length === 0) return;
+
+  const porCodigo = new Map<string, FilaPostulada[]>();
+  for (const f of filas) {
+    const arr = porCodigo.get(f.licitacion_codigo) || [];
+    arr.push(f);
+    porCodigo.set(f.licitacion_codigo, arr);
+  }
+  console.log(`[procesar-postuladas] auto-sanación: ${porCodigo.size} código(s) atascado(s) en POSTULADA con resultado ya confirmado en cache.`);
+
+  for (const [codigo, negocios] of porCodigo) {
+    try {
+      // Cada fila trae las columnas de `adjudicacion_cache` planas (misma fila de la query de
+      // arriba) — `respuestaDesdeCache` solo lee las que necesita, el resto (id, asignado_a, etc.)
+      // las ignora sin problema.
+      const adj = await enriquecer(respuestaDesdeCache(codigo, negocios[0] as any));
+      if (!adj.esAdjudicada) continue; // por si acaso; la query ya filtra es_adjudicada=1
+      await promoverYAvisar(codigo, negocios, adj, stats);
+    } catch (e) {
+      stats.errores++;
+      console.error(`[procesar-postuladas] auto-sanación "${codigo}" falló:`, String(e));
+    }
+  }
+}
+
 export async function procesarPostuladas(
   opts: { promover?: boolean; soloCerradas?: boolean; presupuestoMs?: number; maxCodigos?: number } = {},
 ): Promise<{
@@ -116,6 +242,10 @@ export async function procesarPostuladas(
   const stats = { codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, comprasAbiertas: 0, rateLimit: 0, lote: 0, restantes: 0 };
   const inicio = Date.now();
 
+  // Auto-sanación PRIMERO: no gasta cupo de MP (el dato ya está en cache) y corre pase lo que
+  // pase con el barrido en vivo de abajo (que si no hay candidatos "nuevos" corta temprano).
+  if (promover) await promoverConCacheConfirmado(stats);
+
   let filas: FilaPostulada[] = [];
   try {
     // Postuladas activas (opcionalmente solo las que ya cerraron: la adjudicación solo ocurre tras el cierre).
@@ -142,6 +272,15 @@ export async function procesarPostuladas(
     // y esa fecha NO es confiable — solo el 20% se adjudicó dentro de 1 día de lo estimado y el
     // 57% se adjudicó ANTES. Ordenar por ella postergaba justo las que más se adelantan. Manda la
     // rotación pura por antigüedad de consulta: todas pasan, ninguna se queda atrás.
+    //
+    // PRIORIDAD `cerrada` (sep-2026): una licitación ABIERTA no puede tener resultado todavía —
+    // consultarla aquí solo sirve para refrescar su "Publicada" en el filtro de Postuladas, algo
+    // secundario. Antes competía por el mismo cupo (MAX_CODIGOS_POR_CORRIDA) que las YA CERRADAS
+    // sin veredicto, que es la consulta urgente (ganamos/perdimos). Con `soloCerradas:false` (el
+    // cron dedicado de 5 min) una tanda de abiertas rancias podía postergar el aviso de una cerrada
+    // real. `cerrada DESC` garantiza que las cerradas sin resolver SIEMPRE se sirven primero; las
+    // abiertas solo se consultan si sobra cupo en la pasada.
+    const ahora = ahoraChileSQL();
     const [rows] = await pool.query(
       `SELECT n.id, n.licitacion_codigo, n.licitacion_nombre, n.asignado_a,
               u.nombre AS usuario_nombre, u.email AS usuario_email,
@@ -149,7 +288,8 @@ export async function procesarPostuladas(
               -- La comparación va EN SQL a propósito: consultado_en se escribe con NOW() del
               -- servidor MySQL (que corre en otra zona), así que compararlo en JS contra Date.now()
               -- daría un desfase. Alimenta "restantes", que es lo que corta el loop del scheduler.
-              (c.consultado_en IS NULL OR c.consultado_en < DATE_SUB(NOW(), INTERVAL ? MINUTE)) AS rancio
+              (c.consultado_en IS NULL OR c.consultado_en < DATE_SUB(NOW(), INTERVAL ? MINUTE)) AS rancio,
+              (n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < ?) AS cerrada
        FROM negocios n
        JOIN usuarios u ON u.id = n.asignado_a AND u.activo = TRUE
        LEFT JOIN adjudicacion_cache c
@@ -158,8 +298,10 @@ export async function procesarPostuladas(
          AND n.estado_pipeline IN (${IN_POSTULADA})
          AND (c.es_adjudicada IS NULL OR c.es_adjudicada = 0)
          ${soloCerradas ? 'AND n.licitacion_cierre IS NOT NULL AND n.licitacion_cierre < ?' : ''}
-       ORDER BY (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
-      soloCerradas ? [VENTANA_FRESCURA_MIN, ...ESTADOS_POSTULADA, ahoraChileSQL()] : [VENTANA_FRESCURA_MIN, ...ESTADOS_POSTULADA],
+       ORDER BY cerrada DESC, (c.consultado_en IS NOT NULL), c.consultado_en ASC, n.licitacion_codigo`,
+      soloCerradas
+        ? [VENTANA_FRESCURA_MIN, ahora, ...ESTADOS_POSTULADA, ahora]
+        : [VENTANA_FRESCURA_MIN, ahora, ...ESTADOS_POSTULADA],
     ) as any[];
     filas = rows as FilaPostulada[];
   } catch (e) {
@@ -220,62 +362,7 @@ export async function procesarPostuladas(
       // hace el cron de 2h (promover:false) → las adjudicadas se quedan en Postuladas.
       await guardarCache(codigo, adj);
 
-      if (adj.esAdjudicada && promover) {
-        // ── RESULTADO: promover cada negocio del código ──
-        const nuevoEstado = adj.ganamos ? 'ADJUDICADA' : 'PERDIDA';
-        for (const n of negocios) {
-          const [upd] = await pool.query(
-            `UPDATE negocios SET estado_pipeline = ?, updated_at = NOW()
-             WHERE id = ? AND estado_pipeline IN (${IN_POSTULADA})`,
-            [nuevoEstado, n.id, ...ESTADOS_POSTULADA],
-          ) as any;
-          // Solo cuenta como resultado NUEVO si el UPDATE movió la fila de verdad. Si otra
-          // corrida (o alguien a mano) ya la había sacado de POSTULADA, no se vuelve a avisar.
-          if (!upd?.affectedRows) continue;
-          // El auto-avance POSTULADA→ADJUDICADA/PERDIDA es tan real como un PATCH manual — los
-          // tableros de otros perfiles (admin viendo Postuladas/Adjudicadas ajenas, el dashboard)
-          // deben enterarse en vivo, no solo el dueño del negocio vía la campana (auditoría ago-2026).
-          publicarCambio('negocio');
-
-          // ── ENTREGA DE PROYECTOS (Frente F.1) ──
-          // Ganamos → se abre la entrega y arranca el circuito de acuse de recibo. Va atado a la
-          // TRANSICIÓN (affectedRows), no al estado: por eso las adjudicadas que ya estaban en la
-          // base antes de este módulo no disparan una avalancha de avisos retroactivos.
-          if (adj.ganamos) {
-            await abrirEntregaSiCorresponde(n.id, codigo, n.asignado_a)
-              .then(abierta => { if (abierta) stats.entregasAbiertas++; })
-              .catch(e => console.error('[procesar-postuladas] abrir entrega falló:', String(e).slice(0, 200)));
-
-            // ── MÓDULO DE COMPRAS — Fase 1 (§3) ──
-            await abrirComprasSiCorresponde(n.id, codigo, n.asignado_a)
-              .then(abierta => { if (abierta) stats.comprasAbiertas++; })
-              .catch(e => console.error('[procesar-postuladas] abrir compras falló:', String(e).slice(0, 200)));
-          }
-
-          if (adj.ganamos) stats.adjudicadas++; else stats.perdidas++;
-
-          const mensaje = adj.ganamos
-            ? `🏆 ¡Adjudicada! Ganaste ${n.licitacion_nombre || codigo}${adj.montoNuestro ? ` · ${fmtCLP(adj.montoNuestro)}` : ''}`
-            : `Resultado publicado: ${n.licitacion_nombre || codigo} se adjudicó a terceros`;
-          await registrarEvento({
-            tipo: 'RESULTADO_ADJUDICACION',
-            licitacionCodigo: codigo, licitacionNombre: n.licitacion_nombre,
-            usuarioId: n.asignado_a, usuarioNombre: n.usuario_nombre,
-            actorId: null, actorNombre: 'Mercado Público',
-            mensaje,
-            metadata: {
-              licitacion_codigo: codigo, resultado: adj.ganamos ? 'ganada' : 'perdida',
-              monto_nuestro: adj.montoNuestro, url_acta: adj.adjudicacion?.urlActa ?? null,
-            },
-          });
-          // Correo (asignado+admins) + WhatsApp (admins). Best-effort, no bloquea el cron.
-          await avisarResultadoLicitacion({
-            tipo: adj.ganamos ? 'ganada' : 'perdida',
-            codigo, nombre: n.licitacion_nombre, monto: adj.montoNuestro ?? null,
-            asignado: { id: n.asignado_a, nombre: n.usuario_nombre, email: n.usuario_email },
-          });
-        }
-      }
+      if (adj.esAdjudicada && promover) await promoverYAvisar(codigo, negocios, adj, stats);
     } catch (e) {
       stats.errores++;
       console.error(`[procesar-postuladas] "${codigo}" falló:`, String(e));

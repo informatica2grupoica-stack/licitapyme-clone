@@ -24,6 +24,8 @@ interface Permisos {
   viabilidad_automatica?: boolean;
   repartir_puente?: boolean;
   compras?: boolean;
+  compras_administracion?: boolean;
+  compras_bodega?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -59,7 +61,9 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   { key: 'aprobar_comercial',   label: 'Aprobar Información Comercial',       desc: 'Visar los puntos del checklist comercial (rol "asesor"). El admin ya lo tiene.', categoria: 'comercial' },
   { key: 'repartir_puente',     label: 'Puente del Radar (repartir trabajo)', desc: 'Puede empujar licitaciones del radar al puente y repartirlas entre varios perfiles.', categoria: 'comercial' },
   { key: 'entrega_proyectos',   label: 'Circuito de Entrega de Proyectos',    desc: 'Recibe el aviso cuando ganamos una licitación y debe acusar recibo del proyecto.', categoria: 'comercial' },
-  { key: 'compras',             label: 'Encargado de Compras',                desc: 'Candidato a que le asignen negocios ganados (Módulo de Compras): entra al pool de asignación automática y puede operar sus tareas.', categoria: 'comercial' },
+  { key: 'compras',             label: 'Encargado de Compras',                desc: 'Candidato a que le asignen negocios ganados (Módulo de Compras): entra al pool de asignación automática y puede operar TODO el negocio (perfil "compras y entrega").', categoria: 'comercial' },
+  { key: 'compras_administracion', label: 'Compras — Administración (pagos/facturación)', desc: 'Solo el Proceso Administrativo (§11: OC emitida, pago, anticipo, factura, carpeta de proyecto, provisión de fondos). No hace falta ser el encargado del negocio.', categoria: 'comercial' },
+  { key: 'compras_bodega',      label: 'Compras — Bodega',                    desc: 'Solo la verificación física de la entrega (§16.4: producto correcto y en buenas condiciones). No hace falta ser el encargado del negocio.', categoria: 'comercial' },
 ];
 
 function parsePermisos(p: Permisos | string | null | undefined): Permisos {

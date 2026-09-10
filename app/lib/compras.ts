@@ -471,6 +471,8 @@ export async function asignarEncargado(
   const licitacionCodigo = (rows as any[])[0]?.licitacion_codigo || null;
 
   await crearTareasCatalogoSiCorresponde(negocioId, encargadoId, encargadoNombre);
+  await poblarProductosCompra(negocioId).catch(e =>
+    console.error(`[compras] no se pudieron poblar los productos del negocio ${negocioId}:`, String(e).slice(0, 200)));
 
   await registrarEvento({
     tipo: 'COMPRAS_ASIGNADO',
@@ -481,17 +483,22 @@ export async function asignarEncargado(
   });
 }
 
-async function crearTareasCatalogoSiCorresponde(
+export async function crearTareasCatalogoSiCorresponde(
   negocioId: number, responsableId: number, responsableNombre: string | null,
 ): Promise<void> {
-  const [ya] = await pool.query(`SELECT 1 FROM compras_tarea WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
-  if ((ya as any[]).length > 0) {
+  const [ya] = await pool.query(`SELECT catalogo_clave FROM compras_tarea WHERE negocio_id = ?`, [negocioId]) as any;
+  const yaExistentes = new Set((ya as any[]).map(r => r.catalogo_clave).filter(Boolean));
+  if (yaExistentes.size > 0) {
     // No reasignables hoy (§5.1: "hay una sola persona encargada") — solo se completa el
     // responsable de tareas que por algún motivo hubieran quedado sin nadie.
     await pool.query(
       `UPDATE compras_tarea SET responsable_id = ?, responsable_nombre = ? WHERE negocio_id = ? AND responsable_id IS NULL`,
       [responsableId, responsableNombre, negocioId],
     );
+    // Backfill: negocios asignados ANTES de que existiera una tarea nueva en el catálogo (ej.
+    // "contacto_pagos", §17.3, sumada en migration-96) nunca la sembraron — se completa acá, sin
+    // tocar las que ya existen.
+    await sembrarTareasFaltantes(negocioId, responsableId, responsableNombre, yaExistentes);
     return;
   }
 
@@ -531,6 +538,46 @@ async function crearTareasCatalogoSiCorresponde(
        (negocio_id, catalogo_clave, categoria, titulo, descripcion, estado,
         responsable_id, responsable_nombre, plazo_at, creado_at, es_manual, creado_por, orden)
      VALUES ${ph}`,
+    filas.flat(),
+  );
+}
+
+/** Backfill del catálogo: inserta las tareas de `compras_tarea_catalogo` que un negocio YA
+ *  asignado todavía no tiene (porque la tarea se agregó al catálogo después). Mismo criterio de
+ *  boleta/contrato condicionales que `crearTareasCatalogoSiCorresponde`. */
+async function sembrarTareasFaltantes(
+  negocioId: number, responsableId: number, responsableNombre: string | null, yaExistentes: Set<string>,
+): Promise<void> {
+  const [catalogo] = await pool.query(
+    `SELECT clave, categoria, titulo, descripcion, plazo_dias, plazo_tipo, orden FROM compras_tarea_catalogo WHERE activo = TRUE ORDER BY orden`,
+  ) as any;
+  const faltantes = (catalogo as any[]).filter(c => !yaExistentes.has(c.clave));
+  if (faltantes.length === 0) return;
+
+  const [asigRows] = await pool.query(
+    `SELECT DATE_FORMAT(ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at, resumen_json FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`,
+    [negocioId],
+  ) as any;
+  const asig = (asigRows as any[])[0];
+  if (!asig) return;
+  let resumen: ResumenEjecutivoCompras | null = null;
+  try { resumen = JSON.parse(asig.resumen_json); } catch { /* sigue sin resumen */ }
+
+  const ganadoAt = parsearFechaPared(asig.ganado_at);
+  const ahora = ahoraChileSQL();
+  const filas: unknown[][] = [];
+  for (const c of faltantes) {
+    if (c.clave === 'boleta_fiel_cumplimiento' && resumen && !resumen.requiereBoletaFielCumplimiento) continue;
+    if (c.clave === 'firma_contrato' && resumen && !resumen.requiereFirmaContrato) continue;
+    const plazoAt = c.plazo_dias == null ? null
+      : aTextoFechaPared(c.plazo_tipo === 'CORRIDOS' ? sumarDiasCorridos(ganadoAt, c.plazo_dias) : sumarDiasHabiles(ganadoAt, c.plazo_dias));
+    filas.push([negocioId, c.clave, c.categoria, c.titulo, c.descripcion, 'PENDIENTE', responsableId, responsableNombre, plazoAt, ahora, 0, null, c.orden]);
+  }
+  if (filas.length === 0) return;
+  const ph2 = filas.map(() => '(?,?,?,?,?,?,?,?,?,?,?,?,?)').join(',');
+  await pool.query(
+    `INSERT INTO compras_tarea (negocio_id, catalogo_clave, categoria, titulo, descripcion, estado, responsable_id, responsable_nombre, plazo_at, creado_at, es_manual, creado_por, orden)
+     VALUES ${ph2}`,
     filas.flat(),
   );
 }
@@ -812,15 +859,17 @@ export async function cambiarEstadoTarea(
 export async function guardarRegistroTarea(
   tareaId: number,
   p: { registro: Record<string, unknown>; hallazgo: boolean },
+  actor?: { id: number; nombre: string | null },
 ): Promise<void> {
   const [rows] = await pool.query(
-    `SELECT t.registro_json, c.campos_json
+    `SELECT t.registro_json, t.hallazgo, t.negocio_id, t.titulo, c.campos_json
        FROM compras_tarea t LEFT JOIN compras_tarea_catalogo c ON c.clave = t.catalogo_clave
       WHERE t.id = ? LIMIT 1`,
     [tareaId],
   ) as any;
   const fila = (rows as any[])[0];
   if (!fila) throw new Error('Tarea no encontrada.');
+  const hallazgoNuevo = p.hallazgo && !fila.hallazgo; // solo dispara en la transición false→true
 
   const campos = parsearCamposCatalogo(fila.campos_json ?? null);
   const limpio: Record<string, string> = {};
@@ -841,6 +890,26 @@ export async function guardarRegistroTarea(
     `UPDATE compras_tarea SET registro_json = ?, registro_at = ?, hallazgo = ? WHERE id = ?`,
     [Object.keys(limpio).length ? JSON.stringify(limpio) : null, ahoraChileSQL(), p.hallazgo ? 1 : 0, tareaId],
   );
+
+  // §9.2 — origen AUTOMATICA: "las validaciones son fuente natural: 'sin stock' o 'plazo
+  // incompatible' es una incidencia y debe abrirse sola." El hallazgo de una tarea de Validación es
+  // exactamente esa señal. Vive acá (no en compras-incidencias.ts) para no crear un ciclo de
+  // imports entre los dos archivos — mismo criterio que invalidarAprobacionesCompras.
+  if (hallazgoNuevo) {
+    const ahora = ahoraChileSQL();
+    const descripcion = `Hallazgo en la tarea "${fila.titulo}": ${Object.entries(limpio).map(([k, v]) => `${k}: ${v}`).join(' · ') || 'sin detalle adicional'}`;
+    await pool.query(
+      `INSERT INTO compras_incidencia
+         (negocio_id, tarea_id, naturaleza, origen, tipo_libre, descripcion, estado, abierta_por, abierta_por_nombre, abierta_at, created_at, updated_at)
+       VALUES (?, ?, 'DEFENSIVA', 'AUTOMATICA', 'Hallazgo en tarea de validación', ?, 'ABIERTA', ?, ?, ?, ?, ?)`,
+      [fila.negocio_id, tareaId, descripcion.slice(0, 2000), actor?.id ?? null, actor?.nombre ?? null, ahora, ahora, ahora],
+    );
+    await registrarEvento({
+      tipo: 'COMPRAS_INCIDENCIA_ABIERTA', licitacionCodigo: null, actorId: actor?.id, actorNombre: actor?.nombre,
+      mensaje: `Se abrió una incidencia automática por hallazgo en "${fila.titulo}".`,
+      metadata: { negocio_id: fila.negocio_id, tarea_id: tareaId, automatica: true },
+    });
+  }
 }
 
 // ── Orden de compra del cliente (§3.6) ──────────────────────────────────────────────────────────
@@ -1151,4 +1220,337 @@ export async function engancharOrdenesCompraPendientes(limite = 25): Promise<{ r
     console.error('[compras] enganche de órdenes pendientes falló:', String(e).slice(0, 200));
   }
   return res;
+}
+
+// ── Estados y subestados de cobertura por producto (§14) ───────────────────────────────────────
+// El proyecto es dicotómico (se entrega o no se entrega, §14.1); lo que tiene grados es CADA
+// producto. "Cobertura total o nada" (§14.2): con un solo producto pendiente, el proyecto entero
+// no se puede entregar.
+export type SubestadoProducto = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO';
+
+export interface ProductoCompra {
+  id: number; negocioId: number; correlativo: number | null; descripcion: string;
+  cantidad: number | null; unidad: string | null; montoUnitario: number | null;
+  subestado: SubestadoProducto;
+  renunciaMotivo: string | null; renunciaPropuestaPorNombre: string | null; renunciaPropuestaAt: string | null;
+  renunciaAprobadaPorNombre: string | null; renunciaAprobadaAt: string | null;
+}
+
+/** Puebla `compras_producto` con los PRODUCTOS REALES a comprar — no el catálogo de MercadoPúblico,
+ *  que a menudo agrupa varios productos distintos bajo una sola línea/ítem (caso real 1114-12-LE26:
+ *  el catálogo de MP trae UN ítem "Sensores de presión" cuyo texto menciona también "plataformas
+ *  satelitales", pero Viabilidad y el Costeo ya lo saben desglosado en 2 productos reales: "línea
+ *  real" 1 y 2 del análisis, un espacio de numeración PROPIO que no tiene por qué coincidir con el
+ *  correlativo de MP). La fuente correcta es el mismo Costeo digital que ya usa Viabilidad/el Anexo
+ *  Económico (`negocio_costeo_editor`, vía `editorAFilasCosteo` — spec §6.4: "la estructura
+ *  conceptual de la tabla se mantiene"), no `adjudicacion_cache.lineas`.
+ *
+ *  NO se filtra por `adjudicacion_cache.lineas`/correlativo: probado en 1114-12-LE26 que filtrar así
+ *  descartaba en silencio un producto real (la línea 2 del costeo no calzaba con el único correlativo
+ *  1 del catálogo de MP — espacios de numeración distintos). Si una línea específica de verdad no se
+ *  ganó, se saca a mano con "Renunciar línea" (§14.5) una vez visible — mejor un producto de más que
+ *  uno perdido sin que nadie lo note.
+ *
+ *  Idempotente: no repite si ya hay filas para el negocio. Sin costeo cargado en el editor, cae al
+ *  desglose del acta de MP; sin ninguno de los dos, a una sola fila "global". */
+export async function poblarProductosCompra(negocioId: number): Promise<void> {
+  const [ya] = await pool.query(`SELECT 1 FROM compras_producto WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  if ((ya as any[]).length > 0) return;
+
+  const [negRows] = await pool.query(
+    `SELECT licitacion_codigo, monto_ofertado FROM negocios WHERE id = ? LIMIT 1`, [negocioId],
+  ) as any;
+  const neg = (negRows as any[])[0];
+  if (!neg) return;
+
+  const ahora = ahoraChileSQL();
+  const filasCosteo = await filasProductoDelCosteo(neg.licitacion_codigo);
+
+  if (filasCosteo.length > 0) {
+    const filas = filasCosteo.map(f => [
+      negocioId, f.lineaPublicada ?? null, (f.detalle || 'Producto sin nombre').slice(0, 500),
+      f.cantidadOriginal ?? null, f.unidad ?? null, f.precioUnitarioSinDecimales ?? null, 'PENDIENTE', ahora, ahora,
+    ]);
+    const ph = filas.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+    await pool.query(
+      `INSERT INTO compras_producto
+         (negocio_id, correlativo, descripcion, cantidad, unidad, monto_unitario, subestado, created_at, updated_at)
+       VALUES ${ph}`,
+      filas.flat(),
+    );
+    return;
+  }
+
+  // Sin costeo digital todavía: cae al desglose del acta de MP si lo trae (mejor que la fila global).
+  const [adjRows] = await pool.query(
+    `SELECT lineas FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1`, [neg.licitacion_codigo],
+  ) as any;
+  let nuestras: any[] = [];
+  try {
+    const lineas = JSON.parse((adjRows as any[])[0]?.lineas || '[]');
+    if (Array.isArray(lineas)) nuestras = lineas.filter((l: any) => l?.esNuestra);
+  } catch { /* sigue al fallback global de abajo */ }
+
+  if (nuestras.length === 0) {
+    await pool.query(
+      `INSERT INTO compras_producto (negocio_id, descripcion, monto_unitario, subestado, created_at, updated_at)
+       VALUES (?, 'Proyecto (adjudicación total, sin detalle de líneas)', ?, 'PENDIENTE', ?, ?)`,
+      [negocioId, neg.monto_ofertado ?? null, ahora, ahora],
+    );
+    return;
+  }
+
+  const filas = nuestras.map((l: any) => [
+    negocioId, l.correlativo ?? null, String(l.producto || l.descripcion || 'Producto sin nombre').slice(0, 500),
+    l.cantidad ?? null, l.unidad ?? null, l.montoUnitario ?? null, 'PENDIENTE', ahora, ahora,
+  ]);
+  const ph = filas.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+  await pool.query(
+    `INSERT INTO compras_producto
+       (negocio_id, correlativo, descripcion, cantidad, unidad, monto_unitario, subestado, created_at, updated_at)
+     VALUES ${ph}`,
+    filas.flat(),
+  );
+}
+
+/** Lee el Costeo digital del negocio (mismo origen que Viabilidad/Anexo Económico) y lo aplana a
+ *  filas producto por producto, con la línea REAL de cada una (`lineaPublicada`). [] si el negocio
+ *  todavía no tiene costeo cargado en el editor. */
+async function filasProductoDelCosteo(licitacionCodigo: string): Promise<import('@/app/lib/motor-comercial').FilaCosteo[]> {
+  const { editorAFilasCosteo, MARGEN_VENTA_DEFECTO } = await import('@/app/lib/costeo-editor');
+  const [negRows] = await pool.query(
+    `SELECT id FROM negocios WHERE licitacion_codigo = ? AND activo = TRUE ORDER BY id DESC LIMIT 1`, [licitacionCodigo],
+  ) as any;
+  const negocioId = (negRows as any[])[0]?.id;
+  if (!negocioId) return [];
+  const [rows] = await pool.query(`SELECT modalidad, datos_json FROM negocio_costeo_editor WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  const row = (rows as any[])[0];
+  if (!row) return [];
+  try {
+    const datos = typeof row.datos_json === 'string' ? JSON.parse(row.datos_json) : row.datos_json;
+    const grupos = (datos?.grupos || []).map((g: any) => ({ ...g, ofertamos: g.ofertamos !== false }));
+    return editorAFilasCosteo({ modalidad: row.modalidad, margenVenta: Number(datos?.margenVenta) || MARGEN_VENTA_DEFECTO, grupos });
+  } catch {
+    return [];
+  }
+}
+
+export async function listarProductosCompra(negocioId: number): Promise<ProductoCompra[]> {
+  const [rows] = await pool.query(
+    `SELECT id, negocio_id, correlativo, descripcion, cantidad, unidad, monto_unitario, subestado,
+            renuncia_motivo, renuncia_propuesta_por_nombre, DATE_FORMAT(renuncia_propuesta_at, '%Y-%m-%d %H:%i:%s') AS renuncia_propuesta_at,
+            renuncia_aprobada_por_nombre, DATE_FORMAT(renuncia_aprobada_at, '%Y-%m-%d %H:%i:%s') AS renuncia_aprobada_at
+       FROM compras_producto WHERE negocio_id = ? ORDER BY correlativo IS NULL, correlativo, id`,
+    [negocioId],
+  ) as any;
+  return (rows as any[]).map(r => ({
+    id: r.id, negocioId: r.negocio_id, correlativo: r.correlativo, descripcion: r.descripcion,
+    cantidad: r.cantidad == null ? null : Number(r.cantidad), unidad: r.unidad,
+    montoUnitario: r.monto_unitario == null ? null : Number(r.monto_unitario),
+    subestado: r.subestado, renunciaMotivo: r.renuncia_motivo,
+    renunciaPropuestaPorNombre: r.renuncia_propuesta_por_nombre, renunciaPropuestaAt: r.renuncia_propuesta_at,
+    renunciaAprobadaPorNombre: r.renuncia_aprobada_por_nombre, renunciaAprobadaAt: r.renuncia_aprobada_at,
+  }));
+}
+
+const SUBESTADOS_VALIDOS: SubestadoProducto[] = ['PENDIENTE', 'COTIZANDO', 'COMPRADO', 'EN_BODEGA', 'LISTO_ENTREGA', 'ENTREGADO', 'RENUNCIADO'];
+
+export async function cambiarSubestadoProducto(productoId: number, subestado: SubestadoProducto): Promise<void> {
+  if (!SUBESTADOS_VALIDOS.includes(subestado)) throw new Error(`Subestado inválido: ${subestado}`);
+  const [r] = await pool.query(
+    `UPDATE compras_producto SET subestado = ?, updated_at = ? WHERE id = ? AND subestado <> 'RENUNCIADO'`,
+    [subestado, ahoraChileSQL(), productoId],
+  ) as any;
+  if (!r?.affectedRows) throw new Error('Producto no encontrado, o está renunciado (no admite cambio de estado).');
+}
+
+/** Propone renunciar a una línea (§14.5): "las circunstancias las plantea el encargado de compras,
+ *  la aprueba el jefe de ventas". Queda PROPUESTA hasta que alguien con permiso de aprobación la
+ *  confirme — no sale del cómputo de cobertura hasta ese momento. */
+export async function proponerRenunciaLinea(
+  productoId: number, motivo: string, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  const ahora = ahoraChileSQL();
+  const [r] = await pool.query(
+    `UPDATE compras_producto
+        SET renuncia_motivo = ?, renuncia_propuesta_por = ?, renuncia_propuesta_por_nombre = ?, renuncia_propuesta_at = ?,
+            renuncia_aprobada_por = NULL, renuncia_aprobada_por_nombre = NULL, renuncia_aprobada_at = NULL
+      WHERE id = ? AND subestado <> 'RENUNCIADO'`,
+    [motivo, actorId, actorNombre, ahora, productoId],
+  ) as any;
+  if (!r?.affectedRows) throw new Error('Producto no encontrado, o ya está renunciado.');
+
+  const [prodRows] = await pool.query(
+    `SELECT cp.negocio_id, cp.descripcion, n.licitacion_codigo FROM compras_producto cp
+       JOIN negocios n ON n.id = cp.negocio_id WHERE cp.id = ?`, [productoId],
+  ) as any;
+  const prod = (prodRows as any[])[0];
+  if (prod) {
+    await registrarEvento({
+      tipo: 'COMPRAS_RENUNCIA_PROPUESTA', licitacionCodigo: prod.licitacion_codigo, actorId, actorNombre,
+      mensaje: `Se propuso renunciar a la línea "${prod.descripcion}": ${motivo}. Pendiente de aprobación del jefe de ventas (spec §14.5).`,
+      metadata: { negocio_id: prod.negocio_id, producto_id: productoId },
+    });
+  }
+}
+
+export async function aprobarRenunciaLinea(productoId: number, actorId: number, actorNombre: string | null): Promise<void> {
+  const ahora = ahoraChileSQL();
+  const [r] = await pool.query(
+    `UPDATE compras_producto
+        SET subestado = 'RENUNCIADO', renuncia_aprobada_por = ?, renuncia_aprobada_por_nombre = ?, renuncia_aprobada_at = ?, updated_at = ?
+      WHERE id = ? AND renuncia_motivo IS NOT NULL AND subestado <> 'RENUNCIADO'`,
+    [actorId, actorNombre, ahora, ahora, productoId],
+  ) as any;
+  if (!r?.affectedRows) throw new Error('No hay renuncia propuesta pendiente para este producto.');
+
+  // Renunciar una línea cambia el alcance de la compra — invalida cualquier aprobación ya dada (§10.5).
+  const [prodRows] = await pool.query(
+    `SELECT cp.negocio_id, cp.descripcion, n.licitacion_codigo FROM compras_producto cp
+       JOIN negocios n ON n.id = cp.negocio_id WHERE cp.id = ?`, [productoId],
+  ) as any;
+  const prod = (prodRows as any[])[0];
+  if (prod) {
+    await invalidarAprobacionesCompras(prod.negocio_id, 'Se renunció a una línea del proyecto.');
+    await registrarEvento({
+      tipo: 'COMPRAS_RENUNCIA_APROBADA', licitacionCodigo: prod.licitacion_codigo, actorId, actorNombre,
+      mensaje: `Se aprobó la renuncia a la línea "${prod.descripcion}". Formalizar por correo con el cliente (spec §14.5).`,
+      metadata: { negocio_id: prod.negocio_id, producto_id: productoId },
+    });
+  }
+}
+
+// ── Compuertas de aprobación (§10) ──────────────────────────────────────────────────────────────
+// "Todo cambio posterior a una aprobación la invalida y devuelve el proyecto a la bandeja" (§10.5).
+// Vive acá (no en compras-aprobaciones.ts) para que tanto ese módulo como compras-auditor.ts (al
+// elegir un escenario) puedan llamarla sin crear un ciclo de imports entre los tres archivos.
+export async function invalidarAprobacionesCompras(negocioId: number, motivo: string): Promise<void> {
+  const ahora = ahoraChileSQL();
+  await pool.query(
+    `UPDATE compras_aprobacion
+        SET estado = 'PENDIENTE', motivo = ?, resuelto_por = NULL, resuelto_por_nombre = NULL, resuelto_at = NULL,
+            comentario_resolucion = NULL, updated_at = ?
+      WHERE negocio_id = ? AND estado IN ('APROBADA', 'APROBADA_CON_MODIFICACION')`,
+    [motivo, ahora, negocioId],
+  );
+}
+
+export interface CoberturaProyecto { total: number; listos: number; renunciados: number; cobertura: boolean }
+
+/** Cobertura total o nada (§14.2): las líneas RENUNCIADAS salen del cómputo (§14.5); de las que
+ *  quedan, TODAS deben estar en ENTREGADO para que el proyecto sea entregable. */
+export async function coberturaProyecto(negocioId: number): Promise<CoberturaProyecto> {
+  const productos = await listarProductosCompra(negocioId);
+  const vigentes = productos.filter(p => p.subestado !== 'RENUNCIADO');
+  const listos = vigentes.filter(p => p.subestado === 'ENTREGADO').length;
+  return {
+    total: vigentes.length, listos, renunciados: productos.length - vigentes.length,
+    cobertura: vigentes.length > 0 && listos === vigentes.length,
+  };
+}
+
+// ── Contadores por pestaña (UI, sep-2026) ───────────────────────────────────────────────────────
+// La pantalla se reordenó en 5 pestañas por etapa (ver ComprasSection.tsx) para no apilar 12
+// tarjetas — pero eso escondió información: antes de entrar a "Entrega y Cierre" no había forma de
+// saber si había una incidencia abierta esperando. Este resumen es SOLO para pintar un número en
+// cada pestaña ("2 tareas vencidas", "1 incidencia abierta") — nunca decide nada, y cada conteo se
+// obtiene con su propia consulta liviana envuelta en try/catch: si una tabla no existe todavía o
+// una consulta falla, ese contador queda en 0 en vez de romper toda la pantalla.
+export interface ResumenFasesCompras {
+  tareas: { vencidas: number };
+  costeo: { productosSinCotizacion: number };
+  aprobacion: { compuertasPendientes: number };
+  compra: { hitosAdminPendientes: number | null }; // null = Compuerta 1 no aprobada, no aplica todavía
+  entrega: { incidenciasAbiertas: number; relojVencido: boolean };
+}
+
+async function contarProductosSinCotizacion(negocioId: number): Promise<number> {
+  try {
+    const [[r]]: any = await pool.query(
+      `SELECT COUNT(*) n FROM compras_producto p
+        WHERE p.negocio_id = ? AND p.subestado != 'RENUNCIADO'
+          AND NOT EXISTS (
+            SELECT 1 FROM compras_cotizacion_item ci
+              JOIN compras_cotizacion c ON c.id = ci.cotizacion_id
+             WHERE c.negocio_id = p.negocio_id AND ci.producto_id = p.id AND ci.cumple != 'NO_ES_EL_PRODUCTO'
+          )`,
+      [negocioId],
+    );
+    return Number(r?.n || 0);
+  } catch { return 0; }
+}
+
+async function contarCompuertasPendientes(negocioId: number): Promise<number> {
+  try {
+    const [[r]]: any = await pool.query(
+      `SELECT COUNT(*) n FROM compras_aprobacion WHERE negocio_id = ? AND estado = 'PENDIENTE'`,
+      [negocioId],
+    );
+    return Number(r?.n || 0);
+  } catch { return 0; }
+}
+
+/** null si la Compuerta 1 (compra) todavía no está aprobada — §11.2 dice que estos hitos son
+ *  "tareas paralelas AL APROBARSE la compra", así que antes de eso el contador no aplica (mismo
+ *  criterio que ya usa RepartoAdminCard.tsx para decidir si se muestra). */
+async function contarHitosAdminPendientes(negocioId: number): Promise<number | null> {
+  try {
+    const [[apr]]: any = await pool.query(
+      `SELECT estado FROM compras_aprobacion WHERE negocio_id = ? AND tipo = 'COMPRA' LIMIT 1`,
+      [negocioId],
+    );
+    if (!apr || !['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(apr.estado)) return null;
+    const [[r]]: any = await pool.query(
+      `SELECT
+         (oc_emitida_at IS NULL) + (pago_registrado_at IS NULL) + (anticipo_pagado_at IS NULL) +
+         (factura_compra_registrada_at IS NULL) + (carpeta_proyecto_creada_at IS NULL) +
+         (provision_fondos_at IS NULL) AS n
+       FROM compras_reparto_administrativo WHERE negocio_id = ?`,
+      [negocioId],
+    );
+    // Sin fila todavía (nadie tocó el checklist): los 6 hitos están pendientes.
+    return r ? Number(r.n) : 6;
+  } catch { return null; }
+}
+
+async function contarIncidenciasAbiertas(negocioId: number): Promise<number> {
+  try {
+    const [[r]]: any = await pool.query(
+      `SELECT COUNT(*) n FROM compras_incidencia WHERE negocio_id = ? AND estado = 'ABIERTA'`,
+      [negocioId],
+    );
+    return Number(r?.n || 0);
+  } catch { return 0; }
+}
+
+async function relojEstaVencido(negocioId: number): Promise<boolean> {
+  try {
+    const [[r]]: any = await pool.query(
+      `SELECT fecha_limite, prorroga_fecha_limite, entrega_con_multa FROM compras_reloj WHERE negocio_id = ?`,
+      [negocioId],
+    );
+    if (!r || r.entrega_con_multa) return false; // sin reloj fijado, o ya autorizada la entrega con multa: no es "vencido silencioso"
+    const limite = r.prorroga_fecha_limite || r.fecha_limite;
+    if (!limite) return false;
+    const hoy = ahoraChileSQL().slice(0, 10);
+    return String(limite).slice(0, 10) < hoy;
+  } catch { return false; }
+}
+
+export async function obtenerResumenFases(negocioId: number, tareas: { vencida: boolean }[]): Promise<ResumenFasesCompras> {
+  const [productosSinCotizacion, compuertasPendientes, hitosAdminPendientes, incidenciasAbiertas, relojVencido] =
+    await Promise.all([
+      contarProductosSinCotizacion(negocioId),
+      contarCompuertasPendientes(negocioId),
+      contarHitosAdminPendientes(negocioId),
+      contarIncidenciasAbiertas(negocioId),
+      relojEstaVencido(negocioId),
+    ]);
+  return {
+    tareas: { vencidas: tareas.filter(t => t.vencida).length },
+    costeo: { productosSinCotizacion },
+    aprobacion: { compuertasPendientes },
+    compra: { hitosAdminPendientes },
+    entrega: { incidenciasAbiertas, relojVencido },
+  };
 }

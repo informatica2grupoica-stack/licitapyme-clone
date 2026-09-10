@@ -8,7 +8,6 @@ import { publicarCambio } from '@/app/lib/sse-bus';
 import { enviarCorreoCambio, enviarCorreoAsignacion, enviarCorreoEtapaAnexos } from '@/app/lib/email';
 import { getEstadoPipeline, normalizarEstado, puedeCambiarEstadoPipeline } from '@/app/lib/pipeline';
 import { puedeVerNegocioAsignado } from '@/app/lib/api-auth';
-import { refrescarEstadoCodigo } from '@/app/lib/refrescar-estados';
 import { congelarAuditorSiCorresponde } from '@/app/lib/congelamiento';
 import { ahoraChileSQL } from '@/app/lib/tz';
 
@@ -152,14 +151,11 @@ export async function GET(request: NextRequest, { params }: Params) {
       metadata: { licitacion_codigo: codigo, via: 'negocio' },
     });
 
-    // Estado AUTORITATIVO desde la API (Capa 2), on-demand: si MP ya reporta un estado DEFINITIVO
-    // (Cerrada/Desierta/Adjudicada/Revocada/Suspendida) distinto del cacheado, se persiste en
-    // negocios + alertas y se refleja de inmediato en esta respuesta. Best-effort con timeout
-    // corto: si MP no responde, se devuelve el estado cacheado sin demorar el detalle.
-    try {
-      const nuevoEstado = await refrescarEstadoCodigo(codigo, negocio.licitacion_estado ?? null, 4_000);
-      if (nuevoEstado) negocio.licitacion_estado = nuevoEstado;
-    } catch { /* nunca bloquea el detalle */ }
+    // Estado de MP: SOLO lo que ya dejó el barrido automático (cada 5 min). Antes esta ruta
+    // consultaba la API de MP en vivo cada vez que alguien abría el detalle (sep-2026, auditoría
+    // de tiempo real) — el dueño fue explícito: ninguna consulta a MP puede depender de que
+    // alguien abra una pantalla, solo el cron de 5 min. `negocio.licitacion_estado` ya viene del
+    // SELECT de arriba (columna cacheada); no hay nada más que hacer acá.
 
     // El costeo (con precios de mercado incluido) es visible para cualquier perfil asignado.
     negocio.documentos = (docRows as any)[0] as any[];

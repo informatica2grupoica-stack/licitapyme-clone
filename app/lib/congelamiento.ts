@@ -26,6 +26,13 @@ export interface PaqueteTraspaso {
     responsableContratoFono?: string | null;
     responsablePagoNombre?: string | null;
     responsablePagoEmail?: string | null;
+    // Teléfono/e-mail de `usuarioNombre` (el "Operador de la compra") — la ficha de la API de MP
+    // NUNCA los trae (a diferencia de los dos bloques de arriba, que al menos tienen la columna,
+    // aunque casi siempre vacía). Salen del acta de adjudicación ("Datos del Contacto para esta
+    // Licitación", ver acta-adjudicacion.ts) — por eso solo existen DESPUÉS de que alguien leyó el
+    // acta (botón "Releer" en Resultado), nunca al congelar al postular (todavía no hay acta).
+    usuarioTelefono?: string | null;
+    usuarioEmail?: string | null;
   } | null;
 }
 
@@ -178,7 +185,7 @@ export async function obtenerContactosCliente(
         const t = typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim();
         return t || null;   // MP publica estos campos como "" cuando el organismo no los llenó
       };
-      const contactos = {
+      const contactos: NonNullable<PaqueteTraspaso['contactosCliente']> = {
         organismo: dato(c.NombreOrganismo ?? c.Organismo),
         unidad: dato(c.NombreUnidad),
         direccion: dato(c.DireccionUnidad),
@@ -192,6 +199,17 @@ export async function obtenerContactosCliente(
         responsablePagoNombre: dato(c.NombreResponsablePago),
         responsablePagoEmail: dato(c.EmailResponsablePago),
       };
+      // Teléfono/e-mail del operador de la compra: solo existen si ya se leyó el acta (best-effort,
+      // nunca bloquea ni rompe el congelamiento si la tabla no tiene la fila o las columnas todavía).
+      try {
+        const [[c2]] = await pool.query(
+          `SELECT contacto_telefono, contacto_email FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1`,
+          [licitacionCodigo],
+        ) as any;
+        if (c2?.contacto_telefono) contactos.usuarioTelefono = dato(c2.contacto_telefono);
+        if (c2?.contacto_email) contactos.usuarioEmail = dato(c2.contacto_email);
+      } catch { /* migración 103 pendiente en algún entorno, o sin acta leída todavía: sigue sin esos 2 campos */ }
+
       // Si la ficha vino sin UN SOLO dato útil, es lo mismo que no tenerla: se devuelve null para
       // que quede como faltante honesto en vez de un bloque de nulls que parece un contacto.
       return Object.values(contactos).some(Boolean) ? contactos : null;

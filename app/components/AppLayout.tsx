@@ -8,7 +8,7 @@ import {
   Menu as MenuIcon, X, Radar, ChevronRight,
   Briefcase, Bell, Tag, Layers, History, Settings, Command, Ban, Activity, Send, Building2, Trophy,
   PanelLeftClose, PanelLeftOpen, ClipboardCheck, ShoppingCart, PackageCheck, Library, Star, FolderOpen,
-  Receipt, Shuffle, Sun, Moon,
+  Receipt, Shuffle, Sun, Moon, Truck,
 } from 'lucide-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
@@ -84,6 +84,12 @@ const NAV_GROUPS: NavGroup[] = [
       // Vista transversal de las OC de las dos empresas (ver app/lib/ordenes-compra.ts). Admin-only
       // porque toca RUT/montos de ambas empresas a la vez, igual criterio que Compras.
       { label: 'Órdenes de compra', href: '/ordenes-compra', icon: <Receipt size={17} />, adminOnly: true },
+      // Fleteros (spec §13.3): mismo círculo de acceso que Compras — admin, jefe de ventas o
+      // Encargado de Compras. Catálogo transversal, no cuelga de una licitación puntual.
+      { label: 'Fleteros', href: '/logistica/fleteros', icon: <Truck size={17} />, adminOnly: true },
+      // Proveedores: ficha completa (contacto, categoría, datos bancarios) — mismo círculo y mismo
+      // criterio transversal que Fleteros.
+      { label: 'Proveedores', href: '/compras/proveedores', icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
       { label: 'Historial', href: '/alertas', icon: <History size={17} />, adminOnly: true },
     ],
@@ -280,7 +286,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   const puedeRepartir = usuario?.rol === 'admin' || !!usuario?.permisos?.repartir_puente;
   // Compras: jefe de ventas (aprobar_comercial) y Encargado de Compras (permiso `compras`), no
   // solo admin — mismo criterio que la API (app/lib/compras.ts).
-  const puedeVerCompras = usuario?.rol === 'admin' || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
+  const puedeVerCompras = usuario?.rol === 'admin' || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial
+    || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega;
   const [totalPuente, setTotalPuente] = useState(0);
   useEffect(() => {
     if (!puedeRepartir) return;
@@ -322,6 +329,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (i.href === '/puente' && puedeRepartir) return true;
       if (i.href === '/entregas' && puedeVerEntregas) return true;
       if (i.href === '/compras' && puedeVerCompras) return true;
+      if (i.href === '/logistica/fleteros' && puedeVerCompras) return true;
+      if (i.href === '/compras/proveedores' && puedeVerCompras) return true;
       return false;
     }),
   })).map(group => ({

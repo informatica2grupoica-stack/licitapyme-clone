@@ -57,7 +57,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       await guardarRegistroTarea(id, {
         registro: (body.registro && typeof body.registro === 'object') ? body.registro : {},
         hallazgo: !!body.hallazgo,
-      });
+      }, { id: userId, nombre: actorNombre });
     }
     if (estado !== null) {
       await cambiarEstadoTarea(id, estado, {
