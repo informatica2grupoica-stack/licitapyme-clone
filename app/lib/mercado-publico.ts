@@ -9,14 +9,106 @@ import {
   TIPO_LICITACION_MAP,
   MODALIDAD_PAGO_MAP,
 } from '@/app/types/mercado-publico.types';
+import pool from '@/app/lib/db';
+import { ahoraChileSQL, minutosHastaMedianocheChile } from '@/app/lib/tz';
 
 const API_BASE = 'https://api.mercadopublico.cl/servicios/v1/publico';
 
-export class MercadoPublicoClient {
-  private ticket: string;
+// ── GOBERNADOR DE CUOTA DIARIA (mismo patrón que compras_agente_uso_diario, migration-115) ──
+// Caso real 2026-09-15: el ticket agotó sus 10.000 consultas/día por primera vez — los crons de
+// 5 min (estados-asignadas + procesar-postuladas) venían creciendo con el volumen de negocios/
+// postuladas vivos, sin ningún freno proactivo (solo el rate-limit por RÁFAGA, que es un
+// mecanismo distinto — ver PAUSA_ENTRE_CONSULTAS_MS en procesar-postuladas.ts). Este contador
+// (mp_api_uso_diario, migration-118) lleva la cuenta de consultas de HOY (hora Chile) y
+// `presupuestoPorCorrida` reparte lo que queda entre las corridas restantes hasta medianoche,
+// para que la cuota alcance todo el día en vez de agotarse a media tarde.
+const CUOTA_POR_TICKET = Math.max(1, Number(process.env.MERCADO_PUBLICO_CUOTA_DIARIA) || 10_000);
+// Margen de seguridad: nuestro contador puede subestimar levemente el consumo real de MP
+// (ej. una llamada que se cae antes de llegar a contarse). Gobernar contra el 92% evita llegar
+// al 203 real por ese desfase, en vez de intentar contar con precisión perfecta.
+const MARGEN_SEGURIDAD = 0.92;
 
-  constructor(ticket: string) {
-    this.ticket = ticket;
+function hoyChile(): string { return ahoraChileSQL().slice(0, 10); }
+
+export async function consultasHoyMP(): Promise<number> {
+  try {
+    const [rows] = await pool.query(
+      `SELECT consultas FROM mp_api_uso_diario WHERE fecha = ?`, [hoyChile()],
+    ) as any[];
+    return Number((rows as any[])[0]?.consultas ?? 0);
+  } catch (e) {
+    console.error('[MP API] no se pudo leer el contador de uso diario:', String(e));
+    return 0; // best-effort: si la tabla aún no existe (migration-118 no aplicada), no bloquear
+  }
+}
+
+async function registrarConsultaMP(): Promise<void> {
+  try {
+    await pool.query(
+      `INSERT INTO mp_api_uso_diario (fecha, consultas, actualizado_at) VALUES (?, 1, NOW())
+       ON DUPLICATE KEY UPDATE consultas = consultas + 1, actualizado_at = NOW()`,
+      [hoyChile()],
+    );
+  } catch (e) { console.error('[MP API] no se pudo registrar el contador de uso diario:', String(e)); }
+}
+
+// Cuánto queda del presupuesto diario TOTAL (todos los tickets configurados, con margen de
+// seguridad), y cuánto le toca a la corrida que está por arrancar si faltan `corridasRestantes`
+// hasta medianoche (por defecto, calculado a partir de la cadencia del cron que llama).
+export async function presupuestoPorCorrida(
+  minutosCadencia: number,
+  numTickets: number,
+): Promise<{ disponibleHoy: number; porCorrida: number }> {
+  const cuotaTotal = Math.floor(CUOTA_POR_TICKET * Math.max(1, numTickets) * MARGEN_SEGURIDAD);
+  const usadas = await consultasHoyMP();
+  const disponibleHoy = Math.max(0, cuotaTotal - usadas);
+  const corridasRestantes = Math.max(1, Math.floor(minutosHastaMedianocheChile() / minutosCadencia));
+  return { disponibleHoy, porCorrida: Math.floor(disponibleHoy / corridasRestantes) };
+}
+
+export class MercadoPublicoClient {
+  // Uno o más tickets. Cuando MP corta uno por cuota diaria (Código 203, "Ticket superó la
+  // cuota diaria asignada") se rota automáticamente al siguiente — ver rotarTicketSiCuotaSuperada.
+  // Caso real 2026-09-15: un único ticket agotó su cuota (crons de postuladas/asignadas cada 5 min,
+  // volumen de licitaciones vivas creciendo) y toda consulta por código empezó a devolver "no
+  // encontrada" en vez de avisar que era un problema de cuota.
+  private tickets: string[];
+  private ticketIndex = 0;
+
+  constructor(tickets: string | string[]) {
+    this.tickets = Array.isArray(tickets) ? tickets : [tickets];
+  }
+
+  private get ticket(): string {
+    return this.tickets[this.ticketIndex];
+  }
+
+  get cantidadTickets(): number {
+    return this.tickets.length;
+  }
+
+  // true si logró rotar a un ticket siguiente que no se había probado todavía.
+  private rotarTicket(): boolean {
+    if (this.ticketIndex >= this.tickets.length - 1) return false;
+    this.ticketIndex++;
+    console.warn(`[MP API] cuota diaria superada, rotando a ticket de respaldo #${this.ticketIndex + 1}/${this.tickets.length}`);
+    return true;
+  }
+
+  // Código 203 = "Ticket superó la cuota diaria asignada" (confirmado en vivo el 2026-09-15).
+  // A diferencia del 429/10500 (rate-limit por ráfaga, se resuelve esperando), esto NO se
+  // arregla reintentando con el mismo ticket — solo rotando a otro o esperando al día siguiente.
+  private esCuotaSuperada(data: any): boolean {
+    return data?.Codigo === 203;
+  }
+
+  // Reemplaza el parámetro ticket= de una URL ya construida por el ticket ACTUAL (post-rotación).
+  // Así los métodos que arman la URL con `${this.ticket}` en el momento de la llamada no quedan
+  // pegados al ticket viejo si se rota a mitad de sus propios reintentos.
+  private conTicketActual(url: string): string {
+    const u = new URL(url);
+    u.searchParams.set('ticket', this.ticket);
+    return u.toString();
   }
 
   // =============================================
@@ -64,13 +156,19 @@ export class MercadoPublicoClient {
       // diaria, así que esperar un momento suele bastar para que la siguiente pase.
       if (i > 0) await new Promise(r => setTimeout(r, 1200 * i));
       try {
-        const res = await globalThis.fetch(url, {
+        const res = await globalThis.fetch(this.conTicketActual(url), {
           headers: { Accept: 'application/json' },
           signal:  AbortSignal.timeout(timeoutMs),
         });
         if (res.status === 429) { ultimoMotivo = 'rate-limit (HTTP 429)'; clase = 'rate-limit'; continue; }
         if (!res.ok) { ultimoMotivo = `HTTP ${res.status}`; clase = 'http'; continue; }
+        registrarConsultaMP(); // fire-and-forget: cuenta contra la cuota diaria del ticket actual
         const data: LicitacionAPIResponse & { Codigo?: number } = await res.json();
+        // Cuota diaria agotada: rotar a ticket de respaldo si hay y reintentar de inmediato.
+        if (this.esCuotaSuperada(data)) {
+          if (this.rotarTicket()) { i--; continue; }
+          ultimoMotivo = 'cuota diaria superada (sin ticket de respaldo)'; clase = 'rate-limit'; continue;
+        }
         // 200 con cuerpo de error: 10500 = rate-limit, reintentable.
         if (data.Codigo === 10500) { ultimoMotivo = 'rate-limit (Código 10500)'; clase = 'rate-limit'; continue; }
         // Listado vacío SIN señal de rate-limit sí es "no existe": no tiene sentido reintentar.
@@ -97,13 +195,19 @@ export class MercadoPublicoClient {
   ): Promise<{ lic: Licitacion | null; status: number }> {
     try {
       const url = `${API_BASE}/licitaciones.json?codigo=${encodeURIComponent(codigo)}&ticket=${this.ticket}`;
-      const res = await globalThis.fetch(url, {
+      const res = await globalThis.fetch(this.conTicketActual(url), {
         headers: { Accept: 'application/json' },
         signal: AbortSignal.timeout(timeoutMs),
       });
       if (res.status === 429) return { lic: null, status: 429 };
       if (!res.ok) return { lic: null, status: res.status };
+      registrarConsultaMP(); // fire-and-forget: cuenta contra la cuota diaria del ticket actual
       const data: LicitacionAPIResponse & { Codigo?: number } = await res.json();
+      // Cuota diaria agotada: rotar a ticket de respaldo si hay y reintentar esta misma llamada.
+      if (this.esCuotaSuperada(data)) {
+        if (this.rotarTicket()) return this.obtenerDetalleConEstado(codigo, timeoutMs);
+        return { lic: null, status: 429 };
+      }
       // La API a veces devuelve 200 con un cuerpo de error (Codigo 10500 = rate-limit)
       if ((data as any).Codigo === 10500) return { lic: null, status: 429 };
       if (!data.Listado?.length) return { lic: null, status: res.status };
@@ -405,7 +509,7 @@ export class MercadoPublicoClient {
 
       let res: Response;
       try {
-        res = await globalThis.fetch(url, {
+        res = await globalThis.fetch(this.conTicketActual(url), {
           headers: { Accept: 'application/json' },
           next: { revalidate: 300 },
         });
@@ -421,8 +525,16 @@ export class MercadoPublicoClient {
         continue;
       }
       if (!res.ok) throw new Error(`API error ${res.status}`);
+      registrarConsultaMP(); // fire-and-forget: cuenta contra la cuota diaria del ticket actual
 
       const data = await res.json();
+      // Cuota diaria del ticket agotada: rotar a un ticket de respaldo si hay, y reintentar
+      // ya mismo (no es rate-limit por ráfaga, esperar no sirve de nada).
+      if (this.esCuotaSuperada(data)) {
+        ultimoError = new Error(`API: ${data.Mensaje || 'cuota diaria superada'}`);
+        if (this.rotarTicket()) { i--; continue; }
+        throw ultimoError;
+      }
       // La API a veces responde 200 con un cuerpo de error: Código 10500 = rate-limit
       // (reintentable); otros códigos (p.ej. 10000) son error real, no se reintentan.
       if (data.Codigo === 10500) {
@@ -451,7 +563,15 @@ export function getMercadoPublicoClient(): MercadoPublicoClient {
   if (!clientInstance) {
     const ticket = process.env.MERCADO_PUBLICO_TICKET;
     if (!ticket) throw new Error('MERCADO_PUBLICO_TICKET no configurado en .env.local');
-    clientInstance = new MercadoPublicoClient(ticket);
+    // Tickets de respaldo opcionales: MERCADO_PUBLICO_TICKET_2, _3, etc. Se usan solo si el
+    // anterior devuelve Código 203 (cuota diaria superada) — ver rotarTicket en la clase.
+    const tickets = [ticket];
+    for (let n = 2; ; n++) {
+      const extra = process.env[`MERCADO_PUBLICO_TICKET_${n}`];
+      if (!extra) break;
+      tickets.push(extra);
+    }
+    clientInstance = new MercadoPublicoClient(tickets);
   }
   return clientInstance;
 }

@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { procesarPostuladas } from '@/app/lib/procesar-postuladas';
 import { repararContactosFaltantes, congelarPendientes } from '@/app/lib/congelamiento';
 import { publicarCambio } from '@/app/lib/sse-bus';
+import { getMercadoPublicoClient, presupuestoPorCorrida } from '@/app/lib/mercado-publico';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,12 +35,23 @@ export async function POST(req: NextRequest) {
   if (!autorizado(req)) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   const t0 = Date.now();
   try {
+    // GOBERNADOR DE CUOTA (sep-2026, ver mercado-publico.ts): este endpoint corre cada 5 min y
+    // puede repetirse hasta 6 veces por ventana (scheduler.mjs, jobResultados) — sin freno,
+    // agotaba la cuota diaria del ticket a media tarde. `porCorrida` reparte lo que queda del
+    // día entre las corridas restantes; se relee en CADA pasada, así que si esta misma ventana
+    // ya gastó cupo (p.ej. estados-asignadas, que corre justo antes) la próxima pasada ve menos
+    // disponible y se ajusta sola. maxCodigos:0 → sin llamar a MP, se retoma en la próxima corrida.
+    const { porCorrida } = await presupuestoPorCorrida(5, getMercadoPublicoClient().cantidadTickets);
+    if (porCorrida <= 0) {
+      console.warn('[cron postuladas] sin presupuesto de cuota diaria de MP restante — se salta esta pasada.');
+      return NextResponse.json({ success: true, codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, comprasAbiertas: 0, rateLimit: 0, lote: 0, restantes: 0, contactosReparados: 0, congelamientoReconciliado: 0, completado: true, pendientes: 0, duracionMs: Date.now() - t0, cuotaAgotada: true });
+    }
     // promover:true (2026-07-21, reversa la decisión anterior de "quédense en Postuladas"):
     // el usuario confirmó con datos reales que sin promoción /analisis-licitacion (que lee el
     // acta directo) y /postuladas·/adjudicadas (que dependen más de estado_pipeline) mostraban
     // conteos distintos — 12 licitaciones YA ganadas por RUT seguían atascadas en POSTULADA.
     // soloCerradas:false → también refresca las Publicadas para el filtro por estado.
-    const r = await procesarPostuladas({ promover: true, soloCerradas: false });
+    const r = await procesarPostuladas({ promover: true, soloCerradas: false, maxCodigos: porCorrida });
     // Refrescó el cache desde MP → avisar a los tableros abiertos para que repinten con el
     // resultado nuevo (Postuladas y Adjudicadas leen ese mismo cache).
     if (r.codigos > 0) publicarCambio('adjudicacion');

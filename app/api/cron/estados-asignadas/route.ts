@@ -11,6 +11,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { refrescarEstadosAsignadas } from '@/app/lib/refrescar-estados';
+import { getMercadoPublicoClient, presupuestoPorCorrida } from '@/app/lib/mercado-publico';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,7 +35,11 @@ export async function POST(req: NextRequest) {
   if (!autorizado(req)) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   const t0 = Date.now();
   try {
-    const r = await refrescarEstadosAsignadas({ presupuestoMs: 50_000 });
+    // GOBERNADOR DE CUOTA (sep-2026, ver mercado-publico.ts): corre cada 5 min, es la vía que
+    // MÁS "Adjudicada" detecta, así que se sirve primero dentro de jobResultados — pero igual
+    // debe repartirse la cuota diaria con procesar-postuladas (que corre justo después).
+    const { porCorrida } = await presupuestoPorCorrida(5, getMercadoPublicoClient().cantidadTickets);
+    const r = await refrescarEstadosAsignadas({ presupuestoMs: 50_000, maxCodigos: porCorrida });
     return NextResponse.json({ success: true, ...r, duracionMs: Date.now() - t0 });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e.message }, { status: 500 });

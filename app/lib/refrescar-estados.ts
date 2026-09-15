@@ -414,11 +414,14 @@ export async function notificarCambioFechaCierre(codigo: string, fechaAnterior: 
 }
 
 export async function refrescarEstadosAsignadas(
-  opts: { presupuestoMs?: number; timeoutMs?: number; notificar?: boolean } = {},
+  opts: { presupuestoMs?: number; timeoutMs?: number; notificar?: boolean; maxCodigos?: number } = {},
 ): Promise<{ codigos: number; actualizadas: number; errores: number }> {
   const presupuestoMs = opts.presupuestoMs ?? PRESUPUESTO_MS;
   const timeoutMs      = opts.timeoutMs ?? TIMEOUT_DETALLE_MS;
   const notificar      = opts.notificar ?? true;
+  // Gobernador de cuota diaria (ver presupuestoPorCorrida en mercado-publico.ts): límite de
+  // códigos de ESTA corrida, más chico que el backstop MAX_CODIGOS cuando la cuota anda escasa.
+  const maxCodigos      = Math.max(0, Math.min(opts.maxCodigos ?? MAX_CODIGOS, MAX_CODIGOS));
   const stats = { codigos: 0, actualizadas: 0, errores: 0 };
   const inicio = Date.now();
 
@@ -447,6 +450,8 @@ export async function refrescarEstadosAsignadas(
   }
 
   if (filas.length === 0) return stats;
+  if (maxCodigos === 0) { console.warn('[refrescar-estados] sin presupuesto de cuota diaria de MP restante — se salta esta corrida.'); return stats; }
+  if (filas.length > maxCodigos) filas = filas.slice(0, maxCodigos);
 
   const client = getMercadoPublicoClient();
 

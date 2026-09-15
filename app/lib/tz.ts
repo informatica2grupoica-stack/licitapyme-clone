@@ -18,3 +18,12 @@ export function ahoraChileSQL(d: Date = new Date()): string {
   // 'sv-SE' produce el formato ISO con espacio: "2026-07-06 14:12:10".
   return d.toLocaleString('sv-SE', { timeZone: TZ_CHILE });
 }
+
+// Minutos que faltan para la medianoche de HOY en hora de Chile. Usado por el gobernador de
+// cuota de la API de Mercado Público (mercado-publico.ts) para repartir lo que queda del
+// presupuesto diario entre las corridas que faltan hasta que el contador se reinicie a las 00:00.
+export function minutosHastaMedianocheChile(d: Date = new Date()): number {
+  const [horaMin] = ahoraChileSQL(d).split(' ').slice(1);
+  const [h, m, s] = horaMin.split(':').map(Number);
+  return Math.max(1, 24 * 60 - (h * 60 + m + s / 60));
+}
