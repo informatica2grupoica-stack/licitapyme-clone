@@ -115,6 +115,12 @@ const LARGO_MAX_ETIQUETA = 60;
 // párrafo legal de verdad), pero calibrado a la etiqueta más larga vista en el corpus real, no a
 // la longitud típica de un rótulo corto.
 const LARGO_MAX_ETIQUETA_EN_CELDA = 120;
+// Cuántos párrafos vacíos de espaciado se toleran entre la etiqueta y una raya real más abajo antes
+// de decidir que patrón 1 NO debe ofrecer el hueco intermedio como candidato — ver el comentario de
+// más abajo (BUG REAL, FORMATOS_ADMINISTRATIVOS.docx). 2 alcanza para el patrón real visto (un solo
+// párrafo vacío de por medio) con algo de margen, sin arriesgarse a mirar tan lejos que confunda la
+// raya de OTRO campo, dos o tres etiquetas más abajo, con la de este.
+const LOOKAHEAD_RAYA_TRAS_ETIQUETA = 2;
 
 export function detectarCandidatosCeldaCrudos(
   parrafos: Parrafo[], indicesVacioSinCampo: Set<number> = new Set(), indicesEnCelda: Set<number> = new Set(),
@@ -218,6 +224,22 @@ export function detectarCandidatosCeldaCrudos(
     // siguiente es de nuevo espaciado. Sin esto se pedía el mismo dato dos veces —y, por la
     // desambiguación de duplicados, con el prefijo "Firma del Oferente…" pegado adelante.
     if (RE_TIENE_BLANCO_PROPIO.test(actual.texto)) continue;
+
+    // MISMA pregunta que la guarda de arriba, pero cuando la etiqueta y su blanco NO comparten
+    // párrafo: "NOMBRE COMPLETO DEL OFERENTE:" / <párrafo vacío, puro espaciado> / "______" en TRES
+    // párrafos separados (BUG REAL, FORMATOS_ADMINISTRATIVOS.docx, 15-sep-2026, reportado por el
+    // usuario con captura: "me duplica las cosas"). `siguiente` (el vacío inmediato) es aquí solo
+    // espaciado visual, no la celda de valor — la raya un párrafo más abajo es el blanco REAL, y el
+    // patrón 2 (inline) ya la cubre vía rotuloArribaDelBlanco. Sin esta guarda, patrón 1 ofrecía
+    // TAMBIÉN el párrafo vacío como candidato para el MISMO dato: dos casillas independientes que el
+    // motor de relleno resuelve cada una por su cuenta, así que el valor terminaba escrito dos veces
+    // (o, cuando una de las dos resoluciones fallaba, una casilla llena y la otra pendiente al lado
+    // — ambos síntomas reportados en la misma captura).
+    // Ventana corta (unos pocos párrafos vacíos de espaciado, nunca más): más allá de eso ya no es
+    // razonable asumir que una raya lejana sea EL blanco de esta etiqueta en particular.
+    let k = j + 1;
+    while (k < parrafos.length && parrafos[k].vacio && k - j <= LOOKAHEAD_RAYA_TRAS_ETIQUETA) k++;
+    if (k < parrafos.length && k - j <= LOOKAHEAD_RAYA_TRAS_ETIQUETA + 1 && esRayaLarga(parrafos[k].texto)) continue;
 
     out.push({ etiqueta: actual.texto, paraId: siguiente.paraId, indice: siguiente.indice });
   }
@@ -1243,6 +1265,24 @@ const LARGO_MAX_ROTULO_DEBAJO = 60;
 const RE_ROTULO_ES_FIRMA = /f[ir]{2}ma|representante\s+legal|persona\s+natural|timbre/i;
 const RE_SOLO_RAYA = /^[\s_.…]+$/;
 
+// Variante de RE_ROTULO_ES_FIRMA SOLO para rotuloArribaDelBlanco (ver más abajo) — a diferencia del
+// rótulo DEBAJO de una raya (rotuloEmparejadoDeRaya, arriba), donde "REPRESENTANTE LEGAL"/"PERSONA
+// NATURAL" a secas SIEMPRE es un caption de firma, el rótulo ARRIBA de un blanco es, la mayoría de
+// las veces, la etiqueta completa de un campo real que PIDE UN DATO de esa persona —"NOMBRE
+// COMPLETO REPRESENTANTE LEGAL:", "RUT REPRESENTANTE LEGAL:", "CARGO REPRESENTANTE LEGAL:"— con la
+// frase pegada al FINAL, no sola. BUG REAL (FORMATOS_ADMINISTRATIVOS.docx, 15-sep-2026, reportado
+// por el usuario: "duplica las cosas... tampoco me lee el nombre del proyecto"): "NOMBRE COMPLETO
+// REPRESENTANTE LEGAL:" quedaba "(sin contexto)" porque RE_ROTULO_ES_FIRMA (pensado para el caption
+// DEBAJO de una raya de firma) descartaba cualquier mención de "representante legal", sin importar
+// si venía sola (ahí sí es un caption de firma) o con un dato real pegado adelante. Solo se excluye
+// acá cuando la frase aparece SOLA (nada de dato adelante, que en la práctica siempre es un caption
+// de firma) o cuando además menciona firma/timbre explícitamente.
+const RE_ROTULO_SOLO_REPRESENTANTE = /^representante(?:s)?\s*(?:\(s\))?\s+legal(?:es)?$|^persona\s+natural$/i;
+function esRotuloDeFirmaArribaDelBlanco(texto: string): boolean {
+  if (/f[ir]{2}ma|timbre/i.test(texto)) return true;
+  return RE_ROTULO_SOLO_REPRESENTANTE.test(texto.replace(/\s*:\s*$/, '').trim());
+}
+
 /**
  * El rótulo que le corresponde a la raya del párrafo `indice`, EMPAREJADO POR POSICIÓN. Un pie de
  * firma de dos columnas no alterna raya/rótulo: pone primero las dos rayas y después los dos
@@ -1314,7 +1354,7 @@ export function rotuloArribaDelBlanco(textoDe: (i: number) => string, indiceParr
   while (i >= 0 && saltos < LIMITE_SALTOS_ROTULO_ARRIBA) {
     const t = textoDe(i);
     if (!t) { i--; saltos++; continue; }
-    if (RE_TIENE_BLANCO_PROPIO.test(t) || RE_ROTULO_ES_FIRMA.test(t)) return '';
+    if (RE_TIENE_BLANCO_PROPIO.test(t) || esRotuloDeFirmaArribaDelBlanco(t)) return '';
     return esEtiquetaDeCampo(t) ? t.replace(/\s*:\s*$/, '') : '';
   }
   return '';
@@ -2649,9 +2689,33 @@ export function analizarAnexo(xml: string, { postulaComoUTP = false }: { postula
   const yaCubiertosComoVacio = new Set([...candidatosCeldaTodos.map(c => c.indice), ...lineasFirma.map(f => f.indice)]);
   // Ni siquiera un título de sección real (nunca un campo, ver indicesFilaTituloMergeada arriba).
   const indicesTituloMergeado = indicesFilaTituloMergeada(xml);
+  // Etiquetas que un blanco inline YA reclamó como su rótulo de ARRIBA (rotuloArribaDelBlanco) —
+  // ese blanco es una raya en su PROPIO párrafo, uno o más espaciados más abajo de la etiqueta, así
+  // que ni `yaCubiertos` (mira el índice de la etiqueta) ni `yaCubiertosComoVacio` (mira el índice
+  // INMEDIATO siguiente) lo detectan. BUG REAL (FORMATOS_ADMINISTRATIVOS.docx, 15-sep-2026): al
+  // dejar de ofrecer el párrafo vacío de espaciado como candidato de patrón 1 (ver el comentario de
+  // más arriba, detectarCandidatosCeldaCrudos), este patrón dejó de estar cubierto por
+  // `yaCubiertosComoVacio` y "NOMBRE COMPLETO DEL OFERENTE:" volvió a duplicarse — esta vez contra
+  // el patrón 2 (inline) directamente, en vez de contra el patrón 1. Misma etiqueta, mismo texto
+  // limpio (ambos quitan los dos puntos de la misma forma), así que el cruce es exacto.
+  //
+  // Acotado a `posEnParrafo === 0` a propósito: un `rotuloArriba` solo prueba que ESTE blanco es EL
+  // valor de esa etiqueta cuando el blanco es TODA la raya de su párrafo (nada antes) — la misma
+  // forma "etiqueta / espaciado / raya sola" del bug de arriba. REGRESIÓN encontrada por el propio
+  // test suite ("el RUT que cuelga de una firma..."): "RUT:" / "SANTIAGO, ____ DE ____ DEL 2026" —
+  // el blanco de la FECHA (que empieza a mitad de su párrafo, después de "SANTIAGO, ") también pide
+  // rotuloArribaDelBlanco cuando SU contexto local sale vacío (la coma corta el contexto local a
+  // nada) y hereda "RUT" como respaldo — pero ese blanco es la FECHA, no el RUT: no reemplaza a la
+  // casilla real de "RUT:". Sin este acote, la etiqueta "RUT" del patrón camposConDosPuntos se
+  // descartaba por error, perdiendo el campoFijo (representante_rut) que le asigna
+  // asignarCamposDeBloqueFirma más abajo.
+  const etiquetasYaCubiertasComoRotuloArriba = new Set(
+    blancosInline.filter(b => b.rotuloArriba && b.posEnParrafo === 0).map(b => b.rotuloArriba as string),
+  );
   const camposConDosPuntos = camposConDosPuntosSinFirma
     .filter(c => !yaCubiertos.has(c.indice) && !yaCubiertosComoVacio.has(c.indice + 1))
-    .filter(c => !indicesTituloMergeado.has(c.indice));
+    .filter(c => !indicesTituloMergeado.has(c.indice))
+    .filter(c => !etiquetasYaCubiertasComoRotuloArriba.has(c.etiqueta));
 
   return {
     parrafos, secciones, blancosInline, lineasFirma, indicesSoloManual, bloquesFirmaAmbiguos,

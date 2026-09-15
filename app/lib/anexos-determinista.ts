@@ -599,6 +599,15 @@ export const DICCIONARIO: Entrada[] = [
   { campo: 'licitacion_codigo', patrones: [
     /^(?:id|codigo|n[°º]|numero)(?: de(?: la)?)? (?:licitacion|adquisicion|proceso|propuesta)(?: publica)?$/,
     /^id(?: de)? mercado publico$/, /^licitacion (?:id|n[°º]|numero)$/, /^id$/,
+    // "ADQUISICIÓN CHILE COMPRA ID N°:" — orden INVERTIDO al de las reglas de arriba (que exigen
+    // ID/CÓDIGO/N°/NÚMERO primero y "licitación/adquisición" después). BUG REAL
+    // (FORMATOS_ADMINISTRATIVOS.docx, 15-sep-2026, reportado por el usuario: "no me lee el nombre
+    // del proyecto ni el id y eso es básico"): el organismo copia el rótulo TAL CUAL lo muestra el
+    // propio portal de Mercado Público ("N° de Adquisición" / "ID ChileCompra" fusionados en una
+    // sola etiqueta), con "adquisición" AL PRINCIPIO — ninguna entrada de arriba lo cubre, así que
+    // la casilla quedaba pendiente sin ningún motivo (a diferencia de "Nombre del Proyecto", que sí
+    // se reconoce y solo falló porque la API de MP no respondió esta vez).
+    /^adquisicion(?: chile\s*compra)? id(?: n[°º]?)?$/,
   ] },
   { campo: 'licitacion_nombre', patrones: [
     /^nombre(?: de(?: la)?)? licitacion(?: publica)?$/, /^licitacion publica$/,

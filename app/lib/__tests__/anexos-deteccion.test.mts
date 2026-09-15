@@ -2239,3 +2239,65 @@ test('checkboxes: un checkbox SUELTO (sin hermano en su fila) no forma grupo —
   const grupos = analizarAnexo(normalizarParaIds(xml).xml).gruposCheckbox;
   assert.equal(grupos.length, 0);
 });
+
+// BUG REAL (FORMATOS_ADMINISTRATIVOS.docx, 15-sep-2026, reportado por el usuario con captura:
+// "me duplica las cosas... tampoco me lee el nombre del proyecto ni el id"): "NOMBRE COMPLETO DEL
+// OFERENTE:" / <párrafo vacío, puro espaciado> / "______" en TRES párrafos separados generaba DOS
+// candidatos independientes para el MISMO dato — uno de patrón 1 (etiqueta + celda vacía,
+// apuntando al párrafo de espaciado) y otro de patrón 2 (inline, la raya real, vía
+// rotuloArribaDelBlanco) — así que el motor de relleno escribía el mismo valor dos veces.
+test('etiqueta / párrafo vacío de espaciado / raya, en TRES párrafos: un solo candidato, no dos (regresión FORMATOS_ADMINISTRATIVOS.docx)', () => {
+  const xml = unificarRunsDeMarcadores(normalizarParaIds(
+    NS + p('NOMBRE COMPLETO DEL OFERENTE:') + p('') + p('_'.repeat(70)) + FIN,
+  ).xml);
+  const analisis = analizarAnexo(xml);
+  assert.equal(analisis.candidatosCelda.length, 0, 'patrón 1 no debe ofrecer el párrafo vacío de espaciado');
+  assert.equal(analisis.camposConDosPuntos.length, 0, 'tampoco patrón "campo con dos puntos"');
+  assert.equal(analisis.blancosInline.length, 1);
+  assert.equal(analisis.blancosInline[0].rotuloArriba, 'NOMBRE COMPLETO DEL OFERENTE');
+
+  const empresa = { razon_social: 'Inversiones Claro ARZ SPA' } as unknown as EmpresaCampos;
+  const resultado = resolverDeterminista({
+    candidatos: analisis.candidatosCelda, blancosInline: analisis.blancosInline,
+    parrafos: analisis.parrafos, empresa,
+  });
+  assert.equal(resultado.inline.size, 1);
+  assert.equal(([...resultado.inline.values()][0] as any).valor, 'Inversiones Claro ARZ SPA');
+});
+
+// BUG REAL (mismo caso): "NOMBRE COMPLETO REPRESENTANTE LEGAL:" quedaba "(sin contexto)" porque
+// RE_ROTULO_ES_FIRMA (pensada para el caption DEBAJO de una raya de firma, ej. "FIRMA REPRESENTANTE
+// LEGAL") se reusaba también para el rótulo ARRIBA de un blanco, donde "representante legal" casi
+// siempre es la COLA de una etiqueta real que pide un dato de esa persona, no un caption de firma.
+test('rotuloArribaDelBlanco: "NOMBRE COMPLETO REPRESENTANTE LEGAL:" resuelve, no queda "(sin contexto)" (regresión FORMATOS_ADMINISTRATIVOS.docx)', () => {
+  const xml = unificarRunsDeMarcadores(normalizarParaIds(
+    NS + p('NOMBRE COMPLETO REPRESENTANTE LEGAL:') + p('') + p('_'.repeat(70)) + FIN,
+  ).xml);
+  const analisis = analizarAnexo(xml);
+  assert.equal(analisis.blancosInline[0].rotuloArriba, 'NOMBRE COMPLETO REPRESENTANTE LEGAL');
+
+  const empresa = { representante_nombre: 'Santiago Osvaldo López Palavecino' } as unknown as EmpresaCampos;
+  const resultado = resolverDeterminista({
+    candidatos: [], blancosInline: analisis.blancosInline, parrafos: analisis.parrafos, empresa,
+  });
+  assert.equal(([...resultado.inline.values()][0] as any).valor, 'Santiago Osvaldo López Palavecino');
+});
+
+// Guardarraíl: un rótulo ARRIBA que SÍ es puramente un caption de firma (sin ningún dato pegado
+// adelante) se sigue descartando — esto no debe reabrirse.
+test('rotuloArribaDelBlanco: "REPRESENTANTE LEGAL" a secas sigue sin contexto (no es un campo, es un caption de firma)', () => {
+  const xml = unificarRunsDeMarcadores(normalizarParaIds(
+    NS + p('REPRESENTANTE LEGAL') + p('') + p('_'.repeat(70)) + FIN,
+  ).xml);
+  const analisis = analizarAnexo(xml);
+  assert.equal(analisis.blancosInline[0].rotuloArriba, undefined);
+});
+
+// BUG REAL (id licitación en orden invertido, mismo caso): el organismo copia el rótulo tal cual lo
+// muestra el propio portal de Mercado Público, con "adquisición" AL PRINCIPIO en vez de "ID"/"N°"
+// primero — ninguna entrada previa del diccionario lo cubría.
+test('campoDeEtiquetaInequivoca: "ADQUISICIÓN CHILE COMPRA ID N°" (orden invertido) resuelve a licitacion_codigo', async () => {
+  const { campoDeEtiquetaInequivoca } = await import('../anexos-determinista');
+  assert.equal(campoDeEtiquetaInequivoca('ADQUISICIÓN CHILE COMPRA ID N°:'), 'licitacion_codigo');
+  assert.equal(campoDeEtiquetaInequivoca('Adquisición ID'), 'licitacion_codigo');
+});
