@@ -20,6 +20,7 @@ interface Aprobacion {
   resueltoPorNombre: string | null; resueltoAt: string | null; comentarioResolucion: string | null;
 }
 interface Margen { ventaNeta: number | null; costoNeto: number | null; margenPct: number | null; fuenteCosto: string | null }
+interface Presupuesto { presupuestoOriginal: number | null; costoEscenario: number | null; excedePct: number | null; excede: boolean; costoFlete: number | null }
 interface Sku { id: number; productoId: number; skuPropio: string; skuProveedor: string | null; proveedorNombre: string | null; marca: string | null; modelo: string | null; obumaProductoId: string | null; obumaCodigoComercial: string | null }
 interface SubcategoriaObuma { id: string; nombre: string }
 interface ObumaCoincidencia { id: string; nombre: string; codigoComercial: string; categoriaId: string; subcategoriaId: string }
@@ -39,12 +40,19 @@ const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('
 // aviso de duplicados si el parecido está dentro de "Mercado Publico" o en otra categoría de Obuma.
 const OBUMA_CATEGORIA_MERCADO_PUBLICO_UI = '13255';
 
-function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar, onProponer, onResolver, resumen }: {
+function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar, onProponer, onResolver, resumen, requiereMotivo, motivoLabel, desactualizada }: {
   tipo: Tipo; titulo: string; aprobacion: Aprobacion | null; esJefeDeVentas: boolean; puedeOperar: boolean;
-  onProponer: () => void; onResolver: (decision: Decision, comentario: string | null) => void; resumen: React.ReactNode;
+  onProponer: (motivo: string | null) => void; onResolver: (decision: Decision, comentario: string | null) => void; resumen: React.ReactNode;
+  requiereMotivo?: boolean; motivoLabel?: string; desactualizada?: boolean;
 }) {
   const [comentario, setComentario] = useState('');
   const [decidiendo, setDecidiendo] = useState(false);
+  // Antes: cuando la compuerta necesitaba motivo (margen bajo 20%, o ahora sobre presupuesto), el
+  // botón tiraba directo un error del servidor ("requiere motivo") sin que hubiera DÓNDE escribirlo
+  // en pantalla — el encargado quedaba atascado sin saber qué hacer. Ahora el campo aparece solo
+  // cuando hace falta, y el botón queda deshabilitado (no un error sorpresa) hasta que se llena.
+  const [motivoPropuesta, setMotivoPropuesta] = useState('');
+  const puedeProponer = !requiereMotivo || motivoPropuesta.trim().length > 0;
 
   return (
     <div className="bg-white rounded-xl border border-zinc-200 p-3.5">
@@ -56,6 +64,13 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
       </div>
       <div className="mt-1.5 text-[11.5px] text-zinc-500">{resumen}</div>
 
+      {desactualizada && (
+        <p className="mt-1.5 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1 flex items-start gap-1">
+          <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" />
+          Esto quedó desactualizado — el escenario elegido cambió después de proponerse. Vuelve a proponer con los datos actuales antes de aprobar. Si además cargaste una cotización nueva, primero ve a <b>Costeo y Auditoría → Escenarios</b> y confirma el monto ahí — acá solo se refleja lo que ya quedó elegido.
+        </p>
+      )}
+
       {aprobacion?.motivo && <p className="mt-1.5 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">{aprobacion.motivo}</p>}
       {aprobacion?.comentarioResolucion && (
         <p className="mt-1.5 text-[11px] text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-lg px-2 py-1">
@@ -63,10 +78,25 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
         </p>
       )}
 
-      {(!aprobacion || aprobacion.estado === 'RECHAZADA') && puedeOperar && (
-        <button onClick={onProponer} className="mt-2 text-[11.5px] font-semibold text-teal-700 hover:text-teal-800">
-          Proponer para aprobación
-        </button>
+      {/* Antes solo aparecía sin propuesta o rechazada — una compuerta invalidada vuelve a
+          PENDIENTE (§10.5) con el snapshot VIEJO y no había forma de refrescarlo: el encargado
+          quedaba atascado (no podía aprobar por el bloqueo de arriba, ni corregirlo). Ahora también
+          se puede volver a proponer estando PENDIENTE — útil siempre, imprescindible si está
+          desactualizada. */}
+      {(!aprobacion || aprobacion.estado === 'RECHAZADA' || aprobacion.estado === 'PENDIENTE') && puedeOperar && (
+        <div className="mt-2 space-y-1.5">
+          {requiereMotivo && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-2">
+              <p className="text-[10.5px] font-bold text-amber-700 flex items-center gap-1"><AlertTriangle size={11} /> Necesita un motivo para proponerse</p>
+              <input value={motivoPropuesta} onChange={e => setMotivoPropuesta(e.target.value)} placeholder={motivoLabel || 'Motivo…'}
+                className="mt-1 w-full text-[11.5px] border border-amber-300 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-amber-500 bg-white" />
+            </div>
+          )}
+          <button onClick={() => onProponer(motivoPropuesta.trim() || null)} disabled={!puedeProponer}
+            className={`text-[11.5px] font-semibold disabled:text-zinc-300 disabled:cursor-not-allowed ${desactualizada ? 'text-rose-700 hover:text-rose-800' : 'text-teal-700 hover:text-teal-800'}`}>
+            {aprobacion?.estado === 'PENDIENTE' ? 'Actualizar propuesta' : 'Proponer para aprobación'}
+          </button>
+        </div>
       )}
 
       {aprobacion?.estado === 'PENDIENTE' && esJefeDeVentas && (
@@ -98,6 +128,8 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
   const [compra, setCompra] = useState<Aprobacion | null>(null);
   const [margen, setMargen] = useState<Aprobacion | null>(null);
   const [margenActual, setMargenActual] = useState<Margen | null>(null);
+  const [presupuestoActual, setPresupuestoActual] = useState<Presupuesto | null>(null);
+  const [escenarioElegidoActual, setEscenarioElegidoActual] = useState<{ tipo: string; costoTotal: number } | null>(null);
   const [esJefeDeVentas, setEsJefeDeVentas] = useState(false);
   const [skus, setSkus] = useState<Sku[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -126,6 +158,16 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
   // a mano antes de que el botón "Guardar" quede habilitado.
   const [costoPreview, setCostoPreview] = useState<{ estado: 'idle' | 'cargando' | 'listo' | 'sin_datos'; monto: number | null; escenarioTipo: string | null }>({ estado: 'idle', monto: null, escenarioTipo: null });
   const [costoConfirmado, setCostoConfirmado] = useState(false);
+  // Sugerencia del documento leído (pedido explícito del usuario, 15-sep-2026: "debe de ser capaz
+  // de poder darme como referencia el nombre del producto de la cotización si ya lo leyó y lo
+  // guardó en la base de datos... y así en todo lo que tenga que llenar lo puede ver"). Prellena
+  // Proveedor solo (dato literal, sin ambigüedad); Marca/Modelo NUNCA se autocompletan solos —
+  // el documento no los trae como campos separados y adivinarlos sería inventar un dato que se
+  // manda tal cual a Obuma — se muestran como texto de referencia para copiar a mano.
+  const [sugerenciaSku, setSugerenciaSku] = useState<
+    { estado: 'idle' } | { estado: 'cargando' } |
+    { estado: 'listo'; proveedorNombre: string | null; descripcionLibre: string | null; archivoUrl: string | null; archivoNombre: string | null }
+  >({ estado: 'idle' });
   const [verificandoObumaId, setVerificandoObumaId] = useState<number | null>(null);
 
   // Nombre para Obuma = Tipo + Atributo + Marca + Modelo (estos dos últimos ya están arriba, en el
@@ -141,7 +183,10 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
         fetch(`/api/compras/${negocioId}/aprobaciones`), fetch(`/api/compras/${negocioId}/sku`), fetch(`/api/compras/${negocioId}/productos`),
       ]);
       const [dA, dS, dP] = await Promise.all([rA.json(), rS.json(), rP.json()]);
-      if (dA.success) { setCompra(dA.compra); setMargen(dA.margen); setMargenActual(dA.margenActual); setEsJefeDeVentas(dA.esJefeDeVentas); }
+      if (dA.success) {
+        setCompra(dA.compra); setMargen(dA.margen); setMargenActual(dA.margenActual); setPresupuestoActual(dA.presupuestoActual);
+        setEscenarioElegidoActual(dA.escenarioElegidoActual); setEsJefeDeVentas(dA.esJefeDeVentas);
+      }
       if (dS.success) setSkus(dS.skus || []);
       if (dP.success) setProductos((dP.productos || []).filter((p: any) => p.subestado !== 'RENUNCIADO'));
     } catch (e: any) {
@@ -215,10 +260,37 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
     return () => { cancelado = true; };
   }, [formSku.crearEnObuma, formSkuProducto, negocioId]);
 
-  const proponer = async (tipo: Tipo) => {
+  // Sugerencia del documento leído — se pide apenas se abre el formulario para un producto, sin
+  // esperar a que se marque "Crear también en Obuma" (a diferencia del preview de costo de arriba,
+  // esto sirve igual aunque el SKU sea puramente interno). Reusa el mismo endpoint de costo-preview
+  // (ya devuelve la sugerencia junto al costo) para no duplicar la consulta al escenario elegido.
+  useEffect(() => {
+    setSugerenciaSku({ estado: 'idle' });
+    if (!formSkuProducto) return;
+    let cancelado = false;
+    setSugerenciaSku({ estado: 'cargando' });
+    fetch(`/api/compras/${negocioId}/sku/costo-preview?productoId=${formSkuProducto}`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelado) return;
+        const s = data?.sugerencia;
+        if (!data.success || !s) { setSugerenciaSku({ estado: 'idle' }); return; }
+        setSugerenciaSku({
+          estado: 'listo', proveedorNombre: s.proveedorNombre, descripcionLibre: s.descripcionLibre,
+          archivoUrl: s.archivoUrl, archivoNombre: s.archivoNombre,
+        });
+        // Solo prellena Proveedor (dato literal de la cotización) — nunca pisa lo que la persona
+        // ya escribió a mano.
+        if (s.proveedorNombre) setFormSku(f => f.proveedorNombre.trim() ? f : { ...f, proveedorNombre: s.proveedorNombre });
+      })
+      .catch(() => { if (!cancelado) setSugerenciaSku({ estado: 'idle' }); });
+    return () => { cancelado = true; };
+  }, [formSkuProducto, negocioId]);
+
+  const proponer = async (tipo: Tipo, motivo?: string | null) => {
     try {
       const res = await fetch(`/api/compras/${negocioId}/aprobaciones`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tipo, motivo: motivo || undefined }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo proponer');
@@ -338,6 +410,12 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
   if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
 
   const compraAprobada = compra && ['APROBADA', 'APROBADA_CON_MODIFICACION'].includes(compra.estado);
+  // §10.5: la propuesta queda como un snapshot congelado — si después se elige otro escenario, ese
+  // snapshot no se actualiza solo (invalidarAprobacionesCompras solo cambia el estado). Se compara
+  // contra el escenario elegido EN VIVO para avisar en vez de dejar el número viejo sin marcar.
+  const compraDesactualizada = !!(compra?.detalle && escenarioElegidoActual
+    && (compra.detalle.escenarioTipo !== escenarioElegidoActual.tipo
+      || Math.abs(Number(compra.detalle.costoTotal) - escenarioElegidoActual.costoTotal) > 1));
 
   return (
     <div className="space-y-3">
@@ -345,14 +423,36 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <BloqueCompuerta
           tipo="COMPRA" titulo="Compuerta 1 — Aprobación de compra" aprobacion={compra} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
-          onProponer={() => proponer('COMPRA')} onResolver={(d, c) => resolver('COMPRA', d, c)}
-          resumen={compra?.detalle ? (
-            <span>Escenario: <b>{compra.detalle.escenarioTipo}</b> · {fmtCLP(compra.detalle.costoTotal)}</span>
-          ) : <span>Elige un escenario en el Auditor de Compras y proponlo acá.</span>}
+          onProponer={(motivo) => proponer('COMPRA', motivo)} onResolver={(d, c) => resolver('COMPRA', d, c)}
+          requiereMotivo={!!presupuestoActual?.excede} motivoLabel="¿Por qué se compra sobre el presupuesto costeado?"
+          desactualizada={compraDesactualizada}
+          resumen={<>
+            {compra?.detalle ? (
+              <span className={compraDesactualizada ? 'line-through text-zinc-400' : ''}>Escenario: <b>{compra.detalle.escenarioTipo}</b> · {fmtCLP(compra.detalle.costoTotal)}</span>
+            ) : <span>Elige un escenario en el Auditor de Compras y proponlo acá.</span>}
+            {compraDesactualizada && escenarioElegidoActual && (
+              <span className="block mt-0.5 font-semibold text-zinc-700">Vigente ahora: <b>{escenarioElegidoActual.tipo}</b> · {fmtCLP(escenarioElegidoActual.costoTotal)}</span>
+            )}
+            {presupuestoActual?.presupuestoOriginal != null && presupuestoActual?.costoEscenario != null && (
+              <div className={`mt-1.5 rounded-lg px-2 py-1 text-[10.5px] font-medium ${presupuestoActual.excede ? 'bg-rose-50 text-rose-700 border border-rose-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}`}>
+                {presupuestoActual.excede && <AlertTriangle size={11} className="inline mr-1 -mt-0.5" />}
+                Presupuesto costeado (mercadería): {fmtCLP(presupuestoActual.presupuestoOriginal)} · Comprando (mercadería): {fmtCLP(presupuestoActual.costoEscenario)}
+                {presupuestoActual.excede ? ` — ${presupuestoActual.excedePct}% sobre lo previsto` : ' — dentro de presupuesto'}
+                {/* Flete aparte, informativo — nunca cuenta como "exceso de presupuesto" (el costeo
+                    original no cotiza logística, spec §8.10.2). Pedido explícito del usuario,
+                    14-sep-2026: comparar mercadería contra mercadería+flete disparaba el aviso
+                    aunque los productos en sí se hubieran cotizado dentro de lo previsto. */}
+                {presupuestoActual.costoFlete != null && presupuestoActual.costoFlete > 0 && (
+                  <span className="block mt-0.5 font-normal opacity-80">+ {fmtCLP(presupuestoActual.costoFlete)} de flete (aparte, no cuenta para este control).</span>
+                )}
+              </div>
+            )}
+          </>}
         />
         <BloqueCompuerta
           tipo="MARGEN" titulo="Compuerta 2 — Aprobación de margen" aprobacion={margen} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
-          onProponer={() => proponer('MARGEN')} onResolver={(d, c) => resolver('MARGEN', d, c)}
+          onProponer={(motivo) => proponer('MARGEN', motivo)} onResolver={(d, c) => resolver('MARGEN', d, c)}
+          requiereMotivo={margenActual?.margenPct != null && margenActual.margenPct < 20} motivoLabel="¿Por qué se aprueba con margen bajo el 20%?"
           resumen={margenActual?.margenPct != null ? (
             <span className={margenActual.margenPct < 20 ? 'text-rose-600 font-semibold flex items-center gap-1' : ''}>
               {margenActual.margenPct < 20 && <AlertTriangle size={12} />} Margen previsto: {margenActual.margenPct}%
@@ -361,6 +461,11 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
           ) : <span>Sin datos suficientes para calcular margen todavía.</span>}
         />
       </div>
+      {!compra && !margen && (
+        <p className="text-[10.5px] text-zinc-400 px-0.5">
+          El control de gasto compara automáticamente lo costeado al ofertar y el margen mínimo (20%) contra lo que de verdad se va a comprar — la orden de compra en Obuma no se habilita hasta que ambas compuertas queden aprobadas.
+        </p>
+      )}
 
       {compraAprobada && (
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
@@ -433,6 +538,23 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
                   )}
                   {formSkuProducto === p.id && (
                     <div className="mt-2 space-y-1.5">
+                      {/* Sugerencia del documento leído (pedido explícito, 15-sep-2026): Marca/Modelo
+                          no se autocompletan solos (el documento no los trae como campos separados,
+                          adivinarlos sería inventar), pero se muestra el texto del documento ya
+                          leído para copiar el nombre exacto sin volver a abrir el PDF. */}
+                      {sugerenciaSku.estado === 'listo' && (sugerenciaSku.descripcionLibre || sugerenciaSku.archivoUrl) && (
+                        <div className="text-[10.5px] text-indigo-700 bg-indigo-50/60 border border-indigo-100 rounded-lg px-2.5 py-2">
+                          <p className="font-semibold mb-0.5 flex items-center gap-1"><Zap size={10} /> Del documento ya leído — copia Marca/Modelo de acá si aparecen:</p>
+                          {sugerenciaSku.descripcionLibre && (
+                            <p className="text-zinc-600 line-clamp-3 whitespace-pre-line">{sugerenciaSku.descripcionLibre}</p>
+                          )}
+                          {sugerenciaSku.archivoUrl && (
+                            <a href={sugerenciaSku.archivoUrl} target="_blank" rel="noopener noreferrer" className="inline-block mt-1 font-semibold underline">
+                              Ver documento{sugerenciaSku.archivoNombre ? ` (${sugerenciaSku.archivoNombre})` : ''}
+                            </a>
+                          )}
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-1.5">
                         {formSku.crearEnObuma ? (
                           <p className="col-span-2 text-[10.5px] text-indigo-600 bg-indigo-50/60 border border-indigo-100 rounded-lg px-2 py-1.5 flex items-center gap-1">

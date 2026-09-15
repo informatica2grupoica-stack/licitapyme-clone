@@ -119,17 +119,32 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //   compras_bodega    → perfil "bodega" de §2.2, mismo momento. ADITIVO: abre solo la verificación
 //                       física de la entrega (§16.4, "hoy la ejecuta el propio encargado de
 //                       compras; cuando exista bodeguero, él dará el visto bueno").
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega';
+//   compras_todo      → CASO ESPECIAL (sep-2026, pedido explícito del usuario): "antes se podía ver
+//                       [Compras] por todos los admin, ahora solo el perfil de asesor... y yo el
+//                       super user". A diferencia de TODOS los demás permisos de esta lista, este
+//                       NO se hereda gratis por ser admin — ver el comentario en permisosDeUsuario
+//                       más abajo. Sirve para separar "cualquier admin de la cuenta" de "las dos
+//                       personas que de verdad deben ver el módulo completo" (hoy: Asesor y el
+//                       dueño del proyecto) sin tocar ningún otro permiso admin en el resto del
+//                       sistema. Los perfiles operativos (compras/compras_administracion/
+//                       compras_bodega/aprobar_comercial, o ser el encargado asignado a un negocio
+//                       puntual) siguen funcionando exactamente igual, sean o no admin.
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
   aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true, repartir_puente: true, compras: true,
   compras_administracion: true, compras_bodega: true,
+  compras_todo: false, // OJO: distinto de todo lo demás en este objeto — ver permisosDeUsuario, se sobreescribe con el dato real incluso para admin.
 };
 
-/** Lee los permisos efectivos de un usuario por id+rol. Admin → todos. Tolera columna ausente. */
-export async function permisosDeUsuario(userId: number, rol?: string | null): Promise<Permisos> {
-  if (rol === 'admin') return { ...PERMISOS_ADMIN };
+/** Permisos SIN el auto-otorgamiento de admin — lee lo que de verdad tiene guardado el usuario,
+ *  sea admin o no. Úsalo cuando "ser admin" NO debe bastar por sí solo (hoy: todo el círculo de
+ *  acceso del módulo de Compras, ver el comentario de `compras_todo` más arriba) — si usaras
+ *  `permisosDeUsuario` ahí, un admin cualquiera seguiría entrando igual por `compras` o
+ *  `aprobar_comercial`, que SÍ se auto-otorgan a todo admin; esta función es la única forma de
+ *  evitar ese auto-otorgamiento para un permiso puntual. */
+export async function permisosCrudosDeUsuario(userId: number): Promise<Permisos> {
   try {
     const [rows] = await pool.query('SELECT permisos FROM usuarios WHERE id = ? LIMIT 1', [userId]);
     const raw = (rows as any[])[0]?.permisos;
@@ -139,6 +154,19 @@ export async function permisosDeUsuario(userId: number, rol?: string | null): Pr
   } catch {
     return {}; // columna aún no existe (migración pendiente) → sin permisos extra
   }
+}
+
+/** Lee los permisos efectivos de un usuario por id+rol. Admin → todos, CON UNA EXCEPCIÓN:
+ *  `compras_todo` nunca se hereda gratis por ser admin (pedido explícito, ver el comentario del
+ *  catálogo de permisos arriba) — se lee de la ficha real del usuario incluso para admin, para que
+ *  "ser admin" y "ver el módulo de Compras completo" dejen de ser la misma cosa. Todo lo demás
+ *  sigue exactamente igual que antes para cualquier admin. */
+export async function permisosDeUsuario(userId: number, rol?: string | null): Promise<Permisos> {
+  if (rol === 'admin') {
+    const real = await permisosCrudosDeUsuario(userId);
+    return { ...PERMISOS_ADMIN, compras_todo: !!real.compras_todo };
+  }
+  return permisosCrudosDeUsuario(userId);
 }
 
 /**

@@ -10,6 +10,7 @@
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { registrarEvento } from '@/app/lib/historial';
+import { proveedorPorRut } from '@/app/lib/obuma';
 
 export type CategoriaFletero = 'UNICA' | 'CONSOLIDADA';
 export type ModalidadRetiro = 'INTERNA' | 'EXTERNA' | 'MIXTA';
@@ -61,9 +62,30 @@ export interface DatosFletero {
   incluyeDescarga?: boolean; tienePionetas?: boolean; plazoDespachoDias?: number | null; zonas?: string[];
 }
 
-/** Alta de fletero (§13.3). El RUT es el enganche con OBUMA para identidad/histórico económico —
- *  no se valida contra la API acá (esa dirección de sincronización sigue sin resolverse, igual que
- *  con el SKU, §7.5); es solo el dato de enganche para cuando se resuelva. */
+export interface IdentidadFleteroObuma {
+  rut: string; razonSocial: string; contacto: string | null; direccion: string | null; comuna: string | null;
+}
+
+/** §13.3: "Se puebla desde OBUMA, que conecta con facturas y proveedores" — la IDENTIDAD del
+ *  fletero (razón social, RUT) sale de ahí, no se tipea a ciegas; solo lo OPERATIVO (capacidad,
+ *  tipo de camión, costo/km, pionetas, zonas, nota, pana) es propio de Licitank y no existe en
+ *  OBUMA (§13.3, "advertencia técnica"). Antes `crearFletero` guardaba el RUT como un dato suelto
+ *  "para cuando se resuelva la integración" y nunca se consultaba — esto lo resuelve: se busca por
+ *  RUT ANTES de crear, igual que ya hace `verificarProveedorEnObuma` para proveedores de producto
+ *  (compras-oc-obuma.ts). Devuelve null si el RUT no tiene facturas/registro en OBUMA todavía (un
+ *  fletero nuevo, nunca contratado antes, es un caso real — no se bloquea el alta por eso). */
+export async function buscarFleteroEnObuma(rut: string): Promise<IdentidadFleteroObuma | null> {
+  const p = await proveedorPorRut(rut);
+  if (!p) return null;
+  return {
+    rut: p.proveedor_rut, razonSocial: p.proveedor_razon_social,
+    contacto: p.proveedor_contacto || null, direccion: p.proveedor_direccion || null, comuna: p.proveedor_comuna || null,
+  };
+}
+
+/** Alta de fletero (§13.3). El nombre/RUT deberían venir de `buscarFleteroEnObuma` (identidad real,
+ *  spec §13.3) — se acepta igual sin ese paso para un fletero que todavía no tiene facturas en OBUMA
+ *  (contratado por primera vez), pero la UI ofrece la búsqueda antes de escribir nada a mano. */
 export async function crearFletero(datos: DatosFletero, actorId: number, actorNombre: string | null): Promise<number> {
   if (!datos.nombre?.trim()) throw new Error('Falta el nombre del fletero.');
   if (!['UNICA', 'CONSOLIDADA'].includes(datos.categoria)) throw new Error('Categoría inválida.');

@@ -24,6 +24,8 @@ export interface UsuarioSession {
     compras?: boolean;
     compras_administracion?: boolean;
     compras_bodega?: boolean;
+    // Único permiso que NO viene gratis con `rol==='admin'` (10-sep-2026) — ver api-auth.ts.
+    compras_todo?: boolean;
   };
   // Frente C.1: ¿ve por defecto solo la Tarjeta de Decisión (resumen) en vez de los 4 módulos
   // de detalle? El propio usuario puede graduarse desde el botón "Ver análisis completo".

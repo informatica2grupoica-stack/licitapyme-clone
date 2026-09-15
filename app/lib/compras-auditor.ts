@@ -39,8 +39,20 @@ export interface DatosCotizacion {
   proveedorId?: number | null; // engancha al catálogo de compras-proveedores.ts, si se eligió uno
   origen: OrigenCotizacion;
   descripcionLibre?: string | null;
-  precioUnitario?: number | null; precioTotal?: number | null; moneda?: string;
+  // `precioUnitario`/`precioTotal` que llegan acá son BRUTOS (lo que dice el documento, antes de
+  // descuento) — `descuentoPct`, si viene, se aplica adentro de registrarCotizacion para calcular el
+  // NETO real, que es el que termina guardado en `precio_unitario`/`precio_total` (mismo campo de
+  // siempre — nada río abajo tuvo que enterarse de que existe un descuento). Pedido explícito del
+  // usuario (14-sep-2026, caso real Trotec Chile 4%): sin esto, cada cotización con descuento se
+  // guardaba con el precio de ANTES de negociar, y el cuadro comparativo/escenarios/margen nunca
+  // veían lo barato que salió de verdad.
+  precioUnitario?: number | null; precioTotal?: number | null; descuentoPct?: number | null; moneda?: string;
   plazoEntregaTexto?: string | null; plazoEntregaDias?: number | null;
+  // Cargo REAL de flete que cobra el proveedor, si lo desglosa en el documento (pedido explícito,
+  // 14-sep-2026: "si pongo no incluye flete es porque nos cobran el flete pero no me deja poner
+  // cuánto es"). Cuando viene, `calcularEscenarios` lo usa en vez de adivinar con el interno fijo
+  // ($40.000, §8.10.2) — ver el comentario largo en la función `armar` más abajo.
+  fleteMonto?: number | null;
   incluyeFlete?: boolean | null; direccionBodega?: string | null;
   fichaTecnicaUrl?: string | null; archivoUrl?: string | null; archivoNombre?: string | null;
   tomadaAt?: string | null; // si no viene, se usa ahora
@@ -83,6 +95,18 @@ export async function registrarCotizacion(
   // función NUNCA debe dejar pasar un NaN a la base de datos pase lo que pase río arriba.
   if (datos.precioUnitario != null && !Number.isFinite(datos.precioUnitario)) datos.precioUnitario = null;
   if (datos.precioTotal != null && !Number.isFinite(datos.precioTotal)) datos.precioTotal = null;
+  if (datos.descuentoPct != null && (!Number.isFinite(datos.descuentoPct) || datos.descuentoPct <= 0 || datos.descuentoPct >= 100)) datos.descuentoPct = null;
+
+  // Descuento (pedido explícito del usuario, 14-sep-2026): se aplica ACÁ, una sola vez, ANTES de
+  // que el resto de la función toque `precioUnitario`/`precioTotal` — así la conversión de moneda,
+  // el guardado y el evento de historial de más abajo ya trabajan con el NETO real sin saber que
+  // existe un descuento. El bruto se guarda aparte, solo para mostrar el desglose.
+  const precioUnitarioBruto = datos.descuentoPct != null ? datos.precioUnitario : null;
+  if (datos.descuentoPct != null) {
+    const factor = 1 - datos.descuentoPct / 100;
+    if (datos.precioUnitario != null) datos.precioUnitario = Math.round(datos.precioUnitario * factor);
+    if (datos.precioTotal != null) datos.precioTotal = Math.round(datos.precioTotal * factor);
+  }
 
   // Conversión a CLP (hallazgo real 09-sep-2026, cotización de Unisource en USD): el cuadro
   // comparativo y los escenarios comparan precios — comparar USD contra CLP sin convertir es un
@@ -93,16 +117,20 @@ export async function registrarCotizacion(
   let tipoCambioUsado: number | null = null;
   let precioUnitarioClp = datos.precioUnitario ?? null;
   let precioTotalClp = datos.precioTotal ?? null;
+  // `flete_monto` se guarda SIEMPRE en CLP (es lo que `calcularEscenarios` suma directo al costo del
+  // escenario, que ya trabaja 100% en CLP) — mismo criterio de conversión que precioUnitario/Total.
+  let fleteMontoClp = datos.fleteMonto ?? null;
   if (moneda !== 'CLP') {
     const tc = await obtenerTipoCambio(moneda);
     if (tc) {
       tipoCambioUsado = tc.valor;
       precioUnitarioClp = datos.precioUnitario != null ? Math.round(datos.precioUnitario * tc.valor) : null;
       precioTotalClp = datos.precioTotal != null ? Math.round(datos.precioTotal * tc.valor) : null;
+      fleteMontoClp = datos.fleteMonto != null ? Math.round(datos.fleteMonto * tc.valor) : null;
     } else {
       // Sin tipo de cambio disponible: NO se inventa un valor CLP — queda sin convertir y el
       // cuadro comparativo/escenarios la excluyen hasta que se pueda convertir.
-      precioUnitarioClp = null; precioTotalClp = null;
+      precioUnitarioClp = null; precioTotalClp = null; fleteMontoClp = null;
     }
   }
 
@@ -118,16 +146,18 @@ export async function registrarCotizacion(
   const [r] = await pool.query(
     `INSERT INTO compras_cotizacion
        (negocio_id, proveedor_id, proveedor_nombre, proveedor_rut, origen, descripcion_libre, precio_unitario, precio_total,
+        precio_unitario_bruto, descuento_pct,
         moneda, tipo_cambio_usado, precio_unitario_clp, precio_total_clp,
-        plazo_entrega_texto, plazo_entrega_dias, incluye_flete, direccion_bodega, ficha_tecnica_url,
+        plazo_entrega_texto, plazo_entrega_dias, incluye_flete, flete_monto, direccion_bodega, ficha_tecnica_url,
         archivo_url, archivo_nombre, registrado_por, registrado_por_nombre, tomada_at, vigencia_at, notas, created_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       negocioId, proveedorId || null, proveedorNombre.slice(0, 300), proveedorRut || null, datos.origen,
       datos.descripcionLibre || null, datos.precioUnitario ?? null, datos.precioTotal ?? null,
+      precioUnitarioBruto ?? null, datos.descuentoPct ?? null,
       moneda, tipoCambioUsado, precioUnitarioClp, precioTotalClp,
       datos.plazoEntregaTexto || null, plazoEntregaDias,
-      datos.incluyeFlete == null ? null : (datos.incluyeFlete ? 1 : 0), datos.direccionBodega || null,
+      datos.incluyeFlete == null ? null : (datos.incluyeFlete ? 1 : 0), fleteMontoClp, datos.direccionBodega || null,
       datos.fichaTecnicaUrl || null, datos.archivoUrl || null, datos.archivoNombre || null,
       actorId, actorNombre, datos.tomadaAt || ahora, datos.vigenciaAt || null, datos.notas || null, ahora,
     ],
@@ -152,9 +182,17 @@ export async function registrarCotizacion(
     // sentido que el agente adivine encima, y hacerlo igual era una condición de carrera real: la
     // homologación es asíncrona y podía sobreescribir minutos después (vía el mismo UPSERT que usa
     // para su propio resultado) lo que el comprador acababa de tipear a mano.
+    // BUG REAL (15-sep-2026, negocio 332, cotización de Eter srl en EUR): si el comprador marca el
+    // checkbox de un producto pero deja "Precio unitario" en blanco (asumiendo, con razón, que el
+    // precio de LA cotización completa ya es el precio de ESE producto), el ítem quedaba con
+    // precio_unitario NULL para siempre — el producto salía "sin cotización, no cubierto" del
+    // cuadro comparativo y los escenarios, aunque la cotización sí tuviera un precio. El camino de
+    // homologación por IA (más abajo, línea ~494) YA caía al precio_unitario_clp de la cotización
+    // cuando la IA no asignaba uno propio — acá faltaba exactamente ese mismo respaldo.
     const itemsClp = datos.itemsManual.map(it => ({
       productoId: it.productoId,
-      precioUnitario: it.precioUnitario == null ? null
+      precioUnitario: it.precioUnitario == null
+        ? precioUnitarioClp // sin precio propio tipeado: usa el de la cotización completa (ya en CLP)
         : moneda === 'CLP' ? it.precioUnitario
         : (tipoCambioUsado ? Math.round(it.precioUnitario * tipoCambioUsado) : null), // sin tipo de cambio, no se inventa
       cumple: it.cumple, detalleDesviacion: it.detalleDesviacion || null,
@@ -172,6 +210,115 @@ export async function registrarCotizacion(
   return id;
 }
 
+// ── Editar / eliminar una cotización ya registrada (pedido explícito del usuario, 14-sep-2026:
+// "tampoco se pueden eliminar ni editar las cotizaciones y eso es básico") ─────────────────────────
+export interface DatosEdicionCotizacion {
+  proveedorNombre: string; proveedorRut?: string | null;
+  descripcionLibre?: string | null;
+  precioUnitario?: number | null; precioTotal?: number | null; descuentoPct?: number | null; moneda?: string;
+  plazoEntregaTexto?: string | null; incluyeFlete?: boolean | null; fleteMonto?: number | null;
+  vigenciaAt?: string | null; notas?: string | null;
+}
+
+/** Reemplaza los datos de una cotización ya registrada (proveedor, precio, descuento, plazo, flete)
+ *  — mismo cálculo de descuento/moneda que `registrarCotizacion`, para que editar y crear nunca
+ *  diverjan en cómo calculan el neto. NO toca los ítems asignados (eso sigue siendo "Asignar
+ *  productos", un paso aparte) — así una corrección de precio en la cabecera no pisa en silencio
+ *  una asignación que alguien ya revisó a mano. */
+export async function actualizarCotizacion(
+  negocioId: number, cotizacionId: number, datos: DatosEdicionCotizacion, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  const [existe] = await pool.query(`SELECT id FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
+  if (!(existe as any[])[0]) throw new Error('Cotización no encontrada.');
+  if (!datos.proveedorNombre?.trim()) throw new Error('Falta el proveedor.');
+
+  let proveedorNombre = datos.proveedorNombre.trim();
+  let proveedorRut = datos.proveedorRut ?? null;
+  const proveedorId = await obtenerOCrearProveedor(proveedorNombre, proveedorRut, actorId, actorNombre).catch(() => null);
+  if (proveedorId) {
+    const [pRows] = await pool.query(`SELECT nombre_empresa, rut FROM compras_proveedor WHERE id = ?`, [proveedorId]) as any;
+    const p = (pRows as any[])[0];
+    if (p) { proveedorNombre = p.nombre_empresa; proveedorRut = p.rut; }
+  }
+
+  if (datos.precioUnitario != null && !Number.isFinite(datos.precioUnitario)) datos.precioUnitario = null;
+  if (datos.precioTotal != null && !Number.isFinite(datos.precioTotal)) datos.precioTotal = null;
+  if (datos.descuentoPct != null && (!Number.isFinite(datos.descuentoPct) || datos.descuentoPct <= 0 || datos.descuentoPct >= 100)) datos.descuentoPct = null;
+
+  // Mismo cálculo de descuento que registrarCotizacion — ver el comentario largo ahí.
+  const precioUnitarioBruto = datos.descuentoPct != null ? datos.precioUnitario : null;
+  if (datos.descuentoPct != null) {
+    const factor = 1 - datos.descuentoPct / 100;
+    if (datos.precioUnitario != null) datos.precioUnitario = Math.round(datos.precioUnitario * factor);
+    if (datos.precioTotal != null) datos.precioTotal = Math.round(datos.precioTotal * factor);
+  }
+
+  const moneda = datos.moneda || 'CLP';
+  let tipoCambioUsado: number | null = null;
+  let precioUnitarioClp = datos.precioUnitario ?? null;
+  let precioTotalClp = datos.precioTotal ?? null;
+  let fleteMontoClp = datos.fleteMonto ?? null;
+  if (moneda !== 'CLP') {
+    const tc = await obtenerTipoCambio(moneda);
+    if (tc) {
+      tipoCambioUsado = tc.valor;
+      precioUnitarioClp = datos.precioUnitario != null ? Math.round(datos.precioUnitario * tc.valor) : null;
+      precioTotalClp = datos.precioTotal != null ? Math.round(datos.precioTotal * tc.valor) : null;
+      fleteMontoClp = datos.fleteMonto != null ? Math.round(datos.fleteMonto * tc.valor) : null;
+    } else {
+      precioUnitarioClp = null; precioTotalClp = null; fleteMontoClp = null;
+    }
+  }
+
+  const plazoEntregaDias = parsearDiasDeTexto(datos.plazoEntregaTexto);
+
+  await pool.query(
+    `UPDATE compras_cotizacion SET
+       proveedor_id = ?, proveedor_nombre = ?, proveedor_rut = ?, descripcion_libre = ?,
+       precio_unitario = ?, precio_total = ?, precio_unitario_bruto = ?, descuento_pct = ?,
+       moneda = ?, tipo_cambio_usado = ?, precio_unitario_clp = ?, precio_total_clp = ?,
+       plazo_entrega_texto = ?, plazo_entrega_dias = ?, incluye_flete = ?, flete_monto = ?, vigencia_at = ?, notas = ?
+     WHERE id = ? AND negocio_id = ?`,
+    [
+      proveedorId || null, proveedorNombre.slice(0, 300), proveedorRut || null, datos.descripcionLibre || null,
+      datos.precioUnitario ?? null, datos.precioTotal ?? null, precioUnitarioBruto ?? null, datos.descuentoPct ?? null,
+      moneda, tipoCambioUsado, precioUnitarioClp, precioTotalClp,
+      datos.plazoEntregaTexto || null, plazoEntregaDias,
+      datos.incluyeFlete == null ? null : (datos.incluyeFlete ? 1 : 0), fleteMontoClp, datos.vigenciaAt || null, datos.notas || null,
+      cotizacionId, negocioId,
+    ],
+  );
+
+  // Un precio o proveedor editado puede cambiar lo que ya se había aprobado a comprar — mismo
+  // criterio que elegir un escenario distinto (§10.5): la aprobación vieja queda sobre un número
+  // que ya no es real.
+  await invalidarAprobacionesCompras(negocioId, 'Se editó una cotización que puede afectar el costo.');
+  await registrarEvento({
+    tipo: 'COMPRAS_COTIZACION_EDITADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se editó la cotización de "${proveedorNombre}"${datos.precioUnitario ? ` — ${fmtMonto(datos.precioUnitario)}` : ''}.`,
+    metadata: { negocio_id: negocioId, cotizacion_id: cotizacionId },
+  });
+}
+
+/** Borra una cotización y sus ítems asignados. Mismo criterio que editar (§10.5): si esta
+ *  cotización ya estaba metida en un escenario aprobado, borrarla invalida esa aprobación — nadie
+ *  debe quedar con una compra aprobada sobre una cotización que ya no existe. */
+export async function eliminarCotizacion(negocioId: number, cotizacionId: number, actorId: number, actorNombre: string | null): Promise<void> {
+  const [rows] = await pool.query(`SELECT proveedor_nombre FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
+  const c = (rows as any[])[0];
+  if (!c) throw new Error('Cotización no encontrada.');
+
+  await pool.query(`DELETE FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]);
+  await pool.query(`DELETE FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]);
+
+  await invalidarAprobacionesCompras(negocioId, 'Se eliminó una cotización que puede afectar el costo.');
+  await registrarEvento({
+    tipo: 'COMPRAS_COTIZACION_ELIMINADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se eliminó la cotización de "${c.proveedor_nombre}".`,
+    metadata: { negocio_id: negocioId, cotizacion_id: cotizacionId },
+  });
+}
+
 /** §8.5: "lo determina el sistema, consultando en OBUMA si existe factura o algún pago previo." */
 export async function proveedorNuevoOAntiguo(rut: string): Promise<boolean> {
   const proveedor = await proveedorPorRut(rut).catch(() => null);
@@ -187,17 +334,24 @@ export async function proveedorNuevoOAntiguo(rut: string): Promise<boolean> {
 export interface CotizacionFila {
   id: number; proveedorId: number | null; proveedorNombre: string; proveedorRut: string | null; proveedorNuevo: boolean | null;
   origen: OrigenCotizacion; precioUnitario: number | null; precioTotal: number | null;
+  precioUnitarioBruto: number | null; descuentoPct: number | null;
   moneda: string; tipoCambioUsado: number | null; precioUnitarioClp: number | null; precioTotalClp: number | null;
-  plazoEntregaTexto: string | null; plazoEntregaDias: number | null; incluyeFlete: boolean | null;
+  plazoEntregaTexto: string | null; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null;
   ficaTecnicaUrl: string | null; archivoUrl: string | null; homologadaAt: string | null; tomadaAt: string;
+  // Pedido explícito del usuario (15-sep-2026: "le pongo dónde que se cotizó pero cuando edito no
+  // aparece nada") — BUG REAL: esta consulta ni siquiera traía `descripcion_libre`, así que
+  // `iniciarEdicion` en el frontend no tenía de dónde sacarlo y lo dejaba fijo en '' — se perdía
+  // literalmente lo que la persona había escrito, cada vez que abría "Editar".
+  descripcionLibre: string | null;
   items: Array<{ productoId: number; precioUnitario: number | null; cumple: CumpleItem; detalleDesviacion: string | null }>;
 }
 
 export async function listarCotizaciones(negocioId: number): Promise<CotizacionFila[]> {
   const [rows] = await pool.query(
-    `SELECT id, proveedor_id, proveedor_nombre, proveedor_rut, proveedor_nuevo, origen, precio_unitario, precio_total,
+    `SELECT id, proveedor_id, proveedor_nombre, proveedor_rut, proveedor_nuevo, origen, descripcion_libre, precio_unitario, precio_total,
+            precio_unitario_bruto, descuento_pct,
             moneda, tipo_cambio_usado, precio_unitario_clp, precio_total_clp,
-            plazo_entrega_texto, plazo_entrega_dias, incluye_flete, ficha_tecnica_url, archivo_url,
+            plazo_entrega_texto, plazo_entrega_dias, incluye_flete, flete_monto, ficha_tecnica_url, archivo_url,
             DATE_FORMAT(homologada_at, '%Y-%m-%d %H:%i:%s') AS homologada_at,
             DATE_FORMAT(tomada_at, '%Y-%m-%d %H:%i:%s') AS tomada_at
        FROM compras_cotizacion WHERE negocio_id = ? ORDER BY created_at DESC`,
@@ -218,13 +372,17 @@ export async function listarCotizaciones(negocioId: number): Promise<CotizacionF
   return cotizaciones.map(c => ({
     id: c.id, proveedorId: c.proveedor_id, proveedorNombre: c.proveedor_nombre, proveedorRut: c.proveedor_rut,
     proveedorNuevo: c.proveedor_nuevo == null ? null : !!c.proveedor_nuevo, origen: c.origen,
+    descripcionLibre: c.descripcion_libre,
     precioUnitario: c.precio_unitario == null ? null : Number(c.precio_unitario),
     precioTotal: c.precio_total == null ? null : Number(c.precio_total),
+    precioUnitarioBruto: c.precio_unitario_bruto == null ? null : Number(c.precio_unitario_bruto),
+    descuentoPct: c.descuento_pct == null ? null : Number(c.descuento_pct),
     moneda: c.moneda || 'CLP', tipoCambioUsado: c.tipo_cambio_usado == null ? null : Number(c.tipo_cambio_usado),
     precioUnitarioClp: c.precio_unitario_clp == null ? null : Number(c.precio_unitario_clp),
     precioTotalClp: c.precio_total_clp == null ? null : Number(c.precio_total_clp),
     plazoEntregaTexto: c.plazo_entrega_texto, plazoEntregaDias: c.plazo_entrega_dias,
     incluyeFlete: c.incluye_flete == null ? null : !!c.incluye_flete,
+    fleteMonto: c.flete_monto == null ? null : Number(c.flete_monto),
     ficaTecnicaUrl: c.ficha_tecnica_url, archivoUrl: c.archivo_url,
     homologadaAt: c.homologada_at, tomadaAt: c.tomada_at,
     items: (itemsPorCotiz.get(c.id) || []).map(it => ({
@@ -246,8 +404,9 @@ export interface AsignacionItemManual { productoId: number; precioUnitario: numb
 export async function asignarItemsCotizacion(
   negocioId: number, cotizacionId: number, items: AsignacionItemManual[], actorId?: number, actorNombre?: string | null,
 ): Promise<void> {
-  const [cotizRows] = await pool.query(`SELECT id FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
-  if (!(cotizRows as any[]).length) throw new Error('Cotización no encontrada para este negocio.');
+  const [cotizRows] = await pool.query(`SELECT id, precio_unitario_clp FROM compras_cotizacion WHERE id = ? AND negocio_id = ?`, [cotizacionId, negocioId]) as any;
+  const cotiz = (cotizRows as any[])[0];
+  if (!cotiz) throw new Error('Cotización no encontrada para este negocio.');
 
   const productos = await listarProductosCompra(negocioId);
   const idsValidos = new Set(productos.map(p => p.id));
@@ -256,9 +415,15 @@ export async function asignarItemsCotizacion(
 
   await pool.query(`DELETE FROM compras_cotizacion_item WHERE cotizacion_id = ?`, [cotizacionId]);
   // Mismo blindaje contra NaN que registrarCotizacion — nunca debe llegar un NaN a la consulta.
+  // BUG REAL (15-sep-2026): si el comprador asigna el producto pero deja "Precio unitario" en
+  // blanco (asumiendo, con razón, que el precio de LA cotización completa ya es el de ese
+  // producto), esto guardaba NULL y el producto salía "sin cotización" del cuadro comparativo y
+  // los escenarios — mismo fix que en registrarCotizacion (itemsManual): sin precio propio, cae al
+  // precio_unitario_clp ya calculado de la cotización.
   const filas = limpios.map(it => [
     cotizacionId, it.productoId,
-    it.precioUnitario != null && Number.isFinite(it.precioUnitario) ? it.precioUnitario : null,
+    it.precioUnitario != null && Number.isFinite(it.precioUnitario) ? it.precioUnitario
+      : (cotiz.precio_unitario_clp != null ? Number(cotiz.precio_unitario_clp) : null),
     it.cumple, it.detalleDesviacion || null,
   ]);
   const ph = filas.map(() => '(?,?,?,?,?)').join(',');
@@ -436,16 +601,43 @@ export async function cuadroComparativo(negocioId: number): Promise<CuadroCompar
 export type TipoEscenario = 'MAS_RAPIDO' | 'MINIMO_PRECIO' | 'MINIMOS_VIAJES' | 'EQUILIBRADO';
 
 export interface DetalleEscenario {
-  porProducto: Array<{ productoId: number; descripcion: string; proveedor: string | null; precioUnitario: number | null; cantidad: number | null; subtotal: number | null; plazoEntregaDias: number | null }>;
+  porProducto: Array<{ productoId: number; descripcion: string; proveedor: string | null; precioUnitario: number | null; cantidad: number | null; subtotal: number | null; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null }>;
   proveedoresInvolucrados: string[];
 }
 
 export interface Escenario {
   tipo: TipoEscenario; costoTotal: number; diasEstimados: number | null; viajesEstimados: number;
   detalle: DetalleEscenario; esPrincipal: boolean;
+  // Pedido explícito del usuario (15-sep-2026): "no me puedes poner 40 por defecto, eso lo tenemos
+  // que poner nosotros ya que es dinero" — true si hay al menos un proveedor que necesita viaje
+  // (incluyeFlete !== true) y NADIE escribió cuánto cuesta ese viaje. El monto ya NO se adivina con
+  // VIAJE_INTERNO_CLP (ver armar() más abajo): queda en $0 y esta bandera avisa que ese $0 no es un
+  // dato confirmado, es solo "todavía no se sabe".
+  fleteSinConfirmar: boolean;
 }
 
-interface EleccionPorProducto { productoId: number; descripcion: string; cantidad: number | null; item: CotizacionFila['items'][number] & { proveedor: string; plazoEntregaDias: number | null } }
+interface EleccionPorProducto { productoId: number; descripcion: string; cantidad: number | null; item: CotizacionFila['items'][number] & { proveedor: string; plazoEntregaDias: number | null; incluyeFlete: boolean | null; fleteMonto: number | null } }
+
+// BUG REAL (11-sep-2026, reportado por el usuario contra el negocio 717): los 4 escenarios
+// ordenaban candidatos SOLO por precio/plazo/agrupación, sin mirar `cumple` — así que una cotización
+// INFERIOR_NEGOCIABLE (le falta algo, negociable) más barata le ganaba a una CUMPLE más cara, y una
+// tercera CUMPLE intermedia (ni la más barata ni la más rápida) no aparecía en NINGÚN escenario. Caso
+// real: producto "Plataformas satelital - GOES CS2" — Satellite ($5.950.000/un, INFERIOR_NEGOCIABLE)
+// le ganaba a TechSat ($6.745.621/un, CUMPLE) en "Mínimo precio" solo por ser más barata, aunque
+// tenía una brecha técnica sin cerrar. Spec §8.8.1 ("ningún proveedor se excluye por incumplimiento
+// técnico") dice que no se EXCLUYE — no dice que se prefiera un candidato con brecha sobre uno que
+// cumple íntegro cuando ambos están disponibles. Fix: se ordena primero por nivel de cumplimiento
+// (CUMPLE/MEJORA antes que INFERIOR_NEGOCIABLE antes que INFERIOR_INSALVABLE) y RECIÉN dentro del
+// mismo nivel se aplica el criterio propio de cada escenario (precio, plazo, agrupación). Un
+// candidato con brecha solo gana si es el ÚNICO que cubre ese producto — ahí sigue sin excluirse.
+function tierCumple(c: CumpleItem): number {
+  switch (c) {
+    case 'CUMPLE': case 'MEJORA': return 0;
+    case 'INFERIOR_NEGOCIABLE': return 1;
+    case 'INFERIOR_INSALVABLE': return 2;
+    default: return 3; // NO_ES_EL_PRODUCTO ya se filtra antes de llegar acá
+  }
+}
 
 function elegirCandidatos(productos: ProductoCompra[], cotizaciones: CotizacionFila[]) {
   // Por producto, las cotizaciones que lo cubren y no son excluyentes (NO_ES_EL_PRODUCTO se descarta).
@@ -454,7 +646,7 @@ function elegirCandidatos(productos: ProductoCompra[], cotizaciones: CotizacionF
     for (const it of c.items) {
       if (it.cumple === 'NO_ES_EL_PRODUCTO' || it.precioUnitario == null) continue;
       const arr = porProducto.get(it.productoId) || [];
-      arr.push({ ...it, proveedor: c.proveedorNombre, plazoEntregaDias: c.plazoEntregaDias });
+      arr.push({ ...it, proveedor: c.proveedorNombre, plazoEntregaDias: c.plazoEntregaDias, incluyeFlete: c.incluyeFlete, fleteMonto: c.fleteMonto });
       porProducto.set(it.productoId, arr);
     }
   }
@@ -476,40 +668,72 @@ export async function calcularEscenarios(negocioId: number): Promise<Escenario[]
   function armar(tipo: TipoEscenario, elegir: (candidatos: EleccionPorProducto['item'][]) => EleccionPorProducto['item'] | undefined): Escenario | null {
     const porProductoDetalle: DetalleEscenario['porProducto'] = [];
     const proveedoresSet = new Set<string>();
+    // BUG REAL (14-sep-2026, reportado por el usuario: "en la segunda cotización no tenemos flete...
+    // le puse sin flete en las opciones y no lo considera"): `incluyeFlete` se pedía en el
+    // formulario, se guardaba en la cotización, y `calcularEscenarios` NUNCA lo leía — el viaje
+    // interno de $40.000 se sumaba SIEMPRE, una vez por cada proveedor distinto, sin importar lo que
+    // la persona hubiera marcado. Ahora solo cuentan como "necesitan viaje" los proveedores cuyo
+    // ítem elegido tiene `incluyeFlete !== true` — si el proveedor ya incluye el despacho en su
+    // precio (o retira/entrega sin que haga falta un viaje propio), no se le cobra el interno.
+    //
+    // SEGUNDO PEDIDO (mismo día): "si pongo no incluye flete es porque nos cobran el flete pero no
+    // me deja poner cuánto es". Cuando la cotización trae `fleteMonto` (leído del documento o
+    // tipeado a mano), ESE es el cargo real del proveedor — se usa en vez de adivinar con el interno
+    // fijo. Si dos productos del mismo proveedor traen `fleteMonto` distintos (raro, pero posible:
+    // dos cotizaciones separadas), gana el primero que se encuentre — un proveedor paga UN flete por
+    // viaje, no uno por cada línea de producto.
+    const proveedoresNecesitanViaje = new Map<string, number | null>(); // proveedor -> fleteMonto real (null = usar el interno fijo)
     let costoMercaderia = 0;
     let diasMax = 0;
     let cubreTodo = true;
     for (const p of productos) {
       const candidatos = porProducto.get(p.id) || [];
       const elegido = candidatos.length ? elegir(candidatos) : undefined;
-      if (!elegido) { cubreTodo = false; porProductoDetalle.push({ productoId: p.id, descripcion: p.descripcion, proveedor: null, precioUnitario: null, cantidad: p.cantidad, subtotal: null, plazoEntregaDias: null }); continue; }
+      if (!elegido) { cubreTodo = false; porProductoDetalle.push({ productoId: p.id, descripcion: p.descripcion, proveedor: null, precioUnitario: null, cantidad: p.cantidad, subtotal: null, plazoEntregaDias: null, incluyeFlete: null, fleteMonto: null }); continue; }
       const subtotal = (elegido.precioUnitario || 0) * (p.cantidad || 1);
       costoMercaderia += subtotal;
       proveedoresSet.add(elegido.proveedor);
+      if (elegido.incluyeFlete !== true) {
+        const actual = proveedoresNecesitanViaje.get(elegido.proveedor);
+        if (actual === undefined || (actual == null && elegido.fleteMonto != null)) {
+          proveedoresNecesitanViaje.set(elegido.proveedor, elegido.fleteMonto);
+        }
+      }
       if (elegido.plazoEntregaDias != null) diasMax = Math.max(diasMax, elegido.plazoEntregaDias);
-      porProductoDetalle.push({ productoId: p.id, descripcion: p.descripcion, proveedor: elegido.proveedor, precioUnitario: elegido.precioUnitario, cantidad: p.cantidad, subtotal, plazoEntregaDias: elegido.plazoEntregaDias });
+      porProductoDetalle.push({ productoId: p.id, descripcion: p.descripcion, proveedor: elegido.proveedor, precioUnitario: elegido.precioUnitario, cantidad: p.cantidad, subtotal, plazoEntregaDias: elegido.plazoEntregaDias, incluyeFlete: elegido.incluyeFlete, fleteMonto: elegido.fleteMonto });
     }
     if (!cubreTodo && porProductoDetalle.every(d => d.proveedor == null)) return null; // sin ninguna cotización todavía
-    const viajes = proveedoresSet.size; // proxy de "un viaje por proveedor" hasta que exista tanda 4 (fleteros reales)
-    const costoLogistico = viajes * VIAJE_INTERNO_CLP;
+    const viajes = proveedoresNecesitanViaje.size; // proxy de "un viaje por proveedor que lo necesita" hasta que exista tanda 4 (fleteros reales)
+    // BUG REAL (15-sep-2026, reportado en vivo por el usuario: "no me puedes poner 40 por defecto,
+    // eso lo tenemos que poner nosotros ya que es dinero"): hasta acá, un proveedor que "necesita
+    // viaje" pero sin `fleteMonto` tipeado sumaba VIAJE_INTERNO_CLP ($40.000) en silencio al costo
+    // del escenario — ese número entraba tal cual a la aprobación de compra/margen sin que nadie lo
+    // hubiera escrito ni confirmado. Ahora un monto no informado cuenta como $0 (no se inventa un
+    // número), y `fleteSinConfirmar` avisa en la UI que ese $0 no es un dato real, es solo que
+    // todavía nadie lo cargó — mismo criterio "avisa, no adivina" que el resto del módulo.
+    const fleteSinConfirmar = [...proveedoresNecesitanViaje.values()].some(monto => monto == null);
+    const costoLogistico = [...proveedoresNecesitanViaje.values()].reduce((s: number, monto) => s + (monto ?? 0), 0);
     return {
       tipo, costoTotal: costoMercaderia + costoLogistico, diasEstimados: diasMax || null, viajesEstimados: viajes,
       detalle: { porProducto: porProductoDetalle, proveedoresInvolucrados: [...proveedoresSet] },
-      esPrincipal: tipo === 'MAS_RAPIDO',
+      esPrincipal: tipo === 'MAS_RAPIDO', fleteSinConfirmar,
     };
   }
 
   const masRapido = armar('MAS_RAPIDO', cands =>
-    [...cands].sort((a, b) => (a.plazoEntregaDias ?? 999) - (b.plazoEntregaDias ?? 999))[0]);
+    [...cands].sort((a, b) => tierCumple(a.cumple) - tierCumple(b.cumple) || (a.plazoEntregaDias ?? 999) - (b.plazoEntregaDias ?? 999))[0]);
   const minimoPrecio = armar('MINIMO_PRECIO', cands =>
-    [...cands].sort((a, b) => (a.precioUnitario ?? Infinity) - (b.precioUnitario ?? Infinity))[0]);
+    [...cands].sort((a, b) => tierCumple(a.cumple) - tierCumple(b.cumple) || (a.precioUnitario ?? Infinity) - (b.precioUnitario ?? Infinity))[0]);
   // Mínimos viajes: prioriza concentrar en el proveedor que ya cubre más productos (agrupación §8.10).
   const conteoProveedor = new Map<string, number>();
   for (const arr of porProducto.values()) for (const it of arr) conteoProveedor.set(it.proveedor, (conteoProveedor.get(it.proveedor) || 0) + 1);
   const minimosViajes = armar('MINIMOS_VIAJES', cands =>
-    [...cands].sort((a, b) => (conteoProveedor.get(b.proveedor) || 0) - (conteoProveedor.get(a.proveedor) || 0) || (a.precioUnitario ?? Infinity) - (b.precioUnitario ?? Infinity))[0]);
+    [...cands].sort((a, b) => tierCumple(a.cumple) - tierCumple(b.cumple)
+      || (conteoProveedor.get(b.proveedor) || 0) - (conteoProveedor.get(a.proveedor) || 0) || (a.precioUnitario ?? Infinity) - (b.precioUnitario ?? Infinity))[0]);
   const equilibrado = armar('EQUILIBRADO', cands =>
     [...cands].sort((a, b) => {
+      const tierDiff = tierCumple(a.cumple) - tierCumple(b.cumple);
+      if (tierDiff !== 0) return tierDiff;
       const scoreA = (a.precioUnitario ?? Infinity) - (conteoProveedor.get(a.proveedor) || 0) * 1000;
       const scoreB = (b.precioUnitario ?? Infinity) - (conteoProveedor.get(b.proveedor) || 0) * 1000;
       return scoreA - scoreB;
@@ -558,11 +782,18 @@ export async function elegirEscenario(
 }
 
 /** Qué escenario está elegido HOY (si alguno) — para que la pantalla pinte "Elegido" en la tarjeta
- *  correcta sin tener que adivinarlo comparando costos. */
-export async function escenarioElegidoTipo(negocioId: number): Promise<TipoEscenario | null> {
+ *  correcta. Devuelve también el costo GUARDADO en ese momento (no el recalculado ahora): sin esto,
+ *  la pantalla solo comparaba por `tipo` — si después se registra una cotización nueva y
+ *  `calcularEscenarios` recalcula un total DISTINTO para ese mismo tipo, la tarjeta seguía
+ *  mostrando "Elegido" sobre el número nuevo aunque nadie hubiera vuelto a confirmar ese monto (bug
+ *  real, 11-sep-2026: "Mínimo precio" pasó de $34.662.844 a $20.529.164 al agregar una cotización
+ *  de Tecnomaq, y el badge "Elegido" se quedó pegado al tipo sin avisar que el monto ya no era el
+ *  guardado). El llamador compara este costo contra el recalculado para saber si sigue vigente. */
+export async function escenarioElegidoTipo(negocioId: number): Promise<{ tipo: TipoEscenario; costoTotal: number } | null> {
   const [rows] = await pool.query(
-    `SELECT tipo FROM compras_escenario WHERE negocio_id = ? AND elegido = 1 ORDER BY generado_at DESC LIMIT 1`,
+    `SELECT tipo, costo_total FROM compras_escenario WHERE negocio_id = ? AND elegido = 1 ORDER BY generado_at DESC LIMIT 1`,
     [negocioId],
   ) as any;
-  return (rows as any[])[0]?.tipo ?? null;
+  const r = (rows as any[])[0];
+  return r ? { tipo: r.tipo, costoTotal: Number(r.costo_total) } : null;
 }

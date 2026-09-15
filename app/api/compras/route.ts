@@ -6,7 +6,7 @@
 // Visible para: admin, jefe de ventas (permiso aprobar_comercial) y Encargado de Compras (permiso
 // compras) — el mismo círculo que puede operar el módulo, no solo mirarlo.
 import { NextRequest, NextResponse } from 'next/server';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { listarAsignacionesCompras, candidatosEncargado } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
@@ -19,11 +19,14 @@ function getUser(req: NextRequest) {
 }
 
 async function puedeVerCompras(userId: number, rol: string | null): Promise<boolean> {
-  if (rol === 'admin') return true;
-  const p = await permisosDeUsuario(userId, rol);
+  // "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026 — ver el comentario largo en
+  // app/api/compras/[negocioId]/route.ts): se lee con `permisosCrudosDeUsuario` (ignora el rol)
+  // para que `compras`/`aprobar_comercial` no se auto-otorguen por ser admin, igual que ya pasa
+  // con `compras_todo`.
+  const p = await permisosCrudosDeUsuario(userId);
   // administración/bodega (§2.2) también entran al listado: necesitan llegar a SU negocio para
   // operar su sección angosta, aunque no sean el encargado de compras/entrega.
-  return !!(p.compras || p.aprobar_comercial || p.compras_administracion || p.compras_bodega);
+  return !!(p.compras_todo || p.compras || p.aprobar_comercial || p.compras_administracion || p.compras_bodega);
 }
 
 export async function GET(request: NextRequest) {

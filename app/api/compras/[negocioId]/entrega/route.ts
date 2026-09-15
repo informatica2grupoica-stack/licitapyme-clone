@@ -10,7 +10,7 @@ import {
   type ModalidadEntrega, type FirmaDatos,
 } from '@/app/lib/compras-entrega';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -63,7 +63,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     // es su trabajo.
     const amplio = await puedeOperarCompras(userId, rol, asignacion.asignadoA);
     if (!amplio) {
-      const esBodega = body.accion === 'verificacion' && !!(await permisosDeUsuario(userId, rol)).compras_bodega;
+      // permisosCrudosDeUsuario (no permisosDeUsuario): `compras_bodega` no se auto-otorga por ser
+      // admin, mismo criterio del resto del módulo (10-sep-2026).
+      const esBodega = body.accion === 'verificacion' && !!(await permisosCrudosDeUsuario(userId)).compras_bodega;
       if (!esBodega) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
     }
 

@@ -4,7 +4,7 @@
 // (aunque no tenga el permiso general — es su trabajo).
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { obtenerAsignacion, listarTareas, candidatosEncargado, crearTareasCatalogoSiCorresponde, obtenerResumenFases } from '@/app/lib/compras';
 import { ordenesDeLicitacion } from '@/app/lib/ordenes-compra';
 
@@ -19,16 +19,24 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-// Gate AMPLIO: encargado de compras/entrega del negocio, jefe de ventas o admin. Es el que ya
-// usaban TODAS las rutas del módulo (aprobaciones, SKU, incidencias, importación, logística,
-// gastos, productos, cotizaciones/escenarios, y casi toda `entrega`) — se deja intacto para no
-// regalarle a los perfiles angostos nuevos (ver más abajo) acceso de escritura a secciones que no
-// son suyas.
+// Gate AMPLIO: encargado de compras/entrega del negocio, jefe de ventas, o admin CON `compras_todo`.
+// Es el que ya usaban TODAS las rutas del módulo (aprobaciones, SKU, incidencias, importación,
+// logística, gastos, productos, cotizaciones/escenarios, y casi toda `entrega`) — se deja intacto
+// para no regalarle a los perfiles angostos nuevos (ver más abajo) acceso de escritura a secciones
+// que no son suyas.
+//
+// OJO — cambio de criterio (10-sep-2026, pedido explícito): "ser admin" YA NO alcanza por sí solo
+// para el módulo de Compras. Antes cualquier admin de la cuenta entraba a todo; ahora se exige el
+// permiso `compras_todo` real, o `compras`/`aprobar_comercial` reales — ninguno de los tres se lee
+// con `permisosDeUsuario` (ese auto-otorga `compras` y `aprobar_comercial` a CUALQUIER admin, lo
+// que dejaría la puerta abierta igual) sino con `permisosCrudosDeUsuario`, que ignora el rol y lee
+// solo lo guardado de verdad. Se asigna a mano solo a los perfiles que de verdad deben ver TODO el
+// módulo (hoy: Asesor y el dueño del proyecto). Un admin sin ninguno de estos tres permisos reales
+// sigue entrando igual si es el encargado asignado de ESE negocio puntual.
 export async function puedeOperarCompras(userId: number, rol: string | null, asignadoA: number | null): Promise<boolean> {
-  if (rol === 'admin') return true;
   if (asignadoA != null && Number(asignadoA) === Number(userId)) return true;
-  const p = await permisosDeUsuario(userId, rol);
-  return !!(p.compras || p.aprobar_comercial);
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!(p.compras_todo || p.compras || p.aprobar_comercial);
 }
 
 // Gate ANCHO, solo para VER: suma administración y bodega (§2.2, sep-2026) — necesitan poder abrir
@@ -38,7 +46,7 @@ export async function puedeOperarCompras(userId: number, rol: string | null, asi
 // `puedeOperarCompras` en una ruta de escritura genérica, o estarías dándoles permiso de más.
 export async function puedeVerCompras(userId: number, rol: string | null, asignadoA: number | null): Promise<boolean> {
   if (await puedeOperarCompras(userId, rol, asignadoA)) return true;
-  const p = await permisosDeUsuario(userId, rol);
+  const p = await permisosCrudosDeUsuario(userId);
   return !!(p.compras_administracion || p.compras_bodega);
 }
 

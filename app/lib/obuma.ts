@@ -98,6 +98,24 @@ export async function proveedorPorRut(rut: string): Promise<ObumaProveedor | nul
   return r.data?.[0] || null;
 }
 
+// Trae el catálogo COMPLETO de proveedores de Obuma, paginado — mismo criterio que
+// `catalogoObumaCompleto` (productos, más abajo): nunca confiar en que la página 1 alcanza. Pedido
+// explícito del usuario (14-sep-2026): el catálogo de /compras/proveedores tenía proveedores de
+// prueba inventados (TechSat, AeroSpace Technologies...) y debe reflejar los proveedores REALES
+// que existen en Obuma, no texto libre tipeado en pruebas.
+export async function proveedoresObumaCompleto(): Promise<ObumaProveedor[]> {
+  const todos: ObumaProveedor[] = [];
+  let pagina = 1;
+  for (; pagina <= 20; pagina++) { // tope de seguridad — 20 páginas de 1000 = 20.000 proveedores
+    const r = await listarProveedores({ page: pagina, limit: 1000 });
+    const lote = r.data || [];
+    todos.push(...lote);
+    const totalPaginas = Number(r['data-total-pages']) || 1;
+    if (pagina >= totalPaginas || lote.length === 0) break;
+  }
+  return todos;
+}
+
 export interface ObumaCompraOc {
   compra_oc_id: string;
   compra_oc_folio: string;
@@ -121,6 +139,33 @@ export function listarComprasOc(params: {
 export async function compraOcPorId(id: string | number): Promise<ObumaCompraOc | null> {
   const r = await llamar<ObumaListado<ObumaCompraOc>>(BASE_V1, `/comprasOc.findById.json/${id}`);
   return r.data?.[0] || null;
+}
+
+// Trae TODAS las órdenes de compra de la empresa, paginado — mismo patrón que
+// `proveedoresObumaCompleto`/`catalogoObumaCompleto`. Pedido explícito del usuario (14-sep-2026):
+// estadísticas y filtros ("¿le hemos comprado? ¿cuánto?") en /compras/proveedores para los 388
+// proveedores de una sola vez, sin pegarle a Obuma proveedor por proveedor (388 llamadas). Se usa
+// SOLO en la sincronización (ver sincronizarProveedoresObuma en compras-proveedores.ts) — el detalle
+// folio a folio de UN proveedor puntual sigue yendo filtrado y en vivo (historialComprasObuma).
+// Cacheado (mismo TTL que el catálogo de productos): además de la sincronización, ahora también lo
+// usa la búsqueda por producto (`buscarProveedoresPorProducto`) para resolver de qué proveedor es
+// cada OC sin una llamada a Obuma por cada resultado.
+let cacheComprasOc: { en: number; datos: ObumaCompraOc[] } | null = null;
+const CACHE_COMPRAS_OC_MS = 60_000;
+
+export async function comprasOcCompleto(forzar = false): Promise<ObumaCompraOc[]> {
+  if (!forzar && cacheComprasOc && Date.now() - cacheComprasOc.en < CACHE_COMPRAS_OC_MS) return cacheComprasOc.datos;
+  const todas: ObumaCompraOc[] = [];
+  let pagina = 1;
+  for (; pagina <= 20; pagina++) { // tope de seguridad — 20 páginas de 1000 = 20.000 OC
+    const r = await listarComprasOc({ page: pagina, limit: 1000 });
+    const lote = r.data || [];
+    todas.push(...lote);
+    const totalPaginas = Number(r['data-total-pages']) || 1;
+    if (pagina >= totalPaginas || lote.length === 0) break;
+  }
+  cacheComprasOc = { en: Date.now(), datos: todas };
+  return todas;
 }
 
 export interface ObumaCompraOcItem {
@@ -436,6 +481,23 @@ export async function listarFormasPago(): Promise<ObumaFormaPago[]> {
   return (r.data || [])
     .filter(f => String(f.usar_en_compras) === '1')
     .map(f => ({ id: String(f.empresa_fp_id), codigo: String(f.empresa_fp_codigo || ''), nombre: String(f.empresa_fp_nombre) }));
+}
+
+// `proveedor_forma_pago` en la ficha de un proveedor es un ID numérico (ej. "2824"), no el nombre —
+// para mostrarlo hay que resolverlo contra el catálogo COMPLETO de formas de pago (sin el filtro
+// usar_en_compras=1 de arriba: la forma de pago propia de un proveedor puede ser cualquiera de las
+// configuradas, no solo las habilitadas para emitir una OC). Catálogo chico (unas pocas decenas),
+// se cachea igual que el de productos.
+let cacheFormasPago: { en: number; mapa: Map<string, string> } | null = null;
+const CACHE_FORMAS_PAGO_MS = 5 * 60_000;
+
+export async function mapaFormasPagoCompleto(): Promise<Map<string, string>> {
+  if (cacheFormasPago && Date.now() - cacheFormasPago.en < CACHE_FORMAS_PAGO_MS) return cacheFormasPago.mapa;
+  const r = await llamar<ObumaListado<any>>(BASE_V1, '/empresaFormasDePago.list.json');
+  const mapa = new Map<string, string>();
+  for (const f of r.data || []) mapa.set(String(f.empresa_fp_id), String(f.empresa_fp_nombre || ''));
+  cacheFormasPago = { en: Date.now(), mapa };
+  return mapa;
 }
 
 /** Busca el centro de costo real de una licitación por su código, dentro del nombre del centro de

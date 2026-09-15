@@ -4,7 +4,7 @@
 // resto de Compras: admin o `aprobar_comercial` (jefe de ventas) — el permiso `compras` (encargado)
 // NO alcanza, a diferencia de las demás rutas del módulo.
 import { NextRequest, NextResponse } from 'next/server';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { obtenerDashboardCompras } from '@/app/lib/compras-dashboard';
 
 export const runtime = 'nodejs';
@@ -16,10 +16,12 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-async function esJefatura(userId: number, rol: string | null): Promise<boolean> {
-  if (rol === 'admin') return true;
-  const p = await permisosDeUsuario(userId, rol);
-  return !!p.aprobar_comercial;
+async function esJefatura(userId: number, _rol: string | null): Promise<boolean> {
+  // "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026) — se lee con
+  // `permisosCrudosDeUsuario` para que `aprobar_comercial` tampoco se auto-otorgue por ser admin.
+  // Ver el comentario largo en app/api/compras/[negocioId]/route.ts.
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!(p.compras_todo || p.aprobar_comercial);
 }
 
 export async function GET(request: NextRequest) {

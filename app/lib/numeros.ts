@@ -21,8 +21,14 @@ export function parsearMontoCL(texto: unknown): number | null {
  *  quedaba SIEMPRE null, y el escenario "Más rápido" (que ordena candidatos por ese campo) no tenía
  *  con qué comparar: todos empataban en el mismo valor por defecto y el desempate quedaba en manos
  *  del orden de llegada, no de quién entrega antes de verdad — por eso "Más rápido" coincidía con
- *  los demás escenarios sin razón real. Si el texto dice "semanas" se convierte a días (× 7); si
- *  no hay ningún número, devuelve null — no se inventa un plazo que el documento no dice. */
+ *  los demás escenarios sin razón real. Si el texto dice "semanas"/"meses" se convierte a días
+ *  (× 7 / × 30); si no hay ningún número, devuelve null — no se inventa un plazo que el documento
+ *  no dice.
+ *
+ *  BUG REAL (15-sep-2026, cotización de proveedor chino): "1 month after the order confirmed."
+ *  se guardó como 1 DÍA — el regex agarró el "1" crudo sin reconocer "month" (proveedores
+ *  extranjeros cotizan en inglés seguido). Se agrega "month"/"mes"/"meses" al mismo criterio que
+ *  ya existía para semanas. */
 export function parsearDiasDeTexto(texto: unknown): number | null {
   if (texto == null) return null;
   const t = String(texto).toLowerCase();
@@ -30,5 +36,7 @@ export function parsearDiasDeTexto(texto: unknown): number | null {
   if (!m) return null;
   const n = Number(m[1]);
   if (!Number.isFinite(n)) return null;
-  return /semana/.test(t) ? n * 7 : n;
+  if (/semana|week/.test(t)) return n * 7;
+  if (/mes(es)?|month/.test(t)) return n * 30;
+  return n;
 }

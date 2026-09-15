@@ -24,6 +24,7 @@ import { presupuestoDeLineaEsUnitario } from '@/app/lib/motor-comercial';
 import { cargarNegocio, leerInforme, nombreDe, sincronizar } from '../route';
 import { ingresarVersionCosteo } from '../costeo/route';
 import { yaCongelado } from '@/app/lib/congelamiento';
+import { obtenerAsignacion, sincronizarProductosConCosteo } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -230,6 +231,14 @@ export async function PUT(request: NextRequest, { params }: Params) {
       origen: 'editor', archivoUrl: null, archivoNombre: 'Costeo (editor interno)',
       userId, nombreActor,
     });
+
+    // Si Compras ya está abierto para este negocio, "Productos y cobertura" se mantiene al día
+    // solo (pedido explícito del usuario, 15-sep-2026: "la idea es que lo saque del costeo") — sin
+    // esto, guardar un costeo nuevo/corregido DESPUÉS de ganar no se reflejaba ahí hasta apretar el
+    // botón manual "Sincronizar con costeo". No crítico: si falla, el costeo igual quedó guardado.
+    obtenerAsignacion(negocio.id).then(asig => {
+      if (asig) return sincronizarProductosConCosteo(negocio.id);
+    }).catch(e => console.error('[comercial/costeo-editor] no se pudo sincronizar Productos y cobertura (no crítico):', String(e).slice(0, 150)));
 
     return NextResponse.json({ success: true, version, alertas, totales });
   } catch (error) {

@@ -22,6 +22,7 @@ import { subirDocumentoR2, mimeDeNombre } from '@/app/lib/r2';
 import { ahoraChileSQL } from '@/app/lib/tz';
 import { MP_UA, fetchMPConReintentos, combinarCookies, extraerCookies, obtenerFichaHTML } from '@/app/lib/mp-adjuntos';
 import { descargarAnexoPorPostback } from '@/app/lib/mp-ofertas';
+import { ocrImagenLocalTesseract } from '@/app/lib/tesseract-ocr';
 
 const MAX_DOCS = 15;
 
@@ -119,34 +120,80 @@ export interface LecturaActa {
  * devuelve la celda siguiente. Sin el nombre no vale la pena guardar el resto — puede que el
  * bloque no exista en licitaciones más viejas o de otro formato de página.
  *
- * NO VERIFICADO contra HTML real en este entorno (el sandbox no tiene IP chilena, ver cabecera del
- * archivo) — confirmar con "Releer" desde una sesión con acceso real a Mercado Público.
+ * VERIFICADO contra HTML real (1355402-5-LE26, 11-sep-2026): el teléfono viaja como texto plano,
+ * pero el E-MAIL NO — MP lo sirve como una IMAGEN (`Tools/ImgOfuscar.aspx?qs=…`), el mismo truco
+ * anti-scraping de siempre: el texto del `<td>` sale vacío (por eso `leerCampo` daba null y el
+ * correo nunca llegó a pantalla, aunque el teléfono sí) y solo un OCR de esa imagen lo recupera —
+ * ver `leerEmailOfuscado`.
  */
-function parseContactoLicitacion(html: string): ContactoLicitacionActa | null {
+function filaCelda(bloque: string, etiqueta: RegExp): { texto: string | null; celdaCruda: string | null } {
+  for (const tr of bloque.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const celdasCrudas = [...tr[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => c[1]);
+    if (celdasCrudas.length < 2 || !etiqueta.test(limpiar(celdasCrudas[0]))) continue;
+    const celdaCruda = celdasCrudas[1];
+    const texto = limpiar(celdaCruda);
+    return { texto: texto && texto !== '--' && texto !== '-' ? texto.slice(0, 200) : null, celdaCruda };
+  }
+  return { texto: null, celdaCruda: null };
+}
+
+/**
+ * El E-Mail de "Datos del Contacto" llega como `<img src="…/Tools/ImgOfuscar.aspx?qs=…">` en vez
+ * de texto. Se baja esa imagen (con las MISMAS cookies/referer que ya abrieron el acta) y se lee
+ * con Tesseract LOCAL — probado contra un archivo real: el modelo 'spa' confunde la "@" con una
+ * "G" ("...moyanoGloprado.cl"), el modelo 'eng' la lee bien ("...moyano@loprado. cl"); por eso acá
+ * se fuerza 'eng', a diferencia del resto del OCR local del proyecto (documentos, siempre 'spa').
+ * MP a veces concatena un formulario de postback (HTML) justo después de los bytes del JPEG en la
+ * misma respuesta — se corta en el marcador de fin de JPEG (FF D9) antes de pasarlo a Tesseract.
+ */
+async function leerEmailOfuscado(
+  srcImg: string, urlPagina: string, cookies: string, referer: string,
+): Promise<string | null> {
+  try {
+    const urlImg = new URL(srcImg.replace(/&amp;/gi, '&'), urlPagina).href;
+    const res = await fetchMPConReintentos(urlImg, {
+      method: 'GET',
+      headers: { 'User-Agent': MP_UA, Referer: referer, ...(cookies ? { Cookie: cookies } : {}) },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return null;
+    const bruto = Buffer.from(await res.arrayBuffer());
+    const finJpeg = bruto.indexOf(Buffer.from([0xff, 0xd9]));
+    const buf = finJpeg === -1 ? bruto : bruto.subarray(0, finJpeg + 2);
+
+    const texto = await ocrImagenLocalTesseract(buf, 'eng');
+    const m = texto.replace(/\s+/g, '').match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+    return m ? m[0].toLowerCase() : null;
+  } catch (e) {
+    console.error('[acta] OCR del e-mail ofuscado falló:', String(e).slice(0, 200));
+    return null;
+  }
+}
+
+async function parseContactoLicitacion(
+  html: string, urlActa: string, cookies: string, referer: string,
+): Promise<ContactoLicitacionActa | null> {
   const inicio = html.search(/Datos del Contacto para esta Licitaci[oó]n/i);
   if (inicio === -1) return null;
   let fin = html.indexOf('Datos de la Adquisici', inicio);
   if (fin === -1 || fin - inicio > 6000) fin = inicio + 4000;
   const bloque = html.slice(inicio, fin);
 
-  const leerCampo = (etiqueta: RegExp): string | null => {
-    for (const tr of bloque.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
-      const celdas = [...tr[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map(c => limpiar(c[1]));
-      if (celdas.length >= 2 && etiqueta.test(celdas[0])) {
-        const valor = celdas[1];
-        return valor && valor !== '--' && valor !== '-' ? valor.slice(0, 200) : null;
-      }
-    }
-    return null;
-  };
-
-  const nombre = leerCampo(/Nombre\s*Completo/i);
+  const nombre = filaCelda(bloque, /Nombre\s*Completo/i).texto;
   if (!nombre) return null;
+
+  const campoEmail = filaCelda(bloque, /E-?\s?Mail/i);
+  let email = campoEmail.texto;
+  if (!email && campoEmail.celdaCruda) {
+    const srcImg = campoEmail.celdaCruda.match(/<img[^>]*\ssrc="([^"]*ImgOfuscar[^"]*)"/i)?.[1];
+    if (srcImg) email = await leerEmailOfuscado(srcImg, urlActa, cookies, referer);
+  }
+
   return {
     nombre,
-    cargo: leerCampo(/^Cargo$/i),
-    telefono: leerCampo(/Tel[eé]fono/i),
-    email: leerCampo(/E-?\s?Mail/i),
+    cargo: filaCelda(bloque, /^Cargo$/i).texto,
+    telefono: filaCelda(bloque, /Tel[eé]fono/i).texto,
+    email,
   };
 }
 
@@ -224,7 +271,7 @@ export async function leerActa(codigo: string): Promise<LecturaActa | null> {
     });
   }
 
-  const contactoLicitacion = parseContactoLicitacion(html);
+  const contactoLicitacion = await parseContactoLicitacion(html, urlActa, cookies, referer);
   const sinControl = documentos.filter(d => !d.controlPostback).length;
   return {
     documentos, urlActa, cookies, referer, contactoLicitacion,

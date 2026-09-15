@@ -9,7 +9,7 @@ import {
   listarIncidencias, type DatosOportunidadMejora,
 } from '@/app/lib/compras-incidencias';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -66,8 +66,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
     const incidenciaId = Number(body.incidenciaId);
 
     if (body.accion === 'aprobar_jefe_ventas') {
-      const permisos = await permisosDeUsuario(userId, rol);
-      if (rol !== 'admin' && !permisos.aprobar_comercial)
+      // permisosCrudosDeUsuario (no permisosDeUsuario): "ser admin" ya no autoriza por sí solo
+      // (10-sep-2026, mismo criterio del resto del módulo) — se exige aprobar_comercial o
+      // compras_todo de verdad.
+      const permisos = await permisosCrudosDeUsuario(userId);
+      if (!permisos.compras_todo && !permisos.aprobar_comercial)
         return NextResponse.json({ error: 'Solo el jefe de ventas aprueba una Oportunidad de Mejora (spec §9.4).' }, { status: 403 });
       await aprobarOportunidadJefeVentas(incidenciaId, userId, nombre);
     } else if (body.accion === 'plantear_cliente') {

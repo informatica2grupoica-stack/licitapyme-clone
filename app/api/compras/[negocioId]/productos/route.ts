@@ -3,9 +3,10 @@
 // propone/aprueba renuncia a una línea (§14.5).
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion, listarProductosCompra, poblarProductosCompra, cambiarSubestadoProducto,
-  proponerRenunciaLinea, aprobarRenunciaLinea, coberturaProyecto, type SubestadoProducto } from '@/app/lib/compras';
+  proponerRenunciaLinea, aprobarRenunciaLinea, coberturaProyecto, sincronizarProductosConCosteo,
+  type SubestadoProducto } from '@/app/lib/compras';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,6 +57,13 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
     const body = await request.json();
+
+    if (body.accion === 'sincronizar_costeo') {
+      const r = await sincronizarProductosConCosteo(id);
+      const [productos, cobertura] = await Promise.all([listarProductosCompra(id), coberturaProyecto(id)]);
+      return NextResponse.json({ success: true, productos, cobertura, ...r });
+    }
+
     const productoId = Number(body.productoId);
     if (!Number.isFinite(productoId)) return NextResponse.json({ error: 'Falta productoId' }, { status: 400 });
 
@@ -65,8 +73,11 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       if (!String(body.motivo || '').trim()) return NextResponse.json({ error: 'Falta el motivo de la renuncia.' }, { status: 400 });
       await proponerRenunciaLinea(productoId, body.motivo, userId, nombre);
     } else if (body.accion === 'aprobar_renuncia') {
-      const rol_ = rol; const permisos = await permisosDeUsuario(userId, rol_);
-      if (rol_ !== 'admin' && !permisos.aprobar_comercial)
+      // permisosCrudosDeUsuario (no permisosDeUsuario): "ser admin" ya no autoriza por sí solo
+      // (10-sep-2026, mismo criterio del resto del módulo) — se exige aprobar_comercial o
+      // compras_todo de verdad.
+      const permisos = await permisosCrudosDeUsuario(userId);
+      if (!permisos.compras_todo && !permisos.aprobar_comercial)
         return NextResponse.json({ error: 'Solo el jefe de ventas aprueba la renuncia a una línea (spec §14.5).' }, { status: 403 });
       await aprobarRenunciaLinea(productoId, userId, nombre);
     } else {

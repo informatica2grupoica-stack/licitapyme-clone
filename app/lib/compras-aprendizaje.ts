@@ -22,7 +22,7 @@
 // homologación de productos por texto). Sin `compras_sku.obuma_producto_id` (§7.4, homologación de
 // códigos — hoy manual, la sync automática sigue en standby por §7.5) esta función no inventa una
 // respuesta: devuelve null.
-import { listarComprasOcItems, compraOcPorId, proveedorPorId } from '@/app/lib/obuma';
+import { listarComprasOcItems, compraOcPorId, proveedorPorId, proveedorPorRut, listarComprasOc } from '@/app/lib/obuma';
 
 export interface SugerenciaProveedorHistorico {
   proveedorNombre: string; proveedorRut: string | null; vecesComprado: number; precioPromedio: number | null; precioMasReciente: number | null;
@@ -72,4 +72,30 @@ export async function sugerenciaProveedorHistorico(obumaProductoId: string): Pro
       precioPromedio: a.conPrecio > 0 ? Math.round(a.sumaPrecio / a.conPrecio) : null, precioMasReciente: a.ultimoPrecio,
     }))
     .sort((a, b) => b.vecesComprado - a.vecesComprado);
+}
+
+export interface HistoricoProveedor {
+  razonSocial: string; ultimaOcFolio: string | null; ultimaOcFecha: string | null; ultimaOcTotal: number | null;
+}
+
+/** Pedido explícito del usuario, sep-2026: "en compras ponemos el proveedor... el sistema nos
+ *  tendrá que avisar, ojo, eso ya lo hemos comprado y a tal proveedor". El aviso POR PRODUCTO exacto
+ *  (`sugerenciaProveedorHistorico`, arriba) necesita un SKU de OBUMA homologado, que a esta altura
+ *  del flujo (recién registrando una cotización, antes de aprobar la compra §7.1) todavía no existe
+ *  — no se inventa esa respuesta. Lo que SÍ se puede saber ahora mismo, con solo el RUT que se
+ *  tipea en el formulario: si a ESE proveedor ya le hemos comprado algo alguna vez, sea lo que sea.
+ *  Devuelve null si el RUT no está en OBUMA o no tiene compras registradas — "sin historial" es un
+ *  resultado real, no un error. */
+export async function historicoProveedorPorRut(rut: string): Promise<HistoricoProveedor | null> {
+  const p = await proveedorPorRut(rut);
+  if (!p) return null;
+  const oc = await listarComprasOc({ proveedor: p.proveedor_id, limit: 1 });
+  const ultima = oc?.data?.[0];
+  if (!ultima) return null;
+  return {
+    razonSocial: p.proveedor_razon_social || p.proveedor_nombre_fantasia,
+    ultimaOcFolio: ultima.compra_oc_folio || null,
+    ultimaOcFecha: ultima.compra_oc_fecha_ingreso || null,
+    ultimaOcTotal: ultima.compra_oc_total != null ? Number(ultima.compra_oc_total) : null,
+  };
 }

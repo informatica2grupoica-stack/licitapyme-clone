@@ -1,7 +1,7 @@
 // app/api/compras/proveedores/[id]/route.ts
 // PATCH edita un proveedor del catálogo (incluye activar/desactivar).
 import { NextRequest, NextResponse } from 'next/server';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { actualizarProveedor, listarProveedores } from '@/app/lib/compras-proveedores';
 
 export const runtime = 'nodejs';
@@ -15,16 +15,18 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-async function puedeVerProveedores(userId: number, rol: string | null): Promise<boolean> {
-  if (rol === 'admin') return true;
-  const p = await permisosDeUsuario(userId, rol);
-  return !!(p.compras || p.aprobar_comercial);
+// "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026 — ver el comentario largo en
+// app/api/compras/[negocioId]/route.ts): mismo círculo que el resto de Compras, leído con
+// `permisosCrudosDeUsuario` para que ningún flag se auto-otorgue por ser admin.
+async function puedeVerProveedores(userId: number): Promise<boolean> {
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!(p.compras_todo || p.compras || p.aprobar_comercial);
 }
 
 export async function PATCH(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await puedeVerProveedores(userId, rol))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+  if (!(await puedeVerProveedores(userId))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
   const { id } = await params;
 
   try {

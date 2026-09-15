@@ -139,10 +139,10 @@ export async function ocrPaginasLocalTesseract(buffer: Buffer, paginas: number[]
 // OCR de UNA imagen suelta (png/jpeg), sin pasar por mupdf (eso es solo para rasterizar PÁGINAS
 // de un PDF) — el buffer YA es una imagen. Respaldo local cuando GLM-OCR falla o no hay saldo,
 // para el caso de un anexo con una sección pegada como foto (ver anexos-imagen-escaneada.ts).
-export async function ocrImagenLocalTesseract(buffer: Buffer): Promise<string> {
+export async function ocrImagenLocalTesseract(buffer: Buffer, lang = 'spa'): Promise<string> {
   const { createWorker } = await import('tesseract.js');
   const t0 = Date.now();
-  const worker = await createWorker('spa', undefined, { cachePath: TESSERACT_CACHE_PATH });
+  const worker = await createWorker(lang, undefined, { cachePath: TESSERACT_CACHE_PATH });
   try {
     const { data } = await worker.recognize(buffer);
     const texto = (data?.text || '').trim();

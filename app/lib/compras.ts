@@ -23,6 +23,8 @@ import { permisosDeUsuario } from '@/app/lib/api-auth';
 import { construirResumenEjecutivo, type ResumenEjecutivo } from '@/app/lib/entrega-proyecto';
 import { obtenerContactosCliente } from '@/app/lib/congelamiento';
 import { enviarAvisoComprasGanado } from '@/app/lib/email';
+import { publicarCambio } from '@/app/lib/sse-bus';
+import { plazoEntregaDetectadoNegocio } from '@/app/lib/compras-agente-documentos';
 
 // ── Aritmética de fechas "de pared" (sin reinterpretar zona horaria) ───────────────────────────
 // Se trabaja con Date "flotantes": los componentes de la hora de Chile (que ya vienen como texto de
@@ -188,7 +190,19 @@ export async function construirResumenEjecutivoCompras(
   const base = await construirResumenEjecutivo(negocioId, licitacionCodigo);
   const faltantes = [...base.faltantes];
 
+  // BUG REAL (11-sep-2026, reportado por el usuario contra el negocio 717): el presupuesto que
+  // publica Mercado Público viene CON IVA por defecto — es la misma regla que ya usan
+  // viabilidad-ia.ts y motor-comercial.ts (÷1,19 salvo régimen Ley FORA/exento) — pero acá se
+  // tomaba crudo de `licitaciones_cache.monto`, así que el "Presupuesto del proyecto" del Resumen
+  // Ejecutivo salía CON IVA mientras `montoCosteado`, `montoNuestro` y toda cotización son NETO:
+  // una comparación de peras con manzanas ($41.176.471 bruto contra $40.378.376 neto, en ese caso
+  // real). El informe de viabilidad SÍ sabe distinguir bruto/neto/régimen (leyó las bases de
+  // verdad) — se usa como fuente PRIMARIA para el presupuesto; `licitaciones_cache.monto` (sin
+  // ningún dato de régimen) queda como respaldo, convertido con el mismo supuesto por defecto que
+  // el resto del sistema.
+  const IVA = 1.19;
   let presupuestoProyecto: number | null = null;
+  let presupuestoProyectoBrutoMP: number | null = null;
   let fechaCierreLicitacion: string | null = null;
   try {
     const [rows] = await pool.query(
@@ -198,7 +212,7 @@ export async function construirResumenEjecutivoCompras(
     ) as any;
     const f = (rows as any[])[0];
     if (f) {
-      presupuestoProyecto = f.monto != null ? Number(f.monto) : null;
+      presupuestoProyectoBrutoMP = f.monto != null ? Number(f.monto) : null;
       fechaCierreLicitacion = f.fecha_cierre || null;
     }
   } catch (e) {
@@ -224,8 +238,13 @@ export async function construirResumenEjecutivoCompras(
       requiereFirmaContrato = !!adm.contrato?.exige;
     }
     plazos = leerPlazosDelInforme(informe);
-    if (presupuestoProyecto == null && nucleo?.presupuesto) {
-      presupuestoProyecto = nucleo.presupuesto.bruto ?? nucleo.presupuesto.neto ?? null;
+    // Mismo criterio que motor-comercial.ts (línea ~298): el `.neto` ya viene calculado por la IA
+    // que leyó las bases reales; si falta, se deriva del `.bruto` respetando `con_iva`/`regimen_fora`
+    // — nunca al revés (preferir `.bruto` sin convertir mezclaba unidades, el bug de arriba).
+    if (nucleo?.presupuesto) {
+      const pres = nucleo.presupuesto;
+      const exento = !!pres.presupuesto_exento || !!pres.regimen_fora || pres.con_iva === false;
+      presupuestoProyecto = Number(pres.neto) || (pres.bruto != null ? (exento ? Number(pres.bruto) : Number(pres.bruto) / IVA) : null);
     }
     if (!adm && !nucleo?.plazos && !nucleo?.linea_tiempo) {
       faltantes.push('Sin informe de viabilidad IA con datos de bases: boleta, contrato e inicio del plazo no se pudieron determinar automáticamente.');
@@ -234,14 +253,66 @@ export async function construirResumenEjecutivoCompras(
     console.error('[compras] informe de viabilidad no legible:', String(e).slice(0, 150));
   }
 
+  // Respaldo: sin informe de viabilidad (o sin su bloque de presupuesto), se usa el monto crudo de
+  // MP — no trae dato de régimen, así que se aplica el supuesto por defecto del resto del sistema
+  // ("viene con IVA salvo que se sepa lo contrario"). Peor que el informe real, mejor que nada.
+  if (presupuestoProyecto == null && presupuestoProyectoBrutoMP != null) {
+    presupuestoProyecto = presupuestoProyectoBrutoMP / IVA;
+  }
+
   // §4.2 campo 5 pide el plazo "declarado en NUESTRA oferta", no el máximo que permitían las bases.
-  // Ese es el que el asesor comprometió en el bloque comercial del Auditor Técnico, así que manda
-  // ese; el de las bases entra solo como respaldo, y rotulado, para que nadie lo confunda con lo
-  // que efectivamente ofertamos.
-  const comprometido = (base.plazosComprometidos || []).find(pl => /entrega/i.test(pl.titulo) && (pl.valor || '').trim());
-  const plazoEntregaOfertado = comprometido?.valor?.trim()
-    || (plazos.plazoEntregaTexto ? `${plazos.plazoEntregaTexto} (tope de las bases — no se registró el plazo ofertado)` : null);
-  const plazoEntregaDias = plazos.plazoEntregaDias;
+  // Orden de fuentes (pedido explícito del usuario, 15-sep-2026 — "prefiero que lo tome del
+  // auditor y que la IA solo lo verifique"):
+  //   1. El Auditor Técnico EN VIVO (tabla `checklist_comercial`, bloque COMERCIAL) — es la fuente
+  //      de verdad, y el usuario la sigue editando/aprobando DESPUÉS de que el negocio se congela
+  //      (bypass de admin, ver congelamiento.ts). Por eso se lee la tabla en vivo y NO solo el
+  //      paquete congelado — un negocio viejo puede tener el criterio cargado hoy aunque se haya
+  //      congelado hace semanas sin ese dato.
+  //   2. Si la tabla en vivo no tiene ese criterio (negocio sin fila ni siquiera creada todavía):
+  //      el paquete congelado (`base.plazosComprometidos`), por si el criterio se borró de la
+  //      tabla en vivo pero el traspaso ya lo había capturado.
+  //   3. Si ninguno de los dos existe: el plazo que la auditoría con IA detectó leyendo los
+  //      documentos reales — ya NO es la fuente preferida, queda solo de respaldo mientras nadie
+  //      cargó el dato en el Auditor Técnico.
+  //   4. Si tampoco hay auditoría de IA corrida: queda en null y se anota en faltantes — nunca se
+  //      rellena con un texto genérico.
+  let plazoEntregaOfertado: string | null = null;
+  let plazoEntregaDias = plazos.plazoEntregaDias;
+  try {
+    const [rows] = await pool.query(
+      `SELECT valor_texto FROM checklist_comercial
+        WHERE negocio_id = ? AND bloque = 'COMERCIAL' AND tipo = 'dato' AND titulo LIKE '%entrega%'
+          AND valor_texto IS NOT NULL AND valor_texto <> ''
+        ORDER BY updated_at DESC LIMIT 1`,
+      [negocioId],
+    ) as any;
+    const vivo = (rows as any[])[0]?.valor_texto?.trim();
+    if (vivo) {
+      plazoEntregaOfertado = vivo;
+      const n = /(\d+)/.exec(vivo);
+      if (n) plazoEntregaDias = Number(n[1]);
+    }
+  } catch (e) {
+    console.error('[compras] no se pudo leer checklist_comercial en vivo:', String(e).slice(0, 150));
+  }
+  if (!plazoEntregaOfertado) {
+    const comprometido = (base.plazosComprometidos || []).find(pl => /entrega/i.test(pl.titulo) && (pl.valor || '').trim());
+    plazoEntregaOfertado = comprometido?.valor?.trim() || null;
+  }
+  if (!plazoEntregaOfertado) {
+    try {
+      const detectado = await plazoEntregaDetectadoNegocio(negocioId);
+      if (detectado?.citaVerificada && detectado.texto) {
+        plazoEntregaOfertado = detectado.texto;
+        if (detectado.dias != null) plazoEntregaDias = detectado.dias;
+      }
+    } catch (e) {
+      console.error('[compras] no se pudo leer plazoEntregaDetectado:', String(e).slice(0, 150));
+    }
+  }
+  if (!plazoEntregaOfertado) {
+    faltantes.push('Plazo de entrega ofertado: sin dato del Auditor Técnico ni de la auditoría con IA — cárgalo en el Auditor Técnico o corre "Auditar este negocio completo con IA".');
+  }
   const hitoInicioPlazo = plazos.hitoInicioPlazo;
 
   // Plazo para aceptar la OC (§5.2): el de estas bases si el informe lo identificó, si no el legal.
@@ -283,6 +354,28 @@ export async function construirResumenEjecutivoCompras(
   let contactosCliente = base.contactosCliente;
   if (!contactosCliente) {
     try { contactosCliente = await obtenerContactosCliente(licitacionCodigo); } catch { /* MP caído: queda el faltante */ }
+  }
+  // El teléfono/correo del "Operador de la compra" salen del ACTA (acta-adjudicacion.ts), que casi
+  // siempre se lee DESPUÉS de que este paquete se congeló — el bloque de arriba no dispara porque
+  // `contactosCliente` YA viene con datos (organismo, nombre) desde la API de MP al congelar, así
+  // que esos 2 campos se quedaban sin completar para siempre aunque el acta los tuviera. Se
+  // completan acá con una consulta directa (sin pasar por la API de MP, que ya respondió arriba).
+  if (contactosCliente && (!contactosCliente.usuarioTelefono || !contactosCliente.usuarioEmail)) {
+    try {
+      const [[c2]] = await pool.query(
+        `SELECT contacto_telefono, contacto_email FROM adjudicacion_cache WHERE licitacion_codigo = ? LIMIT 1`,
+        [licitacionCodigo],
+      ) as any;
+      if (c2?.contacto_telefono || c2?.contacto_email) {
+        contactosCliente = {
+          ...contactosCliente,
+          usuarioTelefono: contactosCliente.usuarioTelefono || c2.contacto_telefono || null,
+          usuarioEmail: contactosCliente.usuarioEmail || c2.contacto_email || null,
+        };
+      }
+    } catch (e) {
+      console.error('[compras] contacto del acta no legible:', String(e).slice(0, 150));
+    }
   }
 
   const existeCosteo = !!costeo;
@@ -483,6 +576,49 @@ export async function asignarEncargado(
   });
 }
 
+export type CierreLegado = 'ENTREGADA' | 'NO_REALIZADA';
+
+/**
+ * Marca rápida para el backlog histórico (migration-107, 11-sep-2026): negocios ADJUDICADA que se
+ * entregaron o no se concretaron ANTES de que existiera Compras, y que no tiene sentido arrastrar
+ * por el flujo completo de Entrega (§16, con verificación/acta/firma) o Fracaso (§14.6, con
+ * dictamen del jefe de ventas) — nadie va a reconstruir esos pasos para algo cerrado hace meses.
+ * A propósito NO toca `compras_entrega` ni `compras_fracaso`: esta es una marca aparte, para no
+ * mezclar "se verificó de verdad" con "se declara cerrado por ser historial viejo".
+ */
+export async function marcarCierreLegado(
+  negocioId: number, estado: CierreLegado, nota: string | null, userId: number, userNombre: string | null,
+): Promise<void> {
+  const ahora = ahoraChileSQL();
+  const [r] = await pool.query(
+    `UPDATE compras_asignacion
+        SET cierre_legado = ?, cierre_legado_nota = ?, cierre_legado_por = ?, cierre_legado_por_nombre = ?, cierre_legado_at = ?
+      WHERE negocio_id = ?`,
+    [estado, nota || null, userId, userNombre, ahora, negocioId],
+  ) as any;
+  if (!r?.affectedRows) throw new Error('No existe apertura de Compras para este negocio.');
+
+  const [rows] = await pool.query(`SELECT licitacion_codigo FROM compras_asignacion WHERE negocio_id = ? LIMIT 1`, [negocioId]) as any;
+  const licitacionCodigo = (rows as any[])[0]?.licitacion_codigo || null;
+
+  await registrarEvento({
+    tipo: 'COMPRAS_CIERRE_LEGADO',
+    licitacionCodigo, actorId: userId, actorNombre: userNombre,
+    mensaje: `Se marcó ${licitacionCodigo} como ${estado === 'ENTREGADA' ? 'entregada' : 'no realizada'} (backlog histórico)${nota ? `: "${nota}"` : ''}.`,
+    metadata: { negocio_id: negocioId, estado, nota },
+  });
+}
+
+/** Deshace la marca de cierre legado (por si se marcó por error). */
+export async function quitarCierreLegado(negocioId: number): Promise<void> {
+  await pool.query(
+    `UPDATE compras_asignacion
+        SET cierre_legado = NULL, cierre_legado_nota = NULL, cierre_legado_por = NULL, cierre_legado_por_nombre = NULL, cierre_legado_at = NULL
+      WHERE negocio_id = ?`,
+    [negocioId],
+  );
+}
+
 export async function crearTareasCatalogoSiCorresponde(
   negocioId: number, responsableId: number, responsableNombre: string | null,
 ): Promise<void> {
@@ -646,11 +782,14 @@ export interface AsignacionCompras {
   asignadoA: number | null; asignadoNombre: string | null; asignadoAt: string | null; asignadoPor: number | null;
   resumen: ResumenEjecutivoCompras | null;
   ordenCompra: OrdenCompraCliente;
+  cierreLegado: CierreLegado | null; cierreLegadoNota: string | null; cierreLegadoAt: string | null; cierreLegadoPorNombre: string | null;
 }
 
 export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCompras | null> {
   const [rows] = await pool.query(
     `SELECT ca.negocio_id, ca.licitacion_codigo, ca.urgente, ca.asignado_a, ca.asignado_por, ca.resumen_json,
+            ca.cierre_legado, ca.cierre_legado_nota, ca.cierre_legado_por_nombre,
+            DATE_FORMAT(ca.cierre_legado_at, '%Y-%m-%d %H:%i:%s') AS cierre_legado_at,
             DATE_FORMAT(ca.ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at,
             DATE_FORMAT(ca.vencimiento_asignacion_at, '%Y-%m-%d %H:%i:%s') AS vencimiento_asignacion_at,
             DATE_FORMAT(ca.asignado_at, '%Y-%m-%d %H:%i:%s') AS asignado_at,
@@ -674,6 +813,10 @@ export async function obtenerAsignacion(negocioId: number): Promise<AsignacionCo
     ganadoAt: r.ganado_at, vencimientoAsignacionAt: r.vencimiento_asignacion_at, urgente: !!r.urgente,
     asignadoA: r.asignado_a, asignadoNombre: r.asignado_nombre, asignadoAt: r.asignado_at, asignadoPor: r.asignado_por,
     resumen,
+    cierreLegado: (r.cierre_legado as CierreLegado | null) ?? null,
+    cierreLegadoNota: r.cierre_legado_nota ?? null,
+    cierreLegadoAt: r.cierre_legado_at ?? null,
+    cierreLegadoPorNombre: r.cierre_legado_por_nombre ?? null,
     ordenCompra: {
       numero: r.oc_numero ?? null,
       emitidaAt: r.oc_emitida_at ?? null,
@@ -697,35 +840,66 @@ export interface ComprasFila {
   urgente: boolean; asignadoA: number | null; asignadoNombre: string | null; asignadoAt: string | null;
   vencimientoAsignacionAt: string; ganadoAt: string; montoNuestro: number | null;
   tareasTotal: number; tareasHechas: number; tareasVencidas: number;
+  // Fecha de la OC del cliente (§3.6) — ancla de la vista mensual (spec pedía el reloj de entrega,
+  // pero ese depende del Auditor Técnico y no todos los negocios cargados pasaron por ahí). Es
+  // `oc_aceptada_at` (o `oc_emitida_at` si aún no la aceptan) — la fecha que trae Mercado Público
+  // en la OC misma, NO `oc_vinculada_at` (cuándo la enganchó NUESTRO sync): esa segunda depende de
+  // cuándo corrió el cron o una prueba manual, así que dos negocios que llegaron a Compras en
+  // momentos distintos podían mostrar el mismo día del mes solo porque el sync los tocó juntos.
+  ocFecha: string | null;
+  // Marca rápida de backlog histórico (migration-107) — ver marcarCierreLegado(). null = negocio
+  // activo normal.
+  cierreLegado: CierreLegado | null;
+  // Por qué `urgente` es true (Cadena de Urgencia, §3.7/§15.2): el plazo de entrega OFERTADO es
+  // menor a 3 días — no es una cuenta regresiva de cuánto falta desde hoy, es que el compromiso
+  // mismo era muy corto. Se manda para poder explicarlo en pantalla (spec pedía el botón
+  // "Urgentes" pero nunca decía por qué algo calificaba).
+  plazoEntregaDias: number | null;
+  // Quien preparó/postuló la licitación EN NEGOCIOS (negocios.asignado_a) — pedido explícito del
+  // usuario, 15-sep-2026: en el calendario de Compras quiere ver también a ese "asistente", no solo
+  // al encargado de Compras que la ejecuta después de ganada (que puede ser otra persona).
+  postuladoPorNombre: string | null;
 }
 
 /** Listado transversal (pantalla /compras): una fila por negocio con asignación y avance de tareas. */
 export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
   const ahora = ahoraChileSQL();
   const [rows] = await pool.query(
-    `SELECT ca.negocio_id, ca.licitacion_codigo, ca.urgente, ca.asignado_a, ca.resumen_json,
+    `SELECT ca.negocio_id, ca.licitacion_codigo, ca.urgente, ca.asignado_a, ca.resumen_json, ca.cierre_legado,
             DATE_FORMAT(ca.ganado_at, '%Y-%m-%d %H:%i:%s') AS ganado_at,
             DATE_FORMAT(ca.vencimiento_asignacion_at, '%Y-%m-%d %H:%i:%s') AS vencimiento_asignacion_at,
             DATE_FORMAT(ca.asignado_at, '%Y-%m-%d %H:%i:%s') AS asignado_at,
+            DATE_FORMAT(COALESCE(ca.oc_aceptada_at, ca.oc_emitida_at), '%Y-%m-%d') AS oc_fecha,
             n.licitacion_nombre, n.licitacion_organismo, u.nombre AS asignado_nombre,
+            up.nombre AS postulado_por_nombre,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id) AS tareas_total,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado = 'HECHA') AS tareas_hechas,
             (SELECT COUNT(*) FROM compras_tarea t WHERE t.negocio_id = ca.negocio_id AND t.estado <> 'HECHA' AND t.plazo_at IS NOT NULL AND t.plazo_at < ?) AS tareas_vencidas
        FROM compras_asignacion ca
        JOIN negocios n ON n.id = ca.negocio_id
        LEFT JOIN usuarios u ON u.id = ca.asignado_a
+       LEFT JOIN usuarios up ON up.id = n.asignado_a
       ORDER BY ca.urgente DESC, ca.ganado_at DESC`,
     [ahora],
   ) as any;
   return (rows as any[]).map(r => {
     let montoNuestro: number | null = null;
-    try { montoNuestro = JSON.parse(r.resumen_json)?.montoNuestro ?? null; } catch { /* fila sin monto legible */ }
+    let plazoEntregaDias: number | null = null;
+    try {
+      const resumen = JSON.parse(r.resumen_json);
+      montoNuestro = resumen?.montoNuestro ?? null;
+      plazoEntregaDias = resumen?.plazoEntregaDias ?? null;
+    } catch { /* fila sin resumen legible */ }
     return {
       negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo,
       licitacionNombre: r.licitacion_nombre, licitacionOrganismo: r.licitacion_organismo,
       urgente: !!r.urgente, asignadoA: r.asignado_a, asignadoNombre: r.asignado_nombre, asignadoAt: r.asignado_at,
       vencimientoAsignacionAt: r.vencimiento_asignacion_at, ganadoAt: r.ganado_at, montoNuestro,
       tareasTotal: Number(r.tareas_total), tareasHechas: Number(r.tareas_hechas), tareasVencidas: Number(r.tareas_vencidas),
+      ocFecha: r.oc_fecha,
+      cierreLegado: (r.cierre_legado as CierreLegado | null) ?? null,
+      plazoEntregaDias,
+      postuladoPorNombre: r.postulado_por_nombre ?? null,
     };
   });
 }
@@ -1139,6 +1313,10 @@ export async function vincularOrdenCompraDeMP(
 
     await avisarOrdenCompraLlegada(Number(ficha.negocio_id), licitacionCodigo, ficha.asignado_a, oc, difierePorMonto);
     console.log(`[compras] OC ${oc.codigo} (${oc.estado || 'sin estado'}) enganchada al negocio ${ficha.negocio_id}${difierePorMonto ? ' · DIFIERE de lo adjudicado' : ''}`);
+    // Tiempo real (pedido explícito, 11-sep-2026): quien tenga /compras o el dashboard abiertos
+    // ahora mismo debe verlo sin refrescar a mano — mismo bus que usa el resto de los tableros
+    // (app/lib/sse-bus.ts), no la campana personal de arriba, que es aparte.
+    publicarCambio('compras');
     return { vinculada: true, difiere, negocioId: Number(ficha.negocio_id) };
   } catch (e) {
     console.error('[compras] no se pudo enganchar la orden de compra:', String(e).slice(0, 250));
@@ -1311,6 +1489,78 @@ export async function poblarProductosCompra(negocioId: number): Promise<void> {
      VALUES ${ph}`,
     filas.flat(),
   );
+}
+
+/**
+ * Sincroniza "Productos y cobertura" (compras_producto) contra el Costeo digital vigente —
+ * pedido explícito del usuario (15-sep-2026: "la idea es que lo saque del costeo"). `poblarProductosCompra`
+ * solo puebla UNA VEZ, al abrirse Compras; si en ese momento no había costeo cargado todavía, cayó
+ * al desglose del acta de MP (genérico) y se quedó así para siempre, aunque después se cargara el
+ * costeo real con el detalle correcto por producto. Este botón/acción manual lo reemplaza a mano.
+ *
+ * MERGE, no reemplazo ciego: hace match por `correlativo` (la línea publicada) contra lo que ya
+ * hay, para no perder el subestado ni el historial de renuncia de un producto que sigue siendo el
+ * mismo — solo actualiza descripción/cantidad/unidad/monto. Los ítems del costeo sin correlativo
+ * que calzan (mismo orden) con filas sin correlativo también actualizan; el resto se inserta como
+ * PENDIENTE nuevo. Las filas existentes que ya no aparecen en el costeo NO se borran (podrían tener
+ * una renuncia aprobada — es historial), quedan tal cual.
+ */
+export async function sincronizarProductosConCosteo(negocioId: number): Promise<{ actualizados: number; agregados: number }> {
+  const [negRows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
+  const licitacionCodigo = (negRows as any[])[0]?.licitacion_codigo;
+  if (!licitacionCodigo) throw new Error('Negocio no encontrado.');
+
+  const filasCosteo = await filasProductoDelCosteo(licitacionCodigo);
+  if (filasCosteo.length === 0) throw new Error('Este negocio no tiene Costeo cargado todavía.');
+
+  const [existentesRows] = await pool.query(
+    `SELECT id, correlativo FROM compras_producto WHERE negocio_id = ? ORDER BY correlativo IS NULL, correlativo, id`,
+    [negocioId],
+  ) as any;
+  const existentes = existentesRows as { id: number; correlativo: number | null }[];
+  const porCorrelativo = new Map(existentes.filter(e => e.correlativo != null).map(e => [e.correlativo, e.id]));
+  const sinCorrelativo = existentes.filter(e => e.correlativo == null);
+
+  const ahora = ahoraChileSQL();
+  let actualizados = 0;
+  const aInsertar: any[][] = [];
+  let cursorSinCorrelativo = 0;
+
+  for (const f of filasCosteo) {
+    const descripcion = (f.detalle || 'Producto sin nombre').slice(0, 500);
+    const cantidad = f.cantidadOriginal ?? null;
+    const unidad = f.unidad ?? null;
+    const montoUnitario = f.precioUnitarioSinDecimales ?? null;
+
+    let idExistente: number | null = null;
+    if (f.lineaPublicada != null && porCorrelativo.has(f.lineaPublicada)) {
+      idExistente = porCorrelativo.get(f.lineaPublicada)!;
+    } else if (f.lineaPublicada == null && cursorSinCorrelativo < sinCorrelativo.length) {
+      idExistente = sinCorrelativo[cursorSinCorrelativo++].id;
+    }
+
+    if (idExistente != null) {
+      await pool.query(
+        `UPDATE compras_producto SET descripcion = ?, cantidad = ?, unidad = ?, monto_unitario = ?, updated_at = ? WHERE id = ?`,
+        [descripcion, cantidad, unidad, montoUnitario, ahora, idExistente],
+      );
+      actualizados++;
+    } else {
+      aInsertar.push([negocioId, f.lineaPublicada ?? null, descripcion, cantidad, unidad, montoUnitario, 'PENDIENTE', ahora, ahora]);
+    }
+  }
+
+  if (aInsertar.length) {
+    const ph = aInsertar.map(() => '(?,?,?,?,?,?,?,?,?)').join(',');
+    await pool.query(
+      `INSERT INTO compras_producto
+         (negocio_id, correlativo, descripcion, cantidad, unidad, monto_unitario, subestado, created_at, updated_at)
+       VALUES ${ph}`,
+      aInsertar.flat(),
+    );
+  }
+
+  return { actualizados, agregados: aInsertar.length };
 }
 
 /** Lee el Costeo digital del negocio (mismo origen que Viabilidad/Anexo Económico) y lo aplana a

@@ -40,6 +40,11 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
   const [guardando, setGuardando] = useState(false);
   const [form, setForm] = useState({ naturaleza: 'DEFENSIVA' as Naturaleza, tipoClave: '', tipoLibre: '', productoId: '', descripcion: '' });
   const [formOm, setFormOm] = useState({ productoId: '', productoAlternativo: '', ahorroEstimado: '', descripcion: '' });
+  // Antes: `window.confirm` con "Aceptar = Sí, Cancelar = No" — un clic equivocado invierte la
+  // decisión del cliente sobre algo que se modifica de lo ofertado al Estado. Se reemplaza por dos
+  // botones explícitos, y la constancia mínima (spec §9.4) pasa a un campo real en vez de un prompt.
+  const [respondiendoOmId, setRespondiendoOmId] = useState<number | null>(null);
+  const [respuestaConstancia, setRespuestaConstancia] = useState('');
 
   const cargar = useCallback(async () => {
     try {
@@ -121,7 +126,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
     }
   };
 
-  const accionOm = async (incidenciaId: number, accion: string, extra: Record<string, unknown> = {}) => {
+  const accionOm = async (incidenciaId: number, accion: string, extra: Record<string, unknown> = {}): Promise<boolean> => {
     try {
       const res = await fetch(`/api/compras/${negocioId}/incidencias/oportunidad-mejora`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ incidenciaId, accion, ...extra }),
@@ -130,16 +135,17 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');
       toast.success('Actualizado');
       setIncidencias(data.incidencias);
+      return true;
     } catch (e: any) {
       toast.error('No se pudo actualizar', e.message);
+      return false;
     }
   };
 
-  const responderCliente = (id: number) => {
-    const constancia = window.prompt('Constancia mínima — quién autorizó, con quién se habló y cuándo (spec §9.4):');
-    if (!constancia?.trim()) return;
-    const aprobada = window.confirm('¿El cliente APROBÓ la Oportunidad de Mejora? Aceptar = Sí, Cancelar = No.');
-    accionOm(id, 'respuesta_cliente', { aprobada, constancia });
+  const responderCliente = async (id: number, aprobada: boolean) => {
+    if (!respuestaConstancia.trim()) return;
+    const ok = await accionOm(id, 'respuesta_cliente', { aprobada, constancia: respuestaConstancia.trim() });
+    if (ok) { setRespondiendoOmId(null); setRespuestaConstancia(''); }
   };
 
   if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
@@ -258,11 +264,30 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
                           <Send size={12} /> Ya se le planteó al cliente
                         </button>
                       )}
-                      {i.om.planteadaClienteAt && (
-                        <button onClick={() => responderCliente(i.id)} className="flex items-center gap-1 text-[11px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 px-2.5 py-1.5 rounded-lg">
+                      {i.om.planteadaClienteAt && respondiendoOmId !== i.id && (
+                        <button onClick={() => { setRespondiendoOmId(i.id); setRespuestaConstancia(''); }} className="flex items-center gap-1 text-[11px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 px-2.5 py-1.5 rounded-lg">
                           <Clock size={12} /> Registrar respuesta del cliente
                         </button>
                       )}
+                    </div>
+                  )}
+                  {i.om.planteadaClienteAt && respondiendoOmId === i.id && (
+                    <div className="mt-1.5 bg-white border border-zinc-200 rounded-lg p-2.5 space-y-1.5">
+                      <p className="text-[10px] font-bold text-zinc-500 uppercase">Constancia mínima — quién autorizó, con quién se habló y cuándo (spec §9.4)</p>
+                      <textarea rows={2} value={respuestaConstancia} onChange={e => setRespuestaConstancia(e.target.value)}
+                        placeholder="Ej: autorizó Juan Pérez (jefe de ventas), hablado con la contraparte técnica el 11-09-2026…"
+                        className="w-full text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <button onClick={() => responderCliente(i.id, true)} disabled={!respuestaConstancia.trim()}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
+                          <CheckCircle2 size={12} /> Cliente aprobó
+                        </button>
+                        <button onClick={() => responderCliente(i.id, false)} disabled={!respuestaConstancia.trim()}
+                          className="flex items-center gap-1 text-[11px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
+                          <X size={12} /> Cliente rechazó
+                        </button>
+                        <button onClick={() => setRespondiendoOmId(null)} className="text-[11px] text-zinc-400 hover:text-zinc-600">Cancelar</button>
+                      </div>
                     </div>
                   )}
                 </div>

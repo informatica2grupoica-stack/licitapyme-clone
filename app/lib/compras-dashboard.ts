@@ -35,11 +35,17 @@ export interface RankingEncargado {
   tareasCerradas: number; tareasVencidasAbiertas: number; horasPromedioCierre: number | null;
 }
 
+export interface GanadoPorMes { mes: string; n: number } // mes = 'YYYY-MM'
+
 export interface DashboardCompras {
   negociosActivos: number;
   negociosUrgentes: number;
   relojesVencidos: number;
   incidenciasAbiertas: number;
+  sinAsignar: number;
+  cierreLegado: { entregadas: number; noRealizadas: number };
+  ordenesCompra: { conOc: number; sinOc: number };
+  ganadosPorMes: GanadoPorMes[];
   slaAsignacion: { promedioHoras: number | null; automaticas: number; manuales: number; total: number };
   cuellosBotella: CuelloBotellaTarea[];
   ranking: RankingEncargado[];
@@ -71,6 +77,35 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
     const [[incRow]]: any = await pool.query(`SELECT COUNT(*) n FROM compras_incidencia WHERE estado = 'ABIERTA'`);
     incidenciasAbiertas = Number(incRow?.n || 0);
   } catch { /* migration-94 pendiente: sigue en 0 */ }
+
+  const [[sinAsigRow]]: any = await pool.query(
+    `SELECT COUNT(*) n FROM compras_asignacion WHERE asignado_a IS NULL`,
+  );
+  const sinAsignar = Number(sinAsigRow?.n || 0);
+
+  // Cierre legado (migration-107, backlog histórico marcado a mano) — cuántos ya se cerraron
+  // "rápido" (sin pasar por el flujo completo de Entrega/Fracaso) y con qué resultado.
+  let cierreLegado = { entregadas: 0, noRealizadas: 0 };
+  try {
+    const [[clRow]]: any = await pool.query(
+      `SELECT SUM(cierre_legado = 'ENTREGADA') entregadas, SUM(cierre_legado = 'NO_REALIZADA') no_realizadas
+         FROM compras_asignacion WHERE cierre_legado IS NOT NULL`,
+    );
+    cierreLegado = { entregadas: Number(clRow?.entregadas || 0), noRealizadas: Number(clRow?.no_realizadas || 0) };
+  } catch { /* columna nueva: si falla, se queda en 0 */ }
+
+  const [[ocRow]]: any = await pool.query(
+    `SELECT SUM(oc_numero IS NOT NULL) con_oc, SUM(oc_numero IS NULL) sin_oc FROM compras_asignacion`,
+  );
+  const ordenesCompra = { conOc: Number(ocRow?.con_oc || 0), sinOc: Number(ocRow?.sin_oc || 0) };
+
+  // Ganados por mes — de dónde vienen los negocios que hoy están en Compras, mes a mes real
+  // (ganado_at, no cuándo entraron al sistema). Últimos 12 meses con datos.
+  const [gpmRows]: any = await pool.query(
+    `SELECT DATE_FORMAT(ganado_at, '%Y-%m') mes, COUNT(*) n
+       FROM compras_asignacion GROUP BY mes ORDER BY mes`,
+  );
+  const ganadosPorMes: GanadoPorMes[] = (gpmRows as any[]).map(r => ({ mes: r.mes, n: Number(r.n) }));
 
   // §3.3 — SLA de asignación (3h hábiles). Se mide cuánto tardó REALMENTE, sea manual o automática.
   const [asigRows]: any = await pool.query(
@@ -136,6 +171,10 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
     negociosUrgentes: Number(negRow?.urgentes || 0),
     relojesVencidos,
     incidenciasAbiertas,
+    sinAsignar,
+    cierreLegado,
+    ordenesCompra,
+    ganadosPorMes,
     slaAsignacion: { promedioHoras: promedio(horasAsignacion), automaticas, manuales, total: horasAsignacion.length },
     cuellosBotella,
     ranking,

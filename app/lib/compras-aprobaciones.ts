@@ -70,14 +70,83 @@ export async function obtenerEscenarioElegido(negocioId: number) {
   return (rows as any[])[0] || null;
 }
 
-/** §10.2 — el encargado propone la compra sobre el escenario que ya eligió (elegirEscenario). */
-export async function proponerAprobacionCompra(negocioId: number, actorId: number, actorNombre: string | null): Promise<void> {
+export interface PresupuestoCompra {
+  presupuestoOriginal: number | null; costoEscenario: number | null; excedePct: number | null; excede: boolean;
+  costoFlete: number | null;
+}
+
+/** CONTROL DE GASTO (pedido explícito del usuario, no numerado en la spec pero del mismo espíritu
+ *  que §1.3.2 "el costeo es presupuesto, no meta" y §10.3): compara lo que de verdad va a costar el
+ *  escenario elegido contra lo que el asistente costeó al ofertar. Si se compra por sobre ese
+ *  presupuesto, se avisa — mismo criterio "no bloquea de plano, exige motivo" que ya usa el margen
+ *  (§10.3), para no duplicar una regla dura donde la spec explícitamente prefiere el aviso.
+ *
+ *  BUG REAL (14-sep-2026, reportado en vivo por el usuario: "esto no está sobre presupuesto" —
+ *  diferencia de $39.998 contra una compra de $14M, calzando casi exacto con UN viaje interno de
+ *  $40.000, spec §8.10.2). `presupuestoOriginal` (montoCosteado, de Costeo) es SOLO mercadería — no
+ *  incluye flete, porque en Costeo no se cotiza logística. `escenario.costo_total`, en cambio, SÍ
+ *  suma el flete (ver calcularEscenarios en compras-auditor.ts). Comparar uno contra el otro
+ *  directo castigaba SIEMPRE la compra por el costo del flete, sin que la mercadería en sí
+ *  estuviera ni un peso arriba de lo costeado — exacto lo que el usuario describió: "a veces se
+ *  cotiza más barato... por eso tiene que adaptar el programa a eso". Ahora se compara mercadería
+ *  contra mercadería (se recalcula desde `detalle_json.porProducto`, la misma fuente que ya usa
+ *  `costoEscenarioParaProducto`); el flete se muestra aparte, informativo, nunca como "exceso de
+ *  presupuesto".
+ *
+ *  15-sep-2026 (pedido explícito: "no me puedes poner 40 por defecto, eso lo tenemos que poner
+ *  nosotros ya que es dinero"): `calcularEscenarios` YA NO rellena un flete no informado con
+ *  VIAJE_INTERNO_CLP — cuenta como $0 y `Escenario.fleteSinConfirmar` avisa que ese $0 no es un
+ *  dato confirmado. `costoFlete` acá abajo hereda ese comportamiento sin cambios (sigue siendo
+ *  `costo_total - costoEscenario`), simplemente ahora puede dar $0 de verdad en vez de $40.000
+ *  adivinados. */
+export async function calcularPresupuestoCompra(negocioId: number): Promise<PresupuestoCompra> {
+  const asignacion = await obtenerAsignacion(negocioId);
+  const presupuestoOriginal = asignacion?.resumen?.montoCosteado ?? null;
+  const escenario = await obtenerEscenarioElegido(negocioId);
+
+  let costoEscenario: number | null = null;
+  let costoFlete: number | null = null;
+  if (escenario) {
+    let detalle: any = null;
+    try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* detalle inválido, se trata como vacío */ }
+    const porProducto = detalle?.porProducto as Array<{ subtotal: number | null }> | undefined;
+    if (porProducto) {
+      costoEscenario = porProducto.reduce((s, p) => s + (p.subtotal || 0), 0);
+      costoFlete = Number(escenario.costo_total) - costoEscenario;
+    } else {
+      // Escenario viejo sin porProducto en el detalle (no debería pasar, pero mejor esto que
+      // reventar) — se cae de vuelta al total completo, mercadería+flete juntos como antes.
+      costoEscenario = Number(escenario.costo_total);
+    }
+  }
+
+  const excedePct = (presupuestoOriginal != null && presupuestoOriginal > 0 && costoEscenario != null)
+    ? Math.round(((costoEscenario - presupuestoOriginal) / presupuestoOriginal) * 1000) / 10
+    : null;
+  return { presupuestoOriginal, costoEscenario, excedePct, excede: excedePct != null && excedePct > 0, costoFlete };
+}
+
+/** §10.2 — el encargado propone la compra sobre el escenario que ya eligió (elegirEscenario).
+ *  `motivoSiExcedePresupuesto` es obligatorio SOLO si el costo real queda por sobre lo costeado. */
+export async function proponerAprobacionCompra(
+  negocioId: number, actorId: number, actorNombre: string | null, motivoSiExcedePresupuesto: string | null = null,
+): Promise<void> {
   const escenario = await obtenerEscenarioElegido(negocioId);
   if (!escenario) throw new Error('Primero hay que elegir un escenario de compra (spec §8.10.4).');
+  const presupuesto = await calcularPresupuestoCompra(negocioId);
+  if (presupuesto.excede && !motivoSiExcedePresupuesto?.trim()) {
+    const fmt = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+    throw new Error(
+      `El escenario elegido cuesta ${fmt(presupuesto.costoEscenario!)}, un ${presupuesto.excedePct}% sobre lo costeado originalmente `
+      + `(${fmt(presupuesto.presupuestoOriginal!)}) — control de gasto: requiere motivo antes de proponerse.`,
+    );
+  }
   const ahora = ahoraChileSQL();
   const detalle = {
     escenarioTipo: escenario.tipo, costoTotal: Number(escenario.costo_total),
     diasEstimados: escenario.dias_estimados, viajesEstimados: escenario.viajes_estimados,
+    presupuestoOriginal: presupuesto.presupuestoOriginal, excedePresupuestoPct: presupuesto.excedePct,
+    motivoExcesoPresupuesto: motivoSiExcedePresupuesto?.trim() || null,
   };
   await pool.query(
     `INSERT INTO compras_aprobacion (negocio_id, tipo, estado, detalle_json, motivo, propuesto_por, propuesto_por_nombre, propuesto_at, created_at, updated_at)
@@ -89,8 +158,9 @@ export async function proponerAprobacionCompra(negocioId: number, actorId: numbe
   );
   await registrarEvento({
     tipo: 'COMPRAS_APROBACION_COMPRA_PROPUESTA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
-    mensaje: `Se propuso la Compuerta 1 (Aprobación de compra) — escenario "${escenario.tipo}", ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(escenario.costo_total))}.`,
-    metadata: { negocio_id: negocioId, escenario: escenario.tipo },
+    mensaje: `Se propuso la Compuerta 1 (Aprobación de compra) — escenario "${escenario.tipo}", ${new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(Number(escenario.costo_total))}`
+      + (presupuesto.excede ? ` — ${presupuesto.excedePct}% sobre presupuesto: ${motivoSiExcedePresupuesto?.trim()}.` : '.'),
+    metadata: { negocio_id: negocioId, escenario: escenario.tipo, excede_presupuesto_pct: presupuesto.excedePct },
   });
 }
 
@@ -163,6 +233,37 @@ export async function resolverAprobacion(
   actorId: number, actorNombre: string | null,
 ): Promise<void> {
   if (decision === 'RECHAZAR' && !comentario?.trim()) throw new Error('Rechazar requiere comentario (spec §10.4).');
+
+  // BUG REAL (11-sep-2026, reportado por el usuario contra el negocio 717): §10.5 dice "todo cambio
+  // posterior a una aprobación la invalida", pero `invalidarAprobacionesCompras` (compras.ts) solo
+  // cambia el estado a PENDIENTE — nunca toca `detalle_json`. Si alguien aprueba directo sin volver
+  // a apretar "Proponer para aprobación", queda aprobado el snapshot de ANTES del cambio. Caso real:
+  // se aprobó "MAS_RAPIDO $39.240.360" cuando el escenario elegido YA era "MINIMO_PRECIO
+  // $34.662.844" — la pantalla mostraba el presupuesto correcto (se calcula en vivo) junto a una
+  // Compuerta 1 "Aprobada" con el número viejo, inconsistente entre sí. Se compara SOLO al aprobar
+  // (rechazar una propuesta vieja no tiene este riesgo — nadie compra nada).
+  if (decision !== 'RECHAZAR') {
+    const actual = await leerAprobacion(negocioId, tipo);
+    if (actual?.detalle) {
+      if (tipo === 'COMPRA') {
+        const escenarioActual = await obtenerEscenarioElegido(negocioId);
+        const cambioTipo = escenarioActual?.tipo !== actual.detalle.escenarioTipo;
+        const cambioCosto = !escenarioActual || Math.abs(Number(escenarioActual.costo_total) - Number(actual.detalle.costoTotal)) > 1;
+        if (!escenarioActual || cambioTipo || cambioCosto) {
+          throw new Error('El escenario elegido cambió desde que se propuso esta compuerta — vuelve a "Proponer para aprobación" con los datos actuales antes de aprobar.');
+        }
+      } else if (tipo === 'MARGEN') {
+        const margenActual = await calcularMargenPrevisto(negocioId);
+        const pctGuardado = actual.detalle.margenPct;
+        const cambioMargen = pctGuardado == null ? margenActual.margenPct != null
+          : (margenActual.margenPct == null || Math.abs(margenActual.margenPct - pctGuardado) > 0.1);
+        if (cambioMargen) {
+          throw new Error('El margen previsto cambió desde que se propuso esta compuerta — vuelve a "Proponer para aprobación" con el dato actual antes de aprobar.');
+        }
+      }
+    }
+  }
+
   const ahora = ahoraChileSQL();
   const [r] = await pool.query(
     `UPDATE compras_aprobacion
@@ -222,7 +323,7 @@ export interface DatosSku {
   costoEsperado?: number | null;
 }
 
-export interface CostoEscenarioProducto { costoUnitario: number; escenarioTipo: string }
+export interface CostoEscenarioProducto { costoUnitario: number; escenarioTipo: string; proveedorNombre: string | null }
 
 /** El costo real de un producto puntual, según el escenario YA elegido (nunca se inventa un costo
  *  aparte para Obuma — mismo criterio que calcularMargenPrevisto: una sola fuente, el escenario
@@ -235,7 +336,40 @@ export async function costoEscenarioParaProducto(negocioId: number, productoId: 
   try { detalle = typeof escenario.detalle_json === 'string' ? JSON.parse(escenario.detalle_json) : escenario.detalle_json; } catch { /* detalle inválido, se trata como vacío */ }
   const item = (detalle?.porProducto || []).find((p: any) => p.productoId === productoId);
   if (item?.precioUnitario == null) return null;
-  return { costoUnitario: Number(item.precioUnitario), escenarioTipo: escenario.tipo };
+  return { costoUnitario: Number(item.precioUnitario), escenarioTipo: escenario.tipo, proveedorNombre: item.proveedor || null };
+}
+
+export interface SugerenciaSkuProducto {
+  proveedorNombre: string | null; descripcionLibre: string | null;
+  archivoUrl: string | null; archivoNombre: string | null;
+}
+
+/** Pedido explícito del usuario (15-sep-2026): al crear el SKU, en vez de retipear a mano lo que
+ *  ya se leyó de la cotización (proveedor, texto del documento con marca/modelo), se lo muestra
+ *  como SUGERENCIA — nunca autocompleta Marca/Modelo solo (no son campos que el documento entregue
+ *  ya separados, adivinarlos sería inventar un dato que después se manda tal cual a Obuma), pero
+ *  ahorra tener que volver a abrir el PDF para copiar el nombre exacto del proveedor.
+ *  Prioridad: la cotización del proveedor que el escenario elegido usó para ESTE producto (la que
+ *  de verdad se está comprando); si no hay escenario elegido todavía, la primera cotización que
+ *  tenga este producto asignado (§8.7) — más vale una referencia que ninguna. */
+export async function sugerenciaSkuParaProducto(negocioId: number, productoId: number): Promise<SugerenciaSkuProducto | null> {
+  const costo = await costoEscenarioParaProducto(negocioId, productoId).catch(() => null);
+
+  const [rows] = await pool.query(
+    `SELECT c.proveedor_nombre, c.descripcion_libre, c.archivo_url, c.archivo_nombre
+       FROM compras_cotizacion_item ci
+       JOIN compras_cotizacion c ON c.id = ci.cotizacion_id
+      WHERE ci.producto_id = ? AND c.negocio_id = ?
+      ORDER BY (c.proveedor_nombre = ?) DESC, c.created_at DESC
+      LIMIT 1`,
+    [productoId, negocioId, costo?.proveedorNombre || ''],
+  ) as any;
+  const r = (rows as any[])[0];
+  if (!r) return null;
+  return {
+    proveedorNombre: r.proveedor_nombre || null, descripcionLibre: r.descripcion_libre || null,
+    archivoUrl: r.archivo_url || null, archivoNombre: r.archivo_nombre || null,
+  };
 }
 
 /** §7.1 — se crea DESPUÉS de aprobada la compra: "debe describir lo que efectivamente se va a

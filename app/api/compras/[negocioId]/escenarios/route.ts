@@ -31,10 +31,10 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [cuadro, negociacion, escenarios, elegidoTipo] = await Promise.all([
+    const [cuadro, negociacion, escenarios, elegido] = await Promise.all([
       cuadroComparativo(id), detectarEspacioNegociacion(id), calcularEscenarios(id), escenarioElegidoTipo(id),
     ]);
-    return NextResponse.json({ success: true, cuadro, negociacion, escenarios, elegidoTipo });
+    return NextResponse.json({ success: true, cuadro, negociacion, escenarios, elegidoTipo: elegido?.tipo ?? null, elegidoCostoGuardado: elegido?.costoTotal ?? null });
   } catch (error) {
     console.error('[compras/escenarios][GET]', String(error));
     return NextResponse.json({ error: 'No se pudieron calcular los escenarios.' }, { status: 500 });

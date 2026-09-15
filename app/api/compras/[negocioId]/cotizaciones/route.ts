@@ -81,9 +81,11 @@ export async function POST(request: NextRequest, { params }: Params) {
         // el formato y nunca devuelve NaN.
         precioUnitario: parsearMontoCL(form.get('precioUnitario') as string),
         precioTotal: parsearMontoCL(form.get('precioTotal') as string),
+        descuentoPct: parsearMontoCL(form.get('descuentoPct') as string),
         plazoEntregaTexto: (form.get('plazoEntregaTexto') as string) || null,
         plazoEntregaDias: form.get('plazoEntregaDias') ? Number(form.get('plazoEntregaDias')) : null,
         incluyeFlete: form.get('incluyeFlete') == null ? null : form.get('incluyeFlete') === 'true',
+        fleteMonto: parsearMontoCL(form.get('fleteMonto') as string),
         direccionBodega: (form.get('direccionBodega') as string) || null,
         archivoUrl, archivoNombre,
         notas: (form.get('notas') as string) || null,
@@ -110,15 +112,22 @@ export async function POST(request: NextRequest, { params }: Params) {
           if (!datos.proveedorRut && extraido.proveedorRut) datos.proveedorRut = extraido.proveedorRut;
           if (datos.precioUnitario == null && extraido.precioUnitario != null) datos.precioUnitario = extraido.precioUnitario;
           if (datos.precioTotal == null && extraido.precioTotal != null) datos.precioTotal = extraido.precioTotal;
+          if (datos.descuentoPct == null && extraido.descuentoPct != null) datos.descuentoPct = extraido.descuentoPct;
+          if (datos.fleteMonto == null && extraido.fleteMonto != null) datos.fleteMonto = extraido.fleteMonto;
           if (!datos.moneda && extraido.moneda) {
-            // La IA devuelve la moneda en texto libre ("DOLAR", "USD", "pesos chilenos"...) —
-            // se normaliza a los únicos dos códigos que el sistema resuelve (§ tipo de cambio).
+            // La IA devuelve la moneda en texto libre ("DOLAR", "USD", "EURO", "pesos chilenos"...)
+            // — se normaliza a los códigos que el sistema sabe convertir (app/lib/tipo-cambio.ts).
+            // BUG REAL (15-sep-2026, cotización de un proveedor italiano): esto solo reconocía
+            // USD/dólar y forzaba cualquier otra moneda a CLP — una cotización en euros se guardaba
+            // como si fuera pesos chilenos, sin convertir nada.
             const m = extraido.moneda.toUpperCase();
-            datos.moneda = m.includes('USD') || m.includes('DOLAR') || m.includes('DÓLAR') ? 'USD' : 'CLP';
+            datos.moneda = m.includes('USD') || m.includes('DOLAR') || m.includes('DÓLAR') ? 'USD'
+              : m.includes('EUR') || m.includes('€') ? 'EUR'
+              : 'CLP';
           }
           if (!datos.plazoEntregaTexto && extraido.plazoEntregaTexto) datos.plazoEntregaTexto = extraido.plazoEntregaTexto;
           if (!datos.direccionBodega && extraido.direccionBodega) datos.direccionBodega = extraido.direccionBodega;
-          if (!datos.notas && extraido.notas) datos.notas = extraido.notas;
+          if (!datos.notas && extraido.notasAdicionales?.length) datos.notas = extraido.notasAdicionales.join(' · ');
           // Cotizaciones de VARIOS ítems (§8.6-§8.8): sin esto, un PDF de 30 líneas solo dejaba
           // "el producto principal" — el resto quedaba sin homologar porque homologarCotizacionIA
           // lee `descripcionLibre`, y esa quedaba vacía si el usuario no la retipeaba a mano.

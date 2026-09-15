@@ -84,13 +84,17 @@ const NAV_GROUPS: NavGroup[] = [
       // Vista transversal de las OC de las dos empresas (ver app/lib/ordenes-compra.ts). Admin-only
       // porque toca RUT/montos de ambas empresas a la vez, igual criterio que Compras.
       { label: 'Órdenes de compra', href: '/ordenes-compra', icon: <Receipt size={17} />, adminOnly: true },
-      // Fleteros (spec §13.3): mismo círculo de acceso que Compras — admin, jefe de ventas o
-      // Encargado de Compras. Catálogo transversal, no cuelga de una licitación puntual.
-      { label: 'Fleteros', href: '/logistica/fleteros', icon: <Truck size={17} />, adminOnly: true },
-      // Proveedores: ficha completa (contacto, categoría, datos bancarios) — mismo círculo y mismo
-      // criterio transversal que Fleteros.
+      // Proveedores: catálogo de A QUIÉN LE COMPRAMOS productos (ficha completa: contacto,
+      // categoría, datos bancarios) — se puebla solo al registrar cotizaciones en el Auditor de
+      // Compras (spec §8.4, trazabilidad del proveedor local) y alimenta directo la emisión real de
+      // la OC a Obuma. Puesto junto a "Órdenes de compra" a propósito: es el mismo circuito de
+      // dinero saliendo — nada que ver con Fleteros (a quién le pagamos el FLETE, no el producto).
+      // Antes vivía pegado a Fleteros acá abajo y se confundían.
       { label: 'Proveedores', href: '/compras/proveedores', icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
+      // Fleteros (spec §13.3): catálogo de transporte/flete — mismo círculo de acceso que Compras,
+      // concepto distinto a Proveedores (arriba). No cuelga de una licitación puntual.
+      { label: 'Fleteros', href: '/logistica/fleteros', icon: <Truck size={17} />, adminOnly: true },
       { label: 'Historial', href: '/alertas', icon: <History size={17} />, adminOnly: true },
     ],
   },
@@ -284,9 +288,11 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   // Badge del "Puente": cuántas licitaciones esperan reparto. Igual que Aprobaciones, solo se
   // consulta si el perfil puede usarlo.
   const puedeRepartir = usuario?.rol === 'admin' || !!usuario?.permisos?.repartir_puente;
-  // Compras: jefe de ventas (aprobar_comercial) y Encargado de Compras (permiso `compras`), no
-  // solo admin — mismo criterio que la API (app/lib/compras.ts).
-  const puedeVerCompras = usuario?.rol === 'admin' || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial
+  // Compras: jefe de ventas (aprobar_comercial), Encargado de Compras (permiso `compras`),
+  // administración/bodega — NO "ser admin" a secas (pedido explícito, 10-sep-2026: "antes se podía
+  // ver por todos los admin, ahora solo asesor y yo"). `compras_todo` es el único permiso que un
+  // admin NO trae gratis — ver el comentario largo en app/api/compras/[negocioId]/route.ts.
+  const puedeVerCompras = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial
     || !!usuario?.permisos?.compras_administracion || !!usuario?.permisos?.compras_bodega;
   const [totalPuente, setTotalPuente] = useState(0);
   useEffect(() => {

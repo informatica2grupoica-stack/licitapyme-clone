@@ -1346,9 +1346,11 @@ function DetalleContent() {
   // postular) no depende de esto en ningún punto, así que ocultarlo no bloquea nada.
   const hayComercial = isAdmin && tieneInformacionComercial(negocio.estado_pipeline);
   // "Compras" solo aparece cuando el negocio ganó (Módulo de Compras, spec §3.1: "solo las líneas
-  // efectivamente adjudicadas") y para quien puede operarlo: admin, jefe de ventas (aprobar_comercial)
-  // o un Encargado de Compras (permiso compras) — mismo círculo que gatea la API.
-  const hayCompras = esGanado(negocio.estado_pipeline) && (isAdmin || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial);
+  // efectivamente adjudicadas") y para quien puede operarlo: jefe de ventas (aprobar_comercial),
+  // un Encargado de Compras (permiso compras), o `compras_todo` real — "ser admin" YA NO alcanza
+  // solo (pedido explícito, 10-sep-2026, ver ComprasSection.tsx/AppLayout.tsx). El propio encargado
+  // asignado a ESTE negocio entra igual aunque no tenga ninguno de estos (lo resuelve la API).
+  const hayCompras = esGanado(negocio.estado_pipeline) && (!!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial);
   const NAV_SECTIONS: ReadonlyArray<{ key: Seccion; label: string; count: number | null; alerta?: boolean }> = [
     { key: 'resumen',      label: 'Resumen',            count: null },
     { key: 'resultado',    label: 'Resultado',          count: null },

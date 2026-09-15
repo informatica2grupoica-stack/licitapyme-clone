@@ -38,6 +38,15 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
   const [form, setForm] = useState({ hitoInicio: '', fechaInicio: '', plazoDias: '', plazoTipo: 'CORRIDOS' as PlazoTipo });
   const [guardando, setGuardando] = useState(false);
   const [cargandoMultas, setCargandoMultas] = useState(false);
+  // Antes `window.prompt`/`window.confirm` para prórroga y multa: fecha como texto libre sin
+  // formato validado, sin estilo, fácil de cancelar sin querer. Decisiones de plazo/multa son
+  // serias — se reemplazan por formularios en línea, iguales al resto de la pantalla.
+  const [formProrroga, setFormProrroga] = useState(false);
+  const [prorrogaForm, setProrrogaForm] = useState({ nuevaFechaLimite: '', motivo: '' });
+  const [guardandoProrroga, setGuardandoProrroga] = useState(false);
+  const [formMulta, setFormMulta] = useState(false);
+  const [multaMotivo, setMultaMotivo] = useState('');
+  const [guardandoMulta, setGuardandoMulta] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -73,37 +82,40 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
     }
   };
 
-  const pedirProrroga = async () => {
-    const nuevaFechaLimite = window.prompt('Nueva fecha límite (YYYY-MM-DD):', reloj?.fechaLimiteVigente || '');
-    if (!nuevaFechaLimite) return;
-    const motivo = window.prompt('Motivo de la prórroga:');
-    if (!motivo?.trim()) return;
+  const guardarProrroga = async () => {
+    if (!prorrogaForm.nuevaFechaLimite || !prorrogaForm.motivo.trim()) return;
+    setGuardandoProrroga(true);
     try {
       const res = await fetch(`/api/compras/${negocioId}/reloj/prorroga`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nuevaFechaLimite, motivo }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nuevaFechaLimite: prorrogaForm.nuevaFechaLimite, motivo: prorrogaForm.motivo.trim() }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo registrar');
       toast.success('Prórroga registrada');
-      setReloj(data.reloj);
+      setReloj(data.reloj); setFormProrroga(false); setProrrogaForm({ nuevaFechaLimite: '', motivo: '' });
     } catch (e: any) {
       toast.error('No se pudo registrar la prórroga', e.message);
+    } finally {
+      setGuardandoProrroga(false);
     }
   };
 
-  const autorizarConMulta = async () => {
-    const motivo = window.prompt('Decisión expresa: motivo para entregar con multa (spec §15.7 — nunca por silencio ni por atraso):');
-    if (!motivo?.trim()) return;
+  const guardarMulta = async () => {
+    if (!multaMotivo.trim()) return;
+    setGuardandoMulta(true);
     try {
       const res = await fetch(`/api/compras/${negocioId}/reloj/entrega-con-multa`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo: multaMotivo.trim() }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo autorizar');
       toast.success('Entrega con multa autorizada');
-      setReloj(data.reloj);
+      setReloj(data.reloj); setFormMulta(false); setMultaMotivo('');
     } catch (e: any) {
       toast.error('No se pudo autorizar', e.message);
+    } finally {
+      setGuardandoMulta(false);
     }
   };
 
@@ -177,14 +189,44 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
             )}
 
             {esJefeDeVentas && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={pedirProrroga} className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 px-2.5 py-1.5 rounded-lg">
-                  <CalendarClock size={12} /> Registrar prórroga
-                </button>
-                {!reloj.entregaConMulta && (
-                  <button onClick={autorizarConMulta} className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700 px-2.5 py-1.5 rounded-lg">
-                    <FileWarning size={12} /> Autorizar entrega con multa
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button onClick={() => { setFormProrroga(v => !v); setFormMulta(false); }} className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 px-2.5 py-1.5 rounded-lg">
+                    <CalendarClock size={12} /> {formProrroga ? 'Cancelar' : 'Registrar prórroga'}
                   </button>
+                  {!reloj.entregaConMulta && (
+                    <button onClick={() => { setFormMulta(v => !v); setFormProrroga(false); }} className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700 px-2.5 py-1.5 rounded-lg">
+                      <FileWarning size={12} /> {formMulta ? 'Cancelar' : 'Autorizar entrega con multa'}
+                    </button>
+                  )}
+                </div>
+
+                {formProrroga && (
+                  <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 space-y-1.5">
+                    <p className="text-[10.5px] font-bold text-zinc-500 uppercase">Nueva fecha límite y motivo (spec §15.4)</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <input type="date" value={prorrogaForm.nuevaFechaLimite} onChange={e => setProrrogaForm(f => ({ ...f, nuevaFechaLimite: e.target.value }))}
+                        className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                      <input value={prorrogaForm.motivo} onChange={e => setProrrogaForm(f => ({ ...f, motivo: e.target.value }))} placeholder="Motivo de la prórroga"
+                        className="text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                    </div>
+                    <button onClick={guardarProrroga} disabled={!prorrogaForm.nuevaFechaLimite || !prorrogaForm.motivo.trim() || guardandoProrroga}
+                      className="text-[11.5px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
+                      {guardandoProrroga ? <Loader2 size={12} className="animate-spin" /> : 'Guardar prórroga'}
+                    </button>
+                  </div>
+                )}
+
+                {formMulta && (
+                  <div className="bg-rose-50 border border-rose-200 rounded-lg p-2.5 space-y-1.5">
+                    <p className="text-[10.5px] font-bold text-rose-700 uppercase">Decisión expresa — nunca por silencio ni por atraso (spec §15.7)</p>
+                    <textarea rows={2} value={multaMotivo} onChange={e => setMultaMotivo(e.target.value)} placeholder="Motivo para entregar con multa…"
+                      className="w-full text-[11.5px] border border-rose-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-rose-500" />
+                    <button onClick={guardarMulta} disabled={!multaMotivo.trim() || guardandoMulta}
+                      className="text-[11.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
+                      {guardandoMulta ? <Loader2 size={12} className="animate-spin" /> : 'Confirmar entrega con multa'}
+                    </button>
+                  </div>
                 )}
               </div>
             )}

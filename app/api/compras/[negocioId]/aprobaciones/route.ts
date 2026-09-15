@@ -5,11 +5,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import {
-  obtenerAprobaciones, calcularMargenPrevisto, proponerAprobacionCompra, proponerAprobacionMargen,
+  obtenerAprobaciones, calcularMargenPrevisto, calcularPresupuestoCompra, obtenerEscenarioElegido,
+  proponerAprobacionCompra, proponerAprobacionMargen,
   resolverAprobacion, type TipoAprobacion, type DecisionAprobacion,
 } from '@/app/lib/compras-aprobaciones';
 import { puedeOperarCompras, puedeVerCompras } from '@/app/api/compras/[negocioId]/route';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -23,10 +24,12 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol, nombre };
 }
 
-async function esJefeDeVentas(userId: number, rol: string | null): Promise<boolean> {
-  if (rol === 'admin') return true;
-  const p = await permisosDeUsuario(userId, rol);
-  return !!p.aprobar_comercial;
+// "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026 — ver el comentario largo en
+// app/api/compras/[negocioId]/route.ts): se lee con `permisosCrudosDeUsuario` para que
+// `aprobar_comercial` no se auto-otorgue por ser admin. `compras_todo` también resuelve compuertas.
+async function esJefeDeVentas(userId: number): Promise<boolean> {
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!(p.compras_todo || p.aprobar_comercial);
 }
 
 export async function GET(request: NextRequest, { params }: Params) {
@@ -43,8 +46,19 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeVerCompras(userId, rol, asignacion.asignadoA)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const [aprobaciones, margen] = await Promise.all([obtenerAprobaciones(id), calcularMargenPrevisto(id)]);
-    return NextResponse.json({ success: true, ...aprobaciones, margenActual: margen, esJefeDeVentas: await esJefeDeVentas(userId, rol) });
+    const [aprobaciones, margen, presupuesto, escenarioElegido] = await Promise.all([
+      obtenerAprobaciones(id), calcularMargenPrevisto(id), calcularPresupuestoCompra(id), obtenerEscenarioElegido(id),
+    ]);
+    // Pedido explícito del usuario (11-sep-2026): la Compuerta 1 "Pendiente" mostraba el snapshot
+    // CONGELADO al proponerse (spec §10.2), que puede haber quedado viejo si después se eligió otro
+    // escenario (§10.5 invalida el estado, pero nunca reescribe ese snapshot). Se manda el escenario
+    // elegido EN VIVO aparte para que la pantalla pueda avisar "esto está desactualizado" en vez de
+    // mostrar el número viejo como si fuera el vigente.
+    return NextResponse.json({
+      success: true, ...aprobaciones, margenActual: margen, presupuestoActual: presupuesto,
+      escenarioElegidoActual: escenarioElegido ? { tipo: escenarioElegido.tipo, costoTotal: Number(escenarioElegido.costo_total) } : null,
+      esJefeDeVentas: await esJefeDeVentas(userId),
+    });
   } catch (error) {
     console.error('[compras/aprobaciones][GET]', String(error));
     return NextResponse.json({ error: 'No se pudieron cargar las aprobaciones.' }, { status: 500 });
@@ -65,7 +79,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
     const body = await request.json();
     const tipo = body.tipo as TipoAprobacion;
-    if (tipo === 'COMPRA') await proponerAprobacionCompra(id, userId, nombre);
+    if (tipo === 'COMPRA') await proponerAprobacionCompra(id, userId, nombre, body.motivo || null);
     else if (tipo === 'MARGEN') await proponerAprobacionMargen(id, body.motivo || null, userId, nombre);
     else return NextResponse.json({ error: 'Tipo de compuerta inválido.' }, { status: 400 });
 
@@ -84,7 +98,7 @@ export async function PATCH(request: NextRequest, { params }: Params) {
   const id = parseInt(negocioId);
 
   try {
-    if (!(await esJefeDeVentas(userId, rol)))
+    if (!(await esJefeDeVentas(userId)))
       return NextResponse.json({ error: 'Solo el jefe de ventas resuelve las compuertas de aprobación (spec §10.2/§10.3).' }, { status: 403 });
 
     const body = await request.json();

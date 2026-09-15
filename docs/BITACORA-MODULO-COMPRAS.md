@@ -1093,3 +1093,491 @@ producto creado por error no es trivial de deshacer — correcto no arriesgarlo 
    directamente y buscando ese código.
 5. Si algo sale mal (error de Obuma, subcategoría inválida, etc.), el SKU local NO se crea tampoco
    (todo o nada) — el error queda en el toast.
+
+## 15. Sesión 15 (10-sep-2026): bugs reales de la Sesión 14 + Orden de Compra real + permisos finos
+
+### 15.1 Bugs reales encontrados probando en vivo contra la cuenta de Obuma
+
+- **Colisión de SKU**: los filtros de categoría/subcategoría de `productos.list.json` NO filtran
+  nada del lado de Obuma (se confirmó pidiendo el mismo filtro dos veces con resultados distintos).
+  Fix: `catalogoObumaCompleto()` trae el catálogo completo paginado (1383 productos, caché 60s) y
+  filtra del lado del cliente — usado tanto por `siguienteSkuMercadoPublico` como por la búsqueda de
+  duplicados nueva (abajo).
+- **"Obuma no devolvió el ID del producto creado"**: la respuesta real embebe el ID como texto en
+  `result.result_detail` ("producto creado. producto_id:1118883"), no en un campo JSON predecible —
+  mismo patrón después confirmado para `comprasOc.create.json` y `proveedores.create.json`. Fix con
+  regex de respaldo + lectura de verificación post-creación (falla si el código confirmado no
+  coincide con lo pedido).
+- **Moneda mal detectada en un PDF real** (USD leído como CLP): el motor OCR simplemente no
+  transcribió bien esa sección de ESE PDF puntual — se agregó un fallback determinista por regex
+  (`monedaDelTexto`) y se corrigió el registro a mano con el PDF real + tipo de cambio del día.
+- **Obuma no "sabía" que yo había borrado un producto ahí directo**: se agregó botón "Verificar en
+  Obuma" (`verificarVinculoObuma`) — autoservicio, no intervención puntual del asistente cada vez.
+- **`producto_id` en `comprasOc.listItems.json` no filtra nada** ("Ver proveedor histórico" traía
+  proveedores sin relación) — el parámetro real que sí filtra es `producto`.
+- **`plazo_entrega_dias` nunca se poblaba**, dejando el escenario "Más rápido" indistinguible de los
+  demás — se agregó `parsearDiasDeTexto` (extrae días de texto libre tipo "30 días hábiles").
+- **"Unknown column 'NaN' in field list"** — el bug grande de la sesión. `Number("6.745.621")` (formato
+  chileno, puntos de miles) da `NaN`, y mysql2 escribe `NaN` como literal SIN COMILLAS en el SQL, que
+  MySQL interpreta como nombre de columna. Fix: `app/lib/numeros.ts` (`parsearMontoCL`, nunca
+  devuelve NaN) aplicado en el punto de origen (`cotizaciones/route.ts`) + guardas
+  `Number.isFinite()` en cada escritura a BD que toca plata, más dos instancias ya existentes en el
+  checklist de hitos de `RepartoAdminCard.tsx` que tenían el mismo bug.
+
+### 15.2 Rediseño del formulario de SKU + búsqueda de duplicados en vivo
+
+Pedido del usuario: "si lo estamos creando ahora [en Obuma] ¿para qué me pide el sku propio? Licitank
+y Obuma son la misma empresa, solo necesitamos el código de Obuma." Y: "si pongo martillo, dime si ya
+tenemos martillos en Obuma para no duplicar."
+
+- `buscarProductosObumaPorNombre()` — búsqueda en vivo (client-side sobre el catálogo cacheado,
+  normalizada por acento/mayúsculas) mientras se escribe el nombre del producto, con botón "Usar
+  este" para reutilizar un producto ya existente en vez de crear uno nuevo.
+- `crearSku()`: `skuPropioFinal = crearEnObuma && obumaCodigoComercial ? obumaCodigoComercial :
+  datos.skuPropio` — el SKU propio deja de ser obligatorio cuando se crea en Obuma; el código real de
+  Obuma pasa a ser el único identificador.
+
+### 15.3 Orden de Compra real contra Obuma (spec §11.1, escritura real)
+
+Pedido explícito: "las órdenes de compra son por proveedor" (una OC por proveedor del escenario
+elegido, nunca mezcladas) y "puede incluir el flete o no" (línea opcional, no un campo especial).
+
+- `app/lib/obuma.ts`: sección OC nueva — `listarFormasPago()` (filtra `usar_en_compras=1`),
+  `crearOrdenCompraObuma()` (arma `docs:[{...}]`, calcula 19% IVA sobre el neto, verifica la OC
+  creada leyéndola de vuelta). Matemática confirmada contra un PDF real de OC de Obuma que compartió
+  el usuario (Neto → ×19% IVA → Total; flete como línea, no como campo aparte).
+  `buscarCentroCostoPorLicitacion()` — el código de licitación viene embebido literalmente en el
+  nombre del centro de costo Obuma cuando ya existe un Proyecto para esa licitación (ej. "PROY-58 -
+  MUNICIPALIDAD DE CALAMA 2385-19-LE25"); si no hay match, **no se inventa uno** — queda como aviso.
+- **Proveedor verificado en Obuma, NUNCA automático**: el usuario corrigió un diseño anterior de
+  auto-creación silenciosa ("no tiene que crear al proveedor automático") — quedó como verificar por
+  RUT → si no existe, botón explícito → modal con TODOS los campos documentados de la API real de
+  Obuma (RUT, razón social, nombre fantasía, contacto, giro, dirección/comuna/región/país,
+  teléfono/celular/email, sitio web, cuenta contable, observación, es supermercado, es factoring) →
+  clic explícito del usuario crea. Deliberadamente sin Tipo proveedor/Centro de costo/Forma de
+  pago/Banco/Tags — no hay nombre de campo de API confirmado para esos, y no se inventan.
+  `crearOrdenCompraParaProveedor()` **lanza error** (no auto-crea) si el proveedor no está verificado.
+- Migración 106: tabla `compras_orden_compra_obuma` (una fila por negocio+proveedor,
+  `UNIQUE(negocio_id, proveedor_id)`), aplicada contra la BD real.
+- Nuevas rutas: `GET/POST /api/compras/[negocioId]/orden-compra-obuma` (listar proveedores del
+  escenario + crear la OC), `GET/POST .../orden-compra-obuma/proveedor` (verificar/crear proveedor),
+  `GET /api/compras/obuma-formas-pago` (transversal).
+- `RepartoAdminCard.tsx`: sección "Órdenes de compra (Obuma)" — una tarjeta por proveedor con sus
+  ítems, estado en Obuma, selector de forma de pago, checkbox de flete, tipo fijo "Nacional ·
+  Inventario" (confirmado contra pantallazos reales del flujo de Obuma — `oc_concepto_gasto` son 3
+  categorías fijas en botones, no un catálogo), centro de costo (o aviso si no hay match), checkbox
+  de confirmación y botón "Crear en Obuma".
+
+Revisión completa de la API de Obuma pedida por el usuario: confirmado que `/proyectos.list.json`
+solo existe en v2.0 (no disponible, requiere header `access-url`); `/comprasPagos.list.json` y
+`/comprasDte.list.json` son de solo lectura (sin endpoint de creación) — confirma que los hitos "Pago
+registrado" y "Factura de compra registrada" del checklist correctamente siguen siendo manuales.
+
+### 15.4 Permisos finos: "solo Asesor y super usuario ven TODO el módulo" (10-sep-2026)
+
+Pedido: "el módulo de compra solo lo puede visualizar asesor y super usuario" → aclarado: "antes se
+podía ver por todos los admin, ahora solo el perfil de Asesor... y yo el super user" → confirmado
+después que Asesor debe ver TODO lo cargado (no una vista acotada).
+
+- `app/lib/api-auth.ts`: nuevo permiso `compras_todo` — el ÚNICO de todo el catálogo que NO se
+  auto-otorga por `rol==='admin'` (`permisosDeUsuario` lo sobreescribe con el dato real incluso para
+  admin). Se otorgó a mano (`scripts/scratch/otorgar-compras-todo.mts`, preservando el resto de cada
+  ficha) a Alexis Tobar (id=1, dueño del proyecto) y Asesor (id=7) — ninguno de los dos tenía antes
+  ningún permiso de compras guardado.
+- **Bug encontrado durante la propia implementación**: fijar solo `compras_todo` no bastaba — las
+  puertas del módulo (`puedeOperarCompras`, `puedeVerCompras`, `esJefatura`, y ~10 rutas más con
+  variantes locales `esJefeDeVentas`/`puedeVerProveedores`) seguían leyendo `compras`,
+  `aprobar_comercial`, `compras_administracion` y `compras_bodega` vía `permisosDeUsuario`, que SIGUE
+  auto-otorgando esos cuatro flags a cualquier admin — cualquier admin (Carolina incluida) habría
+  seguido entrando igual por esa puerta trasera. Fix real: nueva `permisosCrudosDeUsuario` (exportada
+  desde api-auth.ts) que lee los permisos guardados de verdad, ignorando el rol — usada en TODAS las
+  puertas del módulo (backend: ~13 archivos de rutas bajo `app/api/compras/**`; frontend: los 4
+  `esAdmin`/`isAdmin` de `app/compras/**/page.tsx` y `ComprasSection.tsx`, más el link del sidebar en
+  `AppLayout.tsx`).
+
+**Verificación**: `npx tsc --noEmit` limpio. `scripts/scratch/verificar-compras-todo.mts` simula
+`permisosDeUsuario`/`puedeOperarCompras`/`puedeVerCompras` contra los 3 usuarios reales: Alexis
+(id=1) y Asesor (id=7) → `true`/`true`; Carolina González (id=12, admin sin `compras_todo`) →
+`false`/`false`. Un encargado no-admin no cambia de comportamiento: `permisosCrudosDeUsuario` y
+`permisosDeUsuario` ya eran idénticos para `rol!=='admin'` antes de este cambio (se verificó
+leyendo el código, no hacía falta un usuario de prueba nuevo).
+
+---
+
+## 16. Sesión 16 (11-sep-2026): el correo del acta, el Resumen Ejecutivo sin teléfono/correo, y control de gasto
+
+Tres pedidos del usuario en la misma sesión, cada uno auditado contra la spec real (documento
+completo de 22 secciones, releído desde `.docx` con `mammoth` en esta sesión — confirmado que el
+resumen que el usuario tenía de otra IA era fiel en contenido pero obsoleto en enfoque: recomendaba
+"empezar por el modelo de datos" como si el módulo no existiera, cuando ya estaba construido en un
+~90-95% a lo largo de las Sesiones 1-15).
+
+### 16.1 El correo de "Datos del Contacto" viene como IMAGEN, no como texto
+
+La Sesión 12 dejó `parseContactoLicitacion` sin verificar contra HTML real. Esta sesión sí tuvo
+acceso a un acta real (`1355402-5-LE26`, vía el Browser pane) y confirmó por qué el teléfono
+llegaba y el correo no: MP sirve el campo E-Mail como `<img src="Tools/ImgOfuscar.aspx?qs=...">` —
+anti-scraping, no un bug de parseo de tabla. El teléfono sí es texto plano.
+
+**Fix**: `leerEmailOfuscado()` (`app/lib/acta-adjudicacion.ts`) descarga esa imagen (mismas cookies
+de sesión que ya abren el acta) y la lee con Tesseract LOCAL forzando el modelo **'eng'** —
+verificado contra el archivo JPEG real: el modelo 'spa' confunde la "@" con una "G"
+(`moyanoGloprado.cl`), el modelo 'eng' la lee bien. Se agregó parámetro de idioma opcional a
+`ocrImagenLocalTesseract()` (`tesseract-ocr.ts`, default 'spa' sin tocar el resto de los llamadores).
+MP a veces concatena un formulario de postback justo después de los bytes del JPEG en la misma
+respuesta HTTP — se corta en el marcador de fin de JPEG (FF D9) antes de pasarlo a Tesseract.
+
+Para licitaciones ya leídas antes de este fix (como la de prueba), hace falta apretar **"Releer"**
+en "Resultado" para que el OCR corra de nuevo.
+
+### 16.2 El teléfono/correo no llegaban al Resumen Ejecutivo aunque estuvieran en la base
+
+Dos bugs reales, distintos entre sí:
+
+1. **UI**: la tarjeta "Contraparte" del Resumen Ejecutivo (`ComprasChrome.tsx`) solo pintaba el
+   cargo — nunca `usuarioTelefono`/`usuarioEmail`, aunque esos 2 campos existen desde la Sesión 12.
+   El tipo del frontend (`ComprasContext.tsx::ResumenCompras`) tampoco los declaraba. Fix: se
+   agregaron a ambos, y la tarjeta ahora muestra cargo + teléfono + correo.
+2. **Lectura congelada, nunca se completaba**: `construirResumenEjecutivoCompras` solo iba a buscar
+   `obtenerContactosCliente` (que sí lee el acta) cuando el `contactosCliente` congelado venía
+   **completamente null**. Como el paquete YA traía organismo/nombre desde la API de MP al
+   congelarse, nunca se consideraba "vacío" — así que el teléfono/correo del acta (que se leen
+   DESPUÉS, casi siempre después de congelar) jamás se completaban, ni con "Volver a armar". Mismo
+   patrón de bug que los 5 de la Sesión 3 ("un dato que sí existía, leído desde la foto
+   equivocada"). Fix: nuevo chequeo en `compras.ts` que completa specificamente esos 2 campos desde
+   `adjudicacion_cache` cuando el contacto ya existe pero le faltan.
+
+### 16.3 Control de gasto (pedido nuevo del usuario, no numerado en la spec)
+
+Pedido: "si tenemos un presupuesto para compras y un margen de ganancia no los podemos pasar en las
+compras, y esas órdenes de compra deben ser autorizadas". Auditoría de lo que ya existía:
+
+- El margen mínimo (20%, §10.3) YA bloqueaba (soft) sin motivo — confirmado en código.
+- La OC real a Obuma YA exigía la Compuerta 1 (compra) aprobada — confirmado en código.
+- **Hueco real de UX encontrado en el camino**: cuando el margen queda bajo 20%, el backend exige
+  un motivo, pero la pantalla (`AprobacionesCompraCard.tsx`) NO TENÍA dónde escribirlo — el botón
+  "Proponer para aprobación" no pedía nada y el servidor devolvía un error de texto sin que hubiera
+  ningún campo para resolverlo. El usuario quedaba atascado. Coincide con lo que reportó ("veo cosas
+  del resumen que le faltan funcionalidad").
+- **Hueco real de control encontrado**: la OC de Obuma (dinero real saliendo) solo exigía la
+  Compuerta 1, nunca la Compuerta 2 (margen) — dos aprobaciones independientes por diseño de la
+  spec, pero nada impedía emitir plata real con el margen todavía sin aprobar.
+
+**Construido:**
+- **Presupuesto de compra**, nuevo (`calcularPresupuestoCompra` en `compras-aprobaciones.ts`):
+  compara el costo real del escenario elegido contra lo costeado originalmente al ofertar (§1.3.2,
+  "el costeo es presupuesto, no meta"). Mismo criterio no-bloqueante que el margen (§10.3): si se
+  excede, exige motivo antes de proponerse — no impide comprar, pero no deja pasarlo en silencio.
+  Se guarda en el `detalle_json` de la Compuerta 1 (`presupuestoOriginal`, `excedePresupuestoPct`,
+  `motivoExcesoPresupuesto`), viaja en el evento de auditoría, y se expone en
+  `GET /api/compras/[negocioId]/aprobaciones` como `presupuestoActual`.
+- **Campo de motivo, ahora visible**: `BloqueCompuerta` (componente compartido de ambas compuertas)
+  gana `requiereMotivo`/`motivoLabel` — cuando corresponde (margen bajo 20%, o compra sobre
+  presupuesto), aparece un cuadro ámbar CON el campo de texto ANTES de que el botón de proponer se
+  habilite, en vez de un error después de apretar. Mismo patrón para las dos compuertas.
+- **Ambas compuertas exigidas para la OC real**: `crearOrdenCompraParaProveedor`
+  (`compras-oc-obuma.ts`) ahora rechaza si la Compuerta 2 (margen) no está aprobada, no solo la 1.
+  `RepartoAdminCard.tsx` avisa esto ANTES de que la persona llene el formulario completo (banner
+  ámbar + botones "Crear orden de compra"/"Crear en Obuma" deshabilitados hasta que el margen esté
+  aprobado), no como un error sorpresa al final.
+
+**Deliberadamente NO tocado**: `crearSku` (creación de catálogo interno en Obuma, no es plata
+saliendo) sigue exigiendo solo la Compuerta 1, tal como dice la spec §7.1 — no se le sumó el
+guardarraíl de margen porque ahí no aplica el mismo riesgo.
+
+### 16.4 Verificación
+
+`npx tsc --noEmit` → limpio (solo el error preexistente de `.next/types/validator.ts`, artefacto de
+build stale, no de este código). `npm run test:viabilidad` → **984/984**, sin regresiones (no se
+agregaron tests nuevos: son cálculos derivados del mismo patrón que `calcularMargenPrevisto`, que
+tampoco tiene test unitario aparte, y wiring de UI). **No probado en navegador**: sin sesión
+disponible en este entorno — pendiente que el usuario confirme en pantalla el banner de presupuesto
+en Compuerta 1, el campo de motivo en ambas compuertas, y el bloqueo de "Crear en Obuma" sin margen
+aprobado.
+
+### 16.5 Auditoría completa contra la spec real (22 secciones) — resultado
+
+Se releyó el `.docx` completo (antes solo se conocía por el resumen parafraseado de otra IA) y se
+cruzó contra esta bitácora. Resultado: **§1-§17 construidas** (con los bugs de arriba corregidos),
+**§18 (dashboard) construida como v1 pese a que la spec la marca fuera de alcance para esta etapa**,
+**§19.3 (aprendizaje) construida, §19.4 fuera de alcance confirmado**, **§20 (separación
+genérico/Tecnomaq) sin construir — correcto, la spec la pide para después**. De los 9 pendientes de
+§21: la mayoría resueltos o decididos explícitamente en sesiones anteriores; siguen sin calibrar los
+**plazos concretos por tarea** (hoy heredan el plazo global) y la **definición fina de perfiles**
+cuando existan cuentas reales de Administración/Bodega para probarlas en pantalla.
+
+### 16.6 Archivos de esta sesión
+
+**Modificados:** `app/lib/acta-adjudicacion.ts` (`leerEmailOfuscado`, `filaCelda`,
+`parseContactoLicitacion` ahora async) · `app/lib/tesseract-ocr.ts` (parámetro `lang`) ·
+`app/lib/compras.ts` (top-up de teléfono/correo del acta en `construirResumenEjecutivoCompras`) ·
+`app/compras/[negocioId]/ComprasChrome.tsx` (Contraparte muestra teléfono/correo) ·
+`app/compras/[negocioId]/ComprasContext.tsx` (tipo `ResumenCompras` con los 2 campos) ·
+`app/lib/compras-aprobaciones.ts` (`calcularPresupuestoCompra`, `proponerAprobacionCompra` con
+motivo) · `app/lib/compras-oc-obuma.ts` (exige Compuerta 2 también) ·
+`app/api/compras/[negocioId]/aprobaciones/route.ts` (`presupuestoActual`, motivo para COMPRA) ·
+`app/negocios/[id]/AprobacionesCompraCard.tsx` (campo de motivo visible, banner de presupuesto) ·
+`app/negocios/[id]/RepartoAdminCard.tsx` (aviso y bloqueo proactivo sin margen aprobado)
+
+### 16.6.1 Continuación: prompts nativos reemplazados + aclaración Proveedores/Fleteros
+
+**Más `window.prompt`/`window.confirm` encontrados y arreglados** (mismo criterio que el motivo de
+margen/presupuesto de §16.3), en decisiones serias que antes dependían de un diálogo nativo del
+navegador sin validación de formato:
+- `RelojEntregaCard.tsx`: **prórroga** (fecha + motivo, antes fecha como texto libre "YYYY-MM-DD" a
+  mano) y **entrega con multa** (motivo) pasan a formularios en línea con `<input type="date">` real.
+- `IncidenciasCard.tsx`: la respuesta del cliente a una Oportunidad de Mejora usaba
+  `window.confirm` con semántica invertida ("Aceptar = Sí, Cancelar = No") — un clic equivocado
+  registraba lo contrario de lo que el cliente dijo, sobre algo que se modifica de lo ofertado al
+  Estado. Ahora son dos botones explícitos ("Cliente aprobó" / "Cliente rechazó"), con la
+  constancia mínima (§9.4) en un campo real en vez de un prompt.
+- `EntregaCard.tsx`: motivo de entrega parcial (§16.2), mismo cambio de prompt a campo en línea.
+
+**Pregunta del usuario, aclarada, no un bug**: "¿por qué registrar una cotización me crea un
+proveedor, y eso aparece en otro módulo (Proveedores, bajo Fleteros)?" — es comportamiento
+intencional (`obtenerOCrearProveedor`, `compras-proveedores.ts`, spec §8.4 "trazabilidad del
+proveedor local"): sin esto, el proveedor quedaba pegado a UNA cotización, había que retipear
+correo/teléfono/cuenta bancaria cada vez, y la emisión real de OC a Obuma (Sesión 15,
+§11.1) no tendría de dónde sacar el RUT/dirección/contacto del proveedor. Lo que SÍ estaba mal es
+la ubicación en el menú: "Proveedores" vivía pegado a "Fleteros" en el sidebar (mismo grupo, sin
+separación), dos catálogos sin relación (a quién le compramos el producto vs. a quién le pagamos el
+flete) que se leían como el mismo módulo. Fix en `AppLayout.tsx`: "Proveedores" se movió junto a
+"Órdenes de compra" (mismo circuito de dinero saliendo), "Fleteros" quedó separado.
+
+**Verificación**: `npx tsc --noEmit` limpio · `npm run test:viabilidad` → 984/984.
+
+### 16.6.2 Fleteros: no se poblaba desde OBUMA como pide §13.3
+
+El usuario pidió releer el documento en lo que dice de flete/proveedor antes de aceptar la
+explicación de arriba. Tenía razón en que faltaba algo: §13.3 es explícito —
+**"Se puebla desde OBUMA, que conecta con facturas y proveedores"** — la IDENTIDAD del fletero
+(razón social) debe salir de ahí, solo lo operativo (capacidad, tipo de camión, costo/km, pionetas,
+zonas, nota, pana) es tabla propia de Licitank. `crearFletero` (`compras-logistica.ts`) guardaba el
+RUT como un dato suelto "para cuando se resuelva la integración" y nunca lo consultaba de verdad —
+el catálogo de Fleteros era 100% tipeado a mano, sin ningún enganche real con Obuma.
+
+**Fix**: `buscarFleteroEnObuma(rut)` (nuevo, `compras-logistica.ts`) reusa `proveedorPorRut` de
+`obuma.ts` (la misma función que ya usa `verificarProveedorEnObuma` para proveedores de producto,
+compras-oc-obuma.ts) — mismo patrón, aplicado donde faltaba. `GET /api/logistica/fleteros?rutObuma=`
+expone la búsqueda; el formulario de alta (`app/logistica/fleteros/page.tsx`) tiene ahora un botón
+"Buscar en Obuma" que pre-llena la razón social y muestra contacto/dirección de referencia ANTES de
+escribir nada a mano. Si el RUT no tiene facturas en Obuma (fletero contratado por primera vez, caso
+real — no se bloquea), se avisa y se completa el nombre a mano como antes.
+
+**Confirmado, no era un bug**: que registrar una cotización en el Auditor de Compras cree/enganche
+un "Proveedor" (`compras_proveedor`, distinto de `compras_fletero`) SÍ es lo que pide §8.4
+("trazabilidad del proveedor local") — sin eso, el proveedor quedaba pegado a una sola cotización.
+Proveedores (a quién le compramos el producto) y Fleteros (a quién le pagamos el flete) siguen
+siendo dos catálogos con propósito distinto, pero ambos deben engancharse a OBUMA por RUT — antes
+solo Proveedores lo hacía.
+
+**Verificación**: `npx tsc --noEmit` limpio · `npm run test:viabilidad` → 984/984. **No probado en
+vivo contra la cuenta real de Obuma** (sin sesión disponible esta sesión) — pendiente que el usuario
+pruebe "Buscar en Obuma" con un RUT de fletero que sepa que ya tiene facturas ahí.
+
+### 16.6.3 "El proveedor no va en Compras" — rediseño del picker de la cotización + bug de duplicados
+
+El usuario mandó una captura: el selector "Elegir del catálogo…" del formulario de cotización
+(`AuditorComprasCard.tsx`) mostraba "TechSat Solutions S.A" tres veces. Pedido explícito: esa
+pantalla es para REGISTRAR cotizaciones, no para administrar el catálogo de proveedores — eso vive
+aparte, en `/compras/proveedores`, que además debería nutrirse de la API de Obuma (todos los datos
+del proveedor + si ya le hemos comprado antes).
+
+**Bug real confirmado en la base**: `compras_proveedor` tenía 3 filas para la misma empresa (ids 7,
+8, 9), con RUTs DISTINTOS entre sí (sin RUT / `11.111.111-1` / `76.543.210-8`). Causa:
+`obtenerOCrearProveedor` (compras-proveedores.ts), sin RUT, comparaba `nombre_empresa` EXACTO —
+"TechSat Solutions S.A" con y sin punto final nunca calzaban entre sí. Fix: normalización
+(espacios colapsados, sin punto final, sin distinguir mayúsculas) antes de comparar, mismo criterio
+que ya usaba la comparación de RUT. **No se fusionaron las 3 filas existentes** — como tienen RUTs
+distintos de verdad, fusionarlas a ciegas podría mezclar dos empresas reales; queda para que el
+usuario confirme cuál RUT es el correcto.
+
+**Rediseño del formulario de cotización**: se sacó el selector "Elegir del catálogo…" — ahora solo
+hay dos campos (nombre + RUT), y el backend reconoce/reusa el proveedor que ya exista por RUT sin
+necesidad de un picker. El link "Agregarlo al catálogo" también se sacó (ya no tiene sentido sin el
+picker) — el texto de ayuda apunta a `/compras/proveedores` para completar correo/teléfono/cuenta
+bancaria después.
+
+**Aviso de histórico, agregado** (parte de lo pedido: "el sistema nos tiene que avisar, ojo, ya le
+compramos esto a tal proveedor"): al salir del campo RUT, `historicoProveedorPorRut()`
+(`compras-aprendizaje.ts`, nuevo) consulta Obuma por ese RUT y, si tiene compras registradas,
+muestra un aviso ámbar con la razón social real y el folio/fecha de la última OC. **Limitación
+técnica explicada, no ocultada**: el aviso es a nivel de PROVEEDOR (¿ya le compramos algo, alguna
+vez?), no de PRODUCTO exacto — el aviso "ya compramos ESTE producto" (§19.3,
+`sugerenciaProveedorHistorico`) necesita un SKU de Obuma homologado, que a esta altura del flujo
+(recién cotizando, antes de aprobar la compra §7.1) todavía no existe. No se inventa esa respuesta.
+
+**Verificación**: `npx tsc --noEmit` limpio · `npm run test:viabilidad` → 984/984. Confirmado contra
+la base real (`node --env-file=.env.local`) que las 3 filas de TechSat existen tal como se reportó.
+**No probado en vivo el formulario nuevo ni el aviso de histórico** — falta que el usuario registre
+una cotización con un RUT que sepa que tiene compras en Obuma, y confirme qué RUT de TechSat es el
+correcto para poder limpiar las 2 filas sobrantes.
+
+### 16.6.4 Bug real en los 4 escenarios: el cumplimiento técnico no pesaba en el ranking
+
+El usuario mandó una captura de los 4 escenarios del negocio 717: una cotización de TechSat
+Solutions ($6.745.621/un, CUMPLE) para "Plataformas satelital - GOES CS2" no aparecía en NINGÚN
+escenario, pese a ser más barata que AeroSpace y cumplir íntegro.
+
+Causa confirmada contra la base real: para ese producto había 3 cotizaciones — Satellite Systems
+($5.950.000/un, **INFERIOR_NEGOCIABLE** — le falta algo) · TechSat ($6.745.621/un, **CUMPLE**) ·
+AeroSpace ($7.890.000/un, CUMPLE, 29 días). `armar()` (compras-auditor.ts, dentro de
+`calcularEscenarios`) ordenaba candidatos SOLO por precio o plazo, sin mirar `cumple` — la oferta de
+Satellite, más barata pero con una brecha técnica sin cerrar, le ganaba a TechSat en "Mínimo precio"
+por precio puro. TechSat nunca ganaba ningún escenario: ni el más rápido (AeroSpace, 1 día menos),
+ni el más barato (Satellite gana por precio aunque no cumpla íntegro), ni mínimos viajes/equilibrado
+(mismo motivo).
+
+Spec §8.8.1 ("ningún proveedor se excluye del ranking por incumplimiento técnico") dice que no se
+EXCLUYE — no dice que un candidato con brecha deba preferirse sobre uno que cumple íntegro cuando
+ambos están disponibles. **Fix**: nueva `tierCumple()` — CUMPLE/MEJORA (tier 0) antes que
+INFERIOR_NEGOCIABLE (tier 1) antes que INFERIOR_INSALVABLE (tier 2); los 4 `elegir()` (más rápido,
+mínimo precio, mínimos viajes, equilibrado) ordenan PRIMERO por tier y recién dentro del mismo tier
+aplican su criterio propio. Un candidato con brecha sigue ganando si es el ÚNICO que cubre ese
+producto — ahí no se excluye nada, sigue firme la regla de la spec.
+
+**Verificado contra la base real** (`calcularEscenarios(717)`, importado en vivo): TechSat ahora
+gana Mínimo precio, Mínimos viajes y Equilibrado (total pasó de $31.480.360 a $34.662.844 en esos
+tres — más caro en plata, pero técnicamente correcto: ya no compara un CUMPLE contra un
+INFERIOR_NEGOCIABLE como si fueran lo mismo). Sigue sin ganar "Más rápido", correctamente: ahí
+compite contra AeroSpace, que también CUMPLE y es 1 día más rápido — comparación justa entre pares
+del mismo nivel.
+
+**Pendiente, sin resolver todavía**: el usuario también pidió poder "armar un escenario a mano y
+que el sistema calcule los otros automáticos" — un modo de selección manual por producto, además de
+los 4 automáticos. No se construyó esta sesión (alcance propio, no una corrección de bug) — se le
+preguntó si sigue queriéndolo ahora que el bug de arriba está corregido (puede que resolviera lo que
+esperaba ver).
+
+**Verificación**: `npx tsc --noEmit` limpio · `npm run test:viabilidad` → 984/984.
+
+### 16.6.5 El documento se lee ANTES de guardar, no en silencio al guardar
+
+Pedido explícito del usuario, con una captura del formulario vacío: "esos datos los puede armar
+con la cotización que se sube". La extracción (§8.2) ya existía
+(`extraerDatosCotizacionDeDocumento`, compras-cotizacion-ocr.ts) pero corría dentro de
+`POST /cotizaciones`, en silencio, recién al apretar "Guardar" — el encargado nunca veía qué se
+había leído hasta que la cotización ya estaba creada, así que en la práctica igual tipeaba todo a
+mano por las dudas.
+
+**Fix**: nuevo `POST /api/compras/[negocioId]/cotizaciones/extraer` (sube el archivo a R2 + corre
+la misma extracción, sin crear ninguna cotización) — se dispara apenas se elige el archivo en
+`AuditorComprasCard.tsx` (`leerArchivo`), autocompleta proveedor/RUT/precio/moneda/plazo (nunca pisa
+lo ya tipeado, mismo criterio de siempre) y muestra un aviso de qué se leyó, para revisar/corregir
+ANTES de guardar. Al confirmar, si el archivo ya se leyó, se manda por JSON reusando esa URL —no se
+vuelve a subir el documento ni se paga el OCR dos veces; si la lectura falló, cae al camino viejo
+(multipart, el backend reintenta solo).
+
+**Verificación**: `npx tsc --noEmit` limpio · `npm run test:viabilidad` → 984/984. **No probado en
+vivo** (sin sesión de navegador esta sesión, y la extracción real necesita GLM-OCR contra un
+documento real) — falta que el usuario suba una cotización real y confirme que el formulario se
+autocompleta como se espera.
+
+### 16.6.6 Dos bugs reales de dinero, encontrados con datos del negocio 717
+
+El usuario reportó dos cosas juntas, con números reales en la mano: "en la aprobación no se
+actualiza cuando hago cambios" y "el presupuesto está con IVA pero nosotros trabajamos todo en
+neto". Las dos eran ciertas.
+
+**1. Una compuerta aprobada podía quedar con el escenario VIEJO.** `resolverAprobacion`
+(compras-aprobaciones.ts) solo comprobaba que el estado fuera `PENDIENTE` — nunca comparaba el
+`detalle_json` (snapshot congelado al proponer) contra el estado actual. Y `invalidarAprobacionesCompras`
+(compras.ts, §10.5) cambia el estado a PENDIENTE cuando algo cambia, pero NUNCA toca ese
+`detalle_json` congelado. Caso real, confirmado contra la base: la Compuerta 1 del negocio 717
+quedó "Aprobada" mostrando `MAS_RAPIDO $39.240.360` (snapshot del 10-sep) cuando el escenario
+elegido YA era `MINIMO_PRECIO $34.662.844` (elegido el 11-sep a las 18:50) — se aprobó 4 minutos
+después, sin volver a proponer. El banner de presupuesto (que sí calcula en vivo) mostraba el
+número correcto al lado de una compuerta "Aprobada" con el número viejo — inconsistente en la
+misma pantalla.
+
+Fix: `resolverAprobacion`, al aprobar (no al rechazar), compara el `detalle_json` guardado contra
+el estado ACTUAL — el escenario elegido en vivo (tipo + costo) para COMPRA, el margen recalculado
+para MARGEN — y si no coinciden, rechaza con un mensaje claro pidiendo volver a "Proponer para
+aprobación". El dato ya corrupto del 717 se corrigió a mano (vuelve a PENDIENTE, con nota
+explicando por qué).
+
+**2. El presupuesto de la licitación se mostraba CON IVA, todo lo demás en NETO.** El resto del
+sistema (viabilidad-ia.ts, motor-comercial.ts) ya sabe una regla: Mercado Público publica el
+presupuesto CON IVA por defecto (salvo régimen Ley FORA/exento), y siempre se normaliza a neto
+(÷1,19) antes de compararlo con nada. `construirResumenEjecutivoCompras` (compras.ts) no aplicaba
+esa regla: tomaba `licitaciones_cache.monto` crudo (BRUTO, tal como lo publica MP) como
+"Presupuesto del proyecto", y si le faltaba, el respaldo prefería `.bruto` sobre `.neto` del informe
+de viabilidad — al revés del criterio correcto. Confirmado contra la base real (1114-12-LE26):
+`licitaciones_cache.monto = $49.000.000` (bruto) mientras el informe de viabilidad —que sí leyó las
+bases— ya tenía `neto: $41.176.470,58` calculado correctamente. Con el bug, el Resumen Ejecutivo de
+Compras iba a mostrar $49.000.000 al lado de `montoCosteado` ($19.546.750, neto) y `montoNuestro`
+($40.378.376, neto) — una comparación de peras con manzanas.
+
+Fix: el informe de viabilidad pasa a ser la fuente PRIMARIA del presupuesto (ya sabe distinguir
+bruto/neto/régimen porque leyó las bases reales), con el mismo criterio que `motor-comercial.ts`
+(`neto` si está, si no `bruto ÷ 1,19` salvo `regimen_fora`/`con_iva:false`). `licitaciones_cache.monto`
+queda como respaldo SOLO si no hay informe, convertido con el mismo supuesto por defecto del resto
+del sistema. Verificado contra el 717: ahora `presupuestoProyecto = $41.176.470,58` — coincide
+con lo que el usuario ya sabía que era el número correcto (bases, numeral XVI, pág. 17).
+
+**Verificación**: `npx tsc --noEmit` limpio · `npm run test:viabilidad` → 984/984 · ambos fixes
+confirmados contra la base real del negocio 717 (no solo en teoría).
+
+### 16.6.7 El fix anterior dejó una compuerta sin forma de refrescarse
+
+El usuario eligió un nuevo escenario ("Mínimo precio", con una cotización nueva de Tecnomaq SpA que
+hizo bajar el total a $20.529.164) y mandó captura: la Compuerta 1 seguía en "Pendiente" mostrando
+el snapshot viejo (`MAS_RAPIDO $39.240.360`, de la Sesión 16.6.6) — y no había ningún botón para
+volver a proponerla con el dato nuevo. El fix de la 16.6.6 (bloquear aprobar sobre datos viejos)
+dejó al encargado atascado: no podía aprobar (correcto, bloqueado a propósito) pero tampoco podía
+corregirlo, porque "Proponer para aprobación" solo aparecía sin propuesta o con una rechazada —
+nunca estando PENDIENTE, que es justo el estado al que cae una compuerta invalidada (§10.5).
+
+**Fix, dos partes:**
+1. `GET /api/compras/[negocioId]/aprobaciones` ahora manda también `escenarioElegidoActual` (tipo +
+   costo EN VIVO, no el snapshot congelado) — antes la pantalla solo tenía el snapshot de la
+   propuesta, sin nada con qué compararlo.
+2. `AprobacionesCompraCard.tsx`: si el snapshot de la Compuerta 1 no coincide con el escenario
+   elegido en vivo, se tacha el número viejo, se muestra "Vigente ahora: MINIMO_PRECIO — $X" al lado,
+   y aparece un aviso rojo explícito ("esto quedó desactualizado"). El botón "Proponer para
+   aprobación" (rebautizado "Actualizar propuesta" en este caso) ahora también aparece estando
+   PENDIENTE, no solo sin propuesta o rechazada — sin esto, una compuerta invalidada no tenía salida.
+
+Verificado contra la base real: `compra.detalle` (MAS_RAPIDO, $39.240.360) vs escenario elegido en
+vivo (MINIMO_PRECIO, $34.662.844 en ese momento) → `desactualizada: true`, tal como debía detectarse.
+
+**Verificación**: `npx tsc --noEmit` limpio · `npm run test:viabilidad` → 984/984.
+
+### 16.6.8 El badge "Elegido" mentía cuando una cotización nueva cambiaba el total
+
+El usuario preguntó por qué se le reportó "$34 millones" cuando su pantalla mostraba "Mínimo
+precio $20.529.164 · Elegido". Aclaración honesta primero: este asistente no ve la pantalla del
+usuario en vivo — el número de $34M venía de una consulta a la base hecha ANTES de que el usuario
+agregara una cotización de Tecnomaq SpA y recalculara los escenarios en su sesión. Al volver a
+consultar la base en el momento, confirmó que el "$34.662.844" seguía siendo el que estaba
+GUARDADO en `compras_escenario` — el usuario nunca había vuelto a apretar "Elegir este escenario"
+después de que Tecnomaq abarató el total a $20.529.164.
+
+Ahí apareció el bug real: `escenarioElegidoTipo()` (compras-auditor.ts) solo comparaba por `tipo`
+("MINIMO_PRECIO") para decidir qué tarjeta pintar como "Elegido" — nunca por costo. Como el tipo
+seguía siendo el mismo, la tarjeta con el número YA RECALCULADO ($20.529.164) se pintaba como
+"Elegido" aunque lo único guardado en la base fuera el monto viejo ($34.662.844). El usuario no
+tenía forma de notar, mirando la pantalla, que su elección real seguía apuntando a un número que ya
+no existía.
+
+**Fix**: `escenarioElegidoTipo()` ahora devuelve también el costo GUARDADO (no solo el tipo).
+`GET /api/compras/[negocioId]/escenarios` expone `elegidoCostoGuardado`. La pantalla compara ese
+costo contra el recién recalculado para el mismo tipo: si coinciden, badge verde "Elegido" normal;
+si no, badge ámbar "Cambió — vuelve a elegir" + una nota con el monto viejo, y el botón "Elegir este
+escenario" reaparece (antes desaparecía apenas el tipo coincidía, aunque el monto hubiera cambiado)
+como "Confirmar el nuevo monto".
+
+De paso, se sacó el último `window.prompt` de este flujo: elegir un escenario que no es "Más
+rápido" pedía la justificación (§8.10.4) por un diálogo nativo — ahora es un campo en la misma
+tarjeta.
+
+**Verificación**: `npx tsc --noEmit` limpio · `npm run test:viabilidad` → 984/984.
+
+### 16.7 Qué sigue
+
+Pedido explícito del usuario, todavía abierto: que el resto de la pantalla (no solo Aprobaciones)
+sea intuitiva a prueba de errores de usuario, sin perder profesionalismo. Esta sesión cubrió el hueco más
+grave (motivo sin dónde escribirse) y el control de gasto pedido; falta un recorrido del mismo tipo
+sobre el resto de las pestañas (Costeo y Auditoría, Compra/Importación/Logística, Entrega y Cierre)
+para el mismo estándar. Sugerido para la próxima vuelta, en el mismo orden que las pestañas del
+stepper de `ComprasChrome.tsx`.

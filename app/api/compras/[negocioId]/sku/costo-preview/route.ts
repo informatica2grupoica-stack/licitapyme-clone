@@ -7,7 +7,7 @@
 // entremedio, rechaza en vez de mandar un número viejo.
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { costoEscenarioParaProducto } from '@/app/lib/compras-aprobaciones';
+import { costoEscenarioParaProducto, sugerenciaSkuParaProducto } from '@/app/lib/compras-aprobaciones';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 
 export const runtime = 'nodejs';
@@ -35,9 +35,12 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const costo = await costoEscenarioParaProducto(id, productoId);
-    if (!costo) return NextResponse.json({ success: true, costo: null });
-    return NextResponse.json({ success: true, costo: costo.costoUnitario, escenarioTipo: costo.escenarioTipo });
+    const [costo, sugerencia] = await Promise.all([
+      costoEscenarioParaProducto(id, productoId),
+      sugerenciaSkuParaProducto(id, productoId).catch(() => null),
+    ]);
+    if (!costo) return NextResponse.json({ success: true, costo: null, sugerencia });
+    return NextResponse.json({ success: true, costo: costo.costoUnitario, escenarioTipo: costo.escenarioTipo, sugerencia });
   } catch (error: any) {
     console.error('[compras/sku/costo-preview][GET]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudo consultar el costo.' }, { status: 500 });

@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
 import { obtenerEstadoReloj, registrarProrroga } from '@/app/lib/compras-reloj';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,8 +30,11 @@ export async function POST(request: NextRequest, { params }: Params) {
     if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
-    const permisos = await permisosDeUsuario(userId, rol);
-    if (rol !== 'admin' && !permisos.aprobar_comercial)
+    // permisosCrudosDeUsuario (no permisosDeUsuario): "ser admin" ya no autoriza por sí solo
+    // (10-sep-2026, mismo criterio del resto del módulo) — se exige aprobar_comercial o
+    // compras_todo de verdad.
+    const permisos = await permisosCrudosDeUsuario(userId);
+    if (!permisos.compras_todo && !permisos.aprobar_comercial)
       return NextResponse.json({ error: 'La prórroga la autoriza el jefe de ventas o CA (spec §15.4).' }, { status: 403 });
 
     const body = await request.json();

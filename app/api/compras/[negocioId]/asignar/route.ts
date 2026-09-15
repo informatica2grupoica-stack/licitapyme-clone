@@ -3,7 +3,7 @@
 // fallback automático por vencimiento de plazo pasa por app/lib/compras.ts vía el cron, no por acá.
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
-import { permisosDeUsuario } from '@/app/lib/api-auth';
+import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { asignarEncargado, obtenerAsignacion } from '@/app/lib/compras';
 
 export const runtime = 'nodejs';
@@ -17,18 +17,19 @@ function getUser(req: NextRequest) {
   return { id: id ? parseInt(id) : null, rol };
 }
 
-async function esJefeDeVentas(userId: number, rol: string | null): Promise<boolean> {
-  if (rol === 'admin') return true;
-  const p = await permisosDeUsuario(userId, rol);
-  return !!p.aprobar_comercial;
+// "Ser admin" ya no alcanza solo (pedido explícito, 10-sep-2026 — ver el comentario largo en
+// app/api/compras/[negocioId]/route.ts): se lee con `permisosCrudosDeUsuario` para que
+// `aprobar_comercial` no se auto-otorgue por ser admin. `compras_todo` también habilita asignar —
+// es "ve/opera TODO el módulo", que incluye esto.
+async function esJefeDeVentas(userId: number): Promise<boolean> {
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!(p.compras_todo || p.aprobar_comercial);
 }
 
 export async function POST(request: NextRequest, { params }: Params) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (!(await esJefeDeVentas(userId, rol))) {
-    return NextResponse.json({ error: 'Solo el jefe de ventas puede asignar Compras.' }, { status: 403 });
-  }
+
   const { negocioId } = await params;
   const id = parseInt(negocioId);
   if (!Number.isFinite(id)) return NextResponse.json({ error: 'negocioId inválido' }, { status: 400 });
@@ -40,6 +41,17 @@ export async function POST(request: NextRequest, { params }: Params) {
   try {
     const existe = await obtenerAsignacion(id);
     if (!existe) return NextResponse.json({ error: 'Este negocio todavía no entra a Compras.' }, { status: 404 });
+
+    // Pedido explícito del usuario, 15-sep-2026: CAMBIAR un encargado que ya tiene otro asignado
+    // es cosa de admin — solo la asignación INICIAL (negocio recién entrando a Compras, sin nadie
+    // encima) sigue habilitada para el jefe de ventas.
+    if (existe.asignadoA != null) {
+      if (rol !== 'admin') {
+        return NextResponse.json({ error: 'Solo un admin puede cambiar al encargado de Compras.' }, { status: 403 });
+      }
+    } else if (!(await esJefeDeVentas(userId))) {
+      return NextResponse.json({ error: 'Solo el jefe de ventas puede asignar Compras.' }, { status: 403 });
+    }
 
     const [rows] = await pool.query('SELECT nombre FROM usuarios WHERE id = ? AND activo = TRUE LIMIT 1', [encargadoId]) as any;
     const encargadoNombre = (rows as any[])[0]?.nombre || null;

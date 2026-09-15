@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import { Package, Loader2, X, Flag } from 'lucide-react';
+import { Package, Loader2, X, Flag, RefreshCw } from 'lucide-react';
 
 type Subestado = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO';
 
@@ -34,6 +34,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
   const [guardando, setGuardando] = useState<number | null>(null);
   const [renunciaAbierta, setRenunciaAbierta] = useState<number | null>(null);
   const [motivoRenuncia, setMotivoRenuncia] = useState('');
+  const [sincronizando, setSincronizando] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -74,6 +75,27 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
     setRenunciaAbierta(null); setMotivoRenuncia('');
   };
 
+  // "Sincronizar con costeo" (pedido explícito del usuario, 15-sep-2026): esta lista se puebla UNA
+  // sola vez al abrir Compras — si en ese momento no había costeo cargado, cae al desglose del acta
+  // de MP (genérico) y se queda así para siempre. Este botón la actualiza a mano contra el costeo
+  // vigente, sin perder el subestado ni el historial de renuncia de cada producto (merge por línea).
+  const sincronizarConCosteo = async () => {
+    setSincronizando(true);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/productos`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'sincronizar_costeo' }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo sincronizar');
+      setProductos(data.productos); setCobertura(data.cobertura);
+      toast.success('Sincronizado con el costeo', `${data.actualizados} actualizado(s) · ${data.agregados} nuevo(s)`);
+    } catch (e: any) {
+      toast.error('No se pudo sincronizar con el costeo', e.message);
+    } finally {
+      setSincronizando(false);
+    }
+  };
+
   if (loading) return <div className="flex items-center justify-center py-10"><Loader2 className="w-5 h-5 animate-spin text-zinc-400" /></div>;
   if (productos.length === 0) return null;
 
@@ -81,14 +103,22 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
     <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-4 py-3 bg-zinc-50 border-b border-zinc-100">
         <p className="text-[12.5px] font-bold text-zinc-700 flex items-center gap-1.5"><Package size={14} /> Productos y cobertura</p>
-        {cobertura && (
-          <span className={`text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${
-            cobertura.cobertura ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-amber-700 bg-amber-50 border-amber-200'
-          }`}>
-            {cobertura.listos} de {cobertura.total} listos para entrega
-            {cobertura.renunciados > 0 && ` · ${cobertura.renunciados} renunciado(s)`}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {puedeOperar && (
+            <button onClick={sincronizarConCosteo} disabled={sincronizando} title="Vuelve a traer descripción, cantidad y monto desde el Costeo vigente — no toca el subestado ni renuncias"
+              className="inline-flex items-center gap-1 text-[10.5px] font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 disabled:opacity-50 px-2 py-1 rounded-lg transition-colors">
+              {sincronizando ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />} Sincronizar con costeo
+            </button>
+          )}
+          {cobertura && (
+            <span className={`text-[11.5px] font-bold px-2 py-0.5 rounded-full border ${
+              cobertura.cobertura ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-amber-700 bg-amber-50 border-amber-200'
+            }`}>
+              {cobertura.listos} de {cobertura.total} listos para entrega
+              {cobertura.renunciados > 0 && ` · ${cobertura.renunciados} renunciado(s)`}
+            </span>
+          )}
+        </div>
       </div>
       <div className="divide-y divide-zinc-100">
         {productos.map(p => (

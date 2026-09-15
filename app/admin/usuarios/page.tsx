@@ -26,6 +26,7 @@ interface Permisos {
   compras?: boolean;
   compras_administracion?: boolean;
   compras_bodega?: boolean;
+  compras_todo?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -64,7 +65,13 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   { key: 'compras',             label: 'Encargado de Compras',                desc: 'Candidato a que le asignen negocios ganados (Módulo de Compras): entra al pool de asignación automática y puede operar TODO el negocio (perfil "compras y entrega").', categoria: 'comercial' },
   { key: 'compras_administracion', label: 'Compras — Administración (pagos/facturación)', desc: 'Solo el Proceso Administrativo (§11: OC emitida, pago, anticipo, factura, carpeta de proyecto, provisión de fondos). No hace falta ser el encargado del negocio.', categoria: 'comercial' },
   { key: 'compras_bodega',      label: 'Compras — Bodega',                    desc: 'Solo la verificación física de la entrega (§16.4: producto correcto y en buenas condiciones). No hace falta ser el encargado del negocio.', categoria: 'comercial' },
+  // ÚNICO permiso de todo el catálogo que un admin NO trae gratis (10-sep-2026, pedido explícito:
+  // "antes se podía ver [Compras] por todos los admin, ahora solo Asesor y yo") — ver el comentario
+  // largo en app/lib/api-auth.ts. Por eso se muestra SIEMPRE, incluso cuando el usuario es admin.
+  { key: 'compras_todo',        label: 'Compras — ver y operar TODO el módulo', desc: 'Sin este permiso, ni siquiera un admin ve el módulo de Compras completo: solo entra si además es el encargado asignado de un negocio puntual, o tiene compras/aprobar_comercial por separado.', categoria: 'comercial' },
 ];
+
+const CLAVE_COMPRAS_TODO: keyof Permisos = 'compras_todo';
 
 function parsePermisos(p: Permisos | string | null | undefined): Permisos {
   if (!p) return {};
@@ -127,7 +134,25 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
           )}
 
           {usuario.rol === 'admin' ? (
-            <p className="text-xs text-gray-500 dark:text-zinc-400">Los permisos granulares no aplican: un admin ya los tiene todos implícitos. Solo queda el modo de onboarding.</p>
+            <>
+              <p className="text-xs text-gray-500 dark:text-zinc-400">El resto de los permisos granulares no aplica: un admin ya los tiene todos implícitos. La única excepción es Compras (ver arriba en el catálogo por qué).</p>
+              <div className="rounded-xl border border-gray-100 dark:border-white/10 bg-gray-50/70 dark:bg-white/[0.03] p-3">
+                <div className="flex items-center gap-1.5 mb-1 text-[10.5px] font-bold uppercase tracking-wide text-gray-400 dark:text-zinc-500">
+                  <Briefcase size={12} /> Flujo comercial
+                </div>
+                <div className="divide-y divide-gray-100 dark:divide-white/[0.06]">
+                  {CATALOGO_PERMISOS.filter(p => p.key === CLAVE_COMPRAS_TODO).map(p => (
+                    <div key={p.key} className="flex items-start justify-between gap-2 py-2.5">
+                      <span className="min-w-0">
+                        <span className="block text-[12.5px] font-medium text-gray-800 dark:text-zinc-200 leading-snug">{p.label}</span>
+                        <span className="block text-[11px] text-gray-400 dark:text-zinc-500 leading-snug mt-0.5">{p.desc}</span>
+                      </span>
+                      <Switch checked={!!permisos[p.key]} onChange={() => toggle(p.key)} label={p.label} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
           ) : (
             <>
               <p className="text-xs text-gray-500 dark:text-zinc-400">Marca lo que este usuario podrá hacer. Sin permisos, solo ve sus licitaciones asignadas.</p>

@@ -39,6 +39,11 @@ export default function FleterosPage() {
     nombre: '', rut: '', categoria: 'UNICA' as Categoria, capacidadCamion: '', tipoCamion: '',
     precio: '', costoKm: '', plazoDespachoDias: '', zonas: '', incluyeDescarga: false, tienePionetas: false,
   });
+  // §13.3: la identidad del fletero (razón social) debería salir de OBUMA, no tipearse a mano —
+  // antes el RUT era solo un dato suelto "para cuando se resuelva la integración" y nunca se
+  // consultaba de verdad.
+  const [buscandoObuma, setBuscandoObuma] = useState(false);
+  const [obumaResultado, setObumaResultado] = useState<{ estado: 'encontrado'; identidad: { razonSocial: string; contacto: string | null; direccion: string | null; comuna: string | null } } | { estado: 'no_encontrado' } | null>(null);
   const [zonaBusqueda, setZonaBusqueda] = useState('');
   const [urgente, setUrgente] = useState(false);
   const [sugerencias, setSugerencias] = useState<Sugerencia[] | null>(null);
@@ -66,6 +71,29 @@ export default function FleterosPage() {
     cargar();
   }, [cargandoSesion, puedeVer, router, cargar]);
 
+  const buscarEnObuma = async () => {
+    if (!form.rut.trim()) return;
+    setBuscandoObuma(true);
+    setObumaResultado(null);
+    try {
+      const res = await fetch(`/api/logistica/fleteros?rutObuma=${encodeURIComponent(form.rut.trim())}`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo buscar');
+      if (data.identidad) {
+        setForm(f => ({ ...f, nombre: data.identidad.razonSocial }));
+        setObumaResultado({ estado: 'encontrado', identidad: data.identidad });
+        toast.success('Encontrado en Obuma', data.identidad.razonSocial);
+      } else {
+        setObumaResultado({ estado: 'no_encontrado' });
+        toast.error('No aparece en Obuma', 'Puede ser un fletero nuevo, sin facturas todavía — completa el nombre a mano.');
+      }
+    } catch (e: any) {
+      toast.error('No se pudo buscar en Obuma', e.message);
+    } finally {
+      setBuscandoObuma(false);
+    }
+  };
+
   const crear = async () => {
     if (!form.nombre.trim()) return;
     setGuardando(true);
@@ -86,6 +114,7 @@ export default function FleterosPage() {
       toast.success('Fletero agregado');
       setFleteros(data.fleteros);
       setForm({ nombre: '', rut: '', categoria: 'UNICA', capacidadCamion: '', tipoCamion: '', precio: '', costoKm: '', plazoDespachoDias: '', zonas: '', incluyeDescarga: false, tienePionetas: false });
+      setObumaResultado(null);
       setFormAbierto(false);
     } catch (e: any) {
       toast.error('No se pudo agregar el fletero', e.message);
@@ -165,11 +194,32 @@ export default function FleterosPage() {
 
         {formAbierto && (
           <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-2.5">
+            <div>
+              <p className="text-[10px] font-bold text-zinc-400 uppercase mb-1">Identidad (spec §13.3 — se busca en Obuma, no se tipea a ciegas)</p>
+              <div className="flex items-center gap-1.5">
+                <input value={form.rut} onChange={e => { setForm(f => ({ ...f, rut: e.target.value })); setObumaResultado(null); }} placeholder="RUT del fletero"
+                  className="flex-1 text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                <button type="button" onClick={buscarEnObuma} disabled={!form.rut.trim() || buscandoObuma}
+                  className="flex-shrink-0 flex items-center gap-1 text-[12px] font-semibold text-indigo-600 hover:text-indigo-700 disabled:opacity-50 px-2.5 py-1.5 border border-indigo-200 rounded-lg">
+                  {buscandoObuma ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />} Buscar en Obuma
+                </button>
+              </div>
+              {obumaResultado?.estado === 'encontrado' && (
+                <p className="mt-1 text-[11px] text-indigo-600 bg-indigo-50/60 border border-indigo-100 rounded-lg px-2 py-1">
+                  <b>{obumaResultado.identidad.razonSocial}</b>
+                  {obumaResultado.identidad.contacto && ` · ${obumaResultado.identidad.contacto}`}
+                  {obumaResultado.identidad.direccion && ` · ${obumaResultado.identidad.direccion}${obumaResultado.identidad.comuna ? `, ${obumaResultado.identidad.comuna}` : ''}`}
+                </p>
+              )}
+              {obumaResultado?.estado === 'no_encontrado' && (
+                <p className="mt-1 text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">
+                  No tiene facturas en Obuma todavía — puede ser un fletero nuevo. Completa el nombre a mano abajo.
+                </p>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-2.5">
               <input value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Nombre del fletero"
-                className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
-              <input value={form.rut} onChange={e => setForm(f => ({ ...f, rut: e.target.value }))} placeholder="RUT (enganche con OBUMA)"
-                className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                className="text-[12.5px] border border-zinc-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-teal-500 col-span-2" />
               <Select value={form.categoria} onChange={v => setForm(f => ({ ...f, categoria: v as Categoria }))}
                 options={[{ value: 'UNICA', label: 'Carga única' }, { value: 'CONSOLIDADA', label: 'Carga consolidada' }]} minWidth={160} />
               <input value={form.zonas} onChange={e => setForm(f => ({ ...f, zonas: e.target.value }))} placeholder="Zonas que cubre (separadas por coma)"

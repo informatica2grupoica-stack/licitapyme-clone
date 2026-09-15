@@ -4,7 +4,7 @@
 // de Compras (permiso `compras`).
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosDeUsuario } from '@/app/lib/api-auth';
-import { listarFleteros, crearFletero, type CategoriaFletero } from '@/app/lib/compras-logistica';
+import { listarFleteros, crearFletero, buscarFleteroEnObuma, type CategoriaFletero } from '@/app/lib/compras-logistica';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,6 +28,15 @@ export async function GET(request: NextRequest) {
   if (!(await puedeVerLogistica(userId, rol))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
   try {
+    // Búsqueda de identidad en OBUMA por RUT (spec §13.3, "se puebla desde OBUMA") — separada del
+    // listado normal: se usa desde el formulario de alta, ANTES de escribir nombre/razón social a
+    // mano. `?rutObuma=` en vez de reusar `categoria` para no ambiguar ambos usos de este mismo GET.
+    const rutObuma = request.nextUrl.searchParams.get('rutObuma');
+    if (rutObuma) {
+      const identidad = await buscarFleteroEnObuma(rutObuma);
+      return NextResponse.json({ success: true, identidad });
+    }
+
     const categoria = request.nextUrl.searchParams.get('categoria') as CategoriaFletero | null;
     const fleteros = await listarFleteros({ categoria: categoria || undefined });
     return NextResponse.json({ success: true, fleteros });

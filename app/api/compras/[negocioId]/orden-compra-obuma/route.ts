@@ -66,6 +66,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const resultado = await crearOrdenCompraParaProveedor(id, proveedorNombre, {
       formaPagoId, incluirFlete: !!body.incluirFlete,
       fleteMonto: parsearMontoCL(body.fleteMonto),
+      confirmarPeseADuplicado: !!body.confirmarPeseADuplicado,
     }, userId, nombre);
 
     return NextResponse.json({ success: true, ...resultado });

@@ -61,6 +61,10 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
   const [firmandoActa, setFirmandoActa] = useState(false);
   const [firmandoGuia, setFirmandoGuia] = useState(false);
   const [conformidad, setConformidad] = useState<'CONFORME' | 'NO_CONFORME'>('CONFORME');
+  // Antes `window.prompt` para el motivo de entrega parcial — se reemplaza por un campo real que
+  // aparece al elegir "Entrega parcial", mismo criterio que el resto de la pantalla.
+  const [modalidadPendiente, setModalidadPendiente] = useState(false);
+  const [motivoParcial, setMotivoParcial] = useState('');
 
   const cargar = useCallback(async () => {
     try {
@@ -110,9 +114,18 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
       <div className="p-4 space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
           <Select value={entrega.modalidad} disabled={!puedeOperar} minWidth={140}
-            onChange={v => { if (v === 'PARCIAL') { const motivo = window.prompt('Motivo (excepcional, a petición del cliente — spec §16.2):'); if (!motivo?.trim()) return; accion({ accion: 'modalidad', modalidad: v, motivo }); } else accion({ accion: 'modalidad', modalidad: v }); }}
+            onChange={v => { if (v === 'PARCIAL') { setModalidadPendiente(true); setMotivoParcial(''); } else { setModalidadPendiente(false); accion({ accion: 'modalidad', modalidad: v }); } }}
             options={[{ value: 'TOTAL', label: 'Entrega total' }, { value: 'PARCIAL', label: 'Entrega parcial' }]} />
-          {entrega.modalidadMotivo && <span className="text-[11px] text-zinc-400">{entrega.modalidadMotivo}</span>}
+          {entrega.modalidadMotivo && !modalidadPendiente && <span className="text-[11px] text-zinc-400">{entrega.modalidadMotivo}</span>}
+          {modalidadPendiente && (
+            <div className="w-full flex items-center gap-1.5">
+              <input value={motivoParcial} onChange={e => setMotivoParcial(e.target.value)} placeholder="Motivo (excepcional, a petición del cliente — spec §16.2)"
+                className="flex-1 text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+              <button onClick={async () => { if (await accion({ accion: 'modalidad', modalidad: 'PARCIAL', motivo: motivoParcial.trim() })) setModalidadPendiente(false); }}
+                disabled={!motivoParcial.trim()} className="text-[11px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">Guardar</button>
+              <button onClick={() => setModalidadPendiente(false)} className="text-zinc-400 hover:text-zinc-600"><X size={14} /></button>
+            </div>
+          )}
         </div>
 
         {/* Puntos de entrega múltiples (§16.2) */}

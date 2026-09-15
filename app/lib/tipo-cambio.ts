@@ -5,16 +5,18 @@
 // queda cacheado en `compras_tipo_cambio` (migration-100), no se le pega a la API en cada
 // cotización.
 //
-// Hoy solo se resuelve USD (es lo que trae la spec y lo único que apareció en un documento real).
-// Si mañana aparece otra moneda, se agrega el símbolo `codigo` de mindicador.cl (ver
-// https://mindicador.cl/api) — nunca se inventa un valor para una moneda sin fuente.
+// Empezó resolviendo solo USD (lo único que había aparecido en un documento real). Se agrega EUR
+// (15-sep-2026, cotización real de un proveedor italiano en euros — "tendríamos que hacer lo mismo
+// que hacemos con dólar") con el mismo criterio: símbolo `codigo` de mindicador.cl (ver
+// https://mindicador.cl/api, que también publica "euro"), nunca se inventa un valor para una
+// moneda sin fuente. Para sumar otra, basta agregar su código acá.
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
 
 export interface TipoCambio { valor: number; fecha: string; fuente: string }
 
 const FUENTE = 'mindicador.cl';
-const CODIGO_MINDICADOR: Record<string, string> = { USD: 'dolar' };
+const CODIGO_MINDICADOR: Record<string, string> = { USD: 'dolar', EUR: 'euro' };
 
 /** Cuántos CLP vale 1 unidad de `moneda`, para el día de hoy (hora de Chile). `null` si la moneda
  *  es CLP (no hay nada que convertir) o si no se pudo obtener el dato de ninguna fuente — nunca
@@ -33,7 +35,10 @@ export async function obtenerTipoCambio(moneda: string): Promise<TipoCambio | nu
   if (cached) return { valor: Number(cached.valor), fecha: hoy, fuente: cached.fuente };
 
   try {
-    const res = await fetch(`https://mindicador.cl/api/${codigo}`, { signal: AbortSignal.timeout(8_000) });
+    // 8s se quedaba corto para el indicador "euro" (medido 15-sep-2026: "dolar" responde rápido,
+    // "euro" puede tardar >10s) — sin el tipo de cambio la cotización queda "sin convertir, no
+    // entra al comparativo", así que vale la pena esperar un poco más antes de rendirse.
+    const res = await fetch(`https://mindicador.cl/api/${codigo}`, { signal: AbortSignal.timeout(15_000) });
     if (!res.ok) return null;
     const data = await res.json();
     const valor = Number(data?.serie?.[0]?.valor);

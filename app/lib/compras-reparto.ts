@@ -51,7 +51,11 @@ async function proveedorNuevoSinFactura(negocioId: number): Promise<boolean> {
 }
 
 export interface RepartoAdministrativo {
-  ocEmitidaAt: string | null; ocNumero: string | null;
+  // ocMonto (15-sep-2026, pedido explícito): el checklist solo pedía el N° de OC, nunca el monto —
+  // una OC registrada a mano (no creada vía la integración real con Obuma) quedaba sin costo en
+  // ningún lado, y el agente de auditoría la marcaba como "inconsistencia grave" por tener $0
+  // cuando en realidad nadie le había pedido ese dato a la persona.
+  ocEmitidaAt: string | null; ocNumero: string | null; ocMonto: number | null;
   pagoRegistradoAt: string | null;
   anticipoPagadoAt: string | null; anticipoMonto: number | null;
   facturaCompraRegistradaAt: string | null;
@@ -61,7 +65,7 @@ export interface RepartoAdministrativo {
 }
 
 const FILA_VACIA: RepartoAdministrativo = {
-  ocEmitidaAt: null, ocNumero: null, pagoRegistradoAt: null, anticipoPagadoAt: null, anticipoMonto: null,
+  ocEmitidaAt: null, ocNumero: null, ocMonto: null, pagoRegistradoAt: null, anticipoPagadoAt: null, anticipoMonto: null,
   facturaCompraRegistradaAt: null, carpetaProyectoCreadaAt: null, carpetaProyectoId: null,
   provisionFondosAt: null, provisionFondosMonto: null, cuentaOrigen: null,
   notas: null, actualizadoPorNombre: null, updatedAt: null,
@@ -69,7 +73,7 @@ const FILA_VACIA: RepartoAdministrativo = {
 
 export async function obtenerReparto(negocioId: number): Promise<RepartoAdministrativo> {
   const [rows] = await pool.query(
-    `SELECT DATE_FORMAT(oc_emitida_at, '%Y-%m-%d %H:%i:%s') AS oc_emitida_at, oc_numero,
+    `SELECT DATE_FORMAT(oc_emitida_at, '%Y-%m-%d %H:%i:%s') AS oc_emitida_at, oc_numero, oc_monto,
             DATE_FORMAT(pago_registrado_at, '%Y-%m-%d %H:%i:%s') AS pago_registrado_at,
             DATE_FORMAT(anticipo_pagado_at, '%Y-%m-%d %H:%i:%s') AS anticipo_pagado_at, anticipo_monto,
             DATE_FORMAT(factura_compra_registrada_at, '%Y-%m-%d %H:%i:%s') AS factura_compra_registrada_at,
@@ -82,7 +86,7 @@ export async function obtenerReparto(negocioId: number): Promise<RepartoAdminist
   const r = (rows as any[])[0];
   if (!r) return { ...FILA_VACIA };
   return {
-    ocEmitidaAt: r.oc_emitida_at, ocNumero: r.oc_numero,
+    ocEmitidaAt: r.oc_emitida_at, ocNumero: r.oc_numero, ocMonto: r.oc_monto == null ? null : Number(r.oc_monto),
     pagoRegistradoAt: r.pago_registrado_at,
     anticipoPagadoAt: r.anticipo_pagado_at, anticipoMonto: r.anticipo_monto == null ? null : Number(r.anticipo_monto),
     facturaCompraRegistradaAt: r.factura_compra_registrada_at,
@@ -110,8 +114,55 @@ const LABEL: Record<HitoReparto, string> = {
 
 export interface MarcarHitoDatos {
   activo: boolean; // false = desmarcar (por si se marcó por error)
-  ocNumero?: string | null; anticipoMonto?: number | null;
+  ocNumero?: string | null; ocMonto?: number | null; anticipoMonto?: number | null;
   carpetaProyectoId?: string | null; provisionFondosMonto?: number | null; cuentaOrigen?: string | null;
+  // Respaldo (pedido explícito del usuario, 14-sep-2026): archivo opcional + nota OBLIGATORIA al
+  // marcar el hito como hecho — "esos deben poder tener un respaldo". Se exige acá, no solo en la
+  // UI, para que no haya forma de marcar un hito sin dejar por qué.
+  nota?: string; archivoUrl?: string | null; archivoNombre?: string | null;
+}
+
+export interface RespaldoHito {
+  hito: HitoReparto; estado: 'HECHO' | 'NO_APLICA'; nota: string; archivoUrl: string | null; archivoNombre: string | null;
+  actualizadoPorNombre: string | null; updatedAt: string;
+}
+
+export async function listarRespaldosHito(negocioId: number): Promise<RespaldoHito[]> {
+  const [rows] = await pool.query(
+    `SELECT hito, estado, nota, archivo_url, archivo_nombre, actualizado_por_nombre,
+            DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at
+       FROM compras_reparto_respaldo WHERE negocio_id = ?`,
+    [negocioId],
+  ) as any;
+  return (rows as any[]).map(r => ({
+    hito: r.hito, estado: r.estado, nota: r.nota, archivoUrl: r.archivo_url, archivoNombre: r.archivo_nombre,
+    actualizadoPorNombre: r.actualizado_por_nombre, updatedAt: r.updated_at,
+  }));
+}
+
+/** Pedido explícito del usuario (14-sep-2026): "qué pasa con las que no se realizan, ya que a veces
+ *  no hacemos anticipo, pagamos todo" — un hito puede NO corresponder nunca para este negocio
+ *  puntual (ej. "Anticipo pagado" cuando se paga de contado). Marcarlo "no aplica" (con motivo
+ *  obligatorio, mismo criterio que el respaldo normal) lo saca del pendiente SIN decir que pasó —
+ *  nunca se toca `<hito>_at` (no se inventa una fecha para algo que no ocurrió). */
+export async function marcarHitoNoAplica(
+  negocioId: number, hito: HitoReparto, motivo: string, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  if (!motivo?.trim()) throw new Error('Falta el motivo de por qué este hito no aplica.');
+  const ahora = ahoraChileSQL();
+  await pool.query(
+    `INSERT INTO compras_reparto_respaldo (negocio_id, hito, estado, nota, archivo_url, archivo_nombre, actualizado_por, actualizado_por_nombre, updated_at)
+     VALUES (?,?,?,?,NULL,NULL,?,?,?)
+     ON DUPLICATE KEY UPDATE estado=VALUES(estado), nota=VALUES(nota), archivo_url=NULL, archivo_nombre=NULL,
+       actualizado_por=VALUES(actualizado_por), actualizado_por_nombre=VALUES(actualizado_por_nombre), updated_at=VALUES(updated_at)`,
+    [negocioId, hito, 'NO_APLICA', motivo.trim(), actorId, actorNombre, ahora],
+  );
+  await registrarEvento({
+    tipo: 'COMPRAS_REPARTO_HITO', licitacionCodigo: await licitacionDeNegocio(negocioId),
+    actorId, actorNombre,
+    mensaje: `Se marcó el hito "${LABEL[hito]}" como no aplica: ${motivo.trim()} (spec §11).`,
+    metadata: { negocio_id: negocioId, hito, estado: 'NO_APLICA' },
+  });
 }
 
 /** Marca (o desmarca) UN hito administrativo (§11.1/§11.2) — nunca ejecuta nada en OBUMA, solo dice
@@ -134,6 +185,14 @@ export async function marcarHitoReparto(
   const [rows] = await pool.query(`SELECT ${campoAt} AS actual FROM compras_reparto_administrativo WHERE negocio_id = ?`, [negocioId]) as any;
   const yaActivo = (rows as any[])[0]?.actual != null;
 
+  // Respaldo obligatorio (pedido explícito, 14-sep-2026): no se puede marcar un hito como hecho por
+  // primera vez sin dejar una nota — el archivo es opcional, la nota nunca. Solo se exige al pasar
+  // de pendiente a hecho (`!yaActivo`); editar un dato adjunto de un hito YA marcado (ej. corregir
+  // el número de OC en el blur del input) no debe pedir la nota de nuevo cada vez.
+  if (datos.activo && !yaActivo && !datos.nota?.trim()) {
+    throw new Error('Este hito necesita una nota de respaldo antes de marcarse como hecho (spec §11: "controla y registra", no solo tilda).');
+  }
+
   const set: string[] = ['actualizado_por = ?', 'actualizado_por_nombre = ?', 'updated_at = ?'];
   const vals: any[] = [actorId, actorNombre, ahora];
   if (!datos.activo) {
@@ -142,7 +201,7 @@ export async function marcarHitoReparto(
     // alguien los haya vuelto a verificar (BUG REAL, 10-sep-2026: antes solo se limpiaba la
     // fecha, el dato adjunto quedaba pegado y reaparecía como vigente al reactivar el hito).
     set.push(`${campoAt} = NULL`);
-    if (hito === 'ocEmitida') set.push('oc_numero = NULL');
+    if (hito === 'ocEmitida') set.push('oc_numero = NULL, oc_monto = NULL');
     if (hito === 'anticipoPagado') set.push('anticipo_monto = NULL');
     if (hito === 'carpetaProyectoCreada') set.push('carpeta_proyecto_id = NULL');
     if (hito === 'provisionFondos') set.push('provision_fondos_monto = NULL, cuenta_origen = NULL');
@@ -154,6 +213,7 @@ export async function marcarHitoReparto(
   // UPDATE, porque MySQL aplica el último `col = valor` de la lista SET.
   if (datos.activo) {
     if (hito === 'ocEmitida' && datos.ocNumero !== undefined) { set.push('oc_numero = ?'); vals.push(datos.ocNumero || null); }
+    if (hito === 'ocEmitida' && datos.ocMonto !== undefined) { set.push('oc_monto = ?'); vals.push(datos.ocMonto ?? null); }
     if (hito === 'anticipoPagado' && datos.anticipoMonto !== undefined) { set.push('anticipo_monto = ?'); vals.push(datos.anticipoMonto ?? null); }
     if (hito === 'carpetaProyectoCreada' && datos.carpetaProyectoId !== undefined) { set.push('carpeta_proyecto_id = ?'); vals.push(datos.carpetaProyectoId || null); }
     if (hito === 'provisionFondos') {
@@ -162,6 +222,23 @@ export async function marcarHitoReparto(
     }
   }
   await pool.query(`UPDATE compras_reparto_administrativo SET ${set.join(', ')} WHERE negocio_id = ?`, [...vals, negocioId]);
+
+  // Respaldo: se guarda al marcar por primera vez, se borra al desmarcar — mismo criterio que el
+  // resto de los datos adjuntos de este hito (no debe quedar un respaldo viejo dando vueltas si el
+  // hito se desmarcó porque se marcó por error). Si `datos.activo` viene true pero es solo una
+  // edición de un campo de un hito YA marcado (sin `nota` — el blur de "N° de OC", por ejemplo), no
+  // se toca el respaldo existente.
+  if (datos.activo && datos.nota?.trim()) {
+    await pool.query(
+      `INSERT INTO compras_reparto_respaldo (negocio_id, hito, estado, nota, archivo_url, archivo_nombre, actualizado_por, actualizado_por_nombre, updated_at)
+       VALUES (?,?,'HECHO',?,?,?,?,?,?)
+       ON DUPLICATE KEY UPDATE estado='HECHO', nota=VALUES(nota), archivo_url=VALUES(archivo_url), archivo_nombre=VALUES(archivo_nombre),
+         actualizado_por=VALUES(actualizado_por), actualizado_por_nombre=VALUES(actualizado_por_nombre), updated_at=VALUES(updated_at)`,
+      [negocioId, hito, datos.nota.trim(), datos.archivoUrl || null, datos.archivoNombre || null, actorId, actorNombre, ahora],
+    );
+  } else if (!datos.activo) {
+    await pool.query(`DELETE FROM compras_reparto_respaldo WHERE negocio_id = ? AND hito = ?`, [negocioId, hito]);
+  }
 
   await registrarEvento({
     tipo: 'COMPRAS_REPARTO_HITO', licitacionCodigo: await licitacionDeNegocio(negocioId),
