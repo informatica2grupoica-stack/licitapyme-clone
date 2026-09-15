@@ -2004,12 +2004,29 @@ const RE_LEYENDA_FIRMA_SOLA = /\bfirma[ns]?\b/i;
 // vive en la MISMA celda que el borde superior) nunca se activaba. Sin ningún bloque de firma
 // detectado, la imagen terminaba estampada por un heurístico más débil de otra parte del pipeline,
 // superpuesta con la fecha en la celda de al lado.
-// Colapsa corridas de 3+ letras SUELTAS separadas por un único espacio en una sola palabra
-// ("F I R M A" → "FIRMA"); deja intactas 1-2 letras sueltas (podrían ser iniciales reales, "a) A")
-// y conserva el espacio ENTRE palabras ya colapsadas (la corrida más ancha entre "A" y "O" arriba
-// no calza con el patrón de UN espacio, así que queda como separador natural entre las dos).
-function sinLetrasEspaciadas(texto: string): string {
-  return texto.replace(/(?:\b\p{L}\b[ \t]){2,}\b\p{L}\b/gu, m => m.replace(/[ \t]+/g, ''));
+//
+// ¿El párrafo ENTERO es una corrida de letras sueltas separadas por espacio? A propósito exige que
+// sea TODO el párrafo (no solo un tramo) — eso es lo que permite, más abajo, unir TODO sin espacio
+// y buscar "firma" como texto plano: si hubiera alguna palabra real de por medio (como en un párrafo
+// normal, "Declaro mi confirmación…"), unir a ciegas metería un falso positivo ("confirmación"
+// contiene "firma" como texto corrido). En un párrafo que es puro letra-espacio no hay ninguna
+// palabra real que pueda dar ese falso positivo — no hay nada más que letras sueltas.
+const RE_CORRIDA_LETRAS_SUELTAS = /^(?:\p{L}[ \t]+){2,}\p{L}$/u;
+// REGRESIÓN encontrada por el propio usuario en un documento distinto del mismo organismo,
+// reportada con captura ("no es la misma letra ni el mismo formato... FIRMAOFERENTE" pegado sin
+// espacio): la primera versión de este fix colapsaba corridas de letras DENTRO del texto y
+// reutilizaba ese resultado también para lo que se MUESTRA — cuando el espacio entre "FIRMA" y
+// "OFERENTE" es del mismo ancho que el que separa cada letra suelta (a diferencia del caso de
+// arriba, con un hueco más ancho entre las dos palabras), no hay forma de saber dónde termina una
+// palabra y empieza la otra, así que las dos quedaban pegadas SIN espacio en el contexto mostrado.
+// La solución: esto SOLO se usa para la pregunta sí/no "¿es una leyenda de firma?" (nunca para
+// mostrar nada — `agregar(...)` más abajo sigue usando siempre `p.texto` tal cual), y ahí no importa
+// si dos palabras quedan pegadas: unir TODO el párrafo (sin intentar adivinar límites de palabra) y
+// buscar "firma" como texto corrido sigue encontrándola igual, pegada o no.
+function pareceLeyendaDeFirmaLetraPorLetra(texto: string): boolean {
+  const t = texto.trim();
+  if (!RE_CORRIDA_LETRAS_SUELTAS.test(t)) return false;
+  return t.replace(/[ \t]+/g, '').toLowerCase().includes('firma');
 }
 // BUG REAL (29-ago-2026, ANEXO N°2B, 2928-17-LE26): este documento alinea "Nombre:"/"Rut:" a DOS
 // columnas rellenando con espacios en vez de tabulaciones o tabla — "Rut:" + su padding llega a 92
@@ -2156,10 +2173,13 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
     // algo — es justo lo que pasa en los anexos 7 y 8 de esta misma licitación, donde arriba de la
     // leyenda va un párrafo con DOS rayas (la del oferente y la del evaluador) y estampar sería
     // adivinar cuál es cuál.
-    const textoSinEspaciarLetras = sinLetrasEspaciadas(p.texto);
-    if (!leyendasConRaya.has(p.indice)
-      && textoSinEspaciarLetras.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(textoSinEspaciarLetras)
-      && esEtiquetaDeCampo(textoSinEspaciarLetras)) {
+    // `pareceLeyendaDeFirmaLetraPorLetra` cubre el caso letra-espaciada (ver su comentario); cuando
+    // el párrafo ES eso, ya no tiene sentido pedirle a `esEtiquetaDeCampo` que cuente "palabras" (una
+    // corrida de letras sueltas siempre pierde esa cuenta) — el propio patrón (letras + espacios,
+    // nada más) ya es prueba suficiente de que es una leyenda corta, no una oración.
+    const letraPorLetra = pareceLeyendaDeFirmaLetraPorLetra(p.texto);
+    if (!leyendasConRaya.has(p.indice) && p.texto.trim().length <= LARGO_MAX_LEYENDA_FIRMA
+      && (letraPorLetra || (RE_LEYENDA_FIRMA_SOLA.test(p.texto) && esEtiquetaDeCampo(p.texto)))) {
       // Prioridad -1: la raya NO es texto ni un borde de párrafo (pBdr) — es el borde SUPERIOR de
       // la CELDA de tabla donde vive la leyenda misma (heredado del borde general de la tabla o
       // puesto directo en esa celda). BUG REAL (1426039-8-LE26, 10-ago-2026, "Nombre, RUT y Firma
@@ -2173,7 +2193,7 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
       // "Etiqueta:" del patrón 5, ver insertarImagenEnParrafo/nombreDebajo): no hay párrafo nuevo
       // que agregar, solo contenido nuevo dentro del que ya existe.
       if (indicesConBordeSuperiorDeCelda.has(p.indice)) {
-        agregar(p, textoSinEspaciarLetras.trim(), undefined, undefined, true, true);
+        agregar(p, p.texto.trim(), undefined, undefined, true, true);
         continue;
       }
       // Prioridad 0: el párrafo INMEDIATAMENTE anterior es la raya de verdad (vacío + borde
@@ -2186,7 +2206,7 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
       // haya borde real — no compite con el Caso D de tabla porque una celda de valor no trae
       // `pBdr` propio.
       if (parrafos[i - 1]?.vacio && parrafos[i - 1].bordeInferior) {
-        agregar(parrafos[i - 1], textoSinEspaciarLetras.trim(), p, corridaVaciosAntes(i - 2));
+        agregar(parrafos[i - 1], p.texto.trim(), p, corridaVaciosAntes(i - 2));
         continue;
       }
       // Caso D: "Firma" como ETIQUETA de una fila de tabla [Nombre | RUT | Firma], con su propia
@@ -2197,11 +2217,11 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
       // ESTA fila está DESPUÉS de "Firma", no antes; lo de antes es la celda de valor de la fila
       // de ARRIBA (la de "R.U.T."). Se prueba primero porque es la forma más específica: si el
       // siguiente párrafo está vacío, es la propia celda de esta fila, sin ambigüedad.
-      if (parrafos[i + 1]?.vacio) { agregar(parrafos[i + 1], textoSinEspaciarLetras.trim(), p, corridaVaciosAntes(i - 1)); continue; }
+      if (parrafos[i + 1]?.vacio) { agregar(parrafos[i + 1], p.texto.trim(), p, corridaVaciosAntes(i - 1)); continue; }
       if (!parrafos[i - 1]?.vacio) continue;
       // el hueco pegado a la leyenda, que es donde se firma — y lo que haya ANTES de ese hueco
       // (típicamente la raya-borde, ver paraIdsRayaAntes) también debe quedar pegado a la leyenda.
-      agregar(parrafos[i - 1], textoSinEspaciarLetras.trim(), p, corridaVaciosAntes(i - 2));
+      agregar(parrafos[i - 1], p.texto.trim(), p, corridaVaciosAntes(i - 2));
     }
   }
   return out;

@@ -596,7 +596,34 @@ test('línea de firma con la leyenda escrita LETRA POR LETRA ("F I R M A   O F E
   const analisis = analizarAnexo(norm);
   assert.equal(analisis.lineasFirma.length, 1, `no se encontró la línea de firma: ${JSON.stringify(analisis.lineasFirma)}`);
   assert.equal(analisis.lineasFirma[0].sinRaya, true, 'se estampa DENTRO de la celda de la leyenda, sin raya que limpiar');
-  assert.match(analisis.lineasFirma[0].contexto, /firma/i);
+  // El contexto guardado/mostrado es el texto ORIGINAL, con sus espacios intactos — solo la
+  // CONDICIÓN de detección usa la versión "sin letras espaciadas" (regresión encontrada después:
+  // mostrar el texto colapsado unía "FIRMA" y "OFERENTE" en una sola palabra sin espacio cuando el
+  // hueco entre palabras es del mismo ancho que el hueco entre letras).
+  assert.equal(analisis.lineasFirma[0].contexto, 'F I R M A    O F E R E N T E');
+});
+
+// BUG REAL (regresión del fix anterior, mismo organismo, OTRO documento — reportado por el usuario
+// con captura: "no es la misma letra ni el mismo formato... FIRMAOFERENTE" pegado sin espacio en la
+// vista previa): cuando el espacio entre "FIRMA" y "OFERENTE" es de UN SOLO carácter (igual que el
+// que separa cada letra suelta, sin el hueco más ancho del caso de arriba), la primera versión de
+// este fix mostraba las dos palabras UNIDAS sin espacio — porque usaba el texto YA colapsado
+// también para lo que se guarda como contexto, no solo para decidir si es una leyenda de firma.
+test('línea de firma letra por letra CON UN SOLO ESPACIO entre palabras: se detecta, pero el contexto mostrado conserva el original (regresión del fix de 2905-36-LR26)', () => {
+  const xml = NS + '<w:tbl><w:tblPr><w:tblBorders>'
+    + '<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+    + '</w:tblBorders></w:tblPr>'
+    + '<w:tr>'
+    + '<w:tc><w:tcPr><w:tcBorders><w:top w:val="nil"/></w:tcBorders></w:tcPr><w:p/></w:tc>'
+    + '<w:tc><w:tcPr></w:tcPr>'
+    + p('F I R M A O F E R E N T E') + p('') + p('') + '</w:tc>'
+    + '</w:tr>'
+    + '</w:tbl>' + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+  assert.equal(analisis.lineasFirma.length, 1, `no se encontró la línea de firma: ${JSON.stringify(analisis.lineasFirma)}`);
+  // NUNCA "FIRMAOFERENTE" pegado — el contexto es siempre el texto tal cual vino del documento.
+  assert.equal(analisis.lineasFirma[0].contexto, 'F I R M A O F E R E N T E');
 });
 
 // El motor 100% IA (anexos-ia-motor.ts) reemplazó el diccionario, pero el guardarraíl
