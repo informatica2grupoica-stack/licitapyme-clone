@@ -304,17 +304,58 @@ type CamposLicitacion = Pick<EmpresaCampos,
   | 'licitacion_monto_estimado' | 'licitacion_moneda' | 'licitacion_fecha_publicacion' | 'licitacion_fecha_cierre'
 >;
 
+// BUG REAL (15-sep-2026, reportado por el usuario, indignado con razón: "por que no lo puedes leer
+// si es el nombre de la licitacion y el id de la licitacion"): `licitacion_codigo` dependía de que
+// la llamada LIVE a MP tuviera éxito — si `lic` salía null (caído/timeout/lo que sea), `campos`
+// quedaba `{}` y se perdía HASTA EL CÓDIGO, que nunca hizo falta pedirle a nadie: es el propio
+// parámetro `codigo` con el que se llamó a esta función. Ahora `licitacion_codigo` se fija SIEMPRE,
+// nunca depende de MP.
+//
+// Para nombre/organismo/región/cierre, que sí vienen genuinamente de MP, se agrega un SEGUNDO
+// respaldo antes de rendirse: el snapshot que quedó guardado en `negocios.licitacion_*` cuando esta
+// licitación se capturó/asignó (radar, búsqueda, postulación…) — no es un dato "de otro lado", es
+// el mismo dato de MP que la propia app ya había guardado antes. Solo se usa para lo que la llamada
+// LIVE no trajo: si MP respondió con el nombre actualizado, ese manda (más fresco que el snapshot).
+async function datosLicitacionDesdeNegocio(codigo: string): Promise<{
+  licitacion_nombre: string | null; licitacion_organismo: string | null; licitacion_region: string | null;
+  licitacion_fecha_cierre: string | null; fechaCierre: Date | null;
+}> {
+  const vacio = { licitacion_nombre: null, licitacion_organismo: null, licitacion_region: null, licitacion_fecha_cierre: null, fechaCierre: null };
+  try {
+    const [rows] = await pool.query(
+      `SELECT licitacion_nombre, licitacion_organismo, licitacion_region, licitacion_cierre
+         FROM negocios WHERE licitacion_codigo = ? ORDER BY activo DESC, id DESC LIMIT 1`,
+      [codigo],
+    ) as any;
+    const row = (rows as any[])[0];
+    if (!row) return vacio;
+    const fechaCierreCruda = row.licitacion_cierre ? new Date(row.licitacion_cierre) : null;
+    const fechaCierre = fechaCierreCruda && !Number.isNaN(fechaCierreCruda.getTime()) ? fechaCierreCruda : null;
+    return {
+      licitacion_nombre: row.licitacion_nombre || null,
+      licitacion_organismo: row.licitacion_organismo || null,
+      licitacion_region: row.licitacion_region || null,
+      licitacion_fecha_cierre: fechaCierre ? fechaLargaChile(fechaCierre) : null,
+      fechaCierre,
+    };
+  } catch (e) {
+    console.error(`[anexos-datos] no se pudo leer el respaldo de "negocios" para ${codigo}:`, String(e).slice(0, 200));
+    return vacio;
+  }
+}
+
 // `fechaCierre` viaja SUELTA (además de dentro de `campos`, ya formateada como texto largo) porque
 // cargarDocumentoYEmpresa la necesita como Date real para conCamposDerivados — ver el comentario
 // de ahí sobre por qué "fecha_hoy" pasó a basarse en el cierre de la licitación, no en el reloj.
 async function obtenerLicitacionParaAnexo(codigo: string): Promise<{ campos: CamposLicitacion; fechaCierre: Date | null }> {
+  let campos: CamposLicitacion = { licitacion_codigo: codigo };
+  let fechaCierre: Date | null = null;
   try {
     const lic = await getMercadoPublicoClient().obtenerPorCodigoRapido(codigo, 8_000);
-    if (!lic) return { campos: {}, fechaCierre: null };
-    const fechaCierreCruda = lic.FechaCierre ? new Date(lic.FechaCierre) : null;
-    const fechaCierre = fechaCierreCruda && !Number.isNaN(fechaCierreCruda.getTime()) ? fechaCierreCruda : null;
-    return {
-      campos: {
+    if (lic) {
+      const fechaCierreCruda = lic.FechaCierre ? new Date(lic.FechaCierre) : null;
+      fechaCierre = fechaCierreCruda && !Number.isNaN(fechaCierreCruda.getTime()) ? fechaCierreCruda : null;
+      campos = {
         licitacion_codigo: lic.Codigo || codigo,
         licitacion_nombre: lic.Nombre || null,
         licitacion_organismo: lic.Organismo || null,
@@ -327,13 +368,25 @@ async function obtenerLicitacionParaAnexo(codigo: string): Promise<{ campos: Cam
         licitacion_moneda: MONEDA_LABEL_MAP[lic.Moneda || 'CLP'] || lic.Moneda || null,
         licitacion_fecha_publicacion: formatearFechaLicitacion(lic.FechaPublicacion),
         licitacion_fecha_cierre: fechaCierre ? fechaLargaChile(fechaCierre) : null,
-      },
-      fechaCierre,
-    };
+      };
+    }
   } catch (e) {
     console.error(`[anexos-datos] no se pudo obtener la licitación ${codigo} para el Anexo Creator:`, String(e).slice(0, 200));
-    return { campos: {}, fechaCierre: null };
   }
+
+  if (!campos.licitacion_nombre || !campos.licitacion_organismo || !fechaCierre) {
+    const respaldo = await datosLicitacionDesdeNegocio(codigo);
+    campos = {
+      ...campos,
+      licitacion_nombre: campos.licitacion_nombre ?? respaldo.licitacion_nombre,
+      licitacion_organismo: campos.licitacion_organismo ?? respaldo.licitacion_organismo,
+      licitacion_region: campos.licitacion_region ?? respaldo.licitacion_region,
+      licitacion_fecha_cierre: campos.licitacion_fecha_cierre ?? respaldo.licitacion_fecha_cierre,
+    };
+    fechaCierre = fechaCierre ?? respaldo.fechaCierre;
+  }
+
+  return { campos, fechaCierre };
 }
 
 // ── Puente con el Motor Comercial (Fase 4) — precios reales para el anexo económico ──────────
