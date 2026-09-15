@@ -445,6 +445,47 @@ test('detectarFormularios: "Formatos" en prosa no se confunde con un encabezado 
   assert.equal(detectarFormularios(norm).length, 1);
 });
 
+// NOVENA forma (regresión 15-sep-2026, "FORMATOS_ADMINISTRATIVOS.docx" reportado por el usuario:
+// "no me deja separar los anexos"): el organismo no numera nada — cada formulario pegado abre con
+// "FORMATO TIPO <descripción>", sin N°/letra/comillas de ningún tipo. Documento real: 4 formatos
+// pegados, 0 detectados antes de esto (ni siquiera la octava forma alcanzaba: el cierre real es
+// "NOMBRE, FIRMA DEL OFERENTE", que no empieza con "FIRMA"/"FECHA").
+test('detectarFormularios: encabezados "FORMATO TIPO <descripción>" sin número (regresión FORMATOS_ADMINISTRATIVOS.docx, 15-sep-2026)', () => {
+  const xml = NS
+    + p('FORMATO TIPO IDENTIFICACIÓN DEL PROPONENTE')
+    + p('NOMBRE COMPLETO DEL OFERENTE:')
+    + p('NOMBRE, FIRMA DEL OFERENTE')
+    + p('FORMATO TIPO DECLARACIÓN JURADA')
+    + p('Declaro lo siguiente:')
+    + p('NOMBRE, FIRMA DEL OFERENTE')
+    + p('FORMATO TIPO DECLARACIÓN JURADA')
+    + p('Declaro otra cosa distinta:')
+    + p('NOMBRE, FIRMA DEL OFERENTE')
+    + p('FORMATO TIPO DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD')
+    + p('Declara que:')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const formularios = detectarFormularios(norm);
+  assert.equal(formularios.length, 4);
+  assert.equal(formularios[0].titulo, 'FORMATO TIPO IDENTIFICACIÓN DEL PROPONENTE');
+  assert.equal(formularios[3].titulo, 'FORMATO TIPO DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD');
+  // Sin número, el nombre de archivo se arma con la palabra "Tipo" como id — nunca el recorte
+  // genérico con guiones bajos.
+  assert.match(nombreArchivoDesdeTitulo(formularios[0].titulo), /^Formato Tipo/);
+});
+
+// Guardarraíl del regex sin flag 'i' (ver RE_FORMATO_TIPO): una oración de prosa real que MENCIONA
+// "formato tipo" en minúsculas, dentro de una frase más larga, no puede abrir un fragmento nuevo.
+test('detectarFormularios: "formato tipo" mencionado en minúsculas dentro de una oración no es un encabezado', () => {
+  const xml = NS
+    + p('ANEXO N°1')
+    + p('Debe presentarse conforme al formato tipo que se adjunta en las bases administrativas')
+    + p('ANEXO N°2')
+    + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  assert.equal(detectarFormularios(norm).length, 2);
+});
+
 // BUG REAL (18-ago-2026, 2296-48-LE26): ese organismo pone el TÍTULO del formulario entre
 // comillas tipográficas, y la regla "una línea entre comillas es el nombre de la licitación,
 // corta ahí" dejaba los anexos con nombre pelado ("FORMATO_Nº1-B"). Lo repetido (el nombre de la

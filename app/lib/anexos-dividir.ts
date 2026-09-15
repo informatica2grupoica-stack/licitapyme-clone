@@ -80,6 +80,31 @@ export interface FormularioDetectado { titulo: string; indiceInicio: number; ind
 export const RE_ENCABEZADO_FORMULARIO = /^(?:FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*\d+|\(\s*ANEXO\s*N?[.\s]*[°ºO]?[.\s]*\d+(?:-[A-Z])?\s*\)\s*$|^(?:FORMULARIO|ANEXO|FORMATO)\s*["“‘'][A-Z]["”’']\s*$|^(?:FORMULARIO|ANEXO|FORMATO)\s*[A-Z]{1,8}\s*-\s*\d+\s*:?\s*$/i;
 const LARGO_MAX_ENCABEZADO = 80; // evita falsos positivos: una oración larga que MENCIONA "Formulario N°1" no es un encabezado
 
+// NOVENA forma (15-sep-2026, caso real "FORMATOS_ADMINISTRATIVOS.docx" reportado por el usuario:
+// "no me separa los anexos"): el organismo no numera nada — cada formulario pegado abre con
+// "FORMATO TIPO <descripción>" ("FORMATO TIPO IDENTIFICACIÓN DEL PROPONENTE", "FORMATO TIPO
+// DECLARACIÓN JURADA" ×2, "FORMATO TIPO DECLARACIÓN JURADA PROGRAMA DE INTEGRIDAD"). Ninguna de
+// las ocho formas de arriba exige número/letra: sin él, el documento (4 formatos pegados)
+// detectaba 0 encabezados. Tampoco calzaba la octava forma (cierre de sección): el cierre real de
+// cada formato es "NOMBRE, FIRMA DEL OFERENTE", que empieza con "NOMBRE", no con "FIRMA"/"FECHA"
+// (ver RE_CIERRE_SECCION_ANTERIOR) — así que ese fallback tampoco alcanzaba a cubrirlo.
+//
+// A diferencia de las formas numeradas, "TIPO" no trae ningún ancla estructural (número, comillas)
+// que distinga un título real de una mención en prosa ("el formato tipo debe entregarse junto
+// con…"). Por eso este regex va SIN el flag 'i' (a propósito, ver esEncabezadoFormulario más abajo)
+// y exige mayúsculas reales en toda la línea — la misma convención que usan estos documentos y que
+// ya prueba RE_TODO_MAYUSCULAS para la séptima/octava forma. Una oración de prosa real nunca queda,
+// ella sola, enteramente en mayúsculas en su propio párrafo.
+const RE_FORMATO_TIPO = /^(?:FORMULARIO|ANEXO|FORMATO)\s+TIPO\s+[A-ZÁÉÍÓÚÑÜ0-9][A-ZÁÉÍÓÚÑÜ0-9\s.,()/:_-]*$/;
+
+// Junta la forma con número/letra (case-insensitive, RE_ENCABEZADO_FORMULARIO) con la novena forma
+// (case-SENSITIVE a propósito, RE_FORMATO_TIPO) — un solo punto de entrada para las tres funciones
+// que antes probaban RE_ENCABEZADO_FORMULARIO directo (loop de tablas, loop de párrafos,
+// cortaSubtitulo), así que agregar una décima forma en el futuro no obliga a tocar tres lugares.
+function esEncabezadoFormulario(linea: string): boolean {
+  return RE_ENCABEZADO_FORMULARIO.test(linea) || RE_FORMATO_TIPO.test(linea);
+}
+
 // Solo la forma "FORMULARIO/ANEXO N°X" al INICIO (sin la alternativa "(ANEXO X)" al final) — se usa
 // como fallback cuando la línea completa es demasiado larga para el chequeo normal de arriba. Ver
 // RE_ENCABEZADO_PEGADO_SIN_ESPACIO más abajo para el caso real que motiva esto.
@@ -414,7 +439,7 @@ function detectarEncabezadosTrasCierreDeSeccion(
 // ¿Esta línea entre comillas es el nombre de la licitación (corta la búsqueda) o el título real
 // del formulario (sirve de subtítulo)? Ver clavesEntreComillasRepetidas.
 function cortaSubtitulo(texto: string, repetidas: Set<string>): boolean {
-  if (RE_ENCABEZADO_FORMULARIO.test(texto)) return true;
+  if (esEncabezadoFormulario(texto)) return true;
   if (!RE_EMPIEZA_CON_COMILLA.test(texto)) return false;
   return repetidas.has(texto.replace(RE_COMILLAS_ALREDEDOR, '').trim().toUpperCase());
 }
@@ -496,7 +521,7 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
         const parrafosTabla = parrafosDeTabla(b.xmlCompleto);
         for (let ti = 0; ti < parrafosTabla.length; ti++) {
           const l = parrafosTabla[ti].texto;
-          if (l.length > LARGO_MAX_ENCABEZADO || !RE_ENCABEZADO_FORMULARIO.test(l)) continue;
+          if (l.length > LARGO_MAX_ENCABEZADO || !esEncabezadoFormulario(l)) continue;
           // Mismo criterio que buscarSubtituloTrasEncabezadoPelado: si el encabezado viene
           // "pelado" (nada más que el número/letra), el título real vive en los párrafos
           // siguientes DE LA MISMA TABLA — se descarta el que empieza con comilla (el nombre de
@@ -536,7 +561,7 @@ export function detectarFormularios(xml: string): FormularioDetectado[] {
     // interna — se prueba cada línea, no solo el texto completo, para no perder ese caso.
     for (const linea of b.textoPlano.split('\n')) {
       const l = linea.trim();
-      if (l.length <= LARGO_MAX_ENCABEZADO && RE_ENCABEZADO_FORMULARIO.test(l)) {
+      if (l.length <= LARGO_MAX_ENCABEZADO && esEncabezadoFormulario(l)) {
         const subtitulo = RE_ENCABEZADO_PELADO.test(l) ? buscarSubtituloTrasEncabezadoPelado(bloques, bi, repetidasEntreComillas) : '';
         encabezados.push({ indice: b.ordinalInicio, titulo: subtitulo ? `${l} ${subtitulo}` : l });
         break; // un párrafo no trae dos encabezados propios
@@ -783,6 +808,10 @@ const RE_TIPO_NUMERO = /^(FORMULARIO|ANEXO|FORMATO)\s*N[.\s]*[°ºO]?[.\s]*(\d+(
 const RE_TIPO_PARENTESIS = /\(\s*(ANEXO)\s*N?[.\s]*[°ºO]?[.\s]*(\d+(?:-[A-Z])?)\s*\)\s*$/i;
 const RE_TIPO_LETRA_COMILLAS = /^(FORMULARIO|ANEXO|FORMATO)\s*["“‘']([A-Z])["”’']/i;
 const RE_TIPO_CATEGORIA_LETRA = /^(FORMULARIO|ANEXO|FORMATO)\s*([A-Z]{1,8})\s*-\s*(\d+)/i;
+// Novena forma (ver RE_FORMATO_TIPO): sin número que usar como id, así que se usa la palabra
+// "TIPO" misma — da "Formato Tipo - Identificacion Del Proponente" en vez de caer al recorte
+// genérico sin espacios de limpiarParaNombreArchivo ("FORMATO_TIPO_IDENTIFICACION_DEL_PROPONEN").
+const RE_TIPO_SIN_NUMERO = /^(FORMULARIO|ANEXO|FORMATO)\s+TIPO\b/i;
 
 function tipoEIdentificador(titulo: string): { palabra: string; id: string; coincidencia: string } | null {
   const t = titulo.trim();
@@ -794,6 +823,8 @@ function tipoEIdentificador(titulo: string): { palabra: string; id: string; coin
   if (m) return { palabra: m[1], id: m[2].toUpperCase(), coincidencia: m[0] };
   m = t.match(RE_TIPO_CATEGORIA_LETRA);
   if (m) return { palabra: m[1], id: `${m[2].toUpperCase()}-${m[3]}`, coincidencia: m[0] };
+  m = t.match(RE_TIPO_SIN_NUMERO);
+  if (m) return { palabra: m[1], id: 'Tipo', coincidencia: m[0] };
   return null;
 }
 
