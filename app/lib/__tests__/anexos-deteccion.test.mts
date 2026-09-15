@@ -574,6 +574,31 @@ test('línea de firma = borde superior de celda de tabla (no texto, no borde de 
   assert.equal(linea!.paraIdLeyenda, undefined, 'la leyenda y el lugar de la firma son EL MISMO párrafo');
 });
 
+// BUG REAL (2905-36-LR26, Municipalidad de Lanco, reportado por el usuario con dos capturas: "solo
+// tengo problemas con la firma en este"): MISMO patrón que 1426039-8-LE26 arriba (leyenda en una
+// celda con borde superior visible), pero la leyenda viene escrita LETRA POR LETRA, separada por un
+// espacio ("F I R M A    O F E R E N T E") — la forma en que este organismo tipografía sus
+// encabezados. Ni RE_LEYENDA_FIRMA_SOLA ni esEtiquetaDeCampo (13 "palabras" de una letra cada una,
+// sobre el tope de 9) reconocían esto como una leyenda de firma: el bloque quedaba invisible y la
+// imagen terminaba estampada por un heurístico más débil, superpuesta con la fecha en la celda de
+// al lado — justo lo que se ve en el PDF exportado que trajo el usuario.
+test('línea de firma con la leyenda escrita LETRA POR LETRA ("F I R M A   O F E R E N T E") (regresión 2905-36-LR26)', () => {
+  const xml = NS + '<w:tbl><w:tblPr><w:tblBorders>'
+    + '<w:top w:val="single" w:sz="4" w:space="0" w:color="000000"/>'
+    + '</w:tblBorders></w:tblPr>'
+    + '<w:tr>'
+    + '<w:tc><w:tcPr><w:tcBorders><w:top w:val="nil"/></w:tcBorders></w:tcPr><w:p/></w:tc>'
+    + '<w:tc><w:tcPr></w:tcPr>'
+    + p('F I R M A    O F E R E N T E') + p('') + p('') + '</w:tc>'
+    + '</w:tr>'
+    + '</w:tbl>' + FIN;
+  const { xml: norm } = normalizarParaIds(xml);
+  const analisis = analizarAnexo(norm);
+  assert.equal(analisis.lineasFirma.length, 1, `no se encontró la línea de firma: ${JSON.stringify(analisis.lineasFirma)}`);
+  assert.equal(analisis.lineasFirma[0].sinRaya, true, 'se estampa DENTRO de la celda de la leyenda, sin raya que limpiar');
+  assert.match(analisis.lineasFirma[0].contexto, /firma/i);
+});
+
 // El motor 100% IA (anexos-ia-motor.ts) reemplazó el diccionario, pero el guardarraíl
 // anti-invención sigue siendo obligatorio: la IA elige el valor y, ante la duda, puede
 // "mejorarlo" o inventar uno parecido — regresión real (diseño anterior): a "CIUDAD" le asignó

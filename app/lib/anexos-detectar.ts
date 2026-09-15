@@ -1995,6 +1995,22 @@ const RE_CAPTION_ENTRE_PARENTESIS = /^\(\s*[^()]+\s*\)$/;
 // corta, sin verbos ni conectores) descarta una declaración como "el que suscribe firma en señal
 // de aceptación", que es justo lo que el ancla al inicio protegía.
 const RE_LEYENDA_FIRMA_SOLA = /\bfirma[ns]?\b/i;
+// Rótulos institucionales chilenos a veces escriben la palabra LETRA POR LETRA, separada por un
+// espacio simple ("F I R M A    O F E R E N T E" — caso real 2905-36-LR26, Municipalidad de Lanco,
+// reportado por el usuario con captura: "solo tengo problemas con la firma en este"). Ni
+// RE_LEYENDA_FIRMA_SOLA ("firma" tiene que aparecer JUNTA) ni `esEtiquetaDeCampo` (cuenta 13
+// "palabras" de una letra cada una — muy por encima del tope de 9) reconocían esto como leyenda de
+// firma: el Caso C de abajo (incluida su Prioridad -1, pensada justo para este layout — la leyenda
+// vive en la MISMA celda que el borde superior) nunca se activaba. Sin ningún bloque de firma
+// detectado, la imagen terminaba estampada por un heurístico más débil de otra parte del pipeline,
+// superpuesta con la fecha en la celda de al lado.
+// Colapsa corridas de 3+ letras SUELTAS separadas por un único espacio en una sola palabra
+// ("F I R M A" → "FIRMA"); deja intactas 1-2 letras sueltas (podrían ser iniciales reales, "a) A")
+// y conserva el espacio ENTRE palabras ya colapsadas (la corrida más ancha entre "A" y "O" arriba
+// no calza con el patrón de UN espacio, así que queda como separador natural entre las dos).
+function sinLetrasEspaciadas(texto: string): string {
+  return texto.replace(/(?:\b\p{L}\b[ \t]){2,}\b\p{L}\b/gu, m => m.replace(/[ \t]+/g, ''));
+}
 // BUG REAL (29-ago-2026, ANEXO N°2B, 2928-17-LE26): este documento alinea "Nombre:"/"Rut:" a DOS
 // columnas rellenando con espacios en vez de tabulaciones o tabla — "Rut:" + su padding llega a 92
 // caracteres, apenas por encima del tope de 90. El tope existe para no confundir una leyenda REAL
@@ -2140,8 +2156,10 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
     // algo — es justo lo que pasa en los anexos 7 y 8 de esta misma licitación, donde arriba de la
     // leyenda va un párrafo con DOS rayas (la del oferente y la del evaluador) y estampar sería
     // adivinar cuál es cuál.
+    const textoSinEspaciarLetras = sinLetrasEspaciadas(p.texto);
     if (!leyendasConRaya.has(p.indice)
-      && p.texto.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(p.texto) && esEtiquetaDeCampo(p.texto)) {
+      && textoSinEspaciarLetras.length <= LARGO_MAX_LEYENDA_FIRMA && RE_LEYENDA_FIRMA_SOLA.test(textoSinEspaciarLetras)
+      && esEtiquetaDeCampo(textoSinEspaciarLetras)) {
       // Prioridad -1: la raya NO es texto ni un borde de párrafo (pBdr) — es el borde SUPERIOR de
       // la CELDA de tabla donde vive la leyenda misma (heredado del borde general de la tabla o
       // puesto directo en esa celda). BUG REAL (1426039-8-LE26, 10-ago-2026, "Nombre, RUT y Firma
@@ -2155,7 +2173,7 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
       // "Etiqueta:" del patrón 5, ver insertarImagenEnParrafo/nombreDebajo): no hay párrafo nuevo
       // que agregar, solo contenido nuevo dentro del que ya existe.
       if (indicesConBordeSuperiorDeCelda.has(p.indice)) {
-        agregar(p, p.texto.trim(), undefined, undefined, true, true);
+        agregar(p, textoSinEspaciarLetras.trim(), undefined, undefined, true, true);
         continue;
       }
       // Prioridad 0: el párrafo INMEDIATAMENTE anterior es la raya de verdad (vacío + borde
@@ -2168,7 +2186,7 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
       // haya borde real — no compite con el Caso D de tabla porque una celda de valor no trae
       // `pBdr` propio.
       if (parrafos[i - 1]?.vacio && parrafos[i - 1].bordeInferior) {
-        agregar(parrafos[i - 1], p.texto.trim(), p, corridaVaciosAntes(i - 2));
+        agregar(parrafos[i - 1], textoSinEspaciarLetras.trim(), p, corridaVaciosAntes(i - 2));
         continue;
       }
       // Caso D: "Firma" como ETIQUETA de una fila de tabla [Nombre | RUT | Firma], con su propia
@@ -2179,11 +2197,11 @@ export function detectarLineasFirma(parrafos: Parrafo[], indicesConBordeSuperior
       // ESTA fila está DESPUÉS de "Firma", no antes; lo de antes es la celda de valor de la fila
       // de ARRIBA (la de "R.U.T."). Se prueba primero porque es la forma más específica: si el
       // siguiente párrafo está vacío, es la propia celda de esta fila, sin ambigüedad.
-      if (parrafos[i + 1]?.vacio) { agregar(parrafos[i + 1], p.texto.trim(), p, corridaVaciosAntes(i - 1)); continue; }
+      if (parrafos[i + 1]?.vacio) { agregar(parrafos[i + 1], textoSinEspaciarLetras.trim(), p, corridaVaciosAntes(i - 1)); continue; }
       if (!parrafos[i - 1]?.vacio) continue;
       // el hueco pegado a la leyenda, que es donde se firma — y lo que haya ANTES de ese hueco
       // (típicamente la raya-borde, ver paraIdsRayaAntes) también debe quedar pegado a la leyenda.
-      agregar(parrafos[i - 1], p.texto.trim(), p, corridaVaciosAntes(i - 2));
+      agregar(parrafos[i - 1], textoSinEspaciarLetras.trim(), p, corridaVaciosAntes(i - 2));
     }
   }
   return out;
