@@ -67,8 +67,9 @@ const PRESUPUESTO_MS       = 32_000; // tope de tiempo del paso principal
 const PRESUPUESTO_RECONFIRMAR_MS = 10_000; // tope de la 2ª pasada (conjunto chico, no compite por tiempo)
 const TIMEOUT_DETALLE_MS   = 8_000;  // timeout por llamada a MP
 // Ventana de frescura: una licitación consultada hace menos de esto ya dio su vuelta en el ciclo
-// actual. Va por debajo de la cadencia del cron (5 min) para que cada ciclo empiece con la cola
-// llena y no arrastre la del ciclo anterior.
+// actual. Va por debajo de la cadencia del cron (30 min desde 2026-09-15 — antes 5 min, ver
+// jobGanadaPerdida en scheduler.mjs) para que cada ciclo empiece con la cola llena y no arrastre
+// la del ciclo anterior.
 const VENTANA_FRESCURA_MIN = 4;
 
 interface FilaPostulada {

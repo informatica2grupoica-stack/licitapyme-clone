@@ -35,13 +35,14 @@ export async function POST(req: NextRequest) {
   if (!autorizado(req)) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   const t0 = Date.now();
   try {
-    // GOBERNADOR DE CUOTA (sep-2026, ver mercado-publico.ts): este endpoint corre cada 5 min y
-    // puede repetirse hasta 6 veces por ventana (scheduler.mjs, jobResultados) — sin freno,
-    // agotaba la cuota diaria del ticket a media tarde. `porCorrida` reparte lo que queda del
-    // día entre las corridas restantes; se relee en CADA pasada, así que si esta misma ventana
-    // ya gastó cupo (p.ej. estados-asignadas, que corre justo antes) la próxima pasada ve menos
-    // disponible y se ajusta sola. maxCodigos:0 → sin llamar a MP, se retoma en la próxima corrida.
-    const { porCorrida } = await presupuestoPorCorrida(5, getMercadoPublicoClient().cantidadTickets);
+    // GOBERNADOR DE CUOTA (sep-2026, ver mercado-publico.ts): este endpoint corre cada 30 min
+    // (bajado desde 5 min el mismo día — ver jobGanadaPerdida en scheduler.mjs) y puede repetirse
+    // hasta 6 veces por ventana — sin freno, agotaba la cuota diaria del ticket a media tarde.
+    // `porCorrida` reparte lo que queda del día entre las corridas restantes; se relee en CADA
+    // pasada, así que si esta misma ventana ya gastó cupo (p.ej. estados-asignadas, que corre
+    // justo antes) la próxima pasada ve menos disponible y se ajusta sola. maxCodigos:0 → sin
+    // llamar a MP, se retoma en la próxima corrida.
+    const { porCorrida } = await presupuestoPorCorrida(30, getMercadoPublicoClient().cantidadTickets);
     if (porCorrida <= 0) {
       console.warn('[cron postuladas] sin presupuesto de cuota diaria de MP restante — se salta esta pasada.');
       return NextResponse.json({ success: true, codigos: 0, procesados: 0, sinPresupuesto: 0, adjudicadas: 0, perdidas: 0, errores: 0, entregasAbiertas: 0, comprasAbiertas: 0, rateLimit: 0, lote: 0, restantes: 0, contactosReparados: 0, congelamientoReconciliado: 0, completado: true, pendientes: 0, duracionMs: Date.now() - t0, cuotaAgotada: true });

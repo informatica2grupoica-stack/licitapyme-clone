@@ -4,8 +4,9 @@
 // ANEXOS). Antes vivía como "Paso 9b" de /api/cron/alertas y solo corría cada 4h junto al
 // intake — medido en producción (ago-2026), es la vía que MÁS "Adjudicada" detecta (más que
 // procesar-postuladas.ts), así que quedaba como el cuello de botella real de latencia para
-// ganada/perdida/apertura. Sacado a su propio cron horario (scheduler.mjs, minuto :20) para que
-// el aviso no dependa del ciclo de 4h del intake.
+// ganada/perdida/apertura. Sacado a su propio cron (scheduler.mjs, jobGanadaPerdida, cada 30 min
+// desde 2026-09-15 —antes cada 5 min, bajado por agotar la cuota diaria del ticket de MP— para
+// que el aviso no dependa del ciclo de 4h del intake.
 //
 // GET → healthcheck simple. POST → ejecuta una pasada.
 
@@ -35,10 +36,10 @@ export async function POST(req: NextRequest) {
   if (!autorizado(req)) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   const t0 = Date.now();
   try {
-    // GOBERNADOR DE CUOTA (sep-2026, ver mercado-publico.ts): corre cada 5 min, es la vía que
-    // MÁS "Adjudicada" detecta, así que se sirve primero dentro de jobResultados — pero igual
+    // GOBERNADOR DE CUOTA (sep-2026, ver mercado-publico.ts): corre cada 30 min, es la vía que
+    // MÁS "Adjudicada" detecta, así que se sirve primero dentro de jobGanadaPerdida — pero igual
     // debe repartirse la cuota diaria con procesar-postuladas (que corre justo después).
-    const { porCorrida } = await presupuestoPorCorrida(5, getMercadoPublicoClient().cantidadTickets);
+    const { porCorrida } = await presupuestoPorCorrida(30, getMercadoPublicoClient().cantidadTickets);
     const r = await refrescarEstadosAsignadas({ presupuestoMs: 50_000, maxCodigos: porCorrida });
     return NextResponse.json({ success: true, ...r, duracionMs: Date.now() - t0 });
   } catch (e: any) {

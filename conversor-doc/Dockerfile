@@ -32,15 +32,27 @@ WORKDIR /app
 #   fonts-crosextra-carlito → Carlito = Calibri
 #   fonts-crosextra-caladea → Caladea = Cambria
 # LibreOffice las toma solo, por su tabla interna de sustitución métrica: no hay que configurar nada.
+
+# GARAMOND (15-sep-2026, BUG REAL: 2905-36-LR26, Municipalidad de Lanco — reportado por el usuario
+# con captura: letra más grande y "FIRMA OFERENTE" cortado distinto al original). El .docx pide
+# Garamond, que ni siquiera está en la lista de arriba (Arial/Calibri/Cambria): sin ninguna fuente
+# instalada que calce, LibreOffice sustituye por su serif genérico (más ancho), así que el texto
+# se corre y el documento deja de ser fiel al que entrega el organismo. A diferencia de las tres de
+# arriba, "EB Garamond" NO es un clon métrico exacto (no existe uno empaquetado para Garamond — ver
+# fontconfig/local.conf), es la mejor aproximación disponible; por eso además hace falta el ALIAS
+# de fontconfig (LibreOffice no la encuentra sola: el nombre de familia no calza por sustring).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libreoffice-writer \
     libreoffice-draw \
     fonts-liberation2 \
     fonts-crosextra-carlito \
     fonts-crosextra-caladea \
+    fonts-ebgaramond \
     ca-certificates \
     tzdata \
   && rm -rf /var/lib/apt/lists/*
+
+COPY fontconfig/local.conf /etc/fonts/local.conf
 
 ENV TZ=America/Santiago
 

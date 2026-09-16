@@ -10,7 +10,8 @@
 //   Prefiltro              +1h       → 01,05,09,13,17,21  (1 hora DESPUÉS del intake)
 //   Viabilidad             +1h30     → 01:30,05:30,...    (30 min DESPUÉS del prefiltro)
 //   Descarga docs Negocios cada 2h   → reintenta las asignadas que quedaron sin docs
-//   Resultado + aperturas  cada 5 min → ganada/perdida casi en el momento en que MP lo publica
+//   Ganada/perdida          cada 30 min → estados-asignadas + procesar-postuladas (consumen cuota MP)
+//   Aperturas               cada 1h     → detección de apertura (scraping portal, no gasta cuota MP)
 //   Ofertas competencia + preguntas  cada 1h (:15) → scraping del portal (caro, no urgente)
 //   Órdenes de compra      1×/día 07:40 → busca la OC de las licitaciones que ya ofertamos
 //
@@ -111,29 +112,34 @@ async function jobViabilidad() { await loop('viabilidad',       '/api/cron/viabi
 // en el mismo instante; universo chico → lote/pasadas bajos.
 async function jobViabilidadPerfil() { await loop('viabilidad (perfil piloto)', '/api/cron/viabilidad-perfil', { lote: 2, maxPasadas: 3 }); }
 
-// ── RESULTADO (ganamos/perdimos) Y APERTURA: lo más rápido posible ────────────────────────
+// ── RESULTADO (ganamos/perdimos): lo más importante, pero ya NO cada 5 min ────────────────
 // Mercado Público solo avisa "Adjudicada"; quién ganó hay que ir a buscarlo. Mientras no se
 // consulte, la licitación se queda en POSTULADA y nadie se entera del resultado.
 //
-// Esto vivía junto a 'ofertas competencia' y 'preguntas' en un único job horario, y esa mezcla
-// era el cuello de botella: lo barato y urgente (1 llamada a la API por licitación) quedaba
-// atado al ritmo de lo caro y lento (scraping del portal, decenas de pasadas). Caso real
-// 1114-12-LE26 (24-ago-2026): MP la pasó a Adjudicada durante la mañana, la última consulta
-// había sido a las 06:53 y el resultado —GANADA, $40.378.376— quedó sin avisar durante horas.
-// Ahora corre solo, cada 5 minutos: el aviso de ganada/perdida sale casi en el momento.
-async function jobResultados() {
+// CAMBIO 2026-09-15 (pedido explícito del dueño, tras agotarse la cuota diaria del ticket):
+// esto vivía junto a 'aperturas' en un solo job cada 5 min. Entre estados-asignadas (hasta 400
+// códigos de backstop) y procesar-postuladas (recorre TODA la cola de postuladas sin veredicto,
+// ~56-80 códigos) cada 5 minutos, eran miles de consultas/día — el mayor consumo de cuota de
+// toda la app. Bajado a cada 30 min: sigue siendo lo más rápido de la agenda (es lo que el
+// usuario pidió priorizar) pero consume ~6× menos cuota. El gobernador de cuota
+// (presupuestoPorCorrida, mercado-publico.ts) ya reparte lo que quede del día entre las
+// corridas restantes — bajar la cadencia además de eso es un segundo frente: menos corridas,
+// cada una con más presupuesto propio, así que también degrada menos ante un pico de volumen.
+async function jobGanadaPerdida() {
   // Estados MP de las asignadas que NO llegaron a marcarse POSTULADA (ASIGNADO/EN_PROCESO/
   // POSIBLE_ADJ/ANEXOS). Medido en producción, es la vía que MÁS "ganada/perdida" detecta.
   await loop('estados asignadas',    '/api/cron/estados-asignadas', { maxPasadas: 1 });
-  // La cola son TODAS las que no tienen veredicto de MP (~56 hoy) y una llamada alcanza a mirar
-  // ~14 (MP acepta 1 consulta cada 2s y el endpoint dura 60s). El endpoint devuelve `pendientes`,
-  // así que el loop corta SOLO cuando la cola queda vacía; las pasadas de más no cuestan nada.
-  // Medido en régimen estable: las 56 en 5 pasadas / 239s, dentro de la ventana de 300s.
-  // maxPasadas 6 da margen para que la cola crezca un poco sin quedar corta. Si algún día pasa de
-  // ~80 postuladas la vuelta no cabrá en 5 min: degrada solo (la rotación deja lo que faltó de
-  // primero en el ciclo siguiente), pero ahí conviene subir la cadencia o pedir más cuota a MP.
+  // La cola son TODAS las que no tienen veredicto de MP. El endpoint devuelve `pendientes`, así
+  // que el loop corta SOLO cuando la cola queda vacía; las pasadas de más no cuestan nada.
   await loop('resultado postuladas', '/api/cron/procesar-postuladas', { maxPasadas: 6 });
-  await loop('aperturas',            '/api/cron/aperturas', { lote: 40, maxPasadas: 20 });
+}
+
+// ── APERTURA: NO consume cuota de la API con ticket (portal scraping, IP chilena) ─────────
+// Se separó de jobGanadaPerdida para poder bajarle la cadencia a esa (que sí gasta cuota) sin
+// tocar esta. Como no compite por cuota, se deja en 1h — mismo criterio de "no urgente/caro" que
+// ofertas-competencia/preguntas, aunque técnicamente podría ir más rápido sin costo de cuota.
+async function jobAperturas() {
+  await loop('aperturas', '/api/cron/aperturas', { lote: 40, maxPasadas: 20 });
 }
 
 // Lo caro y no urgente: scraping del portal. Sigue en ritmo horario.
@@ -170,10 +176,13 @@ cron.schedule('0 */4 * * *',    jobIntake,     opts);   // 00,04,08,12,16,20
 cron.schedule('30 */4 * * *',   jobEnriquecer, opts);   // +30 min
 cron.schedule('0 1-23/4 * * *', jobPrefiltro,  opts);   // 01,05,09,13,17,21 (1h después del intake)
 cron.schedule('0 */2 * * *',    jobDocsNeg,    opts);   // cada 2h: reintenta descargas de asignadas
-// CADA 5 MINUTOS: resultado de adjudicación (ganamos/perdimos) + aperturas. Es 1 llamada a la
-// API de MP por licitación postulada (~60 hoy) y no toca la IA, así que el costo es despreciable
-// frente al valor de enterarse al toque. sinSolapar() evita que se apilen corridas.
-cron.schedule('*/5 * * * *',    () => sinSolapar('resultados', jobResultados), opts);
+// CADA 30 MINUTOS: resultado de adjudicación (ganamos/perdimos) — lo más importante, bajado desde
+// 5 min el 2026-09-15 porque agotaba la cuota diaria del ticket de MP (ver comentario en jobGanadaPerdida).
+// sinSolapar() evita que se apilen corridas si una se atrasa.
+cron.schedule('*/30 * * * *',   () => sinSolapar('ganada-perdida', jobGanadaPerdida), opts);
+// CADA 1 HORA (:10): apertura técnica/económica. No gasta cuota de MP (portal scraping), separada
+// de ganada/perdida para poder bajarle la cadencia a esa sin tocar esta.
+cron.schedule('10 * * * *',     () => sinSolapar('aperturas', jobAperturas), opts);
 cron.schedule('15 * * * *',     () => sinSolapar('postuladas-lento', jobPostuladasLento), opts); // cada 1h: scraping del portal
 cron.schedule('30 1-23/4 * * *', jobViabilidad, opts);  // 01:30,05:30,... (30 min DESPUÉS del prefiltro)
 cron.schedule('35 1-23/4 * * *', jobViabilidadPerfil, opts); // 01:35,05:35,... (5 min DESPUÉS del cron de sistema)
@@ -186,11 +195,12 @@ cron.schedule('45 7 * * *',     jobComprasObuma, opts);
 cron.schedule('*/20 * * * *',   () => sinSolapar('compras-asignacion', jobComprasAsignacion), opts);
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · resultados (estados-asignadas+postuladas+aperturas) */5 · ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día) · compras-asignación */20 (fallback 3h hábiles)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · ganada/perdida (estados-asignadas+postuladas) */30 · aperturas 10 * (cada hora) · ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día) · compras-asignación */20 (fallback 3h hábiles)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.
 jobDocsNeg().catch(e => console.error('[scheduler] arranque docsNeg:', String(e)));
-// También refresca el resultado (ganada/perdida/apertura) al arrancar → el apartado (que lee
-// solo cache) queda al día apenas se despliega, sin esperar el primer tick de los 5 min.
-jobResultados().catch(e => console.error('[scheduler] arranque resultados:', String(e)));
+// También refresca el resultado (ganada/perdida) al arrancar → el apartado (que lee solo cache)
+// queda al día apenas se despliega, sin esperar el primer tick de los 30 min.
+jobGanadaPerdida().catch(e => console.error('[scheduler] arranque ganada-perdida:', String(e)));
+jobAperturas().catch(e => console.error('[scheduler] arranque aperturas:', String(e)));
