@@ -35,16 +35,7 @@ import { CosteoEditorCard } from './CosteoEditorCard';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
 import { tieneInformacionComercial } from '@/app/lib/checklist-comercial';
 import { registrarVerSeccion } from '@/app/lib/actividad-cliente';
-import {
-  ArrowLeft, Building2, Calendar, DollarSign, MapPin, Tag,
-  Loader2, AlertCircle, ExternalLink,
-  FileText, Check, X, Package, Hash,
-  Edit3, Clock, Globe, Users, Mail, Phone, ThumbsUp,
-  Download, Bot, Brain, RefreshCw, Eye,
-  Sparkles, BarChart3, BookOpen, AlertTriangle, ListChecks,
-  TrendingUp, CheckCircle, Upload, ChevronRight, Files,
-  ShieldAlert, Award, Wrench, ShoppingCart, ArrowUpRight,
-} from 'lucide-react';
+import { IconArrowLeft as ArrowLeft, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconMapPin as MapPin, IconTag as Tag, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconExternalLink as ExternalLink, IconFileText as FileText, IconCheck as Check, IconX as X, IconPackage as Package, IconHash as Hash, IconEdit as Edit3, IconClock as Clock, IconGlobe as Globe, IconUsers as Users, IconMail as Mail, IconPhone as Phone, IconThumbUp as ThumbsUp, IconDownload as Download, IconRobot as Bot, IconBrain as Brain, IconRefresh as RefreshCw, IconEye as Eye, IconSparkles as Sparkles, IconChartBar as BarChart3, IconBook2 as BookOpen, IconAlertTriangle as AlertTriangle, IconListCheck as ListChecks, IconTrendingUp as TrendingUp, IconCircleCheck as CheckCircle, IconUpload as Upload, IconChevronRight as ChevronRight, IconFiles as Files, IconShieldExclamation as ShieldAlert, IconAward as Award, IconTool as Wrench, IconShoppingCart as ShoppingCart, IconArrowUpRight as ArrowUpRight } from '@tabler/icons-react';
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 interface Etiqueta { id: number; nombre: string; color: string; }
@@ -799,7 +790,7 @@ function SeccionFechas({ licitacion }: { licitacion: LicitacionRaw | null }) {
                     : pasada ? 'bg-emerald-500 border-emerald-500'
                     : 'bg-white border-zinc-300'
                   }`}>
-                    {pasada && <Check size={8} className="text-white" strokeWidth={3} />}
+                    {pasada && <Check size={8} className="text-white" stroke={3} />}
                   </span>
                 </span>
                 {/* Contenido */}

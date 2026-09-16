@@ -5,10 +5,7 @@
 // (historial_eventos filtrado a tipo COMPRAS_%, que ya existía — nunca se mostraba en el módulo).
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
-import {
-  Loader2, History, UserPlus, FileText, Wrench, ClipboardCheck, Gauge, PackageCheck,
-  Clock, Truck, AlertTriangle, ShoppingCart, XCircle, Link2Off,
-} from 'lucide-react';
+import { IconLoader2 as Loader2, IconHistory as History, IconUserPlus as UserPlus, IconFileText as FileText, IconTool as Wrench, IconClipboardCheck as ClipboardCheck, IconGauge as Gauge, IconPackage as PackageCheck, IconClock as Clock, IconTruck as Truck, IconAlertTriangle as AlertTriangle, IconShoppingCart as ShoppingCart, IconCircleX as XCircle, IconLinkOff as Link2Off } from '@tabler/icons-react';
 
 interface EventoActividad { tipo: string; mensaje: string; actor: string | null; creadoAt: string }
 

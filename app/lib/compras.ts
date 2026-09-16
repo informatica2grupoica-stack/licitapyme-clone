@@ -25,6 +25,7 @@ import { obtenerContactosCliente } from '@/app/lib/congelamiento';
 import { enviarAvisoComprasGanado } from '@/app/lib/email';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { plazoEntregaDetectadoNegocio } from '@/app/lib/compras-agente-documentos';
+import { parsearDiasDeTexto } from '@/app/lib/numeros';
 
 // ── Aritmética de fechas "de pared" (sin reinterpretar zona horaria) ───────────────────────────
 // Se trabaja con Date "flotantes": los componentes de la hora de Chile (que ya vienen como texto de
@@ -619,6 +620,7 @@ export async function quitarCierreLegado(negocioId: number): Promise<void> {
   );
 }
 
+
 export async function crearTareasCatalogoSiCorresponde(
   negocioId: number, responsableId: number, responsableNombre: string | null,
 ): Promise<void> {
@@ -859,6 +861,24 @@ export interface ComprasFila {
   // usuario, 15-sep-2026: en el calendario de Compras quiere ver también a ese "asistente", no solo
   // al encargado de Compras que la ejecuta después de ganada (que puede ser otra persona).
   postuladoPorNombre: string | null;
+  // Días para aceptar la OC según ESTAS bases (§5.2) — parseado del texto libre del resumen
+  // ejecutivo (`resumen.plazoAceptacionOC`, ej. "2 días — según las bases..."). null si el informe
+  // nunca lo identificó; la carta Gantt usa entonces el tope legal (5 días corridos) como estimado.
+  plazoAceptacionOCDias: number | null;
+  // Hitos de la carta Gantt (pantalla /compras, vista Gantt) — una tarea por fila, con las mismas
+  // fechas que espera GanttComprasCard (app/negocios/[id]/GanttComprasCard.tsx) para poder abrir
+  // ESE mismo Gantt de tareas ya existente (creadoAt→cerradoAt/plazoAt) en el panel de detalle, en
+  // vez de construir una segunda versión más pobre.
+  tareasGantt: Array<{
+    id: number; titulo: string; categoria: string; estado: EstadoTarea; responsableNombre: string | null;
+    plazoAt: string | null; creadoAt: string; cerradoAt: string | null; vencida: boolean;
+  }>;
+  // Reloj de Entrega (compras_reloj, migration-95, spec §15) — la fuente OFICIAL de la fecha de
+  // entrega y de su prórroga (si el organismo amplía el plazo, se registra ahí con motivo y
+  // autorización de jefe de ventas: app/lib/compras-reloj.ts, registrarProrroga). Si el reloj
+  // todavía no se fijó (§15.1: requiere validación manual), queda null y la carta Gantt sigue
+  // usando el estimado automático de `plazoEntregaDias` — nunca se inventa una fecha.
+  reloj: { fechaLimiteVigente: string | null; prorrogado: boolean; prorrogaMotivo: string | null; prorrogaAutorizadoPorNombre: string | null } | null;
 }
 
 /** Listado transversal (pantalla /compras): una fila por negocio con asignación y avance de tareas. */
@@ -882,13 +902,57 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       ORDER BY ca.urgente DESC, ca.ganado_at DESC`,
     [ahora],
   ) as any;
+  const negocioIds = (rows as any[]).map(r => r.negocio_id);
+  // Tareas de TODOS los negocios en una sola consulta (carta Gantt, §pantalla /compras) — evitar
+  // el N+1 de pedirlas una por una como hace el detalle de cada negocio (listarTareas).
+  const tareasPorNegocio = new Map<number, ComprasFila['tareasGantt']>();
+  // Reloj de entrega de todos los negocios, también en una sola consulta.
+  const relojPorNegocio = new Map<number, ComprasFila['reloj']>();
+  if (negocioIds.length > 0) {
+    const ph = negocioIds.map(() => '?').join(',');
+    const [tRows] = await pool.query(
+      `SELECT id, negocio_id, categoria, titulo, estado, responsable_nombre,
+              DATE_FORMAT(plazo_at, '%Y-%m-%d %H:%i:%s') AS plazo_at,
+              DATE_FORMAT(creado_at, '%Y-%m-%d %H:%i:%s') AS creado_at,
+              DATE_FORMAT(cerrado_at, '%Y-%m-%d %H:%i:%s') AS cerrado_at
+         FROM compras_tarea WHERE negocio_id IN (${ph}) ORDER BY plazo_at`,
+      negocioIds,
+    ) as any;
+    for (const t of tRows as any[]) {
+      const arr = tareasPorNegocio.get(t.negocio_id) || [];
+      arr.push({
+        id: t.id, titulo: t.titulo, categoria: t.categoria, estado: t.estado, responsableNombre: t.responsable_nombre,
+        plazoAt: t.plazo_at, creadoAt: t.creado_at, cerradoAt: t.cerrado_at,
+        vencida: t.estado !== 'HECHA' && !!t.plazo_at && t.plazo_at < ahora,
+      });
+      tareasPorNegocio.set(t.negocio_id, arr);
+    }
+
+    const [rRows] = await pool.query(
+      `SELECT negocio_id, DATE_FORMAT(fecha_limite, '%Y-%m-%d') AS fecha_limite,
+              DATE_FORMAT(prorroga_fecha_limite, '%Y-%m-%d') AS prorroga_fecha_limite,
+              prorroga_motivo, prorroga_autorizado_por_nombre
+         FROM compras_reloj WHERE negocio_id IN (${ph})`,
+      negocioIds,
+    ) as any;
+    for (const rl of rRows as any[]) {
+      relojPorNegocio.set(rl.negocio_id, {
+        fechaLimiteVigente: rl.prorroga_fecha_limite || rl.fecha_limite || null,
+        prorrogado: !!rl.prorroga_fecha_limite,
+        prorrogaMotivo: rl.prorroga_motivo ?? null,
+        prorrogaAutorizadoPorNombre: rl.prorroga_autorizado_por_nombre ?? null,
+      });
+    }
+  }
   return (rows as any[]).map(r => {
     let montoNuestro: number | null = null;
     let plazoEntregaDias: number | null = null;
+    let plazoAceptacionOCDias: number | null = null;
     try {
       const resumen = JSON.parse(r.resumen_json);
       montoNuestro = resumen?.montoNuestro ?? null;
       plazoEntregaDias = resumen?.plazoEntregaDias ?? null;
+      plazoAceptacionOCDias = parsearDiasDeTexto(resumen?.plazoAceptacionOC ?? null);
     } catch { /* fila sin resumen legible */ }
     return {
       negocioId: r.negocio_id, licitacionCodigo: r.licitacion_codigo,
@@ -900,6 +964,9 @@ export async function listarAsignacionesCompras(): Promise<ComprasFila[]> {
       cierreLegado: (r.cierre_legado as CierreLegado | null) ?? null,
       plazoEntregaDias,
       postuladoPorNombre: r.postulado_por_nombre ?? null,
+      plazoAceptacionOCDias,
+      tareasGantt: tareasPorNegocio.get(r.negocio_id) || [],
+      reloj: relojPorNegocio.get(r.negocio_id) || null,
     };
   });
 }

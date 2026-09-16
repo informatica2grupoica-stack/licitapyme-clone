@@ -8,7 +8,7 @@
 // "Documentos para MP" (misma lista que el costeo/informe generados).
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, AlertTriangle, Wand2, FileText, ExternalLink, ChevronDown, ShieldAlert, ListChecks, Pencil, Check, GraduationCap, ArrowLeftRight, Square, CheckSquare } from 'lucide-react';
+import { IconX as X, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconWand as Wand2, IconFileText as FileText, IconExternalLink as ExternalLink, IconChevronDown as ChevronDown, IconShieldExclamation as ShieldAlert, IconListCheck as ListChecks, IconPencil as Pencil, IconCheck as Check, IconSchool as GraduationCap, IconArrowLeftRight as ArrowLeftRight, IconSquare as Square, IconSquareCheck as CheckSquare } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 import { AnexoFirmarPdf } from '@/app/components/AnexoFirmarPdf';
 

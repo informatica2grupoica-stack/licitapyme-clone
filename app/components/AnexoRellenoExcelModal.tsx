@@ -6,7 +6,7 @@
 // explícito del usuario: Word, PDF y Excel no comparten un solo camino.
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, AlertTriangle, Wand2, FileSpreadsheet, Check, Calculator, CalendarClock } from 'lucide-react';
+import { IconX as X, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconWand as Wand2, IconFileSpreadsheet as FileSpreadsheet, IconCheck as Check, IconCalculator as Calculator, IconCalendarClock as CalendarClock } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 
 export interface AnexoXlsxDoc { id: number; nombre: string; url: string }

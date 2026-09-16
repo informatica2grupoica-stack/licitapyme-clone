@@ -8,7 +8,7 @@ import React, {
   createContext, useContext, useState,
   useCallback, useRef, useEffect, useMemo,
 } from 'react';
-import { CheckCircle2, XCircle, AlertTriangle, Info, X } from 'lucide-react';
+import { IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconAlertTriangle as AlertTriangle, IconInfoCircle as Info, IconX as X } from '@tabler/icons-react';
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -110,7 +110,7 @@ function Toast({
         onClick={() => onDismiss(toast.id)}
         className="flex-shrink-0 mt-px p-0.5 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
       >
-        <X size={13} strokeWidth={2.5} />
+        <X size={13} stroke={2.5} />
       </button>
     </div>
   );

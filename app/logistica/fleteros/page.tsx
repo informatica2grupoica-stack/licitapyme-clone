@@ -10,9 +10,7 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import {
-  Truck, Loader2, Plus, X, Star, AlertTriangle, Search, MapPin,
-} from 'lucide-react';
+import { IconTruck as Truck, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconStar as Star, IconAlertTriangle as AlertTriangle, IconSearch as Search, IconMapPin as MapPin } from '@tabler/icons-react';
 
 type Categoria = 'UNICA' | 'CONSOLIDADA';
 

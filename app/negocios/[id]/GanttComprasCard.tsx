@@ -12,7 +12,7 @@
 // La barra va de creadoAt a cerradoAt (si ya se hizo) o a plazoAt/hoy (si sigue abierta) — es un
 // registro de lo que pasó, no una planificación.
 import { useMemo } from 'react';
-import { GanttChartSquare, CheckCircle2, PlayCircle, AlertTriangle, Circle } from 'lucide-react';
+import { IconTimeline as GanttChartSquare, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconAlertTriangle as AlertTriangle, IconCircle as Circle } from '@tabler/icons-react';
 
 interface TareaGantt {
   id: number; categoria: string; titulo: string;

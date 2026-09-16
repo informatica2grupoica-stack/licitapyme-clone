@@ -23,7 +23,7 @@
 // seguimiento manual, que da control total y no depende de que el navegador "autorice" nada.
 // Reescrito completo sobre ese patrón: nunca más un drop "prohibido".
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, X, Plus, Minus, ArrowLeft, FileSignature } from 'lucide-react';
+import { IconLoader2 as Loader2, IconX as X, IconPlus as Plus, IconMinus as Minus, IconArrowLeft as ArrowLeft, IconSignature as FileSignature } from '@tabler/icons-react';
 
 export interface EstampaColocada {
   tipo: 'firma' | 'timbre';

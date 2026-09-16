@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Ban, Loader2, ExternalLink, Building2, Calendar, User, RefreshCw, RotateCcw, BarChart3, X, Filter, Users, Tag, Search } from 'lucide-react';
+import { IconBan as Ban, IconLoader2 as Loader2, IconExternalLink as ExternalLink, IconBuilding as Building2, IconCalendar as Calendar, IconUser as User, IconRefresh as RefreshCw, IconRotate2 as RotateCcw, IconChartBar as BarChart3, IconX as X, IconFilter as Filter, IconUsers as Users, IconTag as Tag, IconSearch as Search } from '@tabler/icons-react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';

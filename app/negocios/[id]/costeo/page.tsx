@@ -13,7 +13,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
+import { IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconArrowLeft as ArrowLeft } from '@tabler/icons-react';
 import { CosteoEditorCard } from '../CosteoEditorCard';
 
 export default function CosteoStandalonePage() {

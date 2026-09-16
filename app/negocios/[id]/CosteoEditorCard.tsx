@@ -35,11 +35,7 @@ import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/C
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
 import { calcularComparativo, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
-import {
-  Calculator, Loader2, Plus, Trash2, RefreshCw, Save, AlertTriangle, ShieldCheck, Sparkles,
-  Maximize2, X, ExternalLink, ArrowLeft, SplitSquareHorizontal, Combine, FileSearch, Link2 as LinkIcon,
-  PictureInPicture2, Minimize2,
-} from 'lucide-react';
+import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2 } from '@tabler/icons-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
 

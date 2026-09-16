@@ -1,11 +1,7 @@
 // app/licitacion/[codigo]/sections/ResumenSection.tsx
 'use client';
 
-import {
-  FileText, Building2, Shield, Phone, Mail, CheckCircle,
-  ExternalLink, Clock, LayoutDashboard, Wallet, Loader2,
-  AlertTriangle, Lightbulb, ThumbsUp, ListChecks,
-} from 'lucide-react';
+import { IconFileText as FileText, IconBuilding as Building2, IconShield as Shield, IconPhone as Phone, IconMail as Mail, IconCircleCheck as CheckCircle, IconExternalLink as ExternalLink, IconClock as Clock, IconLayoutDashboard as LayoutDashboard, IconWallet as Wallet, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconBulb as Lightbulb, IconThumbUp as ThumbsUp, IconListCheck as ListChecks } from '@tabler/icons-react';
 import { Oportunidad } from '@/app/types/search.types';
 import { MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { InfoCard, InfoRow, AlertBanner, SectionHeader, AnalisisIA, IABadge, formatCLP } from '../utils';

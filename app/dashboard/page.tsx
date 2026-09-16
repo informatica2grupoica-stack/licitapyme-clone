@@ -9,11 +9,7 @@ import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from 'recharts';
-import {
-  Search, Building2, Users, Wallet, CalendarClock, ArrowUpRight, Layers3, UserPlus,
-  Gauge, ListChecks, TriangleAlert, Clock4, ChevronRight, FolderClock,
-  Loader2, UsersRound, Ban,
-} from 'lucide-react';
+import { IconSearch as Search, IconBuilding as Building2, IconUsers as Users, IconWallet as Wallet, IconCalendarClock as CalendarClock, IconArrowUpRight as ArrowUpRight, IconStack3 as Layers3, IconUserPlus as UserPlus, IconGauge as Gauge, IconListCheck as ListChecks, IconAlertTriangle as TriangleAlert, IconClock as Clock4, IconChevronRight as ChevronRight, IconFolder as FolderClock, IconLoader2 as Loader2, IconUsersGroup as UsersRound, IconBan as Ban } from '@tabler/icons-react';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { getEstadoPipeline, ESTADOS_PIPELINE } from '@/app/lib/pipeline';
 import { AnaliticaGestion } from '@/app/components/AnaliticaGestion';

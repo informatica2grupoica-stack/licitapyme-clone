@@ -2,11 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { 
-  FileText, Download, ChevronDown, ChevronUp, 
-  FileArchive, FileImage, File, FileJson, 
-  Loader2, DownloadCloud
-} from 'lucide-react';
+import { IconFileText as FileText, IconDownload as Download, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconFileZip as FileArchive, IconPhoto as FileImage, IconFile as File, IconJson as FileJson, IconLoader2 as Loader2, IconCloudDownload as DownloadCloud } from '@tabler/icons-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { descargarDocumento, formatFileSize, getIconForDocument } from '@/app/services/documentosService.client';
 

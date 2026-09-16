@@ -12,7 +12,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
-import { FileText, Loader2, Eye, FolderOpen, Upload, Trash2, UploadCloud, Sparkles } from 'lucide-react';
+import { IconFileText as FileText, IconLoader2 as Loader2, IconEye as Eye, IconFolderOpen as FolderOpen, IconUpload as Upload, IconTrash as Trash2, IconCloudUpload as UploadCloud, IconSparkles as Sparkles } from '@tabler/icons-react';
 
 interface Documento { nombre: string; url: string; categoria: string | null; fecha: string }
 

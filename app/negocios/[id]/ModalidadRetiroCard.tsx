@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import { Truck, Loader2 } from 'lucide-react';
+import { IconTruck as Truck, IconLoader2 as Loader2 } from '@tabler/icons-react';
 
 type Modalidad = 'INTERNA' | 'EXTERNA' | 'MIXTA';
 const MODALIDAD_LABEL: Record<Modalidad, string> = { INTERNA: 'Interna', EXTERNA: 'Externa', MIXTA: 'Mixta' };

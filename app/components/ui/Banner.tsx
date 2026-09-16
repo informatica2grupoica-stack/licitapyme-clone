@@ -8,7 +8,7 @@
 //   <Banner variante="warning" accion={{ label: 'Reintentar', onClick: recargar }}>
 //     No se pudo cargar el detalle de adjudicación.
 //   </Banner>
-import { AlertTriangle, XCircle, Info, CheckCircle2, RefreshCw } from 'lucide-react';
+import { IconAlertTriangle as AlertTriangle, IconCircleX as XCircle, IconInfoCircle as Info, IconCircleCheck as CheckCircle2, IconRefresh as RefreshCw } from '@tabler/icons-react';
 
 type Variante = 'error' | 'warning' | 'info' | 'success';
 

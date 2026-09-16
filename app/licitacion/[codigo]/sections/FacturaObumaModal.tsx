@@ -6,7 +6,7 @@
 // baja y lo parsea server-side (app/lib/dte-parser.ts) — acá solo se pinta.
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, AlertTriangle, FileCode2, Building2, ArrowRight } from 'lucide-react';
+import { IconX as X, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconFileCode2 as FileCode2, IconBuilding as Building2, IconArrowRight as ArrowRight } from '@tabler/icons-react';
 
 interface DteItem { descripcion: string; detalle: string | null; cantidad: number | null; unidad: string | null; precioUnitario: number | null; monto: number | null; exento: boolean }
 interface DteReferencia { tipo: string | null; folio: string | null; fecha: string | null; razon: string | null }

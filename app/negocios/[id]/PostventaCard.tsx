@@ -5,7 +5,7 @@
 // solo la lista de seguimiento del encargado de compras/entrega.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
-import { ShieldCheck, Loader2, CheckCircle2, Circle } from 'lucide-react';
+import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircle as Circle } from '@tabler/icons-react';
 
 interface Compromiso { titulo: string; descripcion: string | null; resuelto: boolean; resueltoPorNombre: string | null }
 interface Garantia { titulo: string; descripcion: string | null }

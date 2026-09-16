@@ -6,7 +6,7 @@
 // de poder seguir usando la app. No tiene botón de cerrar ni cierra con el fondo.
 
 import { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, Loader2, Send, Ban, Building2, CalendarClock } from 'lucide-react';
+import { IconAlertTriangle as AlertTriangle, IconLoader2 as Loader2, IconSend as Send, IconBan as Ban, IconBuilding as Building2, IconCalendarClock as CalendarClock } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
 import { MOTIVOS_DESCARTE, componerMotivo } from '@/app/lib/motivos-descarte';

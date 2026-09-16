@@ -11,7 +11,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { parsearMontoCL } from '@/app/lib/numeros';
-import { ClipboardList, Loader2, CheckCircle2, Circle, FileText, Zap, Truck, MinusCircle, Paperclip, X } from 'lucide-react';
+import { IconClipboardList as ClipboardList, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircle as Circle, IconFileText as FileText, IconBolt as Zap, IconTruck as Truck, IconCircleMinus as MinusCircle, IconPaperclip as Paperclip, IconX as X } from '@tabler/icons-react';
 
 interface Reparto {
   ocEmitidaAt: string | null; ocNumero: string | null; ocMonto: number | null;

@@ -7,7 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
-import { Ship, Loader2, Save } from 'lucide-react';
+import { IconShip as Ship, IconLoader2 as Loader2, IconDeviceFloppy as Save } from '@tabler/icons-react';
 
 type Origen = 'LOCAL' | 'IMPORTACION';
 interface Embarque { fleteInternacional: number | null; costosAduana: number | null; costoLogisticoLocal: number | null; notas: string | null }

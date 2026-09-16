@@ -14,7 +14,7 @@
 // acusar recibo aparece el siguiente, hasta que no queda ninguno.
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { Trophy, Loader2, ArrowRight } from 'lucide-react';
+import { IconTrophy as Trophy, IconLoader2 as Loader2, IconArrowRight as ArrowRight } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
 import { useToast } from '@/app/components/ui/toast';

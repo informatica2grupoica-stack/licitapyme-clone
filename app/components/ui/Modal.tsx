@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { X } from 'lucide-react';
+import { IconX as X } from '@tabler/icons-react';
 
 interface ModalProps {
   open:       boolean;

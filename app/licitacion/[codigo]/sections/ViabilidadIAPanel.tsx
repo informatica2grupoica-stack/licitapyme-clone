@@ -7,7 +7,7 @@
 
 import { createContext, useContext, useCallback, useEffect, useRef, useState, Fragment } from 'react';
 import { createPortal } from 'react-dom';
-import { Sparkles, FileSearch, Loader2, AlertTriangle, ChevronDown, Ban, ShieldCheck, Package, Scale, Gavel, Target, ListChecks, ExternalLink, GraduationCap, Trash2, Send, Square, Eye, X, ClipboardCheck, Compass, Swords, Ship, Search } from 'lucide-react';
+import { IconSparkles as Sparkles, IconFileSearch as FileSearch, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconBan as Ban, IconShieldCheck as ShieldCheck, IconPackage as Package, IconScale as Scale, IconGavel as Gavel, IconTarget as Target, IconListCheck as ListChecks, IconExternalLink as ExternalLink, IconSchool as GraduationCap, IconTrash as Trash2, IconSend as Send, IconSquare as Square, IconEye as Eye, IconX as X, IconClipboardCheck as ClipboardCheck, IconCompass as Compass, IconSwords as Swords, IconShip as Ship, IconSearch as Search } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 import { registrarVerCita } from '@/app/lib/actividad-cliente';

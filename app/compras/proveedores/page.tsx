@@ -8,10 +8,7 @@ import { useRouter } from 'next/navigation';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
-import {
-  Loader2, Plus, X, Search, Building2, Mail, Phone, Landmark, ChevronDown, ChevronUp, RefreshCw,
-  CreditCard, ShoppingCart, PackageSearch, Users, Wallet, TrendingUp,
-} from 'lucide-react';
+import { IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSearch as Search, IconBuilding as Building2, IconMail as Mail, IconPhone as Phone, IconBuildingBank as Landmark, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconRefresh as RefreshCw, IconCreditCard as CreditCard, IconShoppingCart as ShoppingCart, IconPackage as PackageSearch, IconUsers as Users, IconWallet as Wallet, IconTrendingUp as TrendingUp } from '@tabler/icons-react';
 
 interface Proveedor {
   id: number; rut: string | null; nombreEmpresa: string; nombreFantasia: string | null;

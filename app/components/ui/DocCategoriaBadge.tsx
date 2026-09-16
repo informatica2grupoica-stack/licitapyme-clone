@@ -1,5 +1,5 @@
 import { cn } from '@/app/lib/utils';
-import { FileText, BookOpen, BarChart2, ClipboardList, FileCheck, HelpCircle } from 'lucide-react';
+import { IconFileText as FileText, IconBook2 as BookOpen, IconChartBar as BarChart2, IconClipboardList as ClipboardList, IconFileCheck as FileCheck, IconHelpCircle as HelpCircle } from '@tabler/icons-react';
 
 export type DocCategoria =
   | 'BASES_ADMINISTRATIVAS'

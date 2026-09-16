@@ -1,7 +1,7 @@
 // app/licitacion/[codigo]/utils.tsx
 // Helpers y componentes compartidos entre las secciones de la ficha de licitación.
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, CheckCircle, XCircle, AlertCircle, Info, Sparkles } from 'lucide-react';
+import { IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconAlertCircle as AlertCircle, IconInfoCircle as Info, IconSparkles as Sparkles } from '@tabler/icons-react';
 import { estadoEfectivoCodigo, CODIGO_ESTADO_MP } from '@/app/lib/estado-mp';
 
 // ======================================================

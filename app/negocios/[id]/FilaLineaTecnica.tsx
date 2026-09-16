@@ -8,7 +8,7 @@
 // comparación por característica exigido/ofertado, precio y plazo de la línea, documento fuente —
 // vive en ModalAuditorLineaTecnica.tsx, que se abre con "Ver comparación".
 import { useState } from 'react';
-import { Check, X, Wrench, Undo2, Loader2, Upload } from 'lucide-react';
+import { IconCheck as Check, IconX as X, IconTool as Wrench, IconArrowBackUp as Undo2, IconLoader2 as Loader2, IconUpload as Upload } from '@tabler/icons-react';
 import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
 import { useToast } from '@/app/components/ui/toast';
 

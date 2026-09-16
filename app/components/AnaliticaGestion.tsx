@@ -12,11 +12,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import {
-  Loader2, Filter, X, Users, Building2, Layers3, Gauge, Clock, Wallet,
-  Trophy, Ban, AlertTriangle, DoorOpen, Sparkles, TriangleAlert, RefreshCw, Percent, ListChecks,
-  Tag, Timer, Target, Send,
-} from 'lucide-react';
+import { IconLoader2 as Loader2, IconFilter as Filter, IconX as X, IconUsers as Users, IconBuilding as Building2, IconStack3 as Layers3, IconGauge as Gauge, IconClock as Clock, IconWallet as Wallet, IconTrophy as Trophy, IconBan as Ban, IconAlertTriangle as AlertTriangle, IconDoorExit as DoorOpen, IconSparkles as Sparkles, IconAlertTriangle as TriangleAlert, IconRefresh as RefreshCw, IconPercentage as Percent, IconListCheck as ListChecks, IconTag as Tag, IconHourglass as Timer, IconTarget as Target, IconSend as Send } from '@tabler/icons-react';
 import { getEstadoPipeline } from '@/app/lib/pipeline';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';

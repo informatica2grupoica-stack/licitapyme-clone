@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { ESTADOS_LICITACION, REGIONES_CHILE } from '@/app/types/search.types';
-import { Filter, ChevronDown, ChevronUp, X, SlidersHorizontal } from 'lucide-react';
+import { IconFilter as Filter, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconX as X, IconAdjustmentsHorizontal as SlidersHorizontal } from '@tabler/icons-react';
 import { Select } from '@/app/components/ui/Select';
 import { TIPOS_LICITACION } from '@/app/lib/tipos-licitacion';
 

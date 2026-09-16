@@ -23,11 +23,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import {
-  Activity, Loader2, RefreshCw, Building2, Calendar, DollarSign, Send, Clock,
-  Layers, Users, Trophy, Ban, Briefcase, TrendingUp, Target, ChevronRight, ExternalLink, X, Filter,
-  Search, ArrowUpDown, ChevronDown,
-} from 'lucide-react';
+import { IconActivity as Activity, IconLoader2 as Loader2, IconRefresh as RefreshCw, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconSend as Send, IconClock as Clock, IconStack2 as Layers, IconUsers as Users, IconTrophy as Trophy, IconBan as Ban, IconBriefcase as Briefcase, IconTrendingUp as TrendingUp, IconTarget as Target, IconChevronRight as ChevronRight, IconExternalLink as ExternalLink, IconX as X, IconFilter as Filter, IconSearch as Search, IconArrowsUpDown as ArrowUpDown, IconChevronDown as ChevronDown } from '@tabler/icons-react';
 import {
   ResponsiveContainer, PieChart, Pie, Cell, Tooltip as RTooltip, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, AreaChart, Area, RadialBarChart, RadialBar,

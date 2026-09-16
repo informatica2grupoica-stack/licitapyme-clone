@@ -12,9 +12,7 @@
 // evaluadores) es trámite; ésa es la que se lee.
 
 import { useEffect, useState, useCallback } from 'react';
-import {
-  FileCheck2, Loader2, Download, Eye, AlertTriangle, RefreshCw, Star, FileText, User, Phone, Mail,
-} from 'lucide-react';
+import { IconFileCheck as FileCheck2, IconLoader2 as Loader2, IconDownload as Download, IconEye as Eye, IconAlertTriangle as AlertTriangle, IconRefresh as RefreshCw, IconStar as Star, IconFileText as FileText, IconUser as User, IconPhone as Phone, IconMail as Mail } from '@tabler/icons-react';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 
 interface DocActa {

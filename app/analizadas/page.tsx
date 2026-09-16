@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
-import { Sparkles, Loader2, ChevronRight, Building2, Calendar, Search, Filter, X, Gauge, Trophy, Layers, Users, ArrowUpDown, Clock, RefreshCw, Wallet } from 'lucide-react';
+import { IconSparkles as Sparkles, IconLoader2 as Loader2, IconChevronRight as ChevronRight, IconBuilding as Building2, IconCalendar as Calendar, IconSearch as Search, IconFilter as Filter, IconX as X, IconGauge as Gauge, IconTrophy as Trophy, IconStack2 as Layers, IconUsers as Users, IconArrowsUpDown as ArrowUpDown, IconClock as Clock, IconRefresh as RefreshCw, IconWallet as Wallet } from '@tabler/icons-react';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';

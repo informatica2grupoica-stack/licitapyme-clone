@@ -7,10 +7,7 @@
 // la mayoría de las veces no hace falta, así que no se muestra por defecto.
 import { useState } from 'react';
 import Link from 'next/link';
-import {
-  Wrench, DollarSign, Check, X, Loader2, ArrowUpRight, Trash2,
-  ChevronDown, AlertTriangle, CheckCircle2,
-} from 'lucide-react';
+import { IconTool as Wrench, IconCurrencyDollar as DollarSign, IconCheck as Check, IconX as X, IconLoader2 as Loader2, IconArrowUpRight as ArrowUpRight, IconTrash as Trash2, IconChevronDown as ChevronDown, IconAlertTriangle as AlertTriangle, IconCircleCheck as CheckCircle2 } from '@tabler/icons-react';
 
 export interface CausalBloqueo { codigo: string; descripcion: string; rutaDesbloqueo: string }
 

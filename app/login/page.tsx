@@ -4,9 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { motion, useReducedMotion } from 'framer-motion';
-import {
-  Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, LogIn, Check, ArrowLeft,
-} from 'lucide-react';
+import { IconMail as Mail, IconLock as Lock, IconEye as Eye, IconEyeOff as EyeOff, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconLogin as LogIn, IconCheck as Check, IconArrowLeft as ArrowLeft } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { MercadoPublicoMark } from '@/app/components/MercadoPublicoLogo';
@@ -104,7 +102,7 @@ function LoginContent() {
             {PUNTOS.map(t => (
               <li key={t} className="flex items-start gap-2.5 text-[14px] text-zinc-600">
                 <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#2FC7A6]/15">
-                  <Check size={12} strokeWidth={3} style={{ color: BRAND_INK }} />
+                  <Check size={12} stroke={3} style={{ color: BRAND_INK }} />
                 </span>
                 {t}
               </li>

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
-import { Tag, Plus, Trash2, Edit3, Check, X, Loader2, AlertCircle } from 'lucide-react';
+import { IconTag as Tag, IconPlus as Plus, IconTrash as Trash2, IconEdit as Edit3, IconCheck as Check, IconX as X, IconLoader2 as Loader2, IconAlertCircle as AlertCircle } from '@tabler/icons-react';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 

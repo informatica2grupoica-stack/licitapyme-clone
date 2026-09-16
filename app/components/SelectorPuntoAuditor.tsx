@@ -8,7 +8,7 @@
 // (anexos genéricos) o comercial, más las líneas técnicas del Agente Técnico (fichas de producto).
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, Send, AlertTriangle, FileText, Wrench } from 'lucide-react';
+import { IconX as X, IconLoader2 as Loader2, IconSend as Send, IconAlertTriangle as AlertTriangle, IconFileText as FileText, IconTool as Wrench } from '@tabler/icons-react';
 import { ordenarPorCoincidencia } from '@/app/lib/anexos-match';
 
 interface ResumenTecnico { total: number; cumplen: number; noCumplen: number; conComplemento: number; sinEvaluar: number; pendientesProveedor: number }

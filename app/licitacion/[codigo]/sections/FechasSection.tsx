@@ -1,7 +1,7 @@
 // app/licitacion/[codigo]/sections/FechasSection.tsx
 'use client';
 
-import { Calendar, Check, Clock } from 'lucide-react';
+import { IconCalendar as Calendar, IconCheck as Check, IconClock as Clock } from '@tabler/icons-react';
 import { formatDateTime, SectionHeader } from '../utils';
 
 export interface FechaItem {

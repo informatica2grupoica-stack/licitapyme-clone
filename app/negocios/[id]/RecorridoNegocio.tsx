@@ -7,7 +7,7 @@
 // tardó cada tramo. Es distinta de la bitácora lateral (esa registra cada acción de cada
 // perfil); aquí solo van los momentos que cambian el rumbo del negocio.
 import { useEffect, useState } from 'react';
-import { Route, Radar, Filter, UserPlus, Sparkles, GitCommitHorizontal, Send, Trophy, Ban, ExternalLink, Loader2 } from 'lucide-react';
+import { IconRoute as Route, IconRadar as Radar, IconFilter as Filter, IconUserPlus as UserPlus, IconSparkles as Sparkles, IconGitCommit as GitCommitHorizontal, IconSend as Send, IconTrophy as Trophy, IconBan as Ban, IconExternalLink as ExternalLink, IconLoader2 as Loader2 } from '@tabler/icons-react';
 import { ESTADOS_PIPELINE, normalizarEstado, getEstadoPipeline } from '@/app/lib/pipeline';
 
 interface Recorrido {

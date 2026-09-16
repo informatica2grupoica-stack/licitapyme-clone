@@ -9,10 +9,7 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
-import {
-  Building2, Plus, Pencil, Trash2, Loader2, X, Save, Inbox,
-  User, Landmark, Mail, Phone, MapPin, ShieldCheck, Upload, Eye, Award, PenLine, Star,
-} from 'lucide-react';
+import { IconBuilding as Building2, IconPlus as Plus, IconPencil as Pencil, IconTrash as Trash2, IconLoader2 as Loader2, IconX as X, IconDeviceFloppy as Save, IconInbox as Inbox, IconUser as User, IconBuildingBank as Landmark, IconMail as Mail, IconPhone as Phone, IconMapPin as MapPin, IconShieldCheck as ShieldCheck, IconUpload as Upload, IconEye as Eye, IconAward as Award, IconPencil as PenLine, IconStar as Star } from '@tabler/icons-react';
 
 interface Empresa {
   id: number;

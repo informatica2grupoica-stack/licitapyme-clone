@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { HelpCircle, ExternalLink, MessageCircle, Loader2, RefreshCw, Calendar, Clock } from 'lucide-react';
+import { IconHelpCircle as HelpCircle, IconExternalLink as ExternalLink, IconMessageCircle as MessageCircle, IconLoader2 as Loader2, IconRefresh as RefreshCw, IconCalendar as Calendar, IconClock as Clock } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 import { SectionHeader, AlertBanner, InfoRow } from '../utils';
 

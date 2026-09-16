@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, ExternalLink, FileText, FileQuestion, Loader2, AlertTriangle } from 'lucide-react';
+import { IconX as X, IconDownload as Download, IconExternalLink as ExternalLink, IconFileText as FileText, IconFileUnknown as FileQuestion, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle } from '@tabler/icons-react';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
 
 // El visor de Office (view.officeapps.live.com) es un servicio gratuito de Microsoft sin

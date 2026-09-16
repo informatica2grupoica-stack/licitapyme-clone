@@ -2,10 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import {
-  ArrowLeft, Star, StarOff, ExternalLink, Copy, Check,
-  Loader2, AlertCircle, Tag, RefreshCw, Briefcase, UserCheck, FolderOpen, History,
-} from 'lucide-react';
+import { IconArrowLeft as ArrowLeft, IconStar as Star, IconStarOff as StarOff, IconExternalLink as ExternalLink, IconCopy as Copy, IconCheck as Check, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconTag as Tag, IconRefresh as RefreshCw, IconBriefcase as Briefcase, IconUserCheck as UserCheck, IconFolderOpen as FolderOpen, IconHistory as History } from '@tabler/icons-react';
 import { DocumentoAdjunto, Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP } from '@/app/types/mercado-publico.types';
 import { TIPOS_LICITACION } from '@/app/types/search.types';

@@ -8,7 +8,7 @@
 // Los ítems y el organismo comprador se muestran completos a propósito: son exactamente lo que
 // después alimenta los certificados de experiencia de la memoria comercial.
 import { useEffect, useState } from 'react';
-import { Receipt, ExternalLink, ChevronDown, ChevronUp, Building2, Package, Loader2, Eye, Download } from 'lucide-react';
+import { IconReceipt as Receipt, IconExternalLink as ExternalLink, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconBuilding as Building2, IconPackage as Package, IconLoader2 as Loader2, IconEye as Eye, IconDownload as Download } from '@tabler/icons-react';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 

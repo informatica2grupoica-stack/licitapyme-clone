@@ -3,10 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { AppLayout } from '@/app/components/AppLayout';
-import {
-  FileText, FolderOpen, ExternalLink, Download, Search,
-  RefreshCw, AlertCircle, Building2, File, Paperclip,
-} from 'lucide-react';
+import { IconFileText as FileText, IconFolderOpen as FolderOpen, IconExternalLink as ExternalLink, IconDownload as Download, IconSearch as Search, IconRefresh as RefreshCw, IconAlertCircle as AlertCircle, IconBuilding as Building2, IconFile as File, IconPaperclip as Paperclip } from '@tabler/icons-react';
 
 interface DocumentoItem {
   licitacion_codigo: string;

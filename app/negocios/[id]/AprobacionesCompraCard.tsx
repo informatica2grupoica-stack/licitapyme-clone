@@ -6,9 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
-import {
-  ShieldCheck, Loader2, CheckCircle2, XCircle, Edit3, AlertTriangle, Tag, Plus, X, History, Star, Zap,
-} from 'lucide-react';
+import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconX as X, IconHistory as History, IconStar as Star, IconBolt as Zap } from '@tabler/icons-react';
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
 type Tipo = 'COMPRA' | 'MARGEN';

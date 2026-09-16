@@ -10,10 +10,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  X, Bot, User, Send, Loader2, AlertCircle, Sparkles,
-  Download, ExternalLink, FileQuestion,
-} from 'lucide-react';
+import { IconX as X, IconRobot as Bot, IconUser as User, IconSend as Send, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconSparkles as Sparkles, IconDownload as Download, IconExternalLink as ExternalLink, IconFileUnknown as FileQuestion } from '@tabler/icons-react';
 import { RespuestaFormateada, getFileIcon } from '@/app/licitacion/[codigo]/utils';
 import { tipoDe } from '@/app/components/DocumentViewerModal';
 import { urlDescarga } from '@/app/lib/descargas-cliente';

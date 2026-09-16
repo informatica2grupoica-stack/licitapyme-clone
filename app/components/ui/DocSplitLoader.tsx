@@ -3,7 +3,7 @@
 // (lectura de documentos), estilos en globals.css (.docsplit*).
 //
 // Uso: <DocSplitLoader titulo="Separando anexos…" subtitulo="Puede tardar unos segundos." />
-import { Scissors } from 'lucide-react';
+import { IconScissors as Scissors } from '@tabler/icons-react';
 
 export function DocSplitLoader({
   titulo,
@@ -29,7 +29,7 @@ export function DocSplitLoader({
           <span className="docsplit-line" style={{ width: '75%' }} />
           <span className="docsplit-line" style={{ width: '60%' }} />
         </div>
-        <Scissors className="docsplit-snip" strokeWidth={2.4} />
+        <Scissors className="docsplit-snip" stroke={2.4} />
       </div>
       {titulo && <p className="text-[14px] font-semibold text-slate-700 mt-3">{titulo}</p>}
       {subtitulo && <p className="text-[12px] text-slate-400 mt-1 text-center max-w-xs">{subtitulo}</p>}

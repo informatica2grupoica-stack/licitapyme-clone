@@ -8,7 +8,7 @@ import { SearchBar } from '@/app/components/SearchBar';
 import { ResultsGrid } from '@/app/components/ResultsGrid';
 import { FiltersPanel } from '@/app/components/FiltersPanel';
 import { SearchRequest, Oportunidad } from '@/app/types/search.types';
-import { Search, TrendingUp, Building2, FileText, Star, RefreshCw } from 'lucide-react';
+import { IconSearch as Search, IconTrendingUp as TrendingUp, IconBuilding as Building2, IconFileText as FileText, IconStar as Star, IconRefresh as RefreshCw } from '@tabler/icons-react';
 
 interface Filters {
   estado: string[];

@@ -3,11 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { motion, useInView, useReducedMotion, useScroll, useTransform } from 'framer-motion';
-import {
-  Radar, Sparkles, ShieldCheck, Calculator, Briefcase, BellRing,
-  ArrowRight, Check, Search, LayoutDashboard, Users, Lock,
-  FileSearch, Bot, LineChart, LogIn, Bell, ChevronDown, MessageCircle,
-} from 'lucide-react';
+import { IconRadar as Radar, IconSparkles as Sparkles, IconShieldCheck as ShieldCheck, IconCalculator as Calculator, IconBriefcase as Briefcase, IconBellRinging as BellRing, IconArrowRight as ArrowRight, IconCheck as Check, IconSearch as Search, IconLayoutDashboard as LayoutDashboard, IconUsers as Users, IconLock as Lock, IconFileSearch as FileSearch, IconRobot as Bot, IconChartLine as LineChart, IconLogin as LogIn, IconBell as Bell, IconChevronDown as ChevronDown, IconMessageCircle as MessageCircle } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { MercadoPublicoMark } from '@/app/components/MercadoPublicoLogo';
 import { IlustracionAsistente } from '@/app/components/IlustracionAsistente';
@@ -223,7 +219,7 @@ export default function Landing() {
                   'Vigilancia automática 24/7',
                 ].map(t => (
                   <li key={t} className="inline-flex items-center gap-1.5">
-                    <Check size={14} strokeWidth={2.5} style={{ color: BRAND_INK }} />
+                    <Check size={14} stroke={2.5} style={{ color: BRAND_INK }} />
                     {t}
                   </li>
                 ))}
@@ -341,7 +337,7 @@ export default function Landing() {
                   <div className="flex items-center justify-between">
                     <span className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-white transition-colors group-hover:border-[#2FC7A6]/50"
                       style={{ color: BRAND_INK }}>
-                      <f.icon size={19} strokeWidth={1.9} />
+                      <f.icon size={19} stroke={1.9} />
                     </span>
                     <span className="font-mono text-[12px] font-semibold text-zinc-300 transition-colors group-hover:text-zinc-400">{f.n}</span>
                   </div>
@@ -376,7 +372,7 @@ export default function Landing() {
                 ].map(t => (
                   <li key={t} className="flex items-start gap-2.5 text-[14px] text-zinc-600">
                     <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#2FC7A6]/15">
-                      <Check size={12} strokeWidth={3} style={{ color: BRAND_INK }} />
+                      <Check size={12} stroke={3} style={{ color: BRAND_INK }} />
                     </span>
                     {t}
                   </li>
@@ -423,7 +419,7 @@ export default function Landing() {
                 <Reveal key={p.t} delay={Math.min(i * 0.07, 0.3)}>
                   <li className="relative flex gap-5 md:block">
                     <span className="relative z-10 grid h-[54px] w-[54px] shrink-0 place-items-center rounded-2xl border border-zinc-200 bg-white shadow-sm">
-                      <p.icon size={21} strokeWidth={1.9} className="text-zinc-700" />
+                      <p.icon size={21} stroke={1.9} className="text-zinc-700" />
                     </span>
                     <div className="pt-1 md:pt-5">
                       <p className="font-mono text-[11.5px] font-semibold text-zinc-400">Paso {i + 1}</p>
@@ -453,7 +449,7 @@ export default function Landing() {
                 <Reveal key={r.t} delay={i * 0.07} className="h-full">
                   <div className="h-full rounded-2xl border border-zinc-200 bg-[#fafafa] p-6 transition-shadow hover:shadow-[0_12px_30px_-18px_rgba(24,24,27,0.25)] sm:p-7">
                     <span className="grid h-10 w-10 place-items-center rounded-lg border border-zinc-200 bg-white" style={{ color: BRAND_INK }}>
-                      <r.icon size={19} strokeWidth={1.9} />
+                      <r.icon size={19} stroke={1.9} />
                     </span>
                     <h3 className="mt-5 text-[16px] font-bold tracking-tight">{r.t}</h3>
                     <p className="mt-2 text-[13.5px] leading-relaxed text-zinc-500">{r.d}</p>
@@ -600,7 +596,7 @@ function AppPreview({ reduce }: { reduce: boolean }) {
                 <div className="w-[84px] shrink-0 text-right">
                   <span className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-bold ${
                     f.tono === 'ok' ? 'bg-[#2FC7A6]/15 text-[#0e8f72]' : 'bg-amber-100/80 text-amber-700'}`}>
-                    {f.tono === 'ok' ? <Check size={11} strokeWidth={3} /> : null}
+                    {f.tono === 'ok' ? <Check size={11} stroke={3} /> : null}
                     {f.score}/100
                   </span>
                 </div>

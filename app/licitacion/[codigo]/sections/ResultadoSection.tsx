@@ -13,10 +13,7 @@ import { useSession } from '@/app/lib/session-context';
 import DocumentosActa from '@/app/components/DocumentosActa';
 import { OrdenesCompraBloque } from './OrdenesCompraBloque';
 import { ComprasObumaBloque } from './ComprasObumaBloque';
-import {
-  Trophy, Award, Calendar, Users, FileCheck2, ExternalLink,
-  CheckCircle2, Loader2, Hourglass, ChevronDown, ChevronUp, Table2,
-} from 'lucide-react';
+import { IconTrophy as Trophy, IconAward as Award, IconCalendar as Calendar, IconUsers as Users, IconFileCheck as FileCheck2, IconExternalLink as ExternalLink, IconCircleCheck as CheckCircle2, IconLoader2 as Loader2, IconHourglass as Hourglass, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconTable as Table2 } from '@tabler/icons-react';
 
 interface LineaAdjudicada {
   correlativo?: number;

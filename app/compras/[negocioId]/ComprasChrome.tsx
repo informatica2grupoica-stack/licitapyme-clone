@@ -31,12 +31,7 @@ import { ActividadComprasCard } from '@/app/negocios/[id]/ActividadComprasCard';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import { TareasComprasCard } from './TareasComprasCard';
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
-import {
-  ShoppingCart, Loader2, UserPlus, Clock, AlertTriangle, ChevronDown, ChevronUp,
-  DollarSign, FileWarning, Building2, FileText, Save, ClipboardList, RefreshCw, Zap,
-  ExternalLink, ArrowUpRight, Calculator, ClipboardCheck, Package, Truck, History,
-  GanttChartSquare,
-} from 'lucide-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconTimeline as GanttChartSquare } from '@tabler/icons-react';
 
 type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'actividad' | 'gantt';
 const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string }[] = [

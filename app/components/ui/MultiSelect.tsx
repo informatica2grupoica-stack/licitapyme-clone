@@ -10,7 +10,7 @@
 // mientras está abierto.
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Check } from 'lucide-react';
+import { IconChevronDown as ChevronDown, IconCheck as Check } from '@tabler/icons-react';
 
 export interface MultiSelectOption {
   value: string;

@@ -6,11 +6,7 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession }  from '@/app/lib/session-context';
 import { useToast }    from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import {
-  Star, ExternalLink, Trash2, Search, Building2, Calendar,
-  DollarSign, MapPin, RefreshCw, AlertCircle, FileText,
-  UserPlus, ChevronDown, Check, Loader2, X,
-} from 'lucide-react';
+import { IconStar as Star, IconExternalLink as ExternalLink, IconTrash as Trash2, IconSearch as Search, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconMapPin as MapPin, IconRefresh as RefreshCw, IconAlertCircle as AlertCircle, IconFileText as FileText, IconUserPlus as UserPlus, IconChevronDown as ChevronDown, IconCheck as Check, IconLoader2 as Loader2, IconX as X } from '@tabler/icons-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 
 interface Favorito {
@@ -158,7 +154,7 @@ function ModalAsignar({
           {exito ? (
             <div className="flex flex-col items-center py-6 gap-3 slide-in-up">
               <div className="w-14 h-14 rounded-2xl bg-emerald-100 flex items-center justify-center">
-                <Check size={26} className="text-emerald-600" strokeWidth={2.5} />
+                <Check size={26} className="text-emerald-600" stroke={2.5} />
               </div>
               <p className="font-bold text-zinc-900 text-[14px]">¡Listo!</p>
             </div>
@@ -193,7 +189,7 @@ function ModalAsignar({
                             sel ? 'shadow-sm' : 'border-zinc-200 text-zinc-500 hover:border-zinc-300'
                           }`}
                         >
-                          {sel && <Check size={10} strokeWidth={3} />}
+                          {sel && <Check size={10} stroke={3} />}
                           {et.nombre}
                         </button>
                       );

@@ -10,15 +10,7 @@ import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { useSession } from '@/app/lib/session-context';
 import { fechaHoraParaExcel, ordenarPorFecha } from '@/app/lib/exportar-fechas';
-import {
-  Radar, Plus, Trash2, ExternalLink, Tag,
-  CheckCheck, Building2, Calendar, DollarSign, Loader2,
-  BellOff, X, Clock, Search, Zap, ToggleLeft, ToggleRight,
-  Sparkles, Filter, ChevronDown, FileText, Download, MapPin,
-  ArrowUpDown, Eye, EyeOff, AlertCircle, Flame, SlidersHorizontal,
-  CheckSquare, Square, UserPlus, Undo2, UserCheck,
-  Ban, MinusCircle, History, Shuffle,
-} from 'lucide-react';
+import { IconRadar as Radar, IconPlus as Plus, IconTrash as Trash2, IconExternalLink as ExternalLink, IconTag as Tag, IconChecks as CheckCheck, IconBuilding as Building2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconLoader2 as Loader2, IconBellOff as BellOff, IconX as X, IconClock as Clock, IconSearch as Search, IconBolt as Zap, IconToggleLeft as ToggleLeft, IconToggleRight as ToggleRight, IconSparkles as Sparkles, IconFilter as Filter, IconChevronDown as ChevronDown, IconFileText as FileText, IconDownload as Download, IconMapPin as MapPin, IconArrowsUpDown as ArrowUpDown, IconEye as Eye, IconEyeOff as EyeOff, IconAlertCircle as AlertCircle, IconFlame as Flame, IconAdjustmentsHorizontal as SlidersHorizontal, IconSquareCheck as CheckSquare, IconSquare as Square, IconUserPlus as UserPlus, IconArrowBackUp as Undo2, IconUserCheck as UserCheck, IconBan as Ban, IconCircleMinus as MinusCircle, IconHistory as History, IconArrowsShuffle as Shuffle } from '@tabler/icons-react';
 import { extractTipoFromCodigo, getTipoLicitacion, TIPO_COLOR_CLASS } from '@/app/lib/tipos-licitacion';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';
 import { Resaltar } from '@/app/components/Resaltar';

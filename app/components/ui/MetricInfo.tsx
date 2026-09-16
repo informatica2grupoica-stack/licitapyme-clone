@@ -10,7 +10,7 @@
 // overflow-hidden recorte la ficha.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Info } from 'lucide-react';
+import { IconInfoCircle as Info } from '@tabler/icons-react';
 
 export interface EspecificacionMetrica {
   mide: string;      // qué representa el número, en una frase — sin jerga técnica

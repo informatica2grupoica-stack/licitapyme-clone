@@ -6,9 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import {
-  AlertTriangle, Sparkles, Loader2, Plus, X, CheckCircle2, Clock, Send,
-} from 'lucide-react';
+import { IconAlertTriangle as AlertTriangle, IconSparkles as Sparkles, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconCircleCheck as CheckCircle2, IconClock as Clock, IconSend as Send } from '@tabler/icons-react';
 
 type Naturaleza = 'DEFENSIVA' | 'OFENSIVA';
 type Origen = 'MANUAL' | 'AUTOMATICA';

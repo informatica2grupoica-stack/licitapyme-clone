@@ -2,10 +2,7 @@
 
 import Link from 'next/link';
 import { Oportunidad, ESTADOS_LICITACION, TIPOS_LICITACION } from '@/app/types/search.types';
-import {
-  Calendar, Building2, DollarSign, Clock, Star, StarOff,
-  ExternalLink, MapPin, Tag, ChevronRight, AlertCircle, Briefcase, UserCheck,
-} from 'lucide-react';
+import { IconCalendar as Calendar, IconBuilding as Building2, IconCurrencyDollar as DollarSign, IconClock as Clock, IconStar as Star, IconStarOff as StarOff, IconExternalLink as ExternalLink, IconMapPin as MapPin, IconTag as Tag, IconChevronRight as ChevronRight, IconAlertCircle as AlertCircle, IconBriefcase as Briefcase, IconUserCheck as UserCheck } from '@tabler/icons-react';
 import { useFavorites } from '@/app/hooks/useFavorites';
 import { useState } from 'react';
 import { useSession } from '@/app/lib/session-context';

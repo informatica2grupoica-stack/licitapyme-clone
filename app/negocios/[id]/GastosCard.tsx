@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import { Receipt, Loader2, Plus, X, Trash2, Paperclip } from 'lucide-react';
+import { IconReceipt as Receipt, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconTrash as Trash2, IconPaperclip as Paperclip } from '@tabler/icons-react';
 
 interface Gasto {
   id: number; categoriaClave: string | null; categoriaEtiqueta: string | null;

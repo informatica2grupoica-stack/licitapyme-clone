@@ -6,11 +6,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  ChevronDown, ChevronUp, Check, PlayCircle, Ban, ShoppingCart, Loader2,
-  UserPlus, FolderOpen, History, ExternalLink, Trash2, Send, Building2,
-  DollarSign as DollarSignIcon,
-} from 'lucide-react';
+import { IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCheck as Check, IconPlayerPlay as PlayCircle, IconBan as Ban, IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconFolderOpen as FolderOpen, IconHistory as History, IconExternalLink as ExternalLink, IconTrash as Trash2, IconSend as Send, IconBuilding as Building2, IconCurrencyDollar as DollarSignIcon } from '@tabler/icons-react';
 import { Select } from '@/app/components/ui/Select';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';

@@ -16,7 +16,7 @@
 // no bloquea.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
-import { ListChecks, Loader2, Check, X, Pencil, AlertTriangle } from 'lucide-react';
+import { IconListCheck as ListChecks, IconLoader2 as Loader2, IconCheck as Check, IconX as X, IconPencil as Pencil, IconAlertTriangle as AlertTriangle } from '@tabler/icons-react';
 
 interface LineaDisponible {
   linea: number;

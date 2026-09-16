@@ -17,10 +17,7 @@ import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { StatCard } from '@/app/components/ui/StatCard';
-import {
-  Library, Search, Loader2, Plus, Trash2, Save, X, FileText, Receipt,
-  Building2, Calendar, Package, Inbox, Info, Zap,
-} from 'lucide-react';
+import { IconLibrary as Library, IconSearch as Search, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconDeviceFloppy as Save, IconX as X, IconFileText as FileText, IconReceipt as Receipt, IconBuilding as Building2, IconCalendar as Calendar, IconPackage as Package, IconInbox as Inbox, IconInfoCircle as Info, IconBolt as Zap } from '@tabler/icons-react';
 
 interface Caso {
   id: number;

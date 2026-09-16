@@ -1,7 +1,7 @@
 // app/licitacion/[codigo]/sections/ItemsSection.tsx
 'use client';
 
-import { Package } from 'lucide-react';
+import { IconPackage as Package } from '@tabler/icons-react';
 import { ItemProducto } from '@/app/types/search.types';
 import { formatCLP, SectionHeader } from '../utils';
 import { Resaltar } from '@/app/components/Resaltar';

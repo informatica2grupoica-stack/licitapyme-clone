@@ -7,9 +7,7 @@
 import { useState } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useCompras, fmtFecha, type Tarea } from './ComprasContext';
-import {
-  Loader2, CheckCircle2, PlayCircle, Circle, Flag, Calendar, ClipboardList, Save, Plus, X,
-} from 'lucide-react';
+import { IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconCircle as Circle, IconFlag as Flag, IconCalendar as Calendar, IconClipboardList as ClipboardList, IconDeviceFloppy as Save, IconPlus as Plus, IconX as X } from '@tabler/icons-react';
 
 const SI_NO = ['Sí', 'No'] as const;
 const CATEGORIA_LABEL: Record<string, string> = { VALIDACION: 'Validación', ADMINISTRATIVO: 'Plazos administrativos', MANUAL: 'Tareas propias del proyecto' };

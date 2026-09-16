@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Inter, Geist_Mono } from 'next/font/google';
+import { Roboto, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { SessionProvider } from '@/app/lib/session-context';
 import { ToastProvider }   from '@/app/components/ui/toast';
@@ -18,7 +18,7 @@ try {
 } catch (e) {}
 `;
 
-const inter = Inter({ variable: '--font-inter', subsets: ['latin'] });
+const roboto = Roboto({ variable: '--font-roboto', subsets: ['latin'], weight: ['400', '500', '700'] });
 const geistMono = Geist_Mono({ variable: '--font-geist-mono', subsets: ['latin'] });
 
 export const metadata: Metadata = {
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className={`${inter.variable} ${geistMono.variable} h-full antialiased`}>
+    <html lang="es" className={`${roboto.variable} ${geistMono.variable} h-full antialiased`}>
       <head>
         <script dangerouslySetInnerHTML={{ __html: SCRIPT_TEMA_INICIAL }} />
       </head>

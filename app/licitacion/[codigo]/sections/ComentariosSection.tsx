@@ -2,7 +2,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { MessageSquare, Send, Loader2, Trash2, User } from 'lucide-react';
+import { IconMessage as MessageSquare, IconSend as Send, IconLoader2 as Loader2, IconTrash as Trash2, IconUser as User } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
 import { formatDateTime, SectionHeader } from '../utils';

@@ -2,11 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
-import {
-  Users, Plus, ShieldCheck, User, CheckCircle, XCircle,
-  Loader2, Trash2, Edit3, X, AlertCircle, Mail, Lock,
-  Briefcase, Eye, EyeOff, Calendar, Sparkles, GraduationCap,
-} from 'lucide-react';
+import { IconUsers as Users, IconPlus as Plus, IconShieldCheck as ShieldCheck, IconUser as User, IconCircleCheck as CheckCircle, IconCircleX as XCircle, IconLoader2 as Loader2, IconTrash as Trash2, IconEdit as Edit3, IconX as X, IconAlertCircle as AlertCircle, IconMail as Mail, IconLock as Lock, IconBriefcase as Briefcase, IconEye as Eye, IconEyeOff as EyeOff, IconCalendar as Calendar, IconSparkles as Sparkles, IconSchool as GraduationCap } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';

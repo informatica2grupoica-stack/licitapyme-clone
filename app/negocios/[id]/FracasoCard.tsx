@@ -5,7 +5,7 @@
 // por defecto: es una acción rara y seria, no algo que deba competir visualmente con el resto.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
-import { AlertOctagon, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { IconAlertOctagon as AlertOctagon, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp } from '@tabler/icons-react';
 
 interface Fracaso {
   motivoDeclarado: string; declaradoPorNombre: string | null; declaradoAt: string;

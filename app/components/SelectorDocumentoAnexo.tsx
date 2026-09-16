@@ -7,7 +7,7 @@
 // es una sugerencia, nunca una decisión silenciosa.
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, FileText, AlertTriangle, Wand2 } from 'lucide-react';
+import { IconX as X, IconLoader2 as Loader2, IconFileText as FileText, IconAlertTriangle as AlertTriangle, IconWand as Wand2 } from '@tabler/icons-react';
 import { ordenarPorCoincidencia } from '@/app/lib/anexos-match';
 import type { AnexoDoc } from '@/app/components/AnexoRellenoModal';
 

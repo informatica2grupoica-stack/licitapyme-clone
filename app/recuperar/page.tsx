@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Building2, Mail, Loader2, AlertCircle, ArrowLeft, CheckCircle, Send } from 'lucide-react';
+import { IconBuilding as Building2, IconMail as Mail, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconArrowLeft as ArrowLeft, IconCircleCheck as CheckCircle, IconSend as Send } from '@tabler/icons-react';
 
 export default function RecuperarPage() {
   const [email, setEmail] = useState('');

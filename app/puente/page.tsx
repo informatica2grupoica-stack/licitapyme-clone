@@ -12,11 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import {
-  Shuffle, Loader2, Users, Trash2, RefreshCw, Building2, Calendar, ExternalLink,
-  Check, X, Scale, Tag, DollarSign, MapPin, Gauge, Hand, AlertTriangle, Layers,
-  ArrowRight, Plus, Radar as RadarIcon, GripVertical, Sparkles,
-} from 'lucide-react';
+import { IconArrowsShuffle as Shuffle, IconLoader2 as Loader2, IconUsers as Users, IconTrash as Trash2, IconRefresh as RefreshCw, IconBuilding as Building2, IconCalendar as Calendar, IconExternalLink as ExternalLink, IconCheck as Check, IconX as X, IconScale as Scale, IconTag as Tag, IconCurrencyDollar as DollarSign, IconMapPin as MapPin, IconGauge as Gauge, IconHandStop as Hand, IconAlertTriangle as AlertTriangle, IconStack2 as Layers, IconArrowRight as ArrowRight, IconPlus as Plus, IconRadar as RadarIcon, IconGripVertical as GripVertical, IconSparkles as Sparkles } from '@tabler/icons-react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';

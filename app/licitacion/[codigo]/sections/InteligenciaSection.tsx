@@ -6,10 +6,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import {
-  Bot, Upload, MessageSquare, User, Loader2, Send, Brain,
-  AlertCircle, ListChecks, DollarSign, Calendar, BarChart3, ShieldCheck, BookOpen,
-} from 'lucide-react';
+import { IconRobot as Bot, IconUpload as Upload, IconMessage as MessageSquare, IconUser as User, IconLoader2 as Loader2, IconSend as Send, IconBrain as Brain, IconAlertCircle as AlertCircle, IconListCheck as ListChecks, IconCurrencyDollar as DollarSign, IconCalendar as Calendar, IconChartBar as BarChart3, IconShieldCheck as ShieldCheck, IconBook2 as BookOpen } from '@tabler/icons-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { SectionHeader, RespuestaFormateada } from '../utils';
 

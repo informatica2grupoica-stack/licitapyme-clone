@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, FormEvent } from 'react';
-import { Search, X, Loader2 } from 'lucide-react';
+import { IconSearch as Search, IconX as X, IconLoader2 as Loader2 } from '@tabler/icons-react';
 
 interface SearchBarProps {
   onSearch: (query: string) => void;

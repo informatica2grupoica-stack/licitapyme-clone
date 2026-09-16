@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
-import { Upload, Loader2, AlertTriangle, FileSpreadsheet, History, Eye, Download, Trash2 } from 'lucide-react';
+import { IconUpload as Upload, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconFileSpreadsheet as FileSpreadsheet, IconHistory as History, IconEye as Eye, IconDownload as Download, IconTrash as Trash2 } from '@tabler/icons-react';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 import { urlDescarga } from '@/app/lib/descargas-cliente';
 

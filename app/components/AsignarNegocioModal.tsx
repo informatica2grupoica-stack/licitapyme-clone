@@ -5,7 +5,7 @@
 // las tarjetas del buscador (ResultsGrid), sin tener que entrar al detalle.
 
 import { useState, useEffect } from 'react';
-import { Briefcase, Loader2, X } from 'lucide-react';
+import { IconBriefcase as Briefcase, IconLoader2 as Loader2, IconX as X } from '@tabler/icons-react';
 import { Oportunidad } from '@/app/types/search.types';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';

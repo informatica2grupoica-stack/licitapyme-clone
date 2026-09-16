@@ -3,9 +3,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import {
-  Building2, Lock, Eye, EyeOff, Loader2, AlertCircle, CheckCircle, ArrowLeft, KeyRound,
-} from 'lucide-react';
+import { IconBuilding as Building2, IconLock as Lock, IconEye as Eye, IconEyeOff as EyeOff, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconCircleCheck as CheckCircle, IconArrowLeft as ArrowLeft, IconKey as KeyRound } from '@tabler/icons-react';
 
 function RestablecerContent() {
   const router = useRouter();

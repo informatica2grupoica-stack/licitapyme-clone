@@ -1,7 +1,7 @@
 // app/licitacion/[codigo]/sections/CriteriosSection.tsx
 'use client';
 
-import { BarChart3, Sparkles } from 'lucide-react';
+import { IconChartBar as BarChart3, IconSparkles as Sparkles } from '@tabler/icons-react';
 import { CriterioEvaluacion } from '@/app/types/search.types';
 import { AlertBanner, SectionHeader, AnalisisIA, IABadge } from '../utils';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';

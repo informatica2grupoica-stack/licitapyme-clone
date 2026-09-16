@@ -8,13 +8,7 @@ import { fechaHoraParaExcel, ordenarPorFecha } from '@/app/lib/exportar-fechas';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
-import {
-  Briefcase, Plus, Search, ExternalLink, Trash2,
-  Calendar, DollarSign, Building2, AlertCircle, Loader2,
-  ChevronDown, X, RefreshCw, Users, List, LayoutGrid,
-  CalendarDays, ChevronLeft, ChevronRight, ArrowRight, FileText,
-  SlidersHorizontal, MapPin, Clock, Check, Download, ArrowUpNarrowWide, ArrowDownWideNarrow, Trophy,
-} from 'lucide-react';
+import { IconBriefcase as Briefcase, IconPlus as Plus, IconSearch as Search, IconExternalLink as ExternalLink, IconTrash as Trash2, IconCalendar as Calendar, IconCurrencyDollar as DollarSign, IconBuilding as Building2, IconAlertCircle as AlertCircle, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconX as X, IconRefresh as RefreshCw, IconUsers as Users, IconList as List, IconLayoutGrid as LayoutGrid, IconCalendarWeek as CalendarDays, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight, IconArrowRight as ArrowRight, IconFileText as FileText, IconAdjustmentsHorizontal as SlidersHorizontal, IconMapPin as MapPin, IconClock as Clock, IconCheck as Check, IconDownload as Download, IconSortAscending2 as ArrowUpNarrowWide, IconSortDescending2 as ArrowDownWideNarrow, IconTrophy as Trophy } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { getEstadoPipeline, ESTADOS_PIPELINE, normalizarEstado } from '@/app/lib/pipeline';
 import { estadoEfectivoNombre } from '@/app/lib/estado-mp';

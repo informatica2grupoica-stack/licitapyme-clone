@@ -2,11 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import {
-  FileText, Sparkles, RefreshCw, Loader2, Bot,
-  CheckCircle, Eye, Download, FolderOpen, AlertTriangle, GripVertical, TableProperties,
-  Upload, Trash2, Pencil, Check, X, FolderPlus, Wand2, Send, Scissors, PlayCircle,
-} from 'lucide-react';
+import { IconFileText as FileText, IconSparkles as Sparkles, IconRefresh as RefreshCw, IconLoader2 as Loader2, IconRobot as Bot, IconCircleCheck as CheckCircle, IconEye as Eye, IconDownload as Download, IconFolderOpen as FolderOpen, IconAlertTriangle as AlertTriangle, IconGripVertical as GripVertical, IconTableOptions as TableProperties, IconUpload as Upload, IconTrash as Trash2, IconPencil as Pencil, IconCheck as Check, IconX as X, IconFolderPlus as FolderPlus, IconWand as Wand2, IconSend as Send, IconScissors as Scissors, IconPlayerPlay as PlayCircle } from '@tabler/icons-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
 import { urlDescarga } from '@/app/lib/descargas-cliente';

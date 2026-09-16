@@ -8,7 +8,7 @@
 // documentos reales del proyecto, en una sola pasada — mismo motor de citas verificadas.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
-import { Bot, Loader2, X, AlertTriangle, Eye, ListChecks, RefreshCw } from 'lucide-react';
+import { IconRobot as Bot, IconLoader2 as Loader2, IconX as X, IconAlertTriangle as AlertTriangle, IconEye as Eye, IconListCheck as ListChecks, IconRefresh as RefreshCw } from '@tabler/icons-react';
 
 type Area = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'general';
 interface AlertaAgente { area: Area; mensaje: string; gravedad: 'info' | 'aviso' | 'critico'; documento: string | null; citaTextual: string | null; citaVerificada: boolean }

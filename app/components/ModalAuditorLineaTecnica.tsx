@@ -16,7 +16,7 @@
 // igual desde un lugar que ya tenía el item cargado (la pestaña) que desde uno que no (Documentos).
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, Check, HelpCircle, Upload, RefreshCw, Undo2, FileText, Wrench, Trash2, Eye, Paperclip, Copy, Image as ImageIcon } from 'lucide-react';
+import { IconX as X, IconLoader2 as Loader2, IconCheck as Check, IconHelpCircle as HelpCircle, IconUpload as Upload, IconRefresh as RefreshCw, IconArrowBackUp as Undo2, IconFileText as FileText, IconTool as Wrench, IconTrash as Trash2, IconEye as Eye, IconPaperclip as Paperclip, IconCopy as Copy, IconPhoto as ImageIcon } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';

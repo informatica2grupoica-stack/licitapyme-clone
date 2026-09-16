@@ -34,13 +34,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { StatCard } from '@/app/components/ui/StatCard';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
-import {
-  Send, ExternalLink, Building2, Calendar, Loader2, Inbox, FileText,
-  Award, Trophy, Users, FileCheck2, ChevronDown, ChevronUp,
-  Pencil, Trash2, Undo2, X, Save, Wallet, CheckCircle2,
-  XCircle, Hourglass, DoorOpen, DoorClosed, Search, ArrowUpDown, Download,
-  Ban, CircleSlash, PauseCircle, Tag, SlidersHorizontal, DollarSign,
-} from 'lucide-react';
+import { IconSend as Send, IconExternalLink as ExternalLink, IconBuilding as Building2, IconCalendar as Calendar, IconLoader2 as Loader2, IconInbox as Inbox, IconFileText as FileText, IconAward as Award, IconTrophy as Trophy, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconPencil as Pencil, IconTrash as Trash2, IconArrowBackUp as Undo2, IconX as X, IconDeviceFloppy as Save, IconWallet as Wallet, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconHourglass as Hourglass, IconDoorExit as DoorOpen, IconDoorEnter as DoorClosed, IconSearch as Search, IconArrowsUpDown as ArrowUpDown, IconDownload as Download, IconBan as Ban, IconBan as CircleSlash, IconPlayerPause as PauseCircle, IconTag as Tag, IconAdjustmentsHorizontal as SlidersHorizontal, IconCurrencyDollar as DollarSign } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 
 const ESTADO_POSTULADA = 'POSTULADA';

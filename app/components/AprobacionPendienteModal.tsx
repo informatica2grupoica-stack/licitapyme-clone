@@ -8,7 +8,7 @@
 // sesión de navegador (sessionStorage), no descarta el pendiente.
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ClipboardCheck, X } from 'lucide-react';
+import { IconClipboardCheck as ClipboardCheck, IconX as X } from '@tabler/icons-react';
 import { useSession } from '@/app/lib/session-context';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
 

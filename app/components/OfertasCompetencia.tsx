@@ -13,10 +13,7 @@
 //         └ archivo.pdf  [ojo: ver]  [descargar]
 
 import { useEffect, useState, useCallback } from 'react';
-import {
-  Users, Loader2, RefreshCw, FileText, Trophy, AlertTriangle, ChevronDown, ChevronRight,
-  Eye, Download, Building2, Inbox,
-} from 'lucide-react';
+import { IconUsers as Users, IconLoader2 as Loader2, IconRefresh as RefreshCw, IconFileText as FileText, IconTrophy as Trophy, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconEye as Eye, IconDownload as Download, IconBuilding as Building2, IconInbox as Inbox } from '@tabler/icons-react';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
 
 interface DocumentoVista {

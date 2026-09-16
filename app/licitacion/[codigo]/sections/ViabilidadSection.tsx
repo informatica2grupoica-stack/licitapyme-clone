@@ -1,10 +1,6 @@
 'use client';
 
-import {
-  Gauge, RefreshCw, Loader2, AlertTriangle, ShieldCheck, TrendingUp,
-  DollarSign, ListOrdered, Scale, ClipboardCheck, Package, CheckCircle2, XCircle, Info,
-  FileText, Wrench, FileWarning, Brain, ShieldAlert, FileCheck2, Ban, Lightbulb, Mail,
-} from 'lucide-react';
+import { IconGauge as Gauge, IconRefresh as RefreshCw, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconTrendingUp as TrendingUp, IconCurrencyDollar as DollarSign, IconListNumbers as ListOrdered, IconScale as Scale, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconInfoCircle as Info, IconFileText as FileText, IconTool as Wrench, IconFileAlert as FileWarning, IconBrain as Brain, IconShieldExclamation as ShieldAlert, IconFileCheck as FileCheck2, IconBan as Ban, IconBulb as Lightbulb, IconMail as Mail } from '@tabler/icons-react';
 import { SectionHeader, InfoCard, AnalisisIA } from '../utils';
 import { DocScanLoader } from '@/app/components/ui/DocScanLoader';
 

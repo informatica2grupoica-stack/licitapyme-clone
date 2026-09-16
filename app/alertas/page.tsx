@@ -10,10 +10,7 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { colorUsuario, inicialesUsuario } from '@/app/lib/user-color';
-import {
-  Bell, MessageSquare, Tag, UserPlus, Radar as RadarIcon, GitBranch,
-  Eye, LogIn, Star, Activity, Filter, Loader2, AlertCircle, RefreshCw, Users, X, Search, Calendar,
-} from 'lucide-react';
+import { IconBell as Bell, IconMessage as MessageSquare, IconTag as Tag, IconUserPlus as UserPlus, IconRadar as RadarIcon, IconGitBranch as GitBranch, IconEye as Eye, IconLogin as LogIn, IconStar as Star, IconActivity as Activity, IconFilter as Filter, IconLoader2 as Loader2, IconAlertCircle as AlertCircle, IconRefresh as RefreshCw, IconUsers as Users, IconX as X, IconSearch as Search, IconCalendar as Calendar } from '@tabler/icons-react';
 
 interface Actividad {
   id: number;

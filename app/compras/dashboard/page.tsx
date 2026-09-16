@@ -20,10 +20,7 @@ import { ChartCard } from '@/app/components/ui/ChartCard';
 import { Banner } from '@/app/components/ui/Banner';
 import { MetricInfo } from '@/app/components/ui/MetricInfo';
 import { useRealtime } from '@/app/lib/use-realtime';
-import {
-  ShoppingCart, Loader2, AlertTriangle, Clock, FileWarning, Timer, Zap, UserCheck, ListChecks,
-  ArrowLeft, UserX, PackageCheck, PackageX, XCircle, CalendarDays,
-} from 'lucide-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconClock as Clock, IconFileAlert as FileWarning, IconHourglass as Timer, IconBolt as Zap, IconUserCheck as UserCheck, IconListCheck as ListChecks, IconArrowLeft as ArrowLeft, IconUserX as UserX, IconPackage as PackageCheck, IconPackageOff as PackageX, IconCircleX as XCircle, IconCalendarWeek as CalendarDays } from '@tabler/icons-react';
 
 interface CuelloBotella { clave: string; titulo: string; total: number; hechas: number; vencidas: number; horasPromedioCierre: number | null }
 interface RankingEncargado { id: number; nombre: string; tareasCerradas: number; tareasVencidasAbiertas: number; horasPromedioCierre: number | null }

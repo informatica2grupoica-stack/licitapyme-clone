@@ -7,9 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
-import {
-  PackageCheck, Loader2, CheckCircle2, XCircle, FileSignature, Plus, X, Trash2,
-} from 'lucide-react';
+import { IconPackage as PackageCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconSignature as FileSignature, IconPlus as Plus, IconX as X, IconTrash as Trash2 } from '@tabler/icons-react';
 
 type Modalidad = 'TOTAL' | 'PARCIAL';
 interface FirmaDatos { nombre: string; rut: string; cargo: string; recinto: string; fecha: string }

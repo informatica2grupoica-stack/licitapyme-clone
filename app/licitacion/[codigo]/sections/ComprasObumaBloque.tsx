@@ -5,7 +5,7 @@
 // cumplir esa licitación (el costo real: proveedor, ítems, monto). Los datos los deja el cron
 // (app/lib/obuma-compras.ts) — acá solo se leen de nuestra base.
 import { useEffect, useState } from 'react';
-import { ShoppingBag, Building2, Package, Loader2, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { IconShoppingBag as ShoppingBag, IconBuilding as Building2, IconPackage as Package, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconFileText as FileText } from '@tabler/icons-react';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { FacturaObumaModal } from './FacturaObumaModal';
 

@@ -7,9 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
-import {
-  Clock, Loader2, AlertTriangle, CalendarClock, FileWarning, Sparkles,
-} from 'lucide-react';
+import { IconClock as Clock, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconCalendarClock as CalendarClock, IconFileAlert as FileWarning, IconSparkles as Sparkles } from '@tabler/icons-react';
 
 type PlazoTipo = 'HABILES' | 'CORRIDOS';
 type Color = 'VERDE' | 'AMARILLO' | 'ROJO' | 'VENCIDO';

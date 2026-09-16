@@ -25,11 +25,7 @@ import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
 import { StatCard } from '@/app/components/ui/StatCard';
-import {
-  Trophy, XCircle, ExternalLink, Building2, Calendar, Inbox,
-  Award, Users, FileCheck2, ChevronDown, ChevronUp, CheckCircle2, Wallet, Target,
-  Search, LayoutList, LayoutGrid, X, ArrowUpDown, ChevronLeft, ChevronRight,
-} from 'lucide-react';
+import { IconTrophy as Trophy, IconCircleX as XCircle, IconExternalLink as ExternalLink, IconBuilding as Building2, IconCalendar as Calendar, IconInbox as Inbox, IconAward as Award, IconUsers as Users, IconFileCheck as FileCheck2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCircleCheck as CheckCircle2, IconWallet as Wallet, IconTarget as Target, IconSearch as Search, IconLayoutList as LayoutList, IconLayoutGrid as LayoutGrid, IconX as X, IconArrowsUpDown as ArrowUpDown, IconChevronLeft as ChevronLeft, IconChevronRight as ChevronRight } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 
 type Resultado = 'ganada' | 'perdida';

@@ -4,10 +4,7 @@ import { useState } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { useToast } from '@/app/components/ui/toast';
-import {
-  User, Mail, Briefcase, Lock, Eye, EyeOff, Loader2,
-  CheckCircle, AlertCircle, Save, Shield, Building2,
-} from 'lucide-react';
+import { IconUser as User, IconMail as Mail, IconBriefcase as Briefcase, IconLock as Lock, IconEye as Eye, IconEyeOff as EyeOff, IconLoader2 as Loader2, IconCircleCheck as CheckCircle, IconAlertCircle as AlertCircle, IconDeviceFloppy as Save, IconShield as Shield, IconBuilding as Building2 } from '@tabler/icons-react';
 
 function AvatarPerfil({ nombre, email, size = 'lg' }: { nombre?: string; email?: string; size?: 'lg' | 'sm' }) {
   const text = nombre || email || '?';

@@ -11,7 +11,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
 import { Banner } from '@/app/components/ui/Banner';
 import { useRealtime } from '@/app/lib/use-realtime';
-import { ClipboardCheck, Loader2, Inbox, Search, X } from 'lucide-react';
+import { IconClipboardCheck as ClipboardCheck, IconLoader2 as Loader2, IconInbox as Inbox, IconSearch as Search, IconX as X } from '@tabler/icons-react';
 import { TarjetaNegocioAprobacion, type NegocioAprobacion } from './TarjetaNegocioAprobacion';
 
 const SEMAFOROS = [

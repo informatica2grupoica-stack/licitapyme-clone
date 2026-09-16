@@ -18,10 +18,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
-import {
-  Receipt, Loader2, Search, Filter, X, Calendar, Building2, Package, ChevronDown, ChevronUp,
-  ExternalLink, Eye, Download, ArrowUpRight, FolderInput, Check,
-} from 'lucide-react';
+import { IconReceipt as Receipt, IconLoader2 as Loader2, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconBuilding as Building2, IconPackage as Package, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconExternalLink as ExternalLink, IconEye as Eye, IconDownload as Download, IconArrowUpRight as ArrowUpRight, IconFolderSymlink as FolderInput, IconCheck as Check } from '@tabler/icons-react';
 
 interface ItemOC { descripcion: string; cantidad: number | null; precioNeto: number | null; total: number | null }
 interface OrdenCompra {

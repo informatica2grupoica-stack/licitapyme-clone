@@ -11,7 +11,7 @@ import { AppLayout } from '@/app/components/AppLayout';
 import { useSession } from '@/app/lib/session-context';
 import { ComprasProvider } from './ComprasContext';
 import { ComprasChrome } from './ComprasChrome';
-import { Loader2 } from 'lucide-react';
+import { IconLoader2 as Loader2 } from '@tabler/icons-react';
 
 export default function CompraDetallePage() {
   const params = useParams();

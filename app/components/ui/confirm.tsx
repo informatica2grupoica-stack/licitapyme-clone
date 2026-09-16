@@ -18,7 +18,7 @@ import {
   createContext, useContext, useState, useRef, useCallback, useEffect,
   type ReactNode,
 } from 'react';
-import { AlertTriangle, HelpCircle } from 'lucide-react';
+import { IconAlertTriangle as AlertTriangle, IconHelpCircle as HelpCircle } from '@tabler/icons-react';
 
 export interface ConfirmOpciones {
   titulo: string;

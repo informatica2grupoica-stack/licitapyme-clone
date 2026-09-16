@@ -16,11 +16,7 @@ import { MultiSelect } from '@/app/components/ui/MultiSelect';
 import { Select } from '@/app/components/ui/Select';
 import { colorUsuario } from '@/app/lib/user-color';
 import { DocumentViewerModal, type VisorDoc } from '@/app/components/DocumentViewerModal';
-import {
-  Trophy, Loader2, Inbox, CheckCircle2, Clock, Building2, User, FileText,
-  Users, AlertTriangle, ExternalLink, ChevronDown, ChevronRight,
-  Search, Filter, X, Calendar, Briefcase, ArrowUpDown, ShieldAlert, Eye, Paperclip, Download,
-} from 'lucide-react';
+import { IconTrophy as Trophy, IconLoader2 as Loader2, IconInbox as Inbox, IconCircleCheck as CheckCircle2, IconClock as Clock, IconBuilding as Building2, IconUser as User, IconFileText as FileText, IconUsers as Users, IconAlertTriangle as AlertTriangle, IconExternalLink as ExternalLink, IconChevronDown as ChevronDown, IconChevronRight as ChevronRight, IconSearch as Search, IconFilter as Filter, IconX as X, IconCalendar as Calendar, IconBriefcase as Briefcase, IconArrowsUpDown as ArrowUpDown, IconShieldExclamation as ShieldAlert, IconEye as Eye, IconPaperclip as Paperclip, IconDownload as Download } from '@tabler/icons-react';
 
 interface Entrega {
   negocioId: number;
