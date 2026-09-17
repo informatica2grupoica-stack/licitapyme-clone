@@ -334,7 +334,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo editar');
-      toast.success('Cotización actualizada', 'Si esto cambia lo que ya estaba aprobado, las compuertas de aprobación vuelven a pendiente.');
+      toast.success('Cotización actualizada', 'Si esto cambia lo que ya estaba aprobado, los hitos de aprobación vuelven a pendiente.');
       cancelarFormulario();
       await cargar();
       recargarCompartido();

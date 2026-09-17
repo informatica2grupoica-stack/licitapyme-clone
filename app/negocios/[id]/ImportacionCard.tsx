@@ -138,7 +138,7 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
                 <span className="text-[12px] font-bold text-zinc-700">Total aterrizado</span>
                 <span className="text-[14px] font-bold text-zinc-900">{fmtCLP(costoAterrizado.totalAterrizado)}</span>
               </div>
-              <p className="text-[10.5px] text-zinc-400 px-1">FOB total {fmtCLP(costoAterrizado.totalFob)} — esta cifra (no el FOB) es la que alimenta el margen y la Compuerta 2 (spec §12.5).</p>
+              <p className="text-[10.5px] text-zinc-400 px-1">FOB total {fmtCLP(costoAterrizado.totalFob)} — esta cifra (no el FOB) es la que alimenta el margen y el Hito 2 (spec §12.5).</p>
             </div>
           ) : (
             <p className="text-[11px] text-zinc-400">Falta elegir un escenario en el Auditor de Compras y/o completar los datos del embarque para calcular el costo aterrizado.</p>

@@ -423,10 +423,10 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
 
   return (
     <div className="space-y-3">
-      <p className="text-[11px] font-bold text-zinc-400 uppercase flex items-center gap-1.5 px-0.5"><ShieldCheck size={13} /> Compuertas de aprobación</p>
+      <p className="text-[11px] font-bold text-zinc-400 uppercase flex items-center gap-1.5 px-0.5"><ShieldCheck size={13} /> Hitos de aprobación</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
         <BloqueCompuerta
-          tipo="COMPRA" titulo="Compuerta 1 — Aprobación de compra" aprobacion={compra} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
+          tipo="COMPRA" titulo="Hito 1 — Aprobación de compra" aprobacion={compra} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
           onProponer={(motivo) => proponer('COMPRA', motivo)} onResolver={(d, c) => resolver('COMPRA', d, c)}
           requiereMotivo={!!presupuestoActual?.excede} motivoLabel="¿Por qué se compra sobre el presupuesto costeado?"
           desactualizada={compraDesactualizada}
@@ -454,7 +454,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
           </>}
         />
         <BloqueCompuerta
-          tipo="MARGEN" titulo="Compuerta 2 — Aprobación de margen" aprobacion={margen} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
+          tipo="MARGEN" titulo="Hito 2 — Aprobación de margen" aprobacion={margen} esJefeDeVentas={esJefeDeVentas} puedeOperar={puedeOperar}
           onProponer={(motivo) => proponer('MARGEN', motivo)} onResolver={(d, c) => resolver('MARGEN', d, c)}
           requiereMotivo={margenActual?.margenPct != null && margenActual.margenPct < 20} motivoLabel="¿Por qué se aprueba con margen bajo el 20%?"
           resumen={margenActual?.margenPct != null ? (
@@ -467,7 +467,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
       </div>
       {!compra && !margen && (
         <p className="text-[10.5px] text-zinc-400 px-0.5">
-          El control de gasto compara automáticamente lo costeado al ofertar y el margen mínimo (20%) contra lo que de verdad se va a comprar — la orden de compra en Obuma no se habilita hasta que ambas compuertas queden aprobadas.
+          El control de gasto compara automáticamente lo costeado al ofertar y el margen mínimo (20%) contra lo que de verdad se va a comprar — la orden de compra en Obuma no se habilita hasta que ambos hitos queden aprobados.
         </p>
       )}
 

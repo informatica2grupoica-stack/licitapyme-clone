@@ -315,7 +315,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
           <p className="px-4 pt-2 text-[10.5px] text-zinc-400">Del escenario elegido. Escritura real contra Obuma — se crea de verdad, no es un registro manual.</p>
           {!margenAprobado && (
             <p className="mx-4 mt-2 text-[10.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5">
-              Falta aprobar la Compuerta 2 (margen) — control de gasto: no se puede emitir dinero real en Obuma sin las dos compuertas aprobadas.
+              Falta aprobar el Hito 2 (margen) — control de gasto: no se puede emitir dinero real en Obuma sin los dos hitos aprobados.
             </p>
           )}
           <div className="divide-y divide-zinc-100">

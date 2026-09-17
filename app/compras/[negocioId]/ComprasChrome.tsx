@@ -40,7 +40,7 @@ type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'documen
 const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string }[] = [
   { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'El checklist de validación y plazos administrativos (§5): contacto con el cliente, validación técnica real, validación de la cotización y del costeo.' },
   { key: 'costeo', label: 'Costeo y Auditoría', icon: Calculator, descripcion: 'Cobertura por producto (§14), el costeo digital del proyecto y el Auditor de Compras (§8): cotizaciones, homologación, cuadro comparativo y los 4 escenarios de compra.' },
-  { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'Creación del SKU propio (§7) y las dos compuertas de aprobación (§10): aprobación de la compra y aprobación del margen (piso 20%).' },
+  { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'Creación del SKU propio (§7) y los dos hitos de aprobación (§10): aprobación de la compra y aprobación del margen (piso 20%).' },
   { key: 'compra', label: 'Compra, Importación y Logística', icon: Package, descripcion: 'Lo administrativo post-aprobación con OBUMA (§11), costo aterrizado si es importación (§12), modalidad de retiro (§13) y gastos reales del proyecto.' },
   { key: 'entrega', label: 'Entrega y Cierre', icon: Truck, descripcion: 'Reloj de entrega y multas (§15), incidencias (§9), acta de entrega (§16), postventa (§17) y, si corresponde, el registro de fracaso (§14.6).' },
   { key: 'documentos', label: 'Documentos', icon: FileText, descripcion: 'Bases y acta de la licitación, más la auditoría automática del agente sobre este negocio.' },
