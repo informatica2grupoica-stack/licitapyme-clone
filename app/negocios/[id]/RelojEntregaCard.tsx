@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
 import { Select } from '@/app/components/ui/Select';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconClock as Clock, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconCalendarClock as CalendarClock, IconFileAlert as FileWarning, IconSparkles as Sparkles } from '@tabler/icons-react';
 
 type PlazoTipo = 'HABILES' | 'CORRIDOS';
@@ -31,6 +32,7 @@ const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('
 
 export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { negocioId: number; esJefeDeVentas: boolean; puedeOperar: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [reloj, setReloj] = useState<Reloj | null>(null);
   const [escenariosMulta, setEscenariosMulta] = useState<EscenarioMulta[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -79,6 +81,9 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo fijar');
       toast.success('Reloj fijado', 'Validación manual registrada (spec §15.1).');
       setReloj(data.reloj); setFormAbierto(false);
+      // Fijar el reloj cierra sola la tarea "reloj_entrega" — sin esto, Tareas y el Gantt quedaban
+      // mostrándola pendiente hasta recargar la pantalla entera.
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo fijar el reloj', e.message);
     } finally {
@@ -98,6 +103,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo registrar');
       toast.success('Prórroga registrada');
       setReloj(data.reloj); setFormProrroga(false); setProrrogaForm({ nuevaFechaLimite: '', motivo: '' });
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo registrar la prórroga', e.message);
     } finally {
@@ -116,6 +122,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo autorizar');
       toast.success('Entrega con multa autorizada');
       setReloj(data.reloj); setFormMulta(false); setMultaMotivo('');
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo autorizar', e.message);
     } finally {
@@ -132,6 +139,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cancelar');
       toast.success('Prórroga cancelada');
       setReloj(data.reloj);
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo cancelar la prórroga', e.message);
     } finally {
@@ -151,6 +159,7 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo registrar');
       toast.success('Entrega registrada');
       setReloj(data.reloj); setFormEntregado(false); setEntregadoForm({ fecha: '', nota: '' });
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo registrar la entrega', e.message);
     } finally {

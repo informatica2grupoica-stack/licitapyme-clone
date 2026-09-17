@@ -5,6 +5,7 @@
 // por defecto: es una acción rara y seria, no algo que deba competir visualmente con el resto.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconAlertOctagon as AlertOctagon, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp } from '@tabler/icons-react';
 
 interface Fracaso {
@@ -14,6 +15,7 @@ interface Fracaso {
 
 export function FracasoCard({ negocioId, puedeOperar, esJefeDeVentas }: { negocioId: number; puedeOperar: boolean; esJefeDeVentas: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [fracaso, setFracaso] = useState<Fracaso | null>(null);
   const [loading, setLoading] = useState(true);
   const [abierto, setAbierto] = useState(false);
@@ -42,6 +44,7 @@ export function FracasoCard({ negocioId, puedeOperar, esJefeDeVentas }: { negoci
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo declarar');
       setFracaso(data.fracaso); setMotivo('');
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo declarar el fracaso', e.message);
     } finally {
@@ -59,6 +62,7 @@ export function FracasoCard({ negocioId, puedeOperar, esJefeDeVentas }: { negoci
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo dictaminar');
       setFracaso(data.fracaso); setDictamen('');
+      recargarCompartido();
       toast.success('Dictamen registrado');
     } catch (e: any) {
       toast.error('No se pudo dictaminar', e.message);

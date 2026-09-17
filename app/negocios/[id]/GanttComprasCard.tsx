@@ -12,13 +12,14 @@
 // La barra va de creadoAt a cerradoAt (si ya se hizo) o a plazoAt/hoy (si sigue abierta) — es un
 // registro de lo que pasó, no una planificación.
 import { useMemo } from 'react';
-import { IconTimeline as GanttChartSquare, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconAlertTriangle as AlertTriangle, IconCircle as Circle } from '@tabler/icons-react';
+import { IconTimeline as GanttChartSquare, IconCircleCheck as CheckCircle2, IconPlayerPlay as PlayCircle, IconAlertTriangle as AlertTriangle, IconCircle as Circle, IconUserFilled as UserFilled, IconFlag as Flag, IconWand as Wand } from '@tabler/icons-react';
 
 interface TareaGantt {
   id: number; categoria: string; titulo: string;
   estado: 'PENDIENTE' | 'EN_CURSO' | 'HECHA';
   responsableNombre: string | null;
   plazoAt: string | null; creadoAt: string; cerradoAt: string | null; vencida: boolean;
+  esManual?: boolean; hallazgo?: boolean;
 }
 
 const CATEGORIA_LABEL: Record<string, string> = { VALIDACION: 'Validación', ADMINISTRATIVO: 'Plazos administrativos', MANUAL: 'Tareas propias del proyecto' };
@@ -97,6 +98,14 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
   const offsetHoy = diasEntre(inicio, hoy);
   const pct = (dias: number) => `${(dias / totalDias) * 100}%`;
 
+  // Más detalle (pedido explícito, 17-sep-2026): un resumen de avance arriba, que se recalcula solo
+  // con el mismo array `tareas` — a medida que se agregan tareas (manuales o del catálogo) o cambian
+  // de estado en cualquier otra pantalla, este número crece o baja sin tocar nada acá.
+  const hechas = filas.filter(f => f.t.estado === 'HECHA').length;
+  const vencidas = filas.filter(f => f.t.estado !== 'HECHA' && f.t.vencida).length;
+  const enCurso = filas.filter(f => f.t.estado === 'EN_CURSO' && !f.t.vencida).length;
+  const pendientes = filas.length - hechas - vencidas - enCurso;
+
   return (
     <div className="bg-white rounded-2xl border border-zinc-200 shadow-sm overflow-hidden">
       <div className="flex items-center justify-between gap-3 px-5 py-4 bg-gradient-to-r from-teal-600 to-teal-700 flex-wrap">
@@ -107,7 +116,17 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
         <span className="text-[11px] text-teal-50">{fmtCorta(inicio)} — hoy ({fmtCorta(hoy)})</span>
       </div>
 
-      <div className="px-4 sm:px-5 pt-4">
+      {/* Resumen de avance — crece o baja solo a medida que se agregan o cierran tareas en
+          cualquier pantalla (mismo array `tareas` del contexto compartido). */}
+      <div className="flex items-center gap-2 flex-wrap px-4 sm:px-5 pt-4">
+        <span className="text-[11px] font-bold text-zinc-600 bg-zinc-100 border border-zinc-200 px-2 py-0.5 rounded-full">{filas.length} tarea{filas.length === 1 ? '' : 's'}</span>
+        {hechas > 0 && <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">{hechas} hecha{hechas === 1 ? '' : 's'}</span>}
+        {enCurso > 0 && <span className="text-[11px] font-bold text-teal-700 bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full">{enCurso} en curso</span>}
+        {vencidas > 0 && <span className="text-[11px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">{vencidas} vencida{vencidas === 1 ? '' : 's'}</span>}
+        {pendientes > 0 && <span className="text-[11px] font-bold text-zinc-500 bg-zinc-50 border border-zinc-200 px-2 py-0.5 rounded-full">{pendientes} pendiente{pendientes === 1 ? '' : 's'}</span>}
+      </div>
+
+      <div className="px-4 sm:px-5 pt-3">
         <div className="flex items-center gap-3.5 flex-wrap text-[11px] text-zinc-500 pb-3">
           {([
             ['HECHA', 'Hecha'], ['EN_CURSO', 'En curso'], ['VENCIDA', 'Vencida'], ['PENDIENTE', 'Pendiente'],
@@ -141,14 +160,25 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
                 {CATEGORIA_LABEL[cat] || cat}
               </p>
               <div className="space-y-1">
-                {items.map(({ t, offset, largo, estilo }) => (
+                {items.map(({ t, offset, largo, estilo }) => {
+                  const dias = largo;
+                  const hastaTexto = t.estado === 'HECHA' ? fmtCorta(soloFecha(t.cerradoAt || t.creadoAt)) : 'hoy';
+                  return (
                   <div key={t.id}
-                    className={`grid ${LABEL_COL} gap-2 items-center rounded-lg -mx-1.5 px-1.5 py-1 transition-colors hover:bg-zinc-50`}>
-                    <div className="min-w-0 flex items-center gap-1.5">
-                      <estilo.Icon size={12} className={`flex-shrink-0 ${
-                        estilo === ESTILO_ESTADO.VENCIDA ? 'text-rose-500' : estilo === ESTILO_ESTADO.HECHA ? 'text-emerald-500' : estilo === ESTILO_ESTADO.EN_CURSO ? 'text-teal-500' : 'text-zinc-300'
-                      }`} />
-                      <span className="text-[11.5px] font-semibold text-zinc-700 truncate" title={t.titulo}>{t.titulo}</span>
+                    className={`grid ${LABEL_COL} gap-2 items-center rounded-lg -mx-1.5 px-1.5 py-1.5 transition-colors hover:bg-zinc-50`}>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <estilo.Icon size={12} className={`flex-shrink-0 ${
+                          estilo === ESTILO_ESTADO.VENCIDA ? 'text-rose-500' : estilo === ESTILO_ESTADO.HECHA ? 'text-emerald-500' : estilo === ESTILO_ESTADO.EN_CURSO ? 'text-teal-500' : 'text-zinc-300'
+                        }`} />
+                        <span className="text-[11.5px] font-semibold text-zinc-700 truncate" title={t.titulo}>{t.titulo}</span>
+                        {t.esManual && <span title="Tarea propia del proyecto"><Wand size={10} className="flex-shrink-0 text-indigo-400" /></span>}
+                        {t.hallazgo && <span title="Quedó un hallazgo registrado"><Flag size={10} className="flex-shrink-0 text-rose-500" /></span>}
+                      </div>
+                      <p className="text-[9.5px] text-zinc-400 truncate pl-[18px]">
+                        {fmtCorta(soloFecha(t.creadoAt))} → {hastaTexto} · {dias} día{dias === 1 ? '' : 's'}
+                        {t.responsableNombre && <span className="inline-flex items-center gap-0.5 ml-1"><UserFilled size={9} className="inline -mt-0.5" /> {t.responsableNombre}</span>}
+                      </p>
                     </div>
                     <div className="relative h-6">
                       {/* Grilla vertical de semanas — mismo eje que el encabezado. */}
@@ -164,7 +194,8 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
                       />
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}

@@ -8,6 +8,7 @@
 // documentos reales del proyecto, en una sola pasada — mismo motor de citas verificadas.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconRobot as Bot, IconLoader2 as Loader2, IconX as X, IconAlertTriangle as AlertTriangle, IconEye as Eye, IconListCheck as ListChecks, IconRefresh as RefreshCw } from '@tabler/icons-react';
 
 type Area = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'general';
@@ -23,6 +24,7 @@ const fmtFechaHora = (iso: string) => new Date(iso).toLocaleString('es-CL', { da
 
 export function AuditoriaAgenteNegocioCard({ negocioId }: { negocioId: number }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [estado, setEstado] = useState<
     { tipo: 'idle' } | { tipo: 'cargando' } | { tipo: 'auditando' } | { tipo: 'error'; mensaje: string } |
     { tipo: 'listo'; resumen: string; alertas: AlertaAgente[]; fuentes: FuenteDocumento[]; usoHoy: { llamadas: number; tope: number; agotado: boolean }; creadoAt?: string }
@@ -58,6 +60,7 @@ export function AuditoriaAgenteNegocioCard({ negocioId }: { negocioId: number })
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'El agente no pudo auditar el negocio.');
       setEstado({ tipo: 'listo', resumen: data.resumen || '', alertas: data.alertas || [], fuentes: data.fuentes || [], usoHoy: data.usoHoy, creadoAt: new Date().toISOString() });
+      recargarCompartido();
     } catch (e: any) {
       setEstado({ tipo: 'error', mensaje: e.message });
       toast.error('No se pudo auditar el negocio', e.message);

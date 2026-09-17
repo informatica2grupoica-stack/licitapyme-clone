@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconTruck as Truck, IconLoader2 as Loader2 } from '@tabler/icons-react';
 
 type Modalidad = 'INTERNA' | 'EXTERNA' | 'MIXTA';
@@ -12,6 +13,7 @@ const MODALIDAD_LABEL: Record<Modalidad, string> = { INTERNA: 'Interna', EXTERNA
 
 export function ModalidadRetiroCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [modalidad, setModalidad] = useState<Modalidad | null>(null);
   const [definidaPorNombre, setDefinidaPorNombre] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,6 +40,7 @@ export function ModalidadRetiroCard({ negocioId, puedeOperar }: { negocioId: num
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo definir');
       setModalidad(data.modalidad); setDefinidaPorNombre(data.definidaPorNombre);
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo definir la modalidad', e.message);
     } finally {

@@ -12,6 +12,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { useConfirm } from '@/app/components/ui/confirm';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconFileText as FileText, IconLoader2 as Loader2, IconEye as Eye, IconFolderOpen as FolderOpen, IconUpload as Upload, IconTrash as Trash2, IconCloudUpload as UploadCloud, IconSparkles as Sparkles } from '@tabler/icons-react';
 
 interface Documento { nombre: string; url: string; categoria: string | null; fecha: string }
@@ -29,6 +30,7 @@ const CATEGORIA_LABEL: Record<string, string> = {
 export function DocumentosLicitacionCard({ licitacionCodigo }: { licitacionCodigo: string }) {
   const toast = useToast();
   const confirmar = useConfirm();
+  const { recargar: recargarCompartido } = useCompras();
   const [documentos, setDocumentos] = useState<Documento[]>([]);
   const [loading, setLoading] = useState(true);
   // Colapsada por default — vive ARRIBA de las 5 pestañas de Compras (§3-§17, ver ComprasSection.tsx)
@@ -127,6 +129,7 @@ export function DocumentosLicitacionCard({ licitacionCodigo }: { licitacionCodig
 
       toast.success('Compra preparada', notas.join(' · '));
       await cargar();
+      recargarCompartido();
     } finally {
       setPreparando(false);
     }
@@ -163,6 +166,7 @@ export function DocumentosLicitacionCard({ licitacionCodigo }: { licitacionCodig
       toast.success(exitosos === 1 ? 'Documento subido' : `${exitosos} documentos subidos`);
       setAbierto(true);
       cargar();
+      recargarCompartido();
     }
     if (errores.length > 0) toast.error(errores.length === 1 ? 'No se pudo subir el documento' : `No se pudieron subir ${errores.length} documento(s)`, errores.join(' · '));
   };
@@ -178,6 +182,7 @@ export function DocumentosLicitacionCard({ licitacionCodigo }: { licitacionCodig
       });
       if (!r.ok) { const j = await r.json().catch(() => ({})); toast.error(j.error || 'No se pudo eliminar'); return; }
       cargar();
+      recargarCompartido();
     } catch { toast.error('Error de red al eliminar'); } finally { setOcupado(null); }
   };
 

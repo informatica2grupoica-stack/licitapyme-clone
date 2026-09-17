@@ -5,6 +5,7 @@
 // solo la lista de seguimiento del encargado de compras/entrega.
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircle as Circle } from '@tabler/icons-react';
 
 interface Compromiso { titulo: string; descripcion: string | null; resuelto: boolean; resueltoPorNombre: string | null }
@@ -12,6 +13,7 @@ interface Garantia { titulo: string; descripcion: string | null }
 
 export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [compromisos, setCompromisos] = useState<Compromiso[]>([]);
   const [garantias, setGarantias] = useState<Garantia[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,6 +41,7 @@ export function PostventaCard({ negocioId, puedeOperar }: { negocioId: number; p
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');
       await cargar();
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo actualizar', e.message);
     }

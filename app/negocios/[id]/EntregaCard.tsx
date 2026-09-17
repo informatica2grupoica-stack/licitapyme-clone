@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconPackage as PackageCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconSignature as FileSignature, IconPlus as Plus, IconX as X, IconTrash as Trash2 } from '@tabler/icons-react';
 
 type Modalidad = 'TOTAL' | 'PARCIAL';
@@ -50,6 +51,7 @@ function FormFirma({ onGuardar, guardando }: { onGuardar: (f: FirmaDatos, extra?
 // ni firma nada, solo constata que el producto llegó bien.
 export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: { negocioId: number; puedeOperar: boolean; puedeVerificar?: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [entrega, setEntrega] = useState<Entrega | null>(null);
   const [loading, setLoading] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -89,6 +91,7 @@ export function EntregaCard({ negocioId, puedeOperar, puedeVerificar = false }: 
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');
       setEntrega(data.entrega);
+      recargarCompartido();
       return true;
     } catch (e: any) {
       toast.error('No se pudo actualizar', e.message);

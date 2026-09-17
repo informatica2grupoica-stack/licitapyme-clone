@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconShip as Ship, IconLoader2 as Loader2, IconDeviceFloppy as Save } from '@tabler/icons-react';
 
 type Origen = 'LOCAL' | 'IMPORTACION';
@@ -18,6 +19,7 @@ const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('
 
 export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [origen, setOrigen] = useState<Origen | null>(null);
   const [embarque, setEmbarque] = useState<Embarque | null>(null);
   const [costoAterrizado, setCostoAterrizado] = useState<CostoAterrizado | null>(null);
@@ -56,6 +58,7 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo definir');
       setOrigen(data.origen?.origen || null); setCostoAterrizado(data.costoAterrizado);
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo definir el origen', e.message);
     }
@@ -72,6 +75,7 @@ export function ImportacionCard({ negocioId, puedeOperar }: { negocioId: number;
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
       toast.success('Datos del embarque guardados');
       setEmbarque(data.embarque); setCostoAterrizado(data.costoAterrizado);
+      recargarCompartido(); // el costo aterrizado alimenta el margen de la Compuerta 2
     } catch (e: any) {
       toast.error('No se pudo guardar', e.message);
     } finally {

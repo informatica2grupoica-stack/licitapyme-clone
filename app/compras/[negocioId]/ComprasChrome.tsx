@@ -31,7 +31,7 @@ import { ActividadComprasCard } from '@/app/negocios/[id]/ActividadComprasCard';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import { TareasComprasCard } from './TareasComprasCard';
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconGauge as Gauge, IconWallet as Wallet, IconCalendarTime as CalendarTime, IconHourglassHigh as Hourglass, IconMail as Mail, IconPhone as Phone, IconUserCircle as UserCircle } from '@tabler/icons-react';
 
 // Gantt SALIÓ del stepper (pedido explícito, 17-sep-2026: "es aparte de todo ese flujo y es lo
 // primero que se debe ver") — ahora es una tarjeta propia, arriba de todo, no una pestaña más.
@@ -294,69 +294,103 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               </button>
             </div>
           </div>
-          {resumenAbierto && (
-            <div className="border-t border-zinc-100 px-4 py-4 space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase flex items-center gap-1"><UserPlus size={11} /> Asistente comercial (lo trabajó)</p>
-                  <p className="text-[13px] font-bold text-zinc-800">{r.responsableNombre || '—'}</p>
+          {resumenAbierto && (() => {
+            // Más detallado y colorido (pedido explícito, 17-sep-2026) — cada dato tiene su propio
+            // color e ícono en vez de tarjetas grises idénticas, y el margen ahora se ve como barra
+            // contra el piso del 20% (spec §10.3) en vez de solo un número.
+            const margenOk = r.margenPrevisto != null && r.margenPrevisto >= 20;
+            const margenBajo = r.margenPrevisto != null && r.margenPrevisto < 20;
+            const excedePresupuesto = r.presupuestoProyecto != null && r.montoCosteado != null && r.montoCosteado > r.presupuestoProyecto;
+            return (
+            <div className="border-t border-zinc-100 px-4 py-4 space-y-4">
+              {/* Tres cifras principales — grandes, a color. */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="rounded-xl p-3 bg-gradient-to-br from-emerald-50 to-emerald-100/40 border border-emerald-200">
+                  <p className="text-[10px] font-bold text-emerald-700 uppercase flex items-center gap-1"><DollarSign size={12} /> Precio de venta ganado</p>
+                  <p className="text-[18px] font-extrabold text-emerald-800 mt-0.5">{fmtCLP(r.montoNuestro)}</p>
                 </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase flex items-center gap-1"><DollarSign size={11} /> Precio de venta ganado</p>
-                  <p className="text-[13px] font-bold text-zinc-800">{fmtCLP(r.montoNuestro)}</p>
+                <div className="rounded-xl p-3 bg-gradient-to-br from-sky-50 to-sky-100/40 border border-sky-200">
+                  <p className="text-[10px] font-bold text-sky-700 uppercase flex items-center gap-1"><Wallet size={12} /> Presupuesto del proyecto</p>
+                  <p className="text-[18px] font-extrabold text-sky-800 mt-0.5">{fmtCLP(r.presupuestoProyecto)}</p>
                 </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Presupuesto del proyecto</p>
-                  <p className="text-[13px] font-bold text-zinc-800">{fmtCLP(r.presupuestoProyecto)}</p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Margen previsto</p>
-                  <p className={`text-[13px] font-bold ${r.margenPrevisto != null && r.margenPrevisto < 20 ? 'text-rose-600' : 'text-zinc-800'}`}>
+                <div className={`rounded-xl p-3 border ${margenBajo ? 'bg-gradient-to-br from-rose-50 to-rose-100/40 border-rose-200' : 'bg-gradient-to-br from-teal-50 to-teal-100/40 border-teal-200'}`}>
+                  <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${margenBajo ? 'text-rose-700' : 'text-teal-700'}`}>
+                    <Gauge size={12} /> Margen previsto {margenBajo && <AlertTriangle size={11} />}
+                  </p>
+                  <p className={`text-[18px] font-extrabold mt-0.5 ${margenBajo ? 'text-rose-700' : 'text-teal-800'}`}>
                     {r.margenPrevisto != null ? `${r.margenPrevisto}%` : '— (sin costeo)'}
                   </p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Monto costeado</p>
-                  <p className="text-[13px] font-bold text-zinc-800">{r.existeCosteo ? fmtCLP(r.montoCosteado) : 'Sin costeo'}</p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Plazo de entrega ofertado</p>
-                  <p className="text-[12.5px] font-semibold text-zinc-800">{r.plazoEntregaOfertado || '—'}</p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Desde cuándo corre</p>
-                  <p className="text-[12.5px] font-semibold text-zinc-800">{r.hitoInicioPlazo || '—'}</p>
+                  {r.margenPrevisto != null && (
+                    <div className="mt-1.5 h-1.5 rounded-full bg-white/70 overflow-hidden">
+                      <div className={`h-full rounded-full ${margenOk ? 'bg-teal-500' : 'bg-rose-500'}`}
+                        style={{ width: `${Math.max(4, Math.min(100, (r.margenPrevisto / 40) * 100))}%` }} />
+                    </div>
+                  )}
+                  {margenBajo && <p className="text-[9.5px] text-rose-600 mt-1">Bajo el piso del 20% (spec §10.3)</p>}
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereBoletaFielCumplimiento ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
+              {/* Secundarias — más chicas, un ícono de color cada una. */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <div className="rounded-lg p-2.5 bg-indigo-50/60 border border-indigo-100">
+                  <p className="text-[9.5px] font-bold text-indigo-500 uppercase flex items-center gap-1"><UserPlus size={11} /> Asistente comercial</p>
+                  <p className="text-[12.5px] font-bold text-indigo-900 mt-0.5">{r.responsableNombre || '—'}</p>
+                </div>
+                <div className={`rounded-lg p-2.5 border ${excedePresupuesto ? 'bg-amber-50 border-amber-200' : 'bg-violet-50/60 border-violet-100'}`}>
+                  <p className={`text-[9.5px] font-bold uppercase flex items-center gap-1 ${excedePresupuesto ? 'text-amber-600' : 'text-violet-500'}`}>
+                    <Calculator size={11} /> Monto costeado
+                  </p>
+                  <p className={`text-[12.5px] font-bold mt-0.5 ${excedePresupuesto ? 'text-amber-800' : 'text-violet-900'}`}>
+                    {r.existeCosteo ? fmtCLP(r.montoCosteado) : 'Sin costeo'}
+                  </p>
+                </div>
+                <div className="rounded-lg p-2.5 bg-orange-50/60 border border-orange-100">
+                  <p className="text-[9.5px] font-bold text-orange-500 uppercase flex items-center gap-1"><CalendarTime size={11} /> Plazo de entrega ofertado</p>
+                  <p className="text-[12.5px] font-bold text-orange-900 mt-0.5">{r.plazoEntregaOfertado || '—'}</p>
+                </div>
+                <div className="rounded-lg p-2.5 bg-cyan-50/60 border border-cyan-100">
+                  <p className="text-[9.5px] font-bold text-cyan-600 uppercase flex items-center gap-1"><Hourglass size={11} /> Desde cuándo corre</p>
+                  <p className="text-[12.5px] font-bold text-cyan-900 mt-0.5">{r.hitoInicioPlazo || '—'}</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereBoletaFielCumplimiento ? 'text-amber-700 bg-amber-50 border-amber-300' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
                   <FileWarning size={12} /> Boleta de fiel cumplimiento: {r.requiereBoletaFielCumplimiento ? 'Sí' : 'No'}
                 </span>
-                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereFirmaContrato ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
+                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereFirmaContrato ? 'text-amber-700 bg-amber-50 border-amber-300' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
                   <FileWarning size={12} /> Firma de contrato: {r.requiereFirmaContrato ? 'Sí' : 'No'}
                 </span>
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border text-teal-700 bg-teal-50 border-teal-200">
+                  <Clock size={12} /> Plazo para aceptar la OC: {r.plazoAceptacionOC}
+                </span>
               </div>
-              <p className="text-[11.5px] text-zinc-500">Plazo para aceptar la OC: {r.plazoAceptacionOC}</p>
 
               {r.contactosCliente && (
-                <div className="pt-2 border-t border-zinc-100">
-                  <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1 flex items-center gap-1"><Building2 size={12} /> Contactos del cliente</p>
+                <div className="pt-3 border-t border-zinc-100">
+                  <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1.5 flex items-center gap-1"><Building2 size={12} /> Contactos del cliente</p>
                   <p className="text-[12px] text-zinc-600">{[r.contactosCliente.organismo, r.contactosCliente.unidad].filter(Boolean).join(' · ')}</p>
                   {[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).length > 0 && (
                     <p className="text-[11.5px] text-zinc-400">{[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).join(', ')}</p>
                   )}
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
                     {([
-                      { rol: 'Contraparte', nombre: r.contactosCliente.usuarioNombre, datos: [r.contactosCliente.usuarioCargo, r.contactosCliente.usuarioTelefono, r.contactosCliente.usuarioEmail] },
-                      { rol: 'Responsable del contrato', nombre: r.contactosCliente.responsableContratoNombre, datos: [r.contactosCliente.responsableContratoEmail, r.contactosCliente.responsableContratoFono] },
-                      { rol: 'Responsable de pagos', nombre: r.contactosCliente.responsablePagoNombre, datos: [r.contactosCliente.responsablePagoEmail] },
-                    ]).map(({ rol, nombre, datos }) => nombre ? (
-                      <div key={rol} className="bg-zinc-50 rounded-lg p-2">
-                        <p className="text-[10px] font-bold text-zinc-400 uppercase">{rol}</p>
-                        <p className="text-[12px] font-semibold text-zinc-700">{nombre}</p>
+                      { rol: 'Contraparte', nombre: r.contactosCliente.usuarioNombre, datos: [r.contactosCliente.usuarioCargo, r.contactosCliente.usuarioTelefono, r.contactosCliente.usuarioEmail], color: 'sky' },
+                      { rol: 'Responsable del contrato', nombre: r.contactosCliente.responsableContratoNombre, datos: [r.contactosCliente.responsableContratoEmail, r.contactosCliente.responsableContratoFono], color: 'violet' },
+                      { rol: 'Responsable de pagos', nombre: r.contactosCliente.responsablePagoNombre, datos: [r.contactosCliente.responsablePagoEmail], color: 'emerald' },
+                    ] as const).map(({ rol, nombre, datos, color }) => nombre ? (
+                      <div key={rol} className={`rounded-lg p-2.5 border ${
+                        color === 'sky' ? 'bg-sky-50/60 border-sky-100' : color === 'violet' ? 'bg-violet-50/60 border-violet-100' : 'bg-emerald-50/60 border-emerald-100'
+                      }`}>
+                        <p className={`text-[9.5px] font-bold uppercase flex items-center gap-1 ${
+                          color === 'sky' ? 'text-sky-600' : color === 'violet' ? 'text-violet-600' : 'text-emerald-600'
+                        }`}><UserCircle size={11} /> {rol}</p>
+                        <p className="text-[12px] font-semibold text-zinc-800 mt-0.5">{nombre}</p>
                         {datos.filter(Boolean).map(d => (
-                          <p key={String(d)} className="text-[11px] text-zinc-500 break-words">{d}</p>
+                          <p key={String(d)} className="text-[11px] text-zinc-500 break-words flex items-center gap-1 mt-0.5">
+                            {String(d).includes('@') ? <Mail size={10} className="flex-shrink-0" /> : /\d/.test(String(d)) ? <Phone size={10} className="flex-shrink-0" /> : null}
+                            {d}
+                          </p>
                         ))}
                       </div>
                     ) : null)}
@@ -364,7 +398,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -506,28 +541,51 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
           <div className="px-3 sm:px-5 pt-4 pb-2 overflow-x-auto">
             <div className="flex items-center min-w-max">
+              {/* Color por fase = avance REAL de esa fase (pedido explícito, 17-sep-2026: "no me
+                  sirve que queden en verde al avanzar al otro") — antes "pasada" solo miraba si ya
+                  se había hecho clic en una pestaña anterior, así que quedaba verde para siempre
+                  aunque esa fase siguiera con pendientes. Ahora cada pestaña calcula su propio
+                  estado (alerta/pendiente/ok/neutral) a partir de datos reales (resumenFases,
+                  tareas), independiente de cuál esté seleccionada. */}
               {FASES.map((f, i) => {
                 const Icon = f.icon;
                 const activa = faseActiva === f.key;
                 const esLente = f.key === 'actividad';
-                const totalEtapas = FASES.filter(x => x.key !== 'actividad').length;
-                const idxActiva = FASES.findIndex(x => x.key === faseActiva);
-                const pasada = !esLente && idxActiva < totalEtapas && i < idxActiva;
-                let badge: number | null = null; let alerta = false;
-                if (resumenFases) {
-                  if (f.key === 'tareas') badge = resumenFases.tareas.vencidas || null;
-                  else if (f.key === 'costeo') badge = resumenFases.costeo.productosSinCotizacion || null;
-                  else if (f.key === 'aprobacion') badge = resumenFases.aprobacion.compuertasPendientes || null;
-                  else if (f.key === 'compra') badge = resumenFases.compra.hitosAdminPendientes;
-                  else if (f.key === 'entrega') {
+                let badge: number | null = null; let estado: 'alerta' | 'pendiente' | 'ok' | 'neutral' = 'neutral';
+                if (f.key === 'tareas') {
+                  const pendientes = tareas.filter(t => t.estado !== 'HECHA').length;
+                  const vencidas = resumenFases?.tareas.vencidas ?? 0;
+                  badge = vencidas || pendientes || null;
+                  estado = vencidas > 0 ? 'alerta' : pendientes > 0 ? 'pendiente' : tareas.length > 0 ? 'ok' : 'neutral';
+                } else if (resumenFases) {
+                  if (f.key === 'costeo') {
+                    badge = resumenFases.costeo.productosSinCotizacion || null;
+                    estado = resumenFases.costeo.productosSinCotizacion > 0 ? 'pendiente' : 'ok';
+                  } else if (f.key === 'aprobacion') {
+                    badge = resumenFases.aprobacion.compuertasPendientes || null;
+                    estado = resumenFases.aprobacion.compuertasPendientes > 0 ? 'pendiente' : 'ok';
+                  } else if (f.key === 'compra') {
+                    badge = resumenFases.compra.hitosAdminPendientes || null;
+                    estado = resumenFases.compra.hitosAdminPendientes == null ? 'neutral' : resumenFases.compra.hitosAdminPendientes > 0 ? 'pendiente' : 'ok';
+                  } else if (f.key === 'entrega') {
+                    const alerta = resumenFases.entrega.relojVencido || resumenFases.entrega.incidenciasAbiertas > 0;
                     badge = resumenFases.entrega.incidenciasAbiertas || (resumenFases.entrega.relojVencido ? 0 : null);
-                    alerta = resumenFases.entrega.relojVencido || resumenFases.entrega.incidenciasAbiertas > 0;
+                    estado = alerta ? 'alerta' : 'ok';
                   }
                 }
+                const ESTADO_STYLE: Record<typeof estado, string> = {
+                  alerta: 'bg-rose-50 border-rose-400 text-rose-600',
+                  pendiente: 'bg-amber-50 border-amber-400 text-amber-600',
+                  ok: 'bg-emerald-50 border-emerald-400 text-emerald-600',
+                  neutral: 'bg-white border-zinc-200 text-zinc-400',
+                };
+                const ESTADO_LINEA: Record<typeof estado, string> = {
+                  alerta: 'bg-rose-300', pendiente: 'bg-amber-300', ok: 'bg-emerald-300', neutral: 'bg-zinc-200',
+                };
                 return (
                   <div key={f.key} className="flex items-center">
                     {i > 0 && !esLente && (
-                      <div className={`h-0.5 w-6 sm:w-10 flex-shrink-0 transition-colors duration-300 ${pasada || activa ? 'bg-teal-400' : 'bg-zinc-200'}`} />
+                      <div className={`h-0.5 w-6 sm:w-10 flex-shrink-0 transition-colors duration-300 ${ESTADO_LINEA[estado]}`} />
                     )}
                     {f.key === 'actividad' && <div className="w-px h-8 bg-zinc-200 mx-2 sm:mx-3 flex-shrink-0" />}
                     <button onClick={() => setFaseActiva(f.key)} title={f.label}
@@ -537,21 +595,22 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                       } ${
                         activa && esLente ? 'bg-indigo-600 border-indigo-600 text-white shadow-md shadow-indigo-600/30 scale-110'
                         : activa ? 'bg-teal-600 border-teal-600 text-white shadow-md shadow-teal-600/30 scale-110'
-                        : pasada ? 'bg-teal-50 border-teal-400 text-teal-600'
                         : esLente ? 'bg-white border-zinc-200 text-zinc-400 group-hover:border-indigo-300 group-hover:text-indigo-500'
-                        : 'bg-white border-zinc-200 text-zinc-400 group-hover:border-zinc-300 group-hover:text-zinc-600'
+                        : `${ESTADO_STYLE[estado]} group-hover:border-zinc-400`
                       }`}>
                         <Icon size={15} />
                         {badge != null && (
                           <span className={`absolute -top-1.5 -right-1.5 text-[9.5px] font-bold min-w-[16px] h-4 px-1 rounded-full flex items-center justify-center ring-2 ring-white ${
-                            alerta ? 'bg-rose-500 text-white' : 'bg-amber-400 text-white'
+                            estado === 'alerta' ? 'bg-rose-500 text-white' : 'bg-amber-400 text-white'
                           }`}>
                             {badge}
                           </span>
                         )}
                       </span>
                       <span className={`text-[10.5px] font-semibold whitespace-nowrap transition-colors ${
-                        activa && esLente ? 'text-indigo-700' : activa ? 'text-teal-700' : pasada ? 'text-teal-600/80' : esLente ? 'text-zinc-400 group-hover:text-indigo-500' : 'text-zinc-400 group-hover:text-zinc-600'
+                        activa && esLente ? 'text-indigo-700' : activa ? 'text-teal-700'
+                        : esLente ? 'text-zinc-400 group-hover:text-indigo-500'
+                        : estado === 'alerta' ? 'text-rose-600' : estado === 'pendiente' ? 'text-amber-600' : estado === 'ok' ? 'text-emerald-600' : 'text-zinc-400 group-hover:text-zinc-600'
                       }`}>
                         {f.label}
                       </span>

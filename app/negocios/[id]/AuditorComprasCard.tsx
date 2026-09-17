@@ -9,6 +9,7 @@ import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
 import { parsearMontoCL } from '@/app/lib/numeros';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
 type Origen = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada';
@@ -61,6 +62,7 @@ const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('
 
 export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [cuadro, setCuadro] = useState<FilaCuadro[]>([]);
@@ -335,6 +337,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       toast.success('Cotización actualizada', 'Si esto cambia lo que ya estaba aprobado, las compuertas de aprobación vuelven a pendiente.');
       cancelarFormulario();
       await cargar();
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo editar la cotización', e.message);
     } finally {
@@ -382,6 +385,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       toast.success('Cotización eliminada');
       setConfirmandoEliminarId(null);
       await cargar();
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo eliminar la cotización', e.message);
     } finally {
@@ -470,6 +474,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       toast.success('Cotización registrada');
       cancelarFormulario();
       await cargar();
+      recargarCompartido(); // mueve el badge de "Costeo y Auditoría" en el stepper
     } catch (e: any) {
       toast.error('No se pudo registrar la cotización', e.message);
     } finally {
@@ -485,6 +490,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo homologar');
       toast.success('Cotización homologada', `${data.items} producto(s) mapeado(s).`);
       await cargar();
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo homologar', e.message);
     } finally {
@@ -521,6 +527,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
       toast.success('Asignación guardada');
       setAsignandoId(null);
       await cargar();
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo guardar la asignación', e.message);
     } finally {

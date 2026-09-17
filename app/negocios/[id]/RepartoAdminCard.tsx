@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { parsearMontoCL } from '@/app/lib/numeros';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconClipboardList as ClipboardList, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircle as Circle, IconFileText as FileText, IconBolt as Zap, IconTruck as Truck, IconCircleMinus as MinusCircle, IconPaperclip as Paperclip, IconX as X } from '@tabler/icons-react';
 
 interface Reparto {
@@ -66,6 +67,7 @@ const HITOS: Array<{ key: Hito; label: string; atField: keyof Reparto }> = [
 
 export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [visible, setVisible] = useState(false);
   const [margenAprobado, setMargenAprobado] = useState(false);
   const [reparto, setReparto] = useState<Reparto | null>(null);
@@ -236,6 +238,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');
       setReparto(data.reparto);
       if (data.respaldos) setRespaldos(data.respaldos);
+      recargarCompartido(); // mueve el badge de "Compra, Importación y Logística" en el stepper
     } catch (e: any) {
       toast.error('No se pudo actualizar', e.message);
     } finally {
@@ -273,6 +276,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo guardar');
       setReparto(data.reparto); setRespaldos(data.respaldos || []);
+      recargarCompartido();
       toast.success(modoNoAplica ? 'Marcado como no aplica' : 'Hito marcado con respaldo');
       cerrarRespaldo();
     } catch (e: any) {

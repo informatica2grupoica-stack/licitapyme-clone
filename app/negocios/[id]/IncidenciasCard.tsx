@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconAlertTriangle as AlertTriangle, IconSparkles as Sparkles, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconCircleCheck as CheckCircle2, IconClock as Clock, IconSend as Send } from '@tabler/icons-react';
 
 type Naturaleza = 'DEFENSIVA' | 'OFENSIVA';
@@ -30,6 +31,7 @@ const fmtFecha = (s: string | null) => { if (!s) return '—'; try { return new 
 
 export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { negocioId: number; puedeOperar: boolean; esJefeDeVentas: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [incidencias, setIncidencias] = useState<Incidencia[]>([]);
   const [tipos, setTipos] = useState<TipoCatalogo[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -79,6 +81,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
       setForm({ naturaleza: 'DEFENSIVA', tipoClave: '', tipoLibre: '', productoId: '', descripcion: '' });
       setFormAbierto(null);
       setIncidencias(data.incidencias);
+      recargarCompartido(); // mueve el badge de "Entrega y Cierre" en el stepper
     } catch (e: any) {
       toast.error('No se pudo abrir la incidencia', e.message);
     } finally {
@@ -103,6 +106,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
       setFormOm({ productoId: '', productoAlternativo: '', ahorroEstimado: '', descripcion: '' });
       setFormAbierto(null);
       setIncidencias(data.incidencias);
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo registrar', e.message);
     } finally {
@@ -119,6 +123,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cerrar');
       setIncidencias(data.incidencias);
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo cerrar', e.message);
     }
@@ -133,6 +138,7 @@ export function IncidenciasCard({ negocioId, puedeOperar, esJefeDeVentas }: { ne
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');
       toast.success('Actualizado');
       setIncidencias(data.incidencias);
+      recargarCompartido();
       return true;
     } catch (e: any) {
       toast.error('No se pudo actualizar', e.message);

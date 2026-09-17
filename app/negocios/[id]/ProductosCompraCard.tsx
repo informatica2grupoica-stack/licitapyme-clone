@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconPackage as Package, IconLoader2 as Loader2, IconX as X, IconFlag as Flag, IconRefresh as RefreshCw } from '@tabler/icons-react';
 
 type Subestado = 'PENDIENTE' | 'COTIZANDO' | 'COMPRADO' | 'EN_BODEGA' | 'LISTO_ENTREGA' | 'ENTREGADO' | 'RENUNCIADO';
@@ -28,6 +29,7 @@ const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('
 
 export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: { negocioId: number; puedeOperar: boolean; esJefeDeVentas: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [productos, setProductos] = useState<Producto[]>([]);
   const [cobertura, setCobertura] = useState<Cobertura | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,6 +64,10 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');
       setProductos(data.productos); setCobertura(data.cobertura);
+      // Refresca el contexto compartido de Compras (pedido explícito, 17-sep-2026: los apartados
+      // deben actualizarse solos entre sí) — antes esta tarjeta vivía aislada y el resto de la
+      // pantalla (stepper, Gantt) quedaba desactualizado hasta recargar el navegador entero.
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo actualizar', e.message);
     } finally {
@@ -88,6 +94,7 @@ export function ProductosCompraCard({ negocioId, puedeOperar, esJefeDeVentas }: 
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo sincronizar');
       setProductos(data.productos); setCobertura(data.cobertura);
+      recargarCompartido();
       toast.success('Sincronizado con el costeo', `${data.actualizados} actualizado(s) · ${data.agregados} nuevo(s)`);
     } catch (e: any) {
       toast.error('No se pudo sincronizar con el costeo', e.message);

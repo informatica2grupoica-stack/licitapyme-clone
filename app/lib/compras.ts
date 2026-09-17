@@ -1825,8 +1825,17 @@ async function contarHitosAdminPendientes(negocioId: number): Promise<number | n
        FROM compras_reparto_administrativo WHERE negocio_id = ?`,
       [negocioId],
     );
+    // BUG REAL (17-sep-2026, prueba en vivo del stepper): un hito marcado "no aplica" queda
+    // registrado en compras_reparto_respaldo, pero su columna `_at` en compras_reparto_administrativo
+    // se queda en NULL para siempre — el conteo de arriba lo contaba como pendiente por más que se
+    // recargara la pantalla. "No aplica" es una resolución tan válida como marcarlo hecho.
+    const [[noAplica]]: any = await pool.query(
+      `SELECT COUNT(*) n FROM compras_reparto_respaldo WHERE negocio_id = ? AND estado = 'NO_APLICA'`,
+      [negocioId],
+    );
     // Sin fila todavía (nadie tocó el checklist): los 6 hitos están pendientes.
-    return r ? Number(r.n) : 6;
+    const pendientes = r ? Number(r.n) : 6;
+    return Math.max(0, pendientes - Number(noAplica?.n || 0));
   } catch { return null; }
 }
 

@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Banner } from '@/app/components/ui/Banner';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconShieldCheck as ShieldCheck, IconLoader2 as Loader2, IconCircleCheck as CheckCircle2, IconCircleX as XCircle, IconEdit as Edit3, IconAlertTriangle as AlertTriangle, IconTag as Tag, IconPlus as Plus, IconX as X, IconHistory as History, IconStar as Star, IconBolt as Zap } from '@tabler/icons-react';
 
 type Estado = 'PENDIENTE' | 'APROBADA' | 'APROBADA_CON_MODIFICACION' | 'RECHAZADA';
@@ -123,6 +124,7 @@ function BloqueCompuerta({ tipo, titulo, aprobacion, esJefeDeVentas, puedeOperar
 
 export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [compra, setCompra] = useState<Aprobacion | null>(null);
   const [margen, setMargen] = useState<Aprobacion | null>(null);
   const [margenActual, setMargenActual] = useState<Margen | null>(null);
@@ -294,6 +296,7 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo proponer');
       toast.success('Propuesta enviada al jefe de ventas');
       await cargar();
+      recargarCompartido(); // mueve el badge de "Aprobación y SKU" en el stepper
     } catch (e: any) {
       toast.error('No se pudo proponer', e.message);
     }
@@ -308,6 +311,9 @@ export function AprobacionesCompraCard({ negocioId, puedeOperar }: { negocioId: 
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo resolver');
       toast.success('Decisión registrada');
       await cargar();
+      // Aprobar la Compuerta 1 habilita el badge de "Compra, Importación y Logística" (hitos
+      // administrativos) — sin esto quedaba en blanco hasta recargar la pantalla entera.
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo resolver', e.message);
     }

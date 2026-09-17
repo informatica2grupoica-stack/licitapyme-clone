@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/app/components/ui/toast';
 import { Select } from '@/app/components/ui/Select';
+import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
 import { IconReceipt as Receipt, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconTrash as Trash2, IconPaperclip as Paperclip } from '@tabler/icons-react';
 
 interface Gasto {
@@ -19,6 +20,7 @@ const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency'
 
 export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; puedeOperar: boolean }) {
   const toast = useToast();
+  const { recargar: recargarCompartido } = useCompras();
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [resumen, setResumen] = useState<{ total: number; porCategoria: Array<{ clave: string | null; etiqueta: string; total: number }> }>({ total: 0, porCategoria: [] });
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -75,6 +77,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
       setArchivo(null);
       setFormAbierto(false);
       await cargar();
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo registrar el gasto', e.message);
     } finally {
@@ -89,6 +92,7 @@ export function GastosCard({ negocioId, puedeOperar }: { negocioId: number; pued
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo eliminar');
       await cargar();
+      recargarCompartido();
     } catch (e: any) {
       toast.error('No se pudo eliminar', e.message);
     } finally {
