@@ -11,7 +11,7 @@ import { crearChatIA } from '@/app/lib/gemini';
 import { parseJsonIA } from '@/app/lib/json-ia';
 
 export type PlazoTipo = 'HABILES' | 'CORRIDOS';
-export type ColorReloj = 'VERDE' | 'AMARILLO' | 'ROJO' | 'VENCIDO';
+export type ColorReloj = 'VERDE' | 'AMARILLO' | 'ROJO' | 'VENCIDO' | 'ENTREGADO';
 
 function fechaDesdeYMD(ymd: string): Date {
   const [y, m, d] = ymd.split('-').map(Number);
@@ -32,6 +32,7 @@ export interface EstadoReloj {
   fechaLimite: string | null; fijadoPorNombre: string | null; fijadoAt: string | null;
   prorroga: { fechaLimite: string | null; motivo: string | null; documentoUrl: string | null; autorizadoPorNombre: string | null; autorizadoAt: string | null } | null;
   entregaConMulta: { motivo: string | null; autorizadoPorNombre: string | null; autorizadoAt: string | null } | null;
+  entregado: { fecha: string | null; nota: string | null; registradoPorNombre: string | null; registradoAt: string | null; aTiempo: boolean } | null;
   // Derivados — la fecha límite VIGENTE es la de la prórroga si existe, si no la original.
   fechaLimiteVigente: string | null; diasRestantes: number | null; color: ColorReloj | null;
   enVentanaProrroga: boolean; // §15.4: "pedirla entre 5 y 10 días antes del vencimiento"
@@ -44,14 +45,16 @@ export async function obtenerEstadoReloj(negocioId: number): Promise<EstadoReloj
             DATE_FORMAT(prorroga_fecha_limite, '%Y-%m-%d') AS prorroga_fecha_limite, prorroga_motivo, prorroga_documento_url,
             prorroga_autorizado_por_nombre, DATE_FORMAT(prorroga_autorizado_at, '%Y-%m-%d %H:%i:%s') AS prorroga_autorizado_at,
             entrega_con_multa, entrega_con_multa_motivo, entrega_con_multa_autorizado_por_nombre,
-            DATE_FORMAT(entrega_con_multa_autorizado_at, '%Y-%m-%d %H:%i:%s') AS entrega_con_multa_autorizado_at
+            DATE_FORMAT(entrega_con_multa_autorizado_at, '%Y-%m-%d %H:%i:%s') AS entrega_con_multa_autorizado_at,
+            DATE_FORMAT(entregado_fecha, '%Y-%m-%d') AS entregado_fecha, entregado_nota, entregado_por_nombre,
+            DATE_FORMAT(entregado_registrado_at, '%Y-%m-%d %H:%i:%s') AS entregado_registrado_at
        FROM compras_reloj WHERE negocio_id = ? LIMIT 1`,
     [negocioId],
   ) as any;
   const r = (rows as any[])[0];
   if (!r) {
     return { hitoInicio: null, fechaInicio: null, plazoDias: null, plazoTipo: 'CORRIDOS', fechaLimite: null,
-      fijadoPorNombre: null, fijadoAt: null, prorroga: null, entregaConMulta: null,
+      fijadoPorNombre: null, fijadoAt: null, prorroga: null, entregaConMulta: null, entregado: null,
       fechaLimiteVigente: null, diasRestantes: null, color: null, enVentanaProrroga: false };
   }
   const fechaLimiteVigente = r.prorroga_fecha_limite || r.fecha_limite || null;
@@ -61,9 +64,11 @@ export async function obtenerEstadoReloj(negocioId: number): Promise<EstadoReloj
     diasRestantes = Math.round((fechaDesdeYMD(fechaLimiteVigente).getTime() - hoy.getTime()) / 86_400_000);
     // §15.2 — "reloj visual con escalado de color: se pone rojo a medida que aumenta la urgencia."
     // La spec no fija los umbrales numéricos — se calibran acá: vencido siempre rojo/"VENCIDO",
-    // ≤2 días rojo, ≤5 días amarillo, el resto verde.
-    color = diasRestantes < 0 ? 'VENCIDO' : diasRestantes <= 2 ? 'ROJO' : diasRestantes <= 5 ? 'AMARILLO' : 'VERDE';
-    enVentanaProrroga = diasRestantes >= 5 && diasRestantes <= 10;
+    // ≤2 días rojo, ≤5 días amarillo, el resto verde. Una entrega ya registrada congela el reloj:
+    // deja de contar días y de mostrar "Vencido", sea cual sea la fecha de hoy.
+    color = r.entregado_fecha ? 'ENTREGADO'
+      : diasRestantes < 0 ? 'VENCIDO' : diasRestantes <= 2 ? 'ROJO' : diasRestantes <= 5 ? 'AMARILLO' : 'VERDE';
+    enVentanaProrroga = !r.entregado_fecha && diasRestantes >= 5 && diasRestantes <= 10;
   }
   return {
     hitoInicio: r.hito_inicio, fechaInicio: r.fecha_inicio, plazoDias: r.plazo_dias, plazoTipo: r.plazo_tipo,
@@ -74,6 +79,10 @@ export async function obtenerEstadoReloj(negocioId: number): Promise<EstadoReloj
     } : null,
     entregaConMulta: r.entrega_con_multa ? {
       motivo: r.entrega_con_multa_motivo, autorizadoPorNombre: r.entrega_con_multa_autorizado_por_nombre, autorizadoAt: r.entrega_con_multa_autorizado_at,
+    } : null,
+    entregado: r.entregado_fecha ? {
+      fecha: r.entregado_fecha, nota: r.entregado_nota, registradoPorNombre: r.entregado_por_nombre, registradoAt: r.entregado_registrado_at,
+      aTiempo: fechaLimiteVigente ? fechaDesdeYMD(r.entregado_fecha).getTime() <= fechaDesdeYMD(fechaLimiteVigente).getTime() : true,
     } : null,
     fechaLimiteVigente, diasRestantes, color, enVentanaProrroga,
   };
@@ -142,6 +151,49 @@ export async function registrarProrroga(
     tipo: 'COMPRAS_PRORROGA_REGISTRADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
     mensaje: `Se registró una prórroga: nuevo plazo ${nuevaFechaLimite} — ${motivo.trim()}.`,
     metadata: { negocio_id: negocioId, nueva_fecha_limite: nuevaFechaLimite },
+  });
+}
+
+/** Deshace una prórroga registrada por error (ej. usada como nota en vez de como excepción real
+ *  autorizada — spec §15.4 exige documento de respaldo y motivo real, no un comentario). No borra
+ *  el plazo original: solo limpia los campos `prorroga_*`, el reloj vuelve a medirse contra
+ *  `fecha_limite`. */
+export async function cancelarProrroga(negocioId: number, actorId: number, actorNombre: string | null): Promise<void> {
+  const ahora = ahoraChileSQL();
+  const [r] = await pool.query(
+    `UPDATE compras_reloj SET prorroga_fecha_limite = NULL, prorroga_motivo = NULL, prorroga_documento_url = NULL,
+        prorroga_autorizado_por = NULL, prorroga_autorizado_por_nombre = NULL, prorroga_autorizado_at = NULL, updated_at = ?
+      WHERE negocio_id = ? AND prorroga_fecha_limite IS NOT NULL`,
+    [ahora, negocioId],
+  ) as any;
+  if (!r?.affectedRows) throw new Error('No hay ninguna prórroga registrada para cancelar.');
+  await registrarEvento({
+    tipo: 'COMPRAS_PRORROGA_CANCELADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: 'Se canceló la prórroga registrada — el reloj vuelve a medirse contra el plazo original.',
+    metadata: { negocio_id: negocioId },
+  });
+}
+
+/** Registra la fecha real de entrega (dato del usuario, no calculado). Si es <= la fecha límite
+ *  vigente, el reloj queda "cerrado a tiempo": deja de mostrar "Vencido" y de ofrecer prórroga o
+ *  multa, sin necesitar ninguna de las dos excepciones (§15.5/§15.7 — la multa es solo para el
+ *  atraso real, nunca para dejar constancia de que se entregó a tiempo). */
+export async function registrarEntrega(
+  negocioId: number, fecha: string, nota: string | null, actorId: number, actorNombre: string | null,
+): Promise<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) throw new Error('Fecha de entrega inválida.');
+  const ahora = ahoraChileSQL();
+  const [r] = await pool.query(
+    `UPDATE compras_reloj SET entregado_fecha = ?, entregado_nota = ?, entregado_por = ?, entregado_por_nombre = ?,
+        entregado_registrado_at = ?, updated_at = ?
+      WHERE negocio_id = ?`,
+    [fecha, nota?.trim() || null, actorId, actorNombre, ahora, ahora, negocioId],
+  ) as any;
+  if (!r?.affectedRows) throw new Error('El reloj todavía no está fijado.');
+  await registrarEvento({
+    tipo: 'COMPRAS_ENTREGA_REGISTRADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
+    mensaje: `Se registró la entrega real: ${fecha}.`,
+    metadata: { negocio_id: negocioId, fecha },
   });
 }
 

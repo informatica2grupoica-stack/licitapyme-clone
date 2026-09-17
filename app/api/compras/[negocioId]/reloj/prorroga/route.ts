@@ -3,7 +3,7 @@
 // resto del módulo).
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
-import { obtenerEstadoReloj, registrarProrroga } from '@/app/lib/compras-reloj';
+import { obtenerEstadoReloj, registrarProrroga, cancelarProrroga } from '@/app/lib/compras-reloj';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 
@@ -44,5 +44,29 @@ export async function POST(request: NextRequest, { params }: Params) {
   } catch (error: any) {
     console.error('[compras/reloj/prorroga][POST]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudo registrar la prórroga.' }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: Params) {
+  const { id: userId, rol, nombre } = getUser(request);
+  if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  const { negocioId } = await params;
+  const id = parseInt(negocioId);
+
+  try {
+    const asignacion = await obtenerAsignacion(id);
+    if (!asignacion) return NextResponse.json({ error: 'Compras no está abierto para este negocio.' }, { status: 404 });
+    if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
+      return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
+    const permisos = await permisosCrudosDeUsuario(userId);
+    if (!permisos.compras_todo && !permisos.aprobar_comercial)
+      return NextResponse.json({ error: 'Cancelar la prórroga requiere jefe de ventas o CA (spec §15.4).' }, { status: 403 });
+
+    await cancelarProrroga(id, userId, nombre);
+    const reloj = await obtenerEstadoReloj(id);
+    return NextResponse.json({ success: true, reloj });
+  } catch (error: any) {
+    console.error('[compras/reloj/prorroga][DELETE]', String(error));
+    return NextResponse.json({ error: error.message || 'No se pudo cancelar la prórroga.' }, { status: 400 });
   }
 }

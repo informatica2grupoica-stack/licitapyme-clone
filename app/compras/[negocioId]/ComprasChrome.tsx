@@ -31,17 +31,20 @@ import { ActividadComprasCard } from '@/app/negocios/[id]/ActividadComprasCard';
 import { GanttComprasCard } from '@/app/negocios/[id]/GanttComprasCard';
 import { TareasComprasCard } from './TareasComprasCard';
 import { useCompras, fmtCLP, fmtFecha, type OrdenCompra } from './ComprasContext';
-import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History, IconTimeline as GanttChartSquare } from '@tabler/icons-react';
+import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus as UserPlus, IconClock as Clock, IconAlertTriangle as AlertTriangle, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconCurrencyDollar as DollarSign, IconFileAlert as FileWarning, IconBuilding as Building2, IconFileText as FileText, IconDeviceFloppy as Save, IconClipboardList as ClipboardList, IconRefresh as RefreshCw, IconBolt as Zap, IconExternalLink as ExternalLink, IconArrowUpRight as ArrowUpRight, IconCalculator as Calculator, IconClipboardCheck as ClipboardCheck, IconPackage as Package, IconTruck as Truck, IconHistory as History } from '@tabler/icons-react';
 
-type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'actividad' | 'gantt';
+// Gantt SALIÓ del stepper (pedido explícito, 17-sep-2026: "es aparte de todo ese flujo y es lo
+// primero que se debe ver") — ahora es una tarjeta propia, arriba de todo, no una pestaña más.
+// Documentos entró en su lugar como pestaña (antes era tarjeta fija, ocupaba mucho espacio arriba).
+type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'documentos' | 'actividad';
 const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string }[] = [
   { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'El checklist de validación y plazos administrativos (§5): contacto con el cliente, validación técnica real, validación de la cotización y del costeo.' },
   { key: 'costeo', label: 'Costeo y Auditoría', icon: Calculator, descripcion: 'Cobertura por producto (§14), el costeo digital del proyecto y el Auditor de Compras (§8): cotizaciones, homologación, cuadro comparativo y los 4 escenarios de compra.' },
   { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'Creación del SKU propio (§7) y las dos compuertas de aprobación (§10): aprobación de la compra y aprobación del margen (piso 20%).' },
   { key: 'compra', label: 'Compra, Importación y Logística', icon: Package, descripcion: 'Lo administrativo post-aprobación con OBUMA (§11), costo aterrizado si es importación (§12), modalidad de retiro (§13) y gastos reales del proyecto.' },
   { key: 'entrega', label: 'Entrega y Cierre', icon: Truck, descripcion: 'Reloj de entrega y multas (§15), incidencias (§9), acta de entrega (§16), postventa (§17) y, si corresponde, el registro de fracaso (§14.6).' },
+  { key: 'documentos', label: 'Documentos', icon: FileText, descripcion: 'Bases y acta de la licitación, más la auditoría automática del agente sobre este negocio.' },
   { key: 'actividad', label: 'Actividad', icon: History, descripcion: 'Línea de tiempo del proyecto: qué se hizo día a día, desde que se ganó hasta ahora.' },
-  { key: 'gantt', label: 'Gantt', icon: GanttChartSquare, descripcion: 'Tareas por fecha: cuándo se crearon, cuándo vencía cada una y cuándo se cerraron.' },
 ];
 
 export function ComprasChrome({ negocioId }: { negocioId: number }) {
@@ -214,67 +217,159 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         </button>
       </div>
 
-      {/* Documentación, Encargado, OC y Resumen Ejecutivo — se ven siempre, sea cual sea el paso
-          del flujo elegido abajo. */}
-      <DocumentosLicitacionCard licitacionCodigo={asignacion.licitacionCodigo} />
-      <AuditoriaAgenteNegocioCard negocioId={negocioId} />
-
-      {r?.faltantes && r.faltantes.length > 0 && (
-        <Banner variante="warning" accion={puedeOperar ? { label: 'Volver a armar el resumen', onClick: regenerarResumen, cargando: regenerando } : undefined}>
-          <span className="font-semibold">El resumen ejecutivo quedó incompleto:</span> {r.faltantes.join(' · ')}
-        </Banner>
-      )}
-
-      <div className="bg-white rounded-xl border border-zinc-200 p-4">
-        <p className="text-[11px] font-bold text-zinc-400 uppercase mb-2">Encargado de Compras</p>
+      {/* Encargado: chico, una sola línea (pedido explícito, 17-sep-2026: "en encargado debe ser
+          pequeño") — antes era una tarjeta grande, ahora es una franja delgada. */}
+      <div className="bg-white rounded-lg border border-zinc-200 px-3 py-2 flex items-center gap-2 flex-wrap text-[12px]">
+        <span className="text-[10px] font-bold text-zinc-400 uppercase flex-shrink-0">Encargado</span>
         {asignacion.asignadoA && !reasignando ? (
-          <p className="text-[13.5px] text-zinc-800 flex items-center gap-1.5 flex-wrap">
-            <span className="font-bold">{asignacion.asignadoNombre}</span>
-            <span className="text-zinc-400"> — asignado {fmtFecha(asignacion.asignadoAt)}{asignacion.asignadoPor == null ? ' (automático, por carga)' : ''}</span>
+          <p className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
+            <span className="font-bold text-zinc-800">{asignacion.asignadoNombre}</span>
+            <span className="text-zinc-400 text-[11px]">— {fmtFecha(asignacion.asignadoAt)}{asignacion.asignadoPor == null ? ' · automático' : ''}</span>
             {esAdmin && (
               <button onClick={() => setReasignando(true)}
-                className="text-[11.5px] font-semibold text-teal-700 hover:text-teal-800">Cambiar</button>
+                className="text-[11px] font-semibold text-teal-700 hover:text-teal-800">Cambiar</button>
             )}
           </p>
         ) : asignacion.asignadoA && reasignando ? (
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap flex-1">
             <Select
               value={candidatoElegido} onChange={setCandidatoElegido}
-              placeholder="Nuevo encargado…" minWidth={220}
+              placeholder="Nuevo encargado…" minWidth={180}
               options={candidatos.map(c => ({ value: String(c.id), label: `${c.nombre || `Usuario ${c.id}`} (${c.carga} tarea${c.carga === 1 ? '' : 's'} activa${c.carga === 1 ? '' : 's'})` }))}
             />
             <button onClick={asignar} disabled={!candidatoElegido || asignando}
-              className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors">
-              {asignando ? <Loader2 size={13} className="animate-spin" /> : <UserPlus size={13} />} Cambiar
+              className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg transition-colors">
+              {asignando ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />} Cambiar
             </button>
             <button onClick={() => { setReasignando(false); setCandidatoElegido(''); }} disabled={asignando}
-              className="text-[12px] text-zinc-500 hover:text-zinc-700 px-1.5 py-2">Cancelar</button>
+              className="text-[11.5px] text-zinc-500 hover:text-zinc-700">Cancelar</button>
           </div>
         ) : (
-          <div className="space-y-2">
-            <p className="text-[12.5px] text-zinc-500 flex items-center gap-1.5">
-              <Clock size={13} className={vencimientoPasado ? 'text-rose-500' : 'text-amber-500'} />
+          <div className="flex items-center gap-2 flex-wrap flex-1">
+            <span className="text-[11.5px] text-zinc-500 flex items-center gap-1">
+              <Clock size={12} className={vencimientoPasado ? 'text-rose-500' : 'text-amber-500'} />
               {vencimientoPasado
-                ? 'Plazo de asignación vencido — se asignará automáticamente al de menor carga.'
-                : `Sin asignar. Plazo: ${fmtFecha(asignacion.vencimientoAsignacionAt)} (3h hábiles).`}
-            </p>
+                ? 'Plazo vencido — se asignará automáticamente al de menor carga.'
+                : `Sin asignar · vence ${fmtFecha(asignacion.vencimientoAsignacionAt)}`}
+            </span>
             {esJefeDeVentas && (
-              <div className="flex items-center gap-2">
+              <>
                 <Select
                   value={candidatoElegido} onChange={setCandidatoElegido}
-                  placeholder="Elegir encargado…" minWidth={220}
+                  placeholder="Elegir encargado…" minWidth={180}
                   options={candidatos.map(c => ({ value: String(c.id), label: `${c.nombre || `Usuario ${c.id}`} (${c.carga} tarea${c.carga === 1 ? '' : 's'} activa${c.carga === 1 ? '' : 's'})` }))}
                 />
                 <button onClick={asignar} disabled={!candidatoElegido || asignando}
-                  className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-3 py-2 rounded-lg transition-colors">
-                  {asignando ? <Loader2 size={13} className="animate-spin" /> : <UserPlus size={13} />} Asignar
+                  className="inline-flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg transition-colors">
+                  {asignando ? <Loader2 size={12} className="animate-spin" /> : <UserPlus size={12} />} Asignar
                 </button>
-              </div>
+              </>
             )}
           </div>
         )}
       </div>
 
+      {/* Gantt, aparte del flujo por pestañas y lo primero que se ve (pedido explícito,
+          17-sep-2026): "es aparte de todo ese flujo y es lo primero que se debe ver". */}
+      <GanttComprasCard tareas={tareas} />
+
+      {/* Resumen ejecutivo, justo después del Gantt (pedido explícito, 17-sep-2026: "despues el
+          resumen que es super importante") — antes quedaba escondido abajo de todo. */}
+      {r && (
+        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+          <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-50 transition-colors">
+            <button onClick={() => setResumenAbierto(v => !v)} className="flex-1 flex items-center justify-between text-left">
+              <p className="text-[12.5px] font-bold text-zinc-700">Resumen ejecutivo</p>
+            </button>
+            <div className="flex items-center gap-2 pl-2">
+              {puedeOperar && (
+                <button onClick={regenerarResumen} disabled={regenerando}
+                  title="Vuelve a leer el costeo, los contactos del cliente y los plazos de las bases. El resumen no se actualiza solo: es una foto del momento de ganar."
+                  className="flex items-center gap-1 text-[11px] font-semibold text-zinc-400 hover:text-teal-700 disabled:opacity-50">
+                  {regenerando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Volver a armar
+                </button>
+              )}
+              <button onClick={() => setResumenAbierto(v => !v)}>
+                {resumenAbierto ? <ChevronUp size={15} className="text-zinc-400" /> : <ChevronDown size={15} className="text-zinc-400" />}
+              </button>
+            </div>
+          </div>
+          {resumenAbierto && (
+            <div className="border-t border-zinc-100 px-4 py-4 space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase flex items-center gap-1"><UserPlus size={11} /> Asistente comercial (lo trabajó)</p>
+                  <p className="text-[13px] font-bold text-zinc-800">{r.responsableNombre || '—'}</p>
+                </div>
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase flex items-center gap-1"><DollarSign size={11} /> Precio de venta ganado</p>
+                  <p className="text-[13px] font-bold text-zinc-800">{fmtCLP(r.montoNuestro)}</p>
+                </div>
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Presupuesto del proyecto</p>
+                  <p className="text-[13px] font-bold text-zinc-800">{fmtCLP(r.presupuestoProyecto)}</p>
+                </div>
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Margen previsto</p>
+                  <p className={`text-[13px] font-bold ${r.margenPrevisto != null && r.margenPrevisto < 20 ? 'text-rose-600' : 'text-zinc-800'}`}>
+                    {r.margenPrevisto != null ? `${r.margenPrevisto}%` : '— (sin costeo)'}
+                  </p>
+                </div>
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Monto costeado</p>
+                  <p className="text-[13px] font-bold text-zinc-800">{r.existeCosteo ? fmtCLP(r.montoCosteado) : 'Sin costeo'}</p>
+                </div>
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Plazo de entrega ofertado</p>
+                  <p className="text-[12.5px] font-semibold text-zinc-800">{r.plazoEntregaOfertado || '—'}</p>
+                </div>
+                <div className="bg-zinc-50 rounded-lg p-2.5">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Desde cuándo corre</p>
+                  <p className="text-[12.5px] font-semibold text-zinc-800">{r.hitoInicioPlazo || '—'}</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereBoletaFielCumplimiento ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
+                  <FileWarning size={12} /> Boleta de fiel cumplimiento: {r.requiereBoletaFielCumplimiento ? 'Sí' : 'No'}
+                </span>
+                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereFirmaContrato ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
+                  <FileWarning size={12} /> Firma de contrato: {r.requiereFirmaContrato ? 'Sí' : 'No'}
+                </span>
+              </div>
+              <p className="text-[11.5px] text-zinc-500">Plazo para aceptar la OC: {r.plazoAceptacionOC}</p>
+
+              {r.contactosCliente && (
+                <div className="pt-2 border-t border-zinc-100">
+                  <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1 flex items-center gap-1"><Building2 size={12} /> Contactos del cliente</p>
+                  <p className="text-[12px] text-zinc-600">{[r.contactosCliente.organismo, r.contactosCliente.unidad].filter(Boolean).join(' · ')}</p>
+                  {[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).length > 0 && (
+                    <p className="text-[11.5px] text-zinc-400">{[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).join(', ')}</p>
+                  )}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
+                    {([
+                      { rol: 'Contraparte', nombre: r.contactosCliente.usuarioNombre, datos: [r.contactosCliente.usuarioCargo, r.contactosCliente.usuarioTelefono, r.contactosCliente.usuarioEmail] },
+                      { rol: 'Responsable del contrato', nombre: r.contactosCliente.responsableContratoNombre, datos: [r.contactosCliente.responsableContratoEmail, r.contactosCliente.responsableContratoFono] },
+                      { rol: 'Responsable de pagos', nombre: r.contactosCliente.responsablePagoNombre, datos: [r.contactosCliente.responsablePagoEmail] },
+                    ]).map(({ rol, nombre, datos }) => nombre ? (
+                      <div key={rol} className="bg-zinc-50 rounded-lg p-2">
+                        <p className="text-[10px] font-bold text-zinc-400 uppercase">{rol}</p>
+                        <p className="text-[12px] font-semibold text-zinc-700">{nombre}</p>
+                        {datos.filter(Boolean).map(d => (
+                          <p key={String(d)} className="text-[11px] text-zinc-500 break-words">{d}</p>
+                        ))}
+                      </div>
+                    ) : null)}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Orden de compra del cliente, junto al resumen ejecutivo (pedido explícito, 17-sep-2026:
+          "eso metelo a resumen igual") — antes quedaba abajo de todo, separada. */}
       <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
@@ -394,97 +489,10 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
         )}
       </div>
 
-      {r && (
-        <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
-          <div className="w-full flex items-center justify-between px-4 py-3 hover:bg-zinc-50 transition-colors">
-            <button onClick={() => setResumenAbierto(v => !v)} className="flex-1 flex items-center justify-between text-left">
-              <p className="text-[12.5px] font-bold text-zinc-700">Resumen ejecutivo</p>
-            </button>
-            <div className="flex items-center gap-2 pl-2">
-              {puedeOperar && (
-                <button onClick={regenerarResumen} disabled={regenerando}
-                  title="Vuelve a leer el costeo, los contactos del cliente y los plazos de las bases. El resumen no se actualiza solo: es una foto del momento de ganar."
-                  className="flex items-center gap-1 text-[11px] font-semibold text-zinc-400 hover:text-teal-700 disabled:opacity-50">
-                  {regenerando ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />} Volver a armar
-                </button>
-              )}
-              <button onClick={() => setResumenAbierto(v => !v)}>
-                {resumenAbierto ? <ChevronUp size={15} className="text-zinc-400" /> : <ChevronDown size={15} className="text-zinc-400" />}
-              </button>
-            </div>
-          </div>
-          {resumenAbierto && (
-            <div className="border-t border-zinc-100 px-4 py-4 space-y-3">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase flex items-center gap-1"><UserPlus size={11} /> Asistente comercial (lo trabajó)</p>
-                  <p className="text-[13px] font-bold text-zinc-800">{r.responsableNombre || '—'}</p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase flex items-center gap-1"><DollarSign size={11} /> Precio de venta ganado</p>
-                  <p className="text-[13px] font-bold text-zinc-800">{fmtCLP(r.montoNuestro)}</p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Presupuesto del proyecto</p>
-                  <p className="text-[13px] font-bold text-zinc-800">{fmtCLP(r.presupuestoProyecto)}</p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Margen previsto</p>
-                  <p className={`text-[13px] font-bold ${r.margenPrevisto != null && r.margenPrevisto < 20 ? 'text-rose-600' : 'text-zinc-800'}`}>
-                    {r.margenPrevisto != null ? `${r.margenPrevisto}%` : '— (sin costeo)'}
-                  </p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Monto costeado</p>
-                  <p className="text-[13px] font-bold text-zinc-800">{r.existeCosteo ? fmtCLP(r.montoCosteado) : 'Sin costeo'}</p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Plazo de entrega ofertado</p>
-                  <p className="text-[12.5px] font-semibold text-zinc-800">{r.plazoEntregaOfertado || '—'}</p>
-                </div>
-                <div className="bg-zinc-50 rounded-lg p-2.5">
-                  <p className="text-[10px] font-bold text-zinc-400 uppercase">Desde cuándo corre</p>
-                  <p className="text-[12.5px] font-semibold text-zinc-800">{r.hitoInicioPlazo || '—'}</p>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereBoletaFielCumplimiento ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
-                  <FileWarning size={12} /> Boleta de fiel cumplimiento: {r.requiereBoletaFielCumplimiento ? 'Sí' : 'No'}
-                </span>
-                <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg border ${r.requiereFirmaContrato ? 'text-amber-700 bg-amber-50 border-amber-200' : 'text-zinc-400 bg-zinc-50 border-zinc-200'}`}>
-                  <FileWarning size={12} /> Firma de contrato: {r.requiereFirmaContrato ? 'Sí' : 'No'}
-                </span>
-              </div>
-              <p className="text-[11.5px] text-zinc-500">Plazo para aceptar la OC: {r.plazoAceptacionOC}</p>
-
-              {r.contactosCliente && (
-                <div className="pt-2 border-t border-zinc-100">
-                  <p className="text-[11px] font-bold text-zinc-500 uppercase mb-1 flex items-center gap-1"><Building2 size={12} /> Contactos del cliente</p>
-                  <p className="text-[12px] text-zinc-600">{[r.contactosCliente.organismo, r.contactosCliente.unidad].filter(Boolean).join(' · ')}</p>
-                  {[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).length > 0 && (
-                    <p className="text-[11.5px] text-zinc-400">{[r.contactosCliente.direccion, r.contactosCliente.comuna].filter(Boolean).join(', ')}</p>
-                  )}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
-                    {([
-                      { rol: 'Contraparte', nombre: r.contactosCliente.usuarioNombre, datos: [r.contactosCliente.usuarioCargo, r.contactosCliente.usuarioTelefono, r.contactosCliente.usuarioEmail] },
-                      { rol: 'Responsable del contrato', nombre: r.contactosCliente.responsableContratoNombre, datos: [r.contactosCliente.responsableContratoEmail, r.contactosCliente.responsableContratoFono] },
-                      { rol: 'Responsable de pagos', nombre: r.contactosCliente.responsablePagoNombre, datos: [r.contactosCliente.responsablePagoEmail] },
-                    ]).map(({ rol, nombre, datos }) => nombre ? (
-                      <div key={rol} className="bg-zinc-50 rounded-lg p-2">
-                        <p className="text-[10px] font-bold text-zinc-400 uppercase">{rol}</p>
-                        <p className="text-[12px] font-semibold text-zinc-700">{nombre}</p>
-                        {datos.filter(Boolean).map(d => (
-                          <p key={String(d)} className="text-[11px] text-zinc-500 break-words">{d}</p>
-                        ))}
-                      </div>
-                    ) : null)}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+      {r?.faltantes && r.faltantes.length > 0 && (
+        <Banner variante="warning" accion={puedeOperar ? { label: 'Volver a armar el resumen', onClick: regenerarResumen, cargando: regenerando } : undefined}>
+          <span className="font-semibold">El resumen ejecutivo quedó incompleto:</span> {r.faltantes.join(' · ')}
+        </Banner>
       )}
 
       {/* Flujo, en UNA sola pantalla: el stepper cambia `faseActiva` (estado local), nunca navega.
@@ -501,8 +509,8 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
               {FASES.map((f, i) => {
                 const Icon = f.icon;
                 const activa = faseActiva === f.key;
-                const esLente = f.key === 'actividad' || f.key === 'gantt';
-                const totalEtapas = FASES.filter(x => x.key !== 'actividad' && x.key !== 'gantt').length;
+                const esLente = f.key === 'actividad';
+                const totalEtapas = FASES.filter(x => x.key !== 'actividad').length;
                 const idxActiva = FASES.findIndex(x => x.key === faseActiva);
                 const pasada = !esLente && idxActiva < totalEtapas && i < idxActiva;
                 let badge: number | null = null; let alerta = false;
@@ -522,7 +530,6 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                       <div className={`h-0.5 w-6 sm:w-10 flex-shrink-0 transition-colors duration-300 ${pasada || activa ? 'bg-teal-400' : 'bg-zinc-200'}`} />
                     )}
                     {f.key === 'actividad' && <div className="w-px h-8 bg-zinc-200 mx-2 sm:mx-3 flex-shrink-0" />}
-                    {f.key === 'gantt' && <div className="w-4 sm:w-6 flex-shrink-0" />}
                     <button onClick={() => setFaseActiva(f.key)} title={f.label}
                       className="group flex flex-col items-center gap-1.5 flex-shrink-0 px-1.5">
                       <span className={`relative inline-flex items-center justify-center w-9 h-9 border-2 transition-all duration-200 ${
@@ -583,8 +590,13 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 <FracasoCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
               </div>
             )}
+            {faseActiva === 'documentos' && (
+              <div className="space-y-3">
+                <DocumentosLicitacionCard licitacionCodigo={asignacion.licitacionCodigo} />
+                <AuditoriaAgenteNegocioCard negocioId={negocioId} />
+              </div>
+            )}
             {faseActiva === 'actividad' && <ActividadComprasCard negocioId={negocioId} />}
-            {faseActiva === 'gantt' && <GanttComprasCard tareas={tareas} />}
           </div>
         </div>
       )}

@@ -39,7 +39,7 @@ export default function CompraDetallePage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Compras', href: '/compras' }, { label: `Negocio #${negocioId}` }]}>
-      <div className="p-4 sm:p-6 max-w-6xl mx-auto">
+      <div className="p-4 sm:p-6 w-full max-w-[1800px] mx-auto">
         <ComprasProvider negocioId={negocioId}>
           <ComprasChrome negocioId={negocioId} />
         </ComprasProvider>

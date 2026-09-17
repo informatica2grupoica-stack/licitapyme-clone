@@ -10,13 +10,14 @@ import { Select } from '@/app/components/ui/Select';
 import { IconClock as Clock, IconLoader2 as Loader2, IconAlertTriangle as AlertTriangle, IconCalendarClock as CalendarClock, IconFileAlert as FileWarning, IconSparkles as Sparkles } from '@tabler/icons-react';
 
 type PlazoTipo = 'HABILES' | 'CORRIDOS';
-type Color = 'VERDE' | 'AMARILLO' | 'ROJO' | 'VENCIDO';
+type Color = 'VERDE' | 'AMARILLO' | 'ROJO' | 'VENCIDO' | 'ENTREGADO';
 
 interface Reloj {
   hitoInicio: string | null; fechaInicio: string | null; plazoDias: number | null; plazoTipo: PlazoTipo;
   fechaLimite: string | null; fijadoPorNombre: string | null; fijadoAt: string | null;
   prorroga: { fechaLimite: string | null; motivo: string | null; autorizadoPorNombre: string | null } | null;
   entregaConMulta: { motivo: string | null; autorizadoPorNombre: string | null } | null;
+  entregado: { fecha: string | null; nota: string | null; registradoPorNombre: string | null; aTiempo: boolean } | null;
   fechaLimiteVigente: string | null; diasRestantes: number | null; color: Color | null; enVentanaProrroga: boolean;
 }
 interface EscenarioMulta { diasAtraso: number; costoEstimado: number | null; nota: string | null }
@@ -24,6 +25,7 @@ interface EscenarioMulta { diasAtraso: number; costoEstimado: number | null; not
 const COLOR_STYLE: Record<Color, string> = {
   VERDE: 'text-emerald-700 bg-emerald-50 border-emerald-200', AMARILLO: 'text-amber-700 bg-amber-50 border-amber-200',
   ROJO: 'text-rose-700 bg-rose-50 border-rose-200', VENCIDO: 'text-white bg-rose-700 border-rose-800',
+  ENTREGADO: 'text-teal-700 bg-teal-50 border-teal-200',
 };
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
@@ -45,6 +47,10 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
   const [formMulta, setFormMulta] = useState(false);
   const [multaMotivo, setMultaMotivo] = useState('');
   const [guardandoMulta, setGuardandoMulta] = useState(false);
+  const [formEntregado, setFormEntregado] = useState(false);
+  const [entregadoForm, setEntregadoForm] = useState({ fecha: '', nota: '' });
+  const [guardandoEntregado, setGuardandoEntregado] = useState(false);
+  const [cancelandoProrroga, setCancelandoProrroga] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -117,6 +123,41 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
     }
   };
 
+  const cancelarProrroga = async () => {
+    if (!confirm('¿Cancelar la prórroga registrada? El reloj vuelve a medirse contra el plazo original.')) return;
+    setCancelandoProrroga(true);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/reloj/prorroga`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cancelar');
+      toast.success('Prórroga cancelada');
+      setReloj(data.reloj);
+    } catch (e: any) {
+      toast.error('No se pudo cancelar la prórroga', e.message);
+    } finally {
+      setCancelandoProrroga(false);
+    }
+  };
+
+  const guardarEntregado = async () => {
+    if (!entregadoForm.fecha) return;
+    setGuardandoEntregado(true);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/reloj/entregado`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fecha: entregadoForm.fecha, nota: entregadoForm.nota.trim() || null }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo registrar');
+      toast.success('Entrega registrada');
+      setReloj(data.reloj); setFormEntregado(false); setEntregadoForm({ fecha: '', nota: '' });
+    } catch (e: any) {
+      toast.error('No se pudo registrar la entrega', e.message);
+    } finally {
+      setGuardandoEntregado(false);
+    }
+  };
+
   const verEscenariosMulta = async () => {
     setCargandoMultas(true);
     try {
@@ -171,13 +212,28 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
           <>
             <div className="flex items-center gap-3 flex-wrap">
               <span className={`text-[13px] font-bold px-2.5 py-1 rounded-lg border ${COLOR_STYLE[reloj.color!]}`}>
-                {reloj.color === 'VENCIDO' ? 'Vencido' : `${reloj.diasRestantes} día(s) restante(s)`}
+                {reloj.color === 'ENTREGADO' ? (reloj.entregado?.aTiempo ? 'Entregado a tiempo' : 'Entregado con atraso')
+                  : reloj.color === 'VENCIDO' ? 'Vencido' : `${reloj.diasRestantes} día(s) restante(s)`}
               </span>
               <span className="text-[11.5px] text-zinc-500">Vence {reloj.fechaLimiteVigente} — desde &ldquo;{reloj.hitoInicio}&rdquo;, {reloj.plazoDias} días {reloj.plazoTipo === 'HABILES' ? 'hábiles' : 'corridos'}</span>
             </div>
 
+            {reloj.entregado && (
+              <Banner variante={reloj.entregado.aTiempo ? 'success' : 'warning'}>
+                Entregado el {reloj.entregado.fecha}{reloj.entregado.registradoPorNombre ? ` — registrado por ${reloj.entregado.registradoPorNombre}` : ''}{reloj.entregado.nota ? ` — ${reloj.entregado.nota}` : ''}
+              </Banner>
+            )}
             {reloj.prorroga && (
-              <Banner variante="info">Prórroga concedida por {reloj.prorroga.autorizadoPorNombre}: nuevo plazo {reloj.prorroga.fechaLimite} — {reloj.prorroga.motivo}</Banner>
+              <Banner variante="info">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span>Prórroga concedida por {reloj.prorroga.autorizadoPorNombre}: nuevo plazo {reloj.prorroga.fechaLimite} — {reloj.prorroga.motivo}</span>
+                  {esJefeDeVentas && (
+                    <button onClick={cancelarProrroga} disabled={cancelandoProrroga} className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50 whitespace-nowrap">
+                      {cancelandoProrroga ? <Loader2 size={12} className="animate-spin" /> : 'Cancelar prórroga'}
+                    </button>
+                  )}
+                </div>
+              </Banner>
             )}
             {reloj.entregaConMulta && (
               <Banner variante="warning">Entrega con multa autorizada por {reloj.entregaConMulta.autorizadoPorNombre}: {reloj.entregaConMulta.motivo}. Anula la bonificación (spec §15.5).</Banner>
@@ -186,18 +242,39 @@ export function RelojEntregaCard({ negocioId, esJefeDeVentas, puedeOperar }: { n
               <Banner variante="warning">En ventana de prórroga (5-10 días antes del vencimiento) — spec §15.4.</Banner>
             )}
 
-            {esJefeDeVentas && (
+            {puedeOperar && !reloj.entregado && (
               <div className="space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <button onClick={() => { setFormProrroga(v => !v); setFormMulta(false); }} className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 px-2.5 py-1.5 rounded-lg">
-                    <CalendarClock size={12} /> {formProrroga ? 'Cancelar' : 'Registrar prórroga'}
+                  <button onClick={() => { setFormEntregado(v => !v); setFormProrroga(false); setFormMulta(false); }} className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 px-2.5 py-1.5 rounded-lg">
+                    <Clock size={12} /> {formEntregado ? 'Cancelar' : 'Marcar entregado'}
                   </button>
-                  {!reloj.entregaConMulta && (
-                    <button onClick={() => { setFormMulta(v => !v); setFormProrroga(false); }} className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700 px-2.5 py-1.5 rounded-lg">
+                  {esJefeDeVentas && (
+                    <button onClick={() => { setFormProrroga(v => !v); setFormMulta(false); setFormEntregado(false); }} className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-zinc-800 hover:bg-zinc-900 px-2.5 py-1.5 rounded-lg">
+                      <CalendarClock size={12} /> {formProrroga ? 'Cancelar' : 'Registrar prórroga'}
+                    </button>
+                  )}
+                  {esJefeDeVentas && !reloj.entregaConMulta && (
+                    <button onClick={() => { setFormMulta(v => !v); setFormProrroga(false); setFormEntregado(false); }} className="flex items-center gap-1 text-[11.5px] font-semibold text-white bg-rose-600 hover:bg-rose-700 px-2.5 py-1.5 rounded-lg">
                       <FileWarning size={12} /> {formMulta ? 'Cancelar' : 'Autorizar entrega con multa'}
                     </button>
                   )}
                 </div>
+
+                {formEntregado && (
+                  <div className="bg-teal-50 border border-teal-200 rounded-lg p-2.5 space-y-1.5">
+                    <p className="text-[10.5px] font-bold text-teal-700 uppercase">Fecha real de entrega</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      <input type="date" value={entregadoForm.fecha} onChange={e => setEntregadoForm(f => ({ ...f, fecha: e.target.value }))}
+                        className="text-[11.5px] border border-teal-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                      <input value={entregadoForm.nota} onChange={e => setEntregadoForm(f => ({ ...f, nota: e.target.value }))} placeholder="Nota (opcional)"
+                        className="text-[11.5px] border border-teal-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-teal-500" />
+                    </div>
+                    <button onClick={guardarEntregado} disabled={!entregadoForm.fecha || guardandoEntregado}
+                      className="text-[11.5px] font-semibold text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg">
+                      {guardandoEntregado ? <Loader2 size={12} className="animate-spin" /> : 'Guardar entrega'}
+                    </button>
+                  </div>
+                )}
 
                 {formProrroga && (
                   <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 space-y-1.5">
