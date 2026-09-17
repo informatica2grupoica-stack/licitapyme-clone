@@ -42,9 +42,9 @@ const ESTILO_ESTADO: Record<string, { barra: string; punto: string; Icon: typeof
 };
 
 export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
-  const { filas, inicio, totalDias, hoy, semanas } = useMemo(() => {
+  const { filas, inicio, totalDias, hoy, marcas } = useMemo(() => {
     const hoy = soloFecha(new Date().toISOString());
-    if (tareas.length === 0) return { filas: [], inicio: hoy, totalDias: 1, hoy, semanas: [] as Date[] };
+    if (tareas.length === 0) return { filas: [], inicio: hoy, totalDias: 1, hoy, marcas: [] as Date[] };
 
     const inicio = tareas.reduce((min, t) => {
       const d = soloFecha(t.creadoAt);
@@ -70,17 +70,16 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
         return { t, offset, largo, estilo: ESTILO_ESTADO[claveEstado] };
       });
 
-    // Marcas de semana (lunes) entre inicio y fin, para el eje de arriba y la grilla vertical.
-    const semanas: Date[] = [];
-    let cursor = new Date(inicio);
-    const diaSemana = (cursor.getUTCDay() + 6) % 7; // lunes = 0
-    cursor.setUTCDate(cursor.getUTCDate() - diaSemana);
-    while (diasEntre(inicio, cursor) < totalDias) {
-      semanas.push(new Date(cursor));
-      cursor = new Date(cursor.getTime() + 7 * 86_400_000);
-    }
+    // Marcas del eje (pedido explícito, 17-sep-2026: "no se donde comenzaron las tareas ni donde
+    // terminaron con fecha o dias") — antes eran solo lunes, así que un proyecto de 8 días podía
+    // mostrar UNA sola marca en toda la pantalla. Ahora el intervalo se adapta al rango: día por
+    // día para proyectos cortos (lo normal acá, spec §15.7: "nuestros plazos son más cortos"),
+    // cada 2-3 días para rangos medianos, semanal solo para proyectos largos.
+    const intervalo = totalDias <= 14 ? 1 : totalDias <= 35 ? 2 : totalDias <= 70 ? 7 : 14;
+    const marcas: Date[] = [];
+    for (let d = 0; d <= totalDias; d += intervalo) marcas.push(new Date(inicio.getTime() + d * 86_400_000));
 
-    return { filas, inicio, totalDias, hoy, semanas };
+    return { filas, inicio, totalDias, hoy, marcas };
   }, [tareas]);
 
   if (tareas.length === 0) {
@@ -144,10 +143,10 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
         <div className={`grid ${LABEL_COL} gap-2 mb-1`}>
           <div />
           <div className="relative h-5">
-            {semanas.map((s, i) => (
-              <span key={i} className="absolute top-0 text-[9.5px] font-semibold text-zinc-400 -translate-x-1/2"
-                style={{ left: pct(diasEntre(inicio, s)) }}>
-                {fmtCorta(s)}
+            {marcas.map((m, i) => (
+              <span key={i} className={`absolute top-0 text-[9.5px] font-semibold -translate-x-1/2 ${diasEntre(inicio, m) === offsetHoy ? 'text-rose-500' : 'text-zinc-400'}`}
+                style={{ left: pct(diasEntre(inicio, m)) }}>
+                {fmtCorta(m)}
               </span>
             ))}
           </div>
@@ -181,17 +180,28 @@ export function GanttComprasCard({ tareas }: { tareas: TareaGantt[] }) {
                       </p>
                     </div>
                     <div className="relative h-6">
-                      {/* Grilla vertical de semanas — mismo eje que el encabezado. */}
-                      {semanas.map((s, i) => (
-                        <div key={i} className="absolute top-0 bottom-0 w-px bg-zinc-100" style={{ left: pct(diasEntre(inicio, s)) }} />
+                      {/* Grilla vertical — mismo eje que el encabezado. */}
+                      {marcas.map((m, i) => (
+                        <div key={i} className="absolute top-0 bottom-0 w-px bg-zinc-100" style={{ left: pct(diasEntre(inicio, m)) }} />
                       ))}
-                      {/* "Hoy" — línea propia, por encima de la grilla de semanas. */}
+                      {/* "Hoy" — línea propia, por encima de la grilla. */}
                       <div className="absolute top-0 bottom-0 w-0.5 bg-rose-300 z-10" style={{ left: pct(offsetHoy) }} />
+                      {/* Fecha de inicio, pegada al borde izquierdo de la barra (pedido explícito,
+                          17-sep-2026: "no se donde comenzaron las tareas ni donde terminaron"). */}
+                      <span className="absolute top-1/2 text-[9px] font-semibold text-zinc-400 whitespace-nowrap z-10"
+                        style={{ left: pct(offset), transform: 'translate(calc(-100% - 5px), -50%)' }}>
+                        {fmtCorta(soloFecha(t.creadoAt))}
+                      </span>
                       <div
-                        title={`${t.titulo} · ${fmtCorta(soloFecha(t.creadoAt))} → ${t.estado === 'HECHA' ? fmtCorta(soloFecha(t.cerradoAt || t.creadoAt)) : 'hoy'}${t.responsableNombre ? ` · ${t.responsableNombre}` : ''}`}
+                        title={`${t.titulo} · ${fmtCorta(soloFecha(t.creadoAt))} → ${hastaTexto} · ${dias} día${dias === 1 ? '' : 's'}${t.responsableNombre ? ` · ${t.responsableNombre}` : ''}`}
                         className={`absolute top-1 bottom-1 rounded-full shadow-sm ring-1 ring-black/5 transition-all hover:brightness-95 hover:scale-y-110 ${estilo.barra}`}
                         style={{ left: pct(offset), width: `max(6px, ${pct(largo)})` }}
                       />
+                      {/* Fecha de término (o "hoy" si sigue abierta), pegada al borde derecho. */}
+                      <span className="absolute top-1/2 text-[9px] font-semibold text-zinc-500 whitespace-nowrap z-10"
+                        style={{ left: pct(offset + largo), transform: 'translate(5px, -50%)' }}>
+                        {hastaTexto}
+                      </span>
                     </div>
                   </div>
                   );
