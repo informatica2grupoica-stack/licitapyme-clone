@@ -10,6 +10,7 @@ import { Select } from '@/app/components/ui/Select';
 import { Banner } from '@/app/components/ui/Banner';
 import { parsearMontoCL } from '@/app/lib/numeros';
 import { useCompras } from '@/app/compras/[negocioId]/ComprasContext';
+import { AuditoriaCotizacionPanel, type AuditoriaUI } from './AuditoriaCotizacionPanel';
 import { IconGavel as Gavel, IconLoader2 as Loader2, IconPlus as Plus, IconX as X, IconSparkles as Sparkles, IconTrendingDown as TrendingDown, IconTruck as Truck, IconBolt as Zap, IconScale as Scale, IconCurrencyDollar as DollarSign, IconCircleCheck as CheckCircle2, IconPaperclip as Paperclip, IconListCheck as ListChecks, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconLink as Link2, IconShieldCheck as ShieldCheck, IconPencil as Pencil, IconTrash as Trash2, IconRobot as Bot, IconEye as Eye } from '@tabler/icons-react';
 
 type Origen = 'pdf' | 'imagen' | 'whatsapp' | 'texto' | 'correo' | 'llamada';
@@ -139,6 +140,8 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   // Contador visible del tope diario (pedido explícito, 14-sep-2026) — se carga junto con el resto
   // de la pantalla, sin gastar una revisión real (endpoint GET aparte, solo lee el conteo).
   const [usoAgente, setUsoAgente] = useState<{ llamadas: number; tope: number; agotado: boolean } | null>(null);
+  // Dictámenes del auditor (compras-auditoria-cotizacion.ts), uno por cotización × producto.
+  const [auditorias, setAuditorias] = useState<AuditoriaUI[]>([]);
 
   const cargar = useCallback(async () => {
     try {
@@ -147,7 +150,7 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
         fetch(`/api/compras/${negocioId}/sugerencias-historial`), fetch(`/api/compras/${negocioId}/agente-documentos`),
       ]);
       const [dCot, dEsc, dProd, dSug, dUso] = await Promise.all([rCot.json(), rEsc.json(), rProd.json(), rSug.json(), rUso.json()]);
-      if (dCot.success) setCotizaciones(dCot.cotizaciones || []);
+      if (dCot.success) { setCotizaciones(dCot.cotizaciones || []); setAuditorias(dCot.auditorias || []); }
       if (dEsc.success) {
         setCuadro(dEsc.cuadro || []); setNegociacion(dEsc.negociacion || []); setEscenarios(dEsc.escenarios || []);
         setElegidoTipo(dEsc.elegidoTipo || null); setElegidoCostoGuardado(dEsc.elegidoCostoGuardado ?? null);
@@ -163,6 +166,23 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
   }, [negocioId]);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // El auditor corre en segundo plano apenas se asigna/edita una cotización y tarda unos segundos:
+  // mientras haya productos asignados sin dictamen, se consulta solo la lista de cotizaciones (liviano)
+  // cada 8 s, hasta 2 minutos, para que el veredicto aparezca sin recargar la página.
+  const faltanAuditorias = cotizaciones.some(c => c.items.some(it => !auditorias.find(a => a.cotizacionId === c.id && a.productoId === it.productoId)));
+  useEffect(() => {
+    if (!faltanAuditorias) return;
+    let intentos = 0;
+    const t = setInterval(async () => {
+      if (++intentos > 15) { clearInterval(t); return; }
+      try {
+        const d = await (await fetch(`/api/compras/${negocioId}/cotizaciones`)).json();
+        if (d.success) { setCotizaciones(d.cotizaciones || []); setAuditorias(d.auditorias || []); }
+      } catch { /* siguiente vuelta */ }
+    }, 8000);
+    return () => clearInterval(t);
+  }, [faltanAuditorias, negocioId]);
 
   // Se dispara al salir del campo RUT (no en cada tecla) Y apenas el documento lo autocompleta solo
   // (ver leerArchivo más abajo — antes esto SOLO corría con onBlur, así que un RUT que llegaba del
@@ -813,9 +833,6 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                           <input inputMode="numeric" value={draft.precioUnitario} placeholder={`Precio unitario${form.moneda !== 'CLP' ? ` (${form.moneda})` : ''}`}
                             onChange={e => setItemsCreacion(b => ({ ...b, [p.id]: { ...draft, precioUnitario: e.target.value } }))}
                             className="w-32 text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500" />
-                          <Select value={draft.cumple} minWidth={150}
-                            onChange={v => setItemsCreacion(b => ({ ...b, [p.id]: { ...draft, cumple: v as Cumple } }))}
-                            options={(Object.keys(CUMPLE_LABEL) as Cumple[]).map(k => ({ value: k, label: CUMPLE_LABEL[k] }))} />
                         </>
                       )}
                     </div>
@@ -916,11 +933,13 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                       )}
                     </p>
                     {c.items.length > 0 ? (
-                      <div className="flex flex-wrap gap-1 mt-1">
+                      <div className="space-y-1.5 mt-1.5">
                         {c.items.map(it => (
-                          <span key={it.productoId} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${CUMPLE_STYLE[it.cumple]}`}>
-                            {productos.find(p => p.id === it.productoId)?.descripcion || `#${it.productoId}`}: {CUMPLE_LABEL[it.cumple]}{it.precioUnitario != null && ` · ${fmtCLP(it.precioUnitario)}`}
-                          </span>
+                          <AuditoriaCotizacionPanel key={it.productoId}
+                            negocioId={negocioId} cotizacionId={c.id} productoId={it.productoId}
+                            productoNombre={`${productos.find(p => p.id === it.productoId)?.descripcion || `#${it.productoId}`}${it.precioUnitario != null ? ` · ${fmtCLP(it.precioUnitario)}` : ''}`}
+                            auditoria={auditorias.find(a => a.cotizacionId === c.id && a.productoId === it.productoId)}
+                            puedeOperar={puedeOperar} onCambio={async () => { await cargar(); recargarCompartido(); }} />
                         ))}
                       </div>
                     ) : (
@@ -981,9 +1000,6 @@ export function AuditorComprasCard({ negocioId, puedeOperar }: { negocioId: numb
                               <input inputMode="numeric" value={draft.precioUnitario} placeholder="Precio unitario"
                                 onChange={e => setBorradorAsignacion(b => ({ ...b, [p.id]: { ...draft, precioUnitario: e.target.value } }))}
                                 className="w-28 text-[11.5px] border border-zinc-200 rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-teal-500" />
-                              <Select value={draft.cumple} minWidth={150}
-                                onChange={v => setBorradorAsignacion(b => ({ ...b, [p.id]: { ...draft, cumple: v as Cumple } }))}
-                                options={(Object.keys(CUMPLE_LABEL) as Cumple[]).map(k => ({ value: k, label: CUMPLE_LABEL[k] }))} />
                             </>
                           )}
                         </div>

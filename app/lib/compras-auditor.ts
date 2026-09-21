@@ -21,6 +21,7 @@ import { listarProductosCompra, invalidarAprobacionesCompras, type ProductoCompr
 import { obtenerOCrearProveedor } from '@/app/lib/compras-proveedores';
 import { obtenerTipoCambio } from '@/app/lib/tipo-cambio';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
+import { auditarCotizacionEnSegundoPlano } from '@/app/lib/compras-auditoria-cotizacion';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -293,6 +294,8 @@ export async function actualizarCotizacion(
   // criterio que elegir un escenario distinto (§10.5): la aprobación vieja queda sobre un número
   // que ya no es real.
   await invalidarAprobacionesCompras(negocioId, 'Se editó una cotización que puede afectar el costo.');
+  // Lo editado (precio, plazo, vigencia, descripción) cambia lo que hay que auditar: se re-audita.
+  auditarCotizacionEnSegundoPlano(negocioId, cotizacionId, { id: actorId, nombre: actorNombre });
   await registrarEvento({
     tipo: 'COMPRAS_COTIZACION_EDITADA', licitacionCodigo: await licitacionDeNegocio(negocioId), actorId, actorNombre,
     mensaje: `Se editó la cotización de "${proveedorNombre}"${datos.precioUnitario ? ` — ${fmtMonto(datos.precioUnitario)}` : ''}.`,
@@ -437,6 +440,10 @@ export async function asignarItemsCotizacion(
     mensaje: `Se asignó manualmente una cotización a ${limpios.length} producto(s).`,
     metadata: { negocio_id: negocioId, cotizacion_id: cotizacionId, productos: limpios.map(i => i.productoId) },
   });
+  // Auditor real (21-sep-2026): el `cumple` que se eligió a mano queda solo como punto de partida —
+  // apenas se asigna, el auditor compara la cotización contra lo exigido y fija el veredicto con su
+  // evidencia (una decisión manual distinta exige motivo, ver registrarOverrideAuditoria).
+  auditarCotizacionEnSegundoPlano(negocioId, cotizacionId, actorId ? { id: actorId, nombre: actorNombre ?? null } : undefined);
 }
 
 const SYS_HOMOLOGACION = `Eres el Auditor de Compras de una empresa que revende productos adjudicados en licitaciones públicas chilenas.
@@ -530,6 +537,9 @@ ${cotiz.descripcion_libre || '(sin descripción libre — usar solo el precio si
     mensaje: `El agente de auditoría de compra homologó sola la cotización de "${cotiz.proveedor_nombre}" — ${escritos} producto(s) mapeado(s) (spec §19.1).`,
     metadata: { negocio_id: cotiz.negocio_id, cotizacion_id: cotizacionId, items: escritos },
   });
+  // La homologación solo decide A QUÉ producto corresponde; que sea de verdad el producto y cumpla
+  // lo exigido lo dictamina el auditor, con evidencia (compras-auditoria-cotizacion.ts).
+  if (escritos > 0) auditarCotizacionEnSegundoPlano(cotiz.negocio_id, cotizacionId);
   return { items: escritos };
 }
 

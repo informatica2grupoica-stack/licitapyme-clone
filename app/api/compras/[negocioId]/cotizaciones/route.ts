@@ -5,6 +5,7 @@
 // sin archivo, ej. cotización telefónica).
 import { NextRequest, NextResponse } from 'next/server';
 import { obtenerAsignacion } from '@/app/lib/compras';
+import { listarAuditoriasNegocio } from '@/app/lib/compras-auditoria-cotizacion';
 import { registrarCotizacion, listarCotizaciones, type DatosCotizacion, type OrigenCotizacion } from '@/app/lib/compras-auditor';
 import { puedeOperarCompras } from '@/app/api/compras/[negocioId]/route';
 import { subirDocumentoR2 } from '@/app/lib/r2';
@@ -37,8 +38,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeOperarCompras(userId, rol, asignacion.asignadoA)))
       return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
-    const cotizaciones = await listarCotizaciones(id);
-    return NextResponse.json({ success: true, cotizaciones });
+    const [cotizaciones, auditorias] = await Promise.all([listarCotizaciones(id), listarAuditoriasNegocio(id).catch(() => [])]);
+    return NextResponse.json({ success: true, cotizaciones, auditorias });
   } catch (error) {
     console.error('[compras/cotizaciones][GET]', String(error));
     return NextResponse.json({ error: 'No se pudieron cargar las cotizaciones.' }, { status: 500 });
