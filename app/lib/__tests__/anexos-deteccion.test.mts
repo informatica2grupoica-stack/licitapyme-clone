@@ -2379,3 +2379,20 @@ test('año corto: el blanco de 2 guiones NO se acepta fuera de la fórmula de fe
     assert.equal(a.blancosInline.length, 0, texto);
   }
 });
+
+// 21-sep-2026 (1340-50-LE26, ANEXO N°6, reportado con captura): "…o su representada, ___ (Sí/No) tiene
+// programas de integridad…". La raya de 2-3 guiones no existía como casilla y el asistente no tenía
+// dónde responder. La respuesta es decisión suya: se detecta y NO se autocompleta.
+test('pregunta Sí/No: la raya corta antes de "(Sí/No)" es una casilla, con la pregunta como rótulo y sin autollenar', () => {
+  for (const n of [2, 3, 4]) {
+    const texto = `Que, él o ella, o su representada, ${'_'.repeat(n)} (Sí/No) tiene programas de integridad y ética empresarial.`;
+    const a = analizarAnexo(normalizarParaIds(NS + p(texto) + FIN).xml);
+    assert.equal(a.blancosInline.length, 1, `${n} guiones`);
+    assert.equal(a.blancosInline[0].largo, n);
+    assert.match(a.blancosInline[0].contexto, /^\(Sí\/No\) tiene programas de integridad/);
+    const r = resolverDeterminista({ candidatos: [], parrafos: a.parrafos, blancosInline: a.blancosInline, empresa: { programa_integridad_respuesta: 'SÍ' } as any });
+    assert.equal(r.inline.size, 0, 'la respuesta de integridad nunca se autocompleta');
+  }
+  // Control: una raya corta que NO va seguida de "(Sí/No)" sigue sin ser casilla.
+  assert.equal(analizarAnexo(normalizarParaIds(NS + p('Marca ___ Modelo ___') + FIN).xml).blancosInline.length, 0);
+});

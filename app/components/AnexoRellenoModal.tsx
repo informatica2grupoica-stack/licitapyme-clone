@@ -429,7 +429,33 @@ function BloqueParrafo({ b, respuestas, onChange, motivoPorId, alternativasPorId
             }`}
           />
         );
-        if (!alternativas || alternativas.length < 2) return input;
+        if (!alternativas || alternativas.length < 2) {
+          // Blanco seguido de "(Sí/No)" ("…su representada, ___ (Sí/No) tiene programas de
+          // integridad…"): la respuesta es SIEMPRE del asistente, así que además del campo libre
+          // van dos botones para elegirla de un clic. Sin ellos, el blanco era una raya sin control.
+          const sig = b.segmentos[i + 1];
+          if (sig && sig.t === 'texto' && /^\s*\(\s*s[ií]\s*\/\s*no\s*\)/i.test(sig.v)) {
+            const actual = (respuestas[s.id] || '').trim().toLowerCase();
+            return (
+              <span key={i} className="inline-flex items-center gap-0.5 align-baseline">
+                {input}
+                {(['Sí', 'No'] as const).map(op => (
+                  <button
+                    key={op}
+                    type="button"
+                    onClick={() => onChange(s.id, op)}
+                    className={`px-1.5 py-0 rounded text-[11px] font-semibold border ${
+                      actual === op.toLowerCase() || (op === 'Sí' && actual === 'si')
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-indigo-600 border-indigo-200 hover:bg-indigo-50'
+                    }`}
+                  >{op}</button>
+                ))}
+              </span>
+            );
+          }
+          return input;
+        }
         // NOMBRE ambiguo (representante legal vs. empresa, ver anexos-determinista.ts): ya viene
         // precargado con la primera alternativa — este botón alterna a la otra, sin obligar a
         // borrar y volver a escribir.

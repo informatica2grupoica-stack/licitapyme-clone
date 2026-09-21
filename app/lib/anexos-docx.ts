@@ -664,6 +664,12 @@ const RE_RAYA_CORTA_DIA_DE_FECHA = /(?<=\ba\s{0,3})[_X]{2,3}(?=\s{0,3}del?\s*mes
 // pegado a un "20" y precedido de "de/del [año]" — ahí no puede ser otra cosa. Se captura el nexo
 // Una letra pegada antes del "de" (p. ej. "cede 20__") lo descarta.
 const RE_RAYA_CORTA_ANIO_DE_FECHA = /(?<![A-Za-zÁÉÍÓÚÑáéíóúñ])del?\s{0,3}(?:a[ñn]o\s{0,3})?20(_{2,3})(?!_)/gi;
+// MISMO problema con la pregunta de Sí/No (21-sep-2026, 1340-50-LE26, ANEXO N°6, reportado con
+// captura): "Que, él o ella, o su representada, ___ (Sí/No) tiene programas de integridad…". La
+// raya trae 2-3 guiones —bajo el umbral de 4— y no existía como casilla: el asistente no tenía dónde
+// responder a mano (y esa respuesta es SIEMPRE decisión suya, nunca se autocompleta). Se acepta el
+// blanco corto SOLO cuando lo sigue el "(Sí/No)" — ahí no puede ser otra cosa.
+const RE_RAYA_CORTA_ANTES_DE_SI_NO = /(?<!_)_{2,3}(?=\s{0,3}\(\s*s[ií]\s*\/\s*no\s*\))/gi;
 // BUG REAL (1-sep-2026, FORMULARIO N°3 PROGRAMA DE INTEGRIDAD, reportado con captura: "dime por
 // que no es capaz de encontrar donde llenar por las XXX"). Hay organismos que no dejan una raya
 // sino una corrida de equis mayusculas donde va cada dato:
@@ -759,6 +765,7 @@ export function listarBlancosInline(textoRun: string): BlancoInline[] {
   for (const m of textoRun.matchAll(RE_RAYA_CORTA_ANIO_DE_FECHA)) {
     crudos.push({ pos: m.index! + m[0].length - m[1].length, largo: m[1].length });
   }
+  for (const m of textoRun.matchAll(RE_RAYA_CORTA_ANTES_DE_SI_NO)) crudos.push({ pos: m.index!, largo: m[0].length });
   for (const m of textoRun.matchAll(RE_EQUIS_DE_RELLENO)) crudos.push({ pos: m.index!, largo: m[0].length });
   for (const m of textoRun.matchAll(RE_CORRIDA_PUNTOS)) {
     if (pesoPuntos(m[0]) < UMBRAL_PESO_PUNTOS) continue;

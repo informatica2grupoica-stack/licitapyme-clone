@@ -1441,7 +1441,7 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
           // pantalla y en el prompt de la IA) es bastante mejor que "(sin contexto)", que no le
           // dice nada ni al usuario ni al modelo. El ROTULO DE ARRIBA es el mismo respaldo para
           // cuando la etiqueta vive en su propio párrafo antes del blanco (ver rotuloArribaDelBlanco).
-          contexto: contexto || rotuloDebajo || rotuloArriba || '(sin contexto)',
+          contexto: contexto || rotuloDebajo || rotuloArriba || rotuloDeSiNo(textoParrafoCompleto, posGlobalEnParrafo + b.largo) || '(sin contexto)',
           parrafoCompleto: textoParrafoCompleto.trim(),
           posEnParrafo: Math.max(0, posGlobalEnParrafo - recorteIzquierdo),
           ...(b.textoMarcador ? { textoMarcador: b.textoMarcador } : {}),
@@ -1453,6 +1453,15 @@ export function detectarBlancosInline(xml: string): CandidatoInline[] {
     }
   });
   return out;
+}
+
+// "Que, él o ella, o su representada, ___ (Sí/No) tiene programas de integridad…": la coma corta el
+// contexto de la izquierda y no queda nada, pero la PREGUNTA vive a la derecha del blanco. Se usa
+// ese trecho como rótulo ("(Sí/No) tiene programas de integridad y ética empresarial") en vez de
+// "(sin contexto)", que no le dice nada al asistente que tiene que responderla a mano.
+function rotuloDeSiNo(textoParrafo: string, finDelBlanco: number): string {
+  const despues = textoParrafo.slice(finDelBlanco).trim();
+  return /^\(\s*s[ií]\s*\/\s*no\s*\)/i.test(despues) ? despues.slice(0, 60).trim() : '';
 }
 
 // ── Fecha partida en 3 casillas — resuelto DETERMINISTA, sin pasar por la IA ──────────────────
