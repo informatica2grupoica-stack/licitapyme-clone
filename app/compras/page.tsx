@@ -73,7 +73,7 @@ function AvatarAsignado({ nombre, seed, size = 22 }: { nombre: string | null; se
 }
 
 const fmtCLP = (n: number | null) => n == null ? '—' : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
-// Versión abreviada del monto para las tarjetas compactas (vista de 2/4 meses) — el monto completo
+// Versión abreviada del monto para las tarjetas compactas (vista de 2/3 meses) — el monto completo
 // no cabía y se cortaba a la mitad ("$2..."), que es justo el dato que no puede perderse. Redondea
 // a 1 decimal en millones/miles.
 const fmtCLPCorto = (n: number | null) => {
@@ -308,7 +308,7 @@ const SEMANA = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 // entregue la misma info que me entregaba en lista, pero en el cuadro del día".
 function TarjetaDiaCompras({ f, compacta = false }: { f: ComprasFila; compacta?: boolean }) {
   const acento = f.urgente ? '#e11d48' : colorUsuario(f.asignadoA ?? f.asignadoNombre);
-  // Variante compacta (vista de 2/4 meses a la vez, pedido explícito del usuario 16-sep-2026):
+  // Variante compacta (vista de 2/3 meses a la vez, pedido explícito del usuario 16-sep-2026):
   // el cuadro del día es mucho más chico, así que se corta a lo esencial — nombre, monto,
   // plazo/urgente y encargado — pero sin perder el dato que importa (código, organismo y tareas
   // se sacrifican, se ven completos abriendo el "+N más" o entrando al negocio).
@@ -405,7 +405,7 @@ function VistaUrgentesCompras({ negocios }: { negocios: ComprasFila[] }) {
   );
 }
 
-// Grilla de UN mes — extraída para poder repetirla 1, 2 o 4 veces lado a lado (vista de varios
+// Grilla de UN mes — extraída para poder repetirla 1, 2 o 3 veces lado a lado (vista de varios
 // meses) sin duplicar la lógica de armado del calendario.
 function GrillaMesCompras({ mes, porDia, hoy, compacta, onAbrirDia }: {
   mes: dayjs.Dayjs; porDia: Map<string, ComprasFila[]>; hoy: string; compacta: boolean; onAbrirDia: (key: string) => void;
@@ -471,9 +471,9 @@ function GrillaMesCompras({ mes, porDia, hoy, compacta, onAbrirDia }: {
   );
 }
 
-type MesesVista = 1 | 2 | 4;
+type MesesVista = 1 | 2 | 3;
 
-// Vista mensual — pedido explícito del usuario (16-sep-2026): poder ver 2 o 4 meses a la vez para
+// Vista mensual — pedido explícito del usuario (16-sep-2026): poder ver 2 o 3 meses a la vez para
 // planificar entregas con más rango, con cuadros más chicos (variante `compacta` de la tarjeta)
 // pero sin perder los datos clave (nombre, monto, plazo de entrega, encargado).
 function VistaMensualCompras({ negocios, onAbrirDia, mesesVista }: {
@@ -546,7 +546,7 @@ function VistaMensualCompras({ negocios, onAbrirDia, mesesVista }: {
         </div>
       </div>
       <div className={`grid gap-3 ${
-        mesesVista === 1 ? 'grid-cols-1' : mesesVista === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4'
+        mesesVista === 1 ? 'grid-cols-1' : mesesVista === 2 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
       }`}>
         {mesesARenderizar.map(m => (
           <GrillaMesCompras key={m.format('YYYY-MM')} mes={m} porDia={porDia} hoy={hoy} compacta={compacta} onAbrirDia={onAbrirDia} />
@@ -592,6 +592,8 @@ function ModalDiaCompras({ dia, negocios, onClose }: { dia: string; negocios: Co
 const PX_DIA: Record<'compacta' | 'normal' | 'amplia', number> = { compacta: 16, normal: 26, amplia: 40 };
 const ANCHO_ETIQUETA_GANTT = 300;
 const ALTO_FILA_GANTT = 54;
+const ALTO_REGLA_MESES = 26;
+const ALTO_REGLA_DIAS = 22;
 const TOPE_LEGAL_ACEPTACION_OC_DIAS = 5;
 
 function diasEntre(desde: dayjs.Dayjs, hasta: dayjs.Dayjs): number {
@@ -876,13 +878,30 @@ function VistaGanttCompras({ negocios }: { negocios: ComprasFila[] }) {
         <div className="flex-1 bg-white border border-zinc-200 rounded-2xl shadow-sm overflow-hidden min-w-0">
           <div ref={scrollRef} className="overflow-auto" style={{ maxHeight: '72vh' }}>
             <div style={{ width: ANCHO_ETIQUETA_GANTT + anchoTimeline }}>
-              {/* Regla de meses — sticky arriba mientras se hace scroll vertical. */}
-              <div className="sticky top-0 z-20 flex bg-white border-b border-zinc-200" style={{ height: 34 }}>
+              {/* Regla de meses + días — sticky arriba mientras se hace scroll vertical. */}
+              <div className="sticky top-0 z-20 flex bg-white border-b border-zinc-200" style={{ height: ALTO_REGLA_MESES + ALTO_REGLA_DIAS }}>
                 <div className="sticky left-0 z-30 bg-white border-r border-zinc-200 flex-shrink-0" style={{ width: ANCHO_ETIQUETA_GANTT }} />
                 <div className="relative flex-1">
+                  {/* Días: un número por casilla; fin de semana sombreado, hoy resaltado. */}
+                  <div className="absolute inset-x-0 bottom-0 border-t border-zinc-100" style={{ height: ALTO_REGLA_DIAS }}>
+                    {Array.from({ length: totalDias }, (_, i) => {
+                      const d = inicioRango.add(i, 'day');
+                      const finde = d.day() === 0 || d.day() === 6;
+                      const esHoy = d.isSame(dayjs(), 'day');
+                      return (
+                        <div key={i} title={d.format('dddd DD-MM-YYYY')}
+                          className={`absolute inset-y-0 flex items-center justify-center text-[10px] leading-none ${
+                            esHoy ? 'bg-rose-500 text-white font-bold rounded-sm' : finde ? 'bg-zinc-100 text-zinc-400' : 'text-zinc-500'
+                          }`}
+                          style={{ left: i * pxDia, width: pxDia }}>
+                          {d.date()}
+                        </div>
+                      );
+                    })}
+                  </div>
                   {meses.map(m => (
-                    <div key={m.label} className={`absolute inset-y-0 ${m.par ? 'bg-zinc-50' : 'bg-white'}`}
-                      style={{ left: m.x, width: m.w, borderLeft: '1px solid #f4f4f5' }}>
+                    <div key={m.label} className={`absolute top-0 ${m.par ? 'bg-zinc-50' : 'bg-white'}`}
+                      style={{ left: m.x, width: m.w, height: ALTO_REGLA_MESES, borderLeft: '1px solid #f4f4f5' }}>
                       {/* Etiqueta "pegajosa": al desplazarse dentro de un mes ancho, su nombre se queda
                           pegado al borde de la columna fija en vez de desaparecer por la izquierda —
                           pero sin salirse de los límites de SU mes (se lo pasa al siguiente al llegar). */}
@@ -987,7 +1006,7 @@ export default function ComprasPage() {
         if (typeof f.fechaHasta === 'string') setFechaHasta(f.fechaHasta);
         if (f.orden === 'reciente' || f.orden === 'antiguo' || f.orden === 'monto_desc' || f.orden === 'monto_asc') setOrden(f.orden);
         if (f.vista === 'lista' || f.vista === 'mes' || f.vista === 'gantt') setVista(f.vista);
-        if (f.mesesVista === 1 || f.mesesVista === 2 || f.mesesVista === 4) setMesesVista(f.mesesVista);
+        if (f.mesesVista === 1 || f.mesesVista === 2 || f.mesesVista === 3) setMesesVista(f.mesesVista);
       }
     } catch { /* sin persistencia */ }
     setHidratado(true);
@@ -1175,10 +1194,10 @@ export default function ComprasPage() {
             )}
             {negocios.length > 0 && vista === 'mes' && !soloUrgentes && (
               // Ver varios meses a la vez — pedido explícito del usuario, 16-sep-2026: planificar
-              // entregas con más rango sin ir mes a mes. Con 2 o 4 meses las tarjetas del día pasan
+              // entregas con más rango sin ir mes a mes. Con 2 o 3 meses las tarjetas del día pasan
               // a la variante compacta (ver TarjetaDiaCompras) para que quepan sin perder los datos.
               <div className="inline-flex items-center bg-zinc-100 rounded-lg p-0.5" title="Meses a la vez">
-                {([1, 2, 4] as const).map(n => (
+                {([1, 2, 3] as const).map(n => (
                   <button key={n} onClick={() => setMesesVista(n)}
                     className={`text-[12px] font-semibold px-2.5 py-1.5 rounded-md transition-colors ${
                       mesesVista === n ? 'bg-white text-teal-700 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'
