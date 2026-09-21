@@ -2353,3 +2353,29 @@ test('campoDeEtiquetaInequivoca: "ADQUISICIÓN CHILE COMPRA ID N°" (orden inver
   assert.equal(campoDeEtiquetaInequivoca('ADQUISICIÓN CHILE COMPRA ID N°:'), 'licitacion_codigo');
   assert.equal(campoDeEtiquetaInequivoca('Adquisición ID'), 'licitacion_codigo');
 });
+
+// 21-sep-2026 (1340-50-LE26, ANEXO N°5, reportado con captura): "En Valdivia a ___ de ______del 20__,
+// don/doña…" — el organismo imprime el siglo y deja DOS guiones bajos para "26". Bajo el umbral de 4
+// era invisible: día y mes salían llenos y el año quedaba "20__".
+test('año corto: "del 20__" con solo dos guiones se detecta y se resuelve como los 2 últimos dígitos', () => {
+  const texto = 'En Valdivia a _____ de ________del 20__, don/doña ______________, RUT __________, viene en declarar:';
+  const a = analizarAnexo(normalizarParaIds(NS + p(texto) + FIN).xml);
+  const anio = a.blancosInline.find(b => b.contexto === 'del 20');
+  assert.ok(anio, 'el blanco del año debe detectarse');
+  assert.equal(anio!.largo, 2);
+  assert.equal(a.blancosInline.length, 5, 'día, mes, año, nombre y RUT');
+
+  const r = resolverDeterminista({
+    candidatos: [], parrafos: a.parrafos, blancosInline: a.blancosInline, empresa: { fecha_hoy_anio_corto: '26' } as any,
+  });
+  const resueltos = [...r.inline.values()] as Array<{ campo?: string; valor?: string }>;
+  assert.equal(resueltos.find(v => v.campo === 'fecha_hoy_anio_corto')?.valor, '26');
+  assert.ok(!resueltos.some(v => v.campo === 'fecha_hoy_anio'), 'no debe escribirse "2026" detrás del "20" impreso');
+});
+
+test('año corto: el blanco de 2 guiones NO se acepta fuera de la fórmula de fecha', () => {
+  for (const texto of ['Código 20__ del proveedor', 'Se ha cede 20__ unidades', 'Sección 20__']) {
+    const a = analizarAnexo(normalizarParaIds(NS + p(texto) + FIN).xml);
+    assert.equal(a.blancosInline.length, 0, texto);
+  }
+});

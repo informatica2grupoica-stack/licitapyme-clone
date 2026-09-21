@@ -657,6 +657,13 @@ const RE_RAYAS = /_{4,}/g;
 // ("del mes_________"), y ahi un guion bajo cuenta como caracter de palabra — ese limite nunca
 // se cumplia y el blanco del dia seguia invisible.
 const RE_RAYA_CORTA_DIA_DE_FECHA = /(?<=\ba\s{0,3})[_X]{2,3}(?=\s{0,3}del?\s*mes)/gi;
+// MISMO problema con el AÑO (21-sep-2026, 1340-50-LE26, ANEXO N°5, reportado con captura): "En
+// Valdivia a _____ de ________del 20__, don/doña…" — el organismo imprime el siglo "20" y deja DOS
+// guiones bajos para las dos últimas cifras. Bajo el umbral de 4, el blanco era invisible: día y mes
+// salían llenos y el año quedaba en "20__" (2026 sin el "26"). Se acepta el blanco corto SOLO
+// pegado a un "20" y precedido de "de/del [año]" — ahí no puede ser otra cosa. Se captura el nexo
+// Una letra pegada antes del "de" (p. ej. "cede 20__") lo descarta.
+const RE_RAYA_CORTA_ANIO_DE_FECHA = /(?<![A-Za-zÁÉÍÓÚÑáéíóúñ])del?\s{0,3}(?:a[ñn]o\s{0,3})?20(_{2,3})(?!_)/gi;
 // BUG REAL (1-sep-2026, FORMULARIO N°3 PROGRAMA DE INTEGRIDAD, reportado con captura: "dime por
 // que no es capaz de encontrar donde llenar por las XXX"). Hay organismos que no dejan una raya
 // sino una corrida de equis mayusculas donde va cada dato:
@@ -749,6 +756,9 @@ export function listarBlancosInline(textoRun: string): BlancoInline[] {
   const crudos: { pos: number; largo: number; textoMarcador?: string }[] = [];
   for (const m of textoRun.matchAll(RE_RAYAS)) crudos.push({ pos: m.index!, largo: m[0].length });
   for (const m of textoRun.matchAll(RE_RAYA_CORTA_DIA_DE_FECHA)) crudos.push({ pos: m.index!, largo: m[0].length });
+  for (const m of textoRun.matchAll(RE_RAYA_CORTA_ANIO_DE_FECHA)) {
+    crudos.push({ pos: m.index! + m[0].length - m[1].length, largo: m[1].length });
+  }
   for (const m of textoRun.matchAll(RE_EQUIS_DE_RELLENO)) crudos.push({ pos: m.index!, largo: m[0].length });
   for (const m of textoRun.matchAll(RE_CORRIDA_PUNTOS)) {
     if (pesoPuntos(m[0]) < UMBRAL_PESO_PUNTOS) continue;
