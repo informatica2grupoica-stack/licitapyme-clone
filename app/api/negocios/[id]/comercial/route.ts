@@ -19,7 +19,7 @@ import {
   generarItemsDesdeViabilidad, resumirChecklist, transicion, tieneInformacionComercial,
   esPorLinea, modalidadDudosa, estadoDeBloque, lineasDelInforme, excluirYaExistentes, type EstadoItem,
   CLAVE_ITEM_PLAZO, rangoPlazoDeDescripcion, validarPlazoOfertado, reubicacionDeItemGuardado,
-  itemsDesdeArchivosDeAnexo, esAlertaDeCumplimiento, planDeReconciliacion, type FilaReconciliable,
+  itemsDesdeArchivosDeAnexo, esAlertaDeCumplimiento, planDeReconciliacion, ordenarAnexosPorNumero, type FilaReconciliable,
   planDeLineasTecnicas, hayLineasTecnicasHuerfanas, type FilaLineaTecnicaExistente,
   planDeFilasPrecio, hayPreciosObsoletos, type FilaPrecioExistente,
   ACCIONES_ITEM, type AccionItem,
@@ -179,7 +179,7 @@ export async function leerItems(negocioId: number, licitacionCodigo?: string) {
   const documentos = await leerDocumentosPorItem(negocioId);
   const resumenesTecnicos = await leerResumenesTecnicos(negocioId);
   const informe = licitacionCodigo ? await leerInforme(licitacionCodigo).catch(() => null) : null;
-  return (rows as any[]).map(r => ({
+  return ordenarAnexosPorNumero(rows as any[]).map(r => ({
     ...r,
     generable: !!r.generable,
     ofertamos: r.ofertamos === null ? null : !!r.ofertamos,

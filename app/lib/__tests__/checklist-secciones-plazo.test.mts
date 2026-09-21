@@ -348,3 +348,51 @@ test('el criterio que repite un anexo propio no crea una segunda fila (misma cor
   assert.equal(integridad[0].ponderacion, 5);
   assert.match(integridad[0].descripcion || '', /Se evalúa/);
 });
+
+// 21-sep-2026 (1340-50-LE26): el informe listó "Anexos Nº 1, 4 y 5 (declaraciones juradas)
+// firmados" en UNA fila, y el archivo ANEXO_N°5 creó otra para el mismo anexo. Cada anexo va aparte.
+test('un título combinado "1, 4 y 5" se abre en un anexo por número y el archivo N°5 no lo duplica', async () => {
+  const { itemsDesdeArchivosDeAnexo, separarTituloCombinado, numerosDeFormatoEn } = await import('../checklist-comercial');
+  assert.deepEqual(numerosDeFormatoEn('Anexos Nº 1, 4 y 5 (declaraciones juradas) firmados'),
+    ['anexo:1', 'anexo:4', 'anexo:5']);
+  assert.deepEqual(separarTituloCombinado('Anexos Nº 1, 4 y 5 (declaraciones juradas) firmados'), [
+    'Anexo N°1 (declaraciones juradas) firmados',
+    'Anexo N°4 (declaraciones juradas) firmados',
+    'Anexo N°5 (declaraciones juradas) firmados',
+  ]);
+  // Un solo anexo, o un número seguido de plazo, no se toca.
+  assert.deepEqual(separarTituloCombinado('Anexo N°2 Oferta Económica'), ['Anexo N°2 Oferta Económica']);
+  assert.deepEqual(separarTituloCombinado('Anexo N°2 y 30 días corridos'), ['Anexo N°2 y 30 días corridos']);
+
+  const items = generarItemsDesdeViabilidad({
+    modalidad: { tipo: 'por_linea' },
+    requisitos_admisibilidad: {
+      orden_anexos_propios: [
+        { que_crear: 'Anexo Nº 2 Oferta Económica completado y firmado' },
+        { que_crear: 'Anexos Nº 1, 4 y 5 (declaraciones juradas) firmados' },
+      ],
+    },
+  });
+  const docs = items.filter(i => i.tipo === 'documento').map(i => i.titulo);
+  assert.equal(docs.length, 4, docs.join(' | '));
+  const extra = itemsDesdeArchivosDeAnexo(['ANEXO_N°5_DECLARACIÓN_JURADA_DELITOS_CONCURSALES.docx'], items);
+  assert.equal(extra.length, 0, 'el archivo del N°5 ya está cubierto por el anexo separado');
+});
+
+test('excluirYaExistentes: la fila combinada guardada no tapa a los anexos separados', async () => {
+  const { excluirYaExistentes, generarItemsDesdeViabilidad: gen } = await import('../checklist-comercial');
+  const nuevos = gen({ requisitos_admisibilidad: { orden_anexos_propios: [{ que_crear: 'Anexos Nº 1, 4 y 5 (declaraciones juradas) firmados' }] } });
+  const quedan = excluirYaExistentes(nuevos, ['Anexos Nº 1, 4 y 5 (declaraciones juradas) firmados']);
+  assert.equal(quedan.filter(i => i.claveOrigen.startsWith('anexo:')).length, 3);
+});
+
+test('ordenarAnexosPorNumero: N°1…N°6 en orden, lo demás no se mueve', async () => {
+  const { ordenarAnexosPorNumero } = await import('../checklist-comercial');
+  const it = (titulo: string, tipo = 'documento', bloque = 'ADMINISTRATIVO') => ({ bloque, tipo, titulo });
+  const out = ordenarAnexosPorNumero([
+    it('Ficha técnica del fabricante', 'dato'), it('Anexo N°6 Integridad'), it('Anexo N°2 Oferta Económica'),
+    it('Carta de servicio técnico', 'dato'), it('Anexo N°5 Delitos'), it('Anexo N°1 Declaración'),
+  ]).map(i => i.titulo);
+  assert.deepEqual(out, ['Ficha técnica del fabricante', 'Anexo N°1 Declaración', 'Anexo N°2 Oferta Económica',
+    'Carta de servicio técnico', 'Anexo N°5 Delitos', 'Anexo N°6 Integridad']);
+});

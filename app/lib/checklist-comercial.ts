@@ -227,21 +227,39 @@ export function numeroDeFormatoEn(texto: string): string | null {
  * filas individuales desde los archivos reales) no encuentran con qué fundirse.
  */
 export function numerosDeFormatoEn(texto: string): string[] {
+  const lista = leerListaDeFormatos(texto);
+  return lista ? lista.refs.map(r => `${lista.palabra}:${r.clave}`) : [];
+}
+
+interface ListaDeFormatos {
+  palabra: string;            // "anexo" | "formato" | "formulario"
+  palabraVisible: string;     // como se escribe en pantalla, en singular: "Anexo"
+  inicio: number;             // dónde empieza la referencia en el texto ("Anexos Nº 1, 4 y 5" → 0)
+  fin: number;                // dónde termina (después del último número de la lista)
+  refs: Array<{ clave: string; etiqueta: string }>;   // clave = "2b" / "admi_1"; etiqueta = "N°2-B" / "ADMI-1"
+}
+
+function leerListaDeFormatos(texto: string): ListaDeFormatos | null {
   const t = String(texto || '');
   const m = RE_NUM_FORMATO.exec(t);
-  if (!m) return [];
-  const palabra = m[1].toLowerCase();
+  if (!m) return null;
   const codigo = m[2] ? m[2].toLowerCase() : '';
   const normalizar = (n: string) => n.replace(/[.\-\s]/g, '').toLowerCase();
   const conCodigo = (n: string) => codigo ? `${codigo}_${n}` : n;
+  const etiqueta = (n: string) => codigo ? `${codigo.toUpperCase()}-${n}` : `N°${n}`;
+  const compacto = (n: string) => n.replace(/\s+/g, '');
   const primero = normalizar(m[3]);
-  const numeros = [conCodigo(primero)];
-  // Continuación de la lista: ", 2-B, 2-C, 2-D" sin repetir la palabra — mismo patrón dígito+sufijo.
-  const RE_CONTINUACION = /^\s*,\s*(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b/i;
-  let cursor = t.slice(m.index + m[0].length);
+  const refs = [{ clave: conCodigo(primero), etiqueta: etiqueta(compacto(m[3])) }];
+  let fin = m.index + m[0].length;
+  // Continuación de la lista: ", 2-B, 2-C, 2-D" / "1, 4 y 5" / "N°2 y N°3" — mismo patrón
+  // dígito+sufijo, con la palabra o el "N°" repetidos o no. La unidad al final ("y 30 días") corta
+  // la lista: ahí el número ya no es un anexo.
+  const RE_CONTINUACION = /^(?:\s*,\s*(?:[ye]\s+)?|\s+[ye]\s+)(?:(?:formato|anexo|formulario)s?\s*)?n?[°ºo]?\s*[.]?\s*(\d{1,2}(?:\s*[.\-]\s*[a-z0-9]{1,3})?)\b(?!\s*(?:d[ií]as|horas|meses|a[ñn]os|%|unidades|utm|uf)\b)/i;
+  let cursor = t.slice(fin);
   let cont: RegExpExecArray | null;
   while ((cont = RE_CONTINUACION.exec(cursor))) {
-    numeros.push(conCodigo(normalizar(cont[1])));
+    refs.push({ clave: conCodigo(normalizar(cont[1])), etiqueta: etiqueta(compacto(cont[1])) });
+    fin += cont[0].length;
     cursor = cursor.slice(cont[0].length);
   }
   // Rango: "ADMI-1 a ADMI-4" / "N°1 a N°4" — solo entre extremos puramente numéricos (sin sufijo
@@ -249,16 +267,59 @@ export function numerosDeFormatoEn(texto: string): string[] {
   // el del primero: "Formulario ADMI-1 a 4"). Tope de 20 para no expandir un rango mal leído.
   const RE_RANGO = /^\s+a\s+(?:formato|anexo|formulario)?s?\s*n?[°ºo]?\s*[.]?\s*(?:([a-z]{2,6})[.\-\s]*)?(\d{1,2})\b/i;
   const rango = RE_RANGO.exec(cursor);
-  if (rango && numeros.length === 1 && /^\d+$/.test(primero)) {
+  if (rango && refs.length === 1 && /^\d+$/.test(primero)) {
     const codigoFin = rango[1] ? rango[1].toLowerCase() : codigo;
     const desde = Number(primero);
     const hasta = Number(rango[2]);
     if (codigoFin === codigo && Number.isFinite(desde) && Number.isFinite(hasta) && hasta > desde && hasta - desde <= 20) {
-      numeros.length = 0;
-      for (let n = desde; n <= hasta; n++) numeros.push(conCodigo(String(n)));
+      refs.length = 0;
+      for (let n = desde; n <= hasta; n++) refs.push({ clave: conCodigo(String(n)), etiqueta: etiqueta(String(n)) });
+      fin += rango[0].length;
     }
   }
-  return numeros.map(n => `${palabra}:${n}`);
+  const palabraVisible = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+  return { palabra: m[1].toLowerCase(), palabraVisible, inicio: m.index, fin, refs };
+}
+
+/**
+ * Un título que agrupa varios anexos ("Anexos Nº 1, 4 y 5 (declaraciones juradas) firmados") se
+ * abre en uno por anexo: "Anexo N°1 (declaraciones juradas) firmados", "Anexo N°4 …", "Anexo N°5 …".
+ * Pedido del usuario (21-sep-2026, 1340-50-LE26): cada anexo se sube y se firma por separado, y
+ * juntos no se podía saber cuál faltaba. Un título con un solo anexo (o ninguno) vuelve tal cual.
+ */
+export function separarTituloCombinado(titulo: string): string[] {
+  const lista = leerListaDeFormatos(titulo);
+  if (!lista || lista.refs.length < 2) return [titulo];
+  const antes = titulo.slice(0, lista.inicio);
+  const despues = titulo.slice(lista.fin);
+  return lista.refs.map(r => `${antes}${lista.palabraVisible} ${r.etiqueta}${despues}`.replace(/\s+/g, ' ').trim());
+}
+
+/**
+ * Deja los anexos en el orden de su número (N°1, N°2, N°3…) dentro del bloque administrativo. El
+ * `orden` con que se guardan es el de generación (el de la lista del informe), que mezcla los
+ * combinados, los sueltos y los que salen de archivos — el asistente busca "el 4" por número.
+ * Solo se reacomodan los propios anexos entre sí, sobre los mismos lugares: lo demás no se mueve.
+ * Los que no traen número se quedan después, en su orden.
+ */
+export function ordenarAnexosPorNumero<T extends { bloque: string; tipo: string; titulo: string }>(items: T[]): T[] {
+  const clave = (titulo: string): [number, string] | null => {
+    const m = RE_NUM_FORMATO.exec(titulo);
+    if (!m) return null;
+    return [Number(m[3].match(/^\d+/)![0]), m[3].replace(/^\d+/, '').replace(/[.\-\s]/g, '').toLowerCase()];
+  };
+  const lugares: number[] = [];
+  items.forEach((it, i) => { if (it.bloque === 'ADMINISTRATIVO' && it.tipo === 'documento') lugares.push(i); });
+  const anexos = lugares.map((i, pos) => ({ it: items[i], pos, k: clave(items[i].titulo) }));
+  anexos.sort((a, b) => {
+    if (a.k && b.k) return a.k[0] - b.k[0] || a.k[1].localeCompare(b.k[1]) || a.pos - b.pos;
+    if (a.k) return -1;
+    if (b.k) return 1;
+    return a.pos - b.pos;
+  });
+  const out = items.slice();
+  lugares.forEach((lugar, n) => { out[lugar] = anexos[n].it; });
+  return out;
 }
 export function nucleoDeTitulo(texto: string): string {
   // NO usar slug() acá: su fallback '|| sin_nombre' convertiría CUALQUIER título que sea SOLO
@@ -383,7 +444,12 @@ function creaRegistroAdmin() {
 // existentes, así no hay riesgo de que una fila vieja con formato de clave distinto se vea como
 // "nueva" y dispare el problema inverso.
 export function excluirYaExistentes(nuevos: ItemGenerado[], titulosExistentesAdmin: string[]): ItemGenerado[] {
-  const existentes: EntradaAdmin[] = titulosExistentesAdmin.map(t => ({ numeros: numerosDeFormatoEn(t), nucleo: nucleoDeTitulo(t) }));
+  // Una fila COMBINADA ya guardada ("Anexos Nº 1, 4 y 5") no tapa a los anexos sueltos que la
+  // generación ahora abre: si taparan, la fila combinada nunca se reemplazaría. Sale sola en
+  // planDeReconciliacion() cuando todos sus números ya tienen fila propia.
+  const existentes: EntradaAdmin[] = titulosExistentesAdmin
+    .map(t => ({ numeros: numerosDeFormatoEn(t), nucleo: nucleoDeTitulo(t) }))
+    .filter(e => e.numeros.length <= 1);
   return nuevos.filter(it => {
     // Solo aplica a lo que nace con clave_origen 'anexo:...' (orden_anexos_propios/documentos_
     // infaltables/archivos de anexo) — se filtra por la clave, no por bloque, porque todos estos
@@ -508,34 +574,37 @@ export function generarItemsDesdeViabilidad(informe: any, lineasOfertadas?: numb
   // 1) Anexos propios que la IA mandó crear (v3) — el orden de trabajo de la Fase 4.
   const anexos: any[] = Array.isArray(adm.orden_anexos_propios) ? adm.orden_anexos_propios : [];
   for (const a of anexos) {
-    const titulo = String(a?.que_crear || '').trim();
-    if (!titulo || registroAdmin.esDuplicado(titulo)) continue;
-    registroAdmin.registrar(titulo, push({
-      bloque: tituloEsAnexo(titulo) ? bloqueDeAnexo(titulo) : 'ADMINISTRATIVO',
-      tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
-      titulo: titulo.slice(0, 280),
-      descripcion: [a?.que_debe_contener, a?.por_que].filter(Boolean).join(' — ') || null,
-      criticidad: critDe(a?.criticidad), ponderacion: null,
-      fuenteCita: a?.fuente || null, origen: 'viabilidad',
-      claveOrigen: `anexo:${slug(titulo)}`,
-      generable: true,          // candidato a generarse desde la app (Fase 2)
-      lineaNumero: null,
-    }));
+    // Un título que agrupa varios anexos ("Anexos Nº 1, 4 y 5") se abre en uno por anexo.
+    for (const titulo of separarTituloCombinado(String(a?.que_crear || '').trim())) {
+      if (!titulo || registroAdmin.esDuplicado(titulo)) continue;
+      registroAdmin.registrar(titulo, push({
+        bloque: tituloEsAnexo(titulo) ? bloqueDeAnexo(titulo) : 'ADMINISTRATIVO',
+        tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
+        titulo: titulo.slice(0, 280),
+        descripcion: [a?.que_debe_contener, a?.por_que].filter(Boolean).join(' — ') || null,
+        criticidad: critDe(a?.criticidad), ponderacion: null,
+        fuenteCita: a?.fuente || null, origen: 'viabilidad',
+        claveOrigen: `anexo:${slug(titulo)}`,
+        generable: true,          // candidato a generarse desde la app (Fase 2)
+        lineaNumero: null,
+      }));
+    }
   }
 
   // 2) Documentos infaltables (v2.1) — mismo rol que los anexos propios en el informe viejo.
   const infaltables: any[] = Array.isArray(informe?.documentos_infaltables) ? informe.documentos_infaltables : [];
   for (const d of infaltables) {
-    const titulo = String(d?.exige || '').trim();
-    if (!titulo || registroAdmin.esDuplicado(titulo)) continue;   // ya vino por otra fuente
-    registroAdmin.registrar(titulo, push({
-      bloque: tituloEsAnexo(titulo) ? bloqueDeAnexo(titulo) : 'ADMINISTRATIVO',
-      tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
-      titulo: titulo.slice(0, 280),
-      descripcion: d?.cubre || null, criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null,
-      fuenteCita: d?.fuente || null, origen: 'viabilidad',
-      claveOrigen: `anexo:${slug(titulo)}`, generable: true, lineaNumero: null,
-    }));
+    for (const titulo of separarTituloCombinado(String(d?.exige || '').trim())) {
+      if (!titulo || registroAdmin.esDuplicado(titulo)) continue;   // ya vino por otra fuente
+      registroAdmin.registrar(titulo, push({
+        bloque: tituloEsAnexo(titulo) ? bloqueDeAnexo(titulo) : 'ADMINISTRATIVO',
+        tipo: tituloEsAnexo(titulo) ? 'documento' : 'dato',
+        titulo: titulo.slice(0, 280),
+        descripcion: d?.cubre || null, criticidad: 'ADMISIBILIDAD_DURA', ponderacion: null,
+        fuenteCita: d?.fuente || null, origen: 'viabilidad',
+        claveOrigen: `anexo:${slug(titulo)}`, generable: true, lineaNumero: null,
+      }));
+    }
   }
 
   // 3) Garantías y formalidades que las bases exigen. Solo se crean si APLICAN: un checklist
