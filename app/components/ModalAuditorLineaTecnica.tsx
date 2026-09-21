@@ -380,7 +380,7 @@ export function ModalAuditorLineaTecnica({
   const reiniciar = async () => {
     const ok = await confirmar({
       titulo: '¿Borrar toda la comparación de esta línea?',
-      mensaje: 'Se eliminan las características clasificadas y lo que se comparó hasta ahora. La línea vuelve a "sin validar", como si nunca se hubiera tocado.',
+      mensaje: 'Se eliminan las características clasificadas, lo que se comparó hasta ahora y la foto/marca/modelo del producto. La línea vuelve a "sin validar", como si nunca se hubiera tocado. Las fichas subidas quedan adjuntas.',
       confirmarLabel: 'Borrar y empezar de nuevo',
       peligro: true,
     });

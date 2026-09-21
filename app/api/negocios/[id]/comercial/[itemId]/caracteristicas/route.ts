@@ -377,6 +377,14 @@ export async function POST(request: NextRequest, { params }: Params) {
         return NextResponse.json({ error: 'Este negocio ya se postuló: el Auditor Técnico quedó congelado, de solo lectura.' }, { status: 409 });
 
       const [delRows] = await pool.query(`DELETE FROM checklist_comercial_caracteristicas WHERE item_id = ?`, [item.id]) as any;
+      // También la foto y la marca/modelo leídos de la ficha vieja (linea_producto_ofertado): si
+      // quedaban, la línea "limpia" seguía mostrando la imagen del producto anterior y había que
+      // entrar a borrarla a mano, producto por producto. Las fichas adjuntas (documentos) no se tocan.
+      let productosBorrados = 0;
+      try {
+        const [delProd] = await pool.query(`DELETE FROM linea_producto_ofertado WHERE item_id = ?`, [item.id]) as any;
+        productosBorrados = (delProd as any).affectedRows || 0;
+      } catch { /* migración 79 sin aplicar en este entorno: no hay nada que borrar */ }
       await pool.query(
         `UPDATE checklist_comercial
             SET estado = 'PENDIENTE', observacion = NULL,
@@ -386,7 +394,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         [item.id],
       );
       await bitacora(item.id, negocio.id, 'REINICIAR', item.estado, 'PENDIENTE',
-        `Se borraron ${(delRows as any).affectedRows || 0} característica(s) para volver a empezar`, userId, nombreActor);
+        `Se borraron ${(delRows as any).affectedRows || 0} característica(s)${productosBorrados ? ' y la foto/marca/modelo del producto' : ''} para volver a empezar`, userId, nombreActor);
       publicarCambio('checklist_comercial');
       return NextResponse.json({ success: true, caracteristicas: [] });
     }

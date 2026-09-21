@@ -8,9 +8,10 @@
 // comparación por característica exigido/ofertado, precio y plazo de la línea, documento fuente —
 // vive en ModalAuditorLineaTecnica.tsx, que se abre con "Ver comparación".
 import { useState } from 'react';
-import { IconCheck as Check, IconX as X, IconTool as Wrench, IconArrowBackUp as Undo2, IconLoader2 as Loader2, IconUpload as Upload } from '@tabler/icons-react';
+import { IconCheck as Check, IconX as X, IconTool as Wrench, IconArrowBackUp as Undo2, IconLoader2 as Loader2, IconUpload as Upload, IconTrash as Trash2 } from '@tabler/icons-react';
 import { ModalAuditorLineaTecnica } from '@/app/components/ModalAuditorLineaTecnica';
 import { useToast } from '@/app/components/ui/toast';
+import { useConfirm } from '@/app/components/ui/confirm';
 
 interface ResumenTecnico { total: number; cumplen: number; noCumplen: number; conComplemento: number; sinEvaluar: number; pendientesProveedor: number }
 
@@ -71,6 +72,8 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
   onAccion: (itemId: number, accion: string, extra?: Record<string, unknown>) => Promise<boolean>;
 }) {
   const toast = useToast();
+  const confirmar = useConfirm();
+  const [limpiando, setLimpiando] = useState(false);
   const [modalAbierto, setModalAbierto] = useState(false);
   const [arrastrando, setArrastrando] = useState(false);
   const [subiendoFicha, setSubiendoFicha] = useState(false);
@@ -124,6 +127,30 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
     } finally {
       setSubiendoFicha(false);
       setProgreso(null);
+    }
+  };
+
+  // Deja la línea como nueva: borra las características comparadas y la foto/marca/modelo del
+  // producto (las fichas subidas quedan adjuntas). Antes había que abrir cada línea, entrar al
+  // modal y usar "Reiniciar" — y la foto ni siquiera se borraba ahí.
+  const limpiar = async () => {
+    const ok = await confirmar({
+      titulo: `¿Limpiar ${item.titulo}?`,
+      mensaje: 'Se borran las características comparadas y la foto/marca/modelo del producto. La línea vuelve a "sin validar". Las fichas subidas quedan adjuntas.',
+      confirmarLabel: 'Limpiar',
+      peligro: true,
+    });
+    if (!ok) return;
+    setLimpiando(true);
+    try {
+      const r = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'reiniciar' }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) { toast.error(d.error || 'No se pudo limpiar la línea'); return; }
+      toast.success('Línea limpiada', item.titulo);
+    } catch (e) {
+      toast.error('Error de red', String(e));
+    } finally {
+      setLimpiando(false);
     }
   };
 
@@ -196,6 +223,13 @@ export function FilaLineaTecnica({ item, negocioId, licitacionCodigo, puedeAprob
           <button onClick={() => onAccion(item.id, 'REABRIR')} title="Reabrir esta línea"
             className="p-1.5 text-zinc-300 hover:text-zinc-600 hover:bg-zinc-50 rounded-lg transition-colors">
             <Undo2 size={13} />
+          </button>
+        )}
+
+        {!bloqueado && (
+          <button onClick={limpiar} disabled={limpiando || subiendoFicha || ocupado} title="Borrar el auditor y la imagen de esta línea"
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] font-semibold text-rose-500 hover:bg-rose-50 rounded-lg transition-colors disabled:opacity-50">
+            {limpiando ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={12} />} Limpiar
           </button>
         )}
 

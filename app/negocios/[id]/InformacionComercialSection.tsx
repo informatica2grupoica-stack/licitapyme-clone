@@ -186,6 +186,8 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   onEmpresaChange: (id: number) => void;
 }) {
   const toast = useToast();
+  const confirmarLimpieza = useConfirm();
+  const [limpiandoTodas, setLimpiandoTodas] = useState(false);
   // El "Generar" (creador de anexos) queda solo para admin por ahora, mismo pedido que en
   // Documentos — mientras se decide quiénes más lo van a usar.
   const { usuario } = useSession();
@@ -216,6 +218,35 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
   const [generandoItem, setGenerandoItem] = useState<Item | null>(null);
   const [anexoDocSeleccionado, setAnexoDocSeleccionado] = useState<AnexoDoc | null>(null);
   const [generandoFicha, setGenerandoFicha] = useState(false);
+  // Limpia el auditor y la imagen de TODAS las líneas técnicas (de a una, en orden: cada una es su
+  // propia petición). Antes había que entrar línea por línea al modal para borrarlas.
+  const limpiarTodasLasLineas = async () => {
+    const ids = items.filter(i => i.tipo === 'linea_tecnica').map(i => i.id);
+    const ok = await confirmarLimpieza({
+      titulo: `¿Limpiar las ${ids.length} líneas técnicas?`,
+      mensaje: 'En TODAS las líneas se borran las características comparadas y la foto/marca/modelo del producto, y vuelven a "sin validar". Las fichas subidas quedan adjuntas. No se puede deshacer.',
+      confirmarLabel: 'Limpiar todas',
+      peligro: true,
+    });
+    if (!ok) return;
+    setLimpiandoTodas(true);
+    let fallidas = 0;
+    try {
+      for (const id of ids) {
+        try {
+          const r = await fetch(`/api/negocios/${negocioId}/comercial/${id}/caracteristicas`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ accion: 'reiniciar' }),
+          });
+          if (!r.ok) fallidas++;
+        } catch { fallidas++; }
+      }
+      if (fallidas) toast.error(`${fallidas} línea(s) no se pudieron limpiar`, 'Vuelve a intentarlo o límpialas una por una.');
+      else toast.success('Líneas limpiadas', `${ids.length} línea(s) quedaron sin validar.`);
+    } finally {
+      setLimpiandoTodas(false);
+      cargar();
+    }
+  };
 
   /**
    * Genera NUESTRA ficha técnica desde las exigencias que el Auditor ya tiene clasificadas.
@@ -603,6 +634,17 @@ export function InformacionComercialSection({ negocioId, licitacionCodigo, empre
                   {resumenTecnicoGlobal.sinValidar > 0 && <span className="text-zinc-400">{resumenTecnicoGlobal.sinValidar} sin validar</span>}
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
+                  {puedeAprobar && !bloqueadoPorEmpresa && (
+                    <button
+                      onClick={limpiarTodasLasLineas}
+                      disabled={limpiandoTodas}
+                      title="Borrar el auditor y la imagen de todas las líneas técnicas"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 px-2.5 py-1 text-[11px] font-semibold text-rose-600 transition-colors hover:bg-rose-50 disabled:opacity-50"
+                    >
+                      {limpiandoTodas ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                      {limpiandoTodas ? 'Limpiando…' : 'Limpiar todas'}
+                    </button>
+                  )}
                   {/* La ficha del proveedor ya no se sube acá: se arrastra directo a la fila de
                       SU línea (ver FilaLineaTecnica) — antes este botón comparaba UN documento
                       contra TODAS las líneas de una vez, y una ficha de una sola línea producía
