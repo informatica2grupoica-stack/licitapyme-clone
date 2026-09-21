@@ -4,6 +4,55 @@
 // /api/licitacion-ia.
 
 // ======================================================
+// ARMADO DEL TEXTO DE UNA PÁGINA PDF (celdas de tabla)
+// ======================================================
+// BUG REAL (3390-26-LE26, sep-2026, fichas Biggi): la tabla de dimensiones de la ficha
+// ("Largo (cm) | Ancho (cm) | Alto (cm) | Peso (kg)") guarda cada celda del renglón de valores
+// como un item de texto aparte, todos en la MISMA línea (mismo Y). Este armado los pegaba sin
+// separador: "PP15A" + "60" + "44" + "108" + "59" salía como "PP15A604410859". El Auditor Técnico
+// recibía un número ilegible: unas veces la IA lo adivinaba (peladora: sin medidas, "no aparece en
+// el texto"), otras INFERÍA los valores del código del modelo ("DJC47377236" → 47 x 37 x 72 y 36 kg)
+// y declaraba CUMPLE sobre una deducción, no sobre un dato de la ficha.
+//
+// Medido en esas fichas: dentro de una palabra partida por kerning el hueco entre items es ≈0; entre
+// celdas de tabla es 3-9 veces la altura de la letra; la viñeta "•" queda a 0,56 (y hoy sale pegada
+// al texto: "•Construcción…" — se deja tal cual para no alterar lo que ya funciona). Umbral 0,6.
+// Solo se separa cuando el hueco es real y ninguno de los dos lados ya trae un espacio propio.
+const HUECO_CELDA_MIN_EN_ALTURAS = 0.6;
+
+/** Lo mínimo que se usa de un item de getTextContent() de pdf.js. */
+interface ItemTexto { str: string; width: number; height: number; transform: number[] }
+
+export function unirItemsDePagina(items: ItemTexto[]): string {
+  let lastY: number | undefined;
+  let prev: ItemTexto | null = null;
+  let text = '';
+  for (const item of items) {
+    const y = item.transform[5];
+    if (lastY === y || lastY === undefined) {
+      if (prev && hayHuecoDeCelda(prev, item)) text += ' ';
+      text += item.str;
+    } else {
+      text += '\n' + item.str;
+    }
+    lastY = y;
+    prev = item;
+  }
+  return text;
+}
+
+function hayHuecoDeCelda(prev: ItemTexto, item: ItemTexto): boolean {
+  // Texto girado (vertical/inclinado): el ancho no corre sobre X, el cálculo no aplica.
+  const girado = (t: number[]) => Math.abs(t[1]) > 1e-3 || Math.abs(t[2]) > 1e-3;
+  if (girado(prev.transform) || girado(item.transform)) return false;
+  if (/\s$/.test(prev.str) || /^\s/.test(item.str)) return false;
+  const alto = Math.max(prev.height || 0, item.height || 0);
+  if (!alto || !Number.isFinite(prev.width)) return false;
+  const hueco = item.transform[4] - (prev.transform[4] + prev.width);
+  return hueco > alto * HUECO_CELDA_MIN_EN_ALTURAS;
+}
+
+// ======================================================
 // OCR CON OCR.SPACE (GRATUITO - 500 REQUESTS/MES)
 // ======================================================
 
@@ -436,12 +485,7 @@ export async function extractTextFromDocument(
         pageData.getTextContent({ normalizeWhitespace: false, disableCombineTextItems: false })
           .then((tc: any) => {
             _pag++;
-            let lastY: number | undefined, text = '';
-            for (const item of tc.items) {
-              if (lastY === item.transform[5] || lastY === undefined) text += item.str;
-              else text += '\n' + item.str;
-              lastY = item.transform[5];
-            }
+            const text = unirItemsDePagina(tc.items);
             textosPorPagina[_pag - 1] = text;
             return `\n\n[[PÁGINA ${_pag}]]\n${text}`;
           });

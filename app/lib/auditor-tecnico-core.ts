@@ -327,6 +327,150 @@ export function evaluarCaracteristicaDeterminista(args: {
   return { veredicto, valorConvertidoNumero: convertido };
 }
 
+// ─── Endurecimiento del veredicto de la IA contra el texto REAL de la ficha ─────────────────────
+//
+// El Auditor Técnico no puede darse el lujo de "casi": lo que dice la IA se verifica contra la
+// ficha con reglas deterministas antes de guardarse. Casos reales (3390-26-LE26, fichas Biggi):
+//   · La tabla de dimensiones salía pegada ("DJC47377236"); la IA dedujo "47 x 37 x 72" y "36 kg"
+//     del CÓDIGO DEL MODELO y declaró CUMPLE sobre una deducción, no sobre un dato de la ficha.
+//   · "Dimensiones: 205 x 107 x 70 cm" se guardaba como el número 205, y el determinista solo
+//     comparaba ese primero: una ficha con 205 x 110 x 70 habría dado CUMPLE.
+//
+// REGLA 1 (valor literal): todo número que la IA dice haber leído tiene que existir como número en
+//   el texto de la ficha. Si no está → sin veredicto, pendiente de confirmar (igual que si la ficha
+//   no dijera nada). Solo empuja hacia "no sé", nunca inventa un veredicto.
+// REGLA 2 (medidas compuestas "A x B x C"): se comparan TODAS las componentes, sin importar el orden
+//   en que la ficha las rotule (Largo/Ancho/Alto). Con el número único en null para que el
+//   determinista de una sola cifra no vuelva a decidir por la primera.
+
+const PALABRAS_NUMERO: Record<string, number> = {
+  un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9,
+  diez: 10, once: 11, doce: 12,
+};
+
+function valoresDeToken(tokRaw: string): number[] {
+  const t = tokRaw.replace(/[.,]+$/, '');
+  const out: number[] = [];
+  if (/^\d+$/.test(t)) out.push(Number(t));
+  else if (/^\d+[.,]\d+$/.test(t)) {
+    out.push(Number(t.replace(',', '.')));
+    // "1.700" / "1,700": puede ser mil setecientos (separador de miles) además de 1,7.
+    if (/^\d{1,3}[.,]\d{3}$/.test(t)) out.push(Number(t.replace(/[.,]/, '')));
+  } else if (/^\d{1,3}(?:\.\d{3})+(?:,\d+)?$/.test(t)) out.push(Number(t.replace(/\./g, '').replace(',', '.')));
+  else if (/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(t)) out.push(Number(t.replace(/,/g, '')));
+  return out.filter(Number.isFinite);
+}
+
+/** ¿El número `n` aparece como número (o como palabra: "dos", "tres"…) en el texto? */
+export function numeroApareceEnTexto(texto: string, n: number): boolean {
+  if (!Number.isFinite(n)) return false;
+  const igual = (a: number) => Math.abs(a - n) <= 1e-9 + Math.abs(n) * 1e-6;
+  for (const tok of texto.match(/\d[\d.,]*/g) || []) {
+    if (valoresDeToken(tok).some(igual)) return true;
+  }
+  for (const f of texto.matchAll(/(\d+)\s*\/\s*(\d+)/g)) {
+    if (Number(f[2]) !== 0 && igual(Number(f[1]) / Number(f[2]))) return true;
+  }
+  if (Number.isInteger(n) && n >= 1 && n <= 12) {
+    const plano = texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    for (const [pal, val] of Object.entries(PALABRAS_NUMERO)) {
+      if (val === n && new RegExp(`(?<![a-z])${pal}(?![a-z])`).test(plano)) return true;
+    }
+  }
+  return false;
+}
+
+const A_MM: Record<string, number> = {
+  mm: 1, cm: 10, cms: 10, m: 1000, mt: 1000, mts: 1000, metro: 1000, metros: 1000,
+};
+const NUM = String.raw`\d+(?:[.,]\d+)?`;
+const RE_MEDIDA_COMPUESTA = new RegExp(
+  String.raw`(${NUM})\s*(?:[x×]|por)\s*(${NUM})(?:\s*(?:[x×]|por)\s*(${NUM}))?\s*(mm|cms?|mts?|metros?|m)?(?![a-z])`, 'gi');
+const aNumero = (s: string) => Number(s.replace(',', '.'));
+
+/** Las componentes de una medida compuesta ("205 x 107 x 70 cm") o null si el texto no trae una. */
+export function medidaCompuesta(texto: string | null | undefined): { valores: number[]; unidad: string | null } | null {
+  if (!texto) return null;
+  RE_MEDIDA_COMPUESTA.lastIndex = 0;
+  const m = RE_MEDIDA_COMPUESTA.exec(texto);
+  if (!m) return null;
+  const valores = [m[1], m[2], m[3]].filter((v): v is string => v != null).map(aNumero);
+  return { valores, unidad: m[4] ? m[4].toLowerCase() : null };
+}
+
+/** Cada número con su unidad de longitud ("Alto: 850mm, Ancho: 1120mm, Fondo: 685mm"). */
+function medidasRotuladas(texto: string): Array<{ valor: number; unidad: string | null }> {
+  return Array.from(texto.matchAll(new RegExp(String.raw`(${NUM})s*(mm|cms?|mts?|metros?|m)?(?![a-z])`, 'gi')))
+    .map(m => ({ valor: aNumero(m[1]), unidad: m[2] ? m[2].toLowerCase() : null }));
+}
+
+/** Factor a milímetros. Sin unidad en NINGUNO de los dos lados ("tracción 4x4") se compara la cifra tal cual. */
+const factorMm = (u: string | null): number => (u ? (A_MM[u] ?? NaN) : 1);
+
+export interface CaracteristicaParaEndurecer {
+  descripcion: string; tipo: TipoRequisitoTecnico;
+  valorRequeridoTexto: string | null; unidadRequerida: string | null;
+}
+
+/**
+ * Aplica las reglas 1 y 2 al veredicto que devolvió la IA. Puro y sin red. Devuelve el mismo
+ * veredicto cuando todo cuadra; si no, lo baja a "sin veredicto / pendiente" (regla 1) o lo corrige
+ * con la comparación completa de la medida (regla 2).
+ */
+export function endurecerVeredicto(
+  car: CaracteristicaParaEndurecer, v: VeredictoCaracteristica, fichaTexto: string,
+): VeredictoCaracteristica {
+  const sinVeredicto = (motivo: string): VeredictoCaracteristica => ({
+    ...v, veredicto: null, pendienteConfirmacionProveedor: true, valorOfertadoNumero: null, valorConvertidoNumero: null,
+    fundamentoCita: `⚠ ${motivo}${v.fundamentoCita ? ` — la IA citó: ${v.fundamentoCita}` : ''}`.slice(0, 500),
+  });
+
+  // ── Regla 2: la exigencia es una medida compuesta ──
+  const exigida = medidaCompuesta(`${car.valorRequeridoTexto || ''} ${car.descripcion}`) ||
+    medidaCompuesta(car.descripcion);
+  if (exigida) {
+    // El número suelto (la primera cifra) NO puede decidir por toda la medida.
+    const base = { ...v, valorOfertadoNumero: null, valorConvertidoNumero: null };
+    if (!v.veredicto) return base;
+    if (!v.valorOfertadoTexto) {
+      return v.veredicto === 'CUMPLE' ? sinVeredicto('Se declaró CUMPLE sin ningún valor ofertado de la medida') : base;
+    }
+    const uReq = (exigida.unidad || car.unidadRequerida || '').toLowerCase() || null;
+    const propia = medidaCompuesta(v.valorOfertadoTexto);
+    const ofertada: Array<{ valor: number; unidad: string | null }> =
+      propia && propia.valores.length === exigida.valores.length
+        ? propia.valores.map(x => ({ valor: x, unidad: propia.unidad || uReq }))
+        : medidasRotuladas(v.valorOfertadoTexto).map(m => ({ valor: m.valor, unidad: m.unidad || uReq }));
+    const ofertadaMm = ofertada.map(m => m.valor * factorMm(m.unidad));
+    const exigidaMm = exigida.valores.map(x => x * factorMm(uReq));
+    if (ofertadaMm.length !== exigidaMm.length || [...ofertadaMm, ...exigidaMm].some(x => !Number.isFinite(x))) {
+      // No se puede verificar componente por componente: no se confirma un CUMPLE a ciegas.
+      return v.veredicto === 'CUMPLE'
+        ? sinVeredicto(`No se pudo verificar cada componente de la medida "${v.valorOfertadoTexto}" contra lo exigido`)
+        : base;
+    }
+    const ausente = ofertada.find(m => !numeroApareceEnTexto(fichaTexto, m.valor));
+    if (ausente) return sinVeredicto(`El valor ${ausente.valor} de la medida no aparece en el texto de la ficha`);
+    if (car.tipo !== 'EXACTO') return base;   // piso/techo/rango compuestos: decide la IA, con la lectura ya verificada
+    const a = [...ofertadaMm].sort((p, q) => p - q), b = [...exigidaMm].sort((p, q) => p - q);
+    const iguales = a.every((x, i) => Math.abs(x - b[i]) < 1e-6);
+    return { ...base, veredicto: iguales ? 'CUMPLE' : 'NO_CUMPLE', pendienteConfirmacionProveedor: false };
+  }
+
+  // ── Regla 1: el número tiene que estar en la ficha ──
+  if (v.veredicto && v.valorOfertadoNumero != null && !numeroApareceEnTexto(fichaTexto, v.valorOfertadoNumero)) {
+    return sinVeredicto(`El valor ${v.valorOfertadoNumero} no aparece en el texto de la ficha (posible deducción, no un dato)`);
+  }
+  return v;
+}
+
+/** Una "característica" que en realidad es la cláusula de equivalencia de las bases ("Similar o
+ *  equivalente más o menos"): no es verificable contra una ficha y dejaba la línea sin poder cerrarse. */
+export function esClausulaDeEquivalencia(texto: string): boolean {
+  const t = String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  return /^(o )?(similar|equivalente)( o (similar|equivalente))*( mas o menos)?$/.test(t);
+}
+
 // ─── Resumen para el nivel 1 de la UI ────────────────────────────────────────────────────────
 export function resumenLinea(caracteristicas: Array<{ veredicto: string | null; pendiente_confirmacion_proveedor: boolean }>): ResumenLinea {
   return {

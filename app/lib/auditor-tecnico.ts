@@ -22,6 +22,8 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { extraerProductoOfertado, type ProductoOfertado } from '@/app/lib/producto-ofertado';
 import {
   normalizarConfianza,
+  endurecerVeredicto,
+  esClausulaDeEquivalencia,
   resumenLinea,
   type TipoRequisitoTecnico,
   type VeredictoTecnico,
@@ -63,12 +65,15 @@ export async function clasificarCaracteristicasLinea(
   linea: LineaTecnica,
   contexto: { licitacionCodigo: string },
 ): Promise<CaracteristicaClasificada[]> {
-  if (!linea.caracteristicas.length) return [];
+  // "Similar o equivalente más o menos" no es una exigencia verificable contra una ficha: si entra
+  // como característica queda "sin evaluar" para siempre y la línea nunca puede cerrarse.
+  const caracteristicas = linea.caracteristicas.filter(c => !esClausulaDeEquivalencia(c));
+  if (!caracteristicas.length) return [];
   const user = `LICITACIÓN: ${contexto.licitacionCodigo}
 LÍNEA ${linea.linea}: ${linea.nombre}${linea.marcaModeloReferencia ? ` (referencia: ${linea.marcaModeloReferencia})` : ''}
 
 CARACTERÍSTICAS SEGÚN LAS BASES (texto literal, una por línea):
-${linea.caracteristicas.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
+${caracteristicas.map((c, i) => `${i + 1}. ${c}`).join('\n')}`;
 
   const completion: any = await crearChatIA({
     messages: [{ role: 'system', content: SYS_AGENTE1 }, { role: 'user', content: user }],
@@ -119,6 +124,10 @@ const MAX_CARACT_POR_LLAMADA = 25;
 const SYS_AGENTE2 = `Eres un auditor técnico de licitaciones públicas chilenas. Te doy una lista de características técnicas YA clasificadas (con lo exigido) y el texto de una ficha técnica de un proveedor. Para CADA característica (identificada por su "id"), busca en la ficha el dato correspondiente y compara.
 
 REGLA DURA (veracidad): NUNCA declares CUMPLE si el dato no aparece claramente en la ficha. Si la ficha no menciona esa característica o el dato es ambiguo, deja veredicto en null y marca pendiente_confirmacion_proveedor=true — es preferible pedir confirmación al proveedor que alucinar un cumplimiento.
+
+MEDIDAS (Largo/Ancho/Alto/Profundidad/Fondo/Frente): las bases y las fichas rotulan distinto las MISMAS tres dimensiones (una ficha dice "Largo 60 · Ancho 25 · Alto 60" y las bases "ancho 60, profundidad 25, alto 60"). Compara por VALOR: si el valor exigido está entre las dimensiones de la ficha, aunque bajo otro rótulo, cumple — dilo en la cita ("la ficha lo rotula Largo"). Cuando la característica agrupa varias medidas ("205 x 107 x 70 cm"), verifica TODAS las cifras, no solo la primera.
+
+NUNCA deduzcas un valor del código o nombre del modelo (ej. "DJC47377236" no significa 47x37x72 ni 36 kg): usa solo datos escritos como tales en la ficha. Todo número que declares como ofertado debe estar escrito en el texto de la ficha.
 
 Para cada id, extrae también el valor ofertado tal como aparece en la ficha (texto y, si es numérico, número + unidad original, exactamente como la escribió el fabricante).
 
@@ -200,12 +209,15 @@ ${fichaTexto.slice(0, 40_000)}`;
   const txt = String(completion.choices?.[0]?.message?.content ?? '');
   const parsed: any = parseJsonIA(txt) || {};
   const arr = Array.isArray(parsed.veredictos) ? parsed.veredictos : [];
+  const textoUsado = fichaTexto.slice(0, 40_000);
   for (const v of arr) {
     const id = Number(v?.id);
     if (!Number.isFinite(id)) continue;
+    const car = caracteristicas.find(c => c.id === id);
+    if (!car) continue;   // la IA devolvió un id que no se le pidió: se ignora, no se inventa una fila
     const veredictoRaw = String(v?.veredicto || '').toUpperCase();
     const veredictoValido = veredictoRaw === 'CUMPLE' || veredictoRaw === 'NO_CUMPLE' || veredictoRaw === 'CUMPLE_CON_COMPLEMENTO';
-    resultado.set(id, {
+    const crudo: VeredictoCaracteristica = {
       valorOfertadoTexto: v?.valor_ofertado_texto ? String(v.valor_ofertado_texto).slice(0, 300) : null,
       // Mismo cuidado que en normalizarClasificada(): v?.valor_ofertado_numero != null antes de
       // Number(), para no convertir "la ficha no trae número" en un 0 real.
@@ -217,7 +229,9 @@ ${fichaTexto.slice(0, 40_000)}`;
       fundamentoDocumento: fichaNombre.slice(0, 300),
       fundamentoCita: v?.fundamento_cita ? String(v.fundamento_cita).slice(0, 500) : null,
       confianza: normalizarConfianza(v?.confianza),
-    });
+    };
+    // Lo que dijo la IA se verifica contra el texto REAL de la ficha antes de guardarse.
+    resultado.set(id, endurecerVeredicto(car, crudo, textoUsado));
   }
   return resultado;
 }
