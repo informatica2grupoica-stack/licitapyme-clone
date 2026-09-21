@@ -28,8 +28,8 @@ import { transicion } from '@/app/lib/checklist-comercial';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { descargarYExtraerTexto } from '@/app/lib/document-extraction';
 import {
-  clasificarCaracteristicasLinea, compararFichaProveedor, compararFichasMultiModelo, auditarFichasMultiples,
-  evaluarCaracteristicaDeterminista, evaluarCaracteristicaConIA, slugCaracteristica,
+  clasificarCaracteristicasLinea, compararFichaProveedor, MOTOR_KIMI_ESTRICTO, compararFichasMultiModelo, auditarFichasMultiples,
+  evaluarCaracteristicaDeterminista, combinarConCalculo, evaluarCaracteristicaConIA, slugCaracteristica,
   type VeredictoCaracteristica, type ConflictoCaracteristica, type CandidatoAuditoria,
 } from '@/app/lib/auditor-tecnico';
 import { cargarNegocio, leerInforme, esAsesor, bitacora, nombreDe, COLS, agregarDocumentos } from '../../route';
@@ -231,15 +231,11 @@ async function aplicarVeredictosDeModeloIA100(
   for (const v of veredictosModelo) {
     const c = caracteristicasActuales.find(it => it.id === v.caracteristicaId);
     if (!c) continue;
-    let convertido: number | null = null;
-    let veredictoFinal = v.veredicto;
-    if (v.valorOfertadoNumero != null && c.valor_requerido_numero != null) {
-      const det = evaluarCaracteristicaDeterminista({
-        tipo: c.tipo as any, valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
-        unidadRequerida: c.unidad_requerida, valorOfertadoNumero: v.valorOfertadoNumero, unidadOfertadaOriginal: v.unidadOfertadaOriginal,
-      });
-      if (det) { convertido = det.valorConvertidoNumero; veredictoFinal = det.veredicto; }
-    }
+    const comb = combinarConCalculo({
+      tipo: c.tipo as any, valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max, unidadRequerida: c.unidad_requerida,
+    }, v);
+    const convertido = comb.valorConvertidoNumero;
+    const veredictoFinal = comb.veredicto;
     if (veredictoFinal == null && c.veredicto != null) continue;
     await pool.query(
       `UPDATE checklist_comercial_caracteristicas
@@ -250,7 +246,7 @@ async function aplicarVeredictosDeModeloIA100(
       [
         v.valorOfertadoTexto, v.valorOfertadoNumero, v.unidadOfertadaOriginal, convertido,
         veredictoFinal, (v.pendienteConfirmacionProveedor || !veredictoFinal) ? 1 : 0,
-        etiquetaFuente.slice(0, 300), v.fundamentoCita, v.confianza, c.id,
+        etiquetaFuente.slice(0, 300), comb.nota ?? v.fundamentoCita, v.confianza, c.id,
       ],
     );
     escritas++;
@@ -492,6 +488,10 @@ export async function POST(request: NextRequest, { params }: Params) {
         if (!gruposPorProducto.has(idx)) gruposPorProducto.set(idx, []);
         gruposPorProducto.get(idx)!.push(c);
       }
+      // El arrastre lo analiza Kimi K3 (pedido del usuario). Sin la clave no se degrada en silencio a
+      // otro modelo: se avisa.
+      if (!process.env.KIMI_API_KEY)
+        return NextResponse.json({ error: 'Kimi K3 no está configurado en este servidor (falta KIMI_API_KEY).' }, { status: 503 });
       const veredictos = new Map<number, VeredictoCaracteristica>();
       await Promise.all(Array.from(gruposPorProducto.entries()).map(async ([idx, items]) => {
         const textoProducto = segmentosPorIndice.get(idx)?.texto || extraido.texto;
@@ -501,7 +501,7 @@ export async function POST(request: NextRequest, { params }: Params) {
             valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
             unidadRequerida: c.unidad_requerida, valorRequeridoTexto: c.valor_requerido_texto,
           })),
-          textoProducto, documentoNombre,
+          textoProducto, documentoNombre, { motor: MOTOR_KIMI_ESTRICTO },
         );
         for (const [id, v] of parcial) veredictos.set(id, v);
       }));
@@ -511,15 +511,11 @@ export async function POST(request: NextRequest, { params }: Params) {
         if (!v) continue;
         // Si la ficha trajo un valor numérico, intentamos resolver determinista (conversión de
         // unidades) — más confiable que dejar a la IA hacer la comparación numérica ella sola.
-        let convertido: number | null = null;
-        let veredictoFinal = v.veredicto;
-        if (v.valorOfertadoNumero != null && c.valor_requerido_numero != null) {
-          const det = evaluarCaracteristicaDeterminista({
-            tipo: c.tipo, valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
-            unidadRequerida: c.unidad_requerida, valorOfertadoNumero: v.valorOfertadoNumero, unidadOfertadaOriginal: v.unidadOfertadaOriginal,
-          });
-          if (det) { convertido = det.valorConvertidoNumero; veredictoFinal = det.veredicto; }
-        }
+        const comb = combinarConCalculo({
+          tipo: c.tipo as any, valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max, unidadRequerida: c.unidad_requerida,
+        }, v);
+        const convertido = comb.valorConvertidoNumero;
+        const veredictoFinal = comb.veredicto;
         // BUG REAL (08-sep-2026, línea-paquete 2495-17-B226 "SISTEMA DE TRASPLANTE DE ÁRBOLES":
         // tractor + 4 implementos bajo la MISMA línea, sin separar por producto_index — el informe
         // los trajo como un solo producto con 48 características mixtas). Subir la ficha del
@@ -541,7 +537,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           [
             v.valorOfertadoTexto, v.valorOfertadoNumero, v.unidadOfertadaOriginal, convertido,
             veredictoFinal, (v.pendienteConfirmacionProveedor || !veredictoFinal) ? 1 : 0,
-            v.fundamentoDocumento, v.fundamentoCita, v.confianza, c.id,
+            v.fundamentoDocumento, comb.nota ?? v.fundamentoCita, v.confianza, c.id,
           ],
         );
       }
@@ -650,15 +646,11 @@ export async function POST(request: NextRequest, { params }: Params) {
         for (const c of items) {
           const v = resultado.veredictosFinales.get(c.id);
           if (!v) continue;
-          let convertido: number | null = null;
-          let veredictoFinal = v.veredicto;
-          if (v.valorOfertadoNumero != null && c.valor_requerido_numero != null) {
-            const det = evaluarCaracteristicaDeterminista({
-              tipo: c.tipo, valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max,
-              unidadRequerida: c.unidad_requerida, valorOfertadoNumero: v.valorOfertadoNumero, unidadOfertadaOriginal: v.unidadOfertadaOriginal,
-            });
-            if (det) { convertido = det.valorConvertidoNumero; veredictoFinal = det.veredicto; }
-          }
+          const comb = combinarConCalculo({
+            tipo: c.tipo as any, valorRequeridoNumero: c.valor_requerido_numero, valorRequeridoNumeroMax: c.valor_requerido_numero_max, unidadRequerida: c.unidad_requerida,
+          }, v);
+          const convertido = comb.valorConvertidoNumero;
+          const veredictoFinal = comb.veredicto;
           // Mismo guardarraíl anti-regresión que 'comparar_ficha': un documento nuevo agrega o
           // corrige, nunca borra un veredicto que ya existía porque ESTE grupo de fichas no lo menciona.
           if (veredictoFinal == null && c.veredicto != null) continue;
@@ -671,7 +663,7 @@ export async function POST(request: NextRequest, { params }: Params) {
             [
               v.valorOfertadoTexto, v.valorOfertadoNumero, v.unidadOfertadaOriginal, convertido,
               veredictoFinal, (v.pendienteConfirmacionProveedor || !veredictoFinal) ? 1 : 0,
-              v.fichaNombre.slice(0, 300), v.fundamentoCita, v.confianza, c.id,
+              v.fichaNombre.slice(0, 300), comb.nota ?? v.fundamentoCita, v.confianza, c.id,
             ],
           );
         }

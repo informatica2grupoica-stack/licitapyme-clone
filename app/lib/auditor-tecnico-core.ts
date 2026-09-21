@@ -227,6 +227,12 @@ const ALIAS_UNIDAD: Record<string, string> = {
   segundo: 'seg', segundos: 'seg', seg: 'seg', s: 'seg',
   minuto: 'min', minutos: 'min', min: 'min',
   hora: 'hr', horas: 'hr', hrs: 'hr', hr: 'hr', h: 'hr',
+  // Magnitudes sin conversión propia: solo sirven para reconocer que ofertado y exigido hablan de la
+  // MISMA unidad ("kW/h" vs "Kw/h", "volts" vs "V"). Sin esto el determinista devolvía null y el
+  // veredicto de voltaje/frecuencia/consumo quedaba sin resolver.
+  'kw/h': 'kw/h', kwh: 'kw/h', kilowatthora: 'kw/h', 'kwh/h': 'kw/h',
+  v: 'v', volt: 'v', volts: 'v', voltio: 'v', voltios: 'v',
+  hz: 'hz', hertz: 'hz', bar: 'bar', btu: 'btu', 'btu/hr': 'btu', 'btu/h': 'btu', psi: 'psi', db: 'db', a: 'a', amp: 'a', amperes: 'a',
 };
 
 function normalizarUnidad(u: string | null): string | null {
@@ -469,6 +475,42 @@ export function endurecerVeredicto(
 export function esClausulaDeEquivalencia(texto: string): boolean {
   const t = String(texto || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
   return /^(o )?(similar|equivalente)( o (similar|equivalente))*( mas o menos)?$/.test(t);
+}
+
+/**
+ * Combina el veredicto de la IA con el cálculo numérico (conversión de unidades). BUG REAL
+ * (3390-26-LE26, línea 8): se exigía "Televisor de 55\" QLED 4K UHD" y se ofertaba un LG NANO de
+ * 55". La IA dijo NO_CUMPLE (no es QLED), pero el cálculo miró solo "55 = 55" y PISÓ el veredicto
+ * con CUMPLE. El número resuelve la parte numérica, no las palabras de la exigencia.
+ *
+ *   · sin cálculo posible  → manda la IA.
+ *   · la IA no decidió (null) o coinciden → manda el cálculo (así se resuelven las conversiones).
+ *   · cálculo dice NO_CUMPLE y la IA CUMPLE → NO_CUMPLE (los números demuestran el incumplimiento).
+ *   · cálculo dice CUMPLE y la IA NO_CUMPLE → NO SE APRUEBA SOLO: queda pendiente con la nota del
+ *     desacuerdo, para que lo revise una persona (puede ser una conversión de unidades bien hecha
+ *     por el cálculo, o un requisito cualitativo que el número no ve — el sistema no puede saber cuál).
+ *   · la IA dijo CUMPLE_CON_COMPLEMENTO y el cálculo CUMPLE → se respeta el complemento.
+ */
+export function combinarConCalculo(
+  car: { tipo: TipoRequisitoTecnico; valorRequeridoNumero: number | null; valorRequeridoNumeroMax: number | null; unidadRequerida: string | null },
+  v: { veredicto: VeredictoTecnico | null; valorOfertadoNumero: number | null; unidadOfertadaOriginal: string | null },
+): { veredicto: VeredictoTecnico | null; valorConvertidoNumero: number | null; nota: string | null } {
+  const sinCambio = { veredicto: v.veredicto, valorConvertidoNumero: null, nota: null };
+  if (v.valorOfertadoNumero == null || car.valorRequeridoNumero == null) return sinCambio;
+  const det = evaluarCaracteristicaDeterminista({
+    tipo: car.tipo, valorRequeridoNumero: Number(car.valorRequeridoNumero),
+    valorRequeridoNumeroMax: car.valorRequeridoNumeroMax != null ? Number(car.valorRequeridoNumeroMax) : null,
+    unidadRequerida: car.unidadRequerida, valorOfertadoNumero: v.valorOfertadoNumero, unidadOfertadaOriginal: v.unidadOfertadaOriginal,
+  });
+  if (!det) return sinCambio;
+  const conv = det.valorConvertidoNumero;
+  if (v.veredicto == null || v.veredicto === det.veredicto) return { veredicto: det.veredicto, valorConvertidoNumero: conv, nota: null };
+  if (det.veredicto === 'NO_CUMPLE') return { veredicto: 'NO_CUMPLE', valorConvertidoNumero: conv, nota: null };
+  if (v.veredicto === 'CUMPLE_CON_COMPLEMENTO') return { veredicto: v.veredicto, valorConvertidoNumero: conv, nota: null };
+  return {
+    veredicto: null, valorConvertidoNumero: conv,
+    nota: '⚠ La IA dijo NO_CUMPLE pero la comparación numérica sola da CUMPLE: revisar a mano (puede ser una característica cualitativa que el número no ve, o una conversión de unidades).',
+  };
 }
 
 // ─── Resumen para el nivel 1 de la UI ────────────────────────────────────────────────────────

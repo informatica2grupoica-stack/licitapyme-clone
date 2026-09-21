@@ -23,6 +23,7 @@ import { extraerProductoOfertado, type ProductoOfertado } from '@/app/lib/produc
 import {
   normalizarConfianza,
   endurecerVeredicto,
+  combinarConCalculo,
   esClausulaDeEquivalencia,
   resumenLinea,
   type TipoRequisitoTecnico,
@@ -39,7 +40,7 @@ export type {
   CaracteristicaClasificada, VeredictoCaracteristica, ResumenLinea,
 } from '@/app/lib/auditor-tecnico-core';
 export {
-  lineasTecnicasDelInforme, productosCrudosDeLinea, evaluarCaracteristicaDeterminista, resumenLinea, slugCaracteristica,
+  lineasTecnicasDelInforme, productosCrudosDeLinea, evaluarCaracteristicaDeterminista, combinarConCalculo, resumenLinea, slugCaracteristica,
 } from '@/app/lib/auditor-tecnico-core';
 
 // ─── Agente 1: clasificación de características (interrogatorio y ficha comparten esta base) ──
@@ -146,6 +147,7 @@ interface MotorComparacion {
   timeoutMs: number;
   maxTokens: number;
   loteMax: number;               // tope de características por llamada — ver la nota de abajo
+  sinRespaldo?: boolean;         // true → si este modelo falla, error visible: NO cae en silencio a otro modelo
 }
 const MOTOR_GLM: MotorComparacion = { modeloPreferido: 'glm-5.2', timeoutMs: 90_000, maxTokens: 6_000, loteMax: MAX_CARACT_POR_LLAMADA };
 // Kimi K3 razona SIEMPRE — no se puede apagar, solo graduar (ver reasoningEffort en gemini.ts) — y
@@ -154,6 +156,26 @@ const MOTOR_GLM: MotorComparacion = { modeloPreferido: 'glm-5.2', timeoutMs: 90_
 // MAX_CARACT_POR_LLAMADA): por eso maxTokens es casi 3x y el lote es más chico. timeoutMs más
 // largo por la misma razón — pensar de más tarda más.
 const MOTOR_KIMI: MotorComparacion = { proveedorPreferido: 'kimi', timeoutMs: 180_000, maxTokens: 16_000, loteMax: 15 };
+/** Kimi K3 para "arrastrar la ficha a la línea" (pedido del usuario, 21-sep-2026: "debe analizarlo
+ *  la IA, creo que lo hace otro"). Sin respaldo: si Kimi falla se ve el error en vez de que el
+ *  veredicto lo dé, sin avisar, DeepSeek/GLM/Gemini — que era justo la duda del usuario. */
+export const MOTOR_KIMI_ESTRICTO: MotorComparacion = { ...MOTOR_KIMI, sinRespaldo: true };
+
+/** Lo exigido, con el NÚMERO. Antes solo se mandaba valor_requerido_texto: para "Voltaje (EXACTO V)" la
+ *  IA no sabía que se exigía 220, y un modelo estricto (Kimi K3) contestaba "no se entregó el valor
+ *  exigido" y dejaba el veredicto vacío; GLM lo disimulaba comparando después por su cuenta. */
+function textoExigido(c: Pick<CaracteristicaClasificada, 'tipo' | 'valorRequeridoNumero' | 'valorRequeridoNumeroMax' | 'unidadRequerida' | 'valorRequeridoTexto'>): string {
+  const u = c.unidadRequerida ? ` ${c.unidadRequerida}` : '';
+  const partes: string[] = [];
+  if (c.valorRequeridoNumero != null) {
+    const min = { PISO: 'mínimo ', TECHO: 'máximo ', EXACTO: 'exactamente ', RANGO: '' }[c.tipo] ?? '';
+    partes.push(c.tipo === 'RANGO' && c.valorRequeridoNumeroMax != null
+      ? `entre ${c.valorRequeridoNumero} y ${c.valorRequeridoNumeroMax}${u}`
+      : `${min}${c.valorRequeridoNumero}${u}`);
+  }
+  if (c.valorRequeridoTexto) partes.push(c.valorRequeridoTexto);
+  return partes.length ? `, exigido: ${partes.join(' · ')}` : (u ? `,${u}` : '');
+}
 
 /** Agente 2 (camino B) — dada la ficha técnica del proveedor (texto ya extraído), compara CADA
  *  característica ya clasificada y emite veredicto. Motor por defecto: GLM-5.2 (comportamiento de
@@ -177,16 +199,17 @@ export async function compararFichaProveedor(
   // las características del final se quedaban SIN veredicto para siempre. Falla en silencio,
   // porque quedar "sin evaluar" es exactamente lo que se ve cuando la ficha no dice nada.
   if (caracteristicas.length > motor.loteMax) {
-    for (let i = 0; i < caracteristicas.length; i += motor.loteMax) {
-      const lote = caracteristicas.slice(i, i + motor.loteMax);
-      const parcial = await compararFichaProveedor(lote, fichaTexto, fichaNombre, opciones);
-      for (const [k, v] of parcial) resultado.set(k, v);
-    }
+    // En paralelo: los lotes son independientes y con Kimi (razona, ~1 min por llamada) hacerlos
+    // en fila sumaba minutos y pasaba el límite de la petición.
+    const lotes: typeof caracteristicas[] = [];
+    for (let i = 0; i < caracteristicas.length; i += motor.loteMax) lotes.push(caracteristicas.slice(i, i + motor.loteMax));
+    const parciales = await Promise.all(lotes.map(lote => compararFichaProveedor(lote, fichaTexto, fichaNombre, opciones)));
+    for (const parcial of parciales) for (const [k, v] of parcial) resultado.set(k, v);
     return resultado;
   }
 
   const lista = caracteristicas.map(c =>
-    `id=${c.id} · ${c.descripcion} (${c.tipo}${c.valorRequeridoTexto ? `, exigido: ${c.valorRequeridoTexto}` : ''}${c.unidadRequerida ? ` ${c.unidadRequerida}` : ''})`,
+    `id=${c.id} · ${c.descripcion} (${c.tipo}${textoExigido(c)})`,
   ).join('\n');
   // modeloObjetivo (camino "100% IA" con varios modelos en la misma ficha, ej. un catálogo con
   // varios tractores): sin esto la IA puede mezclar datos de dos modelos distintos porque están en
@@ -204,7 +227,7 @@ ${fichaTexto.slice(0, 40_000)}`;
     messages: [{ role: 'system', content: SYS_AGENTE2 }, { role: 'user', content: user }],
     temperature: 0.1, stream: false, max_tokens: motor.maxTokens,
     response_format: { type: 'json_object' },
-  }, { timeoutMs: motor.timeoutMs, modeloPreferido: motor.modeloPreferido, proveedorPreferido: motor.proveedorPreferido });
+  }, { timeoutMs: motor.timeoutMs, modeloPreferido: motor.modeloPreferido, proveedorPreferido: motor.proveedorPreferido, sinRespaldo: motor.sinRespaldo });
 
   const txt = String(completion.choices?.[0]?.message?.content ?? '');
   const parsed: any = parseJsonIA(txt) || {};
@@ -289,7 +312,7 @@ ${fichaTexto.slice(0, 60_000)}`;
     messages: [{ role: 'system', content: SYS_IDENTIFICAR_MODELOS }, { role: 'user', content: user }],
     temperature: 0.1, stream: false, max_tokens: 2_000,
     response_format: { type: 'json_object' },
-  }, { timeoutMs: motor.timeoutMs, modeloPreferido: motor.modeloPreferido, proveedorPreferido: motor.proveedorPreferido });
+  }, { timeoutMs: motor.timeoutMs, modeloPreferido: motor.modeloPreferido, proveedorPreferido: motor.proveedorPreferido, sinRespaldo: motor.sinRespaldo });
 
   const txt = String(completion.choices?.[0]?.message?.content ?? '');
   const parsed: any = parseJsonIA(txt) || {};

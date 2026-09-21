@@ -171,3 +171,38 @@ test('esClausulaDeEquivalencia: reconoce la cláusula sola y NO una exigencia qu
   for (const t of ['Samsung QN55Q6FAAGXZS o similar o equivalente más o menos', 'Motor equivalente a 2 HP', 'Diámetro 26"'])
     assert.ok(!esClausulaDeEquivalencia(t), t);
 });
+
+// ── 5) IA vs cálculo numérico ───────────────────────────────────────────────────────────────
+import { combinarConCalculo, evaluarCaracteristicaDeterminista } from '../auditor-tecnico-core';
+
+const tv = { tipo: 'EXACTO' as const, valorRequeridoNumero: 55, valorRequeridoNumeroMax: null, unidadRequerida: 'pulgadas' };
+
+test('CASO REAL TV línea 8: exigido 55" QLED, ofertado 55" NANO — el 55=55 NO pisa el NO_CUMPLE de la IA', () => {
+  const r = combinarConCalculo(tv, { veredicto: 'NO_CUMPLE', valorOfertadoNumero: 55, unidadOfertadaOriginal: 'pulgadas' });
+  assert.equal(r.veredicto, null, 'queda pendiente de revisión humana, no CUMPLE');
+  assert.match(r.nota || '', /revisar a mano/);
+});
+
+test('el cálculo numérico sigue resolviendo cuando la IA no decidió', () => {
+  const r = combinarConCalculo(tv, { veredicto: null, valorOfertadoNumero: 55, unidadOfertadaOriginal: 'pulgadas' });
+  assert.equal(r.veredicto, 'CUMPLE');
+});
+
+test('si el cálculo demuestra el incumplimiento, gana aunque la IA haya dicho CUMPLE', () => {
+  const r = combinarConCalculo({ ...tv, valorRequeridoNumero: 60 }, { veredicto: 'CUMPLE', valorOfertadoNumero: 55, unidadOfertadaOriginal: 'pulgadas' });
+  assert.equal(r.veredicto, 'NO_CUMPLE');
+});
+
+test('coinciden → sin nota; CUMPLE_CON_COMPLEMENTO de la IA se respeta', () => {
+  assert.equal(combinarConCalculo(tv, { veredicto: 'CUMPLE', valorOfertadoNumero: 55, unidadOfertadaOriginal: 'pulgadas' }).nota, null);
+  assert.equal(combinarConCalculo(tv, { veredicto: 'CUMPLE_CON_COMPLEMENTO', valorOfertadoNumero: 55, unidadOfertadaOriginal: 'pulgadas' }).veredicto, 'CUMPLE_CON_COMPLEMENTO');
+});
+
+test('unidades eléctricas: "kW/h" vs "Kw/h", "volts" vs "V", "hz" vs "Hz" ya se reconocen', () => {
+  const ev = (unidadRequerida: string, unidadOfertadaOriginal: string, req: number, of: number) =>
+    evaluarCaracteristicaDeterminista({ tipo: 'EXACTO', valorRequeridoNumero: req, valorRequeridoNumeroMax: null, unidadRequerida, valorOfertadoNumero: of, unidadOfertadaOriginal })?.veredicto;
+  assert.equal(ev('Kw/h', 'kW/h', 0.75, 0.75), 'CUMPLE');
+  assert.equal(ev('V', 'volts', 220, 220), 'CUMPLE');
+  assert.equal(ev('Hz', 'hz', 50, 50), 'CUMPLE');
+  assert.equal(ev('V', 'volts', 220, 110), 'NO_CUMPLE');
+});
