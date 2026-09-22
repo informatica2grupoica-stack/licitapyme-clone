@@ -514,7 +514,7 @@ const CACHE_CENTROS_COSTO_MS = 5 * 60_000;
 
 /** Catálogo completo de centros de costo, cacheado — `contabilidadCentrosDeCostos.list.json` no
  *  tiene filtro de servidor (verificado en vivo), así que se trae completo una vez y se filtra acá. */
-async function centrosDeCostoCompleto(forzar = false): Promise<ObumaCentroCosto[]> {
+export async function centrosDeCostoCompleto(forzar = false): Promise<ObumaCentroCosto[]> {
   if (!forzar && cacheCentrosCosto && Date.now() - cacheCentrosCosto.en < CACHE_CENTROS_COSTO_MS) return cacheCentrosCosto.datos;
   const r = await llamar<ObumaListado<any>>(BASE_V1, '/contabilidadCentrosDeCostos.list.json');
   const datos = (r.data || []).map(c => ({

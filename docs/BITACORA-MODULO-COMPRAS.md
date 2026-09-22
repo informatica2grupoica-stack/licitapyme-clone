@@ -1698,6 +1698,42 @@ test:viabilidad` 1025/1025.
 **Modificados:** `app/lib/compras-oc-obuma.ts` (`resumenGastosCompra`),
 `app/compras/[negocioId]/ComprasChrome.tsx` (wiring).
 
+### 17.3.2 Módulo "Proyectos (Obuma)" — para comparar contra nuestros negocios
+
+Pedido explícito del usuario, mismo día: "necesito ver el tema de los proyectos... me podés crear
+un módulo bajo de compras y mostrarme los proyectos para hacer una comparación". Aclarado antes de
+programar: Obuma sigue sin darnos acceso a v2.0 (re-verificado con `scripts/obuma-test.mjs`, sigue
+"OBUMA_ACCESS_URL no configurado"), así que no se puede mostrar el Proyecto real (nombre, ficha) —
+el usuario confirmó explícitamente construir la reconstrucción v1-only en vez de esperar.
+
+**Construido:** `listarProyectosObuma()` (nuevo, `app/lib/compras-proyectos-obuma.ts`) agrupa los
+202 centros de costo reales de la cuenta por su `rel_proyecto_id` (182 de los 202 tienen uno — casi
+siempre 1 centro = 1 Proyecto, salvo sub-proyectos), suma sus OC reales (`comprasOcCompleto()`,
+filtrado del lado del cliente porque el filtro de servidor no funciona) y cruza el NOMBRE de cada
+centro contra el código de licitación de cada negocio nuestro activo, con `mencionaCodigo()` (el
+mismo matcher del cruce OC-MP ↔ Obuma — una sola definición de "esto es nuestro" en todo el
+sistema). `centrosDeCostoCompleto()` pasó de función privada a export en `obuma.ts` para esto.
+
+- `GET /api/compras/proyectos-obuma` (nuevo, permiso `compras_todo`/`compras`/`aprobar_comercial`,
+  mismo criterio que `/compras/proveedores`).
+- `app/compras/proyectos/page.tsx` (nueva página) — banner explicando la limitación de v1 de
+  entrada (para que nadie confunda esto con el Proyecto real), 4 estadísticas (total, con negocio
+  nuestro, sin negocio nuestro, gasto total), búsqueda, y un filtro clicable "solo coincidentes".
+  Cada tarjeta muestra sus centros de costo, gasto total, cantidad de OC, y si calza con algo
+  nuestro, un chip verde clickeable a `/compras/[negocioId]`.
+- Enganchado en el sidebar (`AppLayout.tsx`) como "Proyectos (Obuma)", junto a "Proveedores".
+
+**Verificado en vivo** contra la cuenta real: 202 "proyectos", 1 calza con un negocio nuestro
+(3143-27-LE26 → `/compras/655`, el mismo caso de la sección 17.3), 201 sin match (proyectos de
+Tecnomaq que no son licitaciones públicas o que no tienen negocio activo en Licitank), gasto total
+agregado ~$5,19M. Un caso interesante y correcto (no un bug): un centro de costo llamado "TECNOMAQ"
+solo, sin Proyecto, concentra ~2.918 OC — es el centro de costo genérico de la empresa, no uno de
+proyecto. `npx tsc --noEmit` limpio, `npm run test:viabilidad` 1025/1025.
+
+**Nuevos:** `app/lib/compras-proyectos-obuma.ts`, `app/api/compras/proyectos-obuma/route.ts`,
+`app/compras/proyectos/page.tsx`.
+**Modificados:** `app/lib/obuma.ts` (`centrosDeCostoCompleto` exportada), `app/components/AppLayout.tsx`.
+
 ### 17.4 Pendiente real, sin resolver hoy
 
 El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, hay que

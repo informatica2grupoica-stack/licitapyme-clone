@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -85,6 +85,10 @@ const NAV_GROUPS: NavGroup[] = [
       // dinero saliendo — nada que ver con Fleteros (a quién le pagamos el FLETE, no el producto).
       // Antes vivía pegado a Fleteros acá abajo y se confundían.
       { label: 'Proveedores', href: '/compras/proveedores', icon: <Building2 size={17} />, adminOnly: true },
+      // Proyectos (Obuma): vista v1-only, agrupa centros de costo por rel_proyecto_id (Obuma no nos
+      // da acceso a v2.0 todavía) — pedido explícito del usuario, 22-sep-2026, para comparar contra
+      // nuestros negocios. Mismo círculo de acceso que Compras/Proveedores.
+      { label: 'Proyectos (Obuma)', href: '/compras/proyectos', icon: <Folders size={17} />, adminOnly: true },
       { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
       // Fleteros (spec §13.3): catálogo de transporte/flete — mismo círculo de acceso que Compras,
       // concepto distinto a Proveedores (arriba). No cuelga de una licitación puntual.
@@ -331,6 +335,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
       if (i.href === '/compras' && puedeVerCompras) return true;
       if (i.href === '/logistica/fleteros' && puedeVerCompras) return true;
       if (i.href === '/compras/proveedores' && puedeVerCompras) return true;
+      if (i.href === '/compras/proyectos' && puedeVerCompras) return true;
       return false;
     }),
   })).map(group => ({
