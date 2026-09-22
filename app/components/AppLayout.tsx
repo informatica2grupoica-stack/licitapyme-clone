@@ -50,6 +50,9 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Aprobaciones', href: '/aprobaciones', icon: <ClipboardCheck size={17} />, adminOnly: true },
       { label: 'Postuladas', href: '/postuladas', icon: <Send size={17} /> },
       { label: 'Compras',    href: '/compras',    icon: <ShoppingCart size={17} />, adminOnly: true },
+      // Proyectos (Obuma): puesto justo debajo de Compras a propósito (pedido del usuario,
+      // 22-sep-2026: "no sé dónde lo metiste" cuando vivía en GESTIÓN, lejos de Compras).
+      { label: 'Proyectos (Obuma)', href: '/compras/proyectos', icon: <Folders size={17} />, adminOnly: true },
       { label: 'Ganadas/Perdidas', href: '/adjudicadas', icon: <Trophy size={17} /> },
       // Entregas: no es una consola, es algo que cada involucrado tiene que hacer. Visible para
       // admin, para quien tenga el permiso `entrega_proyectos`, y para cualquiera que tenga una
@@ -85,10 +88,6 @@ const NAV_GROUPS: NavGroup[] = [
       // dinero saliendo — nada que ver con Fleteros (a quién le pagamos el FLETE, no el producto).
       // Antes vivía pegado a Fleteros acá abajo y se confundían.
       { label: 'Proveedores', href: '/compras/proveedores', icon: <Building2 size={17} />, adminOnly: true },
-      // Proyectos (Obuma): vista v1-only, agrupa centros de costo por rel_proyecto_id (Obuma no nos
-      // da acceso a v2.0 todavía) — pedido explícito del usuario, 22-sep-2026, para comparar contra
-      // nuestros negocios. Mismo círculo de acceso que Compras/Proveedores.
-      { label: 'Proyectos (Obuma)', href: '/compras/proyectos', icon: <Folders size={17} />, adminOnly: true },
       { label: 'Descartadas', href: '/descartadas', icon: <Ban size={17} />, adminOnly: true },
       // Fleteros (spec §13.3): catálogo de transporte/flete — mismo círculo de acceso que Compras,
       // concepto distinto a Proveedores (arriba). No cuelga de una licitación puntual.
