@@ -16,6 +16,7 @@ import {
   crearOrdenCompraObuma, listarFormasPago, proveedorPorRut, crearProveedorObuma, buscarCentroCostoPorLicitacion,
   listarComprasOc, listarComprasOcItems, mapaFormasPagoCompleto, type ObumaFormaPago, type DatosCrearProveedorObuma,
 } from '@/app/lib/obuma';
+import { comprasObumaDeLicitacion } from '@/app/lib/obuma-compras';
 
 async function licitacionDeNegocio(negocioId: number): Promise<string | null> {
   const [rows] = await pool.query(`SELECT licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [negocioId]) as any;
@@ -391,5 +392,52 @@ function vistaManualError(folio: string, error: string): OrdenCompraVista {
     proveedorNombre: '', proveedorRut: null, proveedorDireccion: null, proveedorComuna: null,
     proveedorGiro: null, proveedorContacto: null, proveedorEmail: null, proveedorTelefono: null,
     fecha: null, centroCosto: null, formaPago: null, items: [], subtotal: 0, flete: 0, total: 0, error,
+  };
+}
+
+// ── Resumen final del módulo de Compras (pedido explícito del usuario, 22-sep-2026): "no tenemos
+// un resumen de cuánto gastamos, las OC creadas y las facturas realizadas" — hasta hoy ese número
+// solo se veía en la ficha de la licitación (bloque "Compras (Obuma)", ComprasObumaBloque.tsx), no
+// dentro del propio módulo de Compras. Junta DOS fuentes que ya existían pero nunca se habían
+// combinado en una sola pantalla:
+//   1. compras_orden_compra_obuma — las OC que EMITIMOS nosotros desde Licitank (migración 106).
+//   2. obuma_compras — todo lo que el cron cruzó por referencia (incluye compras hechas directo en
+//      Obuma sin pasar por acá, y las facturas reales con su XML — migración 66/67).
+// Ambas fuentes son lectura de BASE, no llaman a Obuma en vivo — mismo criterio que el resto de la
+// pantalla de Compras (la consulta en vivo del Proyecto completo sigue siendo un botón aparte, ver
+// gastosDelProyectoPorLicitacion en obuma.ts).
+export interface ResumenGastosCompra {
+  ocCreadas: { cantidad: number; totalNeto: number; proveedores: { nombre: string; folio: string | null; total: number; fecha: string }[] };
+  comprasCruzadas: { cantidad: number; total: number };
+  facturas: { cantidad: number; total: number };
+  montoCosteado: number | null;
+  variacionPct: number | null; // (gastado real - costeado) / costeado, positivo = gastamos más de lo presupuestado
+}
+
+export async function resumenGastosCompra(negocioId: number, montoCosteado: number | null): Promise<ResumenGastosCompra> {
+  const [ocRows] = await pool.query(
+    `SELECT proveedor_nombre, obuma_folio, total_neto, DATE_FORMAT(fecha_oc, '%Y-%m-%d') AS fecha_oc
+       FROM compras_orden_compra_obuma WHERE negocio_id = ? ORDER BY created_at`,
+    [negocioId],
+  ) as any;
+  const ocCreadas = (ocRows as any[]).map(r => ({ nombre: r.proveedor_nombre, folio: r.obuma_folio, total: Number(r.total_neto), fecha: r.fecha_oc }));
+  const totalOcCreadas = ocCreadas.reduce((s, o) => s + o.total, 0);
+
+  const codigo = await licitacionDeNegocio(negocioId);
+  const cruzadas = codigo ? await comprasObumaDeLicitacion(codigo) : [];
+  const totalCruzadas = cruzadas.reduce((s, c) => s + (c.total || 0), 0);
+  const facturas = cruzadas.flatMap(c => c.facturas);
+  const totalFacturas = facturas.reduce((s, f) => s + (f.total || 0), 0);
+
+  const gastadoReal = totalOcCreadas || totalCruzadas || null;
+  const variacionPct = montoCosteado && montoCosteado > 0 && gastadoReal != null
+    ? Math.round(((gastadoReal - montoCosteado) / montoCosteado) * 1000) / 10
+    : null;
+
+  return {
+    ocCreadas: { cantidad: ocCreadas.length, totalNeto: totalOcCreadas, proveedores: ocCreadas },
+    comprasCruzadas: { cantidad: cruzadas.length, total: totalCruzadas },
+    facturas: { cantidad: facturas.length, total: totalFacturas },
+    montoCosteado, variacionPct,
   };
 }

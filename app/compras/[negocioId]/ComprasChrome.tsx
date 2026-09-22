@@ -19,6 +19,7 @@ import { ProductosCompraCard } from '@/app/negocios/[id]/ProductosCompraCard';
 import { AuditorComprasCard } from '@/app/negocios/[id]/AuditorComprasCard';
 import { AprobacionesCompraCard } from '@/app/negocios/[id]/AprobacionesCompraCard';
 import { RepartoAdminCard } from '@/app/negocios/[id]/RepartoAdminCard';
+import { ResumenGastosCard } from '@/app/negocios/[id]/ResumenGastosCard';
 import { ImportacionCard } from '@/app/negocios/[id]/ImportacionCard';
 import { ModalidadRetiroCard } from '@/app/negocios/[id]/ModalidadRetiroCard';
 import { GastosCard } from '@/app/negocios/[id]/GastosCard';
@@ -643,6 +644,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             {faseActiva === 'aprobacion' && <AprobacionesCompraCard negocioId={negocioId} puedeOperar={puedeOperar} />}
             {faseActiva === 'compra' && (
               <div className="space-y-3">
+                <ResumenGastosCard negocioId={negocioId} />
                 <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
                 <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} />
                 <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} />

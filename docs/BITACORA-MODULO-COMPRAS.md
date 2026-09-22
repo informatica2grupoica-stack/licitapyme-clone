@@ -1666,6 +1666,38 @@ confirme que los 5 campos nuevos se ven bien, y que abra el bloque "Compras (Obu
 licitación con centro de costo armado y confirme que "Ver gastos del proyecto en Obuma" trae un
 número razonable.
 
+### 17.3.1 El resumen de gasto se movió DENTRO del módulo (mismo día, a pedido del usuario)
+
+El usuario vio el informe de la sesión y corrigió el enfoque: "la idea es que eso esté en el módulo
+de compra... no tenemos un resumen de cuánto gastamos, las OC creadas y las facturas realizadas".
+El botón "Ver gastos del proyecto en Obuma" de §17.2 vivía en la ficha de la licitación
+(`ComprasObumaBloque.tsx`, pestaña Resultado) — útil, pero no es "el módulo de Compras".
+
+**Construido:** `resumenGastosCompra()` (nuevo en `compras-oc-obuma.ts`) combina DOS fuentes que ya
+existían pero nunca se habían juntado en una pantalla: `compras_orden_compra_obuma` (las OC que
+EMITIMOS desde Licitank, migración 106) y `obuma_compras` (todo lo que el cron cruzó, incluida
+factura real con XML, migración 66/67). Las dos son lectura de base — no llaman a Obuma en cada
+carga, mismo criterio que el resto de la pantalla. `GET /api/compras/[negocioId]/resumen-gastos`
+(nuevo) expone esto + el `montoCosteado` que ya calculaba `obtenerAsignacion()`, para mostrar la
+variación real vs. lo presupuestado.
+
+`ResumenGastosCard.tsx` (nuevo componente) se muestra AL PRINCIPIO de la pestaña "Compra,
+Importación y Logística" (antes de "Órdenes de compra (Obuma)") — 3 cifras (OC creadas, compras
+cruzadas, facturas realizadas) + variación vs. costeado, y el botón de §17.2 ("Ver gastos del
+Proyecto completo en Obuma", consulta EN VIVO, movido/duplicado acá) al pie.
+
+**Verificado en vivo** contra el negocio real 655 (3143-27-LE26, Municipalidad de Lago Ranco):
+"Resumen de gasto (Obuma) · $16.377.608" con OC creadas $0 (0 emitidas desde Licitank — correcto,
+esta compra se cruzó por referencia, no se creó desde el sistema), Compras cruzadas $16.377.608 (2),
+Facturas realizadas $16.758.410 (7 con XML), y el botón de Proyecto completo respondiendo en vivo
+"$16.377.608 en 2 órdenes de compra del Proyecto completo". `npx tsc --noEmit` limpio, `npm run
+test:viabilidad` 1025/1025.
+
+**Nuevos:** `app/negocios/[id]/ResumenGastosCard.tsx`,
+`app/api/compras/[negocioId]/resumen-gastos/route.ts`.
+**Modificados:** `app/lib/compras-oc-obuma.ts` (`resumenGastosCompra`),
+`app/compras/[negocioId]/ComprasChrome.tsx` (wiring).
+
 ### 17.4 Pendiente real, sin resolver hoy
 
 El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, hay que
