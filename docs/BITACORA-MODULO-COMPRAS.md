@@ -1581,3 +1581,93 @@ grave (motivo sin dónde escribirse) y el control de gasto pedido; falta un reco
 sobre el resto de las pestañas (Costeo y Auditoría, Compra/Importación/Logística, Entrega y Cierre)
 para el mismo estándar. Sugerido para la próxima vuelta, en el mismo orden que las pestañas del
 stepper de `ComprasChrome.tsx`.
+
+---
+
+## 17. Sesión 17 (22-sep-2026): campos bancarios del proveedor confirmados en vivo + gastos del
+proyecto sin esperar v2.0
+
+Pedido del usuario: "dale full a Obuma" — revisar qué falta contra la spec v2.2 completa (compartió
+también `GUIA_IMPLEMENTACION_MODULO_COMPRAS.md`, un prompt técnico derivado de la misma spec) y
+cerrar los huecos reales de integración. La auditoría (con un agente de exploración + relectura de
+esta bitácora) confirmó que **§1-§19 ya estaban construidas** — el "todo lo que falta" del pedido
+inicial se redujo, tras el análisis, a dos huecos puntuales que esta bitácora ya tenía anotados sin
+resolver: (1) proveedor sin datos bancarios, (2) gastos del proyecto bloqueados por no tener acceso
+a v2.0.
+
+### 17.1 Los campos bancarios del proveedor — ya no es una sospecha, está confirmado
+
+`docs.obuma.cl/ayuda/api-integracion` (el usuario pasó el link) documenta `/proveedores.create.json`
+con solo los campos básicos, igual que ya sabíamos. Pero **leyendo 100 proveedores reales**
+(`proveedores.list.json`, solo lectura) aparecen en la respuesta: `proveedor_forma_pago`,
+`proveedor_banco_cuenta`, `proveedor_nro_cuenta`, `proveedor_tipo_cuenta`, `proveedor_centro_costo`,
+`proveedor_tags`, `rel_tipoproveedor_id` — nombres de campo reales, no documentados para `create`.
+
+**Se probó, en vez de adivinar**: un UPDATE IDEMPOTENTE contra un proveedor real (158108, "13A SPA")
+mandando esos 5 primeros campos con EXACTAMENTE los mismos valores que ya tenía. Obuma respondió
+`"proveedor actualizado"` (HTTP 200) y una relectura posterior confirmó que los 5 valores quedaron
+idénticos — no fue un no-op silencioso, la API los procesó de verdad. Cero riesgo (nada cambió en
+producción), confirmación real.
+
+`bancos.list.json`, `empresaBancos.list.json`, `proveedoresTipos.list.json` y
+`empresaTiposProveedor.list.json` se probaron como candidatos a catálogo para `banco_cuenta`/
+`rel_tipoproveedor_id` — los 4 dan 404 "Metodo no encontrado". Esos dos quedan como campo de texto
+libre en el formulario (el usuario tiene que saber el ID, igual que lo ve en el desplegable del
+formulario web de Obuma) — no se inventa un catálogo que no existe.
+
+**Construido:**
+- `app/lib/obuma.ts`: `DatosCrearProveedorObuma` gana `formaPago`, `centroCosto`, `bancoCuenta`,
+  `nroCuenta`, `tipoCuenta`, `tipoProveedorId`, `tags` (todos opcionales). `crearProveedorObuma()`
+  los manda si vienen, y la verificación post-creación ahora también compara estos 5 valores contra
+  lo que Obuma guardó de verdad (antes solo confirmaba que el proveedor existía) — si alguno no
+  quedó como se mandó, queda un `console.warn` explícito en vez de fallar en silencio.
+- `app/api/compras/[negocioId]/orden-compra-obuma/proveedor/route.ts`: el POST pasa los 7 campos
+  nuevos del body.
+- `app/negocios/[id]/RepartoAdminCard.tsx`: el modal "Crear proveedor en Obuma" gana Forma de pago
+  (desplegable, reusa el mismo catálogo que ya se cargaba para la OC), Centro de costo, Banco, Tipo
+  de cuenta y N° de cuenta (texto libre) — `abrirModalProveedor` ahora también dispara
+  `cargarFormasPago()`, que antes solo se llamaba al abrir la OC.
+
+### 17.2 Gastos del proyecto — cruce v1-only, sin esperar el header `access-url`
+
+Hallazgo real, no documentado por Obuma en ningún lado: `contabilidadCentrosDeCostos.list.json`
+(el mismo endpoint que ya usaba `buscarCentroCostoPorLicitacion` desde el 10-sep) trae un campo que
+nadie había mirado, **`rel_proyecto_id`** — el ID del Proyecto de Obuma (v2.0) al que pertenece ese
+centro de costo. No hace falta leer `/proyectos.*` (sigue bloqueado sin `OBUMA_ACCESS_URL`) para
+saber que dos centros de costo son del mismo Proyecto: alcanza con que compartan `rel_proyecto_id`.
+
+**Construido**, `app/lib/obuma.ts`:
+- `centrosDeCostoCompleto()` — catálogo completo cacheado (5 min; el endpoint no filtra del lado del
+  servidor, verificado en vivo otra vez con `comprasOc.list.json?centro_costo=X` — mismo total con y
+  sin filtro).
+- `buscarCentroCostoPorLicitacion()` ahora también devuelve `relProyectoId`.
+- `gastosDelProyectoPorLicitacion(codigo)` (nuevo): ubica el centro de costo de la licitación, junta
+  TODOS los centros de costo que comparten su `rel_proyecto_id` (si tiene), y suma el total de todas
+  las OC de `comprasOcCompleto()` cuyo `compra_oc_centro_costo` esté en ese conjunto. Sin Proyecto
+  asociado, devuelve el total de un único centro de costo (mejor esfuerzo, no inventa agrupación).
+- `GET /api/obuma-compras/gastos-proyecto?codigo=` (nuevo) — llama a Obuma EN VIVO, a propósito
+  (distinto del resto del bloque, que solo lee lo que el cron ya cruzó): es una consulta explícita,
+  no un autoload de pantalla.
+- `ComprasObumaBloque.tsx`: botón "Ver gastos del proyecto en Obuma" al pie del bloque — muestra el
+  total, cantidad de OC, y si hay más de un centro de costo agrupado, los nombra.
+
+### 17.3 Verificación
+
+Todo lo anterior se probó **contra la API real de Obuma con el token del `.env.local`**, no contra
+una respuesta simulada — scripts de reconocimiento en `scripts/scratch/obuma-recon-sep22.mjs`,
+`obuma-buscar-proveedor-test.mjs`, `obuma-test-update-proveedor-bancario.mjs` (solo lectura + el
+único update, idempotente, documentado arriba). `npx tsc --noEmit` → limpio. `npm run
+test:viabilidad` → **1025/1025**, sin regresiones (no se agregaron tests nuevos: es wiring de
+formulario + una función de agregación sin lógica de negocio compleja para testear en aislado).
+
+**No probado en el navegador** (sin sesión disponible en este entorno): falta que el usuario abra el
+modal "Crear proveedor en Obuma" desde Compra/Importación/Logística → Órdenes de compra (Obuma) y
+confirme que los 5 campos nuevos se ven bien, y que abra el bloque "Compras (Obuma)" de una
+licitación con centro de costo armado y confirme que "Ver gastos del proyecto en Obuma" trae un
+número razonable.
+
+### 17.4 Pendiente real, sin resolver hoy
+
+El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, hay que
+gestionarlo con soporte comercial de Obuma si en algún momento se quiere leer el Proyecto en sí
+(nombre, ficha) en vez de solo agregarle gastos por el cruce de centro de costo.

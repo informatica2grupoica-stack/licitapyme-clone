@@ -54,6 +54,11 @@ const formProveedorVacio = {
   rut: '', razonSocial: '', nombreFantasia: '', contacto: '', giro: '', direccion: '', comuna: '', region: '', pais: 'CHILE',
   telefono: '', celular: '', email: '', website: '', observacion: '', cuentaContable: '',
   esSupermercado: false, esFactoring: false,
+  // Configuración financiera — confirmada en vivo contra Obuma 22-sep-2026 (ver obuma.ts,
+  // crearProveedorObuma). formaPago/centroCosto son IDs con catálogo consultable; bancoCuenta y
+  // tipoProveedorId son IDs internos de Obuma sin catálogo público — quien llena el formulario debe
+  // saber el ID (mismo que ve en el desplegable del formulario web de Obuma).
+  formaPago: '', centroCosto: '', bancoCuenta: '', nroCuenta: '', tipoCuenta: '', tipoProveedorId: '', tags: '',
 };
 
 const HITOS: Array<{ key: Hito; label: string; atField: keyof Reparto }> = [
@@ -178,6 +183,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
       direccion: p.proveedorDireccion || '', comuna: p.proveedorComuna || '',
       telefono: p.proveedorTelefono || '', email: p.proveedorEmail || '',
     });
+    cargarFormasPago();
     setModalProveedorAbierto(true);
   };
 
@@ -650,6 +656,34 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
                   <input value={formProveedor.cuentaContable} onChange={e => setFormProveedor(f => ({ ...f, cuentaContable: e.target.value }))}
                     placeholder="ej. 2.1.01.001" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
                 </label>
+                <label className="text-[10.5px] font-semibold text-zinc-500">
+                  Forma de pago <span className="font-normal text-zinc-400">(opcional)</span>
+                  <select value={formProveedor.formaPago} onChange={e => setFormProveedor(f => ({ ...f, formaPago: e.target.value }))}
+                    className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 bg-white">
+                    <option value="">— sin definir —</option>
+                    {formasPago.map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}
+                  </select>
+                </label>
+                <label className="text-[10.5px] font-semibold text-zinc-500">
+                  Centro de costo <span className="font-normal text-zinc-400">(ID de Obuma, opcional)</span>
+                  <input value={formProveedor.centroCosto} onChange={e => setFormProveedor(f => ({ ...f, centroCosto: e.target.value }))}
+                    placeholder="ej. 4491" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
+                </label>
+                <label className="text-[10.5px] font-semibold text-zinc-500">
+                  Banco <span className="font-normal text-zinc-400">(ID de Obuma, opcional)</span>
+                  <input value={formProveedor.bancoCuenta} onChange={e => setFormProveedor(f => ({ ...f, bancoCuenta: e.target.value }))}
+                    placeholder="mismo ID que ves en Obuma" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
+                </label>
+                <label className="text-[10.5px] font-semibold text-zinc-500">
+                  Tipo de cuenta <span className="font-normal text-zinc-400">(opcional)</span>
+                  <input value={formProveedor.tipoCuenta} onChange={e => setFormProveedor(f => ({ ...f, tipoCuenta: e.target.value }))}
+                    placeholder="ej. Cuenta Corriente" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
+                </label>
+                <label className="text-[10.5px] font-semibold text-zinc-500">
+                  N° de cuenta <span className="font-normal text-zinc-400">(opcional)</span>
+                  <input value={formProveedor.nroCuenta} onChange={e => setFormProveedor(f => ({ ...f, nroCuenta: e.target.value }))}
+                    placeholder="ej. 164-28444-03" className="mt-0.5 w-full text-[12px] font-normal border border-zinc-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500" />
+                </label>
                 <label className="text-[10.5px] font-semibold text-zinc-500 col-span-2">
                   Observación
                   <textarea value={formProveedor.observacion} onChange={e => setFormProveedor(f => ({ ...f, observacion: e.target.value }))} rows={2}
@@ -665,7 +699,7 @@ export function RepartoAdminCard({ negocioId, puedeOperar }: { negocioId: number
                 </label>
               </div>
               <p className="text-[10px] text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-                Tipo de proveedor, centro de costo, forma de pago y datos bancarios no están en la API documentada de Obuma — se completan después, directo en Obuma, si hacen falta.
+                Forma de pago, centro de costo, banco, tipo y N° de cuenta se mandan junto con la creación (confirmado en vivo, 22-sep-2026 — no están en la doc pública de Obuma, pero la API los acepta). El ID del banco no tiene catálogo público: usá el mismo que ves en el desplegable del formulario web de Obuma. "Tipo de proveedor" no tiene campo acá todavía — se completa después, directo en Obuma, si hace falta.
               </p>
             </div>
             <div className="px-4 py-3 border-t border-zinc-100 flex items-center gap-2">

@@ -5,9 +5,70 @@
 // cumplir esa licitación (el costo real: proveedor, ítems, monto). Los datos los deja el cron
 // (app/lib/obuma-compras.ts) — acá solo se leen de nuestra base.
 import { useEffect, useState } from 'react';
-import { IconShoppingBag as ShoppingBag, IconBuilding as Building2, IconPackage as Package, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconFileText as FileText } from '@tabler/icons-react';
+import { IconShoppingBag as ShoppingBag, IconBuilding as Building2, IconPackage as Package, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconFileText as FileText, IconFolderSearch as FolderSearch } from '@tabler/icons-react';
 import { useRealtime } from '@/app/lib/use-realtime';
 import { FacturaObumaModal } from './FacturaObumaModal';
+
+interface GastosProyecto {
+  centroCostoId: string; centroCostoNombre: string; relProyectoId: string | null;
+  centrosDeCostoDelProyecto: { id: string; nombre: string }[];
+  totalOc: number; cantidadOc: number;
+}
+
+/** Botón "Ver gastos del proyecto en Obuma" — a diferencia del resto del bloque (que solo lee lo
+ *  que el cron ya cruzó), esto llama a Obuma EN VIVO, a propósito, solo con el clic explícito:
+ *  agrupa todos los centros de costo que comparten Proyecto en Obuma (rel_proyecto_id, cruce
+ *  v1-only — ver gastosDelProyectoPorLicitacion en obuma.ts) y suma sus OC reales, sin esperar el
+ *  acceso a v2.0. */
+function GastosProyectoObuma({ codigo }: { codigo: string }) {
+  const [estado, setEstado] = useState<'idle' | 'cargando' | 'ok' | 'sin_datos' | 'error'>('idle');
+  const [datos, setDatos] = useState<GastosProyecto | null>(null);
+
+  const consultar = () => {
+    setEstado('cargando');
+    fetch(`/api/obuma-compras/gastos-proyecto?codigo=${encodeURIComponent(codigo)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (!d?.success) { setEstado('error'); return; }
+        if (!d.gastos) { setEstado('sin_datos'); return; }
+        setDatos(d.gastos); setEstado('ok');
+      })
+      .catch(() => setEstado('error'));
+  };
+
+  if (estado === 'idle') {
+    return (
+      <button onClick={consultar}
+        className="text-[11px] font-semibold text-slate-500 hover:text-slate-700 inline-flex items-center gap-1">
+        <FolderSearch size={12} /> Ver gastos del proyecto en Obuma
+      </button>
+    );
+  }
+  if (estado === 'cargando') {
+    return <span className="text-[11px] text-slate-400 inline-flex items-center gap-1"><Loader2 size={11} className="animate-spin" /> Consultando Obuma…</span>;
+  }
+  if (estado === 'error') {
+    return <span className="text-[11px] text-rose-500">No se pudo consultar Obuma ahora.</span>;
+  }
+  if (estado === 'sin_datos') {
+    return <span className="text-[11px] text-slate-400">Esta licitación todavía no tiene un centro de costo armado en Obuma.</span>;
+  }
+  if (!datos) return null;
+  return (
+    <div className="w-full mt-1 text-[11.5px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+      <p><b>{fmtCLP(datos.totalOc)}</b> en {datos.cantidadOc} orden{datos.cantidadOc !== 1 ? 'es' : ''} de compra
+        {datos.relProyectoId
+          ? <> · Proyecto Obuma con {datos.centrosDeCostoDelProyecto.length} centro{datos.centrosDeCostoDelProyecto.length !== 1 ? 's' : ''} de costo</>
+          : <> · solo el centro de costo "{datos.centroCostoNombre}" (sin Proyecto asociado en Obuma)</>}
+      </p>
+      {datos.centrosDeCostoDelProyecto.length > 1 && (
+        <p className="mt-1 text-slate-400 truncate" title={datos.centrosDeCostoDelProyecto.map(c => c.nombre).join(' · ')}>
+          {datos.centrosDeCostoDelProyecto.map(c => c.nombre).join(' · ')}
+        </p>
+      )}
+    </div>
+  );
+}
 
 interface ItemCompra { descripcion: string; cantidad: number | null; precio: number | null; subtotal: number | null }
 interface FacturaObuma {
@@ -157,6 +218,9 @@ export function ComprasObumaBloque({ codigo }: { codigo: string }) {
           <FilaCompra key={c.compraOcId} c={c}
             onVerFactura={dteId => setFacturaAbierta({ compraOcId: c.compraOcId, dteId })} />
         ))}
+      </div>
+      <div className="px-5 pb-4 flex flex-wrap items-start gap-2">
+        <GastosProyectoObuma codigo={codigo} />
       </div>
 
       {facturaAbierta && (

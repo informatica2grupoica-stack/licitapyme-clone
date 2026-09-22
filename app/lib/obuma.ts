@@ -507,15 +507,70 @@ export async function mapaFormasPagoCompleto(): Promise<Map<string, string>> {
  *  así que se trae el listado completo (200 y tantos, una sola consulta barata) y se busca acá.
  *  `null` si esta licitación todavía no tiene un centro de costo armado en Obuma — nunca se inventa
  *  uno ni se manda el primero que aparezca. */
-export async function buscarCentroCostoPorLicitacion(licitacionCodigo: string): Promise<{ id: string; nombre: string } | null> {
+export interface ObumaCentroCosto { id: string; nombre: string; codigo: string; relProyectoId: string | null; activo: boolean }
+
+let cacheCentrosCosto: { en: number; datos: ObumaCentroCosto[] } | null = null;
+const CACHE_CENTROS_COSTO_MS = 5 * 60_000;
+
+/** Catálogo completo de centros de costo, cacheado — `contabilidadCentrosDeCostos.list.json` no
+ *  tiene filtro de servidor (verificado en vivo), así que se trae completo una vez y se filtra acá. */
+async function centrosDeCostoCompleto(forzar = false): Promise<ObumaCentroCosto[]> {
+  if (!forzar && cacheCentrosCosto && Date.now() - cacheCentrosCosto.en < CACHE_CENTROS_COSTO_MS) return cacheCentrosCosto.datos;
   const r = await llamar<ObumaListado<any>>(BASE_V1, '/contabilidadCentrosDeCostos.list.json');
-  const activos = (r.data || []).filter(c => String(c.ccc_activo) === '1' && String(c.ccc_nombre || '').includes(licitacionCodigo));
+  const datos = (r.data || []).map(c => ({
+    id: String(c.ccc_id), nombre: String(c.ccc_nombre || ''), codigo: String(c.ccc_codigo || ''),
+    relProyectoId: c.rel_proyecto_id && String(c.rel_proyecto_id) !== '0' ? String(c.rel_proyecto_id) : null,
+    activo: String(c.ccc_activo) === '1',
+  }));
+  cacheCentrosCosto = { en: Date.now(), datos };
+  return datos;
+}
+
+export async function buscarCentroCostoPorLicitacion(licitacionCodigo: string): Promise<{ id: string; nombre: string; relProyectoId: string | null } | null> {
+  const todos = await centrosDeCostoCompleto();
+  const activos = todos.filter(c => c.activo && c.nombre.includes(licitacionCodigo));
   if (activos.length === 0) return null;
   // Si hay más de un centro de costo con el mismo código de licitación (pasa con sub-proyectos,
   // ver "PROY-26 - LOS ANGELES ID 2411-18-LE24 MINIEXCAVADORA"), se prefiere el más reciente
   // (ccc_id más alto) — mejor esfuerzo, no hay forma de saber cuál es "el correcto" sin más datos.
-  const elegido = activos.sort((a, b) => Number(b.ccc_id) - Number(a.ccc_id))[0];
-  return { id: String(elegido.ccc_id), nombre: String(elegido.ccc_nombre) };
+  const elegido = activos.sort((a, b) => Number(b.id) - Number(a.id))[0];
+  return { id: elegido.id, nombre: elegido.nombre, relProyectoId: elegido.relProyectoId };
+}
+
+/** Cruce v1-only para "gastos del proyecto" sin esperar el acceso a v2.0 (Proyectos): cada centro
+ *  de costo trae `rel_proyecto_id` (CONFIRMADO en vivo 22-sep-2026, no está documentado — apareció
+ *  leyendo `contabilidadCentrosDeCostos.list.json` real). Un mismo Proyecto de Obuma puede tener
+ *  VARIOS centros de costo (sub-proyectos/canastas) — se agrupan todos los que compartan el mismo
+ *  `rel_proyecto_id` que el centro de costo de la licitación, y se suman sus OC de compra
+ *  (`comprasOc.list.json`, filtrado del lado del cliente porque el filtro `centro_costo` del
+ *  servidor NO filtra nada — verificado en vivo). No lee `/proyectos.*` (v2.0, sigue bloqueado):
+ *  esto da el TOTAL gastado, no el nombre/ficha del Proyecto en sí. */
+export interface GastosProyectoObuma {
+  centroCostoId: string; centroCostoNombre: string; relProyectoId: string | null;
+  centrosDeCostoDelProyecto: { id: string; nombre: string }[];
+  totalOc: number; cantidadOc: number;
+}
+export async function gastosDelProyectoPorLicitacion(licitacionCodigo: string): Promise<GastosProyectoObuma | null> {
+  const centro = await buscarCentroCostoPorLicitacion(licitacionCodigo);
+  if (!centro) return null;
+
+  let idsCentroCosto = [centro.id];
+  let hermanos: { id: string; nombre: string }[] = [{ id: centro.id, nombre: centro.nombre }];
+  if (centro.relProyectoId) {
+    const todos = await centrosDeCostoCompleto();
+    hermanos = todos.filter(c => c.relProyectoId === centro.relProyectoId).map(c => ({ id: c.id, nombre: c.nombre }));
+    if (hermanos.length) idsCentroCosto = hermanos.map(c => c.id);
+  }
+  const idsSet = new Set(idsCentroCosto);
+
+  const todasLasOc = await comprasOcCompleto();
+  const delProyecto = todasLasOc.filter(oc => idsSet.has(String(oc.compra_oc_centro_costo)));
+  const totalOc = delProyecto.reduce((acc, oc) => acc + (Number(oc.compra_oc_total) || 0), 0);
+
+  return {
+    centroCostoId: centro.id, centroCostoNombre: centro.nombre, relProyectoId: centro.relProyectoId,
+    centrosDeCostoDelProyecto: hermanos, totalOc, cantidadOc: delProyecto.length,
+  };
 }
 
 export interface DatosItemOrdenCompra {
@@ -638,20 +693,37 @@ export async function crearOrdenCompraObuma(
  *
  *  OJO — el formulario WEB real de Obuma pide bastante más que esto (Tipo de proveedor, Centro de
  *  costo, Forma de pago, Banco/cuenta bancaria, Tags, "permitir DTE sin O.C."): el usuario mandó un
- *  volcado completo de ese formulario el 10-sep-2026. Esos campos NO están en la documentación
- *  pública de /proveedores.create.json (obuma.cl/ayuda/articulo/157) — solo aparecen `proveedor_*`
- *  básicos + `cuenta_contable` (documentado recién en el endpoint update, pero "todos los
- *  parámetros del create son aplicables" según esa misma doc). Adivinar el nombre de los campos de
- *  configuración contable/bancaria (centro de costo, forma de pago, banco) es demasiado riesgoso —
- *  un nombre de campo equivocado podría clasificar mal la cuenta sin que nadie se entere (regla
- *  "nunca inventar datos" aplicada acá: no se manda nada cuyo nombre de campo no esté confirmado).
- *  Esos datos de configuración financiera se completan después, directo en Obuma. */
+ *  volcado completo de ese formulario el 10-sep-2026. Esos campos NO estaban en la documentación
+ *  pública de /proveedores.create.json (obuma.cl/ayuda/articulo/157) — solo aparecían `proveedor_*`
+ *  básicos + `cuenta_contable` (documentado recién en el endpoint update).
+ *
+ *  CONFIRMADO EN VIVO (22-sep-2026, sin adivinar): se leyeron 100 proveedores reales
+ *  (`proveedores.list.json`) y aparecen `proveedor_forma_pago`, `proveedor_banco_cuenta`,
+ *  `proveedor_nro_cuenta`, `proveedor_tipo_cuenta`, `proveedor_centro_costo`, `proveedor_tags` y
+ *  `rel_tipoproveedor_id` en la respuesta real. Se probó además un UPDATE IDEMPOTENTE contra un
+ *  proveedor real (158108, "13A SPA") mandando esos 5 primeros campos con EXACTAMENTE los mismos
+ *  valores que ya tenía: Obuma respondió "proveedor actualizado" (HTTP 200) y una relectura posterior
+ *  confirmó que los 5 valores quedaron idénticos — la API los acepta de verdad, no es un no-op
+ *  silencioso. `proveedor_banco_cuenta` y `rel_tipoproveedor_id` son IDs internos de Obuma sin
+ *  catálogo público (se probaron `/bancos.list.json`, `/empresaBancos.list.json`,
+ *  `/proveedoresTipos.list.json`, `/empresaTiposProveedor.list.json` — los 4 dan 404): quien complete
+ *  el formulario tiene que saber el ID correcto (mismo que ve en el desplegable del formulario web de
+ *  Obuma), acá no se resuelve nombre→ID porque no hay de dónde leerlo. `nroCuenta`/`tipoCuenta` son
+ *  texto libre, sin catálogo. */
 export interface DatosCrearProveedorObuma {
   rut: string; razonSocial: string; nombreFantasia?: string | null; contacto?: string | null; giro?: string | null;
   esSupermercado?: boolean; esFactoring?: boolean;
   direccion?: string | null; comuna?: string | null; region?: string | null;
   pais?: string | null; telefono?: string | null; celular?: string | null; email?: string | null;
   website?: string | null; observacion?: string | null; cuentaContable?: string | null;
+  // Configuración financiera — confirmada en vivo 22-sep-2026, ver comentario arriba.
+  formaPago?: string | null;       // ID de empresaFormasDePago.list.json (mapaFormasPagoCompleto)
+  centroCosto?: string | null;     // ID de contabilidadCentrosDeCostos.list.json
+  bancoCuenta?: string | null;     // ID interno de Obuma, sin catálogo público — lo sabe quien mira el formulario web
+  nroCuenta?: string | null;       // texto libre (ej. "164-28444-03")
+  tipoCuenta?: string | null;      // texto libre (ej. "Cuenta Corriente")
+  tipoProveedorId?: string | null; // rel_tipoproveedor_id — ID interno, sin catálogo público
+  tags?: string | null;
 }
 export async function crearProveedorObuma(datos: DatosCrearProveedorObuma): Promise<{ proveedorId: string }> {
   const payload: Record<string, unknown> = {
@@ -672,14 +744,33 @@ export async function crearProveedorObuma(datos: DatosCrearProveedorObuma): Prom
   if (datos.website) payload.proveedor_website = datos.website;
   if (datos.observacion) payload.proveedor_observacion = datos.observacion;
   if (datos.cuentaContable) payload.cuenta_contable = datos.cuentaContable;
+  if (datos.formaPago) payload.proveedor_forma_pago = datos.formaPago;
+  if (datos.centroCosto) payload.proveedor_centro_costo = datos.centroCosto;
+  if (datos.bancoCuenta) payload.proveedor_banco_cuenta = datos.bancoCuenta;
+  if (datos.nroCuenta) payload.proveedor_nro_cuenta = datos.nroCuenta;
+  if (datos.tipoCuenta) payload.proveedor_tipo_cuenta = datos.tipoCuenta;
+  if (datos.tipoProveedorId) payload.rel_tipoproveedor_id = datos.tipoProveedorId;
+  if (datos.tags) payload.proveedor_tags = datos.tags;
 
   const json = await llamarPost<any>(BASE_V1, '/proveedores.create.json', payload);
   const detalle: string = json.result?.result_detail || json.result_detail || '';
   const proveedorId = json.data?.proveedor_id || json.proveedor_id || detalle.match(/proveedor_id\s*:\s*(\d+)/i)?.[1];
   if (!proveedorId) throw new Error(`Obuma no devolvió el ID del proveedor creado: ${JSON.stringify(json).slice(0, 300)}`);
 
-  // Verificación de lectura — mismo criterio que crearProductoObuma/crearOrdenCompraObuma.
+  // Verificación de lectura — mismo criterio que crearProductoObuma/crearOrdenCompraObuma. Si se
+  // mandó algún dato financiero, se confirma además que quedó guardado tal cual (no solo que el
+  // proveedor existe): un campo que Obuma ignorara en silencio no se notaría de otra forma.
   const verificado = await proveedorPorRut(datos.rut);
   if (!verificado) throw new Error(`Obuma creó el proveedor ${proveedorId} pero no se pudo releer por RUT para confirmarlo.`);
+  const v: any = verificado;
+  const discrepancias: string[] = [];
+  if (datos.formaPago && String(v.proveedor_forma_pago) !== String(datos.formaPago)) discrepancias.push('forma_pago');
+  if (datos.centroCosto && String(v.proveedor_centro_costo) !== String(datos.centroCosto)) discrepancias.push('centro_costo');
+  if (datos.bancoCuenta && String(v.proveedor_banco_cuenta) !== String(datos.bancoCuenta)) discrepancias.push('banco_cuenta');
+  if (datos.nroCuenta && String(v.proveedor_nro_cuenta) !== String(datos.nroCuenta)) discrepancias.push('nro_cuenta');
+  if (datos.tipoCuenta && String(v.proveedor_tipo_cuenta) !== String(datos.tipoCuenta)) discrepancias.push('tipo_cuenta');
+  if (discrepancias.length) {
+    console.warn(`[obuma] proveedor ${proveedorId} creado, pero Obuma no guardó estos campos como se mandaron: ${discrepancias.join(', ')}`);
+  }
   return { proveedorId: String(proveedorId) };
 }

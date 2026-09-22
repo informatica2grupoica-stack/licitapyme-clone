@@ -67,6 +67,10 @@ export async function POST(request: NextRequest, { params }: Params) {
       pais: body.pais || null, telefono: body.telefono || null, celular: body.celular || null,
       email: body.email || null, website: body.website || null, observacion: body.observacion || null,
       cuentaContable: body.cuentaContable || null,
+      formaPago: body.formaPago || null, centroCosto: body.centroCosto || null,
+      bancoCuenta: body.bancoCuenta || null, nroCuenta: body.nroCuenta || null,
+      tipoCuenta: body.tipoCuenta || null, tipoProveedorId: body.tipoProveedorId || null,
+      tags: body.tags || null,
     });
     return NextResponse.json({ success: true, ...resultado });
   } catch (error: any) {
