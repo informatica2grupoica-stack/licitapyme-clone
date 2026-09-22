@@ -1820,8 +1820,68 @@ nada hasta que la persona hace clic en ESA fila puntual.
 SOLAR · 28 × $74.988 = $2.099.671" — el ítem real. `npx tsc --noEmit` limpio, `npm run
 test:viabilidad` 1025/1025.
 
+### 17.3.7 Datos REALES de Obuma — leídos a mano de la web, no de la API
+
+Cambio de fondo en la sesión: el usuario pegó el contenido completo de una ficha real de Obuma
+("Ficha Proyecto #188") — la vio porque tiene sesión WEB logueada en Obuma (distinto de la API,
+que sigue bloqueada en v2.0). Esa ficha reveló el campo real que Obuma usa para vincular un
+Proyecto con la licitación: **"Referencia proyecto"** — en el caso real, literalmente
+`1355402-5-LE26`. Mucho más confiable que el método de hoy (buscar el código adentro del nombre de
+un centro de costo, texto libre).
+
+Se le preguntó al usuario si contratar v2.0 (no está habilitado, "hay que ver otra opción") o
+explorar leer la web con su sesión — confirmó explícitamente la segunda vía, con una condición dura
+respetada: **nunca se le pidió ni se escribió su contraseña de Obuma** — se le pidió que iniciara
+sesión él mismo en el panel de navegador (mismo patrón que se usó para Licitank en esta misma
+sesión), exactamente como dice la regla de credenciales.
+
+**Ubicación real de la web de Obuma** (nueva, no documentada antes): `https://app.obuma.cl/obuma2.0/`
+— el login es `OBUMA Solutions - Login` con RUT + Clave. `https://app.obuma.cl/` solo es una
+redirección genérica a obuma.cl, no sirve. Listado de Proyectos: `home.php?page=mod-proyectos/listar`.
+
+**Extracción (una sola vez, no automatizada todavía):** con la sesión del usuario ya logueada, se
+subió el selector de "por página" a 200 (vía JS, cambiando el `<select id="_pagi_cuantos">` y
+disparando `change`) para traer los 189 proyectos en una sola página, y se extrajo la tabla completa
+directo del DOM (`document.querySelectorAll('table')[0].rows`, celda por celda — no parseo de texto
+plano, que se demostró poco confiable porque algunas filas no tienen "Referencia" y corren los
+campos). Columnas reales: FOLIO, FECHA INGRESO, FECHA INICIO, PROYECTO, REFERENCIA, CLIENTE,
+PRESUPUESTO, COSTO, PRECIO (Neto), FACTURADO (Neto), ESTADO.
+
+**Guardado**: `docs/migration-122-obuma-proyectos-reales.sql` → tabla `obuma_proyectos_reales`
+(folio como PK, todo el resto de columnas + `capturado_at`). Aplicada con
+`scripts/aplicar-migration-122.mjs`. Cargada con `scripts/scratch/importar-obuma-proyectos-reales.mjs`
+desde `scripts/scratch/obuma-proyectos-reales-22sep2026.json` (el snapshot). **189/189 cargados,
+152 con campo `referencia` no vacío.**
+
+**Cruce real**: `listarProyectosRealesObuma()` (nuevo en `compras-proyectos-obuma.ts`) lee esa tabla
+y cruza `referencia` contra `negocios.licitacion_codigo` con `mencionaCodigo()` (mismo matcher de
+siempre). Resultado real contra la cuenta: **11 de 189 proyectos calzan con un negocio activo
+nuestro** — la mayoría de los 189 son de años/proyectos anteriores o sin negocio vigente en Licitank
+hoy, dato correcto, no un bug del cruce.
+
+**UI**: nuevo bloque verde "Proyectos reales de Obuma" arriba de todo en `/compras/proyectos`
+(antes de la reconstrucción v1, que ahora queda claramente rotulada como el método aproximado,
+secundario). Muestra folio, nombre, cliente, referencia, precio/costo/estado reales, y un chip
+verde clickeable a `/compras/[negocioId]` cuando hay match. Botón "Ver los 189 completos" / "Ver
+solo confirmados (11)" para no abrumar con los sin match. Búsqueda propia.
+
+**Importante — esto NO es en vivo.** Es una foto tomada a mano el 22-sep-2026. Si se necesita
+actualizar, hay que repetir el proceso manual (no hay automatización ni cron construido hoy —
+guardar credenciales de Obuma y automatizar el login/scraping es una decisión aparte, más grande,
+que no se tomó en esta sesión).
+
+**Verificado en vivo**: `npx tsc --noEmit` limpio, `npm run test:viabilidad` 1025/1025, probado en
+el navegador (11/189 confirmados, chip a `/compras/655` funcionando, toggle "ver todos" funcionando).
+
+**Nuevos:** `docs/migration-122-obuma-proyectos-reales.sql`, `scripts/aplicar-migration-122.mjs`,
+`scripts/scratch/importar-obuma-proyectos-reales.mjs`, `scripts/scratch/obuma-proyectos-reales-22sep2026.json`.
+**Modificados:** `app/lib/compras-proyectos-obuma.ts` (`listarProyectosRealesObuma`),
+`app/api/compras/proyectos-obuma/route.ts`, `app/compras/proyectos/page.tsx`.
+
 ### 17.4 Pendiente real, sin resolver hoy
 
-El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, hay que
-gestionarlo con soporte comercial de Obuma si en algún momento se quiere leer el Proyecto en sí
-(nombre, ficha) en vez de solo agregarle gastos por el cruce de centro de costo.
+El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, no está
+habilitado en la cuenta (confirmado explícitamente por el usuario, 22-sep-2026). En su lugar, §17.3.7
+resuelve el dato real por otra vía (snapshot manual de la web) — ver ahí el detalle. Queda abierta,
+sin decidir hoy, la pregunta de si en algún momento conviene automatizar esa lectura (guardar
+credenciales de Obuma y programar el scraping) en vez de repetirla a mano cada vez que haga falta.

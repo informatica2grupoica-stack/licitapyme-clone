@@ -5,7 +5,7 @@
 // autoload silencioso en cada pantalla de Compras.
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { listarProyectosObuma } from '@/app/lib/compras-proyectos-obuma';
+import { listarProyectosObuma, listarProyectosRealesObuma } from '@/app/lib/compras-proyectos-obuma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,8 +27,12 @@ export async function GET(request: NextRequest) {
   if (!(await puedeVer(userId))) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
 
   try {
-    const proyectos = await listarProyectosObuma();
-    return NextResponse.json({ success: true, proyectos });
+    const forzar = request.nextUrl.searchParams.get('forzar') === '1';
+    const [proyectos, reales] = await Promise.all([
+      listarProyectosObuma(forzar),
+      listarProyectosRealesObuma(),
+    ]);
+    return NextResponse.json({ success: true, proyectos, proyectosReales: reales.proyectos, capturadoAt: reales.capturadoAt });
   } catch (error: any) {
     console.error('[compras/proyectos-obuma][GET]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudo consultar Obuma.' }, { status: 500 });

@@ -13,7 +13,7 @@ import { useToast } from '@/app/components/ui/toast';
 import {
   IconLoader2 as Loader2, IconSearch as Search, IconFolders as Folders, IconLink as LinkIcon,
   IconAlertTriangle as AlertTriangle, IconExternalLink as ExternalLink, IconWallet as Wallet, IconFolderX as FolderX,
-  IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconBuilding as Building2,
+  IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconBuilding as Building2, IconRefresh as RefreshCw,
 } from '@tabler/icons-react';
 
 interface NegocioCoincidente { negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; centroCostoNombre: string }
@@ -31,6 +31,13 @@ interface ProyectoObuma {
   ocs: OcDelProyecto[]; ocsTruncadas: boolean;
   ultimaFecha: string | null; proyNumeroReferencia: number | null;
 }
+interface ProyectoRealObuma {
+  folio: number; fechaIngreso: string | null; fechaInicio: string | null;
+  nombre: string | null; referencia: string | null; cliente: string | null;
+  presupuesto: number | null; costo: number | null; precioNeto: number | null;
+  facturadoNeto: number | null; estado: string | null;
+  negocioId: number | null; licitacionCodigo: string | null; licitacionNombre: string | null;
+}
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
 
@@ -39,6 +46,10 @@ export default function ProyectosObumaPage() {
   const router = useRouter();
   const toast = useToast();
   const [proyectos, setProyectos] = useState<ProyectoObuma[]>([]);
+  const [proyectosReales, setProyectosReales] = useState<ProyectoRealObuma[]>([]);
+  const [capturadoAt, setCapturadoAt] = useState<string | null>(null);
+  const [qReales, setQReales] = useState('');
+  const [verTodosReales, setVerTodosReales] = useState(false);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [soloCoincidentes, setSoloCoincidentes] = useState(false);
@@ -68,17 +79,21 @@ export default function ProyectosObumaPage() {
 
   const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
 
-  const cargar = useCallback(async () => {
-    setLoading(true);
+  const [actualizando, setActualizando] = useState(false);
+
+  const cargar = useCallback(async (forzar = false) => {
+    if (forzar) setActualizando(true); else setLoading(true);
     try {
-      const res = await fetch('/api/compras/proyectos-obuma');
+      const res = await fetch(`/api/compras/proyectos-obuma${forzar ? '?forzar=1' : ''}`);
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setProyectos(data.proyectos || []);
+      setProyectosReales(data.proyectosReales || []);
+      setCapturadoAt(data.capturadoAt || null);
     } catch (e: any) {
       toast.error('No se pudieron cargar los proyectos de Obuma', e.message);
     } finally {
-      setLoading(false);
+      setLoading(false); setActualizando(false);
     }
   }, []);
 
@@ -105,6 +120,20 @@ export default function ProyectosObumaPage() {
     });
   }, [proyectos, q, soloCoincidentes]);
 
+  const statsReales = useMemo(() => {
+    const conNegocio = proyectosReales.filter(p => p.negocioId != null).length;
+    return { total: proyectosReales.length, conNegocio };
+  }, [proyectosReales]);
+
+  const realesFiltrados = useMemo(() => {
+    const texto = qReales.trim().toLowerCase();
+    return proyectosReales.filter(p => {
+      if (!verTodosReales && p.negocioId == null) return false;
+      if (!texto) return true;
+      return [p.nombre, p.referencia, p.cliente, p.licitacionCodigo].some(v => (v || '').toLowerCase().includes(texto));
+    });
+  }, [proyectosReales, qReales, verTodosReales]);
+
   if (cargandoSesion || (!puedeVer && loading)) {
     return (
       <AppLayout breadcrumb={[{ label: 'Proyectos (Obuma)' }]}>
@@ -113,6 +142,29 @@ export default function ProyectosObumaPage() {
     );
   }
   if (!puedeVer) return null;
+
+  // Primera carga: la reconstrucción completa (todas las OC de la cuenta, todos los proveedores)
+  // tarda varios segundos en frío — se muestra un estado de carga claro en vez de dejar ver la
+  // pantalla "vacía" (0 proyectos, $0) mientras se resuelve, que parecía un error (pedido explícito
+  // del usuario, 22-sep-2026). Ya cacheado del lado del servidor 5 min — la próxima vez que entra,
+  // esto ni se ve.
+  if (loading) {
+    return (
+      <AppLayout breadcrumb={[{ label: 'Proyectos (Obuma)' }]}>
+        <div className="p-4 sm:p-6 max-w-5xl mx-auto">
+          <div className="bg-white rounded-2xl border border-zinc-200 p-10 flex flex-col items-center justify-center gap-3 text-center">
+            <Loader2 className="animate-spin text-indigo-500" size={26} />
+            <p className="text-[13px] font-semibold text-zinc-600">Reconstruyendo los proyectos desde Obuma…</p>
+            <p className="text-[11.5px] text-zinc-400 max-w-sm">
+              Primera carga: recorre todas las órdenes de compra y proveedores de la cuenta. Las
+              próximas veces que entres a esta pantalla (dentro de los próximos 5 minutos) va a
+              estar lista al toque.
+            </p>
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout breadcrumb={[{ label: 'Proyectos (Obuma)' }]}>
@@ -125,21 +177,83 @@ export default function ProyectosObumaPage() {
               <p className="text-[12px] text-zinc-500">{stats.total} proyecto(s) reconstruidos desde los centros de costo</p>
             </div>
           </div>
-          <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre, código o licitación…"
-              className="pl-8 pr-3 py-2 text-[12.5px] border border-zinc-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500 w-64" />
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre, código o licitación…"
+                className="pl-8 pr-3 py-2 text-[12.5px] border border-zinc-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500 w-64" />
+            </div>
+            <button onClick={() => cargar(true)} disabled={actualizando} title="Volver a consultar Obuma (ignora la caché de 5 min)"
+              className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-2 rounded-lg flex-shrink-0">
+              {actualizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Actualizar
+            </button>
           </div>
         </div>
+
+        {proyectosReales.length > 0 && (
+          <div className="bg-white rounded-2xl border border-emerald-200 overflow-hidden">
+            <div className="px-4 py-3 border-b border-emerald-100 bg-emerald-50/60 flex items-center gap-2.5 flex-wrap">
+              <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0"><Folders size={15} className="text-emerald-700" /></div>
+              <div className="min-w-0">
+                <p className="text-[13px] font-bold text-emerald-900">Proyectos reales de Obuma</p>
+                <p className="text-[11px] text-emerald-700">
+                  {statsReales.total} proyectos capturados directo de la ficha de Obuma (campo Referencia real) ·{' '}
+                  <b>{statsReales.conNegocio} calzan</b> con un negocio nuestro
+                  {capturadoAt && <> · foto tomada el {capturadoAt.slice(0, 10)} (no en vivo — Obuma no nos deja leer esto por API todavía)</>}
+                </p>
+              </div>
+              <div className="ml-auto flex items-center gap-2">
+                <div className="relative">
+                  <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <input value={qReales} onChange={e => setQReales(e.target.value)} placeholder="Buscar…"
+                    className="pl-7 pr-2.5 py-1.5 text-[11.5px] border border-zinc-200 rounded-lg outline-none focus:ring-1 focus:ring-emerald-500 w-40" />
+                </div>
+                <button onClick={() => setVerTodosReales(v => !v)}
+                  className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border ${verTodosReales ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'}`}>
+                  {verTodosReales ? `Ver solo confirmados (${statsReales.conNegocio})` : `Ver los ${statsReales.total} completos`}
+                </button>
+              </div>
+            </div>
+            <div className="max-h-[420px] overflow-y-auto divide-y divide-zinc-50">
+              {realesFiltrados.length === 0 ? (
+                <p className="px-4 py-3 text-[11.5px] text-zinc-400">Sin resultados.</p>
+              ) : realesFiltrados.map(p => (
+                <div key={p.folio} className="px-4 py-2.5 flex items-start justify-between gap-3 text-[11.5px]">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-zinc-800 truncate">#{p.folio} — {p.nombre || '(sin nombre)'}</p>
+                    <p className="text-zinc-400 truncate">
+                      {p.cliente}{p.referencia && <> · Ref: {p.referencia}</>}
+                    </p>
+                    {p.negocioId != null ? (
+                      <a href={`/compras/${p.negocioId}`} target="_blank" rel="noreferrer"
+                        className="mt-1 inline-flex items-center gap-1 text-[10.5px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 px-1.5 py-0.5 rounded-full">
+                        <LinkIcon size={9} /> {p.licitacionCodigo} <ExternalLink size={9} />
+                      </a>
+                    ) : (
+                      <span className="mt-1 inline-block text-[10.5px] text-zinc-400">sin negocio nuestro identificado</span>
+                    )}
+                  </div>
+                  <div className="text-right flex-shrink-0 whitespace-nowrap">
+                    <p className="font-bold text-zinc-700">{fmtCLP(p.precioNeto || 0)}</p>
+                    <p className="text-[10px] text-zinc-400">
+                      costo {fmtCLP(p.costo || 0)} · {p.estado}
+                      {p.facturadoNeto != null && <> · facturado</>}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2.5 text-[11.5px] text-amber-800">
           <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
           <p>
-            Obuma todavía no nos da acceso al módulo real de Proyectos (v2.0 — pide un header{' '}
-            <code className="bg-amber-100 px-1 rounded">access-url</code> que la cuenta no tiene contratado).
-            Esto es una <b>reconstrucción con datos de v1</b>: agrupa los centros de costo que comparten el
-            mismo Proyecto de Obuma (por su <code className="bg-amber-100 px-1 rounded">rel_proyecto_id</code>),
-            con su gasto real, sin nombre ni ficha del Proyecto en sí.
+            Lo de abajo es la <b>reconstrucción con datos de v1</b> (Obuma no nos da acceso al módulo real de
+            Proyectos v2.0 vía API — pide un header <code className="bg-amber-100 px-1 rounded">access-url</code> que
+            la cuenta no tiene contratado): agrupa los centros de costo que comparten el mismo Proyecto de Obuma
+            (por su <code className="bg-amber-100 px-1 rounded">rel_proyecto_id</code>), con su gasto real, pero sin
+            nombre ni cliente. El bloque de arriba (verde) es más confiable — usa el dato real de Obuma.
           </p>
         </div>
 

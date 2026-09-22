@@ -57,13 +57,22 @@ function numeroProyectoDeNombres(nombres: string[]): number | null {
   return max;
 }
 
+// La reconstrucción completa (centros de costo + TODAS las OC de la cuenta, paginadas, + el
+// catálogo de proveedores, también paginado) tarda varios segundos — no es una consulta liviana.
+// Pedido explícito del usuario (22-sep-2026): "eso carga cada vez que entro, no lo quiero" — se
+// cachea el resultado ya armado, mismo criterio que `centrosDeCostoCompleto`/`comprasOcCompleto`
+// en obuma.ts. `forzar` se deja para un futuro botón "Actualizar" explícito.
+let cacheProyectos: { en: number; datos: ProyectoObuma[] } | null = null;
+const CACHE_PROYECTOS_MS = 5 * 60_000;
+
 /** Agrupa los centros de costo de Obuma por Proyecto (rel_proyecto_id), suma sus OC reales, y
  *  marca qué licitaciones/negocios nuestros calzan (mismo matcher que ya usa el cruce OC-MP ↔
  *  Obuma, mencionaCodigo() — el código de licitación viene escrito en el NOMBRE del centro de
  *  costo). Ordenado por fecha de la OC más reciente del proyecto (el más recién movido primero);
  *  si no tiene ninguna OC con fecha, se ordena por el número "PROY-N" de referencia, el más alto
  *  primero (pedido explícito del usuario, 22-sep-2026). */
-export async function listarProyectosObuma(): Promise<ProyectoObuma[]> {
+export async function listarProyectosObuma(forzar = false): Promise<ProyectoObuma[]> {
+  if (!forzar && cacheProyectos && Date.now() - cacheProyectos.en < CACHE_PROYECTOS_MS) return cacheProyectos.datos;
   const [centros, ocs, negociosRows, proveedores] = await Promise.all([
     centrosDeCostoCompleto(),
     comprasOcCompleto(),
@@ -138,5 +147,52 @@ export async function listarProyectosObuma(): Promise<ProyectoObuma[]> {
     return bn - an;
   });
 
+  cacheProyectos = { en: Date.now(), datos: resultado };
   return resultado;
+}
+
+// ── Proyectos REALES de Obuma (snapshot leído a mano de la web, migration-122) ──────────────────
+// A diferencia de todo lo de arriba (reconstrucción v1 desde centros de costo, aproximada), esto
+// lee el campo REFERENCIA real de la ficha del Proyecto en Obuma — mucho más confiable que buscar
+// el código de licitación adentro del nombre de un centro de costo. No está en vivo: es una foto
+// que se vuelve a cargar a mano cuando haga falta (ver scripts/scratch/importar-obuma-proyectos-reales.mjs).
+export interface ProyectoRealObuma {
+  folio: number; fechaIngreso: string | null; fechaInicio: string | null;
+  nombre: string | null; referencia: string | null; cliente: string | null;
+  presupuesto: number | null; costo: number | null; precioNeto: number | null;
+  facturadoNeto: number | null; estado: string | null;
+  negocioId: number | null; licitacionCodigo: string | null; licitacionNombre: string | null;
+}
+
+export async function listarProyectosRealesObuma(): Promise<{ proyectos: ProyectoRealObuma[]; capturadoAt: string | null }> {
+  const [rows, negociosRows] = await Promise.all([
+    pool.query(
+      `SELECT folio, DATE_FORMAT(fecha_ingreso,'%Y-%m-%d') fecha_ingreso, DATE_FORMAT(fecha_inicio,'%Y-%m-%d') fecha_inicio,
+              nombre, referencia, cliente, presupuesto, costo, precio_neto, facturado_neto, estado,
+              DATE_FORMAT(capturado_at,'%Y-%m-%d %H:%i') capturado_at
+         FROM obuma_proyectos_reales ORDER BY folio DESC`,
+    ).then(([r]) => r as any[]),
+    pool.query(
+      `SELECT id, licitacion_codigo, licitacion_nombre FROM negocios
+        WHERE activo = TRUE AND licitacion_codigo IS NOT NULL AND licitacion_codigo <> ''`,
+    ).then(([r]) => r as { id: number; licitacion_codigo: string; licitacion_nombre: string | null }[]),
+  ]);
+
+  const proyectos: ProyectoRealObuma[] = rows.map(r => {
+    let match: { id: number; licitacion_codigo: string; licitacion_nombre: string | null } | undefined;
+    if (r.referencia) match = negociosRows.find(n => mencionaCodigo(r.referencia, n.licitacion_codigo));
+    return {
+      folio: r.folio, fechaIngreso: r.fecha_ingreso, fechaInicio: r.fecha_inicio,
+      nombre: r.nombre, referencia: r.referencia, cliente: r.cliente,
+      presupuesto: r.presupuesto != null ? Number(r.presupuesto) : null,
+      costo: r.costo != null ? Number(r.costo) : null,
+      precioNeto: r.precio_neto != null ? Number(r.precio_neto) : null,
+      facturadoNeto: r.facturado_neto != null ? Number(r.facturado_neto) : null,
+      estado: r.estado,
+      negocioId: match?.id ?? null, licitacionCodigo: match?.licitacion_codigo ?? null,
+      licitacionNombre: match?.licitacion_nombre ?? null,
+    };
+  });
+
+  return { proyectos, capturadoAt: rows[0]?.capturado_at ?? null };
 }
