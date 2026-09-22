@@ -1734,6 +1734,54 @@ proyecto. `npx tsc --noEmit` limpio, `npm run test:viabilidad` 1025/1025.
 `app/compras/proyectos/page.tsx`.
 **Modificados:** `app/lib/obuma.ts` (`centrosDeCostoCompleto` exportada), `app/components/AppLayout.tsx`.
 
+### 17.3.3 Dos ajustes más, mismo día: el ítem estaba lejos de "Compras" y faltaba el detalle
+
+**Ubicación en el menú.** El usuario mandó captura: "aquí quiero ver los proyectos, no sé dónde lo
+metiste" — señalando el grupo PRINCIPAL (Aprobaciones/Postuladas/Compras/Ganadas-Perdidas/Entregas).
+El ítem vivía en el grupo GESTIÓN, bastante más abajo, junto a "Proveedores". Se movió a PRINCIPAL,
+justo debajo de "Compras" — mismo círculo de acceso (`puedeVerCompras`), solo cambió de grupo.
+
+**Detalle de las OC.** Cada tarjeta solo mostraba el total agregado — el usuario pidió ver el
+contenido real: "sí me aparecen pero no puedo ver el contenido de los proyectos". Se agregó a
+`listarProyectosObuma()` la lista de OC de cada proyecto (proveedor resuelto vía
+`proveedoresObumaCompleto()`, un solo mapa construido una vez — no una llamada a Obuma por OC),
+ordenadas por fecha descendente, con un tope de 100 por proyecto (hay centros de costo genéricos
+con miles: el de "TECNOMAQ" solo tiene 2.918 OC) para no mandar un payload gigante — el contador
+real (`cantidadOc`) sigue contando TODAS, el tope es solo del detalle. Cada tarjeta ahora es
+expandible (clic en "N OC · N centro(s) de costo") y muestra proveedor, RUT, folio, estado, monto
+y fecha por cada orden de compra.
+
+**Verificado en vivo** contra la cuenta real: el proyecto #30532 (el que calza con
+3143-27-LE26) se expande y muestra sus 2 OC reales con proveedor y monto exactos; el centro
+"TECNOMAQ" se expande y muestra "Mostrando las 100 más recientes de 2918 en total." `npx tsc
+--noEmit` limpio, `npm run test:viabilidad` 1025/1025.
+
+### 17.3.4 El despliegue en producción no tenía OBUMA_API_TOKEN — nunca se había copiado
+
+Al probarlo en el sitio real (`licitank.cl`, VPS con docker-compose), el usuario vio "OBUMA_API_TOKEN
+no configurado". Causa: el token vive en `.env.local` (desarrollo, en la notebook Windows) y nunca
+se copió al `.env` del VPS — no es que se perdiera, nunca estuvo ahí. **Se agregó `OBUMA_API_TOKEN`
+y `OBUMA_API_URL` a `.env.example`** (no estaban documentados) para que el próximo despliegue no
+repita el olvido.
+
+Guiado por chat mientras el usuario editaba el `.env` del VPS con `nano` a mano: un accidente de
+copia/pega insertó el texto de la barra de estado de `nano` (`[ "OBUMA_API_TOKEN" not found ]` + la
+fila de atajos `^G Help ^O Write Out...`) como contenido real del archivo, **13 veces repetido**,
+cortando en dos un comentario. Se limpió con `sed -i '5,64d'` (borrado por rango de línea, verificado
+antes de aplicar) + un `sed` puntual para la línea que quedó con basura pegada sin salto de línea al
+comentario real. El token en sí ya estaba bien escrito al final del archivo desde el principio.
+
+**Lección aparte, aprendida en el camino:** `docker compose restart` NO vuelve a leer `.env`/
+`env_file` — solo reinicia el proceso con la configuración que el contenedor ya tenía cargada desde
+que se creó. Hace falta `docker compose up -d <servicio>` (sin `--build`, no cambió código) para que
+tome variables de entorno nuevas. Confirmado en vivo: con `restart`, `printenv OBUMA_API_TOKEN`
+seguía vacío; con `up -d`, devolvió el valor real.
+
+**Nota de seguridad:** en el chat de esta sesión quedaron varias credenciales reales de producción
+en texto plano (`DB_PASSWORD`, `SMTP_PASS`, `JWT_SECRET`, varias API key) porque el usuario pegó el
+`.env` completo para depurar la corrupción. Se le avisó explícitamente; rotar esas credenciales
+cuando tenga tiempo queda a su criterio, no es urgente pero tampoco hay que olvidarlo.
+
 ### 17.4 Pendiente real, sin resolver hoy
 
 El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, hay que

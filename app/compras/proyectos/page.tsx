@@ -13,14 +13,20 @@ import { useToast } from '@/app/components/ui/toast';
 import {
   IconLoader2 as Loader2, IconSearch as Search, IconFolders as Folders, IconLink as LinkIcon,
   IconAlertTriangle as AlertTriangle, IconExternalLink as ExternalLink, IconWallet as Wallet, IconFolderX as FolderX,
+  IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconBuilding as Building2,
 } from '@tabler/icons-react';
 
 interface NegocioCoincidente { negocioId: number; licitacionCodigo: string; licitacionNombre: string | null; centroCostoNombre: string }
+interface OcDelProyecto {
+  compraOcId: string; folio: string | null; fecha: string | null; estado: string | null;
+  proveedorNombre: string | null; proveedorRut: string | null; total: number;
+}
 interface ProyectoObuma {
   proyectoId: string; tieneProyectoReal: boolean;
   centros: { id: string; nombre: string; codigo: string; activo: boolean }[];
   totalGastado: number; cantidadOc: number;
   negociosCoincidentes: NegocioCoincidente[];
+  ocs: OcDelProyecto[]; ocsTruncadas: boolean;
 }
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -33,6 +39,7 @@ export default function ProyectosObumaPage() {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [soloCoincidentes, setSoloCoincidentes] = useState(false);
+  const [expandido, setExpandido] = useState<string | null>(null);
 
   const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
 
@@ -150,7 +157,11 @@ export default function ProyectosObumaPage() {
                   </div>
                   <div className="text-right whitespace-nowrap">
                     <p className="text-[13.5px] font-bold text-zinc-800">{fmtCLP(p.totalGastado)}</p>
-                    <p className="text-[10.5px] text-zinc-400">{p.cantidadOc} OC · {p.centros.length} centro{p.centros.length !== 1 ? 's' : ''} de costo</p>
+                    <button onClick={() => setExpandido(v => v === p.proyectoId ? null : p.proyectoId)}
+                      className="text-[10.5px] text-indigo-600 hover:text-indigo-700 font-semibold inline-flex items-center gap-0.5">
+                      {p.cantidadOc} OC · {p.centros.length} centro{p.centros.length !== 1 ? 's' : ''} de costo
+                      {expandido === p.proyectoId ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                    </button>
                   </div>
                 </div>
                 {p.negociosCoincidentes.length > 0 && (
@@ -161,6 +172,36 @@ export default function ProyectosObumaPage() {
                         <LinkIcon size={10} /> {n.licitacionCodigo}{n.licitacionNombre ? ` — ${n.licitacionNombre.slice(0, 40)}` : ''} <ExternalLink size={10} />
                       </a>
                     ))}
+                  </div>
+                )}
+                {expandido === p.proyectoId && (
+                  <div className="border-t border-zinc-100">
+                    {p.ocs.length === 0 ? (
+                      <p className="px-4 py-3 text-[11.5px] text-zinc-400">Sin órdenes de compra para este proyecto.</p>
+                    ) : (
+                      <div className="divide-y divide-zinc-50">
+                        {p.ocs.map(oc => (
+                          <div key={oc.compraOcId} className="px-4 py-2 flex items-center justify-between gap-3 text-[11.5px]">
+                            <div className="min-w-0 flex items-center gap-1.5">
+                              <Building2 size={11} className="text-zinc-300 flex-shrink-0" />
+                              <span className="font-semibold text-zinc-700 truncate">{oc.proveedorNombre || 'Proveedor sin nombre'}</span>
+                              {oc.proveedorRut && <span className="text-zinc-400 flex-shrink-0">· {oc.proveedorRut}</span>}
+                              {oc.folio && <span className="text-zinc-400 flex-shrink-0">· folio {oc.folio}</span>}
+                              {oc.estado && <span className="text-zinc-400 flex-shrink-0">· {oc.estado}</span>}
+                            </div>
+                            <div className="text-right flex-shrink-0 whitespace-nowrap">
+                              <span className="font-bold text-zinc-700">{fmtCLP(oc.total)}</span>
+                              {oc.fecha && <span className="text-zinc-400 ml-2">{oc.fecha.slice(0, 10)}</span>}
+                            </div>
+                          </div>
+                        ))}
+                        {p.ocsTruncadas && (
+                          <p className="px-4 py-2 text-[10.5px] text-zinc-400">
+                            Mostrando las {p.ocs.length} más recientes de {p.cantidadOc} en total.
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
