@@ -51,7 +51,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
   const toast = useToast();
   const flot = useCosteoFlotante();
   const {
-    loading, error, asignacion, tareas, candidatos, resumenFases, licitacionNombre, licitacionOrganismo, ocMp,
+    loading, error, asignacion, tareas, candidatos, resumenFases, licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp,
     recargar, puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin,
   } = useCompras();
 
@@ -651,7 +651,7 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             )}
             {faseActiva === 'documentos' && (
               <div className="space-y-3">
-                <DocumentosLicitacionCard licitacionCodigo={asignacion.licitacionCodigo} />
+                <DocumentosLicitacionCard licitacionCodigo={licitacionCodigoActual || asignacion.licitacionCodigo} />
                 <AuditoriaAgenteNegocioCard negocioId={negocioId} />
               </div>
             )}

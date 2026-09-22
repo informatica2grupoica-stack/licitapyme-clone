@@ -74,7 +74,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     const [tareas, candidatos, negRows, ordenes] = await Promise.all([
       listarTareas(id),
       candidatosEncargado(),
-      pool.query(`SELECT licitacion_nombre, licitacion_organismo FROM negocios WHERE id = ? LIMIT 1`, [id]) as any,
+      pool.query(`SELECT licitacion_nombre, licitacion_organismo, licitacion_codigo FROM negocios WHERE id = ? LIMIT 1`, [id]) as any,
       // La orden de compra ya vive en `ordenes_compra` con su link al portal y su PDF descargado.
       // Se manda lo justo para pintarla: el resto de la ficha ya viene en `asignacion.ordenCompra`.
       ordenesDeLicitacion(asignacion.licitacionCodigo).catch(() => []),
@@ -93,6 +93,11 @@ export async function GET(request: NextRequest, { params }: Params) {
       resumenFases,
       licitacionNombre: neg.licitacion_nombre ?? null,
       licitacionOrganismo: neg.licitacion_organismo ?? null,
+      // El código de licitación EN VIVO de `negocios` (no el congelado en `compras_asignacion.
+      // licitacion_codigo` al momento de ganar) — los documentos se suben/clasifican por código de
+      // licitación en cualquier momento, incluso después de ganada, así que la tarjeta de
+      // documentos debe buscar por el código actual para no dejar huérfanos si el código se corrigió.
+      licitacionCodigoActual: neg.licitacion_codigo ?? asignacion.licitacionCodigo,
       ordenCompraMp: ocNuestra ? {
         codigo: ocNuestra.codigo, estado: ocNuestra.estado, url: ocNuestra.url, pdfUrl: ocNuestra.pdfUrl,
       } : null,

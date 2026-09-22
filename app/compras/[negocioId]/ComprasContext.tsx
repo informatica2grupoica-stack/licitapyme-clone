@@ -79,6 +79,7 @@ interface ComprasContextValue {
   resumenFases: ResumenFases | null;
   licitacionNombre: string | null;
   licitacionOrganismo: string | null;
+  licitacionCodigoActual: string | null;
   ocMp: OrdenCompraMp | null;
   recargar: () => Promise<void>;
   puedeOperar: boolean;
@@ -100,6 +101,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
   const [resumenFases, setResumenFases] = useState<ResumenFases | null>(null);
   const [licitacionNombre, setLicitacionNombre] = useState<string | null>(null);
   const [licitacionOrganismo, setLicitacionOrganismo] = useState<string | null>(null);
+  const [licitacionCodigoActual, setLicitacionCodigoActual] = useState<string | null>(null);
   const [ocMp, setOcMp] = useState<OrdenCompraMp | null>(null);
 
   const recargar = useCallback(async () => {
@@ -113,6 +115,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
       setResumenFases(data.resumenFases || null);
       setLicitacionNombre(data.licitacionNombre);
       setLicitacionOrganismo(data.licitacionOrganismo);
+      setLicitacionCodigoActual(data.licitacionCodigoActual ?? null);
       setOcMp(data.ordenCompraMp || null);
       setError(null);
     } catch (e: any) {
@@ -139,7 +142,7 @@ export function ComprasProvider({ negocioId, children }: { negocioId: number; ch
   return (
     <Ctx.Provider value={{
       negocioId, loading, error, asignacion, tareas, candidatos, resumenFases,
-      licitacionNombre, licitacionOrganismo, ocMp, recargar,
+      licitacionNombre, licitacionOrganismo, licitacionCodigoActual, ocMp, recargar,
       puedeOperar, esJefeDeVentas, esAdministracion, esBodega, esAdmin,
     }}>
       {children}
