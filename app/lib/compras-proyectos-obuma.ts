@@ -1,23 +1,21 @@
 // app/lib/compras-proyectos-obuma.ts
-// "PROYECTOS" DE OBUMA — vista v1-only, sin acceso a v2.0 (Módulo de Proyectos real de Obuma:
-// pide el header `access-url`, que la cuenta no tiene contratado — ver obuma.ts). No se puede leer
-// el Proyecto en sí (nombre, ficha, estado), pero sí se puede reconstruir la agrupación: cada
-// centro de costo (`contabilidadCentrosDeCostos.list.json`, v1) trae `rel_proyecto_id`, el ID del
-// Proyecto de Obuma al que pertenece (hallazgo del 22-sep-2026, no documentado por Obuma). Varios
-// centros de costo pueden compartir el mismo Proyecto (sub-proyectos/canastas).
-//
-// Esto arma, por cada Proyecto (agrupado por rel_proyecto_id), su gasto real total y si calza con
-// alguna licitación/negocio nuestro — pedido explícito del usuario (22-sep-2026): "ver si tenemos
-// lo mismo de Obuma... para hacer una comparación".
+// "PROYECTOS" DE OBUMA — hallazgo del 22-sep-2026 (soporte de Obuma, por correo, fuera de la doc
+// pública): `/v1.0/ext-proyectos.list.json` expone el módulo real de Proyectos SIN pedir el header
+// `access-url` de v2.0 que la cuenta no tiene contratado. Reemplaza por completo el intento anterior
+// (reconstrucción aproximada por centro de costo + login-scraping de la web con las credenciales
+// personales del usuario — ver obuma-proyectos-scraper.ts, ya no se usa). Con esto se cruza TODO en
+// vivo, por API real, sin login: `proyecto_id` del Proyecto es el MISMO `rel_proyecto_id` que trae
+// `contabilidadCentrosDeCostos.list.json` — confirmado en vivo (folio 155 → proyecto_id 30532,
+// exactamente el ID que ya usaba la reconstrucción vieja) — así que ya no hace falta aproximar nada.
 import pool from '@/app/lib/db';
-import { centrosDeCostoCompleto, comprasOcCompleto, comprasCompleto, proveedoresObumaCompleto, type ObumaCentroCosto } from '@/app/lib/obuma';
+import {
+  centrosDeCostoCompleto, comprasOcCompleto, comprasCompleto, proyectosExtCompleto, clientesObumaCompleto,
+  proveedoresObumaCompleto, ESTADOS_PROYECTO_OBUMA, type ObumaCentroCosto,
+} from '@/app/lib/obuma';
 import { mencionaCodigo } from '@/app/lib/ordenes-compra';
 
 export interface NegocioCoincidente {
-  negocioId: number;
-  licitacionCodigo: string;
-  licitacionNombre: string | null;
-  centroCostoNombre: string;
+  negocioId: number; licitacionCodigo: string; licitacionNombre: string | null;
 }
 
 export interface OcDelProyecto {
@@ -31,179 +29,162 @@ export interface OcDelProyecto {
 const TOPE_OC_DETALLE = 100;
 
 export interface ProyectoObuma {
-  proyectoId: string;          // rel_proyecto_id real, o `centro-<id>` si el centro no tiene Proyecto asociado
-  tieneProyectoReal: boolean;  // false = es un centro de costo suelto, sin rel_proyecto_id
+  proyectoId: string;               // proyecto_id real de Obuma, o `centro-<id>` si el centro no tiene Proyecto asociado
+  tieneProyectoReal: boolean;       // true = viene de ext-proyectos.list.json (ficha real)
+  folio: number | null;
+  nombre: string | null;            // real (ficha) si tieneProyectoReal, si no null
+  referencia: string | null;        // campo real "Referencia" de la ficha del Proyecto
+  cliente: string | null;
+  presupuesto: number | null;
+  costo: number | null;
+  precioNeto: number | null;
+  facturadoMonto: number | null;
+  estado: string | null;            // ya mapeado a texto (Abierto/Cerrado/Cancelado/Rechazado/En proceso)
+  fechaIngreso: string | null;
+  fechaInicio: string | null;
   centros: { id: string; nombre: string; codigo: string; activo: boolean }[];
-  totalGastado: number;
+  totalGastado: number;             // suma de órdenes de compra (comprasOc)
   cantidadOc: number;
-  totalFacturado: number;    // suma de facturas/compras REALES (compras.list.json), no solo OC
+  totalFacturado: number;           // suma de facturas/compras reales (compras.list.json)
   cantidadFacturas: number;
   negociosCoincidentes: NegocioCoincidente[];
-  ocs: OcDelProyecto[];        // detalle, hasta TOPE_OC_DETALLE (más recientes primero)
-  ocsTruncadas: boolean;       // true si cantidadOc > ocs.length
-  ultimaFecha: string | null;          // fecha de la OC más reciente del grupo — criterio de orden principal
-  proyNumeroReferencia: number | null; // número "PROY-N" hallado en el nombre del centro de costo (o el
-                                        // rel_proyecto_id si no hay patrón) — respaldo cuando no hay fecha
+  ocs: OcDelProyecto[];
+  ocsTruncadas: boolean;
+  ultimaFecha: string | null;       // criterio de orden: OC más reciente, o si no hay, fecha de ingreso del proyecto
 }
 
-/** Número "PROY-N" (a veces con otro prefijo/formato) dentro del nombre de un centro de costo —
- *  se usa como referencia de antigüedad cuando el proyecto no tiene ninguna OC con fecha. Toma el
- *  número más alto encontrado en cualquiera de los nombres del grupo (más alto = más nuevo, mismo
- *  criterio que un correlativo). */
-function numeroProyectoDeNombres(nombres: string[]): number | null {
-  let max: number | null = null;
-  for (const n of nombres) {
-    const m = /PROY[^\d]{0,3}(\d+)/i.exec(n);
-    if (m) { const v = Number(m[1]); if (max == null || v > max) max = v; }
-  }
-  return max;
-}
-
-// La reconstrucción completa (centros de costo + TODAS las OC de la cuenta, paginadas, + el
-// catálogo de proveedores, también paginado) tarda varios segundos — no es una consulta liviana.
-// Pedido explícito del usuario (22-sep-2026): "eso carga cada vez que entro, no lo quiero" — se
-// cachea el resultado ya armado, mismo criterio que `centrosDeCostoCompleto`/`comprasOcCompleto`
-// en obuma.ts. `forzar` se deja para un futuro botón "Actualizar" explícito.
 let cacheProyectos: { en: number; datos: ProyectoObuma[] } | null = null;
 const CACHE_PROYECTOS_MS = 5 * 60_000;
 
-/** Agrupa los centros de costo de Obuma por Proyecto (rel_proyecto_id), suma sus OC reales, y
- *  marca qué licitaciones/negocios nuestros calzan (mismo matcher que ya usa el cruce OC-MP ↔
- *  Obuma, mencionaCodigo() — el código de licitación viene escrito en el NOMBRE del centro de
- *  costo). Ordenado por fecha de la OC más reciente del proyecto (el más recién movido primero);
- *  si no tiene ninguna OC con fecha, se ordena por el número "PROY-N" de referencia, el más alto
- *  primero (pedido explícito del usuario, 22-sep-2026). */
+/** Junta el Proyecto real (ext-proyectos.list.json) con sus centros de costo (mismo `proyecto_id` =
+ *  `rel_proyecto_id`), sus OC (comprasOc) y sus facturas reales (compras.list.json) — todo por API,
+ *  sin login. Los centros de costo sin Proyecto asociado (ej. "TECNOMAQ", "ADMINISTRACION" — gasto
+ *  general de la empresa, no un proyecto puntual) siguen apareciendo, como entradas sin ficha.
+ *  Orden: la actividad más reciente primero (última OC, o si no tiene, la fecha de ingreso real del
+ *  Proyecto) — pedido explícito del usuario, 22-sep-2026. */
 export async function listarProyectosObuma(forzar = false): Promise<ProyectoObuma[]> {
   if (!forzar && cacheProyectos && Date.now() - cacheProyectos.en < CACHE_PROYECTOS_MS) return cacheProyectos.datos;
-  const [centros, ocs, facturas, negociosRows, proveedores] = await Promise.all([
+
+  const [centros, ocs, facturas, proyectosExt, clientes, proveedores, negociosRows] = await Promise.all([
     centrosDeCostoCompleto(),
     comprasOcCompleto(),
     comprasCompleto(),
+    proyectosExtCompleto(),
+    clientesObumaCompleto(),
+    proveedoresObumaCompleto(),
     pool.query(
       `SELECT id, licitacion_codigo, licitacion_nombre FROM negocios
         WHERE activo = TRUE AND licitacion_codigo IS NOT NULL AND licitacion_codigo <> ''`,
     ).then(([r]) => r as { id: number; licitacion_codigo: string; licitacion_nombre: string | null }[]),
-    proveedoresObumaCompleto(),
   ]);
-  const proveedorPorId = new Map(proveedores.map(p => [String(p.proveedor_id), { nombre: p.proveedor_razon_social, rut: p.proveedor_rut }]));
 
-  const grupos = new Map<string, ObumaCentroCosto[]>();
+  const clientePorId = new Map(clientes.map(c => [c.cliente_id, c.cliente_razon_social]));
+  const proveedorPorIdMap = new Map(proveedores.map(p => [p.proveedor_id, { nombre: p.proveedor_razon_social, rut: p.proveedor_rut }]));
+  const centrosPorProyectoId = new Map<string, ObumaCentroCosto[]>();
+  const centrosSueltos: ObumaCentroCosto[] = [];
   for (const c of centros) {
-    const key = c.relProyectoId || `centro-${c.id}`;
-    if (!grupos.has(key)) grupos.set(key, []);
-    grupos.get(key)!.push(c);
+    if (c.relProyectoId) {
+      if (!centrosPorProyectoId.has(c.relProyectoId)) centrosPorProyectoId.set(c.relProyectoId, []);
+      centrosPorProyectoId.get(c.relProyectoId)!.push(c);
+    } else {
+      centrosSueltos.push(c);
+    }
   }
 
-  const resultado: ProyectoObuma[] = [];
-  for (const [proyectoId, grupo] of grupos) {
+  function num(v: unknown): number | null {
+    const n = Number(v);
+    return Number.isFinite(n) && v !== '' && v !== '0' ? n : (v === '0' ? 0 : null);
+  }
+
+  function armarEntrada(
+    proyectoId: string, tieneProyectoReal: boolean, grupo: ObumaCentroCosto[],
+    ficha: { folio: number | null; nombre: string | null; referencia: string | null; cliente: string | null;
+      presupuesto: number | null; costo: number | null; precioNeto: number | null; facturadoMonto: number | null;
+      estado: string | null; fechaIngreso: string | null; fechaInicio: string | null },
+  ): ProyectoObuma {
     const ids = new Set(grupo.map(c => c.id));
-    const ocsDelGrupo = ocs.filter(oc => ids.has(String(oc.compra_oc_centro_costo)));
+    const ocsDelGrupo = ids.size ? ocs.filter(oc => ids.has(String(oc.compra_oc_centro_costo))) : [];
     const totalGastado = ocsDelGrupo.reduce((s, oc) => s + (Number(oc.compra_oc_total) || 0), 0);
-    // Facturas reales (compras.list.json) del mismo centro de costo — filtro del lado del cliente,
-    // el filtro `centro_costo` del servidor no funciona (confirmado en vivo 22-sep-2026, mismo bug
-    // que comprasOc.list.json, ver comentario en obuma.ts). Dato contable definitivo, distinto de
-    // las OC (que pueden quedar pendientes o no llegar a facturarse nunca).
-    const facturasDelGrupo = facturas.filter(f => ids.has(String(f.compra_centro_costo)));
+    const facturasDelGrupo = ids.size ? facturas.filter(f => ids.has(String(f.compra_centro_costo))) : [];
     const totalFacturado = facturasDelGrupo.reduce((s, f) => s + (Number(f.compra_total) || 0), 0);
 
     const vistos = new Set<number>();
     const negociosCoincidentes: NegocioCoincidente[] = [];
-    for (const c of grupo) {
-      if (!c.nombre) continue;
+    const candidatosMatch = [ficha.referencia, ...grupo.map(c => c.nombre)].filter(Boolean) as string[];
+    for (const texto of candidatosMatch) {
       for (const n of negociosRows) {
         if (vistos.has(n.id)) continue;
-        if (mencionaCodigo(c.nombre, n.licitacion_codigo)) {
+        if (mencionaCodigo(texto, n.licitacion_codigo)) {
           vistos.add(n.id);
-          negociosCoincidentes.push({
-            negocioId: n.id, licitacionCodigo: n.licitacion_codigo,
-            licitacionNombre: n.licitacion_nombre, centroCostoNombre: c.nombre,
-          });
+          negociosCoincidentes.push({ negocioId: n.id, licitacionCodigo: n.licitacion_codigo, licitacionNombre: n.licitacion_nombre });
         }
       }
     }
 
     const ordenadas = [...ocsDelGrupo].sort((a, b) => String(b.compra_oc_fecha_ingreso || '').localeCompare(String(a.compra_oc_fecha_ingreso || '')));
     const ocsDetalle: OcDelProyecto[] = ordenadas.slice(0, TOPE_OC_DETALLE).map(oc => {
-      const prov = proveedorPorId.get(String(oc.rel_proveedor_id));
+      const prov = proveedorPorIdMap.get(String(oc.rel_proveedor_id));
       return {
         compraOcId: oc.compra_oc_id, folio: oc.compra_oc_folio || null,
         fecha: oc.compra_oc_fecha_ingreso || null, estado: oc.compra_oc_estado || null,
-        proveedorNombre: prov?.nombre || null, proveedorRut: prov?.rut || null,
-        total: Number(oc.compra_oc_total) || 0,
+        proveedorNombre: prov?.nombre || null, proveedorRut: prov?.rut || null, total: Number(oc.compra_oc_total) || 0,
       };
     });
 
-    const tieneProyectoReal = !proyectoId.startsWith('centro-');
-    resultado.push({
-      proyectoId, tieneProyectoReal,
+    const ultimaFecha = ordenadas[0]?.compra_oc_fecha_ingreso || ficha.fechaIngreso || null;
+
+    return {
+      proyectoId, tieneProyectoReal, folio: ficha.folio, nombre: ficha.nombre, referencia: ficha.referencia,
+      cliente: ficha.cliente, presupuesto: ficha.presupuesto, costo: ficha.costo, precioNeto: ficha.precioNeto,
+      facturadoMonto: ficha.facturadoMonto, estado: ficha.estado, fechaIngreso: ficha.fechaIngreso, fechaInicio: ficha.fechaInicio,
       centros: grupo.map(c => ({ id: c.id, nombre: c.nombre, codigo: c.codigo, activo: c.activo })),
-      totalGastado, cantidadOc: ocsDelGrupo.length,
-      totalFacturado, cantidadFacturas: facturasDelGrupo.length,
-      negociosCoincidentes,
-      ocs: ocsDetalle, ocsTruncadas: ocsDelGrupo.length > ocsDetalle.length,
-      ultimaFecha: ordenadas[0]?.compra_oc_fecha_ingreso || null,
-      proyNumeroReferencia: numeroProyectoDeNombres(grupo.map(c => c.nombre))
-        ?? (tieneProyectoReal ? Number(proyectoId) : null),
-    });
+      totalGastado, cantidadOc: ocsDelGrupo.length, totalFacturado, cantidadFacturas: facturasDelGrupo.length,
+      negociosCoincidentes, ocs: ocsDetalle, ocsTruncadas: ocsDelGrupo.length > ocsDetalle.length, ultimaFecha,
+    };
   }
 
-  // Criterio pedido: fecha de la OC más reciente primero; si no hay fecha, por el número "PROY-N"
-  // de referencia (o el rel_proyecto_id si no hay patrón en el nombre), el más alto primero.
+  const resultado: ProyectoObuma[] = [];
+  const proyectoIdsVistos = new Set<string>();
+
+  for (const p of proyectosExt) {
+    const proyectoId = p.proyecto_id;
+    proyectoIdsVistos.add(proyectoId);
+    const grupo = centrosPorProyectoId.get(proyectoId) || [];
+    resultado.push(armarEntrada(proyectoId, true, grupo, {
+      folio: Number(p.proyecto_folio) || null, nombre: p.proyecto_nombre || null,
+      referencia: p.proyecto_referencia || null, cliente: clientePorId.get(p.rel_cliente_id) || null,
+      presupuesto: num(p.proyecto_presupuesto), costo: num(p.proyecto_costo), precioNeto: num(p.proyecto_valor),
+      facturadoMonto: num(p.proyecto_facturado_monto), estado: ESTADOS_PROYECTO_OBUMA[p.proyecto_estado] || p.proyecto_estado || null,
+      fechaIngreso: (p.proyecto_ingreso_fecha || '').slice(0, 10) || null,
+      fechaInicio: p.proyecto_fecha_inicio && p.proyecto_fecha_inicio !== '0000-00-00' ? p.proyecto_fecha_inicio : null,
+    }));
+  }
+
+  // Centros de costo con rel_proyecto_id que NO vino en ext-proyectos.list.json (proyecto borrado,
+  // muy viejo, o de otra empresa vinculada a la misma cuenta) — igual se muestran, sin ficha.
+  for (const [proyectoId, grupo] of centrosPorProyectoId) {
+    if (proyectoIdsVistos.has(proyectoId)) continue;
+    resultado.push(armarEntrada(proyectoId, false, grupo, {
+      folio: null, nombre: null, referencia: null, cliente: null, presupuesto: null, costo: null,
+      precioNeto: null, facturadoMonto: null, estado: null, fechaIngreso: null, fechaInicio: null,
+    }));
+  }
+
+  // Centros de costo sueltos, sin ningún Proyecto asociado (gasto general de la empresa).
+  for (const c of centrosSueltos) {
+    resultado.push(armarEntrada(`centro-${c.id}`, false, [c], {
+      folio: null, nombre: null, referencia: null, cliente: null, presupuesto: null, costo: null,
+      precioNeto: null, facturadoMonto: null, estado: null, fechaIngreso: null, fechaInicio: null,
+    }));
+  }
+
   resultado.sort((a, b) => {
     if (a.ultimaFecha && b.ultimaFecha) return b.ultimaFecha.localeCompare(a.ultimaFecha);
     if (a.ultimaFecha && !b.ultimaFecha) return -1;
     if (!a.ultimaFecha && b.ultimaFecha) return 1;
-    const an = a.proyNumeroReferencia ?? -1;
-    const bn = b.proyNumeroReferencia ?? -1;
-    return bn - an;
+    return (b.folio ?? -1) - (a.folio ?? -1);
   });
 
   cacheProyectos = { en: Date.now(), datos: resultado };
   return resultado;
-}
-
-// ── Proyectos REALES de Obuma (snapshot leído a mano de la web, migration-122) ──────────────────
-// A diferencia de todo lo de arriba (reconstrucción v1 desde centros de costo, aproximada), esto
-// lee el campo REFERENCIA real de la ficha del Proyecto en Obuma — mucho más confiable que buscar
-// el código de licitación adentro del nombre de un centro de costo. No está en vivo: es una foto
-// que se vuelve a cargar a mano cuando haga falta (ver scripts/scratch/importar-obuma-proyectos-reales.mjs).
-export interface ProyectoRealObuma {
-  folio: number; fechaIngreso: string | null; fechaInicio: string | null;
-  nombre: string | null; referencia: string | null; cliente: string | null;
-  presupuesto: number | null; costo: number | null; precioNeto: number | null;
-  facturadoNeto: number | null; estado: string | null;
-  negocioId: number | null; licitacionCodigo: string | null; licitacionNombre: string | null;
-}
-
-export async function listarProyectosRealesObuma(): Promise<{ proyectos: ProyectoRealObuma[]; capturadoAt: string | null }> {
-  const [rows, negociosRows] = await Promise.all([
-    pool.query(
-      `SELECT folio, DATE_FORMAT(fecha_ingreso,'%Y-%m-%d') fecha_ingreso, DATE_FORMAT(fecha_inicio,'%Y-%m-%d') fecha_inicio,
-              nombre, referencia, cliente, presupuesto, costo, precio_neto, facturado_neto, estado,
-              DATE_FORMAT(capturado_at,'%Y-%m-%d %H:%i') capturado_at
-         FROM obuma_proyectos_reales ORDER BY folio DESC`,
-    ).then(([r]) => r as any[]),
-    pool.query(
-      `SELECT id, licitacion_codigo, licitacion_nombre FROM negocios
-        WHERE activo = TRUE AND licitacion_codigo IS NOT NULL AND licitacion_codigo <> ''`,
-    ).then(([r]) => r as { id: number; licitacion_codigo: string; licitacion_nombre: string | null }[]),
-  ]);
-
-  const proyectos: ProyectoRealObuma[] = rows.map(r => {
-    let match: { id: number; licitacion_codigo: string; licitacion_nombre: string | null } | undefined;
-    if (r.referencia) match = negociosRows.find(n => mencionaCodigo(r.referencia, n.licitacion_codigo));
-    return {
-      folio: r.folio, fechaIngreso: r.fecha_ingreso, fechaInicio: r.fecha_inicio,
-      nombre: r.nombre, referencia: r.referencia, cliente: r.cliente,
-      presupuesto: r.presupuesto != null ? Number(r.presupuesto) : null,
-      costo: r.costo != null ? Number(r.costo) : null,
-      precioNeto: r.precio_neto != null ? Number(r.precio_neto) : null,
-      facturadoNeto: r.facturado_neto != null ? Number(r.facturado_neto) : null,
-      estado: r.estado,
-      negocioId: match?.id ?? null, licitacionCodigo: match?.licitacion_codigo ?? null,
-      licitacionNombre: match?.licitacion_nombre ?? null,
-    };
-  });
-
-  return { proyectos, capturadoAt: rows[0]?.capturado_at ?? null };
 }

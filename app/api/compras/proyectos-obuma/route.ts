@@ -1,16 +1,14 @@
 // app/api/compras/proyectos-obuma/route.ts
-// GET — Vista "Proyectos" de Obuma, v1-only (ver compras-proyectos-obuma.ts para el porqué no es
-// el Proyecto real de v2.0). Llama a Obuma en vivo (centros de costo + OC completo, ambos
-// cacheados unos minutos del lado de obuma.ts) — acción consciente de quien abre la página, no un
-// autoload silencioso en cada pantalla de Compras.
+// GET — Vista "Proyectos" de Obuma: desde el hallazgo del 22-sep-2026 (ext-proyectos.list.json en
+// v1.0, sin necesitar el access-url de v2.0), todo sale de la API real, en vivo, sin login. Ver
+// app/lib/compras-proyectos-obuma.ts. Cacheado 5 min ahí mismo — `forzar=1` lo ignora.
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
-import { listarProyectosObuma, listarProyectosRealesObuma } from '@/app/lib/compras-proyectos-obuma';
-import { actualizarProyectosObuma } from '@/app/lib/obuma-proyectos-scraper';
+import { listarProyectosObuma } from '@/app/lib/compras-proyectos-obuma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 function getUser(req: NextRequest) {
   const id = req.headers.get('x-user-id');
@@ -29,32 +27,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const forzar = request.nextUrl.searchParams.get('forzar') === '1';
-    const [proyectos, reales] = await Promise.all([
-      listarProyectosObuma(forzar),
-      listarProyectosRealesObuma(),
-    ]);
-    return NextResponse.json({ success: true, proyectos, proyectosReales: reales.proyectos, capturadoAt: reales.capturadoAt });
+    const proyectos = await listarProyectosObuma(forzar);
+    return NextResponse.json({ success: true, proyectos });
   } catch (error: any) {
     console.error('[compras/proyectos-obuma][GET]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudo consultar Obuma.' }, { status: 500 });
-  }
-}
-
-/** Botón "Actualizar desde Obuma" — dispara el mismo login+scrape que corre el cron diario, pero
- *  a pedido explícito de la persona (nunca automático desde la pantalla). Abre una sesión real
- *  contra Obuma (Puppeteer), así que se restringe a `compras_todo` (mismo criterio que el resto
- *  de acciones sensibles del módulo, no el círculo más amplio de `compras`/`aprobar_comercial`). */
-export async function POST(request: NextRequest) {
-  const { id: userId } = getUser(request);
-  if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  const p = await permisosCrudosDeUsuario(userId);
-  if (!p.compras_todo) return NextResponse.json({ error: 'Sin acceso.' }, { status: 403 });
-
-  try {
-    const r = await actualizarProyectosObuma();
-    return NextResponse.json({ success: true, ...r });
-  } catch (error: any) {
-    console.error('[compras/proyectos-obuma][POST]', String(error));
-    return NextResponse.json({ error: error.message || 'No se pudo actualizar desde Obuma.' }, { status: 500 });
   }
 }

@@ -1961,10 +1961,61 @@ test:viabilidad` 1025/1025.
 `app/lib/compras-proyectos-obuma.ts` (`totalFacturado`/`cantidadFacturas`),
 `app/compras/proyectos/page.tsx`.
 
+### 17.3.10 El endpoint que faltaba — todo por API real, sin login, mismo día
+
+El usuario recibió otro correo de soporte de Obuma: *"llegó a los proyectos será así:
+`{{BASE-URL}}/v1.0/ext-proyectos.list.json`"*. Probado en vivo antes de construir nada (mismo
+criterio de toda la sesión): **HTTP 200**, 190 proyectos reales, con TODOS los campos que hacían
+falta — `proyecto_referencia`, `proyecto_presupuesto`, `proyecto_costo`, `proyecto_facturado_monto`,
+fechas, `proyecto_estado` (código numérico), `rel_cliente_id`. Es v1.0, no pide `access-url`.
+
+**Hallazgo extra, cruzando el `proyecto_id` de la API contra un caso ya conocido** (folio 155, la
+licitación `3143-27-LE26`): `proyecto_id: "30532"` — el MISMO `rel_proyecto_id` que ya traía
+`contabilidadCentrosDeCostos.list.json` desde el hallazgo original del 22-sep (§17.2). O sea: el
+"Proyecto Obuma #30532" que la reconstrucción v1 mostraba a ciegas por texto libre era, en
+realidad, el ID REAL del Proyecto — se puede cruzar por ID exacto, no por aproximación de nombre.
+
+**Se resolvió también**: `rel_cliente_id` → nombre real vía `clientes.list.json`/`clientes.findById.json`
+(1092 clientes, catálogo completo cacheado igual que proveedores). `proyecto_estado` es un código
+numérico sin traducir en la doc — se armó el mapeo cruzando en vivo contra el snapshot ya leído por
+la web el mismo día (antes de tener la API), folio a folio: **0=Abierto · 1=Cerrado · 2=Cancelado ·
+3=Rechazado · 20=En proceso**.
+
+**Esto vuelve obsoleto TODO lo de §17.3.7/§17.3.8 en horas** — la reconstrucción aproximada por
+centro de costo y el robot con login personal del usuario. `app/lib/compras-proyectos-obuma.ts` se
+reescribió entero: `listarProyectosObuma()` ahora arma una sola lista (ya no dos bloques separados
+en la pantalla) juntando, por `proyecto_id` = `rel_proyecto_id`: la ficha real (API), sus centros
+de costo, sus OC (`comprasOc`) y sus facturas reales (`compras.list.json`, §17.3.9). Los centros de
+costo sin Proyecto asociado (gasto general de la empresa, ej. "TECNOMAQ") se siguen mostrando, sin
+ficha, para no perder esa visibilidad (razón que dio el usuario en §17.3 para no sacar el bloque
+viejo — ahora es una sola lista con esa distinción marcada por fila, no dos listas).
+
+**Se dio de baja el cron/robot de login** (`jobObumaProyectos` en `scheduler.mjs`, comentado no
+borrado) — ya no hace falta abrir un Chrome ni guardar la clave personal de Obuma del usuario para
+nada de esto. El archivo `obuma-proyectos-scraper.ts` queda en el repo sin usarse, por si alguna vez
+hace falta un respaldo, pero **el usuario debería poder borrar `OBUMA_WEB_RUT`/`OBUMA_WEB_CLAVE`**
+de los `.env` (notebook y VPS) — ya no se leen desde ningún lado del código en uso.
+
+**Verificado en vivo, con el token real**: `contabilidadCentrosDeCostos`, `comprasOc`, `compras`,
+`ext-proyectos`, `clientes` y `proveedores` juntos en una sola corrida — **211 entradas totales,
+190 con ficha real de Proyecto, 13 calzan con un negocio nuestro activo** (subió de 11 a 13 respecto
+a la reconstrucción aproximada de antes, con datos ahora exactos: cliente, presupuesto, costo,
+precio neto, facturado, estado). 19s en frío, cacheado 5 min. `npx tsc --noEmit` limpio, `npm run
+test:viabilidad` 1025/1025.
+
+**Nuevos:** `scripts/scratch/verificar-proyectos-unificado.mjs`.
+**Reescrito:** `app/lib/compras-proyectos-obuma.ts` (modelo unificado), `app/compras/proyectos/page.tsx`
+(una sola lista), `app/api/compras/proyectos-obuma/route.ts` (ya sin POST/scraper).
+**Modificados:** `app/lib/obuma.ts` (`ext-proyectos`, `clientes`, `ESTADOS_PROYECTO_OBUMA`),
+`scheduler/scheduler.mjs` (cron del robot comentado, no borrado).
+
 ### 17.4 Pendiente real, sin resolver hoy
 
-El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, no está
-habilitado en la cuenta (confirmado explícitamente por el usuario, 22-sep-2026). En su lugar, §17.3.7
-resuelve el dato real por otra vía (snapshot manual de la web) — ver ahí el detalle. Queda abierta,
-sin decidir hoy, la pregunta de si en algún momento conviene automatizar esa lectura (guardar
-credenciales de Obuma y programar el scraping) en vez de repetirla a mano cada vez que haga falta.
+**Superado por §17.3.10, mismo día.** El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse
+y no está habilitado en la cuenta — pero ya no importa: `ext-proyectos.list.json` (v1.0) resuelve
+lo mismo por API real. No queda pendiente nada de v2.0 ni de credenciales guardadas para esto.
+
+Lo único que sigue pendiente de verdad: **confirmar que el usuario borró `OBUMA_WEB_RUT`/
+`OBUMA_WEB_CLAVE`** de los `.env` (notebook y VPS) — ya no se usan, y esa clave personal de Obuma
+quedó expuesta en el historial de este chat en algún momento del día (ver aviso de seguridad en
+§17.3.8).

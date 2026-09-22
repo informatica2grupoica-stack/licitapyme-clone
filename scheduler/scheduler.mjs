@@ -164,11 +164,13 @@ async function jobOrdenesCompra() { await loop('órdenes de compra', '/api/cron/
 // historial completo cada día.
 async function jobComprasObuma() { await loop('compras Obuma', '/api/cron/obuma-compras', { maxPasadas: 1, body: { paginas: 5 } }); }
 
-// Proyectos REALES de Obuma (v2.0, sigue sin API — se lee por la WEB con login automatizado, ver
-// app/lib/obuma-proyectos-scraper.ts). UNA VEZ AL DÍA (pedido explícito del usuario, 22-sep-2026):
-// abre un Chrome real e inicia sesión con OBUMA_WEB_RUT/OBUMA_WEB_CLAVE — no tiene sentido hacerlo
-// más seguido, los Proyectos no cambian tan rápido y cada corrida es una sesión real contra Obuma.
-async function jobObumaProyectos() { await loop('proyectos Obuma (web)', '/api/cron/obuma-proyectos', { maxPasadas: 1 }); }
+// DESACTIVADO 22-sep-2026, mismo día: soporte de Obuma confirmó por correo que
+// /v1.0/ext-proyectos.list.json expone el módulo real de Proyectos sin necesitar el access-url de
+// v2.0 — el login-scraping (app/lib/obuma-proyectos-scraper.ts, este cron) quedó obsoleto en horas.
+// Los Proyectos ahora se leen en vivo por API en cada carga de /compras/proyectos (caché 5 min), sin
+// cron y sin guardar ninguna clave personal. Se deja el cron.schedule de abajo COMENTADO (no
+// borrado) por si alguna vez hace falta volver al scraping; el archivo del scraper tampoco se borró.
+// async function jobObumaProyectos() { await loop('proyectos Obuma (web)', '/api/cron/obuma-proyectos', { maxPasadas: 1 }); }
 
 // Módulo de Compras (§3.3): fallback de asignación — si el jefe de ventas no asignó encargado
 // dentro de las 3h hábiles, el sistema asigna solo al de menor carga. Cada 20 min: bastante rápido
@@ -197,14 +199,14 @@ cron.schedule('35 1-23/4 * * *', jobViabilidadPerfil, opts); // 01:35,05:35,... 
 cron.schedule('40 7 * * *',     jobOrdenesCompra, opts);
 // 07:45: justo después de las OC de MP, mismo criterio de horario.
 cron.schedule('45 7 * * *',     jobComprasObuma, opts);
-// 07:50: un rato después de compras Obuma, mismo bloque horario matutino. Login real a Obuma vía
-// navegador headless (Puppeteer) — se agrupa acá para no dispersar por el día sesiones distintas.
-cron.schedule('50 7 * * *',     jobObumaProyectos, opts);
+// DESACTIVADO 22-sep-2026 — ver comentario de jobObumaProyectos más arriba: ya no hace falta,
+// Proyectos se lee por API real en cada carga de la pantalla.
+// cron.schedule('50 7 * * *',  jobObumaProyectos, opts);
 // CADA 20 MINUTOS: fallback de asignación de Compras (§3.3). Barato (sin llamadas externas, solo BD).
 cron.schedule('*/20 * * * *',   () => sinSolapar('compras-asignacion', jobComprasAsignacion), opts);
 
 console.log(`[scheduler] 🚀 iniciado — base=${BASE} TZ=${TZ} pausada=${PAUSADA} — ${ahora()}`);
-console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · ganada/perdida (estados-asignadas+postuladas) */30 · aperturas 10 * (cada hora) · ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día) · proyectos Obuma (web) 50 7 (1×/día) · compras-asignación */20 (fallback 3h hábiles)');
+console.log('[scheduler] agenda: intake 0 */4 · enriquecer 30 */4 · prefiltro 0 1-23/4 · viabilidad 30 1-23/4 · viabilidad-perfil 35 1-23/4 · docs-negocios 0 */2 · ganada/perdida (estados-asignadas+postuladas) */30 · aperturas 10 * (cada hora) · ofertas+preguntas 15 * (cada hora) · órdenes de compra 40 7 · compras Obuma 45 7 (1×/día) · compras-asignación */20 (fallback 3h hábiles)');
 
 // Al arrancar, dispara una pasada de reintento de descargas (recupera lo que quedó pendiente
 // mientras el scheduler estuvo caído). No dispara intake para no duplicar con el cron horario.

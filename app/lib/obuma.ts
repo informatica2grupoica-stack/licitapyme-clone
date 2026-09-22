@@ -274,6 +274,70 @@ export async function proyectoPorId(id: string | number): Promise<ObumaProyecto 
   return r.data?.[0] || null;
 }
 
+// ── v1.0 — ext-proyectos: el MISMO módulo de Proyectos, por otra puerta ────────
+// Hallazgo de soporte de Obuma por correo (22-sep-2026, distinto del canal de la doc pública):
+// `/v1.0/ext-proyectos.list.json` expone el módulo de Proyectos SIN pedir `access-url` — confirmado
+// en vivo el mismo día (HTTP 200, 190 proyectos reales, campos completos: proyecto_referencia,
+// proyecto_presupuesto, proyecto_costo, proyecto_facturado_monto, fechas, rel_cliente_id).
+// Reemplaza por completo al login-scraping que se había construido antes de este hallazgo (ver
+// obuma-proyectos-scraper.ts y docs/BITACORA-MODULO-COMPRAS.md §17.3.8/§17.3.10) — ya no hace
+// falta guardar la clave personal de Obuma del usuario para nada de esto.
+//
+// `proyecto_estado` es un código numérico, no texto — mapeado cruzando en vivo contra el snapshot
+// ya leído por la web el mismo día (folio a folio, ver script de verificación):
+//   0 = Abierto · 1 = Cerrado · 2 = Cancelado · 3 = Rechazado · 20 = En proceso
+export const ESTADOS_PROYECTO_OBUMA: Record<string, string> = {
+  '0': 'Abierto', '1': 'Cerrado', '2': 'Cancelado', '3': 'Rechazado', '20': 'En proceso',
+};
+
+export interface ObumaProyectoExt {
+  proyecto_id: string; proyecto_folio: string; proyecto_nombre: string; proyecto_descripcion: string;
+  proyecto_referencia: string; proyecto_fecha_inicio: string; proyecto_fecha_fin: string;
+  proyecto_ingreso_fecha: string; proyecto_presupuesto: string; proyecto_costo: string;
+  proyecto_facturado: string; proyecto_facturado_monto: string; proyecto_estado: string;
+  rel_cliente_id: string;
+  [k: string]: unknown;
+}
+
+export function listarProyectosExt(params: { limit?: number; page?: number; order_by?: string; order_dir?: string } = {}) {
+  return llamar<ObumaListado<ObumaProyectoExt>>(BASE_V1, '/ext-proyectos.list.json', params);
+}
+
+/** Trae TODOS los Proyectos reales, paginado (mismo patrón que comprasOcCompleto/proveedoresObumaCompleto). */
+export async function proyectosExtCompleto(): Promise<ObumaProyectoExt[]> {
+  const todos: ObumaProyectoExt[] = [];
+  let pagina = 1;
+  for (; pagina <= 10; pagina++) { // tope de seguridad — 10 páginas de 1000 = 10.000 proyectos
+    const r = await listarProyectosExt({ page: pagina, limit: 1000 });
+    const lote = r.data || [];
+    todos.push(...lote);
+    const totalPaginas = Number(r['data-total-pages']) || 1;
+    if (pagina >= totalPaginas || lote.length === 0) break;
+  }
+  return todos;
+}
+
+export interface ObumaCliente { cliente_id: string; cliente_rut: string; cliente_razon_social: string; [k: string]: unknown }
+
+export function listarClientes(params: { limit?: number; page?: number } = {}) {
+  return llamar<ObumaListado<ObumaCliente>>(BASE_V1, '/clientes.list.json', params);
+}
+
+/** Catálogo completo de clientes, para resolver `rel_cliente_id` de cada Proyecto sin una llamada
+ *  por proyecto (mismo criterio que `proveedorPorId` cacheado en obuma-compras.ts). */
+export async function clientesObumaCompleto(): Promise<ObumaCliente[]> {
+  const todos: ObumaCliente[] = [];
+  let pagina = 1;
+  for (; pagina <= 20; pagina++) {
+    const r = await listarClientes({ page: pagina, limit: 1000 });
+    const lote = r.data || [];
+    todos.push(...lote);
+    const totalPaginas = Number(r['data-total-pages']) || 1;
+    if (pagina >= totalPaginas || lote.length === 0) break;
+  }
+  return todos;
+}
+
 // ── Productos — escritura (sep-2026, spec §7) ───────────────────────────────
 // Antes esta integración era standby ("dirección de creación y sincronización... queda en
 // standby", §7.5). Se activó a pedido del usuario, que ya la construyó antes para el mismo grupo
