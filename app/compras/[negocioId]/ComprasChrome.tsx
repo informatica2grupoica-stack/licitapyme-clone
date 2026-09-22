@@ -303,15 +303,25 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             const excedePresupuesto = r.presupuestoProyecto != null && r.montoCosteado != null && r.montoCosteado > r.presupuestoProyecto;
             return (
             <div className="border-t border-zinc-100 px-4 py-4 space-y-4">
-              {/* Tres cifras principales — grandes, a color. */}
+              {/* Tres cifras principales — grandes, a color. Monto costeado va acá (pedido explícito,
+                  22-sep-2026: es la cifra más importante para el encargado de Compras) en el lugar
+                  que antes tenía Presupuesto del proyecto, que baja a las secundarias. Los montos
+                  se guardan NETOS (ver construirResumenEjecutivoCompras en compras.ts) — se
+                  especifica también el equivalente con IVA (×1,19) para no tener que calcularlo a mano. */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="rounded-xl p-3 bg-gradient-to-br from-emerald-50 to-emerald-100/40 border border-emerald-200">
                   <p className="text-[10px] font-bold text-emerald-700 uppercase flex items-center gap-1"><DollarSign size={12} /> Precio de venta ganado</p>
-                  <p className="text-[18px] font-extrabold text-emerald-800 mt-0.5">{fmtCLP(r.montoNuestro)}</p>
+                  <p className="text-[18px] font-extrabold text-emerald-800 mt-0.5">{fmtCLP(r.montoNuestro)} <span className="text-[11px] font-semibold text-emerald-600/70">neto</span></p>
+                  {r.montoNuestro != null && <p className="text-[10.5px] font-semibold text-emerald-600/80">{fmtCLP(Math.round(r.montoNuestro * 1.19))} con IVA</p>}
                 </div>
-                <div className="rounded-xl p-3 bg-gradient-to-br from-sky-50 to-sky-100/40 border border-sky-200">
-                  <p className="text-[10px] font-bold text-sky-700 uppercase flex items-center gap-1"><Wallet size={12} /> Presupuesto del proyecto</p>
-                  <p className="text-[18px] font-extrabold text-sky-800 mt-0.5">{fmtCLP(r.presupuestoProyecto)}</p>
+                <div className={`rounded-xl p-3 border ${excedePresupuesto ? 'bg-gradient-to-br from-amber-50 to-amber-100/40 border-amber-200' : 'bg-gradient-to-br from-violet-50 to-violet-100/40 border-violet-200'}`}>
+                  <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${excedePresupuesto ? 'text-amber-700' : 'text-violet-700'}`}><Calculator size={12} /> Monto costeado</p>
+                  <p className={`text-[18px] font-extrabold mt-0.5 ${excedePresupuesto ? 'text-amber-800' : 'text-violet-800'}`}>
+                    {r.existeCosteo ? <>{fmtCLP(r.montoCosteado)} <span className={`text-[11px] font-semibold ${excedePresupuesto ? 'text-amber-600/70' : 'text-violet-600/70'}`}>neto</span></> : 'Sin costeo'}
+                  </p>
+                  {r.existeCosteo && r.montoCosteado != null && (
+                    <p className={`text-[10.5px] font-semibold ${excedePresupuesto ? 'text-amber-600/80' : 'text-violet-600/80'}`}>{fmtCLP(Math.round(r.montoCosteado * 1.19))} con IVA</p>
+                  )}
                 </div>
                 <div className={`rounded-xl p-3 border ${margenBajo ? 'bg-gradient-to-br from-rose-50 to-rose-100/40 border-rose-200' : 'bg-gradient-to-br from-teal-50 to-teal-100/40 border-teal-200'}`}>
                   <p className={`text-[10px] font-bold uppercase flex items-center gap-1 ${margenBajo ? 'text-rose-700' : 'text-teal-700'}`}>
@@ -336,13 +346,12 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                   <p className="text-[9.5px] font-bold text-indigo-500 uppercase flex items-center gap-1"><UserPlus size={11} /> Asistente comercial</p>
                   <p className="text-[12.5px] font-bold text-indigo-900 mt-0.5">{r.responsableNombre || '—'}</p>
                 </div>
-                <div className={`rounded-lg p-2.5 border ${excedePresupuesto ? 'bg-amber-50 border-amber-200' : 'bg-violet-50/60 border-violet-100'}`}>
-                  <p className={`text-[9.5px] font-bold uppercase flex items-center gap-1 ${excedePresupuesto ? 'text-amber-600' : 'text-violet-500'}`}>
-                    <Calculator size={11} /> Monto costeado
+                <div className="rounded-lg p-2.5 bg-sky-50/60 border border-sky-100">
+                  <p className="text-[9.5px] font-bold text-sky-600 uppercase flex items-center gap-1"><Wallet size={11} /> Presupuesto del proyecto</p>
+                  <p className="text-[12.5px] font-bold text-sky-900 mt-0.5">
+                    {r.presupuestoProyecto != null ? <>{fmtCLP(r.presupuestoProyecto)} <span className="text-[10px] font-semibold text-sky-600/70">neto</span></> : '—'}
                   </p>
-                  <p className={`text-[12.5px] font-bold mt-0.5 ${excedePresupuesto ? 'text-amber-800' : 'text-violet-900'}`}>
-                    {r.existeCosteo ? fmtCLP(r.montoCosteado) : 'Sin costeo'}
-                  </p>
+                  {r.presupuestoProyecto != null && <p className="text-[9.5px] font-semibold text-sky-600/80">{fmtCLP(Math.round(r.presupuestoProyecto * 1.19))} con IVA</p>}
                 </div>
                 <div className="rounded-lg p-2.5 bg-orange-50/60 border border-orange-100">
                   <p className="text-[9.5px] font-bold text-orange-500 uppercase flex items-center gap-1"><CalendarTime size={11} /> Plazo de entrega ofertado</p>
