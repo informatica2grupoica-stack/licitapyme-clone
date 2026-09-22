@@ -10,7 +10,7 @@
 // alguna licitación/negocio nuestro — pedido explícito del usuario (22-sep-2026): "ver si tenemos
 // lo mismo de Obuma... para hacer una comparación".
 import pool from '@/app/lib/db';
-import { centrosDeCostoCompleto, comprasOcCompleto, proveedoresObumaCompleto, type ObumaCentroCosto } from '@/app/lib/obuma';
+import { centrosDeCostoCompleto, comprasOcCompleto, comprasCompleto, proveedoresObumaCompleto, type ObumaCentroCosto } from '@/app/lib/obuma';
 import { mencionaCodigo } from '@/app/lib/ordenes-compra';
 
 export interface NegocioCoincidente {
@@ -36,6 +36,8 @@ export interface ProyectoObuma {
   centros: { id: string; nombre: string; codigo: string; activo: boolean }[];
   totalGastado: number;
   cantidadOc: number;
+  totalFacturado: number;    // suma de facturas/compras REALES (compras.list.json), no solo OC
+  cantidadFacturas: number;
   negociosCoincidentes: NegocioCoincidente[];
   ocs: OcDelProyecto[];        // detalle, hasta TOPE_OC_DETALLE (más recientes primero)
   ocsTruncadas: boolean;       // true si cantidadOc > ocs.length
@@ -73,9 +75,10 @@ const CACHE_PROYECTOS_MS = 5 * 60_000;
  *  primero (pedido explícito del usuario, 22-sep-2026). */
 export async function listarProyectosObuma(forzar = false): Promise<ProyectoObuma[]> {
   if (!forzar && cacheProyectos && Date.now() - cacheProyectos.en < CACHE_PROYECTOS_MS) return cacheProyectos.datos;
-  const [centros, ocs, negociosRows, proveedores] = await Promise.all([
+  const [centros, ocs, facturas, negociosRows, proveedores] = await Promise.all([
     centrosDeCostoCompleto(),
     comprasOcCompleto(),
+    comprasCompleto(),
     pool.query(
       `SELECT id, licitacion_codigo, licitacion_nombre FROM negocios
         WHERE activo = TRUE AND licitacion_codigo IS NOT NULL AND licitacion_codigo <> ''`,
@@ -96,6 +99,12 @@ export async function listarProyectosObuma(forzar = false): Promise<ProyectoObum
     const ids = new Set(grupo.map(c => c.id));
     const ocsDelGrupo = ocs.filter(oc => ids.has(String(oc.compra_oc_centro_costo)));
     const totalGastado = ocsDelGrupo.reduce((s, oc) => s + (Number(oc.compra_oc_total) || 0), 0);
+    // Facturas reales (compras.list.json) del mismo centro de costo — filtro del lado del cliente,
+    // el filtro `centro_costo` del servidor no funciona (confirmado en vivo 22-sep-2026, mismo bug
+    // que comprasOc.list.json, ver comentario en obuma.ts). Dato contable definitivo, distinto de
+    // las OC (que pueden quedar pendientes o no llegar a facturarse nunca).
+    const facturasDelGrupo = facturas.filter(f => ids.has(String(f.compra_centro_costo)));
+    const totalFacturado = facturasDelGrupo.reduce((s, f) => s + (Number(f.compra_total) || 0), 0);
 
     const vistos = new Set<number>();
     const negociosCoincidentes: NegocioCoincidente[] = [];
@@ -128,7 +137,9 @@ export async function listarProyectosObuma(forzar = false): Promise<ProyectoObum
     resultado.push({
       proyectoId, tieneProyectoReal,
       centros: grupo.map(c => ({ id: c.id, nombre: c.nombre, codigo: c.codigo, activo: c.activo })),
-      totalGastado, cantidadOc: ocsDelGrupo.length, negociosCoincidentes,
+      totalGastado, cantidadOc: ocsDelGrupo.length,
+      totalFacturado, cantidadFacturas: facturasDelGrupo.length,
+      negociosCoincidentes,
       ocs: ocsDetalle, ocsTruncadas: ocsDelGrupo.length > ocsDetalle.length,
       ultimaFecha: ordenadas[0]?.compra_oc_fecha_ingreso || null,
       proyNumeroReferencia: numeroProyectoDeNombres(grupo.map(c => c.nombre))

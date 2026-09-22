@@ -168,6 +168,45 @@ export async function comprasOcCompleto(forzar = false): Promise<ObumaCompraOc[]
   return todas;
 }
 
+// Facturas/compras REALES (contable, distinto de las Órdenes de Compra de arriba) —
+// /compras.list.json, confirmado por soporte de Obuma (22-sep-2026, por correo) como el campo que
+// vincula factura ↔ centro de costo del proyecto: `compra_centro_costo`. Probado en vivo el mismo
+// día: el filtro de SERVIDOR `?centro_costo=` NO filtra nada (mismo total con y sin filtro, mismo
+// bug que `comprasOc.list.json` — no es un error nuestro, ver docs/BITACORA-MODULO-COMPRAS.md
+// §17.3.9) — el campo SÍ viene en cada fila, así que se filtra del lado del cliente, igual que el
+// resto de los cruces de este archivo.
+export interface ObumaCompra {
+  compra_id: string; compra_folio: string; compra_fechaingreso: string;
+  compra_total: string; compra_total_pagado: string; compra_centro_costo: string;
+  rel_proveedor_id: string; compra_tipo_dcto: string;
+  [k: string]: unknown;
+}
+
+export function listarCompras(params: { centro_costo?: string; proveedor?: string; limit?: number; page?: number } = {}) {
+  return llamar<ObumaListado<ObumaCompra>>(BASE_V1, '/compras.list.json', params);
+}
+
+let cacheCompras: { en: number; datos: ObumaCompra[] } | null = null;
+const CACHE_COMPRAS_MS = 5 * 60_000;
+
+/** Trae TODAS las facturas/compras reales de la cuenta, paginado — cuenta grande (~17.000), por
+ *  eso el caché es más largo (5 min) que el de comprasOcCompleto. Tope de seguridad: 25 páginas de
+ *  1000 = 25.000 filas, cubre el total actual con margen. */
+export async function comprasCompleto(forzar = false): Promise<ObumaCompra[]> {
+  if (!forzar && cacheCompras && Date.now() - cacheCompras.en < CACHE_COMPRAS_MS) return cacheCompras.datos;
+  const todas: ObumaCompra[] = [];
+  let pagina = 1;
+  for (; pagina <= 25; pagina++) {
+    const r = await listarCompras({ page: pagina, limit: 1000 });
+    const lote = r.data || [];
+    todas.push(...lote);
+    const totalPaginas = Number(r['data-total-pages']) || 1;
+    if (pagina >= totalPaginas || lote.length === 0) break;
+  }
+  cacheCompras = { en: Date.now(), datos: todas };
+  return todas;
+}
+
 export interface ObumaCompraOcItem {
   cod_id: string;
   producto_id: string;

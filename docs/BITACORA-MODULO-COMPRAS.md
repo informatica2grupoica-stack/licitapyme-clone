@@ -1878,6 +1878,89 @@ el navegador (11/189 confirmados, chip a `/compras/655` funcionando, toggle "ver
 **Modificados:** `app/lib/compras-proyectos-obuma.ts` (`listarProyectosRealesObuma`),
 `app/api/compras/proyectos-obuma/route.ts`, `app/compras/proyectos/page.tsx`.
 
+### 17.3.8 El snapshot manual se volvió automático (mismo día)
+
+El usuario preguntó por qué tenía que iniciar sesión cada vez que quería los datos al día, y
+decidió automatizarlo: "ok, guardá la clave" — con la advertencia hecha explícita de que es su
+login personal de Obuma (RUT + Clave de la web), mucho más sensible que el `OBUMA_API_TOKEN` (ese
+es de solo lectura por API; esto es acceso completo al ERP). **Nunca se recibió la clave por
+chat para escribirla** — el usuario intentó pegarla dos veces y en ambas se le pidió que la
+escribiera directo en el `.env` del servidor (mismo patrón que `OBUMA_API_TOKEN`); en la segunda
+la pegó igual, así que quedó registrada en el historial de esta conversación — se le avisó y se
+recomendó rotarla en Obuma cuando pueda, sin urgencia.
+
+**Construido** (reusa la infraestructura de Puppeteer que YA existe para descargar documentos de
+Mercado Público — `app/lib/mp-descarga-browser.ts::resolverChromium()`, mismo criterio de detectar
+Chrome/Chromium local o el binario `@sparticuz/chromium` serverless, no hay nada nuevo que instalar):
+
+- `app/lib/obuma-proyectos-scraper.ts` (nuevo) — `scrapearProyectosObuma()`: abre un Chrome headless
+  real, hace login en `https://app.obuma.cl/obuma2.0/` con `OBUMA_WEB_RUT`/`OBUMA_WEB_CLAVE`
+  (selectores confirmados en vivo: `#idLogin`, `#idPassword`, `button[type=submit]`, formulario
+  postea a `usuario-login.php`), confirma que quedó logueado (busca el link a `mod-proyectos` en el
+  menú — si no aparece, tira error en vez de seguir a ciegas), va a
+  `home.php?page=mod-proyectos/listar`, sube el `<select id="_pagi_cuantos">` a 500 y lee la tabla
+  completa celda por celda del DOM (mismo método que la extracción manual de §17.3.7, ahora
+  automatizado). `guardarProyectosObuma()` hace el mismo upsert de antes.
+  `actualizarProyectosObuma()` encadena las dos.
+- `GET/POST /api/cron/obuma-proyectos` (nuevo) — mismo esqueleto de auth que los demás cron
+  (`x-vercel-cron`/`CRON_SECRET`). `scheduler/scheduler.mjs`: `jobObumaProyectos`, agendado
+  **`50 7 * * *`** (una vez al día, justo después de compras Obuma) — pedido explícito del usuario,
+  con el razonamiento de que abrir una sesión real contra Obuma no debería hacerse más seguido.
+- `POST /api/compras/proyectos-obuma` (nuevo, mismo archivo del GET) — botón manual, restringido a
+  `compras_todo` (más estricto que el resto del módulo, por tratarse de un login real). Botón verde
+  "Actualizar desde Obuma" en la pantalla, junto al bloque de datos reales.
+
+**Verificado en vivo, dos veces**: una vez por script directo (`scripts/scratch/probar-scraper-proyectos.mjs`,
+48,6s, `{ guardados: 189 }`) y otra vez apretando el botón real en `/compras/proyectos` — la
+`capturado_at` de la base avanzó las dos veces (`20:25:14` → `20:26:39`), confirmando que cada
+corrida es una sesión real nueva contra Obuma, no un caché. `npx tsc --noEmit` limpio, `npm run
+test:viabilidad` 1025/1025.
+
+**`.env.example` actualizado** con `OBUMA_WEB_RUT`/`OBUMA_WEB_CLAVE` documentadas (mismo criterio
+que se hizo con `OBUMA_API_TOKEN` en §17.3.4, para que el próximo despliegue no se olvide).
+
+**Nuevos:** `app/lib/obuma-proyectos-scraper.ts`, `app/api/cron/obuma-proyectos/route.ts`,
+`scripts/scratch/probar-scraper-proyectos.mjs`.
+**Modificados:** `scheduler/scheduler.mjs` (`jobObumaProyectos`, cron `50 7 * * *`),
+`app/api/compras/proyectos-obuma/route.ts` (POST), `app/compras/proyectos/page.tsx` (botón),
+`.env.example`.
+
+**Pendiente real:** confirmar que `OBUMA_WEB_RUT`/`OBUMA_WEB_CLAVE` también quedaron en el `.env`
+del VPS (el usuario dijo que sí, "los puse en el env.local" fue lo confirmado explícitamente por
+chat — el `.env` del servidor de producción es el que hace falta para que el cron diario funcione
+ahí, no alcanza con tenerlo solo en la notebook de desarrollo).
+
+### 17.3.9 Facturas reales (compras.list.json), sumadas al bloque por centro de costo
+
+El usuario recibió un correo de soporte de Obuma: *"Los proyectos tienen un centro costo, ese es el
+campo que te permite hacer match con las facturas del proyecto"*, señalando `centro_costo` en
+`/compras.list.json` (el endpoint de **Compras/facturas reales** — distinto de `comprasOc.list.json`,
+que es solo las Órdenes de Compra).
+
+**Probado en vivo antes de creerlo**: igual que con `comprasOc.list.json` en sesiones anteriores, el
+filtro `?centro_costo=` del SERVIDOR **no filtra nada** — se probó con un centro de costo real
+(22602) y `compras.list.json` devolvió el mismo total (16.870) con y sin el filtro, con filas de
+centros de costo distintos al pedido. El campo `compra_centro_costo` SÍ viene en cada fila (soporte
+tenía razón en eso), así que se filtra del lado del cliente — mismo patrón que el resto del módulo.
+
+**Construido**: `comprasCompleto()` (nuevo en `obuma.ts`, mismo patrón que `comprasOcCompleto`,
+paginado hasta 25 páginas de 1000, caché 5 min por el volumen: ~17.000 filas). En
+`listarProyectosObuma()`, cada grupo de centros de costo suma además `totalFacturado`/
+`cantidadFacturas` desde esta fuente — el dato contable definitivo (con IVA, folio SII), distinto
+de las OC (que pueden quedar pendientes o no facturarse nunca). UI: cada tarjeta del bloque amarillo
+ahora muestra "facturado $X" en verde junto al total de OC, y el contador de arriba de la pantalla
+gana la tarjeta "Facturado real".
+
+**Verificado en vivo** contra la cuenta real (`scripts/scratch/verificar-facturas-proyecto.mjs`): el
+proyecto 30532 (licitación `3143-27-LE26`) tiene $16.377.608 en 2 OC pero **$17.139.210 facturado de
+verdad en 8 facturas** — más preciso que solo mirar las OC. `npx tsc --noEmit` limpio, `npm run
+test:viabilidad` 1025/1025.
+
+**Nuevos:** `scripts/scratch/verificar-facturas-proyecto.mjs`.
+**Modificados:** `app/lib/obuma.ts` (`listarCompras`, `comprasCompleto`),
+`app/lib/compras-proyectos-obuma.ts` (`totalFacturado`/`cantidadFacturas`),
+`app/compras/proyectos/page.tsx`.
+
 ### 17.4 Pendiente real, sin resolver hoy
 
 El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, no está

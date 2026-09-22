@@ -27,6 +27,7 @@ interface ProyectoObuma {
   proyectoId: string; tieneProyectoReal: boolean;
   centros: { id: string; nombre: string; codigo: string; activo: boolean }[];
   totalGastado: number; cantidadOc: number;
+  totalFacturado: number; cantidadFacturas: number;
   negociosCoincidentes: NegocioCoincidente[];
   ocs: OcDelProyecto[]; ocsTruncadas: boolean;
   ultimaFecha: string | null; proyNumeroReferencia: number | null;
@@ -80,6 +81,22 @@ export default function ProyectosObumaPage() {
   const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
 
   const [actualizando, setActualizando] = useState(false);
+  const [actualizandoReal, setActualizandoReal] = useState(false);
+
+  const actualizarDesdeObuma = async () => {
+    setActualizandoReal(true);
+    try {
+      const res = await fetch('/api/compras/proyectos-obuma', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo actualizar');
+      toast.success('Actualizado desde Obuma', `${data.guardados} proyecto(s) leídos`);
+      await cargar();
+    } catch (e: any) {
+      toast.error('No se pudo actualizar desde Obuma', e.message);
+    } finally {
+      setActualizandoReal(false);
+    }
+  };
 
   const cargar = useCallback(async (forzar = false) => {
     if (forzar) setActualizando(true); else setLoading(true);
@@ -106,7 +123,8 @@ export default function ProyectosObumaPage() {
   const stats = useMemo(() => {
     const conNegocio = proyectos.filter(p => p.negociosCoincidentes.length > 0).length;
     const totalGasto = proyectos.reduce((s, p) => s + p.totalGastado, 0);
-    return { total: proyectos.length, conNegocio, sinNegocio: proyectos.length - conNegocio, totalGasto };
+    const totalFacturado = proyectos.reduce((s, p) => s + p.totalFacturado, 0);
+    return { total: proyectos.length, conNegocio, sinNegocio: proyectos.length - conNegocio, totalGasto, totalFacturado };
   }, [proyectos]);
 
   const filtrados = useMemo(() => {
@@ -174,7 +192,7 @@ export default function ProyectosObumaPage() {
             <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0"><Folders size={17} className="text-indigo-600" /></div>
             <div>
               <h1 className="text-[16px] font-bold text-zinc-900 leading-tight">Proyectos (Obuma)</h1>
-              <p className="text-[12px] text-zinc-500">{stats.total} proyecto(s) reconstruidos desde los centros de costo</p>
+              <p className="text-[12px] text-zinc-500">Datos reales arriba (con Referencia y cliente) · gasto por centro de costo abajo</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -212,6 +230,14 @@ export default function ProyectosObumaPage() {
                   className={`text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border ${verTodosReales ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'}`}>
                   {verTodosReales ? `Ver solo confirmados (${statsReales.conNegocio})` : `Ver los ${statsReales.total} completos`}
                 </button>
+                {!!usuario?.permisos?.compras_todo && (
+                  <button onClick={actualizarDesdeObuma} disabled={actualizandoReal}
+                    title="Inicia sesión en Obuma y vuelve a leer los 189 Proyectos — tarda unos segundos"
+                    className="flex items-center gap-1.5 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 px-2.5 py-1.5 rounded-lg flex-shrink-0">
+                    {actualizandoReal ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                    {actualizandoReal ? 'Actualizando…' : 'Actualizar desde Obuma'}
+                  </button>
+                )}
               </div>
             </div>
             <div className="max-h-[420px] overflow-y-auto divide-y divide-zinc-50">
@@ -249,11 +275,12 @@ export default function ProyectosObumaPage() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-2.5 text-[11.5px] text-amber-800">
           <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
           <p>
-            Lo de abajo es la <b>reconstrucción con datos de v1</b> (Obuma no nos da acceso al módulo real de
-            Proyectos v2.0 vía API — pide un header <code className="bg-amber-100 px-1 rounded">access-url</code> que
-            la cuenta no tiene contratado): agrupa los centros de costo que comparten el mismo Proyecto de Obuma
-            (por su <code className="bg-amber-100 px-1 rounded">rel_proyecto_id</code>), con su gasto real, pero sin
-            nombre ni cliente. El bloque de arriba (verde) es más confiable — usa el dato real de Obuma.
+            <b>Esto NO es una segunda copia del bloque de arriba</b> — es otra cosa: gasto agrupado por{' '}
+            <b>centro de costo</b> de Obuma, incluido el que NO tiene ningún Proyecto formal asociado (ej. "TECNOMAQ"
+            o "ADMINISTRACION" — centros de costo generales de la empresa, no proyectos puntuales, y por eso nunca
+            van a aparecer en la lista de 189 Proyectos reales de arriba). Sirve para no perder de vista ese gasto.
+            Cuando SÍ hay Proyecto asociado, el nombre y el cliente reales no se pueden traer acá (por eso dice
+            "Proyecto Obuma #N" en vez de un nombre) — para eso está el bloque verde de arriba.
           </p>
         </div>
 
@@ -272,8 +299,12 @@ export default function ProyectosObumaPage() {
             <p className="text-[19px] font-bold text-zinc-900 mt-0.5">{stats.sinNegocio}</p>
           </div>
           <div className="bg-white rounded-xl border border-zinc-200 p-3">
-            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Wallet size={11} /> Gasto total</p>
+            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Wallet size={11} /> Gasto en OC</p>
             <p className="text-[16px] font-bold text-zinc-900 mt-0.5">{fmtCLP(stats.totalGasto)}</p>
+          </div>
+          <div className="bg-white rounded-xl border border-zinc-200 p-3">
+            <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Wallet size={11} /> Facturado real</p>
+            <p className="text-[16px] font-bold text-emerald-700 mt-0.5">{fmtCLP(stats.totalFacturado)}</p>
           </div>
         </div>
 
@@ -303,9 +334,12 @@ export default function ProyectosObumaPage() {
                   </div>
                   <div className="text-right whitespace-nowrap">
                     <p className="text-[13.5px] font-bold text-zinc-800">{fmtCLP(p.totalGastado)}</p>
+                    {p.cantidadFacturas > 0 && (
+                      <p className="text-[10.5px] text-emerald-700 font-semibold">facturado {fmtCLP(p.totalFacturado)}</p>
+                    )}
                     <button onClick={() => setExpandido(v => v === p.proyectoId ? null : p.proyectoId)}
                       className="text-[10.5px] text-indigo-600 hover:text-indigo-700 font-semibold inline-flex items-center gap-0.5">
-                      {p.cantidadOc} OC · {p.centros.length} centro{p.centros.length !== 1 ? 's' : ''} de costo
+                      {p.cantidadOc} OC{p.cantidadFacturas > 0 ? ` · ${p.cantidadFacturas} facturas` : ''} · {p.centros.length} centro{p.centros.length !== 1 ? 's' : ''} de costo
                       {expandido === p.proyectoId ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                     </button>
                   </div>
