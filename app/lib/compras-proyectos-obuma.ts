@@ -39,12 +39,30 @@ export interface ProyectoObuma {
   negociosCoincidentes: NegocioCoincidente[];
   ocs: OcDelProyecto[];        // detalle, hasta TOPE_OC_DETALLE (más recientes primero)
   ocsTruncadas: boolean;       // true si cantidadOc > ocs.length
+  ultimaFecha: string | null;          // fecha de la OC más reciente del grupo — criterio de orden principal
+  proyNumeroReferencia: number | null; // número "PROY-N" hallado en el nombre del centro de costo (o el
+                                        // rel_proyecto_id si no hay patrón) — respaldo cuando no hay fecha
+}
+
+/** Número "PROY-N" (a veces con otro prefijo/formato) dentro del nombre de un centro de costo —
+ *  se usa como referencia de antigüedad cuando el proyecto no tiene ninguna OC con fecha. Toma el
+ *  número más alto encontrado en cualquiera de los nombres del grupo (más alto = más nuevo, mismo
+ *  criterio que un correlativo). */
+function numeroProyectoDeNombres(nombres: string[]): number | null {
+  let max: number | null = null;
+  for (const n of nombres) {
+    const m = /PROY[^\d]{0,3}(\d+)/i.exec(n);
+    if (m) { const v = Number(m[1]); if (max == null || v > max) max = v; }
+  }
+  return max;
 }
 
 /** Agrupa los centros de costo de Obuma por Proyecto (rel_proyecto_id), suma sus OC reales, y
  *  marca qué licitaciones/negocios nuestros calzan (mismo matcher que ya usa el cruce OC-MP ↔
  *  Obuma, mencionaCodigo() — el código de licitación viene escrito en el NOMBRE del centro de
- *  costo). Ordenado: primero los que calzan con algo nuestro, después por gasto descendente. */
+ *  costo). Ordenado por fecha de la OC más reciente del proyecto (el más recién movido primero);
+ *  si no tiene ninguna OC con fecha, se ordena por el número "PROY-N" de referencia, el más alto
+ *  primero (pedido explícito del usuario, 22-sep-2026). */
 export async function listarProyectosObuma(): Promise<ProyectoObuma[]> {
   const [centros, ocs, negociosRows, proveedores] = await Promise.all([
     centrosDeCostoCompleto(),
@@ -97,19 +115,27 @@ export async function listarProyectosObuma(): Promise<ProyectoObuma[]> {
       };
     });
 
+    const tieneProyectoReal = !proyectoId.startsWith('centro-');
     resultado.push({
-      proyectoId, tieneProyectoReal: !proyectoId.startsWith('centro-'),
+      proyectoId, tieneProyectoReal,
       centros: grupo.map(c => ({ id: c.id, nombre: c.nombre, codigo: c.codigo, activo: c.activo })),
       totalGastado, cantidadOc: ocsDelGrupo.length, negociosCoincidentes,
       ocs: ocsDetalle, ocsTruncadas: ocsDelGrupo.length > ocsDetalle.length,
+      ultimaFecha: ordenadas[0]?.compra_oc_fecha_ingreso || null,
+      proyNumeroReferencia: numeroProyectoDeNombres(grupo.map(c => c.nombre))
+        ?? (tieneProyectoReal ? Number(proyectoId) : null),
     });
   }
 
+  // Criterio pedido: fecha de la OC más reciente primero; si no hay fecha, por el número "PROY-N"
+  // de referencia (o el rel_proyecto_id si no hay patrón en el nombre), el más alto primero.
   resultado.sort((a, b) => {
-    const aMatch = a.negociosCoincidentes.length > 0 ? 1 : 0;
-    const bMatch = b.negociosCoincidentes.length > 0 ? 1 : 0;
-    if (aMatch !== bMatch) return bMatch - aMatch;
-    return b.totalGastado - a.totalGastado;
+    if (a.ultimaFecha && b.ultimaFecha) return b.ultimaFecha.localeCompare(a.ultimaFecha);
+    if (a.ultimaFecha && !b.ultimaFecha) return -1;
+    if (!a.ultimaFecha && b.ultimaFecha) return 1;
+    const an = a.proyNumeroReferencia ?? -1;
+    const bn = b.proyNumeroReferencia ?? -1;
+    return bn - an;
   });
 
   return resultado;

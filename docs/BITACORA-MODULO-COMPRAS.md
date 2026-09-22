@@ -1782,6 +1782,26 @@ en texto plano (`DB_PASSWORD`, `SMTP_PASS`, `JWT_SECRET`, varias API key) porque
 `.env` completo para depurar la corrupción. Se le avisó explícitamente; rotar esas credenciales
 cuando tenga tiempo queda a su criterio, no es urgente pero tampoco hay que olvidarlo.
 
+### 17.3.5 Orden de la lista: fecha primero, número de referencia como respaldo
+
+Pedido explícito del usuario: "acomódamelos por fecha, la última creada de los primeros, o por
+PROY-número (a veces tiene otro) pero como referencia el más alto primero si no tiene fecha".
+
+`listarProyectosObuma()` ahora calcula por proyecto: `ultimaFecha` (la fecha de su OC más reciente,
+ya se calculaba para el detalle, solo se expuso) y `proyNumeroReferencia` (el número que sigue a
+"PROY" en el nombre del centro de costo, con una regex tolerante — varios centros usan "PR-" en vez
+de "PROY-", ej. "PR-179 Equipamiento agropecuario"; cuando no hay ningún patrón reconocible, cae al
+`rel_proyecto_id` de Obuma, que también es más alto = más reciente por ser correlativo). Orden:
+fecha descendente primero; los que no tienen ninguna OC (sin fecha) van al final, ordenados por ese
+número de referencia, el más alto primero. Cada tarjeta muestra ahora una línea con el criterio
+usado ("Última OC: 2026-09-22" o "Sin OC — orden por referencia PROY-31015").
+
+**Verificado en vivo**: el orden real arrancó en "Última OC: 2026-09-22" y bajó correctamente
+(17-sep, 16-sep, 16-sep...); los proyectos sin ninguna OC (probado con `fetch` directo a la API)
+quedaron al final ordenados 31015 → 30913 → 30799 → ... descendente, incluidos los que usan "PR-"
+en vez de "PROY-" en el nombre (cayeron bien al respaldo del `rel_proyecto_id`). `npx tsc --noEmit`
+limpio, `npm run test:viabilidad` 1025/1025.
+
 ### 17.4 Pendiente real, sin resolver hoy
 
 El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, hay que

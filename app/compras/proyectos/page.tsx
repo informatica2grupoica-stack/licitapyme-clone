@@ -27,6 +27,7 @@ interface ProyectoObuma {
   totalGastado: number; cantidadOc: number;
   negociosCoincidentes: NegocioCoincidente[];
   ocs: OcDelProyecto[]; ocsTruncadas: boolean;
+  ultimaFecha: string | null; proyNumeroReferencia: number | null;
 }
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
@@ -153,6 +154,13 @@ export default function ProyectosObumaPage() {
                     </p>
                     <p className="text-[11.5px] text-zinc-500 mt-0.5">
                       {p.centros.map(c => c.nombre || `(sin nombre, ID ${c.id})`).join(' · ')}
+                    </p>
+                    <p className="text-[10px] text-zinc-400 mt-0.5">
+                      {p.ultimaFecha
+                        ? `Última OC: ${p.ultimaFecha.slice(0, 10)}`
+                        : p.proyNumeroReferencia != null
+                          ? `Sin OC — orden por referencia PROY-${p.proyNumeroReferencia}`
+                          : 'Sin OC ni referencia'}
                     </p>
                   </div>
                   <div className="text-right whitespace-nowrap">
