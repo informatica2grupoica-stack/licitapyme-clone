@@ -303,18 +303,24 @@ export function listarProyectosExt(params: { limit?: number; page?: number; orde
   return llamar<ObumaListado<ObumaProyectoExt>>(BASE_V1, '/ext-proyectos.list.json', params);
 }
 
-/** Trae TODOS los Proyectos reales, paginado (mismo patrón que comprasOcCompleto/proveedoresObumaCompleto). */
-export async function proyectosExtCompleto(): Promise<ObumaProyectoExt[]> {
+/** Trae TODOS los Proyectos reales, paginado (mismo patrón que comprasOcCompleto/proveedoresObumaCompleto).
+ *  Devuelve también `totalReportado` (el `data-total-items` que Obuma dice tener) para poder
+ *  confirmar que no se cortó nada — pedido explícito del usuario (22-sep-2026): "quiero saber si
+ *  tengo todos los proyectos que están en Obuma". Si `datos.length !== totalReportado`, algo se
+ *  cortó (tope de páginas, error a mitad de camino) y hay que mostrarlo, no ocultarlo. */
+export async function proyectosExtCompleto(): Promise<{ datos: ObumaProyectoExt[]; totalReportado: number | null }> {
   const todos: ObumaProyectoExt[] = [];
+  let totalReportado: number | null = null;
   let pagina = 1;
-  for (; pagina <= 10; pagina++) { // tope de seguridad — 10 páginas de 1000 = 10.000 proyectos
+  for (; pagina <= 15; pagina++) { // tope de seguridad — 15 páginas de 1000 = 15.000 proyectos
     const r = await listarProyectosExt({ page: pagina, limit: 1000 });
+    if (pagina === 1) totalReportado = Number(r['data-total-items']) || null;
     const lote = r.data || [];
     todos.push(...lote);
     const totalPaginas = Number(r['data-total-pages']) || 1;
     if (pagina >= totalPaginas || lote.length === 0) break;
   }
-  return todos;
+  return { datos: todos, totalReportado };
 }
 
 export interface ObumaCliente { cliente_id: string; cliente_rut: string; cliente_razon_social: string; [k: string]: unknown }

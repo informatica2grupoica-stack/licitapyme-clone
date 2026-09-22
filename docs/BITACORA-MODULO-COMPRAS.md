@@ -2009,6 +2009,69 @@ test:viabilidad` 1025/1025.
 **Modificados:** `app/lib/obuma.ts` (`ext-proyectos`, `clientes`, `ESTADOS_PROYECTO_OBUMA`),
 `scheduler/scheduler.mjs` (cron del robot comentado, no borrado).
 
+### 17.3.11 Más robusto, orden por fecha de creación, filtros, y "¿tengo todos?"
+
+Pedido explícito, mismo día: "hazlo más robusto... ponelo por fecha de lo más nuevo creados
+primero... poneme filtros... quiero saber si tengo todos los proyectos que están en Obuma".
+
+- **Robustez**: `listarProyectosObuma()` ahora envuelve cada una de las 6 fuentes (centros de costo,
+  OC, facturas, `ext-proyectos`, clientes, proveedores, negocios de la BD) en `conTolerancia()` — si
+  UNA falla (rate limit, timeout, Obuma caído un rato), las demás siguen funcionando con lo que sí
+  se pudo traer, en vez de tumbar toda la pantalla. El fallo queda anotado en `meta.fuentesConError`,
+  nunca silencioso.
+- **Orden por fecha de creación**: se corrigió el criterio — antes ordenaba por "última actividad"
+  (la OC más reciente); ahora ordena por `proyecto_ingreso_fecha` real (cuándo se CREÓ el Proyecto
+  en Obuma), descendente. Los centros de costo sin ficha (sin fecha de creación propia) siguen
+  cayendo a su última OC como respaldo.
+- **Filtros**: se agregó un selector de Estado (Abierto/En proceso/Cerrado/Cancelado/Rechazado,
+  client-side sobre el campo real ya mapeado), sumado a los que ya había (solo con ficha, solo con
+  negocio nuestro, búsqueda de texto).
+- **"¿Tengo todos?"**: `proyectosExtCompleto()` ahora devuelve también `totalReportado` (el
+  `data-total-items` que Obuma dice tener), y `listarProyectosObuma()` arma `meta.completo`
+  comparando eso contra lo que efectivamente se armó. La pantalla muestra un banner verde
+  ("Están los N de N... ninguno se cortó") o uno ámbar si algo no cuadra o alguna fuente falló.
+
+**Verificado en vivo** (`scripts/scratch/verificar-robustez-proyectos.mjs`): `meta` = `{
+totalReportadoPorObuma: 190, totalConFicha: 190, completo: true, fuentesConError: [] }` — confirmado
+que no falta ningún Proyecto. Orden real correcto: folio 190 (creado hoy 14:41) primero, seguido de
+"ADMINISTRACION" (última OC 10:48), "TECNOMAQ" (16-sep), folio 189 (11-sep 16:51), folio 188 (11-sep
+16:28) — descendente, tal como se pidió. `npx tsc --noEmit` limpio, `npm run test:viabilidad`
+1025/1025.
+
+**Nuevos:** `scripts/scratch/verificar-robustez-proyectos.mjs`.
+**Modificados:** `app/lib/obuma.ts` (`proyectosExtCompleto` devuelve `totalReportado`),
+`app/lib/compras-proyectos-obuma.ts` (`conTolerancia`, `meta`, `ordenFecha`),
+`app/api/compras/proyectos-obuma/route.ts`, `app/compras/proyectos/page.tsx` (filtro de estado,
+banner de completitud).
+
+### 17.3.12 Ver la orden de compra en Obuma — link directo al documento real
+
+Pedido de nuevo, mismo día: "podemos ver la orden de compra" (ya se había resuelto ver los ÍTEMS de
+cada OC en §17.3.6, pero el usuario quería abrir el documento tal cual se ve en Obuma).
+
+- Se probó primero adivinar la URL del iframe de Obuma — **se descartó** sin confirmación real del
+  usuario, siguiendo la regla de no inventar URLs.
+- El usuario pasó un link real copiado desde `mod-compras/oc/listar`
+  (`.../iframe-main.php?id=276880`) para la OC folio 3928. Antes de usarlo se cruzó contra la API
+  (`comprasOc.list.json?folio_dcto=3928`), que devolvió `compra_oc_id: "276868"` — **no coincidía**
+  con el `id=276880` del link pegado. Se le mostró la discrepancia al usuario y se le pidió abrir
+  `.../iframe-main.php?id=276868` para confirmar que era el mismo documento antes de tocar código.
+  Confirmó: "si es asi".
+- Patrón final, confirmado en vivo: `https://app.obuma.cl/obuma2.0/mod-compras/oc/iframe-main.php?id={compra_oc_id}`
+  (requiere sesión activa de Obuma en el navegador que lo abre).
+- Se agregó el link "Ver en Obuma" / "Ver esta orden de compra en Obuma" en dos lugares:
+  - `app/compras/proyectos/page.tsx` — dentro del detalle expandido de cada OC, junto a los ítems.
+  - `app/licitacion/[codigo]/sections/ComprasObumaBloque.tsx` — en la fila de cada compra
+    (`FilaCompra`). Esto requirió pasar esa fila de acciones de condicional (solo se mostraba si
+    había ítems o facturas) a siempre visible, para que el link aparezca aunque la OC no tenga ítems
+    cargados.
+
+**Verificado:** `npx tsc --noEmit` limpio, `npm run test:viabilidad` 1025/1025.
+
+**Modificados:** `app/compras/proyectos/page.tsx` (helper `urlOcEnObuma`, link en el detalle de OC),
+`app/licitacion/[codigo]/sections/ComprasObumaBloque.tsx` (mismo helper, link en `FilaCompra`,
+bloque de acciones ya no es condicional).
+
 ### 17.4 Pendiente real, sin resolver hoy
 
 **Superado por §17.3.10, mismo día.** El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse

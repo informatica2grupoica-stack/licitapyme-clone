@@ -16,6 +16,7 @@ import {
   IconLoader2 as Loader2, IconSearch as Search, IconFolders as Folders, IconLink as LinkIcon,
   IconExternalLink as ExternalLink, IconWallet as Wallet, IconChevronDown as ChevronDown,
   IconChevronUp as ChevronUp, IconBuilding as Building2, IconRefresh as RefreshCw, IconFolderX as FolderX,
+  IconCircleCheck as CircleCheck, IconAlertTriangle as AlertTriangle,
 } from '@tabler/icons-react';
 
 interface NegocioCoincidente { negocioId: number; licitacionCodigo: string; licitacionNombre: string | null }
@@ -34,11 +35,21 @@ interface ProyectoObuma {
   centros: { id: string; nombre: string; codigo: string; activo: boolean }[];
   totalGastado: number; cantidadOc: number; totalFacturado: number; cantidadFacturas: number;
   negociosCoincidentes: NegocioCoincidente[];
-  ocs: OcDelProyecto[]; ocsTruncadas: boolean; ultimaFecha: string | null;
+  ocs: OcDelProyecto[]; ocsTruncadas: boolean; ordenFecha: string | null;
 }
+interface MetaProyectos {
+  totalReportadoPorObuma: number | null; totalConFicha: number; completo: boolean; fuentesConError: string[];
+}
+const ESTADOS_FILTRO = ['Abierto', 'En proceso', 'Cerrado', 'Cancelado', 'Rechazado'];
 
 const fmtCLP = (n: number | null | undefined) => n == null ? '—'
   : new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+
+// Link real al documento de la OC en Obuma — patrón confirmado en vivo (22-sep-2026, el usuario
+// copió el link real del botón "Ver PDF" y se verificó contra la API que `id` = compra_oc_id).
+// Requiere sesión iniciada en Obuma en esa pestaña — si no, Obuma pide login, comportamiento normal
+// de un link a otro sistema.
+const urlOcEnObuma = (compraOcId: string) => `https://app.obuma.cl/obuma2.0/mod-compras/oc/iframe-main.php?id=${compraOcId}`;
 
 const ESTADO_COLOR: Record<string, string> = {
   Abierto: 'bg-sky-50 text-sky-700 border-sky-200',
@@ -53,11 +64,13 @@ export default function ProyectosObumaPage() {
   const router = useRouter();
   const toast = useToast();
   const [proyectos, setProyectos] = useState<ProyectoObuma[]>([]);
+  const [meta, setMeta] = useState<MetaProyectos | null>(null);
   const [loading, setLoading] = useState(true);
   const [actualizando, setActualizando] = useState(false);
   const [q, setQ] = useState('');
   const [soloCoincidentes, setSoloCoincidentes] = useState(false);
   const [soloConFicha, setSoloConFicha] = useState(false);
+  const [estadoFiltro, setEstadoFiltro] = useState<string>('');
   const [expandido, setExpandido] = useState<string | null>(null);
   const [ocAbierta, setOcAbierta] = useState<string | null>(null);
   const [itemsPorFolio, setItemsPorFolio] = useState<Record<string, EstadoItems>>({});
@@ -71,6 +84,7 @@ export default function ProyectosObumaPage() {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo cargar');
       setProyectos(data.proyectos || []);
+      setMeta(data.meta || null);
     } catch (e: any) {
       toast.error('No se pudieron cargar los proyectos de Obuma', e.message);
     } finally {
@@ -114,11 +128,12 @@ export default function ProyectosObumaPage() {
     return proyectos.filter(p => {
       if (soloCoincidentes && p.negociosCoincidentes.length === 0) return false;
       if (soloConFicha && !p.tieneProyectoReal) return false;
+      if (estadoFiltro && p.estado !== estadoFiltro) return false;
       if (!texto) return true;
       const campos = [p.nombre, p.referencia, p.cliente, ...p.centros.map(c => c.nombre), ...p.negociosCoincidentes.map(n => n.licitacionCodigo)];
       return campos.some(v => (v || '').toLowerCase().includes(texto));
     });
-  }, [proyectos, q, soloCoincidentes, soloConFicha]);
+  }, [proyectos, q, soloCoincidentes, soloConFicha, estadoFiltro]);
 
   if (cargandoSesion || (!puedeVer && loading)) {
     return (
@@ -163,12 +178,37 @@ export default function ProyectosObumaPage() {
               <input value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar por nombre, cliente, referencia, licitación…"
                 className="pl-8 pr-3 py-2 text-[12.5px] border border-zinc-200 rounded-lg outline-none focus:ring-1 focus:ring-indigo-500 w-64" />
             </div>
+            <select value={estadoFiltro} onChange={e => setEstadoFiltro(e.target.value)}
+              className="text-[12px] border border-zinc-200 rounded-lg px-2.5 py-2 outline-none focus:ring-1 focus:ring-indigo-500 bg-white flex-shrink-0">
+              <option value="">Todos los estados</option>
+              {ESTADOS_FILTRO.map(e => <option key={e} value={e}>{e}</option>)}
+            </select>
             <button onClick={() => cargar(true)} disabled={actualizando} title="Volver a consultar Obuma (ignora la caché de 5 min)"
               className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-2 rounded-lg flex-shrink-0">
               {actualizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Actualizar
             </button>
           </div>
         </div>
+
+        {meta && (
+          meta.completo ? (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex items-center gap-2 text-[11.5px] text-emerald-700">
+              <CircleCheck size={14} className="flex-shrink-0" />
+              {meta.totalReportadoPorObuma != null
+                ? <>Están los {meta.totalConFicha} de {meta.totalReportadoPorObuma} Proyectos que Obuma dice tener — ninguno se cortó.</>
+                : <>Sin problemas al consultar Obuma.</>}
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-2 text-[11.5px] text-amber-800">
+              <AlertTriangle size={14} className="flex-shrink-0" />
+              {meta.totalReportadoPorObuma != null && meta.totalConFicha !== meta.totalReportadoPorObuma
+                ? <>Ojo: Obuma dice tener {meta.totalReportadoPorObuma} Proyectos, pero solo se pudieron traer {meta.totalConFicha}. </>
+                : null}
+              {meta.fuentesConError.length > 0 && <>Fuentes que fallaron esta corrida: {meta.fuentesConError.join(', ')}. </>}
+              Probá "Actualizar".
+            </div>
+          )
+        )}
 
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
           <div className="bg-white rounded-xl border border-zinc-200 p-3">
@@ -283,6 +323,10 @@ export default function ProyectosObumaPage() {
                             </button>
                             {oc.folio && ocAbierta === oc.folio && (
                               <div className="px-4 pb-2.5 pl-7">
+                                <a href={urlOcEnObuma(oc.compraOcId)} target="_blank" rel="noreferrer"
+                                  className="text-[10.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1 mb-1">
+                                  <ExternalLink size={10} /> Ver esta orden de compra en Obuma
+                                </a>
                                 {itemsPorFolio[oc.folio]?.estado === 'cargando' && (
                                   <p className="text-[10.5px] text-zinc-400 flex items-center gap-1 pt-1"><Loader2 size={10} className="animate-spin" /> Cargando ítems…</p>
                                 )}

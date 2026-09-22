@@ -5,7 +5,11 @@
 // cumplir esa licitación (el costo real: proveedor, ítems, monto). Los datos los deja el cron
 // (app/lib/obuma-compras.ts) — acá solo se leen de nuestra base.
 import { useEffect, useState } from 'react';
-import { IconShoppingBag as ShoppingBag, IconBuilding as Building2, IconPackage as Package, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconFileText as FileText, IconFolderSearch as FolderSearch } from '@tabler/icons-react';
+import { IconShoppingBag as ShoppingBag, IconBuilding as Building2, IconPackage as Package, IconLoader2 as Loader2, IconChevronDown as ChevronDown, IconChevronUp as ChevronUp, IconFileText as FileText, IconFolderSearch as FolderSearch, IconExternalLink as ExternalLink } from '@tabler/icons-react';
+
+// Link real al documento de la OC en Obuma — patrón confirmado en vivo (22-sep-2026, verificado
+// contra la API: el `id` del iframe es compra_oc_id). Requiere sesión iniciada en Obuma.
+const urlOcEnObuma = (compraOcId: string) => `https://app.obuma.cl/obuma2.0/mod-compras/oc/iframe-main.php?id=${compraOcId}`;
 import { useRealtime } from '@/app/lib/use-realtime';
 import { FacturaObumaModal } from './FacturaObumaModal';
 
@@ -134,8 +138,7 @@ function FilaCompra({ c, onVerFactura }: { c: CompraObuma; onVerFactura: (dteId:
         </div>
       </div>
 
-      {(c.items.length > 0 || c.facturas.length > 0) && (
-        <div className="flex items-center gap-3 flex-wrap px-4 py-2 border-t border-slate-100 bg-slate-50/60">
+      <div className="flex items-center gap-3 flex-wrap px-4 py-2 border-t border-slate-100 bg-slate-50/60">
           {c.items.length > 0 && (
             <button onClick={() => setAbierto(o => !o)}
               className="text-[11.5px] font-semibold text-slate-600 hover:text-slate-800 inline-flex items-center gap-1">
@@ -143,6 +146,10 @@ function FilaCompra({ c, onVerFactura }: { c: CompraObuma; onVerFactura: (dteId:
               {abierto ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             </button>
           )}
+          <a href={urlOcEnObuma(c.compraOcId)} target="_blank" rel="noreferrer"
+            className="text-[11.5px] font-semibold text-indigo-600 hover:text-indigo-700 inline-flex items-center gap-1">
+            <ExternalLink size={12} /> Ver en Obuma
+          </a>
           {c.facturas.map(f => (
             f.s3Link ? (
               <button key={f.dteId} type="button" onClick={() => onVerFactura(f.dteId)}
@@ -157,7 +164,6 @@ function FilaCompra({ c, onVerFactura }: { c: CompraObuma; onVerFactura: (dteId:
             )
           ))}
         </div>
-      )}
       {abierto && c.items.length > 0 && (
         <div className="px-4 py-3 border-t border-slate-100 space-y-1.5">
           {c.items.map((it, i) => (

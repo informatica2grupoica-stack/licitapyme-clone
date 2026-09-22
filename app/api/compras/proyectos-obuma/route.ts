@@ -1,7 +1,8 @@
 // app/api/compras/proyectos-obuma/route.ts
-// GET — Vista "Proyectos" de Obuma: desde el hallazgo del 22-sep-2026 (ext-proyectos.list.json en
-// v1.0, sin necesitar el access-url de v2.0), todo sale de la API real, en vivo, sin login. Ver
-// app/lib/compras-proyectos-obuma.ts. Cacheado 5 min ahí mismo — `forzar=1` lo ignora.
+// GET — Vista "Proyectos" de Obuma: todo por API real, en vivo, sin login (ext-proyectos.list.json
+// en v1.0, hallazgo 22-sep-2026). Ver app/lib/compras-proyectos-obuma.ts. Cacheado 5 min ahí mismo
+// — `forzar=1` lo ignora. Tolerante a fallos parciales: si una fuente de Obuma falla, la respuesta
+// sigue viniendo con lo que sí se pudo traer, y `meta.fuentesConError` dice cuál falló.
 import { NextRequest, NextResponse } from 'next/server';
 import { permisosCrudosDeUsuario } from '@/app/lib/api-auth';
 import { listarProyectosObuma } from '@/app/lib/compras-proyectos-obuma';
@@ -27,8 +28,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const forzar = request.nextUrl.searchParams.get('forzar') === '1';
-    const proyectos = await listarProyectosObuma(forzar);
-    return NextResponse.json({ success: true, proyectos });
+    const { proyectos, meta } = await listarProyectosObuma(forzar);
+    return NextResponse.json({ success: true, proyectos, meta });
   } catch (error: any) {
     console.error('[compras/proyectos-obuma][GET]', String(error));
     return NextResponse.json({ error: error.message || 'No se pudo consultar Obuma.' }, { status: 500 });

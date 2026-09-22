@@ -39,8 +39,8 @@ export interface ProyectoObuma {
   costo: number | null;
   precioNeto: number | null;
   facturadoMonto: number | null;
-  estado: string | null;            // ya mapeado a texto (Abierto/Cerrado/Cancelado/Rechazado/En proceso)
-  fechaIngreso: string | null;
+  estado: string | null;            // ya mapeado a texto (Abierto/Cerrado/Cancelado/Rechazado/En proceso), o null si no tiene ficha
+  fechaIngreso: string | null;      // fecha/hora real de creación del Proyecto en Obuma (para mostrar, cortada a fecha en la UI)
   fechaInicio: string | null;
   centros: { id: string; nombre: string; codigo: string; activo: boolean }[];
   totalGastado: number;             // suma de órdenes de compra (comprasOc)
@@ -50,32 +50,57 @@ export interface ProyectoObuma {
   negociosCoincidentes: NegocioCoincidente[];
   ocs: OcDelProyecto[];
   ocsTruncadas: boolean;
-  ultimaFecha: string | null;       // criterio de orden: OC más reciente, o si no hay, fecha de ingreso del proyecto
+  ordenFecha: string | null;        // criterio real de orden: fecha de creación del Proyecto (si tiene ficha), si no la OC más reciente
 }
 
-let cacheProyectos: { en: number; datos: ProyectoObuma[] } | null = null;
+export interface MetaProyectosObuma {
+  totalReportadoPorObuma: number | null; // lo que Obuma dice tener en ext-proyectos.list.json (data-total-items)
+  totalConFicha: number;                 // los que de verdad se lograron traer y armar
+  completo: boolean;                     // totalConFicha === totalReportadoPorObuma (o no se pudo confirmar)
+  fuentesConError: string[];             // qué fuentes fallaron esta corrida (la función sigue funcionando igual, con menos datos)
+}
+
+let cacheProyectos: { en: number; datos: ProyectoObuma[]; meta: MetaProyectosObuma } | null = null;
 const CACHE_PROYECTOS_MS = 5 * 60_000;
+
+/** Trae una fuente de Obuma con tolerancia a fallos — si UNA falla (rate limit, timeout, Obuma
+ *  caído un rato), el resto de la pantalla sigue funcionando con lo que sí se pudo traer, en vez de
+ *  romper toda la carga por un solo endpoint. Pedido explícito del usuario (22-sep-2026: "hazlo más
+ *  robusto"). Cada fallo se anota en `fuentesConError` para que quede visible, no silencioso. */
+async function conTolerancia<T>(nombre: string, fn: () => Promise<T>, valorPorDefecto: T, errores: string[]): Promise<T> {
+  try {
+    return await fn();
+  } catch (e: any) {
+    console.warn(`[compras-proyectos-obuma] fuente "${nombre}" falló, sigue con datos parciales:`, String(e?.message || e).slice(0, 200));
+    errores.push(nombre);
+    return valorPorDefecto;
+  }
+}
 
 /** Junta el Proyecto real (ext-proyectos.list.json) con sus centros de costo (mismo `proyecto_id` =
  *  `rel_proyecto_id`), sus OC (comprasOc) y sus facturas reales (compras.list.json) — todo por API,
  *  sin login. Los centros de costo sin Proyecto asociado (ej. "TECNOMAQ", "ADMINISTRACION" — gasto
  *  general de la empresa, no un proyecto puntual) siguen apareciendo, como entradas sin ficha.
- *  Orden: la actividad más reciente primero (última OC, o si no tiene, la fecha de ingreso real del
- *  Proyecto) — pedido explícito del usuario, 22-sep-2026. */
-export async function listarProyectosObuma(forzar = false): Promise<ProyectoObuma[]> {
-  if (!forzar && cacheProyectos && Date.now() - cacheProyectos.en < CACHE_PROYECTOS_MS) return cacheProyectos.datos;
+ *  Orden: fecha de CREACIÓN del Proyecto, la más nueva primero (pedido explícito del usuario,
+ *  22-sep-2026); los que no tienen ficha (centros sueltos) se ordenan por su última OC. */
+export async function listarProyectosObuma(forzar = false): Promise<{ proyectos: ProyectoObuma[]; meta: MetaProyectosObuma }> {
+  if (!forzar && cacheProyectos && Date.now() - cacheProyectos.en < CACHE_PROYECTOS_MS) {
+    return { proyectos: cacheProyectos.datos, meta: cacheProyectos.meta };
+  }
 
-  const [centros, ocs, facturas, proyectosExt, clientes, proveedores, negociosRows] = await Promise.all([
-    centrosDeCostoCompleto(),
-    comprasOcCompleto(),
-    comprasCompleto(),
-    proyectosExtCompleto(),
-    clientesObumaCompleto(),
-    proveedoresObumaCompleto(),
+  const fuentesConError: string[] = [];
+  const [centros, ocs, facturas, { datos: proyectosExt, totalReportado }, clientes, proveedores, negociosRows] = await Promise.all([
+    conTolerancia('centros de costo', centrosDeCostoCompleto, [], fuentesConError),
+    conTolerancia('órdenes de compra', comprasOcCompleto, [], fuentesConError),
+    conTolerancia('facturas/compras', comprasCompleto, [], fuentesConError),
+    conTolerancia('proyectos (ext-proyectos)', proyectosExtCompleto, { datos: [], totalReportado: null }, fuentesConError),
+    conTolerancia('clientes', clientesObumaCompleto, [], fuentesConError),
+    conTolerancia('proveedores', proveedoresObumaCompleto, [], fuentesConError),
     pool.query(
       `SELECT id, licitacion_codigo, licitacion_nombre FROM negocios
         WHERE activo = TRUE AND licitacion_codigo IS NOT NULL AND licitacion_codigo <> ''`,
-    ).then(([r]) => r as { id: number; licitacion_codigo: string; licitacion_nombre: string | null }[]),
+    ).then(([r]) => r as { id: number; licitacion_codigo: string; licitacion_nombre: string | null }[])
+      .catch(e => { console.warn('[compras-proyectos-obuma] negocios (BD) falló:', String(e).slice(0, 150)); fuentesConError.push('negocios (BD)'); return []; }),
   ]);
 
   const clientePorId = new Map(clientes.map(c => [c.cliente_id, c.cliente_razon_social]));
@@ -131,7 +156,10 @@ export async function listarProyectosObuma(forzar = false): Promise<ProyectoObum
       };
     });
 
-    const ultimaFecha = ordenadas[0]?.compra_oc_fecha_ingreso || ficha.fechaIngreso || null;
+    // Criterio de orden pedido explícito (22-sep-2026): fecha de CREACIÓN del proyecto, no de su
+    // última actividad — un proyecto real ordena por cuándo se creó en Obuma. Los centros sin
+    // ficha (sin fecha de creación propia) caen a la fecha de su OC más reciente.
+    const ordenFecha = tieneProyectoReal ? ficha.fechaIngreso : (ordenadas[0]?.compra_oc_fecha_ingreso || null);
 
     return {
       proyectoId, tieneProyectoReal, folio: ficha.folio, nombre: ficha.nombre, referencia: ficha.referencia,
@@ -139,7 +167,7 @@ export async function listarProyectosObuma(forzar = false): Promise<ProyectoObum
       facturadoMonto: ficha.facturadoMonto, estado: ficha.estado, fechaIngreso: ficha.fechaIngreso, fechaInicio: ficha.fechaInicio,
       centros: grupo.map(c => ({ id: c.id, nombre: c.nombre, codigo: c.codigo, activo: c.activo })),
       totalGastado, cantidadOc: ocsDelGrupo.length, totalFacturado, cantidadFacturas: facturasDelGrupo.length,
-      negociosCoincidentes, ocs: ocsDetalle, ocsTruncadas: ocsDelGrupo.length > ocsDetalle.length, ultimaFecha,
+      negociosCoincidentes, ocs: ocsDetalle, ocsTruncadas: ocsDelGrupo.length > ocsDetalle.length, ordenFecha,
     };
   }
 
@@ -155,7 +183,7 @@ export async function listarProyectosObuma(forzar = false): Promise<ProyectoObum
       referencia: p.proyecto_referencia || null, cliente: clientePorId.get(p.rel_cliente_id) || null,
       presupuesto: num(p.proyecto_presupuesto), costo: num(p.proyecto_costo), precioNeto: num(p.proyecto_valor),
       facturadoMonto: num(p.proyecto_facturado_monto), estado: ESTADOS_PROYECTO_OBUMA[p.proyecto_estado] || p.proyecto_estado || null,
-      fechaIngreso: (p.proyecto_ingreso_fecha || '').slice(0, 10) || null,
+      fechaIngreso: p.proyecto_ingreso_fecha || null,
       fechaInicio: p.proyecto_fecha_inicio && p.proyecto_fecha_inicio !== '0000-00-00' ? p.proyecto_fecha_inicio : null,
     }));
   }
@@ -179,12 +207,20 @@ export async function listarProyectosObuma(forzar = false): Promise<ProyectoObum
   }
 
   resultado.sort((a, b) => {
-    if (a.ultimaFecha && b.ultimaFecha) return b.ultimaFecha.localeCompare(a.ultimaFecha);
-    if (a.ultimaFecha && !b.ultimaFecha) return -1;
-    if (!a.ultimaFecha && b.ultimaFecha) return 1;
+    if (a.ordenFecha && b.ordenFecha) return b.ordenFecha.localeCompare(a.ordenFecha);
+    if (a.ordenFecha && !b.ordenFecha) return -1;
+    if (!a.ordenFecha && b.ordenFecha) return 1;
     return (b.folio ?? -1) - (a.folio ?? -1);
   });
 
-  cacheProyectos = { en: Date.now(), datos: resultado };
-  return resultado;
+  const totalConFicha = resultado.filter(p => p.tieneProyectoReal).length;
+  const meta: MetaProyectosObuma = {
+    totalReportadoPorObuma: totalReportado,
+    totalConFicha,
+    completo: totalReportado == null ? fuentesConError.length === 0 : totalConFicha === totalReportado,
+    fuentesConError,
+  };
+
+  cacheProyectos = { en: Date.now(), datos: resultado, meta };
+  return { proyectos: resultado, meta };
 }
