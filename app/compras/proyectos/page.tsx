@@ -21,6 +21,8 @@ interface OcDelProyecto {
   compraOcId: string; folio: string | null; fecha: string | null; estado: string | null;
   proveedorNombre: string | null; proveedorRut: string | null; total: number;
 }
+interface ItemOc { nombre: string; cantidad: number; precioUnitario: number; subtotal: number }
+type EstadoItems = { estado: 'cargando' } | { estado: 'error' } | { estado: 'listo'; items: ItemOc[] };
 interface ProyectoObuma {
   proyectoId: string; tieneProyectoReal: boolean;
   centros: { id: string; nombre: string; codigo: string; activo: boolean }[];
@@ -41,6 +43,28 @@ export default function ProyectosObumaPage() {
   const [q, setQ] = useState('');
   const [soloCoincidentes, setSoloCoincidentes] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
+  // Ítems de UNA orden de compra puntual (qué se compró) — recién al desplegar ESA fila, mismo
+  // patrón que /compras/proveedores (toggleOc/itemsPorFolio): un proyecto puede tener decenas/miles
+  // de OC, pedir los ítems de todas de una sería lentísimo y casi nunca se miran todas.
+  const [ocAbierta, setOcAbierta] = useState<string | null>(null);
+  const [itemsPorFolio, setItemsPorFolio] = useState<Record<string, EstadoItems>>({});
+
+  const toggleOc = async (folio: string | null) => {
+    if (!folio) return;
+    if (ocAbierta === folio) { setOcAbierta(null); return; }
+    setOcAbierta(folio);
+    if (itemsPorFolio[folio]) return;
+    setItemsPorFolio(m => ({ ...m, [folio]: { estado: 'cargando' } }));
+    try {
+      const res = await fetch(`/api/compras/proyectos-obuma/items?folio=${encodeURIComponent(folio)}`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo consultar');
+      setItemsPorFolio(m => ({ ...m, [folio]: { estado: 'listo', items: data.items } }));
+    } catch (e: any) {
+      setItemsPorFolio(m => ({ ...m, [folio]: { estado: 'error' } }));
+      toast.error('No se pudieron cargar los ítems de la OC', e.message);
+    }
+  };
 
   const puedeVer = !!usuario?.permisos?.compras_todo || !!usuario?.permisos?.compras || !!usuario?.permisos?.aprobar_comercial;
 
@@ -189,18 +213,44 @@ export default function ProyectosObumaPage() {
                     ) : (
                       <div className="divide-y divide-zinc-50">
                         {p.ocs.map(oc => (
-                          <div key={oc.compraOcId} className="px-4 py-2 flex items-center justify-between gap-3 text-[11.5px]">
-                            <div className="min-w-0 flex items-center gap-1.5">
-                              <Building2 size={11} className="text-zinc-300 flex-shrink-0" />
-                              <span className="font-semibold text-zinc-700 truncate">{oc.proveedorNombre || 'Proveedor sin nombre'}</span>
-                              {oc.proveedorRut && <span className="text-zinc-400 flex-shrink-0">· {oc.proveedorRut}</span>}
-                              {oc.folio && <span className="text-zinc-400 flex-shrink-0">· folio {oc.folio}</span>}
-                              {oc.estado && <span className="text-zinc-400 flex-shrink-0">· {oc.estado}</span>}
-                            </div>
-                            <div className="text-right flex-shrink-0 whitespace-nowrap">
-                              <span className="font-bold text-zinc-700">{fmtCLP(oc.total)}</span>
-                              {oc.fecha && <span className="text-zinc-400 ml-2">{oc.fecha.slice(0, 10)}</span>}
-                            </div>
+                          <div key={oc.compraOcId}>
+                            <button type="button" onClick={() => toggleOc(oc.folio)} disabled={!oc.folio}
+                              className="w-full px-4 py-2 flex items-center justify-between gap-3 text-[11.5px] text-left hover:bg-zinc-50/80 disabled:hover:bg-transparent disabled:cursor-default">
+                              <div className="min-w-0 flex items-center gap-1.5">
+                                <Building2 size={11} className="text-zinc-300 flex-shrink-0" />
+                                <span className="font-semibold text-zinc-700 truncate">{oc.proveedorNombre || 'Proveedor sin nombre'}</span>
+                                {oc.proveedorRut && <span className="text-zinc-400 flex-shrink-0">· {oc.proveedorRut}</span>}
+                                {oc.folio && <span className="text-zinc-400 flex-shrink-0">· folio {oc.folio}</span>}
+                                {oc.estado && <span className="text-zinc-400 flex-shrink-0">· {oc.estado}</span>}
+                              </div>
+                              <div className="text-right flex-shrink-0 whitespace-nowrap flex items-center gap-1.5">
+                                <span className="font-bold text-zinc-700">{fmtCLP(oc.total)}</span>
+                                {oc.fecha && <span className="text-zinc-400">{oc.fecha.slice(0, 10)}</span>}
+                                {oc.folio && (ocAbierta === oc.folio ? <ChevronUp size={11} className="text-zinc-300" /> : <ChevronDown size={11} className="text-zinc-300" />)}
+                              </div>
+                            </button>
+                            {oc.folio && ocAbierta === oc.folio && (
+                              <div className="px-4 pb-2.5 pl-7">
+                                {itemsPorFolio[oc.folio]?.estado === 'cargando' && (
+                                  <p className="text-[10.5px] text-zinc-400 flex items-center gap-1 pt-1"><Loader2 size={10} className="animate-spin" /> Cargando ítems…</p>
+                                )}
+                                {itemsPorFolio[oc.folio]?.estado === 'error' && (
+                                  <p className="text-[10.5px] text-amber-600 pt-1">No se pudieron cargar los ítems.</p>
+                                )}
+                                {itemsPorFolio[oc.folio]?.estado === 'listo' && (
+                                  <div className="pt-1 space-y-0.5">
+                                    {(itemsPorFolio[oc.folio] as { estado: 'listo'; items: ItemOc[] }).items.length === 0 ? (
+                                      <p className="text-[10.5px] text-zinc-400">Sin ítems registrados para esta OC.</p>
+                                    ) : (itemsPorFolio[oc.folio] as { estado: 'listo'; items: ItemOc[] }).items.map((it, i) => (
+                                      <div key={i} className="flex items-center justify-between gap-3 text-[10.5px] text-zinc-500">
+                                        <span className="truncate">{it.nombre}</span>
+                                        <span className="flex-shrink-0 whitespace-nowrap">{it.cantidad} × {fmtCLP(it.precioUnitario)} = <b className="text-zinc-700">{fmtCLP(it.subtotal)}</b></span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         ))}
                         {p.ocsTruncadas && (

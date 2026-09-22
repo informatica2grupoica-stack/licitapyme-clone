@@ -1802,6 +1802,24 @@ quedaron al final ordenados 31015 → 30913 → 30799 → ... descendente, inclu
 en vez de "PROY-" en el nombre (cayeron bien al respaldo del `rel_proyecto_id`). `npx tsc --noEmit`
 limpio, `npm run test:viabilidad` 1025/1025.
 
+### 17.3.6 Ítems de cada OC — qué se compró
+
+Pedido explícito, mismo día: "necesito poder ver las OC de estas compras" → aclarado con el
+usuario: quería el DETALLE de cada orden de compra (qué productos, cantidad, precio), no más datos
+de cabecera (eso ya se mostraba: proveedor, RUT, folio, estado, monto, fecha).
+
+Se reusó `itemsCompraOcObuma(folio)` (`compras-proveedores.ts`) tal cual — es la misma función que
+ya usa `/compras/proveedores` para esto mismo, primero mira la tabla local sincronizada
+(`compras_historial_oc_item`) y si no está ahí recién pide a Obuma en vivo
+(`comprasOc.listItems.json`). Nuevo `GET /api/compras/proyectos-obuma/items?folio=`. Cada fila de OC
+en `/compras/proyectos` es ahora clickeable (deshabilitada si no tiene folio) y despliega sus ítems
+inline — mismo patrón `toggleOc`/`itemsPorFolio` que ya usaba `/compras/proveedores`, sin pedir
+nada hasta que la persona hace clic en ESA fila puntual.
+
+**Verificado en vivo**: folio 3942 (QATAR SHOP) mostró "BATERIA CICLO PROFUNDO 12V 100AH PANEL
+SOLAR · 28 × $74.988 = $2.099.671" — el ítem real. `npx tsc --noEmit` limpio, `npm run
+test:viabilidad` 1025/1025.
+
 ### 17.4 Pendiente real, sin resolver hoy
 
 El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse — es un módulo pago de Obuma, hay que
