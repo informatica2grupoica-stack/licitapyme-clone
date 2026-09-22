@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders } from '@tabler/icons-react';
+import { IconLayoutDashboard as LayoutDashboard, IconSearch as Search, IconUsers as Users, IconLogout as LogOut, IconUser as User, IconMenu as MenuIcon, IconX as X, IconRadar as Radar, IconChevronRight as ChevronRight, IconBriefcase as Briefcase, IconBell as Bell, IconTag as Tag, IconStack2 as Layers, IconHistory as History, IconSettings as Settings, IconCommand as Command, IconBan as Ban, IconActivity as Activity, IconSend as Send, IconBuilding as Building2, IconTrophy as Trophy, IconLayoutSidebarLeftCollapse as PanelLeftClose, IconLayoutSidebarLeftExpand as PanelLeftOpen, IconClipboardCheck as ClipboardCheck, IconShoppingCart as ShoppingCart, IconPackage as PackageCheck, IconLibrary as Library, IconStar as Star, IconFolderOpen as FolderOpen, IconReceipt as Receipt, IconArrowsShuffle as Shuffle, IconSun as Sun, IconMoon as Moon, IconTruck as Truck, IconFolders as Folders, IconBug as Bug } from '@tabler/icons-react';
 import { LicitankIcon } from '@/app/components/LicitankLogo';
 import { Tooltip } from '@/app/components/ui/Tooltip';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
@@ -101,6 +101,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: 'Usuarios',       href: '/admin/usuarios',  icon: <Users size={17} />, adminOnly: true },
       { label: 'Empresas',       href: '/empresas',        icon: <Building2 size={17} />, adminOnly: true },
       { label: 'Líneas negocio', href: '/admin/etiquetas', icon: <Tag size={17} />, adminOnly: true },
+      // Reportes del botón flotante "Reportar error" (components/ReportarErrorBoton) de todos los perfiles.
+      { label: 'Errores reportados', href: '/admin/errores', icon: <Bug size={17} />, adminOnly: true },
     ],
   },
 ];
@@ -318,6 +320,23 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     return suscribirRealtime(ev => { if (ev.tipo === 'cambio') cargar(); });
   }, [usuario, esExternoNav]);
 
+  // Badge de "Errores reportados": reportes abiertos/en revisión. Solo admin (la bandeja lo es).
+  // Se recarga cuando llega la notificación del reporte nuevo (tipo REPORTE_ERROR).
+  const esAdminNav = usuario?.rol === 'admin';
+  const [totalErrores, setTotalErrores] = useState(0);
+  useEffect(() => {
+    if (!esAdminNav) return;
+    const cargar = () => {
+      fetch('/api/admin/reportes-error?resumen=1').then(r => r.json()).then(d => {
+        if (d.success) setTotalErrores(d.pendientes || 0);
+      }).catch(() => {});
+    };
+    cargar();
+    return suscribirRealtime(ev => {
+      if (ev.tipo === 'cambio' || (ev.tipo === 'notificacion' && (ev.datos as { tipo?: string })?.tipo === 'REPORTE_ERROR')) cargar();
+    });
+  }, [esAdminNav]);
+
   const puedeVerEntregas =
     usuario?.rol === 'admin' || !!usuario?.permisos?.entrega_proyectos || entregas.total > 0;
 
@@ -346,6 +365,8 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
         return { ...i, badge: entregas.pendientes > 0 ? entregas.pendientes : undefined };
       if (i.href === '/puente')
         return { ...i, badge: totalPuente > 0 ? totalPuente : undefined };
+      if (i.href === '/admin/errores')
+        return { ...i, badge: totalErrores > 0 ? totalErrores : undefined };
       return i;
     }),
   })).filter(g => g.items.length > 0);

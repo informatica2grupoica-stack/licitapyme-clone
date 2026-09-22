@@ -7,6 +7,7 @@ import { ConfirmProvider } from '@/app/components/ui/confirm';
 import { ThemeProvider }   from '@/app/lib/theme-context';
 import { CosteoFlotanteProvider } from '@/app/components/CosteoFlotanteContext';
 import { CosteoFlotanteHost }     from '@/app/components/CosteoFlotanteHost';
+import { ReportarErrorBoton }     from '@/app/components/ReportarErrorBoton';
 
 // Aplica la clase `dark` a <html> ANTES del primer paint, leyendo directo de localStorage.
 // Sin esto, ThemeProvider la aplicaría recién en un efecto de React y se vería un flash
@@ -42,6 +43,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 <CosteoFlotanteProvider>
                   {children}
                   <CosteoFlotanteHost />
+                  <ReportarErrorBoton />
                 </CosteoFlotanteProvider>
               </ConfirmProvider>
             </ToastProvider>
