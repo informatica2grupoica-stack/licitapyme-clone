@@ -1113,6 +1113,9 @@ export async function PATCH(request: NextRequest, { params }: Params) {
         [nuevoVeredicto, c.veredicto, userId, nombreActor, ahoraChileSQL(), String(body.comentario || '').trim().slice(0, 2000) || null, caracteristicaId],
       );
 
+      // Sin esto, corregir a mano las últimas características dejaba la línea en PENDIENTE con
+      // todo en CUMPLE: ni se auto-aprobaba ni aparecía "Aprobar línea" (611669-17-LE26).
+      await intentarAutoTransicion(item, negocio.id, userId, nombreActor);
       publicarCambio('checklist_comercial');
       const caracteristicas = await leerCaracteristicas(item.id);
       return NextResponse.json({ success: true, caracteristicas });
