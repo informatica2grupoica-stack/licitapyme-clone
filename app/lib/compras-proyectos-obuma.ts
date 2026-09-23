@@ -58,6 +58,7 @@ export interface MetaProyectosObuma {
   totalConFicha: number;                 // los que de verdad se lograron traer y armar
   completo: boolean;                     // totalConFicha === totalReportadoPorObuma (o no se pudo confirmar)
   fuentesConError: string[];             // qué fuentes fallaron esta corrida (la función sigue funcionando igual, con menos datos)
+  generadoAt?: string;                   // cuándo se armó el snapshot guardado en BD (ISO)
 }
 
 let cacheProyectos: { en: number; datos: ProyectoObuma[]; meta: MetaProyectosObuma } | null = null;
@@ -83,7 +84,7 @@ async function conTolerancia<T>(nombre: string, fn: () => Promise<T>, valorPorDe
  *  general de la empresa, no un proyecto puntual) siguen apareciendo, como entradas sin ficha.
  *  Orden: fecha de CREACIÓN del Proyecto, la más nueva primero (pedido explícito del usuario,
  *  22-sep-2026); los que no tienen ficha (centros sueltos) se ordenan por su última OC. */
-export async function listarProyectosObuma(forzar = false): Promise<{ proyectos: ProyectoObuma[]; meta: MetaProyectosObuma }> {
+async function calcularProyectosObuma(forzar = false): Promise<{ proyectos: ProyectoObuma[]; meta: MetaProyectosObuma }> {
   if (!forzar && cacheProyectos && Date.now() - cacheProyectos.en < CACHE_PROYECTOS_MS) {
     return { proyectos: cacheProyectos.datos, meta: cacheProyectos.meta };
   }
@@ -223,4 +224,53 @@ export async function listarProyectosObuma(forzar = false): Promise<{ proyectos:
 
   cacheProyectos = { en: Date.now(), datos: resultado, meta };
   return { proyectos: resultado, meta };
+}
+
+
+// ── Persistencia: los proyectos se crean de vez en cuando, no hay por qué rearmarlos contra Obuma en
+// cada visita. Se guarda el resultado armado en BD y la pantalla lo lee al tiro; se refresca solo en
+// segundo plano si el snapshot es viejo, o a mano con `forzar`. (Pedido del usuario, 23-sep-2026.)
+const SNAPSHOT_VIEJO_MS = 30 * 60_000;
+let tablaSnapshotLista = false;
+let refrescando: Promise<unknown> | null = null;
+
+async function asegurarTablaSnapshot() {
+  if (tablaSnapshotLista) return;
+  await pool.query(`CREATE TABLE IF NOT EXISTS obuma_proyectos_snapshot (
+    id INT NOT NULL PRIMARY KEY,
+    datos LONGTEXT NOT NULL,
+    meta TEXT NOT NULL,
+    generado_at DATETIME NOT NULL
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci`);
+  tablaSnapshotLista = true;
+}
+
+async function recalcularYGuardar(forzar: boolean) {
+  const r = await calcularProyectosObuma(forzar);
+  // Si Obuma falló del todo (sin proyectos con ficha), no pisar un snapshot bueno con uno vacío.
+  if (r.proyectos.length === 0) return r;
+  const generadoAt = new Date();
+  r.meta.generadoAt = generadoAt.toISOString();
+  await pool.query(
+    `REPLACE INTO obuma_proyectos_snapshot (id, datos, meta, generado_at) VALUES (1, ?, ?, ?)`,
+    [JSON.stringify(r.proyectos), JSON.stringify(r.meta), generadoAt],
+  );
+  return r;
+}
+
+export async function listarProyectosObuma(forzar = false): Promise<{ proyectos: ProyectoObuma[]; meta: MetaProyectosObuma }> {
+  await asegurarTablaSnapshot();
+  if (!forzar) {
+    const [rows] = await pool.query(`SELECT datos, meta, generado_at FROM obuma_proyectos_snapshot WHERE id = 1`) as any[];
+    if (rows[0]) {
+      const edad = Date.now() - new Date(rows[0].generado_at).getTime();
+      if (edad > SNAPSHOT_VIEJO_MS && !refrescando) {
+        refrescando = recalcularYGuardar(true)
+          .catch(e => console.warn('[compras-proyectos-obuma] refresco en segundo plano falló:', String(e).slice(0, 150)))
+          .finally(() => { refrescando = null; });
+      }
+      return { proyectos: JSON.parse(rows[0].datos), meta: JSON.parse(rows[0].meta) };
+    }
+  }
+  return recalcularYGuardar(forzar);
 }
