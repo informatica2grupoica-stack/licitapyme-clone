@@ -20,6 +20,7 @@ interface Reporte {
   imagen_url: string | null;
   estado: Estado;
   solucion: string | null;
+  solucion_privada?: number | boolean;
   resuelto_por_nombre: string | null;
   resuelto_at: string | null;
   created_at: string;
@@ -48,7 +49,7 @@ export default function MisReportesPage() {
   useEffect(() => {
     cargar();
     return suscribirRealtime(ev => {
-      if (ev.tipo === 'cambio' || (ev.tipo === 'notificacion' && (ev.datos as { tipo?: string })?.tipo === 'REPORTE_ERROR_CERRADO')) cargar();
+      if (ev.tipo === 'cambio' || (ev.tipo === 'notificacion' && (ev.datos as { tipo?: string })?.tipo?.startsWith('REPORTE_ERROR_'))) cargar();
     });
   }, [cargar]);
 
@@ -103,6 +104,14 @@ export default function MisReportesPage() {
                         <p className="text-[11px] text-slate-500 mt-2">— {r.resuelto_por_nombre}, {fecha(r.resuelto_at)}</p>
                       )}
                     </div>
+                  )}
+
+                  {/* Solución marcada "solo administradores": el perfil sabe que se atendió, sin el texto. */}
+                  {!r.solucion && !!r.solucion_privada && (
+                    <p className="mx-4 mb-3 text-[12px] text-slate-500 italic">
+                      {r.estado === 'resuelto' ? 'Solucionado' : r.estado === 'descartado' ? 'Descartado' : r.estado === 'en_revision' ? 'En revisión' : 'Recibido'} por el equipo de administración
+                      {cerrado && r.resuelto_por_nombre ? ` (${r.resuelto_por_nombre}, ${fecha(r.resuelto_at)})` : ''}.
+                    </p>
                   )}
 
                   {expandido && (

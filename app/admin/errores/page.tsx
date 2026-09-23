@@ -4,11 +4,14 @@
 // (components/ReportarErrorBoton). Solo admin (proxy.ts bloquea /admin/*). Cada reporte trae la
 // captura marcada, la observación del usuario y el contexto técnico (navegador, errores de
 // consola). El admin lo pasa a "En revisión" y lo cierra como Resuelto (escribiendo cómo se
-// solucionó) o Descartado (escribiendo por qué); al cerrarlo, al que lo reportó le llega aviso.
+// solucionó) o Descartado (escribiendo por qué). En cada cambio de estado al que lo reportó le
+// llega aviso; el switch "Visible para" decide si ve el TEXTO de la solución o si queda solo
+// para los administradores (migration-124).
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AppLayout } from '@/app/components/AppLayout';
 import { IconBug as Bug, IconLoader2 as Loader2, IconExternalLink as ExternalLink, IconCircleCheck as CheckCircle, IconDeviceFloppy as Save } from '@tabler/icons-react';
 import { useToast } from '@/app/components/ui/toast';
+import { Switch } from '@/app/components/ui/Switch';
 import { suscribirRealtime } from '@/app/lib/use-realtime';
 
 type Estado = 'abierto' | 'en_revision' | 'resuelto' | 'descartado';
@@ -26,6 +29,7 @@ interface Reporte {
   contexto: { tituloPagina?: string; navegador?: string; pantalla?: string; tema?: string; erroresConsola?: string[] } | string | null;
   estado: Estado;
   solucion: string | null;
+  solucion_visible: number | boolean;
   resuelto_por_nombre: string | null;
   resuelto_at: string | null;
   created_at: string;
@@ -131,6 +135,7 @@ export default function ErroresReportadosPage() {
 function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () => Promise<void>; toast: ReturnType<typeof useToast> }) {
   const [estado, setEstado] = useState<Estado>(r.estado);
   const [solucion, setSolucion] = useState(r.solucion || '');
+  const [visible, setVisible] = useState(r.solucion_visible !== 0 && r.solucion_visible !== false);
   const [guardando, setGuardando] = useState(false);
   // Cerrado (resuelto/descartado) se muestra como tarjeta de solo lectura: antes el formulario
   // quedaba igual tras guardar y parecía que no se había guardado nada (23-sep-2026).
@@ -145,7 +150,7 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
     try {
       const res = await fetch(`/api/admin/reportes-error/${r.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado, solucion }),
+        body: JSON.stringify({ estado, solucion, solucion_visible: visible }),
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.success) throw new Error(d.error || `Error ${res.status}`);
@@ -217,7 +222,11 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
               {r.estado === 'resuelto' ? 'Cómo se solucionó' : 'Por qué se descartó'}
             </p>
             <p className="text-[13px] text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{r.solucion}</p>
-            <p className="text-[11.5px] text-slate-500 mt-3">{r.usuario_nombre || 'Quien lo reportó'} lo ve en "Mis reportes".</p>
+            <p className="text-[11.5px] text-slate-500 mt-3">
+              {visible
+                ? `${r.usuario_nombre || 'Quien lo reportó'} ve este texto en "Mis reportes".`
+                : `🔒 Solo administradores: ${r.usuario_nombre || 'quien lo reportó'} ve el estado, pero no este texto.`}
+            </p>
             <button onClick={() => setEditando(true)}
               className="mt-3 text-[12.5px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
               Editar / reabrir
@@ -245,7 +254,15 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
           placeholder="Ej: El guardado fallaba porque el precio venía con puntos de miles; se corrigió el parser y se re-guardaron los 3 costeos afectados."
           className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.04] px-3 py-2 text-[13px] text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40" />
         {faltaSolucion && <p className="text-[11.5px] text-amber-600 mt-1">Escribe al menos 10 caracteres para cerrarlo.</p>}
-        <button onClick={guardar} disabled={guardando || faltaSolucion || (estado === r.estado && solucion.trim() === (r.solucion || ''))}
+        <div className="mt-3 flex items-center gap-2.5">
+          <Switch checked={visible} onChange={() => setVisible(v => !v)} label="Solución visible para quien lo reportó" />
+          <span className="text-[12.5px] text-slate-700 dark:text-slate-300">
+            {visible
+              ? <>Visible para <b>todos</b> — {r.usuario_nombre || 'quien lo reportó'} verá este texto</>
+              : <>🔒 <b>Solo administradores</b> — {r.usuario_nombre || 'quien lo reportó'} recibe el aviso del estado, sin el texto</>}
+          </span>
+        </div>
+        <button onClick={guardar} disabled={guardando || faltaSolucion || (estado === r.estado && solucion.trim() === (r.solucion || '') && visible === (r.solucion_visible !== 0 && r.solucion_visible !== false))}
           className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[13px] font-semibold px-4 py-2">
           {guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar
         </button>

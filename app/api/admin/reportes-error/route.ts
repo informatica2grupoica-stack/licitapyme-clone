@@ -15,7 +15,7 @@ export async function GET(req: NextRequest) {
     }
     const [rows] = await pool.query(
       `SELECT id, usuario_id, usuario_nombre, usuario_email, url, titulo, que_paso, que_esperaba, pasos,
-              gravedad, imagen_url, contexto, estado, solucion, resuelto_por_nombre, resuelto_at,
+              gravedad, imagen_url, contexto, estado, solucion, solucion_visible, resuelto_por_nombre, resuelto_at,
               created_at, updated_at
        FROM reportes_error
        ORDER BY FIELD(estado, 'abierto', 'en_revision', 'resuelto', 'descartado'), created_at DESC

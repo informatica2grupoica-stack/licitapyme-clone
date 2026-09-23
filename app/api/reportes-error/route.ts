@@ -23,7 +23,10 @@ export async function GET(req: NextRequest) {
   if (!u) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
   try {
     const [rows] = await pool.query(
-      `SELECT id, url, titulo, que_paso, que_esperaba, pasos, gravedad, imagen_url, estado, solucion,
+      // La solución marcada "solo administradores" (migration-124) NUNCA sale de la BD hacia el
+      // perfil: se filtra acá, no en la pantalla.
+      `SELECT id, url, titulo, que_paso, que_esperaba, pasos, gravedad, imagen_url, estado,
+              IF(solucion_visible = 1, solucion, NULL) AS solucion, (solucion_visible = 0 AND solucion IS NOT NULL) AS solucion_privada,
               resuelto_por_nombre, resuelto_at, created_at
        FROM reportes_error WHERE usuario_id = ? ORDER BY created_at DESC LIMIT 200`,
       [u.id],

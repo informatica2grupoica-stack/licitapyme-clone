@@ -599,8 +599,8 @@ function NotificacionesBell() {
                     </div>
                   </div>
                 );
-                // Reportes de error: el nuevo lleva a la bandeja admin; el cerrado, a "Mis reportes".
-                const hrefReporte = e.tipo === 'REPORTE_ERROR' ? '/admin/errores' : e.tipo === 'REPORTE_ERROR_CERRADO' ? '/mis-reportes' : null;
+                // Reportes de error: el nuevo lleva a la bandeja admin; los cambios de estado, a "Mis reportes".
+                const hrefReporte = e.tipo === 'REPORTE_ERROR' ? '/admin/errores' : e.tipo?.startsWith('REPORTE_ERROR_') ? '/mis-reportes' : null;
                 const href = e.licitacion_codigo ? `/licitacion/${encodeURIComponent(e.licitacion_codigo)}` : hrefReporte;
                 return href
                   ? <Link key={e.id || i} href={href} onClick={() => setOpen(false)}>{content}</Link>
