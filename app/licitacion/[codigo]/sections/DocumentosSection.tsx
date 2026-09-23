@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useRealtime } from '@/app/lib/use-realtime';
 import { IconFileText as FileText, IconSparkles as Sparkles, IconRefresh as RefreshCw, IconLoader2 as Loader2, IconRobot as Bot, IconCircleCheck as CheckCircle, IconEye as Eye, IconDownload as Download, IconFolderOpen as FolderOpen, IconAlertTriangle as AlertTriangle, IconGripVertical as GripVertical, IconTableOptions as TableProperties, IconUpload as Upload, IconTrash as Trash2, IconPencil as Pencil, IconCheck as Check, IconX as X, IconFolderPlus as FolderPlus, IconWand as Wand2, IconSend as Send, IconScissors as Scissors, IconPlayerPlay as PlayCircle } from '@tabler/icons-react';
 import { DocumentoAdjunto } from '@/app/types/search.types';
 import { getFileIcon, formatFileSize, esUrlAnalizable, SectionHeader } from '../utils';
@@ -85,6 +86,22 @@ const CATS_BORRABLES = new Set([CAT_PROPIOS, CAT_ANEXOS_ADMIN, CAT_ANEXOS_TECNIC
 // verde por estar en Anexos Administrativos/Técnicos/Económicos y mezclaba "recién separado" con
 // "ya enviado", que para el usuario son dos cosas distintas.
 
+// Estado de un documento ya enviado al Auditor Técnico, como semáforo (pedido 23-sep-2026):
+// amarillo = en revisión, verde = el auditor lo aprobó, rojo = observado. Sale del estado real del
+// punto del checklist donde quedó pegado (ver /comercial/documentos-auditor).
+type EstadoAuditor = 'REVISION' | 'APROBADO' | 'OBSERVADO';
+const ESTILO_AUDITOR: Record<EstadoAuditor, { card: string; icon: string; tip: string }> = {
+  REVISION:  { card: 'bg-amber-50 border-amber-200 hover:bg-amber-100',     icon: 'text-amber-500',   tip: 'En revisión del Auditor Técnico' },
+  APROBADO:  { card: 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100', icon: 'text-emerald-500', tip: 'Aprobado por el Auditor Técnico' },
+  OBSERVADO: { card: 'bg-rose-50 border-rose-200 hover:bg-rose-100',         icon: 'text-rose-500',    tip: 'Observado por el Auditor Técnico' },
+};
+function IconoAuditor({ estado }: { estado: EstadoAuditor }) {
+  const cls = ESTILO_AUDITOR[estado].icon;
+  return estado === 'APROBADO' ? <CheckCircle size={12} className={cls} />
+    : estado === 'OBSERVADO' ? <AlertTriangle size={12} className={cls} />
+    : <Send size={12} className={cls} />;
+}
+
 // ─── Configuración de cajas (v2.0) ────────────────────────────────────────────
 // Estilo común a todas las cajas (neutro). El color real lo da el contenido.
 const ESTILO_CAJA = {
@@ -154,7 +171,7 @@ function DocItem({
   onRellenarAnexo,
   onSepararAnexo,
   onEnviarAuditor,
-  enviadoAlAuditor,
+  enviadoAlAuditor, estadoAuditor,
 }: {
   doc: DocLicitacion;
   codigoDecoded: string;
@@ -175,6 +192,7 @@ function DocItem({
   // ¿La URL de este documento ya vive en checklist_comercial_documentos de este negocio? Ver
   // urlsEnAuditor en el componente padre — VERDE, manda sobre el naranjo de generado_separar.
   enviadoAlAuditor?: boolean;
+  estadoAuditor?: EstadoAuditor;
 }) {
   const analizable = esUrlAnalizable(doc.url_local || doc.url);
   // Borrable si su categoría es de las nuestras (generadas por la app) O si el usuario lo
@@ -194,7 +212,7 @@ function DocItem({
         cursor-grab active:cursor-grabbing select-none transition-all
         ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
         ${enviadoAlAuditor
-          ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+          ? ESTILO_AUDITOR[estadoAuditor || 'REVISION'].card
           : separado
             ? 'bg-orange-50 border-orange-200 hover:bg-orange-100'
             : 'bg-white border-slate-100 hover:bg-slate-50'}
@@ -207,8 +225,8 @@ function DocItem({
           {doc.nombre}
         </p>
         {enviadoAlAuditor && (
-          <span className="flex-shrink-0 mt-0.5" title="Ya se envió al Auditor Técnico">
-            <CheckCircle size={12} className="text-emerald-500" />
+          <span className="flex-shrink-0 mt-0.5" title={ESTILO_AUDITOR[estadoAuditor || 'REVISION'].tip}>
+            <IconoAuditor estado={estadoAuditor || 'REVISION'} />
           </span>
         )}
         {!enviadoAlAuditor && separado && (
@@ -346,7 +364,7 @@ function CajaDroppable({
   onRellenarTodos?: (docs: AnexoDoc[]) => void;
   subiendo: string | null; // key de la caja que está subiendo un archivo
   // URLs ya enviadas al Auditor Técnico de este negocio — ver urlsEnAuditor en el padre.
-  urlsEnAuditor: Set<string>;
+  urlsEnAuditor: Map<string, EstadoAuditor>;
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
   const subiendoAqui = subiendo === caja.key;
@@ -429,6 +447,7 @@ function CajaDroppable({
             onSepararAnexo={onSepararAnexo}
             onEnviarAuditor={onEnviarAuditor}
             enviadoAlAuditor={urlsEnAuditor.has(doc.url_local || doc.url)}
+            estadoAuditor={urlsEnAuditor.get(doc.url_local || doc.url)}
           />
         ))}
 
@@ -479,7 +498,7 @@ function DocumentosGrid({
   // undefined = todas (comportamiento previo).
   modo?: 'licitacion' | 'propios';
   // URLs ya enviadas al Auditor Técnico de este negocio — ver urlsEnAuditor en DocumentosSection.
-  urlsEnAuditor: Set<string>;
+  urlsEnAuditor: Map<string, EstadoAuditor>;
 }) {
   // Agrupa los documentos por su categoría real (sin pre-crear cajas vacías).
   const buildGrupos = (docs: DocLicitacion[]) => {
@@ -823,6 +842,7 @@ function DocumentosGrid({
                 onView={onView}
                 onOpenIA={onOpenIA}
                 enviadoAlAuditor={urlsEnAuditor.has(doc.url_local || doc.url)}
+            estadoAuditor={urlsEnAuditor.get(doc.url_local || doc.url)}
               />
             ))}
           </div>
@@ -898,7 +918,7 @@ function claveCajaPropia(sub?: string | null) {
 function DocPropioItem({
   doc, isDragging, isEditing, valorNombre, busy,
   onDragStart, onView, onDownloadClick, onReemplazar, onRenombrarClick, onEliminar,
-  onGuardarNombre, onCancelarEdicion, onChangeValorNombre, onEnviarAuditor, enviadoAlAuditor,
+  onGuardarNombre, onCancelarEdicion, onChangeValorNombre, onEnviarAuditor, enviadoAlAuditor, estadoAuditor,
 }: {
   doc: DocPropio;
   isDragging: boolean;
@@ -920,6 +940,7 @@ function DocPropioItem({
   // (7-sep-2026): el anexo YA RELLENADO (que vive acá, en Documentos Propios, no en la caja donde
   // se separó) es justo el que de verdad se manda al Auditor, así que también se pinta verde.
   enviadoAlAuditor?: boolean;
+  estadoAuditor?: EstadoAuditor;
 }) {
   const urlDe = (doc as any).url_local || (doc as any).url;
   return (
@@ -930,7 +951,7 @@ function DocPropioItem({
         group flex flex-col gap-1.5 px-2.5 py-2 rounded-lg border
         cursor-grab active:cursor-grabbing select-none transition-all
         ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}
-        ${enviadoAlAuditor ? 'bg-emerald-50 border-emerald-200 hover:bg-emerald-100' : 'bg-white border-slate-100 hover:bg-slate-50'}
+        ${enviadoAlAuditor ? ESTILO_AUDITOR[estadoAuditor || 'REVISION'].card : 'bg-white border-slate-100 hover:bg-slate-50'}
       `}
     >
       <div className="flex items-start gap-2">
@@ -950,8 +971,8 @@ function DocPropioItem({
           )}
         </div>
         {enviadoAlAuditor && (
-          <span className="flex-shrink-0 mt-0.5" title="Ya se envió al Auditor Técnico">
-            <CheckCircle size={12} className="text-emerald-500" />
+          <span className="flex-shrink-0 mt-0.5" title={ESTILO_AUDITOR[estadoAuditor || 'REVISION'].tip}>
+            <IconoAuditor estado={estadoAuditor || 'REVISION'} />
           </span>
         )}
         {busy && <Loader2 size={12} className="animate-spin text-violet-500 flex-shrink-0 mt-0.5" />}
@@ -1013,7 +1034,7 @@ function CajaPropiaDroppable({
   onChangeValorNombre: (v: string) => void;
   ocupado: string | null;
   onEnviarAuditor?: (doc: DocPropio) => void;
-  urlsEnAuditor: Set<string>;
+  urlsEnAuditor: Map<string, EstadoAuditor>;
 }) {
   const isDraggingHere = draggingDoc && docs.some(d => d.nombre === draggingDoc.nombre);
   return (
@@ -1053,6 +1074,7 @@ function CajaPropiaDroppable({
             onChangeValorNombre={onChangeValorNombre}
             onEnviarAuditor={onEnviarAuditor ? () => onEnviarAuditor(doc) : undefined}
             enviadoAlAuditor={urlsEnAuditor.has((doc as any).url_local || (doc as any).url)}
+            estadoAuditor={urlsEnAuditor.get((doc as any).url_local || (doc as any).url)}
           />
         ))}
         {isDragOver && (
@@ -1082,7 +1104,7 @@ function DocumentosPropiosGrid({ docs, codigoDecoded, onView, onRefrescar, onEnv
   onView: (doc: VisorDoc) => void;
   onRefrescar: () => void;
   onEnviarAuditor?: (doc: { nombre: string; url: string }) => void;
-  urlsEnAuditor: Set<string>;
+  urlsEnAuditor: Map<string, EstadoAuditor>;
 }) {
   const confirmar = useConfirm();
   const toast = useToast();
@@ -1427,15 +1449,17 @@ export function DocumentosSection({
   // cuando ya los mando al auditor, esos son los que quiero que cambien a verde"). Se relee EN
   // VIVO (nunca una marca guardada en el documento) para que quede al día solo si el punto del
   // checklist se borra o el documento se reemplaza — ver /comercial/documentos-auditor.
-  const [urlsEnAuditor, setUrlsEnAuditor] = useState<Set<string>>(new Set());
+  const [urlsEnAuditor, setUrlsEnAuditor] = useState<Map<string, EstadoAuditor>>(new Map());
   const refrescarUrlsAuditor = () => {
-    if (!negocioId) { setUrlsEnAuditor(new Set()); return; }
+    if (!negocioId) { setUrlsEnAuditor(new Map()); return; }
     fetch(`/api/negocios/${negocioId}/comercial/documentos-auditor`)
       .then(r => r.json())
-      .then(d => { if (d?.success) setUrlsEnAuditor(new Set(d.urls || [])); })
+      .then(d => { if (d?.success) setUrlsEnAuditor(new Map(Object.entries((d.estados || {}) as Record<string, EstadoAuditor>))); })
       .catch(() => {});
   };
   useEffect(refrescarUrlsAuditor, [negocioId]);
+  // Tiempo real: cuando el auditor aprueba/observa un punto, el semáforo del documento cambia solo.
+  useRealtime(refrescarUrlsAuditor);
 
   // Documento abierto en el visor inline (modal). null = cerrado.
   const [visorDoc, setVisorDoc] = useState<VisorDoc | null>(null);
@@ -1799,7 +1823,7 @@ export function DocumentosSection({
           es el ÚNICO lugar para subir archivos propios (botón "Documentos para MP"). */}
       <SectionHeader
         icon={<FileText size={18} />}
-        title="Documentos para MP"
+        title="Documentos para Mercado Público"
         subtitle="Archivos que presentarás a Mercado Público (más costeo e informe generados)"
         badge={docsPropios.length > 0 ? (
           <span className="px-2 py-0.5 bg-violet-100 text-violet-700 text-xs rounded-full font-semibold">

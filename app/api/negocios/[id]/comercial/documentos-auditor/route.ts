@@ -29,16 +29,26 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (!(await puedeVerNegocioAsignado(parseInt(userId), rol, negocio.asignado_a)))
       return NextResponse.json({ error: 'Sin permisos' }, { status: 403 });
 
+    // Estado por URL según el punto del checklist donde quedó pegado: OBSERVADO gana, luego
+    // cualquier punto sin aprobar (REVISION); solo es APROBADO si todos sus puntos lo están.
     const [rows] = await pool.query(
-      `SELECT DISTINCT url FROM checklist_comercial_documentos WHERE negocio_id = ?`,
+      `SELECT d.url, c.estado FROM checklist_comercial_documentos d
+         JOIN checklist_comercial c ON c.id = d.item_id
+        WHERE d.negocio_id = ?`,
       [negocio.id],
     ) as any;
-    const urls = (rows as Array<{ url: string }>).map(r => r.url).filter(Boolean);
+    const estados: Record<string, 'REVISION' | 'APROBADO' | 'OBSERVADO'> = {};
+    for (const r of rows as Array<{ url: string; estado: string }>) {
+      if (!r.url) continue;
+      const e = r.estado === 'OBSERVADO' ? 'OBSERVADO' : r.estado === 'APROBADO' ? 'APROBADO' : 'REVISION';
+      const prev = estados[r.url];
+      if (!prev || e === 'OBSERVADO' || (e === 'REVISION' && prev === 'APROBADO')) estados[r.url] = e;
+    }
 
-    return NextResponse.json({ success: true, urls });
+    return NextResponse.json({ success: true, urls: Object.keys(estados), estados });
   } catch (error) {
     console.error('[comercial/documentos-auditor][GET]', String(error));
     // Tabla puede no existir todavía — no romper la pantalla de Documentos por esto.
-    return NextResponse.json({ success: true, urls: [] });
+    return NextResponse.json({ success: true, urls: [], estados: {} });
   }
 }
