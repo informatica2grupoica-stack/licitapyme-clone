@@ -499,7 +499,10 @@ async function viabilidadMasNuevaQueChecklist(negocioId: number, codigo: string)
 /** Semáforo + causales de bloqueo del negocio (Fase 3, spec §9) — a partir de lo que ya se leyó
  *  (items con su resumen_tecnico adjunto) más la fecha de cierre, sin queries nuevas. */
 function semaforoDelNegocio(negocio: any, items: any[]) {
-  const horasRestantes = negocio.licitacion_cierre
+  // Si la oferta ya salió (postulada, en adjudicación, ganada o perdida) el plazo de cierre no es
+  // un riesgo: sin esto una licitación GANADA mostraba "el plazo de cierre ya venció" en rojo.
+  const yaPostulada = ['POSTULADA', 'POSIBLE_ADJ', 'ADJUDICADA', 'PERDIDA'].includes(negocio.estado_pipeline);
+  const horasRestantes = negocio.licitacion_cierre && !yaPostulada
     ? (new Date(negocio.licitacion_cierre).getTime() - Date.now()) / 3_600_000
     : null;
 
