@@ -593,6 +593,15 @@ async function llamarGlmJSON(systemPrompt: string, userPrompt: string): Promise<
         // VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO. Mismo margen corto aunque el prompt sea grande
         // (20-ago-2026: ya no se fuerza un modelo "grande" como principal — ver nota arriba).
         timeoutMsPrimario: Math.max(60_000, Number(process.env.VIABILIDAD_LLM_TIMEOUT_MS_PRIMARIO) || 130_000),
+        // STREAMING + corte por inactividad (23-sep-2026, 966131-54-LP26: 63k tokens de entrada,
+        // salida larga; los 6 eslabones "dieron timeout" aunque respondían — flashx tarda ~280s en
+        // generar 16k tokens, más que los 130s/75s de arriba). Ahora esos timeouts solo cubren la
+        // espera de cabeceras; mientras el modelo mande datos NO se corta, y si se queda callado
+        // VIABILIDAD_STREAM_IDLE_MS (45s) se pasa al siguiente eslabón. Topes totales por eslabón:
+        // primario 330s, respaldos 240s (siempre acotados por deadlineMs).
+        streamIdleMs: Math.max(20_000, Number(process.env.VIABILIDAD_STREAM_IDLE_MS) || 45_000),
+        streamCapMsPrimario: Math.max(120_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS_PRIMARIO) || 330_000),
+        streamCapMs: Math.max(90_000, Number(process.env.VIABILIDAD_STREAM_CAP_MS) || 240_000),
         soloGlm: true,
         // ÚLTIMO RECURSO DEEPSEEK (20-ago-2026, pedido explícito del usuario tras 2422-144-LE26:
         // glm-5.2 y glm-4.7 se agotaron por timeout y la licitación quedó SIN análisis). La

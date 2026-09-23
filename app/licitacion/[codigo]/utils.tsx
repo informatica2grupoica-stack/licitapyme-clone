@@ -112,7 +112,10 @@ export function getDiasRestantes(fechaCierre?: string | null) {
   if (!fechaCierre) return null;
   const diff = new Date(fechaCierre).getTime() - Date.now();
   if (isNaN(diff)) return null;
-  return Math.ceil(diff / (1000 * 60 * 60 * 24));
+  const DIA = 1000 * 60 * 60 * 24;
+  if (diff < 0) return -1;          // ya cerró (Math.ceil dejaba -0 === 0 → "Cierra hoy")
+  if (diff < DIA) return 0;         // cierra dentro de las próximas 24 h
+  return Math.ceil(diff / DIA);
 }
 
 export function getFileIcon(nombre: string) {

@@ -128,10 +128,14 @@ export default function ErroresReportadosPage() {
   );
 }
 
-function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () => void; toast: ReturnType<typeof useToast> }) {
+function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () => Promise<void>; toast: ReturnType<typeof useToast> }) {
   const [estado, setEstado] = useState<Estado>(r.estado);
   const [solucion, setSolucion] = useState(r.solucion || '');
   const [guardando, setGuardando] = useState(false);
+  // Cerrado (resuelto/descartado) se muestra como tarjeta de solo lectura: antes el formulario
+  // quedaba igual tras guardar y parecía que no se había guardado nada (23-sep-2026).
+  const cerradoEnBD = r.estado === 'resuelto' || r.estado === 'descartado';
+  const [editando, setEditando] = useState(!cerradoEnBD);
   const c = ctx(r);
   const cierra = estado === 'resuelto' || estado === 'descartado';
   const faltaSolucion = cierra && solucion.trim().length < 10;
@@ -145,8 +149,10 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.success) throw new Error(d.error || `Error ${res.status}`);
-      toast.success('Reporte actualizado', d.avisado ? 'Se le avisó a quien lo reportó.' : undefined);
-      onGuardado();
+      toast.success(cierra ? 'Reporte cerrado y guardado' : 'Reporte actualizado',
+        d.avisado ? `Se le avisó a ${r.usuario_nombre || 'quien lo reportó'}.` : undefined);
+      await onGuardado();
+      if (cierra) setEditando(false);
     } catch (e) {
       toast.error('No se pudo guardar', String((e as Error).message || e));
     } finally { setGuardando(false); }
@@ -199,6 +205,25 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
 
       <div className={bloque}>
         <p className="text-[13px] font-bold text-slate-800 dark:text-slate-100 mb-3">Gestión</p>
+        {!editando && cerradoEnBD ? (
+          <div className={`rounded-lg p-3 ${r.estado === 'resuelto'
+            ? 'bg-emerald-50 border border-emerald-200 dark:bg-emerald-500/10 dark:border-emerald-500/30'
+            : 'bg-slate-50 border border-slate-200 dark:bg-white/[0.04] dark:border-white/10'}`}>
+            <p className="text-[12.5px] font-semibold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+              <CheckCircle size={16} className={r.estado === 'resuelto' ? 'text-emerald-600' : 'text-slate-400'} />
+              {estadoInfo(r.estado).label} por {r.resuelto_por_nombre} el {fecha(r.resuelto_at)}
+            </p>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-3 mb-1">
+              {r.estado === 'resuelto' ? 'Cómo se solucionó' : 'Por qué se descartó'}
+            </p>
+            <p className="text-[13px] text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{r.solucion}</p>
+            <p className="text-[11.5px] text-slate-500 mt-3">{r.usuario_nombre || 'Quien lo reportó'} lo ve en "Mis reportes".</p>
+            <button onClick={() => setEditando(true)}
+              className="mt-3 text-[12.5px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
+              Editar / reabrir
+            </button>
+          </div>
+        ) : (<>
         {r.resuelto_at && (
           <p className="text-[12px] text-slate-500 mb-3">
             {estadoInfo(r.estado).label} por <b>{r.resuelto_por_nombre}</b> el {fecha(r.resuelto_at)}
@@ -220,10 +245,11 @@ function DetalleReporte({ r, onGuardado, toast }: { r: Reporte; onGuardado: () =
           placeholder="Ej: El guardado fallaba porque el precio venía con puntos de miles; se corrigió el parser y se re-guardaron los 3 costeos afectados."
           className="w-full rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-white/[0.04] px-3 py-2 text-[13px] text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/40" />
         {faltaSolucion && <p className="text-[11.5px] text-amber-600 mt-1">Escribe al menos 10 caracteres para cerrarlo.</p>}
-        <button onClick={guardar} disabled={guardando || faltaSolucion || (estado === r.estado && solucion === (r.solucion || ''))}
+        <button onClick={guardar} disabled={guardando || faltaSolucion || (estado === r.estado && solucion.trim() === (r.solucion || ''))}
           className="mt-3 inline-flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-[13px] font-semibold px-4 py-2">
           {guardando ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Guardar
         </button>
+        </>)}
       </div>
     </div>
   );

@@ -38,7 +38,7 @@ const RUTAS_ADMIN = ['/admin', '/api/admin'];
 //  · APIs bloqueadas: las agregadas/administrativas (radar, dashboard, buscador, historial global…).
 // El resto de APIs (negocios, licitación, documentos, chat, notificaciones propias) pasa, y la
 // autorización POR LICITACIÓN se reverifica en cada endpoint con puedeVerLicitacion().
-const EXTERNO_PAGINAS_OK = ['/negocios', '/licitacion/', '/perfil'];
+const EXTERNO_PAGINAS_OK = ['/negocios', '/licitacion/', '/perfil', '/mis-reportes'];
 const EXTERNO_API_BLOQUEADAS = [
   '/api/dashboard', '/api/alertas', '/api/radar', '/api/analizadas',
   '/api/search', '/api/palabras-clave', '/api/prefiltro', '/api/favorites',

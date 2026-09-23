@@ -209,7 +209,7 @@ function EditorReporte({ captura, url, onCerrar }: { captura: HTMLCanvasElement;
       const r = await fetch('/api/reportes-error', { method: 'POST', body: fd });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || !d.success) throw new Error(d.error || `Error ${r.status}`);
-      toast.success('Reporte enviado', 'Le llegó a los administradores. Te avisaremos cuando esté solucionado.');
+      toast.success('Reporte enviado', 'Le llegó a los administradores. Puedes seguirlo en "Mis reportes de error" del menú.');
       onCerrar();
     } catch (e) {
       toast.error('No se pudo enviar el reporte', String((e as Error).message || e));

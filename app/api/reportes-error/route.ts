@@ -3,6 +3,7 @@
 // (app/components/ReportarErrorBoton.tsx): captura con marcas + observación detallada.
 // Queda en `reportes_error` (migration-123) y se avisa por campana a TODOS los admin, que lo
 // gestionan en /admin/errores (API: /api/admin/reportes-error).
+// GET — los reportes PROPIOS del usuario, para /mis-reportes (ver cómo se resolvió cada uno).
 import { NextRequest, NextResponse } from 'next/server';
 import pool from '@/app/lib/db';
 import { getAuthedUser } from '@/app/lib/api-auth';
@@ -16,6 +17,22 @@ const GRAVEDADES = ['bloqueante', 'alta', 'media', 'baja'];
 const MIN_QUE_PASO = 30;
 const MIN_QUE_ESPERABA = 15;
 const MAX_IMAGEN = 8 * 1024 * 1024;
+
+export async function GET(req: NextRequest) {
+  const u = await getAuthedUser(req);
+  if (!u) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, url, titulo, que_paso, que_esperaba, pasos, gravedad, imagen_url, estado, solucion,
+              resuelto_por_nombre, resuelto_at, created_at
+       FROM reportes_error WHERE usuario_id = ? ORDER BY created_at DESC LIMIT 200`,
+      [u.id],
+    );
+    return NextResponse.json({ success: true, reportes: rows });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   const u = await getAuthedUser(req);

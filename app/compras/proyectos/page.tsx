@@ -16,7 +16,7 @@ import {
   IconLoader2 as Loader2, IconSearch as Search, IconFolders as Folders, IconLink as LinkIcon,
   IconExternalLink as ExternalLink, IconWallet as Wallet, IconChevronDown as ChevronDown,
   IconChevronUp as ChevronUp, IconBuilding as Building2, IconRefresh as RefreshCw, IconFolderX as FolderX,
-  IconCircleCheck as CircleCheck, IconAlertTriangle as AlertTriangle,
+  IconCircleCheck as CircleCheck, IconAlertTriangle as AlertTriangle, IconFileSpreadsheet as FileSpreadsheet,
 } from '@tabler/icons-react';
 
 interface NegocioCoincidente { negocioId: number; licitacionCodigo: string; licitacionNombre: string | null }
@@ -67,6 +67,7 @@ export default function ProyectosObumaPage() {
   const [meta, setMeta] = useState<MetaProyectos | null>(null);
   const [loading, setLoading] = useState(true);
   const [actualizando, setActualizando] = useState(false);
+  const [exportando, setExportando] = useState(false);
   const [q, setQ] = useState('');
   const [soloCoincidentes, setSoloCoincidentes] = useState(false);
   const [soloConFicha, setSoloConFicha] = useState(false);
@@ -97,6 +98,25 @@ export default function ProyectosObumaPage() {
     if (!puedeVer) { router.replace('/dashboard'); return; }
     cargar();
   }, [cargandoSesion, puedeVer, router, cargar]);
+
+  const exportar = async () => {
+    setExportando(true);
+    try {
+      const res = await fetch('/api/compras/proyectos-obuma/exportar');
+      if (!res.ok) throw new Error('No se pudo generar el Excel');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `proyectos-obuma-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      toast.error('No se pudo exportar a Excel', e.message);
+    } finally {
+      setExportando(false);
+    }
+  };
 
   const toggleOc = async (folio: string | null) => {
     if (!folio) return;
@@ -147,8 +167,8 @@ export default function ProyectosObumaPage() {
   if (loading) {
     return (
       <AppLayout breadcrumb={[{ label: 'Proyectos (Obuma)' }]}>
-        <div className="p-4 sm:p-6 max-w-5xl mx-auto">
-          <div className="bg-white rounded-2xl border border-zinc-200 p-10 flex flex-col items-center justify-center gap-3 text-center">
+        <div className="p-4 sm:p-6 w-full">
+          <div className="bg-white rounded-2xl border border-zinc-200 p-10 flex flex-col items-center justify-center gap-3 text-center max-w-lg mx-auto">
             <Loader2 className="animate-spin text-indigo-500" size={26} />
             <p className="text-[13px] font-semibold text-zinc-600">Consultando los Proyectos reales de Obuma…</p>
             <p className="text-[11.5px] text-zinc-400 max-w-sm">
@@ -163,7 +183,7 @@ export default function ProyectosObumaPage() {
 
   return (
     <AppLayout breadcrumb={[{ label: 'Proyectos (Obuma)' }]}>
-      <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-4">
+      <div className="p-4 sm:p-6 w-full space-y-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0"><Folders size={17} className="text-indigo-600" /></div>
@@ -183,6 +203,10 @@ export default function ProyectosObumaPage() {
               <option value="">Todos los estados</option>
               {ESTADOS_FILTRO.map(e => <option key={e} value={e}>{e}</option>)}
             </select>
+            <button onClick={exportar} disabled={exportando} title="Exportar todos los proyectos y sus órdenes de compra a Excel"
+              className="flex items-center gap-1.5 text-[12px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 px-3 py-2 rounded-lg flex-shrink-0">
+              {exportando ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />} Exportar Excel
+            </button>
             <button onClick={() => cargar(true)} disabled={actualizando} title="Volver a consultar Obuma (ignora la caché de 5 min)"
               className="flex items-center gap-1.5 text-[12px] font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 disabled:opacity-50 px-3 py-2 rounded-lg flex-shrink-0">
               {actualizando ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Actualizar
@@ -210,7 +234,7 @@ export default function ProyectosObumaPage() {
           )
         )}
 
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
           <div className="bg-white rounded-xl border border-zinc-200 p-3">
             <p className="text-[10.5px] font-bold text-zinc-400 uppercase flex items-center gap-1"><Folders size={11} /> Total</p>
             <p className="text-[19px] font-bold text-zinc-900 mt-0.5">{stats.total}</p>
@@ -284,6 +308,31 @@ export default function ProyectosObumaPage() {
                       {p.cantidadOc} OC{p.cantidadFacturas > 0 ? ` · ${p.cantidadFacturas} facturas` : ''}
                       {expandido === p.proyectoId ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
                     </button>
+                  </div>
+                </div>
+
+                <div className="px-4 pb-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-x-4 gap-y-2 border-t border-zinc-100 pt-2.5">
+                  <Campo label="Folio" valor={p.folio != null ? String(p.folio) : '—'} />
+                  <Campo label="Cliente" valor={p.cliente || '—'} />
+                  <Campo label="Referencia" valor={p.referencia || '—'} />
+                  <Campo label="Fecha inicio" valor={p.fechaInicio || '—'} />
+                  <Campo label="Presupuesto" valor={fmtCLP(p.presupuesto)} />
+                  <Campo label="Costo" valor={fmtCLP(p.costo)} />
+                  <Campo label="Precio neto (venta)" valor={fmtCLP(p.precioNeto)} />
+                  <Campo label="Facturado (ficha)" valor={fmtCLP(p.facturadoMonto)} />
+                  <Campo label="Gasto en OC" valor={fmtCLP(p.totalGastado)} />
+                  <Campo label="Facturado real (cruce)" valor={fmtCLP(p.totalFacturado)} destacado={p.totalFacturado > 0} />
+                  <Campo label="Cantidad OC" valor={String(p.cantidadOc)} />
+                  <Campo label="Cantidad facturas" valor={String(p.cantidadFacturas)} />
+                  <div className="col-span-2 sm:col-span-3 md:col-span-4 lg:col-span-6">
+                    <p className="text-[9.5px] font-bold text-zinc-400 uppercase tracking-wide">Centros de costo</p>
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {p.centros.length === 0 ? <span className="text-[11px] text-zinc-400">—</span> : p.centros.map(c => (
+                        <span key={c.id} className={`text-[10.5px] font-medium px-1.5 py-0.5 rounded border ${c.activo ? 'bg-zinc-50 text-zinc-600 border-zinc-200' : 'bg-zinc-50 text-zinc-350 border-zinc-100 line-through'}`}>
+                          {c.nombre || `(ID ${c.id})`}{c.codigo ? ` · ${c.codigo}` : ''}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
@@ -364,5 +413,14 @@ export default function ProyectosObumaPage() {
         )}
       </div>
     </AppLayout>
+  );
+}
+
+function Campo({ label, valor, destacado }: { label: string; valor: string; destacado?: boolean }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[9.5px] font-bold text-zinc-400 uppercase tracking-wide">{label}</p>
+      <p className={`text-[11.5px] font-semibold truncate ${destacado ? 'text-emerald-700' : 'text-zinc-700'}`}>{valor}</p>
+    </div>
   );
 }

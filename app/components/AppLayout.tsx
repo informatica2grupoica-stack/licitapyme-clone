@@ -78,6 +78,9 @@ const NAV_GROUPS: NavGroup[] = [
       // Memoria (F.3): visible para todo perfil interno — orienta el trabajo de cualquiera que
       // cotice o postule, no solo del admin. Cargar experiencia sí es admin (lo bloquea la API).
       { label: 'Memoria', href: '/memoria', icon: <Library size={17} /> },
+      // Mis reportes: los errores que YO reporté con el botón rojo flotante y cómo se resolvió
+      // cada uno. Todo perfil (incluido externo) — cualquiera puede reportar.
+      { label: 'Mis reportes de error', href: '/mis-reportes', icon: <Bug size={17} /> },
       // Vista transversal de las OC de las dos empresas (ver app/lib/ordenes-compra.ts). Admin-only
       // porque toca RUT/montos de ambas empresas a la vez, igual criterio que Compras.
       { label: 'Órdenes de compra', href: '/ordenes-compra', icon: <Receipt size={17} />, adminOnly: true },
@@ -344,7 +347,7 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
   const visibleGroups = NAV_GROUPS.map(group => ({
     ...group,
     items: group.items.filter(i => {
-      if (esExterno) return i.href === '/negocios'; // externo: SOLO "Mis licitaciones"
+      if (esExterno) return i.href === '/negocios' || i.href === '/mis-reportes'; // externo: "Mis licitaciones" + sus reportes
       if (!i.adminOnly || usuario?.rol === 'admin') return true;
       if (i.href === '/radar' && usuario?.permisos?.acceso_radar) return true;
       if (i.href === '/aprobaciones' && puedeAprobar) return true;
@@ -596,8 +599,11 @@ function NotificacionesBell() {
                     </div>
                   </div>
                 );
-                return e.licitacion_codigo
-                  ? <Link key={e.id || i} href={`/licitacion/${encodeURIComponent(e.licitacion_codigo)}`} onClick={() => setOpen(false)}>{content}</Link>
+                // Reportes de error: el nuevo lleva a la bandeja admin; el cerrado, a "Mis reportes".
+                const hrefReporte = e.tipo === 'REPORTE_ERROR' ? '/admin/errores' : e.tipo === 'REPORTE_ERROR_CERRADO' ? '/mis-reportes' : null;
+                const href = e.licitacion_codigo ? `/licitacion/${encodeURIComponent(e.licitacion_codigo)}` : hrefReporte;
+                return href
+                  ? <Link key={e.id || i} href={href} onClick={() => setOpen(false)}>{content}</Link>
                   : <div key={e.id || i}>{content}</div>;
               })
             )}

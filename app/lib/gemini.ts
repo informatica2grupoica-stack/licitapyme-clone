@@ -389,16 +389,64 @@ function esTimeoutIA(e: any): boolean {
   return /ETIMEDOUT|timeout/i.test(s);
 }
 
+// 23-sep-2026 (caso 966131-54-LP26: los 6 eslabones "dieron timeout" a la vez): con `stream:false`
+// no hay ninguna señal de vida hasta que termina TODA la generación, así que un modelo que va bien
+// pero lento (medido en vivo: flashx tarda 279s en generar 16k tokens de salida sobre 63k de
+// entrada; sin streaming ni eso alcanzó en 300s) es indistinguible de uno colgado y lo mata el
+// timeout total (130s primario / 75s respaldos). Con `idleMs` la llamada se hace en STREAMING y se
+// entrega el MISMO objeto que una llamada normal (choices[0].message.content, finish_reason, usage),
+// pero el corte es por INACTIVIDAD (idleMs sin ningún chunk) más un tope total opcional (capMs).
+// Un modelo que avanza no se corta; uno colgado se detecta en idleMs en vez de en el timeout total.
+async function completarStreaming(cfg: ProveedorTexto, params: any, sdkOpts: any, idleMs: number, capMs?: number): Promise<any> {
+  const ac = new AbortController();
+  let motivo = '';
+  let idleT: ReturnType<typeof setTimeout> | undefined;
+  const armar = () => {
+    if (idleT) clearTimeout(idleT);
+    idleT = setTimeout(() => { motivo = `stream sin datos ${Math.round(idleMs / 1000)}s`; ac.abort(); }, idleMs);
+  };
+  const capT = capMs ? setTimeout(() => { motivo = `tope total ${Math.round(capMs / 1000)}s`; ac.abort(); }, capMs) : undefined;
+  armar();
+  try {
+    const stream: any = await clienteProveedor(cfg).chat.completions.create(
+      { ...cuerpoPara(cfg, params), stream: true, stream_options: { include_usage: true } },
+      { ...sdkOpts, signal: ac.signal },
+    );
+    let content = '';
+    let finish: string | null = null;
+    let usage: any;
+    for await (const ch of stream) {
+      armar();
+      const d = ch?.choices?.[0];
+      if (d?.delta?.content) content += d.delta.content;
+      if (d?.finish_reason) finish = d.finish_reason;
+      if (ch?.usage) usage = ch.usage;
+    }
+    return { choices: [{ message: { role: 'assistant', content }, finish_reason: finish }], usage };
+  } catch (e: any) {
+    // El abort del SDK llega como "Request was aborted." sin status; se re-etiqueta como timeout
+    // para que esTimeoutIA lo trate igual (cero reintentos del mismo modelo, siguiente eslabón).
+    if (ac.signal.aborted) throw Object.assign(new Error(`timeout: ${motivo || 'abortado'}`), { code: 'ETIMEDOUT' });
+    throw e;
+  } finally {
+    if (idleT) clearTimeout(idleT);
+    if (capT) clearTimeout(capT);
+  }
+}
+
 // Llama a UN proveedor con reintentos ante transitorios (backoff). Saldo agotado (1113) y
 // errores permanentes (400/401/403) NO se reintentan: se propagan para que el caller decida.
 async function intentarProveedor(cfg: ProveedorTexto, params: any, reqOpts: any, respaldo: boolean): Promise<any> {
+  const { idleMs, capMs, ...sdkOpts } = reqOpts ?? {};
   const ESPERAS = [0, 2_000, 6_000]; // hasta 3 intentos por proveedor (429/503/red — errores rápidos)
   let ultimo: any;
   for (let i = 0; i < ESPERAS.length; i++) {
     if (i > 0) await sleep(ESPERAS[i]);
     try {
       const t0 = Date.now();
-      const r = await clienteProveedor(cfg).chat.completions.create(cuerpoPara(cfg, params), reqOpts);
+      const r = idleMs
+        ? await completarStreaming(cfg, params, sdkOpts, idleMs, capMs)
+        : await clienteProveedor(cfg).chat.completions.create(cuerpoPara(cfg, params), reqOpts);
       logTelemetriaIA(cfg.model, Date.now() - t0, (r as any).usage, respaldo);
       return r;
     } catch (e: any) {
@@ -457,6 +505,7 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
       const esOtroProveedor = keyEnvActivo != null && cfg.keyEnv !== keyEnvActivo;
       const propio = reqOpts?.timeout ?? queda;
       opts = { ...(reqOpts || {}), timeout: esOtroProveedor ? queda : Math.min(propio, queda) };
+      if (reqOpts?.idleMs) opts.capMs = Math.min(reqOpts.capMs ?? queda, queda);
     }
     try { return await intentarProveedor(cfg, params, opts, true); }
     catch (e: any) {
@@ -494,15 +543,23 @@ async function intentarCadena(chain: ProveedorTexto[], params: any, reqOpts: any
 // para no romper el caller — mejor GLM que un error de "proveedor sin key" en una función que no
 // lo espera. La cadena de respaldo se arma igual a partir de ese proveedor (cfgTextoRespaldos ya
 // sabe deduplicar contra el activo), así que un fallo de Kimi cae a DeepSeek/GLM en vez de morir.
-export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string; proveedorPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number } = {}) {
+export async function crearChatIA(params: any, opts: { timeoutMs?: number; timeoutMsPrimario?: number; sinRespaldo?: boolean; soloGlm?: boolean; modeloPreferido?: string; proveedorPreferido?: string; deepSeekUltimoRecurso?: boolean; geminiUltimoRecurso?: boolean; deadlineMs?: number; streamIdleMs?: number; streamCapMsPrimario?: number; streamCapMs?: number } = {}) {
   const proveedorForzado = opts.proveedorPreferido ? PROVEEDORES_TEXTO[opts.proveedorPreferido] : undefined;
   const activo = proveedorForzado && process.env[proveedorForzado.keyEnv]
     ? proveedorForzado
     : opts.modeloPreferido ? { ...PROVEEDORES_TEXTO.zai, model: opts.modeloPreferido } : cfgTexto();
   const dbg = process.env.VIABILIDAD_DEBUG === '1';
   const timeoutPrimario = opts.timeoutMsPrimario ?? opts.timeoutMs;
-  const reqOptsPrimario = timeoutPrimario ? { timeout: timeoutPrimario } : undefined;
-  const reqOpts = opts.timeoutMs ? { timeout: opts.timeoutMs } : undefined;
+  // opts.streamIdleMs: la llamada va en streaming y se corta por INACTIVIDAD (ver completarStreaming);
+  // `timeout` pasa a cubrir solo la espera de las cabeceras HTTP. streamCapMsPrimario/streamCapMs
+  // son los topes TOTALES por eslabón (primario / respaldos).
+  const idle = opts.streamIdleMs ? { idleMs: opts.streamIdleMs } : {};
+  const reqOptsPrimario = (timeoutPrimario || opts.streamIdleMs)
+    ? { ...(timeoutPrimario ? { timeout: timeoutPrimario } : {}), ...idle, ...(opts.streamCapMsPrimario ? { capMs: opts.streamCapMsPrimario } : {}) }
+    : undefined;
+  const reqOpts = (opts.timeoutMs || opts.streamIdleMs)
+    ? { ...(opts.timeoutMs ? { timeout: opts.timeoutMs } : {}), ...idle, ...(opts.streamCapMs ? { capMs: opts.streamCapMs } : {}) }
+    : undefined;
   // IA_SIN_RESPALDO=1 → fuerza usar SOLO el proveedor activo (sin caer a la cadena). Útil para
   // medir/garantizar que TODO corra en un único modelo.
   const sinRespaldoGlobal = process.env.IA_SIN_RESPALDO === '1';

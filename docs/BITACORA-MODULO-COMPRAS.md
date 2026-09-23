@@ -2072,6 +2072,35 @@ cada OC en §17.3.6, pero el usuario quería abrir el documento tal cual se ve e
 `app/licitacion/[codigo]/sections/ComprasObumaBloque.tsx` (mismo helper, link en `FilaCompra`,
 bloque de acciones ya no es condicional).
 
+### 17.3.13 Pantalla a todo el ancho, ficha completa por proyecto y exportar a Excel
+
+Pedido explícito, 23-sep-2026: "necesito que me pongas todo lo que sale en los proyectos... de forma
+ordenada e intuitiva... agrégale un botón de exportar Excel y que me ocupe todo el ancho de la
+pantalla".
+
+- **Todo el ancho**: se sacó el `max-w-5xl mx-auto` que angostaba la pantalla; ahora usa el ancho
+  completo del layout (`w-full`), igual que el resto de pantallas anchas del módulo.
+- **Ficha completa por proyecto**: cada tarjeta ahora muestra, siempre visible (sin tener que
+  expandir), un grid de especificación con TODOS los campos que ya traía `ProyectoObuma` y que antes
+  quedaban sin mostrar: Folio, Cliente, Referencia, Fecha inicio, Presupuesto, Costo, Precio neto,
+  Facturado (ficha del Proyecto en Obuma), Gasto en OC, Facturado real (cruce de facturas), cantidad
+  de OC, cantidad de facturas, y la lista completa de centros de costo asociados (antes solo se veía
+  el primero cuando no había ficha real).
+- **Exportar Excel**: botón nuevo junto a "Actualizar". Nueva ruta `GET
+  /api/compras/proyectos-obuma/exportar` (mismos permisos que la pantalla, reusa
+  `listarProyectosObuma()` con su caché de 5 min) que arma un `.xlsx` con `exceljs`: hoja "Proyectos"
+  (una fila por proyecto/centro de costo con todos los campos de arriba) y hoja "Órdenes de compra"
+  (una fila por OC de cada proyecto, con link real `HYPERLINK` al documento en Obuma —
+  `iframe-main.php?id={compra_oc_id}`, confirmado en §17.3.12).
+
+**Verificado:** `npx tsc --noEmit` limpio, `npm run test:viabilidad` 1025/1025. **No se probó en
+navegador** — no había sesión iniciada en el navegador de la herramienta y no corresponde inventar
+credenciales; queda pendiente que el usuario lo mire en vivo.
+
+**Nuevos:** `app/api/compras/proyectos-obuma/exportar/route.ts`.
+**Modificados:** `app/compras/proyectos/page.tsx` (ancho completo, componente `Campo`, grid de
+especificación por tarjeta, botón y función `exportar`).
+
 ### 17.4 Pendiente real, sin resolver hoy
 
 **Superado por §17.3.10, mismo día.** El acceso a v2.0 (`OBUMA_ACCESS_URL`) sigue sin configurarse
