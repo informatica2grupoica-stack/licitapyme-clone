@@ -30,6 +30,8 @@ import { Oportunidad } from '@/app/types/search.types';
 import { TIPO_LICITACION_MAP, MONEDA_LABEL_MAP } from '@/app/types/mercado-publico.types';
 import { RecorridoNegocio } from './RecorridoNegocio';
 import { GestionAside } from './GestionAside';
+import { MenuNegocioLateral } from '@/app/components/MenuNegocioLateral';
+import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { InformacionComercialSection } from './InformacionComercialSection';
 import { CosteoEditorCard } from './CosteoEditorCard';
 import { SelectorLineasOferta } from './SelectorLineasOferta';
@@ -171,7 +173,7 @@ interface AnalisisIA {
   actualizado: string;
 }
 
-type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'comentarios' | 'costeo' | 'comercial' | 'compras';
+type Seccion = 'resumen' | 'resultado' | 'viabilidad' | 'criterios' | 'fechas' | 'items' | 'documentos' | 'analisis' | 'preguntas' | 'competencia' | 'comentarios' | 'costeo' | 'comercial' | 'compras';
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmt(n: number | null | undefined): string {
@@ -1073,7 +1075,7 @@ function DetalleContent() {
   // La bandeja de aprobación transversal (/aprobaciones) deep-linkea acá con ?seccion=comercial
   // para llevar directo a la pestaña Auditor Técnico. Cualquier valor fuera del catálogo cae al
   // default en vez de dejar la pantalla en un estado inválido.
-  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'comentarios', 'costeo', 'comercial', 'compras']);
+  const SECCIONES_VALIDAS = new Set<Seccion>(['resumen', 'resultado', 'viabilidad', 'criterios', 'fechas', 'items', 'documentos', 'analisis', 'preguntas', 'competencia', 'comentarios', 'costeo', 'comercial', 'compras']);
   const seccionInicial = searchParams.get('seccion') as Seccion | null;
   const [seccion, setSeccion]       = useState<Seccion>(seccionInicial && seccionInicial !== 'compras' && SECCIONES_VALIDAS.has(seccionInicial) ? seccionInicial : 'resumen');
 
@@ -1351,6 +1353,7 @@ function DetalleContent() {
     { key: 'items',        label: 'Líneas',              count: (analisisIA?.especificacionesTecnicas?.length || licitacion?.Items?.length || null) },
     { key: 'fechas',       label: 'Fechas',             count: licitacion ? Object.entries(licitacion).filter(([k,v]) => k.startsWith('Fecha') && v).length : null },
     { key: 'preguntas',    label: 'Preguntas',          count: null },
+    { key: 'competencia',  label: 'Competencia',        count: null },
     { key: 'comentarios',  label: 'Comentarios',        count: null },
     // "Costeo" va justo ARRIBA de "Auditor Técnico" (pedido del usuario, 02-sep-2026): es el
     // paso previo — se arma el precio acá, y el Auditor Técnico (Motor Comercial) ya lo ve
@@ -1371,45 +1374,14 @@ function DetalleContent() {
     ]}>
       <div className="flex h-full overflow-hidden">
 
-        {/* ── LEFT NAV ───────────────────────────────────────────────── */}
-        <aside className="hidden lg:flex flex-col w-44 border-r border-zinc-200/80 bg-white flex-shrink-0 overflow-y-auto">
-          <div className="px-3 pt-4 pb-3">
-            <Link href="/negocios" className="flex items-center gap-1.5 text-[12px] text-zinc-500 hover:text-zinc-900 transition-colors font-medium">
-              <ArrowLeft size={13} /> Volver
-            </Link>
-          </div>
-
-          <div className="px-3 pb-2">
-            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest px-2 pb-1.5">
-              El negocio
-            </p>
-            <nav className="space-y-0.5">
-              {NAV_SECTIONS.map(s => (
-                <button
-                  key={s.key}
-                  onClick={() => setSeccion(s.key)}
-                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] transition-all ${
-                    seccion === s.key
-                      ? 'bg-indigo-50 text-indigo-700 font-bold'
-                      : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 font-medium'
-                  }`}
-                >
-                  <span>{s.label}</span>
-                  {s.count != null && s.count > 0 && (
-                    // Rojo cuando hay algo esperando al asesor: el badge es el aviso de que
-                    // hay trabajo detenido esperando su visto bueno.
-                    <span className={`text-[10px] px-1.5 py-px rounded-full font-bold ${
-                      s.alerta ? 'bg-rose-500 text-white'
-                        : seccion === s.key ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-400'
-                    }`}>
-                      {loadingLic ? '…' : s.count}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
-          </div>
-        </aside>
+        {/* ── LEFT NAV — menú único compartido con /licitacion/[codigo] ── */}
+        <MenuNegocioLateral
+          items={NAV_SECTIONS.map(x => ({ ...x }))}
+          activa={seccion}
+          onSelect={k => setSeccion(k as Seccion)}
+          volverHref="/negocios"
+          cargandoContadores={loadingLic}
+        />
 
         {/* ── MAIN CONTENT ───────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto min-w-0">
@@ -1548,6 +1520,9 @@ function DetalleContent() {
             )}
             {seccion === 'preguntas' && (
               <PreguntasSection codigoDecoded={negocio.licitacion_codigo} mpUrl={mpUrl} />
+            )}
+            {seccion === 'competencia' && (
+              <OfertasCompetencia codigo={negocio.licitacion_codigo} isAdmin={isAdmin} />
             )}
             {seccion === 'comentarios' && (
               <ComentariosSection

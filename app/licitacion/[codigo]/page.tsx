@@ -28,6 +28,7 @@ import { InteligenciaSection } from './sections/InteligenciaSection';
 import OfertasCompetencia from '@/app/components/OfertasCompetencia';
 import { ResultadoSection } from './sections/ResultadoSection';
 import { Resaltar } from '@/app/components/Resaltar';
+import { MenuNegocioLateral, ordenarMenuNegocio } from '@/app/components/MenuNegocioLateral';
 
 // Menú unificado con /negocios/[id] (mismo aside angosto, mismo orden de tabs).
 // 'inteligencia' NO aparece en NAV_SECTIONS (queda oculta, como en negocio): solo se
@@ -259,6 +260,15 @@ export default function LicitacionDetallePage() {
     finally { setNegocioGestionCargado(true); }
   }, [codigoDecoded]);
 
+  // Una licitación que ya es negocio vive en /negocios/[id] (menú padre único): acá solo se
+  // atiende a las que todavía no están asignadas.
+  useEffect(() => {
+    if (!negocioGestion?.id) return;
+    const s = searchParams.get('seccion');
+    const q = s ? `?seccion=${encodeURIComponent(s === 'inteligencia' ? 'analisis' : s)}` : '';
+    router.replace(`/negocios/${negocioGestion.id}${q}`);
+  }, [negocioGestion?.id, searchParams, router]);
+
   // Historial (solo lectura) para cuando la licitación AÚN NO está asignada — GestionAside trae
   // el suyo propio una vez asignada, así que esto solo importa en el caso "sin negocio".
   useEffect(() => {
@@ -478,7 +488,7 @@ export default function LicitacionDetallePage() {
     { key: 'documentos',  label: 'Documentos',  count: documentosCache.length || null },
     { key: 'viabilidad',  label: 'Viabilidad',  count: null },
     { key: 'criterios',   label: 'Criterios',   count: licitacion.criterios_evaluacion?.length || analisisIA?.criteriosEvaluacion?.length || null },
-    { key: 'items',       label: 'Ítems',       count: licitacion.items?.length || null },
+    { key: 'items',       label: 'Líneas',      count: licitacion.items?.length || null },
     { key: 'fechas',      label: 'Fechas',      count: fechasAdic.length || null },
     { key: 'preguntas',   label: 'Preguntas',   count: null },
     // Competencia (F.2): las ofertas de los demás oferentes y sus anexos, leídas de la apertura.
@@ -496,42 +506,13 @@ export default function LicitacionDetallePage() {
     ]}>
       <div className="flex h-full overflow-hidden">
 
-        {/* ── LEFT NAV — mismo shell que /negocios/[id] ─────────────────── */}
-        <aside className="hidden lg:flex flex-col w-44 border-r border-zinc-200/80 bg-white flex-shrink-0 overflow-y-auto">
-          <div className="px-3 pt-4 pb-3">
-            <button onClick={() => router.back()} className="flex items-center gap-1.5 text-[12px] text-zinc-500 hover:text-zinc-900 transition-colors font-medium">
-              <ArrowLeft size={13} /> Volver
-            </button>
-          </div>
-
-          <div className="px-3 pb-2">
-            <p className="text-[10px] font-black text-zinc-400 uppercase tracking-widest px-2 pb-1.5">
-              La licitación
-            </p>
-            <nav className="space-y-0.5">
-              {NAV_SECTIONS.map(s => (
-                <button
-                  key={s.key}
-                  onClick={() => setActiveSection(s.key)}
-                  className={`w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[12.5px] transition-all ${
-                    activeSection === s.key
-                      ? 'bg-indigo-50 text-indigo-700 font-bold'
-                      : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50 font-medium'
-                  }`}
-                >
-                  <span>{s.label}</span>
-                  {s.count != null && s.count > 0 && (
-                    <span className={`text-[10px] px-1.5 py-px rounded-full font-bold ${
-                      activeSection === s.key ? 'bg-indigo-100 text-indigo-600' : 'bg-zinc-100 text-zinc-400'
-                    }`}>
-                      {s.count}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </nav>
-          </div>
-        </aside>
+        {/* ── LEFT NAV — menú único compartido con /negocios/[id] ── */}
+        <MenuNegocioLateral
+          items={ordenarMenuNegocio(NAV_SECTIONS)}
+          activa={activeSection}
+          onSelect={k => setActiveSection(k as SeccionLicitacion)}
+          onVolver={() => router.back()}
+        />
 
         {/* ── MAIN CONTENT ─────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto min-w-0">
