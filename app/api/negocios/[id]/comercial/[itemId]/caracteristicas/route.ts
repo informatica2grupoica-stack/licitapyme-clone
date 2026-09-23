@@ -160,7 +160,7 @@ async function leerCaracteristicas(itemId: number) {
  * solo" no significa "sin control", solo que el control por defecto es revisar la excepción, no
  * cada línea perfecta.
  */
-async function intentarAutoTransicion(item: any, negocioId: number, userId: number, nombreActor: string): Promise<void> {
+export async function intentarAutoTransicion(item: any, negocioId: number, userId: number, nombreActor: string): Promise<void> {
   const [rows] = await pool.query(
     `SELECT COUNT(*) AS total, SUM(veredicto IS NULL) AS sin_evaluar, SUM(pendiente_confirmacion_proveedor = 1) AS pendientes,
             SUM(veredicto = 'NO_CUMPLE') AS no_cumplen, SUM(veredicto = 'CUMPLE_CON_COMPLEMENTO') AS con_complemento

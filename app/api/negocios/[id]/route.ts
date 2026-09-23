@@ -83,7 +83,12 @@ export async function GET(request: NextRequest, { params }: Params) {
   try {
     // Tabla no existe todavía
     try { await pool.query('SELECT 1 FROM negocios LIMIT 1'); }
-    catch { return NextResponse.json({ error: 'Ejecuta la migración migration-3-negocios.sql en tu base de datos' }, { status: 503 }); }
+    catch (e: any) {
+      // Solo "la tabla no existe" es una migración pendiente; un corte de conexión no.
+      if (e?.code === 'ER_NO_SUCH_TABLE') return NextResponse.json({ error: 'Ejecuta la migración migration-3-negocios.sql en tu base de datos' }, { status: 503 });
+      console.error('[negocios][GET] base de datos no disponible:', String(e));
+      return NextResponse.json({ error: 'La base de datos no respondió. Reintenta en unos segundos.' }, { status: 503 });
+    }
 
     const [rows] = await pool.query(
       `SELECT n.*,

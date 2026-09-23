@@ -639,6 +639,21 @@ export async function GET(request: NextRequest, { params }: Params) {
       items = await leerItems(negocio.id);
     }
 
+    // AUTO-SANACIÓN DE LÍNEAS RESUELTAS (23-sep-2026, 611669-17-LE26). Una línea técnica con todas
+    // sus características resueltas no puede quedar en PENDIENTE: o se auto-aprueba (todo CUMPLE)
+    // o pasa a CARGADO para que el asesor la apruebe. Un camino que escribía veredictos sin
+    // reevaluar la línea la dejó atascada, sin botón para aprobarla.
+    if (activo) {
+      const atascadas = items.filter((i: any) => i.tipo === 'linea_tecnica' && i.estado === 'PENDIENTE');
+      if (atascadas.length > 0) {
+        try {
+          const { intentarAutoTransicion } = await import('./[itemId]/caracteristicas/route');
+          for (const it of atascadas) await intentarAutoTransicion(it, negocio.id, userId, 'Sistema');
+          items = await leerItems(negocio.id);
+        } catch (e) { console.error('[comercial][GET] auto-sanación de líneas falló:', String(e)); }
+      }
+    }
+
     // ── Control de cambios del foro (Fase 6, spec §11) ──────────────────────────────
     // Solo lee el CACHÉ ya scrapeado por el cron (preguntas_respuestas_cache) — nunca abre un
     // navegador real en el camino de una petición GET normal. Si el foro cambió desde la última
