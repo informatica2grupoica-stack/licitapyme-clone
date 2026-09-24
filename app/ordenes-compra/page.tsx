@@ -320,7 +320,8 @@ function FilaOrden({ oc, onVer, onEnviarExperiencia }: { oc: OrdenCompra; onVer:
 export default function OrdenesCompraPage() {
   const { usuario, cargando: cargandoSesion } = useSession();
   const router = useRouter();
-  const puedeVer = usuario?.rol === 'admin';
+  // Admin, o perfil de Compras (permiso compras / compras_todo).
+  const puedeVer = usuario?.rol === 'admin' || !!usuario?.permisos?.compras || !!usuario?.permisos?.compras_todo;
 
   const [ordenes, setOrdenes] = useState<OrdenCompra[]>([]);
   const [total, setTotal] = useState(0);

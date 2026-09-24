@@ -24,6 +24,7 @@ interface Permisos {
   compras_administracion?: boolean;
   compras_bodega?: boolean;
   compras_todo?: boolean;
+  solo_compras?: boolean;
 }
 
 interface UsuarioAdmin {
@@ -71,6 +72,9 @@ const CATALOGO_PERMISOS: { key: keyof Permisos; label: string; desc: string; cat
   // "antes se podía ver [Compras] por todos los admin, ahora solo Asesor y yo") — ver el comentario
   // largo en app/lib/api-auth.ts. Por eso se muestra SIEMPRE, incluso cuando el usuario es admin.
   { key: 'compras_todo',        label: 'Compras — ver y operar TODO el módulo', desc: 'Sin este permiso, ni siquiera un admin ve el módulo de Compras completo: solo entra si además es el encargado asignado de un negocio puntual, o tiene compras/aprobar_comercial por separado.', categoria: 'comercial' },
+  // Restricción, no privilegio: encierra al perfil en los módulos de Compras. No da acceso a
+  // negocios por sí solo — se combina con los permisos de Compras de arriba.
+  { key: 'solo_compras',        label: 'Perfil de Compras (solo ve módulos de Compras)', desc: 'Su menú queda limitado a Compras, Proyectos (Obuma), Proveedores, Fleteros, Órdenes de compra y Entregas, más el detalle de las licitaciones ganadas para tener la información. Actívalo junto con los permisos de Compras.', categoria: 'comercial' },
 ];
 
 const CLAVE_COMPRAS_TODO: keyof Permisos = 'compras_todo';

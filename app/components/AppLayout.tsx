@@ -110,6 +110,11 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+// Perfil de Compras: ítems del menú visibles y prefijos de página permitidos. Las páginas de
+// detalle de negocio/licitación quedan permitidas (van enlazadas desde Compras) pero sin ítem propio.
+const HREFS_SOLO_COMPRAS = ['/compras', '/compras/proyectos', '/compras/proveedores', '/logistica/fleteros', '/ordenes-compra', '/entregas', '/mis-reportes'];
+const PAGINAS_SOLO_COMPRAS = ['/compras', '/logistica', '/ordenes-compra', '/entregas', '/perfil', '/mis-reportes', '/negocios/', '/licitacion/'];
+
 const AVATAR_BG: Record<string, string> = {
   indigo: 'bg-indigo-600', violet: 'bg-violet-600', cyan: 'bg-cyan-600',
   teal: 'bg-teal-600', grape: 'bg-purple-600', blue: 'bg-blue-600',
@@ -345,9 +350,13 @@ function Sidebar({ mobileOpen, onCloseMobile }: { mobileOpen: boolean; onCloseMo
     usuario?.rol === 'admin' || !!usuario?.permisos?.entrega_proyectos || entregas.total > 0;
 
   const esExterno = usuario?.rol === 'externo';
+  // Perfil de Compras (permiso solo_compras): menú limitado a los módulos de Compras. El admin
+  // nunca queda restringido (su solo_compras es siempre false, ver PERMISOS_ADMIN).
+  const soloCompras = usuario?.rol !== 'admin' && !!usuario?.permisos?.solo_compras;
   const visibleGroups = NAV_GROUPS.map(group => ({
     ...group,
     items: group.items.filter(i => {
+      if (soloCompras) return HREFS_SOLO_COMPRAS.includes(i.href);
       if (esExterno) return i.href === '/negocios' || i.href === '/mis-reportes'; // externo: "Mis licitaciones" + sus reportes
       if (!i.adminOnly || usuario?.rol === 'admin') return true;
       if (i.href === '/radar' && usuario?.permisos?.acceso_radar) return true;
@@ -686,6 +695,13 @@ export function AppLayout({ children, breadcrumb }: AppLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [avisoPerfilCerrado, setAvisoPerfilCerrado] = useState(false);
+
+  // Perfil de Compras: cualquier página fuera de su lista lo devuelve a Compras. Es solo de
+  // navegación: los datos siguen protegidos por los chequeos de cada API.
+  useEffect(() => {
+    if (!usuario || usuario.rol === 'admin' || !usuario.permisos?.solo_compras) return;
+    if (!PAGINAS_SOLO_COMPRAS.some(p => pathname === p || pathname.startsWith(p.endsWith('/') ? p : p + '/'))) router.replace('/compras');
+  }, [usuario, pathname, router]);
 
   // Atajo ⌘K / Ctrl+K → buscador (solo admin, que es quien tiene acceso a "/").
   // Hace real el hint que muestra la búsqueda rápida del sidebar.

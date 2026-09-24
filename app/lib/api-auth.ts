@@ -129,12 +129,13 @@ export async function puedeVerLicitacion(req: NextRequest, codigo: string): Prom
 //                       sistema. Los perfiles operativos (compras/compras_administracion/
 //                       compras_bodega/aprobar_comercial, o ser el encargado asignado a un negocio
 //                       puntual) siguen funcionando exactamente igual, sean o no admin.
-export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo';
+export type Permiso = 'ver_otros_negocios' | 'acceso_radar' | 'comentar_viabilidad' | 'exportar' | 'alertas_anexos' | 'aprobar_comercial' | 'entrega_proyectos' | 'viabilidad_automatica' | 'repartir_puente' | 'compras' | 'compras_administracion' | 'compras_bodega' | 'compras_todo' | 'solo_compras';
 export type Permisos = Partial<Record<Permiso, boolean>>;
 const PERMISOS_ADMIN: Record<Permiso, boolean> = {
   ver_otros_negocios: true, acceso_radar: true, comentar_viabilidad: true, exportar: true, alertas_anexos: true,
   aprobar_comercial: true, entrega_proyectos: true, viabilidad_automatica: true, repartir_puente: true, compras: true,
   compras_administracion: true, compras_bodega: true,
+  solo_compras: false, // restricción, no privilegio: un admin nunca queda encerrado en Compras.
   compras_todo: false, // OJO: distinto de todo lo demás en este objeto — ver permisosDeUsuario, se sobreescribe con el dato real incluso para admin.
 };
 

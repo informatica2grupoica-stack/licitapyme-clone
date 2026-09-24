@@ -20,6 +20,7 @@ import { parseJsonIA } from '@/app/lib/json-ia';
 import { getMercadoPublicoClient } from '@/app/lib/mercado-publico';
 import { extractTipoFromCodigo } from '@/app/lib/tipos-licitacion';
 import { crearChatIA, IA_TEXT_PROVIDER, MODELO_TEXTO, conAcumuladorCostoIA, costoAcumuladoActual } from '@/app/lib/gemini';
+import { leerClausulaAdjudicacion } from '@/app/lib/clausulas-adjudicacion';
 import { parsearPlanillaCosteo, detectarLineasFormulario, detectarOfertaTotalUnico, detectarLenguajePorLinea, detectarParticipacionParcialPorLinea, detectarPresupuestoPorLinea, detectarOfertaSubconjuntoItems, detectarCuadroEconomicoPorLinea, detectarLineasProductoTecnicas, extraerSeccionesLineaProducto, detectarFormulariosEconomicosPorArchivo, detectarTipoAdjudicacionMultiple, detectarLicitacionTipoMultiple, extraerPresupuestoPorLineaTabla, extraerListadoCanonicoBases, decidirReemplazoPorCanonica, esFilaNoProducto } from '@/app/lib/planilla-costeo-parser';
 
 // Re-export para no romper a quien lo importaba desde acá (el filtro vive ahora en
@@ -1008,7 +1009,10 @@ export function compactarTextoVertical(texto: string): string {
 function recortarDocsParaAnalisis(leidos: DocLeido[], docFuentePlanilla?: string): { texto: string; recortadoDocs: number; truncadoGlobal: boolean } {
   let recortadoDocs = 0;
   const partes = leidos.map(d => {
-    const protegido = prioridadDoc(d.nombre, d.categoria) <= 3 || d.nombre === docFuentePlanilla;
+    // La planilla puede venir de VARIOS formularios unidos ("A + B", ver parsearPlanillaCosteo):
+    // todos son fuente y ninguno se recorta.
+    const protegido = prioridadDoc(d.nombre, d.categoria) <= 3 || d.nombre === docFuentePlanilla
+      || (docFuentePlanilla ?? '').split(' + ').includes(d.nombre);
     let txt = compactarTextoVertical(d.texto);
     if (txt.length !== d.texto.length) {
       console.log(`[viabilidad-ia] "${d.nombre}": texto vertical (una palabra por línea) recompactado para el prompt: ${d.texto.length} → ${txt.length} chars.`);
@@ -2122,6 +2126,16 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
     adj.evidencia = 'un solo ítem/línea detectado en el manifiesto — no puede haber adjudicación por línea con una sola línea, es GLOBAL por definición';
   } else {
   const det = veredictoAdjudicacionDeterminista(ofertaSubconjunto, formulariosPorArchivo, participacionParcialPorLinea, presupuestoPorLinea, tipoAdjudicacionMultiple, licitacionTipoMultiple);
+  // LECTOR DE CLÁUSULA CON CITA VERIFICADA (24-sep-2026, caso 1171317-88-LE26): solo se consulta
+  // cuando los detectores regex no concluyeron. Recorre el texto COMPLETO de todos los documentos
+  // y exige una cita literal; con tope de 90 s para no comerse el plazo del análisis.
+  const clausula = det ? null : await leerClausulaAdjudicacion(
+    fuentes.map(d => ({ nombre: d.nombre, texto: d.texto })),
+    (s, u) => Promise.race([
+      llamarGlmJSON(s, u),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error('timeout lector de cláusula')), 90_000)),
+    ]),
+  );
   if (det) {
     const comoDet = det.tipo; // 'GLOBAL' | 'POR_LINEAS' — ya viene en el vocabulario de adjudicación
     const comoLLM = String(adj.como_se_adjudica || '').toUpperCase();
@@ -2132,6 +2146,13 @@ async function _analizarViabilidadIAV3Intento(codigo: string, onFase?: (fase: Fa
       adj.estado = 'DETERMINADA';
       adj.evidencia = adj.evidencia ? `${adj.evidencia} [ajuste por evidencia de adjudicación: ${det.motivo}]` : `derivado de evidencia de adjudicación: ${det.motivo}`;
     }
+  } else if (clausula?.verificada && clausula.modo === 'POR_LINEAS') {
+    // Evidencia POSITIVA y verificable: el modelo citó una frase que existe literalmente en las bases.
+    console.log(`[viabilidad-ia-v3] ${codigo}: adjudicación POR_LINEAS por cláusula citada y verificada en "${clausula.documento}": "${clausula.cita?.slice(0, 120)}"`);
+    adj.como_se_adjudica = 'POR_LINEAS';
+    adj.estado = 'DETERMINADA';
+    adj.fuente = clausula.documento;
+    adj.evidencia = `cláusula verificada en ${clausula.documento}: "${clausula.cita}"`;
   } else {
     // RED DE SEGURIDAD (doctrina del proyecto: "por_linea exige EVIDENCIA POSITIVA"). Cuando no hay
     // evidencia de ADJUDICACIÓN concluyente y el LLM eligió POR_LINEAS SIN respaldo objetivo, NO le

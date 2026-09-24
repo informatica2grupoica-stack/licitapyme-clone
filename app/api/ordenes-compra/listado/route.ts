@@ -4,6 +4,7 @@
 // esto pagina sobre toda la tabla — pensado para /ordenes-compra en el sidebar (GESTIÓN).
 import { NextRequest, NextResponse } from 'next/server';
 import { listarOrdenesCompra } from '@/app/lib/ordenes-compra';
+import { permisosDeUsuario } from '@/app/lib/api-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,7 +18,10 @@ function getUser(req: NextRequest) {
 export async function GET(request: NextRequest) {
   const { id: userId, rol } = getUser(request);
   if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
-  if (rol !== 'admin') return NextResponse.json({ error: 'Solo administradores.' }, { status: 403 });
+  if (rol !== 'admin') {
+    const p = await permisosDeUsuario(userId, rol);
+    if (!p.compras && !p.compras_todo) return NextResponse.json({ error: 'Sin acceso a las órdenes de compra.' }, { status: 403 });
+  }
 
   const sp = request.nextUrl.searchParams;
   try {
