@@ -13,6 +13,8 @@
 // usa TIMESTAMPDIFF, mismo criterio que el resto del proyecto (ver app/lib/tz.ts).
 import pool from '@/app/lib/db';
 import { ahoraChileSQL } from '@/app/lib/tz';
+import { resultadosParaDashboard } from '@/app/lib/compras-costo-real';
+import { resumirResultados, type ResumenResultados } from '@/app/lib/costo-real-consolidado';
 
 function horasEntre(a: string | null, b: string | null): number | null {
   if (!a || !b) return null;
@@ -49,6 +51,8 @@ export interface DashboardCompras {
   slaAsignacion: { promedioHoras: number | null; automaticas: number; manuales: number; total: number };
   cuellosBotella: CuelloBotellaTarea[];
   ranking: RankingEncargado[];
+  /** Resultado económico (margen real vs estimado, desvíos) — null si no se pudo calcular. */
+  resultados: ResumenResultados | null;
   generadoAt: string;
 }
 
@@ -166,6 +170,13 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
     .map(([id, e]) => ({ id, nombre: e.nombre, tareasCerradas: e.cerradas, tareasVencidasAbiertas: e.vencidasAbiertas, horasPromedioCierre: promedio(e.horas) }))
     .sort((a, b) => b.tareasCerradas - a.tareasCerradas);
 
+  // Resultado económico: el costo real que Compras carga por fin llega a un indicador. Si falla no
+  // tumba el resto del dashboard (un negocio con datos raros no debe esconder los cuellos de botella).
+  let resultados: ResumenResultados | null = null;
+  try {
+    resultados = resumirResultados(await resultadosParaDashboard());
+  } catch (e) { console.error('[compras-dashboard] resultados:', String(e).slice(0, 200)); }
+
   return {
     negociosActivos: Number(negRow?.total || 0),
     negociosUrgentes: Number(negRow?.urgentes || 0),
@@ -178,6 +189,7 @@ export async function obtenerDashboardCompras(): Promise<DashboardCompras> {
     slaAsignacion: { promedioHoras: promedio(horasAsignacion), automaticas, manuales, total: horasAsignacion.length },
     cuellosBotella,
     ranking,
+    resultados,
     generadoAt: ahora,
   };
 }

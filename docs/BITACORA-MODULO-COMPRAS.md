@@ -2111,3 +2111,54 @@ Lo único que sigue pendiente de verdad: **confirmar que el usuario borró `OBUM
 `OBUMA_WEB_CLAVE`** de los `.env` (notebook y VPS) — ya no se usan, y esa clave personal de Obuma
 quedó expuesta en el historial de este chat en algún momento del día (ver aviso de seguridad en
 §17.3.8).
+
+## 18. Sesión 18 (24-sep-2026): costo real de Compras — gasto extra, consolidado, cierre y desvíos
+
+Pedido: el comprador agregaba un ítem al costeo, le ponía costo real y el comparativo REAL no se
+movía (en un ítem que ya existía sí). Se analizó el módulo completo y se hicieron las 14 mejoras.
+
+**Causas del bug.** (a) el costo real de una fila exigía `cantidad`, pero el contador de avance no:
+la fila "contaba" y sumaba $0; (b) un ítem agregado se trataba como si se vendiera (inflaba venta y
+estimado); (c) el link se validaba distinto en cliente (acepta `tienda.cl/p/1`) y servidor (exigía `https://`).
+
+**Cambios.**
+- Ítems agregados por Compras = **gasto extra**: suman solo al costo real (`gastosAdicionales`), no a
+  venta ni estimado; sin cantidad cuentan 1; sin precio de mercado ni margen (el servidor los descarta).
+  Quedan fuera del Motor Comercial, del Anexo Económico y de "Productos y cobertura"
+  (`editorAFilasCosteo`). Regla única en `costeo-comparativo.ts` (`entradaComparativoDeFilas`).
+- Link: mismo criterio en ambos lados; sin protocolo se guarda con `https://`.
+- Costo real consolidado (`costo-real-consolidado.ts` + `compras-costo-real.ts`, ruta
+  `/api/compras/[negocioId]/costo-real`, tarjeta `CostoRealCard`): costeo + gastos extra + Gastos
+  registrados + Importación. Obuma es CONTRASTE, no se suma. Alerta si difiere >10% (solo con el costeo completo).
+- Cierre con resultado final: `compras_cierre_resultado` (**migration-126**). Sin costo real no se cierra;
+  con ítems sin costo real exige motivo (≥10 caracteres).
+- Bitácora: el guardado de Compras registra `COMPRAS_COSTEO_ACTUALIZADO`; el cierre `COMPRAS_RESULTADO_CERRADO`.
+- Dashboard: margen real vs estimado ponderado (solo negocios con real completo) y peores desvíos.
+- Alertas de desvío: costo real >10% sobre lo cotizado o utilidad negativa, solo con el real completo
+  (en el cuadro del editor, en la tarjeta y en el dashboard).
+
+**Verificación.** 12 pruebas nuevas (`costo-real-compras.test.mts`), suite completa 1053/1053, `tsc` limpio,
+y `scripts/scratch/verif-costo-real.mts` contra la base real (49 negocios; 7 con costeo, 3 con costo real; un
+cierre real de ida y vuelta, borrado al final). **NO se probó en el navegador**: la app pide login.
+
+**Límites conocidos.** Los gastos de la tarjeta Gastos se toman como están registrados (no se sabe si son
+neto o con IVA); los de otra moneda quedan fuera. Si el mismo flete se registra en Gastos Y en Importación
+se suma dos veces: el desglose de la tarjeta permite verlo. Los ítems agregados por Compras antes de este
+cambio con "Valor c/IVA" cargado dejan de contar como venta (queda guardado pero se ignora).
+
+### 18.1 Reordenamiento de tarjetas por momento del flujo (24-sep-2026)
+
+Pedido: el reloj de entrega estaba "de los últimos". Auditoría de dónde vive cada tarjeta contra lo que
+dice su propia spec:
+
+| Tarjeta | Antes | Ahora | Por qué |
+|---|---|---|---|
+| Reloj de entrega (§15.1) | Entrega y Cierre | **Tareas** (y sigue en Entrega para seguimiento/marcar entregado) | La tarea `reloj_entrega` vence a 1 día hábil de ganado; la spec pide validarlo antes de fijarlo |
+| Modalidad de retiro (§13.2) | Compra, Importación y Logística | **Tareas** | La spec dice "se define en el primer instante" |
+| Incidencias (§9) | Entrega y Cierre | **Tareas** | La spec la define "transversal, no secuencial": puede aparecer en cualquier etapa |
+| Costo real (nueva) | Compra y Entrega, con cierre en ambas | Comparativo en Compra; **cierre solo en Entrega** | Cerrar en plena compra congelaría un costo aún en carga |
+
+Semáforo del stepper: el badge de incidencias abiertas pasó de "Entrega y Cierre" a "Tareas"; "Entrega
+y Cierre" queda en alerta solo por reloj vencido. **Sin probar en navegador** (login).
+Dejado a propósito: Documentos (bases/acta) sigue como pestaña 6 aunque se necesita al inicio; Fracaso
+(§14.6) sigue en Entrega; Gastos en Compra.

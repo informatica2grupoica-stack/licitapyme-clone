@@ -34,7 +34,7 @@ import { useCosteoFlotante, type CosteoEstadoHeredado } from '@/app/components/C
 // Cuadro comparativo (venta/costo/utilidad/margen, estimado vs real, distancia al presupuesto):
 // misma aritmética que el bloque que el comercial arma a mano al pie del Excel. Módulo sin
 // dependencias, compartido — acá NO se duplica ninguna de esas fórmulas.
-import { calcularComparativo, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
+import { calcularComparativo, entradaComparativoDeFilas, costoRealDeFila, alertasDeDesvio, recargoParaMargen, margenDeRecargo, parsearRecargo, esLinkDeProducto, IVA, type Comparativo } from '@/app/lib/costeo-comparativo';
 import { IconCalculator as Calculator, IconLoader2 as Loader2, IconPlus as Plus, IconTrash as Trash2, IconRefresh as RefreshCw, IconDeviceFloppy as Save, IconAlertTriangle as AlertTriangle, IconShieldCheck as ShieldCheck, IconSparkles as Sparkles, IconMaximize as Maximize2, IconX as X, IconExternalLink as ExternalLink, IconArrowLeft as ArrowLeft, IconLayoutBoardSplit as SplitSquareHorizontal, IconArrowMerge as Combine, IconFileSearch as FileSearch, IconLink as LinkIcon, IconPictureInPicture as PictureInPicture2, IconMinimize as Minimize2 } from '@tabler/icons-react';
 
 const MARGEN_VENTA_DEFECTO = 27;
@@ -243,11 +243,13 @@ function filasConMargenPropio(grp: GrupoEditor): number {
   return grp.filas.filter(f => Number.isFinite(f.margenVenta as number)).length;
 }
 
+// Los ítems que agrega Compras son gasto extra: no se venden, así que no entran a venta ni a costo
+// estimado (solo a "gastos adicionales" del comparativo real).
 function totalGrupo(grp: GrupoEditor, general: number) {
-  return grp.filas.reduce((s, f) => s + (calcularFormulas(f, margenDeFila(f, grp, general)).precioTotal ?? 0), 0);
+  return grp.filas.reduce((s, f) => s + (f.agregadoPorCompras ? 0 : (calcularFormulas(f, margenDeFila(f, grp, general)).precioTotal ?? 0)), 0);
 }
 function costoGrupo(grp: GrupoEditor, general: number) {
-  return grp.filas.reduce((s, f) => s + (calcularFormulas(f, margenDeFila(f, grp, general)).costoTotal ?? 0), 0);
+  return grp.filas.reduce((s, f) => s + (f.agregadoPorCompras ? 0 : (calcularFormulas(f, margenDeFila(f, grp, general)).costoTotal ?? 0)), 0);
 }
 /** ¿Qué tope (presupuesto NETO) le corresponde a ESTA hoja? En la mayoría de las licitaciones el
  *  presupuesto se publica POR LÍNEA y el global es solo la suma, así que comparar una línea contra
@@ -271,9 +273,10 @@ function presupuestoDeHoja(
   return { valor: null, fuente: null };
 }
 
-/** Costo REAL total de una fila — el que se pagó, no el cotizado. null si todavía no se cargó. */
+/** Costo REAL total de una fila — el que se pagó, no el cotizado. null si todavía no se cargó.
+ *  Misma regla que el backend (costoRealDeFila): un gasto extra sin cantidad cuenta como 1. */
 function costoRealFila(f: FilaEditor): number | null {
-  return f.cantidad != null && f.costoRealUnitario != null ? f.cantidad * f.costoRealUnitario : null;
+  return costoRealDeFila({ esExtra: !!f.agregadoPorCompras, cantidad: f.cantidad, costoRealUnitario: f.costoRealUnitario });
 }
 function costoRealGrupo(grp: GrupoEditor) {
   return grp.filas.reduce((s, f) => s + (costoRealFila(f) ?? 0), 0);
@@ -593,7 +596,11 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
           <tbody>
             <FilaCuadro etiqueta="Total neto" valor={fmtCLP(Math.round(comp.ventaNeta))} fondo={CUADRO_AZUL} titulo="La venta no cambia: es lo que se ofertó" />
             <FilaCuadro etiqueta="Total costo REAL" valor={comp.costoNetoReal != null ? fmtCLP(Math.round(comp.costoNetoReal)) : '—'} fondo={CUADRO_SALMON}
-                        titulo="Suma de cantidad × costo real unitario de las filas que ya tienen costo real cargado" />
+                        titulo="Suma de cantidad × costo real unitario de las filas que ya tienen costo real cargado, más los gastos adicionales" />
+            {comp.gastosAdicionales > 0 && (
+              <FilaCuadro etiqueta="↳ de eso, gastos adicionales" valor={fmtCLP(Math.round(comp.gastosAdicionales))} fondo={CUADRO_SALMON}
+                          titulo="Gastos extra del costeo (flete, horas extra, imprevistos). Suman al costo real pero no a la venta: no se le vendió nada extra al cliente." />
+            )}
             <FilaCuadro etiqueta="Utilidad neta REAL" valor={comp.utilidadReal != null ? fmtCLP(Math.round(comp.utilidadReal)) : '—'} fondo={CUADRO_VERDE} fuerte
                         tono={comp.utilidadReal == null ? 'neutro' : comp.utilidadReal < 0 ? 'malo' : 'ok'} />
             <FilaCuadro etiqueta="% Margen s/venta" valor={fmtPct(comp.margenReal)}
@@ -608,6 +615,11 @@ function CuadroComparativo({ comp, titulo, fuente, presupuestoManual, onPresupue
             con el que ve el usuario en la planilla (línea ~837: 'Costo unit. REAL') — antes decía
             "Costo real unit." (orden de palabras invertido) y el usuario, buscando esa columna,
             no la encontraba: reportó "no sé qué es esto, no se llena" el 03-sep-2026. */}
+        {alertasDeDesvio(comp).map(a => (
+          <p key={a.codigo} className="mt-1 mx-1 px-2 py-1 rounded border border-rose-200 bg-rose-50 text-[10.5px] font-semibold text-rose-700 leading-snug">
+            ⚠ {a.mensaje}
+          </p>
+        ))}
         <p className="text-[10px] text-zinc-400 mt-1 px-1 leading-snug">
           {comp.filasConCostoReal === 0
             ? 'Vacío porque falta el costo REAL: se llena a mano, ítem por ítem, en la columna "Costo unit. REAL" de la planilla (a la derecha de "Precio total neto") cuando compres. Mientras no la llenes, este bloque no tiene qué mostrar — no es un error.'
@@ -796,10 +808,12 @@ export function CosteoEditorCard({
     });
   };
 
-  const agregarFila = (gi: number) => {
+  // `gastoExtra`: ítem que NO se vende (flete, horas extra, un imprevisto) — suma solo al costo real.
+  // Compras siempre agrega gastos extra; el admin elige entre agregar una fila ofertada o un gasto.
+  const agregarFila = (gi: number, gastoExtra = modoCompras) => {
     setEstado(prev => {
       if (!prev) return prev;
-      const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, modoCompras ? { ...nuevaFila(g.filas.length + 1), agregadoPorCompras: true } : nuevaFila(g.filas.length + 1)] });
+      const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, gastoExtra ? { ...nuevaFila(g.filas.length + 1), cantidad: 1, agregadoPorCompras: true } : nuevaFila(g.filas.length + 1)] });
       return { ...prev, grupos };
     });
   };
@@ -881,11 +895,13 @@ export function CosteoEditorCard({
       if (!r.ok) { toast.error(d.error || 'No se pudo guardar el costeo'); return; }
       if (modoCompras) {
         // El servidor devuelve el estado ya fusionado (lo ajeno intacto): es la fuente de verdad.
+        window.dispatchEvent(new CustomEvent('costeo-guardado', { detail: { negocioId } }));
         setEstado(d.estado); setGuardado(d.estado);
         setUltimoGuardado(new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
         toast.success('Costeo de Compras guardado');
         return;
       }
+      window.dispatchEvent(new CustomEvent('costeo-guardado', { detail: { negocioId } }));
       setGuardado(estado);
       setAlertas(d.alertas || []);
       setUltimoGuardado(new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
@@ -970,17 +986,18 @@ export function CosteoEditorCard({
   // usuario, 03-sep-2026). Solo filas con algún dato, igual que editorAFilasCosteo del backend
   // (una fila recién agregada y vacía no debe contar como "ítem sin costo real").
   const cuadroDeHoja = (grp: GrupoEditor, gi: number, ancho = false) => {
-    const filas = grp.filas.filter(f => f.detalle.trim() !== '' || f.cantidad != null || f.valorConIva != null);
     const { valor, fuente } = presupuestoDeHoja(grp, grupos, presupuestosPorLinea, presupuestoPublicado);
     const recargo = margenDeGrupo(grp, margen);
-    const comp = calcularComparativo({
-      ventaNeta: totalGrupo(grp, margen),
-      costoNetoEstimado: costoGrupo(grp, margen),
-      costoNetoReal: costoRealGrupo(grp),
-      filasConCostoReal: filas.filter(f => f.costoRealUnitario != null).length,
-      filasTotales: filas.length,
-      presupuestoNeto: valor,
-    });
+    const comp = calcularComparativo(entradaComparativoDeFilas(
+      grp.filas.map(f => ({
+        esExtra: !!f.agregadoPorCompras,
+        tieneDatos: f.detalle.trim() !== '' || f.cantidad != null || f.valorConIva != null,
+        venta: calcularFormulas(f, margenDeFila(f, grp, margen)).precioTotal ?? 0,
+        costoEstimado: calcularFormulas(f, margenDeFila(f, grp, margen)).costoTotal ?? 0,
+        cantidad: f.cantidad, costoRealUnitario: f.costoRealUnitario,
+      })),
+      valor,
+    ));
     return (
       <CuadroComparativo
         key={grp.nombre}
@@ -1022,7 +1039,7 @@ export function CosteoEditorCard({
               {estado.modalidad === 'suma_alzada' ? 'Global (suma alzada)' : estado.modalidad === 'por_linea' ? `Por línea — ${grupos.length} línea(s)` : `Por categoría — ${grupos.length} grupo(s)`}
               {ultimoGuardado && ` · guardado ${ultimoGuardado}`}
               {dirty && <span className="text-amber-600 font-semibold"> · cambios sin guardar</span>}
-              {modoCompras && <span className="text-indigo-600 font-semibold"> · modo Compras: solo costo real, links e ítems nuevos</span>}
+              {modoCompras && <span className="text-indigo-600 font-semibold"> · modo Compras: costo real, links y gastos extra (no se venden, solo suman al costo real)</span>}
             </p>
           </div>
         </div>
@@ -1238,7 +1255,7 @@ export function CosteoEditorCard({
               const { costoUnitario, costoTotal, precioUnitarioSinDecimales, precioTotal } = calcularFormulas(f, margenFila);
               const bajoCosto = costoTotal != null && precioTotal != null && precioTotal < costoTotal;
               // VARIACIÓN de la fila — misma fórmula que la columna N del Excel: =(L/G)−1, en %.
-              const variacion = f.costoRealUnitario != null && costoUnitario ? (f.costoRealUnitario / costoUnitario - 1) * 100 : null;
+              const variacion = !f.agregadoPorCompras && f.costoRealUnitario != null && costoUnitario ? (f.costoRealUnitario / costoUnitario - 1) * 100 : null;
               // Compras: lo ajeno queda bloqueado; solo Costo REAL y Links se habilitan, y sus propias filas nuevas por completo.
               const baseBloq = congelado && !(modoCompras && f.agregadoPorCompras);
               const realBloq = congelado && !modoCompras;
@@ -1260,7 +1277,7 @@ export function CosteoEditorCard({
                     <input value={f.skuProveedor} onChange={e => actualizarFila(grupoActivo, fi, { skuProveedor: e.target.value })} disabled={baseBloq} className={celdaInput()} placeholder="Tienda / SKU" />
                   </td>
                   <td style={celda} className="p-0"><CeldaNumero value={f.cantidad} onChange={v => actualizarFila(grupoActivo, fi, { cantidad: v })} disabled={baseBloq} /></td>
-                  <td style={celda} className="p-0"><CeldaNumero value={f.valorConIva} onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq} /></td>
+                  <td style={celda} className="p-0" title={f.agregadoPorCompras ? 'Gasto extra de Compras: no se vende, solo tiene costo real.' : undefined}><CeldaNumero value={f.valorConIva} onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq || !!f.agregadoPorCompras} /></td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Valor c/IVA / 1.19">{fmtCLP(costoUnitario != null ? Math.round(costoUnitario) : null)}</td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Cantidad × Costo unitario">{fmtCLP(costoTotal)}</td>
                   {/* Margen de ESTA fila — la única celda de la cadena de fórmulas que se puede
@@ -1270,7 +1287,7 @@ export function CosteoEditorCard({
                       propio={Number.isFinite(f.margenVenta as number) ? (f.margenVenta as number) : null}
                       efectivo={margenFila}
                       onChange={v => actualizarFila(grupoActivo, fi, { margenVenta: v })}
-                      disabled={baseBloq}
+                      disabled={baseBloq || !!f.agregadoPorCompras}
                     />
                   </td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title={`= Costo unitario × (1 + ${margenFila}%)`}>{fmtCLP(precioUnitarioSinDecimales)}</td>
@@ -1279,8 +1296,10 @@ export function CosteoEditorCard({
                       unitario REAL se tipea cuando llega la factura/OC —es el único dato del cuadro
                       que no se deriva de nada— y las otras dos salen solas, con las MISMAS fórmulas:
                         M = L × E (costo total real)     N = (L / G) − 1 (variación contra lo cotizado) */}
-                  <td style={{ ...celda, background: f.costoRealUnitario != null ? '#fff7e6' : undefined }} className="p-0"
-                      title="Costo unitario NETO realmente pagado al proveedor. Se llena después de comprar; alimenta el bloque REAL del cuadro comparativo.">
+                  <td style={{ ...celda, background: f.costoRealUnitario != null && f.cantidad == null && !f.agregadoPorCompras ? '#fdeceb' : f.costoRealUnitario != null ? '#fff7e6' : undefined }} className="p-0"
+                      title={f.costoRealUnitario != null && f.cantidad == null && !f.agregadoPorCompras
+                        ? 'Falta la Cantidad de esta fila: sin ella el costo real no se puede sumar al comparativo. Si es un costo que no se vendió (flete, horas extra), bórrala y usa "Agregar gasto extra".'
+                        : 'Costo unitario NETO realmente pagado al proveedor. Se llena después de comprar; alimenta el bloque REAL del cuadro comparativo.'}>
                     <CeldaNumero value={f.costoRealUnitario} onChange={v => actualizarFila(grupoActivo, fi, { costoRealUnitario: v })} disabled={realBloq} />
                   </td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Cantidad × Costo unitario REAL">{fmtCLP(costoRealFila(f))}</td>
@@ -1309,6 +1328,15 @@ export function CosteoEditorCard({
                           <FileSearch size={11} />
                         </button>
                       )
+                    )}
+                    {/* Una fila sin precio de mercado que en realidad es un costo que no se vendió (flete, horas
+                        extra) se pasa a "gasto extra" en un clic, sin tener que borrarla y volver a escribirla. */}
+                    {!congelado && !modoCompras && !f.agregadoPorCompras && f.valorConIva == null && (
+                      <button onClick={() => actualizarFila(grupoActivo, fi, { agregadoPorCompras: true, margenVenta: null, cantidad: f.cantidad ?? 1 })}
+                        title="Convertir en gasto extra: un costo que no se le vendió al cliente. Suma al costo real (gastos adicionales) y deja de contar como ítem ofertado."
+                        className="opacity-0 group-hover:opacity-100 px-1 text-[9.5px] font-bold text-zinc-400 hover:text-indigo-600 transition-opacity">
+                        GASTO
+                      </button>
                     )}
                     {(!congelado || (modoCompras && f.agregadoPorCompras)) && (
                       <button onClick={() => eliminarFila(grupoActivo, fi)} className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-300 hover:text-rose-600 transition-opacity">
@@ -1345,9 +1373,18 @@ export function CosteoEditorCard({
       </div>
       {(!congelado || modoCompras) && (
         <div className="px-2 py-1.5 border-t border-[#c6c6c6] flex-shrink-0" style={{ background: '#f9fafb' }}>
-          <button onClick={() => agregarFila(grupoActivo)} className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
-            <Plus size={12} /> Agregar fila
-          </button>
+          <div className="flex items-center gap-4">
+            {!modoCompras && (
+              <button onClick={() => agregarFila(grupoActivo, false)} className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
+                <Plus size={12} /> Agregar fila
+              </button>
+            )}
+            <button onClick={() => agregarFila(grupoActivo, true)}
+              title="Un costo que no se le vendió al cliente (flete, horas extra, un imprevisto): suma al costo real y a los gastos adicionales del comparativo, pero no a la venta."
+              className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
+              <Plus size={12} /> Agregar gasto extra
+            </button>
+          </div>
         </div>
       )}
 

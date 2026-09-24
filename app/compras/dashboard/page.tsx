@@ -31,7 +31,16 @@ interface Dashboard {
   ordenesCompra: { conOc: number; sinOc: number }; ganadosPorMes: GanadoPorMes[];
   slaAsignacion: { promedioHoras: number | null; automaticas: number; manuales: number; total: number };
   cuellosBotella: CuelloBotella[]; ranking: RankingEncargado[]; generadoAt: string;
+  resultados: Resultados | null;
 }
+interface Resultados {
+  negociosConCosteo: number; negociosConReal: number; negociosRealCompleto: number; cerrados: number;
+  margenEstimadoPct: number | null; margenRealPct: number | null; utilidadRealTotal: number;
+  conUtilidadNegativa: number; conDesvio: number;
+  peoresDesvios: { negocioId: number; licitacionCodigo: string | null; variacionCostoPct: number; utilidadReal: number; alertas: string[] }[];
+}
+const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n);
+const fmtPct = (n: number | null) => n == null ? '—' : `${n.toFixed(1).replace('.', ',')}%`;
 
 const fmtHoras = (h: number | null) => {
   if (h == null) return '—';
@@ -133,6 +142,40 @@ export default function CompraDashboardPage() {
               <StatCard icon={<XCircle size={20} />} label="No realizadas (histórico)" value={dashboard.cierreLegado.noRealizadas} color="slate"
                 spec={{ mide: 'Negocios del backlog histórico marcados como "no se concretó" (no pasaron por el flujo completo de Fracaso).', calculo: 'compras_asignacion.cierre_legado = NO_REALIZADA — marca rápida para limpiar historial, distinta de una declaración de fracaso real.', fuente: 'compras_asignacion.cierre_legado' }} />
             </div>
+
+            {dashboard.resultados && (
+              <ChartCard title="Resultado económico: margen real vs estimado" icon={<ShoppingCart size={15} />}
+                accion={<MetricInfo spec={{ mide: 'Cuánto se ganó de verdad frente a lo que se cotizó, y qué negocios se pasaron de costo.', calculo: 'Solo entran los negocios con el costo real 100% cargado (un real a medio cargar infla la utilidad). Margen = Σ utilidad ÷ Σ venta neta, ponderado por monto. Costo real = costeo + gastos extra + gastos registrados + importación. Desvío = costo real más de 10% sobre lo cotizado, o utilidad negativa.', fuente: 'negocio_costeo_editor, compras_gasto, compras_embarque, compras_cierre_resultado' }} />}
+                sub={`${dashboard.resultados.negociosRealCompleto} negocio(s) con costo real completo de ${dashboard.resultados.negociosConCosteo} con costeo · ${dashboard.resultados.negociosConReal - dashboard.resultados.negociosRealCompleto} a medio cargar (no cuentan) · ${dashboard.resultados.cerrados} cerrado(s)`}>
+                {dashboard.resultados.negociosRealCompleto === 0 ? (
+                  <p className="text-[12px] text-zinc-400 py-4 text-center">Todavía no hay negocios con el costo real completo para medir el resultado.</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div><p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Margen estimado</p><p className="text-[20px] font-black text-zinc-900">{fmtPct(dashboard.resultados.margenEstimadoPct)}</p></div>
+                      <div><p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Margen real</p>
+                        <p className={`text-[20px] font-black ${(dashboard.resultados.margenRealPct ?? 0) < (dashboard.resultados.margenEstimadoPct ?? 0) ? 'text-rose-600' : 'text-emerald-600'}`}>{fmtPct(dashboard.resultados.margenRealPct)}</p></div>
+                      <div><p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Utilidad real</p><p className="text-[20px] font-black text-zinc-900">{fmtCLP(dashboard.resultados.utilidadRealTotal)}</p></div>
+                      <div><p className="text-[10.5px] font-semibold text-zinc-500 uppercase">Con desvío</p>
+                        <p className={`text-[20px] font-black ${dashboard.resultados.conDesvio > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>{dashboard.resultados.conDesvio}</p>
+                        {dashboard.resultados.conUtilidadNegativa > 0 && <p className="text-[10.5px] text-rose-600 font-semibold">{dashboard.resultados.conUtilidadNegativa} con utilidad negativa</p>}
+                      </div>
+                    </div>
+                    {dashboard.resultados.peoresDesvios.length > 0 && (
+                      <div className="mt-3 space-y-1.5">
+                        <p className="text-[11px] font-bold text-zinc-500">Donde más se pasó el costo</p>
+                        {dashboard.resultados.peoresDesvios.map(d => (
+                          <Link key={d.negocioId} href={`/compras/${d.negocioId}`} className="flex items-center justify-between gap-2 text-[12px] rounded-lg border border-rose-100 bg-rose-50/50 px-3 py-1.5 hover:bg-rose-50">
+                            <span className="font-semibold text-zinc-700 truncate">{d.licitacionCodigo || `Negocio ${d.negocioId}`}</span>
+                            <span className="flex-shrink-0 text-rose-700 font-semibold">+{fmtPct(d.variacionCostoPct)} costo · utilidad {fmtCLP(d.utilidadReal)}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </ChartCard>
+            )}
 
             <ChartCard title="Asignación (§3.3 — SLA de 3h hábiles)" icon={<Timer size={15} />}
               accion={<MetricInfo spec={{ mide: 'Cuánto tarda en la práctica que un negocio ganado tenga encargado de Compras.', calculo: 'Promedio de horas entre ganado_at y asignado_at, de todos los negocios ya asignados (manual o por fallback automático). El SLA es 3h hábiles; esto es lo que pasa REALMENTE, no el tope.', fuente: 'compras_asignacion (ganado_at, asignado_at, asignado_por)' }} />}

@@ -20,6 +20,7 @@ import { AuditorComprasCard } from '@/app/negocios/[id]/AuditorComprasCard';
 import { AprobacionesCompraCard } from '@/app/negocios/[id]/AprobacionesCompraCard';
 import { RepartoAdminCard } from '@/app/negocios/[id]/RepartoAdminCard';
 import { ResumenGastosCard } from '@/app/negocios/[id]/ResumenGastosCard';
+import { CostoRealCard } from '@/app/negocios/[id]/CostoRealCard';
 import { ImportacionCard } from '@/app/negocios/[id]/ImportacionCard';
 import { ModalidadRetiroCard } from '@/app/negocios/[id]/ModalidadRetiroCard';
 import { GastosCard } from '@/app/negocios/[id]/GastosCard';
@@ -39,11 +40,11 @@ import { IconShoppingCart as ShoppingCart, IconLoader2 as Loader2, IconUserPlus 
 // Documentos entró en su lugar como pestaña (antes era tarjeta fija, ocupaba mucho espacio arriba).
 type Fase = 'tareas' | 'costeo' | 'aprobacion' | 'compra' | 'entrega' | 'documentos' | 'actividad';
 const FASES: { key: Fase; label: string; icon: typeof ClipboardList; descripcion: string }[] = [
-  { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'El checklist de validación y plazos administrativos (§5): contacto con el cliente, validación técnica real, validación de la cotización y del costeo.' },
+  { key: 'tareas', label: 'Tareas', icon: ClipboardList, descripcion: 'Lo que se hace al inicio y en todo momento: el checklist de validación y plazos (§5), fijar el reloj de entrega (§15.1) y la modalidad de retiro (§13.2), y las incidencias (§9), que pueden aparecer en cualquier etapa.' },
   { key: 'costeo', label: 'Costeo y Auditoría', icon: Calculator, descripcion: 'Cobertura por producto (§14), el costeo digital del proyecto y el Auditor de Compras (§8): cotizaciones, homologación, cuadro comparativo y los 4 escenarios de compra.' },
   { key: 'aprobacion', label: 'Aprobación y SKU', icon: ClipboardCheck, descripcion: 'Creación del SKU propio (§7) y los dos hitos de aprobación (§10): aprobación de la compra y aprobación del margen (piso 20%).' },
-  { key: 'compra', label: 'Compra, Importación y Logística', icon: Package, descripcion: 'Lo administrativo post-aprobación con OBUMA (§11), costo aterrizado si es importación (§12), modalidad de retiro (§13) y gastos reales del proyecto.' },
-  { key: 'entrega', label: 'Entrega y Cierre', icon: Truck, descripcion: 'Reloj de entrega y multas (§15), incidencias (§9), acta de entrega (§16), postventa (§17) y, si corresponde, el registro de fracaso (§14.6).' },
+  { key: 'compra', label: 'Compra, Importación y Logística', icon: Package, descripcion: 'Lo administrativo post-aprobación con OBUMA (§11), costo aterrizado si es importación (§12) y los gastos y el costo real del proyecto.' },
+  { key: 'entrega', label: 'Entrega y Cierre', icon: Truck, descripcion: 'Seguimiento del reloj de entrega, prórrogas y multas (§15), acta de entrega (§16), postventa (§17), cierre con resultado final y, si corresponde, el registro de fracaso (§14.6).' },
   { key: 'documentos', label: 'Documentos', icon: FileText, descripcion: 'Bases y acta de la licitación, más la auditoría automática del agente sobre este negocio.' },
   { key: 'actividad', label: 'Actividad', icon: History, descripcion: 'Línea de tiempo del proyecto: qué se hizo día a día, desde que se ganó hasta ahora.' },
 ];
@@ -565,8 +566,10 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                 if (f.key === 'tareas') {
                   const pendientes = tareas.filter(t => t.estado !== 'HECHA').length;
                   const vencidas = resumenFases?.tareas.vencidas ?? 0;
-                  badge = vencidas || pendientes || null;
-                  estado = vencidas > 0 ? 'alerta' : pendientes > 0 ? 'pendiente' : tareas.length > 0 ? 'ok' : 'neutral';
+                  // Incidencias (§9) es transversal y vive acá: una abierta es alerta de esta pestaña.
+                  const incidencias = resumenFases?.entrega.incidenciasAbiertas ?? 0;
+                  badge = vencidas || incidencias || pendientes || null;
+                  estado = vencidas > 0 || incidencias > 0 ? 'alerta' : pendientes > 0 ? 'pendiente' : tareas.length > 0 ? 'ok' : 'neutral';
                 } else if (resumenFases) {
                   if (f.key === 'costeo') {
                     badge = resumenFases.costeo.productosSinCotizacion || null;
@@ -578,8 +581,9 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
                     badge = resumenFases.compra.hitosAdminPendientes || null;
                     estado = resumenFases.compra.hitosAdminPendientes == null ? 'neutral' : resumenFases.compra.hitosAdminPendientes > 0 ? 'pendiente' : 'ok';
                   } else if (f.key === 'entrega') {
-                    const alerta = resumenFases.entrega.relojVencido || resumenFases.entrega.incidenciasAbiertas > 0;
-                    badge = resumenFases.entrega.incidenciasAbiertas || (resumenFases.entrega.relojVencido ? 0 : null);
+                    // Las incidencias ya no viven acá (son transversales, ver la pestaña Tareas).
+                    const alerta = resumenFases.entrega.relojVencido;
+                    badge = alerta ? 0 : null;
                     estado = alerta ? 'alerta' : 'ok';
                   }
                 }
@@ -634,7 +638,18 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             {FASES.find(f => f.key === faseActiva)?.descripcion}
           </p>
           <div className="p-3 sm:p-4 space-y-3">
-            {faseActiva === 'tareas' && <TareasComprasCard />}
+            {faseActiva === 'tareas' && (
+              <div className="space-y-3">
+                <TareasComprasCard />
+                {/* Lo que la spec pide fijar AL INICIO: el reloj (§15.1, la tarea vence a 1 día hábil de
+                    ganado) y la modalidad de retiro (§13.2, "se define en el primer instante"). Antes
+                    vivían en las pestañas 4 y 5, lejos de la tarea que les corresponde. */}
+                <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+                <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} />
+                {/* Incidencias (§9): "transversal, no secuencial" — pueden aparecer en cualquier etapa. */}
+                <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
+              </div>
+            )}
             {faseActiva === 'costeo' && (
               <div className="space-y-3">
                 <ProductosCompraCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
@@ -644,17 +659,17 @@ export function ComprasChrome({ negocioId }: { negocioId: number }) {
             {faseActiva === 'aprobacion' && <AprobacionesCompraCard negocioId={negocioId} puedeOperar={puedeOperar} />}
             {faseActiva === 'compra' && (
               <div className="space-y-3">
+                <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} permitirCierre={false} />
                 <ResumenGastosCard negocioId={negocioId} />
                 <RepartoAdminCard negocioId={negocioId} puedeOperar={puedeOperar || esAdministracion} />
                 <ImportacionCard negocioId={negocioId} puedeOperar={puedeOperar} />
-                <ModalidadRetiroCard negocioId={negocioId} puedeOperar={puedeOperar} />
                 <GastosCard negocioId={negocioId} puedeOperar={puedeOperar} />
               </div>
             )}
             {faseActiva === 'entrega' && (
               <div className="space-y-3">
+                <CostoRealCard negocioId={negocioId} puedeOperar={puedeOperar} />
                 <RelojEntregaCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
-                <IncidenciasCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />
                 <EntregaCard negocioId={negocioId} puedeOperar={puedeOperar} puedeVerificar={esBodega} />
                 <PostventaCard negocioId={negocioId} puedeOperar={puedeOperar} />
                 <FracasoCard negocioId={negocioId} puedeOperar={puedeOperar} esJefeDeVentas={esJefeDeVentas} />

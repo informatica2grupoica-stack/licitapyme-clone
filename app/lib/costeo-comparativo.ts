@@ -48,6 +48,10 @@ export interface EntradaComparativo {
   filasTotales: number;
   /** Presupuesto NETO de la licitación (publicado o corregido a mano). null = no hay. */
   presupuestoNeto: number | null;
+  /** Costo REAL de lo que NO estaba en lo ofertado: ítems que agregó Compras (flete, horas extra,
+   *  un producto imprevisto) y gastos registrados aparte. Suma al costo real pero NUNCA a la venta
+   *  ni al estimado — no se le vendió nada extra al cliente. Omitido = 0. */
+  gastosAdicionales?: number;
 }
 
 export interface Comparativo {
@@ -70,6 +74,8 @@ export interface Comparativo {
   variacionCosto: number | null;
   filasConCostoReal: number;
   filasTotales: number;
+  /** Parte del costo real que son gastos fuera de lo ofertado (ya incluida en costoNetoReal). */
+  gastosAdicionales: number;
   /** true solo si TODAS las filas ofertadas ya tienen costo real: recién ahí el bloque REAL es un
    *  cierre y no una foto a medias. */
   realCompleto: boolean;
@@ -128,8 +134,11 @@ export function calcularComparativo(e: EntradaComparativo): Comparativo {
   const ventaNeta = e.ventaNeta;
   const ventaConIva = ventaNeta * IVA;
   const utilidadEstimada = ventaNeta - e.costoNetoEstimado;
-  const hayReal = e.costoNetoReal != null && e.filasConCostoReal > 0;
-  const costoNetoReal = hayReal ? (e.costoNetoReal as number) : null;
+  const gastosAdicionales = e.gastosAdicionales ?? 0;
+  // Hay real si alguna fila ofertada lo tiene O si ya hay gastos adicionales: un flete pagado es
+  // costo real aunque todavía no se haya cargado ni un solo ítem del costeo.
+  const hayReal = (e.costoNetoReal != null && e.filasConCostoReal > 0) || gastosAdicionales > 0;
+  const costoNetoReal = hayReal ? (e.costoNetoReal ?? 0) + gastosAdicionales : null;
 
   return {
     ventaConIva,
@@ -147,6 +156,69 @@ export function calcularComparativo(e: EntradaComparativo): Comparativo {
     variacionCosto: costoNetoReal != null ? pct(costoNetoReal - e.costoNetoEstimado, e.costoNetoEstimado) : null,
     filasConCostoReal: e.filasConCostoReal,
     filasTotales: e.filasTotales,
+    gastosAdicionales,
     realCompleto: e.filasTotales > 0 && e.filasConCostoReal === e.filasTotales,
   };
+}
+
+// ── Filas del editor → entrada del comparativo ───────────────────────────────────────────────────
+// UNA sola regla para el editor (cliente) y para el backend (consolidado, cierre, dashboard): antes
+// cada uno sumaba a su manera y un ítem agregado por Compras no movía el comparativo real
+// (24-sep-2026). Recibe números ya calculados por fila para no depender de las fórmulas de venta
+// (que viven en costeo-editor.ts, acoplado a la base de datos).
+export interface FilaParaComparativo {
+  /** Agregada por Compras: gasto extra, no forma parte de lo ofertado. */
+  esExtra: boolean;
+  /** Fila con algún dato (detalle, cantidad o valor) — una fila vacía no cuenta como "sin costo real". */
+  tieneDatos: boolean;
+  venta: number;
+  costoEstimado: number;
+  cantidad: number | null;
+  costoRealUnitario: number | null;
+}
+
+/** Costo real total de una fila, o null si todavía no se puede calcular.
+ *  · fila ofertada: cantidad × costo real unitario — sin cantidad no hay cuenta (no se inventa);
+ *  · gasto extra: sin cantidad se toma 1 (un flete, un pago único) — antes quedaba en $0 en silencio. */
+export function costoRealDeFila(f: Pick<FilaParaComparativo, 'esExtra' | 'cantidad' | 'costoRealUnitario'>): number | null {
+  if (f.costoRealUnitario == null) return null;
+  if (f.esExtra) return (f.cantidad ?? 1) * f.costoRealUnitario;
+  return f.cantidad != null ? f.cantidad * f.costoRealUnitario : null;
+}
+
+export function entradaComparativoDeFilas(
+  filas: FilaParaComparativo[], presupuestoNeto: number | null, gastosExternos = 0,
+): EntradaComparativo {
+  const base = filas.filter(f => !f.esExtra && f.tieneDatos);
+  const extras = filas.filter(f => f.esExtra);
+  const realBase = base.map(costoRealDeFila);
+  return {
+    ventaNeta: base.reduce((s, f) => s + f.venta, 0),
+    costoNetoEstimado: base.reduce((s, f) => s + f.costoEstimado, 0),
+    costoNetoReal: realBase.reduce<number>((s, v) => s + (v ?? 0), 0),
+    filasConCostoReal: realBase.filter(v => v != null).length,
+    filasTotales: base.length,
+    presupuestoNeto,
+    gastosAdicionales: extras.reduce((s, f) => s + (costoRealDeFila(f) ?? 0), 0) + gastosExternos,
+  };
+}
+
+// ── Alertas de desvío ────────────────────────────────────────────────────────────────────────────
+/** Un costo real más de 10% sobre lo cotizado ya se come el margen típico: es cuando hay que mirar. */
+export const UMBRAL_DESVIO_PCT = 10;
+
+export interface AlertaDesvio { codigo: 'utilidad_negativa' | 'costo_sobre_umbral'; mensaje: string }
+
+/** Alertas sobre un comparativo. Solo habla cuando el real está COMPLETO: con el costo a medio
+ *  cargar la utilidad sale inflada y la variación engañosa, y avisar ahí sería ruido. */
+export function alertasDeDesvio(c: Comparativo): AlertaDesvio[] {
+  if (!c.realCompleto || c.utilidadReal == null) return [];
+  const out: AlertaDesvio[] = [];
+  if (c.utilidadReal < 0) {
+    out.push({ codigo: 'utilidad_negativa', mensaje: 'La utilidad real es negativa: el negocio cuesta más de lo que se vendió.' });
+  }
+  if (c.variacionCosto != null && c.variacionCosto > UMBRAL_DESVIO_PCT) {
+    out.push({ codigo: 'costo_sobre_umbral', mensaje: `El costo real quedó ${c.variacionCosto.toFixed(1).replace('.', ',')}% sobre lo cotizado (umbral ${UMBRAL_DESVIO_PCT}%).` });
+  }
+  return out;
 }

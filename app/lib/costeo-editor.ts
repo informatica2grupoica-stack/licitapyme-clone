@@ -22,7 +22,7 @@
 // de acá.
 import type { DatosCosteo, ModalidadCosteo } from '@/app/lib/generar-costeo';
 import { itemsPrecioDeCosteo, type FilaCosteo, type ItemCosteoPrecio } from '@/app/lib/motor-comercial';
-import { esLinkDeProducto } from '@/app/lib/costeo-comparativo';
+import { esLinkDeProducto, entradaComparativoDeFilas, type EntradaComparativo } from '@/app/lib/costeo-comparativo';
 import { numeroDeLinea } from '@/app/lib/auditor-tecnico-core';
 import pool from '@/app/lib/db';
 
@@ -333,6 +333,7 @@ export function filasSinLink(estado: EstadoCosteoEditor): { hoja: string; item: 
   for (const g of estado.grupos || []) {
     if (g.ofertamos === false) continue;
     for (const f of g.filas || []) {
+      if (f.agregadoPorCompras) continue; // gasto extra de Compras: no se oferta, no necesita respaldo de precio
       if (!estaCotizada(f)) continue;
       if (esLinkDeProducto(f.link1) || esLinkDeProducto(f.link2) || esLinkDeProducto(f.link3)) continue;
       faltan.push({ hoja: g.nombre, item: f.item, detalle: (f.detalle || '').trim() || `fila ${f.item}` });
@@ -352,6 +353,9 @@ export function editorAFilasCosteo(estado: EstadoCosteoEditor): FilaCosteo[] {
     if (g.ofertamos === false) continue; // línea/canasta que se decidió no ofertar — fuera del todo
     // Cada hoja puede vender con su propio recargo (así lo hace el Excel del comercial)…
     for (const f of g.filas || []) {
+      // Los ítems que agrega Compras son gasto extra (flete, horas extra, un imprevisto), no parte de
+      // lo ofertado: fuera del Motor Comercial, del Anexo Económico y de "Productos y cobertura".
+      if (f.agregadoPorCompras) continue;
       const sinDatos = !f.detalle?.trim() && f.cantidad == null && f.valorConIva == null;
       if (sinDatos) continue;
       // …y cada fila puede tener el suyo propio dentro de la hoja (caso 1114-12-LE26).
@@ -372,6 +376,26 @@ export function editorAFilasCosteo(estado: EstadoCosteoEditor): FilaCosteo[] {
     }
   }
   return filas;
+}
+
+/** Comparativo (venta / estimado / real) de TODO el costeo, sumando solo las hojas que se ofertan.
+ *  Misma regla que el cuadro del editor: los ítems agregados por Compras no entran a venta ni a
+ *  estimado, solo a gastos adicionales. `gastosExternos` = gastos registrados fuera del costeo. */
+export function entradaComparativoDeEstado(
+  estado: EstadoCosteoEditor, presupuestoNeto: number | null = null, gastosExternos = 0,
+): EntradaComparativo {
+  const margenGeneral = Number.isFinite(estado.margenVenta) ? estado.margenVenta : MARGEN_VENTA_DEFECTO;
+  const filas = (estado.grupos || []).filter(g => g.ofertamos !== false).flatMap(g =>
+    (g.filas || []).map(f => {
+      const { costoTotal, precioTotal } = calcularFormulas(f, margenDeFila(f, g, margenGeneral));
+      return {
+        esExtra: !!f.agregadoPorCompras,
+        tieneDatos: !!f.detalle?.trim() || f.cantidad != null || f.valorConIva != null,
+        venta: precioTotal ?? 0, costoEstimado: costoTotal ?? 0,
+        cantidad: f.cantidad ?? null, costoRealUnitario: f.costoRealUnitario ?? null,
+      };
+    }));
+  return entradaComparativoDeFilas(filas, presupuestoNeto, gastosExternos);
 }
 
 // ── Puente hacia el Anexo Creator, fuente PRIMARIA (el costeo VIVO de la app) ────────────────

@@ -25,7 +25,9 @@ import { cargarNegocio, leerInforme, nombreDe, sincronizar } from '../route';
 import { ingresarVersionCosteo } from '../costeo/route';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { obtenerAsignacion, sincronizarProductosConCosteo } from '@/app/lib/compras';
-import { fusionarEdicionCompras } from '@/app/lib/costeo-compras';
+import { fusionarEdicionCompras, cambiosDeCompras, mensajeCambiosCompras } from '@/app/lib/costeo-compras';
+import { registrarEvento } from '@/app/lib/historial';
+import { publicarCambio } from '@/app/lib/sse-bus';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -216,9 +218,20 @@ export async function PATCH(request: NextRequest, { params }: Params) {
       `UPDATE negocio_costeo_editor SET datos_json = ?, actualizado_por = ?, actualizado_por_nombre = ?, actualizado_at = ? WHERE negocio_id = ?`,
       [JSON.stringify(r.estado), userId, nombreActor, ahoraChileSQL(), negocio.id],
     );
+    // Bitácora: quién cargó qué costo o agregó qué gasto, y cuándo — el resto del módulo ya lo
+    // hace en cada mutación y este guardado era el único que no dejaba huella (§18).
+    const cambios = cambiosDeCompras(guardado, r.estado);
+    if (cambios.hayCambios) {
+      await registrarEvento({
+        tipo: 'COMPRAS_COSTEO_ACTUALIZADO', licitacionCodigo: negocio.licitacion_codigo,
+        actorId: userId, actorNombre: nombreActor, mensaje: mensajeCambiosCompras(cambios),
+        metadata: { negocio_id: negocio.id, ...cambios },
+      });
+    }
     obtenerAsignacion(negocio.id).then(asig => {
       if (asig) return sincronizarProductosConCosteo(negocio.id);
     }).catch(e => console.error('[comercial/costeo-editor][PATCH] no se pudo sincronizar Productos y cobertura (no crítico):', String(e).slice(0, 150)));
+    publicarCambio('compras'); // el costo real consolidado y el dashboard de Compras se actualizan solos
     return NextResponse.json({ success: true, estado: r.estado });
   } catch (error) {
     console.error('[comercial/costeo-editor][PATCH]', String(error));
@@ -294,6 +307,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       if (asig) return sincronizarProductosConCosteo(negocio.id);
     }).catch(e => console.error('[comercial/costeo-editor] no se pudo sincronizar Productos y cobertura (no crítico):', String(e).slice(0, 150)));
 
+    publicarCambio('compras'); // idem: el admin también carga costo real desde acá
     return NextResponse.json({ success: true, version, alertas, totales });
   } catch (error) {
     console.error('[comercial/costeo-editor][PUT]', String(error));
