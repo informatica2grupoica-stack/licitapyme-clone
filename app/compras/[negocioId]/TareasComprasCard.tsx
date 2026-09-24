@@ -36,6 +36,29 @@ export function TareasComprasCard() {
   const [formNuevaTarea, setFormNuevaTarea] = useState(false);
   const [tituloNuevaTarea, setTituloNuevaTarea] = useState('');
   const [creandoTarea, setCreandoTarea] = useState(false);
+  const [sugiriendo, setSugiriendo] = useState(false);
+  const [avisosSugerencia, setAvisosSugerencia] = useState<string[]>([]);
+
+  // Validación técnica real: trae lo que el Auditor Técnico ya comprobó. Solo rellena los campos
+  // VACÍOS del borrador (lo que la persona ya escribió no se pisa) y no guarda nada por sí solo.
+  const rellenarDesdeAuditorTecnico = async () => {
+    setSugiriendo(true);
+    try {
+      const res = await fetch(`/api/compras/${negocioId}/validacion-tecnica-sugerida`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'No se pudo armar la sugerencia');
+      if (!data.hayDatos) { setAvisosSugerencia(data.avisos || []); toast.info('El Auditor Técnico no tiene datos para pre-rellenar'); return; }
+      setRegistroBorrador(b => {
+        const n = { ...b };
+        for (const [k, v] of Object.entries<string>(data.registro)) if (!(n[k] || '').trim()) n[k] = v;
+        return n;
+      });
+      setAvisosSugerencia(data.avisos || []);
+      toast.success('Pre-rellenado desde el Auditor Técnico', 'Revisa cada campo y guarda: no se guardó nada todavía.');
+    } catch (e: any) {
+      toast.error('No se pudo pre-rellenar', e.message);
+    } finally { setSugiriendo(false); }
+  };
 
   const siguienteEstado = (estado: Tarea['estado']): Tarea['estado'] =>
     estado === 'PENDIENTE' ? 'EN_CURSO' : estado === 'EN_CURSO' ? 'HECHA' : 'PENDIENTE';
@@ -60,6 +83,7 @@ export function TareasComprasCard() {
   const alternarRegistro = (t: Tarea) => {
     if (tareaAbierta === t.id) { setTareaAbierta(null); return; }
     setTareaAbierta(t.id);
+    setAvisosSugerencia([]);
     setRegistroBorrador({ ...(t.registro || {}) });
     setHallazgoBorrador(t.hallazgo);
   };
@@ -166,6 +190,20 @@ export function TareasComprasCard() {
 
                     {tareaAbierta === t.id && (
                       <div className="mt-2 border border-zinc-200 rounded-lg p-2.5 space-y-2 bg-zinc-50/60">
+                        {t.catalogoClave === 'validacion_tecnica_real' && (
+                          <div className="space-y-1.5">
+                            <button type="button" onClick={rellenarDesdeAuditorTecnico} disabled={sugiriendo}
+                              title="Trae producto, ficha, fuente y veredictos de lo que el Auditor Técnico ya comprobó. No guarda nada: tú revisas y guardas."
+                              className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 disabled:opacity-50 px-2.5 py-1 rounded-lg">
+                              {sugiriendo ? <Loader2 size={12} className="animate-spin" /> : <ClipboardList size={12} />} Rellenar desde el Auditor Técnico
+                            </button>
+                            {avisosSugerencia.length > 0 && (
+                              <ul className="text-[10.5px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 list-disc pl-5 space-y-0.5">
+                                {avisosSugerencia.map(a => <li key={a}>{a}</li>)}
+                              </ul>
+                            )}
+                          </div>
+                        )}
                         {t.campos.map(c => (
                           <label key={c.clave} className="block text-[11px] font-semibold text-zinc-500">
                             {c.etiqueta}

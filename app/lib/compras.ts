@@ -26,6 +26,7 @@ import { enviarAvisoComprasGanado } from '@/app/lib/email';
 import { publicarCambio } from '@/app/lib/sse-bus';
 import { plazoEntregaDetectadoNegocio } from '@/app/lib/compras-agente-documentos';
 import { parsearDiasDeTexto } from '@/app/lib/numeros';
+import { emparejarProductos, type ProductoExistente } from '@/app/lib/compras-producto-sync';
 
 // ── Aritmética de fechas "de pared" (sin reinterpretar zona horaria) ───────────────────────────
 // Se trabaja con Date "flotantes": los componentes de la hora de Chile (que ya vienen como texto de
@@ -1581,40 +1582,47 @@ export async function sincronizarProductosConCosteo(negocioId: number): Promise<
   if (filasCosteo.length === 0) throw new Error('Este negocio no tiene Costeo cargado todavía.');
 
   const [existentesRows] = await pool.query(
-    `SELECT id, correlativo FROM compras_producto WHERE negocio_id = ? ORDER BY correlativo IS NULL, correlativo, id`,
+    `SELECT id, correlativo, descripcion FROM compras_producto WHERE negocio_id = ? ORDER BY correlativo IS NULL, correlativo, id`,
     [negocioId],
   ) as any;
-  const existentes = existentesRows as { id: number; correlativo: number | null }[];
-  const porCorrelativo = new Map(existentes.filter(e => e.correlativo != null).map(e => [e.correlativo, e.id]));
-  const sinCorrelativo = existentes.filter(e => e.correlativo == null);
+  const { existentePorFila, duplicados } = emparejarProductos(existentesRows as ProductoExistente[], filasCosteo);
 
   const ahora = ahoraChileSQL();
   let actualizados = 0;
   const aInsertar: any[][] = [];
-  let cursorSinCorrelativo = 0;
 
-  for (const f of filasCosteo) {
+  for (let i = 0; i < filasCosteo.length; i++) {
+    const f = filasCosteo[i];
     const descripcion = (f.detalle || 'Producto sin nombre').slice(0, 500);
     const cantidad = f.cantidadOriginal ?? null;
     const unidad = f.unidad ?? null;
     const montoUnitario = f.precioUnitarioSinDecimales ?? null;
-
-    let idExistente: number | null = null;
-    if (f.lineaPublicada != null && porCorrelativo.has(f.lineaPublicada)) {
-      idExistente = porCorrelativo.get(f.lineaPublicada)!;
-    } else if (f.lineaPublicada == null && cursorSinCorrelativo < sinCorrelativo.length) {
-      idExistente = sinCorrelativo[cursorSinCorrelativo++].id;
-    }
+    const idExistente = existentePorFila[i];
 
     if (idExistente != null) {
+      // COALESCE: si el producto se creó cuando la fila aún no tenía línea, ahora recibe su correlativo.
       await pool.query(
-        `UPDATE compras_producto SET descripcion = ?, cantidad = ?, unidad = ?, monto_unitario = ?, updated_at = ? WHERE id = ?`,
-        [descripcion, cantidad, unidad, montoUnitario, ahora, idExistente],
+        `UPDATE compras_producto SET descripcion = ?, cantidad = ?, unidad = ?, monto_unitario = ?, correlativo = COALESCE(correlativo, ?), updated_at = ? WHERE id = ?`,
+        [descripcion, cantidad, unidad, montoUnitario, f.lineaPublicada ?? null, ahora, idExistente],
       );
       actualizados++;
     } else {
       aInsertar.push([negocioId, f.lineaPublicada ?? null, descripcion, cantidad, unidad, montoUnitario, 'PENDIENTE', ahora, ahora]);
     }
+  }
+
+  // Duplicados heredados del bug de emparejamiento: solo se borran los que no tienen NADA colgando
+  // (sin cotizaciones, veredicto ni auditoría), siguen PENDIENTE y no tienen renuncia.
+  if (duplicados.length) {
+    await pool.query(
+      `DELETE FROM compras_producto
+        WHERE negocio_id = ? AND id IN (${duplicados.map(() => '?').join(',')})
+          AND correlativo IS NULL AND subestado = 'PENDIENTE' AND renuncia_motivo IS NULL
+          AND NOT EXISTS (SELECT 1 FROM compras_cotizacion_item ci WHERE ci.producto_id = compras_producto.id)
+          AND NOT EXISTS (SELECT 1 FROM compras_veredicto v WHERE v.producto_id = compras_producto.id)
+          AND NOT EXISTS (SELECT 1 FROM compras_auditoria_cotizacion a WHERE a.producto_id = compras_producto.id)`,
+      [negocioId, ...duplicados],
+    );
   }
 
   if (aInsertar.length) {

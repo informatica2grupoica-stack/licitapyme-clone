@@ -2162,3 +2162,15 @@ Semáforo del stepper: el badge de incidencias abiertas pasó de "Entrega y Cier
 y Cierre" queda en alerta solo por reloj vencido. **Sin probar en navegador** (login).
 Dejado a propósito: Documentos (bases/acta) sigue como pestaña 6 aunque se necesita al inicio; Fracaso
 (§14.6) sigue en Entrega; Gastos en Compra.
+
+### 18.2 "Rellenar desde el Auditor Técnico" en la Validación técnica real (24-sep-2026)
+
+Botón dentro del formulario de la tarea `validacion_tecnica_real` (`TareasComprasCard`). Ruta
+`GET /api/compras/[negocioId]/validacion-tecnica-sugerida`, lógica en `compras-validacion-sugerida.ts`.
+Lee el Auditor Técnico (`checklist_comercial` + `_caracteristicas`) y los links del costeo. **Solo
+afirma lo respaldado**: "Sí" en ficha real/fabricante solo si hay una ficha cargada; "producto
+correcto" solo si TODAS las características cumplen (y ninguna pendiente/con complemento); marca y
+modelo NO se adivinan (el Auditor Técnico no los guarda). Solo rellena campos vacíos del borrador y no
+guarda nada. Verificado en pantalla con el negocio #994 (611669-17-LE26, 14/14 CUMPLE, ficha LS-150) y
+6 pruebas nuevas. Aclaración de datos: el "auditor completo" del #994 es el Técnico; el de Compras
+está vacío (0 cotizaciones).
