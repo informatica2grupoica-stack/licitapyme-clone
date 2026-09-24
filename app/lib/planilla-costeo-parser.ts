@@ -1953,6 +1953,35 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
       a.autoridad - b.autoridad || mejorScore(b.r) - mejorScore(a.r));
     const ganador = orden[0];
 
+    // FORMULARIOS COMPLEMENTARIOS (caso real 1171317-88-LE26): "Formulario N°5 Línea 1" (139 ítems)
+    // y "Formulario N°6 Línea 2" (13 ítems) son partes DISTINTAS del mismo listado, no versiones
+    // contradictorias. Elegir uno dejaba la otra línea fuera del manifiesto y V-15 avisaba de una
+    // "inconsistencia" falsa. Mismo nivel de autoridad + casi ningún ítem en común ⇒ se unen.
+    const claveDesc = (s: string) => normalizar(s).replace(/[^a-z0-9]+/g, ' ').trim();
+    const descGanador = new Set(ganador.r.items.map(i => claveDesc(i.descripcion)));
+    const complementarios = candidatos.filter(c => {
+      if (c === ganador || c.autoridad !== ganador.autoridad || !c.r.items.length) return false;
+      const repetidos = c.r.items.filter(i => descGanador.has(claveDesc(i.descripcion))).length;
+      return repetidos / c.r.items.length < 0.2;
+    });
+    if (complementarios.length) {
+      const items = ganador.r.items.slice();
+      let maxLinea = Math.max(...items.map(i => i.linea || 1));
+      for (const c of complementarios) {
+        const usadas = new Set(items.map(i => i.linea || 1));
+        const choca = c.r.items.some(i => usadas.has(i.linea || 1));
+        for (const i of c.r.items) items.push({ ...i, linea: (i.linea || 1) + (choca ? maxLinea : 0) });
+        maxLinea = Math.max(...items.map(i => i.linea || 1));
+      }
+      ganador.r = {
+        ...ganador.r, items,
+        lineas: [...new Set(items.map(i => i.linea || 1))].sort((a, b) => a - b),
+        estructura: 'por_linea',
+        fuenteDoc: [ganador, ...complementarios].map(c => c.r.fuenteDoc || c.doc.nombre).join(' + '),
+      };
+    }
+    const unidos = new Set<typeof candidatos[number]>(complementarios);
+
     // TRAZA ANTI-INVENTO: qué se leyó, de dónde, y en qué NO coinciden las fuentes entre sí.
     // No se corrige nada a mano ni se "rellena" con criterio propio: si los documentos se
     // contradicen, queda escrito para que lo revise una persona (regla V-15 del validador).
@@ -1960,10 +1989,10 @@ export function parsearPlanillaCosteo(docs: DocTexto[]): PlanillaParseResult | n
       fuenteDoc: c.r.fuenteDoc || c.doc.nombre,
       autoridad: c.autoridad,
       items: c.r.items.length,
-      elegido: c === ganador,
+      elegido: c === ganador || unidos.has(c),
     }));
     ganador.r.discrepancias = candidatos
-      .filter(c => c !== ganador && c.r.items.length !== ganador.r.items.length)
+      .filter(c => c !== ganador && !unidos.has(c) && c.r.items.length !== ganador.r.items.length)
       .map(c => `"${c.r.fuenteDoc || c.doc.nombre}" lista ${c.r.items.length} ítems y la fuente elegida `
         + `"${ganador.r.fuenteDoc || ganador.doc.nombre}" lista ${ganador.r.items.length}`);
     return ganador.r;
