@@ -25,6 +25,7 @@ import { cargarNegocio, leerInforme, nombreDe, sincronizar } from '../route';
 import { ingresarVersionCosteo } from '../costeo/route';
 import { yaCongelado } from '@/app/lib/congelamiento';
 import { obtenerAsignacion, sincronizarProductosConCosteo } from '@/app/lib/compras';
+import { fusionarEdicionCompras } from '@/app/lib/costeo-compras';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,6 +57,13 @@ function soloAdmin(rol: string | null) {
 async function esVisorCompras(userId: number): Promise<boolean> {
   const p = await permisosCrudosDeUsuario(userId);
   return !!(p.compras_ver || p.compras_todo || p.compras);
+}
+
+// ¿Puede el perfil de Compras cargar costo real / agregar filas? Solo quien OPERA (compras o ver y
+// operar todo); "solo ver" mira sin tocar. Ver fusionarEdicionCompras para lo que sí puede escribir.
+async function esOperadorCompras(userId: number): Promise<boolean> {
+  const p = await permisosCrudosDeUsuario(userId);
+  return !!(p.compras || p.compras_todo);
 }
 
 async function estadoGuardado(negocioId: number): Promise<EstadoCosteoEditor | null> {
@@ -174,11 +182,47 @@ export async function GET(request: NextRequest, { params }: Params) {
       sinViabilidad: !guardado && !desdeViab,
       // congelado = el editor deshabilita todos los campos: así el perfil de Compras lo ve sin poder tocarlo.
       congelado: soloLectura || await yaCongelado(negocio.id, rol),
+      // El editor habilita SOLO costo real, links y filas nuevas cuando esto es true (ver PATCH).
+      modoCompras: soloLectura && await esOperadorCompras(userId),
     });
   } catch (error) {
     console.error('[comercial/costeo-editor][GET]', String(error));
     // Tabla puede no existir todavía (migración 85 pendiente) — no romper la pestaña por eso.
     return NextResponse.json({ success: true, estado: null, sinViabilidad: true, migracionPendiente: true });
+  }
+}
+
+// ═══ PATCH — edición del perfil de COMPRAS ═════════════════════════════════════════════════════
+// Compras no modifica el costeo de los asistentes: solo carga costo real y links de las filas
+// existentes y agrega/edita/borra filas propias (regla en fusionarEdicionCompras, que ignora todo
+// lo demás que mande el cliente). NO ingresa versión al Motor Comercial: no cambia lo cotizado.
+export async function PATCH(request: NextRequest, { params }: Params) {
+  const { id: userId, rol } = getUser(request);
+  if (!userId) return NextResponse.json({ error: 'No autenticado' }, { status: 401 });
+  if (rol === 'admin') return NextResponse.json({ error: 'El administrador guarda con el botón normal del costeo.' }, { status: 400 });
+  if (!(await esOperadorCompras(userId))) return NextResponse.json({ error: 'Sin permiso para editar el costeo de Compras.' }, { status: 403 });
+  const { id } = await params;
+  try {
+    const negocio = await cargarNegocio(id);
+    if (!negocio) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+    const guardado = await estadoGuardado(negocio.id);
+    if (!guardado) return NextResponse.json({ error: 'Este negocio aún no tiene un costeo guardado por el equipo de licitaciones.' }, { status: 409 });
+    const body = await request.json().catch(() => ({}));
+    const r = fusionarEdicionCompras(guardado, body);
+    if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });
+
+    const nombreActor = request.headers.get('x-user-nombre') || (await nombreDe(userId)) || 'Usuario';
+    await pool.query(
+      `UPDATE negocio_costeo_editor SET datos_json = ?, actualizado_por = ?, actualizado_por_nombre = ?, actualizado_at = ? WHERE negocio_id = ?`,
+      [JSON.stringify(r.estado), userId, nombreActor, ahoraChileSQL(), negocio.id],
+    );
+    obtenerAsignacion(negocio.id).then(asig => {
+      if (asig) return sincronizarProductosConCosteo(negocio.id);
+    }).catch(e => console.error('[comercial/costeo-editor][PATCH] no se pudo sincronizar Productos y cobertura (no crítico):', String(e).slice(0, 150)));
+    return NextResponse.json({ success: true, estado: r.estado });
+  } catch (error) {
+    console.error('[comercial/costeo-editor][PATCH]', String(error));
+    return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
 

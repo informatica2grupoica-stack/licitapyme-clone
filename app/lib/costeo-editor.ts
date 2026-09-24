@@ -59,6 +59,9 @@ export interface FilaEditorCosteo {
   link1: string;                    // S — Link 1
   link2: string;                    // T — Link 2
   link3: string;                    // V — Link 3
+  // Fila agregada por el perfil de Compras (no viene de la viabilidad): a diferencia del resto, Compras
+  // puede editarla entera y borrarla. Ver fusionarEdicionCompras (costeo-compras.ts).
+  agregadoPorCompras?: boolean;
 }
 
 export interface GrupoEditorCosteo {

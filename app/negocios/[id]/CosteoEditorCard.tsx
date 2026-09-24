@@ -60,6 +60,8 @@ interface FilaEditor {
   // satelital y ×2,0 el sensor, en la misma hoja) — ver FilaEditorCosteo en costeo-editor.ts.
   margenVenta?: number | null;
   link1: string; link2: string; link3: string;
+  // Fila agregada por el perfil de Compras: solo esas puede editar y borrar (ver costeo-compras.ts).
+  agregadoPorCompras?: boolean;
 }
 // ofertamos: ¿se oferta esta hoja/línea? default true. Apagarla la saca de los totales y de lo
 // que "Actualizar" vuelve a traer — ver GrupoEditorCosteo en app/lib/costeo-editor.ts (misma idea,
@@ -644,6 +646,8 @@ export function CosteoEditorCard({
   const [guardado, setGuardado] = useState<EstadoEditor | null>(estadoHeredado ? estadoHeredado.guardado : null); // última versión persistida — para detectar cambios sin guardar
   const [sinViabilidad, setSinViabilidad] = useState(false);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
+  // Perfil de Compras: el costeo viene bloqueado (congelado) salvo Costo REAL, Links y filas nuevas.
+  const [modoCompras, setModoCompras] = useState(false);
   // Presupuesto publicado en el informe de viabilidad — valor por defecto del cuadro comparativo
   // (el mismo que usa la alerta "Sobre presupuesto" del Motor Comercial).
   const [presupuestoPublicado, setPresupuestoPublicado] = useState<number | null>(null);
@@ -679,6 +683,7 @@ export function CosteoEditorCard({
       if (d.migracionPendiente) { setMigracionPendiente(true); return; }
       setSinViabilidad(!!d.sinViabilidad);
       setCongelado(!!d.congelado);
+      setModoCompras(!!d.modoCompras);
       const pub = Number(d.presupuestoPublicado); // ojo: Number(null) es 0, no NaN
       setPresupuestoPublicado(d.presupuestoPublicado != null && Number.isFinite(pub) && pub > 0 ? pub : null);
       setPresupuestosPorLinea(d.presupuestosPorLinea && typeof d.presupuestosPorLinea === 'object' ? d.presupuestosPorLinea : {});
@@ -794,7 +799,7 @@ export function CosteoEditorCard({
   const agregarFila = (gi: number) => {
     setEstado(prev => {
       if (!prev) return prev;
-      const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, nuevaFila(g.filas.length + 1)] });
+      const grupos = prev.grupos.map((g, i) => i !== gi ? g : { ...g, filas: [...g.filas, modoCompras ? { ...nuevaFila(g.filas.length + 1), agregadoPorCompras: true } : nuevaFila(g.filas.length + 1)] });
       return { ...prev, grupos };
     });
   };
@@ -869,11 +874,18 @@ export function CosteoEditorCard({
     setGuardando(true);
     try {
       const r = await fetch(`/api/negocios/${negocioId}/comercial/costeo-editor`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        method: modoCompras ? 'PATCH' : 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(estado),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) { toast.error(d.error || 'No se pudo guardar el costeo'); return; }
+      if (modoCompras) {
+        // El servidor devuelve el estado ya fusionado (lo ajeno intacto): es la fuente de verdad.
+        setEstado(d.estado); setGuardado(d.estado);
+        setUltimoGuardado(new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
+        toast.success('Costeo de Compras guardado');
+        return;
+      }
       setGuardado(estado);
       setAlertas(d.alertas || []);
       setUltimoGuardado(new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }));
@@ -1010,6 +1022,7 @@ export function CosteoEditorCard({
               {estado.modalidad === 'suma_alzada' ? 'Global (suma alzada)' : estado.modalidad === 'por_linea' ? `Por línea — ${grupos.length} línea(s)` : `Por categoría — ${grupos.length} grupo(s)`}
               {ultimoGuardado && ` · guardado ${ultimoGuardado}`}
               {dirty && <span className="text-amber-600 font-semibold"> · cambios sin guardar</span>}
+              {modoCompras && <span className="text-indigo-600 font-semibold"> · modo Compras: solo costo real, links e ítems nuevos</span>}
             </p>
           </div>
         </div>
@@ -1049,7 +1062,7 @@ export function CosteoEditorCard({
           </button>
           <button
             onClick={guardar}
-            disabled={guardando || congelado || !dirty || sinLink.length > 0}
+            disabled={guardando || (congelado && !modoCompras) || !dirty || (!modoCompras && sinLink.length > 0)}
             title={sinLink.length > 0
               ? `Falta el link del producto en ${sinLink.length} ítem(s) ya cotizado(s). Pégalo en la columna Link 1 de cada uno para poder guardar.`
               : undefined}
@@ -1226,25 +1239,28 @@ export function CosteoEditorCard({
               const bajoCosto = costoTotal != null && precioTotal != null && precioTotal < costoTotal;
               // VARIACIÓN de la fila — misma fórmula que la columna N del Excel: =(L/G)−1, en %.
               const variacion = f.costoRealUnitario != null && costoUnitario ? (f.costoRealUnitario / costoUnitario - 1) * 100 : null;
+              // Compras: lo ajeno queda bloqueado; solo Costo REAL y Links se habilitan, y sus propias filas nuevas por completo.
+              const baseBloq = congelado && !(modoCompras && f.agregadoPorCompras);
+              const realBloq = congelado && !modoCompras;
               const celda = { border: `1px solid ${GRID_BORDE}`, height: 24 };
               const celdaFormula = { ...celda, background: bajoCosto ? '#fdeceb' : '#f8f9fb' };
               return (
                 <tr key={f.id} className="group">
                   <td className="text-[11px] text-zinc-400 text-center" style={{ ...celda, background: '#f3f2f1' }}>{fi + 2}</td>
                   <td style={celda} className="p-0" title="Número REAL de línea de la licitación — cruza contra el Auditor Técnico. Corrígelo si no calza.">
-                    <CeldaNumero value={f.lineaReal} onChange={v => actualizarFila(grupoActivo, fi, { lineaReal: v })} disabled={congelado} />
+                    <CeldaNumero value={f.lineaReal} onChange={v => actualizarFila(grupoActivo, fi, { lineaReal: v })} disabled={baseBloq} />
                   </td>
                   <td style={celda} className="p-0">
-                    <input value={f.detalle} onChange={e => actualizarFila(grupoActivo, fi, { detalle: e.target.value })} disabled={congelado} className={celdaInput()} placeholder="Descripción del ítem" />
+                    <input value={f.detalle} onChange={e => actualizarFila(grupoActivo, fi, { detalle: e.target.value })} disabled={baseBloq} className={celdaInput()} placeholder="Descripción del ítem" />
                   </td>
                   <td style={celda} className="p-0">
-                    <input value={f.unidad} onChange={e => actualizarFila(grupoActivo, fi, { unidad: e.target.value })} disabled={congelado} className={celdaInput()} />
+                    <input value={f.unidad} onChange={e => actualizarFila(grupoActivo, fi, { unidad: e.target.value })} disabled={baseBloq} className={celdaInput()} />
                   </td>
                   <td style={celda} className="p-0">
-                    <input value={f.skuProveedor} onChange={e => actualizarFila(grupoActivo, fi, { skuProveedor: e.target.value })} disabled={congelado} className={celdaInput()} placeholder="Tienda / SKU" />
+                    <input value={f.skuProveedor} onChange={e => actualizarFila(grupoActivo, fi, { skuProveedor: e.target.value })} disabled={baseBloq} className={celdaInput()} placeholder="Tienda / SKU" />
                   </td>
-                  <td style={celda} className="p-0"><CeldaNumero value={f.cantidad} onChange={v => actualizarFila(grupoActivo, fi, { cantidad: v })} disabled={congelado} /></td>
-                  <td style={celda} className="p-0"><CeldaNumero value={f.valorConIva} onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={congelado} /></td>
+                  <td style={celda} className="p-0"><CeldaNumero value={f.cantidad} onChange={v => actualizarFila(grupoActivo, fi, { cantidad: v })} disabled={baseBloq} /></td>
+                  <td style={celda} className="p-0"><CeldaNumero value={f.valorConIva} onChange={v => actualizarFila(grupoActivo, fi, { valorConIva: v })} disabled={baseBloq} /></td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Valor c/IVA / 1.19">{fmtCLP(costoUnitario != null ? Math.round(costoUnitario) : null)}</td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Cantidad × Costo unitario">{fmtCLP(costoTotal)}</td>
                   {/* Margen de ESTA fila — la única celda de la cadena de fórmulas que se puede
@@ -1254,7 +1270,7 @@ export function CosteoEditorCard({
                       propio={Number.isFinite(f.margenVenta as number) ? (f.margenVenta as number) : null}
                       efectivo={margenFila}
                       onChange={v => actualizarFila(grupoActivo, fi, { margenVenta: v })}
-                      disabled={congelado}
+                      disabled={baseBloq}
                     />
                   </td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title={`= Costo unitario × (1 + ${margenFila}%)`}>{fmtCLP(precioUnitarioSinDecimales)}</td>
@@ -1265,7 +1281,7 @@ export function CosteoEditorCard({
                         M = L × E (costo total real)     N = (L / G) − 1 (variación contra lo cotizado) */}
                   <td style={{ ...celda, background: f.costoRealUnitario != null ? '#fff7e6' : undefined }} className="p-0"
                       title="Costo unitario NETO realmente pagado al proveedor. Se llena después de comprar; alimenta el bloque REAL del cuadro comparativo.">
-                    <CeldaNumero value={f.costoRealUnitario} onChange={v => actualizarFila(grupoActivo, fi, { costoRealUnitario: v })} disabled={congelado} />
+                    <CeldaNumero value={f.costoRealUnitario} onChange={v => actualizarFila(grupoActivo, fi, { costoRealUnitario: v })} disabled={realBloq} />
                   </td>
                   <td style={celdaFormula} className="px-1.5 text-right text-[12.5px] tabular-nums text-zinc-600" title="= Cantidad × Costo unitario REAL">{fmtCLP(costoRealFila(f))}</td>
                   <td style={celdaFormula} className={`px-1.5 text-right text-[12.5px] tabular-nums font-semibold ${variacion == null ? 'text-zinc-400' : variacion > 0 ? 'text-rose-600' : 'text-emerald-700'}`}
@@ -1274,10 +1290,10 @@ export function CosteoEditorCard({
                       hay que llenar para poder guardar (ver faltaLink). */}
                   <td style={{ ...celda, background: leFaltaLink ? '#fdeceb' : undefined }} className="p-0"
                       title={leFaltaLink ? 'Este ítem ya tiene precio pero no dice de dónde salió. Pega acá el link del producto — sin eso el costeo no se guarda.' : undefined}>
-                    <CeldaLink value={f.link1} onChange={v => actualizarFila(grupoActivo, fi, { link1: v })} disabled={congelado} label={leFaltaLink ? 'Falta el link' : 'Link 1'} />
+                    <CeldaLink value={f.link1} onChange={v => actualizarFila(grupoActivo, fi, { link1: v })} disabled={realBloq} label={leFaltaLink ? 'Falta el link' : 'Link 1'} />
                   </td>
-                  <td style={celda} className="p-0"><CeldaLink value={f.link2} onChange={v => actualizarFila(grupoActivo, fi, { link2: v })} disabled={congelado} label="Link 2" /></td>
-                  <td style={celda} className="p-0"><CeldaLink value={f.link3} onChange={v => actualizarFila(grupoActivo, fi, { link3: v })} disabled={congelado} label="Link 3" /></td>
+                  <td style={celda} className="p-0"><CeldaLink value={f.link2} onChange={v => actualizarFila(grupoActivo, fi, { link2: v })} disabled={realBloq} label="Link 2" /></td>
+                  <td style={celda} className="p-0"><CeldaLink value={f.link3} onChange={v => actualizarFila(grupoActivo, fi, { link3: v })} disabled={realBloq} label="Link 3" /></td>
                   <td style={{ border: `1px solid ${GRID_BORDE}` }} className="text-center whitespace-nowrap">
                     {(f.link1 || f.link2 || f.link3) && (
                       generandoFicha.has(f.id) ? (
@@ -1294,7 +1310,7 @@ export function CosteoEditorCard({
                         </button>
                       )
                     )}
-                    {!congelado && (
+                    {(!congelado || (modoCompras && f.agregadoPorCompras)) && (
                       <button onClick={() => eliminarFila(grupoActivo, fi)} className="opacity-0 group-hover:opacity-100 p-0.5 text-zinc-300 hover:text-rose-600 transition-opacity">
                         <Trash2 size={11} />
                       </button>
@@ -1327,7 +1343,7 @@ export function CosteoEditorCard({
           </tbody>
         </table>
       </div>
-      {!congelado && (
+      {(!congelado || modoCompras) && (
         <div className="px-2 py-1.5 border-t border-[#c6c6c6] flex-shrink-0" style={{ background: '#f9fafb' }}>
           <button onClick={() => agregarFila(grupoActivo)} className="flex items-center gap-1 text-[11.5px] font-semibold text-zinc-500 hover:text-indigo-700">
             <Plus size={12} /> Agregar fila
