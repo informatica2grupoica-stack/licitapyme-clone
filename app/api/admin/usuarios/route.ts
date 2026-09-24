@@ -51,7 +51,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   if (!(await esAdmin(request))) return NO_AUTORIZADO();
   try {
-    const { email, password, nombre, empresa, rol } = await request.json();
+    const body = await request.json();
+    const { email, password, nombre, empresa, rol } = body;
+    const contacto = validarContacto(body);
+    if (contacto.errores.length) return NextResponse.json({ error: contacto.errores[0] }, { status: 400 });
+    const camposContacto = Object.entries(contacto.datos).filter(([, v]) => v != null);
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email y contraseña requeridos' }, { status: 400 });
@@ -76,7 +80,25 @@ export async function POST(request: NextRequest) {
       [emailLimpio, passwordHash, nombre?.trim() || null, empresa?.trim() || null, rol || 'usuario']
     );
 
-    return NextResponse.json({ success: true, id: (result as any).insertId }, { status: 201 });
+    const nuevoId = (result as any).insertId;
+    // Datos de contacto (migración 125): solo se escriben si el admin los completó.
+    if (camposContacto.length) {
+      try {
+        await pool.query(
+          `UPDATE usuarios SET ${camposContacto.map(([c]) => `${c} = ?`).join(', ')} WHERE id = ?`,
+          [...camposContacto.map(([, v]) => v), nuevoId]);
+      } catch (e: any) {
+        if (e?.code === 'ER_BAD_FIELD_ERROR') {
+          return NextResponse.json({
+            error: 'Usuario creado, pero sin los datos de contacto: falta la migración 125 (node scripts/aplicar-migration-125.mjs)',
+            migration_needed: true,
+          }, { status: 503 });
+        }
+        throw e;
+      }
+    }
+
+    return NextResponse.json({ success: true, id: nuevoId }, { status: 201 });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
   }

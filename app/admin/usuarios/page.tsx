@@ -211,6 +211,10 @@ function ModalPermisos({ usuario, onGuardado, onCerrar }: {
 }
 
 interface FormNuevo {
+  telefono: string;
+  rut: string;
+  cargo: string;
+  area: string;
   email: string;
   password: string;
   nombre: string;
@@ -226,7 +230,7 @@ function ModalNuevoUsuario({
   onCreado: () => void;
   onCerrar: () => void;
 }) {
-  const [form, setForm] = useState<FormNuevo>({ email: '', password: '', nombre: '', empresa: '', rol: 'usuario' });
+  const [form, setForm] = useState<FormNuevo>({ email: '', password: '', nombre: '', empresa: '', rol: 'usuario', telefono: '', rut: '', cargo: '', area: '' });
   const [mostrarPass, setMostrarPass] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -286,6 +290,24 @@ function ModalNuevoUsuario({
               <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
                 placeholder="usuario@empresa.cl" required className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {([
+              { k: 'telefono', label: 'Teléfono', icon: Phone, ph: '+56 9 1234 5678', type: 'tel' },
+              { k: 'rut', label: 'RUT', icon: IdCard, ph: '12.345.678-5', type: 'text' },
+              { k: 'cargo', label: 'Cargo', icon: Badge, ph: 'Ejecutivo comercial', type: 'text' },
+              { k: 'area', label: 'Área', icon: Briefcase, ph: 'Compras', type: 'text' },
+            ] as const).map(({ k, label, icon: Icon, ph, type }) => (
+              <div key={k}>
+                <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">{label}</label>
+                <div className="relative">
+                  <Icon size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-zinc-500" />
+                  <input type={type} value={form[k]} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))}
+                    placeholder={ph} maxLength={k === 'cargo' || k === 'area' ? 100 : 20}
+                    className="w-full pl-8 pr-3 py-2 border border-gray-200 dark:border-white/15 dark:bg-zinc-800 dark:text-zinc-100 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+              </div>
+            ))}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-zinc-300 mb-1">Contraseña *</label>
